@@ -25,6 +25,20 @@ namespace gs {
 
 static constexpr int GS_MIN_MAX_SPLAT_COUNT = 1000;  // Minimum allowed quality/max_splat_count floor.
 
+// Canonical user-facing lod_bias range for the scene-facing nodes
+// (GaussianSplatNode3D / GaussianSplatWorld3D). Single source of truth for the
+// setter CLAMP and the editor PROPERTY_HINT_RANGE so they can never drift.
+// The low-level GaussianSplatRenderer intentionally accepts a wider internal
+// range ([0.01, 8.0]) as a permissive superset — node values are always
+// pre-clamped to this range before reaching it, so the renderer's range never
+// narrows a node value; it only allows programmatic/preset callers a wider span.
+static constexpr float GS_LOD_BIAS_MIN = 0.1f;
+static constexpr float GS_LOD_BIAS_MAX = 4.0f;
+// Keep this hint string numerically equal to [GS_LOD_BIAS_MIN, GS_LOD_BIAS_MAX]
+// (PROPERTY_HINT_RANGE needs a compile-time string literal, so it can't embed
+// the constexpr floats directly).
+#define GS_LOD_BIAS_HINT_RANGE "0.1,4.0,0.1"
+
 namespace settings {
 
 /**
