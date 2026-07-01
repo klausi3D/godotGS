@@ -129,6 +129,17 @@ AssetDependencyManager::AssetDependencyManager() {
         singleton = this;
     }
     current_project_id = "default";
+    // Honest-about-incompleteness gate (no runtime driver wires this class; it is
+    // only reachable via an explicit GDScript `AssetDependencyManager.new()`).
+    // The asset-registration / dependency-graph / cycle-detection / validation
+    // surface is real and usable, but the sharing, versioning, repair, and
+    // cleanup operations are unimplemented and return ERR_UNAVAILABLE. Warn once
+    // so a consumer is not misled into thinking those are functional.
+    WARN_PRINT_ONCE("AssetDependencyManager is an EXPERIMENTAL, partially-implemented subsystem: "
+                    "export_asset_for_sharing / import_shared_asset / create_asset_version / "
+                    "revert_to_version / repair_missing_dependencies / cleanup_orphaned_assets "
+                    "are not implemented (return ERR_UNAVAILABLE). The registration, dependency-graph, "
+                    "cycle-detection, and validation APIs are functional.");
 }
 
 AssetDependencyManager::~AssetDependencyManager() {
