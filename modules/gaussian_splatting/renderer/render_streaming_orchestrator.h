@@ -47,8 +47,6 @@ public:
 			const GaussianSplatRenderer::FrameBackendPlan &p_backend_plan);
 	void tick_streaming_only(const Transform3D &p_camera_to_world_transform, const Projection &p_projection,
 			const GaussianSplatRenderer::FrameBackendPlan &p_backend_plan);
-	bool should_throttle_streaming_rebuild(uint32_t p_chunks_loaded, uint32_t p_chunks_evicted,
-			uint32_t p_visible_evicted, uint64_t p_current_frame);
 
 	struct VisibleLODSelection {
 		uint32_t residency_request_count = 0;

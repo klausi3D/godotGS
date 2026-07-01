@@ -863,52 +863,6 @@ void RenderStreamingOrchestrator::consume_visible_lod_selection_for_residency(
 	p_streaming_system->finalize_residency_requests();
 }
 
-bool RenderStreamingOrchestrator::should_throttle_streaming_rebuild(uint32_t p_chunks_loaded, uint32_t p_chunks_evicted,
-		uint32_t p_visible_evicted, uint64_t p_current_frame) {
-	GaussianSplatRenderer::FrameStateProvider state_provider(renderer);
-	GaussianSplatRenderer::IFrameMutationAccess &state_mut = state_provider;
-	StreamingState &streaming_state = state_mut.get_streaming_state_mut();
-
-	uint32_t total_chunks_changed = p_chunks_loaded + p_chunks_evicted;
-
-	// Only throttle if:
-	// 1. We have a valid cache to use
-	// 2. Changes are small (below threshold)
-	// 3. We rebuilt recently
-	if (!streaming_state.cached_streamed_indices_valid) {
-		return false;
-	}
-
-	// CRITICAL FIX: Never throttle when chunks have JUST loaded!
-	// The previous logic had a bug where:
-	// - Frame N: Chunk 1 loads, cache rebuilt with chunk 1 only
-	// - Frame N+1: Chunk 0 loads, but throttled (within MIN_FRAMES window)
-	// - Frame N+30+: No more chunks_loaded events, cache NEVER rebuilt!
-	// This caused chunk 0's indices to be permanently missing.
-	//
-	// Fix: Only throttle evictions, not loads. When chunks load, we MUST
-	// update the cache immediately to include the new data.
-	if (p_chunks_loaded > 0) {
-		return false; // Never throttle loads - new data must be visible immediately!
-	}
-
-	bool is_small_change = total_chunks_changed > 0 &&
-			total_chunks_changed <= StreamingState::SMALL_CHANGE_THRESHOLD;
-	uint64_t frames_since_rebuild = p_current_frame - streaming_state.last_rebuild_frame;
-
-	if (is_small_change && frames_since_rebuild < StreamingState::MIN_FRAMES_BETWEEN_SMALL_REBUILDS) {
-		// Log throttle decision periodically
-		if (p_current_frame - streaming_state.last_throttle_log_frame >= StreamingState::LOG_THROTTLE_FRAMES) {
-			GS_LOG_STREAMING_DEBUG(vformat("[PERF-THROTTLE] Skipping rebuild (changed=%d, frames_since=%d)",
-					total_chunks_changed, frames_since_rebuild));
-			streaming_state.last_throttle_log_frame = p_current_frame;
-		}
-		return true;
-	}
-
-	return false;
-}
-
 bool RenderStreamingOrchestrator::ensure_instance_streaming_system(const GaussianSplatRenderer::FrameBackendPlan &p_backend_plan) {
 	GaussianSplatRenderer::FrameStateProvider state_provider(renderer);
 	GaussianSplatRenderer::IFrameMutationAccess &state_mut = state_provider;

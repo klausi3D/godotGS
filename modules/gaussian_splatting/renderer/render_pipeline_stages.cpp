@@ -225,10 +225,6 @@ static float _get_float_setting(ProjectSettings *p_settings, const StringName &p
 	return gs::settings::get_float(p_settings, p_name, p_fallback);
 }
 
-static int _get_int_setting(ProjectSettings *p_settings, const StringName &p_name, int p_fallback) {
-	return static_cast<int>(gs::settings::get_uint(p_settings, p_name, static_cast<uint32_t>(p_fallback)));
-}
-
 static _FORCE_INLINE_ uint64_t _hash_u64(uint64_t p_value, uint64_t p_seed);
 static _FORCE_INLINE_ uint64_t _hash_float_bits(float p_value, uint64_t p_seed);
 static _FORCE_INLINE_ uint64_t _hash_bool(bool p_value, uint64_t p_seed);
