@@ -253,7 +253,7 @@ void GaussianSplatWorld3D::set_max_render_distance(float p_distance) {
 }
 
 void GaussianSplatWorld3D::set_max_splat_count(int p_count) {
-    max_splat_count = MAX(1000, p_count);
+    max_splat_count = MAX(gs::GS_MIN_MAX_SPLAT_COUNT, p_count);
     _resubmit_world_submission_if_registered();
 }
 
@@ -334,7 +334,7 @@ Dictionary GaussianSplatWorld3D::_build_desired_renderer_overrides() const {
     }
 
     const int desired_max_splats = max_splat_count > 0 ? max_splat_count : int(tier_config.max_splats);
-    overrides[StringName("max_splats")] = int64_t(MAX(1000, MIN(int(tier_config.max_splats), desired_max_splats)));
+    overrides[StringName("max_splats")] = int64_t(MAX(gs::GS_MIN_MAX_SPLAT_COUNT, MIN(int(tier_config.max_splats), desired_max_splats)));
 
     Dictionary streaming_overrides;
     streaming_overrides[StringName("override_prefetch")] = true;

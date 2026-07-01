@@ -999,7 +999,7 @@ void GaussianSplatNode3D::set_max_render_distance(float p_distance) {
 }
 
 void GaussianSplatNode3D::set_max_splat_count(int p_count) {
-    max_splat_count = MAX(1000, p_count);
+    max_splat_count = MAX(gs::GS_MIN_MAX_SPLAT_COUNT, p_count);
     _update_quality_settings();
     if (renderer.is_valid()) {
         _apply_renderer_settings();

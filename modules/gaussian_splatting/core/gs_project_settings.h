@@ -22,6 +22,9 @@
 #include "core/variant/variant.h"
 
 namespace gs {
+
+static constexpr int GS_MIN_MAX_SPLAT_COUNT = 1000;  // Minimum allowed quality/max_splat_count floor.
+
 namespace settings {
 
 /**

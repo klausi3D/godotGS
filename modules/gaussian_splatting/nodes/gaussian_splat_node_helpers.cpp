@@ -5,6 +5,7 @@
 #include "../core/gaussian_splat_settings_manager.h"
 #include "../core/gaussian_splat_scene_director.h"
 #include "../core/gaussian_streaming.h"
+#include "../core/gs_project_settings.h"
 #include "../core/quality_tier_config.h"
 #include "../io/io_settings_utils.h"
 #include "../renderer/gaussian_splat_renderer.h"
@@ -773,7 +774,7 @@ void GaussianSplatNodeQualityHelper::apply_quality_preset() {
     };
 
     owner.lod_bias = CLAMP(get_float("lod_bias", owner.lod_bias), 0.1f, 4.0f);
-    owner.max_splat_count = MAX(1000, get_int("max_splat_count", owner.max_splat_count));
+    owner.max_splat_count = MAX(gs::GS_MIN_MAX_SPLAT_COUNT, get_int("max_splat_count", owner.max_splat_count));
 
     update_quality_settings();
     owner._update_instance_params_in_director();
@@ -803,7 +804,7 @@ void GaussianSplatNodeQualityHelper::update_quality_settings() {
     };
 
     owner.lod_bias = get_float("lod_bias", owner.lod_bias);
-    owner.max_splat_count = MAX(1000, get_int("max_splat_count", owner.max_splat_count));
+    owner.max_splat_count = MAX(gs::GS_MIN_MAX_SPLAT_COUNT, get_int("max_splat_count", owner.max_splat_count));
 
     const float min_budget_fraction = CLAMP(get_float("min_budget_fraction", 0.1f), 0.0f, 1.0f);
     const float importance_threshold = MAX(0.0f, get_float("importance_threshold", 0.1f));
@@ -938,7 +939,7 @@ void GaussianSplatNodeQualityHelper::update_quality_settings() {
     float lod3_distance = compute_distance(lod3_ratio, lod2_distance);
     lod3_distance = MAX(lod3_distance, effective_distance);
 
-    owner.max_splat_count = MAX(1000, effective_max_splats);
+    owner.max_splat_count = MAX(gs::GS_MIN_MAX_SPLAT_COUNT, effective_max_splats);
     const uint32_t max_budget = MAX(1, owner.max_splat_count);
     uint32_t min_budget = (uint32_t)(max_budget * min_budget_fraction);
     min_budget = MAX((uint32_t)1000, min_budget);
