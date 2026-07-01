@@ -1,6 +1,8 @@
 #include "streaming_queue_pressure_controller.h"
 
+#include "core/error/error_macros.h"
 #include "core/math/math_funcs.h"
+#include "core/string/print_string.h"
 #include "core/string/ustring.h"
 
 namespace {
@@ -332,4 +334,40 @@ bool StreamingQueuePressureController::validate_latched_state_invariants(bool p_
         return false;
     }
     return true;
+}
+
+StreamingQueuePressureController::PressureSummary StreamingQueuePressureController::summarize_checked(
+        const StreamingQueuePressureController::PressureSample &p_sample,
+        const char *p_context) {
+    StreamingQueuePressureController::PressureSummary summary =
+            StreamingQueuePressureController::summarize(p_sample);
+    String summary_error;
+    if (StreamingQueuePressureController::validate_summary_invariants(summary, p_sample, &summary_error)) {
+        return summary;
+    }
+
+    WARN_PRINT(vformat("[Streaming] Queue pressure summary invariant violated (%s): %s",
+            p_context ? String(p_context) : String("unknown"),
+            summary_error));
+    summary.active = false;
+    summary.cap_active = false;
+    summary.pack_source_active = false;
+    summary.upload_source_active = false;
+    summary.sync_source_active = false;
+    summary.backlog_depth = MAX(p_sample.sync_fallback_queue_depth,
+            MAX(p_sample.pack_queue_depth, p_sample.upload_queue_depth));
+    summary.source = StreamingQueuePressureController::SOURCE_NONE;
+    summary.reason = StreamingQueuePressureController::REASON_NONE;
+    return summary;
+}
+
+void StreamingQueuePressureController::validate_latched_state(bool &r_active, String &r_source, String &r_reason, const char *p_context) {
+    String latch_error;
+    if (StreamingQueuePressureController::validate_latched_state_invariants(r_active, r_source, r_reason, &latch_error)) {
+        return;
+    }
+    WARN_PRINT(vformat("[Streaming] Queue pressure latch invariant violated (%s): %s",
+            p_context ? String(p_context) : String("unknown"),
+            latch_error));
+    StreamingQueuePressureController::reset_latched_state(r_active, r_source, r_reason);
 }
