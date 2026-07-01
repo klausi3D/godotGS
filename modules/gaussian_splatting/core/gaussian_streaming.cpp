@@ -1156,6 +1156,16 @@ void GaussianStreamingSystem::_bind_methods() {
 void GaussianStreamingSystem::initialize(Ref<::GaussianData> p_data) {
     _connect_project_settings();
     _layout_hint_reset_state(this);
+    // Re-init must quiesce the async upload path BEFORE touching any state. A
+    // prior initialize() may have left pack/upload worker threads running and
+    // uploads pending; tearing down chunks/atlas and freeing persistent_buffer
+    // below while a worker is mid-flight is a use-after-free. Mirror the
+    // destructor ordering (_stop_pack_threads -> _clear_pending_uploads). Both
+    // are idempotent and device-independent, so this is a no-op on first init.
+    // _clear_pending_uploads() rolls back against the still-valid prior
+    // chunk/atlas state, so it must run before the chunks/pending resets below.
+    _stop_pack_threads();
+    _clear_pending_uploads();
     streaming_initialized = false;
     last_streaming_update_usec = 0;
     last_streaming_frame_delta_seconds = ESTIMATED_FRAME_DELTA_60FPS;
@@ -1226,6 +1236,10 @@ void GaussianStreamingSystem::initialize(Ref<::GaussianData> p_data) {
         RenderingDevice *rd = primary_device_override ? primary_device_override
                 : (last_upload_device ? last_upload_device
                         : (manager ? manager->get_primary_rendering_device() : nullptr));
+        // Clear-to-empty re-init path: drain local-upload-device in-flight work
+        // before freeing the registry meta buffers (no-op on the main device,
+        // where free() defers disposal safely — see the main path below).
+        gs_device_utils::safe_submit_and_sync(rd);
         global_atlas_registry.cleanup(rd);
         atlas_allocator.clear();
         chunks.clear();
@@ -1260,6 +1274,20 @@ void GaussianStreamingSystem::initialize(Ref<::GaussianData> p_data) {
             : (last_upload_device ? last_upload_device
                     : (manager ? manager->get_primary_rendering_device() : nullptr));
     last_upload_device = rd;
+    // Re-init buffer-teardown safety has two parts:
+    //   (1) Worker race: _stop_pack_threads() + _clear_pending_uploads() above
+    //       prevent any NEW upload from being issued against persistent_buffer.
+    //   (2) In-flight uploads: safe_submit_and_sync(rd) drains submitted work on
+    //       a LOCAL upload device before the free (it is a deliberate no-op on the
+    //       main device, per interfaces/sync_policy.h). On the MAIN device no
+    //       explicit wait is needed or wanted: RenderingDevice::free() is
+    //       render-thread-only and DEFERS disposal until the frame index recycles
+    //       after the GPU completes (servers/rendering/rendering_device.cpp:6071,
+    //       "disposed next time this frame index is processed ... safe to do it"),
+    //       and the already-queued buffer_update runs against the still-live
+    //       resource. Forcing a main-device sync here would violate the
+    //       "never stall the main thread on the GPU" rule (renderer/AGENTS.md).
+    gs_device_utils::safe_submit_and_sync(rd);
     global_atlas_registry.cleanup(rd);
     _release_persistent_buffer(rd, "initialize");
 
@@ -1375,6 +1403,14 @@ void GaussianStreamingSystem::initialize_with_device(Ref<::GaussianData> p_data,
 void GaussianStreamingSystem::initialize_empty(RenderingDevice *p_device) {
     _connect_project_settings();
     _layout_hint_reset_state(this);
+    // Re-init must quiesce the async upload path BEFORE touching any state.
+    // See initialize() for the full rationale: a mid-flight pack/upload worker
+    // racing the chunks/atlas/persistent_buffer teardown below is a
+    // use-after-free. Mirror the destructor ordering; both calls are idempotent
+    // and device-independent (no-op on first init), and _clear_pending_uploads()
+    // must run before the chunks/pending resets so its rollback sees valid state.
+    _stop_pack_threads();
+    _clear_pending_uploads();
     streaming_initialized = false;
     last_streaming_update_usec = 0;
     last_streaming_frame_delta_seconds = ESTIMATED_FRAME_DELTA_60FPS;
@@ -1453,6 +1489,9 @@ void GaussianStreamingSystem::initialize_empty(RenderingDevice *p_device) {
             : (last_upload_device ? last_upload_device
                     : (manager ? manager->get_primary_rendering_device() : nullptr));
     last_upload_device = rd;
+    // See initialize() for the two-part rationale: drain local-upload-device
+    // in-flight work (no-op on the main device, where free() defers disposal).
+    gs_device_utils::safe_submit_and_sync(rd);
     global_atlas_registry.cleanup(rd);
     _release_persistent_buffer(rd, "initialize_empty");
 
