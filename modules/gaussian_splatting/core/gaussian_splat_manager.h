@@ -180,7 +180,6 @@ private:
 
 protected:
     static void _bind_methods();
-    void _recalculate_totals();
     void _recalculate_totals_unlocked();
 
 public:

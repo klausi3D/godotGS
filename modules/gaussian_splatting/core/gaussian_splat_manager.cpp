@@ -704,12 +704,6 @@ void GaussianSplatManager::_bind_methods() {
             "set_shared_submission_device_enabled", "is_shared_submission_device_enabled");
 }
 
-void GaussianSplatManager::_recalculate_totals() {
-    GS_LOCK_ORDER_GUARD(GaussianSplatManager::LOCK_LEVEL_RESOURCE_MAPS, "resource_maps_mutex");
-    MutexLock resource_lock(resource_maps_mutex);
-    _recalculate_totals_unlocked();
-}
-
 void GaussianSplatManager::_recalculate_totals_unlocked() {
     total_gaussians = 0;
     total_memory_usage = 0;
