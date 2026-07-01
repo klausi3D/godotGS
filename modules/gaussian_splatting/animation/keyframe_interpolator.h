@@ -38,15 +38,31 @@ struct Keyframe {
 
 class KeyframeInterpolator {
 private:
-    // Helper methods for different data types
-    static Vector3 _interpolate_vector3(const Vector3& a, const Vector3& b, float t, InterpolationType type, const Vector2& handle_a = Vector2(), const Vector2& handle_b = Vector2());
+    // Helper methods for different data types. `time_diff` is the segment
+    // duration (kf_b.time - kf_a.time) in SECONDS; it is required to convert the
+    // key-relative bezier handles into normalized curve control points.
+    static Vector3 _interpolate_vector3(const Vector3& a, const Vector3& b, float t, InterpolationType type, const Vector2& handle_a = Vector2(), const Vector2& handle_b = Vector2(), float time_diff = 1.0f);
     static Color _interpolate_color(const Color& a, const Color& b, float t, InterpolationType type);
     static Quaternion _interpolate_quaternion(const Quaternion& a, const Quaternion& b, float t, InterpolationType type);
-    static float _interpolate_float(float a, float b, float t, InterpolationType type, const Vector2& handle_a = Vector2(), const Vector2& handle_b = Vector2());
+    static float _interpolate_float(float a, float b, float t, InterpolationType type, const Vector2& handle_a = Vector2(), const Vector2& handle_b = Vector2(), float time_diff = 1.0f);
 
-    // Cubic Bezier interpolation
+    // Cubic Bezier interpolation. `_cubic_bezier` and `_cubic_bezier_vector3`
+    // take ABSOLUTE normalized control points p1/p2 in [0,1]^2 curve space.
     static float _cubic_bezier(float t, const Vector2& p1, const Vector2& p2);
-    static Vector3 _cubic_bezier_vector3(float t, const Vector3& start, const Vector3& end, const Vector2& handle_a, const Vector2& handle_b);
+    static Vector3 _cubic_bezier_vector3(float t, const Vector3& start, const Vector3& end, const Vector2& p1, const Vector2& p2);
+
+    // Convert Godot-style key-relative tangent handles into absolute normalized
+    // cubic-bezier control points (P0=(0,0), P3=(1,1)). See implementation for the
+    // exact contract; `time_diff` (segment seconds) must be > 0 and finite.
+    // handle.y semantics depend on the track type:
+    //   - SCALAR float (normalize_y == true): handle.y is VALUE-relative and is
+    //     normalized by `value_delta` (b - a), matching Godot's own bezier track
+    //     (scene/resources/animation.cpp), which builds control points from
+    //     absolute (time, value) coordinates.
+    //   - VECTOR3 (normalize_y == false): handle.y is a normalized-PROGRESS offset
+    //     (`value_delta` is ignored), because one scalar easing curve drives all
+    //     three axes and per-axis value normalization is impossible.
+    static void _handles_to_control_points(const Vector2& out_handle, const Vector2& in_handle, float time_diff, float value_delta, bool normalize_y, Vector2& p1, Vector2& p2);
 
     // Find keyframe indices for interpolation
     static void _find_keyframe_indices(const LocalVector<Keyframe>& keyframes, float time, int& index_a, int& index_b);
