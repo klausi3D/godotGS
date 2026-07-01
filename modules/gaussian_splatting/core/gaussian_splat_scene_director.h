@@ -132,7 +132,6 @@ public:
 			int32_t p_desired_residency_hint = SUBMISSION_RESIDENCY_HINT_RESIDENT,
 			float p_effect_position_scale = 1.0f, float p_effect_opacity_scale = 1.0f);
 	void unregister_instance(ObjectID p_node_id);
-	void update_instance_lods(const Vector3 &p_camera_pos, const LODConfig &p_lod_config, float p_hysteresis_zone);
     void update_instance_lods_for_renderer(const GaussianSplatRenderer *p_renderer, const Vector3 &p_camera_pos,
             const LODConfig &p_lod_config, float p_hysteresis_zone);
     void build_instance_buffer(LocalVector<InstanceDataGPU> &out) const;
