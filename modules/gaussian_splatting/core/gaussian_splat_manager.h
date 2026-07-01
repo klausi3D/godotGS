@@ -159,7 +159,6 @@ private:
     // Module configuration
     bool gpu_sorting_enabled = true;
     bool shared_submission_device_enabled = false;
-    int max_gpu_buffer_count = 128;
 
     // RenderDoc compatibility mode - when enabled, skips creating local devices
     // which cause crashes when RenderDoc hooks Vulkan (multiple devices not supported)

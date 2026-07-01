@@ -219,14 +219,6 @@ bool SPIRVDiskCache::_ensure_dir(const String &p_dir) {
     return err == OK;
 }
 
-String SPIRVDiskCache::cache_dir() const {
-    MutexLock lock(mutex);
-    if (!cached_device_dir.is_empty()) {
-        return cached_device_dir;
-    }
-    return String(CACHE_ROOT_BASE) + "/";
-}
-
 String SPIRVDiskCache::compute_key(const String &p_source, const Vector<String> &p_defines, RenderingDevice *p_device) {
     // No side effects on cached_device_dir here — try_load/store/invalidate
     // now resolve the per-device subdir themselves under their own lock so a

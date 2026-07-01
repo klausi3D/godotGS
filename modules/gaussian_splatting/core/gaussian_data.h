@@ -327,8 +327,6 @@ private:
     mutable LocalVector<bool> animated_positions_valid_cache;
     mutable LocalVector<bool> animated_colors_valid_cache;
     mutable LocalVector<bool> animated_opacities_valid_cache;
-    mutable float last_animation_time = -1.0f;
-    mutable bool animation_cache_dirty = true;
 
     // Cached RenderingDevice singleton to prevent recreation
     static RenderingDevice *cached_rd;
@@ -351,7 +349,6 @@ private:
         uint8_t level;
     };
     LocalVector<OctreeNode> octree;
-    mutable bool octree_dirty = true;
 
     // Streaming-chunk bake mirror (Phase B.1). Populated by
     // GaussianSplatAsset::populate_gaussian_data() so the runtime streaming

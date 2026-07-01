@@ -164,14 +164,6 @@ void GPUPerformanceMonitor::detect_pipeline_stalls(RID timeline_semaphore) {
     last_poll_usec = poll_usec;
 }
 
-GPUPerformanceMonitor::FrameMetrics GPUPerformanceMonitor::get_frame_metrics_nonblocking(uint64_t frame_id) const {
-    MutexLock lock(metrics_mutex);
-    if (const FrameMetrics *frame = metrics.getptr(frame_id)) {
-        return *frame;
-    }
-    return FrameMetrics();
-}
-
 GPUPerformanceMonitor::SummaryMetrics GPUPerformanceMonitor::get_summary_metrics() const {
     MutexLock lock(metrics_mutex);
     SummaryMetrics summary;

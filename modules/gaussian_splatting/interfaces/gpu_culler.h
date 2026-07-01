@@ -44,7 +44,6 @@ public:
         float lod_bias = 1.0f;
         bool frustum_culling = true;
         bool gpu_culling_enabled = true;
-        bool gpu_culling_readback_enabled = true; // enable GPU readback so GPU cull can drive visibility
         bool temporal_coherence = true;
 
         float lod_min_screen_size = 1.5f;

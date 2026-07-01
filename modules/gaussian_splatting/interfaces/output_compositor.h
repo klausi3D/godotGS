@@ -116,7 +116,6 @@ public:
         bool render_buffers_commit_pending = false;
         Size2i pending_render_buffers_size = Size2i();
         bool pending_painterly_commit = false;
-        bool painterly_depth_override_active = false;
         HashMap<uint64_t, CachedFramebuffer> cached_framebuffers;
         HashMap<uint64_t, FramebufferValidationCacheEntry> framebuffer_validation_cache;
     };

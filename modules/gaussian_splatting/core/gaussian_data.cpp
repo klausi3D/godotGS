@@ -181,11 +181,6 @@ void GaussianData::_on_gaussian_storage_changed() {
 // animation caches are the only derived state that genuinely went stale.
 void GaussianData::_invalidate_derived_caches_locked() {
     octree.clear();
-    octree_dirty = true;
-    {
-        MutexLock anim_lock(animation_cache_mutex);
-        animation_cache_dirty = true;
-    }
     _invalidate_streaming_bake_locked();
 }
 
@@ -217,7 +212,6 @@ void GaussianData::_debug_check_raw_storage_access(const char *p_method) {
 
 void GaussianData::_on_gaussian_storage_changed_locked() {
     octree.clear();
-    octree_dirty = true;
 
     _clear_runtime_modifications_locked();
     _clear_brush_strokes_locked();
@@ -231,8 +225,6 @@ void GaussianData::_on_gaussian_storage_changed_locked() {
         animated_positions_valid_cache.clear();
         animated_colors_valid_cache.clear();
         animated_opacities_valid_cache.clear();
-        last_animation_time = -1.0f;
-        animation_cache_dirty = true;
         if (animation_state_machine.is_valid()) {
             animation_state_machine->set_splat_count(gaussians.size());
         }
@@ -312,7 +304,6 @@ void GaussianData::set_gaussian_payload(const LocalVector<Gaussian> &p_gaussians
     _clear_brush_strokes_locked();
     _invalidate_streaming_bake_locked();
     octree.clear();
-    octree_dirty = true;
 
     {
         MutexLock anim_lock(animation_cache_mutex);
@@ -322,8 +313,6 @@ void GaussianData::set_gaussian_payload(const LocalVector<Gaussian> &p_gaussians
         animated_positions_valid_cache.clear();
         animated_colors_valid_cache.clear();
         animated_opacities_valid_cache.clear();
-        last_animation_time = -1.0f;
-        animation_cache_dirty = true;
         if (animation_state_machine.is_valid()) {
             animation_state_machine->set_splat_count(gaussians.size());
         }
@@ -414,11 +403,6 @@ void GaussianData::set_gaussian(int p_index, const Gaussian &p_gaussian) {
     RWLockWrite lock(data_rwlock);
     ERR_FAIL_INDEX(p_index, (int)gaussians.size());
     gaussians[p_index] = p_gaussian;
-    octree_dirty = true;
-    {
-        MutexLock anim_lock(animation_cache_mutex);
-        animation_cache_dirty = true;
-    }
     _invalidate_streaming_bake_locked();
     _bump_content_revision();
 }
@@ -845,8 +829,6 @@ void GaussianData::_set_spherical_harmonics_locked(int p_index, const float *p_c
         degree++;
     }
     sh_degree = degree > 0 ? degree - 1 : 0;
-
-    octree_dirty = true;
 
 #ifndef GS_SILENCE_LOGS
     // DEBUG: Log first gaussian SH data after setting

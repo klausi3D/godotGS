@@ -25,7 +25,6 @@ void GaussianData::set_animation_state_machine(const Ref<GaussianSplatting::Gaus
                 animation_state_machine->set_incremental_saver(incremental_saver);
             }
         }
-        animation_cache_dirty = true;
     }
 }
 
@@ -46,7 +45,6 @@ void GaussianData::set_incremental_saver(const Ref<GaussianSplatting::GaussianIn
     if (incremental_saver.is_valid() && animation_state_machine.is_valid()) {
         animation_state_machine->set_incremental_saver(incremental_saver);
     }
-    animation_cache_dirty = true;
 }
 
 Ref<GaussianSplatting::GaussianIncrementalSaver> GaussianData::get_incremental_saver() const {
@@ -74,7 +72,6 @@ void GaussianData::update_animation(float p_delta) {
     {
         MutexLock anim_lock(animation_cache_mutex);
         animation->update(p_delta);
-        animation_cache_dirty = true;
     }
 }
 
@@ -82,10 +79,6 @@ void GaussianData::set_animation_enabled(bool p_enabled) {
     {
         RWLockWrite lock(data_rwlock);
         animation_enabled = p_enabled;
-    }
-    {
-        MutexLock anim_lock(animation_cache_mutex);
-        animation_cache_dirty = true;
     }
 }
 

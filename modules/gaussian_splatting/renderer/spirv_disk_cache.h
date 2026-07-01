@@ -30,8 +30,6 @@ public:
 
     void prune_above(uint64_t p_max_bytes);
 
-    String cache_dir() const;
-
 private:
     SPIRVDiskCache() = default;
 

@@ -217,11 +217,6 @@ void GaussianData::commit_runtime_changes() {
 
         _clear_runtime_modifications_locked();
         if (committed_changes) {
-            octree_dirty = true;
-            {
-                MutexLock anim_lock(animation_cache_mutex);
-                animation_cache_dirty = true;
-            }
             _invalidate_streaming_bake_locked();
             _bump_content_revision();
         }

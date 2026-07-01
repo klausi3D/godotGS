@@ -88,7 +88,6 @@ public:
     // The RID parameter is ignored (retained for API compatibility).
     void detect_pipeline_stalls(RID timeline_semaphore = RID());
 
-    FrameMetrics get_frame_metrics_nonblocking(uint64_t frame_id) const;
     SummaryMetrics get_summary_metrics() const;
 
 private:
