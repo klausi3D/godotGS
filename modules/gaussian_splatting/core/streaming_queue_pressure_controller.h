@@ -80,6 +80,12 @@ public:
     static ScanBudgetResult compute_candidate_scan_budget(const ScanBudgetInput &p_input);
     static PressureSummary summarize(const PressureSample &p_sample);
 
+    // Diagnostics wrappers (relocated from gaussian_streaming.cpp's anonymous
+    // namespace): pure guards over summarize() / validate_latched_state_invariants()
+    // that log and self-heal on an invariant violation.
+    static PressureSummary summarize_checked(const PressureSample &p_sample, const char *p_context);
+    static void validate_latched_state(bool &r_active, String &r_source, String &r_reason, const char *p_context);
+
     static void reset_latched_state(bool &r_active, String &r_source, String &r_reason);
     static void mark_latched_state(bool &r_active, String &r_source, String &r_reason,
             const char *p_source, const char *p_reason);
