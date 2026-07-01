@@ -19,11 +19,17 @@ namespace {
 Gaussian make_gaussian(const Vector3 &p_position, const Color &p_dc) {
     Gaussian g;
     g.position = p_position;
-    g.scale = Vector3(1.0f, 1.0f, 1.0f);
-    g.rotation = Quaternion();
-    g.opacity = 1.0f;
+    // Derive scale/rotation/opacity/sh_1 deterministically from position.x so the
+    // round-trip can catch a payload path that drops/zeroes these attributes.
+    // The signature is unchanged and position + byte-size assertions are unaffected.
+    const float k = p_position.x;
+    g.scale = Vector3(1.0f + k, 2.0f + 0.5f * k, 3.0f);
+    // Non-axis-aligned rotation so x/y/z/w are all non-zero — a zero lane would
+    // be hidden by a zero expectation in the component-wise round-trip check.
+    g.rotation = Quaternion(Vector3(1.0f, 2.0f, 3.0f).normalized(), 0.1f * (k + 1.0f)).normalized();
+    g.opacity = CLAMP(0.05f + 0.03f * k, 0.0f, 1.0f);
     g.sh_dc = p_dc;
-    g.sh_1[0] = Vector3(0.1f, 0.1f, 0.1f);
+    g.sh_1[0] = Vector3(0.1f + 0.05f * k, 0.1f, 0.1f);
     g.sh_1[1] = Vector3();
     g.sh_1[2] = Vector3();
     g.normal = Vector3(0.0f, 1.0f, 0.0f);
@@ -32,6 +38,28 @@ Gaussian make_gaussian(const Vector3 &p_position, const Color &p_dc) {
     g.stroke_age = 0.0f;
     g.painterly_meta = gaussian_pack_painterly_meta(17, 300);
     return g;
+}
+
+// Verifies that a round-tripped snapshot gaussian preserves the per-splat
+// attributes make_gaussian derives from position.x (scale/rotation/opacity/
+// sh_dc/sh_1[0]). Quaternions are compared sign-insensitively (q and -q are the
+// same rotation). High-order SH (sh_high) is NOT checked here because these
+// fixtures configure sh_high_order = 0 — the snapshot path returns it empty.
+void _check_attributes_round_trip(const Gaussian &p_got, const Gaussian &p_expected) {
+    CHECK(p_got.scale.is_equal_approx(p_expected.scale));
+    // Quaternion equality is sign-insensitive (q and -q encode the same
+    // rotation). Compare the RAW stored quaternions COMPONENT-WISE against
+    // p_expected.rotation or its negation. (No pre-normalize, which would hide
+    // scale corruption; no dot product, which is blind to corruption in
+    // components where the expected quaternion is zero.)
+    CHECK((p_got.rotation.is_equal_approx(p_expected.rotation) ||
+            p_got.rotation.is_equal_approx(-p_expected.rotation)));
+    CHECK(Math::abs(p_got.opacity - p_expected.opacity) < 0.02f);
+    CHECK(Math::abs(p_got.sh_dc.r - p_expected.sh_dc.r) < 0.02f);
+    CHECK(Math::abs(p_got.sh_dc.g - p_expected.sh_dc.g) < 0.02f);
+    CHECK(Math::abs(p_got.sh_dc.b - p_expected.sh_dc.b) < 0.02f);
+    CHECK(Math::abs(p_got.sh_dc.a - p_expected.sh_dc.a) < 0.02f);
+    CHECK(p_got.sh_1[0].is_equal_approx(p_expected.sh_1[0]));
 }
 
 Vector<Gaussian> build_gaussians() {
@@ -128,7 +156,13 @@ Vector<Gaussian> build_staged_payload_gaussians(uint32_t p_count) {
     Vector<Gaussian> gaussians;
     gaussians.resize(p_count);
     for (uint32_t i = 0; i < p_count; i++) {
-        gaussians.write[i] = make_gaussian(Vector3(float(i), float(i % 7), float(i % 3)), Color(1.0f, 1.0f, 1.0f, 1.0f));
+        // Distinct, asymmetric, all-NON-ZERO per-splat sh_dc and position so the
+        // round-trip asserts catch a DC channel swap/zero AND a dropped position
+        // lane (an all-white or zero-lane fixture would hide those, since a zero
+        // expectation matches a zeroed result).
+        const Color dc(0.1f + float(i % 5) * 0.15f, 0.2f + float(i % 3) * 0.2f,
+                0.3f + float(i % 7) * 0.1f, 0.4f + float(i % 2) * 0.25f);
+        gaussians.write[i] = make_gaussian(Vector3(float(i) + 1.0f, float(i % 7) + 2.0f, float(i % 3) + 3.0f), dc);
     }
     return gaussians;
 }
@@ -166,6 +200,11 @@ TEST_CASE("[GaussianSplatting][WorldIO] StagedFileChunkPayloadSource contiguous 
     if (snapshot.size() == 5) {
         CHECK(snapshot[0].position.is_equal_approx(gaussians[4].position));
         CHECK(snapshot[4].position.is_equal_approx(gaussians[8].position));
+        // The full Gaussian struct is persisted/read verbatim, so scale/rotation/
+        // opacity/sh_dc/sh_1 (all derived deterministically in make_gaussian) must
+        // round-trip exactly. sh_high is empty in this fixture so it is not asserted.
+        _check_attributes_round_trip(snapshot[0], gaussians[4]);
+        _check_attributes_round_trip(snapshot[4], gaussians[8]);
     }
     CHECK_EQ(source->get_bytes_requested(), uint64_t(5) * sizeof(Gaussian));
     CHECK_EQ(source->get_bytes_read(), uint64_t(5) * sizeof(Gaussian));
@@ -175,6 +214,10 @@ TEST_CASE("[GaussianSplatting][WorldIO] StagedFileChunkPayloadSource contiguous 
     const bool second_ok = source->capture_chunk_snapshot(8, 1, second_snapshot, sh_high, sh_first, sh_high_count);
     CHECK(second_ok);
     CHECK_EQ(second_snapshot.size(), 1);
+    if (second_snapshot.size() == 1) {
+        CHECK(second_snapshot[0].position.is_equal_approx(gaussians[8].position));
+        _check_attributes_round_trip(second_snapshot[0], gaussians[8]);
+    }
     CHECK_EQ(source->get_bytes_requested(), uint64_t(6) * sizeof(Gaussian));
     CHECK_EQ(source->get_bytes_read(), uint64_t(6) * sizeof(Gaussian));
     CHECK_EQ(source->get_file_open_count(), 1);
@@ -206,6 +249,13 @@ TEST_CASE("[GaussianSplatting][WorldIO] StagedFileChunkPayloadSource sparse inde
         CHECK(snapshot[1].position.is_equal_approx(gaussians[80].position));
         CHECK(snapshot[2].position.is_equal_approx(gaussians[127].position));
         CHECK(snapshot[3].position.is_equal_approx(gaussians[3].position));
+        // The sparse-indexed path must also preserve every per-splat attribute,
+        // each output slot mapping back to its requested source index. sh_high is
+        // empty in this fixture so it is not asserted.
+        _check_attributes_round_trip(snapshot[0], gaussians[2]);
+        _check_attributes_round_trip(snapshot[1], gaussians[80]);
+        _check_attributes_round_trip(snapshot[2], gaussians[127]);
+        _check_attributes_round_trip(snapshot[3], gaussians[3]);
     }
     CHECK_EQ(source->get_bytes_requested(), uint64_t(4) * sizeof(Gaussian));
     CHECK_EQ(source->get_bytes_read(), uint64_t(4) * sizeof(Gaussian));
