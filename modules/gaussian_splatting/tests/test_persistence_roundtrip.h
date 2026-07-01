@@ -159,8 +159,45 @@ TEST_CASE("[GaussianSplatting][Persistence] GSF round-trip serialization") {
         return;
     }
 
-    Ref<GaussianSplatWorld> original = create_test_world();
-    Ref<GaussianData> original_data = original->get_gaussian_data();
+    // Dedicated LOCAL fixture (NOT the shared create_test_world() helper, which
+    // other test cases depend on): give every splat DISTINCT, non-default values
+    // for EVERY field the raw-record GAUSSIAN_DATA chunk persists. That chunk is a
+    // whole-struct memcpy of each `Gaussian` (see _write_gaussian_data_chunk), so
+    // position, opacity, scale, area, rotation, sh_dc (incl. alpha), normal,
+    // stroke_age, brush_axes, painterly_meta and render_meta all round-trip. A
+    // serializer/format migration that drops, zeroes, or defaults any of them
+    // would fail this round-trip rather than silently pass on constant defaults.
+    // (sh_1[] first-order SH is owned by the sibling SH case below; the _padding /
+    // _padding2 lanes carry no semantics and are not asserted.)
+    Ref<GaussianData> original_data;
+    original_data.instantiate();
+
+    Vector<Gaussian> gaussians;
+    gaussians.resize(3);
+    for (int i = 0; i < 3; i++) {
+        Gaussian &g = gaussians.write[i];
+        // Every component of every persisted field is seeded NON-ZERO and
+        // distinct, so a regression that drops/zero-fills any single lane is
+        // caught (a zero lane would match a zero expectation and hide the bug):
+        // non-axis position, a non-axis-aligned rotation (all of x/y/z/w
+        // non-zero), and an offset sh_dc so even splat 0 has non-zero rgb.
+        g.position = Vector3(1.0f + i, 2.0f + 0.5f * i, 3.0f - 0.25f * i);
+        g.scale = Vector3(1.0f + i, 2.0f + i, 3.0f + i);
+        g.rotation = Quaternion(Vector3(1, 2, 3).normalized(), 0.3f * (i + 1)).normalized();
+        g.opacity = 0.2f + 0.2f * i;
+        g.sh_dc = Color(0.1f + 0.1f * i, 0.2f + 0.1f * i, 0.3f + 0.1f * i, 0.3f + 0.2f * i);
+
+        // Remaining raw-record fields persisted by the whole-struct memcpy but
+        // previously unguarded. sh_1[] is intentionally left at default here so
+        // this case does not duplicate the sibling first-order SH test.
+        g.area = 4.0f + 1.5f * i;
+        g.normal = Vector3(0.2f + 0.1f * i, -0.5f - 0.1f * i, 0.8f + 0.1f * i);
+        g.stroke_age = 9.0f + 3.0f * i;
+        g.brush_axes = Vector2(0.5f + i, 1.25f + i);
+        g.painterly_meta = gaussian_pack_painterly_meta(uint16_t(11 + i), uint16_t(101 + i));
+        g.render_meta = uint32_t(0x00C0FFEEu + uint32_t(i));
+    }
+    original_data->set_gaussians(gaussians);
     CHECK_MESSAGE(original_data.is_valid(), "Original data should be valid");
     CHECK_MESSAGE(original_data->get_count() == 3, "Original should have 3 splats");
 
@@ -183,7 +220,43 @@ TEST_CASE("[GaussianSplatting][Persistence] GSF round-trip serialization") {
 
     for (int i = 0; i < 3; i++) {
         Gaussian g = loaded_data->get_gaussian(i);
-        CHECK(g.position.is_equal_approx(Vector3(i, 0, 0)));
+
+        // Position — all three lanes non-zero (matches the seed).
+        CHECK(g.position.is_equal_approx(Vector3(1.0f + i, 2.0f + 0.5f * i, 3.0f - 0.25f * i)));
+
+        // Scale / rotation: exact Vector3/Quaternion comparison via is_equal_approx.
+        CHECK(g.scale.is_equal_approx(Vector3(1.0f + i, 2.0f + i, 3.0f + i)));
+        const Quaternion expected_rot = Quaternion(Vector3(1, 2, 3).normalized(), 0.3f * (i + 1)).normalized();
+        // Quaternion sign ambiguity (q and -q encode the same rotation): compare
+        // COMPONENT-WISE against expected_rot or -expected_rot. The rotation is
+        // about a non-axis vector, so x/y/z/w are all non-zero — no lane is hidden
+        // by a zero expectation, and a dot-product's zero-component blind spot is
+        // avoided entirely.
+        CHECK((g.rotation.is_equal_approx(expected_rot) ||
+                g.rotation.is_equal_approx(-expected_rot)));
+
+        // Opacity travels as a float; small abs-diff tolerance.
+        CHECK(Math::abs(g.opacity - (0.2f + 0.2f * i)) < 0.02f);
+
+        // DC color (sh_dc): all four lanes are persisted raw — rgb plus the alpha
+        // lane seeded above. First-order/high-order SH stay out of scope here
+        // (the sibling SH test cases own first-order SH and high-order loss).
+        const Color expected_dc = Color(0.1f + 0.1f * i, 0.2f + 0.1f * i, 0.3f + 0.1f * i, 0.3f + 0.2f * i);
+        CHECK(Math::abs(g.sh_dc.r - expected_dc.r) < 0.02f);
+        CHECK(Math::abs(g.sh_dc.g - expected_dc.g) < 0.02f);
+        CHECK(Math::abs(g.sh_dc.b - expected_dc.b) < 0.02f);
+        CHECK(Math::abs(g.sh_dc.a - expected_dc.a) < 0.02f);
+
+        // Remaining raw-record fields. The whole-struct memcpy (plus lossless
+        // chunk compression) is bit-exact, so these round-trip exactly; the
+        // is_equal_approx / exact-int guards catch a format migration that would
+        // drop or default any of them.
+        CHECK(Math::is_equal_approx(g.area, 4.0f + 1.5f * i));
+        CHECK(g.normal.is_equal_approx(Vector3(0.2f + 0.1f * i, -0.5f - 0.1f * i, 0.8f + 0.1f * i)));
+        CHECK(Math::is_equal_approx(g.stroke_age, 9.0f + 3.0f * i));
+        CHECK(g.brush_axes.is_equal_approx(Vector2(0.5f + i, 1.25f + i)));
+        CHECK_EQ(g.painterly_meta, gaussian_pack_painterly_meta(uint16_t(11 + i), uint16_t(101 + i)));
+        CHECK_EQ(g.render_meta, uint32_t(0x00C0FFEEu + uint32_t(i)));
     }
 
     _remove_persistence_fixture(path);
