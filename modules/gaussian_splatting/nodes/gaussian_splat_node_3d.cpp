@@ -101,7 +101,7 @@ void GaussianSplatNode3D::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("set_lod_bias", "bias"), &GaussianSplatNode3D::set_lod_bias);
     ClassDB::bind_method(D_METHOD("get_lod_bias"), &GaussianSplatNode3D::get_lod_bias);
-    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "quality/lod_bias", PROPERTY_HINT_RANGE, "0.1,4.0,0.1"), "set_lod_bias", "get_lod_bias");
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "quality/lod_bias", PROPERTY_HINT_RANGE, GS_LOD_BIAS_HINT_RANGE), "set_lod_bias", "get_lod_bias");
 
     ClassDB::bind_method(D_METHOD("set_max_render_distance", "distance"), &GaussianSplatNode3D::set_max_render_distance);
     ClassDB::bind_method(D_METHOD("get_max_render_distance"), &GaussianSplatNode3D::get_max_render_distance);
@@ -985,7 +985,7 @@ void GaussianSplatNode3D::set_quality_preset(QualityPreset p_preset) {
 }
 
 void GaussianSplatNode3D::set_lod_bias(float p_bias) {
-    lod_bias = CLAMP(p_bias, 0.1f, 4.0f);
+    lod_bias = CLAMP(p_bias, gs::GS_LOD_BIAS_MIN, gs::GS_LOD_BIAS_MAX);
     _update_quality_settings();
     _mark_render_state_dirty();
     _update_instance_params_in_director();

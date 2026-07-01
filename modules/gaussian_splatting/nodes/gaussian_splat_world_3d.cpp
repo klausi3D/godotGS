@@ -54,7 +54,7 @@ void GaussianSplatWorld3D::_bind_methods() {
 
     ADD_GROUP("Quality", "quality/");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "quality/lod_enabled"), "set_lod_enabled", "is_lod_enabled");
-    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "quality/lod_bias", PROPERTY_HINT_RANGE, "0.1,4.0,0.1"),
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "quality/lod_bias", PROPERTY_HINT_RANGE, GS_LOD_BIAS_HINT_RANGE),
             "set_lod_bias", "get_lod_bias");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "quality/max_render_distance", PROPERTY_HINT_RANGE, "0.0,10000.0,1.0,or_greater,suffix:m"),
             "set_max_render_distance", "get_max_render_distance");
@@ -234,7 +234,7 @@ void GaussianSplatWorld3D::set_lod_enabled(bool p_enabled) {
 }
 
 void GaussianSplatWorld3D::set_lod_bias(float p_bias) {
-    lod_bias = CLAMP(p_bias, 0.1f, 4.0f);
+    lod_bias = CLAMP(p_bias, gs::GS_LOD_BIAS_MIN, gs::GS_LOD_BIAS_MAX);
     _resubmit_world_submission_if_registered();
 }
 

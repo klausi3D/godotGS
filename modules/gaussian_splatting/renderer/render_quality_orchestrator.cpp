@@ -115,6 +115,11 @@ void RenderQualityOrchestrator::set_lod_enabled(bool p_enabled) {
 }
 
 void RenderQualityOrchestrator::set_lod_bias(float p_bias) {
+	// Intentionally WIDER than the scene-facing node range
+	// [gs::GS_LOD_BIAS_MIN, gs::GS_LOD_BIAS_MAX] = [0.1, 4.0]. This is the
+	// low-level renderer API; node values arrive already clamped to the
+	// narrower range, so this permissive superset never narrows a node value —
+	// it only gives programmatic/preset callers a wider span. Keep [0.01, 8.0].
 	float clamped = CLAMP(p_bias, 0.01f, 8.0f);
 	if (!Math::is_equal_approx(gpu_culler->get_config().lod_bias, clamped)) {
 		gpu_culler->get_config().lod_bias = clamped;

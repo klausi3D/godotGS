@@ -3,6 +3,7 @@
 #include "gaussian_splat_node_3d.h"
 #include "../core/effective_config_snapshot.h"
 #include "../core/gaussian_splat_settings_manager.h"
+#include "../core/gs_project_settings.h"
 #include "../core/gaussian_splat_scene_director.h"
 #include "../core/gaussian_streaming.h"
 #include "../core/gs_project_settings.h"
@@ -773,7 +774,7 @@ void GaussianSplatNodeQualityHelper::apply_quality_preset() {
         return (int)value;
     };
 
-    owner.lod_bias = CLAMP(get_float("lod_bias", owner.lod_bias), 0.1f, 4.0f);
+    owner.lod_bias = CLAMP(get_float("lod_bias", owner.lod_bias), gs::GS_LOD_BIAS_MIN, gs::GS_LOD_BIAS_MAX);
     owner.max_splat_count = MAX(gs::GS_MIN_MAX_SPLAT_COUNT, get_int("max_splat_count", owner.max_splat_count));
 
     update_quality_settings();
@@ -803,7 +804,11 @@ void GaussianSplatNodeQualityHelper::update_quality_settings() {
         return (bool)value;
     };
 
-    owner.lod_bias = get_float("lod_bias", owner.lod_bias);
+    // Clamp to the canonical node lod_bias range — matches apply_quality_preset
+    // and set_lod_bias. Without this, a preset-supplied lod_bias would overwrite
+    // the setter-clamped value and silently escape the [GS_LOD_BIAS_MIN,
+    // GS_LOD_BIAS_MAX] contract the node property + inspector advertise.
+    owner.lod_bias = CLAMP(get_float("lod_bias", owner.lod_bias), gs::GS_LOD_BIAS_MIN, gs::GS_LOD_BIAS_MAX);
     owner.max_splat_count = MAX(gs::GS_MIN_MAX_SPLAT_COUNT, get_int("max_splat_count", owner.max_splat_count));
 
     const float min_budget_fraction = CLAMP(get_float("min_budget_fraction", 0.1f), 0.0f, 1.0f);
