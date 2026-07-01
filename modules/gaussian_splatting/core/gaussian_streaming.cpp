@@ -931,12 +931,6 @@ GaussianStreamingSystem::~GaussianStreamingSystem() {
     _release_persistent_buffer(rd, "destructor");
     global_atlas_registry.cleanup(rd);
 
-    for (auto &chunk : chunks) {
-        if (chunk.gpu_buffer.is_valid() && rd) {
-            rd->free(chunk.gpu_buffer);
-        }
-    }
-
     // Clean up quantization buffer
     _release_quantization_buffer(rd, "destructor", false);
 }

@@ -53,7 +53,6 @@ struct StreamingChunk {
     uint32_t start_idx = 0;
     uint32_t count = 0;
     bool source_index_remapped = false;
-    RID gpu_buffer;
     Vector3 center;
     AABB bounds;
     float max_radius = 0.0f;
