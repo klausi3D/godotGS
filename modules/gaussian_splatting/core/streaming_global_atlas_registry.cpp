@@ -7,6 +7,7 @@
 #include "streaming_global_atlas_registry.h"
 
 #include "gaussian_streaming.h"
+#include "gs_project_settings.h"
 #include "core/config/project_settings.h"
 #include "core/templates/span.h"
 #include "../logger/gs_logger.h"
@@ -20,17 +21,8 @@ constexpr uint32_t CHUNK_META_FULL_UPLOAD_RANGE_THRESHOLD = 16;
 constexpr uint32_t CHUNK_META_FULL_UPLOAD_DIRTY_DIVISOR = 4;
 
 bool _is_streaming_debug_enabled() {
-	ProjectSettings *ps = ProjectSettings::get_singleton();
-	if (!ps) {
-		return false;
-	}
-	if (ps->get_setting("rendering/gaussian_splatting/debug/enable_all_debug", false)) {
-		return true;
-	}
-	if (ps->get_setting("rendering/gaussian_splatting/debug/enable_frame_logging", false)) {
-		return true;
-	}
-	return ps->get_setting("rendering/gaussian_splatting/debug/enable_data_logging", false);
+	// Canonical gate: all_debug || frame || data, honoring GS_SILENCE_LOGS.
+	return gs::settings::is_any_debug_log_enabled();
 }
 
 void _clear_dirty_flags(LocalVector<uint8_t> &flags) {

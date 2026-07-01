@@ -16,17 +16,8 @@
 namespace {
 
 static bool _is_world_debug_enabled() {
-    ProjectSettings *ps = ProjectSettings::get_singleton();
-    if (!ps) {
-        return false;
-    }
-    if (ps->get_setting("rendering/gaussian_splatting/debug/enable_all_debug", false)) {
-        return true;
-    }
-    if (ps->get_setting("rendering/gaussian_splatting/debug/enable_frame_logging", false)) {
-        return true;
-    }
-    return ps->get_setting("rendering/gaussian_splatting/debug/enable_data_logging", false);
+    // Canonical gate: all_debug || frame || data, honoring GS_SILENCE_LOGS.
+    return gs::settings::is_any_debug_log_enabled();
 }
 
 } // namespace

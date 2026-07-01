@@ -165,6 +165,18 @@ static inline bool is_frame_log_enabled() {
 #endif
 }
 
+/**
+ * @brief Whether ANY debug logging (frame-level or data-level) is enabled.
+ *
+ * Canonical replacement for the per-file `all_debug || frame || data` gate
+ * functions. Like is_frame_log_enabled()/is_data_log_enabled(), this honors the
+ * GS_SILENCE_LOGS build flag (returns false in a silenced build), which the
+ * old hand-rolled local copies did not.
+ */
+static inline bool is_any_debug_log_enabled() {
+	return is_frame_log_enabled() || is_data_log_enabled();
+}
+
 // Streaming route policy constants.
 enum GSStreamingRoutePolicy {
 	GS_ROUTE_RESIDENT = 0,
