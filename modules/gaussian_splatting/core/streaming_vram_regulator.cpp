@@ -1,124 +1,20 @@
 #include "streaming_vram_regulator.h"
+#include "gs_project_settings.h"
 #include "quality_tier_config.h"
+#include "streaming_tier_cap_policy.h"
 #include "core/config/project_settings.h"
 #include "core/math/math_funcs.h"
 #include "core/object/callable_method_pointer.h"
 #include "../logger/gs_logger.h"
 #include "../renderer/gpu_debug_utils.h"
 
+using namespace gs_tier_cap;
+
 namespace {
-
-uint32_t _ps_get_uint(ProjectSettings *ps, const StringName &name, uint32_t fallback) {
-    if (!ps || !ps->has_setting(name)) {
-        return fallback;
-    }
-    Variant value = ps->get_setting_with_override(name);
-    if (value.get_type() == Variant::INT) {
-        int64_t v = value.operator int64_t();
-        return v < 0 ? fallback : uint32_t(v);
-    }
-    if (value.get_type() == Variant::FLOAT) {
-        double v = value.operator double();
-        return v < 0.0 ? fallback : uint32_t(Math::round(v));
-    }
-    return fallback;
-}
-
-bool _ps_get_bool(ProjectSettings *ps, const StringName &name, bool fallback) {
-    if (!ps || !ps->has_setting(name)) {
-        return fallback;
-    }
-    Variant value = ps->get_setting_with_override(name);
-    if (value.get_type() == Variant::BOOL) {
-        return value.operator bool();
-    }
-    if (value.get_type() == Variant::INT) {
-        return value.operator int64_t() != 0;
-    }
-    return fallback;
-}
-
-float _ps_get_float(ProjectSettings *ps, const StringName &name, float fallback) {
-    if (!ps || !ps->has_setting(name)) {
-        return fallback;
-    }
-    Variant value = ps->get_setting_with_override(name);
-    if (value.get_type() == Variant::FLOAT) {
-        return (float)value.operator double();
-    }
-    if (value.get_type() == Variant::INT) {
-        return (float)value.operator int64_t();
-    }
-    return fallback;
-}
 
 static constexpr uint32_t STREAMING_DEFAULT_VRAM_BUDGET_MB = STREAMING_UNKNOWN_CAPACITY_FALLBACK_VRAM_BUDGET_MB;
 static constexpr uint32_t STREAMING_DEFAULT_MIN_CHUNKS_IN_VRAM = 4;
 static constexpr uint32_t STREAMING_DEFAULT_MAX_CHUNKS_IN_VRAM = 128;
-
-struct StreamingTierCapPolicy {
-    String tier_preset = "custom";
-    bool active = false;
-    uint32_t upload_mb_per_frame = 0;
-    uint32_t upload_mb_per_slice = 0;
-    uint32_t upload_mb_per_second = 0;
-    uint32_t vram_budget_mb = 0;
-    uint32_t min_chunks_in_vram = 0;
-    uint32_t max_chunks_in_vram = 0;
-};
-
-bool _project_setting_has_override(ProjectSettings *ps, const StringName &name) {
-    if (!ps || !ps->has_setting(name) || !ps->property_can_revert(name)) {
-        return false;
-    }
-    return ps->get_setting_with_override(name) != ps->property_get_revert(name);
-}
-
-uint32_t _resolve_tiered_cap_uint(ProjectSettings *ps, const StringName &name, uint32_t fallback,
-        bool tier_active, uint32_t tier_value, String &r_source) {
-    const uint32_t configured_value = _ps_get_uint(ps, name, fallback);
-    const bool has_project_override = _project_setting_has_override(ps, name);
-    if (tier_active && !has_project_override) {
-        r_source = "tier_preset";
-        return tier_value;
-    }
-    r_source = has_project_override ? "project_override" : "project_default";
-    return configured_value;
-}
-
-StreamingTierCapPolicy _resolve_streaming_tier_cap_policy(ProjectSettings *ps) {
-    StreamingTierCapPolicy policy;
-    if (!ps) {
-        return policy;
-    }
-
-    const StringName tier_preset_setting = "rendering/gaussian_splatting/quality/tier_preset";
-    const Variant tier_preset_value = ps->has_setting(tier_preset_setting)
-            ? ps->get_setting_with_override(tier_preset_setting)
-            : Variant("custom");
-    policy.tier_preset = String(tier_preset_value)
-                                 .strip_edges()
-                                 .to_lower();
-    const bool apply_tier_budgets =
-            _ps_get_bool(ps, "rendering/gaussian_splatting/quality/tier_apply_streaming_budgets", true);
-    if (!apply_tier_budgets) {
-        return policy;
-    }
-
-    QualityTierConfig tier_config;
-    if (!get_quality_tier_config(policy.tier_preset, tier_config)) {
-        return policy;
-    }
-
-    policy.active = true;
-    policy.upload_mb_per_frame = tier_config.streaming_upload_mb_per_frame;
-    policy.upload_mb_per_slice = tier_config.streaming_upload_mb_per_slice;
-    policy.upload_mb_per_second = tier_config.streaming_upload_mb_per_second;
-    policy.vram_budget_mb = tier_config.streaming_vram_budget_mb;
-    policy.min_chunks_in_vram = tier_config.streaming_min_chunks_in_vram;
-    policy.max_chunks_in_vram = tier_config.streaming_max_chunks_in_vram;
-    return policy;
-}
 
 } // anonymous namespace
 
@@ -185,8 +81,8 @@ VRAMBudgetConfig VRAMBudgetConfig::load_from_project_settings() {
             tier_policy.active,
             tier_policy.vram_budget_mb,
             config.source_budget_mb);
-    config.auto_regulate_enabled = _ps_get_bool(ps, "rendering/gaussian_splatting/streaming/auto_regulate_enabled", config.auto_regulate_enabled);
-    config.warning_threshold_percent = _ps_get_uint(ps, "rendering/gaussian_splatting/streaming/vram_warning_threshold_percent", config.warning_threshold_percent);
+    config.auto_regulate_enabled = gs::settings::get_bool(ps, "rendering/gaussian_splatting/streaming/auto_regulate_enabled", config.auto_regulate_enabled);
+    config.warning_threshold_percent = gs::settings::get_uint(ps, "rendering/gaussian_splatting/streaming/vram_warning_threshold_percent", config.warning_threshold_percent);
     config.min_chunks = _resolve_tiered_cap_uint(ps,
             "rendering/gaussian_splatting/streaming/min_chunks_in_vram",
             STREAMING_DEFAULT_MIN_CHUNKS_IN_VRAM,
@@ -199,7 +95,7 @@ VRAMBudgetConfig VRAMBudgetConfig::load_from_project_settings() {
             tier_policy.active,
             tier_policy.max_chunks_in_vram,
             config.source_max_chunks);
-    config.regulation_step_percent = _ps_get_float(ps, "rendering/gaussian_splatting/streaming/regulation_step_percent", config.regulation_step_percent);
+    config.regulation_step_percent = gs::settings::get_float(ps, "rendering/gaussian_splatting/streaming/regulation_step_percent", config.regulation_step_percent);
 
     // Sanitize values
     config.min_chunks = MAX(1u, config.min_chunks);

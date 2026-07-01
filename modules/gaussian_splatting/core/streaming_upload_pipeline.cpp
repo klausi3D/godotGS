@@ -2,6 +2,7 @@
 #include "gaussian_streaming.h"
 #include "gs_project_settings.h"
 #include "streaming_queue_pressure_controller.h"
+#include "streaming_tier_cap_policy.h"
 #include "core/config/project_settings.h"
 #include "core/math/math_funcs.h"
 #include "core/os/os.h"
@@ -12,6 +13,8 @@
 #include <algorithm>
 #include <utility>
 
+using namespace gs_tier_cap;
+
 namespace {
 static constexpr uint32_t STREAMING_DEFAULT_MAX_UPLOAD_MB_PER_FRAME = 128;
 static constexpr uint32_t STREAMING_DEFAULT_MAX_UPLOAD_MB_PER_SLICE = 16;
@@ -20,70 +23,6 @@ static constexpr uint32_t STREAMING_DEFAULT_MAX_UPLOAD_MB_PER_SECOND = 0;
 #if defined(TESTS_ENABLED)
 static std::atomic<uint64_t> s_payload_checksum_hash_calls{0};
 #endif
-
-struct StreamingTierCapPolicy {
-    String tier_preset = "custom";
-    bool active = false;
-    uint32_t upload_mb_per_frame = 0;
-    uint32_t upload_mb_per_slice = 0;
-    uint32_t upload_mb_per_second = 0;
-    uint32_t vram_budget_mb = 0;
-    uint32_t min_chunks_in_vram = 0;
-    uint32_t max_chunks_in_vram = 0;
-};
-
-bool _project_setting_has_override(ProjectSettings *ps, const StringName &name) {
-    if (!ps || !ps->has_setting(name) || !ps->property_can_revert(name)) {
-        return false;
-    }
-    return ps->get_setting_with_override(name) != ps->property_get_revert(name);
-}
-
-uint32_t _resolve_tiered_cap_uint(ProjectSettings *ps, const StringName &name, uint32_t fallback,
-        bool tier_active, uint32_t tier_value, String &r_source) {
-    const uint32_t configured_value = gs::settings::get_uint(ps, name, fallback);
-    const bool has_project_override = _project_setting_has_override(ps, name);
-    if (tier_active && !has_project_override) {
-        r_source = "tier_preset";
-        return tier_value;
-    }
-    r_source = has_project_override ? "project_override" : "project_default";
-    return configured_value;
-}
-
-StreamingTierCapPolicy _resolve_streaming_tier_cap_policy(ProjectSettings *ps) {
-    StreamingTierCapPolicy policy;
-    if (!ps) {
-        return policy;
-    }
-
-    const StringName tier_preset_setting = "rendering/gaussian_splatting/quality/tier_preset";
-    const Variant tier_preset_value = ps->has_setting(tier_preset_setting)
-            ? ps->get_setting_with_override(tier_preset_setting)
-            : Variant("custom");
-    policy.tier_preset = String(tier_preset_value)
-                                 .strip_edges()
-                                 .to_lower();
-    const bool apply_tier_budgets =
-            gs::settings::get_bool(ps, "rendering/gaussian_splatting/quality/tier_apply_streaming_budgets", true);
-    if (!apply_tier_budgets) {
-        return policy;
-    }
-
-    QualityTierConfig tier_config;
-    if (!get_quality_tier_config(policy.tier_preset, tier_config)) {
-        return policy;
-    }
-
-    policy.active = true;
-    policy.upload_mb_per_frame = tier_config.streaming_upload_mb_per_frame;
-    policy.upload_mb_per_slice = tier_config.streaming_upload_mb_per_slice;
-    policy.upload_mb_per_second = tier_config.streaming_upload_mb_per_second;
-    policy.vram_budget_mb = tier_config.streaming_vram_budget_mb;
-    policy.min_chunks_in_vram = tier_config.streaming_min_chunks_in_vram;
-    policy.max_chunks_in_vram = tier_config.streaming_max_chunks_in_vram;
-    return policy;
-}
 
 void _atomic_saturating_sub(std::atomic<uint32_t> &p_value, uint32_t p_amount) {
     if (p_amount == 0) {
