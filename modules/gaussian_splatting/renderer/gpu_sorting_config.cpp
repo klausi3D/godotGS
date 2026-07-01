@@ -132,9 +132,13 @@ void GPUSortingConfig::load_from_project_settings() {
 
     radix_bits = ps->get_setting(RADIX_BITS_PATH, GPUSortingConstants::DEFAULT_RADIX_BITS);
     workgroup_size = ps->get_setting(WORKGROUP_SIZE_PATH, GPUSortingConstants::DEFAULT_WORKGROUP_SIZE);
-    key_bits = ps->get_setting(KEY_BITS_PATH, 32);
-    tile_bits = ps->get_setting(TILE_BITS_PATH, 16);
-    depth_bits = ps->get_setting(DEPTH_BITS_PATH, 16);
+    // Fallbacks MUST match the registered GLOBAL_DEF (and the shippable
+    // contract): 64/32/32. The old 32/16/16 fallbacks were the known-bad
+    // flicker config (GS-298) and would be silently selected by any read that
+    // happened before GLOBAL_DEF registration. See GPUSortingConstants.
+    key_bits = ps->get_setting(KEY_BITS_PATH, GPUSortingConstants::DEFAULT_KEY_BITS);
+    tile_bits = ps->get_setting(TILE_BITS_PATH, GPUSortingConstants::DEFAULT_TILE_BITS);
+    depth_bits = ps->get_setting(DEPTH_BITS_PATH, GPUSortingConstants::DEFAULT_DEPTH_BITS);
     enable_tie_breaker = ps->get_setting(ENABLE_TIE_BREAKER_PATH, false);
 
     enable_performance_logging = ps->get_setting(PERFORMANCE_LOGGING_PATH, false);
@@ -612,9 +616,9 @@ void initialize_gpu_sorting_config() {
     GLOBAL_DEF(GPUSortingConfig::MAX_RASTER_SPLATS_PER_TILE_PATH, 65536);
     GLOBAL_DEF(GPUSortingConfig::RADIX_BITS_PATH, GPUSortingConstants::DEFAULT_RADIX_BITS);
     GLOBAL_DEF(GPUSortingConfig::WORKGROUP_SIZE_PATH, GPUSortingConstants::DEFAULT_WORKGROUP_SIZE);
-    GLOBAL_DEF(GPUSortingConfig::KEY_BITS_PATH, 64);
-    GLOBAL_DEF(GPUSortingConfig::TILE_BITS_PATH, 32);
-    GLOBAL_DEF(GPUSortingConfig::DEPTH_BITS_PATH, 32);
+    GLOBAL_DEF(GPUSortingConfig::KEY_BITS_PATH, GPUSortingConstants::DEFAULT_KEY_BITS);
+    GLOBAL_DEF(GPUSortingConfig::TILE_BITS_PATH, GPUSortingConstants::DEFAULT_TILE_BITS);
+    GLOBAL_DEF(GPUSortingConfig::DEPTH_BITS_PATH, GPUSortingConstants::DEFAULT_DEPTH_BITS);
     GLOBAL_DEF(GPUSortingConfig::ENABLE_TIE_BREAKER_PATH, false);
     GLOBAL_DEF(GPUSortingConfig::PERFORMANCE_LOGGING_PATH, g_gpu_sorting_config.enable_performance_logging);
     GLOBAL_DEF(GPUSortingConfig::LOG_INTERVAL_PATH, g_gpu_sorting_config.performance_log_interval);

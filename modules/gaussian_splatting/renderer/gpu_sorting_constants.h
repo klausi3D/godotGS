@@ -20,6 +20,16 @@ static constexpr uint32_t RADIX_SIZE = 1u << RADIX_BITS;
 static constexpr uint32_t MAX_WORKGROUP_SIZE = 1024;
 static constexpr uint32_t HISTOGRAM_BINS = RADIX_SIZE;
 
+// Sort-key bit layout defaults. 64-bit (32 tile + 32 depth) is the ONLY
+// shippable layout: 32-bit quantized depth keys flicker/band on real-scan data
+// (GS-298). These are the single source of truth for the key-width defaults so
+// the ProjectSettings GLOBAL_DEF and every get_setting() fallback agree — a read
+// before registration can then never silently select the broken 32-bit path.
+// (32-bit remains reachable only via an explicit gpu_preset="custom" opt-in.)
+static constexpr uint32_t DEFAULT_KEY_BITS = 64;
+static constexpr uint32_t DEFAULT_TILE_BITS = 32;
+static constexpr uint32_t DEFAULT_DEPTH_BITS = 32;
+
 } // namespace GPUSortingConstants
 
 #endif // GPU_SORTING_CONSTANTS_H
