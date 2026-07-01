@@ -212,10 +212,7 @@ public:
     void build_sphere_effector_payload_for_renderer(const GaussianSplatRenderer *p_renderer,
             LocalVector<SphereEffectorSelection> &out,
             uint32_t *r_total_scene_effectors = nullptr) const;
-    bool get_primary_sphere_effector_for_instance(ObjectID p_node_id, SphereEffectorSelection *r_selection) const;
     Dictionary get_scene_effector_debug_state_for_instance(ObjectID p_node_id) const;
-    bool get_scene_effector_match_summary_for_instance(ObjectID p_node_id, uint32_t *r_match_count = nullptr,
-            bool *r_position_active = nullptr, bool *r_opacity_active = nullptr) const;
     uint32_t get_sphere_effector_count_for_renderer(const GaussianSplatRenderer *p_renderer) const;
     uint64_t get_sphere_effector_generation_for_renderer(const GaussianSplatRenderer *p_renderer) const;
     void register_instance_submission(ObjectID p_node_id, const Ref<GaussianSplatAsset> &p_asset,
