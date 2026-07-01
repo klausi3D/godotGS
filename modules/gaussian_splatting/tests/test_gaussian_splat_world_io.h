@@ -794,6 +794,28 @@ bool _write_malformed_world(const String &p_path, const MalformedWorldHeader &p_
     return true;
 }
 
+// Returns a header describing a structurally VALID single-splat world: a fully
+// populated 104-byte header (correct magic+version) with no metadata/chunk/
+// high-SH sections. When written with exactly sizeof(Gaussian) padding bytes the
+// gaussian payload range [gaussian_offset, gaussian_offset + 1*sizeof(Gaussian))
+// fits within the 248-byte file, so every offset/length guard in the loader
+// passes. The ONLY way such a file fails to load is if the caller corrupts a
+// single field (magic or version) before writing it -- which is what isolates
+// the magic/version rejection under test.
+MalformedWorldHeader _valid_single_splat_header() {
+    MalformedWorldHeader hdr;
+    hdr.magic = 0x57505347u; // 'GSPW'
+    hdr.version = 1u; // kWorldVersion
+    hdr.flags = 0u; // no metadata, chunks, or high-SH sections
+    hdr.splat_count = 1u; // one gaussian of payload follows the header
+    hdr.sh_degree = 0u;
+    hdr.sh_first_order = 0u;
+    hdr.sh_high_order = 0u;
+    hdr.chunk_count = 0u;
+    hdr.gaussian_offset = 104u; // == kHeaderSizeBytes; payload begins right after header
+    return hdr;
+}
+
 } // namespace
 
 TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects metadata range overflow via fits_within") {
@@ -813,6 +835,111 @@ TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects metadata range overf
     hdr.metadata_offset = file_len - 4u;
     hdr.metadata_size = UINT64_MAX - 8u;
     REQUIRE(_write_malformed_world(path, hdr, pad));
+
+    ResourceFormatLoaderGaussianSplatWorld loader;
+    Error err = OK;
+    Ref<Resource> result = loader.load(path, "", &err);
+    CHECK_EQ(err, ERR_FILE_CORRUPT);
+    CHECK_FALSE(result.is_valid());
+
+    _remove_world_io_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects bad magic") {
+    // A plausible-but-wrong first uint32 must be rejected as an unrecognized
+    // format (magic != kWorldMagic -> ERR_FILE_UNRECOGNIZED) without crashing.
+    //
+    // The fixture is an OTHERWISE-VALID single-splat world (104-byte header +
+    // sizeof(Gaussian) padding, splat_count=1, gaussian_offset=104, file_len=248)
+    // with ONLY the magic corrupted. Because the file is structurally loadable,
+    // the gaussian_offset/length guards (gaussian_offset >= file_len, fits_within)
+    // would NOT pre-empt: with a correct magic this exact file loads OK (asserted
+    // below). So the magic check at io/gaussian_splat_world_io.cpp:486 is the sole
+    // reason this load fails, and a regression that stopped validating the magic
+    // would surface as err == OK rather than ERR_FILE_UNRECOGNIZED.
+    const String path = _make_world_io_fixture_path("malformed_bad_magic");
+
+    MalformedWorldHeader hdr = _valid_single_splat_header();
+    hdr.magic = 0xDEADBEEFu; // wrong magic; correct is 0x57505347 ('GSPW')
+    REQUIRE(_write_malformed_world(path, hdr, sizeof(Gaussian)));
+
+    ResourceFormatLoaderGaussianSplatWorld loader;
+    Error err = OK;
+    Ref<Resource> result = loader.load(path, "", &err);
+    CHECK_EQ(err, ERR_FILE_UNRECOGNIZED);
+    CHECK_FALSE(result.is_valid());
+
+    // Sanity: the SAME fixture with the correct magic loads successfully, proving
+    // the corrupted field is the only defect (no offset/length guard pre-empts it).
+    const String valid_path = _make_world_io_fixture_path("bad_magic_sanity_valid");
+    REQUIRE(_write_malformed_world(valid_path, _valid_single_splat_header(), sizeof(Gaussian)));
+    Error sanity_err = ERR_BUG;
+    Ref<Resource> sanity_result = loader.load(valid_path, "", &sanity_err);
+    CHECK_EQ(sanity_err, OK);
+    CHECK(sanity_result.is_valid());
+
+    _remove_world_io_fixture(valid_path);
+    _remove_world_io_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects wrong version") {
+    // Correct GSPW magic but a version != kWorldVersion must be rejected as
+    // corrupt (ERR_FILE_CORRUPT) without crashing.
+    //
+    // The fixture is an OTHERWISE-VALID single-splat world (104-byte header +
+    // sizeof(Gaussian) padding, splat_count=1, gaussian_offset=104, file_len=248)
+    // with ONLY the version corrupted. This matters because the version check
+    // (io/gaussian_splat_world_io.cpp:494) and several later offset/length guards
+    // all return the SAME ERR_FILE_CORRUPT. The previous zero-splat fixture
+    // (gaussian_offset == file_len == 104) tripped the gaussian_offset >= file_len
+    // guard, so a regression that stopped validating the version would STILL have
+    // returned ERR_FILE_CORRUPT and passed. With file_len=248 and a self-consistent
+    // payload range, no offset/length guard fires (the same file with a correct
+    // version loads OK, asserted below), so the version check is the sole defect.
+    const String path = _make_world_io_fixture_path("malformed_wrong_version");
+
+    MalformedWorldHeader hdr = _valid_single_splat_header();
+    hdr.version = 1u + 1000u; // kWorldVersion is 1; anything else is rejected
+    REQUIRE(_write_malformed_world(path, hdr, sizeof(Gaussian)));
+
+    ResourceFormatLoaderGaussianSplatWorld loader;
+    Error err = OK;
+    Ref<Resource> result = loader.load(path, "", &err);
+    CHECK_EQ(err, ERR_FILE_CORRUPT);
+    CHECK_FALSE(result.is_valid());
+
+    // Sanity: the SAME fixture with the correct version loads successfully, proving
+    // the corrupted field is the only defect (no offset/length guard pre-empts it).
+    const String valid_path = _make_world_io_fixture_path("wrong_version_sanity_valid");
+    REQUIRE(_write_malformed_world(valid_path, _valid_single_splat_header(), sizeof(Gaussian)));
+    Error sanity_err = ERR_BUG;
+    Ref<Resource> sanity_result = loader.load(valid_path, "", &sanity_err);
+    CHECK_EQ(sanity_err, OK);
+    CHECK(sanity_result.is_valid());
+
+    _remove_world_io_fixture(valid_path);
+    _remove_world_io_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects truncated file") {
+    // Valid magic + version but the file ends mid-header (far shorter than the
+    // 104-byte header the loader requires). The loader's file-length guard
+    // (file_len < kHeaderSizeBytes) must reject this as corrupt with no OOB read
+    // and no crash. We write only 16 bytes: magic, version, flags, splat_count.
+    const String path = _make_world_io_fixture_path("malformed_truncated");
+
+    {
+        Ref<FileAccess> f = FileAccess::open(path, FileAccess::WRITE);
+        REQUIRE(f.is_valid());
+        f->store_32(0x57505347u); // valid magic
+        f->store_32(1u); // valid version (kWorldVersion)
+        f->store_32(0u); // flags
+        f->store_32(0u); // splat_count -- file ends here at 16 bytes, well under 104
+        f.unref();
+    }
+
+    REQUIRE(FileAccess::exists(path));
+    REQUIRE(FileAccess::get_size(path) < 104u);
 
     ResourceFormatLoaderGaussianSplatWorld loader;
     Error err = OK;
