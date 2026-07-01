@@ -13,15 +13,25 @@
 #include "core/math/math_funcs.h"
 
 RenderConfigOrchestrator::RenderConfigOrchestrator(const Dependencies &p_dependencies) :
-		renderer(p_dependencies.renderer),
 		interactive_state_manager(p_dependencies.interactive_state_manager),
 		painterly_renderer(p_dependencies.painterly_renderer),
-		runtime_ports(p_dependencies.runtime_ports) {
-	ERR_FAIL_NULL(renderer);
+		invalidate_cached_render(p_dependencies.invalidate_cached_render),
+		default_grading_changed_callable(p_dependencies.default_grading_changed_callable),
+		invalidate_grading_via_director(p_dependencies.invalidate_grading_via_director),
+		apply_interactive_state(p_dependencies.apply_interactive_state) {
 	ERR_FAIL_NULL(interactive_state_manager);
 	ERR_FAIL_NULL(painterly_renderer);
-	ERR_FAIL_COND_MSG(!runtime_ports.invalidate_cached_render,
+	// Validate every injected port up front, restoring the fail-fast contract the
+	// old `ERR_FAIL_NULL(renderer)` provided. A miswired (empty) port would
+	// otherwise invoke an empty std::function / Callable and crash at use time.
+	ERR_FAIL_COND_MSG(!invalidate_cached_render,
 			"RenderConfigOrchestrator requires invalidate_cached_render runtime port.");
+	ERR_FAIL_COND_MSG(!default_grading_changed_callable.is_valid(),
+			"RenderConfigOrchestrator requires a valid default_grading_changed_callable.");
+	ERR_FAIL_COND_MSG(!invalidate_grading_via_director,
+			"RenderConfigOrchestrator requires invalidate_grading_via_director runtime port.");
+	ERR_FAIL_COND_MSG(!apply_interactive_state,
+			"RenderConfigOrchestrator requires apply_interactive_state runtime port.");
 }
 
 void RenderConfigOrchestrator::set_render_mode(GaussianSplatRenderer::RenderMode p_mode) {
@@ -39,8 +49,8 @@ void RenderConfigOrchestrator::set_opacity_multiplier(float p_opacity) {
 		return;
 	}
 	render_config.opacity_multiplier = clamped;
-	if (renderer) {
-		(renderer->*runtime_ports.invalidate_cached_render)();
+	if (invalidate_cached_render) {
+		invalidate_cached_render();
 	}
 }
 
@@ -51,8 +61,8 @@ void RenderConfigOrchestrator::set_color_grading(const Ref<ColorGradingResource>
 	// Disconnect the signal on the OLD resource (if any) before swapping. Without
 	// this, dangling `changed` connections on replaced resources would keep calling
 	// the renderer handler after the resource is no longer the active default.
-	const Callable grading_changed = callable_mp(renderer, &GaussianSplatRenderer::_on_renderer_default_grading_changed);
-	if (render_config.color_grading.is_valid() && renderer &&
+	const Callable &grading_changed = default_grading_changed_callable;
+	if (render_config.color_grading.is_valid() && default_grading_changed_callable.is_valid() &&
 			render_config.color_grading->is_connected("changed", grading_changed)) {
 		render_config.color_grading->disconnect("changed", grading_changed);
 	}
@@ -61,12 +71,12 @@ void RenderConfigOrchestrator::set_color_grading(const Ref<ColorGradingResource>
 	// without swapping the Ref) re-run the invalidation path. Without this,
 	// mutating the resource behind the scenes leaves fallback-graded rows
 	// stale until an unrelated content change forces a rebuild.
-	if (render_config.color_grading.is_valid() && renderer &&
+	if (render_config.color_grading.is_valid() && default_grading_changed_callable.is_valid() &&
 			!render_config.color_grading->is_connected("changed", grading_changed)) {
 		render_config.color_grading->connect("changed", grading_changed);
 	}
-	if (renderer) {
-		(renderer->*runtime_ports.invalidate_cached_render)();
+	if (invalidate_cached_render) {
+		invalidate_cached_render();
 		// Per-instance grading path: records without an explicit per-instance
 		// grading ref fall back to this renderer-wide default at build time.
 		// The director's invalidate call bumps both the world's instance
@@ -74,8 +84,8 @@ void RenderConfigOrchestrator::set_color_grading(const Ref<ColorGradingResource>
 		// that the streaming/resident upload fingerprints include — so the
 		// SSBO re-uploads on the next frame for both world-bound and direct-
 		// data flows.
-		if (GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton()) {
-			director->invalidate_grading_for_renderer(renderer);
+		if (invalidate_grading_via_director) {
+			invalidate_grading_via_director();
 		}
 	}
 }
@@ -86,7 +96,7 @@ void RenderConfigOrchestrator::set_interactive_state(GaussianSplatRenderer::Inte
 	}
 
 	if (interactive_state_manager->is_valid()) {
-		if (!interactive_state_manager->ptr()->apply_renderer_state(renderer, p_state)) {
+		if (!apply_interactive_state(p_state)) {
 			return;
 		}
 		return;

@@ -3,20 +3,20 @@
 
 #include "gaussian_splat_renderer.h"
 
+#include <functional>
+
 class InteractiveStateManager;
 class PainterlyRenderer;
 
 class RenderConfigOrchestrator {
 public:
-	struct RuntimePorts {
-		void (GaussianSplatRenderer::*invalidate_cached_render)() = &GaussianSplatRenderer::invalidate_cached_render;
-	};
-
 	struct Dependencies {
-		GaussianSplatRenderer *renderer = nullptr;
 		Ref<InteractiveStateManager> *interactive_state_manager = nullptr;
 		Ref<PainterlyRenderer> *painterly_renderer = nullptr;
-		RuntimePorts runtime_ports;
+		std::function<void()> invalidate_cached_render;
+		Callable default_grading_changed_callable;
+		std::function<void()> invalidate_grading_via_director;
+		std::function<bool(GaussianSplatRenderer::InteractiveState)> apply_interactive_state;
 	};
 
 	explicit RenderConfigOrchestrator(const Dependencies &p_dependencies);
@@ -49,10 +49,12 @@ public:
 	const GaussianSplatRenderer::PainterlyConfig &get_painterly_config() const { return painterly_config; }
 
 private:
-	GaussianSplatRenderer *renderer = nullptr;
 	Ref<InteractiveStateManager> *interactive_state_manager = nullptr;
 	Ref<PainterlyRenderer> *painterly_renderer = nullptr;
-	RuntimePorts runtime_ports;
+	std::function<void()> invalidate_cached_render;
+	Callable default_grading_changed_callable;
+	std::function<void()> invalidate_grading_via_director;
+	std::function<bool(GaussianSplatRenderer::InteractiveState)> apply_interactive_state;
 	GaussianSplatRenderer::RenderConfig render_config;
 	GaussianSplatRenderer::InteractiveStateConfig interactive_state;
 	GaussianSplatRenderer::CullingConfig culling_config;

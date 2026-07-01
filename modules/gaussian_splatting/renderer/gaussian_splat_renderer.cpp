@@ -1015,10 +1015,20 @@ GaussianSplatRenderer::GaussianSplatRenderer(RenderingDevice *p_device) {
     sorting_orchestrator = std::make_unique<RenderSortingOrchestrator>(sorting_dependencies);
 
     RenderConfigOrchestrator::Dependencies config_dependencies;
-    config_dependencies.renderer = this;
     config_dependencies.interactive_state_manager = &subsystem_state.interactive_state_manager;
     config_dependencies.painterly_renderer = &subsystem_state.painterly_renderer;
-    config_dependencies.runtime_ports.invalidate_cached_render = &GaussianSplatRenderer::invalidate_cached_render;
+    config_dependencies.invalidate_cached_render = [this]() { invalidate_cached_render(); };
+    config_dependencies.default_grading_changed_callable =
+            callable_mp(this, &GaussianSplatRenderer::_on_renderer_default_grading_changed);
+    config_dependencies.invalidate_grading_via_director = [this]() {
+        if (GaussianSplatSceneDirector *d = GaussianSplatSceneDirector::get_singleton()) {
+            d->invalidate_grading_for_renderer(this);
+        }
+    };
+    config_dependencies.apply_interactive_state = [this](GaussianSplatRenderer::InteractiveState s) -> bool {
+        return subsystem_state.interactive_state_manager.is_valid() &&
+                subsystem_state.interactive_state_manager->apply_renderer_state(this, s);
+    };
     config_orchestrator = std::make_unique<RenderConfigOrchestrator>(config_dependencies);
 
     RenderInstancingOrchestrator::Dependencies instancing_dependencies;
