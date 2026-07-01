@@ -10,6 +10,7 @@
 #include "module_string_names.h"
 #include "quality_tier_config.h"
 #include "streaming_vram_regulator.h"
+#include "../interfaces/gs_raster_thresholds.h"
 #include "../renderer/sorting_settings_utils.h"
 #include "../nodes/gaussian_splat_node_3d.h"
 #include "../logger/gs_logger.h"
@@ -1070,7 +1071,7 @@ void GaussianSplatManager::initialize_module() {
 	// Opacity-aware bounding (FlashGS optimization) - reduces tile-Gaussian pairs by ~94%
 	// When enabled, splat radii are calculated based on opacity: r = sqrt(2 * ln(alpha/tau) * lambda)
 	GLOBAL_DEF("rendering/gaussian_splatting/culling/opacity_aware_bounds", true);     // Enable opacity-aware bounding
-	GLOBAL_DEF("rendering/gaussian_splatting/culling/visibility_threshold", 1.0f / 255.0f); // tau: minimum visible contribution
+	GLOBAL_DEF("rendering/gaussian_splatting/culling/visibility_threshold", gs::RASTER_ALPHA_THRESHOLD); // tau: minimum visible contribution
 
 	// Optional per-splat hard cull at projection. Keep disabled by default:
 	// real captures often rely on many low-opacity splats accumulating, and

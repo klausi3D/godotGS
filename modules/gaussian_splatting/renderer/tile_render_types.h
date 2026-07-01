@@ -10,6 +10,7 @@
 #include "gaussian_gpu_layout.h"
 #include "servers/rendering/rendering_device.h"
 
+#include "../interfaces/gs_raster_thresholds.h"
 #include "../resources/color_grading_resource.h"
 
 #include <array>
@@ -447,7 +448,7 @@ struct TileRenderParams {
 	bool jacobian_bypass_j_col2_clamp = false;
 	bool jacobian_invert_j_col2_sign = false;
 	bool opacity_aware_culling = true;
-	float visibility_threshold = 1.0f / 255.0f;
+	float visibility_threshold = gs::RASTER_ALPHA_THRESHOLD;
 		// Optional per-splat hard cull at projection. Disabled by default; projects
 		// can opt into aggressive low-opacity splat removal.
 		float alpha_clip = 0.0f;

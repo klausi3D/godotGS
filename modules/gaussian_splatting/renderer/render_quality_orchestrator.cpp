@@ -1,5 +1,6 @@
 #include "render_quality_orchestrator.h"
 
+#include "../interfaces/gs_raster_thresholds.h"
 #include "../logger/gs_logger.h"
 #include "core/error/error_macros.h"
 #include "core/math/math_defs.h"
@@ -15,7 +16,7 @@ namespace {
 struct FidelityOverrideSnapshot {
 	bool lod_enabled = true;
 	bool opacity_aware_culling = true;
-	float visibility_threshold = 1.0f / 255.0f;
+	float visibility_threshold = gs::RASTER_ALPHA_THRESHOLD;
 	bool distance_cull_enabled = true;
 	float distance_cull_start = 30.0f;
 	float distance_cull_max_rate = 0.5f;

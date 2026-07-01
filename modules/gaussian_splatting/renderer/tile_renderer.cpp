@@ -23,6 +23,7 @@
 #include "sh_config.h"
 #include "shader_compilation_helper.h"
 #include "../logger/gs_logger.h"
+#include "../interfaces/gs_raster_thresholds.h"
 #include "../interfaces/render_device_manager.h"
 #include "../interfaces/sync_policy.h"
 #include "../core/performance_monitors.h"
@@ -1310,7 +1311,7 @@ GaussianSplatting::TileRenderParams::TileRenderParams() {
 	jacobian_invert_j_col2_sign = false;
 	// Opacity-aware bounding (FlashGS optimization) - enabled by default
 	opacity_aware_culling = true;
-	visibility_threshold = 1.0f / 255.0f;
+	visibility_threshold = gs::RASTER_ALPHA_THRESHOLD;
 		// Optional per-splat hard cull at projection.
 		alpha_clip = 0.0f;
 	// Distance-based culling - enabled by default

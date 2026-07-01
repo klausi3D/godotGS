@@ -8,6 +8,7 @@
 #include "core/string/ustring.h"
 #include "servers/rendering/rendering_device.h"
 
+#include "gs_raster_thresholds.h"
 #include "../renderer/tile_render_types.h"
 
 // Rasterization parameters
@@ -50,7 +51,7 @@ struct RasterParams {
     // Opacity-aware bounding (FlashGS optimization)
     // When enabled, reduces tile-Gaussian pairs by ~94% using opacity-based radius calculation
     bool opacity_aware_culling = true;
-    float visibility_threshold = 1.0f / 255.0f;
+    float visibility_threshold = gs::RASTER_ALPHA_THRESHOLD;
     // Optional per-splat hard cull at projection. Disabled by default; projects
     // can opt into aggressive low-opacity splat removal.
     float alpha_clip = 0.0f;

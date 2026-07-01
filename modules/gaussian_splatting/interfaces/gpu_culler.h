@@ -2,6 +2,7 @@
 #define GS_GPU_CULLER_H
 
 #include "culler_interfaces.h"
+#include "gs_raster_thresholds.h"
 #include "core/math/aabb.h"
 #include "core/math/vector2i.h"
 #include "core/math/vector3.h"
@@ -69,7 +70,7 @@ public:
         // Opacity-aware bounding (FlashGS optimization)
         // When enabled, reduces tile-Gaussian pairs by ~94% using opacity-based radius
         bool opacity_aware_culling = true;
-        float visibility_threshold = 1.0f / 255.0f; // tau: minimum visible contribution
+        float visibility_threshold = gs::RASTER_ALPHA_THRESHOLD; // tau: minimum visible contribution
         // Optional per-splat hard cull at projection. Disabled by default so
         // low-opacity splats can still be boosted by opacity multipliers before
         // opacity-aware bounds make the final visibility decision.
