@@ -1042,15 +1042,20 @@ bool OutputCompositor::_copy_final_output_compute(RenderingDevice *p_device, RID
         const RD::TextureFormat dest_actual = p_device->texture_get_format(p_destination);
         const bool dest_can_copy_from = (dest_actual.usage_bits & RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT) != 0;
         // The internal render-buffer color texture (the composite destination whenever
-        // 3D scaling or multiview is active) never carries CAN_COPY_FROM, so texture_copy
-        // cannot fill the scratch there. It IS sampleable, so fill the scratch with a
-        // graphics blit instead — otherwise every scaled/multiview viewport silently
-        // loses the depth test to the no-depth graphics fallback. sRGB destinations are
-        // excluded (decode-on-sample would double-decode against the shader's
-        // srgb_to_linear), as are non-main devices (CopyEffects is main-RD-only); in
-        // practice both only occur for present targets, which have CAN_COPY_FROM.
+        // 3D scaling is active) never carries CAN_COPY_FROM, so texture_copy cannot fill
+        // the scratch there. It IS sampleable, so fill the scratch with a graphics blit
+        // instead — otherwise every scaled viewport silently loses the depth test to the
+        // no-depth graphics fallback. Exclusions: sRGB destinations (decode-on-sample
+        // would double-decode against the shader's srgb_to_linear), non-main devices
+        // (CopyEffects is main-RD-only) — in practice both only occur for present
+        // targets, which have CAN_COPY_FROM — and MULTIVIEW ARRAY targets: the internal
+        // color buffer is a TEXTURE_TYPE_2D_ARRAY with view_count layers there, which
+        // this single-view blit (p_multiview=false) and the compute shader's
+        // sampler2D/image2D destination bindings cannot legally address. Arrays keep the
+        // pre-existing no-depth fallback until a multiview blit variant exists.
         const bool blit_fill_possible = (dest_actual.usage_bits & RD::TEXTURE_USAGE_SAMPLING_BIT) != 0 &&
-                !_is_srgb_format(dest_actual.format) && p_device == RD::get_singleton();
+                !_is_srgb_format(dest_actual.format) && p_device == RD::get_singleton() &&
+                dest_actual.texture_type == RD::TEXTURE_TYPE_2D && dest_actual.array_layers <= 1;
         if (!dest_can_copy_from && !blit_fill_possible) {
             last_composite_stats.fallback_due_to_missing_copy_from = true;
             last_composite_stats.valid = true;
