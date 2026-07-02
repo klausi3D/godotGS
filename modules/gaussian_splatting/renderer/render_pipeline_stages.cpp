@@ -223,6 +223,30 @@ static bool _is_scene_depth_composite_expected(RenderDataRD *p_render_data) {
 	return render_buffers_rd && render_buffers_rd->get_depth_texture().is_valid();
 }
 
+// Whether the per-splat scene-depth clip (compositing slice D) is expected to be active
+// for a frame with this render data — the CURRENT-frame gate shared by the raster fill
+// and the cached-render reuse decision. Reuse must not consult the previous raster's
+// metric: painterly frames never update it (a stale true would kill their reuse
+// forever), and an inactive->active transition under a static camera would keep
+// serving a clip-less cached render indefinitely, because reuse skips the very raster
+// that would have refreshed the flag.
+static bool _is_per_splat_clip_expected(RenderDataRD *p_render_data) {
+	if (!p_render_data || !p_render_data->scene_data || !_is_scene_depth_composite_expected(p_render_data)) {
+		return false;
+	}
+	bool per_splat_clip = GS_SCENE_COMPOSITE_PER_SPLAT_CLIP_DEFAULT;
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	if (project_settings && project_settings->has_setting(GS_SCENE_COMPOSITE_PER_SPLAT_CLIP_SETTING)) {
+		per_splat_clip = (bool)project_settings->get_setting_with_override(GS_SCENE_COMPOSITE_PER_SPLAT_CLIP_SETTING);
+	}
+	if (!per_splat_clip) {
+		return false;
+	}
+	RenderSceneBuffersRD *render_buffers_rd = Object::cast_to<RenderSceneBuffersRD>(p_render_data->render_buffers.ptr());
+	return render_buffers_rd && render_buffers_rd->get_depth_texture().is_valid() &&
+			render_buffers_rd->get_view_count() == 1;
+}
+
 // Project settings helpers provided by gs_project_settings.h (gs::settings namespace).
 static bool _get_bool_setting(ProjectSettings *p_settings, const StringName &p_name, bool p_fallback) {
 	return gs::settings::get_bool(p_settings, p_name, p_fallback);
@@ -2196,15 +2220,10 @@ Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_vi
 	// depth exists, and the scene camera data is available for the linearize pair.
 	// Everything else (shadow pass with null render_data, painterly, multiview) keeps
 	// the struct defaults => bit-identical behavior.
-	if (p_render_data && p_render_data->scene_data && _is_scene_depth_composite_expected(p_render_data)) {
-		bool per_splat_clip = GS_SCENE_COMPOSITE_PER_SPLAT_CLIP_DEFAULT;
-		ProjectSettings *clip_ps = ProjectSettings::get_singleton();
-		if (clip_ps && clip_ps->has_setting(GS_SCENE_COMPOSITE_PER_SPLAT_CLIP_SETTING)) {
-			per_splat_clip = (bool)clip_ps->get_setting_with_override(GS_SCENE_COMPOSITE_PER_SPLAT_CLIP_SETTING);
-		}
+	if (_is_per_splat_clip_expected(p_render_data)) {
 		RenderSceneBuffersRD *clip_buffers = Object::cast_to<RenderSceneBuffersRD>(p_render_data->render_buffers.ptr());
 		RID clip_depth = clip_buffers ? clip_buffers->get_depth_texture() : RID();
-		if (per_splat_clip && clip_depth.is_valid() && clip_buffers->get_view_count() == 1) {
+		if (clip_depth.is_valid()) {
 			const GSSceneDepthLinearize lin = gs_derive_scene_depth_linearize(
 					p_render_data->scene_data->cam_projection,
 					p_render_data->scene_data->cam_orthogonal,
@@ -2218,6 +2237,9 @@ Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_vi
 			render_params.scene_depth_clip_enabled = true;
 		}
 	}
+	// Metric semantics: the CPU-side request. build_params can still disable the clip on
+	// the near/far-fallback frames, and the binding site can degrade to the fallback
+	// texture — those downstream decisions are not reflected here.
 	performance_state.metrics.raster_scene_clip_active = render_params.scene_depth_clip_enabled;
 
 	float direct_light_scale = 0.5f;
@@ -2606,11 +2628,16 @@ bool RenderPipelineStages::RasterStage::try_reuse_cached_render(const GaussianSp
 	// Per-splat scene-depth clip (slice D): with the clip baked into the raster, the
 	// output depends on the scene depth CONTENT (a mesh animating under a static camera
 	// changes no reuse signature — no readback-free hash of depth content exists), so a
-	// cached render can never be proven fresh. Force a re-raster while the clip is
-	// active. Known, documented tradeoff: static-camera reuse is lost in scenes with a
-	// valid scene depth while the feature is on; the per_splat_depth_clip setting is the
-	// per-project relief valve.
-	if (require_scene_depth && performance_state.metrics.raster_scene_clip_active) {
+	// cached render can never be proven fresh. Force a re-raster whenever the clip is
+	// expected THIS frame — computed from current-frame inputs, NOT the previous
+	// raster's metric: painterly frames never update that metric (a stale true would
+	// kill their reuse forever), and an inactive->active transition under a static
+	// camera would keep serving a clip-less cached render indefinitely because reuse
+	// skips the very raster that refreshes the flag. Painterly renders never bake the
+	// clip, so they keep reuse. Known, documented tradeoff otherwise: static-camera
+	// reuse is lost while the feature is on in scenes with a valid scene depth; the
+	// per_splat_depth_clip setting is the per-project relief valve.
+	if (!r_output.painterly_active && _is_per_splat_clip_expected(p_input.render_data)) {
 		return false;
 	}
 

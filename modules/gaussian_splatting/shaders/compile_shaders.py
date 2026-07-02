@@ -237,7 +237,7 @@ RUNTIME_SHADER_MATRIX: tuple[ShaderMatrixEntry, ...] = (
                 _merge_defines(
                     TILE_COMMON_DEFINES,
                     TILE_DIAGNOSTICS_OFF,
-                    ("GS_TILE_GLOBAL_SORT=1", "GS_MAX_RASTER_SPLATS_PER_TILE=4096"),
+                    ("GS_TILE_GLOBAL_SORT=1", "GS_MAX_RASTER_SPLATS_PER_TILE=4096", "GS_SORT_KEY_BITS=64"),
                 ),
                 ("#1324",),
             ),
@@ -245,7 +245,7 @@ RUNTIME_SHADER_MATRIX: tuple[ShaderMatrixEntry, ...] = (
                 "diag",
                 _merge_defines(
                     TILE_COMMON_DEFINES,
-                    ("GS_TILE_GLOBAL_SORT=1", "GS_MAX_RASTER_SPLATS_PER_TILE=4096", "GS_COLLECT_RASTER_STATS=1"),
+                    ("GS_TILE_GLOBAL_SORT=1", "GS_MAX_RASTER_SPLATS_PER_TILE=4096", "GS_COLLECT_RASTER_STATS=1", "GS_SORT_KEY_BITS=32"),
                 ),
                 ("#1324",),
             ),
@@ -266,6 +266,7 @@ RUNTIME_SHADER_MATRIX: tuple[ShaderMatrixEntry, ...] = (
                         "GS_TILE_GLOBAL_SORT=1",
                         "GS_MAX_RASTER_SPLATS_PER_TILE=4096",
                         "GS_TILE_RASTER_COMPUTE=1",
+                        "GS_SORT_KEY_BITS=64",
                     ),
                 ),
                 ("#1318", "#1324"),
@@ -279,6 +280,7 @@ RUNTIME_SHADER_MATRIX: tuple[ShaderMatrixEntry, ...] = (
                         "GS_MAX_RASTER_SPLATS_PER_TILE=4096",
                         "GS_TILE_RASTER_COMPUTE=1",
                         "GS_COLLECT_RASTER_STATS=1",
+                        "GS_SORT_KEY_BITS=32",
                     ),
                 ),
                 ("#1324",),
