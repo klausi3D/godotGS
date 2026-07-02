@@ -743,7 +743,9 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 	buffers.splat_ref_buffer = resource_state.instance_splat_ref_buffer;
 
 	if (!resource_state.instance_counter_buffer.is_valid()) {
-		resource_state.instance_counter_buffer = rd->storage_buffer_create(sizeof(uint32_t) * 2);
+		// 3 uints: [0]=visible_chunk_count, [1]=overflowed_chunks, [2]=frustum_culled_chunks
+		// (M0 telemetry; written only by frustum_cull.glsl, survives the Stage-B counter reuse).
+		resource_state.instance_counter_buffer = rd->storage_buffer_create(sizeof(uint32_t) * 3);
 		if (!resource_state.instance_counter_buffer.is_valid()) {
 			if (r_reason) {
 				*r_reason = "resident_counter_buffer_failed";

@@ -910,7 +910,7 @@ void GPUCuller::_on_instance_counter_readback(
         return;
     }
 
-    if (p_data.size() < static_cast<int>(sizeof(uint32_t) * 2)) {
+    if (p_data.size() < static_cast<int>(sizeof(uint32_t) * 3)) {
         return;
     }
 
@@ -918,6 +918,9 @@ void GPUCuller::_on_instance_counter_readback(
     const uint32_t callback_chunk_limit = MIN(max_visible_chunks, instance_readback_state.last_frame_chunk_limit);
     const uint32_t *counter_values = reinterpret_cast<const uint32_t *>(p_data.ptr());
     last_instance_visible_chunk_count = MIN(counter_values[0], callback_chunk_limit);
+    // M0: counter_values[2] = frustum_culled_chunks (written by frustum_cull.glsl this frame,
+    // untouched by the Stage-B counter reuse). Latched 1 frame late like the visible count.
+    last_instance_frustum_culled_count = counter_values[2];
     if (request_id > instance_readback_state.last_applied_request_id) {
         instance_readback_state.last_applied_request_id = request_id;
     }
@@ -1385,7 +1388,7 @@ bool GPUCuller::_gpu_frustum_cull_instance(const CullParams &p_params, const Ins
 
     // Reset counters with an explicit host write before dispatch. The visible
     // count is consumed via async-latched readback callbacks.
-    static const uint32_t zero_instance_counters[2] = { 0u, 0u };
+    static const uint32_t zero_instance_counters[3] = { 0u, 0u, 0u };
     p_inputs.device->buffer_update(p_inputs.counter_buffer, 0, sizeof(zero_instance_counters), zero_instance_counters);
 
     RID cull_uniform_set = _get_instance_cull_uniform_set(p_inputs.device, p_inputs);
@@ -1434,7 +1437,7 @@ bool GPUCuller::_gpu_frustum_cull_instance(const CullParams &p_params, const Ins
         const int64_t readback_generation = static_cast<int64_t>(instance_readback_state.generation);
         Callable counter_cb = callable_mp(this, &GPUCuller::_on_instance_counter_readback)
                 .bind(readback_generation, int64_t(max_visible_chunks), int64_t(enqueued_request_id));
-        Error readback_err = p_inputs.device->buffer_get_data_async(p_inputs.counter_buffer, counter_cb, 0, sizeof(uint32_t) * 2);
+        Error readback_err = p_inputs.device->buffer_get_data_async(p_inputs.counter_buffer, counter_cb, 0, sizeof(uint32_t) * 3);
         if (readback_err != OK) {
             instance_readback_state.pending = false;
             instance_readback_state.pending_request_id = 0;
@@ -1450,6 +1453,9 @@ bool GPUCuller::_gpu_frustum_cull_instance(const CullParams &p_params, const Ins
     r_summary.visible_after_culling = visible_chunk_count;
     uint64_t candidate_count = uint64_t(instance_count) * uint64_t(chunk_dispatch);
     r_summary.culling_candidate_count = candidate_count > UINT32_MAX ? UINT32_MAX : static_cast<uint32_t>(candidate_count);
+    // M0: surface the instance-path frustum-cull count (1-frame-late async latch; 0 until the
+    // first readback lands). CHUNK granularity — see last_instance_frustum_culled_count.
+    r_summary.culled_frustum_count = last_instance_frustum_culled_count;
     r_summary.used_instance_pipeline = true;
     r_summary.culling_time_ms = (OS::get_singleton()->get_ticks_usec() - p_start_time_usec) / 1000.0f;
     culling_state.cull_time_ms = r_summary.culling_time_ms;

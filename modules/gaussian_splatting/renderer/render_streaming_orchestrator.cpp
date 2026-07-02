@@ -1860,7 +1860,10 @@ bool RenderStreamingOrchestrator::render_streaming_frame(RenderDataRD *p_render_
 
 		if (rd) {
 			if (!resource_state_mut.instance_counter_buffer.is_valid()) {
-				resource_state_mut.instance_counter_buffer = rd->storage_buffer_create(sizeof(uint32_t) * 2);
+				// 3 uints: [0]=visible_chunk_count, [1]=overflowed_chunks (both re-aliased by the
+				// Stage-B depth/clamp shaders), [2]=frustum_culled_chunks (M0 telemetry; written only
+				// by frustum_cull.glsl, never cleared by the Stage-B reuse, read back post-cull).
+				resource_state_mut.instance_counter_buffer = rd->storage_buffer_create(sizeof(uint32_t) * 3);
 				if (resource_state_mut.instance_counter_buffer.is_valid()) {
 					rd->set_resource_name(resource_state_mut.instance_counter_buffer, "GS_InstanceCounters");
 					renderer->track_resource_owner(resource_state_mut.instance_counter_buffer, rd);
