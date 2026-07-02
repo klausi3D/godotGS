@@ -66,6 +66,94 @@ static void _release_uniform_set(RenderingDevice *p_device, RID &p_uniform_set) 
 
 } // namespace
 
+RID TileRenderer::TileRasterizerStage::_ensure_scene_depth_sampler(RenderingDevice *p_device) {
+	ERR_FAIL_NULL_V(p_device, RID());
+	// The sampler is wholly stage-owned (created below, freed only here or on
+	// descriptor invalidation), so device-pointer tracking is sufficient — no
+	// external invalidation can occur and RenderingDevice has no sampler
+	// liveness query.
+	if (scene_depth_sampler.is_valid() && scene_depth_sampler_device == p_device) {
+		return scene_depth_sampler;
+	}
+	if (scene_depth_sampler.is_valid() && scene_depth_sampler_device) {
+		scene_depth_sampler_device->free(scene_depth_sampler);
+	}
+	scene_depth_sampler = RID();
+	scene_depth_sampler_device = nullptr;
+	// NEAREST by contract: linear-filtered depth across silhouettes fabricates
+	// mid-edge depths — the artifact the clip exists to prevent (Slice-A rule).
+	RD::SamplerState sampler_state;
+	sampler_state.min_filter = RD::SAMPLER_FILTER_NEAREST;
+	sampler_state.mag_filter = RD::SAMPLER_FILTER_NEAREST;
+	sampler_state.repeat_u = RD::SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE;
+	sampler_state.repeat_v = RD::SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE;
+	RID sampler = p_device->sampler_create(sampler_state);
+	if (sampler.is_valid()) {
+		scene_depth_sampler = sampler;
+		scene_depth_sampler_device = p_device;
+	}
+	return sampler;
+}
+
+RID TileRenderer::TileRasterizerStage::_ensure_scene_depth_fallback(RenderingDevice *p_device) {
+	ERR_FAIL_NULL_V(p_device, RID());
+	if (scene_depth_fallback_texture.is_valid() && scene_depth_fallback_device == p_device &&
+			p_device->texture_is_valid(scene_depth_fallback_texture)) {
+		return scene_depth_fallback_texture;
+	}
+	if (scene_depth_fallback_texture.is_valid() && scene_depth_fallback_device &&
+			scene_depth_fallback_device->texture_is_valid(scene_depth_fallback_texture)) {
+		scene_depth_fallback_device->free(scene_depth_fallback_texture);
+	}
+	scene_depth_fallback_texture = RID();
+	scene_depth_fallback_device = nullptr;
+	// 1x1 R32F cleared to 1.0 = the forward-Z far clear: the shader's background
+	// check reads it as "no mesh at this pixel" -> no clip. Stage-owned so it also
+	// exists on local devices where TextureStorage defaults are unavailable.
+	RD::TextureFormat fmt;
+	fmt.format = RD::DATA_FORMAT_R32_SFLOAT;
+	fmt.width = 1;
+	fmt.height = 1;
+	fmt.depth = 1;
+	fmt.array_layers = 1;
+	fmt.mipmaps = 1;
+	fmt.texture_type = RD::TEXTURE_TYPE_2D;
+	fmt.samples = RD::TEXTURE_SAMPLES_1;
+	fmt.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_UPDATE_BIT;
+	const float far_clear = 1.0f;
+	Vector<uint8_t> data;
+	data.resize(sizeof(float));
+	memcpy(data.ptrw(), &far_clear, sizeof(float));
+	Vector<Vector<uint8_t>> initial;
+	initial.push_back(data);
+	RID texture = p_device->texture_create(fmt, RD::TextureView(), initial);
+	if (texture.is_valid()) {
+		p_device->set_resource_name(texture, "GS_TileRenderer_SceneDepthFallback");
+		scene_depth_fallback_texture = texture;
+		scene_depth_fallback_device = p_device;
+	}
+	return texture;
+}
+
+RID TileRenderer::TileRasterizerStage::_resolve_scene_depth_binding(RenderingDevice *p_device) {
+	ERR_FAIL_NULL_V(p_device, RID());
+	RID scene_depth = owner.scene_depth_clip_texture;
+	if (scene_depth.is_valid() && p_device->texture_is_valid(scene_depth)) {
+		const RD::TextureFormat fmt = p_device->texture_get_format(scene_depth);
+		if (fmt.texture_type != RD::TEXTURE_TYPE_2D || fmt.array_layers > 1) {
+			// Multiview array (or otherwise unbindable as sampler2D): degrade to the
+			// fallback — semantically "no mesh", i.e. exact Slice-A behavior.
+			scene_depth = RID();
+		}
+	} else {
+		scene_depth = RID();
+	}
+	if (!scene_depth.is_valid()) {
+		scene_depth = _ensure_scene_depth_fallback(p_device);
+	}
+	return scene_depth;
+}
+
 uint64_t TileRenderer::TileRasterizerStage::dispatch_tile_rasterizer_compute(uint32_t p_gaussian_count, RID p_buffer_uniform_set,
         RID p_param_uniform_set, RID p_image_uniform_set, RenderingDevice *p_submission_device) {
     if (!owner.shader_resources.tile_raster_compute_pipeline.is_valid() || owner.grid_state.tiles_x == 0 || owner.grid_state.tiles_y == 0) {
@@ -291,13 +379,22 @@ RID TileRenderer::TileRasterizerStage::acquire_raster_buffer_uniform_set(Renderi
 	ERR_FAIL_COND_V(!owner.instance_pipeline_buffers.splat_ref_buffer.is_valid(), RID());
 	ERR_FAIL_COND_V(!owner.instance_pipeline_buffers.indirect_count_buffer.is_valid(), RID());
 
+    // Resolve the binding-7 scene depth BEFORE the cache check: an engine render-buffer
+    // reallocation (resize/scaling change) is invisible to descriptor_generation, so
+    // the per-call RID compare is the designed invalidation for it.
+    RID scene_depth_binding = _resolve_scene_depth_binding(p_device);
+    ERR_FAIL_COND_V(!scene_depth_binding.is_valid(), RID());
+    RID scene_depth_sampler_rid = _ensure_scene_depth_sampler(p_device);
+    ERR_FAIL_COND_V(!scene_depth_sampler_rid.is_valid(), RID());
+
     if (cached_raster_buffer_uniform_set.is_valid() &&
             cached_generation == owner.descriptor_generation &&
             cached_raster_buffer_device == p_device &&
             cached_raster_gaussian_buffer == p_gaussian_buffer &&
             cached_raster_sorted_indices == p_sorted_indices &&
             cached_raster_splat_ref_buffer == owner.instance_pipeline_buffers.splat_ref_buffer &&
-            cached_raster_indirect_count_buffer == owner.instance_pipeline_buffers.indirect_count_buffer) {
+            cached_raster_indirect_count_buffer == owner.instance_pipeline_buffers.indirect_count_buffer &&
+            cached_raster_scene_depth == scene_depth_binding) {
         return cached_raster_buffer_uniform_set;
     }
 
@@ -372,6 +469,15 @@ RID TileRenderer::TileRasterizerStage::acquire_raster_buffer_uniform_set(Renderi
 	audit_uniform.append_id(owner.debug_stats.debug_splat_audit_buffer);
 	uniforms.push_back(audit_uniform);
 
+	// Binding 7: scene depth for the per-splat clip (slice D). Always populated —
+	// the shader declares it unconditionally; the UBO enable flag gates every read.
+	RD::Uniform scene_depth_uniform;
+	scene_depth_uniform.uniform_type = RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE;
+	scene_depth_uniform.binding = 7;
+	scene_depth_uniform.append_id(scene_depth_sampler_rid);
+	scene_depth_uniform.append_id(scene_depth_binding);
+	uniforms.push_back(scene_depth_uniform);
+
 	// ISSUE-002: Verify all buffers belong to p_device before creating uniform set.
 	ERR_FAIL_COND_V(!_verify_buffer_device_ownership(p_device, p_gaussian_buffer, "raster:gaussian_buffer"), RID());
 	ERR_FAIL_COND_V(!_verify_buffer_device_ownership(p_device, p_sorted_indices, "raster:sorted_indices"), RID());
@@ -389,6 +495,7 @@ RID TileRenderer::TileRasterizerStage::acquire_raster_buffer_uniform_set(Renderi
     cached_raster_sorted_indices = p_sorted_indices;
     cached_raster_splat_ref_buffer = owner.instance_pipeline_buffers.splat_ref_buffer;
     cached_raster_indirect_count_buffer = owner.instance_pipeline_buffers.indirect_count_buffer;
+    cached_raster_scene_depth = scene_depth_binding;
     cached_raster_buffer_device = p_device;
     cached_generation = owner.descriptor_generation;
 
@@ -412,13 +519,20 @@ RID TileRenderer::TileRasterizerStage::acquire_raster_compute_buffer_uniform_set
     ERR_FAIL_COND_V(!owner.instance_pipeline_buffers.splat_ref_buffer.is_valid(), RID());
     ERR_FAIL_COND_V(!owner.instance_pipeline_buffers.indirect_count_buffer.is_valid(), RID());
 
+    // Binding-7 scene depth resolved BEFORE the cache check (see the fragment builder).
+    RID scene_depth_binding = _resolve_scene_depth_binding(p_device);
+    ERR_FAIL_COND_V(!scene_depth_binding.is_valid(), RID());
+    RID scene_depth_sampler_rid = _ensure_scene_depth_sampler(p_device);
+    ERR_FAIL_COND_V(!scene_depth_sampler_rid.is_valid(), RID());
+
     if (cached_raster_compute_buffer_uniform_set.is_valid() &&
             cached_generation == owner.descriptor_generation &&
             cached_raster_compute_buffer_device == p_device &&
             cached_raster_compute_gaussian_buffer == p_gaussian_buffer &&
             cached_raster_compute_sorted_indices == p_sorted_indices &&
             cached_raster_compute_splat_ref_buffer == owner.instance_pipeline_buffers.splat_ref_buffer &&
-            cached_raster_compute_indirect_count_buffer == owner.instance_pipeline_buffers.indirect_count_buffer) {
+            cached_raster_compute_indirect_count_buffer == owner.instance_pipeline_buffers.indirect_count_buffer &&
+            cached_raster_compute_scene_depth == scene_depth_binding) {
         return cached_raster_compute_buffer_uniform_set;
     }
 
@@ -493,6 +607,15 @@ RID TileRenderer::TileRasterizerStage::acquire_raster_compute_buffer_uniform_set
     audit_uniform.append_id(owner.debug_stats.debug_splat_audit_buffer);
     uniforms.push_back(audit_uniform);
 
+    // Binding 7: scene depth for the per-splat clip (slice D). Always populated —
+    // the shader declares it unconditionally; the UBO enable flag gates every read.
+    RD::Uniform scene_depth_uniform;
+    scene_depth_uniform.uniform_type = RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE;
+    scene_depth_uniform.binding = 7;
+    scene_depth_uniform.append_id(scene_depth_sampler_rid);
+    scene_depth_uniform.append_id(scene_depth_binding);
+    uniforms.push_back(scene_depth_uniform);
+
     // ISSUE-002: Verify key buffers belong to p_device before creating uniform set.
     ERR_FAIL_COND_V(!_verify_buffer_device_ownership(p_device, p_gaussian_buffer, "compute_raster:gaussian_buffer"), RID());
     ERR_FAIL_COND_V(!_verify_buffer_device_ownership(p_device, p_sorted_indices, "compute_raster:sorted_indices"), RID());
@@ -510,6 +633,7 @@ RID TileRenderer::TileRasterizerStage::acquire_raster_compute_buffer_uniform_set
     cached_raster_compute_sorted_indices = p_sorted_indices;
     cached_raster_compute_splat_ref_buffer = owner.instance_pipeline_buffers.splat_ref_buffer;
     cached_raster_compute_indirect_count_buffer = owner.instance_pipeline_buffers.indirect_count_buffer;
+    cached_raster_compute_scene_depth = scene_depth_binding;
     cached_raster_compute_buffer_device = p_device;
     cached_generation = owner.descriptor_generation;
 

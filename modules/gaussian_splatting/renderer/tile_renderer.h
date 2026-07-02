@@ -452,6 +452,12 @@ private:
     TileConfigState config_state;
     TileGridState grid_state;
     TileRenderSettings render_settings;
+    // Per-splat scene-depth clip (slice D): the last VALID scene depth latched from
+    // RenderParams. Depth-less passes (shadow: null render_data) intentionally do not
+    // clear it, so the raster set-0 binding stays stable across passes within a frame
+    // (their UBO enable flag is 0, so it is never sampled); validity is re-checked at
+    // uniform-set acquire time and degrades to the stage fallback texture.
+    RID scene_depth_clip_texture;
     AdaptiveOverlapBudgetRuntimeState adaptive_overlap_budget_runtime_state;
     bool adaptive_overlap_budget_runtime_state_initialized = false;
     TileResourceController resource_controller;

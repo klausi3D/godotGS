@@ -14,6 +14,7 @@
 
 #include "tile_renderer.h"
 #include "gaussian_gpu_layout.h"
+#include "../interfaces/output_compositor_interfaces.h"
 #include "tile_lighting_abi.h"
 #include "core/error/error_macros.h"
 #include "core/os/os.h"
@@ -276,11 +277,13 @@ TileRenderParamsGPU TileRenderer::TileRenderParamsBuilder::build_params(const Re
 	// Use Godot's projection helpers; clip tolerance is handled in shader via cull_far_tolerance.
 	params.near_plane = p_params.projection.get_z_near();
 	params.far_plane = p_params.projection.get_z_far();
+	bool near_far_fallback_used = false;
 	if (params.near_plane < 0.0f || params.far_plane <= params.near_plane) {
 		WARN_PRINT_ONCE(vformat("[TileRenderer] Invalid near/far extracted: near=%f, far=%f. Using fallback values.",
 				params.near_plane, params.far_plane));
 		params.near_plane = 0.1f;
 		params.far_plane = 1000.0f;
+		near_far_fallback_used = true;
 	}
 
 	// Diagnostic logging removed; use debug overlays instead.
@@ -450,6 +453,27 @@ TileRenderParamsGPU TileRenderer::TileRenderParamsBuilder::build_params(const Re
 	params.hotspot_cull_config[1] = MAX(0.0f, p_params.hotspot_min_radius_px);
 	params.hotspot_cull_config[2] = 0.0f;
 	params.hotspot_cull_config[3] = 0.0f;
+
+	// Per-splat scene-depth clip (compositing slice D). eps_norm converts the shared
+	// view-space epsilon contract into the payload's normalized linear-depth space using
+	// the SAME near/far pair (and the same 1e-4 denominator guard) that defined
+	// linear_depth at binning time. If the near/far FALLBACK above fired, that pair no
+	// longer matches the scene camera's — the normalized comparison would misplace the
+	// mesh depth (e.g. sky at scene-far 500 lands mid-range against fallback far 1000),
+	// so the clip is disabled for such frames rather than clipping wrongly.
+	bool scene_clip_enabled = p_params.scene_depth_clip_enabled;
+	if (scene_clip_enabled && near_far_fallback_used) {
+		WARN_PRINT_ONCE("[TileRenderer] Per-splat scene-depth clip disabled this session's fallback-projection frames: GS near/far fallback diverges from the scene camera pair.");
+		scene_clip_enabled = false;
+	}
+	params.scene_depth_clip_config[0] = scene_clip_enabled ? 1.0f : 0.0f;
+	params.scene_depth_clip_config[1] = GS_COMPOSITE_DEPTH_EPSILON_VIEW / MAX(params.far_plane - params.near_plane, 1e-4f);
+	params.scene_depth_clip_config[2] = p_params.scene_depth_linearize_mul;
+	params.scene_depth_clip_config[3] = p_params.scene_depth_linearize_add;
+	params.scene_depth_clip_config2[0] = p_params.scene_depth_z_near;
+	params.scene_depth_clip_config2[1] = p_params.scene_depth_z_far;
+	params.scene_depth_clip_config2[2] = p_params.scene_depth_is_ortho ? 1.0f : 0.0f;
+	params.scene_depth_clip_config2[3] = 0.0f;
 
 	return params;
 }

@@ -183,6 +183,13 @@
         RID acquire_raster_param_uniform_set(RenderingDevice *p_device, const RID &p_state_uniform);
         RID acquire_raster_compute_param_uniform_set(RenderingDevice *p_device, const RID &p_state_uniform);
         RID acquire_raster_image_uniform_set(RenderingDevice *p_device);
+        // Per-splat scene-depth clip (slice D): resolve what set-0 binding 7 binds on
+        // this device — the owner's latched scene depth when it is a valid single-layer
+        // 2D texture on p_device, else a stage-owned 1x1 far-cleared fallback ("no mesh
+        // anywhere"; the shader's background check turns it into no-clip).
+        RID _resolve_scene_depth_binding(RenderingDevice *p_device);
+        RID _ensure_scene_depth_sampler(RenderingDevice *p_device);
+        RID _ensure_scene_depth_fallback(RenderingDevice *p_device);
         uint64_t dispatch_tile_rasterizer_compute(uint32_t p_gaussian_count, RID p_buffer_uniform_set, RID p_param_uniform_set,
                 RID p_image_uniform_set, RenderingDevice *p_submission_device);
         uint64_t dispatch_tile_rasterizer(uint32_t p_gaussian_count, RID p_buffer_uniform_set, RID p_param_uniform_set,
@@ -214,6 +221,17 @@
         RID cached_raster_image_output;
         RID cached_raster_image_depth;
         RID cached_raster_image_normal;
+        // Per-splat scene-depth clip (slice D): the texture RID bound at set-0 binding 7
+        // per variant (part of the cache keys — an engine render-buffer reallocation is
+        // invisible to descriptor_generation, so the per-call RID compare is the designed
+        // invalidation), plus the stage-owned NEAREST sampler and 1x1 far-cleared
+        // fallback texture (created lazily per device, freed on descriptor invalidation).
+        RID cached_raster_scene_depth;
+        RID cached_raster_compute_scene_depth;
+        RID scene_depth_sampler;
+        RenderingDevice *scene_depth_sampler_device = nullptr;
+        RID scene_depth_fallback_texture;
+        RenderingDevice *scene_depth_fallback_device = nullptr;
         // Generation counter replaces 17 per-RID owner-side dependency checks.
         uint64_t cached_generation = 0;
     };

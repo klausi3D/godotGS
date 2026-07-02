@@ -992,6 +992,10 @@ void GaussianSplatManager::initialize_module() {
 	// in-render render_pipeline_create. The lazy reformat path catches format mismatches.
 	GLOBAL_DEF("rendering/gaussian_splatting/init/eager_raster_pipeline", true);
 	GLOBAL_DEF("rendering/gaussian_splatting/composite/depth_test", true);
+	// Per-splat scene-depth clip (compositing slice D): clip splats behind opaque meshes
+	// inside the raster accumulation (mid-cloud mesh<->splat interleave). Subordinate to
+	// composite/depth_test; disabling restores the exact whole-pixel composite behavior.
+	GLOBAL_DEF("rendering/gaussian_splatting/composite/per_splat_depth_clip", true);
     // Scene composite depth policy: 0=strict (skip frame if depth contract is missing), 1=relaxed (allow no-depth blend fallback).
     GLOBAL_DEF("rendering/gaussian_splatting/composite/scene_depth_policy", 0);
     // Streaming route policy: 0=resident (no streaming overhead), 1=streaming (current default).

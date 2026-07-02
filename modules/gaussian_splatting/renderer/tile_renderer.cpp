@@ -443,6 +443,13 @@ private:
 		bool tighter_bounds_changed = (renderer.render_settings.enable_tighter_bounds != tighter_bounds_requested);
 		renderer.render_settings.enable_tighter_bounds = tighter_bounds_requested;
 
+		// Per-splat scene-depth clip (slice D): latch the scene depth for the raster
+		// set-0 binding. Only overwrite on valid input — depth-less passes (shadow)
+		// keep the previous RID so the bound texture stays stable across passes.
+		if (params.scene_depth_texture.is_valid()) {
+			renderer.scene_depth_clip_texture = params.scene_depth_texture;
+		}
+
 		bool sh_amortization_requested = params.request_sh_amortization;
 		uint32_t sh_divisor = params.sh_amortization_divisor;
 		if (sh_amortization_requested && resolved_total_gaussians == 0) {
@@ -2139,6 +2146,13 @@ Vector<String> TileRenderer::_build_raster_shader_defines() const {
 	defines.push_back(vformat("#define GS_TILE_SPLAT_CAPACITY %d\n", MAX_SPLATS_PER_TILE));
 	const uint32_t raster_cap = CLAMP<uint32_t>(g_gpu_sorting_config.max_raster_splats_per_tile, 256u, 131072u);
 	defines.push_back(vformat("#define GS_MAX_RASTER_SPLATS_PER_TILE %d\n", raster_cap));
+	// Per-splat scene-depth clip (slice D): the raster needs the sort key width to pick
+	// break vs continue on the first behind-mesh splat. 64-bit keys pack the exact fp32
+	// payload depth (traversal strictly non-decreasing in the compared value -> break is
+	// sound); quantized keys are only bucket-monotonic -> continue. Same #425 single
+	// source the binning defines use.
+	const SortKeyConfig raster_key_config = _get_effective_sort_key_config();
+	defines.push_back(vformat("#define GS_SORT_KEY_BITS %d\n", raster_key_config.key_bits));
 	if (render_settings.global_sort_enabled) {
 		defines.push_back("#define GS_TILE_GLOBAL_SORT 1\n");
 	}
@@ -3071,6 +3085,20 @@ void TileRenderer::_invalidate_descriptor_cache() {
     raster_stage.cached_raster_image_output = RID();
     raster_stage.cached_raster_image_depth = RID();
     raster_stage.cached_raster_image_normal = RID();
+    // Per-splat scene-depth clip (slice D): drop the bound-RID keys and the stage-owned
+    // sampler/fallback so the next acquire re-resolves them on the current device.
+    raster_stage.cached_raster_scene_depth = RID();
+    raster_stage.cached_raster_compute_scene_depth = RID();
+    if (raster_stage.scene_depth_sampler.is_valid() && raster_stage.scene_depth_sampler_device) {
+        raster_stage.scene_depth_sampler_device->free(raster_stage.scene_depth_sampler);
+    }
+    raster_stage.scene_depth_sampler = RID();
+    raster_stage.scene_depth_sampler_device = nullptr;
+    if (raster_stage.scene_depth_fallback_texture.is_valid() && raster_stage.scene_depth_fallback_device) {
+        raster_stage.scene_depth_fallback_device->free(raster_stage.scene_depth_fallback_texture);
+    }
+    raster_stage.scene_depth_fallback_texture = RID();
+    raster_stage.scene_depth_fallback_device = nullptr;
 }
 
 bool TileRenderer::_update_instance_pipeline_bindings(const RenderParams &p_params) {

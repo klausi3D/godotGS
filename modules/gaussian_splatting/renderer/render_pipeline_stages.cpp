@@ -14,6 +14,7 @@
 #include "core/string/ustring.h"
 #include "core/templates/hashfuncs.h"
 #include "gpu_debug_utils.h"
+#include "../interfaces/gs_scene_depth_linearize.h"
 #include "../interfaces/output_compositor.h"
 #include "../interfaces/gpu_culler.h"
 #include "../interfaces/gpu_sorting_pipeline.h"
@@ -197,6 +198,12 @@ static bool _pipeline_trace_enabled(GaussianSplatRenderer *p_renderer) {
 
 constexpr char GS_SCENE_COMPOSITE_DEPTH_TEST_SETTING[] = "rendering/gaussian_splatting/composite/depth_test";
 constexpr bool GS_SCENE_COMPOSITE_DEPTH_TEST_DEFAULT = true;
+// Per-splat scene-depth clip (compositing slice D): clip splats behind opaque meshes
+// INSIDE the raster accumulation, enabling mid-cloud mesh<->splat interleave. Subordinate
+// to the depth_test master switch above; kept as its own setting as the R3 rollback lever
+// (setting it false restores the exact whole-pixel Slice-A behavior at runtime).
+constexpr char GS_SCENE_COMPOSITE_PER_SPLAT_CLIP_SETTING[] = "rendering/gaussian_splatting/composite/per_splat_depth_clip";
+constexpr bool GS_SCENE_COMPOSITE_PER_SPLAT_CLIP_DEFAULT = true;
 
 static bool _is_scene_depth_composite_expected(RenderDataRD *p_render_data) {
 	if (!p_render_data || !p_render_data->render_buffers.is_valid()) {
@@ -690,6 +697,22 @@ static uint64_t _compute_cull_config_signature(const GaussianSplatRenderer &p_re
 	seed = _hash_float_bits(config.distance_cull_max_rate, seed);
 	seed = _hash_float_bits(state.tiny_splat_screen_radius_px, seed);
 	seed = _hash_u64(static_cast<uint64_t>(MAX(0, p_renderer.get_performance_settings().max_splats)), seed);
+	// Per-splat scene-depth clip (slice D): toggling either setting changes the raster
+	// output under a static camera, so it must invalidate the compositor's cached
+	// render (cull-signature-cache rule: every new knob joins the signature).
+	{
+		ProjectSettings *ps = ProjectSettings::get_singleton();
+		bool depth_test = GS_SCENE_COMPOSITE_DEPTH_TEST_DEFAULT;
+		bool per_splat_clip = GS_SCENE_COMPOSITE_PER_SPLAT_CLIP_DEFAULT;
+		if (ps && ps->has_setting(GS_SCENE_COMPOSITE_DEPTH_TEST_SETTING)) {
+			depth_test = (bool)ps->get_setting_with_override(GS_SCENE_COMPOSITE_DEPTH_TEST_SETTING);
+		}
+		if (ps && ps->has_setting(GS_SCENE_COMPOSITE_PER_SPLAT_CLIP_SETTING)) {
+			per_splat_clip = (bool)ps->get_setting_with_override(GS_SCENE_COMPOSITE_PER_SPLAT_CLIP_SETTING);
+		}
+		seed = _hash_bool(depth_test, seed);
+		seed = _hash_bool(per_splat_clip, seed);
+	}
 	return seed;
 }
 
@@ -2165,6 +2188,38 @@ Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_vi
 	render_params.cluster_size = 0;
 	render_params.cluster_max_elements = 0;
 	render_params.light_mask = 0xFFFFFFFFu;
+
+	// Per-splat scene-depth clip (compositing slice D): give the raster the opaque
+	// scene depth so splats behind meshes are clipped inside the accumulation loop.
+	// Active only when: the composite depth test is on (master switch), the dedicated
+	// per_splat_depth_clip setting is on (R3 rollback lever), a single-view 2D scene
+	// depth exists, and the scene camera data is available for the linearize pair.
+	// Everything else (shadow pass with null render_data, painterly, multiview) keeps
+	// the struct defaults => bit-identical behavior.
+	if (p_render_data && p_render_data->scene_data && _is_scene_depth_composite_expected(p_render_data)) {
+		bool per_splat_clip = GS_SCENE_COMPOSITE_PER_SPLAT_CLIP_DEFAULT;
+		ProjectSettings *clip_ps = ProjectSettings::get_singleton();
+		if (clip_ps && clip_ps->has_setting(GS_SCENE_COMPOSITE_PER_SPLAT_CLIP_SETTING)) {
+			per_splat_clip = (bool)clip_ps->get_setting_with_override(GS_SCENE_COMPOSITE_PER_SPLAT_CLIP_SETTING);
+		}
+		RenderSceneBuffersRD *clip_buffers = Object::cast_to<RenderSceneBuffersRD>(p_render_data->render_buffers.ptr());
+		RID clip_depth = clip_buffers ? clip_buffers->get_depth_texture() : RID();
+		if (per_splat_clip && clip_depth.is_valid() && clip_buffers->get_view_count() == 1) {
+			const GSSceneDepthLinearize lin = gs_derive_scene_depth_linearize(
+					p_render_data->scene_data->cam_projection,
+					p_render_data->scene_data->cam_orthogonal,
+					p_render_data->scene_data->z_near, p_render_data->scene_data->z_far);
+			render_params.scene_depth_texture = clip_depth;
+			render_params.scene_depth_linearize_mul = lin.mul;
+			render_params.scene_depth_linearize_add = lin.add;
+			render_params.scene_depth_z_near = p_render_data->scene_data->z_near;
+			render_params.scene_depth_z_far = p_render_data->scene_data->z_far;
+			render_params.scene_depth_is_ortho = p_render_data->scene_data->cam_orthogonal;
+			render_params.scene_depth_clip_enabled = true;
+		}
+	}
+	performance_state.metrics.raster_scene_clip_active = render_params.scene_depth_clip_enabled;
+
 	float direct_light_scale = 0.5f;
 	float indirect_sh_scale = 1.0f;
 	float shadow_strength = 1.0f;
@@ -2547,6 +2602,18 @@ bool RenderPipelineStages::RasterStage::try_reuse_cached_render(const GaussianSp
 	}
 
 	const bool require_scene_depth = _is_scene_depth_composite_expected(p_input.render_data);
+
+	// Per-splat scene-depth clip (slice D): with the clip baked into the raster, the
+	// output depends on the scene depth CONTENT (a mesh animating under a static camera
+	// changes no reuse signature — no readback-free hash of depth content exists), so a
+	// cached render can never be proven fresh. Force a re-raster while the clip is
+	// active. Known, documented tradeoff: static-camera reuse is lost in scenes with a
+	// valid scene depth while the feature is on; the per_splat_depth_clip setting is the
+	// per-project relief valve.
+	if (require_scene_depth && performance_state.metrics.raster_scene_clip_active) {
+		return false;
+	}
+
 	RID cached_render = output_compositor->get_final_render_texture();
 	if (!output_compositor->can_reuse_cached_render(p_input.world_to_camera_transform, p_input.projection,
 				p_input.viewport_size, r_output.painterly_active, cached_render,

@@ -397,6 +397,9 @@ static Dictionary _build_production_metrics_snapshot(GaussianSplatRenderer &p_re
 	metrics["data_source"] = perf.data_source;
 	metrics["data_source_error"] = perf.data_source_error;
 	metrics["raster_path"] = _resolve_production_raster_path(perf, p_stage_metrics, p_stage_valid);
+	// Per-splat scene-depth clip (slice D): distinguishes mid-cloud clipping frames from
+	// whole-pixel-composite-only frames (off by setting, no scene depth, or degraded).
+	metrics["raster_scene_clip_active"] = perf.raster_scene_clip_active;
 	_append_raster_specialization_metrics(perf, metrics);
 	const auto &render_config = state_view.get_render_config_view();
 	metrics["render_mode"] = static_cast<int64_t>(render_config.render_mode);

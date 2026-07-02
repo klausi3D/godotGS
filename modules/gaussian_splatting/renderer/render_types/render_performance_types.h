@@ -55,6 +55,10 @@ struct PerformanceMetrics {
 	String raster_path = "unknown";
 	String raster_path_reason;
 	bool raster_compute_allowed = false;
+	// Per-splat scene-depth clip active this frame (compositing slice D). Distinguishes
+	// "clipping mid-cloud" from "whole-pixel composite only" (off by setting, no scene
+	// depth, multiview, or degraded at the binding site).
+	bool raster_scene_clip_active = false;
 	uint32_t raster_total_tiles = 0;
 	uint32_t raster_empty_tiles = 0;
 	uint32_t raster_overflow_tiles = 0;
