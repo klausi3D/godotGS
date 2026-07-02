@@ -20,17 +20,19 @@
 // ProjectedGaussian payload layout (must match tile_projection_common.glsl).
 // Full layout (36 bytes):
 //   data[0]: screen XY as packHalf2x16 (4 bytes)
-//   data[1]: depth (float16) + opacity (unorm8) + flags (uint8)
+//   data[1]: depth as raw float32 (was float16 -- f16 far-field quantization exceeded the
+//            composite depth_epsilon and caused silhouette shimmer against mesh depth)
 //   data[2]: color as R11G11B10F packed format
 //   data[3]: conic.x as float32
 //   data[4]: conic.z as float32
 //   data[5]: conic.y as float32
 //   data[6]: global_idx as uint32
 //   data[7]: normal.xy as half2
-//   data[8]: normal.z as half (high 16 bits unused)
+//   data[8]: normal.z as half (low 16) + opacity (unorm8) + flags (uint8) (high 16)
 //
-// Packed layout (32 bytes, optional): conic.y packed as float16 + 16-bit global_idx.
-// This is lower precision and limited to 16-bit indices, so it is gated at runtime.
+// Packed layout (32 bytes, optional): conic.y packed as float16 + 16-bit global_idx;
+// normal.z+opacity+flags share data[7]. Lower precision and limited to 16-bit indices,
+// so it is gated at runtime.
 struct TileProjectionLayout {
 	struct alignas(4) Payload {
 		uint32_t data[9];
