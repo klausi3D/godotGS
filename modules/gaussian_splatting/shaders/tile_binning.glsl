@@ -1139,16 +1139,18 @@ void main() {
                 params.opacity_multiplier * size_fade * aspect_fade * lens_fade * alpha_rescale_proj, 0.0, 1.0);
         raster_peak_opacity = min(raster_peak_opacity + GS_RASTER_ALPHA_THRESHOLD * 0.5, 1.0);
         // The rasterizer evaluates alpha with gs_exp_fast (Schraudolph bit-trick, no
-        // error-correcting offset -> up to ~5% OVERestimate near the cutoff; see
-        // platform_compat.glsl) BEFORE its threshold test, so pixels slightly outside
-        // the exact 1/255 contour can still shade. Widen the tightened contour by the
-        // approximation's overestimate bound so it stays a strict superset of what the
-        // raster actually shades: shaded iff exact_alpha >= tau/(1+eps), so derive the
-        // iso against that reduced threshold. Not a quality knob -- the factor is the
-        // documented error bound of the raster's own exp approximation, and it drops to
-        // exactly 1.0 when the precise exp() path is compiled (GS_SAFE_EXP).
+        // error-correcting offset; see platform_compat.glsl) BEFORE its threshold test,
+        // so pixels slightly outside the exact 1/255 contour can still shade. Widen the
+        // tightened contour by the approximation's TRUE overestimate bound so it stays a
+        // strict superset of what the raster shades: the linear-mantissa exp2 chord lies
+        // above the convex exact curve with maximum relative error at the octave
+        // midpoint, 1.5/sqrt(2) - 1 ~= +6.066%. Guard = 1.0625 (>= the bound, exact in
+        // binary fp). Shaded iff exact_alpha >= tau/(1+eps_max) -> derive the iso against
+        // that reduced threshold. Not a quality knob -- this is the raster's own exp
+        // approximation error bound, and it drops to exactly 1.0 when the precise exp()
+        // path is compiled (GS_SAFE_EXP).
 #if GS_FAST_EXP
-        const float fast_exp_alpha_guard = 1.05;
+        const float fast_exp_alpha_guard = 1.0625;
 #else
         const float fast_exp_alpha_guard = 1.0;
 #endif
