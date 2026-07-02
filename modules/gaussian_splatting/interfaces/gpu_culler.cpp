@@ -92,6 +92,11 @@ void GPUCuller::clear_instance_pipeline_inputs() {
     instance_inputs = InstancePipelineInputs();
     instance_inputs_valid = false;
     last_instance_visible_chunk_count = 0;
+    // Reset the frustum-cull latch with the visible-count latch: after a pipeline
+    // clear (missing buffers / route change) a stale count would describe the
+    // previous scene/camera until the next async readback lands, and could even
+    // exceed the new culling_candidate_count.
+    last_instance_frustum_culled_count = 0;
     instance_readback_state.pending = false;
     instance_readback_state.generation++;
     instance_readback_state.pending_request_id = 0;
@@ -1330,6 +1335,9 @@ bool GPUCuller::_gpu_frustum_cull_instance(const CullParams &p_params, const Ins
     const uint32_t chunk_dispatch = p_inputs.dispatch_chunk_count;
     if (instance_count == 0 || chunk_dispatch == 0) {
         last_instance_visible_chunk_count = 0;
+        // Nothing dispatched → nothing frustum-culled; don't let a stale latch leak
+        // into the next populated frame's summary.
+        last_instance_frustum_culled_count = 0;
         r_summary.visible_after_culling = 0;
         r_summary.culling_candidate_count = 0;
         r_summary.used_instance_pipeline = true;
