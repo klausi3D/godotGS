@@ -1463,7 +1463,11 @@ bool GPUCuller::_gpu_frustum_cull_instance(const CullParams &p_params, const Ins
     r_summary.culling_candidate_count = candidate_count > UINT32_MAX ? UINT32_MAX : static_cast<uint32_t>(candidate_count);
     // M0: surface the instance-path frustum-cull count (1-frame-late async latch; 0 until the
     // first readback lands). CHUNK granularity — see last_instance_frustum_culled_count.
-    r_summary.culled_frustum_count = last_instance_frustum_culled_count;
+    // Clamped to this frame's candidate domain: when the instance contract shrinks WITHOUT
+    // a clear (set_instance_pipeline_inputs repopulates in place), the latch may still hold
+    // a count from an older, larger dispatch until the next readback lands — it must never
+    // exceed what this frame could possibly have culled.
+    r_summary.culled_frustum_count = MIN(last_instance_frustum_culled_count, r_summary.culling_candidate_count);
     r_summary.used_instance_pipeline = true;
     r_summary.culling_time_ms = (OS::get_singleton()->get_ticks_usec() - p_start_time_usec) / 1000.0f;
     culling_state.cull_time_ms = r_summary.culling_time_ms;
