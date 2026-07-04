@@ -2259,12 +2259,15 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Resident-selected failure does not p
     g_quantization_config.per_chunk_quantization = true;
     g_quantization_config.position_bits = 16;
     g_quantization_config.scale_bits = 12;
+    // Note: quantize_scales left at the config default (false). The resident quantized
+    // atlas forces scale quantization on internally (the 80-byte layout has no unquantized
+    // scale field), so this must NOT rejection-fall-back — it must publish and render.
     g_quantization_config.quantize_scales = false;
 
     GaussianSplatRenderer::WorldSubmissionContract contract;
     contract.gaussian_data = data;
     contract.static_chunks = make_single_static_chunk(chunk_size, data->get_aabb());
-    contract.debug_label = "resident_rejection_guard";
+    contract.debug_label = "resident_quantization_supported";
     contract.has_desired_residency_hint = true;
     contract.desired_residency_hint = GaussianSplatSceneDirector::SUBMISSION_RESIDENCY_HINT_RESIDENT;
     contract.max_splats = int(chunk_size);
@@ -2279,21 +2282,22 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Resident-selected failure does not p
 
     renderer->render_scene_instance(&render_data);
 
+    // GS-PERF-Q80B: the resident atlas now supports per-chunk quantization, so the publish
+    // must SUCCEED (resident backend, quantized contract) rather than fall back with
+    // resident_quantization_unsupported.
     const Dictionary stats = renderer->get_render_stats();
     const String route_uid = stats.get("route_uid", String());
-    CHECK_MESSAGE(route_uid.begins_with(String(RenderRouteUID::COMMON_SKIP_RESIDENT_NOT_FEASIBLE)),
-            vformat("Expected typed resident rejection route, got '%s'", route_uid));
+    CHECK_MESSAGE(!route_uid.begins_with(String(RenderRouteUID::COMMON_SKIP_RESIDENT_NOT_FEASIBLE)),
+            vformat("Resident quantization must no longer reject, got route '%s'", route_uid));
     CHECK_MESSAGE(stats.get("instance_backend_policy", String()) == String("resident"),
-            "Resident rejection must keep resident backend diagnostics");
+            "Resident quantization keeps the resident backend");
     const String backend_reason = stats.get("backend_selection_reason", String());
-    CHECK_MESSAGE(backend_reason.find("not_feasible") != -1,
-            vformat("Expected resident rejection diagnostics, got '%s'", backend_reason));
-    CHECK_MESSAGE(backend_reason.find("resident_quantization_unsupported") != -1,
-            vformat("Expected resident quantization rejection to be preserved, got '%s'", backend_reason));
-    CHECK_MESSAGE(stats.get("cull_route_uid", String()) == route_uid,
-            "Resident rejection must stamp matching cull skip diagnostics");
-    CHECK_MESSAGE(stats.get("cull_route_reason", String()) == String("resident_not_feasible_resident_quantization_unsupported"),
-            "Resident rejection must stamp a typed cull skip reason");
+    CHECK_MESSAGE(backend_reason.find("resident_quantization_unsupported") == -1,
+            vformat("Resident quantization rejection reason must be gone, got '%s'", backend_reason));
+    CHECK_MESSAGE(renderer->has_instance_pipeline_buffers(),
+            "Resident quantized publish must produce instance pipeline buffers");
+    CHECK_MESSAGE(renderer->is_instance_contract_ready(),
+            "Resident quantized publish must be a ready contract");
 
     g_quantization_config = saved_quantization_config;
     renderer.unref();
