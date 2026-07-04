@@ -51,12 +51,15 @@ static uint32_t _packed_gaussian_payload_checksum(const Vector<PackedGaussian> &
 static constexpr uint32_t STREAMING_DEFAULT_MIN_CHUNKS_IN_VRAM = 4;
 static constexpr uint32_t STREAMING_DEFAULT_MAX_CHUNKS_IN_VRAM = 128;
 
-uint64_t _streaming_chunk_slot_bytes() {
-    return uint64_t(GaussianStreamingSystem::CHUNK_SIZE) * sizeof(PackedGaussian);
+// Slot stride is parameterized by the per-splat gaussian byte size so the quantized
+// (80 B) atlas can share the exact same slot arithmetic as the default (144 B) one.
+// Defaults to the full-precision size to keep any non-quantization caller unchanged.
+uint64_t _streaming_chunk_slot_bytes(uint64_t p_gaussian_stride_bytes = sizeof(PackedGaussian)) {
+    return uint64_t(GaussianStreamingSystem::CHUNK_SIZE) * p_gaussian_stride_bytes;
 }
 
-uint32_t _streaming_addressable_chunk_limit() {
-    const uint64_t slot_bytes = _streaming_chunk_slot_bytes();
+uint32_t _streaming_addressable_chunk_limit(uint64_t p_gaussian_stride_bytes = sizeof(PackedGaussian)) {
+    const uint64_t slot_bytes = _streaming_chunk_slot_bytes(p_gaussian_stride_bytes);
     if (slot_bytes == 0) {
         return 0;
     }
@@ -362,7 +365,7 @@ bool GaussianStreamingSystem::_grow_persistent_buffer(uint32_t p_new_capacity) {
         return false;
     }
 
-    const uint64_t slot_bytes = _streaming_chunk_slot_bytes();
+    const uint64_t slot_bytes = _streaming_chunk_slot_bytes(_atlas_gaussian_stride_bytes());
     const uint64_t new_bytes64 = uint64_t(new_capacity) * slot_bytes;
     if (slot_bytes == 0 || new_bytes64 == 0 || new_bytes64 > uint64_t(UINT32_MAX)) {
         ERR_PRINT(vformat("[Streaming] _grow_persistent_buffer failed: new buffer size overflow (%s bytes, max=%u).",
@@ -468,7 +471,7 @@ bool GaussianStreamingSystem::_try_grow_persistent_buffer_for_atlas_pressure(uin
     if (p_enforce_vram_regulator_gate && budget.vram_regulator.is_valid()) {
         const uint64_t budget_bytes = budget.vram_regulator->get_debug_stats().budget_bytes;
         if (budget_bytes > 0) {
-            const uint64_t chunk_bytes = uint64_t(CHUNK_SIZE) * sizeof(PackedGaussian);
+            const uint64_t chunk_bytes = uint64_t(CHUNK_SIZE) * _atlas_gaussian_stride_bytes();
             const uint64_t aux_bytes = _get_auxiliary_vram_overhead_bytes();
             // Largest persistent-buffer slot count whose allocation-inclusive total
             // (slots*chunk_bytes + aux; the grown buffer dominates the payload) fits the budget.
@@ -674,7 +677,7 @@ void GaussianStreamingSystem::initialize(Ref<::GaussianData> p_data) {
 
     // Use regulated max chunks for buffer allocation.
     uint32_t effective_max_chunks = get_effective_max_chunks();
-    const uint32_t addressable_max_chunks = _streaming_addressable_chunk_limit();
+    const uint32_t addressable_max_chunks = _streaming_addressable_chunk_limit(_atlas_gaussian_stride_bytes());
     if (addressable_max_chunks == 0) {
         if (!failed_init_warning_emitted) {
             ERR_PRINT("[Streaming] Initialization failed: chunk slot byte size is invalid for 32-bit RenderingDevice buffer addressing.");
@@ -702,7 +705,7 @@ void GaussianStreamingSystem::initialize(Ref<::GaussianData> p_data) {
 
     if (rd) {
         GS_STARTUP_SCOPE("streaming_persistent_buffer_alloc");
-        const uint64_t persistent_bytes64 = uint64_t(initial_capacity) * _streaming_chunk_slot_bytes();
+        const uint64_t persistent_bytes64 = uint64_t(initial_capacity) * _streaming_chunk_slot_bytes(_atlas_gaussian_stride_bytes());
         if (persistent_bytes64 == 0 || persistent_bytes64 > uint64_t(UINT32_MAX)) {
             if (!failed_init_warning_emitted) {
                 ERR_PRINT(vformat("[Streaming] Initialization failed: persistent buffer size overflow (%s bytes, max=%u).",
@@ -876,7 +879,7 @@ void GaussianStreamingSystem::initialize_empty(RenderingDevice *p_device) {
     _apply_config_overrides();
 
     uint32_t effective_max_chunks = get_effective_max_chunks();
-    const uint32_t addressable_max_chunks = _streaming_addressable_chunk_limit();
+    const uint32_t addressable_max_chunks = _streaming_addressable_chunk_limit(_atlas_gaussian_stride_bytes());
     if (addressable_max_chunks == 0) {
         if (!failed_init_warning_emitted) {
             ERR_PRINT("[Streaming] Empty initialization failed: chunk slot byte size is invalid for 32-bit RenderingDevice buffer addressing.");
@@ -895,7 +898,7 @@ void GaussianStreamingSystem::initialize_empty(RenderingDevice *p_device) {
     uint32_t initial_capacity = STREAMING_DEFAULT_MIN_CHUNKS_IN_VRAM;
     initial_capacity = MIN(initial_capacity, effective_max_chunks);
     if (rd) {
-        const uint64_t persistent_bytes64 = uint64_t(initial_capacity) * _streaming_chunk_slot_bytes();
+        const uint64_t persistent_bytes64 = uint64_t(initial_capacity) * _streaming_chunk_slot_bytes(_atlas_gaussian_stride_bytes());
         if (persistent_bytes64 == 0 || persistent_bytes64 > uint64_t(UINT32_MAX)) {
             if (!failed_init_warning_emitted) {
                 ERR_PRINT(vformat("[Streaming] Empty initialization failed: persistent buffer size overflow (%s bytes, max=%u).",
@@ -969,7 +972,7 @@ void GaussianStreamingSystem::update_primary_asset_data(Ref<::GaussianData> p_da
             if (budget.loaded_chunks_count > 0) {
                 budget.loaded_chunks_count--;
             }
-            const uint64_t chunk_bytes = uint64_t(chunk.count) * sizeof(PackedGaussian);
+            const uint64_t chunk_bytes = uint64_t(chunk.count) * _atlas_gaussian_stride_bytes();
             const uint64_t evicted_bytes = budget.vram_usage > chunk_bytes ? chunk_bytes : budget.vram_usage;
             budget.vram_usage = budget.vram_usage > chunk_bytes ? (budget.vram_usage - chunk_bytes) : 0;
             budget.evicted_bytes_total += evicted_bytes;
@@ -1426,7 +1429,7 @@ void GaussianStreamingSystem::register_asset(uint32_t asset_id, const Ref<Gaussi
                 if (budget.loaded_chunks_count > 0) {
                     budget.loaded_chunks_count--;
                 }
-                const uint64_t chunk_bytes = uint64_t(chunk.count) * sizeof(PackedGaussian);
+                const uint64_t chunk_bytes = uint64_t(chunk.count) * _atlas_gaussian_stride_bytes();
                 const uint64_t evicted_bytes = budget.vram_usage > chunk_bytes ? chunk_bytes : budget.vram_usage;
                 budget.vram_usage = budget.vram_usage > chunk_bytes ? (budget.vram_usage - chunk_bytes) : 0;
                 budget.evicted_bytes_total += evicted_bytes;
@@ -1485,7 +1488,7 @@ void GaussianStreamingSystem::unregister_asset(uint32_t asset_id) {
             if (budget.loaded_chunks_count > 0) {
                 budget.loaded_chunks_count--;
             }
-            const uint64_t chunk_bytes = uint64_t(chunk.count) * sizeof(PackedGaussian);
+            const uint64_t chunk_bytes = uint64_t(chunk.count) * _atlas_gaussian_stride_bytes();
             const uint64_t evicted_bytes = budget.vram_usage > chunk_bytes ? chunk_bytes : budget.vram_usage;
             budget.vram_usage = budget.vram_usage > chunk_bytes ? (budget.vram_usage - chunk_bytes) : 0;
             budget.evicted_bytes_total += evicted_bytes;
@@ -2431,7 +2434,7 @@ void GaussianStreamingSystem::_test_mark_chunk_loaded_for_eviction(uint32_t p_as
 			"[Streaming][Test] Failed to allocate atlas slot for synthetic eviction resident chunk.");
 	if (!chunk.is_loaded) {
 		budget.loaded_chunks_count++;
-		budget.vram_usage += uint64_t(chunk.count) * sizeof(PackedGaussian);
+		budget.vram_usage += uint64_t(chunk.count) * _atlas_gaussian_stride_bytes();
 	}
 	chunk.is_loaded = true;
 	chunk.gpu_resident = true;
@@ -2682,7 +2685,7 @@ float GaussianStreamingSystem::_resolve_frame_delta_seconds(float p_frame_delta_
 
 uint32_t GaussianStreamingSystem::_compute_runtime_chunk_capacity_limit() const {
     const uint32_t allocator_capacity_chunks = atlas_allocator.get_capacity();
-    const uint64_t chunk_bytes = uint64_t(CHUNK_SIZE) * sizeof(PackedGaussian);
+    const uint64_t chunk_bytes = uint64_t(CHUNK_SIZE) * _atlas_gaussian_stride_bytes();
     const uint32_t buffer_capacity_chunks = chunk_bytes > 0
             ? static_cast<uint32_t>(uint64_t(persistent_buffer_size) / chunk_bytes)
             : 0;
@@ -3274,7 +3277,7 @@ bool GaussianStreamingSystem::_begin_chunk_upload(uint32_t asset_id, uint32_t ch
     chunk.upload_ticket_id = 0;
     chunk.upload_submit_frame = 0;
     chunk.upload_retire_frame = 0;
-    chunk.pending_upload_bytes = uint64_t(chunk.count) * sizeof(PackedGaussian);
+    chunk.pending_upload_bytes = uint64_t(chunk.count) * _atlas_gaussian_stride_bytes();
     budget.pending_upload_bytes += chunk.pending_upload_bytes;
     budget.pending_upload_slots++;
     global_atlas_registry.mark_chunk_meta_dirty(*this, asset_id, chunk_idx);
@@ -3501,14 +3504,14 @@ Error GaussianStreamingSystem::_load_chunk(uint32_t asset_id, uint32_t chunk_idx
         return FAILED;
     }
 
-    const uint64_t buffer_offset64 = uint64_t(buffer_slot) * CHUNK_SIZE * sizeof(PackedGaussian);
+    const uint64_t buffer_offset64 = uint64_t(buffer_slot) * CHUNK_SIZE * _atlas_gaussian_stride_bytes();
     if (buffer_offset64 > uint64_t(UINT32_MAX)) {
         _rollback_pending_chunk(asset_id, chunk_idx, chunk, true);
         return FAILED;
     }
     const uint32_t buffer_offset = static_cast<uint32_t>(buffer_offset64);
 
-    Vector<PackedGaussian> chunk_data;
+    Vector<uint8_t> chunk_data;
     SHCompressionMetrics metrics;
     if (!_pack_chunk_data(asset_id, chunk_idx, *asset, chunk, chunk_data, metrics)) {
         _rollback_pending_chunk(asset_id, chunk_idx, chunk, true);
@@ -3519,7 +3522,7 @@ Error GaussianStreamingSystem::_load_chunk(uint32_t asset_id, uint32_t chunk_idx
         _rollback_pending_chunk(asset_id, chunk_idx, chunk, true);
         return FAILED;
     }
-    const uint64_t upload_bytes = uint64_t(chunk_data.size()) * sizeof(PackedGaussian);
+    const uint64_t upload_bytes = uint64_t(chunk.count) * _atlas_gaussian_stride_bytes();
     if (!_stage_chunk_upload_retirement(asset_id, chunk_idx, chunk, buffer_slot,
                 upload_bytes, SHCompressionMetrics(), submission_rd)) {
         return FAILED;
@@ -3548,9 +3551,13 @@ RenderingDevice *GaussianStreamingSystem::_resolve_submission_device(GaussianSpl
     return nullptr;
 }
 
+uint64_t GaussianStreamingSystem::_atlas_gaussian_stride_bytes() const {
+    return per_chunk_quantization_enabled ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian);
+}
+
 bool GaussianStreamingSystem::_pack_chunk_data(uint32_t asset_id, uint32_t chunk_idx, const AtlasAssetState &asset, StreamingChunk &chunk,
-        Vector<PackedGaussian> &chunk_data, SHCompressionMetrics &metrics) {
-    chunk_data.clear();
+        Vector<uint8_t> &chunk_bytes, SHCompressionMetrics &metrics) {
+    chunk_bytes.clear();
     metrics = SHCompressionMetrics();
 
     // Resolve data source: prefer payload_source (supports out-of-core),
@@ -3611,7 +3618,11 @@ bool GaussianStreamingSystem::_pack_chunk_data(uint32_t asset_id, uint32_t chunk
         return false;
     }
 
-    chunk_data.resize(chunk.count);
+    const bool quantize = per_chunk_quantization_enabled;
+    const uint64_t stride = quantize ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian);
+    if (chunk_bytes.resize(int64_t(chunk.count) * int64_t(stride)) != OK) {
+        return false;
+    }
 
     static int gaussians_check_count = 0;
     if (++gaussians_check_count <= 3) {
@@ -3658,14 +3669,40 @@ bool GaussianStreamingSystem::_pack_chunk_data(uint32_t asset_id, uint32_t chunk
     }
 
     const Vector3 *sh_coeffs = sh_high_order_snapshot.is_empty() ? nullptr : sh_high_order_snapshot.ptr();
-    pack_gaussians_range(gaussian_snapshot,
-            0,
-            chunk.count,
-            chunk_data,
-            metrics,
-            sh_coeffs,
-            sh_first_order,
-            sh_high_order);
+    if (quantize) {
+        // chunk_id is the global index into the ChunkQuantizationGPU / ChunkMetaGPU
+        // buffers: it must match how streaming_global_atlas_registry builds chunk_meta
+        // (asset.quant_base + chunk_idx), so the shader dereferences the right bounds.
+        if (!chunk.quantization_computed) {
+            _compute_chunk_quantization(asset_id, chunk_idx);
+        }
+        const uint64_t global_chunk_id = uint64_t(asset.quant_base) + uint64_t(chunk_idx);
+        if (global_chunk_id > 0xFFFFu) {
+            // chunk_id is a uint16 field; a scene exceeding 65535 chunks cannot address
+            // its per-chunk bounds. Fail the pack so the caller keeps the legacy path.
+            ERR_PRINT_ONCE("[Quantization] Chunk id exceeds 16-bit range; per-chunk quantization unavailable for this atlas.");
+            return false;
+        }
+        pack_gaussians_range_quantized(gaussian_snapshot,
+                0,
+                chunk.count,
+                chunk.quantization,
+                uint16_t(global_chunk_id),
+                reinterpret_cast<PackedGaussianQuantized *>(chunk_bytes.ptrw()),
+                metrics,
+                sh_coeffs,
+                sh_first_order,
+                sh_high_order);
+    } else {
+        pack_gaussians_range_raw(gaussian_snapshot,
+                0,
+                chunk.count,
+                reinterpret_cast<PackedGaussian *>(chunk_bytes.ptrw()),
+                metrics,
+                sh_coeffs,
+                sh_first_order,
+                sh_high_order);
+    }
     return true;
 }
 
@@ -3696,7 +3733,7 @@ void GaussianStreamingSystem::_log_chunk_load_metrics(uint32_t chunk_idx, const 
 }
 
 bool GaussianStreamingSystem::_upload_chunk_to_gpu(RenderingDevice *submission_rd, uint32_t buffer_offset,
-        const Vector<PackedGaussian> &chunk_data, uint32_t asset_id, uint32_t chunk_idx,
+        const Vector<uint8_t> &chunk_bytes, uint32_t asset_id, uint32_t chunk_idx,
         uint32_t buffer_slot, uint32_t chunk_count) const {
 #if defined(TESTS_ENABLED)
     if (const_cast<GaussianStreamingSystem *>(this)->test_force_next_chunk_upload_failure) {
@@ -3707,11 +3744,12 @@ bool GaussianStreamingSystem::_upload_chunk_to_gpu(RenderingDevice *submission_r
     if (!submission_rd || !persistent_buffer.is_valid() || buffer_slot == UINT32_MAX || chunk_count == 0 || chunk_count > CHUNK_SIZE) {
         return false;
     }
-    if (chunk_data.size() != static_cast<int>(chunk_count)) {
+    const uint64_t stride = _atlas_gaussian_stride_bytes();
+    const uint64_t upload_bytes = uint64_t(chunk_count) * stride;
+    if (uint64_t(chunk_bytes.size()) != upload_bytes) {
         return false;
     }
-    const uint64_t upload_bytes = uint64_t(chunk_count) * sizeof(PackedGaussian);
-    const uint64_t slot_capacity_bytes = uint64_t(CHUNK_SIZE) * sizeof(PackedGaussian);
+    const uint64_t slot_capacity_bytes = uint64_t(CHUNK_SIZE) * stride;
     if (upload_bytes > slot_capacity_bytes) {
         return false;
     }
@@ -3720,8 +3758,8 @@ bool GaussianStreamingSystem::_upload_chunk_to_gpu(RenderingDevice *submission_r
     }
 
     submission_rd->buffer_update(persistent_buffer, buffer_offset,
-            chunk_count * sizeof(PackedGaussian),
-            chunk_data.ptr());
+            uint32_t(upload_bytes),
+            chunk_bytes.ptr());
     if (submission_rd->is_main_rendering_device()) {
         gs_device_utils::safe_submit(submission_rd);
     } else {
@@ -3762,7 +3800,7 @@ void GaussianStreamingSystem::_complete_chunk_load_common(uint32_t asset_id, uin
     chunk.last_loaded_frame = total_frame_count;
     eviction_controller.touch_chunk_use(chunk.last_used_frame);
     budget.loaded_chunks_count++;
-    budget.vram_usage += chunk.count * sizeof(PackedGaussian);
+    budget.vram_usage += uint64_t(chunk.count) * _atlas_gaussian_stride_bytes();
     eviction_controller.note_chunk_loaded(asset_id, chunk_idx);
     AtlasAssetState *asset = _get_asset_state(asset_id);
     if (asset) {
@@ -3824,7 +3862,7 @@ void GaussianStreamingSystem::_unload_chunk(uint32_t asset_id, uint32_t chunk_id
     global_atlas_registry.mark_chunk_meta_dirty(*this, asset_id, chunk_idx);
     _assert_chunk_state_invariant(asset_id, chunk_idx, chunk, "_unload_chunk.post");
     budget.loaded_chunks_count--;
-    const uint64_t chunk_bytes = uint64_t(chunk.count) * sizeof(PackedGaussian);
+    const uint64_t chunk_bytes = uint64_t(chunk.count) * _atlas_gaussian_stride_bytes();
     const uint64_t evicted_bytes = budget.vram_usage > chunk_bytes ? chunk_bytes : budget.vram_usage;
     budget.vram_usage = budget.vram_usage > chunk_bytes ? (budget.vram_usage - chunk_bytes) : 0;
     budget.evicted_bytes_total += evicted_bytes;

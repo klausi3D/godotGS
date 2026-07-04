@@ -466,12 +466,18 @@ private:
     Error _load_chunk(uint32_t asset_id, uint32_t chunk_idx);
     RenderingDevice *_resolve_submission_device(GaussianSplatManager *manager,
             GaussianSplatManager::ScopedSubmissionLock &submission_lock) const;
+    // Per-splat atlas byte stride: 80 B when per-chunk quantization is active,
+    // 144 B otherwise. Single source for all persistent-buffer slot arithmetic so the
+    // default (non-quantized) path stays byte-identical.
+    uint64_t _atlas_gaussian_stride_bytes() const;
+    // Packs a chunk into raw atlas bytes (PackedGaussian or PackedGaussianQuantized,
+    // per _atlas_gaussian_stride_bytes()). Output size is chunk.count * stride.
     bool _pack_chunk_data(uint32_t asset_id, uint32_t chunk_idx, const AtlasAssetState &asset, StreamingChunk &chunk,
-            Vector<PackedGaussian> &chunk_data, SHCompressionMetrics &metrics);
+            Vector<uint8_t> &chunk_bytes, SHCompressionMetrics &metrics);
     void _complete_chunk_load_common(uint32_t asset_id, uint32_t chunk_idx, StreamingChunk &chunk);
     void _log_chunk_load_metrics(uint32_t chunk_idx, const SHCompressionMetrics &metrics);
     bool _upload_chunk_to_gpu(RenderingDevice *submission_rd, uint32_t buffer_offset,
-            const Vector<PackedGaussian> &chunk_data, uint32_t asset_id, uint32_t chunk_idx,
+            const Vector<uint8_t> &chunk_bytes, uint32_t asset_id, uint32_t chunk_idx,
             uint32_t buffer_slot, uint32_t chunk_count) const;
     bool _begin_chunk_upload(uint32_t asset_id, uint32_t chunk_idx, StreamingChunk &chunk, uint32_t buffer_slot);
     bool _stage_chunk_upload_retirement(uint32_t asset_id, uint32_t chunk_idx,

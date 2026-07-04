@@ -652,8 +652,38 @@ static_assert(offsetof(InstanceDepthParamsGPU, camera_position_ortho) == 416, "I
 static_assert(offsetof(InstanceDepthParamsGPU, cull_screen_distance) == 432, "InstanceDepthParamsGPU.cull_screen_distance offset mismatch");
 static_assert(offsetof(InstanceDepthParamsGPU, cull_frustum_radius) == 448, "InstanceDepthParamsGPU.cull_frustum_radius offset mismatch");
 
+// Per-chunk quantization bounds (defined in core/streaming_quantization.h).
+struct ChunkQuantizationInfo;
+
 void pack_gaussian(const Gaussian &src,
         PackedGaussian &dst,
+        SHCompressionMetrics &metrics,
+        const Vector3 *higher_order_coeffs = nullptr,
+        uint32_t first_order_count = 3,
+        uint32_t higher_order_count = 0,
+        uint32_t coefficient_limit = PackedSphericalHarmonics::MAX_ENCODED_COEFFICIENTS);
+
+// Pack a Gaussian into the 80-byte per-chunk quantized layout (PackedGaussianQuantized).
+// chunk_quant supplies the position/scale normalization bounds and bit depths; chunk_id
+// is the global index into the ChunkQuantizationGPU buffer the shader dereferences.
+// Bit-matches the GLSL dequantization in shaders/includes/quantization_dequant.glsl.
+// Opacity and sh_dc stay FP32 by design; non-finite inputs are floored deterministically.
+void pack_gaussian_quantized(const Gaussian &src,
+        const ChunkQuantizationInfo &chunk_quant,
+        uint16_t chunk_id,
+        PackedGaussianQuantized &dst,
+        SHCompressionMetrics &metrics,
+        const Vector3 *higher_order_coeffs = nullptr,
+        uint32_t first_order_count = 3,
+        uint32_t higher_order_count = 0,
+        uint32_t coefficient_limit = PackedSphericalHarmonics::MAX_ENCODED_COEFFICIENTS);
+
+void pack_gaussians_range_quantized(const LocalVector<Gaussian> &src,
+        uint32_t start,
+        uint32_t count,
+        const ChunkQuantizationInfo &chunk_quant,
+        uint16_t chunk_id,
+        PackedGaussianQuantized *dst,
         SHCompressionMetrics &metrics,
         const Vector3 *higher_order_coeffs = nullptr,
         uint32_t first_order_count = 3,

@@ -3,6 +3,8 @@
 #include "float16_utils.h"
 #include "gpu_debug_utils.h"
 
+#include "../core/streaming_quantization.h"
+
 #include "../core/gs_project_settings.h"
 #include "../logger/gs_logger.h"
 #include "../logger/gs_debug_trace.h"
@@ -157,6 +159,138 @@ void pack_gaussian(const Gaussian &src,
     }
     metrics.compressed_bytes += sizeof(dst.sh.dc) + sizeof(float) * encoded_total;
     metrics.coefficient_count += encoded_total;
+}
+
+namespace {
+// Non-finite inputs must never poison the quantized packer: quantize_position/scale
+// pass NaN straight through CLAMP (NaN compares false against both bounds), and a
+// subsequent NaN->uint32 cast is UB; a NaN half-float rotation also becomes a NaN
+// after the shader's normalize(). Floor every non-finite component to a deterministic
+// fallback, mirroring gaussian_importance()'s flooring semantics.
+static inline float sanitize_finite(float v, float fallback) {
+    return Math::is_finite(v) ? v : fallback;
+}
+static inline Vector3 sanitize_finite_vec3(const Vector3 &v, const Vector3 &fallback) {
+    return Vector3(sanitize_finite(v.x, fallback.x),
+            sanitize_finite(v.y, fallback.y),
+            sanitize_finite(v.z, fallback.z));
+}
+} // namespace
+
+// Number of RGB9E5 higher-order SH slots in PackedGaussianQuantized.sh_encoded.
+// The GLSL side synthesizes sh_metadata as gs_build_quantized_sh_metadata(6u, ...),
+// so the layout is a fixed 6-slot array; unused slots are zeroed (RGB9E5(0) decodes
+// to vec3(0), contributing nothing, and the per-chunk sh_limit still gates bands).
+static constexpr uint32_t GS_QUANTIZED_SH_ENCODED_SLOTS = 6u;
+
+void pack_gaussian_quantized(const Gaussian &src,
+        const ChunkQuantizationInfo &chunk_quant,
+        uint16_t chunk_id,
+        PackedGaussianQuantized &dst,
+        SHCompressionMetrics &metrics,
+        const Vector3 *higher_order_coeffs,
+        uint32_t first_order_count,
+        uint32_t higher_order_count,
+        uint32_t coefficient_limit) {
+    // Position: per-chunk quantized to position_bits. Must bit-match the GLSL
+    // dequantize_position (min + q * (1/((1<<bits)-1)) * range). quantize_position()
+    // owns the normalization + rounding; we only sanitize and narrow to uint16.
+    const Vector3 safe_position = sanitize_finite_vec3(src.position, chunk_quant.position_min);
+    uint32_t qx = 0, qy = 0, qz = 0;
+    chunk_quant.quantize_position(safe_position, qx, qy, qz);
+    dst.quantized_position[0] = uint16_t(qx);
+    dst.quantized_position[1] = uint16_t(qy);
+    dst.quantized_position[2] = uint16_t(qz);
+    dst.chunk_id = chunk_id;
+
+    // Opacity: FP32, kept exact (precision-critical; never quantized).
+    dst.opacity = sanitize_finite(src.opacity, 0.0f);
+
+    // Scale: per-chunk quantized when the chunk enables it, else zeros (the GLSL
+    // returns vec3(1.0) when scale_bits==0, so the stored value is irrelevant then).
+    const Vector3 safe_scale = sanitize_finite_vec3(src.scale, chunk_quant.scale_min);
+    uint32_t sx = 0, sy = 0, sz = 0;
+    chunk_quant.quantize_scale(safe_scale, sx, sy, sz);
+    dst.quantized_scale[0] = uint16_t(sx);
+    dst.quantized_scale[1] = uint16_t(sy);
+    dst.quantized_scale[2] = uint16_t(sz);
+
+    // Area: single FP16 (GLSL extract_area unpacks the high half-word of scale_area_hi).
+    dst.area_fp16 = Float16Utils::float_to_half(sanitize_finite(src.area, 0.0f));
+
+    // Rotation quaternion: 4x FP16 (GLSL normalizes on read). A non-finite quaternion
+    // floors to identity so the shader's normalize() cannot produce NaN.
+    Quaternion safe_rotation = src.rotation;
+    if (!(Math::is_finite(safe_rotation.x) && Math::is_finite(safe_rotation.y) &&
+                Math::is_finite(safe_rotation.z) && Math::is_finite(safe_rotation.w))) {
+        safe_rotation = Quaternion();
+    }
+    dst.rotation[0] = Float16Utils::float_to_half(safe_rotation.x);
+    dst.rotation[1] = Float16Utils::float_to_half(safe_rotation.y);
+    dst.rotation[2] = Float16Utils::float_to_half(safe_rotation.z);
+    dst.rotation[3] = Float16Utils::float_to_half(safe_rotation.w);
+
+    dst._pre_sh_padding[0] = 0;
+    dst._pre_sh_padding[1] = 0;
+
+    // SH DC: FP32, kept exact (precision-critical; matches the shader's direct read).
+    dst.sh_dc[0] = sanitize_finite(src.sh_dc.r, 0.0f);
+    dst.sh_dc[1] = sanitize_finite(src.sh_dc.g, 0.0f);
+    dst.sh_dc[2] = sanitize_finite(src.sh_dc.b, 0.0f);
+    dst.sh_dc[3] = sanitize_finite(src.sh_dc.a, 0.0f);
+
+    // Higher-order SH: RGB9E5 into the fixed 6-slot array, same selection order as
+    // pack_gaussian (first-order coeffs then higher-order), stored as raw uint32 (the
+    // shader bitcasts these back via uintBitsToFloat). encode_rgb9e5 clamps internally.
+    for (uint32_t i = 0; i < GS_QUANTIZED_SH_ENCODED_SLOTS; i++) {
+        dst.sh_encoded[i] = 0u;
+    }
+    const uint32_t encoded_capacity = MIN<uint32_t>(coefficient_limit, GS_QUANTIZED_SH_ENCODED_SLOTS);
+    const uint32_t first_count = MIN<uint32_t>(first_order_count, 3u);
+    const uint32_t stored_first = MIN<uint32_t>(first_count, encoded_capacity);
+    uint32_t encoded_total = 0;
+    for (uint32_t i = 0; i < stored_first; i++) {
+        dst.sh_encoded[encoded_total++] = encode_rgb9e5(src.sh_1[i]);
+    }
+    uint32_t stored_high = 0;
+    if (higher_order_count > 0 && encoded_total < encoded_capacity) {
+        stored_high = MIN<uint32_t>(higher_order_count, encoded_capacity - encoded_total);
+        for (uint32_t i = 0; i < stored_high; i++) {
+            const Vector3 coeff = higher_order_coeffs ? higher_order_coeffs[i] : Vector3();
+            dst.sh_encoded[encoded_total++] = encode_rgb9e5(coeff);
+        }
+    }
+
+    // Normal + stroke_age: two half2 words (GLSL extract_normal / extract_stroke_age).
+    const Vector3 safe_normal = sanitize_finite_vec3(src.normal, Vector3());
+    dst.normal_xy = Float16Utils::pack_half2(safe_normal.x, safe_normal.y);
+    dst.normal_z_stroke = Float16Utils::pack_half2(safe_normal.z, sanitize_finite(src.stroke_age, 0.0f));
+
+    metrics.raw_bytes += sizeof(Gaussian);
+    metrics.compressed_bytes += sizeof(PackedGaussianQuantized);
+    metrics.coefficient_count += encoded_total;
+}
+
+void pack_gaussians_range_quantized(const LocalVector<Gaussian> &src,
+        uint32_t start,
+        uint32_t count,
+        const ChunkQuantizationInfo &chunk_quant,
+        uint16_t chunk_id,
+        PackedGaussianQuantized *dst,
+        SHCompressionMetrics &metrics,
+        const Vector3 *higher_order_coeffs,
+        uint32_t first_order_count,
+        uint32_t higher_order_count,
+        uint32_t coefficient_limit) {
+    ERR_FAIL_NULL_MSG(dst, "pack_gaussians_range_quantized destination is null");
+    ERR_FAIL_COND_MSG(start + count > src.size(), "pack_gaussians_range_quantized out of bounds");
+    for (uint32_t i = 0; i < count; i++) {
+        const Vector3 *coeff_ptr = higher_order_coeffs
+                ? higher_order_coeffs + size_t(i) * higher_order_count
+                : nullptr;
+        pack_gaussian_quantized(src[start + i], chunk_quant, chunk_id, dst[i], metrics,
+                coeff_ptr, first_order_count, higher_order_count, coefficient_limit);
+    }
 }
 
 void pack_gaussians_range(const LocalVector<Gaussian> &src,
