@@ -4,6 +4,12 @@
 #include "core/templates/span.h"
 #include "servers/rendering/rendering_device.h"
 
+// The 80-byte quantized layout (renderer/gaussian_gpu_layout.h GS_QUANTIZED_BITS_MAX)
+// stores position/scale in uint16 slots. Mirror that cap here rather than depend on the
+// renderer header from this core translation unit; a static_assert-style mismatch would
+// surface as a truncated-position render, caught by the quantized render validation.
+static constexpr uint32_t kQuantizedBitsMax = 16u;
+
 // ==============================================================================
 // ChunkQuantizationInfo Implementation (Unity Technique)
 // ==============================================================================
@@ -212,18 +218,18 @@ void GaussianStreamingSystem::_compute_chunk_quantization(uint32_t asset_id, uin
                 remapped_chunk_gaussians,
                 0,
                 chunk.count,
-                quantization_position_bits,
-                quantization_scale_bits,
-                quantization_scales_enabled);
+                MIN(quantization_position_bits, kQuantizedBitsMax),
+                MIN(quantization_scale_bits, kQuantizedBitsMax),
+                /*quantize_scale=*/true);
     } else {
         const LocalVector<Gaussian> &gaussians = asset->data->get_gaussian_storage();
         chunk.quantization.compute_from_gaussians(
             gaussians,
             chunk.start_idx,
             chunk.count,
-            quantization_position_bits,
-            quantization_scale_bits,
-            quantization_scales_enabled
+            MIN(quantization_position_bits, kQuantizedBitsMax),
+            MIN(quantization_scale_bits, kQuantizedBitsMax),
+            /*quantize_scale=*/true
         );
     }
     chunk.quantization_computed = true;

@@ -595,14 +595,26 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 					// (which renders every splat as a unit blob). g_quantization_config.quantize_scales
 					// only chooses the bit depth story for callers that CAN fall back to FP32 scale;
 					// the resident quantized atlas cannot, so scales are always quantized.
+					// Clamp to the uint16 slot width: position_bits is project-settable up to 24,
+					// which the 80-byte layout cannot store (see GS_QUANTIZED_BITS_MAX). The
+					// clamped value flows into ChunkQuantizationGPU.position_bits too, so CPU
+					// packing and GPU dequantization agree.
+					const uint32_t q_position_bits = MIN(g_quantization_config.position_bits, GS_QUANTIZED_BITS_MAX);
+					const uint32_t q_scale_bits = MIN(g_quantization_config.scale_bits, GS_QUANTIZED_BITS_MAX);
 					ChunkQuantizationInfo chunk_quant;
 					chunk_quant.compute_from_gaussians(gaussian_snapshot, 0, chunk_pack_count,
-							g_quantization_config.position_bits, g_quantization_config.scale_bits,
+							q_position_bits, q_scale_bits,
 							/*quantize_scale=*/true);
 
 					atlas_base = atlas_gaussian_quantized_cpu.size();
 					const int prev_size = atlas_gaussian_quantized_cpu.size();
-					atlas_gaussian_quantized_cpu.resize(prev_size + int(chunk_pack_count));
+					if (atlas_gaussian_quantized_cpu.resize(prev_size + int(chunk_pack_count)) != OK) {
+						if (r_reason) {
+							*r_reason = "resident_quantized_atlas_alloc_failed";
+						}
+						p_renderer->clear_instance_pipeline_buffers();
+						return false;
+					}
 					pack_gaussians_range_quantized(gaussian_snapshot, 0, chunk_pack_count,
 							chunk_quant, uint16_t(quant_id),
 							atlas_gaussian_quantized_cpu.ptrw() + prev_size, sh_metrics, sh_coeffs,
