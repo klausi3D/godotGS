@@ -234,7 +234,14 @@ void register_quantization_project_settings() {
         return;
     }
 
-    // Per-chunk quantization enable (sentinel -1 = auto from tier, 0 = off, 1 = on)
+    // Per-chunk quantization enable (sentinel -1 = auto from tier, 0 = off, 1 = on).
+    //
+    // TRADEOFF (measured, not a free win — see docs/performance/gs_quantization_tradeoff.md):
+    // the 80-byte quantized atlas is -44% VRAM/splat (144 -> 80 B) but adds per-splat
+    // dequantization ALU in the binning/depth/raster shaders. On dense-2M at a FIXED splat
+    // count (RTX 3090) this measured +13.6% p50 / +16.2% p99 frame time. It is a VRAM<->compute
+    // trade: a win when VRAM-bound (fit an otherwise-OOM scene, or ~2x more splats in the same
+    // budget), a net loss with VRAM headroom. Keep it opt-in; only enable under VRAM pressure.
     if (!ps->has_setting(QuantizationConfig::PER_CHUNK_QUANTIZATION_PATH)) {
         ps->set_setting(QuantizationConfig::PER_CHUNK_QUANTIZATION_PATH, -1); // GS_CI_ALLOW_RENDER_PATH_SETTING_MUTATION
     }

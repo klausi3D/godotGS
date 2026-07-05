@@ -290,6 +290,7 @@
     {
       "effective_state": "g_quantization_config.per_chunk_quantization",
       "key": "rendering/gaussian_splatting/compression/per_chunk_quantization",
+      "notes": "80-byte quantized atlas: -44% VRAM/splat but adds per-splat dequant ALU (measured +13.6% p50 / +16.2% p99 on dense-2M at fixed splat count). VRAM<->compute tradeoff; enable only under VRAM pressure. See docs/performance/gs_quantization_tradeoff.md.",
       "test_coverage": "inventory_only"
     },
     {
