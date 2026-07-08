@@ -60,7 +60,7 @@ review rounds with Codex on #460):
 | Guard | Value / mechanism | Rationale |
 | --- | --- | --- |
 | Size cap | `gaussian_bytes <= INT32_MAX` (compressed path) | `Compression::decompress` for gzip ERR_FAILs on any destination `> INT32_MAX` (`core/io/compression.cpp` — zlib uses C++ `int`), so a compressed world larger than ~2 GiB decompressed can **never** load. Rejecting it up front is not a false positive; it just moves the guaranteed failure ahead of a pointless multi-GiB `resize`. |
-| Memory budget | reject if `gaussian_bytes > OS::get_memory_info()["available"]` → `ERR_OUT_OF_MEMORY` | Even within the size cap, a crafted small file can declare a payload that doesn't fit RAM; `LocalVector::resize` aborts on OOM (`CRASH_COND`). This converts that abort into a clean error. Never rejects a payload that would actually fit; skipped where the platform doesn't report memory info. |
+| OOM probe | `memalloc(gaussian_bytes)` before the resize; null → `ERR_OUT_OF_MEMORY` | Even within the size cap, a crafted small file can declare a payload that doesn't fit RAM; `LocalVector::resize` aborts on OOM (`CRASH_COND`). `memalloc` instead returns null (`alloc_static` → `ERR_FAIL_NULL_V(mem, nullptr)`), so probing the allocation fallibly first converts the abort into a clean error on **every** platform. (An earlier revision used `OS::get_memory_info()`, but only Windows implements it — Linux/macOS return -1 — so it was a no-op on the other supported platforms; the probe is platform-independent.) The probe is freed immediately; the resize reuses the just-proven-available memory. Never rejects a payload that actually fits. |
 
 **No ratio cap.** An earlier revision bounded the payload to `256 ×
 compressed_size` as an anti-compression-bomb measure. Review correctly flagged that
@@ -68,10 +68,6 @@ compressed_size` as an anti-compression-bomb measure. Review correctly flagged t
 payload (repeated/zero splats) can legitimately exceed any fixed ratio — the ratio
 guard would `ERR_FILE_CORRUPT` a valid, round-trippable saver output, violating the
 phase invariant. It was removed in favour of the two guards above.
-
-**Residual (documented, not blocking):** a fully allocation-failure-proof path
-(fallible resize / streaming decompress instead of `LocalVector::resize`) would need
-a Godot container that does not abort on OOM; tracked on the ledger.
 
 ### A2–A4
 
