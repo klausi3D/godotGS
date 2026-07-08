@@ -4313,7 +4313,7 @@
 
 <h1 id="shader-reference">Shader Reference<a class="headerlink" href="#shader-reference" title="Permanent link">¶</a></h1>
 <p>Last generated: 2026-07-08</p>
-<p>Coverage summary: <code>193</code> documented functions, <code>13</code> undocumented functions, <code>68</code> documented uniform fields, <code>119</code> undocumented uniform fields.</p>
+<p>Coverage summary: <code>192</code> documented functions, <code>13</code> undocumented functions, <code>68</code> documented uniform fields, <code>119</code> undocumented uniform fields.</p>
 <p>Undocumented entries are omitted by default. Use <code>--include-undocumented</code> to list them.</p>
 <h2 id="shader">Shader<a class="headerlink" href="#shader" title="Permanent link">¶</a></h2>
 <div class="highlight"><pre><span></span><code>modules/gaussian_splatting/shaders/brush_accumulate.glsl
@@ -5542,8 +5542,8 @@
       <td>Pack screen-space position into two half-floats.</td>
     </tr>
     <tr>
-      <td><pre><code>gs_pack_depth_opacity_flags(float depth, float opacity, uint flags)</code></pre></td>
-      <td>Pack depth, opacity, and 8 bits of flags into one 32-bit word.</td>
+      <td><pre><code>gs_pack_normal_z_opacity_flags(vec3 normal, float opacity, uint flags)</code></pre></td>
+      <td>Pack the Z normal component (low 16 bits, half) plus opacity (unorm8) and 8 bits of flags (high 16 bits) into one 32-bit word. Replaces the separate gs_pack_normal_zw + depth-word opacity: the high half of the normal-z word was unused, and reclaiming it frees data[1] to carry raw fp32 depth (see header comment).</td>
     </tr>
     <tr>
       <td><pre><code>gs_pack_color_r11g11b10(vec3 color)</code></pre></td>
@@ -5554,10 +5554,6 @@
       <td>Pack the X/Y normal components into one 32-bit word.</td>
     </tr>
     <tr>
-      <td><pre><code>gs_pack_normal_zw(vec3 normal)</code></pre></td>
-      <td>Pack the Z normal component into the second normal word.</td>
-    </tr>
-    <tr>
       <td><pre><code>gs_pack_conic_y_and_index(float conic_y, uint global_idx)</code></pre></td>
       <td>Legacy function kept for API compatibility. IMPORTANT: this packs `global_idx` into the high 16 bits and the rasterizer (tile_raster_common.glsl, `if (stored_global_idx != sorted_idx) continue;`) will silently reject any visible splat whose actual global_idx exceeds UINT16_MAX = 65535. Callers must ensure `enable_packed_stage_data` is only used when the packed-stage payload count is &lt;= 65535. Runtime enforcement is the TileRenderer disable gate (renderer/tile_renderer.cpp ~ line 415), which has the scene payload count; PipelineFeatureSet only carries the shared PACKED_STAGE_MAX_TOTAL_SPLATS = 65535 capability constant. The GS_PACKED_STAGE_DATA define is emitted only after the TileRenderer gate. Do not relax these without redesigning the packed payload to carry a full 32-bit global_idx.</td>
     </tr>
@@ -5566,8 +5562,8 @@
       <td>Unpack the packed screen-space position.</td>
     </tr>
     <tr>
-      <td><pre><code>gs_unpack_depth_opacity_flags(uint packed, out float depth, out float opacity, out uint flags)</code></pre></td>
-      <td>Unpack depth, opacity, and flags from the packed payload word.</td>
+      <td><pre><code>gs_unpack_opacity_flags(uint packed, out float opacity, out uint flags)</code></pre></td>
+      <td>Unpack opacity and flags from the high 16 bits of the normal-z word.</td>
     </tr>
     <tr>
       <td><pre><code>gs_unpack_color_r11g11b10(uint packed)</code></pre></td>
@@ -6177,7 +6173,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 8, 2026 21:02:39 UTC">July 8, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 8, 2026 21:05:23 UTC">July 8, 2026</span>
   </span>
 
     
