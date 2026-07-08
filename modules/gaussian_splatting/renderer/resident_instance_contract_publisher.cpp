@@ -272,6 +272,18 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 	if (effective_atlas_cap_bytes != ResidentAtlasBudget::kResidentStagingCeilingBytes) {
 		atlas_generation = _mix_generation(atlas_generation, effective_atlas_cap_bytes);
 	}
+	// Quantization config changes the PACKED ATLAS CONTENT (80-byte quantized layout +
+	// the per-chunk quant params) vs the 144-byte raw layout, so it must perturb the
+	// atlas hash — the "quantization config" input the comment above lists. Without this,
+	// flipping quantization at runtime (e.g. a quality-tier switch to a quantized tier)
+	// leaves atlas_changed false and the pack/upload is skipped, so the toggle is silently
+	// ignored until an unrelated content/topology change lands.
+	atlas_generation = _mix_generation(atlas_generation, quantize_atlas ? 1ULL : 0ULL);
+	if (quantize_atlas) {
+		atlas_generation = _mix_generation(atlas_generation, uint64_t(MIN(g_quantization_config.position_bits, GS_QUANTIZED_BITS_MAX)));
+		atlas_generation = _mix_generation(atlas_generation, uint64_t(MIN(g_quantization_config.scale_bits, GS_QUANTIZED_BITS_MAX)));
+		atlas_generation = _mix_generation(atlas_generation, g_quantization_config.quantize_scales ? 1ULL : 0ULL);
+	}
 
 	uint64_t instance_generation = 0xbb67ae8584caa73bULL;
 	if (director != nullptr) {
