@@ -49,13 +49,12 @@ static Error _validate_gsplatworld_header(const String &p_source_file, GSplatWor
 	constexpr uint32_t flag_resident_payload = 1u << 5u;
 	constexpr uint64_t header_size_bytes = 104u;
 	constexpr uint64_t chunk_record_size_bytes = 56u;
-	// Compressed-payload bounds. KEEP IN SYNC with the loader's
-	// kMaxResidentGaussianBytes / kMaxCompressedResidentRatio in
-	// io/gaussian_splat_world_io.cpp. The compressed path decouples splat_count
-	// from file_size, so without these an oversized splat_count aborts the editor
-	// when the loader materializes the payload. Rationale is documented there.
+	// Absolute compressed-payload cap. KEEP IN SYNC with the loader's
+	// kMaxResidentGaussianBytes in io/gaussian_splat_world_io.cpp. The compressed
+	// path decouples splat_count from file_size, so without this an oversized
+	// splat_count aborts the editor when the loader materializes the payload.
+	// Rationale (and why there is no ratio cap) is documented there.
 	constexpr uint64_t max_resident_gaussian_bytes = UINT32_MAX;
-	constexpr uint64_t max_compressed_resident_ratio = 256u;
 
 	Error open_err = OK;
 	Ref<FileAccess> file = FileAccess::open(p_source_file, FileAccess::READ, &open_err);
@@ -127,12 +126,9 @@ static Error _validate_gsplatworld_header(const String &p_source_file, GSplatWor
 			return ERR_FILE_CORRUPT;
 		}
 		// Bound the decompressed payload the loader would materialize (mirrors the
-		// loader's compressed-path guard): reject an oversized payload or a
-		// compression bomb rather than letting the loader abort on resize.
-		uint64_t max_bytes_by_ratio = 0u;
-		if (gaussian_bytes > max_resident_gaussian_bytes ||
-				(_checked_mul_u64(compressed_size, max_compressed_resident_ratio, max_bytes_by_ratio) &&
-						gaussian_bytes > max_bytes_by_ratio)) {
+		// loader's compressed-path guard): reject a payload too large to ever be
+		// resident rather than letting the loader abort on resize.
+		if (gaussian_bytes > max_resident_gaussian_bytes) {
 			return ERR_FILE_CORRUPT;
 		}
 	} else {

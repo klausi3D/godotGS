@@ -52,19 +52,23 @@ Guiding invariant for the whole phase:
 The uncompressed path is already bounded structurally by
 `fits_within(gaussian_offset, gaussian_bytes, file_len)` — you cannot claim more
 splats than the file has bytes. The compressed path decouples `splat_count` from
-`file_len`, so it needs an explicit bound. Add two caps on the compressed branch
-(and mirror them in the importer validator), following the SPZ loader's existing
-paired-cap pattern (`MAX_SPZ_DECOMPRESSED_BYTES`, `MAX_SPZ_POINTS`):
+`file_len`, so it needs an explicit bound (mirrored in the importer validator):
 
 | Cap | Value | Rationale |
 | --- | --- | --- |
-| Absolute | `gaussian_bytes <= UINT32_MAX` | A resident payload is uploaded to a single GPU storage buffer, which `RenderingDevice` addresses with 32 bits (`_grow_persistent_buffer`'s existing `UINT32_MAX` guard). A larger world cannot be made resident regardless. |
-| Ratio | `gaussian_bytes <= 256 × compressed_size` | Anti compression-bomb: bounds the pre-decompression allocation to a generous multiple of the on-disk blob so a tiny file cannot force a huge `resize`. Real gaussian payloads (144-byte, float-heavy) gzip well under 10:1; 256:1 never rejects a legitimate file. |
+| Absolute | `gaussian_bytes <= UINT32_MAX` | A resident payload is uploaded to a single GPU storage buffer, which `RenderingDevice` addresses with 32 bits (`_grow_persistent_buffer`'s existing `UINT32_MAX` guard). A larger world cannot be made resident regardless, so this is never a false positive. |
 
-Both must be cheap and overflow-safe: the ratio uses the existing
-`checked_mul_u64`; if the product overflows (impossible for a range-checked
-`compressed_size`), the ratio clause is skipped and the absolute cap still
-applies.
+**No ratio cap.** An earlier revision also bounded the payload to `256 ×
+compressed_size` as an anti-compression-bomb measure. Review (Codex on #460)
+correctly flagged that `save_resident_compressed` gzips raw bytes with no ratio
+limit, so a highly regular payload (repeated/zero splats) can legitimately exceed
+any fixed ratio — the ratio guard would `ERR_FILE_CORRUPT` a valid, round-trippable
+saver output, violating the phase invariant. It was removed. The residual is that a
+crafted file can still request up to ~4 GiB before `_decompress_data`'s
+declared-size check rejects the mismatch; that allocation is bounded and identical
+to what a legitimately large resident world needs. A windowless fix (graceful
+allocation-failure instead of `LocalVector` `CRASH_COND`, or a save-time ratio
+contract) would need an upstream primitive and is out of scope.
 
 ### A2–A4
 

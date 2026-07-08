@@ -13,6 +13,8 @@
 #include "core/io/resource_saver.h"
 #include "core/os/os.h"
 
+#include <cstring>
+
 
 namespace {
 
@@ -569,6 +571,67 @@ TEST_CASE("[GaussianSplatting][WorldIO] compressed gsplatworld remains resident-
     _remove_world_io_fixture(path);
 }
 
+TEST_CASE("[GaussianSplatting][WorldIO] high-ratio compressed world loads (no ratio-cap false-reject)") {
+    // #460 regression: an earlier revision of the compressed-path guard rejected
+    // any world whose decompressed:compressed ratio exceeded 256:1. But
+    // save_resident_compressed gzips raw bytes with no ratio limit, so a highly
+    // regular payload (here many IDENTICAL splats) legitimately blows past 256:1.
+    // Such a valid, saver-produced file must still round-trip.
+    GsplatWorldCompressionSettingGuard compression_guard(true);
+
+    Ref<GaussianData> gaussian_data;
+    gaussian_data.instantiate();
+    Vector<Gaussian> gaussians;
+    const int count = 16384; // ~2.3 MB of identical splats.
+    gaussians.resize(count);
+    // Zero-initialized (identical) splats gzip to a few hundred bytes, giving a
+    // ratio in the thousands:1 — unambiguously past the old 256:1 cap. (The test
+    // only checks load success + count, so degenerate gaussian values are fine.)
+    Gaussian g;
+    memset(&g, 0, sizeof(Gaussian));
+    for (int i = 0; i < count; i++) {
+        gaussians.write[i] = g;
+    }
+    gaussian_data->set_gaussians(gaussians);
+
+    Ref<GaussianSplatWorld> world;
+    world.instantiate();
+    world->set_gaussian_data(gaussian_data);
+    world->set_bounds(gaussian_data->get_aabb());
+
+    const String path = _make_world_io_fixture_path("high_ratio_compressed");
+    ResourceFormatSaverGaussianSplatWorld saver;
+    REQUIRE(saver.save_resident_compressed(world, path) == OK);
+
+    // Confirm the fixture actually exceeds the old 256:1 cap, so it genuinely
+    // exercises the regression (read gaussian_offset @56, then the compressed_size
+    // prefix at that offset).
+    Ref<FileAccess> f = FileAccess::open(path, FileAccess::READ);
+    REQUIRE(f.is_valid());
+    f->seek(8);
+    const uint32_t flags = f->get_32();
+    REQUIRE_MESSAGE((flags & (1u << 4u)) != 0u, "fixture must be compressed");
+    f->seek(56);
+    const uint64_t gaussian_offset = f->get_64();
+    f->seek(gaussian_offset);
+    const uint64_t compressed_size = f->get_64();
+    f.unref();
+    const uint64_t decompressed_bytes = uint64_t(count) * sizeof(Gaussian);
+    REQUIRE(compressed_size > 0);
+    CHECK_MESSAGE(decompressed_bytes > compressed_size * 256ull,
+            "fixture ratio must exceed the old 256:1 cap to exercise the #460 regression");
+
+    ResourceFormatLoaderGaussianSplatWorld loader;
+    Error load_err = OK;
+    Ref<Resource> loaded_res = loader.load(path, "", &load_err);
+    CHECK_EQ(load_err, OK);
+    Ref<GaussianSplatWorld> loaded = loaded_res;
+    REQUIRE(loaded.is_valid());
+    CHECK_EQ(loaded->get_splat_count(), uint32_t(count));
+
+    _remove_world_io_fixture(path);
+}
+
 TEST_CASE("[GaussianSplatting][WorldIO] explicit resident-uncompressed save loads resident by default") {
     Ref<GaussianData> gaussian_data;
     gaussian_data.instantiate();
@@ -1033,16 +1096,16 @@ TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects compressed splat_cou
     _remove_world_io_fixture(path);
 }
 
-TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects compressed payload disproportionate to the compressed blob") {
-    // A1 regression, compression-bomb variant: splat_count = 1,000,000 keeps the
-    // decompressed payload (144 MB) below the absolute cap (UINT32_MAX), so the
-    // absolute clause does NOT fire -- this isolates the ratio clause. A 16-byte
-    // compressed blob cannot legitimately expand to 144 MB (256x cap = 4 KB), so
-    // the loader must reject it before the resize. Guards a tiny file from forcing
-    // a 144 MB allocation.
-    const String path = _make_world_io_fixture_path("compressed_ratio_bomb");
+TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects a compressed file whose blob does not decompress to the declared size") {
+    // A1 regression: a small crafted compressed file whose splat_count stays under
+    // the absolute cap (here 1,000 splats = 144 KB) is NOT rejected by the pre-alloc
+    // guard (by design — no ratio cap, so valid high-ratio worlds are never
+    // false-rejected). It must still be rejected cleanly (ERR_FILE_CORRUPT, no
+    // abort) when the 16-byte blob fails to decompress to the declared payload
+    // size. This proves removing the ratio cap did not reopen a crash path.
+    const String path = _make_world_io_fixture_path("compressed_bad_blob");
 
-    REQUIRE(_write_compressed_world_oversized_count(path, 1000000u, 16u));
+    REQUIRE(_write_compressed_world_oversized_count(path, 1000u, 16u));
 
     ResourceFormatLoaderGaussianSplatWorld loader;
     Error err = OK;

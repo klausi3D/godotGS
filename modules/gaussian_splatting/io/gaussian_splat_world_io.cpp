@@ -35,25 +35,28 @@ static constexpr uint32_t kFlagCompressed = 1u << 4u;
 static constexpr uint32_t kFlagResidentPayload = 1u << 5u;
 static constexpr uint64_t kHeaderSizeBytes = 104u;
 
-// Bounds on the *decompressed* resident gaussian payload for compressed worlds.
-// The uncompressed path is bounded structurally by `fits_within` (you cannot
-// claim more splats than the file has bytes). The compressed path decouples
-// splat_count from file_len, so without these caps a crafted ~100-byte file can
-// set splat_count near UINT32_MAX and drive `gaussians.resize(splat_count)` to a
+// Absolute bound on the *decompressed* resident gaussian payload for compressed
+// worlds. The uncompressed path is bounded structurally by `fits_within` (you
+// cannot claim more splats than the file has bytes); the compressed path decouples
+// splat_count from file_len, so without this cap a crafted ~100-byte file can set
+// splat_count near UINT32_MAX and drive `gaussians.resize(splat_count)` to a
 // multi-hundred-GB allocation -> LocalVector CRASH_COND aborts the engine instead
-// of returning ERR_FILE_CORRUPT. Mirrors the SPZ loader's paired size caps.
-// KEEP IN SYNC with io/resource_importer_gsplatworld.cpp (the header validator).
+// of returning ERR_FILE_CORRUPT. KEEP IN SYNC with the header validator in
+// io/resource_importer_gsplatworld.cpp.
 //
-// Absolute cap: a resident payload is uploaded to a single GPU storage buffer,
-// which RenderingDevice addresses with 32 bits (see _grow_persistent_buffer's
-// UINT32_MAX guard). A world exceeding that cannot be made resident regardless.
+// The cap is UINT32_MAX because a resident payload is uploaded to a single GPU
+// storage buffer, which RenderingDevice addresses with 32 bits (see
+// _grow_persistent_buffer's UINT32_MAX guard). A world exceeding that cannot be
+// made resident regardless, so rejecting it here is not a false positive.
+//
+// Note: this deliberately does NOT bound the payload by a ratio of the compressed
+// size. gzip on a highly regular payload (e.g. many repeated/zero splats produced
+// by the in-tree saver) can legitimately exceed any fixed ratio, so a ratio guard
+// would reject valid round-trippable files. The residual is that a crafted file
+// can still request up to ~4 GiB before the decompressed-size check in
+// `_decompress_data` rejects the mismatch; that is bounded and identical to the
+// allocation a legitimately large resident world would need.
 static constexpr uint64_t kMaxResidentGaussianBytes = UINT32_MAX;
-// Compression-bomb bound: cap the decompressed payload at a generous multiple of
-// the on-disk compressed blob so a tiny file cannot force a huge allocation before
-// decompression validates the declared size. Real gaussian payloads gzip well
-// under 10:1; 256:1 never rejects a legitimate file. Revisit if a future resident
-// format stores highly-compressible quantized payloads.
-static constexpr uint64_t kMaxCompressedResidentRatio = 256u;
 
 static bool fits_within(uint64_t p_offset, uint64_t p_size, uint64_t p_file_len) {
 	if (p_offset > p_file_len) {
@@ -585,13 +588,10 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 		// Bound splat_count on the compressed path before `gaussians.resize()`
 		// below. The uncompressed path is bounded by the `fits_within` check in
 		// the else branch; the compressed path is not, so a crafted splat_count
-		// would otherwise abort the engine via an out-of-memory resize. Reject an
-		// oversized decompressed payload (absolute GPU-addressing cap) or a
-		// compression bomb (payload disproportionate to the compressed blob).
-		uint64_t max_bytes_by_ratio = 0;
-		if (gaussian_bytes > kMaxResidentGaussianBytes ||
-				(checked_mul_u64(compressed_size, kMaxCompressedResidentRatio, max_bytes_by_ratio) &&
-						gaussian_bytes > max_bytes_by_ratio)) {
+		// would otherwise abort the engine via an out-of-memory resize. The
+		// absolute GPU-addressing cap rejects payloads too large to ever be
+		// resident without rejecting any valid (possibly high-ratio) file.
+		if (gaussian_bytes > kMaxResidentGaussianBytes) {
 			if (r_error) {
 				*r_error = ERR_FILE_CORRUPT;
 			}
