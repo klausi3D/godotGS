@@ -43,6 +43,10 @@ layout(set = 0, binding = 4, std430) writeonly buffer VisibleChunkBuffer {
 layout(set = 0, binding = 5, std430) buffer CounterBuffer {
     uint visible_chunk_count;
     uint overflowed_chunks;
+    // M0 telemetry: chunks rejected by the frustum test this frame. std430 trailing member —
+    // the Stage-B peer shaders (depth/clamp) bind the same buffer with only the first two words
+    // and never touch or clear this one, so it survives to the post-cull readback.
+    uint frustum_culled_chunks;
 } counters;
 
 layout(set = 0, binding = 6, std140) uniform Params {
@@ -130,6 +134,9 @@ void main() {
             : chunk.bounds_radius_local * uniform_scale;
 
     if (!sphere_frustum_visible(world_center, radius)) {
+        // M0 telemetry: count ONLY true frustum rejects. This is past the out-of-dispatch,
+        // empty-chunk, and out-of-LOD early returns above, so it excludes non-frustum skips.
+        atomicAdd(counters.frustum_culled_chunks, 1u);
         return;
     }
 

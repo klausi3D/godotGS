@@ -300,6 +300,10 @@ private:
     InstancePipelineInputs instance_inputs;
     bool instance_inputs_valid = false;
     uint32_t last_instance_visible_chunk_count = 0;
+    // M0: chunks rejected by the instance-path frustum test, latched 1 frame late from the
+    // async counter readback (counter_values[2]). CHUNK granularity (the legacy CPU cull path
+    // counted splats) — surfaced as culled_frustum_count on the instance render path.
+    uint32_t last_instance_frustum_culled_count = 0;
 
     // PERF (#634): Batched async readback to reduce CPU/GPU sync points
     Ref<BatchedAsyncReadback> batched_readback;

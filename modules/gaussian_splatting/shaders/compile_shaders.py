@@ -555,7 +555,7 @@ COUNTER_INIT_CONTRACTS: tuple[ValidationContract, ...] = (
             FilePatternSet(
                 path=MODULE_DIR / "interfaces" / "gpu_culler.cpp",
                 patterns=(
-                    r"static const uint32_t zero_instance_counters\[2\] = \{ 0u, 0u \};",
+                    r"static const uint32_t zero_instance_counters\[3\] = \{ 0u, 0u, 0u \};",
                     r"buffer_update\(p_inputs\.counter_buffer, 0, sizeof\(zero_instance_counters\), zero_instance_counters\);",
                 ),
             ),

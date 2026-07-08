@@ -3114,7 +3114,17 @@ float GPUSortingPipeline::get_last_sort_time_ms() const {
 
 SortingMetrics GPUSortingPipeline::get_metrics() const {
     if (gpu_sorter.is_valid()) {
-        return gpu_sorter->get_metrics();
+        SortingMetrics metrics = gpu_sorter->get_metrics();
+        // M0 (real per-pass counters): the GPU-driven instance-pipeline sort dispatches via
+        // sort_indirect_async, whose element count lives in a GPU count buffer, so the sorter
+        // records last_element_count = 0 / known = false. Backfill the already-resolved instance
+        // visible count (from the prior-frame async count readback; no new GPU work / readback).
+        // Guarded so it never clobbers a real count set by the sync / non-indirect sort paths.
+        if (!metrics.last_element_count_known && last_instance_visible_splat_count_valid) {
+            metrics.last_element_count = last_instance_visible_splat_count;
+            metrics.last_element_count_known = true;
+        }
+        return metrics;
     }
     return SortingMetrics();
 }
