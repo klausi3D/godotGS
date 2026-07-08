@@ -4,6 +4,7 @@
 #include "core/io/file_access.h"
 #include "core/io/json.h"
 #include "core/io/compression.h"
+#include "core/os/os.h"
 #include "core/string/ustring.h"
 #include "core/math/math_funcs.h"
 #include "io_settings_utils.h"
@@ -661,6 +662,25 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 	LocalVector<Gaussian> gaussians;
 
 	if (should_materialize_resident_payload) {
+		// Reject before allocating if the declared payload cannot fit in available
+		// memory. The absolute cap above bounds gaussian_bytes to <= UINT32_MAX, but
+		// a crafted small compressed file can still declare ~4 GiB with a 1-byte
+		// blob and reach `gaussians.resize()`, which LocalVector aborts on OOM
+		// (CRASH_COND) rather than returning an error. This converts that abort into
+		// a clean ERR_OUT_OF_MEMORY. It never rejects a payload that would actually
+		// fit, and is skipped when the platform does not report memory info (<= 0).
+		if (OS *os = OS::get_singleton()) {
+			const Dictionary mem = os->get_memory_info();
+			const int64_t available = mem.has("available") ? int64_t(mem["available"]) : -1;
+			if (available > 0 && gaussian_bytes > uint64_t(available)) {
+				ERR_PRINT(vformat("[GaussianSplatWorld] Refusing to load %s: declared resident payload (%d MiB) exceeds available memory (%d MiB).",
+						p_path, int(gaussian_bytes / (1024 * 1024)), int(uint64_t(available) / (1024 * 1024))));
+				if (r_error) {
+					*r_error = ERR_OUT_OF_MEMORY;
+				}
+				return Ref<Resource>();
+			}
+		}
 		gaussians.resize(splat_count);
 		file->seek(gaussian_offset);
 
