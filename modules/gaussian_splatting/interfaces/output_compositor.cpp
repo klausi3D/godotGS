@@ -552,7 +552,12 @@ RID OutputCompositor::_ensure_viewport_blit_scratch(RenderingDevice *p_device, c
     scratch_format.mipmaps = 1;
     scratch_format.texture_type = RD::TEXTURE_TYPE_2D;
     scratch_format.samples = RD::TEXTURE_SAMPLES_1;
-    scratch_format.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT;
+    // COLOR_ATTACHMENT: when the composite destination lacks CAN_COPY_FROM (the internal
+    // render-buffer color texture in scaled/multiview viewports), the scratch is filled by
+    // a graphics blit into a framebuffer wrapping it instead of texture_copy. All supported
+    // blit formats are color-attachment capable.
+    scratch_format.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT |
+            RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT;
     // p_format was cloned from the destination texture; its shareable_formats
     // list reflects the destination's mutability contract (e.g. SRGB↔UNORM
     // aliasing for a swapchain target). The scratch is a freshly-allocated,
@@ -589,6 +594,10 @@ bool OutputCompositor::_ensure_viewport_blit_pipeline(RenderingDevice *p_device,
 
     ViewportBlitFormat format;
     if (!_determine_viewport_blit_format(p_format, format)) {
+        // Unsupported destination format for the depth-aware compute blit. Warn once —
+        // returning false silently would drop the requested depth test into the
+        // no-depth graphics fallback with no visible cause.
+        WARN_PRINT_ONCE(vformat("[OutputCompositor] Composite destination format %d has no viewport-blit compute variant; the depth-aware composite cannot run on this target.", int(p_format)));
         return false;
     }
 
@@ -1031,10 +1040,26 @@ bool OutputCompositor::_copy_final_output_compute(RenderingDevice *p_device, RID
     RID scratch_for_binding = p_source;
     if (p_composite_with_destination) {
         const RD::TextureFormat dest_actual = p_device->texture_get_format(p_destination);
-        if (!(dest_actual.usage_bits & RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT)) {
+        const bool dest_can_copy_from = (dest_actual.usage_bits & RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT) != 0;
+        // The internal render-buffer color texture (the composite destination whenever
+        // 3D scaling is active) never carries CAN_COPY_FROM, so texture_copy cannot fill
+        // the scratch there. It IS sampleable, so fill the scratch with a graphics blit
+        // instead — otherwise every scaled viewport silently loses the depth test to the
+        // no-depth graphics fallback. Exclusions: sRGB destinations (decode-on-sample
+        // would double-decode against the shader's srgb_to_linear), non-main devices
+        // (CopyEffects is main-RD-only) — in practice both only occur for present
+        // targets, which have CAN_COPY_FROM — and MULTIVIEW ARRAY targets: the internal
+        // color buffer is a TEXTURE_TYPE_2D_ARRAY with view_count layers there, which
+        // this single-view blit (p_multiview=false) and the compute shader's
+        // sampler2D/image2D destination bindings cannot legally address. Arrays keep the
+        // pre-existing no-depth fallback until a multiview blit variant exists.
+        const bool blit_fill_possible = (dest_actual.usage_bits & RD::TEXTURE_USAGE_SAMPLING_BIT) != 0 &&
+                !_is_srgb_format(dest_actual.format) && p_device == RD::get_singleton() &&
+                dest_actual.texture_type == RD::TEXTURE_TYPE_2D && dest_actual.array_layers <= 1;
+        if (!dest_can_copy_from && !blit_fill_possible) {
             last_composite_stats.fallback_due_to_missing_copy_from = true;
             last_composite_stats.valid = true;
-            WARN_PRINT_ONCE("[OutputCompositor] Composite destination is missing TEXTURE_USAGE_CAN_COPY_FROM_BIT; falling back to caller-provided graphics path.");
+            WARN_PRINT_ONCE("[OutputCompositor] Composite destination supports neither CAN_COPY_FROM nor a sampled scratch fill; falling back to caller-provided graphics path.");
             return false;
         }
         const int32_t dest_w = p_destination_format.width > 0 ? (int32_t)p_destination_format.width
@@ -1047,12 +1072,28 @@ bool OutputCompositor::_copy_final_output_compute(RenderingDevice *p_device, RID
         if (!scratch_rid.is_valid()) {
             return false;
         }
-        const Vector3 copy_zero(0, 0, 0);
-        const Vector3 copy_size(dest_w, dest_h, 1);
-        Error copy_err = p_device->texture_copy(p_destination, scratch_rid, copy_zero, copy_zero, copy_size, 0, 0, 0, 0);
-        if (copy_err != OK) {
-            GS_LOG_WARN_DEFAULT(vformat("[OutputCompositor] texture_copy destination->scratch failed (err=%d); skipping composite frame", int(copy_err)));
-            return false;
+        if (dest_can_copy_from) {
+            const Vector3 copy_zero(0, 0, 0);
+            const Vector3 copy_size(dest_w, dest_h, 1);
+            Error copy_err = p_device->texture_copy(p_destination, scratch_rid, copy_zero, copy_zero, copy_size, 0, 0, 0, 0);
+            if (copy_err != OK) {
+                GS_LOG_WARN_DEFAULT(vformat("[OutputCompositor] texture_copy destination->scratch failed (err=%d); skipping composite frame", int(copy_err)));
+                return false;
+            }
+        } else {
+            // Sampled fill: destination -> scratch framebuffer via a full-rect blit. The
+            // destination is only SAMPLED here and written by the separate compute
+            // dispatch afterwards — never same-dispatch R/W, so the #256 hazard fix holds.
+            // Both textures are non-sRGB UNORM/float, so the pass is a 1:1 pixel move.
+            RendererRD::CopyEffects *copy_effects = RendererRD::CopyEffects::get_singleton();
+            RID scratch_fb = copy_effects ? get_cached_framebuffer(p_device, scratch_rid) : RID();
+            if (!scratch_fb.is_valid()) {
+                GS_LOG_WARN_DEFAULT("[OutputCompositor] Sampled scratch fill unavailable (no CopyEffects or scratch framebuffer); skipping composite frame");
+                return false;
+            }
+            const Rect2i full_rect(Vector2i(0, 0), Size2i(dest_w, dest_h));
+            const Rect2 full_src(Vector2(0.0f, 0.0f), Vector2(1.0f, 1.0f));
+            copy_effects->copy_to_fb_rect(p_destination, scratch_fb, full_rect, false, false, false, false, RID(), false, false, false, false, full_src, false, false);
         }
         scratch_for_binding = scratch_rid;
         last_composite_stats.scratch_used = true;
@@ -1361,7 +1402,10 @@ OutputCopyResult OutputCompositor::copy_to_render_target(const OutputCopyParams 
     bool destination_can_copy = (destination_usage & RD::TEXTURE_USAGE_CAN_COPY_TO_BIT) != 0;
     bool source_can_sample = (source_usage & RD::TEXTURE_USAGE_SAMPLING_BIT) != 0;
 
-    bool can_direct_copy = !p_params.composite_with_destination && !format_mismatch && !sample_mismatch && source_can_copy && destination_can_copy;
+    // A depth-test request must never resolve to a plain pixel transfer: the compute
+    // path below handles composite_with_destination=false fine, so route depth-requested
+    // copies there instead of silently overwriting mesh pixels the splats are behind.
+    bool can_direct_copy = !p_params.composite_with_destination && !format_mismatch && !sample_mismatch && source_can_copy && destination_can_copy && !p_params.depth_test_enabled;
 
     // Try direct copy first
     if (can_direct_copy) {
@@ -1379,10 +1423,9 @@ OutputCopyResult OutputCompositor::copy_to_render_target(const OutputCopyParams 
         if (copy_err == OK) {
             result.success = true;
             // Direct copy is a pure pixel transfer with no depth comparison.
-            // If the caller requested depth_test_enabled but reached this path
-            // (only possible when composite_with_destination=false), the
-            // request was not honored — surface that so callers don't treat
-            // an unoccluded overwrite as depth-correct output.
+            // can_direct_copy excludes depth_test_enabled, so this block is
+            // defensive only — kept so a future routing change can never turn
+            // an unoccluded overwrite into a false-positive depth-correct copy.
             if (p_params.depth_test_enabled) {
                 result.depth_test_honored = false;
                 if (result.error.is_empty()) {
@@ -1421,6 +1464,7 @@ OutputCopyResult OutputCompositor::copy_to_render_target(const OutputCopyParams 
             if (p_params.depth_test_enabled &&
                     (!p_params.source_depth.is_valid() || !p_params.destination_depth.is_valid())) {
                 result.depth_test_honored = false;
+                WARN_PRINT_ONCE("[OutputCompositor] Depth test requested but a depth texture RID was invalid; compute composite ran WITHOUT depth comparison (splats will not be occluded by meshes this session until depths become valid).");
                 if (result.error.is_empty()) {
                     result.error = "depth_test_enabled requested but source_depth or destination_depth was invalid; compute path internally disabled depth comparison";
                 }
@@ -1477,15 +1521,18 @@ OutputCopyResult OutputCompositor::copy_to_render_target(const OutputCopyParams 
 
     result.success = true;
     // The graphics fallback path does not carry depth through copy_to_fb_rect.
-    // If the caller requested depth-tested compositing and we reached this
-    // path (compute path returned false, typically because destination lacked
-    // TEXTURE_USAGE_CAN_COPY_FROM_BIT for the scratch copy), signal the
-    // degradation in the result. Caller can choose to abort, warn, or
-    // recreate the destination with the required usage bit.
+    // If the caller requested depth-tested compositing and we reached this path
+    // (compute path returned false), report the ACTUAL reason from the compute
+    // attempt's stats instead of guessing, and warn once — a silently skipped
+    // depth test reads as "splats never occluded by meshes" to the user.
     if (p_params.depth_test_enabled) {
         result.depth_test_honored = false;
+        const char *fallback_reason = last_composite_stats.valid && last_composite_stats.fallback_due_to_missing_copy_from
+                ? "destination is missing TEXTURE_USAGE_CAN_COPY_FROM_BIT for the scratch copy"
+                : "the depth-aware compute composite could not run on this destination";
+        WARN_PRINT_ONCE(vformat("[OutputCompositor] Depth test requested but the graphics fallback composited WITHOUT depth (%s); splats will not be occluded by meshes on this path.", fallback_reason));
         if (result.error.is_empty()) {
-            result.error = "depth_test_enabled requested but graphics fallback path does not carry depth; destination likely missing TEXTURE_USAGE_CAN_COPY_FROM_BIT";
+            result.error = vformat("depth_test_enabled requested but graphics fallback path does not carry depth; %s", fallback_reason);
         }
     }
     output_cache.last_viewport_copy_success = (copy_extent == source_extent);
@@ -1606,9 +1653,40 @@ void OutputCompositor::integrate_final_output(GaussianSplatRenderer *p_renderer,
                     output_cache.last_copy_degradation_reason = output_cache.last_output_copy_error;
                 }
                 if (missing_required_scene_depth && allow_scene_blend_fallback) {
+                    WARN_PRINT_ONCE("[OutputCompositor] Relaxed depth policy: source or scene depth missing; compositing WITHOUT depth (splats will not be occluded by meshes until depths become available).");
                     output_cache.last_depth_test_honored = false;
                     output_cache.last_copy_degraded = true;
                     output_cache.last_copy_degradation_reason = "relaxed depth composite fallback: source or scene depth missing";
+                }
+            } else if (depth_test_enabled && !composite_target.is_valid() && render_target_framebuffer.is_valid()) {
+                // The presented target has no RD texture (DIRECT_TO_SCREEN-style): the
+                // depth-aware compute composite has no image to write, and the else-branch
+                // below would fail with an invalid destination while leaving the honored
+                // flag at its default true. Handle it explicitly: STRICT skips like the
+                // missing-depth contract; RELAXED blends without depth, flagged.
+                WARN_PRINT_ONCE("[OutputCompositor] Presented target has no RD texture; the depth-aware compute composite cannot run on this target.");
+                output_cache.last_output_copy_attempted = true;
+                output_cache.last_depth_test_honored = false;
+                output_cache.last_copy_degraded = true;
+                if (!allow_scene_blend_fallback) {
+                    output_cache.last_output_copy_success = false;
+                    output_cache.last_output_copy_error = "strict depth composite skipped: destination has no RD texture";
+                    output_cache.last_viewport_copy_success = false;
+                    output_cache.last_copy_degradation_reason = output_cache.last_output_copy_error;
+                } else {
+                    FramebufferCopyParams params;
+                    params.source_texture = p_final_output;
+                    params.framebuffer = render_target_framebuffer;
+                    params.destination_texture = present_render_target;
+                    params.viewport_size = viewport_size;
+                    params.composite_with_destination = true;
+                    params.source_is_premultiplied = true;
+                    const bool framebuffer_copy_success = copy_to_framebuffer(params);
+                    output_cache.last_output_copy_success = framebuffer_copy_success;
+                    output_cache.last_copy_degradation_reason = "relaxed depth composite fallback: destination has no RD texture";
+                    if (!framebuffer_copy_success) {
+                        output_cache.last_output_copy_error = "framebuffer copy failed";
+                    }
                 }
             } else {
                 OutputCopyParams params;
@@ -1644,7 +1722,11 @@ void OutputCompositor::integrate_final_output(GaussianSplatRenderer *p_renderer,
                 output_cache.last_output_copy_attempted = true;
                 output_cache.last_output_copy_success = copy_result.success;
                 output_cache.last_output_copy_error = copy_result.error;
-                output_cache.last_depth_test_honored = relaxed_missing_depth_fallback ? false : copy_result.depth_test_honored;
+                // An outright copy failure leaves copy_result.depth_test_honored at its
+                // default true — never report a failed depth-requested composite as honored.
+                const bool depth_honored = copy_result.depth_test_honored &&
+                        !(depth_test_enabled && !copy_result.success);
+                output_cache.last_depth_test_honored = relaxed_missing_depth_fallback ? false : depth_honored;
                 if (!copy_result.success) {
                     output_cache.last_copy_degraded = true;
                     output_cache.last_copy_degradation_reason = copy_result.error.is_empty()
@@ -1652,6 +1734,7 @@ void OutputCompositor::integrate_final_output(GaussianSplatRenderer *p_renderer,
                             : copy_result.error;
                 }
                 if (relaxed_missing_depth_fallback) {
+                    WARN_PRINT_ONCE("[OutputCompositor] Relaxed depth policy: source or scene depth missing; composited WITHOUT depth (splats will not be occluded by meshes until depths become available).");
                     output_cache.last_copy_degraded = true;
                     if (copy_result.success) {
                         output_cache.last_copy_degradation_reason = "relaxed depth composite fallback: source or scene depth missing";

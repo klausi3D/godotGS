@@ -124,11 +124,18 @@ void main() {
     if (params.depth_test_enabled != 0) {
         ivec2 source_depth_size = textureSize(u_source_depth, 0);
         ivec2 destination_depth_size = textureSize(u_destination_depth, 0);
-        bool source_depth_in_bounds = local_coord.x < source_depth_size.x && local_coord.y < source_depth_size.y;
         bool destination_depth_in_bounds = destination_coord.x < destination_depth_size.x &&
                 destination_coord.y < destination_depth_size.y;
 
-        float gs_depth = source_depth_in_bounds ? texelFetch(u_source_depth, local_coord, 0).r : 1.0;
+        // Address the GS depth through the SAME normalized source_uv as the color so the
+        // two stay aligned when the depth texture's size differs from the color source
+        // (possible on the painterly path). Nearest fetch with a scaled+clamped coord --
+        // NOT a linear textureLod: filtered depth across silhouettes fabricates mid-edge
+        // depths, which is the artifact the depth test exists to prevent. Bit-identical
+        // to the old local_coord fetch when the sizes match (the common case).
+        ivec2 gs_depth_coord = clamp(ivec2(source_uv * vec2(source_depth_size)),
+                ivec2(0), source_depth_size - 1);
+        float gs_depth = texelFetch(u_source_depth, gs_depth_coord, 0).r;
         float scene_depth = destination_depth_in_bounds ? texelFetch(u_destination_depth, destination_coord, 0).r : 1.0;
         bool depths_in_range = (gs_depth >= 0.0 && gs_depth <= 1.0 &&
                 scene_depth >= 0.0 && scene_depth <= 1.0);

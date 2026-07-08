@@ -3,6 +3,13 @@
 
 // ProjectedGaussian payload layout. The packed variant trades precision and index range
 // for reduced bandwidth; it is enabled via GS_PACKED_STAGE_DATA.
+//
+// data[1] carries the per-splat linear depth as RAW fp32 (floatBitsToUint). It used to be
+// f16-packed, but the f16 far-field quantization (~2.4e-4 x depth range) exceeds the
+// composite's depth_epsilon and caused silhouette shimmer when depth-testing splats
+// against mesh depth. Opacity + flags moved to the free high 16 bits of the normal-z
+// word (data[8] full / data[7] packed) -- gs_unpack_normal reads only the low half of
+// that word, so both strides stay unchanged (36 B / 32 B).
 #ifdef GS_PACKED_STAGE_DATA
 struct ProjectedGaussian {
     uint data[8];
@@ -18,12 +25,14 @@ uint gs_pack_screen_xy(vec2 screen_pos) {
     return packHalf2x16(screen_pos);
 }
 
-// Pack depth, opacity, and 8 bits of flags into one 32-bit word.
-uint gs_pack_depth_opacity_flags(float depth, float opacity, uint flags) {
-    uint depth_bits = packHalf2x16(vec2(depth, 0.0)) & 0xFFFFu;
+// Pack the Z normal component (low 16 bits, half) plus opacity (unorm8) and 8 bits of
+// flags (high 16 bits) into one 32-bit word. Replaces the separate gs_pack_normal_zw +
+// depth-word opacity: the high half of the normal-z word was unused, and reclaiming it
+// frees data[1] to carry raw fp32 depth (see header comment).
+uint gs_pack_normal_z_opacity_flags(vec3 normal, float opacity, uint flags) {
+    uint z_bits = packHalf2x16(vec2(normal.z, 0.0)) & 0xFFFFu;
     uint opacity_bits = uint(clamp(opacity, 0.0, 1.0) * 255.0 + 0.5) & 0xFFu;
-    uint flags_bits = (flags & 0xFFu);
-    return depth_bits | (opacity_bits << 16u) | (flags_bits << 24u);
+    return z_bits | (opacity_bits << 16u) | ((flags & 0xFFu) << 24u);
 }
 
 // Pack linear RGB into the tile color payload format.
@@ -57,11 +66,6 @@ uint gs_pack_normal_xy(vec3 normal) {
     return packHalf2x16(normal.xy);
 }
 
-// Pack the Z normal component into the second normal word.
-uint gs_pack_normal_zw(vec3 normal) {
-    return packHalf2x16(vec2(normal.z, 0.0));
-}
-
 // Legacy function kept for API compatibility.
 //
 // IMPORTANT: this packs `global_idx` into the high 16 bits and the rasterizer
@@ -86,9 +90,8 @@ vec2 gs_unpack_screen_xy(uint packed) {
     return unpackHalf2x16(packed);
 }
 
-// Unpack depth, opacity, and flags from the packed payload word.
-void gs_unpack_depth_opacity_flags(uint packed, out float depth, out float opacity, out uint flags) {
-    depth = unpackHalf2x16(packed & 0xFFFFu).x;
+// Unpack opacity and flags from the high 16 bits of the normal-z word.
+void gs_unpack_opacity_flags(uint packed, out float opacity, out uint flags) {
     opacity = float((packed >> 16u) & 0xFFu) / 255.0;
     flags = (packed >> 24u) & 0xFFu;
 }
@@ -135,21 +138,24 @@ void gs_unpack_projected_gaussian(in ProjectedGaussian pg,
         out vec3 color, out vec3 normal, out vec3 conic, out uint global_idx) {
     screen_pos = gs_unpack_screen_xy(pg.data[0]);
 
-    uint flags;
-    gs_unpack_depth_opacity_flags(pg.data[1], depth, opacity, flags);
+    depth = uintBitsToFloat(pg.data[1]);
 
     color = gs_unpack_color_r11g11b10(pg.data[2]);
 
     conic.x = uintBitsToFloat(pg.data[3]);
     conic.z = uintBitsToFloat(pg.data[4]);
 
+    uint flags;
 #ifdef GS_PACKED_STAGE_DATA
     gs_unpack_conic_y_and_index(pg.data[5], conic.y, global_idx);
+    // gs_unpack_normal reads only the low half of data[7]; opacity/flags live in its high half.
     normal = gs_unpack_normal(pg.data[6], pg.data[7]);
+    gs_unpack_opacity_flags(pg.data[7], opacity, flags);
 #else
     conic.y = uintBitsToFloat(pg.data[5]);
     global_idx = pg.data[6];
     normal = gs_unpack_normal(pg.data[7], pg.data[8]);
+    gs_unpack_opacity_flags(pg.data[8], opacity, flags);
 #endif
 }
 
@@ -158,19 +164,19 @@ void gs_pack_projected_gaussian(out ProjectedGaussian pg,
         vec2 screen_pos, float depth, float opacity,
         vec3 color, vec3 normal, vec3 conic, uint global_idx) {
     pg.data[0] = gs_pack_screen_xy(screen_pos);
-    pg.data[1] = gs_pack_depth_opacity_flags(depth, opacity, 0u);
+    pg.data[1] = floatBitsToUint(depth);
     pg.data[2] = gs_pack_color_r11g11b10(color);
     pg.data[3] = floatBitsToUint(conic.x);
     pg.data[4] = floatBitsToUint(conic.z);
 #ifdef GS_PACKED_STAGE_DATA
     pg.data[5] = gs_pack_conic_y_and_index(conic.y, global_idx);
     pg.data[6] = gs_pack_normal_xy(normal);
-    pg.data[7] = gs_pack_normal_zw(normal);
+    pg.data[7] = gs_pack_normal_z_opacity_flags(normal, opacity, 0u);
 #else
     pg.data[5] = floatBitsToUint(conic.y);
     pg.data[6] = global_idx;
     pg.data[7] = gs_pack_normal_xy(normal);
-    pg.data[8] = gs_pack_normal_zw(normal);
+    pg.data[8] = gs_pack_normal_z_opacity_flags(normal, opacity, 0u);
 #endif
 }
 
