@@ -95,6 +95,63 @@ TEST_CASE("[GaussianSplatting][PLY] parse minimal binary PLY") {
     _remove_ply_fixture(path);
 }
 
+TEST_CASE("[GaussianSplatting][PLY] integer-typed properties load faithfully instead of as zero") {
+    // A4 regression: read_float_property historically returned 0.0 for any
+    // non-float property type, so a binary PLY that stores positions (or any
+    // scalar) as integers decoded them as zeros — silent corruption. Here x/y/z
+    // are declared `int` with values (3, -4, 5); the loader must read them
+    // faithfully (including the negative), not as (0, 0, 0).
+    const String path = _make_ply_fixture_path("int_props");
+
+    Ref<FileAccess> f = FileAccess::open(path, FileAccess::WRITE);
+    REQUIRE(f.is_valid());
+    const char *header = R"(ply
+format binary_little_endian 1.0
+element vertex 1
+property int x
+property int y
+property int z
+property float scale_0
+property float scale_1
+property float scale_2
+property float rot_0
+property float rot_1
+property float rot_2
+property float rot_3
+property float opacity
+property float f_dc_0
+property float f_dc_1
+property float f_dc_2
+end_header
+)";
+    f->store_string(header);
+    // Positions as signed int32 (little-endian): 3, -4, 5.
+    f->store_32((uint32_t)(int32_t)3);
+    f->store_32((uint32_t)(int32_t)(-4));
+    f->store_32((uint32_t)(int32_t)5);
+    // Remaining properties as float: scale(1,1,1) rot(1,0,0,0) opacity(1) dc(1,0,0).
+    const float rest[11] = { 1, 1, 1, 1, 0, 0, 0, 1, 1, 0, 0 };
+    f->store_buffer((const uint8_t *)rest, sizeof(rest));
+    f.unref();
+
+    PLYLoader loader;
+    REQUIRE(loader.load_file(path) == OK);
+    Ref<GaussianData> data = loader.get_gaussian_data();
+    REQUIRE(data.is_valid());
+    REQUIRE(data->get_count() == 1);
+
+    const Vector3 pos = data->get_gaussian(0).position;
+    // Core assertion: the integer positions are NOT silently zeroed.
+    CHECK_FALSE(pos.is_equal_approx(Vector3()));
+    // Exact values: the binary loader assigns x/y/z directly from
+    // read_float_property (ply_loader.cpp:471, no axis flip — the minimal binary
+    // test corroborates), so the signed -4 must survive intact, not just its
+    // magnitude.
+    CHECK(pos.is_equal_approx(Vector3(3.0f, -4.0f, 5.0f)));
+
+    _remove_ply_fixture(path);
+}
+
 TEST_CASE("[GaussianSplatting][PLY] parse ASCII PLY") {
     const String path = _make_ply_fixture_path("ascii");
 

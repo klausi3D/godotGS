@@ -954,7 +954,51 @@ float PLYLoader::read_float_property(const uint8_t *data, const PLYProperty &pro
         double value;
         memcpy(&value, &bits, sizeof(double));
         return (float)value;
+    } else if (prop.type == "uchar" || prop.type == "uint8") {
+        // Integer property types are legal PLY. Convert them to float faithfully
+        // (preserving sign) instead of silently returning 0 — a binary PLY that
+        // stores positions/opacity/etc. as ints would otherwise decode as zeros.
+        return (float)data[prop.offset];
+    } else if (prop.type == "char" || prop.type == "int8") {
+        int8_t value;
+        memcpy(&value, data + prop.offset, sizeof(int8_t));
+        return (float)value;
+    } else if (prop.type == "ushort" || prop.type == "uint16") {
+        uint16_t value;
+        memcpy(&value, data + prop.offset, sizeof(uint16_t));
+        if (!header.is_little_endian) {
+            value = (uint16_t)(((value & 0x00FF) << 8) | ((value & 0xFF00) >> 8));
+        }
+        return (float)value;
+    } else if (prop.type == "short" || prop.type == "int16") {
+        uint16_t bits;
+        memcpy(&bits, data + prop.offset, sizeof(uint16_t));
+        if (!header.is_little_endian) {
+            bits = (uint16_t)(((bits & 0x00FF) << 8) | ((bits & 0xFF00) >> 8));
+        }
+        int16_t value;
+        memcpy(&value, &bits, sizeof(int16_t));
+        return (float)value;
+    } else if (prop.type == "uint" || prop.type == "uint32") {
+        uint32_t value;
+        memcpy(&value, data + prop.offset, sizeof(uint32_t));
+        if (!header.is_little_endian) {
+            value = BSWAP32(value);
+        }
+        return (float)value;
+    } else if (prop.type == "int" || prop.type == "int32") {
+        uint32_t bits;
+        memcpy(&bits, data + prop.offset, sizeof(uint32_t));
+        if (!header.is_little_endian) {
+            bits = BSWAP32(bits);
+        }
+        int32_t value;
+        memcpy(&value, &bits, sizeof(int32_t));
+        return (float)value;
     }
+    // Genuinely unknown/unsupported property type: warn once instead of silently
+    // corrupting the field to 0.
+    WARN_PRINT_ONCE(vformat("PLY property '%s' has unsupported type '%s'; reading it as 0.", prop.name, prop.type));
     return 0.0f;
 }
 
