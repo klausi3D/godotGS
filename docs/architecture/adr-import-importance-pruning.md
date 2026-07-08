@@ -41,6 +41,31 @@ Both default to a no-op. When both are set, the ratio and the threshold each pro
 set and the **intersection** is kept (a splat must pass both). A new optional preset
 **"Optimized"** demonstrates a validated ratio; **preset index 0 remains Ultra**.
 
+### Composition with the existing reducers (ordering, normative)
+
+The importer already has two count reducers: the density subsample
+(`merge_density` / `_compute_final_splat_count`) and the `max_splats` cap. Importance pruning
+composes with them in a fixed, documented order so the final count and *which* splats survive
+are deterministic:
+
+1. density subsample (existing) →
+2. importance prune (`prune_ratio` ∩ `prune_importance_threshold`, this ADR) →
+3. `max_splats` cap (existing, applied last).
+
+Rationale: pruning runs on the density-reduced set so it ranks the splats that actually remain;
+the `max_splats` cap is a hard ceiling applied **after** pruning, so a user who sets both gets
+"prune by importance, then never exceed N" rather than an order-dependent surprise. `max_splats`
+truncating a pruned set keeps the highest-importance splats (the set is already importance-ranked).
+
+### `prune_importance_threshold` is scale-dependent (caveat)
+
+`prune_ratio` is scale-invariant (it keeps a fraction regardless of the asset's units).
+`prune_importance_threshold` is an **absolute** importance value, and importance scales with the
+asset's world-unit scale (`max(|scale|)` term), so a threshold that is safe on one capture can
+wipe out or no-op another. It is therefore an advanced, per-asset knob; `prune_ratio` is the
+portable default control. This interacts with the ratio∩threshold intersection above: when both
+are set, the kept fraction is not directly predictable from either knob alone.
+
 ### Metric
 
 Reuse `gaussian_importance(g) = clamp(opacity,0,1) * (max(|scale.x|,|scale.y|,|scale.z|) +
@@ -98,6 +123,11 @@ existing asset. Rationale:
 Revert the commit(s) **and** the format-version bump together; assets re-import automatically
 at the previous version. No shipped asset silently changes (Ultra byte-identical, pruning
 opt-in).
+
+Reversibility depends on retaining the source PLY/SPZ: pruning is lossy at the *artifact*
+level, so recovery is re-import at ratio 1.0 from the untouched source. If a user deletes the
+source after a pruned import, the pruned artifact is the only remaining copy — standard for any
+lossy importer setting, but called out because pruning can discard a large fraction of splats.
 
 ## Alternatives considered
 
