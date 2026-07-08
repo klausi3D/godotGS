@@ -57,6 +57,23 @@ struct LODConfig {
     // Debug
     bool debug_visualization = false; // Show LOD level colors
 
+    // Value equality over every configuration field. Used by hot-path change
+    // detection (e.g. the scene-director per-instance LOD walk) to skip
+    // recomputation when the effective config is byte-for-byte unchanged.
+    // Keep this in sync with the data members above — a missed field would let
+    // a settings change be silently ignored.
+    bool operator==(const LODConfig &p_other) const {
+        return enabled == p_other.enabled &&
+                num_levels == p_other.num_levels &&
+                max_distance == p_other.max_distance &&
+                base_threshold == p_other.base_threshold &&
+                splat_skip_enabled == p_other.splat_skip_enabled &&
+                sh_reduction_enabled == p_other.sh_reduction_enabled &&
+                opacity_fade_enabled == p_other.opacity_fade_enabled &&
+                debug_visualization == p_other.debug_visualization;
+    }
+    bool operator!=(const LODConfig &p_other) const { return !(*this == p_other); }
+
     // Project settings integration
     void load_from_project_settings();
     void save_to_project_settings() const;

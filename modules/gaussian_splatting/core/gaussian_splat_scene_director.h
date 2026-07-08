@@ -397,6 +397,19 @@ private:
             uint32_t edited_version = 0;
         };
         HashMap<uint64_t, AssetRecord> asset_records;
+
+        // --- Per-instance LOD-walk memoization (host-side, zero visual effect) ---
+        // update_instance_lods_for_renderer() is an O(instances) walk called every
+        // frame. Its result is a pure function of (camera position, every instance
+        // transform/bias, the LODConfig, the hysteresis zone). instance_generation
+        // already bumps on every instance add/remove/transform/param change, so we
+        // can skip the whole walk when none of those inputs moved since last time.
+        // Recorded AFTER the walk so the walk's own generation bump is captured.
+        bool lod_walk_cache_valid = false;
+        Vector3 lod_walk_last_camera_pos;
+        uint64_t lod_walk_last_generation = 0;
+        LODConfig lod_walk_last_config;
+        float lod_walk_last_hysteresis = 0.0f;
     };
 
     static GaussianSplatSceneDirector *singleton;

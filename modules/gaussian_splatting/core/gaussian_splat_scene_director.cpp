@@ -1219,6 +1219,20 @@ void GaussianSplatSceneDirector::update_instance_lods_for_renderer(const Gaussia
 		return;
 	}
 
+	// Skip the whole O(instances) walk when nothing that affects LOD moved since
+	// the last walk. instance_generation already bumps on every instance
+	// add/remove/transform/param(bias) change, so animating content can never be
+	// frozen here; camera position, LODConfig and the hysteresis zone are compared
+	// directly. Exact (non-epsilon) comparison is intentional: any real change
+	// must re-walk, and an epsilon could let a slow camera drift stall LOD.
+	if (world->lod_walk_cache_valid &&
+			world->lod_walk_last_generation == world->instance_generation &&
+			world->lod_walk_last_camera_pos == p_camera_pos &&
+			world->lod_walk_last_hysteresis == p_hysteresis_zone &&
+			world->lod_walk_last_config == p_lod_config) {
+		return;
+	}
+
 	const int max_lod = MAX(0, p_lod_config.num_levels - 1);
 	const bool use_fallback = p_hysteresis_zone <= 0.0f;
 	const bool log_enabled = _is_scene_director_log_enabled();
@@ -1281,6 +1295,15 @@ void GaussianSplatSceneDirector::update_instance_lods_for_renderer(const Gaussia
 	if (any_changed) {
 		_bump_instance_generation(world->instance_generation);
 	}
+
+	// Memoize the inputs for next frame's early-out. Capture the generation AFTER
+	// the potential bump above so the walk's own change doesn't force a redundant
+	// re-walk next frame.
+	world->lod_walk_cache_valid = true;
+	world->lod_walk_last_camera_pos = p_camera_pos;
+	world->lod_walk_last_generation = world->instance_generation;
+	world->lod_walk_last_hysteresis = p_hysteresis_zone;
+	world->lod_walk_last_config = p_lod_config;
 }
 
 void GaussianSplatSceneDirector::build_instance_buffer(LocalVector<InstanceDataGPU> &out) const {
