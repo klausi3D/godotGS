@@ -11,6 +11,7 @@
 #include "../core/streaming_quantization.h"
 #include "../renderer/float16_utils.h"
 #include "../renderer/gaussian_gpu_layout.h"
+#include "../renderer/quantization_config.h"
 
 // These exercise pack_gaussian_quantized() against the CPU dequantizers, which use the
 // identical 1/((1<<bits)-1) normalization as the GLSL side (quantization_dequant.glsl):
@@ -230,6 +231,28 @@ TEST_CASE("[GaussianSplatting][Quantized] Degenerate chunk bounds do not divide 
 			packed.quantized_position[0], packed.quantized_position[1], packed.quantized_position[2]);
 	CHECK(Math::is_finite(rt.x));
 	CHECK(Math::abs(rt.x - 3.0f) <= 1e-3f);
+}
+
+TEST_CASE("[GaussianSplatting][Quantized] position_bits is capped at 16 (uint16 storage), not 24") {
+	// Regression: the 80-byte PackedGaussianQuantized stores quantized_position as
+	// uint16[3]. position_bits > 16 would quantize to > 65535 and silently truncate on
+	// the CPU store while GLSL dequantized at the full 1/((1<<bits)-1) scale -> corrupted
+	// positions. The config (the single source of the bits used by both the packer and
+	// the uploaded ChunkQuantization) must cap at 16.
+	QuantizationConfig cfg;
+
+	cfg.position_bits = 16;
+	CHECK(cfg.validate()); // 16 is the max valid value.
+
+	cfg.position_bits = 17;
+	CHECK_FALSE(cfg.validate()); // above the uint16 storage limit -> invalid.
+	CHECK(cfg.get_validation_errors().contains("Position bits must be <= 16"));
+
+	cfg.position_bits = 24;
+	CHECK_FALSE(cfg.validate()); // the old (silently-truncating) max is now rejected.
+
+	cfg.position_bits = 8;
+	CHECK(cfg.validate()); // lower bound still valid.
 }
 
 #endif // GAUSSIAN_SPLATTING_TEST_QUANTIZED_PACKING_H
