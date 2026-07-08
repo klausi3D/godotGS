@@ -35,6 +35,26 @@ static constexpr uint32_t kFlagCompressed = 1u << 4u;
 static constexpr uint32_t kFlagResidentPayload = 1u << 5u;
 static constexpr uint64_t kHeaderSizeBytes = 104u;
 
+// Bounds on the *decompressed* resident gaussian payload for compressed worlds.
+// The uncompressed path is bounded structurally by `fits_within` (you cannot
+// claim more splats than the file has bytes). The compressed path decouples
+// splat_count from file_len, so without these caps a crafted ~100-byte file can
+// set splat_count near UINT32_MAX and drive `gaussians.resize(splat_count)` to a
+// multi-hundred-GB allocation -> LocalVector CRASH_COND aborts the engine instead
+// of returning ERR_FILE_CORRUPT. Mirrors the SPZ loader's paired size caps.
+// KEEP IN SYNC with io/resource_importer_gsplatworld.cpp (the header validator).
+//
+// Absolute cap: a resident payload is uploaded to a single GPU storage buffer,
+// which RenderingDevice addresses with 32 bits (see _grow_persistent_buffer's
+// UINT32_MAX guard). A world exceeding that cannot be made resident regardless.
+static constexpr uint64_t kMaxResidentGaussianBytes = UINT32_MAX;
+// Compression-bomb bound: cap the decompressed payload at a generous multiple of
+// the on-disk compressed blob so a tiny file cannot force a huge allocation before
+// decompression validates the declared size. Real gaussian payloads gzip well
+// under 10:1; 256:1 never rejects a legitimate file. Revisit if a future resident
+// format stores highly-compressible quantized payloads.
+static constexpr uint64_t kMaxCompressedResidentRatio = 256u;
+
 static bool fits_within(uint64_t p_offset, uint64_t p_size, uint64_t p_file_len) {
 	if (p_offset > p_file_len) {
 		return false;
@@ -556,6 +576,22 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 
 		const uint64_t compressed_capacity = file_len - (gaussian_offset + sizeof(uint64_t));
 		if ((gaussian_bytes > 0 && compressed_size == 0) || compressed_size > compressed_capacity) {
+			if (r_error) {
+				*r_error = ERR_FILE_CORRUPT;
+			}
+			return Ref<Resource>();
+		}
+
+		// Bound splat_count on the compressed path before `gaussians.resize()`
+		// below. The uncompressed path is bounded by the `fits_within` check in
+		// the else branch; the compressed path is not, so a crafted splat_count
+		// would otherwise abort the engine via an out-of-memory resize. Reject an
+		// oversized decompressed payload (absolute GPU-addressing cap) or a
+		// compression bomb (payload disproportionate to the compressed blob).
+		uint64_t max_bytes_by_ratio = 0;
+		if (gaussian_bytes > kMaxResidentGaussianBytes ||
+				(checked_mul_u64(compressed_size, kMaxCompressedResidentRatio, max_bytes_by_ratio) &&
+						gaussian_bytes > max_bytes_by_ratio)) {
 			if (r_error) {
 				*r_error = ERR_FILE_CORRUPT;
 			}

@@ -969,6 +969,90 @@ TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects high SH count withou
     _remove_world_io_fixture(path);
 }
 
+namespace {
+
+// Writes a compressed-flag world whose header claims `p_splat_count` splats but
+// whose on-disk compressed blob is only `p_blob_bytes` long. The gaussian section
+// is laid out as the loader expects for a compressed world: an 8-byte
+// little-endian `compressed_size` prefix at `gaussian_offset` (== 104) followed by
+// `compressed_size` blob bytes, sized so the loader's pre-existing
+// `compressed_size <= compressed_capacity` guard passes and control reaches the
+// splat_count bound under test. The blob is zero-filled: a valid gzip stream is
+// not needed because the splat_count guard fires before any decompression.
+bool _write_compressed_world_oversized_count(const String &p_path, uint32_t p_splat_count, uint64_t p_blob_bytes) {
+    Ref<FileAccess> f = FileAccess::open(p_path, FileAccess::WRITE);
+    if (f.is_null()) {
+        return false;
+    }
+    const uint32_t kFlagCompressedBit = 1u << 4u;
+    f->store_32(0x57505347u); // magic 'GSPW'
+    f->store_32(1u); // version (kWorldVersion)
+    f->store_32(kFlagCompressedBit); // flags: compressed
+    f->store_32(p_splat_count);
+    f->store_32(0u); // sh_degree
+    f->store_32(0u); // sh_first_order
+    f->store_32(0u); // sh_high_order
+    for (int i = 0; i < 6; i++) {
+        f->store_float(0.0f); // bounds pos + size
+    }
+    f->store_32(0u); // chunk_count
+    f->store_64(104u); // gaussian_offset (== kHeaderSizeBytes)
+    f->store_64(0u); // sh_offset
+    f->store_64(0u); // chunk_table_offset
+    f->store_64(0u); // indices_offset
+    f->store_64(0u); // metadata_offset
+    f->store_64(0u); // metadata_size
+    // Gaussian section for a compressed world: [8-byte compressed_size][blob].
+    f->store_64(p_blob_bytes);
+    for (uint64_t i = 0; i < p_blob_bytes; i++) {
+        f->store_8(0);
+    }
+    f.unref();
+    return true;
+}
+
+} // namespace
+
+TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects compressed splat_count that overflows the resident payload cap") {
+    // A1 regression: the compressed path decouples splat_count from file length,
+    // so a crafted ~140-byte file can claim splat_count = 200,000,000. Before the
+    // fix the loader called gaussians.resize(200000000) -> ~28.8 GB request ->
+    // LocalVector CRASH_COND aborted the engine. The splat_count bound must now
+    // reject it as corrupt (gaussian_bytes 2.88e10 > kMaxResidentGaussianBytes =
+    // UINT32_MAX) with no allocation and no crash.
+    const String path = _make_world_io_fixture_path("compressed_oversized_count");
+
+    REQUIRE(_write_compressed_world_oversized_count(path, 200000000u, 32u));
+
+    ResourceFormatLoaderGaussianSplatWorld loader;
+    Error err = OK;
+    Ref<Resource> result = loader.load(path, "", &err);
+    CHECK_EQ(err, ERR_FILE_CORRUPT);
+    CHECK_FALSE(result.is_valid());
+
+    _remove_world_io_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects compressed payload disproportionate to the compressed blob") {
+    // A1 regression, compression-bomb variant: splat_count = 1,000,000 keeps the
+    // decompressed payload (144 MB) below the absolute cap (UINT32_MAX), so the
+    // absolute clause does NOT fire -- this isolates the ratio clause. A 16-byte
+    // compressed blob cannot legitimately expand to 144 MB (256x cap = 4 KB), so
+    // the loader must reject it before the resize. Guards a tiny file from forcing
+    // a 144 MB allocation.
+    const String path = _make_world_io_fixture_path("compressed_ratio_bomb");
+
+    REQUIRE(_write_compressed_world_oversized_count(path, 1000000u, 16u));
+
+    ResourceFormatLoaderGaussianSplatWorld loader;
+    Error err = OK;
+    Ref<Resource> result = loader.load(path, "", &err);
+    CHECK_EQ(err, ERR_FILE_CORRUPT);
+    CHECK_FALSE(result.is_valid());
+
+    _remove_world_io_fixture(path);
+}
+
 // F6 (checked_mul_u64 on splat_count * sh_high_order * sizeof(Vector3)) is
 // defense-in-depth and not reachable through the public header inputs: the
 // sh_high_order <= 12 cap caps sh_bytes at splat_count * 144, which fits in
