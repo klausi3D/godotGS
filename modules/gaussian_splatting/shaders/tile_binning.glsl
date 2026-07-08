@@ -1143,9 +1143,12 @@ void main() {
         // so pixels slightly outside the exact 1/255 contour can still shade. Widen the
         // tightened contour by the approximation's TRUE overestimate bound so it stays a
         // strict superset of what the raster shades: the linear-mantissa exp2 chord lies
-        // above the convex exact curve with maximum relative error at the octave
-        // midpoint, 1.5/sqrt(2) - 1 ~= +6.066%. Guard = 1.0625 (>= the bound, exact in
-        // binary fp). Shaded iff exact_alpha >= tau/(1+eps_max) -> derive the iso against
+        // above the convex exact curve; the TRUE maximum relative over-estimate over a
+        // mantissa octave is ~+6.148% at fractional exponent f ~= 0.4427 (NOT the octave
+        // midpoint). Guard = 1.0625 (= +6.25%, exact in binary fp) covers it with only
+        // ~0.1% margin -- do NOT tighten the guard toward the old understated 6.066%
+        // figure or the cull stops being a strict superset and starts clipping. Shaded
+        // iff exact_alpha >= tau/(1+eps_max) -> derive the iso against
         // that reduced threshold. Not a quality knob -- this is the raster's own exp
         // approximation error bound, and it drops to exactly 1.0 when the precise exp()
         // path is compiled (GS_SAFE_EXP).
