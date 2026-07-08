@@ -36,28 +36,23 @@ static constexpr uint32_t kFlagCompressed = 1u << 4u;
 static constexpr uint32_t kFlagResidentPayload = 1u << 5u;
 static constexpr uint64_t kHeaderSizeBytes = 104u;
 
-// Absolute bound on the *decompressed* resident gaussian payload for compressed
-// worlds. The uncompressed path is bounded structurally by `fits_within` (you
-// cannot claim more splats than the file has bytes); the compressed path decouples
-// splat_count from file_len, so without this cap a crafted ~100-byte file can set
-// splat_count near UINT32_MAX and drive `gaussians.resize(splat_count)` to a
-// multi-hundred-GB allocation -> LocalVector CRASH_COND aborts the engine instead
-// of returning ERR_FILE_CORRUPT. KEEP IN SYNC with the header validator in
-// io/resource_importer_gsplatworld.cpp.
+// Bound on the *decompressed* resident gaussian payload for compressed worlds.
+// The uncompressed path is bounded structurally by `fits_within` (you cannot claim
+// more splats than the file has bytes); the compressed path decouples splat_count
+// from file_len, so without this cap a crafted ~100-byte file can set a large
+// splat_count and drive `gaussians.resize(splat_count)` to a multi-GiB allocation
+// -> LocalVector CRASH_COND aborts the engine instead of returning an error.
+// KEEP IN SYNC with the header validator in io/resource_importer_gsplatworld.cpp.
 //
-// The cap is UINT32_MAX because a resident payload is uploaded to a single GPU
-// storage buffer, which RenderingDevice addresses with 32 bits (see
-// _grow_persistent_buffer's UINT32_MAX guard). A world exceeding that cannot be
-// made resident regardless, so rejecting it here is not a false positive.
-//
-// Note: this deliberately does NOT bound the payload by a ratio of the compressed
-// size. gzip on a highly regular payload (e.g. many repeated/zero splats produced
-// by the in-tree saver) can legitimately exceed any fixed ratio, so a ratio guard
-// would reject valid round-trippable files. The residual is that a crafted file
-// can still request up to ~4 GiB before the decompressed-size check in
-// `_decompress_data` rejects the mismatch; that is bounded and identical to the
-// allocation a legitimately large resident world would need.
-static constexpr uint64_t kMaxResidentGaussianBytes = UINT32_MAX;
+// The cap is INT32_MAX (~2 GiB), the gzip decompression limit: `Compression::
+// decompress` for MODE_GZIP ERR_FAILs on any destination larger than INT32_MAX
+// (core/io/compression.cpp) because zlib's implementation uses C++ `int`. A
+// compressed world declaring more than that can therefore NEVER decompress, so
+// rejecting it here is not a false positive — it just moves the guaranteed failure
+// ahead of a pointless multi-GiB allocation. (A ratio-of-compressed-size cap is
+// deliberately NOT used: gzip on a highly regular payload can legitimately exceed
+// any fixed ratio, which would reject valid round-trippable files.)
+static constexpr uint64_t kMaxCompressedGaussianBytes = INT32_MAX;
 
 static bool fits_within(uint64_t p_offset, uint64_t p_size, uint64_t p_file_len) {
 	if (p_offset > p_file_len) {
@@ -589,10 +584,10 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 		// Bound splat_count on the compressed path before `gaussians.resize()`
 		// below. The uncompressed path is bounded by the `fits_within` check in
 		// the else branch; the compressed path is not, so a crafted splat_count
-		// would otherwise abort the engine via an out-of-memory resize. The
-		// absolute GPU-addressing cap rejects payloads too large to ever be
-		// resident without rejecting any valid (possibly high-ratio) file.
-		if (gaussian_bytes > kMaxResidentGaussianBytes) {
+		// would otherwise abort the engine via an out-of-memory resize. The gzip
+		// decompression limit rejects payloads that can never decompress, without
+		// rejecting any valid (possibly high-ratio) file.
+		if (gaussian_bytes > kMaxCompressedGaussianBytes) {
 			if (r_error) {
 				*r_error = ERR_FILE_CORRUPT;
 			}
@@ -663,12 +658,12 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 
 	if (should_materialize_resident_payload) {
 		// Reject before allocating if the declared payload cannot fit in available
-		// memory. The absolute cap above bounds gaussian_bytes to <= UINT32_MAX, but
-		// a crafted small compressed file can still declare ~4 GiB with a 1-byte
-		// blob and reach `gaussians.resize()`, which LocalVector aborts on OOM
-		// (CRASH_COND) rather than returning an error. This converts that abort into
-		// a clean ERR_OUT_OF_MEMORY. It never rejects a payload that would actually
-		// fit, and is skipped when the platform does not report memory info (<= 0).
+		// memory. The caps above bound gaussian_bytes (compressed: <= INT32_MAX;
+		// uncompressed: <= file_len), but a crafted file can still declare a
+		// multi-GiB payload and reach `gaussians.resize()`, which LocalVector aborts
+		// on OOM (CRASH_COND) rather than returning an error. This converts that
+		// abort into a clean ERR_OUT_OF_MEMORY. It never rejects a payload that would
+		// actually fit, and is skipped when the platform does not report memory info.
 		if (OS *os = OS::get_singleton()) {
 			const Dictionary mem = os->get_memory_info();
 			const int64_t available = mem.has("available") ? int64_t(mem["available"]) : -1;

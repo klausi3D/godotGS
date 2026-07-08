@@ -1078,14 +1078,16 @@ bool _write_compressed_world_oversized_count(const String &p_path, uint32_t p_sp
 
 TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects compressed splat_count that overflows the resident payload cap") {
     // A1 regression: the compressed path decouples splat_count from file length,
-    // so a crafted ~140-byte file can claim splat_count = 200,000,000. Before the
-    // fix the loader called gaussians.resize(200000000) -> ~28.8 GB request ->
-    // LocalVector CRASH_COND aborted the engine. The splat_count bound must now
-    // reject it as corrupt (gaussian_bytes 2.88e10 > kMaxResidentGaussianBytes =
-    // UINT32_MAX) with no allocation and no crash.
+    // so a crafted ~140-byte file can claim a huge splat_count. splat_count =
+    // 20,000,000 => gaussian_bytes ~2.88 GiB, which sits between INT32_MAX (~2 GiB,
+    // the gzip decompression limit) and UINT32_MAX. Such a payload can NEVER gzip-
+    // decompress, so the compressed cap must reject it up front (ERR_FILE_CORRUPT,
+    // no ~2.88 GiB allocation, no abort) rather than letting the loader resize and
+    // then fail in _decompress_data. (A larger count like 200M is also rejected;
+    // this value specifically guards the 2-4 GiB band the old UINT32_MAX cap missed.)
     const String path = _make_world_io_fixture_path("compressed_oversized_count");
 
-    REQUIRE(_write_compressed_world_oversized_count(path, 200000000u, 32u));
+    REQUIRE(_write_compressed_world_oversized_count(path, 20000000u, 32u));
 
     ResourceFormatLoaderGaussianSplatWorld loader;
     Error err = OK;

@@ -54,21 +54,24 @@ The uncompressed path is already bounded structurally by
 splats than the file has bytes. The compressed path decouples `splat_count` from
 `file_len`, so it needs an explicit bound (mirrored in the importer validator):
 
-| Cap | Value | Rationale |
-| --- | --- | --- |
-| Absolute | `gaussian_bytes <= UINT32_MAX` | A resident payload is uploaded to a single GPU storage buffer, which `RenderingDevice` addresses with 32 bits (`_grow_persistent_buffer`'s existing `UINT32_MAX` guard). A larger world cannot be made resident regardless, so this is never a false positive. |
+Two guards, both mirrored in the importer validator (all values landed over three
+review rounds with Codex on #460):
 
-**No ratio cap.** An earlier revision also bounded the payload to `256 ×
-compressed_size` as an anti-compression-bomb measure. Review (Codex on #460)
-correctly flagged that `save_resident_compressed` gzips raw bytes with no ratio
-limit, so a highly regular payload (repeated/zero splats) can legitimately exceed
-any fixed ratio — the ratio guard would `ERR_FILE_CORRUPT` a valid, round-trippable
-saver output, violating the phase invariant. It was removed. The residual is that a
-crafted file can still request up to ~4 GiB before `_decompress_data`'s
-declared-size check rejects the mismatch; that allocation is bounded and identical
-to what a legitimately large resident world needs. A windowless fix (graceful
-allocation-failure instead of `LocalVector` `CRASH_COND`, or a save-time ratio
-contract) would need an upstream primitive and is out of scope.
+| Guard | Value / mechanism | Rationale |
+| --- | --- | --- |
+| Size cap | `gaussian_bytes <= INT32_MAX` (compressed path) | `Compression::decompress` for gzip ERR_FAILs on any destination `> INT32_MAX` (`core/io/compression.cpp` — zlib uses C++ `int`), so a compressed world larger than ~2 GiB decompressed can **never** load. Rejecting it up front is not a false positive; it just moves the guaranteed failure ahead of a pointless multi-GiB `resize`. |
+| Memory budget | reject if `gaussian_bytes > OS::get_memory_info()["available"]` → `ERR_OUT_OF_MEMORY` | Even within the size cap, a crafted small file can declare a payload that doesn't fit RAM; `LocalVector::resize` aborts on OOM (`CRASH_COND`). This converts that abort into a clean error. Never rejects a payload that would actually fit; skipped where the platform doesn't report memory info. |
+
+**No ratio cap.** An earlier revision bounded the payload to `256 ×
+compressed_size` as an anti-compression-bomb measure. Review correctly flagged that
+`save_resident_compressed` gzips raw bytes with no ratio limit, so a highly regular
+payload (repeated/zero splats) can legitimately exceed any fixed ratio — the ratio
+guard would `ERR_FILE_CORRUPT` a valid, round-trippable saver output, violating the
+phase invariant. It was removed in favour of the two guards above.
+
+**Residual (documented, not blocking):** a fully allocation-failure-proof path
+(fallible resize / streaming decompress instead of `LocalVector::resize`) would need
+a Godot container that does not abort on OOM; tracked on the ledger.
 
 ### A2–A4
 
