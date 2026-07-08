@@ -214,6 +214,16 @@ Error SPZLoader::load_file(const String &p_path) {
         return ERR_FILE_CORRUPT;
     }
 
+    // Validate fractional_bits. It is used as `1 << fractional_bits` in
+    // fixed_to_float(): a value >= 31 is C++ shift UB (the `1` is a 32-bit int),
+    // and a value > 24 is nonsensical for the 24-bit fixed-point positions
+    // (read_int24). An unvalidated byte here would either invoke UB or silently
+    // decode garbage geometry while the load still "succeeds". Reject as corrupt.
+    if (header.fractional_bits > 24) {
+        GS_LOG_ERROR_DEFAULT(vformat("Invalid SPZ fractional_bits: %d (max: 24)", header.fractional_bits));
+        return ERR_FILE_CORRUPT;
+    }
+
     // Validate point count
     if (header.num_points == 0) {
         GS_LOG_ERROR_DEFAULT("SPZ file contains no points");

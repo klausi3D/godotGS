@@ -1259,6 +1259,49 @@ TEST_CASE("[GaussianSplatting][Importer] SPZ loader marks DC encoding as linear 
     _remove_user_file(source_path);
 }
 
+TEST_CASE("[GaussianSplatting][Importer] SPZ loader rejects out-of-range fractional_bits") {
+    // A2 regression: fractional_bits is used as `1 << fractional_bits` in
+    // fixed_to_float(); >= 31 is shift UB and > 24 is nonsensical for the 24-bit
+    // fixed-point positions. Craft a structurally VALID single-point v2 file (the
+    // same payload the linear-DC test above loads OK) but with fractional_bits =
+    // 40. The header/payload-size guards all pass, so before the fix the loader
+    // reached fixed_to_float with a bogus shift; the new range check must reject
+    // it as corrupt first.
+    const String source_path = "user://gaussian_spz_bad_fractional_bits.spz";
+
+    PackedByteArray payload = _make_spz_v2_single_point_payload(255, 64, 128, 255);
+    PackedByteArray compressed_payload = _gzip_compress(payload);
+    REQUIRE_MESSAGE(!compressed_payload.is_empty(), "Failed to gzip-compress SPZ bad-fractional-bits fixture");
+
+    PackedByteArray file_data = _make_spz_header(SPZLoader::SPZ_VERSION_2, 1, 0, 40);
+    const int header_size = file_data.size();
+    file_data.resize(header_size + compressed_payload.size());
+    memcpy(file_data.ptrw() + header_size, compressed_payload.ptr(), compressed_payload.size());
+
+    Error write_err = _write_binary_file(source_path, file_data);
+    REQUIRE_MESSAGE(write_err == OK, "Failed to write SPZ bad-fractional-bits fixture");
+
+    Ref<SPZLoader> loader;
+    loader.instantiate();
+    Error load_err = loader->load_file(source_path);
+    CHECK_MESSAGE(load_err == ERR_FILE_CORRUPT, "SPZ with fractional_bits > 24 must be rejected as corrupt");
+
+    // Sanity: the SAME fixture with a valid fractional_bits (12) loads OK, proving
+    // the fractional_bits field is the sole defect (no other guard pre-empts it).
+    const String valid_path = "user://gaussian_spz_good_fractional_bits.spz";
+    PackedByteArray valid_file = _make_spz_header(SPZLoader::SPZ_VERSION_2, 1, 0, 12);
+    const int valid_header_size = valid_file.size();
+    valid_file.resize(valid_header_size + compressed_payload.size());
+    memcpy(valid_file.ptrw() + valid_header_size, compressed_payload.ptr(), compressed_payload.size());
+    REQUIRE_MESSAGE(_write_binary_file(valid_path, valid_file) == OK, "Failed to write SPZ good-fractional-bits fixture");
+    Ref<SPZLoader> valid_loader;
+    valid_loader.instantiate();
+    CHECK_MESSAGE(valid_loader->load_file(valid_path) == OK, "SPZ with fractional_bits = 12 must load");
+
+    _remove_user_file(valid_path);
+    _remove_user_file(source_path);
+}
+
 TEST_CASE("[GaussianSplatting][Importer] SPZ importer persists linear DC encoding metadata") {
     const String source_path = "user://gaussian_spz_linear_dc_import.spz";
     const String save_base_path = "user://gaussian_spz_linear_dc_imported";
