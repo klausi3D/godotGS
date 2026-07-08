@@ -35,6 +35,24 @@ static constexpr uint32_t kFlagCompressed = 1u << 4u;
 static constexpr uint32_t kFlagResidentPayload = 1u << 5u;
 static constexpr uint64_t kHeaderSizeBytes = 104u;
 
+// Bound on the *decompressed* resident gaussian payload for compressed worlds.
+// The uncompressed path is bounded structurally by `fits_within` (you cannot claim
+// more splats than the file has bytes); the compressed path decouples splat_count
+// from file_len, so without this cap a crafted ~100-byte file can set a large
+// splat_count and drive `gaussians.resize(splat_count)` to a multi-GiB allocation
+// -> LocalVector CRASH_COND aborts the engine instead of returning an error.
+// KEEP IN SYNC with the header validator in io/resource_importer_gsplatworld.cpp.
+//
+// The cap is INT32_MAX (~2 GiB), the gzip decompression limit: `Compression::
+// decompress` for MODE_GZIP ERR_FAILs on any destination larger than INT32_MAX
+// (core/io/compression.cpp) because zlib's implementation uses C++ `int`. A
+// compressed world declaring more than that can therefore NEVER decompress, so
+// rejecting it here is not a false positive — it just moves the guaranteed failure
+// ahead of a pointless multi-GiB allocation. (A ratio-of-compressed-size cap is
+// deliberately NOT used: gzip on a highly regular payload can legitimately exceed
+// any fixed ratio, which would reject valid round-trippable files.)
+static constexpr uint64_t kMaxCompressedGaussianBytes = INT32_MAX;
+
 static bool fits_within(uint64_t p_offset, uint64_t p_size, uint64_t p_file_len) {
 	if (p_offset > p_file_len) {
 		return false;
@@ -561,6 +579,19 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 			}
 			return Ref<Resource>();
 		}
+
+		// Bound splat_count on the compressed path before `gaussians.resize()`
+		// below. The uncompressed path is bounded by the `fits_within` check in
+		// the else branch; the compressed path is not, so a crafted splat_count
+		// would otherwise abort the engine via an out-of-memory resize. The gzip
+		// decompression limit rejects payloads that can never decompress, without
+		// rejecting any valid (possibly high-ratio) file.
+		if (gaussian_bytes > kMaxCompressedGaussianBytes) {
+			if (r_error) {
+				*r_error = ERR_FILE_CORRUPT;
+			}
+			return Ref<Resource>();
+		}
 	} else {
 		if (!fits_within(gaussian_offset, gaussian_bytes, file_len)) {
 			if (r_error) {
@@ -625,6 +656,27 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 	LocalVector<Gaussian> gaussians;
 
 	if (should_materialize_resident_payload) {
+		// Platform-independent OOM guard. The caps above bound gaussian_bytes
+		// (compressed: <= INT32_MAX; uncompressed: <= file_len), but a crafted file
+		// can still declare a multi-GiB payload and reach `gaussians.resize()`,
+		// which aborts via LocalVector's CRASH_COND when the allocation fails. Probe
+		// the allocation fallibly first: `memalloc` returns null on failure (unlike
+		// resize), so a hostile oversized payload becomes a clean ERR_OUT_OF_MEMORY
+		// on EVERY platform (OS::get_memory_info is only implemented on Windows).
+		// The probe is freed immediately; the resize below reuses the just-proven
+		// available memory. This never rejects a payload that actually fits.
+		if (gaussian_bytes > 0) {
+			void *alloc_probe = memalloc(gaussian_bytes);
+			if (alloc_probe == nullptr) {
+				ERR_PRINT(vformat("[GaussianSplatWorld] Refusing to load %s: cannot allocate the declared resident payload (%d MiB).",
+						p_path, int(gaussian_bytes / (1024 * 1024))));
+				if (r_error) {
+					*r_error = ERR_OUT_OF_MEMORY;
+				}
+				return Ref<Resource>();
+			}
+			memfree(alloc_probe);
+		}
 		gaussians.resize(splat_count);
 		file->seek(gaussian_offset);
 

@@ -49,6 +49,12 @@ static Error _validate_gsplatworld_header(const String &p_source_file, GSplatWor
 	constexpr uint32_t flag_resident_payload = 1u << 5u;
 	constexpr uint64_t header_size_bytes = 104u;
 	constexpr uint64_t chunk_record_size_bytes = 56u;
+	// Compressed-payload cap = the gzip decompression limit (INT32_MAX). KEEP IN
+	// SYNC with the loader's kMaxCompressedGaussianBytes in
+	// io/gaussian_splat_world_io.cpp. A compressed world larger than this can never
+	// decompress, so rejecting it lets the editor import fail cleanly instead of the
+	// loader aborting on a doomed multi-GiB resize. Rationale is documented there.
+	constexpr uint64_t max_compressed_gaussian_bytes = INT32_MAX;
 
 	Error open_err = OK;
 	Ref<FileAccess> file = FileAccess::open(p_source_file, FileAccess::READ, &open_err);
@@ -117,6 +123,12 @@ static Error _validate_gsplatworld_header(const String &p_source_file, GSplatWor
 		file->seek(gaussian_offset);
 		const uint64_t compressed_size = file->get_64();
 		if (!_range_in_file(gaussian_offset + sizeof(uint64_t), compressed_size, file_size)) {
+			return ERR_FILE_CORRUPT;
+		}
+		// Bound the decompressed payload the loader would materialize (mirrors the
+		// loader's compressed-path guard): reject a payload too large to ever
+		// decompress rather than letting the loader abort on resize.
+		if (gaussian_bytes > max_compressed_gaussian_bytes) {
 			return ERR_FILE_CORRUPT;
 		}
 	} else {
