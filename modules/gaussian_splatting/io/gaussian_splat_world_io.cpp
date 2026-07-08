@@ -7,6 +7,7 @@
 #include "core/string/ustring.h"
 #include "core/math/math_funcs.h"
 #include "io_settings_utils.h"
+#include "gs_atomic_file_writer.h"
 #include "../core/gaussian_data.h"
 #include "../core/gaussian_splat_world.h"
 #include "../interfaces/gpu_culler.h"
@@ -941,10 +942,11 @@ Error ResourceFormatSaverGaussianSplatWorld::save_with_payload_mode(const Ref<Re
 	ERR_FAIL_COND_V_MSG(layout_err != OK, layout_err,
 			vformat("Cannot build gsplatworld save layout for %s.", p_path));
 
-	Ref<FileAccess> file = FileAccess::open(p_path, FileAccess::WRITE);
-	ERR_FAIL_COND_V_MSG(file.is_null(), ERR_FILE_CANT_WRITE, vformat("Cannot write gsplatworld file: %s", p_path));
-
-	return _write_world_save_sections(file, world, gaussian_data, chunks, layout);
+	// Atomic write: stream to a sibling temp file and rename over p_path only on
+	// full success, so a crash mid-save cannot destroy an existing world file.
+	return gs_atomic_file_write(p_path, [&](const Ref<FileAccess> &file) -> Error {
+		return _write_world_save_sections(file, world, gaussian_data, chunks, layout);
+	});
 }
 
 void ResourceFormatSaverGaussianSplatWorld::get_recognized_extensions(const Ref<Resource> &p_resource,

@@ -110,6 +110,10 @@ private:
     Error _write_animation_data_chunk(Ref<FileAccess> file, const GaussianAnimationStateMachine* animation);
     Error _write_metadata_chunk(Ref<FileAccess> file, const Dictionary& p_metadata);
     Error _write_asset_refs_chunk(Ref<FileAccess> file);
+    // Streams the full scene to an already-open file. Invoked inside the atomic
+    // write in save_scene() so a mid-write failure never truncates the target.
+    Error _write_scene_to_file(const Ref<FileAccess>& file, const ::GaussianData* gaussian_data,
+            const GaussianAnimationStateMachine* animation, const Dictionary& p_metadata);
 
     Error _read_chunk_header(Ref<FileAccess> file, ChunkHeader& header) const;
     Error _read_scene_header(Ref<FileAccess> file, SceneHeader& header) const;

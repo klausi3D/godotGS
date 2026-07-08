@@ -1,5 +1,6 @@
 #include "gaussian_scene_serializer.h"
 #include "incremental_saver.h"
+#include "../io/gs_atomic_file_writer.h"
 
 #include "core/io/compression.h"
 #include "core/io/file_access.h"
@@ -568,9 +569,14 @@ bool GaussianSceneSerializer::_is_asset_modified(const AssetReference &ref) cons
 Error GaussianSceneSerializer::save_scene(const String &file_path, const ::GaussianData *gaussian_data, const GaussianAnimationStateMachine *animation, const Dictionary &p_metadata) {
     ERR_FAIL_NULL_V(gaussian_data, ERR_INVALID_PARAMETER);
 
-    Ref<FileAccess> file = FileAccess::open(file_path, FileAccess::WRITE);
-    ERR_FAIL_COND_V_MSG(file.is_null(), ERR_CANT_CREATE, "Unable to open Gaussian scene file for writing: " + file_path);
+    // Atomic write: a crash or write error mid-save must not truncate an existing
+    // scene file (worst case the baseline the incremental system depends on).
+    return gs_atomic_file_write(file_path, [&](const Ref<FileAccess> &file) -> Error {
+        return _write_scene_to_file(file, gaussian_data, animation, p_metadata);
+    });
+}
 
+Error GaussianSceneSerializer::_write_scene_to_file(const Ref<FileAccess> &file, const ::GaussianData *gaussian_data, const GaussianAnimationStateMachine *animation, const Dictionary &p_metadata) {
     SceneHeader header = {};
     header.magic = GAUSSIAN_SCENE_MAGIC;
     header.version = GAUSSIAN_SCENE_VERSION;

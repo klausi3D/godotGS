@@ -1,5 +1,6 @@
 #include "incremental_saver.h"
 #include "gaussian_scene_serializer.h"
+#include "../io/gs_atomic_file_writer.h"
 #include "../core/gaussian_data.h"
 #include "../animation/animation_state_machine.h"
 
@@ -755,41 +756,43 @@ Error GaussianIncrementalSaver::save_changes(const String &incremental_file_path
         offset += pending[i].entry.data_size;
     }
 
-    Ref<FileAccess> file = FileAccess::open(incremental_file_path, FileAccess::WRITE);
-    ERR_FAIL_COND_V(file.is_null(), ERR_CANT_CREATE);
-
-    file->store_32(INCREMENTAL_MAGIC);
-    file->store_16(INCREMENTAL_VERSION);
-    file->store_16(INCREMENTAL_SAVER_LAYOUT_VERSION);
-    file->store_64(timestamp);
-    file->store_64(baseline_timestamp);
-    file->store_32(baseline_splat_count);
-    file->store_32(pending.size());
-    Error err = _ensure_file_write_ok(file, "save_changes(header)");
-    if (err != OK) {
-        return err;
-    }
-
-    for (uint32_t i = 0; i < pending.size(); i++) {
-        err = _write_change_entry(file, pending[i].entry);
+    // Atomic write: the incremental delta file is a full rewrite; a crash
+    // mid-save must not truncate the previous good delta file.
+    const Error write_err = gs_atomic_file_write(incremental_file_path, [&](const Ref<FileAccess> &file) -> Error {
+        file->store_32(INCREMENTAL_MAGIC);
+        file->store_16(INCREMENTAL_VERSION);
+        file->store_16(INCREMENTAL_SAVER_LAYOUT_VERSION);
+        file->store_64(timestamp);
+        file->store_64(baseline_timestamp);
+        file->store_32(baseline_splat_count);
+        file->store_32(pending.size());
+        Error err = _ensure_file_write_ok(file, "save_changes(header)");
         if (err != OK) {
             return err;
         }
-    }
 
-    for (uint32_t i = 0; i < pending.size(); i++) {
-        file->store_buffer(pending[i].data);
-        err = _ensure_file_write_ok(file, "save_changes(payload)");
-        if (err != OK) {
-            return err;
+        for (uint32_t i = 0; i < pending.size(); i++) {
+            err = _write_change_entry(file, pending[i].entry);
+            if (err != OK) {
+                return err;
+            }
         }
+
+        for (uint32_t i = 0; i < pending.size(); i++) {
+            file->store_buffer(pending[i].data);
+            err = _ensure_file_write_ok(file, "save_changes(payload)");
+            if (err != OK) {
+                return err;
+            }
+        }
+
+        return _ensure_file_write_ok(file, "save_changes(final)");
+    });
+    if (write_err != OK) {
+        return write_err;
     }
 
-    err = _ensure_file_write_ok(file, "save_changes(final)");
-    if (err != OK) {
-        return err;
-    }
-
+    // Only advance save state once the file is durably in place.
     last_save_time = timestamp;
     clear_changes();
     return OK;
