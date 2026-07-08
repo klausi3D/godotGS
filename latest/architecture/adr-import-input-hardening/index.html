@@ -7,7 +7,7 @@
       
       
       
-        <link rel="canonical" href="https://klausi3d.github.io/godotGS/latest/troubleshooting/">
+        <link rel="canonical" href="https://klausi3d.github.io/godotGS/latest/architecture/adr-import-input-hardening/">
       
       
       
@@ -15,19 +15,19 @@
         
       
       
-      <link rel="icon" href="../assets/branding/godotgs-mark.png">
+      <link rel="icon" href="../../assets/branding/godotgs-mark.png">
       <meta name="generator" content="mkdocs-ProperDocs 1.6.7, mkdocs-material-9.7.6">
     
     
       
-        <title>Troubleshooting - Godot Gaussian Splatting Docs</title>
+        <title>ADR: Hostile-input hardening of the import / persistence read paths (Phase A) - Godot Gaussian Splatting Docs</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -40,19 +40,19 @@
       
     
     
-      <link rel="stylesheet" href="../assets/styles/brand.css">
+      <link rel="stylesheet" href="../../assets/styles/brand.css">
     
-      <link rel="stylesheet" href="../assets/styles/components.css">
+      <link rel="stylesheet" href="../../assets/styles/components.css">
     
-      <link rel="stylesheet" href="../assets/styles/landing.css">
+      <link rel="stylesheet" href="../../assets/styles/landing.css">
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
     
     
-  <link href="../assets/stylesheets/glightbox.min.css" rel="stylesheet"><script src="../assets/javascripts/glightbox.min.js"></script><style id="glightbox-style">
+  <link href="../../assets/stylesheets/glightbox.min.css" rel="stylesheet"><script src="../../assets/javascripts/glightbox.min.js"></script><style id="glightbox-style">
             html.glightbox-open { overflow: initial; height: 100%; }
             .gslide-title { margin-top: 0px; user-select: text; }
             .gslide-desc { color: #666; user-select: text; }
@@ -81,7 +81,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#troubleshooting" class="md-skip">
+        <a href="#adr-hostile-input-hardening-of-the-import-persistence-read-paths-phase-a" class="md-skip">
           Skip to content
         </a>
       
@@ -101,9 +101,9 @@
 
 <header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="Godot Gaussian Splatting Docs" class="md-header__button md-logo" aria-label="Godot Gaussian Splatting Docs" data-md-component="logo">
+    <a href="../.." title="Godot Gaussian Splatting Docs" class="md-header__button md-logo" aria-label="Godot Gaussian Splatting Docs" data-md-component="logo">
       
-  <img src="../assets/branding/godotgs-mark.png" alt="logo">
+  <img src="../../assets/branding/godotgs-mark.png" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -120,7 +120,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Troubleshooting
+              ADR: Hostile-input hardening of the import / persistence read paths (Phase A)
             
           </span>
         </div>
@@ -229,7 +229,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../getting-started/" class="md-tabs__link">
+        <a href="../../getting-started/" class="md-tabs__link">
           
   
   
@@ -251,7 +251,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../user/" class="md-tabs__link">
+        <a href="../../user/" class="md-tabs__link">
           
   
   
@@ -273,7 +273,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../reference/" class="md-tabs__link">
+        <a href="../../reference/" class="md-tabs__link">
           
   
   
@@ -295,7 +295,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../contributor/" class="md-tabs__link">
+        <a href="../../contributor/" class="md-tabs__link">
           
   
   
@@ -337,9 +337,9 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="Godot Gaussian Splatting Docs" class="md-nav__button md-logo" aria-label="Godot Gaussian Splatting Docs" data-md-component="logo">
+    <a href="../.." title="Godot Gaussian Splatting Docs" class="md-nav__button md-logo" aria-label="Godot Gaussian Splatting Docs" data-md-component="logo">
       
-  <img src="../assets/branding/godotgs-mark.png" alt="logo">
+  <img src="../../assets/branding/godotgs-mark.png" alt="logo">
 
     </a>
     Godot Gaussian Splatting Docs
@@ -399,7 +399,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../getting-started/" class="md-nav__link ">
+            <a href="../../getting-started/" class="md-nav__link ">
               
   
   
@@ -443,7 +443,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/downloads/" class="md-nav__link">
+      <a href="../../getting-started/downloads/" class="md-nav__link">
         
   
   
@@ -471,7 +471,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/try-in-5-minutes/" class="md-nav__link">
+      <a href="../../getting-started/try-in-5-minutes/" class="md-nav__link">
         
   
   
@@ -499,7 +499,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/installation/" class="md-nav__link">
+      <a href="../../getting-started/installation/" class="md-nav__link">
         
   
   
@@ -527,7 +527,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/quick-start/" class="md-nav__link">
+      <a href="../../getting-started/quick-start/" class="md-nav__link">
         
   
   
@@ -555,7 +555,7 @@
   
   
     <li class="md-nav__item">
-      <a href="recurring-issues/" class="md-nav__link">
+      <a href="../../troubleshooting/recurring-issues/" class="md-nav__link">
         
   
   
@@ -629,7 +629,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../user/" class="md-nav__link ">
+            <a href="../../user/" class="md-nav__link ">
               
   
   
@@ -673,7 +673,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../user/quickstart/" class="md-nav__link">
+      <a href="../../user/quickstart/" class="md-nav__link">
         
   
   
@@ -701,7 +701,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../user/manual/concepts/" class="md-nav__link">
+      <a href="../../user/manual/concepts/" class="md-nav__link">
         
   
   
@@ -729,7 +729,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../workflows/importing/" class="md-nav__link">
+      <a href="../../workflows/importing/" class="md-nav__link">
         
   
   
@@ -757,7 +757,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../user/manual/workflows/" class="md-nav__link">
+      <a href="../../user/manual/workflows/" class="md-nav__link">
         
   
   
@@ -785,7 +785,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../user/manual/runtime-behavior/" class="md-nav__link">
+      <a href="../../user/manual/runtime-behavior/" class="md-nav__link">
         
   
   
@@ -813,7 +813,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../user/manual/lighting-behavior/" class="md-nav__link">
+      <a href="../../user/manual/lighting-behavior/" class="md-nav__link">
         
   
   
@@ -841,7 +841,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../user/manual/performance-presets/" class="md-nav__link">
+      <a href="../../user/manual/performance-presets/" class="md-nav__link">
         
   
   
@@ -869,7 +869,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../user/manual/faq/" class="md-nav__link">
+      <a href="../../user/manual/faq/" class="md-nav__link">
         
   
   
@@ -945,7 +945,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../reference/" class="md-nav__link ">
+            <a href="../../reference/" class="md-nav__link ">
               
   
   
@@ -989,7 +989,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/project-settings/" class="md-nav__link">
+      <a href="../../reference/project-settings/" class="md-nav__link">
         
   
   
@@ -1017,7 +1017,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/compatibility-matrix/" class="md-nav__link">
+      <a href="../../reference/compatibility-matrix/" class="md-nav__link">
         
   
   
@@ -1045,7 +1045,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../performance/" class="md-nav__link">
+      <a href="../../performance/" class="md-nav__link">
         
   
   
@@ -1073,7 +1073,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/" class="md-nav__link">
+      <a href="../../api/" class="md-nav__link">
         
   
   
@@ -1101,7 +1101,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/gaussian_splat_node3d/" class="md-nav__link">
+      <a href="../../api/gaussian_splat_node3d/" class="md-nav__link">
         
   
   
@@ -1129,7 +1129,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/gdscript_reference/" class="md-nav__link">
+      <a href="../../api/gdscript_reference/" class="md-nav__link">
         
   
   
@@ -1157,7 +1157,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/shader_reference/" class="md-nav__link">
+      <a href="../../api/shader_reference/" class="md-nav__link">
         
   
   
@@ -1185,7 +1185,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/color-grading/" class="md-nav__link">
+      <a href="../../reference/color-grading/" class="md-nav__link">
         
   
   
@@ -1213,7 +1213,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../migration/" class="md-nav__link">
+      <a href="../../migration/" class="md-nav__link">
         
   
   
@@ -1291,7 +1291,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../contributor/" class="md-nav__link ">
+            <a href="../../contributor/" class="md-nav__link ">
               
   
   
@@ -1335,7 +1335,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../contributor/reviewer-fast-path/" class="md-nav__link">
+      <a href="../../contributor/reviewer-fast-path/" class="md-nav__link">
         
   
   
@@ -1363,7 +1363,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../contributor/onboarding/" class="md-nav__link">
+      <a href="../../contributor/onboarding/" class="md-nav__link">
         
   
   
@@ -1391,7 +1391,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../BUILDING/" class="md-nav__link">
+      <a href="../../BUILDING/" class="md-nav__link">
         
   
   
@@ -1419,7 +1419,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/build-test-ci/" class="md-nav__link">
+      <a href="../../reference/build-test-ci/" class="md-nav__link">
         
   
   
@@ -1447,7 +1447,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../testing/setup-guide/" class="md-nav__link">
+      <a href="../../testing/setup-guide/" class="md-nav__link">
         
   
   
@@ -1475,7 +1475,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../testing/benchmark-suite/" class="md-nav__link">
+      <a href="../../testing/benchmark-suite/" class="md-nav__link">
         
   
   
@@ -1503,7 +1503,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/overview/" class="md-nav__link">
+      <a href="../overview/" class="md-nav__link">
         
   
   
@@ -1531,7 +1531,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../governance/contribution-standards/" class="md-nav__link">
+      <a href="../../governance/contribution-standards/" class="md-nav__link">
         
   
   
@@ -1559,7 +1559,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/docs-site/" class="md-nav__link">
+      <a href="../../development/docs-site/" class="md-nav__link">
         
   
   
@@ -1587,7 +1587,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../style/documentation-style-guide/" class="md-nav__link">
+      <a href="../../style/documentation-style-guide/" class="md-nav__link">
         
   
   
@@ -1635,6 +1635,75 @@
     
   
   
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+      
+        <li class="md-nav__item">
+  <a href="#context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Decision">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a1-compressed-gsplatworld-splat_count-bound-this-pr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A1 — compressed .gsplatworld splat_count bound (this PR)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a2a4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A2–A4
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -1659,9 +1728,106 @@
   
 
 
-<h1 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">¶</a></h1>
+<h1 id="adr-hostile-input-hardening-of-the-import-persistence-read-paths-phase-a">ADR: Hostile-input hardening of the import / persistence read paths (Phase A)<a class="headerlink" href="#adr-hostile-input-hardening-of-the-import-persistence-read-paths-phase-a" title="Permanent link">¶</a></h1>
 <ul>
-<li><a href="recurring-issues/">Recurring Issues</a></li>
+<li><strong>Program:</strong> Production-Readiness (audit 2026-07-07), ledger #458.</li>
+<li><strong>Risk class:</strong> R3 (persistence / on-disk format read paths).</li>
+<li><strong>Status:</strong> Proposed — implemented incrementally; each slice is a separate PR
+  referencing this ADR. R3 gate: CODEOWNER + human approval before merge.</li>
+<li><strong>Date:</strong> 2026-07-08</li>
+<li><strong>Baseline:</strong> <code>eda1c261457</code></li>
+</ul>
+<h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">¶</a></h2>
+<p>The 2026-07-07 audit found the import/persistence read paths are defense-in-depth
+on <em>structure</em> (offset/length <code>fits_within</code>, checked multiplies, SH-count bounds
+— hardened by #438) but still have hostile-input holes that reach <strong>engine abort,
+undefined behavior, or silent data corruption</strong> from a crafted or truncated asset
+file. A game engine loads asset files as untrusted input (downloaded scenes,
+user-supplied captures, shared <code>.gsplatworld</code>/<code>.spz</code>/<code>.ply</code>), so "a malformed
+file aborts the engine" is a correctness and trust defect, not a cosmetic one.</p>
+<p>Confirmed holes (audit IO subsystem):</p>
+<ul>
+<li><strong>A1</strong> — compressed <code>.gsplatworld</code> never bounds <code>splat_count</code>; the loader
+  <code>resize</code>s the gaussian array before validating it, so a ~100-byte file can
+  request hundreds of GB and abort via <code>LocalVector</code> <code>CRASH_COND</code>. Mirrored in
+  the editor importer validator, so <em>importing</em> the file crashes the editor.</li>
+<li><strong>A2</strong> — SPZ <code>fractional_bits</code> is read from the header and used as a shift
+  (<code>1 &lt;&lt; fractional_bits</code>) without a range check → shift UB (≥31) and silently
+  corrupted geometry.</li>
+<li><strong>A3</strong> — every persistence writer (<code>.gsplatworld</code>, incremental saver, scene
+  serializer, PLY cache) truncates the destination in place; a crash mid-save
+  destroys the previous good file, including the baseline the incremental-delta
+  system depends on.</li>
+<li><strong>A4</strong> — PLY integer-typed properties (legal PLY) silently parse as <code>0.0</code>
+  instead of erroring or converting, and the importer validates only splat 0.</li>
+</ul>
+<h2 id="decision">Decision<a class="headerlink" href="#decision" title="Permanent link">¶</a></h2>
+<p>Harden each read/write path so <strong>malformed input fails cleanly</strong> (<code>ERR_FILE_*</code>,
+never abort/UB/corruption) and <strong>saves are crash-atomic</strong>, without changing the
+on-disk format, the format version, or the behavior for any valid file.</p>
+<p>Guiding invariant for the whole phase:</p>
+<blockquote>
+<p><strong>Valid files produced by the in-tree savers load and round-trip
+byte-identically after every Phase A change.</strong> The only observable difference
+is that a previously-aborting/UB/corrupting <em>malformed</em> input now returns a
+clean error (or, for A3, that an interrupted save leaves the prior file
+intact).</p>
+</blockquote>
+<h3 id="a1-compressed-gsplatworld-splat_count-bound-this-pr">A1 — compressed <code>.gsplatworld</code> splat_count bound (this PR)<a class="headerlink" href="#a1-compressed-gsplatworld-splat_count-bound-this-pr" title="Permanent link">¶</a></h3>
+<p>The uncompressed path is already bounded structurally by
+<code>fits_within(gaussian_offset, gaussian_bytes, file_len)</code> — you cannot claim more
+splats than the file has bytes. The compressed path decouples <code>splat_count</code> from
+<code>file_len</code>, so it needs an explicit bound (mirrored in the importer validator):</p>
+<p>Two guards, both mirrored in the importer validator (all values landed over three
+review rounds with Codex on #460):</p>
+<table>
+<thead>
+<tr>
+<th>Guard</th>
+<th>Value / mechanism</th>
+<th>Rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Size cap</td>
+<td><code>gaussian_bytes &lt;= INT32_MAX</code> (compressed path)</td>
+<td><code>Compression::decompress</code> for gzip ERR_FAILs on any destination <code>&gt; INT32_MAX</code> (<code>core/io/compression.cpp</code> — zlib uses C++ <code>int</code>), so a compressed world larger than ~2 GiB decompressed can <strong>never</strong> load. Rejecting it up front is not a false positive; it just moves the guaranteed failure ahead of a pointless multi-GiB <code>resize</code>.</td>
+</tr>
+<tr>
+<td>OOM probe</td>
+<td><code>memalloc(gaussian_bytes)</code> before the resize; null → <code>ERR_OUT_OF_MEMORY</code></td>
+<td>Even within the size cap, a crafted small file can declare a payload that doesn't fit RAM; <code>LocalVector::resize</code> aborts on OOM (<code>CRASH_COND</code>). <code>memalloc</code> instead returns null (<code>alloc_static</code> → <code>ERR_FAIL_NULL_V(mem, nullptr)</code>), so probing the allocation fallibly first converts the abort into a clean error on <strong>every</strong> platform. (An earlier revision used <code>OS::get_memory_info()</code>, but only Windows implements it — Linux/macOS return -1 — so it was a no-op on the other supported platforms; the probe is platform-independent.) The probe is freed immediately; the resize reuses the just-proven-available memory. Never rejects a payload that actually fits.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>No ratio cap.</strong> An earlier revision bounded the payload to <code>256 ×
+compressed_size</code> as an anti-compression-bomb measure. Review correctly flagged that
+<code>save_resident_compressed</code> gzips raw bytes with no ratio limit, so a highly regular
+payload (repeated/zero splats) can legitimately exceed any fixed ratio — the ratio
+guard would <code>ERR_FILE_CORRUPT</code> a valid, round-trippable saver output, violating the
+phase invariant. It was removed in favour of the two guards above.</p>
+<h3 id="a2a4">A2–A4<a class="headerlink" href="#a2a4" title="Permanent link">¶</a></h3>
+<p>Tracked in the ledger; each lands as its own PR under this ADR: A2 a one-line
+range check on <code>fractional_bits</code>; A3 a shared temp-file→fsync→atomic-rename
+helper applied to all four writers; A4 error-or-convert on integer PLY
+properties plus wider importer validation. Design detail is recorded per-PR
+against this ADR when implemented.</p>
+<h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">¶</a></h2>
+<ul>
+<li><strong>No format/version change.</strong> No <code>.gsplatworld</code>/<code>.gsf</code>/<code>.spz</code>/<code>.ply</code> file that
+  loads today stops loading (except crafted files that <em>should</em> be rejected).
+  Verified per slice by a load/round-trip test on saver output.</li>
+<li><strong>New rejections are conservative.</strong> A1's caps only reject payloads that either
+  exceed the GPU single-buffer limit (unusable regardless) or are wildly
+  disproportionate to their compressed size (not producible by the saver).</li>
+<li><strong>Constants are duplicated by hand</strong> between the loader and the importer
+  validator (following the file's existing convention for magic/version/flags).
+  This is flagged for Phase F3 (unify co-bumped constants behind a shared
+  header); until then each cap carries a <code>KEEP IN SYNC</code> comment.</li>
+<li><strong>Seeds the G2 malformed-file corpus.</strong> The per-slice regression fixtures
+  (crafted/truncated/adversarial-header) become the CI corpus that exit
+  criterion G2 requires.</li>
 </ul>
 
 
@@ -1683,7 +1849,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 8, 2026 22:13:35 UTC">July 8, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 8, 2026 22:13:29 UTC">July 8, 2026</span>
   </span>
 
     
@@ -1741,12 +1907,12 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.indexes", "navigation.path", "navigation.top", "navigation.footer", "content.code.copy", "content.code.annotate", "search.highlight", "search.suggest"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.indexes", "navigation.path", "navigation.top", "navigation.footer", "content.code.copy", "content.code.annotate", "search.highlight", "search.suggest"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
-        <script src="../js/mkdocs-charts-plugin.js"></script>
+        <script src="../../js/mkdocs-charts-plugin.js"></script>
       
         <script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
       
