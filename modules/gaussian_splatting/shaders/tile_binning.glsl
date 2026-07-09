@@ -906,7 +906,13 @@ void main() {
     float effective_sigma = max_sigma; // Default to conservative bounds
 
     if (gs_is_opacity_aware_culling_enabled()) {
-        float visibility_threshold = gs_get_visibility_threshold();
+        // Clamp the runtime binning threshold to the raster's compile-time cutoff. A user
+        // may raise visibility_threshold (property range up to 0.1); without this clamp that
+        // would shrink effective_sigma INSIDE the fixed GS_RASTER_ALPHA_THRESHOLD contour the
+        // rasterizer actually shades, dropping visible splats. No-op at the default (both 1/255);
+        // only ever widens the bound. Also keeps effective_sigma a valid upper bound for the
+        // ellipse_sigma2 tightening below.
+        float visibility_threshold = min(gs_get_visibility_threshold(), GS_RASTER_ALPHA_THRESHOLD);
         // Use the base opacity (before any fades) for radius calculation
         // This ensures consistent culling regardless of size/aspect fades
         float base_opacity_for_culling = clamp(max(g.opacity, deformation.opacity) * instance.params.x *
@@ -1114,6 +1120,47 @@ void main() {
     }
 
     float ellipse_sigma2 = effective_sigma * effective_sigma;
+
+    // Item 8 (cut raw_total_records at COUNT/EMIT time). effective_sigma is derived from
+    // BASE opacity (pre-fade) for radius-consistency, so it OVER-bounds splats the raster
+    // fades down: the rendered peak alpha (base_opacity below, :~1147) folds in
+    // size/aspect/lens fades + the Mip-Splatting rescale. Tighten ellipse_sigma2 to the
+    // true rendered-peak contour so fewer (tile,splat) pairs enter the global sort (which
+    // is the #1 GPU cost). Finalized HERE in common code, strictly BEFORE the COUNT/EMIT
+    // #ifdef split, so both passes derive a bit-identical ellipse_sigma2 -> no emit-cursor
+    // mismatch (same invariant as the NaN-conic hoist above). Strict superset of the
+    // raster: raster_peak uses max(g.opacity, deformation.opacity) >= the rendered
+    // deformation.opacity, plus a +0.5/255 unorm8 requantization half-step, so no tile the
+    // raster shades >= threshold is ever dropped. All thresholds derive from
+    // GS_RASTER_ALPHA_THRESHOLD (no new magic number). Gated on opacity-aware culling so
+    // the max-conservative / fidelity-override path is an exact no-op.
+    if (gs_is_opacity_aware_culling_enabled()) {
+        float raster_peak_opacity = clamp(max(g.opacity, deformation.opacity) * instance.params.x *
+                params.opacity_multiplier * size_fade * aspect_fade * lens_fade * alpha_rescale_proj, 0.0, 1.0);
+        raster_peak_opacity = min(raster_peak_opacity + GS_RASTER_ALPHA_THRESHOLD * 0.5, 1.0);
+        // The rasterizer evaluates alpha with gs_exp_fast (Schraudolph bit-trick, no
+        // error-correcting offset; see platform_compat.glsl) BEFORE its threshold test,
+        // so pixels slightly outside the exact 1/255 contour can still shade. Widen the
+        // tightened contour by the approximation's TRUE overestimate bound so it stays a
+        // strict superset of what the raster shades: the linear-mantissa exp2 chord lies
+        // above the convex exact curve; the TRUE maximum relative over-estimate over a
+        // mantissa octave is ~+6.148% at fractional exponent f ~= 0.4427 (NOT the octave
+        // midpoint). Guard = 1.0625 (= +6.25%, exact in binary fp) covers it with only
+        // ~0.1% margin -- do NOT tighten the guard toward the old understated 6.066%
+        // figure or the cull stops being a strict superset and starts clipping. Shaded
+        // iff exact_alpha >= tau/(1+eps_max) -> derive the iso against
+        // that reduced threshold. Not a quality knob -- this is the raster's own exp
+        // approximation error bound, and it drops to exactly 1.0 when the precise exp()
+        // path is compiled (GS_SAFE_EXP).
+#if GS_FAST_EXP
+        const float fast_exp_alpha_guard = 1.0625;
+#else
+        const float fast_exp_alpha_guard = 1.0;
+#endif
+        float tight_sigma = compute_opacity_aware_sigma(raster_peak_opacity,
+                GS_RASTER_ALPHA_THRESHOLD / fast_exp_alpha_guard, max_sigma);
+        ellipse_sigma2 = min(ellipse_sigma2, tight_sigma * tight_sigma);
+    }
 
 #ifdef GS_TILE_GLOBAL_SORT_COUNT_PASS
     // Pass 1: count overlaps per tile (no keys/values emitted).
