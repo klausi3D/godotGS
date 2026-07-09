@@ -1221,6 +1221,10 @@ TEST_CASE("[GaussianSplatting] Clearing a resident instance contract drops resid
 	resource_state.resident_chunk_meta_buffer_size = 96;
 	resource_state.resident_asset_chunk_index_buffer = RID::from_uint64(0x29804u);
 	resource_state.resident_asset_chunk_index_buffer_size = 32;
+	// GS-PERF-Q80B: the quantized resident atlas adds a per-chunk bounds buffer that
+	// teardown/clear must also release, or a quantized publish leaks it.
+	resource_state.resident_quantization_buffer = RID::from_uint64(0x29805u);
+	resource_state.resident_quantization_buffer_size = 48;
 	resource_state.instance_pipeline_atlas_generation = 17;
 	resource_state.resident_atlas_gaussian_count = 11;
 	resource_state.resident_dispatch_chunk_count = 3;
@@ -1251,10 +1255,12 @@ TEST_CASE("[GaussianSplatting] Clearing a resident instance contract drops resid
 	CHECK_FALSE(resource_state.resident_asset_meta_buffer.is_valid());
 	CHECK_FALSE(resource_state.resident_chunk_meta_buffer.is_valid());
 	CHECK_FALSE(resource_state.resident_asset_chunk_index_buffer.is_valid());
+	CHECK_FALSE(resource_state.resident_quantization_buffer.is_valid());
 	CHECK(resource_state.resident_atlas_gaussian_buffer_size == 0u);
 	CHECK(resource_state.resident_asset_meta_buffer_size == 0u);
 	CHECK(resource_state.resident_chunk_meta_buffer_size == 0u);
 	CHECK(resource_state.resident_asset_chunk_index_buffer_size == 0u);
+	CHECK(resource_state.resident_quantization_buffer_size == 0u);
 	CHECK(resource_state.instance_pipeline_atlas_generation == 0u);
 	CHECK(resource_state.resident_atlas_gaussian_count == 0u);
 	CHECK(resource_state.resident_dispatch_chunk_count == 0u);
