@@ -5,6 +5,12 @@
 #include "core/templates/rid.h"
 #include "servers/rendering/rendering_device.h"
 
+// View-space depth tolerance (meters) for GS<->scene depth comparisons. Single
+// source of truth shared by the whole-pixel composite test (viewport_blit) and
+// the per-splat raster clip (slice D) so the raster clip stays a provable
+// superset of what the composite would keep.
+static constexpr float GS_COMPOSITE_DEPTH_EPSILON_VIEW = 0.01f;
+
 // Parameters for copying final output to render target
 struct OutputCopyParams {
     RID source_texture;
@@ -20,7 +26,7 @@ struct OutputCopyParams {
     float z_far = 1.0f;
     float depth_linearize_mul = 0.0f;
     float depth_linearize_add = 1.0f;
-    float depth_epsilon = 0.01f;
+    float depth_epsilon = GS_COMPOSITE_DEPTH_EPSILON_VIEW;
 };
 
 // Result from output copy operation

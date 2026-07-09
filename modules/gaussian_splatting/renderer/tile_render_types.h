@@ -389,6 +389,16 @@ struct TileRenderParams {
 	Transform3D world_to_camera_transform;
 	Projection projection;
 	Projection render_projection;
+	// Per-splat scene-depth clip (mesh<->splat interleave, compositing slice D).
+	// Defaults keep every caller that doesn't opt in (shadow pass with null
+	// render_data, painterly, direct tests) bit-identical: disabled, no texture.
+	RID scene_depth_texture;
+	float scene_depth_linearize_mul = 0.0f;
+	float scene_depth_linearize_add = 1.0f;
+	float scene_depth_z_near = 0.0f;
+	float scene_depth_z_far = 1.0f;
+	bool scene_depth_is_ortho = false;
+	bool scene_depth_clip_enabled = false;
 	int tile_size = 16;
 	uint64_t frame_serial = 0;
 	bool debug_show_tile_bounds = false;

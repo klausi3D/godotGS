@@ -12,6 +12,7 @@
     "rendering/gaussian_splatting/cache/spirv_cache_enabled",
     "rendering/gaussian_splatting/cache/spirv_cache_max_mb",
     "rendering/gaussian_splatting/composite/depth_test",
+    "rendering/gaussian_splatting/composite/per_splat_depth_clip",
     "rendering/gaussian_splatting/composite/scene_depth_policy",
     "rendering/gaussian_splatting/compression/adaptive_chunk_size",
     "rendering/gaussian_splatting/compression/max_chunk_size",

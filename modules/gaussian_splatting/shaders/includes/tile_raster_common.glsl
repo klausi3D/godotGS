@@ -34,6 +34,60 @@ layout(set = 0, binding = 15, std430) readonly buffer InstanceIndirectDispatch {
     uint unclamped_total;
 } instance_indirect;
 
+// Scene (opaque mesh) depth for per-splat occlusion clipping (compositing slice D).
+// Declared in this shared include so the fragment and compute raster variants stay
+// bit-identical. Bound unconditionally (a default depth texture when the clip is off
+// or no scene depth exists); params.scene_depth_clip_config.x gates every read.
+layout(set = 0, binding = 7) uniform sampler2D gs_scene_depth_texture;
+
+// Sentinel meaning "no clip": larger than any clamped [0,1] payload depth.
+const float GS_SCENE_CLIP_DISABLED = 3.402823e38;
+
+// Once-per-pixel scene-depth clip limit in the payload's normalized linear-depth
+// space. A splat whose fp32 payload linear_depth exceeds this limit is behind the
+// opaque scene geometry at this pixel and must contribute nothing.
+//
+// Conversion chain (one fetch, NEAREST, size-mapped like the Slice-A composite fix):
+//   raw NDC scene depth -> positive view-space z via the SCENE projection's
+//   linearize mul/add (perspective) or near/far (ortho) — the exact formulas the
+//   composite uses in viewport_blit.glsl — then normalized with the GS raster's
+//   near/far pair (params.near_plane/far_plane), because THAT pair defined the
+//   payload linear_depth at binning time (tile_binning.glsl). eps_norm is the
+//   composite's view-space depth-epsilon contract pre-divided by (far - near).
+//
+// Background bypass: a raw depth equal to the far-plane clear value (0.0 or 1.0
+// depending on reversed-Z, matching is_scene_background_depth's raw check in the
+// composite) means "no mesh here" -> no clip. This is exact regardless of any
+// near/far mismatch between the GS and scene projections.
+float gs_scene_clip_limit(vec2 pixel_center) {
+    if (params.scene_depth_clip_config.x == 0.0) {
+        return GS_SCENE_CLIP_DISABLED; // feature off: no fetch, no cost
+    }
+    ivec2 dsize = textureSize(gs_scene_depth_texture, 0);
+    vec2 uv = pixel_center / vec2(max(params.viewport_size, vec2(1.0)));
+    ivec2 dcoord = clamp(ivec2(uv * vec2(dsize)), ivec2(0), dsize - ivec2(1));
+    float raw = texelFetch(gs_scene_depth_texture, dcoord, 0).r;
+    if (raw <= 0.0 || raw >= 1.0) {
+        // Far-plane clear (reversed-Z: 0.0, forward-Z: 1.0) => no opaque mesh at this
+        // pixel; also rejects out-of-range garbage from an invalid binding.
+        return GS_SCENE_CLIP_DISABLED;
+    }
+    float view_z;
+    if (params.scene_depth_clip_config2.z != 0.0) {
+        float zn = params.scene_depth_clip_config2.x;
+        float zf = params.scene_depth_clip_config2.y;
+        float ndc = raw * 2.0 - 1.0;
+        view_z = -(ndc * (zf - zn) - (zf + zn)) / 2.0;
+    } else {
+        view_z = params.scene_depth_clip_config.z / (params.scene_depth_clip_config.w - raw);
+    }
+    if (isnan(view_z) || isinf(view_z)) {
+        return GS_SCENE_CLIP_DISABLED;
+    }
+    float denom = max(params.far_plane - params.near_plane, 1e-4);
+    return (abs(view_z) - params.near_plane) / denom + params.scene_depth_clip_config.y;
+}
+
 // Dithering constants for 8-bit output quantization artifact mitigation
 // For R8G8B8A8_UNORM (8-bit per channel), 1 LSB = 1/255
 // Use slightly more than 1 LSB for effective banding reduction
@@ -239,6 +293,7 @@ void gs_flush_raster_stats(bool sample_raster_stats, GSRasterStatsCounters stats
 bool gs_rasterize_splat_batch(
         vec2 pixel_center,
         uint batch_size,
+        float scene_clip_limit,
         float lod_blend,
         vec3 pixel_dither,
         float highlight_strength,
@@ -293,6 +348,22 @@ bool gs_rasterize_splat_batch(
             }
 #endif
             continue;
+        }
+        // Per-splat scene-depth clip (slice D): this splat is behind the opaque scene
+        // geometry at this pixel — it must contribute nothing. Placed AFTER the index
+        // integrity check (a mismatched payload's depth belongs to another splat).
+        if (linear_depth > scene_clip_limit) {
+#if GS_SORT_KEY_BITS >= 64
+            // The 64-bit sort key packs this exact fp32 linear_depth, so traversal is
+            // non-decreasing in the compared value: every later splat (and every later
+            // batch) is also behind the mesh. Returning true reuses the saturation
+            // "pixel done" contract — barriers keep uniform participation.
+            return true;
+#else
+            // Quantized sort keys are only bucket-monotonic; later splats may still be
+            // in front. Skip this one only.
+            continue;
+#endif
         }
         if (base_opacity <= 0.0) {
 #ifdef GS_COLLECT_RASTER_STATS
@@ -506,6 +577,8 @@ void gs_rasterize_pixel(vec2 frag_coord, uint range_start, uint splat_count, uin
     float lod_blend = gs_get_lod_blend_factor();
     // Dither noise depends only on pixel position, compute once per pixel
     vec3 pixel_dither = gs_dither_noise_rgb(pixel_center) * GS_DITHER_AMPLITUDE;
+    // Scene-depth clip limit (slice D): one fetch + conversion per pixel.
+    float scene_clip_limit = gs_scene_clip_limit(pixel_center);
 
     for (uint i = 0u; i < splat_count; ++i) {
 #ifdef GS_COLLECT_RASTER_STATS
@@ -557,6 +630,19 @@ void gs_rasterize_pixel(vec2 frag_coord, uint range_start, uint splat_count, uin
         bool audit_active = (audit_entry_index != 0xFFFFFFFFu);
         if (audit_active) {
             atomicOr(debug_audit.entries[audit_entry_index].flags, GS_AUDIT_FLAG_ITERATED);
+        }
+
+        // Per-splat scene-depth clip (slice D): behind the opaque scene geometry at this
+        // pixel — contributes nothing. After the audit-ITERATED mark so clipped splats
+        // still audit as iterated-but-not-contributed, mirroring other skips.
+        if (linear_depth > scene_clip_limit) {
+#if GS_SORT_KEY_BITS >= 64
+            // 64-bit keys pack this exact fp32 depth: traversal is non-decreasing in the
+            // compared value, so every remaining splat is also behind the mesh.
+            break;
+#else
+            continue;
+#endif
         }
 
         if (base_opacity <= 0.0) {

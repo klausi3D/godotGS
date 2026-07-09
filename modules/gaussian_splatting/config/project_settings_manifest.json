@@ -257,6 +257,11 @@
       "test_coverage": "partial"
     },
     {
+      "effective_state": "TileRenderParams.scene_depth_clip_enabled",
+      "key": "rendering/gaussian_splatting/composite/per_splat_depth_clip",
+      "test_coverage": "partial"
+    },
+    {
       "effective_state": "OutputCompositor.scene_depth_policy",
       "key": "rendering/gaussian_splatting/composite/scene_depth_policy",
       "test_coverage": "partial"

@@ -2,6 +2,7 @@
 // Handles framebuffer caching, viewport blitting, and final output composition
 
 #include "output_compositor.h"
+#include "gs_scene_depth_linearize.h"
 #include "../logger/gs_logger.h"
 #include "../core/gaussian_splat_manager.h"
 #include "../renderer/gaussian_splat_renderer.h"
@@ -1704,18 +1705,13 @@ void OutputCompositor::integrate_final_output(GaussianSplatRenderer *p_renderer,
                     params.z_near = p_render_data->scene_data->z_near;
                     params.z_far = p_render_data->scene_data->z_far;
                     params.depth_is_orthogonal = p_render_data->scene_data->cam_orthogonal;
-                    params.depth_linearize_mul = params.z_near;
-                    params.depth_linearize_add = params.z_far;
-                    if (!params.depth_is_orthogonal) {
-                        Projection correction;
-                        correction.set_depth_correction(false);
-                        Projection temp = correction * p_render_data->scene_data->cam_projection;
-                        params.depth_linearize_mul = -temp.columns[3][2];
-                        params.depth_linearize_add = temp.columns[2][2];
-                        if (params.depth_linearize_mul * params.depth_linearize_add < 0.0f) {
-                            params.depth_linearize_add = -params.depth_linearize_add;
-                        }
-                    }
+                    // Shared derivation (gs_scene_depth_linearize.h) — the per-splat
+                    // raster clip must convert scene depth with identical math.
+                    const GSSceneDepthLinearize lin = gs_derive_scene_depth_linearize(
+                            p_render_data->scene_data->cam_projection,
+                            params.depth_is_orthogonal, params.z_near, params.z_far);
+                    params.depth_linearize_mul = lin.mul;
+                    params.depth_linearize_add = lin.add;
                 }
                 OutputCopyResult copy_result = copy_to_render_target(params);
                 const bool relaxed_missing_depth_fallback = missing_required_scene_depth && allow_scene_blend_fallback;

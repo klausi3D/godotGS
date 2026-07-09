@@ -1,6 +1,6 @@
 #ifndef GS_RENDER_PARAMS_GLSL
 #define GS_RENDER_PARAMS_GLSL
-#define GS_RENDER_PARAMS_LAYOUT_VERSION 19 // Keep in sync with gaussian_gpu_layout.h
+#define GS_RENDER_PARAMS_LAYOUT_VERSION 20 // Keep in sync with gaussian_gpu_layout.h
 
 #ifndef GS_MAX_SPHERE_EFFECTORS
 #define GS_MAX_SPHERE_EFFECTORS 4
@@ -110,6 +110,15 @@ layout(set = 1, binding = 0, std140) uniform RenderParams {
     // y = hotspot_min_radius_px (raw minor-axis radius threshold for pruning)
     // z,w = reserved
     vec4 hotspot_cull_config;
+    // Per-splat scene-depth clip (mesh<->splat mid-cloud interleave, compositing slice D):
+    // scene_depth_clip_config:  x = enabled (0/1), y = eps_norm (composite depth epsilon
+    //                           normalized into the GS linear-depth space), z/w = the scene
+    //                           projection's depth_linearize mul/add (perspective).
+    // scene_depth_clip_config2: x = scene z_near, y = scene z_far (ortho linearize pair),
+    //                           z = is_orthogonal (0/1), w = reserved (explicit pad — this
+    //                           block is byte-hashed on the CPU; never leave it uninitialized).
+    vec4 scene_depth_clip_config;
+    vec4 scene_depth_clip_config2;
 } params;
 
 // Helper to get current SH band level from params

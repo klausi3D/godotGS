@@ -7,7 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 
-static constexpr uint32_t GS_RENDER_PARAMS_LAYOUT_VERSION = 19; // Keep in sync with shaders/includes/gs_render_params.glsl
+static constexpr uint32_t GS_RENDER_PARAMS_LAYOUT_VERSION = 20; // Keep in sync with shaders/includes/gs_render_params.glsl
 static constexpr uint32_t GS_MAX_ASSET_LODS = 8;
 // Hard runtime bound for scene/global sphere effectors consumed per pass.
 // Keep this explicit until every producer/consumer supports a larger fixed ABI.
@@ -494,9 +494,19 @@ struct alignas(16) TileRenderParamsGPU {
     //     raw_min_radius_px below this are pruned from hot tiles)
     // z,w = reserved
     float hotspot_cull_config[4];
+    // Per-splat scene-depth clip (mesh<->splat interleave, compositing slice D):
+    // scene_depth_clip_config:  x = enabled (0/1), y = eps_norm (composite depth epsilon
+    //                           normalized into GS linear-depth space), z/w = the scene
+    //                           projection's depth_linearize mul/add (perspective).
+    // scene_depth_clip_config2: x = scene z_near, y = scene z_far (ortho pair),
+    //                           z = is_orthogonal (0/1), w = explicit pad (this struct is
+    //                           byte-hashed by _upload_param_buffer; must never be
+    //                           uninitialized).
+    float scene_depth_clip_config[4];
+    float scene_depth_clip_config2[4];
 };
 
-static_assert(sizeof(TileRenderParamsGPU) == 912, "TileRenderParamsGPU must match RenderParams std140 layout (912 bytes)");
+static_assert(sizeof(TileRenderParamsGPU) == 944, "TileRenderParamsGPU must match RenderParams std140 layout (944 bytes)");
 static_assert(alignof(TileRenderParamsGPU) == 16, "TileRenderParamsGPU must be 16-byte aligned");
 static_assert(offsetof(TileRenderParamsGPU, view_matrix) == 0, "TileRenderParamsGPU.view_matrix offset mismatch");
 static_assert(offsetof(TileRenderParamsGPU, inv_view_matrix) == 64, "TileRenderParamsGPU.inv_view_matrix offset mismatch");
@@ -546,6 +556,8 @@ static_assert(offsetof(TileRenderParamsGPU, effector_spheres) == 704, "TileRende
 static_assert(offsetof(TileRenderParamsGPU, effector_configs) == 768, "TileRenderParamsGPU.effector_configs offset mismatch");
 static_assert(offsetof(TileRenderParamsGPU, effector_opacity_configs) == 832, "TileRenderParamsGPU.effector_opacity_configs offset mismatch");
 static_assert(offsetof(TileRenderParamsGPU, hotspot_cull_config) == 896, "TileRenderParamsGPU.hotspot_cull_config offset mismatch");
+static_assert(offsetof(TileRenderParamsGPU, scene_depth_clip_config) == 912, "TileRenderParamsGPU.scene_depth_clip_config offset mismatch");
+static_assert(offsetof(TileRenderParamsGPU, scene_depth_clip_config2) == 928, "TileRenderParamsGPU.scene_depth_clip_config2 offset mismatch");
 
 struct alignas(16) FrustumCullParamsGPU {
     static constexpr uint32_t kFrustumPlaneCount = 6;

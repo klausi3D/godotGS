@@ -214,6 +214,9 @@ void main() {
     float highlight_strength = interactive_state.state_params.x;
     float outline_width = interactive_state.state_params.y;
     uint render_state = uint(interactive_state.state_params.z + 0.5);
+    // Scene-depth clip limit (slice D): one fetch + conversion per pixel. The helper
+    // has no barriers, so gating on in_viewport is safe for workgroup uniformity.
+    float scene_clip_limit = in_viewport ? gs_scene_clip_limit(pixel_center) : GS_SCENE_CLIP_DISABLED;
 
 #ifdef GS_COLLECT_RASTER_STATS
     bool sample_raster_stats = in_viewport && gs_should_sample_raster_stats(pixel_center);
@@ -246,7 +249,7 @@ void main() {
         // Per-pixel: rasterize this batch from shared memory
         if (in_viewport && !pixel_saturated) {
             pixel_saturated = gs_rasterize_splat_batch(
-                    pixel_center, batch_size, lod_blend, pixel_dither,
+                    pixel_center, batch_size, scene_clip_limit, lod_blend, pixel_dither,
                     highlight_strength, outline_width, render_state,
                     final_color, final_depth, weighted_depth, final_normal, has_depth
 #ifdef GS_COLLECT_RASTER_STATS

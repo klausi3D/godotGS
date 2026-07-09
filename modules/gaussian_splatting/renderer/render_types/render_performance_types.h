@@ -55,6 +55,12 @@ struct PerformanceMetrics {
 	String raster_path = "unknown";
 	String raster_path_reason;
 	bool raster_compute_allowed = false;
+	// Per-splat scene-depth clip REQUESTED for this frame's raster (compositing slice D):
+	// the CPU pre-check passed (settings on, single-view scene depth present). Downstream
+	// this can still be disabled by build_params on near/far-fallback frames or degraded
+	// to the fallback texture at the binding site — those decisions are not reflected
+	// here. Distinguishes "clip requested" from "whole-pixel composite only".
+	bool raster_scene_clip_active = false;
 	uint32_t raster_total_tiles = 0;
 	uint32_t raster_empty_tiles = 0;
 	uint32_t raster_overflow_tiles = 0;
