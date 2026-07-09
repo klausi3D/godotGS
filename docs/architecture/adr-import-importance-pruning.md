@@ -15,20 +15,31 @@ The importer today offers only **uniform** reduction — stride-based density su
 a `max_splats` cap. Neither is contribution-aware: they drop splats without regard to how
 much each one matters to the rendered image.
 
-Speedy-Splat / LightGaussian-class results show **50–90 % of splats can be dropped by
-contribution with little quality loss**. Pruning at *import* shrinks the asset once and
-benefits every downstream path — resident, streaming, and quantized alike — unlike a
-runtime clamp that re-decides every frame.
+The external literature (Speedy-Splat, LightGaussian) **reports** that 50–90 % of splats can be
+dropped by contribution with little quality loss. That is motivation, **not** a measured result
+for *this* metric on *our* content — those methods use view-contribution metrics we do not have
+(see "Known metric bias"). The safe drop fraction for the `opacity × max-scale` proxy below must
+be established by local A/B (see Validation plan) before any preset ships a non-`1.0` default.
+Pruning at *import* shrinks the asset once and benefits every downstream path — resident,
+streaming, and quantized alike — unlike a runtime clamp that re-decides every frame.
 
-The runtime already has a proven, deterministic importance metric and top-k machinery from
-PR #420 (`gaussian_importance()`, `select_top_k_indices()`, `compact_chunk_by_importance()`
-in `resident_atlas_budget.h`). These are pure functions, reusable at import time.
+The runtime already has a deterministic importance metric and top-k machinery from PR #420
+(`gaussian_importance()`, `select_top_k_indices()`, `compact_chunk_by_importance()` in
+`resident_atlas_budget.h`), **proven for runtime residency clamping**. They are pure functions,
+reusable at import time — but that reuse inherits the same ranking (and the same known bias), so
+import quality is *not* implied by their runtime use and must be validated separately.
 
 ## Decision
 
-Add **opt-in, off-by-default** importance pruning to the PLY and SPZ importers, applied
-**after density-merge and before SH propagation / chunk bake**, reusing the #420 metric and
-top-k selection (moved to a shared header without changing the runtime consumer).
+Add **opt-in, off-by-default** importance pruning to the PLY and SPZ importers, reusing the #420
+metric and top-k selection (moved to a shared header without changing the runtime consumer).
+
+Insertion point (requires a small refactor): today density selection and SH propagation happen in
+the **same materialization loop** (`resource_importer_ply.cpp` bake site), not as separable stages.
+Pruning is therefore implemented as a **post-materialization compaction pass** — after the
+density-subsampled parallel arrays (positions, SH bands, scales, …) are fully built and **before**
+`bake_streaming_chunks_for_asset()` — so it compacts a complete, consistent array set and the chunk
+bake runs on the pruned result. It does not interleave into the density loop.
 
 ### Options (new)
 
@@ -43,19 +54,29 @@ set and the **intersection** is kept (a splat must pass both). A new optional pr
 
 ### Composition with the existing reducers (ordering, normative)
 
-The importer already has two count reducers: the density subsample
-(`merge_density` / `_compute_final_splat_count`) and the `max_splats` cap. Importance pruning
-composes with them in a fixed, documented order so the final count and *which* splats survive
-are deterministic:
+The importer's two existing count reducers are **not** two independent sequential stages
+today: `_compute_final_splat_count(original, max_splats, density)` folds the `max_splats`
+cap **into** the density-target count (it returns `min(density_target, max_splats)`), and the
+`merge_density` stride then subsamples the source uniformly to reach that final count in a
+single materialization loop (`resource_importer_ply.cpp:_compute_final_splat_count` and the
+bake loop). So "density then max_splats" is one count computation, not an orderable pipeline.
 
-1. density subsample (existing) →
-2. importance prune (`prune_ratio` ∩ `prune_importance_threshold`, this ADR) →
-3. `max_splats` cap (existing, applied last).
+Importance pruning is inserted as a **distinct, explicit stage** with this normative order:
 
-Rationale: pruning runs on the density-reduced set so it ranks the splats that actually remain;
-the `max_splats` cap is a hard ceiling applied **after** pruning, so a user who sets both gets
-"prune by importance, then never exceed N" rather than an order-dependent surprise. `max_splats`
-truncating a pruned set keeps the highest-importance splats (the set is already importance-ranked).
+1. **count computation (existing):** `_compute_final_splat_count` yields the density/`max_splats`
+   target `N_density` and the uniform stride that reaches it.
+2. **importance prune (this ADR):** on the density-subsampled set, keep the
+   `prune_ratio ∩ prune_importance_threshold` subset by importance → `N_pruned ≤ N_density`.
+3. **final cap:** `max_splats` is already enforced by step 1 as a hard ceiling on the count. If a
+   *separate* post-prune hard cap is ever added, it **must** be importance-aware (re-run top-k) —
+   **not** a tail truncation. `select_top_k_indices()` returns kept indices in ascending **source**
+   order, not importance order, so slicing its tail would drop arbitrary splats, not the least
+   important ones.
+
+Rationale: pruning runs on the density-reduced set so it ranks the splats that actually remain,
+and `max_splats` stays a hard ceiling on the final count. The correctness invariant is that the
+compacted output is in **source order**; any importance-sensitive truncation must re-select via
+top-k, never slice.
 
 ### `prune_importance_threshold` is scale-dependent (caveat)
 
@@ -65,6 +86,12 @@ asset's world-unit scale (`max(|scale|)` term), so a threshold that is safe on o
 wipe out or no-op another. It is therefore an advanced, per-asset knob; `prune_ratio` is the
 portable default control. This interacts with the ratio∩threshold intersection above: when both
 are set, the kept fraction is not directly predictable from either knob alone.
+
+**Empty-result clamp:** if a threshold (or an extreme ratio) would drop **every** splat, the
+importer keeps the single highest-importance splat rather than writing an empty asset — matching
+the existing reducers, which clamp the final count to ≥1 (`resource_importer_ply.cpp:_compute_final_splat_count`).
+An empty asset is never a valid import output. (Open question 4 asks the approver to confirm
+keep-top-1 versus failing the import with a clear error.)
 
 ### Metric
 
@@ -110,9 +137,14 @@ must be regenerated. Bump the importer format versions — **PLY v7 → v8, SPZ 
 Godot's import system detects the change and triggers a **clean automatic re-import** of every
 existing asset. Rationale:
 
-- **No silent cache ABI break:** without the bump, a stale `.gsplatworld`/cache from v7 could
-  be paired with a v8 importer that expects the new metadata, causing subtle corruption. The
-  version bump makes the mismatch explicit and self-healing (auto re-import).
+- **Two distinct caches, both handled:** the PLY/SPZ importer saves the imported
+  `GaussianSplatAsset` as a Godot `.res` (not a `.gsplatworld`); PLY additionally keeps a raw
+  decode cache (`.gsplatcache`, `PLY_CACHE_VERSION`, validated by source path/mtime/count). The
+  `get_format_version()` bump (PLY 7→8, SPZ 6→7) invalidates the **imported `.res`** and triggers a
+  clean auto re-import. The raw `.gsplatcache` is orthogonal — keyed by source identity, not
+  importer version — and is unaffected, because pruning happens *after* decode (the raw decode is
+  identical). Without the format bump a stale v7 `.res` could pair with a v8 importer's metadata
+  expectations, causing subtle corruption; the bump makes the mismatch explicit and self-healing.
 - **Backward compatibility:** existing assets re-import automatically at the new version. Because
   pruning is opt-in and Ultra is byte-identical, **no shipped asset silently changes** — an
   asset only shrinks if its `.import` explicitly sets a prune option. Any pruned asset is fully
@@ -160,3 +192,5 @@ lossy importer setting, but called out because pruning can discard a large fract
 2. Preset name/index for "Optimized" and its default ratio (proposal: a validated 0.7).
 3. Whether the SPZ importer bump is in scope for the first PR or a fast follow (PLY is the
    primary real-scan path).
+4. Empty-result policy: when a threshold/ratio would prune to zero, clamp to keep-top-1 (proposed,
+   matches the existing `_compute_final_splat_count` ≥1 clamp) or fail the import with a clear error?
