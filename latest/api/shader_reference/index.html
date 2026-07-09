@@ -4313,7 +4313,7 @@
 
 <h1 id="shader-reference">Shader Reference<a class="headerlink" href="#shader-reference" title="Permanent link">¶</a></h1>
 <p>Last generated: 2026-07-09</p>
-<p>Coverage summary: <code>192</code> documented functions, <code>13</code> undocumented functions, <code>68</code> documented uniform fields, <code>119</code> undocumented uniform fields.</p>
+<p>Coverage summary: <code>193</code> documented functions, <code>13</code> undocumented functions, <code>69</code> documented uniform fields, <code>120</code> undocumented uniform fields.</p>
 <p>Undocumented entries are omitted by default. Use <code>--include-undocumented</code> to list them.</p>
 <h2 id="shader">Shader<a class="headerlink" href="#shader" title="Permanent link">¶</a></h2>
 <div class="highlight"><pre><span></span><code>modules/gaussian_splatting/shaders/brush_accumulate.glsl
@@ -5135,6 +5135,11 @@
       <td><pre><code>vec4</code></pre></td>
       <td>Hotspot-aware pre-raster cull (deterministic, shared by COUNT and EMIT): x = hotspot_pressure_threshold (absolute previous-frame tile count; 0 disables) y = hotspot_min_radius_px (raw minor-axis radius threshold for pruning) z,w = reserved</td>
     </tr>
+    <tr>
+      <td><pre><code>scene_depth_clip_config</code></pre></td>
+      <td><pre><code>vec4</code></pre></td>
+      <td>Per-splat scene-depth clip (mesh&lt;-&gt;splat mid-cloud interleave, compositing slice D): scene_depth_clip_config:  x = enabled (0/1), y = eps_norm (composite depth epsilon normalized into the GS linear-depth space), z/w = the scene projection's depth_linearize mul/add (perspective). scene_depth_clip_config2: x = scene z_near, y = scene z_far (ortho linearize pair), z = is_orthogonal (0/1), w = reserved (explicit pad — this block is byte-hashed on the CPU; never leave it uninitialized).</td>
+    </tr>
   </tbody>
 </table>
 
@@ -5596,6 +5601,10 @@
     </tr>
   </thead>
   <tbody>
+    <tr>
+      <td><pre><code>gs_scene_clip_limit(vec2 pixel_center)</code></pre></td>
+      <td>Once-per-pixel scene-depth clip limit in the payload's normalized linear-depth space. A splat whose fp32 payload linear_depth exceeds this limit is behind the opaque scene geometry at this pixel and must contribute nothing. Conversion chain (one fetch, NEAREST, size-mapped like the Slice-A composite fix): raw NDC scene depth -&gt; positive view-space z via the SCENE projection's linearize mul/add (perspective) or near/far (ortho) — the exact formulas the composite uses in viewport_blit.glsl — then normalized with the GS raster's near/far pair (params.near_plane/far_plane), because THAT pair defined the payload linear_depth at binning time (tile_binning.glsl). eps_norm is the composite's view-space depth-epsilon contract pre-divided by (far - near). Background bypass: a raw depth equal to the far-plane clear value (0.0 or 1.0 depending on reversed-Z, matching is_scene_background_depth's raw check in the composite) means "no mesh here" -&gt; no clip. This is exact regardless of any near/far mismatch between the GS and scene projections.</td>
+    </tr>
     <tr>
       <td><pre><code>gs_dither_noise(vec2 frag_coord)</code></pre></td>
       <td>Simple hash-based noise for dithering (spatially varying) Uses fragment position to generate pseudo-random value in [-0.5, 0.5]</td>
@@ -6173,7 +6182,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 9, 2026 11:33:52 UTC">July 9, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 9, 2026 11:36:39 UTC">July 9, 2026</span>
   </span>
 
     
