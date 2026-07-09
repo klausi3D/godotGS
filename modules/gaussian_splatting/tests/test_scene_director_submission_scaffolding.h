@@ -909,24 +909,18 @@ TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Resident rejection
 
 	renderer->render_scene_instance(&render_data);
 
-	CHECK_FALSE(renderer->test_has_current_streaming_system());
-	CHECK_FALSE(renderer->has_instance_pipeline_buffers());
-	CHECK_FALSE(renderer->has_instance_asset_remap());
-	CHECK_FALSE(renderer->is_instance_contract_ready());
-	CHECK_FALSE(renderer->has_rendered_content());
-	const Dictionary stats = renderer->get_render_stats();
-	const String route_uid = stats.get("route_uid", String());
-	CHECK(route_uid.begins_with(String(RenderRouteUID::COMMON_SKIP_RESIDENT_NOT_FEASIBLE)));
-	CHECK(stats.get("requested_route_policy", String()) == String("streaming"));
-	CHECK(stats.get("instance_backend_policy", String()) == String("resident"));
-	CHECK(stats.get("backend_selection_reason", String()) ==
-			String("submission_hint_resident:world_submission_not_feasible:resident_quantization_unsupported"));
-	CHECK(stats.get("cull_route_uid", String()) == route_uid);
-	CHECK(stats.get("cull_route_reason", String()) == String("resident_not_feasible_resident_quantization_unsupported"));
-	CHECK(String(stats.get("backend_selection_reason_label", String())).find(
-			"Resident was requested by the world submission") != -1);
-	CHECK(String(stats.get("backend_selection_reason_label", String())).find(
-			"quantized resident data cannot publish the resident instance contract") != -1);
+		// GS-PERF-Q80B: the resident atlas now publishes the quantized contract instead of
+		// rejecting it, so the resident-hinted world submission must succeed on the resident
+		// backend (no COMMON_SKIP_RESIDENT_NOT_FEASIBLE, no resident_quantization_unsupported).
+		const Dictionary stats = renderer->get_render_stats();
+		const String route_uid = stats.get("route_uid", String());
+		CHECK_FALSE(route_uid.begins_with(String(RenderRouteUID::COMMON_SKIP_RESIDENT_NOT_FEASIBLE)));
+		CHECK(stats.get("requested_route_policy", String()) == String("streaming"));
+		CHECK(stats.get("instance_backend_policy", String()) == String("resident"));
+		CHECK(String(stats.get("backend_selection_reason", String())).find(
+				"resident_quantization_unsupported") == -1);
+		CHECK(renderer->has_instance_pipeline_buffers());
+		CHECK(renderer->is_instance_contract_ready());
 
 	root->remove_child(node);
 	memdelete(node);
@@ -1003,10 +997,11 @@ TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Explicit resident 
 	renderer->render_scene_instance(&render_data);
 
 	CHECK_FALSE(renderer->test_has_current_streaming_system());
-	CHECK_FALSE(renderer->has_instance_pipeline_buffers());
-	CHECK_FALSE(renderer->has_instance_asset_remap());
+	// GS-PERF-Q80B: under a resident route policy, quantized resident data now publishes the
+	// resident instance contract (no legacy-path fallback) and renders.
+	CHECK(renderer->has_instance_pipeline_buffers());
 	CHECK(renderer->get_instance_backend_policy() == GaussianRenderPipeline::InstanceBackendPolicy::RESIDENT);
-	CHECK_FALSE(renderer->is_instance_contract_ready());
+	CHECK(renderer->is_instance_contract_ready());
 	CHECK(renderer->has_rendered_content());
 	CHECK(renderer->get_visible_splat_count() > 0);
 
@@ -1014,10 +1009,7 @@ TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Explicit resident 
 	CHECK(stats.get("requested_route_policy", String()) == String("resident"));
 	CHECK(stats.get("instance_backend_policy", String()) == String("resident"));
 	CHECK(stats.get("backend_selection_reason", String()) == String("requested_resident_policy"));
-	CHECK(stats.get("backend_selection_reason_label", String()) == String("Resident was requested by the route policy"));
-	CHECK_FALSE(bool(stats.get("instance_contract_ready", true)));
-	CHECK(stats.get("route_uid", String()) != String("INSTANCE.RESIDENT"));
-	CHECK(stats.get("route_uid", String()) != String("INSTANCE.STREAMING"));
+	CHECK(String(stats.get("backend_selection_reason", String())).find("resident_quantization_unsupported") == -1);
 
 	// Direct assertions stop at "resident was requested, no streaming system was used, and no
 	// resident instance contract/remap survived publication." The current renderer diagnostics do

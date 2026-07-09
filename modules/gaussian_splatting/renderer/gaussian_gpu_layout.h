@@ -396,6 +396,13 @@ struct alignas(16) PackedGaussianQuantized {
 static_assert(sizeof(PackedGaussianQuantized) == 80, "PackedGaussianQuantized must be 80 bytes");
 static_assert(sizeof(PackedGaussianQuantized) % 16 == 0, "PackedGaussianQuantized must be 16-byte aligned");
 
+// The quantized layout stores position and scale in uint16 slots, so both bit depths are
+// hard-capped at 16 regardless of the (8..24) project-setting range. A larger position_bits
+// would make quantize_position() emit a value the packer truncates to 16 bits while the GPU
+// dequantizes at the full depth — collapsing every position toward the chunk minimum. Callers
+// that build the quantized atlas must clamp the configured bit depths to this maximum.
+static constexpr uint32_t GS_QUANTIZED_BITS_MAX = 16u;
+
 struct alignas(16) TileRenderParamsGPU {
     float view_matrix[16];
     float inv_view_matrix[16];

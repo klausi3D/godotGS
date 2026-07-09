@@ -285,8 +285,10 @@ void pack_gaussians_range_quantized(const LocalVector<Gaussian> &src,
     ERR_FAIL_NULL_MSG(dst, "pack_gaussians_range_quantized destination is null");
     ERR_FAIL_COND_MSG(start + count > src.size(), "pack_gaussians_range_quantized out of bounds");
     for (uint32_t i = 0; i < count; i++) {
+        // Match the sibling range packers: the per-splat higher-order SH block is indexed
+        // by the SOURCE splat (start + i), not the destination slot i.
         const Vector3 *coeff_ptr = higher_order_coeffs
-                ? higher_order_coeffs + size_t(i) * higher_order_count
+                ? higher_order_coeffs + size_t(start + i) * higher_order_count
                 : nullptr;
         pack_gaussian_quantized(src[start + i], chunk_quant, chunk_id, dst[i], metrics,
                 coeff_ptr, first_order_count, higher_order_count, coefficient_limit);

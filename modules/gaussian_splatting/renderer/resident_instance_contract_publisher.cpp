@@ -5,6 +5,7 @@
 #include "gpu_sorting_config.h"
 #include "instance_pipeline_contract.h"
 #include "quantization_config.h"
+#include "../core/streaming_quantization.h"
 #include "../core/gaussian_splat_scene_director.h"
 #include "../interfaces/gpu_sorting_pipeline.h"
 #include "../resources/color_grading_resource.h"
@@ -175,16 +176,11 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 		return false;
 	}
 
-	if (g_quantization_config.per_chunk_quantization) {
-		// Accepted Stage 2B behavior: the resident atlas publisher does not emulate per-chunk
-		// quantization. Callers preserve this rejection reason and fall back to streaming or the
-		// legacy resident path instead of inventing a second resident-only stage contract.
-		if (r_reason) {
-			*r_reason = "resident_quantization_unsupported";
-		}
-		p_renderer->clear_instance_pipeline_buffers();
-		return false;
-	}
+	// Per-chunk quantization: the resident atlas packs the 80-byte PackedGaussianQuantized
+	// layout with per-chunk bounds (GS-PERF-Q80B). The in-memory resident data lets us
+	// compute exact per-chunk bounds (unlike the out-of-core streaming path), and the
+	// resident atlas already carries a chunk structure with a ChunkMetaGPU per chunk.
+	const bool quantize_atlas = g_quantization_config.per_chunk_quantization;
 
 	RenderingDevice *rd = p_renderer->get_device_state().rd;
 	if (rd == nullptr) {
@@ -275,6 +271,18 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 	// it does not cause per-frame repacks.
 	if (effective_atlas_cap_bytes != ResidentAtlasBudget::kResidentStagingCeilingBytes) {
 		atlas_generation = _mix_generation(atlas_generation, effective_atlas_cap_bytes);
+	}
+	// Quantization config changes the PACKED ATLAS CONTENT (80-byte quantized layout +
+	// the per-chunk quant params) vs the 144-byte raw layout, so it must perturb the
+	// atlas hash — the "quantization config" input the comment above lists. Without this,
+	// flipping quantization at runtime (e.g. a quality-tier switch to a quantized tier)
+	// leaves atlas_changed false and the pack/upload is skipped, so the toggle is silently
+	// ignored until an unrelated content/topology change lands.
+	atlas_generation = _mix_generation(atlas_generation, quantize_atlas ? 1ULL : 0ULL);
+	if (quantize_atlas) {
+		atlas_generation = _mix_generation(atlas_generation, uint64_t(MIN(g_quantization_config.position_bits, GS_QUANTIZED_BITS_MAX)));
+		atlas_generation = _mix_generation(atlas_generation, uint64_t(MIN(g_quantization_config.scale_bits, GS_QUANTIZED_BITS_MAX)));
+		atlas_generation = _mix_generation(atlas_generation, g_quantization_config.quantize_scales ? 1ULL : 0ULL);
 	}
 
 	uint64_t instance_generation = 0xbb67ae8584caa73bULL;
@@ -456,9 +464,14 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 			// Decide whether the atlas fits the device VRAM budget, and if not, the global keep
 			// ratio + target for the importance-ordered subset packed per chunk below. A source
 			// above the staging limit clamps down to target_keep <= staging limit and renders
-			// reduced instead of black-framing.
+			// reduced instead of black-framing. The packed size drives how many splats fit the
+			// cap, so the quantized (80 B) atlas must budget at 80 B — otherwise the clamp
+			// over-thins it as if it were 144 B and the quantization VRAM win is thrown away.
+			const uint32_t packed_atlas_stride = quantize_atlas
+					? uint32_t(sizeof(PackedGaussianQuantized))
+					: uint32_t(sizeof(PackedGaussian));
 			subset_plan = ResidentAtlasBudget::compute_subset_plan(total_gaussians,
-					effective_atlas_cap_bytes, sizeof(PackedGaussian));
+					effective_atlas_cap_bytes, packed_atlas_stride);
 		}
 
 		Vector<AssetMetaGPU> asset_meta_cpu;
@@ -466,6 +479,11 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 		Vector<AssetChunkIndexGPU> asset_chunk_index_cpu;
 		Vector<ChunkMetaGPU> chunk_meta_cpu;
 		Vector<PackedGaussian> atlas_gaussian_cpu;
+		// Parallel quantized atlas + per-chunk bounds, populated only when quantize_atlas.
+		// The 144-byte atlas_gaussian_cpu stays empty in that case (and vice-versa); exactly
+		// one is uploaded, keeping the non-quantized path byte-identical.
+		Vector<PackedGaussianQuantized> atlas_gaussian_quantized_cpu;
+		Vector<ChunkQuantizationGPU> quantization_gpu_cpu;
 
 		uint32_t max_chunk_count_per_asset = 0;
 		uint32_t max_chunk_splats = 0;
@@ -561,19 +579,96 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 				}
 
 				SHCompressionMetrics sh_metrics;
-				Vector<PackedGaussian> packed_chunk;
 				const Vector3 *sh_coeffs = sh_high_order_snapshot.is_empty() ? nullptr : sh_high_order_snapshot.ptr();
-				pack_gaussians_range(gaussian_snapshot, 0, chunk_pack_count, packed_chunk, sh_metrics, sh_coeffs,
-						sh_first_order, sh_high_order);
+				// atlas_base is the SPLAT index into the atlas buffer (the shader indexes
+				// gaussians[atlas_base + i]); it advances by chunk in whichever atlas is active.
+				uint32_t atlas_base = 0;
+				// quant_id: the global chunk index the shader uses to dereference BOTH the
+				// quantization buffer and this chunk's ChunkMeta — it is exactly the position
+				// this chunk_meta takes in chunk_meta_cpu.
+				const uint32_t quant_id = chunk_meta_cpu.size();
 
-				const uint32_t atlas_base = atlas_gaussian_cpu.size();
-				for (int i = 0; i < packed_chunk.size(); i++) {
-					atlas_gaussian_cpu.push_back(packed_chunk[i]);
+				if (quantize_atlas) {
+					if (quant_id > 0xFFFFu) {
+						// chunk_id is a uint16 field in PackedGaussianQuantized; an atlas with
+						// more than 65535 chunks cannot address its per-chunk bounds. Fail the
+						// publish (all-or-nothing) so the caller keeps the legacy path.
+						if (r_reason) {
+							*r_reason = "resident_quantization_chunk_overflow";
+						}
+						p_renderer->clear_instance_pipeline_buffers();
+						return false;
+					}
+					// Per-chunk bounds MUST be computed on the THINNED snapshot (the exact splats
+					// uploaded), not descriptor.count, or the shader would dequantize against
+					// bounds that don't match the stored positions.
+					// Scale quantization is MANDATORY here: the 80-byte layout has no unquantized
+					// scale field, and the shader substitutes scale=vec3(1.0) when scale_bits==0
+					// (which renders every splat as a unit blob). g_quantization_config.quantize_scales
+					// only chooses the bit depth story for callers that CAN fall back to FP32 scale;
+					// the resident quantized atlas cannot, so scales are always quantized.
+					// Clamp to the uint16 slot width: position_bits is project-settable up to 24,
+					// which the 80-byte layout cannot store (see GS_QUANTIZED_BITS_MAX). The
+					// clamped value flows into ChunkQuantizationGPU.position_bits too, so CPU
+					// packing and GPU dequantization agree.
+					const uint32_t q_position_bits = MIN(g_quantization_config.position_bits, GS_QUANTIZED_BITS_MAX);
+					const uint32_t q_scale_bits = MIN(g_quantization_config.scale_bits, GS_QUANTIZED_BITS_MAX);
+					ChunkQuantizationInfo chunk_quant;
+					chunk_quant.compute_from_gaussians(gaussian_snapshot, 0, chunk_pack_count,
+							q_position_bits, q_scale_bits,
+							/*quantize_scale=*/true);
+
+					atlas_base = atlas_gaussian_quantized_cpu.size();
+					const int prev_size = atlas_gaussian_quantized_cpu.size();
+					if (atlas_gaussian_quantized_cpu.resize(prev_size + int(chunk_pack_count)) != OK) {
+						if (r_reason) {
+							*r_reason = "resident_quantized_atlas_alloc_failed";
+						}
+						p_renderer->clear_instance_pipeline_buffers();
+						return false;
+					}
+					pack_gaussians_range_quantized(gaussian_snapshot, 0, chunk_pack_count,
+							chunk_quant, uint16_t(quant_id),
+							atlas_gaussian_quantized_cpu.ptrw() + prev_size, sh_metrics, sh_coeffs,
+							sh_first_order, sh_high_order);
+
+					ChunkQuantizationGPU quant_gpu = {};
+					quant_gpu.position_min[0] = chunk_quant.position_min.x;
+					quant_gpu.position_min[1] = chunk_quant.position_min.y;
+					quant_gpu.position_min[2] = chunk_quant.position_min.z;
+					quant_gpu.position_bits = chunk_quant.position_bits;
+					quant_gpu.position_range[0] = chunk_quant.position_range.x;
+					quant_gpu.position_range[1] = chunk_quant.position_range.y;
+					quant_gpu.position_range[2] = chunk_quant.position_range.z;
+					quant_gpu.scale_bits = chunk_quant.scales_quantized ? chunk_quant.scale_bits : 0u;
+					quant_gpu.scale_min[0] = chunk_quant.scale_min.x;
+					quant_gpu.scale_min[1] = chunk_quant.scale_min.y;
+					quant_gpu.scale_min[2] = chunk_quant.scale_min.z;
+					quant_gpu.start_index = atlas_base;
+					quant_gpu.scale_range[0] = chunk_quant.scale_range.x;
+					quant_gpu.scale_range[1] = chunk_quant.scale_range.y;
+					quant_gpu.scale_range[2] = chunk_quant.scale_range.z;
+					quant_gpu.count = chunk_pack_count;
+					quantization_gpu_cpu.push_back(quant_gpu);
+				} else {
+					Vector<PackedGaussian> packed_chunk;
+					pack_gaussians_range(gaussian_snapshot, 0, chunk_pack_count, packed_chunk, sh_metrics, sh_coeffs,
+							sh_first_order, sh_high_order);
+
+					atlas_base = atlas_gaussian_cpu.size();
+					for (int i = 0; i < packed_chunk.size(); i++) {
+						atlas_gaussian_cpu.push_back(packed_chunk[i]);
+					}
 				}
 
 				ChunkMetaGPU chunk_meta = {};
 				chunk_meta.atlas_base = atlas_base;
 				chunk_meta.splat_count = chunk_pack_count;
+				// Per-chunk quantization: quant_base is the chunk's index into the quantization
+				// buffer (== quant_id == this chunk's ChunkMeta index); the shader reads
+				// quantization_buffer.chunks[quant_base]. quant_count is 1 (one bounds set/chunk).
+				chunk_meta.quant_base = quantize_atlas ? quant_id : 0u;
+				chunk_meta.quant_count = quantize_atlas ? 1u : 0u;
 				const Vector3 chunk_center = descriptor.bounds.get_center();
 				const Vector3 chunk_half = descriptor.bounds.size * 0.5f;
 				chunk_meta.bounds_center_local[0] = chunk_center.x;
@@ -608,7 +703,10 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 			asset_meta_cpu.write[asset.dense_asset_id] = asset_meta;
 		}
 
-		if (atlas_gaussian_cpu.is_empty()) {
+		const uint32_t atlas_splat_total = quantize_atlas
+				? uint32_t(atlas_gaussian_quantized_cpu.size())
+				: uint32_t(atlas_gaussian_cpu.size());
+		if (atlas_splat_total == 0) {
 			if (r_reason) {
 				*r_reason = "resident_atlas_empty";
 			}
@@ -616,8 +714,14 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 			return false;
 		}
 
-		if (!_upload_typed_storage_buffer(p_renderer, rd, resource_state.resident_atlas_gaussian_buffer,
-					resource_state.resident_atlas_gaussian_buffer_size, "GS_ResidentAtlasGaussians", atlas_gaussian_cpu) ||
+		// Atlas gaussian buffer: exactly one of the two layouts is uploaded. The quantized
+		// path also uploads the per-chunk bounds buffer the shader dereferences by quant_id.
+		bool atlas_upload_ok = quantize_atlas
+				? _upload_typed_storage_buffer(p_renderer, rd, resource_state.resident_atlas_gaussian_buffer,
+						resource_state.resident_atlas_gaussian_buffer_size, "GS_ResidentAtlasGaussians", atlas_gaussian_quantized_cpu)
+				: _upload_typed_storage_buffer(p_renderer, rd, resource_state.resident_atlas_gaussian_buffer,
+						resource_state.resident_atlas_gaussian_buffer_size, "GS_ResidentAtlasGaussians", atlas_gaussian_cpu);
+		if (!atlas_upload_ok ||
 				!_upload_typed_storage_buffer(p_renderer, rd, resource_state.resident_asset_meta_buffer,
 					resource_state.resident_asset_meta_buffer_size, "GS_ResidentAssetMeta", asset_meta_cpu) ||
 				!_upload_typed_storage_buffer(p_renderer, rd, resource_state.resident_chunk_meta_buffer,
@@ -630,8 +734,23 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 			p_renderer->clear_instance_pipeline_buffers();
 			return false;
 		}
+		if (quantize_atlas) {
+			if (!_upload_typed_storage_buffer(p_renderer, rd, resource_state.resident_quantization_buffer,
+						resource_state.resident_quantization_buffer_size, "GS_ResidentQuantization", quantization_gpu_cpu)) {
+				if (r_reason) {
+					*r_reason = "resident_quantization_upload_failed";
+				}
+				p_renderer->clear_instance_pipeline_buffers();
+				return false;
+			}
+		} else {
+			// Release any stale quantization buffer from a previous quantized publish so the
+			// non-quantized contract carries no dangling per-chunk bounds.
+			p_renderer->free_owned_resource(rd, resource_state.resident_quantization_buffer);
+			resource_state.resident_quantization_buffer_size = 0;
+		}
 
-		atlas_gaussian_count = atlas_gaussian_cpu.size();
+		atlas_gaussian_count = atlas_splat_total;
 		atlas_max_chunk_count_per_asset = max_chunk_count_per_asset;
 		atlas_max_chunk_splats = max_chunk_splats;
 
@@ -670,8 +789,11 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 	buffers.asset_meta_buffer = resource_state.resident_asset_meta_buffer;
 	buffers.chunk_meta_buffer = resource_state.resident_chunk_meta_buffer;
 	buffers.asset_chunk_index_buffer = resource_state.resident_asset_chunk_index_buffer;
-	buffers.quantization_required = false;
-	buffers.quantization_buffer = RID();
+	// Derive from the resource-state buffer so the cached instance-only re-publish path
+	// (which skips the pack loop) restores the quantized contract too: a quantized publish
+	// leaves resident_quantization_buffer valid; a non-quantized one frees it.
+	buffers.quantization_required = resource_state.resident_quantization_buffer.is_valid();
+	buffers.quantization_buffer = resource_state.resident_quantization_buffer;
 	buffers.dispatch_chunk_count = MAX<uint32_t>(1u, atlas_max_chunk_count_per_asset);
 	buffers.max_chunk_splats = MAX<uint32_t>(1u, atlas_max_chunk_splats);
 

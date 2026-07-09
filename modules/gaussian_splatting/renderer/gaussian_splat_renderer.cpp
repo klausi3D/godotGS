@@ -1455,6 +1455,11 @@ void GaussianSplatRenderer::_release_resident_contract_buffers() {
             resource_state.resident_chunk_meta_buffer_size);
     release_owned_resident_buffer(resource_state.resident_asset_chunk_index_buffer,
             resource_state.resident_asset_chunk_index_buffer_size);
+    // GS-PERF-Q80B: the quantized resident atlas allocates a per-chunk bounds buffer
+    // that only the non-quantized publish path freed. Release it here too so a
+    // quantized publish followed by teardown/clear/device-migration cannot leak it.
+    release_owned_resident_buffer(resource_state.resident_quantization_buffer,
+            resource_state.resident_quantization_buffer_size);
 
     resource_state.instance_pipeline_atlas_generation = 0;
     resource_state.resident_atlas_gaussian_count = 0;
