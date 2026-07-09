@@ -46,8 +46,13 @@ void QuantizationConfig::load_from_project_settings() {
     max_chunk_size = ps->get_setting(MAX_CHUNK_SIZE_PATH, 8192);
     adaptive_chunk_size = ps->get_setting(ADAPTIVE_CHUNK_SIZE_PATH, true);
 
-    // Clamp values to valid ranges
-    position_bits = CLAMP(position_bits, 8u, 24u);
+    // Clamp values to valid ranges. position_bits is capped at 16, NOT 24: the
+    // 80-byte PackedGaussianQuantized stores quantized_position as uint16[3], so a
+    // value >16 would quantize to >65535 on the CPU (silently truncated by the
+    // uint16 store) while the GLSL dequantize uses the full 1/((1<<bits)-1) scale
+    // -> corrupted positions. Capping here keeps the single bits value used by both
+    // the packer and the uploaded ChunkQuantization within what the format stores.
+    position_bits = CLAMP(position_bits, 8u, 16u);
     scale_bits = CLAMP(scale_bits, 8u, 16u);
     min_chunk_size = MAX(64u, min_chunk_size);
     max_chunk_size = MAX(min_chunk_size, max_chunk_size);
@@ -89,8 +94,8 @@ void QuantizationConfig::reset_to_defaults() {
 }
 
 bool QuantizationConfig::validate() const {
-    // Position bits must be in valid range
-    if (position_bits < 8 || position_bits > 24) {
+    // Position bits must be in valid range (16 max: uint16 storage in the 80-byte layout).
+    if (position_bits < 8 || position_bits > 16) {
         return false;
     }
 
@@ -116,8 +121,8 @@ String QuantizationConfig::get_validation_errors() const {
     if (position_bits < 8) {
         errors += "Position bits must be >= 8\n";
     }
-    if (position_bits > 24) {
-        errors += "Position bits must be <= 24\n";
+    if (position_bits > 16) {
+        errors += "Position bits must be <= 16 (uint16 storage in the 80-byte quantized layout)\n";
     }
     if (scale_bits < 8) {
         errors += "Scale bits must be >= 8\n";
@@ -250,7 +255,7 @@ void register_quantization_project_settings() {
         Variant::INT,
         QuantizationConfig::POSITION_BITS_PATH,
         PROPERTY_HINT_RANGE,
-        "8,24,1"
+        "8,16,1" // 16 max: uint16 storage in the 80-byte quantized layout.
     ));
 
     // Scale bits

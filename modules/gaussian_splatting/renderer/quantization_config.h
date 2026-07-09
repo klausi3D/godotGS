@@ -25,10 +25,12 @@ struct QuantizationConfig {
     // Master enable flag for per-chunk quantization
     bool per_chunk_quantization = false;
 
-    // Bit depth for position quantization (8-24 bits, default 16)
+    // Bit depth for position quantization (8-16 bits, default 16).
+    // Capped at 16 because the 80-byte PackedGaussianQuantized stores
+    // quantized_position as uint16[3]; >16 would truncate on store while the GLSL
+    // dequantize used the full scale (corrupted positions).
     // 8 bits:  256 levels, ~0.4% precision, 4x compression
     // 16 bits: 65536 levels, ~0.0015% precision, 2x compression (vs FP32)
-    // 24 bits: 16M levels, full precision retained, 1.33x compression
     uint32_t position_bits = 16;
 
     // Bit depth for scale quantization (8-16 bits, default 12)
