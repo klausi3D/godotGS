@@ -223,9 +223,9 @@ TEST_CASE("[GaussianSplatting][Config] Sorting target_sort_time_ms follows the c
 
 TEST_CASE("[GaussianSplatting][Config] Adaptive overlap-budget knobs round-trip through project settings") {
 	// Guards the S2 measured-sort-sizing wiring: adaptive_overlap_budget_enabled and
-	// max_overlap_records_adaptive_min must be readable from ProjectSettings (both
-	// default OFF / 100000), and the adaptive-min accessor must never report a floor
-	// above the max_overlap_records hard cap. See gpu_sorting_config.cpp:100-102.
+	// max_overlap_records_adaptive_min must be readable from ProjectSettings (GS-PERF-S2
+	// defaults: flags ON, adaptive_min 100000), and the adaptive-min accessor must never
+	// report a floor above the max_overlap_records hard cap. See gpu_sorting_config.cpp:100-102.
 	ProjectSettings *project_settings = ProjectSettings::get_singleton();
 	REQUIRE(project_settings != nullptr);
 
@@ -245,14 +245,16 @@ TEST_CASE("[GaussianSplatting][Config] Adaptive overlap-budget knobs round-trip 
 	// named preset (they are orthogonal to the sort layout).
 	project_settings->set_setting(preset_path, "custom");
 
-	SUBCASE("Both flags default OFF and adaptive_min defaults to 100000 when unset") {
+	SUBCASE("Both flags default ON (GS-PERF-S2) and adaptive_min defaults to 100000 when unset") {
 		project_settings->clear(adaptive_path);
 		project_settings->clear(shrink_path);
 		project_settings->clear(adaptive_min_path);
 		GPUSortingConfig config;
 		config.load_from_project_settings();
-		CHECK(config.adaptive_overlap_budget_enabled == false);
-		CHECK(config.bounded_buffer_shrink_enabled == false);
+		// GS-PERF-S2 flipped both defaults ON; loading with the keys cleared must fall
+		// back to the struct/GLOBAL_DEF default (true), not the pre-S2 false.
+		CHECK(config.adaptive_overlap_budget_enabled == true);
+		CHECK(config.bounded_buffer_shrink_enabled == true);
 		CHECK(config.max_overlap_records_adaptive_min == 100000u);
 	}
 
@@ -303,18 +305,19 @@ TEST_CASE("[GaussianSplatting][Config] Adaptive overlap-budget knobs round-trip 
 		initialize_gpu_sorting_config();
 		CHECK(project_settings->has_setting(adaptive_path));
 		CHECK(project_settings->has_setting(adaptive_min_path));
-		CHECK(bool(project_settings->get_setting(adaptive_path)) == false);
+		// GS-PERF-S2: GLOBAL_DEF now registers the adaptive-overlap flag ON by default.
+		CHECK(bool(project_settings->get_setting(adaptive_path)) == true);
 		CHECK(int64_t(project_settings->get_setting(adaptive_min_path)) == 100000);
 	}
 
-	SUBCASE("reset_to_defaults restores both flags OFF and adaptive_min to 100000") {
+	SUBCASE("reset_to_defaults restores both flags ON (GS-PERF-S2) and adaptive_min to 100000") {
 		GPUSortingConfig config;
-		config.adaptive_overlap_budget_enabled = true;
-		config.bounded_buffer_shrink_enabled = true;
+		config.adaptive_overlap_budget_enabled = false;
+		config.bounded_buffer_shrink_enabled = false;
 		config.max_overlap_records_adaptive_min = 777000;
 		config.reset_to_defaults();
-		CHECK(config.adaptive_overlap_budget_enabled == false);
-		CHECK(config.bounded_buffer_shrink_enabled == false);
+		CHECK(config.adaptive_overlap_budget_enabled == true);
+		CHECK(config.bounded_buffer_shrink_enabled == true);
 		CHECK(config.max_overlap_records_adaptive_min == 100000u);
 	}
 
@@ -333,14 +336,15 @@ TEST_CASE("[GaussianSplatting][Config] Adaptive overlap-budget knobs round-trip 
 		CHECK(config.max_overlap_records_adaptive_min == 300000u);
 	}
 
-	SUBCASE("apply_preset establishes the off baseline, clearing stale custom state") {
+	SUBCASE("apply_preset establishes the default (ON, GS-PERF-S2) baseline, clearing stale custom state") {
 		GPUSortingConfig config;
-		config.adaptive_overlap_budget_enabled = true;
-		config.bounded_buffer_shrink_enabled = true;
+		config.adaptive_overlap_budget_enabled = false;
+		config.bounded_buffer_shrink_enabled = false;
 		config.max_overlap_records_adaptive_min = 999000;
 		REQUIRE(config.apply_preset("high"));
-		CHECK(config.adaptive_overlap_budget_enabled == false);
-		CHECK(config.bounded_buffer_shrink_enabled == false);
+		// Presets copy the struct defaults, which GS-PERF-S2 set ON.
+		CHECK(config.adaptive_overlap_budget_enabled == true);
+		CHECK(config.bounded_buffer_shrink_enabled == true);
 		CHECK(config.max_overlap_records_adaptive_min == 100000u);
 	}
 }

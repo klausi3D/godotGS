@@ -163,4 +163,37 @@ TEST_CASE("[GaussianSplatting][TileBufferResize] Buffer resize plan resets proje
 	CHECK(plan.next_shrink_candidate_frames == 0u);
 }
 
+TEST_CASE("[GaussianSplatting][TileBufferResize] Shrink-then-grow never under-sizes below demand (GS-PERF-S2)") {
+	// Models the adaptive-sizing default-ON sequence: capacity shrinks after sustained
+	// low demand, then a demand SPIKE must be met without ever leaving capacity below
+	// demand (which is what would clamp records / drop bottom-of-screen tiles). The
+	// shrink decision is the hysteretic resize plan; the spike-grow is the caller's
+	// immediate `capacity < demand` reallocation, modeled here on the plan's contract.
+	const GaussianSplatting::TileBufferShrinkPolicy policy = TestTileBufferResize::projection_policy();
+
+	// 1) Sustained low demand (1/8 of capacity) accumulates the shrink streak and, once
+	//    hysteresis elapses, targets EXACTLY the demand — no slack, but also never below.
+	const uint32_t capacity_bytes = 32u * 1024u;
+	const uint32_t low_demand_bytes = 4u * 1024u;
+	const GaussianSplatting::TileBufferResizePlan shrink =
+			GaussianSplatting::tile_compute_buffer_resize_plan(low_demand_bytes, capacity_bytes,
+					GaussianSplatting::TILE_SCRATCH_SHRINK_HYSTERESIS_FRAMES - 1u, policy);
+	CHECK(shrink.should_resize);
+	CHECK(shrink.target_bytes == low_demand_bytes); // shrinks down to demand exactly
+	CHECK(shrink.target_bytes >= low_demand_bytes); // never below demand -> no clamp
+
+	// 2) After the shrink, a spike whose demand EXCEEDS the shrunk capacity must be met by
+	//    a GROW that lands at or above demand — never below, which is what would clamp
+	//    records / drop bottom-of-screen tiles. The grow is immediate (no hysteresis) and
+	//    the shrink streak resets so a later genuine dip restarts the full window.
+	const uint32_t shrunk_capacity_bytes = shrink.target_bytes;
+	const uint32_t spike_demand_bytes = shrunk_capacity_bytes * 3u; // sudden dense viewpoint
+	const GaussianSplatting::TileBufferResizePlan spike =
+			GaussianSplatting::tile_compute_buffer_resize_plan(spike_demand_bytes, shrunk_capacity_bytes,
+					GaussianSplatting::TILE_SCRATCH_SHRINK_HYSTERESIS_FRAMES - 1u, policy);
+	CHECK(spike.should_resize); // grows immediately to meet the spike
+	CHECK(spike.target_bytes >= spike_demand_bytes); // never under-sizes below demand -> no clamp
+	CHECK(spike.next_shrink_candidate_frames == 0u); // shrink streak reset by the high frame
+}
+
 #endif // GAUSSIAN_SPLATTING_TEST_TILE_BUFFER_RESIZE_H

@@ -82,11 +82,11 @@ void GPUSortingConfig::load_from_project_settings() {
             subgroup_prefix_mode = static_cast<uint8_t>(ps->get_setting(SUBGROUP_PREFIX_MODE_PATH, int(subgroup_prefix_mode)));
             // bounded_buffer_shrink / adaptive_overlap_budget / adaptive_min govern
             // scratch-buffer reclaim, NOT the sort LAYOUT (key/tile/depth bits), so a
-            // project override must win under a named preset too — otherwise the VRAM
-            // wins are unreachable for anyone on the default "high" preset. No preset
-            // customizes them (apply_preset establishes the off/100000 baseline above),
-            // so reading with the current value as default honors an explicit project
-            // setting without promoting a preset's intentional layout choice.
+            // project override must win under a named preset too. No preset customizes
+            // them (apply_preset copies the struct defaults — now ON per GS-PERF-S2 — as
+            // the baseline above), so reading with the current value as default keeps the
+            // default-ON reclaim under every preset while still honoring an explicit
+            // project override in either direction.
             bounded_buffer_shrink_enabled = ps->get_setting(BOUNDED_BUFFER_SHRINK_PATH, bounded_buffer_shrink_enabled);
             adaptive_overlap_budget_enabled = ps->get_setting(ADAPTIVE_OVERLAP_BUDGET_PATH, adaptive_overlap_budget_enabled);
             max_overlap_records_adaptive_min = _load_adaptive_min(ps, MAX_OVERLAP_RECORDS_ADAPTIVE_MIN_PATH, max_overlap_records_adaptive_min);
@@ -124,8 +124,9 @@ void GPUSortingConfig::load_from_project_settings() {
     max_sort_elements = ps->get_setting(MAX_ELEMENTS_PATH, 50000000);
     max_overlap_records = has_overlap ? uint32_t(overlap_setting) : 100000000u;
     max_raster_splats_per_tile = ps->get_setting(MAX_RASTER_SPLATS_PER_TILE_PATH, 65536);
-    bounded_buffer_shrink_enabled = ps->get_setting(BOUNDED_BUFFER_SHRINK_PATH, false);
-    adaptive_overlap_budget_enabled = ps->get_setting(ADAPTIVE_OVERLAP_BUDGET_PATH, false);
+    // Default ON (GS-PERF-S2); the struct default is the source of truth for the fallback.
+    bounded_buffer_shrink_enabled = ps->get_setting(BOUNDED_BUFFER_SHRINK_PATH, bounded_buffer_shrink_enabled);
+    adaptive_overlap_budget_enabled = ps->get_setting(ADAPTIVE_OVERLAP_BUDGET_PATH, adaptive_overlap_budget_enabled);
     max_overlap_records_adaptive_min = _load_adaptive_min(ps, MAX_OVERLAP_RECORDS_ADAPTIVE_MIN_PATH, 100000);
     GS_LOG_GPU_SORT_INFO(vformat("[GPUSortingConfig] LOADED: max_sort_elements=%d max_overlap_records=%d (has_elements=%d has_overlap=%d)",
             max_sort_elements, max_overlap_records, int(has_elements), int(has_overlap)));
@@ -225,8 +226,8 @@ void GPUSortingConfig::reset_to_defaults() {
     validate_sorted_output = false;
     enable_stage_timestamps = true;
     subgroup_prefix_mode = SUBGROUP_PREFIX_AUTO;
-    bounded_buffer_shrink_enabled = false;
-    adaptive_overlap_budget_enabled = false;
+    bounded_buffer_shrink_enabled = true; // Default ON (GS-PERF-S2)
+    adaptive_overlap_budget_enabled = true; // Default ON (GS-PERF-S2)
     max_overlap_records_adaptive_min = 100000;
 
     GS_LOG_GPU_SORT_INFO("[GPU Sorting Config] Reset to default configuration");
@@ -554,9 +555,10 @@ bool GPUSortingConfig::apply_preset(const String &p_preset_name) {
         enable_stage_timestamps = new_config.enable_stage_timestamps;
         subgroup_prefix_mode = new_config.subgroup_prefix_mode;
         // Scratch-buffer reclaim knobs are part of the preset's complete state too;
-        // copy them so switching presets on a reused config cannot leave a stale
-        // custom 'true' enabled. No preset turns these on (all keep the struct
-        // defaults), so this establishes the off baseline a project override builds on.
+        // copy them so switching presets on a reused config cannot leave a stale custom
+        // value enabled. No preset customizes them (all keep the struct defaults — ON per
+        // GS-PERF-S2), so this establishes the default-ON baseline a project override
+        // builds on in either direction.
         bounded_buffer_shrink_enabled = new_config.bounded_buffer_shrink_enabled;
         adaptive_overlap_budget_enabled = new_config.adaptive_overlap_budget_enabled;
         max_overlap_records_adaptive_min = new_config.max_overlap_records_adaptive_min;
@@ -610,8 +612,14 @@ void initialize_gpu_sorting_config() {
     // gpu_preset's overlap budget; any positive value is an explicit project
     // override that wins even under a named preset (see load_from_project_settings).
     GLOBAL_DEF(GPUSortingConfig::MAX_OVERLAP_RECORDS_PATH, 0);
-    GLOBAL_DEF(GPUSortingConfig::BOUNDED_BUFFER_SHRINK_PATH, false);
-    GLOBAL_DEF(GPUSortingConfig::ADAPTIVE_OVERLAP_BUDGET_PATH, false);
+    // Default ON (GS-PERF-S2). Registered from the struct default (like the neighboring
+    // GLOBAL_DEFs) so the header is the single source of truth: GLOBAL_DEF registers the
+    // setting, and get_setting(PATH, fallback) then returns THIS registered default for
+    // any project that does not explicitly override it — the member fallback in the
+    // loaders never wins once the setting is registered, so this literal is what governs
+    // the shipped default. Overridable to false from project.godot in both directions.
+    GLOBAL_DEF(GPUSortingConfig::BOUNDED_BUFFER_SHRINK_PATH, g_gpu_sorting_config.bounded_buffer_shrink_enabled);
+    GLOBAL_DEF(GPUSortingConfig::ADAPTIVE_OVERLAP_BUDGET_PATH, g_gpu_sorting_config.adaptive_overlap_budget_enabled);
     GLOBAL_DEF(GPUSortingConfig::MAX_OVERLAP_RECORDS_ADAPTIVE_MIN_PATH, 100000);
     GLOBAL_DEF(GPUSortingConfig::MAX_RASTER_SPLATS_PER_TILE_PATH, 65536);
     GLOBAL_DEF(GPUSortingConfig::RADIX_BITS_PATH, GPUSortingConstants::DEFAULT_RADIX_BITS);

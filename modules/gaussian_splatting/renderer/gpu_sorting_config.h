@@ -32,26 +32,26 @@ struct GPUSortingConfig {
     // Enables the adaptive overlap-budget feedback loop in TileRenderer: the global
     // composite-sort capacity is sized from MEASURED overlap demand (peak + 20% headroom)
     // instead of the loose visible*50 pre-count estimate (~2.5-4x over-reservation).
-    // Opt-in (default off). REQUIRES bounded_buffer_shrink_enabled to actually reclaim:
+    // Default ON (GS-PERF-S2). REQUIRES bounded_buffer_shrink_enabled to actually reclaim:
     // adaptive lowers the estimate, but the only-grow capacity stays pinned at its
     // high-water until the shrink path frees it; conversely the shrink is floored by the
-    // visible*50 estimate unless adaptive lowers it. Both flags must be on together.
+    // visible*50 estimate unless adaptive lowers it. Both flags are on together by default.
     // Sizing never drops tiles: a same-frame post-count auto-grow covers any spike, and
     // max_overlap_records_adaptive_min bounds the floor. See the overlap-estimate /
     // adaptive-floor logic in TileRenderer::RenderFrameExecutor::_execute_global_sort_pipeline.
-    bool adaptive_overlap_budget_enabled = false;
+    // Project-setting overridable to false in both directions.
+    bool adaptive_overlap_budget_enabled = true;
     // Enables bounded shrink of only-grow GPU scratch buffers so a single zoom-in
     // spike no longer pins peak VRAM for the rest of the session. Gates the global
     // projection buffer AND the global composite-sort key/value buffers; the separate
     // instance/depth sort buffers are a future extension behind this same flag.
-    // Opt-in (default off): trades an occasional buffer realloc for lower steady-state
-    // VRAM, primarily to help low-end GPUs fit large scenes. See tile_render_resources.
-    // NOTE (measured 2026-06-07): on the default config the global-sort capacity is
-    // pinned at the visible*50 pre-count ESTIMATE (only-grow), not measured demand, so
-    // this shrink reclaims only when the visible count drops — it does NOT reclaim the
-    // ~2.5-4x over-reservation at steady visible. Reclaiming that needs measured-driven
-    // sizing (adaptive_overlap_budget) feeding this shrink; the two are complementary.
-    bool bounded_buffer_shrink_enabled = false;
+    // Default ON (GS-PERF-S2): trades an occasional buffer realloc for much lower
+    // steady-state VRAM. Measured on dense-2M: sort buffer 572 MB -> 34 MB (-538 MB) with
+    // no dropped records (overflow_splats_clamped stays 0 across grow-after-shrink) and no
+    // frame-time regression (the shrink-recreate is not a measurable hitch). Pairs with
+    // adaptive_overlap_budget_enabled — alone this reclaims only when the visible count
+    // drops; together they reclaim the ~2.5-4x over-reservation at steady visible.
+    bool bounded_buffer_shrink_enabled = true;
 
     // Soft cap for per-tile raster iterations in fragment/compute rasterizers.
     // Alpha saturation provides natural early termination (typically ~100-500

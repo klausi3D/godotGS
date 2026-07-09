@@ -675,7 +675,7 @@
     {
       "effective_state": "g_gpu_sorting_config.adaptive_overlap_budget_enabled",
       "key": "rendering/gaussian_splatting/gpu_sorting/adaptive_overlap_budget_enabled",
-      "notes": "Sizes the global composite-sort buffer to measured overlap demand instead of the visible*50 estimate. Requires bounded_buffer_shrink_enabled to reclaim. Default off.",
+      "notes": "Sizes the global composite-sort buffer to measured overlap demand instead of the visible*50 estimate. Requires bounded_buffer_shrink_enabled to reclaim. Default on (GS-PERF-S2); overridable to false.",
       "test_coverage": "covered"
     },
     {
