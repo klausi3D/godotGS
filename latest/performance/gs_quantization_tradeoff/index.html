@@ -7,7 +7,7 @@
       
       
       
-        <link rel="canonical" href="https://klausi3d.github.io/godotGS/latest/governance/agentic-engineering/">
+        <link rel="canonical" href="https://klausi3d.github.io/godotGS/latest/performance/gs_quantization_tradeoff/">
       
       
       
@@ -20,7 +20,7 @@
     
     
       
-        <title>Agentic Engineering - Godot Gaussian Splatting Docs</title>
+        <title>Per-chunk quantization: the VRAM ↔ compute tradeoff - Godot Gaussian Splatting Docs</title>
       
     
     
@@ -81,7 +81,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#agentic-engineering" class="md-skip">
+        <a href="#per-chunk-quantization-the-vram-compute-tradeoff" class="md-skip">
           Skip to content
         </a>
       
@@ -120,7 +120,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Agentic Engineering
+              Per-chunk quantization: the VRAM ↔ compute tradeoff
             
           </span>
         </div>
@@ -1045,7 +1045,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../performance/" class="md-nav__link">
+      <a href="../" class="md-nav__link">
         
   
   
@@ -1531,7 +1531,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../contribution-standards/" class="md-nav__link">
+      <a href="../../governance/contribution-standards/" class="md-nav__link">
         
   
   
@@ -1642,10 +1642,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
       
         <li class="md-nav__item">
-  <a href="#principles" class="md-nav__link">
+  <a href="#measured-rtx-3090-optimized-build" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Principles
+        Measured (RTX 3090, optimized build)
       
     </span>
   </a>
@@ -1653,10 +1653,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#roles" class="md-nav__link">
+  <a href="#when-to-enable" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Roles
+        When to enable
       
     </span>
   </a>
@@ -1664,10 +1664,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#task-contracts" class="md-nav__link">
+  <a href="#caveats" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Task contracts
+        Caveats
       
     </span>
   </a>
@@ -1675,43 +1675,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#worktree-isolation-and-parallel-work" class="md-nav__link">
+  <a href="#references" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Worktree isolation and parallel work
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#stacked-prs" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Stacked PRs
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#risk-classes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Risk classes
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#legacy-coordination-data" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Legacy coordination data
+        References
       
     </span>
   </a>
@@ -1744,142 +1711,111 @@
   
 
 
-<h1 id="agentic-engineering">Agentic Engineering<a class="headerlink" href="#agentic-engineering" title="Permanent link">¶</a></h1>
-<p>How AI coding agents work in this repository. The goal is <strong>specification-driven</strong>,
-not chat-driven, development: one agent plans, one implements, deterministic
-systems plus independent reviewers verify, and a human decides the merge.</p>
-<p>This page is the human-readable source of truth for roles and risk classes. A
-machine-readable mirror lives under <code>.agentic/</code> (<code>policy.json</code>, <code>ownership.json</code>,
-schemas, templates, roles) and is enforced by <code>scripts/agentic/</code>. See also
-<a href="https://github.com/klausi3D/godotGS/blob/6dfc8124dfe678ff9c169466a8454b3690305945/AGENTS.md"><code>AGENTS.md</code></a>, <a href="../contribution-standards/">contribution standards</a>,
-and the <a href="../review-policy/">review policy</a>.</p>
-<blockquote>
-<p><strong>Rollout note.</strong> This foundation is introduced as a coordinated series of pull
-requests. The machine-readable control plane (<code>.agentic/</code>, <code>scripts/agentic/</code>)
-and the always-on required gate (<code>.github/workflows/agentic_pr_gate.yml</code>) are
-added by sibling PRs in the same series. References to those paths below describe
-the target design and resolve once the series has been merged; until then, follow
-the parts already present on your branch.</p>
-</blockquote>
-<h2 id="principles">Principles<a class="headerlink" href="#principles" title="Permanent link">¶</a></h2>
-<ul>
-<li><strong>Specs over chat.</strong> Work starts from a task contract (a small, explicit
-  specification), not from a conversation transcript. The contract — not the chat
-  history — is what gets reviewed and reproduced.</li>
-<li><strong>Immutable base.</strong> Every task records the base commit SHA. Implementation,
-  evidence, and review are all evaluated against the fixed <code>base..head</code> diff.</li>
-<li><strong>Reproducible evidence.</strong> Claims (tests pass, perf improved, leak fixed) are
-  backed by commands anyone can re-run. Missing hardware is reported as "not run",
-  never silently as "passed".</li>
-<li><strong>No ephemeral state in git.</strong> Session IDs, transcripts, scratch notes, and
-  dirty-worktree dumps are never committed (see <a href="../contribution-standards/">contribution standards</a>).</li>
-</ul>
-<h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">¶</a></h2>
-<p>Each role is a separate context with a narrow mandate; full prompts live in
-<code>.agentic/roles/</code>.</p>
+<h1 id="per-chunk-quantization-the-vram-compute-tradeoff">Per-chunk quantization: the VRAM ↔ compute tradeoff<a class="headerlink" href="#per-chunk-quantization-the-vram-compute-tradeoff" title="Permanent link">¶</a></h1>
+<p><strong>Setting:</strong> <code>rendering/gaussian_splatting/compression/per_chunk_quantization</code>
+(<code>-1</code> = auto from quality tier, <code>0</code> = off, <code>1</code> = on). <strong>Default: off.</strong></p>
+<p>Per-chunk quantization stores each splat in the <strong>80-byte <code>PackedGaussianQuantized</code></strong>
+layout instead of the 144-byte <code>PackedGaussian</code> — a <strong>−44 % atlas VRAM per splat</strong>.
+Position and scale are quantized per chunk (16-bit into per-chunk min/range bounds),
+rotation and normal are FP16, opacity and SH-DC stay FP32.</p>
+<p><strong>This is not a free win.</strong> The saving is bandwidth/VRAM; the cost is compute. The GPU
+must <strong>dequantize every splat every frame</strong> — unpack position/scale/rotation from the 80-byte
+struct and do two extra buffer reads for the per-chunk bounds — in the binning, depth, and
+raster passes. Whether that is a net win depends entirely on whether you are VRAM-bound.</p>
+<h2 id="measured-rtx-3090-optimized-build">Measured (RTX 3090, optimized build)<a class="headerlink" href="#measured-rtx-3090-optimized-build" title="Permanent link">¶</a></h2>
+<p><strong>Render quality</strong> — resident path, real-scan asset (Rose), both configs rendering the
+<strong>identical</strong> splat set so this isolates quantization error:</p>
 <table>
 <thead>
 <tr>
-<th>Role</th>
-<th>Mandate</th>
-<th>May change code?</th>
+<th>metric</th>
+<th>value</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>Planner</strong></td>
-<td>Read-only investigation; writes the task contract.</td>
-<td>No</td>
+<td>PSNR (quant vs full)</td>
+<td><strong>40.6 dB</strong> (near-lossless for a −44 % layout)</td>
 </tr>
 <tr>
-<td><strong>Implementer</strong></td>
-<td>Implements exactly one task in its own worktree, within scope.</td>
-<td>Yes, in scope only</td>
+<td>max per-channel diff</td>
+<td>119 / 255</td>
 </tr>
 <tr>
-<td><strong>Verifier</strong></td>
-<td>Runs guards/tests/harness/benchmarks and reports results, incl. skips.</td>
-<td>No</td>
-</tr>
-<tr>
-<td><strong>Correctness reviewer</strong></td>
-<td>Independent review of the immutable diff for correctness.</td>
-<td>No</td>
-</tr>
-<tr>
-<td><strong>GPU/performance reviewer</strong></td>
-<td>Adds host↔shader/sync/lifetime/bounds/timing/VRAM/benchmark-method review.</td>
-<td>No</td>
+<td>mean diff</td>
+<td>0.31 / 255</td>
 </tr>
 </tbody>
 </table>
-<ul>
-<li>The <strong>implementer may not weaken</strong> acceptance criteria, baselines, thresholds,
-  or gates to pass.</li>
-<li>A <strong>reviewer never implements</strong>, gets a fresh context, sees the fixed
-  <code>base..head</code> diff (and ideally not the implementer's log), and reports
-  uncertainty and missing evidence as findings.</li>
-<li>A <strong>human owns the merge</strong> and is the only one who can waive a blocker, with a
-  written reason.</li>
-</ul>
-<h2 id="task-contracts">Task contracts<a class="headerlink" href="#task-contracts" title="Permanent link">¶</a></h2>
-<p>A task contract (<code>.agentic/templates/task.json</code>, schema
-<code>.agentic/schemas/task.schema.json</code>) captures: the problem, base SHA, risk class,
-owned and forbidden paths, dependencies, non-goals, invariants, acceptance
-criteria, validation commands, evidence requirements, and a rollback plan. One
-contract → one branch → one worktree.</p>
-<h2 id="worktree-isolation-and-parallel-work">Worktree isolation and parallel work<a class="headerlink" href="#worktree-isolation-and-parallel-work" title="Permanent link">¶</a></h2>
-<ul>
-<li>Each implementer works in its <strong>own git worktree</strong> so concurrent work never
-  collides and no agent disturbs another's (or the user's) uncommitted changes.</li>
-<li>Parallel work is allowed <strong>only across non-overlapping ownership packages</strong>
-  (see <code>.agentic/ownership.json</code>, which binds domains to real paths). Two agents
-  must not edit the same paths on the same branch.</li>
-</ul>
-<h2 id="stacked-prs">Stacked PRs<a class="headerlink" href="#stacked-prs" title="Permanent link">¶</a></h2>
-<p>Stacking is allowed but must be explicit: a stacked PR states its <strong>base PR and
-base SHA</strong> so a reviewer never grades a moving base or only the top-of-stack diff.</p>
-<h2 id="risk-classes">Risk classes<a class="headerlink" href="#risk-classes" title="Permanent link">¶</a></h2>
-<p>Risk drives required roles, checks, and evidence. The machine-readable definition
-is <code>.agentic/policy.json</code>; <code>scripts/agentic/classify_change.py</code> derives the class
-from the changed paths and <strong>fails closed to R3</strong> for unrecognized sensitive paths.</p>
+<p><strong>Frame time</strong> — dense-2M resident lane, quant off vs on at an <strong>identical 1.96 M splat
+count</strong> (no LOD-thinning confound), so this isolates the dequantization ALU cost:</p>
 <table>
 <thead>
 <tr>
-<th>Class</th>
-<th>Scope</th>
-<th>Required process</th>
+<th></th>
+<th>p50</th>
+<th>p99</th>
+<th>avg</th>
+<th>fps</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>R0</strong></td>
-<td>Docs and agentic governance only.</td>
-<td>Deterministic checks + one review.</td>
+<td>full (144 B)</td>
+<td>33.3 ms</td>
+<td>34.7 ms</td>
+<td>33.9</td>
+<td>29.5</td>
 </tr>
 <tr>
-<td><strong>R1</strong></td>
-<td>Local module/test changes with no GPU/persistence/engine risk.</td>
-<td>Guards + targeted tests + correctness review.</td>
+<td>quant (80 B)</td>
+<td>37.9 ms</td>
+<td>40.4 ms</td>
+<td>38.4</td>
+<td>26.0</td>
 </tr>
 <tr>
-<td><strong>R2</strong></td>
-<td>Renderer, shaders, compute, GPU sort, streaming, performance, VRAM.</td>
-<td>R1 + GPU/performance review + runtime/GPU evidence.</td>
-</tr>
-<tr>
-<td><strong>R3</strong></td>
-<td>Godot-engine delta outside the module; persistence/file formats; release/security workflows; public API/compat.</td>
-<td>ADR before implementation + two reviews + CODEOWNER and human approval.</td>
+<td><strong>delta</strong></td>
+<td><strong>+13.6 %</strong></td>
+<td><strong>+16.2 %</strong></td>
+<td>+13.2 %</td>
+<td>−11.9 %</td>
 </tr>
 </tbody>
 </table>
-<p>The PR author's self-declared risk class is <strong>not</strong> trusted on its own: CI
-re-derives it from the diff and uses the higher of the two.</p>
-<h2 id="legacy-coordination-data">Legacy coordination data<a class="headerlink" href="#legacy-coordination-data" title="Permanent link">¶</a></h2>
-<p><code>docs/agent_memory/</code> is a frozen legacy system and is <strong>not</strong> current status.
-Active issues live in GitHub Issues; the board migrates there incrementally and
-its history remains in git.</p>
+<p>On a high-end GPU with fast VRAM there is no bandwidth pressure at 2 M splats, so the
+dequant ALU shows up as a straight ~14 % frame-time regression.</p>
+<p><strong>VRAM headroom</strong> — at a <em>fixed</em> VRAM budget the 80-byte atlas fits far more splats before
+the resident importance-clamp thins the scene: measured <strong>1.2 M vs 235 k</strong> splats on
+baeume-lankow (~5× more content, or the same content at ~55 % of the atlas bytes).</p>
+<h2 id="when-to-enable">When to enable<a class="headerlink" href="#when-to-enable" title="Permanent link">¶</a></h2>
+<p><strong>Enable</strong> when you are <strong>VRAM-bound</strong>:
+- A scene that would otherwise exceed the resident VRAM budget and get importance-thinned
+  (or fail to fit at all) — quantization is the difference between rendering the full scene
+  and dropping splats.
+- Low-end / mobile GPUs where VRAM is the wall (see <code>gs_vram_reduction_plan.md</code>).
+- Fitting ~2× more splats in the same budget when splat count, not frame time, is the limit.</p>
+<p><strong>Leave off</strong> when you have VRAM headroom: the same splats render ~14 % slower for no benefit.</p>
+<p><strong>Do not blanket-enable it</strong> (e.g. as a tier default) without measuring frame time on the
+target hardware — the trade flips sign with available VRAM.</p>
+<h2 id="caveats">Caveats<a class="headerlink" href="#caveats" title="Permanent link">¶</a></h2>
+<ul>
+<li><strong>Position/scale bit depth is capped at 16</strong> (the <code>quantized_position</code>/<code>quantized_scale</code>
+  fields are <code>uint16</code>). The <code>position_bits</code> setting is clamped to 16 for the quantized atlas
+  regardless of its 8–24 range (<code>GS_QUANTIZED_BITS_MAX</code>).</li>
+<li><strong>Quantized binning zeroes normals</strong> (<code>tile_binning.glsl</code>), so <strong>quantized content is
+  effectively unlit</strong>. Fine for the current unlit real-scan target; a blocker for lit content
+  until the shader carries normals through the quantized path.</li>
+<li>Scale quantization is <strong>mandatory</strong> for the 80-byte layout (it has no unquantized scale
+  field); it is forced on internally when quantization is enabled.</li>
+</ul>
+<h2 id="references">References<a class="headerlink" href="#references" title="Permanent link">¶</a></h2>
+<ul>
+<li>Resident implementation: <code>renderer/resident_instance_contract_publisher.cpp</code> (GS-PERF-Q80B).</li>
+<li>Packer: <code>renderer/gaussian_gpu_layout.cpp</code> <code>pack_gaussian_quantized()</code> (GS-PERF-Q80A).</li>
+<li>GLSL dequant: <code>shaders/includes/quantization_dequant.glsl</code>.</li>
+<li>VRAM strategy: <code>gs_vram_reduction_plan.md</code>.</li>
+</ul>
 
 
 
