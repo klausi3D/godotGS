@@ -365,6 +365,13 @@ public:
     // assert get_vram_usage() folds it in, without the `#define private public`
     // hack that breaks the GCC ODR build.
     uint32_t _test_get_persistent_buffer_size() const { return persistent_buffer_size; }
+    // Q80A/Q80B: the atlas byte stride must track the EFFECTIVE quantization state
+    // (enabled && dc_compatible), so a mixed-DC fallback packs 144 B, not 80 B.
+    uint64_t _test_atlas_gaussian_stride_bytes() const { return _atlas_gaussian_stride_bytes(); }
+    void _test_set_quantization_state(bool p_enabled, bool p_dc_compatible) {
+        per_chunk_quantization_enabled = p_enabled;
+        per_chunk_quantization_dc_compatible = p_dc_compatible;
+    }
     uint32_t _test_get_retired_upload_slots_this_frame() const { return budget.retired_upload_slots_this_frame; }
     uint64_t _test_get_retired_upload_bytes_this_frame() const { return budget.retired_upload_bytes_this_frame; }
     uint64_t _test_get_failed_upload_retirements() const { return budget.failed_upload_retirements; }

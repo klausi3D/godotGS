@@ -541,4 +541,31 @@ TEST_CASE("[GaussianSplatting][Streaming] Dense-id remap rejects unknown asset i
 	CHECK(missing_mapping[0].lod[1] == 77u);
 }
 
+TEST_CASE("[GaussianSplatting] Atlas byte stride tracks the EFFECTIVE quantization state (Q80A/Q80B)") {
+	// Regression for the mixed-DC fallback: _refresh_quantization_dc_compatibility()
+	// disables per-chunk quantization for mixed DC-encoding assets and promises the
+	// "non-quantized upload path". The atlas stride (and the pack layout it drives) must
+	// therefore key off the EFFECTIVE state is_per_chunk_quantization_enabled()
+	// (enabled && dc_compatible), not the raw enabled flag -- otherwise it allocates 80 B
+	// slots and packs the quantized layout while the renderer reads 144 B (corruption).
+	Ref<GaussianStreamingSystem> sys;
+	sys.instantiate();
+	REQUIRE(sys.is_valid());
+
+	// enabled + DC-compatible -> quantized 80 B stride.
+	sys->_test_set_quantization_state(true, true);
+	CHECK(sys->_test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussianQuantized)));
+
+	// enabled but DC-INCOMPATIBLE -> must fall back to the 144 B raw stride (the bug: this
+	// used to stay 80 B while the renderer interpreted 144 B).
+	sys->_test_set_quantization_state(true, false);
+	CHECK(sys->_test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussian)));
+
+	// disabled -> 144 B raw stride regardless of DC state.
+	sys->_test_set_quantization_state(false, true);
+	CHECK(sys->_test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussian)));
+	sys->_test_set_quantization_state(false, false);
+	CHECK(sys->_test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussian)));
+}
+
 } // namespace TestGaussianSplatting

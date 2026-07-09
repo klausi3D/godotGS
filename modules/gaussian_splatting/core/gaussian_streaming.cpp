@@ -3552,7 +3552,14 @@ RenderingDevice *GaussianStreamingSystem::_resolve_submission_device(GaussianSpl
 }
 
 uint64_t GaussianStreamingSystem::_atlas_gaussian_stride_bytes() const {
-    return per_chunk_quantization_enabled ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian);
+    // Use the EFFECTIVE quantization state (enabled && dc_compatible), not the raw flag.
+    // The renderer/shader interpret the atlas via is_per_chunk_quantization_enabled(), and
+    // _refresh_quantization_dc_compatibility() promises a "non-quantized upload path" for
+    // mixed-DC assets. If stride/pack keyed off the raw flag they would allocate 80 B slots
+    // and pack the quantized layout while the renderer reads 144 B -> corruption exactly in
+    // that fallback. Deriving stride, the buffer allocation (initialize/_grow), the pack, and
+    // the renderer interpretation from this one predicate keeps them in lockstep.
+    return is_per_chunk_quantization_enabled() ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian);
 }
 
 bool GaussianStreamingSystem::_pack_chunk_data(uint32_t asset_id, uint32_t chunk_idx, const AtlasAssetState &asset, StreamingChunk &chunk,
@@ -3618,7 +3625,9 @@ bool GaussianStreamingSystem::_pack_chunk_data(uint32_t asset_id, uint32_t chunk
         return false;
     }
 
-    const bool quantize = per_chunk_quantization_enabled;
+    // Effective state (matches _atlas_gaussian_stride_bytes() and the renderer): a mixed-DC
+    // fallback must pack the 144 B layout even while per_chunk_quantization_enabled is set.
+    const bool quantize = is_per_chunk_quantization_enabled();
     const uint64_t stride = quantize ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian);
     if (chunk_bytes.resize(int64_t(chunk.count) * int64_t(stride)) != OK) {
         return false;
@@ -4165,6 +4174,15 @@ bool GaussianStreamingSystem::_can_use_async_pack_path(
     const bool async_threads_available =
             upload_pipeline.async_pack_enabled && upload_pipeline.pack_thread_running.load();
     if (!async_threads_available) {
+        return false;
+    }
+    // Quantized chunks upload the 80-byte layout only through the SYNC path
+    // (_load_chunk -> _pack_chunk_data -> _upload_chunk_to_gpu, which honor
+    // _atlas_gaussian_stride_bytes()). The async pack pipeline still emits the 144-byte
+    // PackedGaussian (pack_gaussians_range + sizeof(PackedGaussian) sizing/offsets), which
+    // would write 144 B into 80 B atlas slots. Force the sync path while quantization is
+    // effectively active until the async pipeline carries the packed stride.
+    if (is_per_chunk_quantization_enabled()) {
         return false;
     }
     return !_should_force_sync_fallback_for_async_stall(pack_queue_depth, upload_queue_depth);
