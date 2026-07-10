@@ -2,9 +2,34 @@
 
 - **Task:** GS-PERF-PRUNE
 - **Risk class:** R3 (importer + on-disk/cache format version bump)
-- **Status:** Proposed — awaiting CODEOWNER + human approval **before** implementation (R3 gate).
-- **Date:** 2026-07-04
+- **Status:** Design accepted — the four open questions were resolved by the maintainer on
+  2026-07-10 (see **Decisions**). Implementation may proceed; the implementation PR still requires
+  CODEOWNER + independent review and the validation evidence below (R3 gate).
+- **Date:** 2026-07-04 (design), 2026-07-10 (decisions resolved)
 - **Baseline:** `eda1c261457`
+
+## Decisions (resolved 2026-07-10)
+
+1. **Shared metric header → `core/gaussian_importance.h`.** `gaussian_importance()` and
+   `select_top_k_indices()` depend only on core types (`Gaussian` is in `core/gaussian_data.h`, plus
+   `Math` / `LocalVector`), and `io/` has **no** existing dependency on `renderer/`. Moving them to a
+   neutral core header is required to keep the importer off `renderer/`; `resident_atlas_budget.h`
+   re-includes the core header (runtime consumer unchanged). `compact_chunk_by_importance()` stays in
+   the renderer — the importer compacts parallel arrays directly, it does not reuse chunk compaction.
+2. **First PR ships options only (no preset).** `prune_ratio` / `prune_importance_threshold` land at
+   their no-op defaults (`1.0` / `0.0`); the **"Optimized" preset is a follow-up PR** whose ratio is
+   set **from** the A/B results, never a pre-committed guess. This honors the "validate before shipping
+   a non-`1.0` default" rule in the Validation plan.
+3. **Both PLY and SPZ in the first PR.** The compaction is importer-agnostic (both share an identical
+   `_compute_final_splat_count` + parallel-array materialization), so both importers are wired and both
+   format versions bump together (PLY 7→8, SPZ 6→7) — **one** re-import event, not two. Because SPZ has
+   **no** test coverage today (only PLY has `test_ply_importer.h` + synthetic fixtures), the first PR
+   MUST also build synthetic SPZ fixtures + a `test_spz_importer.h` that validate the SPZ v6→v7
+   re-import **before** its bump ships.
+4. **Empty-result → keep-top-1 (with a `WARN_PRINT`).** If a threshold/ratio would prune to zero, keep
+   the single highest-importance splat rather than writing an empty asset — matching the existing
+   `final_count = MAX(final_count, 1)` clamp already present in **both** importers. Pruning never
+   hard-fails an import; an empty asset is never a valid output.
 
 ## Context
 
@@ -49,8 +74,9 @@ bake runs on the pruned result. It does not interleave into the density loop.
 | `processing/prune_importance_threshold` | `0.0` | Drop splats whose importance is below this absolute value (`0.0` = off). |
 
 Both default to a no-op. When both are set, the ratio and the threshold each produce a keep
-set and the **intersection** is kept (a splat must pass both). A new optional preset
-**"Optimized"** demonstrates a validated ratio; **preset index 0 remains Ultra**.
+set and the **intersection** is kept (a splat must pass both). Per **Decision 2**, the first PR
+ships these two options only (at their no-op defaults); the **"Optimized" preset is a follow-up**
+whose ratio is set from the A/B evidence. **Preset index 0 remains Ultra** (lossless default).
 
 ### Composition with the existing reducers (ordering, normative)
 
@@ -173,24 +199,32 @@ lossy importer setting, but called out because pruning can discard a large fract
 
 ## Validation plan (evidence required before merge)
 
+- **Shared-header move** (`core/gaussian_importance.h`, Decision 1): `resident_atlas_budget.h`
+  re-includes it and the existing resident-clamp tests still pass unchanged (pure code move).
 - Metric determinism + NaN handling at import; ratio and threshold pruning counts;
-  parallel-array consistency after compaction; chunk-bake consistency on pruned assets;
-  **Ultra-preset byte-identity regression**; existing exact-count importer tests
-  (`test_gaussian_importer.h`, `test_ply_importer.h`) still pass unchanged (pruning opt-in).
+  **keep-top-1 empty-result clamp** (Decision 4); parallel-array consistency after compaction;
+  chunk-bake consistency on pruned assets; **Ultra-preset byte-identity regression**; existing
+  exact-count importer tests (`test_gaussian_importer.h`, `test_ply_importer.h`) still pass
+  unchanged (pruning opt-in).
+- **SPZ test infrastructure (new, Decision 3):** synthetic SPZ fixtures + a `test_spz_importer.h`
+  covering exact-count import, Ultra byte-identity, and a clean SPZ v6→v7 re-import — SPZ has no
+  test coverage today and its format bump must not ship untested.
 - **Quality A/B on one real-scan asset** (Grandma's House room) imported at ratio 1.0 / 0.7 /
-  0.5, side-by-side screenshots + VRAM and sort-time telemetry for each, with documented
-  guidance on which ratios are safe on real-scan content.
-- Backward-compat: a pre-existing imported asset re-imports cleanly after the version bump.
+  0.5, side-by-side screenshots + VRAM and sort-time telemetry for each, with documented guidance
+  on which ratios are safe on real-scan content. **This A/B sets the follow-up "Optimized" preset
+  ratio** (Decision 2).
+- Backward-compat: a pre-existing imported asset (PLY *and* SPZ) re-imports cleanly after the bump.
 - Two independent reviews + CODEOWNER + human approval (R3).
 
-## Open questions for the approver
+## Open questions — resolved
 
-1. Placement of the shared metric header: move `gaussian_importance()`/`select_top_k_indices()`
-   from `renderer/resident_atlas_budget.h` into a neutral shared header (e.g.
-   `core/gaussian_importance.h`) that both the importer (`io/`) and the renderer include, so the
-   importer does not depend on `renderer/`. Confirm the target location.
-2. Preset name/index for "Optimized" and its default ratio (proposal: a validated 0.7).
-3. Whether the SPZ importer bump is in scope for the first PR or a fast follow (PLY is the
-   primary real-scan path).
-4. Empty-result policy: when a threshold/ratio would prune to zero, clamp to keep-top-1 (proposed,
-   matches the existing `_compute_final_splat_count` ≥1 clamp) or fail the import with a clear error?
+All four design questions are resolved in **Decisions** (2026-07-10):
+
+1. Shared metric header → `core/gaussian_importance.h` (Decision 1).
+2. First PR ships options only; the "Optimized" preset + its validated ratio is a follow-up (Decision 2).
+3. Both PLY and SPZ in the first PR, which also builds the missing SPZ test infrastructure (Decision 3).
+4. Empty-result → keep-top-1 with a `WARN_PRINT` (Decision 4).
+
+**Still required before the implementation PR merges** (execution gates, not design questions):
+CODEOWNER review, one independent review, and the full **Validation plan** evidence above —
+including the real-scan A/B that sets the follow-up preset ratio.
