@@ -116,8 +116,8 @@ are set, the kept fraction is not directly predictable from either knob alone.
 **Empty-result clamp:** if a threshold (or an extreme ratio) would drop **every** splat, the
 importer keeps the single highest-importance splat rather than writing an empty asset — matching
 the existing reducers, which clamp the final count to ≥1 (`resource_importer_ply.cpp:_compute_final_splat_count`).
-An empty asset is never a valid import output. (Open question 4 asks the approver to confirm
-keep-top-1 versus failing the import with a clear error.)
+An empty asset is never a valid import output, and pruning never hard-fails an import (Decision 4,
+with a `WARN_PRINT` when the clamp engages).
 
 ### Metric
 
