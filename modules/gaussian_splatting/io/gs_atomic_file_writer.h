@@ -42,6 +42,14 @@ Ref<FileAccess> _gs_atomic_open_temp(const String &p_final_path, String &r_temp_
 void _gs_atomic_remove_temp(const String &p_temp_path);
 Error _gs_atomic_rename_temp(const String &p_temp_path, const String &p_final_path);
 
+#if defined(WINDOWS_ENABLED)
+// Test hook (Windows only): the native Win32 path the atomic replace targets for
+// `p_path`. Exposed so tests can assert a *relative* destination is absolutized to
+// a valid long-path form instead of an invalid `\\?\`-prefixed relative string
+// (which would make MoveFileExW fall back to the backup-swap). Not public API.
+String _gs_atomic_win_native_path(const String &p_path);
+#endif
+
 // Writes `p_final_path` atomically. `p_write` is invoked with the open temp file
 // and must return OK on success; it must NOT retain a persistent Ref to the file
 // beyond its own scope (transient Refs passed to helper functions are fine).
