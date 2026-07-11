@@ -3,6 +3,7 @@
 #include "test_macros.h"
 #include "../io/ply_loader.h"
 #include "../io/resource_importer_ply.h"
+#include "../io/streaming_chunk_bake.h"
 #include "../io/gaussian_splat_world_io.h"
 #include "../core/gaussian_splat_world.h"
 #include "../core/gaussian_splat_asset.h"
@@ -783,6 +784,169 @@ TEST_CASE("[GaussianSplatting][PLY] opacity survives ResourceImporterPLY -> asse
         // at their zero-filled defaults (resource_importer_ply.cpp:383-388 removed).
         CHECK_MESSAGE(max_opacity - min_opacity > 0.3f,
                 "Imported opacities must not collapse to a single value (zero-filled logit regression)");
+    }
+
+    DirAccess::remove_absolute(source_path);
+    DirAccess::remove_absolute(source_path.get_basename() + ".gsplatcache");
+    DirAccess::remove_absolute(save_base_path + ".res");
+#endif // TOOLS_ENABLED
+}
+
+// ---------------------------------------------------------------------------
+// GS-PERF-PRUNE slice 2b (issue #456): import-time importance pruning wiring.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Build N splats whose importance (opacity * max|scale|) strictly increases with
+// the source index (opacity fixed at 1.0, scale increasing), so a ratio prune
+// keeps a known suffix, and each splat is identifiable by its distinct integer
+// position.x. PLY scales are stored as full-precision log(scale), so importance
+// ordering is exact (no quantization).
+LocalVector<Gaussian> _make_prune_splats(uint32_t p_count) {
+    LocalVector<Gaussian> splats;
+    splats.resize(p_count);
+    for (uint32_t i = 0; i < p_count; i++) {
+        Gaussian g;
+        g.position = Vector3(float(i), 0.0f, 0.0f);
+        const float s = 0.1f * float(i + 1); // strictly increasing, distinct
+        g.scale = Vector3(s, s, s);
+        g.rotation = Quaternion();
+        g.sh_dc = Color(0.5f, 0.5f, 0.5f, 1.0f);
+        g.normal = Vector3(0.0f, 0.0f, 1.0f);
+        g.area = 1.0f;
+        g.opacity = 1.0f;
+        splats[i] = g;
+    }
+    return splats;
+}
+
+} // namespace
+
+TEST_CASE("[GaussianSplatting][PLY] importer default prune options are a no-op (Ultra byte-identity)") {
+#ifndef TOOLS_ENABLED
+    MESSAGE("Skipping - ResourceImporterPLY requires TOOLS_ENABLED");
+    return;
+#else
+    const uint32_t kCount = 16;
+    LocalVector<Gaussian> splats = _make_prune_splats(kCount);
+
+    const uint64_t ticks = OS::get_singleton() ? OS::get_singleton()->get_ticks_usec() : 0;
+    const String source_path = "user://godotgs_ply_prune_noop_" + itos(ticks) + ".ply";
+    const String save_base_path = "user://godotgs_ply_prune_noop_" + itos(ticks) + "_asset";
+
+    REQUIRE_MESSAGE(TestGaussianSplatting::write_gaussian_ply(source_path, splats, false, false),
+            "Should write synthetic PLY fixture");
+
+    Ref<ResourceImporterPLY> importer;
+    importer.instantiate();
+
+    // Ultra + no prune options -> default (1.0 / 0.0) no-op. No density merge, no
+    // sort, no max cap, so the output is the source in order.
+    HashMap<StringName, Variant> options;
+    options.insert(StringName("quality/preset"), String("ultra"));
+    options.insert(StringName("quality/max_splats"), 0);
+    options.insert(StringName("quality/density_multiplier"), 1.0);
+    options.insert(StringName("processing/sort_by_opacity"), false);
+    options.insert(StringName("preview/generate_thumbnail"), false);
+
+    Variant metadata_variant;
+    Error import_err = importer->import(ResourceUID::INVALID_ID, source_path, save_base_path, options,
+            nullptr, nullptr, &metadata_variant);
+    CHECK_MESSAGE(import_err == OK, "PLY import at default (no-op) prune options should succeed");
+
+    if (import_err == OK) {
+        Ref<GaussianSplatAsset> asset = ResourceLoader::load(save_base_path + String(".res"));
+        REQUIRE_MESSAGE(asset.is_valid(), "Imported GaussianSplatAsset should load from disk");
+        CHECK_EQ(int(asset->get_splat_count()), int(kCount));
+
+        // No-op path must not drop or reorder: every source splat survives in
+        // order (position.x == source index).
+        PackedFloat32Array positions = asset->get_positions();
+        REQUIRE(positions.size() == int(kCount) * 3);
+        for (uint32_t i = 0; i < kCount; i++) {
+            CHECK(Math::is_equal_approx(positions[int(i) * 3 + 0], float(i)));
+        }
+
+        Dictionary md = metadata_variant;
+        CHECK_EQ(int(md.get(StringName("original_splat_count"), -1)), int(kCount));
+        CHECK_EQ(int(md.get(StringName("pre_prune_splat_count"), -1)), int(kCount));
+        CHECK_EQ(int(md.get(StringName("splat_count"), -1)), int(kCount));
+    }
+
+    DirAccess::remove_absolute(source_path);
+    DirAccess::remove_absolute(source_path.get_basename() + ".gsplatcache");
+    DirAccess::remove_absolute(save_base_path + ".res");
+#endif // TOOLS_ENABLED
+}
+
+TEST_CASE("[GaussianSplatting][PLY] importer prune_ratio 0.5 keeps the highest-importance half") {
+#ifndef TOOLS_ENABLED
+    MESSAGE("Skipping - ResourceImporterPLY requires TOOLS_ENABLED");
+    return;
+#else
+    const uint32_t kCount = 16;
+    const int kExpectedKept = 8; // round(16 * 0.5)
+    LocalVector<Gaussian> splats = _make_prune_splats(kCount);
+
+    const uint64_t ticks = OS::get_singleton() ? OS::get_singleton()->get_ticks_usec() : 0;
+    const String source_path = "user://godotgs_ply_prune_half_" + itos(ticks) + ".ply";
+    const String save_base_path = "user://godotgs_ply_prune_half_" + itos(ticks) + "_asset";
+
+    REQUIRE_MESSAGE(TestGaussianSplatting::write_gaussian_ply(source_path, splats, false, false),
+            "Should write synthetic PLY fixture for the prune test");
+
+    Ref<ResourceImporterPLY> importer;
+    importer.instantiate();
+
+    HashMap<StringName, Variant> options;
+    options.insert(StringName("quality/preset"), String("ultra"));
+    options.insert(StringName("quality/max_splats"), 0);
+    options.insert(StringName("quality/density_multiplier"), 1.0);
+    options.insert(StringName("processing/sort_by_opacity"), false);
+    options.insert(StringName("processing/prune_ratio"), 0.5);
+    options.insert(StringName("preview/generate_thumbnail"), false);
+
+    Variant metadata_variant;
+    Error import_err = importer->import(ResourceUID::INVALID_ID, source_path, save_base_path, options,
+            nullptr, nullptr, &metadata_variant);
+    CHECK_MESSAGE(import_err == OK, "PLY import with prune_ratio 0.5 should succeed");
+
+    if (import_err == OK) {
+        Ref<GaussianSplatAsset> asset = ResourceLoader::load(save_base_path + String(".res"));
+        REQUIRE_MESSAGE(asset.is_valid(), "Pruned GaussianSplatAsset should load from disk");
+        CHECK_EQ(int(asset->get_splat_count()), kExpectedKept);
+
+        // Dual counts: original == 16, pre-prune == 16, final splat_count == 8.
+        Dictionary md = metadata_variant;
+        CHECK_EQ(int(md.get(StringName("original_splat_count"), -1)), int(kCount));
+        CHECK_EQ(int(md.get(StringName("pre_prune_splat_count"), -1)), int(kCount));
+        CHECK_EQ(int(md.get(StringName("splat_count"), -1)), kExpectedKept);
+
+        // The kept splats are the highest-importance suffix (source indices 8..15),
+        // identifiable by their distinct integer position.x.
+        PackedFloat32Array positions = asset->get_positions();
+        REQUIRE(positions.size() == kExpectedKept * 3);
+        for (int j = 0; j < kExpectedKept; j++) {
+            const float x = positions[j * 3 + 0];
+            CHECK_MESSAGE(x >= 7.5f,
+                    vformat("Kept splat %d has position.x=%f; expected a high-importance splat (x >= 8)", j, x));
+        }
+
+        // Chunk-bake consistency: the baked streaming-chunk records must describe
+        // the PRUNED arrays (sum of chunk counts == pruned splat_count == 8), not
+        // the stale pre-prune 16. A stale bake here is a data-corruption bug.
+        Vector<StreamingChunkBakeRecord> records;
+        REQUIRE(StreamingChunkBakeIO::deserialize_records(asset->get_streaming_chunk_records(), records));
+        REQUIRE(records.size() > 0);
+        uint32_t total_in_chunks = 0;
+        uint32_t expected_start = 0;
+        for (int r = 0; r < records.size(); r++) {
+            CHECK_EQ(records[r].start_idx, expected_start);
+            total_in_chunks += records[r].count;
+            expected_start += records[r].count;
+        }
+        CHECK_EQ(int(total_in_chunks), kExpectedKept);
     }
 
     DirAccess::remove_absolute(source_path);

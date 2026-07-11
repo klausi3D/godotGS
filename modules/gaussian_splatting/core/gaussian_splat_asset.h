@@ -250,6 +250,17 @@ public:
     Error populate_from_gaussian_data(const Ref<::GaussianData> &p_gaussian_data);
     Error save_to_file(const String &p_path) const;
 
+    // Import-time importance pruning (GS-PERF-PRUNE, issue #456). Thin adapter
+    // that reuses GaussianData::prune_by_importance (slice 2a) on a materialized
+    // copy of this asset's SoA payload, then writes the compacted arrays back so
+    // the saved .res and any subsequent streaming-chunk bake both reflect the
+    // pruned set. Returns the number of splats kept.
+    //
+    // No-op fast path: when p_keep_ratio >= 1.0 AND p_importance_threshold <= 0.0
+    // the SoA arrays are left completely untouched (byte-identical, no seal, no
+    // cache churn) -- the lossless default that keeps Ultra imports unchanged.
+    uint32_t prune_by_importance(double p_keep_ratio, float p_importance_threshold);
+
     // Streaming-chunk bake accessors (Phase B.1).
     void set_streaming_chunk_records(const PackedByteArray &p_records);
     PackedByteArray get_streaming_chunk_records() const;

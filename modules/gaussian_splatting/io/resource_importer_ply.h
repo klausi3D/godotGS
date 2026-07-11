@@ -71,7 +71,18 @@ public:
     //       COORDINATION: the accepted GS-PERF-PRUNE ADR also plans a 7->8
     //       bump. This safety fix lands first and takes v8, so the pruning
     //       slice must take v9 to avoid a format-version collision.
-    virtual int get_format_version() const override { return 8; }
+    //   v9: GS-PERF-PRUNE slice 2b (issue #456) wires opt-in importance pruning
+    //       (processing/prune_ratio + processing/prune_importance_threshold) into
+    //       the importer. Pruning changes the saved array LENGTHS and the baked
+    //       streaming-chunk records, so an asset imported by v1-v8 whose .import
+    //       enables a prune option holds the un-pruned arrays in its .res and must
+    //       re-import; bumping the format version makes Godot's scanner re-run
+    //       import() automatically. NOTE: the raw .gsplatcache (PLY_CACHE_VERSION)
+    //       is deliberately NOT bumped -- pruning happens AFTER the raw decode, so
+    //       the cached decode is unaffected (ADR "Two distinct caches"). Because
+    //       pruning is opt-in and Ultra stays byte-identical, no shipped asset
+    //       silently changes on the bump.
+    virtual int get_format_version() const override { return 9; }
 
     // Validation helpers
     Error validate_ply_properties(const Ref<class PLYLoader> &p_loader) const;

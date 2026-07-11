@@ -37,6 +37,8 @@ namespace {
 #define OPTION_WARN_MISSING_LEGACY SNAME("warn_missing_optional")
 #define OPTION_NORMALIZE_OPACITY SNAME("processing/normalize_opacity")
 #define OPTION_SORT_OPACITY SNAME("processing/sort_by_opacity")
+#define OPTION_PRUNE_RATIO SNAME("processing/prune_ratio")
+#define OPTION_PRUNE_IMPORTANCE_THRESHOLD SNAME("processing/prune_importance_threshold")
 #define OPTION_QUANTIZE_POSITIONS SNAME("compression/quantize_positions")
 #define OPTION_QUANTIZE_COLORS SNAME("compression/quantize_colors")
 #define OPTION_QUANTIZE_SCALES SNAME("compression/quantize_scales")
@@ -205,6 +207,21 @@ void ResourceImporterPLY::get_import_options(const String &p_path, List<ImportOp
 
     r_options->push_back(ImportOption(PropertyInfo(Variant::BOOL, String(OPTION_SORT_OPACITY)), false));
 
+    // GS-PERF-PRUNE (issue #456): opt-in importance pruning. Defaults are a
+    // strict no-op (keep all / off) so Ultra imports stay byte-identical.
+    // prune_ratio is the portable, scale-invariant control (keep this fraction
+    // of splats by importance). prune_importance_threshold is an ADVANCED,
+    // scale-DEPENDENT absolute cutoff (importance scales with the asset's
+    // world-unit scale per the ADR), so it is safe to leave at 0.0 unless tuned
+    // per-asset.
+    r_options->push_back(ImportOption(
+            PropertyInfo(Variant::FLOAT, String(OPTION_PRUNE_RATIO), PROPERTY_HINT_RANGE, "0.01,1.0,0.01"),
+            1.0));
+
+    r_options->push_back(ImportOption(
+            PropertyInfo(Variant::FLOAT, String(OPTION_PRUNE_IMPORTANCE_THRESHOLD), PROPERTY_HINT_RANGE, "0.0,10.0,0.001"),
+            0.0));
+
     r_options->push_back(ImportOption(PropertyInfo(Variant::BOOL, String(OPTION_QUANTIZE_POSITIONS)), preset.quantize_positions));
 
     r_options->push_back(ImportOption(PropertyInfo(Variant::BOOL, String(OPTION_QUANTIZE_COLORS)), preset.quantize_colors));
@@ -292,6 +309,12 @@ Error ResourceImporterPLY::import(ResourceUID::ID p_source_id, const String &p_s
     bool optimize_for_gpu = _get_bool_option(p_options, OPTION_OPTIMIZE_GPU, StringName(), preset.optimize_for_gpu);
     bool normalize_opacity = _get_bool_option(p_options, OPTION_NORMALIZE_OPACITY, StringName(), true);
     bool sort_by_opacity = _get_bool_option(p_options, OPTION_SORT_OPACITY, StringName(), false);
+    // GS-PERF-PRUNE (#456): opt-in importance pruning. Clamp to the documented
+    // hint ranges; the (1.0, 0.0) default is a strict no-op in prune_by_importance.
+    double prune_ratio = _get_double_option(p_options, OPTION_PRUNE_RATIO, 1.0);
+    prune_ratio = CLAMP(prune_ratio, 0.0, 1.0);
+    double prune_threshold_opt = _get_double_option(p_options, OPTION_PRUNE_IMPORTANCE_THRESHOLD, 0.0);
+    float prune_importance_threshold = float(MAX(prune_threshold_opt, 0.0));
     bool quantize_positions = _get_bool_option(p_options, OPTION_QUANTIZE_POSITIONS, StringName(), preset.quantize_positions);
     bool quantize_colors = _get_bool_option(p_options, OPTION_QUANTIZE_COLORS, StringName(), preset.quantize_colors);
     bool quantize_scales = _get_bool_option(p_options, OPTION_QUANTIZE_SCALES, StringName(), preset.quantize_scales);
@@ -438,6 +461,14 @@ Error ResourceImporterPLY::import(ResourceUID::ID p_source_id, const String &p_s
     }
     asset->set_import_quality_preset(preset_name);
 
+    // GS-PERF-PRUNE (#456): importance prune runs on the asset's post-transform
+    // arrays (after density merge / sort_by_opacity / max_splats) and BEFORE the
+    // thumbnail, memory estimate, bounds, metadata, and streaming-chunk bake
+    // below, so the saved .res AND the baked chunks both reflect the pruned set
+    // (both read the asset's now-pruned gaussian data). No-op at the default
+    // (1.0 / 0.0) -> saved_count == final_count, Ultra byte-identity preserved.
+    const int saved_count = int(asset->prune_by_importance(prune_ratio, prune_importance_threshold));
+
     uint32_t compression_flags = _build_compression_flags(quantize_positions, quantize_colors, quantize_scales, quantize_rotations);
     asset->set_compression_flags(compression_flags);
     Ref<Image> thumbnail;
@@ -462,6 +493,8 @@ Error ResourceImporterPLY::import(ResourceUID::ID p_source_id, const String &p_s
     option_dict[OPTION_WARN_MISSING] = warn_missing;
     option_dict[OPTION_NORMALIZE_OPACITY] = normalize_opacity;
     option_dict[OPTION_SORT_OPACITY] = sort_by_opacity;
+    option_dict[OPTION_PRUNE_RATIO] = prune_ratio;
+    option_dict[OPTION_PRUNE_IMPORTANCE_THRESHOLD] = prune_importance_threshold;
     option_dict[OPTION_QUANTIZE_POSITIONS] = quantize_positions;
     option_dict[OPTION_QUANTIZE_COLORS] = quantize_colors;
     option_dict[OPTION_QUANTIZE_SCALES] = quantize_scales;
@@ -478,8 +511,16 @@ Error ResourceImporterPLY::import(ResourceUID::ID p_source_id, const String &p_s
     import_metadata[StringName("source_file")] = p_source_file;
     import_metadata[StringName("dc_encoding")] = "linear_rgb";
     import_metadata[StringName("import_time")] = Time::get_singleton()->get_datetime_dict_from_system();
+    // Dual counts: original_splat_count is the raw source count (pre-reduction);
+    // splat_count is the FINAL count actually written to the .res (post density /
+    // max_splats AND post importance prune). pre_prune_splat_count records the
+    // count that entered pruning (post density / max_splats) so an A/B can see the
+    // prune-only reduction. When pruning is off, saved_count == final_count.
     import_metadata[StringName("original_splat_count")] = original_count;
-    import_metadata[StringName("splat_count")] = final_count;
+    import_metadata[StringName("pre_prune_splat_count")] = final_count;
+    import_metadata[StringName("splat_count")] = saved_count;
+    import_metadata[StringName("prune_ratio")] = prune_ratio;
+    import_metadata[StringName("prune_importance_threshold")] = prune_importance_threshold;
     import_metadata[StringName("asset_type")] = asset_type;
     import_metadata[StringName("quality_preset")] = preset_name;
     import_metadata[StringName("preset_display")] = preset.display_name;
@@ -506,25 +547,31 @@ Error ResourceImporterPLY::import(ResourceUID::ID p_source_id, const String &p_s
     if (include_memory) {
         Ref<GaussianThumbnailGenerator> generator;
         generator.instantiate();
-        Dictionary memory_stats = generator->compute_memory_statistics(final_count, compression_flags, false);
+        Dictionary memory_stats = generator->compute_memory_statistics(saved_count, compression_flags, false);
         import_metadata[StringName("memory_estimate_mb")] = memory_stats.get(StringName("total_mb"), 0.0);
         import_metadata[StringName("memory_breakdown_mb")] = memory_stats;
     }
-
-    AABB bounds = gaussian_data->get_aabb();
-    import_metadata[StringName("bounds")] = bounds;
-
-    asset->set_import_metadata(import_metadata);
-    asset->set_source_path(p_source_file);
 
     // Phase B.1: bake per-chunk spatial bookkeeping so runtime
     // GaussianStreamingSystem::_build_chunks_for_data can skip the per-splat
     // pass on scene load. Materialize from the asset's post-transform arrays
     // rather than the loader's `gaussian_data`: sort_by_opacity, density
-    // merge, and max_splats reorder/reduce splats before they are written to
-    // the asset, so baking from the pre-transform layout would write chunk
-    // bounds/counts that do not match the saved arrays (Codex P1 on #349).
+    // merge, max_splats, AND importance prune reorder/reduce splats before they
+    // are written to the asset, so baking from the pre-transform layout would
+    // write chunk bounds/counts that do not match the saved arrays (Codex P1 on
+    // #349). Fetch it once here and reuse it for the saved bounds AABB so both
+    // the bounds metadata and the baked chunks reflect the pruned arrays.
     Ref<::GaussianData> post_transform_data = asset->get_gaussian_data();
+
+    // Bounds must reflect the post-prune asset (get_aabb() is computed fresh from
+    // the current gaussians); a stale loader-side AABB would still include dropped
+    // splats after pruning.
+    AABB bounds = post_transform_data.is_valid() ? post_transform_data->get_aabb() : gaussian_data->get_aabb();
+    import_metadata[StringName("bounds")] = bounds;
+
+    asset->set_import_metadata(import_metadata);
+    asset->set_source_path(p_source_file);
+
     bake_streaming_chunks_for_asset(asset, post_transform_data, /*include_primary*/ false, /*quant*/ nullptr);
 
     String save_path = p_save_path + "." + get_save_extension();
@@ -548,7 +595,8 @@ Error ResourceImporterPLY::import(ResourceUID::ID p_source_id, const String &p_s
         *r_metadata = import_metadata;
     }
 
-    GS_LOG_STREAMING_INFO(vformat("PLY import successful: %d/%d splats from %s", final_count, original_count, p_source_file));
+    GS_LOG_STREAMING_INFO(vformat("PLY import successful: %d/%d splats (pre-prune %d) from %s",
+            saved_count, original_count, final_count, p_source_file));
     return OK;
 }
 

@@ -44,7 +44,16 @@ public:
     //       scene loads.
     //   v6: per-chunk streaming bake baked at import; see ResourceImporterPLY
     //       v7 comment for the runtime fast path it unlocks.
-    virtual int get_format_version() const override { return 6; }
+    //   v7: GS-PERF-PRUNE slice 2b (issue #456) wires opt-in importance pruning
+    //       (processing/prune_ratio + processing/prune_importance_threshold) into
+    //       the importer. Pruning changes the saved array lengths and the baked
+    //       streaming-chunk records, so an asset imported by v4-v6 whose .import
+    //       enables a prune option holds the un-pruned arrays in its .res and must
+    //       re-import; bumping the format version makes Godot's scanner re-run
+    //       import() automatically. Because pruning is opt-in and Ultra stays
+    //       byte-identical, no shipped asset silently changes on the bump. (SPZ
+    //       has no raw-decode cache to worry about; it decompresses on each load.)
+    virtual int get_format_version() const override { return 7; }
 
     ResourceImporterSPZ();
 };
