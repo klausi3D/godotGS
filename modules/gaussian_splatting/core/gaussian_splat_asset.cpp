@@ -2,6 +2,7 @@
 #include "../io/ply_loader.h"
 #include "../io/spz_loader.h"
 #include "../core/gaussian_data.h"
+#include "../core/gaussian_importance.h" // ResidentAtlasBudget::gaussian_importance / select_top_k_indices (prune ranking)
 #include "core/error/error_macros.h"
 #include "core/io/file_access.h"
 #include "core/io/image.h"
@@ -1844,38 +1845,149 @@ Error GaussianSplatAsset::populate_from_gaussian_data(const Ref<::GaussianData> 
     return OK;
 }
 
+namespace {
+// Forward in-place compaction of a strided packed array by an ASCENDING keep-index list.
+// keep[j] >= j (ascending, keep <= count), so writing slot j never clobbers an as-yet
+// unread source slot. Copies raw elements -- survivors are byte-identical (no activation
+// / sigmoid-logit round-trip). Empty (optional) lanes and zero stride are skipped.
+void _gs_prune_compact_f32(PackedFloat32Array &r_arr, const LocalVector<uint32_t> &p_keep, uint32_t p_stride) {
+    if (r_arr.is_empty() || p_stride == 0u) {
+        return;
+    }
+    float *p = r_arr.ptrw();
+    for (uint32_t j = 0; j < p_keep.size(); j++) {
+        const uint32_t src = p_keep[j];
+        if (src != j) {
+            memmove(p + size_t(j) * p_stride, p + size_t(src) * p_stride, size_t(p_stride) * sizeof(float));
+        }
+    }
+    r_arr.resize(int(p_keep.size() * p_stride));
+}
+void _gs_prune_compact_color(PackedColorArray &r_arr, const LocalVector<uint32_t> &p_keep) {
+    if (r_arr.is_empty()) {
+        return;
+    }
+    Color *p = r_arr.ptrw();
+    for (uint32_t j = 0; j < p_keep.size(); j++) {
+        const uint32_t src = p_keep[j];
+        if (src != j) {
+            p[j] = p[src];
+        }
+    }
+    r_arr.resize(int(p_keep.size()));
+}
+void _gs_prune_compact_i32(PackedInt32Array &r_arr, const LocalVector<uint32_t> &p_keep) {
+    if (r_arr.is_empty()) {
+        return;
+    }
+    int32_t *p = r_arr.ptrw();
+    for (uint32_t j = 0; j < p_keep.size(); j++) {
+        const uint32_t src = p_keep[j];
+        if (src != j) {
+            p[j] = p[src];
+        }
+    }
+    r_arr.resize(int(p_keep.size()));
+}
+} // namespace
+
 uint32_t GaussianSplatAsset::prune_by_importance(double p_keep_ratio, float p_importance_threshold) {
-    // Lossless default: leave the SoA arrays completely untouched so a default
-    // import is byte-identical to base (Ultra regression). Mirrors the same
-    // no-op guard in GaussianData::prune_by_importance so the two agree on what
-    // "off" means and no cache churn / seal transition happens here.
+    // Lossless default: leave the SoA arrays completely untouched so a default import is
+    // byte-identical to base (Ultra regression). Matches GaussianData::prune_by_importance's
+    // no-op guard so the two agree on what "off" means; no cache churn / seal transition here.
     if (p_keep_ratio >= 1.0 && p_importance_threshold <= 0.0f) {
         return get_splat_count();
     }
 
-    // Materialize an AoS copy of this asset's payload WITHOUT sealing
-    // (populate_gaussian_data() does not flip payload_sealed the way
-    // get_gaussian_data() does), reuse the slice-2a compaction on it, and only
-    // write the compacted arrays back when splats were actually dropped.
-    Ref<::GaussianData> data;
-    if (!populate_gaussian_data(data) || data.is_null()) {
+    // RANK ONLY via an AoS copy. populate_gaussian_data() takes populate_mutex internally, so
+    // build the ranking copy BEFORE we take the lock. We deliberately do NOT write the AoS copy
+    // back (populate_from_gaussian_data round-trips opacity through sigmoid/logit and CLAMPS
+    // survivors to 0.0001..0.9999 -- lossy). Instead we compute the keep-index set here and
+    // compact the raw SoA arrays in place, so every surviving splat stays byte-identical across
+    // all lanes (opacity_logits, SH, colors, scales, rotations, palette/painterly, normals, ...).
+    Ref<::GaussianData> ranking;
+    if (!populate_gaussian_data(ranking) || ranking.is_null()) {
         return get_splat_count();
     }
-
-    const uint32_t before = uint32_t(data->get_count());
-    const uint32_t kept = data->prune_by_importance(p_keep_ratio, p_importance_threshold);
-    if (kept >= before) {
-        // Ratio rounded to full and/or threshold kept everything: the SoA arrays
-        // already match, so skip the write-back and leave the asset untouched.
-        return before;
+    const uint32_t count = uint32_t(ranking->get_count());
+    if (count == 0u) {
+        return 0u;
+    }
+    const LocalVector<Gaussian> &g = ranking->get_gaussian_storage();
+    LocalVector<float> importance;
+    importance.resize(count);
+    for (uint32_t i = 0; i < count; i++) {
+        importance[i] = ResidentAtlasBudget::gaussian_importance(g[i]);
     }
 
-    const Error err = populate_from_gaussian_data(data);
-    if (err != OK) {
-        GS_LOG_ERROR_DEFAULT(
-                "[GaussianSplatAsset] prune_by_importance: failed to write the pruned payload back; "
-                "asset left unchanged.");
-        return get_splat_count();
+    // Keep-set: ratio top-k (keep-top-1 floor) intersected with the importance threshold.
+    // Mirrors GaussianData::prune_by_importance exactly. select_top_k_indices returns ASCENDING
+    // source indices, so filtering keeps them ascending (forward-compaction safe: keep[j] >= j).
+    uint32_t ratio_keep = count;
+    if (p_keep_ratio < 1.0) {
+        const double clamped_ratio = p_keep_ratio > 0.0 ? p_keep_ratio : 0.0;
+        int64_t rounded = int64_t(Math::round(double(count) * clamped_ratio));
+        rounded = CLAMP(rounded, int64_t(1), int64_t(count));
+        ratio_keep = uint32_t(rounded);
     }
-    return kept;
+    LocalVector<uint32_t> ratio_indices;
+    ResidentAtlasBudget::select_top_k_indices(importance.ptr(), count, ratio_keep, ratio_indices);
+
+    LocalVector<uint32_t> keep_indices;
+    if (p_importance_threshold <= 0.0f) {
+        keep_indices = ratio_indices;
+    } else {
+        keep_indices.reserve(ratio_indices.size());
+        for (uint32_t j = 0; j < ratio_indices.size(); j++) {
+            const uint32_t idx = ratio_indices[j];
+            if (importance[idx] >= p_importance_threshold) {
+                keep_indices.push_back(idx);
+            }
+        }
+    }
+    if (keep_indices.is_empty()) {
+        WARN_PRINT_ONCE("[GaussianSplatAsset] prune_by_importance: ratio/threshold would have pruned "
+                        "every splat; keeping the single highest-importance splat instead.");
+        ResidentAtlasBudget::select_top_k_indices(importance.ptr(), count, 1u, keep_indices);
+    }
+
+    const uint32_t keep = keep_indices.size();
+    if (keep >= count) {
+        // No drop (ratio rounded to full AND threshold kept all): SoA already matches; untouched.
+        return count;
+    }
+
+    // Compact the raw SoA arrays in place. Hold populate_mutex across the seal check + resize,
+    // exactly like set_splat_count(), so a concurrent reader cannot observe torn arrays.
+    MutexLock cache_lock(populate_mutex);
+    if (!_runtime_mutation_permitted("prune_by_importance")) {
+        return splat_count;
+    }
+    if (splat_count != count) {
+        // SoA arrays changed between the unlocked ranking copy and here; bail without touching.
+        return splat_count;
+    }
+
+    _gs_prune_compact_f32(positions, keep_indices, 3u);
+    _gs_prune_compact_color(colors, keep_indices);
+    _gs_prune_compact_f32(scales, keep_indices, 3u);
+    _gs_prune_compact_f32(rotations, keep_indices, 4u);
+    _gs_prune_compact_f32(sh_dc_coefficients, keep_indices, 3u);
+    _gs_prune_compact_f32(sh_first_order_coefficients, keep_indices, sh_first_order_terms * 3u);
+    _gs_prune_compact_f32(sh_high_order_coefficients, keep_indices, sh_high_order_terms * 3u);
+    _gs_prune_compact_f32(opacity_logits, keep_indices, 1u);
+    _gs_prune_compact_i32(palette_ids, keep_indices);
+    _gs_prune_compact_i32(painterly_flags, keep_indices);
+    _gs_prune_compact_f32(normals, keep_indices, 3u);
+    _gs_prune_compact_f32(brush_axes, keep_indices, 2u);
+    _gs_prune_compact_f32(stroke_ages, keep_indices, 1u);
+
+    splat_count = keep;
+    _ensure_buffer_sizes(); // no-op here (arrays already sized to keep*stride); mirrors set_splat_count()
+    import_metadata[StringName("splat_count")] = int(keep);
+    _invalidate_bounds_metadata();
+    _invalidate_gaussian_data_cache();
+    _invalidate_streaming_bake();
+    emit_changed();
+    return keep;
 }
