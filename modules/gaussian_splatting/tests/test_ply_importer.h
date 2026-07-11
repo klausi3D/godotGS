@@ -456,6 +456,175 @@ end_header
     DirAccess::remove_absolute(path.get_basename() + ".gsplatcache");
 }
 
+TEST_CASE("[GaussianSplatting][PLY] integer-typed properties convert to float (regression: silent-zero bug)") {
+    // Regression guard for the pre-2026-07-07 loader bug where
+    // PLYLoader::read_float_property returned 0.0 for every non-float property
+    // type. Integer property types (char/uchar/short/ushort/int/uint) are legal
+    // PLY, so a binary PLY that stored positions/axes/ages as integers decoded
+    // them all as zeros — a silent corruption that still "loaded successfully".
+    //
+    // This little-endian fixture maps all six integer type families onto
+    // PLYLoader pass-through fields (position x/y/z, brush_axis_u/v, stroke_age)
+    // so the loaded values can be compared directly with no activation transform:
+    //   x            = int    (int32)  = -5      (signed, negative)
+    //   y            = short  (int16)  = 1000    (wider than uint8, positive)
+    //   z            = uchar  (uint8)  = 250     (unsigned byte)
+    //   brush_axis_u = char   (int8)   = -7      (signed byte, negative)
+    //   brush_axis_v = uint   (uint32) = 100000  (wider than int16, positive)
+    //   stroke_age   = ushort (uint16) = 40000   (wider than int16, positive)
+    const String path = _make_ply_fixture_path("integer_props_le");
+
+    const char *int_props_header = R"(ply
+format binary_little_endian 1.0
+element vertex 1
+property int x
+property short y
+property uchar z
+property char brush_axis_u
+property uint brush_axis_v
+property ushort stroke_age
+end_header
+)";
+
+    Ref<FileAccess> f = FileAccess::open(path, FileAccess::WRITE);
+    REQUIRE_MESSAGE(f.is_valid(), "Should create integer-typed PLY fixture");
+    f->store_string(int_props_header);
+    f->set_big_endian(false);
+    f->store_32((uint32_t)(int32_t)-5);        // x   : int32
+    f->store_16((uint16_t)(int16_t)1000);      // y   : int16
+    f->store_8((uint8_t)250);                  // z   : uint8
+    f->store_8((uint8_t)(int8_t)-7);           // u   : int8
+    f->store_32((uint32_t)100000);             // v   : uint32
+    f->store_16((uint16_t)40000);              // age : uint16
+    f.unref();
+
+    PLYLoader loader;
+    Error err = loader.load_file(path);
+    CHECK_MESSAGE(err == OK, "Integer-typed PLY load should succeed");
+
+    Ref<GaussianData> data = loader.get_gaussian_data();
+    REQUIRE_MESSAGE(data.is_valid(), "Loaded GaussianData should be valid");
+    REQUIRE(data->get_count() == 1);
+
+    const Gaussian g = data->get_gaussian(0);
+
+    // Core assertion: integer properties decode to their true numeric value,
+    // preserving sign and width — NOT the silent-zero the old code produced.
+    CHECK(g.position.is_equal_approx(Vector3(-5.0f, 1000.0f, 250.0f)));
+    CHECK(g.brush_axes.is_equal_approx(Vector2(-7.0f, 100000.0f)));
+    CHECK(Math::is_equal_approx(g.stroke_age, 40000.0f));
+
+    // Explicit regression assertion: the old read_float_property returned 0.0
+    // for these integer types, so every field above would have been zero.
+    CHECK_MESSAGE(!g.position.is_equal_approx(Vector3(0, 0, 0)),
+            "Integer positions must not collapse to zero (silent-zero regression)");
+
+    _remove_ply_fixture(path);
+    DirAccess::remove_absolute(path.get_basename() + ".gsplatcache");
+}
+
+TEST_CASE("[GaussianSplatting][PLY] big-endian integer-typed properties byte-swap correctly") {
+    // Companion to the little-endian integer test: exercises the endianness
+    // (byte-swap) branch of read_float_property for multi-byte integer types.
+    //   x = int    (int32)  = -1000000 (signed, negative, needs 32-bit swap)
+    //   y = short  (int16)  = -300     (signed, negative, needs 16-bit swap)
+    //   z = ushort (uint16) = 40000    (unsigned, > int16 max, needs 16-bit swap)
+    const String path = _make_ply_fixture_path("integer_props_be");
+
+    const char *int_props_header = R"(ply
+format binary_big_endian 1.0
+element vertex 1
+property int x
+property short y
+property ushort z
+end_header
+)";
+
+    Ref<FileAccess> f = FileAccess::open(path, FileAccess::WRITE);
+    REQUIRE_MESSAGE(f.is_valid(), "Should create big-endian integer PLY fixture");
+    f->store_string(int_props_header);
+    f->set_big_endian(true);
+    f->store_32((uint32_t)(int32_t)-1000000); // x : int32 (big-endian bytes)
+    f->store_16((uint16_t)(int16_t)-300);     // y : int16 (big-endian bytes)
+    f->store_16((uint16_t)40000);             // z : uint16 (big-endian bytes)
+    f.unref();
+
+    PLYLoader loader;
+    Error err = loader.load_file(path);
+    CHECK_MESSAGE(err == OK, "Big-endian integer-typed PLY load should succeed");
+
+    Ref<GaussianData> data = loader.get_gaussian_data();
+    REQUIRE_MESSAGE(data.is_valid(), "Loaded GaussianData should be valid");
+    REQUIRE(data->get_count() == 1);
+
+    const Gaussian g = data->get_gaussian(0);
+    CHECK(g.position.is_equal_approx(Vector3(-1000000.0f, -300.0f, 40000.0f)));
+
+    _remove_ply_fixture(path);
+    DirAccess::remove_absolute(path.get_basename() + ".gsplatcache");
+}
+
+TEST_CASE("[GaussianSplatting][PLYLoader] Stale v1 cache is rejected after integer-decode fix (regression)") {
+    // A .gsplatcache written by the pre-2026-07-07 loader (PLY_CACHE_VERSION 1)
+    // may hold GaussianData decoded with the integer-as-zero bug. After bumping
+    // PLY_CACHE_VERSION to 2, load_file() must REJECT such a stale v1 cache and
+    // re-parse the raw PLY, so already-imported integer-property PLYs get
+    // corrected data WITHOUT the user manually deleting caches.
+    const String ply_path = _make_ply_fixture_path("stale_v1_cache");
+
+    {
+        Ref<FileAccess> f = FileAccess::open(ply_path, FileAccess::WRITE);
+        REQUIRE_MESSAGE(f.is_valid(), "Should create test PLY file");
+        f->store_string(MINIMAL_PLY_CONTENT);
+        float v0[14] = { 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 0, 0 };
+        f->store_buffer((const uint8_t *)v0, sizeof(v0));
+        float v1[14] = { 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 1, 0 };
+        f->store_buffer((const uint8_t *)v1, sizeof(v1));
+    }
+
+    // First load: parses the PLY and writes a current-version (.gsplatcache v2).
+    {
+        PLYLoader loader;
+        Error err = loader.load_file(ply_path);
+        CHECK_MESSAGE(err == OK, "Initial PLY load should succeed");
+        CHECK(loader.get_splat_count() == 2);
+    }
+
+    const String cache_path = ply_path.get_basename() + ".gsplatcache";
+    if (FileAccess::exists(cache_path)) {
+        // Rewrite the cache metadata tagged as the OLD pre-fix version (1),
+        // simulating a cache left behind by the buggy loader.
+        ResourceFormatLoaderGaussianSplatWorld format_loader;
+        Error load_err = OK;
+        Ref<GaussianSplatWorld> world = format_loader.load_resident(cache_path, &load_err);
+        REQUIRE_MESSAGE(world.is_valid(), "Cache should be a valid GaussianSplatWorld");
+
+        Dictionary metadata = world->get_metadata();
+        metadata[StringName("cache_version")] = 1; // pre-fix loader's cache version
+        world->set_metadata(metadata);
+        ResourceFormatSaverGaussianSplatWorld format_saver;
+        format_saver.save(world, cache_path);
+
+        // Second load: the stale v1 cache must be rejected (re-parse fallback),
+        // so the fixed integer decode runs instead of reusing zeroed data.
+        PLYLoader loader;
+        Error err = loader.load_file(ply_path);
+        CHECK_MESSAGE(err == OK, "PLY load should still succeed (re-parse fallback)");
+        CHECK(loader.get_splat_count() == 2);
+
+        Dictionary stats = loader.get_load_statistics();
+        if (stats.has("cache_hit")) {
+            CHECK_MESSAGE(!(bool)stats["cache_hit"],
+                    "Stale v1 cache must not count as a cache hit after the integer-decode fix");
+        }
+    } else {
+        MESSAGE("Cache file not created (caching may be disabled); skipping stale v1 cache rejection test");
+    }
+
+    _remove_ply_fixture(ply_path);
+    DirAccess::remove_absolute(cache_path);
+}
+
 TEST_CASE("[GaussianSplatting][PLY] opacity survives import - logit round-trip (regression: all-0.5 bug)") {
     // Regression guard for the pre-2026-05-03 importer bug where PLY imports
     // never wrote opacity_logits, so every splat read back as sigmoid(0)=0.5.

@@ -61,7 +61,17 @@ public:
     //       caches without the bake fall through to the runtime compute path
     //       (no breakage), but reimporting recovers the ~7-9s startup win on
     //       multi-million-splat scenes.
-    virtual int get_format_version() const override { return 7; }
+    //   v8: PLY loader now decodes integer-typed vertex properties
+    //       (char/uchar/short/ushort/int/uint and int8..uint32 aliases) to
+    //       their real value instead of silently returning 0.0 (issue #465).
+    //       An asset imported by v1-v7 from a PLY with integer-typed fields
+    //       holds zeroed positions/opacity/scales in its .res and must be
+    //       re-imported to recover correct data; bumping the format version
+    //       makes Godot's scanner re-run import() automatically.
+    //       COORDINATION: the accepted GS-PERF-PRUNE ADR also plans a 7->8
+    //       bump. This safety fix lands first and takes v8, so the pruning
+    //       slice must take v9 to avoid a format-version collision.
+    virtual int get_format_version() const override { return 8; }
 
     // Validation helpers
     Error validate_ply_properties(const Ref<class PLYLoader> &p_loader) const;
