@@ -954,7 +954,52 @@ float PLYLoader::read_float_property(const uint8_t *data, const PLYProperty &pro
         double value;
         memcpy(&value, &bits, sizeof(double));
         return (float)value;
+    } else if (prop.type == "uchar" || prop.type == "uint8") {
+        // Single byte: endianness-independent.
+        return (float)data[prop.offset];
+    } else if (prop.type == "char" || prop.type == "int8") {
+        // Single byte, signed: preserve negatives (unlike read_uint_property's >=0 clamp).
+        int8_t value;
+        memcpy(&value, data + prop.offset, sizeof(int8_t));
+        return (float)value;
+    } else if (prop.type == "ushort" || prop.type == "uint16") {
+        uint16_t value;
+        memcpy(&value, data + prop.offset, sizeof(uint16_t));
+        if (!header.is_little_endian) {
+            value = BSWAP16(value);
+        }
+        return (float)value;
+    } else if (prop.type == "short" || prop.type == "int16") {
+        uint16_t bits;
+        memcpy(&bits, data + prop.offset, sizeof(uint16_t));
+        if (!header.is_little_endian) {
+            bits = BSWAP16(bits);
+        }
+        int16_t value;
+        memcpy(&value, &bits, sizeof(int16_t));
+        return (float)value;
+    } else if (prop.type == "uint" || prop.type == "uint32") {
+        uint32_t value;
+        memcpy(&value, data + prop.offset, sizeof(uint32_t));
+        if (!header.is_little_endian) {
+            value = BSWAP32(value);
+        }
+        return (float)value;
+    } else if (prop.type == "int" || prop.type == "int32") {
+        uint32_t bits;
+        memcpy(&bits, data + prop.offset, sizeof(uint32_t));
+        if (!header.is_little_endian) {
+            bits = BSWAP32(bits);
+        }
+        int32_t value;
+        memcpy(&value, &bits, sizeof(int32_t));
+        return (float)value;
     }
+    // Genuinely unknown/unsupported type. parse_header() already rejects such
+    // types up front, so this is a defensive fallback: warn once and read 0.0
+    // instead of silently corrupting data or crashing.
+    WARN_PRINT_ONCE(vformat("[PLY] unsupported property type '%s' for property '%s'; reading as 0.0",
+            prop.type, prop.name));
     return 0.0f;
 }
 
