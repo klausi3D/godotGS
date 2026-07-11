@@ -432,6 +432,30 @@ public:
             bool p_is_2d_mode);
 
     /**
+     * @brief Destructively drops low-importance splats, keeping the highest-ranked subset.
+     * @param p_keep_ratio Fraction of splats to keep by importance, in (0, 1]. `1.0` = keep all.
+     * @param p_importance_threshold Absolute importance floor (>= 0). Splats below it are dropped;
+     *        `0.0` = no threshold.
+     * @return The number of splats kept after pruning.
+     *
+     * Import-time contribution-aware reduction, reusing the shared #420 metric
+     * (`ResidentAtlasBudget::gaussian_importance()` + `select_top_k_indices()`). The keep-set is
+     * the intersection of two ranked keep-sets: the `round(count * keep_ratio)` highest-importance
+     * splats (floored to 1) AND the subset of those whose importance is `>= threshold`. Both keep
+     * lists are ascending source indices, so the intersection is ascending and compaction is
+     * forward-in-place. If the intersection is empty, the single highest-importance splat is kept
+     * (with a warning) so an asset is never pruned to zero.
+     *
+     * @note **No-op fast path (default, lossless):** when `p_keep_ratio >= 1.0` AND
+     *       `p_importance_threshold <= 0.0`, returns the current count WITHOUT touching storage
+     *       (byte-identical output, content revision unchanged). Deterministic: identical input +
+     *       options yield identical output (ascending-index tie-break in `select_top_k_indices()`).
+     *       Compacts the Gaussian payload and its strided high-order SH block together; runtime
+     *       overlays, brush history, octree, streaming bake, and animation caches are invalidated.
+     */
+    uint32_t prune_by_importance(double p_keep_ratio, float p_importance_threshold);
+
+    /**
      * @brief Sets a single Gaussian at the specified index.
      * @param p_index Zero-based index (must be < get_count()).
      * @param p_gaussian Data to assign.
