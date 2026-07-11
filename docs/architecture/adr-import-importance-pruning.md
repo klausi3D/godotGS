@@ -22,7 +22,7 @@
    a non-`1.0` default" rule in the Validation plan.
 3. **Both PLY and SPZ in the first PR.** The compaction is importer-agnostic (both share an identical
    `_compute_final_splat_count` + parallel-array materialization), so both importers are wired and both
-   format versions bump together (PLY 7→8, SPZ 6→7) — **one** re-import event, not two. Because SPZ has
+   format versions bump together (PLY 8→9, SPZ 6→7) — **one** re-import event, not two. Because SPZ has
    **no** test coverage today (only PLY has `test_ply_importer.h` + synthetic fixtures), the first PR
    MUST also build synthetic SPZ fixtures + a `test_spz_importer.h` that validate the SPZ v6→v7
    re-import **before** its bump ships.
@@ -159,17 +159,18 @@ before use. This is why pruning is **opt-in**, never a silent default.
 ### Format version bump (the R3 crux)
 
 Pruning changes the saved array lengths and the chunk bake, so any cached import of an asset
-must be regenerated. Bump the importer format versions — **PLY v7 → v8, SPZ v6 → v7** — so
+must be regenerated. Bump the importer format versions — **PLY v8 → v9, SPZ v6 → v7** — so
 Godot's import system detects the change and triggers a **clean automatic re-import** of every
-existing asset. Rationale:
+existing asset. (PLY is already at v8 on master as of #467, the A4 integer-decode fix, which took
+the v7→v8 slot; this slice therefore takes v9. SPZ is still v6.) Rationale:
 
 - **Two distinct caches, both handled:** the PLY/SPZ importer saves the imported
   `GaussianSplatAsset` as a Godot `.res` (not a `.gsplatworld`); PLY additionally keeps a raw
   decode cache (`.gsplatcache`, `PLY_CACHE_VERSION`, validated by source path/mtime/count). The
-  `get_format_version()` bump (PLY 7→8, SPZ 6→7) invalidates the **imported `.res`** and triggers a
+  `get_format_version()` bump (PLY 8→9, SPZ 6→7) invalidates the **imported `.res`** and triggers a
   clean auto re-import. The raw `.gsplatcache` is orthogonal — keyed by source identity, not
   importer version — and is unaffected, because pruning happens *after* decode (the raw decode is
-  identical). Without the format bump a stale v7 `.res` could pair with a v8 importer's metadata
+  identical). Without the format bump a stale v8 `.res` could pair with a v9 importer's metadata
   expectations, causing subtle corruption; the bump makes the mismatch explicit and self-healing.
 - **Backward compatibility:** existing assets re-import automatically at the new version. Because
   pruning is opt-in and Ultra is byte-identical, **no shipped asset silently changes** — an
