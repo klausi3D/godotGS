@@ -50,6 +50,31 @@ PackedByteArray _atomic_bytes(std::initializer_list<uint8_t> p_values) {
     return out;
 }
 
+// Counts files in the target's directory whose name starts with
+// "<target_filename><infix>" (e.g. ".tmp." or ".bak."). Used to prove the helper
+// leaves no temp/backup litter behind on success. Returns -1 if the dir can't be
+// opened.
+int _atomic_count_siblings(const String &p_path, const String &p_infix) {
+    String dir = p_path.get_base_dir();
+    if (dir.is_empty()) {
+        dir = "."; // bare relative filename → siblings live in the working dir
+    }
+    Ref<DirAccess> da = DirAccess::open(dir);
+    if (da.is_null()) {
+        return -1;
+    }
+    const String prefix = p_path.get_file() + p_infix;
+    int count = 0;
+    da->list_dir_begin();
+    for (String name = da->get_next(); !name.is_empty(); name = da->get_next()) {
+        if (!da->current_is_dir() && name.begins_with(prefix)) {
+            count++;
+        }
+    }
+    da->list_dir_end();
+    return count;
+}
+
 } // namespace
 
 TEST_CASE("[GaussianSplatting][AtomicWrite] failed write leaves the existing file byte-intact") {
@@ -88,6 +113,34 @@ TEST_CASE("[GaussianSplatting][AtomicWrite] successful write atomically replaces
     DirAccess::remove_absolute(path);
 }
 
+TEST_CASE("[GaussianSplatting][AtomicWrite] replacing a larger file leaves exactly the new bytes and no temp/backup litter") {
+    // The atomic replace-over-existing path (MoveFileExW / rename()) must swap the
+    // whole file in one step. Starting from an original LARGER than the update
+    // proves there is no data loss and no stale trailing bytes (a truncate-in-place
+    // or partial overwrite would leave the old tail behind), and that the temp
+    // (and any backup used by the fallback) is cleaned up on success.
+    const String path = _atomic_test_path("replace_no_litter");
+    const PackedByteArray original = _atomic_bytes({ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 });
+    REQUIRE(_atomic_write_raw(path, original));
+
+    const PackedByteArray updated = _atomic_bytes({ 0xAA, 0xBB, 0xCC });
+    const Error err = gs_atomic_file_write(path, [&](const Ref<FileAccess> &file) -> Error {
+        file->store_buffer(updated.ptr(), updated.size());
+        return OK;
+    });
+
+    CHECK(err == OK);
+    // (a) destination holds EXACTLY the new content — no truncation, no stale tail.
+    const PackedByteArray got = _atomic_read_raw(path);
+    CHECK(got.size() == updated.size());
+    CHECK(got == updated);
+    // (b) no temp/backup sibling remains after a successful write.
+    CHECK(_atomic_count_siblings(path, ".tmp.") == 0);
+    CHECK(_atomic_count_siblings(path, ".bak.") == 0);
+
+    DirAccess::remove_absolute(path);
+}
+
 TEST_CASE("[GaussianSplatting][AtomicWrite] write to a non-existent path creates the file") {
     const String path = _atomic_test_path("create_new");
     DirAccess::remove_absolute(path); // ensure absent
@@ -104,3 +157,46 @@ TEST_CASE("[GaussianSplatting][AtomicWrite] write to a non-existent path creates
 
     DirAccess::remove_absolute(path);
 }
+
+#ifdef WINDOWS_ENABLED
+TEST_CASE("[GaussianSplatting][AtomicWrite] a relative destination is absolutized to a valid long-path native form") {
+    // Regression guard for the relative-path bug (Codex P2 on #468): a bare
+    // relative name must be resolved against the working directory and long-path
+    // prefixed, NOT emitted as an invalid "\\?\<relative>" which makes MoveFileExW
+    // fail and silently drop to the backup-swap (reintroducing the missing-target
+    // window this change removes).
+    const String native = _gs_atomic_win_native_path("delta.gsinc");
+    CHECK(native.begins_with(R"(\\?\)"));
+    // The prefix must be followed by an absolute root (drive letter), never by the
+    // still-relative filename.
+    CHECK_FALSE(native.begins_with(R"(\\?\delta)"));
+    const String absolute = native.trim_prefix(R"(\\?\)");
+    CHECK(absolute.find_char(':') != -1); // "C:\..." — a real absolute path
+    CHECK(native.ends_with("delta.gsinc"));
+}
+
+TEST_CASE("[GaussianSplatting][AtomicWrite] relative destination write yields the new bytes with no litter") {
+    // Reproduces the reported scenario: a saver invoked with a bare relative name
+    // ("delta.gsinc"). The temp is created relative to the process working
+    // directory, so the atomic replace must target that same resolved location.
+    const uint64_t ticks = OS::get_singleton() ? OS::get_singleton()->get_ticks_usec() : 0;
+    const String rel = "gs_atomic_rel_" + itos(ticks) + ".bin";
+    DirAccess::remove_absolute(rel); // ensure absent
+
+    const PackedByteArray original = _atomic_bytes({ 1, 2, 3, 4, 5, 6 });
+    REQUIRE(_atomic_write_raw(rel, original));
+
+    const PackedByteArray updated = _atomic_bytes({ 7, 8, 9 });
+    const Error err = gs_atomic_file_write(rel, [&](const Ref<FileAccess> &file) -> Error {
+        file->store_buffer(updated.ptr(), updated.size());
+        return OK;
+    });
+
+    CHECK(err == OK);
+    CHECK(_atomic_read_raw(rel) == updated);
+    CHECK(_atomic_count_siblings(rel, ".tmp.") == 0);
+    CHECK(_atomic_count_siblings(rel, ".bak.") == 0);
+
+    DirAccess::remove_absolute(rel);
+}
+#endif // WINDOWS_ENABLED

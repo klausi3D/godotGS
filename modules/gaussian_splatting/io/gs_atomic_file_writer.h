@@ -14,17 +14,21 @@
 //
 // `gs_atomic_file_write` instead streams the content to a sibling temp file and
 // only moves it into place once the whole write has succeeded and the file has
-// been closed. On any writer/rename failure the pre-existing destination is left
-// byte-intact (an existing target is moved to a backup first and restored if the
-// final move fails), and the temp is cleaned up.
+// been closed. The final move is a TRUE atomic replace-over-existing
+// (`MoveFileExW` on Windows, `rename()` on POSIX), so a concurrent reader always
+// sees either the old or the new file and never a missing target. On any
+// writer/rename failure the pre-existing destination is left byte-intact, and the
+// temp is cleaned up.
 //
 // Caveats (see docs/architecture/adr-import-input-hardening.md):
-//   - Godot's `DirAccess::rename` is remove-then-move when the destination
-//     exists (a Windows data-loss window). This helper sidesteps it by moving any
-//     existing target aside first, so each rename targets a non-existent path.
-//     The only residual window is a crash BETWEEN the two moves, and even then no
-//     data is lost: both the backup (old contents) and the temp (new contents)
-//     remain on disk for recovery.
+//   - The atomic OS replace is the primary path and needs no backup. If it is
+//     unavailable or errors, the helper falls back to a backup-swap: it moves any
+//     existing target aside first (so each `DirAccess::rename` targets a
+//     non-existent path, avoiding Godot's remove-then-move Windows data-loss
+//     window) and restores it if the final move fails. The fallback's only
+//     residual window is a crash BETWEEN the two moves, and even then no data is
+//     lost: both the backup (old contents) and the temp (new contents) remain on
+//     disk for recovery.
 //   - `FileAccess::flush()` is a CRT-level flush AND Godot ignores its return
 //     value, so a flush-only failure is not surfaced here. Write-completion is
 //     therefore validated by the caller's per-write `get_error()` checks (the
@@ -37,6 +41,14 @@
 Ref<FileAccess> _gs_atomic_open_temp(const String &p_final_path, String &r_temp_path, Error *r_error);
 void _gs_atomic_remove_temp(const String &p_temp_path);
 Error _gs_atomic_rename_temp(const String &p_temp_path, const String &p_final_path);
+
+#if defined(WINDOWS_ENABLED)
+// Test hook (Windows only): the native Win32 path the atomic replace targets for
+// `p_path`. Exposed so tests can assert a *relative* destination is absolutized to
+// a valid long-path form instead of an invalid `\\?\`-prefixed relative string
+// (which would make MoveFileExW fall back to the backup-swap). Not public API.
+String _gs_atomic_win_native_path(const String &p_path);
+#endif
 
 // Writes `p_final_path` atomically. `p_write` is invoked with the open temp file
 // and must return OK on success; it must NOT retain a persistent Ref to the file
