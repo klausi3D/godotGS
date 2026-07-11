@@ -14,6 +14,7 @@
  */
 
 #include "gaussian_data.h"
+#include "gaussian_importance.h" // ResidentAtlasBudget::gaussian_importance(), select_top_k_indices()
 #include "gs_project_settings.h"
 #include "core/config/project_settings.h"
 #include "core/io/file_access.h"
@@ -346,6 +347,132 @@ void GaussianData::set_gaussian_payload(const LocalVector<Gaussian> &p_gaussians
     is_2d_mode = p_is_2d_mode;
 
     _bump_content_revision();
+}
+
+uint32_t GaussianData::prune_by_importance(double p_keep_ratio, float p_importance_threshold) {
+    RWLockWrite lock(data_rwlock);
+
+    const uint32_t count = gaussians.size();
+
+    // (1) No-op fast path -- the lossless default. Storage, SH, derived caches, and the
+    // content revision are left completely untouched, so the output is byte-identical.
+    if (p_keep_ratio >= 1.0 && p_importance_threshold <= 0.0f) {
+        return count;
+    }
+    if (count == 0u) {
+        return 0u;
+    }
+
+    // (2) Per-splat importance via the SHARED #420 metric (core/gaussian_importance.h) so
+    // import pruning ranks by the exact same definition the runtime residency clamp uses.
+    LocalVector<float> importance;
+    importance.resize(count);
+    for (uint32_t i = 0; i < count; i++) {
+        importance[i] = ResidentAtlasBudget::gaussian_importance(gaussians[i]);
+    }
+
+    // (3) Ratio keep-set: the round(count * keep_ratio) highest-importance splats, clamped to
+    // [1, count] (KEEP-TOP-1 floor -- never 0). select_top_k_indices() returns them in ascending
+    // SOURCE order so forward in-place compaction stays valid (keep_indices[j] >= j).
+    uint32_t ratio_keep = count;
+    if (p_keep_ratio < 1.0) {
+        const double clamped_ratio = p_keep_ratio > 0.0 ? p_keep_ratio : 0.0;
+        int64_t rounded = int64_t(Math::round(double(count) * clamped_ratio));
+        rounded = CLAMP(rounded, int64_t(1), int64_t(count));
+        ratio_keep = uint32_t(rounded);
+    }
+    LocalVector<uint32_t> ratio_indices;
+    ResidentAtlasBudget::select_top_k_indices(importance.ptr(), count, ratio_keep, ratio_indices);
+
+    // (4)+(5) Intersect the ratio keep-set with the threshold keep-set: a splat must pass BOTH.
+    // Filtering an ascending list preserves ascending order, so the intersection is still a
+    // forward-compaction-safe ascending index list.
+    LocalVector<uint32_t> keep_indices;
+    if (p_importance_threshold <= 0.0f) {
+        keep_indices = ratio_indices; // threshold disabled -> ratio set is final
+    } else {
+        keep_indices.reserve(ratio_indices.size());
+        for (uint32_t j = 0; j < ratio_indices.size(); j++) {
+            const uint32_t idx = ratio_indices[j];
+            if (importance[idx] >= p_importance_threshold) {
+                keep_indices.push_back(idx);
+            }
+        }
+    }
+
+    // (6) Keep-top-1 clamp: never write an empty asset. If ratio/threshold pruned everything,
+    // keep the single highest-importance splat (deterministic global top-1).
+    if (keep_indices.is_empty()) {
+        WARN_PRINT_ONCE("[GaussianData] prune_by_importance: ratio/threshold would have pruned every "
+                        "splat; keeping the single highest-importance splat instead of an empty asset.");
+        ResidentAtlasBudget::select_top_k_indices(importance.ptr(), count, 1u, keep_indices);
+    }
+
+    const uint32_t keep = keep_indices.size();
+    if (keep >= count) {
+        // Nothing was dropped (ratio rounded to full AND threshold kept all). select_top_k_indices
+        // returns the identity range in that case, so storage already matches -- leave caches and
+        // the content revision untouched, exactly like the no-op fast path.
+        return count;
+    }
+
+    // (7a) Forward in-place compaction of the Gaussian payload (all per-splat fields except
+    // high-order SH live inside the Gaussian struct, so this moves them together).
+    for (uint32_t j = 0; j < keep; j++) {
+        const uint32_t src = keep_indices[j];
+        if (src != j) {
+            gaussians[j] = gaussians[src];
+        }
+    }
+    gaussians.resize(keep);
+
+    // (7b) Compact the ONLY other import-populated per-splat parallel array: the strided
+    // high-order SH block (stride = sh_high_order_count Vector3 per splat), by the SAME indices.
+    // The runtime_* overlays (edit_state) and animation caches are runtime-only -- empty at import
+    // time -- and are invalidated below rather than compacted.
+    if (sh_high_order_count > 0u &&
+            uint64_t(sh_high_order_coefficients.size()) >= uint64_t(count) * uint64_t(sh_high_order_count)) {
+        const uint32_t stride = sh_high_order_count;
+        Vector3 *sh = sh_high_order_coefficients.ptr();
+        for (uint32_t j = 0; j < keep; j++) {
+            const uint32_t src = keep_indices[j];
+            if (src != j) {
+                const uint64_t dst_base = uint64_t(j) * uint64_t(stride);
+                const uint64_t src_base = uint64_t(src) * uint64_t(stride);
+                for (uint32_t c = 0; c < stride; c++) {
+                    sh[dst_base + c] = sh[src_base + c];
+                }
+            }
+        }
+        // keep <= count so keep * stride <= count * stride, which already fit the buffer's
+        // uint32_t size -- the product cannot overflow here.
+        sh_high_order_coefficients.resize(keep * stride);
+        sh_high_order_capacity = sh_high_order_count; // exact, no slack (matches set_gaussian_payload)
+    }
+
+    // (8) Drop derived/cached state the count change invalidated. SH per-splat vector counts
+    // (sh_first_order_count / sh_high_order_count / sh_degree) and is_2d_mode are structural and
+    // unchanged by dropping splats, so they are preserved. Mirrors set_gaussian_payload()'s
+    // invalidation set.
+    octree.clear();
+    _clear_runtime_modifications_locked();
+    _clear_brush_strokes_locked();
+    _invalidate_streaming_bake_locked();
+    {
+        MutexLock anim_lock(animation_cache_mutex);
+        animated_positions_cache.clear();
+        animated_colors_cache.clear();
+        animated_opacities_cache.clear();
+        animated_positions_valid_cache.clear();
+        animated_colors_valid_cache.clear();
+        animated_opacities_valid_cache.clear();
+        if (animation_state_machine.is_valid()) {
+            animation_state_machine->set_splat_count(gaussians.size());
+        }
+    }
+    _bump_content_revision();
+
+    return keep;
 }
 
 const Gaussian *GaussianData::get_gaussians() const {
