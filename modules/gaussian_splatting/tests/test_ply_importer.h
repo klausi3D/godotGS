@@ -564,6 +564,67 @@ end_header
     DirAccess::remove_absolute(path.get_basename() + ".gsplatcache");
 }
 
+TEST_CASE("[GaussianSplatting][PLYLoader] Stale v1 cache is rejected after integer-decode fix (regression)") {
+    // A .gsplatcache written by the pre-2026-07-07 loader (PLY_CACHE_VERSION 1)
+    // may hold GaussianData decoded with the integer-as-zero bug. After bumping
+    // PLY_CACHE_VERSION to 2, load_file() must REJECT such a stale v1 cache and
+    // re-parse the raw PLY, so already-imported integer-property PLYs get
+    // corrected data WITHOUT the user manually deleting caches.
+    const String ply_path = _make_ply_fixture_path("stale_v1_cache");
+
+    {
+        Ref<FileAccess> f = FileAccess::open(ply_path, FileAccess::WRITE);
+        REQUIRE_MESSAGE(f.is_valid(), "Should create test PLY file");
+        f->store_string(MINIMAL_PLY_CONTENT);
+        float v0[14] = { 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 0, 0 };
+        f->store_buffer((const uint8_t *)v0, sizeof(v0));
+        float v1[14] = { 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 1, 0 };
+        f->store_buffer((const uint8_t *)v1, sizeof(v1));
+    }
+
+    // First load: parses the PLY and writes a current-version (.gsplatcache v2).
+    {
+        PLYLoader loader;
+        Error err = loader.load_file(ply_path);
+        CHECK_MESSAGE(err == OK, "Initial PLY load should succeed");
+        CHECK(loader.get_splat_count() == 2);
+    }
+
+    const String cache_path = ply_path.get_basename() + ".gsplatcache";
+    if (FileAccess::exists(cache_path)) {
+        // Rewrite the cache metadata tagged as the OLD pre-fix version (1),
+        // simulating a cache left behind by the buggy loader.
+        ResourceFormatLoaderGaussianSplatWorld format_loader;
+        Error load_err = OK;
+        Ref<GaussianSplatWorld> world = format_loader.load_resident(cache_path, &load_err);
+        REQUIRE_MESSAGE(world.is_valid(), "Cache should be a valid GaussianSplatWorld");
+
+        Dictionary metadata = world->get_metadata();
+        metadata[StringName("cache_version")] = 1; // pre-fix loader's cache version
+        world->set_metadata(metadata);
+        ResourceFormatSaverGaussianSplatWorld format_saver;
+        format_saver.save(world, cache_path);
+
+        // Second load: the stale v1 cache must be rejected (re-parse fallback),
+        // so the fixed integer decode runs instead of reusing zeroed data.
+        PLYLoader loader;
+        Error err = loader.load_file(ply_path);
+        CHECK_MESSAGE(err == OK, "PLY load should still succeed (re-parse fallback)");
+        CHECK(loader.get_splat_count() == 2);
+
+        Dictionary stats = loader.get_load_statistics();
+        if (stats.has("cache_hit")) {
+            CHECK_MESSAGE(!(bool)stats["cache_hit"],
+                    "Stale v1 cache must not count as a cache hit after the integer-decode fix");
+        }
+    } else {
+        MESSAGE("Cache file not created (caching may be disabled); skipping stale v1 cache rejection test");
+    }
+
+    _remove_ply_fixture(ply_path);
+    DirAccess::remove_absolute(cache_path);
+}
+
 TEST_CASE("[GaussianSplatting][PLY] opacity survives import - logit round-trip (regression: all-0.5 bug)") {
     // Regression guard for the pre-2026-05-03 importer bug where PLY imports
     // never wrote opacity_logits, so every splat read back as sigmoid(0)=0.5.

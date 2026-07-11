@@ -13,10 +13,18 @@
 
 namespace {
 
-// Bump this when the GaussianSplatWorld binary format or the metadata
-// contract changes.  try_load_cache() rejects caches with a different version
-// so stale data is never silently reused after a format change.
-static constexpr int PLY_CACHE_VERSION = 1;
+// Bump this when the GaussianSplatWorld binary format, the metadata
+// contract, OR the PLY decode semantics change.  try_load_cache() rejects
+// caches with a different version (via _cache_version_matches) so stale data
+// is never silently reused after a change.
+//   v1: initial versioned PLY cache.
+//   v2: read_float_property now decodes integer-typed PLY properties
+//       (char/uchar/short/ushort/int/uint and int8..uint32 aliases) to their
+//       real value instead of silently returning 0.0 (issue #465). Caches
+//       written by v1 may hold zeroed positions/opacity/scales for such PLYs,
+//       so a stale v1 .gsplatcache is rejected and the raw PLY is re-parsed
+//       automatically — no manual cache deletion required.
+static constexpr int PLY_CACHE_VERSION = 2;
 
 static constexpr int SH_DC_COMPONENTS = 3;
 static constexpr int SH_REST_COMPONENTS = 45;
