@@ -1843,3 +1843,39 @@ Error GaussianSplatAsset::populate_from_gaussian_data(const Ref<::GaussianData> 
 
     return OK;
 }
+
+uint32_t GaussianSplatAsset::prune_by_importance(double p_keep_ratio, float p_importance_threshold) {
+    // Lossless default: leave the SoA arrays completely untouched so a default
+    // import is byte-identical to base (Ultra regression). Mirrors the same
+    // no-op guard in GaussianData::prune_by_importance so the two agree on what
+    // "off" means and no cache churn / seal transition happens here.
+    if (p_keep_ratio >= 1.0 && p_importance_threshold <= 0.0f) {
+        return get_splat_count();
+    }
+
+    // Materialize an AoS copy of this asset's payload WITHOUT sealing
+    // (populate_gaussian_data() does not flip payload_sealed the way
+    // get_gaussian_data() does), reuse the slice-2a compaction on it, and only
+    // write the compacted arrays back when splats were actually dropped.
+    Ref<::GaussianData> data;
+    if (!populate_gaussian_data(data) || data.is_null()) {
+        return get_splat_count();
+    }
+
+    const uint32_t before = uint32_t(data->get_count());
+    const uint32_t kept = data->prune_by_importance(p_keep_ratio, p_importance_threshold);
+    if (kept >= before) {
+        // Ratio rounded to full and/or threshold kept everything: the SoA arrays
+        // already match, so skip the write-back and leave the asset untouched.
+        return before;
+    }
+
+    const Error err = populate_from_gaussian_data(data);
+    if (err != OK) {
+        GS_LOG_ERROR_DEFAULT(
+                "[GaussianSplatAsset] prune_by_importance: failed to write the pruned payload back; "
+                "asset left unchanged.");
+        return get_splat_count();
+    }
+    return kept;
+}

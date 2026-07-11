@@ -36,6 +36,7 @@
 #include "test_resident_atlas_budget.h"
 #include "test_gaussian_importance.h"
 #include "test_gaussian_importance_prune.h"
+#include "test_spz_importer.h"
 #include "test_renderer_pipeline.h"
 #include "test_quantized_packing.h"
 #include "test_tile_lighting_abi.h"
