@@ -1,10 +1,20 @@
 #include "gs_atomic_file_writer.h"
 
+#include "core/config/project_settings.h"
 #include "core/error/error_macros.h"
 #include "core/io/dir_access.h"
 #include "core/os/os.h"
 
 #include <atomic>
+
+// Platform primitives for a TRUE atomic replace-over-existing. Included AFTER the
+// engine headers so <windows.h> macro pollution (ERROR/min/max) can't reach them.
+#if defined(WINDOWS_ENABLED)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
+#include <cstdio> // ::rename
+#endif
 
 // usec + a process-local monotonic counter, so temp/backup sibling names are
 // unique even for two saves of the same target within the same microsecond. (Two
@@ -45,6 +55,52 @@ void _gs_atomic_remove_temp(const String &p_temp_path) {
 	}
 }
 
+// Turns a Godot VFS path (res://, uid://, user://) into the native filesystem
+// path the OS calls below understand. Absolute/`ACCESS_FILESYSTEM` paths pass
+// through unchanged. Mirrors the public converter the rest of the engine uses.
+static String _gs_atomic_globalize(const String &p_path) {
+	if (ProjectSettings::get_singleton()) {
+		return ProjectSettings::get_singleton()->globalize_path(p_path);
+	}
+	return p_path;
+}
+
+// Attempts a TRUE atomic replace-over-existing: p_final_path is made to name the
+// new file in a single OS operation, with no intermediate state in which it is
+// absent (unlike the backup-swap fallback). Returns OK only when the platform
+// primitive actually moved the temp into place; any other return means "atomic
+// replace unavailable or failed — fall back". On failure the temp is left in
+// place for the fallback (both primitives are no-ops on failure).
+static Error _gs_atomic_try_native_replace(const String &p_temp_path, const String &p_final_path) {
+#if defined(WINDOWS_ENABLED)
+	// Match DirAccessWindows::fix_path: native separators + long-path prefix so
+	// paths beyond MAX_PATH still resolve. MoveFileExW is an atomic metadata swap.
+	auto to_win_native = [](const String &p_path) -> String {
+		String r = _gs_atomic_globalize(p_path).replace_char('/', '\\');
+		if (!r.is_network_share_path() && !r.begins_with(R"(\\?\)")) {
+			r = R"(\\?\)" + r;
+		}
+		return r;
+	};
+	const Char16String src_w = to_win_native(p_temp_path).utf16();
+	const Char16String dst_w = to_win_native(p_final_path).utf16();
+	if (MoveFileExW((LPCWSTR)src_w.get_data(), (LPCWSTR)dst_w.get_data(),
+				MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0) {
+		return OK;
+	}
+	return FAILED;
+#else
+	// POSIX rename() atomically replaces an existing destination on the same
+	// filesystem; the temp is a sibling of the target, so it always is.
+	const CharString src = _gs_atomic_globalize(p_temp_path).utf8();
+	const CharString dst = _gs_atomic_globalize(p_final_path).utf8();
+	if (::rename(src.get_data(), dst.get_data()) == 0) {
+		return OK;
+	}
+	return FAILED;
+#endif
+}
+
 Error _gs_atomic_rename_temp(const String &p_temp_path, const String &p_final_path) {
 	Ref<DirAccess> da = DirAccess::create_for_path(p_final_path);
 	if (da.is_null()) {
@@ -52,6 +108,20 @@ Error _gs_atomic_rename_temp(const String &p_temp_path, const String &p_final_pa
 		return ERR_FILE_CANT_WRITE;
 	}
 
+	// Preferred path: a TRUE atomic replace-over-existing (MoveFileExW on Windows,
+	// rename() on POSIX). It is windowless — a concurrent reader always sees either
+	// the old or the new file, never a missing target — and needs no backup. On
+	// success the temp has already been moved into place.
+	if (_gs_atomic_try_native_replace(p_temp_path, p_final_path) == OK) {
+		return OK;
+	}
+
+	// Fallback (atomic replace unavailable or errored): the backup-swap below.
+	// It never loses data — both the backup (old contents) and the temp (new
+	// contents) survive a crash — at the cost of a microsecond window in which
+	// p_final_path is briefly absent. The temp is still present here because the
+	// atomic attempt is a no-op on failure.
+	//
 	// Godot's DirAccess::rename is remove-then-move when the destination exists,
 	// which on Windows deletes the original before the move and loses it if the
 	// move then fails. Avoid that path entirely by moving any existing target
