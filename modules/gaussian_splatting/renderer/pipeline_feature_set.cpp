@@ -68,20 +68,21 @@ static void _register_pipeline_project_settings() {
 }
 
 void PipelineFeatureSet::load_from_project_settings() {
-    // Precedence for pipeline/* settings:
+    // Precedence for pipeline/* settings (issue #175 — EXPLICIT GRANULAR WINS):
     //   1. Code defaults — the values of g_pipeline_feature_set.* members at
     //      module init time. Registered as the default arg of GLOBAL_DEF.
-    //   2. project.godot values — read here via ProjectSettings::get_setting_with_override.
-    //   3. Quality tier — when quality/tier_apply_pipeline_toggles=true, the
-    //      tier OVERWRITES the project.godot values immediately after this
-    //      function returns (see the apply_tier_toggles branch below in
-    //      load_from_project_settings). The tier wins.
+    //   2. Quality tier — when quality/tier_apply_pipeline_toggles=true and a real
+    //      tier is active, the tier supplies the value for any key NOT explicitly
+    //      set in project.godot.
+    //   3. Explicit project.godot value — an entry actually present in
+    //      project.godot (source == "project_override") WINS over the tier for
+    //      that key; a WARN is logged when the tier value would have differed.
     //
-    // Implication: project.godot entries for pipeline/enable_* take effect
-    // ONLY when tier_apply_pipeline_toggles=false. Most projects should
-    // configure pipeline behavior via tier_preset, not via these keys
-    // directly. The keys are marked PROPERTY_USAGE_NO_EDITOR in their
-    // GLOBAL_DEF registrations so they are hidden from the default editor
+    // Implication: an explicit pipeline/enable_* entry always takes effect, even
+    // when a tier preset is active (the tier only fills keys left at their code
+    // default). This mirrors the sentinel/explicit-wins model already used for
+    // the streaming budgets and sh/quantization "Auto" settings. The keys are
+    // marked PROPERTY_USAGE_NO_EDITOR so they stay hidden from the default editor
     // inspector tree but remain readable/writable via ProjectSettings.
     ProjectSettings *ps = ProjectSettings::get_singleton();
     if (!ps) {
@@ -126,21 +127,51 @@ void PipelineFeatureSet::load_from_project_settings() {
     if (apply_tier_toggles) {
         QualityTierConfig tier_config;
         if (get_quality_tier_config(tier_preset, tier_config)) {
-            enable_packed_stage_data = tier_config.enable_packed_stage_data;
-            enable_tighter_bounds = tier_config.enable_tighter_bounds;
-            enable_fast_raster = tier_config.enable_fast_raster;
-            enable_sh_amortization = tier_config.enable_sh_amortization;
-            sh_amortization_divisor = tier_config.sh_amortization_divisor;
-            packed_stage_source = "tier_preset";
-            packed_stage_source_label = vformat("tier preset '%s'", tier_preset);
-            tighter_bounds_source = "tier_preset";
-            tighter_bounds_source_label = packed_stage_source_label;
-            fast_raster_source = "tier_preset";
-            fast_raster_source_label = packed_stage_source_label;
-            sh_amortization_source = "tier_preset";
-            sh_amortization_source_label = packed_stage_source_label;
-            sh_amortization_divisor_source = "tier_preset";
-            sh_amortization_divisor_source_label = packed_stage_source_label;
+            const String tier_label = vformat("tier preset '%s'", tier_preset);
+
+            // Issue #175: an EXPLICITLY-set granular pipeline key (present in
+            // project.godot -> source == "project_override") WINS over the tier
+            // preset; only keys left at their code default inherit the tier value.
+            // A WARN fires only when the tier value would actually DIFFER from the
+            // kept explicit value (a no-op match, e.g. deck fixtures, stays quiet).
+            auto apply_bool = [&](const char *p_key, bool &r_value, bool p_tier_value,
+                    String &r_source, String &r_source_label) {
+                if (r_source == "project_override") {
+                    if (r_value != p_tier_value) {
+                        GS_LOG_WARN_DEFAULT(vformat(
+                                "[Pipeline Feature Set] %s: explicit project override (%s) kept; %s value (%s) NOT applied.",
+                                p_key, r_value ? "true" : "false", tier_label,
+                                p_tier_value ? "true" : "false"));
+                    }
+                    return; // keep explicit value AND its "project_override" source
+                }
+                r_value = p_tier_value;
+                r_source = "tier_preset";
+                r_source_label = tier_label;
+            };
+
+            apply_bool("enable_packed_stage_data", enable_packed_stage_data,
+                    tier_config.enable_packed_stage_data, packed_stage_source, packed_stage_source_label);
+            apply_bool("enable_tighter_bounds", enable_tighter_bounds,
+                    tier_config.enable_tighter_bounds, tighter_bounds_source, tighter_bounds_source_label);
+            apply_bool("enable_fast_raster", enable_fast_raster,
+                    tier_config.enable_fast_raster, fast_raster_source, fast_raster_source_label);
+            apply_bool("enable_sh_amortization", enable_sh_amortization,
+                    tier_config.enable_sh_amortization, sh_amortization_source, sh_amortization_source_label);
+
+            // sh_amortization_divisor is an int; same explicit-wins rule.
+            if (sh_amortization_divisor_source == "project_override") {
+                if (sh_amortization_divisor != tier_config.sh_amortization_divisor) {
+                    GS_LOG_WARN_DEFAULT(vformat(
+                            "[Pipeline Feature Set] sh_amortization_divisor: explicit project override (%d) kept; %s value (%d) NOT applied.",
+                            sh_amortization_divisor, tier_label, tier_config.sh_amortization_divisor));
+                }
+            } else {
+                sh_amortization_divisor = tier_config.sh_amortization_divisor;
+                sh_amortization_divisor_source = "tier_preset";
+                sh_amortization_divisor_source_label = tier_label;
+            }
+
             GS_LOG_INFO_DEFAULT(vformat("[Pipeline Feature Set] Applying quality tier preset: %s", tier_config.name));
         }
     }

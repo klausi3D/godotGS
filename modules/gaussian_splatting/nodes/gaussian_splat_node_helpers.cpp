@@ -863,7 +863,10 @@ void GaussianSplatNodeQualityHelper::update_quality_settings() {
         const double previous_value = double(previous_entry.get(StringName("value"), Variant(-1.0)));
         const String previous_source = String(previous_entry.get(StringName("source"), String()));
         if (!Math::is_equal_approx(previous_value, p_effective) || previous_source != p_source) {
-            GS_LOG_INFO_DEFAULT(vformat("[Effective Config] %s capped by tier '%s': %s -> %s",
+            // Issue #175: the tier MIN cap is a safety ceiling that still bounds a
+            // user-set value -- surface it at WARN (only fires when it actually
+            // reduces the requested value) so the reduction is visible by default.
+            GS_LOG_WARN_DEFAULT(vformat("[Effective Config] %s capped by tier '%s': %s -> %s",
                     String(p_metric), tier_preset, String::num_real(p_requested), String::num_real(p_effective)));
         }
     };

@@ -48,12 +48,29 @@ python3 modules/gaussian_splatting/tests/check_project_settings_manifest.py
 
 ## Quality Tiers
 
-Quality tiers are policy overrides, not defaults. When
-`rendering/gaussian_splatting/quality/tier_apply_pipeline_toggles` or
-`rendering/gaussian_splatting/quality/tier_apply_streaming_budgets` is true,
-the tier value wins over matching manual project settings. Any effective config
-reported to users must name the tier as the source, not claim that the value
-came from a default.
+Quality tiers are policy overrides, not defaults. There is **one** precedence
+model (issue #175): **an explicitly-set granular setting always wins over the
+tier**; the tier only supplies values for keys the project left at their code
+default. Two rules make this concrete:
+
+1. **Pipeline toggles** (`pipeline/enable_packed_stage_data`,
+   `enable_tighter_bounds`, `enable_fast_raster`, `enable_sh_amortization`,
+   `sh_amortization_divisor`): when
+   `rendering/gaussian_splatting/quality/tier_apply_pipeline_toggles` is true and
+   a real tier is active, the tier fills only the keys **not** present in
+   `project.godot`. An explicit `project.godot` value wins over the tier for its
+   key; a `WARN` is logged when the tier value would have differed, and the
+   effective snapshot reports `project_override` (not `tier_preset`) for that key.
+2. **Streaming budgets**: when
+   `rendering/gaussian_splatting/quality/tier_apply_streaming_budgets` is true,
+   the budget resolver (`_resolve_tiered_cap_uint`) honors explicit overrides —
+   the tier value is used only when no override is present. The separate
+   quality/GPU-memory **MIN caps** remain a safety ceiling that still bounds a
+   user-set value; they log a `WARN` when they actually reduce a requested value.
+
+Any effective config reported to users must name the true source: `project_override`
+for an explicitly-set key, `tier_preset` for a key the tier supplied, `tier_cap`
+for a value bounded by a safety cap.
 
 Current provenance surfaces include `PipelineFeatureSet` snapshots and SH tier
 seeding. Future cleanup waves should extend equivalent provenance to any

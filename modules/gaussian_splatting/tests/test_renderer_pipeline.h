@@ -1584,6 +1584,74 @@ TEST_CASE("[GaussianSplatting] Pipeline feature snapshot distinguishes code defa
     g_pipeline_feature_set.load_from_project_settings();
 }
 
+TEST_CASE("[GaussianSplatting] Explicit pipeline override wins over an active quality tier (#175)") {
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    REQUIRE(project_settings != nullptr);
+    if (project_settings == nullptr) {
+        return;
+    }
+
+    const String tighter_bounds_setting = PipelineFeatureSet::ENABLE_TIGHTER_BOUNDS_PATH;
+    const String tier_preset_setting = "rendering/gaussian_splatting/quality/tier_preset";
+    const String tier_apply_setting = "rendering/gaussian_splatting/quality/tier_apply_pipeline_toggles";
+
+    ScopedProjectSetting tighter_bounds_guard(project_settings, tighter_bounds_setting);
+    ScopedProjectSetting tier_preset_guard(project_settings, tier_preset_setting);
+    ScopedProjectSetting tier_apply_guard(project_settings, tier_apply_setting);
+
+    // Active tier 'low' sets enable_tighter_bounds = true, but the project
+    // EXPLICITLY sets it false. Explicit-wins (#175) must keep false (the tier's
+    // differing true is NOT applied) and report project_override as the source.
+    // If precedence were still tier-wins, the value would come back true.
+    project_settings->set_setting(tier_preset_setting, String("low"));
+    project_settings->set_setting(tier_apply_setting, true);
+    project_settings->clear(tighter_bounds_setting);
+    project_settings->set_setting(tighter_bounds_setting, false); // explicit project override
+    g_pipeline_feature_set.load_from_project_settings();
+
+    CHECK_FALSE(g_pipeline_feature_set.enable_tighter_bounds); // explicit false kept, not tier's true
+    Dictionary snapshot = g_pipeline_feature_set.get_effective_config_snapshot();
+    Dictionary entry = GaussianEffectiveConfig::get_entry(snapshot, StringName("pipeline_tighter_bounds"));
+    CHECK_FALSE(bool(entry.get(StringName("value"), true)));
+    CHECK(String(entry.get(StringName("source"), String())) == String("project_override"));
+
+    g_pipeline_feature_set.load_from_project_settings();
+}
+
+TEST_CASE("[GaussianSplatting] Active quality tier still fills pipeline keys left at code default (#175)") {
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    REQUIRE(project_settings != nullptr);
+    if (project_settings == nullptr) {
+        return;
+    }
+
+    const String tighter_bounds_setting = PipelineFeatureSet::ENABLE_TIGHTER_BOUNDS_PATH;
+    const String tier_preset_setting = "rendering/gaussian_splatting/quality/tier_preset";
+    const String tier_apply_setting = "rendering/gaussian_splatting/quality/tier_apply_pipeline_toggles";
+
+    ScopedProjectSetting tighter_bounds_guard(project_settings, tighter_bounds_setting);
+    ScopedProjectSetting tier_preset_guard(project_settings, tier_preset_setting);
+    ScopedProjectSetting tier_apply_guard(project_settings, tier_apply_setting);
+
+    // enable_tighter_bounds is left at its code default (builtin, not a project
+    // override); tier 'low' sets it true, so the tier fills the key and the
+    // snapshot names tier_preset as the source. This proves explicit-wins did not
+    // regress the normal tier-applies-to-defaults path (default neutrality).
+    project_settings->set_setting(tier_preset_setting, String("low"));
+    project_settings->set_setting(tier_apply_setting, true);
+    project_settings->set_setting(tighter_bounds_setting, false);
+    project_settings->set_builtin_order(tighter_bounds_setting); // code default, not an override
+    g_pipeline_feature_set.load_from_project_settings();
+
+    CHECK(g_pipeline_feature_set.enable_tighter_bounds); // tier value applied to a code-default key
+    Dictionary snapshot = g_pipeline_feature_set.get_effective_config_snapshot();
+    Dictionary entry = GaussianEffectiveConfig::get_entry(snapshot, StringName("pipeline_tighter_bounds"));
+    CHECK(bool(entry.get(StringName("value"), false)));
+    CHECK(String(entry.get(StringName("source"), String())) == String("tier_preset"));
+
+    g_pipeline_feature_set.load_from_project_settings();
+}
+
 TEST_CASE("[GaussianSplatting][RequiresGPU] World-backed RenderSceneInstance drives GPU streaming + sorting") {
     RenderingServer *rs = RenderingServer::get_singleton();
     if (rs == nullptr) {
