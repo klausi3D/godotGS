@@ -89,7 +89,9 @@ TEST_CASE("[GaussianSplatting][Config] Hidden runtime-affecting ProjectSettings 
 
 	CHECK(int64_t(ps->get_setting(sync_loads_key)) == 1);
 	CHECK(int64_t(ps->get_setting(sync_queue_key)) == 2048);
-	CHECK(Math::is_equal_approx(double(ps->get_setting(lod_importance_key)), 0.0));
+	// -1 sentinel = "auto" (leave importance_cull_threshold to the runtime
+	// auto-tuner); registration stays behavior-neutral. Only >= 0 pins a value.
+	CHECK(Math::is_equal_approx(double(ps->get_setting(lod_importance_key)), -1.0));
 
 	const char *logging_category_keys[] = {
 		"rendering/gaussian_splatting/logging/general",

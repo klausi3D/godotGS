@@ -221,7 +221,11 @@ void GPUCuller::update_culling_settings() {
         // instead of ProjectSettings directly where the sentinel -1.0f would be clamped to 0.
         max_distance_setting = g_lod_config.max_distance;
         project_bias_setting = _get_float_setting(ps, "rendering/gaussian_splatting/lod/bias", project_bias_setting);
-        importance_setting = _get_float_setting(ps, "rendering/gaussian_splatting/lod/importance_threshold", importance_setting);
+        // -1 (sentinel) = "auto": leave importance_cull_threshold to the runtime
+        // overflow auto-tuner (see run_overflow_autotune, which mutates the member).
+        // Only an explicit project override (>= 0) pins the threshold below. Read
+        // with a -1 fallback so the registered sentinel default is behavior-neutral.
+        importance_setting = _get_float_setting(ps, "rendering/gaussian_splatting/lod/importance_threshold", -1.0f);
         frustum_slack_setting = _get_float_setting(ps, "rendering/gaussian_splatting/cull/frustum_plane_slack", frustum_slack_setting);
         // Keep runtime overrides (set_opacity_aware_culling / set_visibility_threshold)
         // sticky across frames by not reloading these knobs from ProjectSettings here.
@@ -237,7 +241,13 @@ void GPUCuller::update_culling_settings() {
     max_distance_setting = MAX(0.0f, max_distance_setting);
     culling_config.lod_project_bias = MAX(0.001f, project_bias_setting);
     if (!culling_config.importance_cull_override) {
-        culling_config.importance_cull_threshold = MAX(0.0f, importance_setting);
+        // Only an explicit project override (>= 0) pins the threshold; the -1
+        // sentinel leaves the runtime-tuned importance_cull_threshold intact so
+        // the overflow auto-tuner keeps working. Baseline tracks the threshold in
+        // both cases, matching the pre-registration read (fallback == the member).
+        if (importance_setting >= 0.0f) {
+            culling_config.importance_cull_threshold = importance_setting;
+        }
         culling_config.importance_cull_baseline = culling_config.importance_cull_threshold;
     }
 

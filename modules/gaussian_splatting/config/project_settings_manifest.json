@@ -886,7 +886,7 @@
     {
       "effective_state": "LODConfig/GPUCuller.importance_threshold",
       "key": "rendering/gaussian_splatting/lod/importance_threshold",
-      "notes": "Registered in register_lod_project_settings() (lod/lod_config.cpp) with a float range hint; default 0.0 matches the GPUCuller CullingConfig.importance_cull_threshold code default (0 = off) so registration is behavior-neutral. Global baseline behind the per-renderer cull/importance_threshold (#163).",
+      "notes": "Registered in register_lod_project_settings() (lod/lod_config.cpp) with a float range hint. Default is a -1 sentinel = 'auto': GPUCuller leaves importance_cull_threshold to the runtime overflow auto-tuner (the raw read used to fall back to the tuned member); only an explicit override (>= 0) pins a fixed threshold, so registration is behavior-neutral. Global baseline behind the per-renderer cull/importance_threshold (#163).",
       "test_coverage": "inventory_only"
     },
     {

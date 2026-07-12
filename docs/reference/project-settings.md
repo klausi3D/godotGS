@@ -423,8 +423,8 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/lod/importance_threshold</code></pre></td>
-      <td><pre><code>0.0f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/lod/lod_config.cpp:365</code></pre></td>
+      <td><pre><code>-1.0f</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/lod/lod_config.cpp:367</code></pre></td>
     </tr>
   </tbody>
 </table>
@@ -875,7 +875,7 @@ These keys are used by module code but are not registered with `GLOBAL_DEF(...)`
 | Setting | First reference |
 | --- | --- |
 | `rendering/gaussian_splatting/cache/spirv_cache_max_mb` | `modules/gaussian_splatting/register_types.cpp:139` |
-| `rendering/gaussian_splatting/cull/frustum_plane_slack` | `modules/gaussian_splatting/interfaces/gpu_culler.cpp:225` |
+| `rendering/gaussian_splatting/cull/frustum_plane_slack` | `modules/gaussian_splatting/interfaces/gpu_culler.cpp:229` |
 | `rendering/gaussian_splatting/debug/enable_pipeline_trace` | `modules/gaussian_splatting/logger/gs_debug_trace.cpp:139` |
 | `rendering/gaussian_splatting/debug/enable_splat_audit` | `modules/gaussian_splatting/renderer/render_debug_state_orchestrator.cpp:328` |
 | `rendering/gaussian_splatting/debug/enable_state_guardrails` | `modules/gaussian_splatting/renderer/render_debug_state_orchestrator.cpp:326` |
