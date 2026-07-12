@@ -61,6 +61,11 @@ default. Two rules make this concrete:
    `project.godot`. An explicit `project.godot` value wins over the tier for its
    key; a `WARN` is logged when the tier value would have differed, and the
    effective snapshot reports `project_override` (not `tier_preset`) for that key.
+   An override is detected by the effective value differing from the registered
+   default (`property_can_revert`), because `GLOBAL_DEF` marks every key builtin at
+   registration; a value explicitly set *equal* to the code default is therefore
+   indistinguishable from unset and follows the tier — the same limitation the
+   streaming budgets already have.
 2. **Streaming budgets**: when
    `rendering/gaussian_splatting/quality/tier_apply_streaming_budgets` is true,
    the budget resolver (`_resolve_tiered_cap_uint`) honors explicit overrides —

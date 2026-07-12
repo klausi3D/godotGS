@@ -20,7 +20,18 @@ PipelineFeatureSet g_pipeline_feature_set;
 
 static void _describe_project_setting_source(ProjectSettings *p_ps, const String &p_path,
         String &r_source, String &r_source_label) {
-    if (p_ps != nullptr && p_ps->has_setting(p_path) && !p_ps->is_builtin_setting(p_path)) {
+    // Detect an explicit project.godot override by the effective value differing
+    // from the registered default (property_get_revert), NOT by !is_builtin_setting.
+    // GLOBAL_DEF calls set_builtin_order() on EVERY key at registration -- including
+    // keys already loaded from project.godot -- so is_builtin_setting() is true for
+    // persisted user values too and would misclassify a real startup override as a
+    // code default (and, since #175, let the tier wrongly overwrite it). Comparing
+    // the effective value against the registered revert value is order-independent
+    // and matches gs_tier_cap::_project_setting_has_override() used for the streaming
+    // budgets. Limitation shared with streaming: a value explicitly set EQUAL to the
+    // code default is indistinguishable from unset and is treated as code_default.
+    if (p_ps != nullptr && p_ps->has_setting(p_path) && p_ps->property_can_revert(p_path) &&
+            p_ps->get_setting_with_override(p_path) != p_ps->property_get_revert(p_path)) {
         r_source = "project_override";
         r_source_label = "project override";
         return;
