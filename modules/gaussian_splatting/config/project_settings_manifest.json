@@ -1098,9 +1098,9 @@
     {
       "effective_state": "SortingStrategyConfig::bitonic_max_elements",
       "key": "rendering/gaussian_splatting/sorting/bitonic_max_elements",
-      "notes": "Cleanup candidate from #357: loaded by SortingStrategyConfig, but current AUTO selection uses hard-coded thresholds/device probes.",
-      "publicness": "cleanup_candidate",
-      "test_coverage": "needs_behavior_test"
+      "notes": "Wired in #168: drives the AUTO bitonic->radix band boundary via GPUSorterFactory::AutoThresholds. Default 32768 reproduces the historical hardcoded threshold, so selection is unchanged until tuned.",
+      "publicness": "public",
+      "test_coverage": "covered"
     },
     {
       "effective_state": "SortingStrategyConfig::force_algorithm",
@@ -1144,16 +1144,16 @@
     {
       "effective_state": "SortingStrategyConfig::onesweep_max_elements",
       "key": "rendering/gaussian_splatting/sorting/onesweep_max_elements",
-      "notes": "Cleanup candidate from #357: loaded by SortingStrategyConfig, but current AUTO selection uses hard-coded thresholds/device probes.",
+      "notes": "Loaded and sanitized by SortingStrategyConfig but not consumed by AUTO band selection, which uses only the bitonic->radix and radix->onesweep boundaries (#168); the large band is unbounded above. Retained for the sanitize-ordering contract and diagnostics.",
       "publicness": "cleanup_candidate",
       "test_coverage": "needs_behavior_test"
     },
     {
       "effective_state": "SortingStrategyConfig::radix_max_elements",
       "key": "rendering/gaussian_splatting/sorting/radix_max_elements",
-      "notes": "Cleanup candidate from #357: loaded by SortingStrategyConfig, but current AUTO selection uses hard-coded thresholds/device probes.",
-      "publicness": "cleanup_candidate",
-      "test_coverage": "needs_behavior_test"
+      "notes": "Wired in #168: drives the AUTO radix->onesweep band boundary via GPUSorterFactory::AutoThresholds (count >= it selects OneSweep). Default 1048576 reproduces the historical hardcoded threshold, so selection is unchanged until tuned.",
+      "publicness": "public",
+      "test_coverage": "covered"
     },
     {
       "effective_state": "SortingStrategyConfig::strict_global_sort",

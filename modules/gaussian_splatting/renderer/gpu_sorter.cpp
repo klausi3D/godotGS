@@ -58,6 +58,7 @@
 
 #include "gpu_sorter.h"
 #include "gpu_sorting_config.h"
+#include "sorting_config.h"
 #include "pipeline_io_contracts.h"
 #include "gpu_debug_utils.h"
 #include "resource_owner_mismatch_contract.h"
@@ -279,8 +280,10 @@ static void _free_uniform_sets_safe(RenderingDevice *p_owner, uint64_t p_owner_g
     _free_uniform_sets(effective_owner, p_sets);
 }
 
-static constexpr uint32_t AUTO_SMALL_ELEMENT_THRESHOLD = 32768u;
-static constexpr uint32_t AUTO_LARGE_ELEMENT_THRESHOLD = 1048576u;
+// AUTO-selection band boundaries now live on GPUSorterFactory as the canonical
+// constants AUTO_BITONIC_MAX_ELEMENTS / AUTO_ONESWEEP_MIN_ELEMENTS, and are the
+// default values of GPUSorterFactory::AutoThresholds. They are resolved from
+// the live SortingStrategyConfig project settings at selection time (#168).
 static constexpr uint32_t MIN_STORAGE_BUFFERS_PER_SET = 7u;
 static constexpr uint32_t MIN_BOUND_UNIFORM_SETS = 1u;
 
@@ -383,14 +386,15 @@ static bool _algorithm_meets_requirements(const GPUSorterFactory::PolicyProbe &p
     return true;
 }
 
-static GPUSorterFactory::SortingAlgorithm _preferred_auto_algorithm(uint32_t element_count, const SortKeyConfig &key_config) {
+static GPUSorterFactory::SortingAlgorithm _preferred_auto_algorithm(uint32_t element_count, const SortKeyConfig &key_config,
+        const GPUSorterFactory::AutoThresholds &thresholds) {
     if (key_config.require_stable || key_config.key_bits > 32 || key_config.enable_tie_breaker) {
         return GPUSorterFactory::ALGORITHM_RADIX;
     }
-    if (element_count <= AUTO_SMALL_ELEMENT_THRESHOLD) {
+    if (element_count <= thresholds.bitonic_max_elements) {
         return GPUSorterFactory::ALGORITHM_BITONIC;
     }
-    if (element_count >= AUTO_LARGE_ELEMENT_THRESHOLD) {
+    if (element_count >= thresholds.onesweep_min_elements) {
         return GPUSorterFactory::ALGORITHM_ONESWEEP;
     }
     return GPUSorterFactory::ALGORITHM_RADIX;
@@ -502,9 +506,10 @@ static GPUSorterFactory::SortingAlgorithm select_sort_algorithm(uint32_t element
     const AlgorithmProbe bitonic_probe = _probe_algorithm(GPUSorterFactory::ALGORITHM_BITONIC, rd);
     const AlgorithmProbe onesweep_probe = _probe_algorithm(GPUSorterFactory::ALGORITHM_ONESWEEP, rd);
 
+    const GPUSorterFactory::AutoThresholds thresholds = GPUSorterFactory::AutoThresholds::from_project_settings();
     GPUSorterFactory::PolicyDecision decision = GPUSorterFactory::evaluate_auto_policy(element_count, key_config,
             _to_policy_probe(radix_probe), _to_policy_probe(bitonic_probe), _to_policy_probe(onesweep_probe),
-            false, key_config.key_bits > 32);
+            false, key_config.key_bits > 32, thresholds);
     if (!decision.fallback_reason.is_empty()) {
         GS_LOG_WARN_DEFAULT(vformat("[GPU Sort] AUTO policy fallback: %s", decision.fallback_reason));
     }
@@ -986,9 +991,10 @@ Ref<IGPUSorter> GPUSorterFactory::create_sorter(SortingAlgorithm algorithm, Rend
     };
 
     if (algorithm == ALGORITHM_AUTO) {
+        const AutoThresholds auto_thresholds = AutoThresholds::from_project_settings();
         PolicyDecision auto_decision = evaluate_auto_policy(max_elements, key_config,
                 get_policy_probe(ALGORITHM_RADIX), get_policy_probe(ALGORITHM_BITONIC), get_policy_probe(ALGORITHM_ONESWEEP),
-                requires_indirect, requires_64bit_keys);
+                requires_indirect, requires_64bit_keys, auto_thresholds);
         resolved_algorithm = auto_decision.selected_algorithm;
         fallback_reason = auto_decision.fallback_reason;
         if (!fallback_reason.is_empty()) {
@@ -1070,11 +1076,23 @@ GPUSorterFactory::SortingAlgorithm GPUSorterFactory::get_best_algorithm_for_size
     return select_sort_algorithm(element_count, key_config, rd);
 }
 
+GPUSorterFactory::AutoThresholds GPUSorterFactory::AutoThresholds::from_project_settings() {
+    // Start from the historical-constant defaults so an unavailable or partially
+    // configured settings store still reproduces the original AUTO behavior.
+    AutoThresholds thresholds;
+    const SortingStrategyConfig config = SortingStrategyConfig::load_from_project_settings();
+    // sanitize() guarantees radix_max_elements >= bitonic_max_elements, so the
+    // resolved bands stay well-ordered (bitonic_max <= onesweep_min).
+    thresholds.bitonic_max_elements = config.bitonic_max_elements;
+    thresholds.onesweep_min_elements = config.radix_max_elements;
+    return thresholds;
+}
+
 GPUSorterFactory::PolicyDecision GPUSorterFactory::evaluate_auto_policy(uint32_t element_count, const SortKeyConfig &key_config,
         const PolicyProbe &radix_probe, const PolicyProbe &bitonic_probe, const PolicyProbe &onesweep_probe,
-        bool require_indirect, bool require_64bit_keys) {
+        bool require_indirect, bool require_64bit_keys, const AutoThresholds &thresholds) {
     PolicyDecision decision;
-    decision.preferred_algorithm = _preferred_auto_algorithm(element_count, key_config);
+    decision.preferred_algorithm = _preferred_auto_algorithm(element_count, key_config, thresholds);
 
     auto get_probe = [&](SortingAlgorithm p_algorithm) -> const PolicyProbe & {
         switch (p_algorithm) {

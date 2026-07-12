@@ -1226,4 +1226,144 @@ TEST_CASE("[GaussianSplatting][Config] SortingStrategyConfig cascading sanitizat
 	CHECK(config.onesweep_max_elements >= config.radix_max_elements);
 }
 
+// =============================================================================
+// AUTO sorting-algorithm threshold wiring (#168)
+//
+// The AUTO band boundaries used to be hard-coded constants in gpu_sorter.cpp
+// (32768 / 1048576). They are now resolved from the sorting/{bitonic,radix}
+// _max_elements project settings via GPUSorterFactory::AutoThresholds. These
+// tests prove (a) the defaults reproduce the historical selection EXACTLY
+// (neutrality guard) and (b) tuning a setting actually changes the selected
+// algorithm (the knob is live). evaluate_auto_policy is pure given the probes
+// and thresholds, so no RenderingDevice is required.
+// =============================================================================
+
+namespace {
+// All algorithms reported fully capable so that the AUTO decision's preferred
+// algorithm is also the selected algorithm (no capability fallback), isolating
+// the element-count band logic under test.
+static GPUSorterFactory::PolicyProbe _fully_supported_probe() {
+	GPUSorterFactory::PolicyProbe probe;
+	probe.supported = true;
+	probe.supports_indirect = true;
+	probe.supports_64bit_keys = true;
+	return probe;
+}
+
+// A 32-bit, non-stable, no-tie-break key so the "force RADIX" early-out does not
+// fire and the pure element-count bands are exercised.
+static SortKeyConfig _band_test_key_config() {
+	SortKeyConfig key_cfg;
+	key_cfg.key_bits = 32;
+	key_cfg.tile_bits = 16;
+	key_cfg.depth_bits = 16;
+	key_cfg.enable_tie_breaker = false;
+	key_cfg.require_stable = false;
+	return key_cfg;
+}
+} // namespace
+
+TEST_CASE("[GaussianSplatting][Config] AUTO sorting thresholds default mapping reproduces historical bands") {
+	// The SortingStrategyConfig defaults map onto the historical hard-coded AUTO
+	// boundaries exactly: bitonic_max_elements -> bitonic->radix boundary,
+	// radix_max_elements -> radix->onesweep boundary.
+	SortingStrategyConfig config;
+	config.sanitize();
+	CHECK(config.bitonic_max_elements == GPUSorterFactory::AUTO_BITONIC_MAX_ELEMENTS);
+	CHECK(config.radix_max_elements == GPUSorterFactory::AUTO_ONESWEEP_MIN_ELEMENTS);
+
+	// The AutoThresholds struct defaults are the historical constants.
+	GPUSorterFactory::AutoThresholds thresholds;
+	CHECK(thresholds.bitonic_max_elements == 32768u);
+	CHECK(thresholds.onesweep_min_elements == 1048576u);
+
+	const GPUSorterFactory::PolicyProbe probe = _fully_supported_probe();
+	const SortKeyConfig key_cfg = _band_test_key_config();
+	auto selected = [&](uint32_t count) {
+		return GPUSorterFactory::evaluate_auto_policy(count, key_cfg, probe, probe, probe, false, false, thresholds)
+				.selected_algorithm;
+	};
+
+	// Representative counts select the SAME algorithm as the pre-#168 constants.
+	CHECK(selected(10000) == GPUSorterFactory::ALGORITHM_BITONIC);   // small -> bitonic
+	CHECK(selected(100000) == GPUSorterFactory::ALGORITHM_RADIX);    // mid   -> radix
+	CHECK(selected(5000000) == GPUSorterFactory::ALGORITHM_ONESWEEP); // large -> onesweep
+
+	// Exact boundary behavior (<= bitonic_max -> BITONIC; >= onesweep_min -> ONESWEEP).
+	CHECK(selected(32768) == GPUSorterFactory::ALGORITHM_BITONIC);
+	CHECK(selected(32769) == GPUSorterFactory::ALGORITHM_RADIX);
+	CHECK(selected(1048575) == GPUSorterFactory::ALGORITHM_RADIX);
+	CHECK(selected(1048576) == GPUSorterFactory::ALGORITHM_ONESWEEP);
+
+	// The default-argument overload (callers that pass no thresholds) must match
+	// the explicit historical-default thresholds: the built-in fallback is neutral.
+	CHECK(GPUSorterFactory::evaluate_auto_policy(10000, key_cfg, probe, probe, probe, false, false).selected_algorithm ==
+			GPUSorterFactory::ALGORITHM_BITONIC);
+	CHECK(GPUSorterFactory::evaluate_auto_policy(100000, key_cfg, probe, probe, probe, false, false).selected_algorithm ==
+			GPUSorterFactory::ALGORITHM_RADIX);
+	CHECK(GPUSorterFactory::evaluate_auto_policy(5000000, key_cfg, probe, probe, probe, false, false).selected_algorithm ==
+			GPUSorterFactory::ALGORITHM_ONESWEEP);
+}
+
+TEST_CASE("[GaussianSplatting][Config] AUTO sorting thresholds are tunable and resolve from live project settings") {
+	const GPUSorterFactory::PolicyProbe probe = _fully_supported_probe();
+	const SortKeyConfig key_cfg = _band_test_key_config();
+
+	SUBCASE("Explicit thresholds drive selection (knob is live)") {
+		const uint32_t count = 20000; // BITONIC under defaults (<= 32768)
+		GPUSorterFactory::AutoThresholds defaults;
+		CHECK(GPUSorterFactory::evaluate_auto_policy(count, key_cfg, probe, probe, probe, false, false, defaults)
+						.selected_algorithm == GPUSorterFactory::ALGORITHM_BITONIC);
+
+		// Lowering the bitonic boundary below the count flips BITONIC -> RADIX.
+		GPUSorterFactory::AutoThresholds tuned = defaults;
+		tuned.bitonic_max_elements = 10000;
+		CHECK(GPUSorterFactory::evaluate_auto_policy(count, key_cfg, probe, probe, probe, false, false, tuned)
+						.selected_algorithm == GPUSorterFactory::ALGORITHM_RADIX);
+
+		// Additionally lowering the onesweep boundary below the count flips to ONESWEEP.
+		tuned.onesweep_min_elements = 15000;
+		CHECK(GPUSorterFactory::evaluate_auto_policy(count, key_cfg, probe, probe, probe, false, false, tuned)
+						.selected_algorithm == GPUSorterFactory::ALGORITHM_ONESWEEP);
+	}
+
+	SUBCASE("from_project_settings maps the two boundary settings end-to-end") {
+		ProjectSettings *project_settings = ProjectSettings::get_singleton();
+		REQUIRE(project_settings != nullptr);
+
+		const String bitonic_path = "rendering/gaussian_splatting/sorting/bitonic_max_elements";
+		const String radix_path = "rendering/gaussian_splatting/sorting/radix_max_elements";
+		ProjectSettingGuard bitonic_guard(project_settings, bitonic_path);
+		ProjectSettingGuard radix_guard(project_settings, radix_path);
+
+		// Ensure the SortingStrategyConfig cache-invalidation callback is connected
+		// (it connects lazily on the first load); otherwise the settings_changed
+		// emit below is a no-op and the cached config stays stale.
+		SortingStrategyConfig::load_from_project_settings();
+
+		// Non-default, well-ordered boundaries (survive SortingStrategyConfig::sanitize).
+		project_settings->set_setting(bitonic_path, 10000);
+		project_settings->set_setting(radix_path, 40000);
+		project_settings->save();
+		// set_setting alone does not invalidate the cached sort config in the test
+		// harness; emit settings_changed so from_project_settings re-reads (matches
+		// the idiom used by the target_sort_time round-trip tests above).
+		project_settings->emit_signal("settings_changed");
+
+		// bitonic_max_elements -> bitonic band; radix_max_elements -> onesweep band.
+		const GPUSorterFactory::AutoThresholds resolved = GPUSorterFactory::AutoThresholds::from_project_settings();
+		CHECK(resolved.bitonic_max_elements == 10000u);
+		CHECK(resolved.onesweep_min_elements == 40000u);
+
+		// The same count selects a DIFFERENT algorithm under the tuned settings than
+		// under the historical defaults, proving the setting is now live end-to-end.
+		const uint32_t count = 60000; // RADIX under defaults (32768 < 60000 < 1048576)
+		CHECK(GPUSorterFactory::evaluate_auto_policy(count, key_cfg, probe, probe, probe, false, false,
+						GPUSorterFactory::AutoThresholds())
+						.selected_algorithm == GPUSorterFactory::ALGORITHM_RADIX);
+		CHECK(GPUSorterFactory::evaluate_auto_policy(count, key_cfg, probe, probe, probe, false, false, resolved)
+						.selected_algorithm == GPUSorterFactory::ALGORITHM_ONESWEEP);
+	}
+}
+
 } // namespace TestConfigValidation
