@@ -2,6 +2,7 @@
 
 #include "servers/rendering/rendering_device.h"
 #include "../core/effective_config_snapshot.h"
+#include "../core/gs_project_settings.h"
 #include "../core/quality_tier_config.h"
 #include "../logger/gs_logger.h"
 
@@ -100,20 +101,29 @@ void PipelineFeatureSet::load_from_project_settings() {
         return;
     }
 
-    enable_two_stage_sort = ps->get_setting(ENABLE_TWO_STAGE_SORT_PATH, false);
-    enable_packed_stage_data = ps->get_setting(ENABLE_PACKED_STAGE_DATA_PATH, false);
-    enable_tighter_bounds = ps->get_setting(ENABLE_TIGHTER_BOUNDS_PATH, false);
-    enable_fast_raster = ps->get_setting(ENABLE_FAST_RASTER_PATH, false);
-    enable_sh_amortization = ps->get_setting(ENABLE_SH_AMORTIZATION_PATH, false);
-    sh_amortization_divisor = ps->get_setting(SH_AMORTIZATION_DIVISOR_PATH, sh_amortization_divisor);
-    disable_sh_amortization_on_visibility_change = ps->get_setting(DISABLE_SH_AMORTIZATION_VISIBILITY_PATH,
+    // Read every value the feature-tag-aware way (get_setting_with_override, via the
+    // gs::settings accessors) so the LOADED value matches what
+    // _describe_project_setting_source() detects and what the streaming half uses.
+    // Otherwise a platform override such as enable_tighter_bounds.windows=true would
+    // be seen by the override detector (get_setting_with_override) but the base value
+    // would be loaded (plain get_setting), dropping both the feature override and the
+    // tier value on the matching platform.
+    enable_two_stage_sort = gs::settings::get_bool(ps, ENABLE_TWO_STAGE_SORT_PATH, false);
+    enable_packed_stage_data = gs::settings::get_bool(ps, ENABLE_PACKED_STAGE_DATA_PATH, false);
+    enable_tighter_bounds = gs::settings::get_bool(ps, ENABLE_TIGHTER_BOUNDS_PATH, false);
+    enable_fast_raster = gs::settings::get_bool(ps, ENABLE_FAST_RASTER_PATH, false);
+    enable_sh_amortization = gs::settings::get_bool(ps, ENABLE_SH_AMORTIZATION_PATH, false);
+    sh_amortization_divisor = gs::settings::get_int(ps, SH_AMORTIZATION_DIVISOR_PATH, sh_amortization_divisor);
+    disable_sh_amortization_on_visibility_change = gs::settings::get_bool(ps, DISABLE_SH_AMORTIZATION_VISIBILITY_PATH,
             disable_sh_amortization_on_visibility_change);
-    sh_amortization_visibility_threshold = ps->get_setting(SH_AMORTIZATION_VISIBILITY_THRESHOLD_PATH,
+    sh_amortization_visibility_threshold = gs::settings::get_float(ps, SH_AMORTIZATION_VISIBILITY_THRESHOLD_PATH,
             sh_amortization_visibility_threshold);
-    enable_all_experimental = ps->get_setting(ENABLE_ALL_EXPERIMENTAL_PATH, false);
+    enable_all_experimental = gs::settings::get_bool(ps, ENABLE_ALL_EXPERIMENTAL_PATH, false);
 
-    const String tier_preset = ps->get_setting("rendering/gaussian_splatting/quality/tier_preset", "custom");
-    const bool apply_tier_toggles = ps->get_setting("rendering/gaussian_splatting/quality/tier_apply_pipeline_toggles", true);
+    const String tier_preset = ps->has_setting("rendering/gaussian_splatting/quality/tier_preset")
+            ? String(ps->get_setting_with_override("rendering/gaussian_splatting/quality/tier_preset"))
+            : String("custom");
+    const bool apply_tier_toggles = gs::settings::get_bool(ps, "rendering/gaussian_splatting/quality/tier_apply_pipeline_toggles", true);
 
     String two_stage_sort_source;
     String two_stage_sort_source_label;
