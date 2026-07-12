@@ -3842,17 +3842,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingteststest_config_validationh" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/tests/test_config_validation.h
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingrenderertile_render_async_readbackcpp" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4007,17 +3996,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingrenderergpu_sortercpp" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/renderer/gpu_sorter.cpp
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#testsexamplesgodottest_projectscenesqaqa_visual_diffgd" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4055,6 +4033,17 @@
     <span class="md-ellipsis">
       
         modules/gaussian_splatting/tests/test_data_authority_hardening.h
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingrenderergpu_sortercpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/renderer/gpu_sorter.cpp
       
     </span>
   </a>
@@ -4154,6 +4143,17 @@
     <span class="md-ellipsis">
       
         modules/gaussian_splatting/renderer/tile_render_resources.h
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingteststest_config_validationh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/tests/test_config_validation.h
       
     </span>
   </a>
@@ -5140,17 +5140,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingrenderergpu_sorterh" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/renderer/gpu_sorter.h
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingshaderstile_binningglsl" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5166,6 +5155,17 @@
     <span class="md-ellipsis">
       
         modules/gaussian_splatting/core/streaming_vram_regulator.h
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingrenderergpu_sorterh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/renderer/gpu_sorter.h
       
     </span>
   </a>
@@ -9360,10 +9360,6 @@
 <li>line 1634: RID TileUniformBuffers::get_default_state_uniform(RenderingD...</li>
 <li>line 1657: bool TileUniformBuffers::ensure_prefix_param_buffer(Renderin...</li>
 </ul>
-<h2 id="modulesgaussian_splattingteststest_config_validationh">modules/gaussian_splatting/tests/test_config_validation.h<a class="headerlink" href="#modulesgaussian_splattingteststest_config_validationh" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 30: static float _reload_manager_sorting_target_ms() {...</li>
-</ul>
 <h2 id="modulesgaussian_splattingrenderertile_render_async_readbackcpp">modules/gaussian_splatting/renderer/tile_render_async_readback.cpp<a class="headerlink" href="#modulesgaussian_splattingrenderertile_render_async_readbackcpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 7: void TileRenderer::TileAsyncReadback::on_overflow_flag_readb...</li>
@@ -9732,80 +9728,6 @@
 <li>line 233: func _report_final_summary() -&gt; void:...</li>
 <li>line 295: func _input(event: InputEvent) -&gt; void:...</li>
 </ul>
-<h2 id="modulesgaussian_splattingrenderergpu_sortercpp">modules/gaussian_splatting/renderer/gpu_sorter.cpp<a class="headerlink" href="#modulesgaussian_splattingrenderergpu_sortercpp" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 96: static void _free_uniform_sets(RenderingDevice *p_owner, Loc...</li>
-<li>line 137: static RID create_compute_shader_from_spirv(RenderingDevice ...</li>
-<li>line 164: static Error _init_sorter_devices(RenderingDevice *p_rd, Ren...</li>
-<li>line 240: static bool _device_is_active(RenderingDevice *device) {...</li>
-<li>line 307: static ComputeCapabilityProbe _probe_compute_capabilities(Re...</li>
-<li>line 325: static bool _subgroup_prefix_forced_off() {...</li>
-<li>line 332: static bool _has_subgroup_hardware_support(const ComputeCapa...</li>
-<li>line 341: static bool _supports_required_subgroups(const ComputeCapabi...</li>
-<li>line 365: static GPUSorterFactory::PolicyProbe _to_policy_probe(const ...</li>
-<li>line 373: static bool _algorithm_meets_requirements(const GPUSorterFac...</li>
-<li>line 386: static GPUSorterFactory::SortingAlgorithm _preferred_auto_al...</li>
-<li>line 418: SortKeyConfig SortKeyConfig::from_settings() {...</li>
-<li>line 484: void SortingMetricsCollector::record_fallback(const String &amp;...</li>
-<li>line 495: static bool device_supports_workgroup(RenderingDevice *rd, u...</li>
-<li>line 500: static GPUSorterFactory::SortingAlgorithm select_sort_algori...</li>
-<li>line 541: void BitonicSort::_bind_methods() {...</li>
-<li>line 545: uint32_t BitonicSort::next_power_of_two(uint32_t n) const {...</li>
-<li>line 556: Error BitonicSort::initialize(RenderingDevice *p_rd, uint32_...</li>
-<li>line 607: void compare_and_swap(uint i, uint j, bool ascending) {...</li>
-<li>line 621: void main() {...</li>
-<li>line 658: bool BitonicSort::_requires_synchronization(uint32_t stage, ...</li>
-<li>line 682: void BitonicSort::shutdown() {...</li>
-<li>line 727: void BitonicSort::dispatch_bitonic_pass(RenderingDevice *p_r...</li>
-<li>line 747: Error BitonicSort::sort(RID keys_buffer, RID values_buffer, ...</li>
-<li>line 905: uint64_t BitonicSort::sort_async(RID keys_buffer, RID values...</li>
-<li>line 917: bool BitonicSort::is_ready() const {...</li>
-<li>line 921: void BitonicSort::wait_for_completion() {...</li>
-<li>line 1157: void RadixSort::_bind_methods() {...</li>
-<li>line 1161: void RadixSort::<em>reset_pass_uniform_sets(PassUniformSets &amp;p</em>...</li>
-<li>line 1259: SortPreflightResult RadixSort::_validate_sort_preflight(RID ...</li>
-<li>line 1477: Error RadixSort::create_variant(RenderingDevice *device, uin...</li>
-<li>line 1531: uint get_radix(uvec2 key, uint shift) {...</li>
-<li>line 1545: uint get_radix(uint key, uint shift) {...</li>
-<li>line 1653: void main() {...</li>
-<li>line 1735: void main() {...</li>
-<li>line 1792: void main() {...</li>
-<li>line 1874: void main() {...</li>
-<li>line 2003: uint32_t RadixSort::get_workgroup_count(uint32_t element_cou...</li>
-<li>line 2007: Error RadixSort::initialize(RenderingDevice *p_rd, uint32_t ...</li>
-<li>line 2165: void main() {...</li>
-<li>line 2203: void RadixSort::_cleanup_partial_init(RenderingDevice *p_rd)...</li>
-<li>line 2298: void RadixSort::shutdown() {...</li>
-<li>line 2364: Error RadixSort::sort(RID keys_buffer, RID values_buffer, ui...</li>
-<li>line 2375: Error RadixSort::sort_indirect(RID keys_buffer, RID values_b...</li>
-<li>line 2394: uint64_t RadixSort::sort_indirect_async(RID keys_buffer, RID...</li>
-<li>line 2409: uint64_t RadixSort::sort_async(RID keys_buffer, RID values_b...</li>
-<li>line 2426: uint64_t RadixSort::_sort_indirect_internal(RID keys_buffer,...</li>
-<li>line 2636: bool RadixSort::is_ready() const {...</li>
-<li>line 2640: void RadixSort::wait_for_completion() {...</li>
-<li>line 2676: void OneSweepSort::_bind_methods() {...</li>
-<li>line 2680: Error OneSweepSort::initialize(RenderingDevice *p_rd, uint32...</li>
-<li>line 2743: void main() {...</li>
-<li>line 2816: void main() {...</li>
-<li>line 2905: void main() {...</li>
-<li>line 2981: void main() {...</li>
-<li>line 3079: void OneSweepSort::shutdown() {...</li>
-<li>line 3157: Error OneSweepSort::sort(RID keys_buffer, RID values_buffer,...</li>
-<li>line 3329: uint64_t OneSweepSort::sort_async(RID keys_buffer, RID value...</li>
-<li>line 3337: bool OneSweepSort::is_ready() const {...</li>
-<li>line 3341: void OneSweepSort::wait_for_completion() {...</li>
-<li>line 3355: bool BitonicSort::is_supported(RenderingDevice *p_rd) {...</li>
-<li>line 3360: SorterCapabilities BitonicSort::get_capabilities() {...</li>
-<li>line 3371: bool RadixSort::is_supported(RenderingDevice *p_rd) {...</li>
-<li>line 3388: SorterCapabilities RadixSort::get_capabilities() {...</li>
-<li>line 3404: bool OneSweepSort::is_supported(RenderingDevice *p_rd) {...</li>
-<li>line 3414: SorterCapabilities OneSweepSort::get_capabilities() {...</li>
-<li>line 3424: static AlgorithmProbe _probe_algorithm(GPUSorterFactory::Sor...</li>
-<li>line 3454: bool GPUSorterFactory::probe_is_supported(SortingAlgorithm a...</li>
-<li>line 3458: bool GPUSorterFactory::probe_supports_indirect(SortingAlgori...</li>
-<li>line 3462: bool GPUSorterFactory::probe_supports_indirect(SortingAlgori...</li>
-<li>line 3466: SorterCapabilities GPUSorterFactory::probe_capabilities(Sort...</li>
-</ul>
 <h2 id="testsexamplesgodottest_projectscenesqaqa_visual_diffgd">tests/examples/godot/test_project/scenes/qa/qa_visual_diff.gd<a class="headerlink" href="#testsexamplesgodottest_projectscenesqaqa_visual_diffgd" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 17: func _ready():...</li>
@@ -9847,6 +9769,80 @@
 <li>line 257: static bool _snapshot_matches_pattern(const GaussianSplatAss...</li>
 <li>line 287: static void _asset_snapshot_writer_thread(void *p_userdata) ...</li>
 <li>line 307: static void _asset_snapshot_reader_thread(void *p_userdata) ...</li>
+</ul>
+<h2 id="modulesgaussian_splattingrenderergpu_sortercpp">modules/gaussian_splatting/renderer/gpu_sorter.cpp<a class="headerlink" href="#modulesgaussian_splattingrenderergpu_sortercpp" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 97: static void _free_uniform_sets(RenderingDevice *p_owner, Loc...</li>
+<li>line 138: static RID create_compute_shader_from_spirv(RenderingDevice ...</li>
+<li>line 165: static Error _init_sorter_devices(RenderingDevice *p_rd, Ren...</li>
+<li>line 241: static bool _device_is_active(RenderingDevice *device) {...</li>
+<li>line 310: static ComputeCapabilityProbe _probe_compute_capabilities(Re...</li>
+<li>line 328: static bool _subgroup_prefix_forced_off() {...</li>
+<li>line 335: static bool _has_subgroup_hardware_support(const ComputeCapa...</li>
+<li>line 344: static bool _supports_required_subgroups(const ComputeCapabi...</li>
+<li>line 368: static GPUSorterFactory::PolicyProbe _to_policy_probe(const ...</li>
+<li>line 376: static bool _algorithm_meets_requirements(const GPUSorterFac...</li>
+<li>line 422: SortKeyConfig SortKeyConfig::from_settings() {...</li>
+<li>line 488: void SortingMetricsCollector::record_fallback(const String &amp;...</li>
+<li>line 499: static bool device_supports_workgroup(RenderingDevice *rd, u...</li>
+<li>line 504: static GPUSorterFactory::SortingAlgorithm select_sort_algori...</li>
+<li>line 546: void BitonicSort::_bind_methods() {...</li>
+<li>line 550: uint32_t BitonicSort::next_power_of_two(uint32_t n) const {...</li>
+<li>line 561: Error BitonicSort::initialize(RenderingDevice *p_rd, uint32_...</li>
+<li>line 612: void compare_and_swap(uint i, uint j, bool ascending) {...</li>
+<li>line 626: void main() {...</li>
+<li>line 663: bool BitonicSort::_requires_synchronization(uint32_t stage, ...</li>
+<li>line 687: void BitonicSort::shutdown() {...</li>
+<li>line 732: void BitonicSort::dispatch_bitonic_pass(RenderingDevice *p_r...</li>
+<li>line 752: Error BitonicSort::sort(RID keys_buffer, RID values_buffer, ...</li>
+<li>line 910: uint64_t BitonicSort::sort_async(RID keys_buffer, RID values...</li>
+<li>line 922: bool BitonicSort::is_ready() const {...</li>
+<li>line 926: void BitonicSort::wait_for_completion() {...</li>
+<li>line 1079: GPUSorterFactory::AutoThresholds GPUSorterFactory::AutoThres...</li>
+<li>line 1175: void RadixSort::_bind_methods() {...</li>
+<li>line 1179: void RadixSort::<em>reset_pass_uniform_sets(PassUniformSets &amp;p</em>...</li>
+<li>line 1277: SortPreflightResult RadixSort::_validate_sort_preflight(RID ...</li>
+<li>line 1495: Error RadixSort::create_variant(RenderingDevice *device, uin...</li>
+<li>line 1549: uint get_radix(uvec2 key, uint shift) {...</li>
+<li>line 1563: uint get_radix(uint key, uint shift) {...</li>
+<li>line 1671: void main() {...</li>
+<li>line 1753: void main() {...</li>
+<li>line 1810: void main() {...</li>
+<li>line 1892: void main() {...</li>
+<li>line 2021: uint32_t RadixSort::get_workgroup_count(uint32_t element_cou...</li>
+<li>line 2025: Error RadixSort::initialize(RenderingDevice *p_rd, uint32_t ...</li>
+<li>line 2183: void main() {...</li>
+<li>line 2221: void RadixSort::_cleanup_partial_init(RenderingDevice *p_rd)...</li>
+<li>line 2316: void RadixSort::shutdown() {...</li>
+<li>line 2382: Error RadixSort::sort(RID keys_buffer, RID values_buffer, ui...</li>
+<li>line 2393: Error RadixSort::sort_indirect(RID keys_buffer, RID values_b...</li>
+<li>line 2412: uint64_t RadixSort::sort_indirect_async(RID keys_buffer, RID...</li>
+<li>line 2427: uint64_t RadixSort::sort_async(RID keys_buffer, RID values_b...</li>
+<li>line 2444: uint64_t RadixSort::_sort_indirect_internal(RID keys_buffer,...</li>
+<li>line 2654: bool RadixSort::is_ready() const {...</li>
+<li>line 2658: void RadixSort::wait_for_completion() {...</li>
+<li>line 2694: void OneSweepSort::_bind_methods() {...</li>
+<li>line 2698: Error OneSweepSort::initialize(RenderingDevice *p_rd, uint32...</li>
+<li>line 2761: void main() {...</li>
+<li>line 2834: void main() {...</li>
+<li>line 2923: void main() {...</li>
+<li>line 2999: void main() {...</li>
+<li>line 3097: void OneSweepSort::shutdown() {...</li>
+<li>line 3175: Error OneSweepSort::sort(RID keys_buffer, RID values_buffer,...</li>
+<li>line 3347: uint64_t OneSweepSort::sort_async(RID keys_buffer, RID value...</li>
+<li>line 3355: bool OneSweepSort::is_ready() const {...</li>
+<li>line 3359: void OneSweepSort::wait_for_completion() {...</li>
+<li>line 3373: bool BitonicSort::is_supported(RenderingDevice *p_rd) {...</li>
+<li>line 3378: SorterCapabilities BitonicSort::get_capabilities() {...</li>
+<li>line 3389: bool RadixSort::is_supported(RenderingDevice *p_rd) {...</li>
+<li>line 3406: SorterCapabilities RadixSort::get_capabilities() {...</li>
+<li>line 3422: bool OneSweepSort::is_supported(RenderingDevice *p_rd) {...</li>
+<li>line 3432: SorterCapabilities OneSweepSort::get_capabilities() {...</li>
+<li>line 3442: static AlgorithmProbe _probe_algorithm(GPUSorterFactory::Sor...</li>
+<li>line 3472: bool GPUSorterFactory::probe_is_supported(SortingAlgorithm a...</li>
+<li>line 3476: bool GPUSorterFactory::probe_supports_indirect(SortingAlgori...</li>
+<li>line 3480: bool GPUSorterFactory::probe_supports_indirect(SortingAlgori...</li>
+<li>line 3484: SorterCapabilities GPUSorterFactory::probe_capabilities(Sort...</li>
 </ul>
 <h2 id="modulesgaussian_splattingteststest_spz_importerh">modules/gaussian_splatting/tests/test_spz_importer.h<a class="headerlink" href="#modulesgaussian_splattingteststest_spz_importerh" title="Permanent link">¶</a></h2>
 <ul>
@@ -9942,6 +9938,12 @@
 <li>line 273: explicit TileSHCacheBuffers(TileRenderer &amp;p_owner) : owner(p...</li>
 <li>line 287: explicit TileSubpixelHistoryBuffers(TileRenderer &amp;p_owner) :...</li>
 <li>line 300: explicit TileSubpixelVisibilityBuffers(TileRenderer &amp;p_owner...</li>
+</ul>
+<h2 id="modulesgaussian_splattingteststest_config_validationh">modules/gaussian_splatting/tests/test_config_validation.h<a class="headerlink" href="#modulesgaussian_splattingteststest_config_validationh" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 30: static float _reload_manager_sorting_target_ms() {...</li>
+<li>line 1245: static GPUSorterFactory::PolicyProbe _fully_supported_probe(...</li>
+<li>line 1255: static SortKeyConfig _band_test_key_config() {...</li>
 </ul>
 <h2 id="modulesgaussian_splattingrenderersort_fallback_policyh">modules/gaussian_splatting/renderer/sort_fallback_policy.h<a class="headerlink" href="#modulesgaussian_splattingrenderersort_fallback_policyh" title="Permanent link">¶</a></h2>
 <ul>
@@ -11112,6 +11114,20 @@
 <ul>
 <li>line 222: func _load_asset(path: String) -&gt; GaussianSplatAsset:...</li>
 </ul>
+<h2 id="modulesgaussian_splattingshaderstile_binningglsl">modules/gaussian_splatting/shaders/tile_binning.glsl<a class="headerlink" href="#modulesgaussian_splattingshaderstile_binningglsl" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 294: uint gs_pack_sort_key(uint tile_idx, float linear_depth, uin...</li>
+<li>line 340: uvec2 gs_pack_sort_key(uint tile_idx, float linear_depth, ui...</li>
+<li>line 355: float gs_conic_quadratic(vec2 d, vec3 conic) {...</li>
+</ul>
+<h2 id="modulesgaussian_splattingcorestreaming_vram_regulatorh">modules/gaussian_splatting/core/streaming_vram_regulator.h<a class="headerlink" href="#modulesgaussian_splattingcorestreaming_vram_regulatorh" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 136: uint32_t get_current_max_chunks() const { return current_max...</li>
+<li>line 137: float get_lod_distance_multiplier() const { return lod_dista...</li>
+<li>line 146: VRAMDebugStats get_debug_stats() const { return stats; }...</li>
+<li>line 150: bool is_budget_warning_active() const { return stats.budget_...</li>
+<li>line 151: bool is_config_override_active() const { return config_overr...</li>
+</ul>
 <h2 id="modulesgaussian_splattingrenderergpu_sorterh">modules/gaussian_splatting/renderer/gpu_sorter.h<a class="headerlink" href="#modulesgaussian_splattingrenderergpu_sorterh" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 113: bool is_ok() const { return code == SortPreflightError::NONE...</li>
@@ -11138,20 +11154,6 @@
 <li>line 240: virtual void set_key_config(const SortKeyConfig &amp;p_cfg) {}...</li>
 <li>line 241: virtual SortPreflightError get_last_preflight_error() const ...</li>
 <li>line 428: void set_key_config(const SortKeyConfig &amp;p_cfg) { key_config...</li>
-</ul>
-<h2 id="modulesgaussian_splattingshaderstile_binningglsl">modules/gaussian_splatting/shaders/tile_binning.glsl<a class="headerlink" href="#modulesgaussian_splattingshaderstile_binningglsl" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 294: uint gs_pack_sort_key(uint tile_idx, float linear_depth, uin...</li>
-<li>line 340: uvec2 gs_pack_sort_key(uint tile_idx, float linear_depth, ui...</li>
-<li>line 355: float gs_conic_quadratic(vec2 d, vec3 conic) {...</li>
-</ul>
-<h2 id="modulesgaussian_splattingcorestreaming_vram_regulatorh">modules/gaussian_splatting/core/streaming_vram_regulator.h<a class="headerlink" href="#modulesgaussian_splattingcorestreaming_vram_regulatorh" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 136: uint32_t get_current_max_chunks() const { return current_max...</li>
-<li>line 137: float get_lod_distance_multiplier() const { return lod_dista...</li>
-<li>line 146: VRAMDebugStats get_debug_stats() const { return stats; }...</li>
-<li>line 150: bool is_budget_warning_active() const { return stats.budget_...</li>
-<li>line 151: bool is_config_override_active() const { return config_overr...</li>
 </ul>
 <h2 id="testsexamplesgodottest_projectscriptsmaterialize_corridor_worldgd">tests/examples/godot/test_project/scripts/materialize_corridor_world.gd<a class="headerlink" href="#testsexamplesgodottest_projectscriptsmaterialize_corridor_worldgd" title="Permanent link">¶</a></h2>
 <ul>
@@ -11442,17 +11444,17 @@
 </ul>
 <h2 id="modulesgaussian_splattingcoregaussian_splat_managerh">modules/gaussian_splatting/core/gaussian_splat_manager.h<a class="headerlink" href="#modulesgaussian_splattingcoregaussian_splat_managerh" title="Permanent link">¶</a></h2>
 <ul>
-<li>line 251: bool is_valid() const { return rendering_device != nullptr; ...</li>
-<li>line 401: uint32_t get_sorting_bitonic_max() const { return sorting_bi...</li>
-<li>line 402: uint32_t get_sorting_radix_max() const { return sorting_radi...</li>
-<li>line 403: uint32_t get_sorting_onesweep_max() const { return sorting_o...</li>
-<li>line 404: uint32_t get_sorting_hybrid_trigger() const { return sorting...</li>
-<li>line 405: uint32_t get_sorting_hybrid_batch() const { return sorting_h...</li>
-<li>line 406: uint32_t get_sorting_history_size() const { return sorting_h...</li>
-<li>line 407: uint32_t get_sorting_log_interval() const { return sorting_l...</li>
-<li>line 408: float get_sorting_target_ms() const { return sorting_target_...</li>
-<li>line 409: bool is_sorting_log_metrics_enabled() const { return sorting...</li>
-<li>line 410: bool is_sorting_force_cpu_sort_enabled() const { return sort...</li>
+<li>line 255: bool is_valid() const { return rendering_device != nullptr; ...</li>
+<li>line 405: uint32_t get_sorting_bitonic_max() const { return sorting_bi...</li>
+<li>line 406: uint32_t get_sorting_radix_max() const { return sorting_radi...</li>
+<li>line 407: uint32_t get_sorting_onesweep_max() const { return sorting_o...</li>
+<li>line 408: uint32_t get_sorting_hybrid_trigger() const { return sorting...</li>
+<li>line 409: uint32_t get_sorting_hybrid_batch() const { return sorting_h...</li>
+<li>line 410: uint32_t get_sorting_history_size() const { return sorting_h...</li>
+<li>line 411: uint32_t get_sorting_log_interval() const { return sorting_l...</li>
+<li>line 412: float get_sorting_target_ms() const { return sorting_target_...</li>
+<li>line 413: bool is_sorting_log_metrics_enabled() const { return sorting...</li>
+<li>line 414: bool is_sorting_force_cpu_sort_enabled() const { return sort...</li>
 </ul>
 <h2 id="modulesgaussian_splattingnodesgaussian_splat_debug_hudh">modules/gaussian_splatting/nodes/gaussian_splat_debug_hud.h<a class="headerlink" href="#modulesgaussian_splattingnodesgaussian_splat_debug_hudh" title="Permanent link">¶</a></h2>
 <ul>
@@ -11506,7 +11508,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 12, 2026 12:54:49 UTC">July 12, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 12, 2026 14:48:54 UTC">July 12, 2026</span>
   </span>
 
     
