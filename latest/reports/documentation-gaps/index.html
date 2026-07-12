@@ -2896,17 +2896,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingrendererrender_quality_orchestratorcpp" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/renderer/render_quality_orchestrator.cpp
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingcorestreaming_visibility_controllercpp" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3226,6 +3215,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingrendererrender_quality_orchestratorcpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/renderer/render_quality_orchestrator.cpp
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingrenderergpu_buffer_managerh" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3384,17 +3384,6 @@
     <span class="md-ellipsis">
       
         modules/gaussian_splatting/tests/test_integration.cpp
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#modulesgaussian_splattinginterfacesgpu_cullercpp" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/interfaces/gpu_culler.cpp
       
     </span>
   </a>
@@ -3604,6 +3593,17 @@
     <span class="md-ellipsis">
       
         modules/gaussian_splatting/io/resource_importer_gsplatworld.cpp
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattinginterfacesgpu_cullercpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/interfaces/gpu_culler.cpp
       
     </span>
   </a>
@@ -4106,17 +4106,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattinginterfacesgpu_cullerh" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/interfaces/gpu_culler.h
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingnodesgaussian_splat_world_3dh" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4143,17 +4132,6 @@
     <span class="md-ellipsis">
       
         modules/gaussian_splatting/renderer/tile_render_resources.h
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingteststest_config_validationh" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/tests/test_config_validation.h
       
     </span>
   </a>
@@ -4271,6 +4249,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingteststest_config_validationh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/tests/test_config_validation.h
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingcoregaussian_splat_managercpp" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4363,6 +4352,17 @@
     <span class="md-ellipsis">
       
         modules/gaussian_splatting/tests/test_gaussian_splat_world_io.h
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattinginterfacesgpu_cullerh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/interfaces/gpu_culler.h
       
     </span>
   </a>
@@ -7535,55 +7535,6 @@
 <li>line 71: void GaussianAtlasAllocator::clear() {...</li>
 <li>line 77: void GaussianStreamingSystem::_apply_requested_residency(boo...</li>
 </ul>
-<h2 id="modulesgaussian_splattingrendererrender_quality_orchestratorcpp">modules/gaussian_splatting/renderer/render_quality_orchestrator.cpp<a class="headerlink" href="#modulesgaussian_splattingrendererrender_quality_orchestratorcpp" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 32: static void _apply_source_fidelity_overrides(uint64_t p_rend...</li>
-<li>line 109: void RenderQualityOrchestrator::set_lod_enabled(bool p_enabl...</li>
-<li>line 117: void RenderQualityOrchestrator::set_lod_bias(float p_bias) {...</li>
-<li>line 131: void RenderQualityOrchestrator::set_lod_min_screen_size(floa...</li>
-<li>line 140: void RenderQualityOrchestrator::set_lod_max_distance(float p...</li>
-<li>line 149: void RenderQualityOrchestrator::set_importance_cull_threshol...</li>
-<li>line 159: void RenderQualityOrchestrator::set_cull_radius_multiplier(f...</li>
-<li>line 173: void RenderQualityOrchestrator::set_cull_frustum_plane_slack...</li>
-<li>line 187: void RenderQualityOrchestrator::set_cull_near_tolerance(floa...</li>
-<li>line 195: void RenderQualityOrchestrator::set_cull_far_tolerance(float...</li>
-<li>line 203: void RenderQualityOrchestrator::set_tiny_splat_screen_radius...</li>
-<li>line 212: void RenderQualityOrchestrator::set_opacity_aware_culling(bo...</li>
-<li>line 220: void RenderQualityOrchestrator::set_visibility_threshold(flo...</li>
-<li>line 232: void RenderQualityOrchestrator::set_distance_cull_enabled(bo...</li>
-<li>line 239: void RenderQualityOrchestrator::set_distance_cull_start(floa...</li>
-<li>line 247: void RenderQualityOrchestrator::set_distance_cull_max_rate(f...</li>
-<li>line 255: void RenderQualityOrchestrator::set_overflow_autotune_enable...</li>
-<li>line 270: void RenderQualityOrchestrator::set_max_splats(int p_count) ...</li>
-<li>line 282: void RenderQualityOrchestrator::set_frustum_culling(bool p_e...</li>
-<li>line 286: void RenderQualityOrchestrator::set_async_upload_enabled(boo...</li>
-<li>line 293: void RenderQualityOrchestrator::set_quality_preset(const Str...</li>
-<li>line 322: String RenderQualityOrchestrator::get_quality_preset() const...</li>
-<li>line 336: bool RenderQualityOrchestrator::get_async_upload_enabled() c...</li>
-<li>line 418: void GaussianSplatRenderer::set_lod_enabled(bool p_enabled) ...</li>
-<li>line 422: void GaussianSplatRenderer::set_lod_bias(float p_bias) {...</li>
-<li>line 426: void GaussianSplatRenderer::set_lod_min_screen_size(float p_...</li>
-<li>line 430: void GaussianSplatRenderer::set_lod_max_distance(float p_dis...</li>
-<li>line 434: void GaussianSplatRenderer::set_importance_cull_threshold(fl...</li>
-<li>line 438: void GaussianSplatRenderer::set_cull_radius_multiplier(float...</li>
-<li>line 442: void GaussianSplatRenderer::set_cull_frustum_plane_slack(flo...</li>
-<li>line 446: void GaussianSplatRenderer::set_cull_near_tolerance(float p_...</li>
-<li>line 450: void GaussianSplatRenderer::set_cull_far_tolerance(float p_t...</li>
-<li>line 454: void GaussianSplatRenderer::set_tiny_splat_screen_radius(flo...</li>
-<li>line 458: void GaussianSplatRenderer::set_opacity_aware_culling(bool p...</li>
-<li>line 462: void GaussianSplatRenderer::set_visibility_threshold(float p...</li>
-<li>line 466: void GaussianSplatRenderer::set_distance_cull_enabled(bool p...</li>
-<li>line 470: void GaussianSplatRenderer::set_distance_cull_start(float p_...</li>
-<li>line 474: void GaussianSplatRenderer::set_distance_cull_max_rate(float...</li>
-<li>line 478: void GaussianSplatRenderer::set_overflow_autotune_enabled(bo...</li>
-<li>line 482: void GaussianSplatRenderer::set_max_splats(int p_count) {...</li>
-<li>line 499: void GaussianSplatRenderer::_set_max_splats_on_render_thread...</li>
-<li>line 504: void GaussianSplatRenderer::set_frustum_culling(bool p_enabl...</li>
-<li>line 508: void GaussianSplatRenderer::set_async_upload_enabled(bool p_...</li>
-<li>line 512: bool GaussianSplatRenderer::get_async_upload_enabled() const...</li>
-<li>line 516: void GaussianSplatRenderer::set_quality_preset(const String ...</li>
-<li>line 520: String GaussianSplatRenderer::get_quality_preset() const {...</li>
-</ul>
 <h2 id="modulesgaussian_splattingcorestreaming_visibility_controllercpp">modules/gaussian_splatting/core/streaming_visibility_controller.cpp<a class="headerlink" href="#modulesgaussian_splattingcorestreaming_visibility_controllercpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 41: void ChunkSpatialGrid::build(const GaussianStreamingTypes::S...</li>
@@ -8102,6 +8053,55 @@
 <li>line 360: Dictionary GaussianData::capture_brush_affected_state(const ...</li>
 <li>line 406: void GaussianData::restore_brush_stroke(const Dictionary &amp;p_...</li>
 </ul>
+<h2 id="modulesgaussian_splattingrendererrender_quality_orchestratorcpp">modules/gaussian_splatting/renderer/render_quality_orchestrator.cpp<a class="headerlink" href="#modulesgaussian_splattingrendererrender_quality_orchestratorcpp" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 38: static void _apply_source_fidelity_overrides(uint64_t p_rend...</li>
+<li>line 122: void RenderQualityOrchestrator::set_lod_enabled(bool p_enabl...</li>
+<li>line 130: void RenderQualityOrchestrator::set_lod_bias(float p_bias) {...</li>
+<li>line 144: void RenderQualityOrchestrator::set_lod_min_screen_size(floa...</li>
+<li>line 153: void RenderQualityOrchestrator::set_lod_max_distance(float p...</li>
+<li>line 162: void RenderQualityOrchestrator::set_importance_cull_threshol...</li>
+<li>line 172: void RenderQualityOrchestrator::set_cull_radius_multiplier(f...</li>
+<li>line 186: void RenderQualityOrchestrator::set_cull_frustum_plane_slack...</li>
+<li>line 200: void RenderQualityOrchestrator::set_cull_near_tolerance(floa...</li>
+<li>line 208: void RenderQualityOrchestrator::set_cull_far_tolerance(float...</li>
+<li>line 216: void RenderQualityOrchestrator::set_tiny_splat_screen_radius...</li>
+<li>line 225: void RenderQualityOrchestrator::set_opacity_aware_culling(bo...</li>
+<li>line 237: void RenderQualityOrchestrator::set_visibility_threshold(flo...</li>
+<li>line 251: void RenderQualityOrchestrator::set_distance_cull_enabled(bo...</li>
+<li>line 258: void RenderQualityOrchestrator::set_distance_cull_start(floa...</li>
+<li>line 266: void RenderQualityOrchestrator::set_distance_cull_max_rate(f...</li>
+<li>line 274: void RenderQualityOrchestrator::set_overflow_autotune_enable...</li>
+<li>line 291: void RenderQualityOrchestrator::set_max_splats(int p_count) ...</li>
+<li>line 303: void RenderQualityOrchestrator::set_frustum_culling(bool p_e...</li>
+<li>line 307: void RenderQualityOrchestrator::set_async_upload_enabled(boo...</li>
+<li>line 314: void RenderQualityOrchestrator::set_quality_preset(const Str...</li>
+<li>line 343: String RenderQualityOrchestrator::get_quality_preset() const...</li>
+<li>line 357: bool RenderQualityOrchestrator::get_async_upload_enabled() c...</li>
+<li>line 439: void GaussianSplatRenderer::set_lod_enabled(bool p_enabled) ...</li>
+<li>line 443: void GaussianSplatRenderer::set_lod_bias(float p_bias) {...</li>
+<li>line 447: void GaussianSplatRenderer::set_lod_min_screen_size(float p_...</li>
+<li>line 451: void GaussianSplatRenderer::set_lod_max_distance(float p_dis...</li>
+<li>line 455: void GaussianSplatRenderer::set_importance_cull_threshold(fl...</li>
+<li>line 459: void GaussianSplatRenderer::set_cull_radius_multiplier(float...</li>
+<li>line 463: void GaussianSplatRenderer::set_cull_frustum_plane_slack(flo...</li>
+<li>line 467: void GaussianSplatRenderer::set_cull_near_tolerance(float p_...</li>
+<li>line 471: void GaussianSplatRenderer::set_cull_far_tolerance(float p_t...</li>
+<li>line 475: void GaussianSplatRenderer::set_tiny_splat_screen_radius(flo...</li>
+<li>line 479: void GaussianSplatRenderer::set_opacity_aware_culling(bool p...</li>
+<li>line 483: void GaussianSplatRenderer::set_visibility_threshold(float p...</li>
+<li>line 487: void GaussianSplatRenderer::set_distance_cull_enabled(bool p...</li>
+<li>line 491: void GaussianSplatRenderer::set_distance_cull_start(float p_...</li>
+<li>line 495: void GaussianSplatRenderer::set_distance_cull_max_rate(float...</li>
+<li>line 499: void GaussianSplatRenderer::set_overflow_autotune_enabled(bo...</li>
+<li>line 503: void GaussianSplatRenderer::set_max_splats(int p_count) {...</li>
+<li>line 520: void GaussianSplatRenderer::_set_max_splats_on_render_thread...</li>
+<li>line 525: void GaussianSplatRenderer::set_frustum_culling(bool p_enabl...</li>
+<li>line 529: void GaussianSplatRenderer::set_async_upload_enabled(bool p_...</li>
+<li>line 533: bool GaussianSplatRenderer::get_async_upload_enabled() const...</li>
+<li>line 537: void GaussianSplatRenderer::set_quality_preset(const String ...</li>
+<li>line 541: String GaussianSplatRenderer::get_quality_preset() const {...</li>
+</ul>
 <h2 id="modulesgaussian_splattingrenderergpu_buffer_managerh">modules/gaussian_splatting/renderer/gpu_buffer_manager.h<a class="headerlink" href="#modulesgaussian_splattingrenderergpu_buffer_managerh" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 18: bool is_valid() const {...</li>
@@ -8399,32 +8399,6 @@
 <li>line 52: Ref&lt;::GaussianData&gt; generate_test_gaussians(uint32_t count, ...</li>
 <li>line 126: bool has_message_containing(const String &amp;p_text) const {...</li>
 <li>line 135: bool has_errors() const { return !messages.is_empty(); }...</li>
-</ul>
-<h2 id="modulesgaussian_splattinginterfacesgpu_cullercpp">modules/gaussian_splatting/interfaces/gpu_culler.cpp<a class="headerlink" href="#modulesgaussian_splattinginterfacesgpu_cullercpp" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 59: static int _get_int_setting(ProjectSettings *ps, const Strin...</li>
-<li>line 63: static float _get_float_setting(ProjectSettings *ps, const S...</li>
-<li>line 67: static bool _is_cull_debug_counters_enabled() {...</li>
-<li>line 78: void GPUCuller::_bind_methods() {...</li>
-<li>line 86: void GPUCuller::set_instance_pipeline_inputs(const InstanceP...</li>
-<li>line 91: void GPUCuller::clear_instance_pipeline_inputs() {...</li>
-<li>line 112: Error GPUCuller::initialize(RenderingDevice *p_device) {...</li>
-<li>line 148: void GPUCuller::shutdown() {...</li>
-<li>line 159: bool GPUCuller::is_ready() const {...</li>
-<li>line 163: void GPUCuller::invalidate_lod_cache() {...</li>
-<li>line 167: void GPUCuller::update_lod_cache() {...</li>
-<li>line 197: void GPUCuller::update_culling_settings() {...</li>
-<li>line 263: void GPUCuller::ensure_hierarchical_structure(const Ref&lt;Gaus...</li>
-<li>line 321: void GPUCuller::_ensure_shader(RenderingDevice *p_device) {...</li>
-<li>line 433: void GPUCuller::_ensure_buffers(RenderingDevice *p_device, u...</li>
-<li>line 567: void GPUCuller::_ensure_instance_param_buffer(RenderingDevic...</li>
-<li>line 596: void GPUCuller::_invalidate_instance_uniform_set_cache() {...</li>
-<li>line 605: RID GPUCuller::_get_instance_cull_uniform_set(RenderingDevic...</li>
-<li>line 689: void GPUCuller::_release_resources() {...</li>
-<li>line 772: void GPUCuller::_on_cull_readback(const Vector<uint8_t> &amp;p_d...</uint8_t></li>
-<li>line 945: void GPUCuller::_reset_async_readback_state() {...</li>
-<li>line 957: void GPUCuller::_on_batched_cull_readback(const Vector&lt;uint8...</li>
-<li>line 981: CullResult GPUCuller::cull(const CullParams &amp;p_params, const...</li>
 </ul>
 <h2 id="modulesgaussian_splattingrendererpipeline_feature_setcpp">modules/gaussian_splatting/renderer/pipeline_feature_set.cpp<a class="headerlink" href="#modulesgaussian_splattingrendererpipeline_feature_setcpp" title="Permanent link">¶</a></h2>
 <ul>
@@ -9040,6 +9014,32 @@
 <li>line 242: String ResourceImporterGSplatWorld::get_resource_type() cons...</li>
 <li>line 246: int ResourceImporterGSplatWorld::get_preset_count() const {...</li>
 <li>line 250: String ResourceImporterGSplatWorld::get_preset_name(int p_id...</li>
+</ul>
+<h2 id="modulesgaussian_splattinginterfacesgpu_cullercpp">modules/gaussian_splatting/interfaces/gpu_culler.cpp<a class="headerlink" href="#modulesgaussian_splattinginterfacesgpu_cullercpp" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 59: static int _get_int_setting(ProjectSettings *ps, const Strin...</li>
+<li>line 63: static float _get_float_setting(ProjectSettings *ps, const S...</li>
+<li>line 67: static bool _is_cull_debug_counters_enabled() {...</li>
+<li>line 78: void GPUCuller::_bind_methods() {...</li>
+<li>line 86: void GPUCuller::set_instance_pipeline_inputs(const InstanceP...</li>
+<li>line 91: void GPUCuller::clear_instance_pipeline_inputs() {...</li>
+<li>line 112: Error GPUCuller::initialize(RenderingDevice *p_device) {...</li>
+<li>line 148: void GPUCuller::shutdown() {...</li>
+<li>line 159: bool GPUCuller::is_ready() const {...</li>
+<li>line 163: void GPUCuller::invalidate_lod_cache() {...</li>
+<li>line 167: void GPUCuller::update_lod_cache() {...</li>
+<li>line 197: void GPUCuller::update_culling_settings() {...</li>
+<li>line 302: void GPUCuller::ensure_hierarchical_structure(const Ref&lt;Gaus...</li>
+<li>line 360: void GPUCuller::_ensure_shader(RenderingDevice *p_device) {...</li>
+<li>line 472: void GPUCuller::_ensure_buffers(RenderingDevice *p_device, u...</li>
+<li>line 606: void GPUCuller::_ensure_instance_param_buffer(RenderingDevic...</li>
+<li>line 635: void GPUCuller::_invalidate_instance_uniform_set_cache() {...</li>
+<li>line 644: RID GPUCuller::_get_instance_cull_uniform_set(RenderingDevic...</li>
+<li>line 728: void GPUCuller::_release_resources() {...</li>
+<li>line 811: void GPUCuller::_on_cull_readback(const Vector<uint8_t> &amp;p_d...</uint8_t></li>
+<li>line 984: void GPUCuller::_reset_async_readback_state() {...</li>
+<li>line 996: void GPUCuller::_on_batched_cull_readback(const Vector&lt;uint8...</li>
+<li>line 1020: CullResult GPUCuller::cull(const CullParams &amp;p_params, const...</li>
 </ul>
 <h2 id="modulesgaussian_splattinginterfacesrender_thread_dispatchercpp">modules/gaussian_splatting/interfaces/render_thread_dispatcher.cpp<a class="headerlink" href="#modulesgaussian_splattinginterfacesrender_thread_dispatchercpp" title="Permanent link">¶</a></h2>
 <ul>
@@ -9902,12 +9902,6 @@
 <li>line 202: PainterlyMaterialResources PainterlyMaterialManager::get_res...</li>
 <li>line 218: Vector<string> PainterlyMaterialManager::get_missing_resourc...</string></li>
 </ul>
-<h2 id="modulesgaussian_splattinginterfacesgpu_cullerh">modules/gaussian_splatting/interfaces/gpu_culler.h<a class="headerlink" href="#modulesgaussian_splattinginterfacesgpu_cullerh" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 183: void set_readback_enabled(bool p_enabled) { readback_enabled...</li>
-<li>line 184: bool is_readback_enabled() const { return readback_enabled; ...</li>
-<li>line 191: uint32_t get_last_instance_visible_chunk_count() const { ret...</li>
-</ul>
 <h2 id="modulesgaussian_splattingnodesgaussian_splat_world_3dh">modules/gaussian_splatting/nodes/gaussian_splat_world_3d.h<a class="headerlink" href="#modulesgaussian_splattingnodesgaussian_splat_world_3dh" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 66: Ref<gaussiansplatworld> get_world() const { return world; }...</gaussiansplatworld></li>
@@ -9938,12 +9932,6 @@
 <li>line 273: explicit TileSHCacheBuffers(TileRenderer &amp;p_owner) : owner(p...</li>
 <li>line 287: explicit TileSubpixelHistoryBuffers(TileRenderer &amp;p_owner) :...</li>
 <li>line 300: explicit TileSubpixelVisibilityBuffers(TileRenderer &amp;p_owner...</li>
-</ul>
-<h2 id="modulesgaussian_splattingteststest_config_validationh">modules/gaussian_splatting/tests/test_config_validation.h<a class="headerlink" href="#modulesgaussian_splattingteststest_config_validationh" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 30: static float _reload_manager_sorting_target_ms() {...</li>
-<li>line 1245: static GPUSorterFactory::PolicyProbe _fully_supported_probe(...</li>
-<li>line 1255: static SortKeyConfig _band_test_key_config() {...</li>
 </ul>
 <h2 id="modulesgaussian_splattingrenderersort_fallback_policyh">modules/gaussian_splatting/renderer/sort_fallback_policy.h<a class="headerlink" href="#modulesgaussian_splattingrenderersort_fallback_policyh" title="Permanent link">¶</a></h2>
 <ul>
@@ -10062,6 +10050,12 @@
 <li>line 706: void GaussianImportSettingsDialog::_viewport_input(const Ref...</li>
 <li>line 755: void GaussianImportSettingsDialog::_re_import() {...</li>
 <li>line 810: void GaussianImportSettingsDialog::open_settings(const Strin...</li>
+</ul>
+<h2 id="modulesgaussian_splattingteststest_config_validationh">modules/gaussian_splatting/tests/test_config_validation.h<a class="headerlink" href="#modulesgaussian_splattingteststest_config_validationh" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 30: static float _reload_manager_sorting_target_ms() {...</li>
+<li>line 1342: static GPUSorterFactory::PolicyProbe _fully_supported_probe(...</li>
+<li>line 1352: static SortKeyConfig _band_test_key_config() {...</li>
 </ul>
 <h2 id="modulesgaussian_splattingcoregaussian_splat_managercpp">modules/gaussian_splatting/core/gaussian_splat_manager.cpp<a class="headerlink" href="#modulesgaussian_splattingcoregaussian_splat_managercpp" title="Permanent link">¶</a></h2>
 <ul>
@@ -10410,6 +10404,12 @@
 <li>line 828: bool _write_malformed_world(const String &amp;p_path, const Malf...</li>
 <li>line 868: MalformedWorldHeader _valid_single_splat_header() {...</li>
 <li>line 1045: bool _write_compressed_world_oversized_count(const String &amp;p...</li>
+</ul>
+<h2 id="modulesgaussian_splattinginterfacesgpu_cullerh">modules/gaussian_splatting/interfaces/gpu_culler.h<a class="headerlink" href="#modulesgaussian_splattinginterfacesgpu_cullerh" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 193: void set_readback_enabled(bool p_enabled) { readback_enabled...</li>
+<li>line 194: bool is_readback_enabled() const { return readback_enabled; ...</li>
+<li>line 201: uint32_t get_last_instance_visible_chunk_count() const { ret...</li>
 </ul>
 <h2 id="modulesgaussian_splattingteststest_resident_atlas_budgeth">modules/gaussian_splatting/tests/test_resident_atlas_budget.h<a class="headerlink" href="#modulesgaussian_splattingteststest_resident_atlas_budgeth" title="Permanent link">¶</a></h2>
 <ul>
@@ -11508,7 +11508,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 12, 2026 14:48:54 UTC">July 12, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 12, 2026 18:03:13 UTC">July 12, 2026</span>
   </span>
 
     
