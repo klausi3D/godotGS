@@ -46,17 +46,20 @@ struct ThreadLocalRateCache {
 };
 thread_local ThreadLocalRateCache tl_rate_cache;
 
-constexpr Level k_dev_default_info = Level::WARN;
-
+// Every category defaults to INHERIT: "follow logging/verbosity". This keeps the
+// default output identical to the historical min(WARN, WARN) behavior because the
+// master verbosity itself defaults to WARN (see GaussianSplatManager::initialize_
+// module()), while making the per-category knob mean what its name implies once it
+// is set to a concrete level.
 constexpr Level k_default_levels[] = {
-        k_dev_default_info, // GENERAL
-        k_dev_default_info, // RENDERER
-        Level::WARN,        // STREAMING
-        Level::WARN,        // GPU_SORT
-        Level::WARN,        // GPU_MEMORY
-        Level::WARN,        // COMPOSITOR
-        Level::WARN,        // COMMAND_BUFFER
-        k_dev_default_info, // TESTS
+        Level::INHERIT, // GENERAL
+        Level::INHERIT, // RENDERER
+        Level::INHERIT, // STREAMING
+        Level::INHERIT, // GPU_SORT
+        Level::INHERIT, // GPU_MEMORY
+        Level::INHERIT, // COMPOSITOR
+        Level::INHERIT, // COMMAND_BUFFER
+        Level::INHERIT, // TESTS
 };
 
 const char *category_setting_key(Category p_category) {
@@ -84,11 +87,18 @@ const char *category_setting_key(Category p_category) {
 
 Level string_to_level(const String &p_value, Level p_default) {
     String lower = p_value.to_lower();
+    if (lower == "inherit") {
+        // Per-category sentinel: follow the master verbosity.
+        return Level::INHERIT;
+    }
     if (lower == "off") {
         return Level::OFF;
     }
     if (lower == "silent") {
-        return Level::WARN;
+        // Back-compat alias. Historically "silent" resolved to WARN (a lie); it now
+        // truthfully means OFF (fully silent). A one-time migration notice fires
+        // where the master verbosity is loaded (see ensure_initialized()).
+        return Level::OFF;
     }
     if (lower == "error") {
         return Level::ERROR;
@@ -135,7 +145,19 @@ void ensure_initialized() {
             Variant value = settings->get_setting_with_override("rendering/gaussian_splatting/logging/verbosity");
             Level level = Level::WARN;
             if (value.get_type() == Variant::STRING) {
-                level = string_to_level((String)value, level);
+                const String verbosity_string = (String)value;
+                if (verbosity_string.to_lower() == "silent") {
+                    // Behavior change (#172): "silent" used to resolve to WARN. It now
+                    // means OFF (fully silent). Warn once so projects pinned to the old
+                    // alias are not surprised by newly-suppressed warnings.
+                    WARN_PRINT_ONCE("rendering/gaussian_splatting/logging/verbosity 'silent' now means OFF (fully silent); use 'warn' for the previous default (error + warning output).");
+                }
+                level = string_to_level(verbosity_string, level);
+                if (level == Level::INHERIT) {
+                    // The master verbosity has nothing to inherit from; ignore the
+                    // per-category sentinel and keep the WARN default.
+                    level = Level::WARN;
+                }
             } else if (value.is_num()) {
                 int enum_value = int(value);
                 enum_value = CLAMP(enum_value, int(Level::OFF), int(Level::TRACE));
@@ -251,6 +273,19 @@ Level get_level(Category p_category) {
     return static_cast<Level>(s_levels[index].load(std::memory_order_relaxed));
 }
 
+Level resolve_effective_level(Level p_category_level, Level p_verbosity) {
+    return p_category_level == Level::INHERIT ? p_verbosity : p_category_level;
+}
+
+bool level_permits(Level p_message_level, Level p_effective_level) {
+    // OFF hides everything; INHERIT should already be resolved, but treat a stray
+    // INHERIT ceiling as "show nothing" defensively.
+    if (p_effective_level == Level::OFF || p_effective_level == Level::INHERIT) {
+        return false;
+    }
+    return static_cast<int>(p_message_level) <= static_cast<int>(p_effective_level);
+}
+
 bool is_enabled(Category p_category, Level p_level) {
 #ifdef GS_SILENCE_LOGS
     (void)p_category;
@@ -264,11 +299,9 @@ bool is_enabled(Category p_category, Level p_level) {
     }
     Level current = static_cast<Level>(s_levels[index].load(std::memory_order_relaxed));
     Level global = static_cast<Level>(s_global_verbosity.load(std::memory_order_relaxed));
-    if (global == Level::OFF) {
-        return false;
-    }
-    Level effective = static_cast<int>(current) <= static_cast<int>(global) ? current : global;
-    return static_cast<int>(p_level) <= static_cast<int>(effective) && effective != Level::OFF;
+    // Per-category override wins; an INHERIT category follows the master verbosity.
+    Level effective = resolve_effective_level(current, global);
+    return level_permits(p_level, effective);
 }
 
 String level_to_string(Level p_level) {
@@ -285,6 +318,8 @@ String level_to_string(Level p_level) {
             return "DEBUG";
         case Level::TRACE:
             return "TRACE";
+        case Level::INHERIT:
+            return "INHERIT";
         default:
             return "UNKNOWN";
     }
@@ -365,6 +400,10 @@ void log_message(Category p_category, Level p_level, const String &p_message) {
 }
 
 namespace test {
+
+Level parse_level(const String &p_value, Level p_default) {
+    return string_to_level(p_value, p_default);
+}
 
 void reset_rate_limiter() {
     ensure_initialized();

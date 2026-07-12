@@ -106,8 +106,9 @@ TEST_CASE("[GaussianSplatting][Config] Hidden runtime-affecting ProjectSettings 
 	for (const char *category_key : logging_category_keys) {
 		const StringName key(category_key);
 		CHECK(ps->has_setting(key));
-		// WARN is the k_default_levels value for every category; "warn" maps to it.
-		CHECK(String(ps->get_setting(key)) == "warn");
+		// "inherit" is the k_default_levels sentinel for every category: follow the
+		// master verbosity (which defaults to "warn"), so default output is unchanged.
+		CHECK(String(ps->get_setting(key)) == "inherit");
 	}
 }
 

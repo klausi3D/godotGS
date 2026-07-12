@@ -31,6 +31,10 @@ enum class Level : uint8_t {
     INFO,
     DEBUG,
     TRACE,
+    // Sentinel used only for a per-category override meaning "follow the master
+    // logging/verbosity". Never emitted as a message severity and never produced
+    // by the numeric (enum-index) parse path, which clamps to [OFF, TRACE].
+    INHERIT,
 };
 
 // PROPERTY_HINT_ENUM value list for the per-category logging ProjectSettings.
@@ -38,6 +42,10 @@ enum class Level : uint8_t {
 // names case-insensitively. Kept here so the enum ordering and the editor hint
 // share one source of truth.
 #define GS_LOG_LEVEL_ENUM_HINT "off,error,warn,info,debug,trace"
+
+// Per-category hint. Adds the "inherit" sentinel (follow logging/verbosity) in
+// front of the severity levels; see resolve_effective_level().
+#define GS_LOG_CATEGORY_LEVEL_ENUM_HINT "inherit,off,error,warn,info,debug,trace"
 
 enum class Category : uint8_t {
     GENERAL = 0,
@@ -55,12 +63,24 @@ void initialize();
 void set_level(Category p_category, Level p_level);
 Level get_level(Category p_category);
 bool is_enabled(Category p_category, Level p_level);
+
+// Resolve a per-category level against the master verbosity. A category set to
+// Level::INHERIT follows verbosity; an explicit level overrides verbosity for
+// that category (this is the only place the two combine).
+Level resolve_effective_level(Level p_category_level, Level p_verbosity);
+
+// True iff a message at p_message_level should be shown given an already-resolved
+// effective ceiling. OFF (or a stray INHERIT) suppresses everything.
+bool level_permits(Level p_message_level, Level p_effective_level);
+
 String level_to_string(Level p_level);
 String category_to_string(Category p_category);
 
 void log_message(Category p_category, Level p_level, const String &p_message);
 
 namespace test {
+// Expose the string->Level parse for tests (silent==OFF alias, inherit sentinel).
+Level parse_level(const String &p_value, Level p_default);
 void reset_rate_limiter();
 bool check_rate_limit(Category p_category, Level p_level, const String &p_message, uint64_t p_now_usec, uint64_t p_rate_limit_usec);
 } // namespace test
