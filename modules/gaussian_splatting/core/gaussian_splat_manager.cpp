@@ -1105,6 +1105,34 @@ void GaussianSplatManager::initialize_module() {
 	// Logging configuration (quiet by default).
 	GLOBAL_DEF("rendering/gaussian_splatting/logging/verbosity", "silent");
 	GLOBAL_DEF("rendering/gaussian_splatting/logging/rate_limit_ms", 1000);
+	// Per-category log levels. gs_logger reads these at startup
+	// (logger/gs_logger.cpp); each defaults to WARN (k_default_levels), matching
+	// the unset behavior, so registration is behavior-neutral. Values parse
+	// case-insensitively via string_to_level(); the enum lists the accepted levels.
+	GLOBAL_DEF("rendering/gaussian_splatting/logging/general", "warn");
+	ps->set_custom_property_info(PropertyInfo(Variant::STRING,
+			"rendering/gaussian_splatting/logging/general", PROPERTY_HINT_ENUM, GS_LOG_LEVEL_ENUM_HINT));
+	GLOBAL_DEF("rendering/gaussian_splatting/logging/renderer", "warn");
+	ps->set_custom_property_info(PropertyInfo(Variant::STRING,
+			"rendering/gaussian_splatting/logging/renderer", PROPERTY_HINT_ENUM, GS_LOG_LEVEL_ENUM_HINT));
+	GLOBAL_DEF("rendering/gaussian_splatting/logging/streaming", "warn");
+	ps->set_custom_property_info(PropertyInfo(Variant::STRING,
+			"rendering/gaussian_splatting/logging/streaming", PROPERTY_HINT_ENUM, GS_LOG_LEVEL_ENUM_HINT));
+	GLOBAL_DEF("rendering/gaussian_splatting/logging/gpu_sort", "warn");
+	ps->set_custom_property_info(PropertyInfo(Variant::STRING,
+			"rendering/gaussian_splatting/logging/gpu_sort", PROPERTY_HINT_ENUM, GS_LOG_LEVEL_ENUM_HINT));
+	GLOBAL_DEF("rendering/gaussian_splatting/logging/gpu_memory", "warn");
+	ps->set_custom_property_info(PropertyInfo(Variant::STRING,
+			"rendering/gaussian_splatting/logging/gpu_memory", PROPERTY_HINT_ENUM, GS_LOG_LEVEL_ENUM_HINT));
+	GLOBAL_DEF("rendering/gaussian_splatting/logging/compositor", "warn");
+	ps->set_custom_property_info(PropertyInfo(Variant::STRING,
+			"rendering/gaussian_splatting/logging/compositor", PROPERTY_HINT_ENUM, GS_LOG_LEVEL_ENUM_HINT));
+	GLOBAL_DEF("rendering/gaussian_splatting/logging/command_buffer", "warn");
+	ps->set_custom_property_info(PropertyInfo(Variant::STRING,
+			"rendering/gaussian_splatting/logging/command_buffer", PROPERTY_HINT_ENUM, GS_LOG_LEVEL_ENUM_HINT));
+	GLOBAL_DEF("rendering/gaussian_splatting/logging/tests", "warn");
+	ps->set_custom_property_info(PropertyInfo(Variant::STRING,
+			"rendering/gaussian_splatting/logging/tests", PROPERTY_HINT_ENUM, GS_LOG_LEVEL_ENUM_HINT));
 
 	// Production diagnostics contract + perf gates.
 	GLOBAL_DEF("rendering/gaussian_splatting/diagnostics/validate_production_metrics", true);
@@ -1150,6 +1178,20 @@ void GaussianSplatManager::initialize_module() {
 	GLOBAL_DEF("rendering/gaussian_splatting/streaming/queue_pressure_candidate_scan_throttle_min_queue_depth", 1);
 	GLOBAL_DEF("rendering/gaussian_splatting/streaming/queue_pressure_visible_scan_cap", 1024);
 	GLOBAL_DEF("rendering/gaussian_splatting/streaming/queue_pressure_prefetch_scan_cap", 1024);
+	// Synchronous-fallback load pump (streaming_upload_pipeline.cpp). When async
+	// packing cannot keep up, up to N chunks upload synchronously per frame; the
+	// runtime hard-caps this at SchedulerState::MAX_SYNC_FALLBACK_LOADS_PER_FRAME (8).
+	// The fallback queue trips once it exceeds max_sync_fallback_queue_size. Both
+	// defaults mirror SchedulerState::DEFAULT_SYNC_FALLBACK_* so registration is
+	// behavior-neutral; the read applies MIN(MAX(1,v),8) / MAX(64,v) clamps.
+	GLOBAL_DEF("rendering/gaussian_splatting/streaming/max_sync_fallback_loads_per_frame", 1);
+	ps->set_custom_property_info(PropertyInfo(Variant::INT,
+			"rendering/gaussian_splatting/streaming/max_sync_fallback_loads_per_frame",
+			PROPERTY_HINT_RANGE, "1,8,1"));
+	GLOBAL_DEF("rendering/gaussian_splatting/streaming/max_sync_fallback_queue_size", 2048);
+	ps->set_custom_property_info(PropertyInfo(Variant::INT,
+			"rendering/gaussian_splatting/streaming/max_sync_fallback_queue_size",
+			PROPERTY_HINT_RANGE, "64,65536,1"));
 	// Cap total chunk upload bandwidth per frame in MB (0 = unlimited).
 	GLOBAL_DEF("rendering/gaussian_splatting/streaming/max_upload_mb_per_frame", 128);
 	// Cap chunk upload size per slice in MB (0 = unlimited).

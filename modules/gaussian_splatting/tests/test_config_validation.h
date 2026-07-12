@@ -75,6 +75,40 @@ TEST_CASE("[GaussianSplatting][Config] Hidden runtime-affecting ProjectSettings 
 	if (ps->property_can_revert(vram_budget_key)) {
 		CHECK(int64_t(ps->property_get_revert(vram_budget_key)) == int64_t(STREAMING_UNKNOWN_CAPACITY_FALLBACK_VRAM_BUDGET_MB));
 	}
+
+	// Formerly-hidden keys registered in slice 1 (issues #163 / #172). Defaults
+	// must equal the code defaults the raw reads previously fell back to, so
+	// registration stays behavior-neutral.
+	const StringName sync_loads_key("rendering/gaussian_splatting/streaming/max_sync_fallback_loads_per_frame");
+	const StringName sync_queue_key("rendering/gaussian_splatting/streaming/max_sync_fallback_queue_size");
+	const StringName lod_importance_key("rendering/gaussian_splatting/lod/importance_threshold");
+
+	CHECK(ps->has_setting(sync_loads_key));
+	CHECK(ps->has_setting(sync_queue_key));
+	CHECK(ps->has_setting(lod_importance_key));
+
+	CHECK(int64_t(ps->get_setting(sync_loads_key)) == 1);
+	CHECK(int64_t(ps->get_setting(sync_queue_key)) == 2048);
+	// -1 sentinel = "auto" (leave importance_cull_threshold to the runtime
+	// auto-tuner); registration stays behavior-neutral. Only >= 0 pins a value.
+	CHECK(Math::is_equal_approx(double(ps->get_setting(lod_importance_key)), -1.0));
+
+	const char *logging_category_keys[] = {
+		"rendering/gaussian_splatting/logging/general",
+		"rendering/gaussian_splatting/logging/renderer",
+		"rendering/gaussian_splatting/logging/streaming",
+		"rendering/gaussian_splatting/logging/gpu_sort",
+		"rendering/gaussian_splatting/logging/gpu_memory",
+		"rendering/gaussian_splatting/logging/compositor",
+		"rendering/gaussian_splatting/logging/command_buffer",
+		"rendering/gaussian_splatting/logging/tests",
+	};
+	for (const char *category_key : logging_category_keys) {
+		const StringName key(category_key);
+		CHECK(ps->has_setting(key));
+		// WARN is the k_default_levels value for every category; "warn" maps to it.
+		CHECK(String(ps->get_setting(key)) == "warn");
+	}
 }
 
 TEST_CASE("[GaussianSplatting][Config] GPUSortingConfig rejects invalid target_sort_time_ms") {

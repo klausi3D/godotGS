@@ -33,6 +33,12 @@ enum class Level : uint8_t {
     TRACE,
 };
 
+// PROPERTY_HINT_ENUM value list for the per-category logging ProjectSettings.
+// Must stay in sync with string_to_level() (gs_logger.cpp), which parses these
+// names case-insensitively. Kept here so the enum ordering and the editor hint
+// share one source of truth.
+#define GS_LOG_LEVEL_ENUM_HINT "off,error,warn,info,debug,trace"
+
 enum class Category : uint8_t {
     GENERAL = 0,
     RENDERER,

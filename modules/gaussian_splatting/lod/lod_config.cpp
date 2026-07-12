@@ -356,4 +356,18 @@ void register_lod_project_settings() {
     // Legacy LOD settings (kept for compatibility)
     GLOBAL_DEF(LOD_CONFIG_MIN_SCREEN_SIZE_PIXELS_PATH, 1.5f);
     GLOBAL_DEF(LOD_CONFIG_BIAS_PATH, 1.0f);
+
+    // Global importance-cull threshold behind the per-renderer
+    // cull/importance_threshold override. GPUCuller reads this key
+    // (interfaces/gpu_culler.cpp). The default is a -1 sentinel meaning
+    // "auto": leave importance_cull_threshold to the runtime overflow
+    // auto-tuner, exactly as before this key was registered (the raw read
+    // used to fall back to the tuned member). Only an explicit override
+    // (>= 0) pins a fixed threshold, so registration is behavior-neutral.
+    GLOBAL_DEF("rendering/gaussian_splatting/lod/importance_threshold", -1.0f);
+    if (ProjectSettings *ps = ProjectSettings::get_singleton()) {
+        ps->set_custom_property_info(PropertyInfo(Variant::FLOAT,
+                "rendering/gaussian_splatting/lod/importance_threshold",
+                PROPERTY_HINT_RANGE, "-1.0,1.0,0.001"));
+    }
 }
