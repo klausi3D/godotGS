@@ -2621,17 +2621,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingloggergs_loggercpp" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/logger/gs_logger.cpp
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#modulesgaussian_splattinginterfacestile_rasterizercpp" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3281,17 +3270,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingloggergs_loggerh" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/logger/gs_logger.h
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingiostreaming_chunk_bakecpp" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3842,6 +3820,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingloggergs_loggercpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/logger/gs_logger.cpp
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingrenderertile_render_async_readbackcpp" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4260,10 +4249,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingcoregaussian_splat_managercpp" class="md-nav__link">
+  <a href="#modulesgaussian_splattinginterfacestile_rasterizerh" class="md-nav__link">
     <span class="md-ellipsis">
       
-        modules/gaussian_splatting/core/gaussian_splat_manager.cpp
+        modules/gaussian_splatting/interfaces/tile_rasterizer.h
       
     </span>
   </a>
@@ -4271,10 +4260,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattinginterfacestile_rasterizerh" class="md-nav__link">
+  <a href="#modulesgaussian_splattingcoregaussian_splat_managercpp" class="md-nav__link">
     <span class="md-ellipsis">
       
-        modules/gaussian_splatting/interfaces/tile_rasterizer.h
+        modules/gaussian_splatting/core/gaussian_splat_manager.cpp
       
     </span>
   </a>
@@ -4561,6 +4550,17 @@
     <span class="md-ellipsis">
       
         modules/gaussian_splatting/io/spz_loader.cpp
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingloggergs_loggerh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/logger/gs_logger.h
       
     </span>
   </a>
@@ -7049,25 +7049,6 @@
 <li>line 1657: func _resolve_reference_path(capture_id: String) -&gt; String:...</li>
 <li>line 1668: func _build_visual_summary() -&gt; Dictionary:...</li>
 </ul>
-<h2 id="modulesgaussian_splattingloggergs_loggercpp">modules/gaussian_splatting/logger/gs_logger.cpp<a class="headerlink" href="#modulesgaussian_splattingloggergs_loggercpp" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 28: size_t operator()(const RateLimitKey &amp;p_key) const {...</li>
-<li>line 85: Level string_to_level(const String &amp;p_value, Level p_default...</li>
-<li>line 117: void ensure_initialized() {...</li>
-<li>line 179: String build_prefix(Category p_category, Level p_level) {...</li>
-<li>line 183: RateLimitKey make_rate_limit_key(Category p_category, Level ...</li>
-<li>line 191: bool should_rate_limit(Level p_level) {...</li>
-<li>line 195: bool check_rate_limit_key(const RateLimitKey &amp;p_key, uint64_...</li>
-<li>line 232: void initialize() {...</li>
-<li>line 236: void set_level(Category p_category, Level p_level) {...</li>
-<li>line 245: Level get_level(Category p_category) {...</li>
-<li>line 254: bool is_enabled(Category p_category, Level p_level) {...</li>
-<li>line 274: String level_to_string(Level p_level) {...</li>
-<li>line 293: String category_to_string(Category p_category) {...</li>
-<li>line 316: void log_message(Category p_category, Level p_level, const S...</li>
-<li>line 369: void reset_rate_limiter() {...</li>
-<li>line 375: bool check_rate_limit(Category p_category, Level p_level, co...</li>
-</ul>
 <h2 id="modulesgaussian_splattinginterfacestile_rasterizercpp">modules/gaussian_splatting/interfaces/tile_rasterizer.cpp<a class="headerlink" href="#modulesgaussian_splattinginterfacestile_rasterizercpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 8: static bool _is_raster_ready_log_enabled() {...</li>
@@ -8200,11 +8181,6 @@
 <li>line 1474: void PainterlyRenderer::free_painterly_resources(GaussianSpl...</li>
 <li>line 1478: void PainterlyRenderer::clear_painterly_gpu_resources(Gaussi...</li>
 <li>line 1491: void PainterlyRenderer::update_painterly_gpu_resources(Gauss...</li>
-</ul>
-<h2 id="modulesgaussian_splattingloggergs_loggerh">modules/gaussian_splatting/logger/gs_logger.h<a class="headerlink" href="#modulesgaussian_splattingloggergs_loggerh" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 69: void log(Category p_category, Level p_level, Callable &amp;&amp;p_ca...</li>
-<li>line 82: if constexpr ((int)(lvl) &lt;= (int)(GS_LOG_MAX_LEVEL)) {      ...</li>
 </ul>
 <h2 id="modulesgaussian_splattingiostreaming_chunk_bakecpp">modules/gaussian_splatting/io/streaming_chunk_bake.cpp<a class="headerlink" href="#modulesgaussian_splattingiostreaming_chunk_bakecpp" title="Permanent link">¶</a></h2>
 <ul>
@@ -9360,6 +9336,30 @@
 <li>line 1634: RID TileUniformBuffers::get_default_state_uniform(RenderingD...</li>
 <li>line 1657: bool TileUniformBuffers::ensure_prefix_param_buffer(Renderin...</li>
 </ul>
+<h2 id="modulesgaussian_splattingloggergs_loggercpp">modules/gaussian_splatting/logger/gs_logger.cpp<a class="headerlink" href="#modulesgaussian_splattingloggergs_loggercpp" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 28: size_t operator()(const RateLimitKey &amp;p_key) const {...</li>
+<li>line 88: Level string_to_level(const String &amp;p_value, Level p_default...</li>
+<li>line 134: Level category_level_from_enum_index(int p_index) {...</li>
+<li>line 142: void ensure_initialized() {...</li>
+<li>line 216: String build_prefix(Category p_category, Level p_level) {...</li>
+<li>line 220: RateLimitKey make_rate_limit_key(Category p_category, Level ...</li>
+<li>line 228: bool should_rate_limit(Level p_level) {...</li>
+<li>line 232: bool check_rate_limit_key(const RateLimitKey &amp;p_key, uint64_...</li>
+<li>line 269: void initialize() {...</li>
+<li>line 273: void set_level(Category p_category, Level p_level) {...</li>
+<li>line 282: Level get_level(Category p_category) {...</li>
+<li>line 291: Level resolve_effective_level(Level p_category_level, Level ...</li>
+<li>line 295: bool level_permits(Level p_message_level, Level p_effective_...</li>
+<li>line 304: bool is_enabled(Category p_category, Level p_level) {...</li>
+<li>line 322: String level_to_string(Level p_level) {...</li>
+<li>line 343: String category_to_string(Category p_category) {...</li>
+<li>line 366: void log_message(Category p_category, Level p_level, const S...</li>
+<li>line 419: Level parse_level(const String &amp;p_value, Level p_default) {...</li>
+<li>line 423: Level category_level_from_enum_index(int p_index) {...</li>
+<li>line 427: void reset_rate_limiter() {...</li>
+<li>line 433: bool check_rate_limit(Category p_category, Level p_level, co...</li>
+</ul>
 <h2 id="modulesgaussian_splattingrenderertile_render_async_readbackcpp">modules/gaussian_splatting/renderer/tile_render_async_readback.cpp<a class="headerlink" href="#modulesgaussian_splattingrenderertile_render_async_readbackcpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 7: void TileRenderer::TileAsyncReadback::on_overflow_flag_readb...</li>
@@ -10054,8 +10054,13 @@
 <h2 id="modulesgaussian_splattingteststest_config_validationh">modules/gaussian_splatting/tests/test_config_validation.h<a class="headerlink" href="#modulesgaussian_splattingteststest_config_validationh" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 30: static float _reload_manager_sorting_target_ms() {...</li>
-<li>line 1342: static GPUSorterFactory::PolicyProbe _fully_supported_probe(...</li>
-<li>line 1352: static SortKeyConfig _band_test_key_config() {...</li>
+<li>line 1343: static GPUSorterFactory::PolicyProbe _fully_supported_probe(...</li>
+<li>line 1353: static SortKeyConfig _band_test_key_config() {...</li>
+</ul>
+<h2 id="modulesgaussian_splattinginterfacestile_rasterizerh">modules/gaussian_splatting/interfaces/tile_rasterizer.h<a class="headerlink" href="#modulesgaussian_splattinginterfacestile_rasterizerh" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 64: Ref<tilerenderer> get_tile_renderer() const { return tile_re...</tilerenderer></li>
+<li>line 71: bool is_using_external_renderer() const { return using_exter...</li>
 </ul>
 <h2 id="modulesgaussian_splattingcoregaussian_splat_managercpp">modules/gaussian_splatting/core/gaussian_splat_manager.cpp<a class="headerlink" href="#modulesgaussian_splattingcoregaussian_splat_managercpp" title="Permanent link">¶</a></h2>
 <ul>
@@ -10091,17 +10096,12 @@
 <li>line 964: void GaussianSplatManager::set_shared_submission_device_enab...</li>
 <li>line 968: Dictionary GaussianSplatManager::get_sorting_config() const ...</li>
 <li>line 984: void GaussianSplatManager::initialize_module() {...</li>
-<li>line 1254: void GaussianSplatManager::finalize_module() {...</li>
-<li>line 1322: GaussianSplatManager::ScopedSubmissionLock GaussianSplatMana...</li>
-<li>line 1344: bool GaussianSplatManager::is_shared_submission_device(Rende...</li>
-<li>line 1348: void GaussianSplatManager::ensure_render_thread_local_device...</li>
-<li>line 1365: void GaussianSplatManager::register_node(GaussianSplatNode3D...</li>
-<li>line 1386: void GaussianSplatManager::unregister_node(GaussianSplatNode...</li>
-</ul>
-<h2 id="modulesgaussian_splattinginterfacestile_rasterizerh">modules/gaussian_splatting/interfaces/tile_rasterizer.h<a class="headerlink" href="#modulesgaussian_splattinginterfacestile_rasterizerh" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 64: Ref<tilerenderer> get_tile_renderer() const { return tile_re...</tilerenderer></li>
-<li>line 71: bool is_using_external_renderer() const { return using_exter...</li>
+<li>line 1259: void GaussianSplatManager::finalize_module() {...</li>
+<li>line 1327: GaussianSplatManager::ScopedSubmissionLock GaussianSplatMana...</li>
+<li>line 1349: bool GaussianSplatManager::is_shared_submission_device(Rende...</li>
+<li>line 1353: void GaussianSplatManager::ensure_render_thread_local_device...</li>
+<li>line 1370: void GaussianSplatManager::register_node(GaussianSplatNode3D...</li>
+<li>line 1391: void GaussianSplatManager::unregister_node(GaussianSplatNode...</li>
 </ul>
 <h2 id="modulesgaussian_splattingnodesgaussian_splat_node_3dcpp">modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp<a class="headerlink" href="#modulesgaussian_splattingnodesgaussian_splat_node_3dcpp" title="Permanent link">¶</a></h2>
 <ul>
@@ -10647,6 +10647,11 @@
 <li>line 828: float SPZLoader::decode_sh_coefficient(uint8_t p_encoded, ui...</li>
 <li>line 838: int SPZLoader::get_splat_count() const {...</li>
 <li>line 842: Dictionary SPZLoader::get_load_statistics() const {...</li>
+</ul>
+<h2 id="modulesgaussian_splattingloggergs_loggerh">modules/gaussian_splatting/logger/gs_logger.h<a class="headerlink" href="#modulesgaussian_splattingloggergs_loggerh" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 94: void log(Category p_category, Level p_level, Callable &amp;&amp;p_ca...</li>
+<li>line 107: if constexpr ((int)(lvl) &lt;= (int)(GS_LOG_MAX_LEVEL)) {      ...</li>
 </ul>
 <h2 id="modulesgaussian_splattingshadersincludesgs_deformationglsl">modules/gaussian_splatting/shaders/includes/gs_deformation.glsl<a class="headerlink" href="#modulesgaussian_splattingshadersincludesgs_deformationglsl" title="Permanent link">¶</a></h2>
 <ul>
@@ -11508,7 +11513,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 12, 2026 18:03:13 UTC">July 12, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 12, 2026 22:25:25 UTC">July 12, 2026</span>
   </span>
 
     
