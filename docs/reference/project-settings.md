@@ -9,7 +9,15 @@ Last generated: 2026-07-12
 > |---|---|---|
 > | `octree_max_depth` | **live** | Reaches the active path through `GPUCuller::CullingState::culling_octree_max_depth`, consumed in `ensure_hierarchical_structure()`. |
 > | `min_gaussians_per_leaf` | **live** | Reaches the active path through `GPUCuller::CullingState::culling_min_gaussians`. |
-> | `opacity_aware_bounds` | **dormant** | Registered at `modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1042`, but **no code reads this exact key**. The live "opacity-aware culling" mechanism is `opacity_aware_culling` (different name), exposed as a node property `cull/opacity_aware_culling` on `GaussianSplatRenderer` (see `modules/gaussian_splatting/renderer/gaussian_splat_renderer_bindings.cpp:210`), not as a project setting. |
+> | `opacity_aware_bounds` | **live (default)** | Wired in [#167](https://github.com/klausi3D/godotGS/issues/167): read by `GPUCuller::update_culling_settings()` as the project-wide DEFAULT behind the per-renderer `cull/opacity_aware_culling` property (`modules/gaussian_splatting/renderer/gaussian_splat_renderer_bindings.cpp:215`). An explicit per-node value overrides the global. Registered default `true` equals the construction default, so the wiring is behavior-neutral. |
+> | `visibility_threshold` | **live (default)** | Wired in [#167](https://github.com/klausi3D/godotGS/issues/167): read by `GPUCuller::update_culling_settings()` as the project-wide DEFAULT behind the per-renderer `cull/visibility_threshold` property (`modules/gaussian_splatting/renderer/gaussian_splat_renderer_bindings.cpp:216`), clamped to `0.0001..0.1`. Explicit per-node value wins. Registered default `gs::RASTER_ALPHA_THRESHOLD` (1/255) equals the construction default. |
+>
+> The `cull/overflow_autotune_enabled` sibling (different section) was wired the
+> same way in [#167](https://github.com/klausi3D/godotGS/issues/167): it is the
+> project-wide default behind the per-renderer `overflow_autotune` property
+> (registered default `false`, still experimental). All three keys stay
+> behavior-neutral because each registered global default equals the construction
+> default the culler already used.
 >
 > The dormant `ClusterCuller` stack and its three companion project settings
 > (`cluster_culling_enabled`, `cluster_target_size`, `cluster_frustum_slack`) were

@@ -318,9 +318,8 @@
     {
       "effective_state": "GPUCuller/Tile renderer culling state.overflow_autotune_enabled",
       "key": "rendering/gaussian_splatting/cull/overflow_autotune_enabled",
-      "notes": "Cleanup candidate from #357: registered experimental switch is disabled by default and needs separate runtime evidence before public support.",
-      "publicness": "cleanup_candidate",
-      "test_coverage": "needs_behavior_test"
+      "notes": "Wired in #167 as the PROJECT-WIDE DEFAULT behind the per-renderer overflow_autotune property: GPUCuller::update_culling_settings() seeds overflow_autotune_enabled from this global unless an explicit per-node override is set (which wins). Still EXPERIMENTAL and off by default (splat-decay feedback loop); the -1 lod/importance_threshold sentinel keeps the tuner's runtime-mutated threshold sticky across reloads. Registered default (false) equals the construction default, so registration stays behavior-neutral.",
+      "test_coverage": "covered"
     },
     {
       "effective_state": "GPUCuller/Tile renderer culling state.alpha_clip",
@@ -340,16 +339,14 @@
     {
       "effective_state": "GPUCuller/Tile renderer culling state.opacity_aware_bounds",
       "key": "rendering/gaussian_splatting/culling/opacity_aware_bounds",
-      "notes": "Cleanup candidate from #357: registered public key, but current live opacity-aware behavior is renderer/node-owned; keep for now until migration/deprecation is tested.",
-      "publicness": "cleanup_candidate",
-      "test_coverage": "needs_behavior_test"
+      "notes": "Wired in #167 as the PROJECT-WIDE DEFAULT behind the per-renderer cull/opacity_aware_culling property: GPUCuller::update_culling_settings() seeds opacity_aware_culling from this global unless an explicit per-node override is set (which wins). Registered default (true) equals the construction default, so registration stays behavior-neutral.",
+      "test_coverage": "covered"
     },
     {
       "effective_state": "GPUCuller/Tile renderer culling state.visibility_threshold",
       "key": "rendering/gaussian_splatting/culling/visibility_threshold",
-      "notes": "Cleanup candidate from #357: registered public key appears misowned against renderer/culler state; keep for now until migration/deprecation is tested.",
-      "publicness": "cleanup_candidate",
-      "test_coverage": "needs_behavior_test"
+      "notes": "Wired in #167 as the PROJECT-WIDE DEFAULT behind the per-renderer cull/visibility_threshold property: GPUCuller::update_culling_settings() seeds visibility_threshold from this global (clamped to the setter's 0.0001..0.1 range) unless an explicit per-node override is set (which wins). Registered default (gs::RASTER_ALPHA_THRESHOLD = 1/255) equals the construction default, so registration stays behavior-neutral.",
+      "test_coverage": "covered"
     },
     {
       "effective_state": "g_float16_config.enable_position_quantization",

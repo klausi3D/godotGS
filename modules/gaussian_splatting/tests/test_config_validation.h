@@ -1178,6 +1178,103 @@ TEST_CASE("[GaussianSplatting][Config] CullingConfig viewport size") {
 	CHECK(config.last_cull_viewport_size.y > 0);
 }
 
+// Issue #167 (settings-hygiene slice 3): three culling globals that were
+// registered but never read now act as the PROJECT-WIDE DEFAULT behind their
+// live per-renderer cull/* properties. update_culling_settings() seeds the
+// member from the global unless an explicit per-node override was set (which
+// still wins). These tests prove neutrality, the global-as-default flow, the
+// override precedence, and that enabling the runtime overflow auto-tuner via
+// the global does not reset the tuned importance threshold on later reloads.
+TEST_CASE("[GaussianSplatting][Config][Cull] Misowned culling globals default the per-renderer cull properties (#167)") {
+	ProjectSettings *ps = ProjectSettings::get_singleton();
+	REQUIRE(ps != nullptr);
+
+	const String opacity_key = "rendering/gaussian_splatting/culling/opacity_aware_bounds";
+	const String visibility_key = "rendering/gaussian_splatting/culling/visibility_threshold";
+	const String autotune_key = "rendering/gaussian_splatting/cull/overflow_autotune_enabled";
+	const String importance_key = "rendering/gaussian_splatting/lod/importance_threshold";
+	ProjectSettingGuard opacity_guard(ps, opacity_key);
+	ProjectSettingGuard visibility_guard(ps, visibility_key);
+	ProjectSettingGuard autotune_guard(ps, autotune_key);
+	ProjectSettingGuard importance_guard(ps, importance_key);
+
+	// The construction defaults the wiring must stay neutral against.
+	const GPUCuller::CullingConfig defaults;
+
+	SUBCASE("Neutrality: registered global defaults resolve to today's construction defaults") {
+		ps->set_setting(opacity_key, true);
+		ps->set_setting(visibility_key, gs::RASTER_ALPHA_THRESHOLD);
+		ps->set_setting(autotune_key, false);
+
+		Ref<GPUCuller> culler;
+		culler.instantiate();
+		culler->update_culling_settings();
+
+		CHECK(culler->get_config().opacity_aware_culling == defaults.opacity_aware_culling); // true
+		CHECK(culler->get_config().visibility_threshold == doctest::Approx(defaults.visibility_threshold)); // 1/255
+		CHECK(culler->get_state().overflow_autotune_enabled == false);
+	}
+
+	SUBCASE("A project-wide global seeds a fresh renderer's default") {
+		ps->set_setting(opacity_key, false);
+		ps->set_setting(visibility_key, 0.05f);
+		ps->set_setting(autotune_key, true);
+
+		Ref<GPUCuller> culler;
+		culler.instantiate();
+		culler->update_culling_settings();
+
+		CHECK(culler->get_config().opacity_aware_culling == false);
+		CHECK(culler->get_config().visibility_threshold == doctest::Approx(0.05f));
+		CHECK(culler->get_state().overflow_autotune_enabled == true);
+	}
+
+	SUBCASE("An explicit per-renderer override wins over the global default") {
+		ps->set_setting(opacity_key, false);
+		ps->set_setting(visibility_key, 0.05f);
+		ps->set_setting(autotune_key, true);
+
+		Ref<GPUCuller> culler;
+		culler.instantiate();
+		// Simulate explicit per-node property assignments: the setters
+		// (set_opacity_aware_culling / set_visibility_threshold /
+		// set_overflow_autotune_enabled) mark exactly these override flags.
+		culler->get_config().opacity_aware_culling = true;
+		culler->get_config().opacity_aware_culling_override = true;
+		culler->get_config().visibility_threshold = 0.02f;
+		culler->get_config().visibility_threshold_override = true;
+		culler->get_state().overflow_autotune_enabled = false;
+		culler->get_state().overflow_autotune_override = true;
+
+		culler->update_culling_settings();
+
+		CHECK(culler->get_config().opacity_aware_culling == true); // override, not the false global
+		CHECK(culler->get_config().visibility_threshold == doctest::Approx(0.02f));
+		CHECK(culler->get_state().overflow_autotune_enabled == false); // override, not the true global
+	}
+
+	SUBCASE("Overflow autotune enabled via the global does not reset the runtime-tuned importance threshold") {
+		// overflow_autotune gates a runtime auto-tuner that mutates
+		// importance_cull_threshold. With autotune enabled project-wide (no
+		// per-node override) and lod/importance_threshold at its -1 "auto"
+		// sentinel, a later settings reload must leave the tuned value intact.
+		ps->set_setting(autotune_key, true);
+		ps->set_setting(importance_key, -1.0f); // slice-1 sentinel = auto
+
+		Ref<GPUCuller> culler;
+		culler.instantiate();
+		culler->update_culling_settings();
+		REQUIRE(culler->get_state().overflow_autotune_enabled == true);
+
+		// The auto-tuner raises the threshold at runtime; a subsequent reload
+		// must NOT clobber it back to a fixed default.
+		culler->get_config().importance_cull_threshold = 0.017f;
+		culler->update_culling_settings();
+		CHECK(culler->get_config().importance_cull_threshold == doctest::Approx(0.017f));
+		CHECK(culler->get_state().overflow_autotune_enabled == true);
+	}
+}
+
 // =============================================================================
 // Edge Case Tests
 // =============================================================================

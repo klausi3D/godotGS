@@ -227,14 +227,53 @@ void GPUCuller::update_culling_settings() {
         // with a -1 fallback so the registered sentinel default is behavior-neutral.
         importance_setting = _get_float_setting(ps, "rendering/gaussian_splatting/lod/importance_threshold", -1.0f);
         frustum_slack_setting = _get_float_setting(ps, "rendering/gaussian_splatting/cull/frustum_plane_slack", frustum_slack_setting);
-        // Keep runtime overrides (set_opacity_aware_culling / set_visibility_threshold)
-        // sticky across frames by not reloading these knobs from ProjectSettings here.
         // Optional per-splat hard alpha cull. Drops splats with opacity <=
         // alpha_clip before any projection or binning work.
         const float alpha_clip_setting = _get_float_setting(ps,
                 "rendering/gaussian_splatting/culling/alpha_clip",
                 culling_config.alpha_clip);
         culling_config.alpha_clip = CLAMP(alpha_clip_setting, 0.0f, 0.99f);
+
+        // Misowned culling globals (issue #167): these keys were registered but
+        // never read — live behavior came only from the per-renderer cull/*
+        // properties. Wire each as the PROJECT-WIDE DEFAULT behind its property:
+        // seed the member from the global UNLESS an explicit per-node override was
+        // set (which still wins). The registered global defaults equal the
+        // construction defaults (opacity_aware_culling=true,
+        // visibility_threshold=RASTER_ALPHA_THRESHOLD, overflow_autotune=false), so
+        // a project that sets neither the global nor the property behaves as before.
+        if (!culling_config.opacity_aware_culling_override) {
+            culling_config.opacity_aware_culling = gs::settings::get_bool(ps,
+                    "rendering/gaussian_splatting/culling/opacity_aware_bounds",
+                    culling_config.opacity_aware_culling);
+        }
+        if (!culling_config.visibility_threshold_override) {
+            const float visibility_setting = _get_float_setting(ps,
+                    "rendering/gaussian_splatting/culling/visibility_threshold",
+                    culling_config.visibility_threshold);
+            // Match set_visibility_threshold()'s clamp so the global cannot expose a
+            // value the runtime setter would reject.
+            culling_config.visibility_threshold = CLAMP(visibility_setting, 0.0001f, 0.1f);
+        }
+        if (!culling_state.overflow_autotune_override) {
+            const bool autotune_setting = gs::settings::get_bool(ps,
+                    "rendering/gaussian_splatting/cull/overflow_autotune_enabled",
+                    culling_state.overflow_autotune_enabled);
+            if (autotune_setting != culling_state.overflow_autotune_enabled) {
+                culling_state.overflow_autotune_enabled = autotune_setting;
+                if (!autotune_setting) {
+                    // Mirror set_overflow_autotune_enabled()'s disable path: restore
+                    // the user baselines the auto-tuner may have moved. NOTE: the flag
+                    // itself is not runtime-mutated (only a gate), so no sentinel is
+                    // needed here; the -1 importance sentinel (slice 1) is what keeps
+                    // the *tuned* importance_cull_threshold sticky across reloads while
+                    // the tuner runs.
+                    culling_config.importance_cull_threshold = culling_config.importance_cull_baseline;
+                    culling_state.tiny_splat_screen_radius_px = culling_state.tiny_splat_screen_radius_baseline;
+                }
+                culling_config.cull_params_dirty = true;
+            }
+        }
     }
 
     min_screen_setting = MAX(0.0f, min_screen_setting);

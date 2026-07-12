@@ -17,6 +17,12 @@ struct FidelityOverrideSnapshot {
 	bool lod_enabled = true;
 	bool opacity_aware_culling = true;
 	float visibility_threshold = gs::RASTER_ALPHA_THRESHOLD;
+	// Override flags must be captured/restored too (#167): while the fidelity
+	// override is active we pin them so GPUCuller::update_culling_settings() does
+	// not reload opacity_aware_culling / visibility_threshold from the project-wide
+	// global each cull and undo the forced full-fidelity values.
+	bool opacity_aware_culling_override = false;
+	bool visibility_threshold_override = false;
 	bool distance_cull_enabled = true;
 	float distance_cull_start = 30.0f;
 	float distance_cull_max_rate = 0.5f;
@@ -44,6 +50,8 @@ static void _apply_source_fidelity_overrides(uint64_t p_renderer_key, GPUCuller 
 			snapshot.lod_enabled = config.lod_enabled;
 			snapshot.opacity_aware_culling = config.opacity_aware_culling;
 			snapshot.visibility_threshold = config.visibility_threshold;
+			snapshot.opacity_aware_culling_override = config.opacity_aware_culling_override;
+			snapshot.visibility_threshold_override = config.visibility_threshold_override;
 			snapshot.distance_cull_enabled = config.distance_cull_enabled;
 			snapshot.distance_cull_start = config.distance_cull_start;
 			snapshot.distance_cull_max_rate = config.distance_cull_max_rate;
@@ -61,6 +69,9 @@ static void _apply_source_fidelity_overrides(uint64_t p_renderer_key, GPUCuller 
 		config.importance_cull_baseline = 0.0f;
 		config.opacity_aware_culling = false;
 		config.visibility_threshold = 0.0f;
+		// Pin against the project-wide global default while the override is active (#167).
+		config.opacity_aware_culling_override = true;
+		config.visibility_threshold_override = true;
 		config.distance_cull_enabled = false;
 		config.distance_cull_start = 0.0f;
 		config.distance_cull_max_rate = 0.0f;
@@ -79,6 +90,8 @@ static void _apply_source_fidelity_overrides(uint64_t p_renderer_key, GPUCuller 
 	config.lod_cache_dirty = true;
 	config.opacity_aware_culling = snapshot->opacity_aware_culling;
 	config.visibility_threshold = snapshot->visibility_threshold;
+	config.opacity_aware_culling_override = snapshot->opacity_aware_culling_override;
+	config.visibility_threshold_override = snapshot->visibility_threshold_override;
 	config.distance_cull_enabled = snapshot->distance_cull_enabled;
 	config.distance_cull_start = snapshot->distance_cull_start;
 	config.distance_cull_max_rate = snapshot->distance_cull_max_rate;
@@ -210,6 +223,10 @@ void RenderQualityOrchestrator::set_tiny_splat_screen_radius(float p_pixels) {
 }
 
 void RenderQualityOrchestrator::set_opacity_aware_culling(bool p_enabled) {
+	// Explicit per-renderer set wins over the project-wide global default (#167).
+	// Mark the override even when the value is unchanged, so a value that happens
+	// to equal the current one still pins the property against the global.
+	gpu_culler->get_config().opacity_aware_culling_override = true;
 	if (gpu_culler->get_config().opacity_aware_culling == p_enabled) {
 		return;
 	}
@@ -223,6 +240,8 @@ void RenderQualityOrchestrator::set_visibility_threshold(float p_threshold) {
 	// the raster alpha cutoff can drop splats that raster would still draw,
 	// producing moving tile-boundary bands.
 	float clamped = CLAMP(p_threshold, 0.0001f, 0.1f);
+	// Explicit per-renderer set wins over the project-wide global default (#167).
+	gpu_culler->get_config().visibility_threshold_override = true;
 	if (!Math::is_equal_approx(gpu_culler->get_config().visibility_threshold, clamped)) {
 		gpu_culler->get_config().visibility_threshold = clamped;
 		gpu_culler->get_config().cull_params_dirty = true;
@@ -253,6 +272,8 @@ void RenderQualityOrchestrator::set_distance_cull_max_rate(float p_rate) {
 }
 
 void RenderQualityOrchestrator::set_overflow_autotune_enabled(bool p_enabled) {
+	// Explicit per-renderer set wins over the project-wide global default (#167).
+	gpu_culler->get_state().overflow_autotune_override = true;
 	if (gpu_culler->get_state().overflow_autotune_enabled == p_enabled) {
 		return;
 	}

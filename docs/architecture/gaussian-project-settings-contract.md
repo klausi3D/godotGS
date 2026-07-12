@@ -67,15 +67,19 @@ wave only inventories them.
 
 Current candidates include:
 
-- `rendering/gaussian_splatting/culling/opacity_aware_bounds`
-- `rendering/gaussian_splatting/culling/visibility_threshold`
-- `rendering/gaussian_splatting/cull/overflow_autotune_enabled`
 - `rendering/gaussian_splatting/debug/enable_mainloop_probes`
 - `rendering/gaussian_splatting/max_gpu_buffer_count`
 - `rendering/gaussian_splatting/pipeline/enable_all_experimental`
 - `rendering/gaussian_splatting/streaming/async_io_enabled`
 - Sorting threshold knobs loaded by `SortingStrategyConfig` but not used by the live AUTO selector policy.
 - Quantization chunk-size knobs that currently need producer-path proof before support or removal.
+
+Resolved in #167 (settings-hygiene slice 3): `culling/opacity_aware_bounds`,
+`culling/visibility_threshold`, and `cull/overflow_autotune_enabled` are no
+longer misowned candidates — each is now read by
+`GPUCuller::update_culling_settings()` as the project-wide default behind its
+live per-renderer `cull/*` property (explicit per-node value still wins), with
+behavior-neutral defaults and behavior tests.
 
 ## Known Registration Gaps
 
