@@ -103,3 +103,26 @@ TEST_CASE("[Gaussian Logger] inherit sentinel follows verbosity across levels") 
     // ...while an explicit level ignores verbosity entirely.
     CHECK(resolve_effective_level(Level::ERROR, Level::TRACE) == Level::ERROR);
 }
+
+TEST_CASE("[Gaussian Logger] An explicit category level overrides a global OFF verbosity") {
+    using namespace gs_logger;
+    // Regression (#172): verbosity=OFF is a truthful global "silent". An INHERIT
+    // category under it stays fully suppressed, but an EXPLICIT category level still
+    // wins -- the old min(category, OFF) == OFF rule would have killed it. This is
+    // the "explicit override beats even a global kill" boundary, the one case where
+    // the new semantics visibly diverge from the historical min() behavior.
+    const Level explicit_debug = resolve_effective_level(Level::DEBUG, Level::OFF);
+    CHECK(explicit_debug == Level::DEBUG);
+    CHECK(level_permits(Level::ERROR, explicit_debug));
+    CHECK(level_permits(Level::WARN, explicit_debug));
+    CHECK(level_permits(Level::INFO, explicit_debug));
+    CHECK(level_permits(Level::DEBUG, explicit_debug));
+    CHECK_FALSE(level_permits(Level::TRACE, explicit_debug));
+
+    // Contrast: an INHERIT category under the same global OFF resolves to OFF and
+    // suppresses everything, so OFF remains a hard kill for inheriting categories.
+    const Level inherited = resolve_effective_level(Level::INHERIT, Level::OFF);
+    CHECK(inherited == Level::OFF);
+    CHECK_FALSE(level_permits(Level::DEBUG, inherited));
+    CHECK_FALSE(level_permits(Level::ERROR, inherited));
+}
