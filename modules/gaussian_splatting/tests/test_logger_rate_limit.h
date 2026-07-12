@@ -126,3 +126,25 @@ TEST_CASE("[Gaussian Logger] An explicit category level overrides a global OFF v
     CHECK_FALSE(level_permits(Level::DEBUG, inherited));
     CHECK_FALSE(level_permits(Level::ERROR, inherited));
 }
+
+TEST_CASE("[Gaussian Logger] Numeric per-category override follows the category enum hint") {
+    using namespace gs_logger;
+    // A numeric per-category override must be read as an index into the category
+    // enum hint "inherit,off,error,warn,info,debug,trace" (index 0 == sentinel),
+    // NOT cast straight to the Level enum value (where 0 == OFF). The old code cast
+    // directly, so index 3 ("warn" in the hint) wrongly became Level::INFO.
+    CHECK(test::category_level_from_enum_index(0) == Level::INHERIT);
+    CHECK(test::category_level_from_enum_index(1) == Level::OFF);
+    CHECK(test::category_level_from_enum_index(2) == Level::ERROR);
+    CHECK(test::category_level_from_enum_index(3) == Level::WARN);
+    CHECK(test::category_level_from_enum_index(4) == Level::INFO);
+    CHECK(test::category_level_from_enum_index(5) == Level::DEBUG);
+    CHECK(test::category_level_from_enum_index(6) == Level::TRACE);
+    // The numeric index and its hint label must agree: index 3 is "warn", so it
+    // resolves to exactly what parse_level("warn") does.
+    CHECK(test::category_level_from_enum_index(3) == test::parse_level("warn", Level::OFF));
+    CHECK(test::category_level_from_enum_index(0) == test::parse_level("inherit", Level::OFF));
+    // Out-of-range indices clamp to the hint bounds (inherit .. trace).
+    CHECK(test::category_level_from_enum_index(-5) == Level::INHERIT);
+    CHECK(test::category_level_from_enum_index(99) == Level::TRACE);
+}

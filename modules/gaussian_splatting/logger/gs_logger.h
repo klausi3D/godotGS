@@ -32,8 +32,10 @@ enum class Level : uint8_t {
     DEBUG,
     TRACE,
     // Sentinel used only for a per-category override meaning "follow the master
-    // logging/verbosity". Never emitted as a message severity and never produced
-    // by the numeric (enum-index) parse path, which clamps to [OFF, TRACE].
+    // logging/verbosity". Never emitted as a message severity. The master
+    // verbosity numeric path clamps to [OFF, TRACE] and never yields INHERIT; a
+    // numeric per-category override does (hint index 0 maps here) via
+    // category_level_from_enum_index().
     INHERIT,
 };
 
@@ -81,6 +83,9 @@ void log_message(Category p_category, Level p_level, const String &p_message);
 namespace test {
 // Expose the string->Level parse for tests (silent==OFF alias, inherit sentinel).
 Level parse_level(const String &p_value, Level p_default);
+// Expose the numeric per-category enum-index -> Level mapping for tests. Index 0
+// is the INHERIT sentinel (matches GS_LOG_CATEGORY_LEVEL_ENUM_HINT), not Level::OFF.
+Level category_level_from_enum_index(int p_index);
 void reset_rate_limiter();
 bool check_rate_limit(Category p_category, Level p_level, const String &p_message, uint64_t p_now_usec, uint64_t p_rate_limit_usec);
 } // namespace test

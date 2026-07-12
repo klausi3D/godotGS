@@ -124,6 +124,21 @@ Level string_to_level(const String &p_value, Level p_default) {
     return p_default;
 }
 
+// Translate a NUMERIC per-category override to a Level. Category settings use the
+// hint GS_LOG_CATEGORY_LEVEL_ENUM_HINT ("inherit,off,error,warn,info,debug,trace"),
+// whose index 0 is the INHERIT sentinel -- it does NOT match the raw Level enum
+// value (Level::OFF == 0). So a numeric value must be read as a hint index, not
+// cast straight to Level, or e.g. index 3 ("warn" in the hint) would wrongly
+// become Level::INFO. Master verbosity uses GS_LOG_LEVEL_ENUM_HINT (no sentinel
+// prefix), so its numeric path maps index==Level directly and is left as-is.
+Level category_level_from_enum_index(int p_index) {
+    p_index = CLAMP(p_index, 0, int(Level::TRACE) + 1); // hint indices 0..6
+    if (p_index == 0) {
+        return Level::INHERIT; // hint index 0 == "inherit"
+    }
+    return static_cast<Level>(p_index - 1); // 1->OFF, 2->ERROR, ..., 6->TRACE
+}
+
 void ensure_initialized() {
     std::call_once(s_init_flag, []() {
         for (size_t i = 0; i < static_cast<size_t>(Category::CATEGORY_MAX); i++) {
@@ -189,9 +204,9 @@ void ensure_initialized() {
             if (value.get_type() == Variant::STRING) {
                 level = string_to_level((String)value, level);
             } else if (value.is_num()) {
-                int enum_value = int(value);
-                enum_value = CLAMP(enum_value, int(Level::OFF), int(Level::TRACE));
-                level = static_cast<Level>(enum_value);
+                // Numeric overrides follow the per-category enum hint (index 0 ==
+                // INHERIT sentinel), NOT the raw Level enum value.
+                level = category_level_from_enum_index(int(value));
             }
             s_levels[i].store(static_cast<int>(level), std::memory_order_relaxed);
         }
@@ -403,6 +418,10 @@ namespace test {
 
 Level parse_level(const String &p_value, Level p_default) {
     return string_to_level(p_value, p_default);
+}
+
+Level category_level_from_enum_index(int p_index) {
+    return gs_logger::category_level_from_enum_index(p_index);
 }
 
 void reset_rate_limiter() {
