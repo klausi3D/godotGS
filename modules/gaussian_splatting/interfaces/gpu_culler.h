@@ -70,6 +70,12 @@ public:
         // When enabled, reduces tile-Gaussian pairs by ~94% using opacity-based radius
         bool opacity_aware_culling = true;
         float visibility_threshold = gs::RASTER_ALPHA_THRESHOLD; // tau: minimum visible contribution
+        // Override flags (issue #167): when an explicit per-renderer property is set
+        // (cull/opacity_aware_culling, cull/visibility_threshold), the culler stops
+        // seeding the member from the project-wide global default in
+        // update_culling_settings(). Default false = "follow the global default".
+        bool opacity_aware_culling_override = false;
+        bool visibility_threshold_override = false;
         // Optional per-splat hard cull at projection. Disabled by default so
         // low-opacity splats can still be boosted by opacity multipliers before
         // opacity-aware bounds make the final visibility decision.
@@ -109,6 +115,10 @@ public:
         // Root cause (stale overflow stats) fixed in ISSUE-033: RasterOverflowStats now
         // carries a frame_number, and OverflowAutoTuner discards stats > 2 frames old.
         bool overflow_autotune_enabled = false;
+        // Override flag (issue #167): set when the per-renderer overflow_autotune
+        // property is explicitly assigned, so update_culling_settings() stops
+        // seeding overflow_autotune_enabled from the project-wide global default.
+        bool overflow_autotune_override = false;
         float overflow_autotune_trigger_ratio = 0.0025f; // 0.25% overflow triggers tightening
         float overflow_autotune_importance_step = 0.001f;
         float overflow_autotune_importance_decay = 0.0005f;
