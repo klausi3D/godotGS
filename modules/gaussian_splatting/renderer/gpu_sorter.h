@@ -519,13 +519,38 @@ public:
         String fallback_reason;
     };
 
+    // Historical AUTO-selection element-count band boundaries. Two boundaries
+    // partition element counts into three bands: BITONIC (small), RADIX (mid),
+    // ONESWEEP (large). These constants are the single source of truth for the
+    // built-in fallback used when project settings are unavailable, and are the
+    // default values of the tunable sorting/{bitonic,radix}_max_elements
+    // settings (see SortingStrategyConfig). Keeping them here guarantees AUTO
+    // selection is identical for an unconfigured project.
+    static constexpr uint32_t AUTO_BITONIC_MAX_ELEMENTS = 32768u;    // count <= this  -> BITONIC
+    static constexpr uint32_t AUTO_ONESWEEP_MIN_ELEMENTS = 1048576u; // count >= this  -> ONESWEEP; between -> RADIX
+
+    // Live AUTO band boundaries, resolvable from project settings. The default
+    // values reproduce the historical hardcoded constants exactly, so an
+    // unconfigured project selects the same algorithm as before (#168).
+    struct AutoThresholds {
+        uint32_t bitonic_max_elements = AUTO_BITONIC_MAX_ELEMENTS;   // count <= this  -> BITONIC
+        uint32_t onesweep_min_elements = AUTO_ONESWEEP_MIN_ELEMENTS; // count >= this  -> ONESWEEP; between -> RADIX
+
+        // Resolve from the live SortingStrategyConfig project settings, mapping
+        // sorting/bitonic_max_elements -> the bitonic->radix boundary and
+        // sorting/radix_max_elements  -> the radix->onesweep boundary. Falls
+        // back to the historical constants when settings are unavailable.
+        static AutoThresholds from_project_settings();
+    };
+
     static Ref<IGPUSorter> create_sorter(SortingAlgorithm algorithm, RenderingDevice *rd, uint32_t max_elements,
             const SortKeyConfig &p_key_config = SortKeyConfig::from_settings());
     static SortingAlgorithm get_best_algorithm_for_size(uint32_t element_count, const SortKeyConfig &key_config);
     static SortingAlgorithm get_best_algorithm_for_size(uint32_t element_count, const SortKeyConfig &key_config, RenderingDevice *rd);
     static PolicyDecision evaluate_auto_policy(uint32_t element_count, const SortKeyConfig &key_config,
             const PolicyProbe &radix_probe, const PolicyProbe &bitonic_probe, const PolicyProbe &onesweep_probe,
-            bool require_indirect, bool require_64bit_keys);
+            bool require_indirect, bool require_64bit_keys,
+            const AutoThresholds &thresholds = AutoThresholds());
 
     // Capability probes - query algorithm capabilities without instantiation
     static bool probe_is_supported(SortingAlgorithm algorithm, RenderingDevice *rd);

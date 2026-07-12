@@ -164,9 +164,13 @@ private:
     // which cause crashes when RenderDoc hooks Vulkan (multiple devices not supported)
     bool renderdoc_compatibility_mode = false;
     static bool _detect_renderdoc();
-    // Sorting heuristics exposed through project settings
-    uint32_t sorting_bitonic_max = 131072;
-    uint32_t sorting_radix_max = 1500000;
+    // Sorting heuristics exposed through project settings. bitonic/radix maxima
+    // are the registered defaults for the AUTO band boundaries wired in
+    // GPUSorterFactory::AutoThresholds; they match the historical hardcoded
+    // thresholds (32768 / 1048576) so a fresh project's AUTO selection is
+    // unchanged (#168).
+    uint32_t sorting_bitonic_max = 32768;
+    uint32_t sorting_radix_max = 1048576;
     uint32_t sorting_onesweep_max = 3000000;
     uint32_t sorting_hybrid_trigger = 3000000;
     uint32_t sorting_hybrid_batch = 1500000;
