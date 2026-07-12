@@ -919,35 +919,35 @@
     {
       "effective_state": "gs_logger cached startup state.command_buffer",
       "key": "rendering/gaussian_splatting/logging/command_buffer",
-      "notes": "Registered in the manager logging block (core/gaussian_splat_manager.cpp) with a log-level enum hint; default 'warn' matches k_default_levels so registration is behavior-neutral. Read once at gs_logger startup (#172).",
+      "notes": "Per-category log level override (#172). Registered in the manager logging block (core/gaussian_splat_manager.cpp) with the inherit,off..trace enum hint; default 'inherit' = follow logging/verbosity (behavior-neutral: effective == verbosity == WARN by default). An explicit level overrides verbosity for this category. Read once at gs_logger startup.",
       "test_coverage": "inventory_only",
       "visibility": "editor_visible"
     },
     {
       "effective_state": "gs_logger cached startup state.compositor",
       "key": "rendering/gaussian_splatting/logging/compositor",
-      "notes": "Registered in the manager logging block (core/gaussian_splat_manager.cpp) with a log-level enum hint; default 'warn' matches k_default_levels so registration is behavior-neutral. Read once at gs_logger startup (#172).",
+      "notes": "Per-category log level override (#172). Registered in the manager logging block (core/gaussian_splat_manager.cpp) with the inherit,off..trace enum hint; default 'inherit' = follow logging/verbosity (behavior-neutral: effective == verbosity == WARN by default). An explicit level overrides verbosity for this category. Read once at gs_logger startup.",
       "test_coverage": "inventory_only",
       "visibility": "editor_visible"
     },
     {
       "effective_state": "gs_logger cached startup state.general",
       "key": "rendering/gaussian_splatting/logging/general",
-      "notes": "Registered in the manager logging block (core/gaussian_splat_manager.cpp) with a log-level enum hint; default 'warn' matches k_default_levels so registration is behavior-neutral. Read once at gs_logger startup (#172).",
+      "notes": "Per-category log level override (#172). Registered in the manager logging block (core/gaussian_splat_manager.cpp) with the inherit,off..trace enum hint; default 'inherit' = follow logging/verbosity (behavior-neutral: effective == verbosity == WARN by default). An explicit level overrides verbosity for this category. Read once at gs_logger startup.",
       "test_coverage": "inventory_only",
       "visibility": "editor_visible"
     },
     {
       "effective_state": "gs_logger cached startup state.gpu_memory",
       "key": "rendering/gaussian_splatting/logging/gpu_memory",
-      "notes": "Registered in the manager logging block (core/gaussian_splat_manager.cpp) with a log-level enum hint; default 'warn' matches k_default_levels so registration is behavior-neutral. Read once at gs_logger startup (#172).",
+      "notes": "Per-category log level override (#172). Registered in the manager logging block (core/gaussian_splat_manager.cpp) with the inherit,off..trace enum hint; default 'inherit' = follow logging/verbosity (behavior-neutral: effective == verbosity == WARN by default). An explicit level overrides verbosity for this category. Read once at gs_logger startup.",
       "test_coverage": "inventory_only",
       "visibility": "editor_visible"
     },
     {
       "effective_state": "gs_logger cached startup state.gpu_sort",
       "key": "rendering/gaussian_splatting/logging/gpu_sort",
-      "notes": "Registered in the manager logging block (core/gaussian_splat_manager.cpp) with a log-level enum hint; default 'warn' matches k_default_levels so registration is behavior-neutral. Read once at gs_logger startup (#172).",
+      "notes": "Per-category log level override (#172). Registered in the manager logging block (core/gaussian_splat_manager.cpp) with the inherit,off..trace enum hint; default 'inherit' = follow logging/verbosity (behavior-neutral: effective == verbosity == WARN by default). An explicit level overrides verbosity for this category. Read once at gs_logger startup.",
       "test_coverage": "inventory_only",
       "visibility": "editor_visible"
     },
@@ -960,28 +960,28 @@
     {
       "effective_state": "gs_logger cached startup state.renderer",
       "key": "rendering/gaussian_splatting/logging/renderer",
-      "notes": "Registered in the manager logging block (core/gaussian_splat_manager.cpp) with a log-level enum hint; default 'warn' matches k_default_levels so registration is behavior-neutral. Read once at gs_logger startup (#172).",
+      "notes": "Per-category log level override (#172). Registered in the manager logging block (core/gaussian_splat_manager.cpp) with the inherit,off..trace enum hint; default 'inherit' = follow logging/verbosity (behavior-neutral: effective == verbosity == WARN by default). An explicit level overrides verbosity for this category. Read once at gs_logger startup.",
       "test_coverage": "inventory_only",
       "visibility": "editor_visible"
     },
     {
       "effective_state": "gs_logger cached startup state.streaming",
       "key": "rendering/gaussian_splatting/logging/streaming",
-      "notes": "Registered in the manager logging block (core/gaussian_splat_manager.cpp) with a log-level enum hint; default 'warn' matches k_default_levels so registration is behavior-neutral. Read once at gs_logger startup (#172).",
+      "notes": "Per-category log level override (#172). Registered in the manager logging block (core/gaussian_splat_manager.cpp) with the inherit,off..trace enum hint; default 'inherit' = follow logging/verbosity (behavior-neutral: effective == verbosity == WARN by default). An explicit level overrides verbosity for this category. Read once at gs_logger startup.",
       "test_coverage": "inventory_only",
       "visibility": "editor_visible"
     },
     {
       "effective_state": "gs_logger cached startup state.tests",
       "key": "rendering/gaussian_splatting/logging/tests",
-      "notes": "Registered in the manager logging block (core/gaussian_splat_manager.cpp) with a log-level enum hint; default 'warn' matches k_default_levels so registration is behavior-neutral. Read once at gs_logger startup (#172).",
+      "notes": "Per-category log level override (#172). Registered in the manager logging block (core/gaussian_splat_manager.cpp) with the inherit,off..trace enum hint; default 'inherit' = follow logging/verbosity (behavior-neutral: effective == verbosity == WARN by default). An explicit level overrides verbosity for this category. Read once at gs_logger startup.",
       "test_coverage": "inventory_only",
       "visibility": "editor_visible"
     },
     {
       "effective_state": "gs_logger cached startup state.verbosity",
       "key": "rendering/gaussian_splatting/logging/verbosity",
-      "notes": "Logging settings are cached through gs_logger startup initialization; category overrides are startup-only until a refresh path exists.",
+      "notes": "Master log level (#172). Severity ordering off < error < warn < info < debug < trace; default 'warn' (error + warnings). 'silent' is a back-compat alias that now maps to OFF (fully silent) and emits a one-time migration warning. Read once at gs_logger startup.",
       "test_coverage": "inventory_only"
     },
     {

@@ -1102,37 +1102,42 @@ void GaussianSplatManager::initialize_module() {
 	GLOBAL_DEF("rendering/gaussian_splatting/debug/enable_autotune_logs", false);
 	GLOBAL_DEF("rendering/gaussian_splatting/debug/enable_data_logging", false);
 
-	// Logging configuration (quiet by default).
-	GLOBAL_DEF("rendering/gaussian_splatting/logging/verbosity", "silent");
+	// Logging configuration. verbosity is the master level; "silent" is a
+	// back-compat alias that now maps to OFF (fully silent). Default "warn" keeps
+	// the historical error + warning output. See logger/gs_logger.cpp for semantics.
+	GLOBAL_DEF("rendering/gaussian_splatting/logging/verbosity", "warn");
+	ps->set_custom_property_info(PropertyInfo(Variant::STRING,
+			"rendering/gaussian_splatting/logging/verbosity", PROPERTY_HINT_ENUM, GS_LOG_LEVEL_ENUM_HINT));
 	GLOBAL_DEF("rendering/gaussian_splatting/logging/rate_limit_ms", 1000);
 	// Per-category log levels. gs_logger reads these at startup
-	// (logger/gs_logger.cpp); each defaults to WARN (k_default_levels), matching
-	// the unset behavior, so registration is behavior-neutral. Values parse
+	// (logger/gs_logger.cpp); each defaults to "inherit" (follow verbosity), so
+	// registration is behavior-neutral (effective == verbosity == WARN by default).
+	// An explicit level overrides verbosity for that category. Values parse
 	// case-insensitively via string_to_level(); the enum lists the accepted levels.
-	GLOBAL_DEF("rendering/gaussian_splatting/logging/general", "warn");
+	GLOBAL_DEF("rendering/gaussian_splatting/logging/general", "inherit");
 	ps->set_custom_property_info(PropertyInfo(Variant::STRING,
-			"rendering/gaussian_splatting/logging/general", PROPERTY_HINT_ENUM, GS_LOG_LEVEL_ENUM_HINT));
-	GLOBAL_DEF("rendering/gaussian_splatting/logging/renderer", "warn");
+			"rendering/gaussian_splatting/logging/general", PROPERTY_HINT_ENUM, GS_LOG_CATEGORY_LEVEL_ENUM_HINT));
+	GLOBAL_DEF("rendering/gaussian_splatting/logging/renderer", "inherit");
 	ps->set_custom_property_info(PropertyInfo(Variant::STRING,
-			"rendering/gaussian_splatting/logging/renderer", PROPERTY_HINT_ENUM, GS_LOG_LEVEL_ENUM_HINT));
-	GLOBAL_DEF("rendering/gaussian_splatting/logging/streaming", "warn");
+			"rendering/gaussian_splatting/logging/renderer", PROPERTY_HINT_ENUM, GS_LOG_CATEGORY_LEVEL_ENUM_HINT));
+	GLOBAL_DEF("rendering/gaussian_splatting/logging/streaming", "inherit");
 	ps->set_custom_property_info(PropertyInfo(Variant::STRING,
-			"rendering/gaussian_splatting/logging/streaming", PROPERTY_HINT_ENUM, GS_LOG_LEVEL_ENUM_HINT));
-	GLOBAL_DEF("rendering/gaussian_splatting/logging/gpu_sort", "warn");
+			"rendering/gaussian_splatting/logging/streaming", PROPERTY_HINT_ENUM, GS_LOG_CATEGORY_LEVEL_ENUM_HINT));
+	GLOBAL_DEF("rendering/gaussian_splatting/logging/gpu_sort", "inherit");
 	ps->set_custom_property_info(PropertyInfo(Variant::STRING,
-			"rendering/gaussian_splatting/logging/gpu_sort", PROPERTY_HINT_ENUM, GS_LOG_LEVEL_ENUM_HINT));
-	GLOBAL_DEF("rendering/gaussian_splatting/logging/gpu_memory", "warn");
+			"rendering/gaussian_splatting/logging/gpu_sort", PROPERTY_HINT_ENUM, GS_LOG_CATEGORY_LEVEL_ENUM_HINT));
+	GLOBAL_DEF("rendering/gaussian_splatting/logging/gpu_memory", "inherit");
 	ps->set_custom_property_info(PropertyInfo(Variant::STRING,
-			"rendering/gaussian_splatting/logging/gpu_memory", PROPERTY_HINT_ENUM, GS_LOG_LEVEL_ENUM_HINT));
-	GLOBAL_DEF("rendering/gaussian_splatting/logging/compositor", "warn");
+			"rendering/gaussian_splatting/logging/gpu_memory", PROPERTY_HINT_ENUM, GS_LOG_CATEGORY_LEVEL_ENUM_HINT));
+	GLOBAL_DEF("rendering/gaussian_splatting/logging/compositor", "inherit");
 	ps->set_custom_property_info(PropertyInfo(Variant::STRING,
-			"rendering/gaussian_splatting/logging/compositor", PROPERTY_HINT_ENUM, GS_LOG_LEVEL_ENUM_HINT));
-	GLOBAL_DEF("rendering/gaussian_splatting/logging/command_buffer", "warn");
+			"rendering/gaussian_splatting/logging/compositor", PROPERTY_HINT_ENUM, GS_LOG_CATEGORY_LEVEL_ENUM_HINT));
+	GLOBAL_DEF("rendering/gaussian_splatting/logging/command_buffer", "inherit");
 	ps->set_custom_property_info(PropertyInfo(Variant::STRING,
-			"rendering/gaussian_splatting/logging/command_buffer", PROPERTY_HINT_ENUM, GS_LOG_LEVEL_ENUM_HINT));
-	GLOBAL_DEF("rendering/gaussian_splatting/logging/tests", "warn");
+			"rendering/gaussian_splatting/logging/command_buffer", PROPERTY_HINT_ENUM, GS_LOG_CATEGORY_LEVEL_ENUM_HINT));
+	GLOBAL_DEF("rendering/gaussian_splatting/logging/tests", "inherit");
 	ps->set_custom_property_info(PropertyInfo(Variant::STRING,
-			"rendering/gaussian_splatting/logging/tests", PROPERTY_HINT_ENUM, GS_LOG_LEVEL_ENUM_HINT));
+			"rendering/gaussian_splatting/logging/tests", PROPERTY_HINT_ENUM, GS_LOG_CATEGORY_LEVEL_ENUM_HINT));
 
 	// Production diagnostics contract + perf gates.
 	GLOBAL_DEF("rendering/gaussian_splatting/diagnostics/validate_production_metrics", true);
