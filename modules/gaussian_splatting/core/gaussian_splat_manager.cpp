@@ -282,9 +282,17 @@ GaussianSplatManager::GaussianSplatManager() {
         return;
     }
 
-    // Initialize module configuration from project settings
+    // Initialize module configuration from project settings.
+    // DEPRECATED / NO-OP: gpu_sorting_enabled is reported for compatibility (bound
+    // property + get_global_stats) but does NOT gate the sort path -- no renderer
+    // reads it; GPU sorting is always used when available. To force CPU sorting use
+    // rendering/gaussian_splatting/sorting/force_cpu_sort. The member/property are
+    // kept for ABI; warn once if a project explicitly disables it expecting an effect.
     if (ps->has_setting("rendering/gaussian_splatting/gpu_sorting_enabled")) {
         gpu_sorting_enabled = ps->get_setting("rendering/gaussian_splatting/gpu_sorting_enabled");
+        if (!gpu_sorting_enabled) {
+            WARN_PRINT_ONCE("rendering/gaussian_splatting/gpu_sorting_enabled is deprecated and has no effect on the sort path; GPU sorting is always used when available. Use rendering/gaussian_splatting/sorting/force_cpu_sort to force CPU sorting.");
+        }
     }
     if (ps->has_setting("rendering/gaussian_splatting/shared_submission_device_enabled")) {
         shared_submission_device_enabled = ps->get_setting("rendering/gaussian_splatting/shared_submission_device_enabled");

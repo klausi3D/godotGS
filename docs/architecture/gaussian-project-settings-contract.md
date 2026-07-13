@@ -92,6 +92,9 @@ Current candidates include:
 - `rendering/gaussian_splatting/pipeline/enable_all_experimental`
 - Quantization `min_chunk_size`/`max_chunk_size` knobs that currently need
   producer-path proof before support or removal.
+- `rendering/gaussian_splatting/gpu_sorting_enabled` — deprecated no-op (see S6c
+  below); kept registered + bound for ABI, flagged `cleanup_candidate` pending a
+  wire-or-remove decision.
 
 Removed in settings-hygiene slice S6a: `debug/enable_mainloop_probes`,
 `max_gpu_buffer_count`, and `streaming/async_io_enabled` were registered public
@@ -112,6 +115,16 @@ deleted; each is now a `removed` entry in `retired_settings` (kept in
 feature is tracked in #480 (hybrid sort), #481 (two-stage sort),
 #482 (adaptive chunking), and #483 (progressive SH). This change is
 behavior-neutral.
+
+Deprecated in settings-hygiene slice S6c: `gpu_sorting_enabled` is read into a
+reported `GaussianSplatManager` flag (bound property + `get_global_stats`) but no
+renderer consults it — GPU sorting is always used when available, and CPU sorting
+is controlled by `sorting/force_cpu_sort`. Its documentation previously and
+falsely claimed "disabling falls back to CPU sorting"; that is corrected. The key,
+member, and bound property are kept for ABI (marked `cleanup_candidate` in the
+manifest), a one-time WARN fires if a project sets it `false`, and it is NOT
+retired/removed (still a live registered setting). This change is behavior-neutral
+aside from the new deprecation warning.
 
 Resolved in #167 (settings-hygiene slice 3): `culling/opacity_aware_bounds`,
 `culling/visibility_threshold`, and `cull/overflow_autotune_enabled` are no
