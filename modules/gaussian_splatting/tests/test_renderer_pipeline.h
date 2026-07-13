@@ -5364,7 +5364,6 @@ TEST_CASE("[GaussianSplatting][Pipeline] Working-set sizing produces smaller cap
 
 TEST_CASE("[GaussianSplatting][Pipeline] Working-set sizing falls back to dispatch_chunk_count when effective_max is zero") {
 	const uint32_t dispatch_chunk_count = 32;
-	const uint32_t max_chunk_splats = 65536;
 	const uint32_t effective_max_chunks = 0; // cold start
 
 	const uint32_t working_set_chunks = (effective_max_chunks > 0)
