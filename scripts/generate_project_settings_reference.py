@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
 from pathlib import Path
 import re
 from collections import defaultdict
@@ -190,10 +189,11 @@ def build_reference(manual_block: list[str] | None = None) -> str:
     ]
     unconsumed = [entry for entry in entries if not has_non_registration_reference(entry, references)]
 
+    # No "Last generated" timestamp: it would make the output non-reproducible
+    # (a regen on a different day would churn the file). Git history records when
+    # the reference was regenerated.
     sections: list[str] = [
         "# Project Settings Reference",
-        "",
-        f"Last generated: {date.today().isoformat()}",
         "",
     ]
     # Re-inject the hand-maintained annotation region verbatim (see extract_manual_block).

@@ -1,7 +1,5 @@
 # Project Settings Reference
 
-Last generated: 2026-07-13
-
 > **Culling status (manual annotation, 2026-04-26).** Per-key state of the
 > `rendering/gaussian_splatting/culling/*` settings:
 >
