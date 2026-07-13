@@ -171,7 +171,6 @@ private:
     // unchanged (#168).
     uint32_t sorting_bitonic_max = 32768;
     uint32_t sorting_radix_max = 1048576;
-    uint32_t sorting_onesweep_max = 3000000;
     uint32_t sorting_history_size = 120;
     uint32_t sorting_log_interval = 60;
     float sorting_target_ms = 2.0f;
@@ -405,7 +404,6 @@ public:
 
     uint32_t get_sorting_bitonic_max() const { return sorting_bitonic_max; }
     uint32_t get_sorting_radix_max() const { return sorting_radix_max; }
-    uint32_t get_sorting_onesweep_max() const { return sorting_onesweep_max; }
     uint32_t get_sorting_history_size() const { return sorting_history_size; }
     uint32_t get_sorting_log_interval() const { return sorting_log_interval; }
     float get_sorting_target_ms() const { return sorting_target_ms; }

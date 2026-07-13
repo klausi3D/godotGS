@@ -21,12 +21,10 @@ struct SortingStrategyConfig {
     //   radix_max_elements   = the radix->onesweep boundary (count >= it -> ONESWEEP)
     // Defaults reproduce the historical hardcoded AUTO thresholds
     // (32768 / 1048576) so an unconfigured project selects the same algorithm as
-    // before (#168). onesweep_max_elements is not consumed by AUTO band
-    // selection (the large band is unbounded above); it is retained for the
-    // sanitize-ordering contract and diagnostics.
+    // before (#168). The OneSweep band is unbounded above, so there is no third
+    // boundary to configure.
     uint32_t bitonic_max_elements = 32768;
     uint32_t radix_max_elements = 1048576;
-    uint32_t onesweep_max_elements = 10000000;
     uint32_t history_size = 120;
     uint32_t log_interval_frames = 60;
     float target_sort_time_ms = 2.0f;

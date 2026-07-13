@@ -19,8 +19,6 @@ struct PipelineFeatureSet {
     bool enable_sh_amortization = false;
     bool enable_all_experimental = false;
     int sh_amortization_divisor = 10;
-    bool disable_sh_amortization_on_visibility_change = true;
-    float sh_amortization_visibility_threshold = 0.25f;
 
     static const String SECTION_PATH;
     static const String ENABLE_PACKED_STAGE_DATA_PATH;
@@ -28,8 +26,6 @@ struct PipelineFeatureSet {
     static const String ENABLE_FAST_RASTER_PATH;
     static const String ENABLE_SH_AMORTIZATION_PATH;
     static const String SH_AMORTIZATION_DIVISOR_PATH;
-    static const String DISABLE_SH_AMORTIZATION_VISIBILITY_PATH;
-    static const String SH_AMORTIZATION_VISIBILITY_THRESHOLD_PATH;
     static const String ENABLE_ALL_EXPERIMENTAL_PATH;
 
     void load_from_project_settings();

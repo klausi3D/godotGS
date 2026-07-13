@@ -39,20 +39,12 @@ struct QuantizationConfig {
     // Enable scale quantization (in addition to position)
     bool quantize_scales = false;
 
-    // Minimum chunk size for quantization (smaller chunks = better precision)
-    uint32_t min_chunk_size = 256;
-
-    // Maximum chunk size for quantization (larger chunks = more memory efficient)
-    uint32_t max_chunk_size = 8192;
-
     // Project settings paths
     static const String SECTION_PATH;
     static const String PER_CHUNK_QUANTIZATION_PATH;
     static const String POSITION_BITS_PATH;
     static const String SCALE_BITS_PATH;
     static const String QUANTIZE_SCALES_PATH;
-    static const String MIN_CHUNK_SIZE_PATH;
-    static const String MAX_CHUNK_SIZE_PATH;
 
     // Configuration management
     void load_from_project_settings();

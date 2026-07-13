@@ -300,7 +300,6 @@ GaussianSplatManager::GaussianSplatManager() {
 
     sorting_bitonic_max = _get_uint_setting(ps, "rendering/gaussian_splatting/sorting/bitonic_max_elements", sorting_bitonic_max);
     sorting_radix_max = _get_uint_setting(ps, "rendering/gaussian_splatting/sorting/radix_max_elements", sorting_radix_max);
-    sorting_onesweep_max = _get_uint_setting(ps, "rendering/gaussian_splatting/sorting/onesweep_max_elements", sorting_onesweep_max);
     sorting_history_size = _get_uint_setting(ps, "rendering/gaussian_splatting/sorting/history_size", sorting_history_size);
     sorting_log_interval = _get_uint_setting(ps, "rendering/gaussian_splatting/sorting/log_interval_frames", sorting_log_interval);
     sorting_target_ms = MAX(0.0f, gs::sorting_settings::get_target_sort_time_ms(ps, sorting_target_ms));
@@ -975,7 +974,6 @@ Dictionary GaussianSplatManager::get_sorting_config() const {
     Dictionary cfg;
     cfg["bitonic_max_elements"] = sorting_bitonic_max;
     cfg["radix_max_elements"] = sorting_radix_max;
-    cfg["onesweep_max_elements"] = sorting_onesweep_max;
     cfg["history_size"] = sorting_history_size;
     cfg["log_interval_frames"] = sorting_log_interval;
     cfg["target_sort_time_ms"] = sorting_target_ms;
@@ -1237,7 +1235,6 @@ void GaussianSplatManager::initialize_module() {
 	// Sorting configuration settings from master
 	GLOBAL_DEF("rendering/gaussian_splatting/sorting/bitonic_max_elements", (int)sorting_bitonic_max);
 	GLOBAL_DEF("rendering/gaussian_splatting/sorting/radix_max_elements", (int)sorting_radix_max);
-	GLOBAL_DEF("rendering/gaussian_splatting/sorting/onesweep_max_elements", (int)sorting_onesweep_max);
     GLOBAL_DEF("rendering/gaussian_splatting/sorting/history_size", (int)sorting_history_size);
     GLOBAL_DEF("rendering/gaussian_splatting/sorting/log_interval_frames", (int)sorting_log_interval);
     // Keep the canonical sort-time setting registered against its stable code

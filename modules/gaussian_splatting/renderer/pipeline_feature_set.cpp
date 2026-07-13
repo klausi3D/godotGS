@@ -12,8 +12,6 @@ const String PipelineFeatureSet::ENABLE_TIGHTER_BOUNDS_PATH = SECTION_PATH + "en
 const String PipelineFeatureSet::ENABLE_FAST_RASTER_PATH = SECTION_PATH + "enable_fast_raster";
 const String PipelineFeatureSet::ENABLE_SH_AMORTIZATION_PATH = SECTION_PATH + "enable_sh_amortization";
 const String PipelineFeatureSet::SH_AMORTIZATION_DIVISOR_PATH = SECTION_PATH + "sh_amortization_divisor";
-const String PipelineFeatureSet::DISABLE_SH_AMORTIZATION_VISIBILITY_PATH = SECTION_PATH + "sh_amortization_disable_on_visibility_change";
-const String PipelineFeatureSet::SH_AMORTIZATION_VISIBILITY_THRESHOLD_PATH = SECTION_PATH + "sh_amortization_visibility_threshold";
 const String PipelineFeatureSet::ENABLE_ALL_EXPERIMENTAL_PATH = SECTION_PATH + "enable_all_experimental";
 
 PipelineFeatureSet g_pipeline_feature_set;
@@ -66,10 +64,6 @@ static void _register_pipeline_project_settings() {
                     PROPERTY_HINT_NONE, String(),
                     PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_STORAGE),
             g_pipeline_feature_set.sh_amortization_divisor);
-    GLOBAL_DEF(PipelineFeatureSet::DISABLE_SH_AMORTIZATION_VISIBILITY_PATH,
-            g_pipeline_feature_set.disable_sh_amortization_on_visibility_change);
-    GLOBAL_DEF(PipelineFeatureSet::SH_AMORTIZATION_VISIBILITY_THRESHOLD_PATH,
-            g_pipeline_feature_set.sh_amortization_visibility_threshold);
     GLOBAL_DEF(
             PropertyInfo(Variant::BOOL, PipelineFeatureSet::ENABLE_ALL_EXPERIMENTAL_PATH,
                     PROPERTY_HINT_NONE, String(),
@@ -111,10 +105,6 @@ void PipelineFeatureSet::load_from_project_settings() {
     enable_fast_raster = gs::settings::get_bool(ps, ENABLE_FAST_RASTER_PATH, false);
     enable_sh_amortization = gs::settings::get_bool(ps, ENABLE_SH_AMORTIZATION_PATH, false);
     sh_amortization_divisor = gs::settings::get_int(ps, SH_AMORTIZATION_DIVISOR_PATH, sh_amortization_divisor);
-    disable_sh_amortization_on_visibility_change = gs::settings::get_bool(ps, DISABLE_SH_AMORTIZATION_VISIBILITY_PATH,
-            disable_sh_amortization_on_visibility_change);
-    sh_amortization_visibility_threshold = gs::settings::get_float(ps, SH_AMORTIZATION_VISIBILITY_THRESHOLD_PATH,
-            sh_amortization_visibility_threshold);
     enable_all_experimental = gs::settings::get_bool(ps, ENABLE_ALL_EXPERIMENTAL_PATH, false);
 
     const String tier_preset = ps->has_setting("rendering/gaussian_splatting/quality/tier_preset")
@@ -223,8 +213,6 @@ void PipelineFeatureSet::save_to_project_settings() const {
     ps->set_setting(ENABLE_FAST_RASTER_PATH, enable_fast_raster);
     ps->set_setting(ENABLE_SH_AMORTIZATION_PATH, enable_sh_amortization);
     ps->set_setting(SH_AMORTIZATION_DIVISOR_PATH, sh_amortization_divisor);
-    ps->set_setting(DISABLE_SH_AMORTIZATION_VISIBILITY_PATH, disable_sh_amortization_on_visibility_change);
-    ps->set_setting(SH_AMORTIZATION_VISIBILITY_THRESHOLD_PATH, sh_amortization_visibility_threshold);
     ps->set_setting(ENABLE_ALL_EXPERIMENTAL_PATH, enable_all_experimental);
 
     ps->save();
@@ -238,8 +226,6 @@ void PipelineFeatureSet::reset_to_defaults() {
     enable_fast_raster = false;
     enable_sh_amortization = false;
     sh_amortization_divisor = 10;
-    disable_sh_amortization_on_visibility_change = true;
-    sh_amortization_visibility_threshold = 0.25f;
     enable_all_experimental = false;
 
     GS_LOG_INFO_DEFAULT("[Pipeline Feature Set] Reset to default configuration");
@@ -263,19 +249,6 @@ String PipelineFeatureSet::get_validation_errors(uint32_t p_total_gaussians) con
 
     if (sh_amortization_requested && sh_amortization_divisor <= 1) {
         errors.push_back("SH amortization divisor must be > 1.");
-    }
-
-    if (sh_amortization_requested && disable_sh_amortization_on_visibility_change) {
-        if (!Math::is_finite(sh_amortization_visibility_threshold)) {
-            errors.push_back("SH amortization visibility threshold must be finite.");
-        } else {
-            if (sh_amortization_visibility_threshold < 0.0f) {
-                errors.push_back("SH amortization visibility threshold must be >= 0.");
-            }
-            if (sh_amortization_visibility_threshold > 1.0f) {
-                errors.push_back("SH amortization visibility threshold must be <= 1.");
-            }
-        }
     }
 
     return String("\n").join(errors);
@@ -339,19 +312,6 @@ PipelineFeatureSet PipelineFeatureSet::get_effective(RenderingDevice *p_device,
             provenance_snapshot[StringName("pipeline_sh_amortization_divisor")] = divisor_entry;
         }
     }
-    if (effective.enable_sh_amortization && effective.disable_sh_amortization_on_visibility_change) {
-        if (!Math::is_finite(effective.sh_amortization_visibility_threshold)) {
-            warn("SH amortization visibility threshold must be finite; resetting to 0.25.");
-            effective.sh_amortization_visibility_threshold = 0.25f;
-        } else if (effective.sh_amortization_visibility_threshold < 0.0f) {
-            warn("SH amortization visibility threshold < 0; clamping to 0.");
-            effective.sh_amortization_visibility_threshold = 0.0f;
-        } else if (effective.sh_amortization_visibility_threshold > 1.0f) {
-            warn("SH amortization visibility threshold > 1; clamping to 1.");
-            effective.sh_amortization_visibility_threshold = 1.0f;
-        }
-    }
-
     if (!p_device) {
         warn("No RenderingDevice available to validate pipeline feature capabilities.");
         effective_provenance_snapshot = provenance_snapshot;
@@ -393,10 +353,6 @@ void PipelineFeatureSet::print_config_summary() const {
     GS_LOG_INFO_DEFAULT(vformat("[Pipeline Feature Set] fast_raster: %s", enable_fast_raster ? "enabled" : "disabled"));
     GS_LOG_INFO_DEFAULT(vformat("[Pipeline Feature Set] sh_amortization: %s", enable_sh_amortization ? "enabled" : "disabled"));
     GS_LOG_INFO_DEFAULT(vformat("[Pipeline Feature Set] sh_amortization_divisor: %d", sh_amortization_divisor));
-    GS_LOG_INFO_DEFAULT(vformat("[Pipeline Feature Set] sh_amortization_visibility_threshold: %.3f",
-            sh_amortization_visibility_threshold));
-    GS_LOG_INFO_DEFAULT(vformat("[Pipeline Feature Set] sh_amortization_disable_on_visibility_change: %s",
-            disable_sh_amortization_on_visibility_change ? "enabled" : "disabled"));
     GS_LOG_INFO_DEFAULT("[Pipeline Feature Set] ================================================");
 }
 
