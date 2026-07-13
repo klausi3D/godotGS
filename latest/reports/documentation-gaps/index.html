@@ -4249,10 +4249,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattinginterfacestile_rasterizerh" class="md-nav__link">
+  <a href="#modulesgaussian_splattingcoregaussian_splat_managercpp" class="md-nav__link">
     <span class="md-ellipsis">
       
-        modules/gaussian_splatting/interfaces/tile_rasterizer.h
+        modules/gaussian_splatting/core/gaussian_splat_manager.cpp
       
     </span>
   </a>
@@ -4260,10 +4260,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingcoregaussian_splat_managercpp" class="md-nav__link">
+  <a href="#modulesgaussian_splattinginterfacestile_rasterizerh" class="md-nav__link">
     <span class="md-ellipsis">
       
-        modules/gaussian_splatting/core/gaussian_splat_manager.cpp
+        modules/gaussian_splatting/interfaces/tile_rasterizer.h
       
     </span>
   </a>
@@ -10057,11 +10057,6 @@
 <li>line 1343: static GPUSorterFactory::PolicyProbe _fully_supported_probe(...</li>
 <li>line 1353: static SortKeyConfig _band_test_key_config() {...</li>
 </ul>
-<h2 id="modulesgaussian_splattinginterfacestile_rasterizerh">modules/gaussian_splatting/interfaces/tile_rasterizer.h<a class="headerlink" href="#modulesgaussian_splattinginterfacestile_rasterizerh" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 64: Ref<tilerenderer> get_tile_renderer() const { return tile_re...</tilerenderer></li>
-<li>line 71: bool is_using_external_renderer() const { return using_exter...</li>
-</ul>
 <h2 id="modulesgaussian_splattingcoregaussian_splat_managercpp">modules/gaussian_splatting/core/gaussian_splat_manager.cpp<a class="headerlink" href="#modulesgaussian_splattingcoregaussian_splat_managercpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 40: static uint32_t _get_uint_setting(ProjectSettings *ps, const...</li>
@@ -10096,12 +10091,17 @@
 <li>line 964: void GaussianSplatManager::set_shared_submission_device_enab...</li>
 <li>line 968: Dictionary GaussianSplatManager::get_sorting_config() const ...</li>
 <li>line 984: void GaussianSplatManager::initialize_module() {...</li>
-<li>line 1259: void GaussianSplatManager::finalize_module() {...</li>
-<li>line 1327: GaussianSplatManager::ScopedSubmissionLock GaussianSplatMana...</li>
-<li>line 1349: bool GaussianSplatManager::is_shared_submission_device(Rende...</li>
-<li>line 1353: void GaussianSplatManager::ensure_render_thread_local_device...</li>
-<li>line 1370: void GaussianSplatManager::register_node(GaussianSplatNode3D...</li>
-<li>line 1391: void GaussianSplatManager::unregister_node(GaussianSplatNode...</li>
+<li>line 1255: void GaussianSplatManager::finalize_module() {...</li>
+<li>line 1323: GaussianSplatManager::ScopedSubmissionLock GaussianSplatMana...</li>
+<li>line 1345: bool GaussianSplatManager::is_shared_submission_device(Rende...</li>
+<li>line 1349: void GaussianSplatManager::ensure_render_thread_local_device...</li>
+<li>line 1366: void GaussianSplatManager::register_node(GaussianSplatNode3D...</li>
+<li>line 1387: void GaussianSplatManager::unregister_node(GaussianSplatNode...</li>
+</ul>
+<h2 id="modulesgaussian_splattinginterfacestile_rasterizerh">modules/gaussian_splatting/interfaces/tile_rasterizer.h<a class="headerlink" href="#modulesgaussian_splattinginterfacestile_rasterizerh" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 64: Ref<tilerenderer> get_tile_renderer() const { return tile_re...</tilerenderer></li>
+<li>line 71: bool is_using_external_renderer() const { return using_exter...</li>
 </ul>
 <h2 id="modulesgaussian_splattingnodesgaussian_splat_node_3dcpp">modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp<a class="headerlink" href="#modulesgaussian_splattingnodesgaussian_splat_node_3dcpp" title="Permanent link">¶</a></h2>
 <ul>
@@ -11513,7 +11513,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 13, 2026 08:45:28 UTC">July 13, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 13, 2026 09:51:52 UTC">July 13, 2026</span>
   </span>
 
     
