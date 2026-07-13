@@ -89,12 +89,17 @@ wave only inventories them.
 
 Current candidates include:
 
-- `rendering/gaussian_splatting/debug/enable_mainloop_probes`
-- `rendering/gaussian_splatting/max_gpu_buffer_count`
 - `rendering/gaussian_splatting/pipeline/enable_all_experimental`
-- `rendering/gaussian_splatting/streaming/async_io_enabled`
 - Sorting threshold knobs loaded by `SortingStrategyConfig` but not used by the live AUTO selector policy.
 - Quantization chunk-size knobs that currently need producer-path proof before support or removal.
+
+Removed in settings-hygiene slice S6a: `debug/enable_mainloop_probes`,
+`max_gpu_buffer_count`, and `streaming/async_io_enabled` were registered public
+keys with zero production readers (no runtime effect). Their `GLOBAL_DEF`
+registrations and manifest entries were deleted, and each is now recorded as a
+`removed` entry in `config/project_settings_public_api_baseline.json`
+(`retired_settings`) while remaining listed in `public_settings` for public API
+history. This change is behavior-neutral.
 
 Resolved in #167 (settings-hygiene slice 3): `culling/opacity_aware_bounds`,
 `culling/visibility_threshold`, and `cull/overflow_autotune_enabled` are no

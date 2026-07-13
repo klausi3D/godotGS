@@ -60,7 +60,6 @@ rendering/anti_aliasing/quality/msaa_3d=1
 rendering/environment/defaults/default_environment="res://scenes/environment.tres"
 rendering/gaussian_splatting/gpu_sorting_enabled=true
 rendering/gaussian_splatting/async_compute_enabled=false
-rendering/gaussian_splatting/max_gpu_buffer_count=128
 rendering/gaussian_splatting/culling/octree_max_depth=8
 rendering/gaussian_splatting/culling/min_gaussians_per_leaf=32
 rendering/gaussian_splatting/lod/min_screen_size_pixels=1.5

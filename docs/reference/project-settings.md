@@ -72,9 +72,9 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
 
 | Coverage | Count |
 | --- | ---: |
-| Registered keys | 129 |
+| Registered keys | 126 |
 | Runtime-only keys | 29 |
-| Registered keys without additional literal lookup | 7 |
+| Registered keys without additional literal lookup | 4 |
 
 #### Core
 
@@ -91,11 +91,6 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
       <td><pre><code>rendering/gaussian_splatting/gpu_sorting_enabled</code></pre></td>
       <td><pre><code>true</code></pre></td>
       <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:987</code></pre></td>
-    </tr>
-    <tr>
-      <td><pre><code>rendering/gaussian_splatting/max_gpu_buffer_count</code></pre></td>
-      <td><pre><code>128</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1020</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/renderdoc_compatibility</code></pre></td>
@@ -193,11 +188,6 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
     </tr>
   </thead>
   <tbody>
-    <tr>
-      <td><pre><code>rendering/gaussian_splatting/streaming/async_io_enabled</code></pre></td>
-      <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1206</code></pre></td>
-    </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/async_pack_enabled</code></pre></td>
       <td><pre><code>true</code></pre></td>
@@ -604,11 +594,6 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
       <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1094</code></pre></td>
     </tr>
     <tr>
-      <td><pre><code>rendering/gaussian_splatting/debug/enable_mainloop_probes</code></pre></td>
-      <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1088</code></pre></td>
-    </tr>
-    <tr>
       <td><pre><code>rendering/gaussian_splatting/debug/enable_sort_path_logs</code></pre></td>
       <td><pre><code>false</code></pre></td>
       <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1090</code></pre></td>
@@ -946,10 +931,7 @@ These registered keys have no additional string-literal references beyond their 
 | `rendering/gaussian_splatting/cull/overflow_autotune_enabled` | `modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1082` |
 | `rendering/gaussian_splatting/culling/opacity_aware_bounds` | `modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1071` |
 | `rendering/gaussian_splatting/culling/visibility_threshold` | `modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1072` |
-| `rendering/gaussian_splatting/debug/enable_mainloop_probes` | `modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1088` |
 | `rendering/gaussian_splatting/import/gsplatworld_compression_enabled` | `modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1024` |
-| `rendering/gaussian_splatting/max_gpu_buffer_count` | `modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1020` |
-| `rendering/gaussian_splatting/streaming/async_io_enabled` | `modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1206` |
 
 ## Examples
 ```bash

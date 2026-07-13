@@ -170,6 +170,31 @@
     "rendering/gaussian_splatting/streaming/zero_visible_recovery_trigger_frames",
     "rendering/gaussian_splatting/world/strict_identity_transform"
   ],
-  "retired_settings": [],
+  "retired_settings": [
+    {
+      "key": "rendering/gaussian_splatting/debug/enable_mainloop_probes",
+      "status": "removed",
+      "removed_in": "1.0",
+      "reason": "registered but never read; no runtime effect",
+      "migration": "none - setting had no effect; remove any project.godot entry",
+      "replacement": null
+    },
+    {
+      "key": "rendering/gaussian_splatting/max_gpu_buffer_count",
+      "status": "removed",
+      "removed_in": "1.0",
+      "reason": "registered but never read; no runtime effect",
+      "migration": "none - setting had no effect; remove any project.godot entry",
+      "replacement": null
+    },
+    {
+      "key": "rendering/gaussian_splatting/streaming/async_io_enabled",
+      "status": "removed",
+      "removed_in": "1.0",
+      "reason": "registered but never read; no runtime effect",
+      "migration": "none - setting had no effect; remove any project.godot entry",
+      "replacement": null
+    }
+  ],
   "schema_version": 1
 }
