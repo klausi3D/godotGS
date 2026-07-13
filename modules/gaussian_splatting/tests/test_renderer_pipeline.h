@@ -1584,6 +1584,90 @@ TEST_CASE("[GaussianSplatting] Pipeline feature snapshot distinguishes code defa
     g_pipeline_feature_set.load_from_project_settings();
 }
 
+TEST_CASE("[GaussianSplatting] Explicit startup pipeline override wins over an active quality tier (#175)") {
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    REQUIRE(project_settings != nullptr);
+    if (project_settings == nullptr) {
+        return;
+    }
+
+    const String fast_raster_setting = PipelineFeatureSet::ENABLE_FAST_RASTER_PATH;
+    const String tier_preset_setting = "rendering/gaussian_splatting/quality/tier_preset";
+    const String tier_apply_setting = "rendering/gaussian_splatting/quality/tier_apply_pipeline_toggles";
+
+    {
+        ScopedProjectSetting fast_raster_guard(project_settings, fast_raster_setting);
+        ScopedProjectSetting tier_preset_guard(project_settings, tier_preset_setting);
+        ScopedProjectSetting tier_apply_guard(project_settings, tier_apply_setting);
+
+        // Simulate a persisted project.godot override AS IT EXISTS AT REAL STARTUP:
+        // the value differs from the registered default AND the key carries a builtin
+        // order -- GLOBAL_DEF calls set_builtin_order() on every key, even ones loaded
+        // from project.godot, so is_builtin_setting() is true for persisted user values
+        // too. Tier 'low' sets enable_fast_raster=false; the project sets it true.
+        // Explicit-wins (#175) must keep true. The old is_builtin_setting detection
+        // classified this as code_default and let the tier overwrite it -- this test
+        // fails under that logic and passes with the property_can_revert detection.
+        project_settings->set_setting(tier_preset_setting, String("low"));
+        project_settings->set_setting(tier_apply_setting, true);
+        project_settings->set_initial_value(fast_raster_setting, false); // registered default
+        project_settings->set_setting(fast_raster_setting, true);        // persisted override value
+        project_settings->set_builtin_order(fast_raster_setting);        // builtin order, as at startup
+        REQUIRE(project_settings->is_builtin_setting(fast_raster_setting)); // the exact condition that broke detection
+        g_pipeline_feature_set.load_from_project_settings();
+
+        CHECK(g_pipeline_feature_set.enable_fast_raster); // explicit true kept, not tier's false
+        Dictionary snapshot = g_pipeline_feature_set.get_effective_config_snapshot();
+        Dictionary entry = GaussianEffectiveConfig::get_entry(snapshot, StringName("pipeline_fast_raster"));
+        CHECK(bool(entry.get(StringName("value"), false)));
+        CHECK(String(entry.get(StringName("source"), String())) == String("project_override"));
+    } // ScopedProjectSetting guards restore ProjectSettings here
+
+    // Reload AFTER restoration so the global feature set does not leak the
+    // temporary low-tier pipeline state into subsequent renderer tests.
+    g_pipeline_feature_set.load_from_project_settings();
+}
+
+TEST_CASE("[GaussianSplatting] Active quality tier still fills pipeline keys left at code default (#175)") {
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    REQUIRE(project_settings != nullptr);
+    if (project_settings == nullptr) {
+        return;
+    }
+
+    const String tighter_bounds_setting = PipelineFeatureSet::ENABLE_TIGHTER_BOUNDS_PATH;
+    const String tier_preset_setting = "rendering/gaussian_splatting/quality/tier_preset";
+    const String tier_apply_setting = "rendering/gaussian_splatting/quality/tier_apply_pipeline_toggles";
+
+    {
+        ScopedProjectSetting tighter_bounds_guard(project_settings, tighter_bounds_setting);
+        ScopedProjectSetting tier_preset_guard(project_settings, tier_preset_setting);
+        ScopedProjectSetting tier_apply_guard(project_settings, tier_apply_setting);
+
+        // enable_tighter_bounds is left at its code default: its value EQUALS the
+        // registered default and it carries a builtin order, so it is not an explicit
+        // override. Tier 'low' sets it true, so the tier fills the key and the snapshot
+        // names tier_preset as the source. This proves explicit-wins did not regress
+        // the normal tier-applies-to-defaults path (default neutrality).
+        project_settings->set_setting(tier_preset_setting, String("low"));
+        project_settings->set_setting(tier_apply_setting, true);
+        project_settings->set_initial_value(tighter_bounds_setting, false); // registered default
+        project_settings->set_setting(tighter_bounds_setting, false);       // equals default -> not an override
+        project_settings->set_builtin_order(tighter_bounds_setting);
+        g_pipeline_feature_set.load_from_project_settings();
+
+        CHECK(g_pipeline_feature_set.enable_tighter_bounds); // tier value applied to a code-default key
+        Dictionary snapshot = g_pipeline_feature_set.get_effective_config_snapshot();
+        Dictionary entry = GaussianEffectiveConfig::get_entry(snapshot, StringName("pipeline_tighter_bounds"));
+        CHECK(bool(entry.get(StringName("value"), false)));
+        CHECK(String(entry.get(StringName("source"), String())) == String("tier_preset"));
+    } // ScopedProjectSetting guards restore ProjectSettings here
+
+    // Reload AFTER restoration so the global feature set does not leak the
+    // temporary low-tier pipeline state into subsequent renderer tests.
+    g_pipeline_feature_set.load_from_project_settings();
+}
+
 TEST_CASE("[GaussianSplatting][RequiresGPU] World-backed RenderSceneInstance drives GPU streaming + sorting") {
     RenderingServer *rs = RenderingServer::get_singleton();
     if (rs == nullptr) {

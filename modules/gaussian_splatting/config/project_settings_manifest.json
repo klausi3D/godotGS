@@ -1045,21 +1045,21 @@
       "test_coverage": "inventory_only"
     },
     {
-      "effective_state": "QualityTierConfig policy inputs; downstream effective snapshots must report tier_preset source when overrides apply",
+      "effective_state": "QualityTierConfig pipeline-toggle input; an explicit pipeline/enable_* project override wins over the tier and the snapshot reports project_override for that key",
       "key": "rendering/gaussian_splatting/quality/tier_apply_pipeline_toggles",
-      "notes": "Quality tier policy override: when tier_apply_* is true, tier values win over matching manual ProjectSettings and effective config provenance must name the tier source.",
+      "notes": "Quality tier policy (issue #175, explicit-granular-wins): when true and a real tier is active, the tier supplies pipeline/enable_* keys NOT explicitly set in project.godot; an explicit project override wins over the tier for its key (a WARN is logged when the tier value would have differed) and effective provenance reports project_override.",
       "test_coverage": "partial"
     },
     {
-      "effective_state": "QualityTierConfig policy inputs; downstream effective snapshots must report tier_preset source when overrides apply",
+      "effective_state": "QualityTierConfig streaming-budget input; explicit streaming-budget overrides win via _resolve_tiered_cap_uint, while the quality/GPU-memory MIN caps still bound user values and log a WARN when they reduce a requested value",
       "key": "rendering/gaussian_splatting/quality/tier_apply_streaming_budgets",
-      "notes": "Quality tier policy override: when tier_apply_* is true, tier values win over matching manual ProjectSettings and effective config provenance must name the tier source.",
+      "notes": "Quality tier policy (issue #175): explicit streaming-budget project overrides win over the tier (the resolver returns the tier value only when no override is present); the quality/GPU-memory MIN caps remain a safety ceiling that bounds user values and emits a WARN when they actually reduce a requested value.",
       "test_coverage": "partial"
     },
     {
-      "effective_state": "QualityTierConfig policy inputs; downstream effective snapshots must report tier_preset source when overrides apply",
+      "effective_state": "QualityTierConfig selector; explicit granular pipeline/streaming project overrides win over the selected tier (see tier_apply_* keys) and the snapshot reports project_override for overridden keys, tier_preset otherwise",
       "key": "rendering/gaussian_splatting/quality/tier_preset",
-      "notes": "Quality tier policy override: when tier_apply_* is true, tier values win over matching manual ProjectSettings and effective config provenance must name the tier source.",
+      "notes": "Quality tier selector and policy anchor (issue #175): names the active tier. Explicit granular pipeline/streaming project overrides win over the tier policy for their key; effective provenance reports project_override for overridden keys and tier_preset for keys the tier supplied.",
       "test_coverage": "partial"
     },
     {
