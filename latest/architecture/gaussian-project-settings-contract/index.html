@@ -1804,8 +1804,6 @@ wave only inventories them.</p>
 <p>Current candidates include:</p>
 <ul>
 <li><code>rendering/gaussian_splatting/pipeline/enable_all_experimental</code></li>
-<li>Quantization <code>min_chunk_size</code>/<code>max_chunk_size</code> knobs that currently need
-  producer-path proof before support or removal.</li>
 <li><code>rendering/gaussian_splatting/gpu_sorting_enabled</code> — deprecated no-op (see S6c
   below); kept registered + bound for ABI, flagged <code>cleanup_candidate</code> pending a
   wire-or-remove decision.</li>
@@ -1843,6 +1841,25 @@ longer misowned candidates — each is now read by
 <code>GPUCuller::update_culling_settings()</code> as the project-wide default behind its
 live per-renderer <code>cull/*</code> property (explicit per-node value still wins), with
 behavior-neutral defaults and behavior tests.</p>
+<p>Removed in settings-hygiene closeout slice S7: <code>sorting/onesweep_max_elements</code>,
+<code>pipeline/sh_amortization_disable_on_visibility_change</code>,
+<code>pipeline/sh_amortization_visibility_threshold</code>, <code>compression/min_chunk_size</code>, and
+<code>compression/max_chunk_size</code> were public keys that were read, stored, validated,
+and logged but never drove a runtime path. <code>onesweep_max_elements</code> was sanitized
+and printed by <code>SortingStrategyConfig</code>, but the AUTO selector uses only two
+boundaries (bitonic-&gt;radix and radix-&gt;onesweep); the OneSweep band is unbounded
+above, so a third boundary is incoherent to wire (no tracking issue). The two
+<code>sh_amortization_*</code> visibility keys were loaded and validated by <code>PipelineFeatureSet</code>
+but never reached <code>render_params</code> (only <code>enable_sh_amortization</code> and
+<code>sh_amortization_divisor</code> do); the unbuilt SH-recompute-on-visibility-change
+feature is tracked in #487. <code>min_chunk_size</code>/<code>max_chunk_size</code> were loaded, clamped,
+and validated by <code>QuantizationConfig</code>, but chunk construction uses the fixed
+<code>GaussianStreamingSystem::CHUNK_SIZE</code> (65536); <code>min_chunk_size</code> fed only a cosmetic
+compression-ratio estimate whose amortized per-chunk overhead over a 64K-splat
+chunk is negligible and was dropped. Adaptive/variable chunk sizing is tracked in</p>
+<h1 id="482-their-registrations-config-fieldsmembers-and-manifest-entries-were">482. Their registrations, config fields/members, and manifest entries were<a class="headerlink" href="#482-their-registrations-config-fieldsmembers-and-manifest-entries-were" title="Permanent link">¶</a></h1>
+<p>deleted; each is now a <code>removed</code> entry in <code>retired_settings</code> (kept in
+<code>public_settings</code> for public API history). This change is behavior-neutral.</p>
 <h2 id="known-registration-gaps">Known Registration Gaps<a class="headerlink" href="#known-registration-gaps" title="Permanent link">¶</a></h2>
 <p>The manifest also records live runtime reads that need follow-up ownership
 decisions:</p>
@@ -1875,7 +1892,7 @@ are not user-facing <code>ProjectSettings</code> contracts.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 13, 2026 15:22:00 UTC">July 13, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 13, 2026 19:39:28 UTC">July 13, 2026</span>
   </span>
 
     
