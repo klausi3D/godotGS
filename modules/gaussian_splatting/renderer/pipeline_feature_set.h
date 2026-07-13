@@ -13,7 +13,6 @@ struct PipelineFeatureSet {
     // Packed payloads store the projected global index in 16 bits.
     static constexpr uint32_t PACKED_STAGE_MAX_TOTAL_SPLATS = 65535u;
 
-    bool enable_two_stage_sort = false;
     bool enable_packed_stage_data = false;
     bool enable_tighter_bounds = false;
     bool enable_fast_raster = false;
@@ -24,7 +23,6 @@ struct PipelineFeatureSet {
     float sh_amortization_visibility_threshold = 0.25f;
 
     static const String SECTION_PATH;
-    static const String ENABLE_TWO_STAGE_SORT_PATH;
     static const String ENABLE_PACKED_STAGE_DATA_PATH;
     static const String ENABLE_TIGHTER_BOUNDS_PATH;
     static const String ENABLE_FAST_RASTER_PATH;
@@ -68,7 +66,7 @@ void initialize_pipeline_feature_set();
 
 // Releases the global pipeline feature set's provenance snapshots. Wrapper
 // for register_types.cpp::uninitialize_gaussian_splatting_module() so the
-// per-call-site StringName keys (pipeline_two_stage_sort, ..., value,
+// per-call-site StringName keys (pipeline_packed_stage_data, ..., value,
 // source, ...) do not show up in the exit-time orphan StringName report.
 void release_pipeline_feature_set_module_strings();
 

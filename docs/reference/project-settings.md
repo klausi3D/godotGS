@@ -72,8 +72,8 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
 
 | Coverage | Count |
 | --- | ---: |
-| Registered keys | 126 |
-| Runtime-only keys | 29 |
+| Registered keys | 124 |
+| Runtime-only keys | 28 |
 | Registered keys without additional literal lookup | 4 |
 
 #### Core
@@ -483,16 +483,6 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
       <td><pre><code>rendering/gaussian_splatting/sorting/history_size</code></pre></td>
       <td><pre><code>(int)sorting_history_size</code></pre></td>
       <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1238</code></pre></td>
-    </tr>
-    <tr>
-      <td><pre><code>rendering/gaussian_splatting/sorting/hybrid_batch_size</code></pre></td>
-      <td><pre><code>(int)sorting_hybrid_batch</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1237</code></pre></td>
-    </tr>
-    <tr>
-      <td><pre><code>rendering/gaussian_splatting/sorting/hybrid_trigger_elements</code></pre></td>
-      <td><pre><code>(int)sorting_hybrid_trigger</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1236</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/sorting/log_interval_frames</code></pre></td>
@@ -921,7 +911,6 @@ These keys are used by module code but are not registered with `GLOBAL_DEF(...)`
 | `rendering/gaussian_splatting/sorting/target_sort_time_ms` | `modules/gaussian_splatting/core/module_string_names.cpp:19` |
 | `rendering/gaussian_splatting/sorting/validate_sorted_output` | `modules/gaussian_splatting/renderer/gpu_sorting_config.cpp:43` |
 | `rendering/gaussian_splatting/streaming/layout_hint_validation_strict` | `modules/gaussian_splatting/core/streaming_layout_hint.cpp:42` |
-| `rendering/gaussian_splatting/streaming/sh_progressive_load` | `modules/gaussian_splatting/renderer/sh_config.h:27` |
 
 ### Registered keys without additional literal lookup
 These registered keys have no additional string-literal references beyond their registration line.

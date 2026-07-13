@@ -8,7 +8,6 @@
 
 // Project settings paths
 const String SHConfig::BANDS_PATH = SH_CONFIG_BANDS_PATH;
-const String SHConfig::PROGRESSIVE_PATH = SH_CONFIG_PROGRESSIVE_PATH;
 
 // Global instance
 SHConfig g_sh_config;
@@ -40,9 +39,6 @@ void SHConfig::load_from_project_settings() {
     }
     sh_bands = static_cast<SHBandLevel>(CLAMP(band_value, 0, static_cast<int>(SH_BAND_MAX)));
 
-    // Load progressive loading setting
-    progressive_load = ps->get_setting(PROGRESSIVE_PATH, false);
-
     if (GS_LOG_ENABLED(gs_logger::Category::STREAMING, gs_logger::Level::INFO)) {
         print_config_summary();
     }
@@ -55,7 +51,6 @@ void SHConfig::save_to_project_settings() const {
     }
 
     ps->set_setting(BANDS_PATH, static_cast<int>(sh_bands));
-    ps->set_setting(PROGRESSIVE_PATH, progressive_load);
 
     ps->save();
 
@@ -64,9 +59,8 @@ void SHConfig::save_to_project_settings() const {
 
 void SHConfig::reset_to_defaults() {
     sh_bands = SH_BAND_3;
-    progressive_load = false;
 
-    GS_LOG_STREAMING_INFO(String("[SH Config] Reset to default configuration (SH3, progressive disabled)"));
+    GS_LOG_STREAMING_INFO(String("[SH Config] Reset to default configuration (SH3)"));
 }
 
 bool SHConfig::validate() const {
@@ -117,8 +111,6 @@ void SHConfig::print_config_summary() const {
             get_band_name(sh_bands), get_coefficient_count(sh_bands), get_float_count(sh_bands)));
     GS_LOG_STREAMING_INFO(vformat("[SH Config] Memory Usage: %.1f%% of full SH3",
             get_memory_multiplier(sh_bands) * 100.0f));
-    GS_LOG_STREAMING_INFO(vformat("[SH Config] Progressive Loading: %s",
-            progressive_load ? "enabled (SH0 first, then higher bands)" : "disabled"));
     GS_LOG_STREAMING_INFO(String("[SH Config] ================================================"));
 }
 
@@ -152,18 +144,6 @@ void initialize_sh_config() {
         SHConfig::BANDS_PATH,
         PROPERTY_HINT_ENUM,
         "Auto (Tier Default):-1,SH0 (DC Only):0,SH1 (1st Order):1,SH2 (2nd Order):2,SH3 (3rd Order):3"
-    ));
-
-    // Progressive loading setting
-    if (!ps->has_setting(SHConfig::PROGRESSIVE_PATH)) {
-        ps->set_setting(SHConfig::PROGRESSIVE_PATH, false);
-    }
-    ps->set_initial_value(SHConfig::PROGRESSIVE_PATH, false);
-    ps->set_custom_property_info(PropertyInfo(
-        Variant::BOOL,
-        SHConfig::PROGRESSIVE_PATH,
-        PROPERTY_HINT_NONE,
-        ""
     ));
 
     // Load current settings

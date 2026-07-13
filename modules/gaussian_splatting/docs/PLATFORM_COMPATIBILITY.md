@@ -162,11 +162,10 @@ rendering/gaussian_splatting/lod/num_levels = 4
 rendering/gaussian_splatting/rendering/sh_bands = 1
 rendering/gaussian_splatting/lod/enabled = true
 rendering/gaussian_splatting/lod/num_levels = 6
-rendering/gaussian_splatting/streaming/sh_progressive_load = true
 ```
 
 - Max splats: 500K-800K
-- SH1 default, progressive load to SH2
+- SH1 default
 - Aggressive LOD culling
 - Consider quantization for large scenes
 

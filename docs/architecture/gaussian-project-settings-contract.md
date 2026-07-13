@@ -90,8 +90,8 @@ wave only inventories them.
 Current candidates include:
 
 - `rendering/gaussian_splatting/pipeline/enable_all_experimental`
-- Sorting threshold knobs loaded by `SortingStrategyConfig` but not used by the live AUTO selector policy.
-- Quantization chunk-size knobs that currently need producer-path proof before support or removal.
+- Quantization `min_chunk_size`/`max_chunk_size` knobs that currently need
+  producer-path proof before support or removal.
 
 Removed in settings-hygiene slice S6a: `debug/enable_mainloop_probes`,
 `max_gpu_buffer_count`, and `streaming/async_io_enabled` were registered public
@@ -100,6 +100,18 @@ registrations and manifest entries were deleted, and each is now recorded as a
 `removed` entry in `config/project_settings_public_api_baseline.json`
 (`retired_settings`) while remaining listed in `public_settings` for public API
 history. This change is behavior-neutral.
+
+Removed in settings-hygiene slice S6b: `sorting/hybrid_trigger_elements`,
+`sorting/hybrid_batch_size`, `pipeline/enable_two_stage_sort`,
+`compression/adaptive_chunk_size`, and `streaming/sh_progressive_load` were
+"phantom config" keys — each was read into a config field/member, but the
+feature it configures is not implemented, so the value never drove a runtime
+path. Their registrations, dead config fields, and manifest entries were
+deleted; each is now a `removed` entry in `retired_settings` (kept in
+`public_settings` for public API history). Re-implementing the underlying
+feature is tracked in #480 (hybrid sort), #481 (two-stage sort),
+#482 (adaptive chunking), and #483 (progressive SH). This change is
+behavior-neutral.
 
 Resolved in #167 (settings-hygiene slice 3): `culling/opacity_aware_bounds`,
 `culling/visibility_threshold`, and `cull/overflow_autotune_enabled` are no

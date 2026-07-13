@@ -267,13 +267,6 @@
       "test_coverage": "partial"
     },
     {
-      "effective_state": "g_quantization_config.adaptive_chunk_size",
-      "key": "rendering/gaussian_splatting/compression/adaptive_chunk_size",
-      "notes": "Cleanup candidate from #357: loaded by QuantizationConfig for validation/estimates; producer-path behavior needs proof before removal or support.",
-      "publicness": "cleanup_candidate",
-      "test_coverage": "needs_behavior_test"
-    },
-    {
       "effective_state": "g_quantization_config.max_chunk_size",
       "key": "rendering/gaussian_splatting/compression/max_chunk_size",
       "notes": "Cleanup candidate from #357: loaded by QuantizationConfig for validation/estimates; producer-path behavior needs proof before removal or support.",
@@ -1010,12 +1003,6 @@
       "test_coverage": "inventory_only"
     },
     {
-      "effective_state": "PipelineFeatureSet::loaded_provenance_snapshot/effective_provenance_snapshot.enable_two_stage_sort",
-      "key": "rendering/gaussian_splatting/pipeline/enable_two_stage_sort",
-      "notes": "Experimental renderer feature switches stay disabled unless explicitly requested and runtime prerequisites validate; no GPU support is implied by inventory presence.",
-      "test_coverage": "inventory_only"
-    },
-    {
       "effective_state": "PipelineFeatureSet::loaded_provenance_snapshot/effective_provenance_snapshot.sh_amortization_disable_on_visibility_change",
       "key": "rendering/gaussian_splatting/pipeline/sh_amortization_disable_on_visibility_change",
       "test_coverage": "inventory_only"
@@ -1099,20 +1086,6 @@
       "effective_state": "SortingStrategyConfig::history_size",
       "key": "rendering/gaussian_splatting/sorting/history_size",
       "test_coverage": "inventory_only"
-    },
-    {
-      "effective_state": "SortingStrategyConfig::hybrid_batch_size",
-      "key": "rendering/gaussian_splatting/sorting/hybrid_batch_size",
-      "notes": "Cleanup candidate from #357: loaded by SortingStrategyConfig, but current AUTO selection uses hard-coded thresholds/device probes.",
-      "publicness": "cleanup_candidate",
-      "test_coverage": "needs_behavior_test"
-    },
-    {
-      "effective_state": "SortingStrategyConfig::hybrid_trigger_elements",
-      "key": "rendering/gaussian_splatting/sorting/hybrid_trigger_elements",
-      "notes": "Cleanup candidate from #357: loaded by SortingStrategyConfig, but current AUTO selection uses hard-coded thresholds/device probes.",
-      "publicness": "cleanup_candidate",
-      "test_coverage": "needs_behavior_test"
     },
     {
       "effective_state": "SortingStrategyConfig::log_interval_frames",
@@ -1296,11 +1269,6 @@
       "effective_state": "StreamingUploadPipeline/StreamingVisibilityController/VRAMBudgetRegulator.route_policy",
       "key": "rendering/gaussian_splatting/streaming/route_policy",
       "test_coverage": "covered"
-    },
-    {
-      "effective_state": "StreamingUploadPipeline/StreamingVisibilityController/VRAMBudgetRegulator.sh_progressive_load",
-      "key": "rendering/gaussian_splatting/streaming/sh_progressive_load",
-      "test_coverage": "inventory_only"
     },
     {
       "effective_state": "StreamingUploadPipeline/StreamingVisibilityController/VRAMBudgetRegulator.validate_upload_payload_checksums",

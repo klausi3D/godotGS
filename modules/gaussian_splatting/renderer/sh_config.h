@@ -16,15 +16,11 @@
  * - SH1 (1st order): + basic view dependence, 12 values total
  * - SH2 (2nd order): + enhanced view dependence, 27 values total
  * - SH3 (3rd order): Full quality, 48 values total (default)
- *
- * Progressive loading allows instant display with SH0, loading higher
- * bands as bandwidth allows.
  */
 
 // Project settings paths
 #define SH_CONFIG_SECTION "rendering/gaussian_splatting/rendering/"
 #define SH_CONFIG_BANDS_PATH SH_CONFIG_SECTION "sh_bands"
-#define SH_CONFIG_PROGRESSIVE_PATH "rendering/gaussian_splatting/streaming/sh_progressive_load"
 
 /**
  * @enum SHBandLevel
@@ -45,9 +41,6 @@ enum SHBandLevel {
 struct SHConfig {
     // Current SH band level (0-3)
     SHBandLevel sh_bands = SH_BAND_3;
-
-    // Enable progressive SH loading (SH0 first, then higher bands)
-    bool progressive_load = false;
 
     // Project settings integration
     void load_from_project_settings();
@@ -70,7 +63,6 @@ struct SHConfig {
 
     // Constants for project settings paths
     static const String BANDS_PATH;
-    static const String PROGRESSIVE_PATH;
 
     String sh_bands_source = "code_default";
     String sh_bands_source_label = "code default";

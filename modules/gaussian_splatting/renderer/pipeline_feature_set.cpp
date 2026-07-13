@@ -7,7 +7,6 @@
 #include "../logger/gs_logger.h"
 
 const String PipelineFeatureSet::SECTION_PATH = "rendering/gaussian_splatting/pipeline/";
-const String PipelineFeatureSet::ENABLE_TWO_STAGE_SORT_PATH = SECTION_PATH + "enable_two_stage_sort";
 const String PipelineFeatureSet::ENABLE_PACKED_STAGE_DATA_PATH = SECTION_PATH + "enable_packed_stage_data";
 const String PipelineFeatureSet::ENABLE_TIGHTER_BOUNDS_PATH = SECTION_PATH + "enable_tighter_bounds";
 const String PipelineFeatureSet::ENABLE_FAST_RASTER_PATH = SECTION_PATH + "enable_fast_raster";
@@ -42,7 +41,6 @@ static void _describe_project_setting_source(ProjectSettings *p_ps, const String
 }
 
 static void _register_pipeline_project_settings() {
-    GLOBAL_DEF(PipelineFeatureSet::ENABLE_TWO_STAGE_SORT_PATH, g_pipeline_feature_set.enable_two_stage_sort);
     GLOBAL_DEF(
             PropertyInfo(Variant::BOOL, PipelineFeatureSet::ENABLE_PACKED_STAGE_DATA_PATH,
                     PROPERTY_HINT_NONE, String(),
@@ -108,7 +106,6 @@ void PipelineFeatureSet::load_from_project_settings() {
     // be seen by the override detector (get_setting_with_override) but the base value
     // would be loaded (plain get_setting), dropping both the feature override and the
     // tier value on the matching platform.
-    enable_two_stage_sort = gs::settings::get_bool(ps, ENABLE_TWO_STAGE_SORT_PATH, false);
     enable_packed_stage_data = gs::settings::get_bool(ps, ENABLE_PACKED_STAGE_DATA_PATH, false);
     enable_tighter_bounds = gs::settings::get_bool(ps, ENABLE_TIGHTER_BOUNDS_PATH, false);
     enable_fast_raster = gs::settings::get_bool(ps, ENABLE_FAST_RASTER_PATH, false);
@@ -125,8 +122,6 @@ void PipelineFeatureSet::load_from_project_settings() {
             : String("custom");
     const bool apply_tier_toggles = gs::settings::get_bool(ps, "rendering/gaussian_splatting/quality/tier_apply_pipeline_toggles", true);
 
-    String two_stage_sort_source;
-    String two_stage_sort_source_label;
     String packed_stage_source;
     String packed_stage_source_label;
     String tighter_bounds_source;
@@ -138,7 +133,6 @@ void PipelineFeatureSet::load_from_project_settings() {
     String sh_amortization_divisor_source;
     String sh_amortization_divisor_source_label;
 
-    _describe_project_setting_source(ps, ENABLE_TWO_STAGE_SORT_PATH, two_stage_sort_source, two_stage_sort_source_label);
     _describe_project_setting_source(ps, ENABLE_PACKED_STAGE_DATA_PATH, packed_stage_source, packed_stage_source_label);
     _describe_project_setting_source(ps, ENABLE_TIGHTER_BOUNDS_PATH, tighter_bounds_source, tighter_bounds_source_label);
     _describe_project_setting_source(ps, ENABLE_FAST_RASTER_PATH, fast_raster_source, fast_raster_source_label);
@@ -198,8 +192,6 @@ void PipelineFeatureSet::load_from_project_settings() {
     }
 
     Dictionary snapshot;
-    GaussianEffectiveConfig::set_entry(snapshot, StringName("pipeline_two_stage_sort"),
-            enable_two_stage_sort, two_stage_sort_source, two_stage_sort_source_label);
     GaussianEffectiveConfig::set_entry(snapshot, StringName("pipeline_packed_stage_data"),
             enable_packed_stage_data, packed_stage_source, packed_stage_source_label);
     GaussianEffectiveConfig::set_entry(snapshot, StringName("pipeline_tighter_bounds"),
@@ -214,7 +206,7 @@ void PipelineFeatureSet::load_from_project_settings() {
     effective_provenance_snapshot = Dictionary();
     effective_provenance_snapshot_valid = false;
 
-    if (enable_all_experimental || enable_two_stage_sort || enable_packed_stage_data ||
+    if (enable_all_experimental || enable_packed_stage_data ||
             enable_tighter_bounds || enable_fast_raster || enable_sh_amortization) {
         print_config_summary();
     }
@@ -226,7 +218,6 @@ void PipelineFeatureSet::save_to_project_settings() const {
         return;
     }
 
-    ps->set_setting(ENABLE_TWO_STAGE_SORT_PATH, enable_two_stage_sort);
     ps->set_setting(ENABLE_PACKED_STAGE_DATA_PATH, enable_packed_stage_data);
     ps->set_setting(ENABLE_TIGHTER_BOUNDS_PATH, enable_tighter_bounds);
     ps->set_setting(ENABLE_FAST_RASTER_PATH, enable_fast_raster);
@@ -242,7 +233,6 @@ void PipelineFeatureSet::save_to_project_settings() const {
 }
 
 void PipelineFeatureSet::reset_to_defaults() {
-    enable_two_stage_sort = false;
     enable_packed_stage_data = false;
     enable_tighter_bounds = false;
     enable_fast_raster = false;
@@ -293,19 +283,16 @@ String PipelineFeatureSet::get_validation_errors(uint32_t p_total_gaussians) con
 
 PipelineFeatureSet PipelineFeatureSet::get_effective(RenderingDevice *p_device,
         bool p_compute_raster_enabled,
-        bool p_global_sort_enabled,
+        bool /*p_global_sort_enabled*/,
         String *r_warnings) const {
     PipelineFeatureSet effective = *this;
     Dictionary provenance_snapshot = loaded_provenance_snapshot.duplicate(true);
 
     if (enable_all_experimental) {
-        effective.enable_two_stage_sort = true;
         effective.enable_packed_stage_data = true;
         effective.enable_tighter_bounds = true;
         effective.enable_fast_raster = true;
         effective.enable_sh_amortization = true;
-        GaussianEffectiveConfig::set_entry(provenance_snapshot, StringName("pipeline_two_stage_sort"),
-                true, "project_override", "project override");
         GaussianEffectiveConfig::set_entry(provenance_snapshot, StringName("pipeline_packed_stage_data"),
                 true, "project_override", "project override");
         GaussianEffectiveConfig::set_entry(provenance_snapshot, StringName("pipeline_tighter_bounds"),
@@ -321,13 +308,6 @@ PipelineFeatureSet PipelineFeatureSet::get_effective(RenderingDevice *p_device,
             *r_warnings += p_msg + "\n";
         }
     };
-
-    if (effective.enable_two_stage_sort && !p_global_sort_enabled) {
-        warn("Two-stage sort requires global composite sort; disabling feature.");
-        effective.enable_two_stage_sort = false;
-        GaussianEffectiveConfig::set_entry(provenance_snapshot, StringName("pipeline_two_stage_sort"),
-                false, "runtime_requirement", "disabled by runtime requirement");
-    }
 
     if (!p_compute_raster_enabled) {
         if (effective.enable_fast_raster) {
@@ -408,7 +388,6 @@ Dictionary PipelineFeatureSet::get_effective_config_snapshot() const {
 void PipelineFeatureSet::print_config_summary() const {
     GS_LOG_INFO_DEFAULT("[Pipeline Feature Set] ========== Configuration Summary ==========");
     GS_LOG_INFO_DEFAULT(vformat("[Pipeline Feature Set] enable_all_experimental: %s", enable_all_experimental ? "enabled" : "disabled"));
-    GS_LOG_INFO_DEFAULT(vformat("[Pipeline Feature Set] two_stage_sort: %s", enable_two_stage_sort ? "enabled" : "disabled"));
     GS_LOG_INFO_DEFAULT(vformat("[Pipeline Feature Set] packed_stage_data: %s", enable_packed_stage_data ? "enabled" : "disabled"));
     GS_LOG_INFO_DEFAULT(vformat("[Pipeline Feature Set] tighter_bounds: %s", enable_tighter_bounds ? "enabled" : "disabled"));
     GS_LOG_INFO_DEFAULT(vformat("[Pipeline Feature Set] fast_raster: %s", enable_fast_raster ? "enabled" : "disabled"));
@@ -442,7 +421,7 @@ void initialize_pipeline_feature_set() {
 
 void release_pipeline_feature_set_module_strings() {
     // The global feature-set Dictionary entries cache module-owned
-    // StringName keys (pipeline_two_stage_sort, ..., value, source, ...)
+    // StringName keys (pipeline_packed_stage_data, ..., value, source, ...)
     // that the engine's exit-time orphan StringName report would otherwise
     // flag. Dropping the snapshot Dictionaries decrements those refcounts
     // so the keys leave the StringName table cleanly at unregister.

@@ -13,7 +13,6 @@ const String QuantizationConfig::SCALE_BITS_PATH = SECTION_PATH + "scale_bits";
 const String QuantizationConfig::QUANTIZE_SCALES_PATH = SECTION_PATH + "quantize_scales";
 const String QuantizationConfig::MIN_CHUNK_SIZE_PATH = SECTION_PATH + "min_chunk_size";
 const String QuantizationConfig::MAX_CHUNK_SIZE_PATH = SECTION_PATH + "max_chunk_size";
-const String QuantizationConfig::ADAPTIVE_CHUNK_SIZE_PATH = SECTION_PATH + "adaptive_chunk_size";
 
 // Global instance
 QuantizationConfig g_quantization_config;
@@ -44,7 +43,6 @@ void QuantizationConfig::load_from_project_settings() {
     quantize_scales = ps->get_setting(QUANTIZE_SCALES_PATH, false);
     min_chunk_size = ps->get_setting(MIN_CHUNK_SIZE_PATH, 256);
     max_chunk_size = ps->get_setting(MAX_CHUNK_SIZE_PATH, 8192);
-    adaptive_chunk_size = ps->get_setting(ADAPTIVE_CHUNK_SIZE_PATH, true);
 
     // Clamp values to valid ranges. position_bits is capped at 16, NOT 24: the
     // 80-byte PackedGaussianQuantized stores quantized_position as uint16[3], so a
@@ -74,7 +72,6 @@ void QuantizationConfig::save_to_project_settings() const {
     ps->set_setting(QUANTIZE_SCALES_PATH, quantize_scales); // GS_CI_ALLOW_RENDER_PATH_SETTING_MUTATION
     ps->set_setting(MIN_CHUNK_SIZE_PATH, (int)min_chunk_size); // GS_CI_ALLOW_RENDER_PATH_SETTING_MUTATION
     ps->set_setting(MAX_CHUNK_SIZE_PATH, (int)max_chunk_size); // GS_CI_ALLOW_RENDER_PATH_SETTING_MUTATION
-    ps->set_setting(ADAPTIVE_CHUNK_SIZE_PATH, adaptive_chunk_size); // GS_CI_ALLOW_RENDER_PATH_SETTING_MUTATION
 
     ps->save();
 
@@ -88,7 +85,6 @@ void QuantizationConfig::reset_to_defaults() {
     quantize_scales = false;
     min_chunk_size = 256;
     max_chunk_size = 8192;
-    adaptive_chunk_size = true;
 
     GS_LOG_STREAMING_INFO("[Quantization Config] Reset to default configuration");
 }
@@ -209,8 +205,6 @@ void QuantizationConfig::print_config_summary() const {
         }
         GS_LOG_STREAMING_INFO(vformat("[Quantization Config] Chunk Size Range: %d - %d",
                 min_chunk_size, max_chunk_size));
-        GS_LOG_STREAMING_INFO(vformat("[Quantization Config] Adaptive Chunk Size: %s",
-                adaptive_chunk_size ? "enabled" : "disabled"));
 
         float pos_ratio = get_position_compression_ratio();
         float total_ratio = get_total_compression_ratio();
@@ -311,18 +305,6 @@ void register_quantization_project_settings() {
         QuantizationConfig::MAX_CHUNK_SIZE_PATH,
         PROPERTY_HINT_RANGE,
         "256,65536,256"
-    ));
-
-    // Adaptive chunk size
-    if (!ps->has_setting(QuantizationConfig::ADAPTIVE_CHUNK_SIZE_PATH)) {
-        ps->set_setting(QuantizationConfig::ADAPTIVE_CHUNK_SIZE_PATH, true);
-    }
-    ps->set_initial_value(QuantizationConfig::ADAPTIVE_CHUNK_SIZE_PATH, true);
-    ps->set_custom_property_info(PropertyInfo(
-        Variant::BOOL,
-        QuantizationConfig::ADAPTIVE_CHUNK_SIZE_PATH,
-        PROPERTY_HINT_NONE,
-        ""
     ));
 }
 
