@@ -550,7 +550,16 @@ public:
     static PolicyDecision evaluate_auto_policy(uint32_t element_count, const SortKeyConfig &key_config,
             const PolicyProbe &radix_probe, const PolicyProbe &bitonic_probe, const PolicyProbe &onesweep_probe,
             bool require_indirect, bool require_64bit_keys,
-            const AutoThresholds &thresholds = AutoThresholds());
+            const AutoThresholds &thresholds);
+    // Overload using the default AUTO band boundaries (the historical constants).
+    // Kept as a separate overload rather than an in-class `= AutoThresholds()`
+    // default argument: GCC rejects using the nested aggregate's default member
+    // initializers in the enclosing class's default argument before the class is
+    // complete (MSVC accepts it), which broke the Linux build. The .cpp overload
+    // constructs AutoThresholds() in a complete-class context.
+    static PolicyDecision evaluate_auto_policy(uint32_t element_count, const SortKeyConfig &key_config,
+            const PolicyProbe &radix_probe, const PolicyProbe &bitonic_probe, const PolicyProbe &onesweep_probe,
+            bool require_indirect, bool require_64bit_keys);
 
     // Capability probes - query algorithm capabilities without instantiation
     static bool probe_is_supported(SortingAlgorithm algorithm, RenderingDevice *rd);

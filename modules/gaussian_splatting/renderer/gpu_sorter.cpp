@@ -1090,6 +1090,16 @@ GPUSorterFactory::AutoThresholds GPUSorterFactory::AutoThresholds::from_project_
 
 GPUSorterFactory::PolicyDecision GPUSorterFactory::evaluate_auto_policy(uint32_t element_count, const SortKeyConfig &key_config,
         const PolicyProbe &radix_probe, const PolicyProbe &bitonic_probe, const PolicyProbe &onesweep_probe,
+        bool require_indirect, bool require_64bit_keys) {
+    // Forward to the threshold-taking overload with the default AUTO band
+    // boundaries. AutoThresholds() is constructed here, in a complete-class
+    // context, rather than as an in-class default argument (which GCC rejects).
+    return evaluate_auto_policy(element_count, key_config, radix_probe, bitonic_probe, onesweep_probe,
+            require_indirect, require_64bit_keys, AutoThresholds());
+}
+
+GPUSorterFactory::PolicyDecision GPUSorterFactory::evaluate_auto_policy(uint32_t element_count, const SortKeyConfig &key_config,
+        const PolicyProbe &radix_probe, const PolicyProbe &bitonic_probe, const PolicyProbe &onesweep_probe,
         bool require_indirect, bool require_64bit_keys, const AutoThresholds &thresholds) {
     PolicyDecision decision;
     decision.preferred_algorithm = _preferred_auto_algorithm(element_count, key_config, thresholds);
