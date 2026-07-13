@@ -1777,12 +1777,34 @@ deleting the manifest entry.</p>
 <div class="highlight"><pre><span></span><code>python3<span class="w"> </span>modules/gaussian_splatting/tests/check_project_settings_manifest.py
 </code></pre></div>
 <h2 id="quality-tiers">Quality Tiers<a class="headerlink" href="#quality-tiers" title="Permanent link">¶</a></h2>
-<p>Quality tiers are policy overrides, not defaults. When
-<code>rendering/gaussian_splatting/quality/tier_apply_pipeline_toggles</code> or
-<code>rendering/gaussian_splatting/quality/tier_apply_streaming_budgets</code> is true,
-the tier value wins over matching manual project settings. Any effective config
-reported to users must name the tier as the source, not claim that the value
-came from a default.</p>
+<p>Quality tiers are policy overrides, not defaults. There is <strong>one</strong> precedence
+model (issue #175): <strong>an explicitly-set granular setting always wins over the
+tier</strong>; the tier only supplies values for keys the project left at their code
+default. Two rules make this concrete:</p>
+<ol>
+<li><strong>Pipeline toggles</strong> (<code>pipeline/enable_packed_stage_data</code>,
+   <code>enable_tighter_bounds</code>, <code>enable_fast_raster</code>, <code>enable_sh_amortization</code>,
+   <code>sh_amortization_divisor</code>): when
+   <code>rendering/gaussian_splatting/quality/tier_apply_pipeline_toggles</code> is true and
+   a real tier is active, the tier fills only the keys <strong>not</strong> present in
+   <code>project.godot</code>. An explicit <code>project.godot</code> value wins over the tier for its
+   key; a <code>WARN</code> is logged when the tier value would have differed, and the
+   effective snapshot reports <code>project_override</code> (not <code>tier_preset</code>) for that key.
+   An override is detected by the effective value differing from the registered
+   default (<code>property_can_revert</code>), because <code>GLOBAL_DEF</code> marks every key builtin at
+   registration; a value explicitly set <em>equal</em> to the code default is therefore
+   indistinguishable from unset and follows the tier — the same limitation the
+   streaming budgets already have.</li>
+<li><strong>Streaming budgets</strong>: when
+   <code>rendering/gaussian_splatting/quality/tier_apply_streaming_budgets</code> is true,
+   the budget resolver (<code>_resolve_tiered_cap_uint</code>) honors explicit overrides —
+   the tier value is used only when no override is present. The separate
+   quality/GPU-memory <strong>MIN caps</strong> remain a safety ceiling that still bounds a
+   user-set value; they log a <code>WARN</code> when they actually reduce a requested value.</li>
+</ol>
+<p>Any effective config reported to users must name the true source: <code>project_override</code>
+for an explicitly-set key, <code>tier_preset</code> for a key the tier supplied, <code>tier_cap</code>
+for a value bounded by a safety cap.</p>
 <p>Current provenance surfaces include <code>PipelineFeatureSet</code> snapshots and SH tier
 seeding. Future cleanup waves should extend equivalent provenance to any
 streaming/LOD/quantization setting that can be tier-overwritten.</p>
@@ -1837,7 +1859,7 @@ are not user-facing <code>ProjectSettings</code> contracts.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 12, 2026 22:25:20 UTC">July 12, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 13, 2026 00:39:58 UTC">July 13, 2026</span>
   </span>
 
     
