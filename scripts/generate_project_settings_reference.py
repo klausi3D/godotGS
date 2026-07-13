@@ -13,7 +13,12 @@ OUTPUT = ROOT / "docs" / "reference" / "project-settings.md"
 SOURCE_ROOT = ROOT / "modules" / "gaussian_splatting"
 
 PATTERN = re.compile(r'GLOBAL_DEF\(\"(?P<key>rendering/gaussian_splatting[^\"]*)\",\s*(?P<value>[^;]+)\);')
-KEY_LITERAL_PATTERN = re.compile(r'"(?P<key>rendering/gaussian_splatting[^"]*)"')
+# Match only string literals that are EXACTLY a setting key: quote, key-shaped
+# characters, quote. Using [^"]* here would capture whole log/WARN sentences that
+# merely mention a key mid-string (e.g. "<key> is deprecated ..."), producing
+# bogus "runtime-only" rows. Real keys are [A-Za-z0-9_/] only, so the closing
+# quote must immediately follow the key.
+KEY_LITERAL_PATTERN = re.compile(r'"(?P<key>rendering/gaussian_splatting[A-Za-z0-9_/]*)"')
 
 # The reference file carries a hand-maintained blockquote region (manual
 # annotations) between the header and the generated tables, terminated by this

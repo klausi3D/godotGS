@@ -73,7 +73,7 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
 | Coverage | Count |
 | --- | ---: |
 | Registered keys | 124 |
-| Runtime-only keys | 30 |
+| Runtime-only keys | 28 |
 | Registered keys without additional literal lookup | 1 |
 
 #### Core
@@ -896,7 +896,6 @@ These keys are used by module code but are not registered with `GLOBAL_DEF(...)`
 | `rendering/gaussian_splatting/debug/show_tile_grid` | `modules/gaussian_splatting/core/gaussian_splat_settings_manager.cpp:9` |
 | `rendering/gaussian_splatting/debug/splat_audit_sample_count` | `modules/gaussian_splatting/renderer/render_debug_state_orchestrator.cpp:369` |
 | `rendering/gaussian_splatting/gpu_sorting/target_sort_time_ms` | `modules/gaussian_splatting/core/module_string_names.cpp:20` |
-| `rendering/gaussian_splatting/gpu_sorting_enabled is deprecated and has no effect on the sort path; GPU sorting is always used when available. Use rendering/gaussian_splatting/sorting/force_cpu_sort to force CPU sorting.` | `modules/gaussian_splatting/core/gaussian_splat_manager.cpp:294` |
 | `rendering/gaussian_splatting/lighting/direct_light_scale` | `modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp:194` |
 | `rendering/gaussian_splatting/lighting/indirect_sh_scale` | `modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp:195` |
 | `rendering/gaussian_splatting/lighting/shadow_receiver_bias_max` | `modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp:199` |
@@ -906,7 +905,6 @@ These keys are used by module code but are not registered with `GLOBAL_DEF(...)`
 | `rendering/gaussian_splatting/lod/bias` | `modules/gaussian_splatting/interfaces/gpu_culler.cpp:223` |
 | `rendering/gaussian_splatting/lod/enabled` | `modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp:896` |
 | `rendering/gaussian_splatting/lod/min_screen_size_pixels` | `modules/gaussian_splatting/interfaces/gpu_culler.cpp:219` |
-| `rendering/gaussian_splatting/logging/verbosity 'silent' now means OFF (fully silent); use 'warn' for the previous default (error + warning output).` | `modules/gaussian_splatting/logger/gs_logger.cpp:168` |
 | `rendering/gaussian_splatting/rasterization/low_pass_filter` | `modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1067` |
 | `rendering/gaussian_splatting/resident/atlas_vram_budget_override_mb` | `modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1234` |
 | `rendering/gaussian_splatting/sorting/strict_global_sort` | `modules/gaussian_splatting/renderer/gpu_sorting_config.cpp:42` |
