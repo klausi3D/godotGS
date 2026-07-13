@@ -936,20 +936,6 @@ TEST_CASE("[GaussianSplatting][Config] SortingStrategyConfig sanitize corrects i
 		CHECK(config.onesweep_max_elements >= config.radix_max_elements);
 	}
 
-	SUBCASE("hybrid_trigger_elements enforced >= radix_max_elements") {
-		config.radix_max_elements = 100000;
-		config.hybrid_trigger_elements = 50000;
-		config.sanitize();
-		CHECK(config.hybrid_trigger_elements >= config.radix_max_elements);
-	}
-
-	SUBCASE("Zero hybrid_batch_size defaults to radix_max_elements") {
-		config.radix_max_elements = 100000;
-		config.hybrid_batch_size = 0;
-		config.sanitize();
-		CHECK(config.hybrid_batch_size == config.radix_max_elements);
-	}
-
 	SUBCASE("Zero history_size defaults to 120") {
 		config.history_size = 0;
 		config.sanitize();
@@ -974,8 +960,6 @@ TEST_CASE("[GaussianSplatting][Config] SortingStrategyConfig describe_thresholds
 	config.bitonic_max_elements = 131072;
 	config.radix_max_elements = 1500000;
 	config.onesweep_max_elements = 3000000;
-	config.hybrid_trigger_elements = 3000000;
-	config.hybrid_batch_size = 1500000;
 
 	String description = config.describe_thresholds();
 

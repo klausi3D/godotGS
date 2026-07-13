@@ -45,9 +45,6 @@ struct QuantizationConfig {
     // Maximum chunk size for quantization (larger chunks = more memory efficient)
     uint32_t max_chunk_size = 8192;
 
-    // Auto-adjust chunk size based on spatial extent
-    bool adaptive_chunk_size = true;
-
     // Project settings paths
     static const String SECTION_PATH;
     static const String PER_CHUNK_QUANTIZATION_PATH;
@@ -56,7 +53,6 @@ struct QuantizationConfig {
     static const String QUANTIZE_SCALES_PATH;
     static const String MIN_CHUNK_SIZE_PATH;
     static const String MAX_CHUNK_SIZE_PATH;
-    static const String ADAPTIVE_CHUNK_SIZE_PATH;
 
     // Configuration management
     void load_from_project_settings();

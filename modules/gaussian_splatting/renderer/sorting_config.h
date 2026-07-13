@@ -27,8 +27,6 @@ struct SortingStrategyConfig {
     uint32_t bitonic_max_elements = 32768;
     uint32_t radix_max_elements = 1048576;
     uint32_t onesweep_max_elements = 10000000;
-    uint32_t hybrid_trigger_elements = 10000000;
-    uint32_t hybrid_batch_size = 5000000;
     uint32_t history_size = 120;
     uint32_t log_interval_frames = 60;
     float target_sort_time_ms = 2.0f;

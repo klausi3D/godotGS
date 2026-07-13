@@ -60,8 +60,6 @@ static void _refresh_sort_config() {
     config.bitonic_max_elements = _get_uint_setting(ps, "rendering/gaussian_splatting/sorting/bitonic_max_elements", config.bitonic_max_elements);
     config.radix_max_elements = _get_uint_setting(ps, "rendering/gaussian_splatting/sorting/radix_max_elements", config.radix_max_elements);
     config.onesweep_max_elements = _get_uint_setting(ps, "rendering/gaussian_splatting/sorting/onesweep_max_elements", config.onesweep_max_elements);
-    config.hybrid_trigger_elements = _get_uint_setting(ps, "rendering/gaussian_splatting/sorting/hybrid_trigger_elements", config.hybrid_trigger_elements);
-    config.hybrid_batch_size = _get_uint_setting(ps, "rendering/gaussian_splatting/sorting/hybrid_batch_size", config.hybrid_batch_size);
     config.history_size = _get_uint_setting(ps, "rendering/gaussian_splatting/sorting/history_size", config.history_size);
     config.log_interval_frames = _get_uint_setting(ps, "rendering/gaussian_splatting/sorting/log_interval_frames", config.log_interval_frames);
     config.target_sort_time_ms = gs::sorting_settings::get_target_sort_time_ms(ps, config.target_sort_time_ms);
@@ -90,14 +88,6 @@ void SortingStrategyConfig::sanitize() {
         onesweep_max_elements = radix_max_elements;
     }
 
-    if (hybrid_trigger_elements < radix_max_elements) {
-        hybrid_trigger_elements = radix_max_elements;
-    }
-
-    if (hybrid_batch_size == 0) {
-        hybrid_batch_size = radix_max_elements;
-    }
-
     if (history_size == 0) {
         history_size = 120;
     }
@@ -118,12 +108,10 @@ void SortingStrategyConfig::sanitize() {
 }
 
 String SortingStrategyConfig::describe_thresholds() const {
-    return vformat("bitonic≤%d | radix≤%d | onesweep≤%d | hybrid>%d(batch %d)",
+    return vformat("bitonic≤%d | radix≤%d | onesweep≤%d",
             bitonic_max_elements,
             radix_max_elements,
-            onesweep_max_elements,
-            hybrid_trigger_elements,
-            hybrid_batch_size);
+            onesweep_max_elements);
 }
 
 bool SortingStrategyConfig::is_algorithm_forced() const {
