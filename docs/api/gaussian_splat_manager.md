@@ -19,7 +19,7 @@
       <td><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:887</code></td>
     </tr>
     <tr>
-      <td>Toggle GPU-based sorting on or off.</td>
+      <td>Deprecated / no-op: sets the reported <code>gpu_sorting_enabled</code> flag only; does not change the sort path.</td>
       <td><code>set_gpu_sorting_enabled(enabled)</code></td>
       <td><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:903</code></td>
     </tr>
@@ -91,7 +91,7 @@ This class does not expose any enums through `BIND_ENUM_CONSTANT`.
     </tr>
     <tr>
       <td><code>is_gpu_sorting_enabled() -> bool</code></td>
-      <td>Returns the current GPU sorting state.</td>
+      <td>Returns the reported <code>gpu_sorting_enabled</code> flag (deprecated; does not reflect the actual sort path, which always uses GPU sorting when available).</td>
       <td><code>modules/gaussian_splatting/core/gaussian_splat_manager.h:376</code></td>
     </tr>
     <tr>

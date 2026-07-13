@@ -371,12 +371,15 @@ public:
     /// @{
 
     /**
-     * @brief Enables or disables GPU-based sorting.
-     * @param p_enabled When false, falls back to CPU sorting.
+     * @brief Deprecated / no-op: sets the reported gpu_sorting_enabled flag only.
+     * @param p_enabled Stored and reported, but does NOT change the sort path (GPU
+     *        sorting is always used when available). Use the project setting
+     *        rendering/gaussian_splatting/sorting/force_cpu_sort to force CPU sorting.
      */
     void set_gpu_sorting_enabled(bool p_enabled);
 
-    /** @brief Returns true if GPU sorting is enabled. */
+    /** @brief Returns the reported gpu_sorting_enabled flag (deprecated no-op; does
+     *  not reflect the actual sort path). */
     bool is_gpu_sorting_enabled() const { return gpu_sorting_enabled; }
 
     /**
