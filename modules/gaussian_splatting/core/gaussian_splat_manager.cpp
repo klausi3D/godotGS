@@ -1017,7 +1017,6 @@ void GaussianSplatManager::initialize_module() {
     GLOBAL_DEF("rendering/gaussian_splatting/streaming/zero_visible_recovery_trigger_frames", 16);
     GLOBAL_DEF("rendering/gaussian_splatting/streaming/zero_visible_recovery_cooldown_frames", 30);
     GLOBAL_DEF("rendering/gaussian_splatting/streaming/zero_visible_recovery_log_interval_frames", 120);
-    GLOBAL_DEF("rendering/gaussian_splatting/max_gpu_buffer_count", 128);
     // Cache PLY loads into a sibling .gsplatcache file for faster subsequent loads.
     GLOBAL_DEF("rendering/gaussian_splatting/import/use_gsplatworld_cache", true);
     // Disable by default to avoid heavy gzip decompression cost on large cache-hit loads.
@@ -1085,7 +1084,6 @@ void GaussianSplatManager::initialize_module() {
 	GLOBAL_DEF("rendering/gaussian_splatting/debug/enable_frame_logging", false);
 	GLOBAL_DEF("rendering/gaussian_splatting/debug/enable_frame_logging_verbose", false);
 	GLOBAL_DEF("rendering/gaussian_splatting/debug/frame_log_frequency", 300);
-	GLOBAL_DEF("rendering/gaussian_splatting/debug/enable_mainloop_probes", false);
 	GLOBAL_DEF("rendering/gaussian_splatting/debug/enable_all_debug", false);
 	GLOBAL_DEF("rendering/gaussian_splatting/debug/enable_sort_path_logs", false);
 	GLOBAL_DEF("rendering/gaussian_splatting/debug/enable_tile_logs", false);
@@ -1207,8 +1205,6 @@ void GaussianSplatManager::initialize_module() {
 	GLOBAL_DEF("rendering/gaussian_splatting/streaming/eviction_hysteresis_frames", 5);
 	// Max chunks evicted per frame (0 = unlimited).
 	GLOBAL_DEF("rendering/gaussian_splatting/streaming/max_evictions_per_frame", 4);
-	// Async IO for gsplatworld sources.
-	GLOBAL_DEF("rendering/gaussian_splatting/streaming/async_io_enabled", false);
 	// Full packed-payload hashing is an O(chunk bytes) invariant check. Keep it
 	// opt-in for QA/debug captures; enable_all_debug also enables it at runtime.
 	GLOBAL_DEF("rendering/gaussian_splatting/streaming/validate_upload_payload_checksums", false);

@@ -464,13 +464,6 @@
     },
     {
       "effective_state": "none",
-      "key": "rendering/gaussian_splatting/debug/enable_mainloop_probes",
-      "notes": "Cleanup candidate from #357: registered public debug switch has no confirmed production reader in the current audit.",
-      "publicness": "cleanup_candidate",
-      "test_coverage": "needs_behavior_test"
-    },
-    {
-      "effective_state": "none",
       "key": "rendering/gaussian_splatting/debug/enable_pipeline_trace",
       "publicness": "debug_only",
       "test_coverage": "inventory_only"
@@ -985,13 +978,6 @@
       "test_coverage": "inventory_only"
     },
     {
-      "effective_state": "none; cleanup candidate until a production reader is proven",
-      "key": "rendering/gaussian_splatting/max_gpu_buffer_count",
-      "notes": "Cleanup candidate from #357: registered public capacity key has no confirmed production reader in the current audit.",
-      "publicness": "cleanup_candidate",
-      "test_coverage": "needs_behavior_test"
-    },
-    {
       "effective_state": "PipelineFeatureSet::loaded_provenance_snapshot/effective_provenance_snapshot.enable_all_experimental",
       "key": "rendering/gaussian_splatting/pipeline/enable_all_experimental",
       "notes": "Cleanup candidate from #357: hidden debug override expands into multiple experimental renderer features at once and needs behavior tests plus an explicit support/deprecation decision before it can be treated as ordinary public API.",
@@ -1166,13 +1152,6 @@
       "effective_state": "SortingStrategyConfig::validate_sorted_output",
       "key": "rendering/gaussian_splatting/sorting/validate_sorted_output",
       "test_coverage": "inventory_only"
-    },
-    {
-      "effective_state": "StreamingUploadPipeline/StreamingVisibilityController/VRAMBudgetRegulator.async_io_enabled",
-      "key": "rendering/gaussian_splatting/streaming/async_io_enabled",
-      "notes": "Cleanup candidate from #357: registered streaming switch has no confirmed production behavior in the current audit.",
-      "publicness": "cleanup_candidate",
-      "test_coverage": "needs_behavior_test"
     },
     {
       "effective_state": "StreamingUploadPipeline/StreamingVisibilityController/VRAMBudgetRegulator.async_pack_enabled",

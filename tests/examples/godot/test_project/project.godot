@@ -51,7 +51,6 @@ gaussian_splatting/streaming/pack_worker_threads=6
 gaussian_splatting/streaming/max_pack_jobs_in_flight=12
 gaussian_splatting/streaming/max_chunk_loads_per_frame=32
 gaussian_splatting/streaming/eviction_hysteresis_frames=30
-gaussian_splatting/streaming/async_io_enabled=true
 gaussian_splatting/streaming/vram_budget_mb=1024
 gaussian_splatting/streaming/auto_regulate_enabled=false
 gaussian_splatting/streaming/max_chunks_in_vram=384
