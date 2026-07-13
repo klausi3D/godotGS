@@ -776,8 +776,10 @@
       "test_coverage": "inventory_only"
     },
     {
-      "effective_state": "GaussianSplatManager global stats/config.gpu_sorting_enabled",
+      "effective_state": "reported only (GaussianSplatManager.gpu_sorting_enabled member + get_global_stats + bound property); does NOT gate the sort path",
       "key": "rendering/gaussian_splatting/gpu_sorting_enabled",
+      "notes": "Deprecated no-op: read into a reported flag but no renderer consults it; GPU sorting is always used when available. Force CPU sorting via sorting/force_cpu_sort. Kept registered + bound for ABI; a WARN fires once if it is set false. Wire-or-remove candidate.",
+      "publicness": "cleanup_candidate",
       "test_coverage": "inventory_only"
     },
     {

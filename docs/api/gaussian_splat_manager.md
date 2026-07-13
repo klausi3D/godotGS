@@ -56,7 +56,7 @@ This class does not expose any enums through `BIND_ENUM_CONSTANT`.
       <td><code>gpu_sorting_enabled</code></td>
       <td><code>bool</code></td>
       <td><code>set_gpu_sorting_enabled</code>, <code>is_gpu_sorting_enabled</code></td>
-      <td>When disabled, falls back to CPU sorting. Initialized from <code>rendering/gaussian_splatting/gpu_sorting_enabled</code> project setting.</td>
+      <td><strong>Deprecated / no-op.</strong> Reported for compatibility but does <em>not</em> change the sort path — GPU sorting is always used when available. To force CPU sorting use <code>rendering/gaussian_splatting/sorting/force_cpu_sort</code>. Initialized from the <code>rendering/gaussian_splatting/gpu_sorting_enabled</code> project setting.</td>
       <td><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:641</code></td>
     </tr>
     <tr>
@@ -86,7 +86,7 @@ This class does not expose any enums through `BIND_ENUM_CONSTANT`.
     </tr>
     <tr>
       <td><code>set_gpu_sorting_enabled(enabled: bool)</code></td>
-      <td>Enables or disables GPU-based sorting for all renderers. When false, renderers fall back to CPU sorting.</td>
+      <td><strong>Deprecated / no-op.</strong> Sets the reported <code>gpu_sorting_enabled</code> flag but does not change the sort path (GPU sorting is always used when available). Use <code>rendering/gaussian_splatting/sorting/force_cpu_sort</code> to force CPU sorting.</td>
       <td><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:903</code></td>
     </tr>
     <tr>
@@ -133,8 +133,10 @@ extends Node
 func _ready() -> void:
     var manager = Engine.get_singleton("GaussianSplatManager")
 
-    # Disable GPU sorting for debugging (falls back to CPU sort)
-    manager.set_gpu_sorting_enabled(false)
+    # gpu_sorting_enabled is a deprecated reported flag; setting it does NOT
+    # change the sort path. To force CPU sorting, set the project setting
+    # rendering/gaussian_splatting/sorting/force_cpu_sort instead.
+    manager.set_gpu_sorting_enabled(false)  # sets the reported flag only
 
     # Check current sorting algorithm thresholds
     var sort_cfg: Dictionary = manager.get_sorting_config()

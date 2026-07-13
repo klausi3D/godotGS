@@ -19,7 +19,7 @@
 			<return type="void" />
 			<param index="0" name="enabled" type="bool" />
 			<description>
-				Enables or disables GPU-based depth sorting. When disabled, the module falls back to CPU sorting which may reduce performance for large datasets.
+				Deprecated / no-op. Sets the reported [member gpu_sorting_enabled] flag but does not change the sort path; GPU sorting is always used when available. To force CPU sorting, set the [code]rendering/gaussian_splatting/sorting/force_cpu_sort[/code] project setting.
 			</description>
 		</method>
 		<method name="is_gpu_sorting_enabled">
@@ -50,7 +50,7 @@
 	</methods>
 	<members>
 		<member name="gpu_sorting_enabled" type="bool" setter="set_gpu_sorting_enabled" getter="is_gpu_sorting_enabled" default="true">
-			Controls whether GPU-accelerated depth sorting is used. Disabling this falls back to CPU sorting.
+			Deprecated / no-op. Reported for compatibility but does not change the sort path; GPU sorting is always used when available. To force CPU sorting, set the [code]rendering/gaussian_splatting/sorting/force_cpu_sort[/code] project setting.
 		</member>
 		<member name="shared_submission_device_enabled" type="bool" setter="set_shared_submission_device_enabled" getter="is_shared_submission_device_enabled" default="false">
 			Controls whether a shared RenderingDevice is created for multi-threaded GPU submission across renderer instances.
