@@ -44,7 +44,7 @@
 		<method name="get_sorting_config">
 			<return type="Dictionary" />
 			<description>
-				Returns a dictionary of sorting algorithm configuration thresholds. Keys include [code]"bitonic_max"[/code], [code]"radix_max"[/code], [code]"onesweep_max"[/code], and other sorting heuristic parameters driven by project settings.
+				Returns a dictionary of sorting algorithm configuration thresholds. Keys include [code]"bitonic_max_elements"[/code], [code]"radix_max_elements"[/code], and other sorting heuristic parameters driven by project settings.
 			</description>
 		</method>
 	</methods>

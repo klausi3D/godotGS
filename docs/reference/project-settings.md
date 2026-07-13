@@ -70,7 +70,7 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
 
 | Coverage | Count |
 | --- | ---: |
-| Registered keys | 124 |
+| Registered keys | 123 |
 | Runtime-only keys | 28 |
 | Registered keys without additional literal lookup | 1 |
 
@@ -88,17 +88,17 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
     <tr>
       <td><pre><code>rendering/gaussian_splatting/gpu_sorting_enabled</code></pre></td>
       <td><pre><code>true</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:991</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:989</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/renderdoc_compatibility</code></pre></td>
       <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:993</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:991</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/shared_submission_device_enabled</code></pre></td>
       <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:992</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:990</code></pre></td>
     </tr>
   </tbody>
 </table>
@@ -117,7 +117,7 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
     <tr>
       <td><pre><code>rendering/gaussian_splatting/world/strict_identity_transform</code></pre></td>
       <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1013</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1011</code></pre></td>
     </tr>
   </tbody>
 </table>
@@ -136,12 +136,12 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
     <tr>
       <td><pre><code>rendering/gaussian_splatting/import/gsplatworld_compression_enabled</code></pre></td>
       <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1027</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1025</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/import/use_gsplatworld_cache</code></pre></td>
       <td><pre><code>true</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1025</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1023</code></pre></td>
     </tr>
   </tbody>
 </table>
@@ -160,17 +160,17 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
     <tr>
       <td><pre><code>rendering/gaussian_splatting/quality/tier_apply_pipeline_toggles</code></pre></td>
       <td><pre><code>true</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1154</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1152</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/quality/tier_apply_streaming_budgets</code></pre></td>
       <td><pre><code>true</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1155</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1153</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/quality/tier_preset</code></pre></td>
       <td><pre><code>"custom"</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1153</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1151</code></pre></td>
     </tr>
   </tbody>
 </table>
@@ -189,172 +189,172 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/async_pack_enabled</code></pre></td>
       <td><pre><code>true</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1170</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1168</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/auto_regulate_enabled</code></pre></td>
       <td><pre><code>true</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1220</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1218</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/chunk_frustum_culling_enabled</code></pre></td>
       <td><pre><code>true</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1016</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1014</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/chunk_frustum_padding</code></pre></td>
       <td><pre><code>1.5f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1017</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1015</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/eviction_hysteresis_frames</code></pre></td>
       <td><pre><code>5</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1209</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1207</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/max_chunk_loads_per_frame</code></pre></td>
       <td><pre><code>16</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1176</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1174</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/max_chunks_in_vram</code></pre></td>
       <td><pre><code>128</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1223</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1221</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/max_evictions_per_frame</code></pre></td>
       <td><pre><code>4</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1211</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1209</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/max_pack_jobs_in_flight</code></pre></td>
       <td><pre><code>4</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1174</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1172</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/max_prefetch_chunk_scan_per_frame</code></pre></td>
       <td><pre><code>4096</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1182</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1180</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/max_prefetch_loads_per_frame</code></pre></td>
       <td><pre><code>6</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1178</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1176</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/max_sync_fallback_loads_per_frame</code></pre></td>
       <td><pre><code>1</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1194</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1192</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/max_sync_fallback_queue_size</code></pre></td>
       <td><pre><code>2048</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1198</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1196</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/max_upload_mb_per_frame</code></pre></td>
       <td><pre><code>128</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1203</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1201</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/max_upload_mb_per_second</code></pre></td>
       <td><pre><code>0</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1207</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1205</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/max_upload_mb_per_slice</code></pre></td>
       <td><pre><code>16</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1205</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1203</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/max_visible_chunk_scan_per_frame</code></pre></td>
       <td><pre><code>4096</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1180</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1178</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/min_chunks_in_vram</code></pre></td>
       <td><pre><code>4</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1222</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1220</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/pack_worker_threads</code></pre></td>
       <td><pre><code>2</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1172</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1170</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/predictive_prefetch_enabled</code></pre></td>
       <td><pre><code>true</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1166</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1164</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/prefetch_lookahead_distance</code></pre></td>
       <td><pre><code>10.0f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1168</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1166</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/queue_pressure_candidate_scan_throttle_enabled</code></pre></td>
       <td><pre><code>true</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1184</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1182</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/queue_pressure_candidate_scan_throttle_min_queue_depth</code></pre></td>
       <td><pre><code>1</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1185</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1183</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/queue_pressure_prefetch_scan_cap</code></pre></td>
       <td><pre><code>1024</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1187</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1185</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/queue_pressure_visible_scan_cap</code></pre></td>
       <td><pre><code>1024</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1186</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1184</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/regulation_step_percent</code></pre></td>
       <td><pre><code>1.0f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1225</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1223</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/route_policy</code></pre></td>
       <td><pre><code>1</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1008</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1006</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/validate_upload_payload_checksums</code></pre></td>
       <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1214</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1212</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/vram_budget_mb</code></pre></td>
       <td><pre><code>STREAMING_UNKNOWN_CAPACITY_FALLBACK_VRAM_BUDGET_MB</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1219</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1217</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/vram_warning_threshold_percent</code></pre></td>
       <td><pre><code>85</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1221</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1219</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/zero_visible_recovery_cooldown_frames</code></pre></td>
       <td><pre><code>30</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1022</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1020</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/zero_visible_recovery_log_interval_frames</code></pre></td>
       <td><pre><code>120</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1023</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1021</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/zero_visible_recovery_mode</code></pre></td>
       <td><pre><code>1</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1020</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1018</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/zero_visible_recovery_trigger_frames</code></pre></td>
       <td><pre><code>16</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1021</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1019</code></pre></td>
     </tr>
   </tbody>
 </table>
@@ -373,27 +373,27 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
     <tr>
       <td><pre><code>rendering/gaussian_splatting/culling/alpha_clip</code></pre></td>
       <td><pre><code>0.0f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1081</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1079</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/culling/min_gaussians_per_leaf</code></pre></td>
       <td><pre><code>32</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1054</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1052</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/culling/octree_max_depth</code></pre></td>
       <td><pre><code>8</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1053</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1051</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/culling/opacity_aware_bounds</code></pre></td>
       <td><pre><code>true</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1074</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1072</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/culling/visibility_threshold</code></pre></td>
       <td><pre><code>gs::RASTER_ALPHA_THRESHOLD</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1075</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1073</code></pre></td>
     </tr>
   </tbody>
 </table>
@@ -412,7 +412,7 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
     <tr>
       <td><pre><code>rendering/gaussian_splatting/cull/overflow_autotune_enabled</code></pre></td>
       <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1085</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1083</code></pre></td>
     </tr>
   </tbody>
 </table>
@@ -465,42 +465,37 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
     <tr>
       <td><pre><code>rendering/gaussian_splatting/sorting/bitonic_max_elements</code></pre></td>
       <td><pre><code>(int)sorting_bitonic_max</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1238</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1236</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/sorting/force_algorithm</code></pre></td>
       <td><pre><code>0</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1250</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1247</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/sorting/force_cpu_sort</code></pre></td>
       <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1251</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1248</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/sorting/history_size</code></pre></td>
       <td><pre><code>(int)sorting_history_size</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1241</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1238</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/sorting/log_interval_frames</code></pre></td>
       <td><pre><code>(int)sorting_log_interval</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1242</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1239</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/sorting/log_metrics</code></pre></td>
       <td><pre><code>sorting_log_metrics</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1249</code></pre></td>
-    </tr>
-    <tr>
-      <td><pre><code>rendering/gaussian_splatting/sorting/onesweep_max_elements</code></pre></td>
-      <td><pre><code>(int)sorting_onesweep_max</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1240</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1246</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/sorting/radix_max_elements</code></pre></td>
       <td><pre><code>(int)sorting_radix_max</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1239</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1237</code></pre></td>
     </tr>
   </tbody>
 </table>
@@ -519,92 +514,92 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
     <tr>
       <td><pre><code>rendering/gaussian_splatting/debug/cull_guardrail_drop_ratio</code></pre></td>
       <td><pre><code>0.75f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1102</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1100</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/debug/cull_guardrail_min_visible</code></pre></td>
       <td><pre><code>256</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1103</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1101</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/debug/cull_guardrail_position_epsilon</code></pre></td>
       <td><pre><code>0.05f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1100</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1098</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/debug/cull_guardrail_rotation_epsilon</code></pre></td>
       <td><pre><code>0.01f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1101</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1099</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/debug/enable_all_debug</code></pre></td>
       <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1091</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1089</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/debug/enable_autotune_logs</code></pre></td>
       <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1104</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1102</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/debug/enable_binning_counters</code></pre></td>
       <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1097</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1095</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/debug/enable_cull_counters</code></pre></td>
       <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1098</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1096</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/debug/enable_cull_guardrails</code></pre></td>
       <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1099</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1097</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/debug/enable_data_logging</code></pre></td>
       <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1105</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1103</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/debug/enable_frame_logging</code></pre></td>
       <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1088</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1086</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/debug/enable_frame_logging_verbose</code></pre></td>
       <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1089</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1087</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/debug/enable_gpu_counter_logs</code></pre></td>
       <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1096</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1094</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/debug/enable_sort_path_logs</code></pre></td>
       <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1092</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1090</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/debug/enable_tile_dispatch_logs</code></pre></td>
       <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1095</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1093</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/debug/enable_tile_logs</code></pre></td>
       <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1093</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1091</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/debug/enable_tile_pipeline_logs</code></pre></td>
       <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1094</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1092</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/debug/frame_log_frequency</code></pre></td>
       <td><pre><code>300</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1090</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1088</code></pre></td>
     </tr>
   </tbody>
 </table>
@@ -623,52 +618,52 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
     <tr>
       <td><pre><code>rendering/gaussian_splatting/logging/command_buffer</code></pre></td>
       <td><pre><code>"inherit"</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1137</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1135</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/logging/compositor</code></pre></td>
       <td><pre><code>"inherit"</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1134</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1132</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/logging/general</code></pre></td>
       <td><pre><code>"inherit"</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1119</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1117</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/logging/gpu_memory</code></pre></td>
       <td><pre><code>"inherit"</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1131</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1129</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/logging/gpu_sort</code></pre></td>
       <td><pre><code>"inherit"</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1128</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1126</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/logging/rate_limit_ms</code></pre></td>
       <td><pre><code>1000</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1113</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1111</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/logging/renderer</code></pre></td>
       <td><pre><code>"inherit"</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1122</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1120</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/logging/streaming</code></pre></td>
       <td><pre><code>"inherit"</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1125</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1123</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/logging/tests</code></pre></td>
       <td><pre><code>"inherit"</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1140</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1138</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/logging/verbosity</code></pre></td>
       <td><pre><code>"warn"</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1110</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1108</code></pre></td>
     </tr>
   </tbody>
 </table>
@@ -687,17 +682,17 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
     <tr>
       <td><pre><code>rendering/gaussian_splatting/diagnostics/perf_gate_budget_ms</code></pre></td>
       <td><pre><code>16.0f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1150</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1148</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/diagnostics/perf_gate_enabled</code></pre></td>
       <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1148</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1146</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/diagnostics/perf_gate_splat_threshold</code></pre></td>
       <td><pre><code>100000</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1149</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1147</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/diagnostics/startup_trace</code></pre></td>
@@ -707,17 +702,17 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
     <tr>
       <td><pre><code>rendering/gaussian_splatting/diagnostics/summary_history_size</code></pre></td>
       <td><pre><code>60</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1147</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1145</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/diagnostics/summary_interval_frames</code></pre></td>
       <td><pre><code>600</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1146</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1144</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/diagnostics/validate_production_metrics</code></pre></td>
       <td><pre><code>true</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1145</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1143</code></pre></td>
     </tr>
   </tbody>
 </table>
@@ -736,42 +731,42 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
     <tr>
       <td><pre><code>rendering/gaussian_splatting/animation/wind_direction_x</code></pre></td>
       <td><pre><code>1.0f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1031</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1029</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/animation/wind_direction_y</code></pre></td>
       <td><pre><code>0.0f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1032</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1030</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/animation/wind_direction_z</code></pre></td>
       <td><pre><code>0.0f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1033</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1031</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/animation/wind_enabled</code></pre></td>
       <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1030</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1028</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/animation/wind_frequency</code></pre></td>
       <td><pre><code>1.0f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1035</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1033</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/animation/wind_spatial_frequency</code></pre></td>
       <td><pre><code>0.1f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1036</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1034</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/animation/wind_strength</code></pre></td>
       <td><pre><code>0.0f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1034</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1032</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/animation/wind_time_scale</code></pre></td>
       <td><pre><code>1.0f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1037</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1035</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/cache/spirv_cache_enabled</code></pre></td>
@@ -781,97 +776,97 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
     <tr>
       <td><pre><code>rendering/gaussian_splatting/composite/depth_test</code></pre></td>
       <td><pre><code>true</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:998</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:996</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/composite/per_splat_depth_clip</code></pre></td>
       <td><pre><code>true</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1002</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1000</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/composite/scene_depth_policy</code></pre></td>
       <td><pre><code>0</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1004</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1002</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/editor/hot_reload_enabled</code></pre></td>
       <td><pre><code>true</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1028</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1026</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/editor/hot_reload_poll_interval_sec</code></pre></td>
       <td><pre><code>1.0f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1029</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1027</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/effects/max_effectors</code></pre></td>
       <td><pre><code>1</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1038</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1036</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/effects/sphere_effector_affect_opacity</code></pre></td>
       <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1048</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1046</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/effects/sphere_effector_affect_position</code></pre></td>
       <td><pre><code>true</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1047</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1045</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/effects/sphere_effector_center_x</code></pre></td>
       <td><pre><code>0.0f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1040</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1038</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/effects/sphere_effector_center_y</code></pre></td>
       <td><pre><code>0.0f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1041</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1039</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/effects/sphere_effector_center_z</code></pre></td>
       <td><pre><code>0.0f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1042</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1040</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/effects/sphere_effector_enabled</code></pre></td>
       <td><pre><code>false</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1039</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1037</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/effects/sphere_effector_falloff</code></pre></td>
       <td><pre><code>2.0f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1045</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1043</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/effects/sphere_effector_frequency</code></pre></td>
       <td><pre><code>2.0f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1046</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1044</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/effects/sphere_effector_opacity_strength</code></pre></td>
       <td><pre><code>1.0f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1049</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1047</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/effects/sphere_effector_radius</code></pre></td>
       <td><pre><code>0.0f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1043</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1041</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/effects/sphere_effector_strength</code></pre></td>
       <td><pre><code>0.0f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1044</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1042</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/effects/sphere_effector_target_opacity</code></pre></td>
       <td><pre><code>0.0f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1050</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1048</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/init/eager_raster_pipeline</code></pre></td>
       <td><pre><code>true</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:997</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:995</code></pre></td>
     </tr>
   </tbody>
 </table>
@@ -903,8 +898,8 @@ These keys are used by module code but are not registered with `GLOBAL_DEF(...)`
 | `rendering/gaussian_splatting/lod/bias` | `modules/gaussian_splatting/interfaces/gpu_culler.cpp:223` |
 | `rendering/gaussian_splatting/lod/enabled` | `modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp:896` |
 | `rendering/gaussian_splatting/lod/min_screen_size_pixels` | `modules/gaussian_splatting/interfaces/gpu_culler.cpp:219` |
-| `rendering/gaussian_splatting/rasterization/low_pass_filter` | `modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1067` |
-| `rendering/gaussian_splatting/resident/atlas_vram_budget_override_mb` | `modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1234` |
+| `rendering/gaussian_splatting/rasterization/low_pass_filter` | `modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1065` |
+| `rendering/gaussian_splatting/resident/atlas_vram_budget_override_mb` | `modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1232` |
 | `rendering/gaussian_splatting/sorting/strict_global_sort` | `modules/gaussian_splatting/renderer/gpu_sorting_config.cpp:42` |
 | `rendering/gaussian_splatting/sorting/target_sort_time_ms` | `modules/gaussian_splatting/core/module_string_names.cpp:19` |
 | `rendering/gaussian_splatting/sorting/validate_sorted_output` | `modules/gaussian_splatting/renderer/gpu_sorting_config.cpp:43` |
@@ -915,7 +910,7 @@ These registered keys have no additional string-literal references beyond their 
 
 | Setting | Registered in |
 | --- | --- |
-| `rendering/gaussian_splatting/import/gsplatworld_compression_enabled` | `modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1027` |
+| `rendering/gaussian_splatting/import/gsplatworld_compression_enabled` | `modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1025` |
 
 ## Examples
 ```bash

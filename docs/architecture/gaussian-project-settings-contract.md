@@ -90,8 +90,6 @@ wave only inventories them.
 Current candidates include:
 
 - `rendering/gaussian_splatting/pipeline/enable_all_experimental`
-- Quantization `min_chunk_size`/`max_chunk_size` knobs that currently need
-  producer-path proof before support or removal.
 - `rendering/gaussian_splatting/gpu_sorting_enabled` — deprecated no-op (see S6c
   below); kept registered + bound for ABI, flagged `cleanup_candidate` pending a
   wire-or-remove decision.
@@ -132,6 +130,26 @@ longer misowned candidates — each is now read by
 `GPUCuller::update_culling_settings()` as the project-wide default behind its
 live per-renderer `cull/*` property (explicit per-node value still wins), with
 behavior-neutral defaults and behavior tests.
+
+Removed in settings-hygiene closeout slice S7: `sorting/onesweep_max_elements`,
+`pipeline/sh_amortization_disable_on_visibility_change`,
+`pipeline/sh_amortization_visibility_threshold`, `compression/min_chunk_size`, and
+`compression/max_chunk_size` were public keys that were read, stored, validated,
+and logged but never drove a runtime path. `onesweep_max_elements` was sanitized
+and printed by `SortingStrategyConfig`, but the AUTO selector uses only two
+boundaries (bitonic->radix and radix->onesweep); the OneSweep band is unbounded
+above, so a third boundary is incoherent to wire (no tracking issue). The two
+`sh_amortization_*` visibility keys were loaded and validated by `PipelineFeatureSet`
+but never reached `render_params` (only `enable_sh_amortization` and
+`sh_amortization_divisor` do); the unbuilt SH-recompute-on-visibility-change
+feature is tracked in #487. `min_chunk_size`/`max_chunk_size` were loaded, clamped,
+and validated by `QuantizationConfig`, but chunk construction uses the fixed
+`GaussianStreamingSystem::CHUNK_SIZE` (65536); `min_chunk_size` fed only a cosmetic
+compression-ratio estimate whose amortized per-chunk overhead over a 64K-splat
+chunk is negligible and was dropped. Adaptive/variable chunk sizing is tracked in
+#482. Their registrations, config fields/members, and manifest entries were
+deleted; each is now a `removed` entry in `retired_settings` (kept in
+`public_settings` for public API history). This change is behavior-neutral.
 
 ## Known Registration Gaps
 

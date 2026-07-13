@@ -106,7 +106,7 @@ This class does not expose any enums through `BIND_ENUM_CONSTANT`.
     </tr>
     <tr>
       <td><code>get_sorting_config() -> Dictionary</code></td>
-      <td>Returns sorting algorithm thresholds as a Dictionary with keys: <code>bitonic_max_elements</code>, <code>radix_max_elements</code>, <code>onesweep_max_elements</code>, <code>history_size</code>, <code>log_interval_frames</code>, <code>target_sort_time_ms</code>, <code>log_metrics</code>, <code>force_algorithm</code> (0=auto, 1=radix, 2=bitonic, 3=onesweep), and <code>force_cpu_sort</code>. Values are read from project settings at startup.</td>
+      <td>Returns sorting algorithm thresholds as a Dictionary with keys: <code>bitonic_max_elements</code>, <code>radix_max_elements</code>, <code>history_size</code>, <code>log_interval_frames</code>, <code>target_sort_time_ms</code>, <code>log_metrics</code>, <code>force_algorithm</code> (0=auto, 1=radix, 2=bitonic, 3=onesweep), and <code>force_cpu_sort</code>. Values are read from project settings at startup.</td>
       <td><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:911</code></td>
     </tr>
   </tbody>

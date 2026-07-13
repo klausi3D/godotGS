@@ -180,6 +180,22 @@
       "replacement": null
     },
     {
+      "key": "rendering/gaussian_splatting/compression/max_chunk_size",
+      "status": "removed",
+      "removed_in": "1.0",
+      "reason": "loaded, clamped, and validated by QuantizationConfig but never used in chunk construction; chunk construction uses the fixed CHUNK_SIZE constant (65536)",
+      "migration": "none - no runtime effect; tracked for future implementation in #482",
+      "replacement": null
+    },
+    {
+      "key": "rendering/gaussian_splatting/compression/min_chunk_size",
+      "status": "removed",
+      "removed_in": "1.0",
+      "reason": "loaded by QuantizationConfig for a cosmetic compression-ratio estimate and log line only; chunk construction uses the fixed CHUNK_SIZE constant (65536)",
+      "migration": "none - no runtime effect; tracked for future implementation in #482",
+      "replacement": null
+    },
+    {
       "key": "rendering/gaussian_splatting/debug/enable_mainloop_probes",
       "status": "removed",
       "removed_in": "1.0",
@@ -204,6 +220,22 @@
       "replacement": null
     },
     {
+      "key": "rendering/gaussian_splatting/pipeline/sh_amortization_disable_on_visibility_change",
+      "status": "removed",
+      "removed_in": "1.0",
+      "reason": "loaded and validated by PipelineFeatureSet but never reaches render_params; the SH-recompute-on-visibility-change feature is not implemented",
+      "migration": "none - no runtime effect; tracked for future implementation in #487",
+      "replacement": null
+    },
+    {
+      "key": "rendering/gaussian_splatting/pipeline/sh_amortization_visibility_threshold",
+      "status": "removed",
+      "removed_in": "1.0",
+      "reason": "loaded and validated by PipelineFeatureSet but never reaches render_params; the SH-recompute-on-visibility-change feature is not implemented",
+      "migration": "none - no runtime effect; tracked for future implementation in #487",
+      "replacement": null
+    },
+    {
       "key": "rendering/gaussian_splatting/sorting/hybrid_batch_size",
       "status": "removed",
       "removed_in": "1.0",
@@ -217,6 +249,14 @@
       "removed_in": "1.0",
       "reason": "registered but its configured feature is not implemented; value never consumed",
       "migration": "none - no runtime effect; tracked for future implementation in #480",
+      "replacement": null
+    },
+    {
+      "key": "rendering/gaussian_splatting/sorting/onesweep_max_elements",
+      "status": "removed",
+      "removed_in": "1.0",
+      "reason": "read and sanitized into SortingStrategyConfig but the AUTO selector uses only the bitonic->radix and radix->onesweep boundaries; this third onesweep_max boundary gates no algorithm (OneSweep is the unbounded top band)",
+      "migration": "none - no runtime effect; no tracking (incoherent to wire under the 2-boundary AUTO model)",
       "replacement": null
     },
     {

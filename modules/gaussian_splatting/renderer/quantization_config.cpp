@@ -11,8 +11,6 @@ const String QuantizationConfig::PER_CHUNK_QUANTIZATION_PATH = SECTION_PATH + "p
 const String QuantizationConfig::POSITION_BITS_PATH = SECTION_PATH + "position_bits";
 const String QuantizationConfig::SCALE_BITS_PATH = SECTION_PATH + "scale_bits";
 const String QuantizationConfig::QUANTIZE_SCALES_PATH = SECTION_PATH + "quantize_scales";
-const String QuantizationConfig::MIN_CHUNK_SIZE_PATH = SECTION_PATH + "min_chunk_size";
-const String QuantizationConfig::MAX_CHUNK_SIZE_PATH = SECTION_PATH + "max_chunk_size";
 
 // Global instance
 QuantizationConfig g_quantization_config;
@@ -41,8 +39,6 @@ void QuantizationConfig::load_from_project_settings() {
     position_bits = ps->get_setting(POSITION_BITS_PATH, 16);
     scale_bits = ps->get_setting(SCALE_BITS_PATH, 12);
     quantize_scales = ps->get_setting(QUANTIZE_SCALES_PATH, false);
-    min_chunk_size = ps->get_setting(MIN_CHUNK_SIZE_PATH, 256);
-    max_chunk_size = ps->get_setting(MAX_CHUNK_SIZE_PATH, 8192);
 
     // Clamp values to valid ranges. position_bits is capped at 16, NOT 24: the
     // 80-byte PackedGaussianQuantized stores quantized_position as uint16[3], so a
@@ -52,8 +48,6 @@ void QuantizationConfig::load_from_project_settings() {
     // the packer and the uploaded ChunkQuantization within what the format stores.
     position_bits = CLAMP(position_bits, 8u, 16u);
     scale_bits = CLAMP(scale_bits, 8u, 16u);
-    min_chunk_size = MAX(64u, min_chunk_size);
-    max_chunk_size = MAX(min_chunk_size, max_chunk_size);
 
     if (per_chunk_quantization) {
         print_config_summary();
@@ -70,8 +64,6 @@ void QuantizationConfig::save_to_project_settings() const {
     ps->set_setting(POSITION_BITS_PATH, (int)position_bits); // GS_CI_ALLOW_RENDER_PATH_SETTING_MUTATION
     ps->set_setting(SCALE_BITS_PATH, (int)scale_bits); // GS_CI_ALLOW_RENDER_PATH_SETTING_MUTATION
     ps->set_setting(QUANTIZE_SCALES_PATH, quantize_scales); // GS_CI_ALLOW_RENDER_PATH_SETTING_MUTATION
-    ps->set_setting(MIN_CHUNK_SIZE_PATH, (int)min_chunk_size); // GS_CI_ALLOW_RENDER_PATH_SETTING_MUTATION
-    ps->set_setting(MAX_CHUNK_SIZE_PATH, (int)max_chunk_size); // GS_CI_ALLOW_RENDER_PATH_SETTING_MUTATION
 
     ps->save();
 
@@ -83,8 +75,6 @@ void QuantizationConfig::reset_to_defaults() {
     position_bits = 16;
     scale_bits = 12;
     quantize_scales = false;
-    min_chunk_size = 256;
-    max_chunk_size = 8192;
 
     GS_LOG_STREAMING_INFO("[Quantization Config] Reset to default configuration");
 }
@@ -97,14 +87,6 @@ bool QuantizationConfig::validate() const {
 
     // Scale bits must be in valid range
     if (scale_bits < 8 || scale_bits > 16) {
-        return false;
-    }
-
-    // Chunk size constraints
-    if (min_chunk_size < 64) {
-        return false;
-    }
-    if (max_chunk_size < min_chunk_size) {
         return false;
     }
 
@@ -126,12 +108,6 @@ String QuantizationConfig::get_validation_errors() const {
     if (scale_bits > 16) {
         errors += "Scale bits must be <= 16\n";
     }
-    if (min_chunk_size < 64) {
-        errors += "Minimum chunk size must be >= 64\n";
-    }
-    if (max_chunk_size < min_chunk_size) {
-        errors += "Maximum chunk size must be >= minimum chunk size\n";
-    }
 
     return errors;
 }
@@ -142,14 +118,12 @@ float QuantizationConfig::get_position_compression_ratio() const {
     }
 
     // Original: 3 floats (12 bytes) per position
-    // Quantized: 3 * position_bits / 8 bytes + small overhead for chunk bounds
-    // Assuming chunk overhead is amortized over min_chunk_size Gaussians
+    // Quantized: 3 * position_bits / 8 bytes. The per-chunk position bounds
+    // (6 floats = 24 bytes) are amortized over the fixed 65536-splat chunk
+    // (GaussianStreamingSystem::CHUNK_SIZE), so the per-splat overhead is
+    // ~0.0004 bytes -- negligible and omitted from the estimate.
     float original_bytes = 12.0f;
     float quantized_bytes = (3.0f * float(position_bits)) / 8.0f;
-
-    // Add amortized chunk bounds overhead (6 floats = 24 bytes for min/max)
-    float chunk_overhead = 24.0f / float(min_chunk_size);
-    quantized_bytes += chunk_overhead;
 
     return original_bytes / quantized_bytes;
 }
@@ -160,13 +134,11 @@ float QuantizationConfig::get_scale_compression_ratio() const {
     }
 
     // Original: 3 floats (12 bytes) per scale
-    // Quantized: 3 * scale_bits / 8 bytes + small overhead for chunk bounds
+    // Quantized: 3 * scale_bits / 8 bytes. Per-chunk bounds overhead is
+    // amortized over the fixed 65536-splat chunk and negligible (see
+    // get_position_compression_ratio), so it is omitted here.
     float original_bytes = 12.0f;
     float quantized_bytes = (3.0f * float(scale_bits)) / 8.0f;
-
-    // Add amortized chunk bounds overhead (6 floats = 24 bytes for min/max)
-    float chunk_overhead = 24.0f / float(min_chunk_size);
-    quantized_bytes += chunk_overhead;
 
     return original_bytes / quantized_bytes;
 }
@@ -203,8 +175,6 @@ void QuantizationConfig::print_config_summary() const {
             GS_LOG_STREAMING_INFO(vformat("[Quantization Config] Scale Bits: %d (%d levels)",
                     scale_bits, get_scale_levels()));
         }
-        GS_LOG_STREAMING_INFO(vformat("[Quantization Config] Chunk Size Range: %d - %d",
-                min_chunk_size, max_chunk_size));
 
         float pos_ratio = get_position_compression_ratio();
         float total_ratio = get_total_compression_ratio();
@@ -281,30 +251,6 @@ void register_quantization_project_settings() {
         QuantizationConfig::QUANTIZE_SCALES_PATH,
         PROPERTY_HINT_NONE,
         ""
-    ));
-
-    // Minimum chunk size
-    if (!ps->has_setting(QuantizationConfig::MIN_CHUNK_SIZE_PATH)) {
-        ps->set_setting(QuantizationConfig::MIN_CHUNK_SIZE_PATH, 256);
-    }
-    ps->set_initial_value(QuantizationConfig::MIN_CHUNK_SIZE_PATH, 256);
-    ps->set_custom_property_info(PropertyInfo(
-        Variant::INT,
-        QuantizationConfig::MIN_CHUNK_SIZE_PATH,
-        PROPERTY_HINT_RANGE,
-        "64,4096,64"
-    ));
-
-    // Maximum chunk size
-    if (!ps->has_setting(QuantizationConfig::MAX_CHUNK_SIZE_PATH)) {
-        ps->set_setting(QuantizationConfig::MAX_CHUNK_SIZE_PATH, 8192);
-    }
-    ps->set_initial_value(QuantizationConfig::MAX_CHUNK_SIZE_PATH, 8192);
-    ps->set_custom_property_info(PropertyInfo(
-        Variant::INT,
-        QuantizationConfig::MAX_CHUNK_SIZE_PATH,
-        PROPERTY_HINT_RANGE,
-        "256,65536,256"
     ));
 }
 
