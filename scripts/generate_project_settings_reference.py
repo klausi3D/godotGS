@@ -91,7 +91,8 @@ class KeyReference:
 
 def collect_entries() -> list[SettingEntry]:
     entries: list[SettingEntry] = []
-    for path in SOURCE_ROOT.rglob("*.cpp"):
+    # Sort the traversal so output is deterministic across filesystems/platforms.
+    for path in sorted(SOURCE_ROOT.rglob("*.cpp")):
         rel = path.relative_to(ROOT)
         for idx, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             match = PATTERN.search(line)
@@ -106,7 +107,9 @@ def collect_entries() -> list[SettingEntry]:
 
 def collect_key_references() -> dict[str, list[KeyReference]]:
     references: dict[str, list[KeyReference]] = defaultdict(list)
-    for path in SOURCE_ROOT.rglob("*"):
+    # Sort the traversal so the "first reference" chosen per key (references[key][0])
+    # is deterministic across filesystems/platforms, not filesystem-order dependent.
+    for path in sorted(SOURCE_ROOT.rglob("*")):
         if path.suffix not in {".cpp", ".h"}:
             continue
         rel = path.relative_to(ROOT)
@@ -285,7 +288,10 @@ def main() -> None:
         extract_manual_block(OUTPUT.read_text(encoding="utf-8")) if OUTPUT.exists() else []
     )
     # Force LF and forward-slash paths so output is identical on Windows and Linux.
-    OUTPUT.write_text(build_reference(manual_block) + "\n", encoding="utf-8", newline="\n")
+    # Use open(..., newline="\n") rather than Path.write_text(newline=...), which is
+    # only available on Python 3.10+ (this repo still supports 3.8).
+    with open(OUTPUT, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(build_reference(manual_block) + "\n")
     print(f"[docs] Wrote project settings reference to {OUTPUT}")
 
 
