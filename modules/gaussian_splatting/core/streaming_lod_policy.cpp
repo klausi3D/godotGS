@@ -110,8 +110,10 @@ Dictionary GaussianStreamingSystem::get_lod_debug_stats() const {
 	}
 	stats["sh_band_distribution"] = sh_dist;
 
-	// Debug visualization info
-	stats["debug_visualization"] = lod_config.debug_visualization;
+	// Diagnostic log-gate state. The stats dict key is kept as
+	// "debug_visualization" for bound-telemetry back-compat even though the
+	// underlying config member was renamed to diagnostic_logging (#167).
+	stats["debug_visualization"] = lod_config.diagnostic_logging;
 	stats["splat_skip_enabled"] = lod_config.splat_skip_enabled;
 	stats["sh_reduction_enabled"] = lod_config.sh_reduction_enabled;
 	stats["opacity_fade_enabled"] = lod_config.opacity_fade_enabled;

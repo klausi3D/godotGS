@@ -18,7 +18,8 @@ uint32_t _load_adaptive_min(ProjectSettings *p_ps, const String &p_path, int64_t
 
 // Project settings paths
 const String GPUSortingConfig::SECTION_PATH = "rendering/gaussian_splatting/gpu_sorting/";
-const String GPUSortingConfig::TARGET_TIME_PATH = "rendering/gaussian_splatting/sorting/target_sort_time_ms";
+const String GPUSortingConfig::TARGET_TIME_PATH = "rendering/gaussian_splatting/diagnostics/sort_target_time_ms";
+const String GPUSortingConfig::DEPRECATED_SORTING_TARGET_TIME_PATH = "rendering/gaussian_splatting/sorting/target_sort_time_ms";
 const String GPUSortingConfig::LEGACY_TARGET_TIME_PATH = SECTION_PATH + "target_sort_time_ms";
 const String GPUSortingConfig::MAX_ELEMENTS_PATH = SECTION_PATH + "max_sort_elements";
 const String GPUSortingConfig::MAX_OVERLAP_RECORDS_PATH = SECTION_PATH + "max_overlap_records";
@@ -166,6 +167,11 @@ void GPUSortingConfig::save_to_project_settings() const {
     }
 
     ps->set_setting(TARGET_TIME_PATH, target_sort_time_ms);
+    // Migrate away from the deprecated alias spellings so a persisted config
+    // does not keep re-triggering the read-time deprecation warning.
+    if (ps->has_setting(DEPRECATED_SORTING_TARGET_TIME_PATH)) {
+        ps->clear(DEPRECATED_SORTING_TARGET_TIME_PATH);
+    }
     if (ps->has_setting(LEGACY_TARGET_TIME_PATH)) {
         ps->clear(LEGACY_TARGET_TIME_PATH);
     }

@@ -89,10 +89,12 @@ wave only inventories them.
 
 Current candidates include:
 
-- `rendering/gaussian_splatting/pipeline/enable_all_experimental`
 - `rendering/gaussian_splatting/gpu_sorting_enabled` — deprecated no-op (see S6c
   below); kept registered + bound for ABI, flagged `cleanup_candidate` pending a
   wire-or-remove decision.
+
+(`pipeline/enable_all_experimental` was resolved in S7-renames below: it is
+truthfully renamed and no longer a cleanup candidate.)
 
 Removed in settings-hygiene slice S6a: `debug/enable_mainloop_probes`,
 `max_gpu_buffer_count`, and `streaming/async_io_enabled` were registered public
@@ -150,6 +152,35 @@ chunk is negligible and was dropped. Adaptive/variable chunk sizing is tracked i
 #482. Their registrations, config fields/members, and manifest entries were
 deleted; each is now a `removed` entry in `retired_settings` (kept in
 `public_settings` for public API history). This change is behavior-neutral.
+
+Renamed in settings-hygiene closeout slice S7 (renames): three misleadingly-named
+public keys were renamed to truthful names, each keeping the old spelling as a
+read-only **deprecated alias** so existing `project.godot` files keep working. The
+effective value is unchanged: the canonical key wins when explicitly set,
+otherwise the deprecated alias is read (with a one-time deprecation `WARN`),
+otherwise the registered default; a default project (neither set) resolves to the
+default with no warning. A persisted config migrates to the canonical key on save.
+
+- `lod/debug_visualization` → `lod/diagnostic_logging` (#167). It is a diagnostic
+  LOG-gate (it gates a periodic LOD diagnostic log line and the config-summary
+  print), not a visual toggle — it never rendered LOD level colors. The C++ member
+  was renamed to `diagnostic_logging`; the `debug_visualization` key in the bound
+  LOD stats dictionary is kept for telemetry back-compat.
+- `sorting/target_sort_time_ms` → `diagnostics/sort_target_time_ms` (#168). It is a
+  telemetry-only logging target (the `meets_target` reference and reported
+  `target_ms`), not adaptive. The canonical key now accepts **two** older spellings
+  as deprecated aliases; read precedence is `diagnostics/sort_target_time_ms` >
+  `sorting/target_sort_time_ms` > `gpu_sorting/target_sort_time_ms`.
+- `pipeline/enable_all_experimental` → `pipeline/enable_all_pipeline_experimental`
+  (#169). It force-enables exactly the four pipeline experimental toggles
+  (`packed_stage`, `tighter_bounds`, `fast_raster`, `sh_amortization`); the old
+  name wrongly implied engine-wide scope.
+
+Each old key is flagged `deprecated_alias` in the manifest and kept in
+`public_settings` (deprecated aliases are source-parity-exempt and stay live for
+API history; they are **not** retired). Each new canonical key was registered with
+the same default and editor visibility as the old key and added to the manifest +
+`public_settings`. This change is behavior-neutral for the effective value.
 
 ## Known Registration Gaps
 

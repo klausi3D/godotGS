@@ -17,7 +17,9 @@ struct PipelineFeatureSet {
     bool enable_tighter_bounds = false;
     bool enable_fast_raster = false;
     bool enable_sh_amortization = false;
-    bool enable_all_experimental = false;
+    // Force-enables exactly the four pipeline experimental toggles above; the
+    // scope is the pipeline feature set, not the engine (#169).
+    bool enable_all_pipeline_experimental = false;
     int sh_amortization_divisor = 10;
 
     static const String SECTION_PATH;
@@ -26,7 +28,11 @@ struct PipelineFeatureSet {
     static const String ENABLE_FAST_RASTER_PATH;
     static const String ENABLE_SH_AMORTIZATION_PATH;
     static const String SH_AMORTIZATION_DIVISOR_PATH;
-    static const String ENABLE_ALL_EXPERIMENTAL_PATH;
+    // Canonical key (#169): pipeline/enable_all_pipeline_experimental. The old
+    // pipeline/enable_all_experimental spelling is honored as a read-only
+    // deprecated alias (see pipeline_feature_set.cpp).
+    static const String ENABLE_ALL_PIPELINE_EXPERIMENTAL_PATH;
+    static const String DEPRECATED_ENABLE_ALL_EXPERIMENTAL_PATH;
 
     void load_from_project_settings();
     void save_to_project_settings() const;

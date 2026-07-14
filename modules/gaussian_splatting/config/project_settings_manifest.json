@@ -548,6 +548,12 @@
       "test_coverage": "partial"
     },
     {
+      "effective_state": "GPUSortingConfig/SortingStrategyConfig.target_sort_time_ms (telemetry log target)",
+      "key": "rendering/gaussian_splatting/diagnostics/sort_target_time_ms",
+      "notes": "Canonical telemetry-only sort-time target (#168): the 'meets_target' reference in the GPU-sort perf log and the reported 'target_ms'. NOT adaptive and does not steer any sort decision. Renamed from sorting/target_sort_time_ms; both that spelling and the older gpu_sorting/target_sort_time_ms are honored as read-only deprecated aliases (see renderer/sorting_settings_utils.h).",
+      "test_coverage": "covered"
+    },
+    {
       "effective_state": "RenderDiagnosticsOrchestrator.startup_trace",
       "key": "rendering/gaussian_splatting/diagnostics/startup_trace",
       "test_coverage": "partial"
@@ -748,6 +754,7 @@
     {
       "effective_state": "g_gpu_sorting_config.target_sort_time_ms",
       "key": "rendering/gaussian_splatting/gpu_sorting/target_sort_time_ms",
+      "notes": "Older deprecated alias (#168): renamed to diagnostics/sort_target_time_ms (the sorting/ spelling is the intermediate alias). Still read as a read-only fallback with a one-time deprecation warning.",
       "publicness": "deprecated_alias",
       "test_coverage": "covered"
     },
@@ -840,9 +847,17 @@
       "test_coverage": "inventory_only"
     },
     {
-      "effective_state": "LODConfig/GPUCuller.debug_visualization",
+      "effective_state": "LODConfig/GPUCuller.diagnostic_logging",
       "key": "rendering/gaussian_splatting/lod/debug_visualization",
-      "test_coverage": "inventory_only"
+      "notes": "Deprecated alias (#167): renamed to lod/diagnostic_logging. Still read as a read-only fallback (with a one-time deprecation warning) so existing project.godot files keep working; a persisted config migrates to the canonical key on save.",
+      "publicness": "deprecated_alias",
+      "test_coverage": "covered"
+    },
+    {
+      "effective_state": "LODConfig/GPUCuller.diagnostic_logging",
+      "key": "rendering/gaussian_splatting/lod/diagnostic_logging",
+      "notes": "Canonical diagnostic LOG-GATE (#167): gates a periodic LOD diagnostic log line and the LOD config-summary print. NOT a visual toggle (it does not render LOD level colors). Renamed from the misleading lod/debug_visualization, which is kept as a read-only deprecated alias.",
+      "test_coverage": "covered"
     },
     {
       "effective_state": "LODConfig/GPUCuller.enabled",
@@ -959,12 +974,19 @@
       "test_coverage": "inventory_only"
     },
     {
-      "effective_state": "PipelineFeatureSet::loaded_provenance_snapshot/effective_provenance_snapshot.enable_all_experimental",
+      "effective_state": "PipelineFeatureSet::loaded_provenance_snapshot/effective_provenance_snapshot.enable_all_pipeline_experimental",
       "key": "rendering/gaussian_splatting/pipeline/enable_all_experimental",
-      "notes": "Cleanup candidate from #357: hidden debug override expands into multiple experimental renderer features at once and needs behavior tests plus an explicit support/deprecation decision before it can be treated as ordinary public API.",
-      "publicness": "cleanup_candidate",
+      "notes": "Deprecated alias (#169): renamed to pipeline/enable_all_pipeline_experimental (the old name wrongly implied engine-wide scope). Still read as a read-only fallback (with a one-time deprecation warning) so existing project.godot files keep working; a persisted config migrates to the canonical key on save.",
+      "publicness": "deprecated_alias",
       "scope": "debug",
-      "test_coverage": "needs_behavior_test"
+      "test_coverage": "covered"
+    },
+    {
+      "effective_state": "PipelineFeatureSet::loaded_provenance_snapshot/effective_provenance_snapshot.enable_all_pipeline_experimental",
+      "key": "rendering/gaussian_splatting/pipeline/enable_all_pipeline_experimental",
+      "notes": "Canonical hidden pipeline debug override (#169): force-enables exactly the four pipeline experimental toggles (packed_stage, tighter_bounds, fast_raster, sh_amortization). Scope is the pipeline feature set, not the engine. Renamed from the misleading pipeline/enable_all_experimental, which is kept as a read-only deprecated alias.",
+      "scope": "debug",
+      "test_coverage": "covered"
     },
     {
       "effective_state": "PipelineFeatureSet::loaded_provenance_snapshot/effective_provenance_snapshot.enable_fast_raster",
@@ -1090,6 +1112,8 @@
     {
       "effective_state": "SortingStrategyConfig::target_sort_time_ms",
       "key": "rendering/gaussian_splatting/sorting/target_sort_time_ms",
+      "notes": "Deprecated alias (#168): renamed to diagnostics/sort_target_time_ms. Still read as a read-only fallback (with a one-time deprecation warning) so existing project.godot files keep working; a persisted config migrates to the canonical key on save.",
+      "publicness": "deprecated_alias",
       "test_coverage": "covered"
     },
     {

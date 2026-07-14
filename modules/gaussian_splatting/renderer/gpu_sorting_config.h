@@ -142,7 +142,11 @@ struct GPUSortingConfig {
 
     // Constants for project settings paths
     static const String SECTION_PATH;
+    // Canonical telemetry sort-target key (#168): diagnostics/sort_target_time_ms.
     static const String TARGET_TIME_PATH;
+    // Deprecated aliases still honored on read (see sorting_settings_utils.h):
+    // the sorting/ spelling (renamed in #168) and the older gpu_sorting/ spelling.
+    static const String DEPRECATED_SORTING_TARGET_TIME_PATH;
     static const String LEGACY_TARGET_TIME_PATH;
     static const String MAX_ELEMENTS_PATH;
     static const String MAX_OVERLAP_RECORDS_PATH;

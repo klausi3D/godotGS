@@ -39,8 +39,12 @@ struct ModuleStringNames {
 	// gaussian_splat_manager.cpp — project-setting key for RenderDoc compat.
 	StringName renderdoc_compatibility_path;
 
-	// renderer/sorting_settings_utils.h — canonical and legacy sort-target
-	// project-setting keys. Legacy retained for read-only compatibility.
+	// renderer/sorting_settings_utils.h — canonical and deprecated-alias
+	// sort-target project-setting keys. The canonical key is
+	// diagnostics/sort_target_time_ms (#168); the two older spellings
+	// (sorting/target_sort_time_ms and gpu_sorting/target_sort_time_ms) are
+	// retained as read-only deprecated aliases for project compatibility.
+	StringName diagnostics_sort_target_time_path;
 	StringName sorting_target_sort_time_path;
 	StringName legacy_gpu_sorting_target_sort_time_path;
 

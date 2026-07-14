@@ -34,6 +34,10 @@
 #define LOD_CONFIG_SPLAT_SKIP_ENABLED_PATH LOD_CONFIG_SECTION "splat_skip_enabled"
 #define LOD_CONFIG_SH_REDUCTION_ENABLED_PATH LOD_CONFIG_SECTION "sh_reduction_enabled"
 #define LOD_CONFIG_OPACITY_FADE_ENABLED_PATH LOD_CONFIG_SECTION "opacity_fade_enabled"
+// Canonical key (#167): a diagnostic LOG-GATE, not a visual toggle. The old
+// LOD_CONFIG_DEBUG_VISUALIZATION_PATH spelling is honored as a read-only
+// deprecated alias (see lod_config.cpp).
+#define LOD_CONFIG_DIAGNOSTIC_LOGGING_PATH LOD_CONFIG_SECTION "diagnostic_logging"
 #define LOD_CONFIG_DEBUG_VISUALIZATION_PATH LOD_CONFIG_SECTION "debug_visualization"
 #define LOD_CONFIG_MIN_SCREEN_SIZE_PIXELS_PATH LOD_CONFIG_SECTION "min_screen_size_pixels"
 #define LOD_CONFIG_BIAS_PATH LOD_CONFIG_SECTION "bias"
@@ -54,8 +58,12 @@ struct LODConfig {
     bool sh_reduction_enabled = true; // Reduce SH bands at distance
     bool opacity_fade_enabled = true; // Fade opacity at distance
 
-    // Debug
-    bool debug_visualization = false; // Show LOD level colors
+    // Diagnostics
+    // Gates a periodic LOD diagnostic log line (streaming_diagnostics_surface.cpp)
+    // and the LOD config-summary print. This is a LOG gate, not a visual toggle —
+    // it does not render LOD level colors. Canonical project key (#167):
+    // lod/diagnostic_logging (old lod/debug_visualization kept as a read-only alias).
+    bool diagnostic_logging = false;
 
     // Value equality over every configuration field. Used by hot-path change
     // detection (e.g. the scene-director per-instance LOD walk) to skip
@@ -70,7 +78,7 @@ struct LODConfig {
                 splat_skip_enabled == p_other.splat_skip_enabled &&
                 sh_reduction_enabled == p_other.sh_reduction_enabled &&
                 opacity_fade_enabled == p_other.opacity_fade_enabled &&
-                debug_visualization == p_other.debug_visualization;
+                diagnostic_logging == p_other.diagnostic_logging;
     }
     bool operator!=(const LODConfig &p_other) const { return !(*this == p_other); }
 

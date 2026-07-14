@@ -12,9 +12,38 @@ const String PipelineFeatureSet::ENABLE_TIGHTER_BOUNDS_PATH = SECTION_PATH + "en
 const String PipelineFeatureSet::ENABLE_FAST_RASTER_PATH = SECTION_PATH + "enable_fast_raster";
 const String PipelineFeatureSet::ENABLE_SH_AMORTIZATION_PATH = SECTION_PATH + "enable_sh_amortization";
 const String PipelineFeatureSet::SH_AMORTIZATION_DIVISOR_PATH = SECTION_PATH + "sh_amortization_divisor";
-const String PipelineFeatureSet::ENABLE_ALL_EXPERIMENTAL_PATH = SECTION_PATH + "enable_all_experimental";
+const String PipelineFeatureSet::ENABLE_ALL_PIPELINE_EXPERIMENTAL_PATH = SECTION_PATH + "enable_all_pipeline_experimental";
+const String PipelineFeatureSet::DEPRECATED_ENABLE_ALL_EXPERIMENTAL_PATH = SECTION_PATH + "enable_all_experimental";
 
 PipelineFeatureSet g_pipeline_feature_set;
+
+// Resolve pipeline/enable_all_pipeline_experimental (#169) honoring the
+// deprecated pipeline/enable_all_experimental alias. Precedence: an explicit
+// canonical override wins; else the deprecated alias (with a one-time WARN);
+// else the canonical registered default. A default project (only the builtin
+// canonical present, unset) resolves to false with no warning, so the rename is
+// behavior-neutral. Same accepted limitation as the other alias helpers: a value
+// set EQUAL to the code default reads as unset.
+static bool _load_enable_all_pipeline_experimental(ProjectSettings *p_ps) {
+    if (!p_ps) {
+        return false;
+    }
+    const String canonical = PipelineFeatureSet::ENABLE_ALL_PIPELINE_EXPERIMENTAL_PATH;
+    const String deprecated = PipelineFeatureSet::DEPRECATED_ENABLE_ALL_EXPERIMENTAL_PATH;
+    if (p_ps->has_setting(canonical) && p_ps->property_can_revert(canonical) &&
+            p_ps->get_setting_with_override(canonical) != p_ps->property_get_revert(canonical)) {
+        return gs::settings::get_bool(p_ps, canonical, false);
+    }
+    if (p_ps->has_setting(deprecated)) {
+        WARN_PRINT_ONCE(vformat("[GaussianSplatting] Project setting '%s' is deprecated; use '%s' instead. Deprecated alias support is read-only compatibility and will be removed after project migration.",
+                deprecated, canonical));
+        return gs::settings::get_bool(p_ps, deprecated, false);
+    }
+    if (p_ps->has_setting(canonical)) {
+        return gs::settings::get_bool(p_ps, canonical, false);
+    }
+    return false;
+}
 
 static void _describe_project_setting_source(ProjectSettings *p_ps, const String &p_path,
         String &r_source, String &r_source_label) {
@@ -64,11 +93,14 @@ static void _register_pipeline_project_settings() {
                     PROPERTY_HINT_NONE, String(),
                     PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_STORAGE),
             g_pipeline_feature_set.sh_amortization_divisor);
+    // Canonical key (#169). The old enable_all_experimental spelling is
+    // intentionally NOT registered: it is read only as a deprecated alias when a
+    // project.godot explicitly sets it (see _load_enable_all_pipeline_experimental).
     GLOBAL_DEF(
-            PropertyInfo(Variant::BOOL, PipelineFeatureSet::ENABLE_ALL_EXPERIMENTAL_PATH,
+            PropertyInfo(Variant::BOOL, PipelineFeatureSet::ENABLE_ALL_PIPELINE_EXPERIMENTAL_PATH,
                     PROPERTY_HINT_NONE, String(),
                     PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_STORAGE),
-            g_pipeline_feature_set.enable_all_experimental);
+            g_pipeline_feature_set.enable_all_pipeline_experimental);
 }
 
 void PipelineFeatureSet::load_from_project_settings() {
@@ -105,7 +137,7 @@ void PipelineFeatureSet::load_from_project_settings() {
     enable_fast_raster = gs::settings::get_bool(ps, ENABLE_FAST_RASTER_PATH, false);
     enable_sh_amortization = gs::settings::get_bool(ps, ENABLE_SH_AMORTIZATION_PATH, false);
     sh_amortization_divisor = gs::settings::get_int(ps, SH_AMORTIZATION_DIVISOR_PATH, sh_amortization_divisor);
-    enable_all_experimental = gs::settings::get_bool(ps, ENABLE_ALL_EXPERIMENTAL_PATH, false);
+    enable_all_pipeline_experimental = _load_enable_all_pipeline_experimental(ps);
 
     const String tier_preset = ps->has_setting("rendering/gaussian_splatting/quality/tier_preset")
             ? String(ps->get_setting_with_override("rendering/gaussian_splatting/quality/tier_preset"))
@@ -196,7 +228,7 @@ void PipelineFeatureSet::load_from_project_settings() {
     effective_provenance_snapshot = Dictionary();
     effective_provenance_snapshot_valid = false;
 
-    if (enable_all_experimental || enable_packed_stage_data ||
+    if (enable_all_pipeline_experimental || enable_packed_stage_data ||
             enable_tighter_bounds || enable_fast_raster || enable_sh_amortization) {
         print_config_summary();
     }
@@ -213,7 +245,12 @@ void PipelineFeatureSet::save_to_project_settings() const {
     ps->set_setting(ENABLE_FAST_RASTER_PATH, enable_fast_raster);
     ps->set_setting(ENABLE_SH_AMORTIZATION_PATH, enable_sh_amortization);
     ps->set_setting(SH_AMORTIZATION_DIVISOR_PATH, sh_amortization_divisor);
-    ps->set_setting(ENABLE_ALL_EXPERIMENTAL_PATH, enable_all_experimental);
+    ps->set_setting(ENABLE_ALL_PIPELINE_EXPERIMENTAL_PATH, enable_all_pipeline_experimental); // GS_CI_ALLOW_RENDER_PATH_SETTING_MUTATION
+    // Migrate away from the deprecated alias so a persisted config does not keep
+    // re-triggering the read-time deprecation warning.
+    if (ps->has_setting(DEPRECATED_ENABLE_ALL_EXPERIMENTAL_PATH)) {
+        ps->clear(DEPRECATED_ENABLE_ALL_EXPERIMENTAL_PATH);
+    }
 
     ps->save();
 
@@ -226,7 +263,7 @@ void PipelineFeatureSet::reset_to_defaults() {
     enable_fast_raster = false;
     enable_sh_amortization = false;
     sh_amortization_divisor = 10;
-    enable_all_experimental = false;
+    enable_all_pipeline_experimental = false;
 
     GS_LOG_INFO_DEFAULT("[Pipeline Feature Set] Reset to default configuration");
 }
@@ -237,8 +274,8 @@ bool PipelineFeatureSet::validate(uint32_t p_total_gaussians) const {
 
 String PipelineFeatureSet::get_validation_errors(uint32_t p_total_gaussians) const {
     PackedStringArray errors;
-    const bool packed_stage_requested = enable_all_experimental || enable_packed_stage_data;
-    const bool sh_amortization_requested = enable_all_experimental || enable_sh_amortization;
+    const bool packed_stage_requested = enable_all_pipeline_experimental || enable_packed_stage_data;
+    const bool sh_amortization_requested = enable_all_pipeline_experimental || enable_sh_amortization;
 
     if (packed_stage_requested && p_total_gaussians > PACKED_STAGE_MAX_TOTAL_SPLATS) {
         errors.push_back(vformat(
@@ -261,7 +298,7 @@ PipelineFeatureSet PipelineFeatureSet::get_effective(RenderingDevice *p_device,
     PipelineFeatureSet effective = *this;
     Dictionary provenance_snapshot = loaded_provenance_snapshot.duplicate(true);
 
-    if (enable_all_experimental) {
+    if (enable_all_pipeline_experimental) {
         effective.enable_packed_stage_data = true;
         effective.enable_tighter_bounds = true;
         effective.enable_fast_raster = true;
@@ -347,7 +384,7 @@ Dictionary PipelineFeatureSet::get_effective_config_snapshot() const {
 
 void PipelineFeatureSet::print_config_summary() const {
     GS_LOG_INFO_DEFAULT("[Pipeline Feature Set] ========== Configuration Summary ==========");
-    GS_LOG_INFO_DEFAULT(vformat("[Pipeline Feature Set] enable_all_experimental: %s", enable_all_experimental ? "enabled" : "disabled"));
+    GS_LOG_INFO_DEFAULT(vformat("[Pipeline Feature Set] enable_all_pipeline_experimental: %s", enable_all_pipeline_experimental ? "enabled" : "disabled"));
     GS_LOG_INFO_DEFAULT(vformat("[Pipeline Feature Set] packed_stage_data: %s", enable_packed_stage_data ? "enabled" : "disabled"));
     GS_LOG_INFO_DEFAULT(vformat("[Pipeline Feature Set] tighter_bounds: %s", enable_tighter_bounds ? "enabled" : "disabled"));
     GS_LOG_INFO_DEFAULT(vformat("[Pipeline Feature Set] fast_raster: %s", enable_fast_raster ? "enabled" : "disabled"));

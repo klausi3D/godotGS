@@ -71,7 +71,7 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
 | Coverage | Count |
 | --- | ---: |
 | Registered keys | 123 |
-| Runtime-only keys | 28 |
+| Runtime-only keys | 29 |
 | Registered keys without additional literal lookup | 1 |
 
 #### Core
@@ -431,22 +431,22 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
     <tr>
       <td><pre><code>rendering/gaussian_splatting/lod/blend_distance</code></pre></td>
       <td><pre><code>5.0f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/lod/lod_config.cpp:353</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/lod/lod_config.cpp:393</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/lod/blend_enabled</code></pre></td>
       <td><pre><code>true</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/lod/lod_config.cpp:352</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/lod/lod_config.cpp:392</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/lod/hysteresis_zone</code></pre></td>
       <td><pre><code>0.5f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/lod/lod_config.cpp:354</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/lod/lod_config.cpp:394</code></pre></td>
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/lod/importance_threshold</code></pre></td>
       <td><pre><code>-1.0f</code></pre></td>
-      <td><pre><code>modules/gaussian_splatting/lod/lod_config.cpp:367</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/lod/lod_config.cpp:407</code></pre></td>
     </tr>
   </tbody>
 </table>
@@ -888,7 +888,8 @@ These keys are used by module code but are not registered with `GLOBAL_DEF(...)`
 | `rendering/gaussian_splatting/debug/show_residency_hud` | `modules/gaussian_splatting/core/gaussian_splat_settings_manager.cpp:12` |
 | `rendering/gaussian_splatting/debug/show_tile_grid` | `modules/gaussian_splatting/core/gaussian_splat_settings_manager.cpp:9` |
 | `rendering/gaussian_splatting/debug/splat_audit_sample_count` | `modules/gaussian_splatting/renderer/render_debug_state_orchestrator.cpp:369` |
-| `rendering/gaussian_splatting/gpu_sorting/target_sort_time_ms` | `modules/gaussian_splatting/core/module_string_names.cpp:20` |
+| `rendering/gaussian_splatting/diagnostics/sort_target_time_ms` | `modules/gaussian_splatting/core/module_string_names.cpp:19` |
+| `rendering/gaussian_splatting/gpu_sorting/target_sort_time_ms` | `modules/gaussian_splatting/core/module_string_names.cpp:21` |
 | `rendering/gaussian_splatting/lighting/direct_light_scale` | `modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp:194` |
 | `rendering/gaussian_splatting/lighting/indirect_sh_scale` | `modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp:195` |
 | `rendering/gaussian_splatting/lighting/shadow_receiver_bias_max` | `modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp:199` |
@@ -900,9 +901,9 @@ These keys are used by module code but are not registered with `GLOBAL_DEF(...)`
 | `rendering/gaussian_splatting/lod/min_screen_size_pixels` | `modules/gaussian_splatting/interfaces/gpu_culler.cpp:219` |
 | `rendering/gaussian_splatting/rasterization/low_pass_filter` | `modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1065` |
 | `rendering/gaussian_splatting/resident/atlas_vram_budget_override_mb` | `modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1232` |
-| `rendering/gaussian_splatting/sorting/strict_global_sort` | `modules/gaussian_splatting/renderer/gpu_sorting_config.cpp:42` |
-| `rendering/gaussian_splatting/sorting/target_sort_time_ms` | `modules/gaussian_splatting/core/module_string_names.cpp:19` |
-| `rendering/gaussian_splatting/sorting/validate_sorted_output` | `modules/gaussian_splatting/renderer/gpu_sorting_config.cpp:43` |
+| `rendering/gaussian_splatting/sorting/strict_global_sort` | `modules/gaussian_splatting/renderer/gpu_sorting_config.cpp:43` |
+| `rendering/gaussian_splatting/sorting/target_sort_time_ms` | `modules/gaussian_splatting/core/module_string_names.cpp:20` |
+| `rendering/gaussian_splatting/sorting/validate_sorted_output` | `modules/gaussian_splatting/renderer/gpu_sorting_config.cpp:44` |
 | `rendering/gaussian_splatting/streaming/layout_hint_validation_strict` | `modules/gaussian_splatting/core/streaming_layout_hint.cpp:42` |
 
 ### Registered keys without additional literal lookup

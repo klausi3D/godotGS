@@ -89,7 +89,7 @@ void GaussianStreamingSystem::_log_streaming_frame_stats(uint32_t effective_max)
 
     static uint64_t lod_log_counter = 0;
     const LODConfig &lod_config = _get_lod_config();
-    if (lod_config.enabled && lod_config.debug_visualization && (++lod_log_counter % 300) == 0) {
+    if (lod_config.enabled && lod_config.diagnostic_logging && (++lod_log_counter % 300) == 0) {
         float reduction_pct = visible_count > 0
                 ? (1.0f - float(effective_splats) / float(visible_count)) * 100.0f
                 : 0.0f;
