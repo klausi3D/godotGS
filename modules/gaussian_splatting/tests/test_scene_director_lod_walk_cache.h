@@ -35,7 +35,7 @@ TEST_CASE("[GaussianSplatting][LOD] LODConfig equality reacts to every field") {
 	{ LODConfig c = base; c.splat_skip_enabled = !c.splat_skip_enabled; CHECK(c != base); }
 	{ LODConfig c = base; c.sh_reduction_enabled = !c.sh_reduction_enabled; CHECK(c != base); }
 	{ LODConfig c = base; c.opacity_fade_enabled = !c.opacity_fade_enabled; CHECK(c != base); }
-	{ LODConfig c = base; c.debug_visualization = !c.debug_visualization; CHECK(c != base); }
+	{ LODConfig c = base; c.diagnostic_logging = !c.diagnostic_logging; CHECK(c != base); }
 }
 
 #endif // TESTS_ENABLED || TOOLS_ENABLED

@@ -139,17 +139,25 @@ TEST_CASE("[GaussianSplatting][Config] GPUSortingConfig rejects invalid target_s
 	}
 }
 
-TEST_CASE("[GaussianSplatting][Config] Sorting target_sort_time_ms follows the canonical project setting") {
+TEST_CASE("[GaussianSplatting][Config] Sort-target follows the canonical diagnostics project setting") {
 	ProjectSettings *project_settings = ProjectSettings::get_singleton();
 	REQUIRE(project_settings != nullptr);
 
-	const String canonical_path = "rendering/gaussian_splatting/sorting/target_sort_time_ms";
+	// Canonical is diagnostics/sort_target_time_ms (#168); gpu_sorting/ is the
+	// older deprecated alias. The middle deprecated alias sorting/ is guarded and
+	// cleared so it cannot shadow the canonical/legacy precedence under test.
+	const String canonical_path = "rendering/gaussian_splatting/diagnostics/sort_target_time_ms";
+	const String deprecated_sorting_path = "rendering/gaussian_splatting/sorting/target_sort_time_ms";
 	const String legacy_path = "rendering/gaussian_splatting/gpu_sorting/target_sort_time_ms";
 	const String preset_path = GPUSortingConfig::GPU_PRESET_PATH;
 	ProjectSettingGuard canonical_guard(project_settings, canonical_path);
+	ProjectSettingGuard deprecated_sorting_guard(project_settings, deprecated_sorting_path);
 	ProjectSettingGuard legacy_guard(project_settings, legacy_path);
 	ProjectSettingGuard preset_guard(project_settings, preset_path);
-	// Force the manual config path so GPUSortingConfig reads target_sort_time_ms
+	if (project_settings->has_setting(deprecated_sorting_path)) {
+		project_settings->clear(deprecated_sorting_path);
+	}
+	// Force the manual config path so GPUSortingConfig reads the sort-target
 	// instead of short-circuiting through the default "high" preset.
 	project_settings->set_setting(preset_path, "custom");
 
@@ -253,6 +261,151 @@ TEST_CASE("[GaussianSplatting][Config] Sorting target_sort_time_ms follows the c
 		CHECK(g_gpu_sorting_config.target_sort_time_ms == doctest::Approx(1.75f));
 		CHECK(strategy_config.target_sort_time_ms == doctest::Approx(1.75f));
 		CHECK(manager_target_sort_time_ms == doctest::Approx(1.75f));
+	}
+}
+
+// =============================================================================
+// Settings-hygiene S7 renames: canonical key + deprecated alias (#167/#168/#169)
+// =============================================================================
+
+TEST_CASE("[GaussianSplatting][Config][Sort] diagnostics/sort_target_time_ms honors deprecated aliases (#168)") {
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	REQUIRE(project_settings != nullptr);
+
+	const String canonical_path = "rendering/gaussian_splatting/diagnostics/sort_target_time_ms";
+	const String sorting_alias = "rendering/gaussian_splatting/sorting/target_sort_time_ms";
+	const String gpu_sorting_alias = "rendering/gaussian_splatting/gpu_sorting/target_sort_time_ms";
+	ProjectSettingGuard canonical_guard(project_settings, canonical_path);
+	ProjectSettingGuard sorting_guard(project_settings, sorting_alias);
+	ProjectSettingGuard gpu_sorting_guard(project_settings, gpu_sorting_alias);
+
+	auto reset_all = [&]() {
+		if (project_settings->has_setting(canonical_path)) {
+			project_settings->clear(canonical_path);
+		}
+		if (project_settings->has_setting(sorting_alias)) {
+			project_settings->clear(sorting_alias);
+		}
+		if (project_settings->has_setting(gpu_sorting_alias)) {
+			project_settings->clear(gpu_sorting_alias);
+		}
+	};
+
+	SUBCASE("(a) default: neither key set -> caller fallback, no alias consulted") {
+		reset_all();
+		CHECK(gs::sorting_settings::get_target_sort_time_ms(project_settings, 2.0f) == doctest::Approx(2.0f));
+	}
+
+	SUBCASE("(b) deprecated sorting/ alias supplies the value when canonical is unset") {
+		reset_all();
+		project_settings->set_setting(sorting_alias, 3.25f);
+		CHECK(gs::sorting_settings::get_target_sort_time_ms(project_settings, 2.0f) == doctest::Approx(3.25f));
+	}
+
+	SUBCASE("(b') older gpu_sorting/ alias supplies the value when canonical + sorting/ are unset") {
+		reset_all();
+		project_settings->set_setting(gpu_sorting_alias, 1.75f);
+		CHECK(gs::sorting_settings::get_target_sort_time_ms(project_settings, 2.0f) == doctest::Approx(1.75f));
+	}
+
+	SUBCASE("(c) explicit canonical wins over both deprecated aliases") {
+		reset_all();
+		project_settings->set_setting(canonical_path, 5.5f);
+		project_settings->set_setting(sorting_alias, 3.25f);
+		project_settings->set_setting(gpu_sorting_alias, 1.75f);
+		CHECK(gs::sorting_settings::get_target_sort_time_ms(project_settings, 2.0f) == doctest::Approx(5.5f));
+	}
+
+	SUBCASE("sorting/ takes precedence over the older gpu_sorting/ alias") {
+		reset_all();
+		project_settings->set_setting(sorting_alias, 3.25f);
+		project_settings->set_setting(gpu_sorting_alias, 1.75f);
+		CHECK(gs::sorting_settings::get_target_sort_time_ms(project_settings, 2.0f) == doctest::Approx(3.25f));
+	}
+}
+
+TEST_CASE("[GaussianSplatting][Config][Lod] lod/diagnostic_logging honors the debug_visualization alias (#167)") {
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	REQUIRE(project_settings != nullptr);
+	register_lod_project_settings(); // ensure the canonical key is registered (idempotent)
+
+	const String canonical_path = "rendering/gaussian_splatting/lod/diagnostic_logging";
+	const String deprecated_path = "rendering/gaussian_splatting/lod/debug_visualization";
+	ProjectSettingGuard canonical_guard(project_settings, canonical_path);
+	ProjectSettingGuard deprecated_guard(project_settings, deprecated_path);
+
+	auto reset_all = [&]() {
+		if (project_settings->has_setting(canonical_path)) {
+			project_settings->set_setting(canonical_path, false); // canonical is builtin; restore default
+		}
+		if (project_settings->has_setting(deprecated_path)) {
+			project_settings->clear(deprecated_path);
+		}
+	};
+	auto load_flag = [&]() {
+		LODConfig config;
+		config.load_from_project_settings();
+		return config.diagnostic_logging;
+	};
+
+	SUBCASE("(a) default: neither key set -> false") {
+		reset_all();
+		CHECK_FALSE(load_flag());
+	}
+
+	SUBCASE("(b) deprecated debug_visualization alias enables diagnostic logging") {
+		reset_all();
+		project_settings->set_setting(deprecated_path, true);
+		CHECK(load_flag());
+	}
+
+	SUBCASE("(c) explicit canonical wins over the deprecated alias") {
+		reset_all();
+		project_settings->set_setting(canonical_path, true);
+		project_settings->set_setting(deprecated_path, false);
+		CHECK(load_flag());
+	}
+}
+
+TEST_CASE("[GaussianSplatting][Config][Pipeline] pipeline/enable_all_pipeline_experimental honors the enable_all_experimental alias (#169)") {
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	REQUIRE(project_settings != nullptr);
+
+	const String canonical_path = "rendering/gaussian_splatting/pipeline/enable_all_pipeline_experimental";
+	const String deprecated_path = "rendering/gaussian_splatting/pipeline/enable_all_experimental";
+	ProjectSettingGuard canonical_guard(project_settings, canonical_path);
+	ProjectSettingGuard deprecated_guard(project_settings, deprecated_path);
+
+	auto reset_all = [&]() {
+		if (project_settings->has_setting(canonical_path)) {
+			project_settings->set_setting(canonical_path, false); // canonical is builtin; restore default
+		}
+		if (project_settings->has_setting(deprecated_path)) {
+			project_settings->clear(deprecated_path);
+		}
+	};
+	auto load_flag = [&]() {
+		PipelineFeatureSet config;
+		config.load_from_project_settings();
+		return config.enable_all_pipeline_experimental;
+	};
+
+	SUBCASE("(a) default: neither key set -> false") {
+		reset_all();
+		CHECK_FALSE(load_flag());
+	}
+
+	SUBCASE("(b) deprecated enable_all_experimental alias force-enables the bundle") {
+		reset_all();
+		project_settings->set_setting(deprecated_path, true);
+		CHECK(load_flag());
+	}
+
+	SUBCASE("(c) explicit canonical wins over the deprecated alias") {
+		reset_all();
+		project_settings->set_setting(canonical_path, true);
+		project_settings->set_setting(deprecated_path, false);
+		CHECK(load_flag());
 	}
 }
 
@@ -844,7 +997,7 @@ TEST_CASE("[GaussianSplatting][Config] PipelineFeatureSet validates SH amortizat
 	}
 
 	SUBCASE("Experimental bundle inherits SH amortization validation") {
-		config.enable_all_experimental = true;
+		config.enable_all_pipeline_experimental = true;
 		config.sh_amortization_divisor = 1;
 		CHECK_FALSE(config.validate());
 		CHECK(config.get_validation_errors().contains("SH amortization divisor must be > 1."));
@@ -873,7 +1026,7 @@ TEST_CASE("[GaussianSplatting][Config] PipelineFeatureSet validates packed stage
 	}
 
 	SUBCASE("Experimental bundle inherits packed stage limits") {
-		config.enable_all_experimental = true;
+		config.enable_all_pipeline_experimental = true;
 		CHECK_FALSE(config.validate(PipelineFeatureSet::PACKED_STAGE_MAX_TOTAL_SPLATS + 1));
 		CHECK(config.get_validation_errors(PipelineFeatureSet::PACKED_STAGE_MAX_TOTAL_SPLATS + 1)
 				.contains("Packed stage data requires <="));

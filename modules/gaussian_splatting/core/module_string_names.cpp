@@ -16,6 +16,7 @@ ModuleStringNames *g_module_string_names = nullptr;
 
 void ModuleStringNames::initialize() {
 	renderdoc_compatibility_path = StringName("rendering/gaussian_splatting/renderdoc_compatibility");
+	diagnostics_sort_target_time_path = StringName("rendering/gaussian_splatting/diagnostics/sort_target_time_ms");
 	sorting_target_sort_time_path = StringName("rendering/gaussian_splatting/sorting/target_sort_time_ms");
 	legacy_gpu_sorting_target_sort_time_path = StringName("rendering/gaussian_splatting/gpu_sorting/target_sort_time_ms");
 }
@@ -26,6 +27,7 @@ void ModuleStringNames::release() {
 	// remains. Without this the cached StringNames would live in static
 	// storage until program exit and surface as orphans at cleanup time.
 	renderdoc_compatibility_path = StringName();
+	diagnostics_sort_target_time_path = StringName();
 	sorting_target_sort_time_path = StringName();
 	legacy_gpu_sorting_target_sort_time_path = StringName();
 }

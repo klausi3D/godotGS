@@ -10,6 +10,38 @@
 
 namespace {
 static bool _is_data_log_enabled() { return gs::settings::is_data_log_enabled(); }
+
+// Resolve lod/diagnostic_logging (#167) honoring the deprecated
+// lod/debug_visualization alias. Precedence matches the sort-target alias
+// helper: an explicit canonical override wins; else the deprecated alias (with a
+// one-time WARN); else the canonical registered default. A default project (only
+// the builtin canonical present, unset) resolves to the fallback with no warning,
+// so the rename is behavior-neutral.
+static bool _load_lod_diagnostic_logging(ProjectSettings *p_ps, bool p_fallback) {
+    if (!p_ps) {
+        return p_fallback;
+    }
+    const String canonical = LOD_CONFIG_DIAGNOSTIC_LOGGING_PATH;
+    const String deprecated = LOD_CONFIG_DEBUG_VISUALIZATION_PATH;
+    // Explicit canonical override wins. (A value set EQUAL to the code default is
+    // indistinguishable from unset and treated as the default — same accepted
+    // limitation as the sort-target alias.)
+    if (p_ps->has_setting(canonical) && p_ps->property_can_revert(canonical) &&
+            p_ps->get_setting_with_override(canonical) != p_ps->property_get_revert(canonical)) {
+        return gs::settings::get_bool(p_ps, canonical, p_fallback);
+    }
+    // Deprecated alias fallback (read-only compatibility).
+    if (p_ps->has_setting(deprecated)) {
+        WARN_PRINT_ONCE(vformat("[GaussianSplatting] Project setting '%s' is deprecated; use '%s' instead. Deprecated alias support is read-only compatibility and will be removed after project migration.",
+                deprecated, canonical));
+        return gs::settings::get_bool(p_ps, deprecated, p_fallback);
+    }
+    // Canonical registered default (builtin) or caller fallback.
+    if (p_ps->has_setting(canonical)) {
+        return gs::settings::get_bool(p_ps, canonical, p_fallback);
+    }
+    return p_fallback;
+}
 } // namespace
 
 // Static path constants
@@ -91,7 +123,7 @@ void LODConfig::load_from_project_settings() {
     splat_skip_enabled = get_bool(LOD_CONFIG_SPLAT_SKIP_ENABLED_PATH, splat_skip_enabled);
     sh_reduction_enabled = get_bool(LOD_CONFIG_SH_REDUCTION_ENABLED_PATH, sh_reduction_enabled);
     opacity_fade_enabled = get_bool(LOD_CONFIG_OPACITY_FADE_ENABLED_PATH, opacity_fade_enabled);
-    debug_visualization = get_bool(LOD_CONFIG_DEBUG_VISUALIZATION_PATH, debug_visualization);
+    diagnostic_logging = _load_lod_diagnostic_logging(ps, diagnostic_logging);
 
     // Validate and clamp values
     num_levels = CLAMP(num_levels, 2, 8);
@@ -112,7 +144,12 @@ void LODConfig::save_to_project_settings() const {
     ps->set_setting(LOD_CONFIG_SPLAT_SKIP_ENABLED_PATH, splat_skip_enabled);
     ps->set_setting(LOD_CONFIG_SH_REDUCTION_ENABLED_PATH, sh_reduction_enabled);
     ps->set_setting(LOD_CONFIG_OPACITY_FADE_ENABLED_PATH, opacity_fade_enabled);
-    ps->set_setting(LOD_CONFIG_DEBUG_VISUALIZATION_PATH, debug_visualization);
+    ps->set_setting(LOD_CONFIG_DIAGNOSTIC_LOGGING_PATH, diagnostic_logging);
+    // Migrate away from the deprecated alias so a persisted config does not keep
+    // re-triggering the read-time deprecation warning.
+    if (ps->has_setting(LOD_CONFIG_DEBUG_VISUALIZATION_PATH)) {
+        ps->clear(LOD_CONFIG_DEBUG_VISUALIZATION_PATH);
+    }
 }
 
 void LODConfig::reset_to_defaults() {
@@ -123,7 +160,7 @@ void LODConfig::reset_to_defaults() {
     splat_skip_enabled = true;
     sh_reduction_enabled = true;
     opacity_fade_enabled = true;
-    debug_visualization = false;
+    diagnostic_logging = false;
 }
 
 bool LODConfig::validate() const {
@@ -220,7 +257,7 @@ void LODConfig::print_config_summary() const {
             splat_skip_enabled ? "true" : "false",
             sh_reduction_enabled ? "true" : "false",
             opacity_fade_enabled ? "true" : "false",
-            debug_visualization ? "true" : "false"));
+            diagnostic_logging ? "true" : "false"));
 
     // Print distance thresholds for each LOD level
     for (int i = 0; i < num_levels; i++) {
@@ -331,7 +368,7 @@ void initialize_lod_config() {
     register_lod_project_settings();
     g_lod_config.load_from_project_settings();
     GS_LOG_STREAMING_INFO("[LOD] Configuration loaded from project settings");
-    if (g_lod_config.debug_visualization) {
+    if (g_lod_config.diagnostic_logging) {
         g_lod_config.print_config_summary();
     }
 }
@@ -346,7 +383,10 @@ void register_lod_project_settings() {
     GLOBAL_DEF(LOD_CONFIG_SPLAT_SKIP_ENABLED_PATH, true);
     GLOBAL_DEF(LOD_CONFIG_SH_REDUCTION_ENABLED_PATH, true);
     GLOBAL_DEF(LOD_CONFIG_OPACITY_FADE_ENABLED_PATH, true);
-    GLOBAL_DEF(LOD_CONFIG_DEBUG_VISUALIZATION_PATH, false);
+    // Canonical diagnostic-logging gate (#167). The old lod/debug_visualization
+    // spelling is intentionally NOT registered: it is read only as a deprecated
+    // alias when a project.godot explicitly sets it (see _load_lod_diagnostic_logging).
+    GLOBAL_DEF(LOD_CONFIG_DIAGNOSTIC_LOGGING_PATH, false);
 
     // LOD blending settings (LODGE technique) - eliminates popping during LOD transitions
     GLOBAL_DEF("rendering/gaussian_splatting/lod/blend_enabled", true);
