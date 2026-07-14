@@ -76,7 +76,17 @@ static inline float get_target_sort_time_ms(ProjectSettings *p_ps, float p_fallb
 	if (!p_ps) {
 		return p_fallback;
 	}
-	// 1. Explicit canonical (diagnostics/) override always wins.
+	// Precedence: explicit canonical (diagnostics/) > deprecated aliases (sorting/,
+	// then gpu_sorting/) > canonical registered default.
+	// KNOWN LIMITATION (inherent, shared across the module's settings): "explicit
+	// canonical" is detected by the value differing from the registered default,
+	// because after GLOBAL_DEF a key set exactly to its default is indistinguishable
+	// from unset. So if a project still carries a deprecated alias AND sets the
+	// canonical to its exact default, the alias supplies the value (with a warning)
+	// rather than the canonical default. This self-heals: save_to_project_settings()
+	// writes the canonical and clears the aliases, so one save (or removing the old
+	// key) resolves it. The lod/ and pipeline/ alias loaders share this behavior.
+	// 1. Explicit canonical (diagnostics/) override wins.
 	if (has_explicit_target_sort_time_override(p_ps)) {
 		return gs::settings::get_float(p_ps, canonical_sort_target_time_path(), p_fallback);
 	}
