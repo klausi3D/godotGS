@@ -440,13 +440,6 @@
       <td><code>modules/gaussian_splatting/renderer/gaussian_splat_renderer_bindings.cpp:253</code></td>
     </tr>
     <tr>
-      <td><code>debug/enable_state_guardrails</code></td>
-      <td><code>bool</code></td>
-      <td><code>set_debug_state_guardrails_enabled</code>, <code>get_debug_state_guardrails_enabled</code></td>
-      <td>Adds extra validation checks in pipeline state transitions.</td>
-      <td><code>modules/gaussian_splatting/renderer/gaussian_splat_renderer_bindings.cpp:254</code></td>
-    </tr>
-    <tr>
       <td><code>debug/enable_splat_audit</code></td>
       <td><code>bool</code></td>
       <td><code>set_debug_splat_audit_enabled</code>, <code>get_debug_splat_audit_enabled</code></td>
@@ -1240,11 +1233,6 @@ The following methods are bound via `ClassDB::bind_method` and available from GD
       <td><code>set_debug_pipeline_trace_enabled(enabled: bool)</code></td>
       <td>Enables per-stage pipeline event recording.</td>
       <td><code>modules/gaussian_splatting/renderer/gaussian_splat_renderer.h:1199</code></td>
-    </tr>
-    <tr>
-      <td><code>set_debug_state_guardrails_enabled(enabled: bool)</code></td>
-      <td>Enables extra validation in pipeline state transitions.</td>
-      <td><code>modules/gaussian_splatting/renderer/gaussian_splat_renderer.h:1201</code></td>
     </tr>
     <tr>
       <td><code>set_debug_cull_guardrails_enabled(enabled: bool)</code></td>
