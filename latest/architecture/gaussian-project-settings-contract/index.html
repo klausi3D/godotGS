@@ -1803,11 +1803,12 @@ migration/deprecation decisions before removal or support changes. The first
 wave only inventories them.</p>
 <p>Current candidates include:</p>
 <ul>
-<li><code>rendering/gaussian_splatting/pipeline/enable_all_experimental</code></li>
 <li><code>rendering/gaussian_splatting/gpu_sorting_enabled</code> — deprecated no-op (see S6c
   below); kept registered + bound for ABI, flagged <code>cleanup_candidate</code> pending a
   wire-or-remove decision.</li>
 </ul>
+<p>(<code>pipeline/enable_all_experimental</code> was resolved in S7-renames below: it is
+truthfully renamed and no longer a cleanup candidate.)</p>
 <p>Removed in settings-hygiene slice S6a: <code>debug/enable_mainloop_probes</code>,
 <code>max_gpu_buffer_count</code>, and <code>streaming/async_io_enabled</code> were registered public
 keys with zero production readers (no runtime effect). Their <code>GLOBAL_DEF</code>
@@ -1860,6 +1861,34 @@ chunk is negligible and was dropped. Adaptive/variable chunk sizing is tracked i
 <h1 id="482-their-registrations-config-fieldsmembers-and-manifest-entries-were">482. Their registrations, config fields/members, and manifest entries were<a class="headerlink" href="#482-their-registrations-config-fieldsmembers-and-manifest-entries-were" title="Permanent link">¶</a></h1>
 <p>deleted; each is now a <code>removed</code> entry in <code>retired_settings</code> (kept in
 <code>public_settings</code> for public API history). This change is behavior-neutral.</p>
+<p>Renamed in settings-hygiene closeout slice S7 (renames): three misleadingly-named
+public keys were renamed to truthful names, each keeping the old spelling as a
+read-only <strong>deprecated alias</strong> so existing <code>project.godot</code> files keep working. The
+effective value is unchanged: the canonical key wins when explicitly set,
+otherwise the deprecated alias is read (with a one-time deprecation <code>WARN</code>),
+otherwise the registered default; a default project (neither set) resolves to the
+default with no warning. A persisted config migrates to the canonical key on save.</p>
+<ul>
+<li><code>lod/debug_visualization</code> → <code>lod/diagnostic_logging</code> (#167). It is a diagnostic
+  LOG-gate (it gates a periodic LOD diagnostic log line and the config-summary
+  print), not a visual toggle — it never rendered LOD level colors. The C++ member
+  was renamed to <code>diagnostic_logging</code>; the <code>debug_visualization</code> key in the bound
+  LOD stats dictionary is kept for telemetry back-compat.</li>
+<li><code>sorting/target_sort_time_ms</code> → <code>diagnostics/sort_target_time_ms</code> (#168). It is a
+  telemetry-only logging target (the <code>meets_target</code> reference and reported
+  <code>target_ms</code>), not adaptive. The canonical key now accepts <strong>two</strong> older spellings
+  as deprecated aliases; read precedence is <code>diagnostics/sort_target_time_ms</code> &gt;
+  <code>sorting/target_sort_time_ms</code> &gt; <code>gpu_sorting/target_sort_time_ms</code>.</li>
+<li><code>pipeline/enable_all_experimental</code> → <code>pipeline/enable_all_pipeline_experimental</code>
+  (#169). It force-enables exactly the four pipeline experimental toggles
+  (<code>packed_stage</code>, <code>tighter_bounds</code>, <code>fast_raster</code>, <code>sh_amortization</code>); the old
+  name wrongly implied engine-wide scope.</li>
+</ul>
+<p>Each old key is flagged <code>deprecated_alias</code> in the manifest and kept in
+<code>public_settings</code> (deprecated aliases are source-parity-exempt and stay live for
+API history; they are <strong>not</strong> retired). Each new canonical key was registered with
+the same default and editor visibility as the old key and added to the manifest +
+<code>public_settings</code>. This change is behavior-neutral for the effective value.</p>
 <h2 id="known-registration-gaps">Known Registration Gaps<a class="headerlink" href="#known-registration-gaps" title="Permanent link">¶</a></h2>
 <p>The manifest also records live runtime reads that need follow-up ownership
 decisions:</p>
@@ -1892,7 +1921,7 @@ are not user-facing <code>ProjectSettings</code> contracts.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 13, 2026 19:39:28 UTC">July 13, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 14, 2026 22:30:51 UTC">July 14, 2026</span>
   </span>
 
     
