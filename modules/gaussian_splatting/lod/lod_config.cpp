@@ -144,7 +144,7 @@ void LODConfig::save_to_project_settings() const {
     ps->set_setting(LOD_CONFIG_SPLAT_SKIP_ENABLED_PATH, splat_skip_enabled);
     ps->set_setting(LOD_CONFIG_SH_REDUCTION_ENABLED_PATH, sh_reduction_enabled);
     ps->set_setting(LOD_CONFIG_OPACITY_FADE_ENABLED_PATH, opacity_fade_enabled);
-    ps->set_setting(LOD_CONFIG_DIAGNOSTIC_LOGGING_PATH, diagnostic_logging);
+    ps->set_setting(LOD_CONFIG_DIAGNOSTIC_LOGGING_PATH, diagnostic_logging); // GS_CI_ALLOW_RENDER_PATH_SETTING_MUTATION
     // Migrate away from the deprecated alias so a persisted config does not keep
     // re-triggering the read-time deprecation warning.
     if (ps->has_setting(LOD_CONFIG_DEBUG_VISUALIZATION_PATH)) {

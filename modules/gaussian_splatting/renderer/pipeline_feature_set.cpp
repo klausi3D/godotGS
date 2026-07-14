@@ -245,7 +245,7 @@ void PipelineFeatureSet::save_to_project_settings() const {
     ps->set_setting(ENABLE_FAST_RASTER_PATH, enable_fast_raster);
     ps->set_setting(ENABLE_SH_AMORTIZATION_PATH, enable_sh_amortization);
     ps->set_setting(SH_AMORTIZATION_DIVISOR_PATH, sh_amortization_divisor);
-    ps->set_setting(ENABLE_ALL_PIPELINE_EXPERIMENTAL_PATH, enable_all_pipeline_experimental);
+    ps->set_setting(ENABLE_ALL_PIPELINE_EXPERIMENTAL_PATH, enable_all_pipeline_experimental); // GS_CI_ALLOW_RENDER_PATH_SETTING_MUTATION
     // Migrate away from the deprecated alias so a persisted config does not keep
     // re-triggering the read-time deprecation warning.
     if (ps->has_setting(DEPRECATED_ENABLE_ALL_EXPERIMENTAL_PATH)) {
