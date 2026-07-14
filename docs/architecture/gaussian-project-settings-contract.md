@@ -208,22 +208,25 @@ general runtime controls.
   Setting **either** key still enables strict validation, so this is
   behavior-neutral for a project that sets one key. The alias is flagged
   `deprecated_alias` in the manifest and added to `public_settings`.
-- **Labeled + hidden:** the pure profiling/debug/validation levers below were
-  registered with `GLOBAL_DEF` and were editor-visible with bare defaults. They
-  now carry `PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_STORAGE` so the editor
-  inspector no longer presents them as general runtime controls; they remain fully
-  settable via `ProjectSettings` and stay in the public API baseline (NO_EDITOR
-  changes editor visibility only, not the value or its effect).
-  `gpu_sorting/subgroup_prefix_mode` is the one exception: it is a user-facing
-  compatibility/workaround lever (route around driver quirks in the subgroup
-  radix-prefix path), so it deliberately stays editor-visible.
+- **Labeled (editor-visible):** the pure profiling/debug/validation levers below are
+  registered with `GLOBAL_DEF` and are clearly labeled in the manifest by `scope`
+  (debug / diagnostic) + notes so they no longer read as general runtime controls.
+  They remain **editor-visible**: `PROPERTY_USAGE_NO_EDITOR` is **not honored** for
+  ProjectSettings — `ProjectSettings::_get_property_list()` overwrites the custom
+  usage flags with `EDITOR | STORAGE` for any non-internal setting — so the flag was
+  dropped (it was a no-op) and these keys stay visible. Truly hiding them would
+  require `ProjectSettings::set_as_internal(path, true)`; the module-wide reliance on
+  the ineffective `NO_EDITOR` flag is tracked in
+  [#491](https://github.com/klausi3D/godotGS/issues/491).
+  `gpu_sorting/subgroup_prefix_mode` is deliberately user-facing (a
+  compatibility/workaround lever that routes around driver quirks in the subgroup
+  radix-prefix path).
 
 Manifest note: a public-API baseline key must be classified `public`,
-`cleanup_candidate`, or `deprecated_alias` (or be retired). The NO_EDITOR keys
-below therefore keep `publicness: public` and express their debug/profiling nature
-via `scope` + `visibility: hidden_no_editor` + notes, rather than
-`publicness: debug_only` (which would drop them out of the public surface and fail
-the baseline-alignment guard).
+`cleanup_candidate`, or `deprecated_alias` (or be retired). These keys therefore
+keep `publicness: public` and express their debug/profiling nature via `scope` +
+notes, rather than `publicness: debug_only` (which would drop them out of the public
+surface and fail the baseline-alignment guard).
 
 | Key | Kind | Scope | Editor |
 | --- | --- | --- | --- |
@@ -231,12 +234,12 @@ the baseline-alignment guard).
 | `debug/enable_splat_audit` | Bound node debug toggle + raw read (per-frame GPU buffer audit) | debug | Editor-visible (node property; kept) |
 | `debug/splat_audit_sample_count` | Bound node debug parameter + raw read | debug | Editor-visible (node property; kept) |
 | `debug/force_unclustered_lights` | Raw-only unregistered debug hook (forces unclustered lighting) | debug | Hidden (unregistered by nature) |
-| `gpu_sorting/enable_stage_timestamps` | Per-stage GPU-timestamp profiling | diagnostic | NO_EDITOR (hidden) |
+| `gpu_sorting/enable_stage_timestamps` | Per-stage GPU-timestamp profiling | diagnostic | Editor-visible (labeled debug; NO_EDITOR not honored — #491) |
 | `gpu_sorting/subgroup_prefix_mode` | Compatibility/workaround lever (auto/force_on/force_off) | compatibility | Editor-visible (kept, by design) |
-| `gpu_sorting/enable_prefix_readback` | Debug sync-readback (`DEBUG_ENABLED` only; GPU stall) | debug | NO_EDITOR (hidden) |
-| `gpu_sorting/debug_validate_prefix` | Debug prefix cross-check (`DEBUG_ENABLED` only; GPU stall) | debug | NO_EDITOR (hidden) |
-| `gpu_sorting/profiling_preserve_gpu_timestamps` | Profiling-only timestamp preservation (`DEBUG_ENABLED` only) | diagnostic | NO_EDITOR (hidden) |
-| `sorting/validate_sorted_output` | Debug sorted-key monotonicity validation (GPU stall) | debug | NO_EDITOR (hidden) |
+| `gpu_sorting/enable_prefix_readback` | Debug sync-readback (`DEBUG_ENABLED` only; GPU stall) | debug | Editor-visible (labeled debug; NO_EDITOR not honored — #491) |
+| `gpu_sorting/debug_validate_prefix` | Debug prefix cross-check (`DEBUG_ENABLED` only; GPU stall) | debug | Editor-visible (labeled debug; NO_EDITOR not honored — #491) |
+| `gpu_sorting/profiling_preserve_gpu_timestamps` | Profiling-only timestamp preservation (`DEBUG_ENABLED` only) | diagnostic | Editor-visible (labeled debug; NO_EDITOR not honored — #491) |
+| `sorting/validate_sorted_output` | Debug sorted-key monotonicity validation (GPU stall) | debug | Editor-visible (labeled debug; NO_EDITOR not honored — #491) |
 
 `import/ply_ascii_strict_parse` is listed in issue #173 but does **not** exist on
 `master` (0 references in module source); it is already-gone and required no code
