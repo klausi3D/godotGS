@@ -322,8 +322,6 @@ RenderDebugStateOrchestrator::RenderDebugStateOrchestrator(const Dependencies &p
 				"rendering/gaussian_splatting/debug/enable_all_debug", false);
 		debug_config.enable_pipeline_trace = _get_bool_setting(ps,
 				"rendering/gaussian_splatting/debug/enable_pipeline_trace", default_trace);
-		debug_config.enable_state_guardrails = _get_bool_setting(ps,
-				"rendering/gaussian_splatting/debug/enable_state_guardrails", false);
 		debug_config.enable_splat_audit = _get_bool_setting(ps,
 				"rendering/gaussian_splatting/debug/enable_splat_audit", false);
 		debug_config.enable_frame_logging = _get_bool_setting(ps,
@@ -371,7 +369,6 @@ RenderDebugStateOrchestrator::RenderDebugStateOrchestrator(const Dependencies &p
 				static_cast<int>(TileRenderer::DEBUG_SPLAT_AUDIT_MAX_SAMPLES));
 		if (debug_config.enable_all_debug) {
 			debug_config.enable_pipeline_trace = true;
-			debug_config.enable_state_guardrails = true;
 			debug_config.enable_splat_audit = true;
 			debug_config.enable_frame_logging = true;
 			debug_config.enable_frame_logging_verbose = true;
@@ -393,7 +390,6 @@ RenderDebugStateOrchestrator::RenderDebugStateOrchestrator(const Dependencies &p
 	} else {
 		debug_config.enable_all_debug = false;
 		debug_config.enable_pipeline_trace = default_trace;
-		debug_config.enable_state_guardrails = false;
 		debug_config.enable_splat_audit = false;
 		debug_config.enable_frame_logging = false;
 		debug_config.enable_frame_logging_verbose = false;
@@ -1108,14 +1104,6 @@ bool RenderDebugStateOrchestrator::get_perf_capture_raster_shader_counters() con
 	return debug_config.perf_capture_raster_shader_counters;
 }
 
-void RenderDebugStateOrchestrator::set_debug_state_guardrails_enabled(bool p_enabled) {
-	debug_config.enable_state_guardrails = p_enabled;
-}
-
-bool RenderDebugStateOrchestrator::get_debug_state_guardrails_enabled() const {
-	return debug_config.enable_state_guardrails;
-}
-
 void RenderDebugStateOrchestrator::set_debug_cull_guardrails_enabled(bool p_enabled) {
 	debug_config.enable_cull_guardrails = p_enabled;
 }
@@ -1282,14 +1270,6 @@ void GaussianSplatRenderer::set_perf_capture_raster_shader_counters(bool p_enabl
 
 bool GaussianSplatRenderer::get_perf_capture_raster_shader_counters() const {
 	return debug_state_orchestrator->get_perf_capture_raster_shader_counters();
-}
-
-void GaussianSplatRenderer::set_debug_state_guardrails_enabled(bool p_enabled) {
-	debug_state_orchestrator->set_debug_state_guardrails_enabled(p_enabled);
-}
-
-bool GaussianSplatRenderer::get_debug_state_guardrails_enabled() const {
-	return debug_state_orchestrator->get_debug_state_guardrails_enabled();
 }
 
 void GaussianSplatRenderer::set_debug_cull_guardrails_enabled(bool p_enabled) {

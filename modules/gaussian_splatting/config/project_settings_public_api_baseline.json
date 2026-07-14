@@ -28,6 +28,7 @@
     "rendering/gaussian_splatting/culling/opacity_aware_bounds",
     "rendering/gaussian_splatting/culling/visibility_threshold",
     "rendering/gaussian_splatting/debug/enable_mainloop_probes",
+    "rendering/gaussian_splatting/debug/layout_hint_validation_strict",
     "rendering/gaussian_splatting/diagnostics/perf_gate_budget_ms",
     "rendering/gaussian_splatting/diagnostics/perf_gate_enabled",
     "rendering/gaussian_splatting/diagnostics/perf_gate_splat_threshold",

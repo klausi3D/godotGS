@@ -639,13 +639,45 @@ void initialize_gpu_sorting_config() {
     GLOBAL_DEF(GPUSortingConfig::BANDWIDTH_MONITORING_PATH, g_gpu_sorting_config.enable_bandwidth_monitoring);
     GLOBAL_DEF(GPUSortingConfig::ENABLE_COMPUTE_RASTER_PATH, g_gpu_sorting_config.enable_compute_raster);
     GLOBAL_DEF(GPUSortingConfig::STRICT_GLOBAL_SORT_PATH, g_gpu_sorting_config.strict_global_sort);
-    GLOBAL_DEF(GPUSortingConfig::VALIDATE_SORTED_OUTPUT_PATH, g_gpu_sorting_config.validate_sorted_output);
-    GLOBAL_DEF(GPUSortingConfig::ENABLE_STAGE_TIMESTAMPS_PATH, g_gpu_sorting_config.enable_stage_timestamps);
+    // sorting/validate_sorted_output is a debug validation lever (monotonicity check
+    // that forces a sync stall), not a general runtime control. Hide it from the
+    // editor inspector (NO_EDITOR) while keeping it settable via ProjectSettings and
+    // persisted (STORAGE). See #173.
+    GLOBAL_DEF(
+            PropertyInfo(Variant::BOOL, GPUSortingConfig::VALIDATE_SORTED_OUTPUT_PATH,
+                    PROPERTY_HINT_NONE, String(),
+                    PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_STORAGE),
+            g_gpu_sorting_config.validate_sorted_output);
+    // gpu_sorting/enable_stage_timestamps is a per-stage GPU-timestamp profiling
+    // lever, not a rendering control; editor-hidden (NO_EDITOR). See #173.
+    GLOBAL_DEF(
+            PropertyInfo(Variant::BOOL, GPUSortingConfig::ENABLE_STAGE_TIMESTAMPS_PATH,
+                    PROPERTY_HINT_NONE, String(),
+                    PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_STORAGE),
+            g_gpu_sorting_config.enable_stage_timestamps);
+    // subgroup_prefix_mode is a user-facing compatibility/workaround lever (force the
+    // subgroup radix-prefix path on/off for driver quirks), so it deliberately stays
+    // editor-visible. See #173.
     GLOBAL_DEF(GPUSortingConfig::SUBGROUP_PREFIX_MODE_PATH, int(g_gpu_sorting_config.subgroup_prefix_mode));
 #ifdef DEBUG_ENABLED
-    GLOBAL_DEF(GPUSortingConfig::ENABLE_PREFIX_READBACK_PATH, g_gpu_sorting_config.enable_prefix_readback);
-    GLOBAL_DEF(GPUSortingConfig::DEBUG_VALIDATE_PREFIX_PATH, g_gpu_sorting_config.debug_validate_prefix);
-    GLOBAL_DEF(GPUSortingConfig::PROFILING_PRESERVE_TIMESTAMPS_PATH, g_gpu_sorting_config.profiling_preserve_gpu_timestamps);
+    // Debug-only prefix readback/validation and timestamp-preservation levers
+    // (each forces a synchronous GPU stall). DEBUG builds only, and editor-hidden
+    // (NO_EDITOR) so they never present as general runtime controls. See #173.
+    GLOBAL_DEF(
+            PropertyInfo(Variant::BOOL, GPUSortingConfig::ENABLE_PREFIX_READBACK_PATH,
+                    PROPERTY_HINT_NONE, String(),
+                    PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_STORAGE),
+            g_gpu_sorting_config.enable_prefix_readback);
+    GLOBAL_DEF(
+            PropertyInfo(Variant::BOOL, GPUSortingConfig::DEBUG_VALIDATE_PREFIX_PATH,
+                    PROPERTY_HINT_NONE, String(),
+                    PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_STORAGE),
+            g_gpu_sorting_config.debug_validate_prefix);
+    GLOBAL_DEF(
+            PropertyInfo(Variant::BOOL, GPUSortingConfig::PROFILING_PRESERVE_TIMESTAMPS_PATH,
+                    PROPERTY_HINT_NONE, String(),
+                    PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_STORAGE),
+            g_gpu_sorting_config.profiling_preserve_gpu_timestamps);
 #endif
     
     g_gpu_sorting_config.load_from_project_settings();

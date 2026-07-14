@@ -39,10 +39,24 @@ bool _layout_hint_strict_validation_enabled() {
     if (!ps) {
         return false;
     }
-    if (gs::settings::get_bool(ps, "rendering/gaussian_splatting/streaming/layout_hint_validation_strict", false)) {
-        return true;
+    // #173 dedup: streaming/layout_hint_validation_strict is the CANONICAL key;
+    // debug/layout_hint_validation_strict is a read-only DEPRECATED ALIAS kept for
+    // project compatibility. Precedence follows the module alias convention (#489):
+    // an explicitly set canonical wins, else the deprecated alias is read with a
+    // one-time WARN, else the default (false). Neither key is GLOBAL_DEF'd, so
+    // has_setting() is true only when a project.godot explicitly carries the key.
+    const String canonical_path = "rendering/gaussian_splatting/streaming/layout_hint_validation_strict";
+    const String deprecated_path = "rendering/gaussian_splatting/debug/layout_hint_validation_strict";
+    if (ps->has_setting(canonical_path)) {
+        return gs::settings::get_bool(ps, canonical_path, false);
     }
-    return gs::settings::get_bool(ps, "rendering/gaussian_splatting/debug/layout_hint_validation_strict", false);
+    if (ps->has_setting(deprecated_path)) {
+        WARN_PRINT_ONCE(vformat("[GaussianSplatting] Project setting '%s' is deprecated; use '%s' instead. "
+                "Deprecated alias support is read-only compatibility and will be removed after project migration.",
+                deprecated_path, canonical_path));
+        return gs::settings::get_bool(ps, deprecated_path, false);
+    }
+    return false;
 }
 
 const char *_layout_hint_usage_code(LayoutHintUsage p_usage) {

@@ -152,8 +152,6 @@ void GaussianSplatRenderer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_perf_capture_force_runtime_statistics"), &GaussianSplatRenderer::get_perf_capture_force_runtime_statistics);
 	ClassDB::bind_method(D_METHOD("set_perf_capture_raster_shader_counters", "enabled"), &GaussianSplatRenderer::set_perf_capture_raster_shader_counters);
 	ClassDB::bind_method(D_METHOD("get_perf_capture_raster_shader_counters"), &GaussianSplatRenderer::get_perf_capture_raster_shader_counters);
-	ClassDB::bind_method(D_METHOD("set_debug_state_guardrails_enabled", "enabled"), &GaussianSplatRenderer::set_debug_state_guardrails_enabled);
-	ClassDB::bind_method(D_METHOD("get_debug_state_guardrails_enabled"), &GaussianSplatRenderer::get_debug_state_guardrails_enabled);
 	ClassDB::bind_method(D_METHOD("set_debug_cull_guardrails_enabled", "enabled"), &GaussianSplatRenderer::set_debug_cull_guardrails_enabled);
 	ClassDB::bind_method(D_METHOD("get_debug_cull_guardrails_enabled"), &GaussianSplatRenderer::get_debug_cull_guardrails_enabled);
 	ClassDB::bind_method(D_METHOD("set_debug_splat_audit_enabled", "enabled"), &GaussianSplatRenderer::set_debug_splat_audit_enabled);
@@ -256,7 +254,6 @@ void GaussianSplatRenderer::_bind_methods() {
 			"set_debug_compute_raster_policy", "get_debug_compute_raster_policy");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "debug/dump_gpu_counters"), "set_debug_dump_gpu_counters", "get_debug_dump_gpu_counters");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "debug/enable_pipeline_trace"), "set_debug_pipeline_trace_enabled", "get_debug_pipeline_trace_enabled");
-	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "debug/enable_state_guardrails"), "set_debug_state_guardrails_enabled", "get_debug_state_guardrails_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "debug/enable_splat_audit"), "set_debug_splat_audit_enabled", "get_debug_splat_audit_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "debug/splat_audit_sample_count", PROPERTY_HINT_RANGE, "1,64,1"),
 			"set_debug_splat_audit_sample_count", "get_debug_splat_audit_sample_count");

@@ -70,7 +70,6 @@ struct DebugConfigBase {
     /// free of register pressure / warp divergence. The shader is recompiled
     /// when this flag flips because raster_shader_defines_hash changes.
     bool perf_capture_raster_shader_counters = false;
-    bool enable_state_guardrails = false;
     bool enable_splat_audit = false;
     bool enable_all_debug = false;
     bool enable_frame_logging = false;

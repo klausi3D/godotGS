@@ -20,6 +20,7 @@
 #include "../renderer/gpu_sorter.h"
 #include "../core/gaussian_splat_quality_config.h"
 #include "../core/streaming_vram_regulator.h"
+#include "../core/streaming_layout_hint.h"
 #include "../interfaces/gpu_culler.h"
 #include "../lod/lod_config.h"
 
@@ -321,6 +322,56 @@ TEST_CASE("[GaussianSplatting][Config][Sort] diagnostics/sort_target_time_ms hon
 		project_settings->set_setting(sorting_alias, 3.25f);
 		project_settings->set_setting(gpu_sorting_alias, 1.75f);
 		CHECK(gs::sorting_settings::get_target_sort_time_ms(project_settings, 2.0f) == doctest::Approx(3.25f));
+	}
+}
+
+TEST_CASE("[GaussianSplatting][Config][Streaming] streaming/layout_hint_validation_strict is canonical over the debug/ deprecated alias (#173)") {
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	REQUIRE(project_settings != nullptr);
+
+	const String canonical_path = "rendering/gaussian_splatting/streaming/layout_hint_validation_strict";
+	const String deprecated_path = "rendering/gaussian_splatting/debug/layout_hint_validation_strict";
+	ProjectSettingGuard canonical_guard(project_settings, canonical_path);
+	ProjectSettingGuard deprecated_guard(project_settings, deprecated_path);
+
+	auto reset_all = [&]() {
+		if (project_settings->has_setting(canonical_path)) {
+			project_settings->clear(canonical_path);
+		}
+		if (project_settings->has_setting(deprecated_path)) {
+			project_settings->clear(deprecated_path);
+		}
+	};
+
+	SUBCASE("(a) default: neither key set -> false, no alias consulted") {
+		reset_all();
+		CHECK(gs_layout_hint::_layout_hint_strict_validation_enabled() == false);
+	}
+
+	SUBCASE("(b) deprecated debug/ alias supplies the value when canonical is unset") {
+		reset_all();
+		project_settings->set_setting(deprecated_path, true);
+		CHECK(gs_layout_hint::_layout_hint_strict_validation_enabled() == true);
+	}
+
+	SUBCASE("(c) explicit canonical streaming/ wins when the deprecated alias is unset") {
+		reset_all();
+		project_settings->set_setting(canonical_path, true);
+		CHECK(gs_layout_hint::_layout_hint_strict_validation_enabled() == true);
+	}
+
+	SUBCASE("(d) explicit canonical=false wins over deprecated alias=true (canonical precedence)") {
+		reset_all();
+		project_settings->set_setting(canonical_path, false);
+		project_settings->set_setting(deprecated_path, true);
+		CHECK(gs_layout_hint::_layout_hint_strict_validation_enabled() == false);
+	}
+
+	SUBCASE("(e) explicit canonical=true wins over deprecated alias=false") {
+		reset_all();
+		project_settings->set_setting(canonical_path, true);
+		project_settings->set_setting(deprecated_path, false);
+		CHECK(gs_layout_hint::_layout_hint_strict_validation_enabled() == true);
 	}
 }
 

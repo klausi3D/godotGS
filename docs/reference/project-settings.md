@@ -71,7 +71,7 @@ These settings are registered with `GLOBAL_DEF(...)` and grouped by key prefix.
 | Coverage | Count |
 | --- | ---: |
 | Registered keys | 123 |
-| Runtime-only keys | 29 |
+| Runtime-only keys | 28 |
 | Registered keys without additional literal lookup | 1 |
 
 #### Core
@@ -879,15 +879,14 @@ These keys are used by module code but are not registered with `GLOBAL_DEF(...)`
 | `rendering/gaussian_splatting/cache/spirv_cache_max_mb` | `modules/gaussian_splatting/register_types.cpp:139` |
 | `rendering/gaussian_splatting/cull/frustum_plane_slack` | `modules/gaussian_splatting/interfaces/gpu_culler.cpp:229` |
 | `rendering/gaussian_splatting/debug/enable_pipeline_trace` | `modules/gaussian_splatting/logger/gs_debug_trace.cpp:139` |
-| `rendering/gaussian_splatting/debug/enable_splat_audit` | `modules/gaussian_splatting/renderer/render_debug_state_orchestrator.cpp:328` |
-| `rendering/gaussian_splatting/debug/enable_state_guardrails` | `modules/gaussian_splatting/renderer/render_debug_state_orchestrator.cpp:326` |
+| `rendering/gaussian_splatting/debug/enable_splat_audit` | `modules/gaussian_splatting/renderer/render_debug_state_orchestrator.cpp:326` |
 | `rendering/gaussian_splatting/debug/force_unclustered_lights` | `modules/gaussian_splatting/renderer/gpu_debug_utils.h:74` |
-| `rendering/gaussian_splatting/debug/layout_hint_validation_strict` | `modules/gaussian_splatting/core/streaming_layout_hint.cpp:45` |
+| `rendering/gaussian_splatting/debug/layout_hint_validation_strict` | `modules/gaussian_splatting/core/streaming_layout_hint.cpp:49` |
 | `rendering/gaussian_splatting/debug/show_density_heatmap` | `modules/gaussian_splatting/core/gaussian_splat_settings_manager.cpp:10` |
 | `rendering/gaussian_splatting/debug/show_performance_hud` | `modules/gaussian_splatting/core/gaussian_splat_settings_manager.cpp:11` |
 | `rendering/gaussian_splatting/debug/show_residency_hud` | `modules/gaussian_splatting/core/gaussian_splat_settings_manager.cpp:12` |
 | `rendering/gaussian_splatting/debug/show_tile_grid` | `modules/gaussian_splatting/core/gaussian_splat_settings_manager.cpp:9` |
-| `rendering/gaussian_splatting/debug/splat_audit_sample_count` | `modules/gaussian_splatting/renderer/render_debug_state_orchestrator.cpp:369` |
+| `rendering/gaussian_splatting/debug/splat_audit_sample_count` | `modules/gaussian_splatting/renderer/render_debug_state_orchestrator.cpp:367` |
 | `rendering/gaussian_splatting/diagnostics/sort_target_time_ms` | `modules/gaussian_splatting/core/module_string_names.cpp:19` |
 | `rendering/gaussian_splatting/gpu_sorting/target_sort_time_ms` | `modules/gaussian_splatting/core/module_string_names.cpp:21` |
 | `rendering/gaussian_splatting/lighting/direct_light_scale` | `modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp:194` |
@@ -904,7 +903,7 @@ These keys are used by module code but are not registered with `GLOBAL_DEF(...)`
 | `rendering/gaussian_splatting/sorting/strict_global_sort` | `modules/gaussian_splatting/renderer/gpu_sorting_config.cpp:43` |
 | `rendering/gaussian_splatting/sorting/target_sort_time_ms` | `modules/gaussian_splatting/core/module_string_names.cpp:20` |
 | `rendering/gaussian_splatting/sorting/validate_sorted_output` | `modules/gaussian_splatting/renderer/gpu_sorting_config.cpp:44` |
-| `rendering/gaussian_splatting/streaming/layout_hint_validation_strict` | `modules/gaussian_splatting/core/streaming_layout_hint.cpp:42` |
+| `rendering/gaussian_splatting/streaming/layout_hint_validation_strict` | `modules/gaussian_splatting/core/streaming_layout_hint.cpp:48` |
 
 ### Registered keys without additional literal lookup
 These registered keys have no additional string-literal references beyond their registration line.

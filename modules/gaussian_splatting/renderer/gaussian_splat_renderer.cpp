@@ -2079,9 +2079,11 @@ RID GaussianSplatRenderer::_get_viewport_color_target(RenderSceneBuffersRD *p_re
 // state guardrail but only null-checked the orchestrators and validated nothing
 // (a (void)p_context no-op). Keeping it gave false confidence in a codebase with a
 // desync-bug history, so the no-op and its call site were deleted outright rather
-// than silently retained. If a real canonical-vs-derived comparison is implemented
-// later, gate it on get_debug_config().enable_state_guardrails (still exposed via
-// set_debug_state_guardrails_enabled) and reintroduce an explicit check here.
+// than silently retained. Its inert companion toggle
+// (debug/enable_state_guardrails, the enable_state_guardrails debug-config member,
+// and set/get_debug_state_guardrails_enabled) was likewise removed since nothing
+// consumed it. If a real canonical-vs-derived comparison is implemented later,
+// reintroduce an explicit gate here behind a freshly added debug toggle.
 
 void GaussianSplatRenderer::_set_manual_viewport_format(RD::DataFormat p_format, const char *p_context) {
     (void)p_context;
