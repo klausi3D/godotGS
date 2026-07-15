@@ -68,8 +68,10 @@ re-introduction.
 `GaussianSplatRenderer` node property and the
 `set_debug_state_guardrails_enabled` / `get_debug_state_guardrails_enabled`
 methods). Its only gate had already been deleted, so the toggle was inert
-(stored but never consumed) and it was not part of the public API baseline. No
-migration is needed; remove any `project.godot` entry or node override.
+(stored but never consumed) and it was not part of the public API baseline — so,
+unlike the keys above, it has **no `retired_settings[]` record** (that list only
+tracks retired *baseline* keys). No migration is needed; remove any
+`project.godot` entry or node override.
 
 ## Renamed keys (read-only deprecated aliases)
 
