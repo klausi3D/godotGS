@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="GaussianSplatAsset" inherits="Resource" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Imported Gaussian splat asset resource.
+	</brief_description>
+	<description>
+		The [Resource] produced by importing a Gaussian capture (PLY, SPZ, or [code].gsplatworld[/code]). It stores the decoded — optionally quantized and pruned — dataset together with import metadata, and can populate a runtime [GaussianData] for rendering.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_brush_axes_vector2" qualifiers="const">
+			<return type="PackedVector2Array" />
+			<description>
+			</description>
+		</method>
+		<method name="get_brush_override_ids" qualifiers="const">
+			<return type="PackedInt32Array" />
+			<description>
+			</description>
+		</method>
+		<method name="get_brush_override_ids_buffer" qualifiers="const">
+			<return type="PackedInt32Array" />
+			<description>
+			</description>
+		</method>
+		<method name="get_instance_count" qualifiers="static">
+			<return type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="get_normal_vectors" qualifiers="const">
+			<return type="PackedVector3Array" />
+			<description>
+			</description>
+		</method>
+		<method name="get_opacities" qualifiers="const">
+			<return type="PackedFloat32Array" />
+			<description>
+			</description>
+		</method>
+		<method name="get_painterly_flags_buffer" qualifiers="const">
+			<return type="PackedInt32Array" />
+			<description>
+			</description>
+		</method>
+		<method name="get_palette_ids_buffer" qualifiers="const">
+			<return type="PackedInt32Array" />
+			<description>
+			</description>
+		</method>
+		<method name="get_position_vectors" qualifiers="const">
+			<return type="PackedVector3Array" />
+			<description>
+			</description>
+		</method>
+		<method name="get_preview_image" qualifiers="const">
+			<return type="Image" />
+			<description>
+			</description>
+		</method>
+		<method name="get_preview_texture" qualifiers="const">
+			<return type="Texture2D" />
+			<description>
+			</description>
+		</method>
+		<method name="get_rotation_quaternions" qualifiers="const">
+			<return type="Quaternion[]" />
+			<description>
+			</description>
+		</method>
+		<method name="get_scale_vectors" qualifiers="const">
+			<return type="PackedVector3Array" />
+			<description>
+			</description>
+		</method>
+		<method name="get_sh_first_order_terms" qualifiers="const">
+			<return type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="get_sh_high_order_terms" qualifiers="const">
+			<return type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="get_spherical_harmonics_buffer" qualifiers="const">
+			<return type="PackedFloat32Array" />
+			<description>
+			</description>
+		</method>
+		<method name="get_stroke_ages_buffer" qualifiers="const">
+			<return type="PackedFloat32Array" />
+			<description>
+			</description>
+		</method>
+		<method name="get_thumbnail" qualifiers="const">
+			<return type="Texture2D" />
+			<description>
+			</description>
+		</method>
+		<method name="is_loaded" qualifiers="const">
+			<return type="bool" />
+			<description>
+			</description>
+		</method>
+		<method name="load_from_file">
+			<return type="int" enum="Error" />
+			<param index="0" name="path" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="prefetch_parallel" qualifiers="static">
+			<return type="void" />
+			<param index="0" name="assets" type="GaussianSplatAsset[]" />
+			<description>
+			</description>
+		</method>
+		<method name="save_to_file" qualifiers="const">
+			<return type="int" enum="Error" />
+			<param index="0" name="path" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="set_brush_override_ids">
+			<return type="void" />
+			<param index="0" name="brush_override_ids" type="PackedInt32Array" />
+			<description>
+			</description>
+		</method>
+		<method name="set_preview_image">
+			<return type="void" />
+			<param index="0" name="image" type="Image" />
+			<description>
+			</description>
+		</method>
+		<method name="set_sh_component_terms">
+			<return type="void" />
+			<param index="0" name="first_order_terms" type="int" />
+			<param index="1" name="high_order_terms" type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="set_thumbnail">
+			<return type="void" />
+			<param index="0" name="texture" type="Texture2D" />
+			<description>
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="asset_type" type="int" setter="set_asset_type" getter="get_asset_type" enum="GaussianSplatAsset.AssetType" default="0">
+		</member>
+		<member name="data/brush_axes" type="PackedFloat32Array" setter="set_brush_axes" getter="get_brush_axes" default="PackedFloat32Array()">
+		</member>
+		<member name="data/colors" type="PackedColorArray" setter="set_colors" getter="get_colors" default="PackedColorArray()">
+		</member>
+		<member name="data/normals" type="PackedFloat32Array" setter="set_normals" getter="get_normals" default="PackedFloat32Array()">
+		</member>
+		<member name="data/opacity_logits" type="PackedFloat32Array" setter="set_opacity_logits" getter="get_opacity_logits" default="PackedFloat32Array()">
+		</member>
+		<member name="data/painterly_flags" type="PackedInt32Array" setter="set_painterly_flags" getter="get_painterly_flags" default="PackedInt32Array()">
+		</member>
+		<member name="data/palette_ids" type="PackedInt32Array" setter="set_palette_ids" getter="get_palette_ids" default="PackedInt32Array()">
+		</member>
+		<member name="data/positions" type="PackedFloat32Array" setter="set_positions" getter="get_positions" default="PackedFloat32Array()">
+		</member>
+		<member name="data/rotations" type="PackedFloat32Array" setter="set_rotations" getter="get_rotations" default="PackedFloat32Array()">
+		</member>
+		<member name="data/scales" type="PackedFloat32Array" setter="set_scales" getter="get_scales" default="PackedFloat32Array()">
+		</member>
+		<member name="data/sh_dc" type="PackedFloat32Array" setter="set_sh_dc_coefficients" getter="get_sh_dc_coefficients" default="PackedFloat32Array()">
+		</member>
+		<member name="data/sh_first_order" type="PackedFloat32Array" setter="set_sh_first_order_coefficients" getter="get_sh_first_order_coefficients" default="PackedFloat32Array()">
+		</member>
+		<member name="data/sh_high_order" type="PackedFloat32Array" setter="set_sh_high_order_coefficients" getter="get_sh_high_order_coefficients" default="PackedFloat32Array()">
+		</member>
+		<member name="data/streaming_chunk_records" type="PackedByteArray" setter="set_streaming_chunk_records" getter="get_streaming_chunk_records" default="PackedByteArray()">
+		</member>
+		<member name="data/streaming_chunk_size_used" type="int" setter="set_streaming_chunk_size_used" getter="get_streaming_chunk_size_used" default="0">
+		</member>
+		<member name="data/streaming_primary_source_indices" type="PackedInt32Array" setter="set_streaming_primary_source_indices" getter="get_streaming_primary_source_indices" default="PackedInt32Array()">
+		</member>
+		<member name="data/streaming_quantization_records" type="PackedByteArray" setter="set_streaming_quantization_records" getter="get_streaming_quantization_records" default="PackedByteArray()">
+		</member>
+		<member name="data/stroke_ages" type="PackedFloat32Array" setter="set_stroke_ages" getter="get_stroke_ages" default="PackedFloat32Array()">
+		</member>
+		<member name="import/compression_flags" type="int" setter="set_compression_flags" getter="get_compression_flags" default="0">
+		</member>
+		<member name="import/metadata" type="Dictionary" setter="set_import_metadata" getter="get_import_metadata" default="{}">
+		</member>
+		<member name="import/quality_preset" type="String" setter="set_import_quality_preset" getter="get_import_quality_preset" default="&quot;high&quot;">
+		</member>
+		<member name="import/source_path" type="String" setter="set_source_path" getter="get_source_path" default="&quot;&quot;">
+		</member>
+		<member name="splat_count" type="int" setter="set_splat_count" getter="get_splat_count" default="0">
+		</member>
+	</members>
+	<constants>
+		<constant name="ASSET_TYPE_STATIC" value="0" enum="AssetType">
+		</constant>
+		<constant name="ASSET_TYPE_DYNAMIC" value="1" enum="AssetType">
+		</constant>
+		<constant name="COMPRESSION_NONE" value="0" enum="CompressionFlags">
+		</constant>
+		<constant name="COMPRESSION_POSITIONS" value="1" enum="CompressionFlags">
+		</constant>
+		<constant name="COMPRESSION_COLORS" value="2" enum="CompressionFlags">
+		</constant>
+		<constant name="COMPRESSION_SCALES" value="4" enum="CompressionFlags">
+		</constant>
+		<constant name="COMPRESSION_ROTATIONS" value="8" enum="CompressionFlags">
+		</constant>
+	</constants>
+</class>

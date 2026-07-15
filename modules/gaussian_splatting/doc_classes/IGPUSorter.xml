@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="IGPUSorter" inherits="RefCounted" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Interface for GPU splat-sorting backends.
+	</brief_description>
+	<description>
+		Abstract base for the module's depth-sorting algorithms ([BitonicSort], [RadixSort], and [OneSweepSort]). It defines the capability queries and dispatch contract the renderer uses to order splats back-to-front each frame.
+	</description>
+	<tutorials>
+	</tutorials>
+</class>

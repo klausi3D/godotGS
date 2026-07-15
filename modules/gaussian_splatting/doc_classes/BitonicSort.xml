@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="BitonicSort" inherits="IGPUSorter" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Reliable baseline GPU bitonic-sort backend.
+	</brief_description>
+	<description>
+		An [IGPUSorter] implementation. Bitonic sort is the always-available baseline used when more specialized backends are not supported on the device; it works on any compute-capable GPU at the cost of higher asymptotic work than the radix-based backends.
+	</description>
+	<tutorials>
+	</tutorials>
+</class>

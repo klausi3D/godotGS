@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="IGaussianLoader" inherits="RefCounted" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Interface for Gaussian asset file loaders.
+	</brief_description>
+	<description>
+		Abstract base implemented by the module's file loaders (for example [PLYLoader] and [SPZLoader]). It defines the common contract for decoding a Gaussian dataset from a source file into the module's runtime data structures.
+	</description>
+	<tutorials>
+	</tutorials>
+</class>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="GaussianSplatSceneDirector" inherits="Object" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Scene-level coordinator for Gaussian splat rendering.
+	</brief_description>
+	<description>
+		Orchestrates shared, scene-wide concerns across the Gaussian splat nodes in a scene so that per-node work stays minimal.
+	</description>
+	<tutorials>
+	</tutorials>
+</class>
