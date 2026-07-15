@@ -27,6 +27,7 @@ BUILD_METADATA_GUARD_SCRIPT = MODULE_SOURCE_DIR / "tests" / "check_build_metadat
 SHADER_DEPENDENCY_GUARD_SCRIPT = MODULE_SOURCE_DIR / "tests" / "check_shader_dependency_contract.py"
 PROJECT_SETTINGS_MANIFEST_GUARD_SCRIPT = MODULE_SOURCE_DIR / "tests" / "check_project_settings_manifest.py"
 GAUSSIAN_LAYOUT_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_gaussian_layout_sync.py"
+CULL_SIGNATURE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_cull_signature_parity.py"
 DOC_CLASSES_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_doc_classes_complete.py"
 RENDERER_RELEASE_GATE_SCRIPT = ROOT / "tests" / "ci" / "check_renderer_release_gates.py"
 RENDERER_RELEASE_GATE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_renderer_release_gates.py"
@@ -646,6 +647,23 @@ def _run_doc_classes_guard() -> tuple[bool, list[str]]:
     return True, output_lines
 
 
+def _run_cull_signature_parity_guard() -> tuple[bool, list[str]]:
+    if not CULL_SIGNATURE_GUARD_SCRIPT.is_file():
+        return False, [
+            f"Missing cull-signature parity guard script: {CULL_SIGNATURE_GUARD_SCRIPT.relative_to(ROOT)}"
+        ]
+
+    code, out, err = _run_command([sys.executable, str(CULL_SIGNATURE_GUARD_SCRIPT)])
+    output_lines = [line for line in (out + err).splitlines() if line.strip()]
+
+    if code != 0:
+        if not output_lines:
+            output_lines = [f"Cull-signature parity guard failed with exit code {code}."]
+        return False, output_lines
+
+    return True, output_lines
+
+
 def _run_renderer_release_gate_guard() -> tuple[bool, list[str]]:
     missing = [
         path.relative_to(ROOT)
@@ -1196,6 +1214,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_gaussian_layout_guard,
             "Gaussian layout guard failed.",
             "Gaussian layout guard passed.",
+        ),
+        (
+            True,
+            _run_cull_signature_parity_guard,
+            "Cull-signature parity guard failed.",
+            "Cull-signature parity guard passed.",
         ),
         (
             True,
