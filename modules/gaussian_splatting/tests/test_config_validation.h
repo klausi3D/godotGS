@@ -1612,4 +1612,22 @@ TEST_CASE("[GaussianSplatting][Config] AUTO sorting thresholds are tunable and r
 	}
 }
 
+// C4a ("no silent degradation"): the opt-in 32-bit sort-key path must be counted
+// when it executes. SortingMetricsCollector::record_sort increments total_32bit_sorts
+// only for key_bits == 32; the 64-bit shippable path must never move the counter.
+// (The WARN_PRINT_ONCE fires once and is not the assertable signal — the counter is.)
+TEST_CASE("[GaussianSplatting][Config][Sort] 32-bit engage increments counter") {
+	SortingMetricsCollector collector;
+
+	// key_bits == 32 -> degraded opt-in path executed: counter increments.
+	collector.record_sort(1000u, 0.5f, true, 32u, 4u, 16u, false, false, true);
+	CHECK_EQ(collector.get_metrics().total_32bit_sorts, 1u);
+
+	// key_bits == 64 -> shippable path: counter must stay put.
+	collector.record_sort(1000u, 0.5f, true, 64u, 4u, 16u, false, false, true);
+	CHECK_EQ(collector.get_metrics().total_32bit_sorts, 1u);
+	// total_sorts still tracks every sort regardless of width.
+	CHECK_EQ(collector.get_metrics().total_sorts, 2u);
+}
+
 } // namespace TestConfigValidation

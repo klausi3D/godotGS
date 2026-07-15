@@ -199,6 +199,8 @@ public:
     RenderStats get_last_render_stats() const { return diagnostics.last_render_stats; }
     const Vector<uint32_t> &get_tile_density_snapshot() const { return diagnostics.tile_density_snapshot; }
     SortingMetrics get_sorter_metrics() const;
+    // True once the opt-in 32-bit sort-key path survived config resolution and engaged.
+    bool is_sort_key_32bit_engaged() const { return diagnostics.sort_key_32bit_engaged; }
 
     void set_debug_log_resolve(bool p_enabled);
     bool get_debug_log_resolve() const { return diagnostics.debug_log_resolve; }

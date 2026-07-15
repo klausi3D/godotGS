@@ -519,6 +519,11 @@ Dictionary RenderDebugStateOrchestrator::get_binning_debug_counters() const {
 	}
 	out["raster_avg_alpha"] = raster_avg_alpha;
 
+	// Opt-in 32-bit sort-key telemetry (C4a, "no silent degradation"):
+	// config-resolution engage flag + runtime execution counter.
+	out["sort_key_32bit_engaged"] = tr->is_sort_key_32bit_engaged();
+	out["total_32bit_sorts"] = (int64_t)tr->get_sorter_metrics().total_32bit_sorts;
+
 	return out;
 }
 

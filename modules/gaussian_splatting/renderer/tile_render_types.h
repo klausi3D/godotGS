@@ -311,6 +311,10 @@ struct TilePerformanceMetrics {
 
 struct TileDiagnosticsState {
 	mutable TileRenderStats last_render_stats;
+	// Set true when the opt-in 32-bit sort-key path survives config resolution and
+	// actually engages (see TileRenderer::_get_effective_sort_key_config). mutable
+	// because that config getter is const, mirroring last_render_stats above.
+	mutable bool sort_key_32bit_engaged = false;
 	bool runtime_statistics_enabled = false;
 	Vector<uint32_t> tile_density_snapshot;
 	bool capture_tile_density_snapshot = false;
