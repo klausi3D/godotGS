@@ -1057,7 +1057,8 @@
       "key": "rendering/gaussian_splatting/renderdoc_compatibility",
       "notes": "Device-init compatibility toggle: forces RenderDoc-friendly capture behavior. Auto-detected via _detect_renderdoc(); this key is the manual override (default false, behavior-neutral). Public, editor-visible compatibility knob; basic registration+default test in test_config_validation.h. Downstream-effect test tracked by #174 (#163).",
       "scope": "compatibility",
-      "test_coverage": "partial"
+      "test_coverage": "partial",
+      "visibility": "editor_visible"
     },
     {
       "effective_state": "none",
