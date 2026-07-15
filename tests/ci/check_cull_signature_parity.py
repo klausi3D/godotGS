@@ -42,6 +42,16 @@ STRUCT_NAME = "CullingConfig"
 _FIELD_RE = re.compile(r"^\s*[\w:]+(?:\s*[*&])?\s+(\w+)\s*(?:=|;)")
 # `config.<field>` reads inside the signature function body.
 _CONFIG_READ_RE = re.compile(r"\bconfig\.(\w+)\b")
+# A statement that actually folds a value into the running hash: `seed = _hash*(`.
+# A field counts as hashed only if it appears in such a statement, so a debug/temp
+# read like `const float x = config.knob;` or a log line does not mark it hashed.
+_HASH_STMT_RE = re.compile(r"\bseed\s*=\s*_hash\w*\s*\(")
+# `#if 0` / `#if false` ... `#endif` regions are compiled out, so a hash line or a
+# member declared inside one is not active and must not be counted.
+_IF_ZERO_RE = re.compile(r"^#\s*if\s+(?:0|false)\b")
+_IF_RE = re.compile(r"^#\s*if")
+_ELSE_RE = re.compile(r"^#\s*el(?:se|if)\b")
+_ENDIF_RE = re.compile(r"^#\s*endif\b")
 # An access specifier is the only struct-body line that is unambiguously not a
 # data member. Everything else that does not parse as a field is reported as
 # unrecognized (fail closed) rather than guessed at, so an attributed or
@@ -60,6 +70,36 @@ _LINE_COMMENT_RE = re.compile(r"//[^\n]*")
 def _strip_cpp_comments(text: str) -> str:
     text = _BLOCK_COMMENT_RE.sub(lambda m: "\n" * m.group(0).count("\n"), text)
     return _LINE_COMMENT_RE.sub("", text)
+
+
+def _strip_disabled_blocks(text: str) -> str:
+    """Blank out `#if 0` / `#if false` ... `#endif` regions (nesting-aware; a
+    top-level `#else`/`#elif` re-enables) so compiled-out members or hash lines are
+    not parsed as active. Line count is preserved so no lines merge."""
+    out: list[str] = []
+    disabled = False
+    nest = 0
+    for line in text.split("\n"):
+        stripped = line.lstrip()
+        if not disabled:
+            if _IF_ZERO_RE.match(stripped):
+                disabled = True
+                nest = 0
+                out.append("")
+            else:
+                out.append(line)
+            continue
+        if _IF_RE.match(stripped):
+            nest += 1
+        elif _ENDIF_RE.match(stripped):
+            if nest == 0:
+                disabled = False
+            else:
+                nest -= 1
+        elif _ELSE_RE.match(stripped) and nest == 0:
+            disabled = False
+        out.append("")
+    return "\n".join(out)
 
 
 # Fields deliberately NOT hashed. Each maps to (reason, requires_hashed) where
@@ -121,11 +161,11 @@ WAIVERS: dict[str, tuple[str, tuple[str, ...]]] = {
 def _brace_body(text: str, anchor: str) -> str | None:
     """Return the `{...}` body (contents only) that follows `anchor` in `text`.
 
-    Comments are stripped from the whole text *before* the brace scan, so a `{` or
-    `}` inside a `//` or `/* */` comment cannot mis-bound the body. Returns None if
-    the anchor or a balanced body is not found.
+    Comments and `#if 0` regions are stripped from the whole text *before* the
+    brace scan, so a `{` or `}` inside a comment or compiled-out block cannot
+    mis-bound the body. Returns None if the anchor or a balanced body is not found.
     """
-    stripped = _strip_cpp_comments(text)
+    stripped = _strip_disabled_blocks(_strip_cpp_comments(text))
     start = stripped.find(anchor)
     if start == -1:
         return None
@@ -159,6 +199,21 @@ def _has_top_level_comma(line: str) -> bool:
     return False
 
 
+def _has_content_after_first_statement(line: str) -> bool:
+    """True if `line` has non-blank content after its first top-level `;` -- i.e. a
+    second full declaration on the same line (`float a = 0; float b = 1;`) whose
+    tail _FIELD_RE would not see. Semicolons inside (), [], {} do not count."""
+    depth = 0
+    for i, char in enumerate(line):
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth = max(0, depth - 1)
+        elif char == ";" and depth == 0:
+            return line[i + 1 :].strip() != ""
+    return False
+
+
 def _extract_struct_fields(text: str, struct_name: str) -> tuple[list[str], list[str]]:
     """Return (field_names, unrecognized_lines).
 
@@ -179,10 +234,12 @@ def _extract_struct_fields(text: str, struct_name: str) -> tuple[list[str], list
             continue
         match = _FIELD_RE.match(line)
         if match:
-            # A top-level comma means a second declarator on this line, which
-            # _FIELD_RE does not capture; reject it (declare one member per line)
-            # rather than silently drop the trailing declarators.
-            if _has_top_level_comma(stripped):
+            # _FIELD_RE only captures the first declarator up to the first `;`.
+            # Reject a line that packs more than one member -- a second declarator
+            # after a top-level comma (`float a = 0, b = 1;`) or a second statement
+            # after a top-level `;` (`float a = 0; float b = 1;`) -- so the extra
+            # members are not silently dropped. One member per line.
+            if _has_top_level_comma(stripped) or _has_content_after_first_statement(stripped):
                 unrecognized.append(stripped)
             else:
                 fields.append(match.group(1))
@@ -197,7 +254,14 @@ def _extract_hashed_fields(text: str, fn_name: str) -> set[str] | None:
     body = _brace_body(text, fn_name)
     if body is None:
         return None
-    return set(_CONFIG_READ_RE.findall(body))
+    # A field counts as hashed only when it appears in a statement that folds a
+    # value into the running hash (`seed = _hash*(... config.<field> ...)`). A bare
+    # read that never reaches `seed` (a debug/temp local, a log line) does not.
+    hashed: set[str] = set()
+    for line in body.splitlines():
+        if _HASH_STMT_RE.search(line):
+            hashed.update(_CONFIG_READ_RE.findall(line))
+    return hashed
 
 
 def _collect_failures(fields: list[str], field_set: set[str], hashed_fields: set[str]) -> list[str]:
