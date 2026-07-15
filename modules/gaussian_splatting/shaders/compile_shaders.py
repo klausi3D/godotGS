@@ -385,19 +385,24 @@ RUNTIME_SHADER_MATRIX: tuple[ShaderMatrixEntry, ...] = (
         stages=("compute",),
         issue_ids=("#1267", "#1318"),
         variants=(
+            # The runtime compiles every prefix pass at GS_PREFIX_LOCAL_SIZE=256
+            # (GaussianSplatting::kTilePrefixPassLocalSize, renderer/tile_prefix_scan_utils.h:14;
+            # ShaderCompilationManager::compile_prefix_shaders() passes that constant for
+            # passes 1, 2 and 3). There is no runtime path that uses a 128-thread prefix
+            # workgroup, so every variant below compiles at the true 256-thread shape.
             Variant(
-                "pass1_small",
-                _merge_defines(TILE_GLOBAL_SORT_DEFINES, ("GS_TILE_PREFIX_PASS_1=1", "GS_PREFIX_LOCAL_SIZE=128")),
+                "pass1",
+                _merge_defines(TILE_GLOBAL_SORT_DEFINES, ("GS_TILE_PREFIX_PASS_1=1", "GS_PREFIX_LOCAL_SIZE=256")),
                 ("#1318",),
             ),
             Variant(
-                "pass2_large",
+                "pass2",
                 _merge_defines(TILE_GLOBAL_SORT_DEFINES, ("GS_TILE_PREFIX_PASS_2=1", "GS_PREFIX_LOCAL_SIZE=256")),
                 ("#1318",),
             ),
             Variant(
-                "pass3_small",
-                _merge_defines(TILE_GLOBAL_SORT_DEFINES, ("GS_TILE_PREFIX_PASS_3=1", "GS_PREFIX_LOCAL_SIZE=128")),
+                "pass3",
+                _merge_defines(TILE_GLOBAL_SORT_DEFINES, ("GS_TILE_PREFIX_PASS_3=1", "GS_PREFIX_LOCAL_SIZE=256")),
                 ("#1318",),
             ),
             # GS_ENABLE_SUBGROUPS reaches every prefix-scan pass at runtime:
@@ -405,11 +410,11 @@ RUNTIME_SHADER_MATRIX: tuple[ShaderMatrixEntry, ...] = (
             # TileRenderer::_build_common_shader_defines(true), and tile_prefix_scan.glsl
             # includes platform_compat.glsl where the define switches the subgroup
             # extensions to `require`. Compile the subgroup permutation of all three
-            # passes so the runtime subgroup path never ships uncompiled. The
-            # per-variant _variant_target_env() lifts these to target-env vulkan1.1.
+            # passes (at the same runtime 256-thread size) so the runtime subgroup path
+            # never ships uncompiled. _variant_target_env() lifts these to vulkan1.1.
             Variant(
                 "pass1_subgroups",
-                _merge_defines(TILE_GLOBAL_SORT_DEFINES, ("GS_TILE_PREFIX_PASS_1=1", "GS_PREFIX_LOCAL_SIZE=128", "GS_ENABLE_SUBGROUPS=1")),
+                _merge_defines(TILE_GLOBAL_SORT_DEFINES, ("GS_TILE_PREFIX_PASS_1=1", "GS_PREFIX_LOCAL_SIZE=256", "GS_ENABLE_SUBGROUPS=1")),
                 ("#1318",),
             ),
             Variant(
@@ -419,7 +424,7 @@ RUNTIME_SHADER_MATRIX: tuple[ShaderMatrixEntry, ...] = (
             ),
             Variant(
                 "pass3_subgroups",
-                _merge_defines(TILE_GLOBAL_SORT_DEFINES, ("GS_TILE_PREFIX_PASS_3=1", "GS_PREFIX_LOCAL_SIZE=128", "GS_ENABLE_SUBGROUPS=1")),
+                _merge_defines(TILE_GLOBAL_SORT_DEFINES, ("GS_TILE_PREFIX_PASS_3=1", "GS_PREFIX_LOCAL_SIZE=256", "GS_ENABLE_SUBGROUPS=1")),
                 ("#1318",),
             ),
         ),
