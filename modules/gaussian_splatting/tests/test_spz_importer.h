@@ -200,3 +200,139 @@ TEST_CASE("[GaussianSplatting][SPZ] importer prune_ratio 0.5 drops half and keep
     DirAccess::remove_absolute(save_base_path + ".res");
 #endif // TOOLS_ENABLED
 }
+
+// ---------------------------------------------------------------------------
+// Malformed-input corpus (G2, exit criterion; program ledger #458).
+//
+// The SPZ header is a 16-byte UNCOMPRESSED prefix followed by a gzip payload:
+//   magic[0..3] version[4..7] num_points[8..11] sh_degree[12]
+//   fractional_bits[13] flags[14] reserved[15]
+// (io/spz_loader.cpp parses these little-endian). Each case below writes a
+// structurally VALID fixture (proven to load by the positive control), then
+// overwrites exactly ONE field in place, so the matching io/spz_loader.cpp guard
+// is the sole reason the load fails. These lock in the Phase A A2 hardening
+// (fractional_bits shift) plus every other SPZ header guard, which previously had
+// zero regression coverage. All guards already exist, so no case can abort — the
+// corpus is a regression guard only (a reverted guard flips the expected error).
+// ---------------------------------------------------------------------------
+namespace TestGaussianSplattingSPZ {
+
+// Overwrite one byte at p_offset in place. READ_WRITE opens r+ (no truncation).
+inline bool _spz_patch_u8(const String &p_path, uint64_t p_offset, uint8_t p_value) {
+    Ref<FileAccess> f = FileAccess::open(p_path, FileAccess::READ_WRITE);
+    if (f.is_null()) {
+        return false;
+    }
+    f->seek(p_offset);
+    f->store_8(p_value);
+    f.unref();
+    return true;
+}
+
+// Overwrite a little-endian uint32 at p_offset in place (matches the loader's
+// byte assembly: hdr[0] | hdr[1] << 8 | ...).
+inline bool _spz_patch_u32(const String &p_path, uint64_t p_offset, uint32_t p_value) {
+    Ref<FileAccess> f = FileAccess::open(p_path, FileAccess::READ_WRITE);
+    if (f.is_null()) {
+        return false;
+    }
+    f->seek(p_offset);
+    f->store_32(p_value);
+    f.unref();
+    return true;
+}
+
+// Write a structurally valid 4-splat SPZ (fractional_bits = 12) and assert it
+// loads. This positive control proves the fixture is byte-identical to a
+// known-good file except the single field each test patches.
+inline String _spz_valid_control(const String &p_prefix) {
+    const String path = _spz_fixture_path(p_prefix);
+    if (!TestGaussianSplatting::write_synthetic_spz(path, _make_spz_splats(4))) {
+        return String();
+    }
+    SPZLoader control;
+    REQUIRE_MESSAGE(control.load_file(path) == OK,
+            "positive control: the unmodified SPZ fixture must load so the patched field is the sole failure cause");
+    return path;
+}
+
+} // namespace TestGaussianSplattingSPZ
+
+TEST_CASE("[GaussianSplatting][SPZ][MalformedCorpus] fractional_bits > 24 is rejected as corrupt (A2)") {
+    using namespace TestGaussianSplattingSPZ;
+    const String path = _spz_valid_control("frac_bits");
+    REQUIRE_FALSE(path.is_empty());
+    // byte 13 -> 25: > 24 is nonsensical for 24-bit fixed-point and 1 << bits is
+    // shift UB at >= 31. Guard: io/spz_loader.cpp fractional_bits > 24.
+    REQUIRE(_spz_patch_u8(path, 13, 25));
+    SPZLoader loader;
+    CHECK_EQ(loader.load_file(path), ERR_FILE_CORRUPT);
+    DirAccess::remove_absolute(path);
+}
+
+TEST_CASE("[GaussianSplatting][SPZ][MalformedCorpus] bad magic is rejected as unrecognized") {
+    using namespace TestGaussianSplattingSPZ;
+    const String path = _spz_valid_control("bad_magic");
+    REQUIRE_FALSE(path.is_empty());
+    REQUIRE(_spz_patch_u32(path, 0, 0xDEADBEEFu)); // != SPZ_MAGIC (0x5053474E)
+    SPZLoader loader;
+    CHECK_EQ(loader.load_file(path), ERR_FILE_UNRECOGNIZED);
+    DirAccess::remove_absolute(path);
+}
+
+TEST_CASE("[GaussianSplatting][SPZ][MalformedCorpus] unsupported version is rejected as unrecognized") {
+    using namespace TestGaussianSplattingSPZ;
+    const String path = _spz_valid_control("bad_version");
+    REQUIRE_FALSE(path.is_empty());
+    REQUIRE(_spz_patch_u32(path, 4, 99u)); // supported versions are 2 and 3
+    SPZLoader loader;
+    CHECK_EQ(loader.load_file(path), ERR_FILE_UNRECOGNIZED);
+    DirAccess::remove_absolute(path);
+}
+
+TEST_CASE("[GaussianSplatting][SPZ][MalformedCorpus] sh_degree > 3 is rejected as corrupt") {
+    using namespace TestGaussianSplattingSPZ;
+    const String path = _spz_valid_control("bad_sh_degree");
+    REQUIRE_FALSE(path.is_empty());
+    REQUIRE(_spz_patch_u8(path, 12, 4)); // byte 12; max supported degree is 3
+    SPZLoader loader;
+    CHECK_EQ(loader.load_file(path), ERR_FILE_CORRUPT);
+    DirAccess::remove_absolute(path);
+}
+
+TEST_CASE("[GaussianSplatting][SPZ][MalformedCorpus] zero point count is rejected as corrupt") {
+    using namespace TestGaussianSplattingSPZ;
+    const String path = _spz_valid_control("zero_points");
+    REQUIRE_FALSE(path.is_empty());
+    REQUIRE(_spz_patch_u32(path, 8, 0u)); // num_points == 0
+    SPZLoader loader;
+    CHECK_EQ(loader.load_file(path), ERR_FILE_CORRUPT);
+    DirAccess::remove_absolute(path);
+}
+
+TEST_CASE("[GaussianSplatting][SPZ][MalformedCorpus] point count over the safety cap is rejected as corrupt") {
+    using namespace TestGaussianSplattingSPZ;
+    const String path = _spz_valid_control("over_cap_points");
+    REQUIRE_FALSE(path.is_empty());
+    // 0xFFFFFFFF > MAX_SPZ_POINTS (33,554,432); the count cap fires before any
+    // payload sizing, so no over-allocation is attempted.
+    REQUIRE(_spz_patch_u32(path, 8, 0xFFFFFFFFu));
+    SPZLoader loader;
+    CHECK_EQ(loader.load_file(path), ERR_FILE_CORRUPT);
+    DirAccess::remove_absolute(path);
+}
+
+TEST_CASE("[GaussianSplatting][SPZ][MalformedCorpus] header shorter than 16 bytes is rejected as corrupt") {
+    using namespace TestGaussianSplattingSPZ;
+    const String path = _spz_fixture_path("short_header");
+    {
+        Ref<FileAccess> f = FileAccess::open(path, FileAccess::WRITE);
+        REQUIRE(f.is_valid());
+        f->store_32(0x5053474Eu); // valid SPZ magic (first byte 0x4E, not GZIP 0x1F)
+        f->store_32(2u); // valid version -> 8 bytes total, < sizeof(SPZHeader) == 16
+        f.unref();
+    }
+    SPZLoader loader;
+    CHECK_EQ(loader.load_file(path), ERR_FILE_CORRUPT);
+    DirAccess::remove_absolute(path);
+}
