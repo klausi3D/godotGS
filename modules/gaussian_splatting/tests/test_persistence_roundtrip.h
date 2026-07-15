@@ -528,7 +528,7 @@ TEST_CASE("[GaussianSplatting][Persistence] load_scene accepts forward-compatibl
     _remove_persistence_fixture(path);
 }
 
-TEST_CASE("[GaussianSplatting][Persistence] load_scene rejects forward-incompatible future versions") {
+TEST_CASE("[GaussianSplatting][Persistence][MalformedCorpus] load_scene rejects forward-incompatible future versions") {
     const String path = _make_persistence_fixture_path("test_forward_incompatible_version");
     const bool fixture_dir_ready = _ensure_persistence_fixture_dir(path);
     CHECK_MESSAGE(fixture_dir_ready, "Persistence fixture directory should be available");
@@ -655,7 +655,7 @@ TEST_CASE("[GaussianSplatting][Persistence] Validation helpers accept chunked GS
     _remove_persistence_fixture(path);
 }
 
-TEST_CASE("[GaussianSplatting][Persistence] Validation rejects checksum-stripped protected chunked GSF") {
+TEST_CASE("[GaussianSplatting][Persistence][MalformedCorpus] Validation rejects checksum-stripped protected chunked GSF") {
     const String path = _make_persistence_fixture_path("test_validate_checksum_stripped_protected");
     const bool fixture_dir_ready = _ensure_persistence_fixture_dir(path);
     CHECK_MESSAGE(fixture_dir_ready, "Persistence fixture directory should be available");
@@ -740,7 +740,7 @@ TEST_CASE("[GaussianSplatting][Persistence] Validation rejects checksum-stripped
     _remove_persistence_fixture(path);
 }
 
-TEST_CASE("[GaussianSplatting][Persistence] Validation rejects checksum-tampered chunked GSF") {
+TEST_CASE("[GaussianSplatting][Persistence][MalformedCorpus] Validation rejects checksum-tampered chunked GSF") {
     const String path = _make_persistence_fixture_path("test_validate_checksum_tampered");
     const bool fixture_dir_ready = _ensure_persistence_fixture_dir(path);
     CHECK_MESSAGE(fixture_dir_ready, "Persistence fixture directory should be available");
@@ -790,7 +790,7 @@ TEST_CASE("[GaussianSplatting][Persistence] Validation rejects checksum-tampered
     _remove_persistence_fixture(path);
 }
 
-TEST_CASE("[GaussianSplatting][Persistence] Validation rejects checksum-zeroed protected headers") {
+TEST_CASE("[GaussianSplatting][Persistence][MalformedCorpus] Validation rejects checksum-zeroed protected headers") {
     const String path = _make_persistence_fixture_path("test_validate_zeroed_header_checksum");
     const bool fixture_dir_ready = _ensure_persistence_fixture_dir(path);
     CHECK_MESSAGE(fixture_dir_ready, "Persistence fixture directory should be available");
@@ -831,7 +831,7 @@ TEST_CASE("[GaussianSplatting][Persistence] Validation rejects checksum-zeroed p
     _remove_persistence_fixture(path);
 }
 
-TEST_CASE("[GaussianSplatting][Persistence] Validation rejects checksum-zeroed legacy checksummed headers") {
+TEST_CASE("[GaussianSplatting][Persistence][MalformedCorpus] Validation rejects checksum-zeroed legacy checksummed headers") {
     const String path = _make_persistence_fixture_path("test_validate_zeroed_legacy_header_checksum");
     const bool fixture_dir_ready = _ensure_persistence_fixture_dir(path);
     CHECK_MESSAGE(fixture_dir_ready, "Persistence fixture directory should be available");
@@ -894,7 +894,7 @@ TEST_CASE("[GaussianSplatting][Persistence] Validation rejects checksum-zeroed l
     _remove_persistence_fixture(path);
 }
 
-TEST_CASE("[GaussianSplatting][Persistence] Validation rejects non-chunked magic-at-byte0 payloads") {
+TEST_CASE("[GaussianSplatting][Persistence][MalformedCorpus] Validation rejects non-chunked magic-at-byte0 payloads") {
     const String path = _make_persistence_fixture_path("test_validate_invalid_chunking");
     Ref<FileAccess> file = _open_persistence_fixture(path, FileAccess::WRITE);
     CHECK_MESSAGE(file.is_valid(), "Should be able to create invalid GSF test fixture");
@@ -920,7 +920,7 @@ TEST_CASE("[GaussianSplatting][Persistence] Validation rejects non-chunked magic
     _remove_persistence_fixture(path);
 }
 
-TEST_CASE("[GaussianSplatting][Persistence] Validation rejects truncated chunked header payloads") {
+TEST_CASE("[GaussianSplatting][Persistence][MalformedCorpus] Validation rejects truncated chunked header payloads") {
     const String path = _make_persistence_fixture_path("test_validate_truncated_header_chunk");
     Ref<FileAccess> file = _open_persistence_fixture(path, FileAccess::WRITE);
     CHECK_MESSAGE(file.is_valid(), "Should be able to create truncated chunked fixture");
@@ -946,7 +946,7 @@ TEST_CASE("[GaussianSplatting][Persistence] Validation rejects truncated chunked
     _remove_persistence_fixture(path);
 }
 
-TEST_CASE("[GaussianSplatting][Persistence] Incremental loader rejects malformed change tables") {
+TEST_CASE("[GaussianSplatting][Persistence][MalformedCorpus] Incremental loader rejects malformed change tables") {
     const String path = _make_persistence_fixture_path("test_incremental_malformed_table", ".gsif");
     Ref<FileAccess> file = _open_persistence_fixture(path, FileAccess::WRITE);
     CHECK_MESSAGE(file.is_valid(), "Should be able to create malformed incremental fixture");
@@ -971,7 +971,7 @@ TEST_CASE("[GaussianSplatting][Persistence] Incremental loader rejects malformed
     _remove_persistence_fixture(path);
 }
 
-TEST_CASE("[GaussianSplatting][Persistence] Incremental loader rejects truncated change table header") {
+TEST_CASE("[GaussianSplatting][Persistence][MalformedCorpus] Incremental loader rejects truncated change table header") {
     const String path = _make_persistence_fixture_path("test_incremental_truncated_header", ".gsif");
     Ref<FileAccess> file = _open_persistence_fixture(path, FileAccess::WRITE);
     CHECK_MESSAGE(file.is_valid(), "Should be able to create truncated incremental fixture");
@@ -993,7 +993,7 @@ TEST_CASE("[GaussianSplatting][Persistence] Incremental loader rejects truncated
     _remove_persistence_fixture(path);
 }
 
-TEST_CASE("[GaussianSplatting][Persistence] Incremental loader rejects out-of-range payload slices") {
+TEST_CASE("[GaussianSplatting][Persistence][MalformedCorpus] Incremental loader rejects out-of-range payload slices") {
     const String path = _make_persistence_fixture_path("test_incremental_oob_payload", ".gsif");
     Ref<FileAccess> file = _open_persistence_fixture(path, FileAccess::WRITE);
     CHECK_MESSAGE(file.is_valid(), "Should be able to create OOB incremental fixture");
@@ -1027,7 +1027,7 @@ TEST_CASE("[GaussianSplatting][Persistence] Incremental loader rejects out-of-ra
     _remove_persistence_fixture(path);
 }
 
-TEST_CASE("[GaussianSplatting][Persistence] Incremental loader rejects overflow-sized payload slices") {
+TEST_CASE("[GaussianSplatting][Persistence][MalformedCorpus] Incremental loader rejects overflow-sized payload slices") {
     const String path = _make_persistence_fixture_path("test_incremental_overflow_payload_slice", ".gsif");
     Ref<FileAccess> file = _open_persistence_fixture(path, FileAccess::WRITE);
     CHECK_MESSAGE(file.is_valid(), "Should be able to create overflow incremental fixture");

@@ -306,7 +306,7 @@ TEST_CASE("[GaussianSplatting][PLYLoader] Legacy sibling gsplatworld caches are 
     DirAccess::remove_absolute(legacy_cache_path);
 }
 
-TEST_CASE("[GaussianSplatting][PLY] reject vertex_count out of int range") {
+TEST_CASE("[GaussianSplatting][PLY][MalformedCorpus] reject vertex_count out of int range") {
     const String path = _make_ply_fixture_path("oversized_count");
 
     const char *oversized_ply = R"(ply
@@ -331,7 +331,7 @@ end_header
     _remove_ply_fixture(path);
 }
 
-TEST_CASE("[GaussianSplatting][PLY] reject header missing end_header sentinel") {
+TEST_CASE("[GaussianSplatting][PLY][MalformedCorpus] reject header missing end_header sentinel") {
     const String path = _make_ply_fixture_path("missing_end_header");
 
     // Smoke test for F4 — exercise the load path end-to-end with a header
@@ -365,7 +365,7 @@ property float z
     _remove_ply_fixture(path);
 }
 
-TEST_CASE("[GaussianSplatting][PLY] reject unknown property type token") {
+TEST_CASE("[GaussianSplatting][PLY][MalformedCorpus] reject unknown property type token") {
     const String path = _make_ply_fixture_path("unknown_property_type");
 
     // Payload bytes follow so old code (which would set unknown
@@ -457,7 +457,7 @@ end_header
     DirAccess::remove_absolute(path.get_basename() + ".gsplatcache");
 }
 
-TEST_CASE("[GaussianSplatting][PLY] integer-typed properties convert to float (regression: silent-zero bug)") {
+TEST_CASE("[GaussianSplatting][PLY][MalformedCorpus] integer-typed properties convert to float (regression: silent-zero bug)") {
     // Regression guard for the pre-2026-07-07 loader bug where
     // PLYLoader::read_float_property returned 0.0 for every non-float property
     // type. Integer property types (char/uchar/short/ushort/int/uint) are legal
@@ -524,7 +524,7 @@ end_header
     DirAccess::remove_absolute(path.get_basename() + ".gsplatcache");
 }
 
-TEST_CASE("[GaussianSplatting][PLY] big-endian integer-typed properties byte-swap correctly") {
+TEST_CASE("[GaussianSplatting][PLY][MalformedCorpus] big-endian integer-typed properties byte-swap correctly") {
     // Companion to the little-endian integer test: exercises the endianness
     // (byte-swap) branch of read_float_property for multi-byte integer types.
     //   x = int    (int32)  = -1000000 (signed, negative, needs 32-bit swap)
