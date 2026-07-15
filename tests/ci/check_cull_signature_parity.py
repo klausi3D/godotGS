@@ -36,21 +36,28 @@ SIGNATURE_SOURCE = MODULE / "renderer" / "render_pipeline_stages.cpp"
 SIGNATURE_FN = "_compute_cull_config_signature"
 STRUCT_NAME = "CullingConfig"
 
-# A C++ member declaration inside the struct body: "<type...> <name> = <default>;"
-# or "<type...> <name>;". Methods ("void f();") are naturally excluded because a
-# "(" follows the name instead of "=" or ";".
+# A plain-old-data member declaration inside the struct body:
+# "<type...> <name> = <default>;" or "<type...> <name>;". Methods ("void f();")
+# are excluded because a "(" follows the name instead of "=" or ";".
 _FIELD_RE = re.compile(r"^\s*[\w:]+(?:\s*[*&])?\s+(\w+)\s*(?:=|;)")
 # `config.<field>` reads inside the signature function body.
 _CONFIG_READ_RE = re.compile(r"\bconfig\.(\w+)\b")
+# Non-data lines that may legitimately appear in the struct body and are not
+# members: access specifiers, and anything with a "(" (method/ctor/operator/
+# static_assert). A data member with a "(" initializer matches _FIELD_RE first.
+_ACCESS_SPECIFIER_RE = re.compile(r"^(?:public|private|protected)\s*:")
 # `//` line comments and `/* */` block comments. Stripped before parsing so a
 # commented-out hash line or a `config.<field>` mention in a comment is not
 # miscounted as a real signature read (nor a commented field as a struct member).
+# Block comments collapse to their newlines so line boundaries are preserved and
+# a multi-line comment can never join two declaration lines.
 _BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
 _LINE_COMMENT_RE = re.compile(r"//[^\n]*")
 
 
 def _strip_cpp_comments(text: str) -> str:
-    return _LINE_COMMENT_RE.sub(" ", _BLOCK_COMMENT_RE.sub(" ", text))
+    text = _BLOCK_COMMENT_RE.sub(lambda m: "\n" * m.group(0).count("\n"), text)
+    return _LINE_COMMENT_RE.sub("", text)
 
 
 # Fields deliberately NOT hashed. Each maps to (reason, requires_hashed) where
@@ -109,13 +116,20 @@ WAIVERS: dict[str, tuple[str, tuple[str, ...]]] = {
 }
 
 
-def _extract_struct_fields(text: str, struct_name: str) -> list[str]:
+def _extract_struct_fields(text: str, struct_name: str) -> tuple[list[str], list[str]]:
+    """Return (field_names, unrecognized_lines).
+
+    Fail closed: any non-blank line in the struct body that is neither a parsed
+    data member nor a recognized non-member construct (access specifier, or a
+    method/ctor/static_assert line, which all contain "(") is reported as
+    unrecognized so a new member in unsupported syntax cannot be silently dropped.
+    """
     start = text.find(f"struct {struct_name}")
     if start == -1:
-        return []
+        return [], []
     brace = text.find("{", start)
     if brace == -1:
-        return []
+        return [], []
     depth = 0
     end = brace
     for i in range(brace, len(text)):
@@ -129,14 +143,19 @@ def _extract_struct_fields(text: str, struct_name: str) -> list[str]:
                 break
     body = _strip_cpp_comments(text[brace + 1 : end])
     fields: list[str] = []
+    unrecognized: list[str] = []
     for line in body.splitlines():
         stripped = line.strip()
-        if not stripped or stripped.startswith("//"):
+        if not stripped or stripped in ("{", "}"):
             continue
         match = _FIELD_RE.match(line)
         if match:
             fields.append(match.group(1))
-    return fields
+            continue
+        if _ACCESS_SPECIFIER_RE.match(stripped) or "(" in stripped:
+            continue
+        unrecognized.append(stripped)
+    return fields, unrecognized
 
 
 def _extract_hashed_fields(text: str, fn_name: str) -> set[str] | None:
@@ -207,9 +226,18 @@ def main() -> int:
         print(f"[cull-signature-parity] FAIL missing {SIGNATURE_SOURCE.relative_to(ROOT)}")
         return 1
 
-    fields = _extract_struct_fields(CULLER_HEADER.read_text(encoding="utf-8"), STRUCT_NAME)
+    fields, unrecognized = _extract_struct_fields(CULLER_HEADER.read_text(encoding="utf-8"), STRUCT_NAME)
     if not fields:
         print(f"[cull-signature-parity] FAIL could not parse struct {STRUCT_NAME} in {CULLER_HEADER.name}")
+        return 1
+    # Fail closed on any struct-body line the parser does not recognize, so a new
+    # member in unsupported syntax cannot slip past the parity check unseen.
+    if unrecognized:
+        for line in unrecognized:
+            print(
+                f"[cull-signature-parity] FAIL unrecognized declaration in {STRUCT_NAME}: `{line}` "
+                f"-- extend the parser (tests/ci/check_cull_signature_parity.py) to classify it"
+            )
         return 1
     field_set = set(fields)
 
