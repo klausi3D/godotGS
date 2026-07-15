@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="InMemoryChunkPayloadSource" inherits="ChunkPayloadSource" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		In-memory [ChunkPayloadSource] backed by a [GaussianData].
+	</brief_description>
+	<description>
+		The default [ChunkPayloadSource] for small datasets and tests. It reads chunk payloads directly from an in-memory [GaussianData], so its behaviour matches the non-streaming path.
+	</description>
+	<tutorials>
+	</tutorials>
+</class>

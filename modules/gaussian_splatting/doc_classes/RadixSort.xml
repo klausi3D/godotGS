@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="RadixSort" inherits="IGPUSorter" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		GPU radix-sort backend for splat depth ordering.
+	</brief_description>
+	<description>
+		An [IGPUSorter] implementation that orders splats by a quantized depth key using a multi-pass radix sort.
+	</description>
+	<tutorials>
+	</tutorials>
+</class>

@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="AssetDependencyManager" inherits="RefCounted" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Tracks dependencies between Gaussian assets.
+	</brief_description>
+	<description>
+		Maintains asset metadata and a dependency graph with cycle detection and resolution ordering, so dependent assets are loaded and rebuilt in a valid order.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="add_dependency">
+			<return type="int" enum="Error" />
+			<param index="0" name="asset_id" type="String" />
+			<param index="1" name="dependency_id" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="detect_dependency_cycles" qualifiers="const">
+			<return type="int" enum="Error" />
+			<description>
+			</description>
+		</method>
+		<method name="get_asset_id_from_path" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="file_path" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="get_asset_id_string" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="asset_path" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="get_asset_path_from_id" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="asset_id" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="get_current_project" qualifiers="const">
+			<return type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="get_dependencies_array" qualifiers="const">
+			<return type="Array" />
+			<param index="0" name="asset_path" type="String" />
+			<param index="1" name="recursive" type="bool" default="false" />
+			<description>
+			</description>
+		</method>
+		<method name="get_dependents_array" qualifiers="const">
+			<return type="Array" />
+			<param index="0" name="asset_path" type="String" />
+			<param index="1" name="recursive" type="bool" default="false" />
+			<description>
+			</description>
+		</method>
+		<method name="has_asset" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="asset_id" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="has_circular_dependency" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="asset_id" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="print_dependency_report" qualifiers="const">
+			<return type="void" />
+			<description>
+			</description>
+		</method>
+		<method name="register_asset">
+			<return type="int" enum="Error" />
+			<param index="0" name="file_path" type="String" />
+			<param index="1" name="custom_id" type="String" default="&quot;&quot;" />
+			<description>
+			</description>
+		</method>
+		<method name="remove_dependency">
+			<return type="int" enum="Error" />
+			<param index="0" name="asset_id" type="String" />
+			<param index="1" name="dependency_id" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="set_current_project">
+			<return type="int" enum="Error" />
+			<param index="0" name="project_id" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="unregister_asset">
+			<return type="int" enum="Error" />
+			<param index="0" name="asset_id" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="validate_all_assets" qualifiers="const">
+			<return type="int" enum="Error" />
+			<description>
+			</description>
+		</method>
+		<method name="validate_asset" qualifiers="const">
+			<return type="int" enum="Error" />
+			<param index="0" name="asset_id" type="String" />
+			<description>
+			</description>
+		</method>
+	</methods>
+</class>

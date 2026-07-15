@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="GaussianSplatDynamicInstance3D" inherits="GaussianSplatNode3D" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Deprecated alias of [GaussianSplatNode3D].
+	</brief_description>
+	<description>
+		A backwards-compatibility shim that forwards all behaviour to [GaussianSplatNode3D]. Instantiating it emits a deprecation warning and it will be removed in a future release; use [GaussianSplatNode3D] directly.
+	</description>
+	<tutorials>
+	</tutorials>
+</class>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="ChunkPayloadSource" inherits="RefCounted" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Abstract source of per-chunk Gaussian payloads for the streaming system.
+	</brief_description>
+	<description>
+		Base class for the streaming system's payload providers. Implementations supply a chunk's gaussian payload either from memory ([InMemoryChunkPayloadSource]) or on demand from a file ([StagedFileChunkPayloadSource]) for out-of-core large-world streaming.
+	</description>
+	<tutorials>
+	</tutorials>
+</class>

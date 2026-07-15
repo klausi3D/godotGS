@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="OneSweepSort" inherits="IGPUSorter" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		High-throughput single-sweep GPU radix-sort backend.
+	</brief_description>
+	<description>
+		An [IGPUSorter] implementation tuned for large datasets, using a one-sweep radix strategy to minimize the number of passes over the key buffer.
+	</description>
+	<tutorials>
+	</tutorials>
+</class>

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="ColorGradingResource" inherits="Resource" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Color-grading settings for Gaussian splat colors.
+	</brief_description>
+	<description>
+		A [Resource] describing a color-grading transform (such as exposure, white balance, and tone) that can be baked into or applied over a [GaussianData]'s colors.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="reset_to_defaults">
+			<return type="void" />
+			<description>
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="contrast" type="float" setter="set_contrast" getter="get_contrast" default="1.0">
+		</member>
+		<member name="enabled" type="bool" setter="set_enabled" getter="get_enabled" default="true">
+		</member>
+		<member name="exposure" type="float" setter="set_exposure" getter="get_exposure" default="0.0">
+		</member>
+		<member name="hue_shift" type="float" setter="set_hue_shift" getter="get_hue_shift" default="0.0">
+		</member>
+		<member name="saturation" type="float" setter="set_saturation" getter="get_saturation" default="1.0">
+		</member>
+		<member name="temperature" type="float" setter="set_temperature" getter="get_temperature" default="0.0">
+		</member>
+		<member name="tint" type="float" setter="set_tint" getter="get_tint" default="0.0">
+		</member>
+	</members>
+</class>

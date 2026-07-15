@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="VRAMBudgetRegulator" inherits="RefCounted" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Auto-regulator that keeps module GPU memory within a VRAM budget.
+	</brief_description>
+	<description>
+		Monitors streaming VRAM usage against a device budget and degrades gracefully. As the budget is approached it caps the number of resident chunks and signals eviction; separately, when it detects load/evict thrashing it raises the level-of-detail distance multiplier to shed work, so rendering stays stable on memory-constrained GPUs.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="can_load_more_chunks" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="current_loaded" type="int" />
+			<description>
+				Returns [code]true[/code] if admitting more resident chunks would stay within the VRAM budget.
+			</description>
+		</method>
+		<method name="get_current_max_chunks" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the current cap on resident chunks derived from the budget state.
+			</description>
+		</method>
+		<method name="get_debug_stats_dictionary" qualifiers="const">
+			<return type="Dictionary" />
+			<description>
+				Returns a [Dictionary] of current VRAM-usage and regulation statistics for diagnostics.
+			</description>
+		</method>
+		<method name="get_lod_distance_multiplier" qualifiers="const">
+			<return type="float" />
+			<description>
+				Returns the level-of-detail distance multiplier the regulator is currently applying; values above 1.0 pull LOD transitions closer to shed memory.
+			</description>
+		</method>
+		<method name="initialize">
+			<return type="void" />
+			<param index="0" name="rendering_device" type="RenderingDevice" />
+			<description>
+				Initializes the regulator with the current device VRAM budget and configuration.
+			</description>
+		</method>
+		<method name="is_budget_warning_active" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] while usage is in the warning band below the hard budget.
+			</description>
+		</method>
+		<method name="reload_config">
+			<return type="void" />
+			<description>
+				Re-reads the regulator's project-settings configuration (budget fractions, thresholds).
+			</description>
+		</method>
+		<method name="should_trigger_eviction" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="current_usage" type="int" />
+			<description>
+				Returns [code]true[/code] when usage has crossed the eviction threshold and resident chunks should be evicted.
+			</description>
+		</method>
+	</methods>
+</class>

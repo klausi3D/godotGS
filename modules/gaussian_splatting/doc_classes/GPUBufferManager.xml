@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="GPUBufferManager" inherits="RefCounted" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Owns the renderer's resident GPU buffers.
+	</brief_description>
+	<description>
+		Manages allocation and lifetime of the GPU buffers used by the resident (non-streaming) render path.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="begin_frame">
+			<return type="void" />
+			<description>
+			</description>
+		</method>
+		<method name="end_frame">
+			<return type="void" />
+			<description>
+			</description>
+		</method>
+		<method name="get_current_read_buffer" qualifiers="const">
+			<return type="RID" />
+			<description>
+			</description>
+		</method>
+		<method name="get_current_write_buffer" qualifiers="const">
+			<return type="RID" />
+			<description>
+			</description>
+		</method>
+		<method name="get_gaussian_buffer" qualifiers="const">
+			<return type="RID" />
+			<description>
+			</description>
+		</method>
+		<method name="get_gaussian_count" qualifiers="const">
+			<return type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="get_memory_usage_mb" qualifiers="const">
+			<return type="float" />
+			<description>
+			</description>
+		</method>
+		<method name="get_sort_key_buffer" qualifiers="const">
+			<return type="RID" />
+			<description>
+			</description>
+		</method>
+		<method name="get_sorted_indices_buffer" qualifiers="const">
+			<return type="RID" />
+			<description>
+			</description>
+		</method>
+		<method name="initialize">
+			<return type="int" enum="Error" />
+			<param index="0" name="rendering_device" type="RenderingDevice" />
+			<param index="1" name="max_gaussians" type="int" default="2000000" />
+			<param index="2" name="allocate_gaussian_buffer" type="bool" default="true" />
+			<description>
+			</description>
+		</method>
+		<method name="is_ready_for_update" qualifiers="const">
+			<return type="bool" />
+			<description>
+			</description>
+		</method>
+		<method name="swap_buffers">
+			<return type="void" />
+			<description>
+			</description>
+		</method>
+		<method name="upload_gaussian_data">
+			<return type="int" enum="Error" />
+			<param index="0" name="data" type="GaussianData" />
+			<description>
+			</description>
+		</method>
+	</methods>
+</class>

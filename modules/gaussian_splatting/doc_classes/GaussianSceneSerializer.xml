@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="GaussianSceneSerializer" inherits="Resource" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Serializer for Gaussian splat scenes ([code].gsf[/code]).
+	</brief_description>
+	<description>
+		A [Resource] that serializes Gaussian splat scenes to, and loads them from, the on-disk [code].gsf[/code] format (magic/version-checked, optionally per-chunk checksummed). Writes go through the module's atomic-save helper.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="add_asset_reference">
+			<return type="void" />
+			<param index="0" name="path" type="String" />
+			<param index="1" name="type" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="get_asset_references" qualifiers="const">
+			<return type="Array" />
+			<description>
+			</description>
+		</method>
+		<method name="get_compression_level" qualifiers="const">
+			<return type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="get_compression_type" qualifiers="const">
+			<return type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="get_enable_checksum" qualifiers="const">
+			<return type="bool" />
+			<description>
+			</description>
+		</method>
+		<method name="get_file_info" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="file_path" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="get_file_size_estimate" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="gaussian_data" type="GaussianData" />
+			<param index="1" name="animation" type="GaussianAnimationStateMachine" default="null" />
+			<description>
+			</description>
+		</method>
+		<method name="get_incremental_mode" qualifiers="const">
+			<return type="bool" />
+			<description>
+			</description>
+		</method>
+		<method name="get_supported_compression_types" qualifiers="static">
+			<return type="Array" />
+			<description>
+			</description>
+		</method>
+		<method name="has_asset_reference" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="path" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="is_gaussian_scene_file" qualifiers="static">
+			<return type="bool" />
+			<param index="0" name="file_path" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="load_incremental">
+			<return type="int" enum="Error" />
+			<param index="0" name="file_path" type="String" />
+			<param index="1" name="base_file_path" type="String" />
+			<param index="2" name="gaussian_data" type="GaussianData" />
+			<param index="3" name="animation" type="GaussianAnimationStateMachine" default="null" />
+			<description>
+			</description>
+		</method>
+		<method name="load_scene">
+			<return type="int" enum="Error" />
+			<param index="0" name="file_path" type="String" />
+			<param index="1" name="gaussian_data" type="GaussianData" />
+			<param index="2" name="animation" type="GaussianAnimationStateMachine" default="null" />
+			<param index="3" name="metadata" type="Variant" default="null" />
+			<description>
+			</description>
+		</method>
+		<method name="remove_asset_reference">
+			<return type="void" />
+			<param index="0" name="path" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="save_incremental">
+			<return type="int" enum="Error" />
+			<param index="0" name="file_path" type="String" />
+			<param index="1" name="base_file_path" type="String" />
+			<param index="2" name="gaussian_data" type="GaussianData" />
+			<param index="3" name="animation" type="GaussianAnimationStateMachine" default="null" />
+			<description>
+			</description>
+		</method>
+		<method name="save_scene">
+			<return type="int" enum="Error" />
+			<param index="0" name="file_path" type="String" />
+			<param index="1" name="gaussian_data" type="GaussianData" />
+			<param index="2" name="animation" type="GaussianAnimationStateMachine" />
+			<param index="3" name="metadata" type="Dictionary" default="{}" />
+			<description>
+			</description>
+		</method>
+		<method name="set_compression_level">
+			<return type="void" />
+			<param index="0" name="level" type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="set_compression_type">
+			<return type="void" />
+			<param index="0" name="type" type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="set_enable_checksum">
+			<return type="void" />
+			<param index="0" name="enable" type="bool" />
+			<description>
+			</description>
+		</method>
+		<method name="set_incremental_mode">
+			<return type="void" />
+			<param index="0" name="enable" type="bool" />
+			<description>
+			</description>
+		</method>
+		<method name="validate_assets" qualifiers="const">
+			<return type="bool" />
+			<description>
+			</description>
+		</method>
+		<method name="validate_file" qualifiers="const">
+			<return type="int" enum="Error" />
+			<param index="0" name="file_path" type="String" />
+			<description>
+			</description>
+		</method>
+	</methods>
+</class>

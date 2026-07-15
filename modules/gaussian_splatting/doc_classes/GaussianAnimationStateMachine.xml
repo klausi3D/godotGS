@@ -1,0 +1,297 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="GaussianAnimationStateMachine" inherits="Resource" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Animation state machine resource for a Gaussian dataset.
+	</brief_description>
+	<description>
+		A [Resource] describing an animation state machine for a Gaussian dataset. It is constructed explicitly (from GDScript or the C++ API) and attached to a [GaussianData] through its animation API; see the module's animation feature docs for worked examples.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="add_clip">
+			<return type="int" />
+			<param index="0" name="name" type="String" />
+			<param index="1" name="duration" type="float" default="1.0" />
+			<description>
+			</description>
+		</method>
+		<method name="add_keyframe">
+			<return type="void" />
+			<param index="0" name="clip_index" type="int" />
+			<param index="1" name="property" type="int" enum="GaussianAnimationStateMachine.AnimationProperty" />
+			<param index="2" name="time" type="float" />
+			<param index="3" name="value" type="Variant" />
+			<description>
+			</description>
+		</method>
+		<method name="add_keyframe_bezier">
+			<return type="void" />
+			<param index="0" name="clip_index" type="int" />
+			<param index="1" name="property" type="int" enum="GaussianAnimationStateMachine.AnimationProperty" />
+			<param index="2" name="time" type="float" />
+			<param index="3" name="value" type="Variant" />
+			<param index="4" name="in_handle" type="Vector2" />
+			<param index="5" name="out_handle" type="Vector2" />
+			<description>
+			</description>
+		</method>
+		<method name="add_track_to_clip">
+			<return type="void" />
+			<param index="0" name="clip_index" type="int" />
+			<param index="1" name="property" type="int" enum="GaussianAnimationStateMachine.AnimationProperty" />
+			<description>
+			</description>
+		</method>
+		<method name="blend_to_clip">
+			<return type="void" />
+			<param index="0" name="clip_index" type="int" />
+			<param index="1" name="blend_duration" type="float" default="0.3" />
+			<description>
+			</description>
+		</method>
+		<method name="get_clip_count" qualifiers="const">
+			<return type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="get_clip_duration" qualifiers="const">
+			<return type="float" />
+			<param index="0" name="index" type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="get_clip_looping" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="index" type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="get_clip_name" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="index" type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="get_clip_weight" qualifiers="const">
+			<return type="float" />
+			<param index="0" name="clip_index" type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="get_current_clip" qualifiers="const">
+			<return type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="get_current_time" qualifiers="const">
+			<return type="float" />
+			<description>
+			</description>
+		</method>
+		<method name="get_incremental_saver" qualifiers="const">
+			<return type="GaussianIncrementalSaver" />
+			<description>
+			</description>
+		</method>
+		<method name="get_keyframe_count" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="clip_index" type="int" />
+			<param index="1" name="property" type="int" enum="GaussianAnimationStateMachine.AnimationProperty" />
+			<description>
+			</description>
+		</method>
+		<method name="get_keyframe_time" qualifiers="const">
+			<return type="float" />
+			<param index="0" name="clip_index" type="int" />
+			<param index="1" name="property" type="int" enum="GaussianAnimationStateMachine.AnimationProperty" />
+			<param index="2" name="keyframe_index" type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="get_keyframe_value" qualifiers="const">
+			<return type="Variant" />
+			<param index="0" name="clip_index" type="int" />
+			<param index="1" name="property" type="int" enum="GaussianAnimationStateMachine.AnimationProperty" />
+			<param index="2" name="keyframe_index" type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="get_playback_speed" qualifiers="const">
+			<return type="float" />
+			<description>
+			</description>
+		</method>
+		<method name="get_splat_count" qualifiers="const">
+			<return type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="get_state" qualifiers="const">
+			<return type="int" enum="GaussianAnimationStateMachine.AnimationState" />
+			<description>
+			</description>
+		</method>
+		<method name="has_track" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="clip_index" type="int" />
+			<param index="1" name="property" type="int" enum="GaussianAnimationStateMachine.AnimationProperty" />
+			<description>
+			</description>
+		</method>
+		<method name="is_playing" qualifiers="const">
+			<return type="bool" />
+			<description>
+			</description>
+		</method>
+		<method name="pause">
+			<return type="void" />
+			<description>
+			</description>
+		</method>
+		<method name="play">
+			<return type="void" />
+			<param index="0" name="clip_index" type="int" default="-1" />
+			<description>
+			</description>
+		</method>
+		<method name="remove_clip">
+			<return type="void" />
+			<param index="0" name="index" type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="remove_clip_by_name">
+			<return type="void" />
+			<param index="0" name="name" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="remove_keyframe">
+			<return type="void" />
+			<param index="0" name="clip_index" type="int" />
+			<param index="1" name="property" type="int" enum="GaussianAnimationStateMachine.AnimationProperty" />
+			<param index="2" name="keyframe_index" type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="remove_track_from_clip">
+			<return type="void" />
+			<param index="0" name="clip_index" type="int" />
+			<param index="1" name="property" type="int" enum="GaussianAnimationStateMachine.AnimationProperty" />
+			<description>
+			</description>
+		</method>
+		<method name="sample_color" qualifiers="const">
+			<return type="Color" />
+			<param index="0" name="splat_index" type="int" />
+			<param index="1" name="time" type="float" default="-1.0" />
+			<description>
+			</description>
+		</method>
+		<method name="sample_opacity" qualifiers="const">
+			<return type="float" />
+			<param index="0" name="splat_index" type="int" />
+			<param index="1" name="time" type="float" default="-1.0" />
+			<description>
+			</description>
+		</method>
+		<method name="sample_position" qualifiers="const">
+			<return type="Vector3" />
+			<param index="0" name="splat_index" type="int" />
+			<param index="1" name="time" type="float" default="-1.0" />
+			<description>
+			</description>
+		</method>
+		<method name="sample_rotation" qualifiers="const">
+			<return type="Quaternion" />
+			<param index="0" name="splat_index" type="int" />
+			<param index="1" name="time" type="float" default="-1.0" />
+			<description>
+			</description>
+		</method>
+		<method name="sample_scale" qualifiers="const">
+			<return type="Vector3" />
+			<param index="0" name="splat_index" type="int" />
+			<param index="1" name="time" type="float" default="-1.0" />
+			<description>
+			</description>
+		</method>
+		<method name="seek">
+			<return type="void" />
+			<param index="0" name="time" type="float" />
+			<description>
+			</description>
+		</method>
+		<method name="set_clip_duration">
+			<return type="void" />
+			<param index="0" name="index" type="int" />
+			<param index="1" name="duration" type="float" />
+			<description>
+			</description>
+		</method>
+		<method name="set_clip_looping">
+			<return type="void" />
+			<param index="0" name="index" type="int" />
+			<param index="1" name="looping" type="bool" />
+			<description>
+			</description>
+		</method>
+		<method name="set_clip_weight">
+			<return type="void" />
+			<param index="0" name="clip_index" type="int" />
+			<param index="1" name="weight" type="float" />
+			<description>
+			</description>
+		</method>
+		<method name="set_incremental_saver">
+			<return type="void" />
+			<param index="0" name="saver" type="GaussianIncrementalSaver" />
+			<description>
+			</description>
+		</method>
+		<method name="set_playback_speed">
+			<return type="void" />
+			<param index="0" name="speed" type="float" />
+			<description>
+			</description>
+		</method>
+		<method name="set_splat_count">
+			<return type="void" />
+			<param index="0" name="count" type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="stop">
+			<return type="void" />
+			<description>
+			</description>
+		</method>
+		<method name="update">
+			<return type="void" />
+			<param index="0" name="delta" type="float" />
+			<description>
+			</description>
+		</method>
+	</methods>
+	<constants>
+		<constant name="ANIMATION_PROPERTY_POSITION" value="0" enum="AnimationProperty">
+		</constant>
+		<constant name="ANIMATION_PROPERTY_COLOR" value="1" enum="AnimationProperty">
+		</constant>
+		<constant name="ANIMATION_PROPERTY_OPACITY" value="2" enum="AnimationProperty">
+		</constant>
+		<constant name="ANIMATION_PROPERTY_SCALE" value="3" enum="AnimationProperty">
+		</constant>
+		<constant name="ANIMATION_PROPERTY_ROTATION" value="4" enum="AnimationProperty">
+		</constant>
+		<constant name="ANIMATION_STATE_STOPPED" value="0" enum="AnimationState">
+		</constant>
+		<constant name="ANIMATION_STATE_PLAYING" value="1" enum="AnimationState">
+		</constant>
+		<constant name="ANIMATION_STATE_PAUSED" value="2" enum="AnimationState">
+		</constant>
+		<constant name="ANIMATION_STATE_SEEKING" value="3" enum="AnimationState">
+		</constant>
+	</constants>
+</class>
