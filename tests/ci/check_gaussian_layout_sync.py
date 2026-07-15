@@ -20,6 +20,26 @@ EMBEDDED_SHADER_MIRROR_FILES = (
 )
 TARGET_STRUCT_NAMES = ("PackedGaussian", "Gaussian", "GaussianQuantized")
 
+# Additional CPU<->GPU mirror structs declared in gaussian_gpu_layout.h that also
+# appear as GLSL `struct`s of the same name (the instancing / asset / chunk tables)
+# and carry literal sizeof/offsetof static_assert contracts. Each is (a) checked for
+# host self-consistency (computed layout == its own static_asserts) and (b) compared
+# field-by-field, by std430 offset, against every GLSL mirror. This extends the guard
+# beyond the PackedGaussian family so these push-through GPU structs cannot silently
+# drift from their shader mirrors. (AssetMetaGPU is intentionally excluded for now: it
+# nests an AssetLodRangeGPU[GS_MAX_ASSET_LODS] array whose bound is an external
+# constant, which needs nested-struct-array + constant-resolution support the layout
+# engine does not yet have — tracked as a follow-on.)
+EXTRA_MIRROR_STRUCTS = (
+    "InstanceDataGPU",
+    "InstanceGradingGPU",
+    "AssetLodRangeGPU",
+    "ChunkMetaGPU",
+    "AssetChunkIndexGPU",
+    "VisibleChunkRefGPU",
+    "SplatRefGPU",
+)
+
 
 @dataclass(frozen=True)
 class RawField:
@@ -318,6 +338,66 @@ def _compare_layouts(
         )
 
 
+def _parse_struct_size_contract(text: str, struct_name: str) -> int | None:
+    match = re.search(rf"static_assert\(sizeof\({re.escape(struct_name)}\)\s*==\s*(\d+)\b", text)
+    return int(match.group(1)) if match else None
+
+
+def _parse_struct_offset_contracts(text: str, struct_name: str) -> dict[str, int]:
+    pattern = re.compile(rf"static_assert\(offsetof\({re.escape(struct_name)},\s*(\w+)\)\s*==\s*(\d+)\b")
+    return {match.group(1): int(match.group(2)) for match in pattern.finditer(text)}
+
+
+def _discover_struct_mirrors(struct_name: str) -> tuple[Path, ...]:
+    pattern = _struct_pattern(struct_name)
+    mirrors: list[Path] = []
+    seen: set[Path] = set()
+    for root in SHADER_ROOTS:
+        for path in sorted(root.rglob("*.glsl")):
+            if path in seen:
+                continue
+            if pattern.search(path.read_text(encoding="utf-8")):
+                seen.add(path)
+                mirrors.append(path)
+    return tuple(mirrors)
+
+
+def _check_extra_mirror_struct(struct_name: str, host_text: str, failures: list[str]) -> None:
+    host_def = _parse_struct_definition(HOST_LAYOUT, struct_name)
+    host_layout = _layout_struct({struct_name: host_def}, struct_name, "host")
+
+    # (a) Host self-consistency: the layout the engine computes must match this
+    # struct's own literal sizeof/offsetof contracts, so the contracts stay the
+    # single source of truth even before comparing to shaders.
+    contract_size = _parse_struct_size_contract(host_text, struct_name)
+    if contract_size is None:
+        failures.append(
+            f"{HOST_LAYOUT.relative_to(ROOT)}: `{struct_name}` is in EXTRA_MIRROR_STRUCTS but has no literal `sizeof` static_assert to anchor"
+        )
+    elif host_layout.size != contract_size:
+        failures.append(
+            f"{HOST_LAYOUT.relative_to(ROOT)}: computed {struct_name} size {host_layout.size} != host contract {contract_size}"
+        )
+    for field_name, expected_offset in _parse_struct_offset_contracts(host_text, struct_name).items():
+        actual_offset = host_layout.offsets.get(field_name)
+        if actual_offset != expected_offset:
+            failures.append(
+                f"{HOST_LAYOUT.relative_to(ROOT)}: {struct_name}.{field_name} computed offset {actual_offset} != host contract {expected_offset}"
+            )
+
+    # (b) Every GLSL mirror must match the host layout (field names, std430
+    # signatures, offsets, size).
+    mirrors = _discover_struct_mirrors(struct_name)
+    if not mirrors:
+        failures.append(
+            f"{struct_name}: no GLSL mirror `struct {struct_name}` found under shaders/ or compute/"
+        )
+    for shader_path in mirrors:
+        shader_def = _parse_struct_definition(shader_path, struct_name)
+        shader_layout = _layout_struct({struct_name: shader_def}, struct_name, "shader")
+        _compare_layouts(host_layout, shader_layout, shader_path, struct_name, struct_name, failures)
+
+
 def main() -> int:
     host_offsets, host_size = _parse_host_contracts(HOST_LAYOUT)
     packed_host_structs = {
@@ -363,6 +443,10 @@ def main() -> int:
             raise RuntimeError(f"Unexpected discovered struct `{struct_name}`")
         _compare_layouts(expected_layout, shader_layout, shader_path, struct_name, expected_label, failures)
 
+    host_text = HOST_LAYOUT.read_text(encoding="utf-8")
+    for struct_name in EXTRA_MIRROR_STRUCTS:
+        _check_extra_mirror_struct(struct_name, host_text, failures)
+
     if failures:
         for failure in failures:
             print(f"[gaussian-layout-check] FAIL {failure}")
@@ -370,6 +454,11 @@ def main() -> int:
 
     print("[gaussian-layout-check] PASSED")
     print("[gaussian-layout-check] PackedGaussian and PackedGaussianQuantized host/mirror field signatures, offsets, and size are aligned.")
+    print(
+        "[gaussian-layout-check] Instancing/asset/chunk mirror structs are aligned: "
+        + ", ".join(EXTRA_MIRROR_STRUCTS)
+        + "."
+    )
     return 0
 
 
