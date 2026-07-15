@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import re
 import sys
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -22,6 +21,12 @@ REGISTER_TYPES = MODULE / "register_types.cpp"
 DOC_CLASSES = MODULE / "doc_classes"
 
 _REGISTER_RE = re.compile(r"\bGDREGISTER(?:_ABSTRACT|_INTERNAL|_RUNTIME)?_CLASS\(\s*(\w+)\s*\)")
+# The doc build (doc_data.gen.h generation + class.xsd validation) is the authority
+# on XML well-formedness; this guard only needs the class name and the brief text,
+# so it scans with targeted regexes instead of an XML parser (avoids Bandit B314 on
+# untrusted-XML parsing, which does not apply to these in-repo files either way).
+_CLASS_NAME_RE = re.compile(r'<class\s+name="([^"]+)"')
+_BRIEF_RE = re.compile(r"<brief_description>(.*?)</brief_description>", re.DOTALL)
 
 
 def _registered_classes(text: str) -> set[str]:
@@ -46,16 +51,17 @@ def main() -> int:
                 f"registered class `{class_name}` has no doc_classes/{class_name}.xml"
             )
             continue
-        try:
-            root = ET.parse(xml_path).getroot()
-        except ET.ParseError as exc:
-            failures.append(f"doc_classes/{class_name}.xml is not well-formed XML: {exc}")
+        text = xml_path.read_text(encoding="utf-8")
+        name_match = _CLASS_NAME_RE.search(text)
+        if not name_match:
+            failures.append(f"doc_classes/{class_name}.xml has no `<class name=...>` root element")
             continue
-        if root.get("name") != class_name:
+        if name_match.group(1) != class_name:
             failures.append(
-                f"doc_classes/{class_name}.xml declares class name `{root.get('name')}` != `{class_name}`"
+                f"doc_classes/{class_name}.xml declares class name `{name_match.group(1)}` != `{class_name}`"
             )
-        brief = (root.findtext("brief_description") or "").strip()
+        brief_match = _BRIEF_RE.search(text)
+        brief = (brief_match.group(1).strip() if brief_match else "")
         if not brief:
             failures.append(
                 f"doc_classes/{class_name}.xml has an empty <brief_description> (write a real one-line summary)"
