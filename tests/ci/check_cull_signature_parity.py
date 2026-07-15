@@ -42,6 +42,15 @@ STRUCT_NAME = "CullingConfig"
 _FIELD_RE = re.compile(r"^\s*[\w:]+(?:\s*[*&])?\s+(\w+)\s*(?:=|;)")
 # `config.<field>` reads inside the signature function body.
 _CONFIG_READ_RE = re.compile(r"\bconfig\.(\w+)\b")
+# `//` line comments and `/* */` block comments. Stripped before parsing so a
+# commented-out hash line or a `config.<field>` mention in a comment is not
+# miscounted as a real signature read (nor a commented field as a struct member).
+_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
+_LINE_COMMENT_RE = re.compile(r"//[^\n]*")
+
+
+def _strip_cpp_comments(text: str) -> str:
+    return _LINE_COMMENT_RE.sub(" ", _BLOCK_COMMENT_RE.sub(" ", text))
 
 
 # Fields deliberately NOT hashed. Each maps to (reason, requires_hashed) where
@@ -118,7 +127,7 @@ def _extract_struct_fields(text: str, struct_name: str) -> list[str]:
             if depth == 0:
                 end = i
                 break
-    body = text[brace + 1 : end]
+    body = _strip_cpp_comments(text[brace + 1 : end])
     fields: list[str] = []
     for line in body.splitlines():
         stripped = line.strip()
@@ -148,7 +157,7 @@ def _extract_hashed_fields(text: str, fn_name: str) -> set[str] | None:
             if depth == 0:
                 end = i
                 break
-    body = text[brace + 1 : end]
+    body = _strip_cpp_comments(text[brace + 1 : end])
     return set(_CONFIG_READ_RE.findall(body))
 
 
