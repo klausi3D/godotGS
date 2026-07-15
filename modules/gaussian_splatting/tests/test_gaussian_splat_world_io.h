@@ -881,7 +881,7 @@ MalformedWorldHeader _valid_single_splat_header() {
 
 } // namespace
 
-TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects metadata range overflow via fits_within") {
+TEST_CASE("[GaussianSplatting][WorldIO][MalformedCorpus] gsplatworld rejects metadata range overflow via fits_within") {
     // Exercises the F5 fits_within helper on the metadata range. The OLD code
     // computed `metadata_offset + metadata_size > file_len`, which wraps when
     // metadata_size is near UINT64_MAX, producing a small sum that slips past
@@ -908,7 +908,7 @@ TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects metadata range overf
     _remove_world_io_fixture(path);
 }
 
-TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects bad magic") {
+TEST_CASE("[GaussianSplatting][WorldIO][MalformedCorpus] gsplatworld rejects bad magic") {
     // A plausible-but-wrong first uint32 must be rejected as an unrecognized
     // format (magic != kWorldMagic -> ERR_FILE_UNRECOGNIZED) without crashing.
     //
@@ -945,7 +945,7 @@ TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects bad magic") {
     _remove_world_io_fixture(path);
 }
 
-TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects wrong version") {
+TEST_CASE("[GaussianSplatting][WorldIO][MalformedCorpus] gsplatworld rejects wrong version") {
     // Correct GSPW magic but a version != kWorldVersion must be rejected as
     // corrupt (ERR_FILE_CORRUPT) without crashing.
     //
@@ -984,7 +984,7 @@ TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects wrong version") {
     _remove_world_io_fixture(path);
 }
 
-TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects truncated file") {
+TEST_CASE("[GaussianSplatting][WorldIO][MalformedCorpus] gsplatworld rejects truncated file") {
     // Valid magic + version but the file ends mid-header (far shorter than the
     // 104-byte header the loader requires). The loader's file-length guard
     // (file_len < kHeaderSizeBytes) must reject this as corrupt with no OOB read
@@ -1013,7 +1013,7 @@ TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects truncated file") {
     _remove_world_io_fixture(path);
 }
 
-TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects high SH count without high SH flag") {
+TEST_CASE("[GaussianSplatting][WorldIO][MalformedCorpus] gsplatworld rejects high SH count without high SH flag") {
     const String path = _make_world_io_fixture_path("malformed_sh_flag_mismatch");
 
     MalformedWorldHeader hdr;
@@ -1076,7 +1076,7 @@ bool _write_compressed_world_oversized_count(const String &p_path, uint32_t p_sp
 
 } // namespace
 
-TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects compressed splat_count that overflows the resident payload cap") {
+TEST_CASE("[GaussianSplatting][WorldIO][MalformedCorpus] gsplatworld rejects compressed splat_count that overflows the resident payload cap") {
     // A1 regression: the compressed path decouples splat_count from file length,
     // so a crafted ~140-byte file can claim a huge splat_count. splat_count =
     // 20,000,000 => gaussian_bytes ~2.88 GiB, which sits between INT32_MAX (~2 GiB,
@@ -1098,7 +1098,7 @@ TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects compressed splat_cou
     _remove_world_io_fixture(path);
 }
 
-TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects a compressed file whose blob does not decompress to the declared size") {
+TEST_CASE("[GaussianSplatting][WorldIO][MalformedCorpus] gsplatworld rejects a compressed file whose blob does not decompress to the declared size") {
     // A1 regression: a small crafted compressed file whose splat_count stays under
     // the absolute cap (here 1,000 splats = 144 KB) is NOT rejected by the pre-alloc
     // guard (by design — no ratio cap, so valid high-ratio worlds are never
@@ -1124,7 +1124,7 @@ TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects a compressed file wh
 // uint64 for any uint32 splat_count. No standalone test is added — the path
 // would require directly invoking the helper.
 
-TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld rejects chunk-index byte-count overflow") {
+TEST_CASE("[GaussianSplatting][WorldIO][MalformedCorpus] gsplatworld rejects chunk-index byte-count overflow") {
     // Crafts a chunk record whose indices_offset+index_count produces a
     // total_indices near UINT64_MAX/4, so total_indices * sizeof(uint32_t)
     // wraps. The new checked_mul_u64 + fits_within guards the read.
