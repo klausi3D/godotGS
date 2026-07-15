@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 MODULE = ROOT / "modules" / "gaussian_splatting"
 REGISTER_TYPES = MODULE / "register_types.cpp"
 DOC_CLASSES = MODULE / "doc_classes"
+CONFIG_PY = MODULE / "config.py"
 
 # Capture the leaf class name, tolerating a namespace qualifier — ClassDB and the
 # doc XML are keyed by the leaf, so GDREGISTER_CLASS(GaussianSplatting::Foo) -> Foo.
@@ -35,6 +36,15 @@ def _registered_classes(text: str) -> set[str]:
     return set(_REGISTER_RE.findall(text))
 
 
+def _doc_class_list(text: str) -> list[str]:
+    # The class names inside config.py's get_doc_classes() return [...] literal;
+    # SConstruct embeds only these XMLs into the editor docs.
+    match = re.search(r"def get_doc_classes\(\):.*?return\s*\[(.*?)\]", text, re.DOTALL)
+    if not match:
+        return []
+    return re.findall(r'"(\w+)"', match.group(1))
+
+
 def main() -> int:
     if not REGISTER_TYPES.is_file():
         print(f"[doc-classes-check] FAIL missing {REGISTER_TYPES.relative_to(ROOT)}")
@@ -45,7 +55,24 @@ def main() -> int:
         print("[doc-classes-check] FAIL found no GDREGISTER_CLASS registrations to check")
         return 1
 
+    doc_list = _doc_class_list(CONFIG_PY.read_text(encoding="utf-8")) if CONFIG_PY.is_file() else []
+    doc_list_set = set(doc_list)
+
     failures: list[str] = []
+    # Every registered class must be listed in config.py get_doc_classes() so its XML
+    # is embedded into the editor docs — a present-but-unlisted XML is silently ignored.
+    for class_name in sorted(registered):
+        if class_name not in doc_list_set:
+            failures.append(
+                f"registered class `{class_name}` is not in config.py get_doc_classes(); its doc_classes XML would not be embedded"
+            )
+    # And every listed name must be a real registration (no stale entries).
+    for listed in doc_list:
+        if listed not in registered:
+            failures.append(
+                f"config.py get_doc_classes() lists `{listed}`, which is not registered via GDREGISTER*_CLASS"
+            )
+
     for class_name in sorted(registered):
         xml_path = DOC_CLASSES / f"{class_name}.xml"
         if not xml_path.is_file():

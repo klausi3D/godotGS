@@ -83,20 +83,44 @@ def configure(env):
 
 
 def get_doc_classes():
+    # Must list every class registered via GDREGISTER*_CLASS in register_types.cpp
+    # (leaf names) so its doc_classes/<Class>.xml is embedded into the editor docs.
+    # tests/ci/check_doc_classes_complete.py enforces that this list, the
+    # registrations, and the XML files stay in sync.
     return [
+        "AssetDependencyManager",
+        "BitonicSort",
+        "ChunkPayloadSource",
+        "ColorGradingResource",
+        "GPUBufferManager",
+        "GaussianAnimationStateMachine",
         "GaussianData",
+        "GaussianIncrementalSaver",
         "GaussianMemoryStream",
+        "GaussianSceneSerializer",
+        "GaussianSplatAsset",
         "GaussianSplatContainer",
         "GaussianSplatDebugHUD",
+        "GaussianSplatDynamicInstance3D",
         "GaussianSplatManager",
         "GaussianSplatNode3D",
         "GaussianSplatRenderer",
+        "GaussianSplatSceneDirector",
         "GaussianSplatWorld",
         "GaussianSplatWorld3D",
         "GaussianStreamingSystem",
+        "IGPUSorter",
+        "IGaussianLoader",
+        "InMemoryChunkPayloadSource",
+        "OneSweepSort",
         "PLYLoader",
         "PainterlyMaterial",
+        "RadixSort",
         "SPZLoader",
+        "SphereEffector3D",
+        "StagedFileChunkPayloadSource",
+        "StreamingPipeline",
+        "VRAMBudgetRegulator",
     ]
 
 

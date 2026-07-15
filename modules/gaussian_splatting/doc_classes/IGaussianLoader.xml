@@ -4,7 +4,7 @@
 		Interface for Gaussian asset file loaders.
 	</brief_description>
 	<description>
-		Abstract base implemented by the module's file loaders (for example [PLYLoader] and [SPZLoader]). It defines the common contract for decoding a Gaussian dataset from a source file into the module's runtime data structures.
+		Abstract base defining the common contract for decoding a Gaussian dataset from a source file into the module's runtime data structures. It is a [RefCounted] interface; the current PLY and SPZ loaders ([PLYLoader], [SPZLoader]) provide equivalent decoding directly rather than deriving from it.
 	</description>
 	<tutorials>
 	</tutorials>

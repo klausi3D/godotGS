@@ -4,7 +4,7 @@
 		File-backed, out-of-core [ChunkPayloadSource].
 	</brief_description>
 	<description>
-		A [ChunkPayloadSource] that reads a chunk's gaussian payload on demand from a staged file. Only chunk metadata is kept resident — the full gaussian array is never loaded — so process memory does not scale with the total world splat count.
+		A [ChunkPayloadSource] that reads a chunk's gaussian payload on demand from a staged file. Only chunk metadata is kept resident - the full gaussian array is never loaded - so process memory does not scale with the total world splat count.
 	</description>
 	<tutorials>
 	</tutorials>

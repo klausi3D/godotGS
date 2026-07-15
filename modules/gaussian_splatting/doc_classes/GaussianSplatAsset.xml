@@ -4,7 +4,7 @@
 		Imported Gaussian splat asset resource.
 	</brief_description>
 	<description>
-		The [Resource] produced by importing a PLY or SPZ Gaussian capture. It stores the decoded — optionally quantized and pruned — dataset together with import metadata, and can populate a runtime [GaussianData] for rendering. (Native [code].gsplatworld[/code] worlds load as [GaussianSplatWorld] instead.)
+		The [Resource] produced by importing a PLY or SPZ Gaussian capture. It stores the decoded - optionally quantized and pruned - dataset together with import metadata, and can populate a runtime [GaussianData] for rendering. (Native [code].gsplatworld[/code] worlds load as [GaussianSplatWorld] instead.)
 	</description>
 	<tutorials>
 	</tutorials>

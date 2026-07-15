@@ -4,7 +4,7 @@
 		Scene node describing one spherical Gaussian-splat effector.
 	</brief_description>
 	<description>
-		An authorable 3D node that defines a sphere effector — a region that deforms or modulates nearby splats (for example their position and opacity response). Effectors placed in the scene are aggregated and applied by the renderer.
+		An authorable 3D node that defines a sphere effector - a region that deforms or modulates nearby splats (for example their position and opacity response). Effectors placed in the scene are aggregated and applied by the renderer.
 	</description>
 	<tutorials>
 	</tutorials>
