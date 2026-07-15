@@ -418,6 +418,55 @@ TEST_CASE("[GaussianSplatting][Config][Lod] lod/diagnostic_logging honors the de
 	}
 }
 
+TEST_CASE("[GaussianSplatting][Config][Lod] save_to_project_settings self-heals the debug_visualization alias (#167/#174)") {
+	// Guards the migration contract documented in
+	// docs/reference/gaussian-project-settings-migration.md: saving a config that
+	// still carries the deprecated alias must write the canonical key and clear the
+	// alias, so the deprecation warning stops after one save. (The
+	// streaming/layout_hint_validation_strict alias is the documented exception —
+	// it has no save path and does NOT self-heal; its read precedence is covered by
+	// the #173 test below.)
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	REQUIRE(project_settings != nullptr);
+	register_lod_project_settings(); // ensure the canonical key is registered (idempotent)
+
+	const String canonical_path = "rendering/gaussian_splatting/lod/diagnostic_logging";
+	const String deprecated_path = "rendering/gaussian_splatting/lod/debug_visualization";
+	// save_to_project_settings() writes every LOD key; guard them all so the test
+	// restores full ProjectSettings state (each guard's destructor also save()s).
+	ProjectSettingGuard canonical_guard(project_settings, canonical_path);
+	ProjectSettingGuard deprecated_guard(project_settings, deprecated_path);
+	ProjectSettingGuard enabled_guard(project_settings, "rendering/gaussian_splatting/lod/enabled");
+	ProjectSettingGuard num_levels_guard(project_settings, "rendering/gaussian_splatting/lod/num_levels");
+	ProjectSettingGuard max_distance_guard(project_settings, "rendering/gaussian_splatting/lod/max_distance");
+	ProjectSettingGuard base_threshold_guard(project_settings, "rendering/gaussian_splatting/lod/base_threshold");
+	ProjectSettingGuard splat_skip_guard(project_settings, "rendering/gaussian_splatting/lod/splat_skip_enabled");
+	ProjectSettingGuard sh_reduction_guard(project_settings, "rendering/gaussian_splatting/lod/sh_reduction_enabled");
+	ProjectSettingGuard opacity_fade_guard(project_settings, "rendering/gaussian_splatting/lod/opacity_fade_enabled");
+
+	// Start from a persisted config that only carries the deprecated alias.
+	if (project_settings->has_setting(canonical_path)) {
+		project_settings->set_setting(canonical_path, false); // canonical is builtin; restore default
+	}
+	project_settings->set_setting(deprecated_path, true);
+
+	// The alias still drives behavior on load (positive-effect path).
+	LODConfig config;
+	config.load_from_project_settings();
+	CHECK(config.diagnostic_logging);
+
+	// Saving migrates to the canonical key and clears the alias (self-heal).
+	config.save_to_project_settings();
+	CHECK(project_settings->has_setting(canonical_path));
+	CHECK(bool(project_settings->get_setting(canonical_path)));
+	CHECK_FALSE(project_settings->has_setting(deprecated_path));
+
+	// Reload from the migrated state: canonical drives behavior, no alias present.
+	LODConfig reloaded;
+	reloaded.load_from_project_settings();
+	CHECK(reloaded.diagnostic_logging);
+}
+
 TEST_CASE("[GaussianSplatting][Config][Pipeline] pipeline/enable_all_pipeline_experimental honors the enable_all_experimental alias (#169)") {
 	ProjectSettings *project_settings = ProjectSettings::get_singleton();
 	REQUIRE(project_settings != nullptr);
@@ -458,6 +507,49 @@ TEST_CASE("[GaussianSplatting][Config][Pipeline] pipeline/enable_all_pipeline_ex
 		project_settings->set_setting(deprecated_path, false);
 		CHECK(load_flag());
 	}
+}
+
+TEST_CASE("[GaussianSplatting][Config][Pipeline] save_to_project_settings self-heals the enable_all_experimental alias (#169/#174)") {
+	// Second family covering the migration self-heal contract (see the LOD case
+	// above): the pipeline config also writes the canonical key and clears the
+	// deprecated alias on save. Sorting (diagnostics/sort_target_time_ms) follows
+	// the identical pattern in GPUSortingConfig::save_to_project_settings().
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	REQUIRE(project_settings != nullptr);
+
+	const String canonical_path = PipelineFeatureSet::ENABLE_ALL_PIPELINE_EXPERIMENTAL_PATH;
+	const String deprecated_path = PipelineFeatureSet::DEPRECATED_ENABLE_ALL_EXPERIMENTAL_PATH;
+	// save_to_project_settings() writes every pipeline key; guard them all so the
+	// test restores full ProjectSettings state.
+	ProjectSettingGuard canonical_guard(project_settings, canonical_path);
+	ProjectSettingGuard deprecated_guard(project_settings, deprecated_path);
+	ProjectSettingGuard packed_guard(project_settings, PipelineFeatureSet::ENABLE_PACKED_STAGE_DATA_PATH);
+	ProjectSettingGuard tighter_guard(project_settings, PipelineFeatureSet::ENABLE_TIGHTER_BOUNDS_PATH);
+	ProjectSettingGuard fast_raster_guard(project_settings, PipelineFeatureSet::ENABLE_FAST_RASTER_PATH);
+	ProjectSettingGuard sh_amort_guard(project_settings, PipelineFeatureSet::ENABLE_SH_AMORTIZATION_PATH);
+	ProjectSettingGuard divisor_guard(project_settings, PipelineFeatureSet::SH_AMORTIZATION_DIVISOR_PATH);
+
+	// Start from a persisted config that only carries the deprecated alias.
+	if (project_settings->has_setting(canonical_path)) {
+		project_settings->set_setting(canonical_path, false); // canonical is builtin; restore default
+	}
+	project_settings->set_setting(deprecated_path, true);
+
+	// The alias still force-enables the bundle on load (positive-effect path).
+	PipelineFeatureSet config;
+	config.load_from_project_settings();
+	CHECK(config.enable_all_pipeline_experimental);
+
+	// Saving migrates to the canonical key and clears the alias (self-heal).
+	config.save_to_project_settings();
+	CHECK(project_settings->has_setting(canonical_path));
+	CHECK(bool(project_settings->get_setting(canonical_path)));
+	CHECK_FALSE(project_settings->has_setting(deprecated_path));
+
+	// Reload from the migrated state: canonical drives behavior, no alias present.
+	PipelineFeatureSet reloaded;
+	reloaded.load_from_project_settings();
+	CHECK(reloaded.enable_all_pipeline_experimental);
 }
 
 TEST_CASE("[GaussianSplatting][Config] Adaptive overlap-budget knobs round-trip through project settings") {
