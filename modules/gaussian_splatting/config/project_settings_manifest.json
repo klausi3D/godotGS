@@ -861,7 +861,7 @@
     {
       "effective_state": "LODConfig/GPUCuller.diagnostic_logging",
       "key": "rendering/gaussian_splatting/lod/debug_visualization",
-      "notes": "Deprecated alias (#167): renamed to lod/diagnostic_logging. Still read as a read-only fallback (with a one-time deprecation warning) so existing project.godot files keep working; a persisted config migrates to the canonical key on save.",
+      "notes": "Deprecated alias (#167): renamed to lod/diagnostic_logging. Still read as a read-only fallback (with a one-time deprecation warning) so existing project.godot files keep working; not auto-migrated on save, so rename it to the canonical key to stop the warning.",
       "publicness": "deprecated_alias",
       "test_coverage": "covered"
     },
@@ -988,7 +988,7 @@
     {
       "effective_state": "PipelineFeatureSet::loaded_provenance_snapshot/effective_provenance_snapshot.enable_all_pipeline_experimental",
       "key": "rendering/gaussian_splatting/pipeline/enable_all_experimental",
-      "notes": "Deprecated alias (#169): renamed to pipeline/enable_all_pipeline_experimental (the old name wrongly implied engine-wide scope). Still read as a read-only fallback (with a one-time deprecation warning) so existing project.godot files keep working; a persisted config migrates to the canonical key on save.",
+      "notes": "Deprecated alias (#169): renamed to pipeline/enable_all_pipeline_experimental (the old name wrongly implied engine-wide scope). Still read as a read-only fallback (with a one-time deprecation warning) so existing project.godot files keep working; not auto-migrated on save, so rename it to the canonical key to stop the warning.",
       "publicness": "deprecated_alias",
       "scope": "debug",
       "test_coverage": "covered"
@@ -1127,7 +1127,7 @@
     {
       "effective_state": "SortingStrategyConfig::target_sort_time_ms",
       "key": "rendering/gaussian_splatting/sorting/target_sort_time_ms",
-      "notes": "Deprecated alias (#168): renamed to diagnostics/sort_target_time_ms. Still read as a read-only fallback (with a one-time deprecation warning) so existing project.godot files keep working; a persisted config migrates to the canonical key on save.",
+      "notes": "Deprecated alias (#168): renamed to diagnostics/sort_target_time_ms. Still read as a read-only fallback (with a one-time deprecation warning) so existing project.godot files keep working; not auto-migrated on save, so rename it to the canonical key to stop the warning.",
       "publicness": "deprecated_alias",
       "test_coverage": "covered"
     },
