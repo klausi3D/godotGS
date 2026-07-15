@@ -42,9 +42,11 @@ STRUCT_NAME = "CullingConfig"
 _FIELD_RE = re.compile(r"^\s*[\w:]+(?:\s*[*&])?\s+(\w+)\s*(?:=|;)")
 # `config.<field>` reads inside the signature function body.
 _CONFIG_READ_RE = re.compile(r"\bconfig\.(\w+)\b")
-# Non-data lines that may legitimately appear in the struct body and are not
-# members: access specifiers, and anything with a "(" (method/ctor/operator/
-# static_assert). A data member with a "(" initializer matches _FIELD_RE first.
+# An access specifier is the only struct-body line that is unambiguously not a
+# data member. Everything else that does not parse as a field is reported as
+# unrecognized (fail closed) rather than guessed at, so an attributed or
+# macro-wrapped member (e.g. `alignas(16) float knob = 0;`) cannot be silently
+# dropped by a broad "looks like a method" heuristic.
 _ACCESS_SPECIFIER_RE = re.compile(r"^(?:public|private|protected)\s*:")
 # `//` line comments and `/* */` block comments. Stripped before parsing so a
 # commented-out hash line or a `config.<field>` mention in a comment is not
@@ -146,9 +148,10 @@ def _extract_struct_fields(text: str, struct_name: str) -> tuple[list[str], list
     """Return (field_names, unrecognized_lines).
 
     Fail closed: any non-blank line in the struct body that is neither a parsed
-    data member nor a recognized non-member construct (access specifier, or a
-    method/ctor/static_assert line, which all contain "(") is reported as
-    unrecognized so a new member in unsupported syntax cannot be silently dropped.
+    data member nor an access specifier is reported as unrecognized, so a member in
+    unsupported syntax (attribute/macro/templated type, a method, static_assert,
+    etc.) cannot be silently dropped -- it must be classified deliberately by
+    extending this parser.
     """
     body = _brace_body(text, f"struct {struct_name}")
     if body is None:
@@ -163,7 +166,7 @@ def _extract_struct_fields(text: str, struct_name: str) -> tuple[list[str], list
         if match:
             fields.append(match.group(1))
             continue
-        if _ACCESS_SPECIFIER_RE.match(stripped) or "(" in stripped:
+        if _ACCESS_SPECIFIER_RE.match(stripped):
             continue
         unrecognized.append(stripped)
     return fields, unrecognized
