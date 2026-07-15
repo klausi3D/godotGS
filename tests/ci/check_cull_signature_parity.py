@@ -152,34 +152,12 @@ def _extract_hashed_fields(text: str, fn_name: str) -> set[str] | None:
     return set(_CONFIG_READ_RE.findall(body))
 
 
-def main() -> int:
+def _collect_failures(fields: list[str], field_set: set[str], hashed_fields: set[str]) -> list[str]:
     failures: list[str] = []
-
-    if not CULLER_HEADER.is_file():
-        print(f"[cull-signature-parity] FAIL missing {CULLER_HEADER.relative_to(ROOT)}")
-        return 1
-    if not SIGNATURE_SOURCE.is_file():
-        print(f"[cull-signature-parity] FAIL missing {SIGNATURE_SOURCE.relative_to(ROOT)}")
-        return 1
-
-    fields = _extract_struct_fields(CULLER_HEADER.read_text(encoding="utf-8"), STRUCT_NAME)
-    if not fields:
-        print(f"[cull-signature-parity] FAIL could not parse struct {STRUCT_NAME} in {CULLER_HEADER.name}")
-        return 1
-    field_set = set(fields)
-
-    hashed = _extract_hashed_fields(SIGNATURE_SOURCE.read_text(encoding="utf-8"), SIGNATURE_FN)
-    if hashed is None:
-        print(f"[cull-signature-parity] FAIL could not find {SIGNATURE_FN} in {SIGNATURE_SOURCE.name}")
-        return 1
-    # Only count reads of real struct fields (ignore any incidental config.* helper).
-    hashed_fields = hashed & field_set
 
     # 1. Every field is hashed or waived.
     for field in fields:
-        if field in hashed_fields:
-            continue
-        if field not in WAIVERS:
+        if field not in hashed_fields and field not in WAIVERS:
             failures.append(
                 f"CullingConfig.{field} is neither hashed in {SIGNATURE_FN} nor waived; "
                 f"add `config.{field}` to the signature (or waive it with a reason if it "
@@ -209,6 +187,31 @@ def main() -> int:
                     f"`{required}` is not hashed in {SIGNATURE_FN}"
                 )
 
+    return failures
+
+
+def main() -> int:
+    if not CULLER_HEADER.is_file():
+        print(f"[cull-signature-parity] FAIL missing {CULLER_HEADER.relative_to(ROOT)}")
+        return 1
+    if not SIGNATURE_SOURCE.is_file():
+        print(f"[cull-signature-parity] FAIL missing {SIGNATURE_SOURCE.relative_to(ROOT)}")
+        return 1
+
+    fields = _extract_struct_fields(CULLER_HEADER.read_text(encoding="utf-8"), STRUCT_NAME)
+    if not fields:
+        print(f"[cull-signature-parity] FAIL could not parse struct {STRUCT_NAME} in {CULLER_HEADER.name}")
+        return 1
+    field_set = set(fields)
+
+    hashed = _extract_hashed_fields(SIGNATURE_SOURCE.read_text(encoding="utf-8"), SIGNATURE_FN)
+    if hashed is None:
+        print(f"[cull-signature-parity] FAIL could not find {SIGNATURE_FN} in {SIGNATURE_SOURCE.name}")
+        return 1
+    # Only count reads of real struct fields (ignore any incidental config.* helper).
+    hashed_fields = hashed & field_set
+
+    failures = _collect_failures(fields, field_set, hashed_fields)
     if failures:
         for failure in failures:
             print(f"[cull-signature-parity] FAIL {failure}")
