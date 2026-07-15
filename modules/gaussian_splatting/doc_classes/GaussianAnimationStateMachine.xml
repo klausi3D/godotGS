@@ -19,7 +19,7 @@
 		<method name="add_keyframe">
 			<return type="void" />
 			<param index="0" name="clip_index" type="int" />
-			<param index="1" name="property" type="int" enum="GaussianSplatting.AnimationProperty" />
+			<param index="1" name="property" type="int" enum="GaussianAnimationStateMachine.AnimationProperty" />
 			<param index="2" name="time" type="float" />
 			<param index="3" name="value" type="Variant" />
 			<description>
@@ -28,7 +28,7 @@
 		<method name="add_keyframe_bezier">
 			<return type="void" />
 			<param index="0" name="clip_index" type="int" />
-			<param index="1" name="property" type="int" enum="GaussianSplatting.AnimationProperty" />
+			<param index="1" name="property" type="int" enum="GaussianAnimationStateMachine.AnimationProperty" />
 			<param index="2" name="time" type="float" />
 			<param index="3" name="value" type="Variant" />
 			<param index="4" name="in_handle" type="Vector2" />
@@ -39,7 +39,7 @@
 		<method name="add_track_to_clip">
 			<return type="void" />
 			<param index="0" name="clip_index" type="int" />
-			<param index="1" name="property" type="int" enum="GaussianSplatting.AnimationProperty" />
+			<param index="1" name="property" type="int" enum="GaussianAnimationStateMachine.AnimationProperty" />
 			<description>
 			</description>
 		</method>
@@ -97,14 +97,14 @@
 		<method name="get_keyframe_count" qualifiers="const">
 			<return type="int" />
 			<param index="0" name="clip_index" type="int" />
-			<param index="1" name="property" type="int" enum="GaussianSplatting.AnimationProperty" />
+			<param index="1" name="property" type="int" enum="GaussianAnimationStateMachine.AnimationProperty" />
 			<description>
 			</description>
 		</method>
 		<method name="get_keyframe_time" qualifiers="const">
 			<return type="float" />
 			<param index="0" name="clip_index" type="int" />
-			<param index="1" name="property" type="int" enum="GaussianSplatting.AnimationProperty" />
+			<param index="1" name="property" type="int" enum="GaussianAnimationStateMachine.AnimationProperty" />
 			<param index="2" name="keyframe_index" type="int" />
 			<description>
 			</description>
@@ -112,7 +112,7 @@
 		<method name="get_keyframe_value" qualifiers="const">
 			<return type="Variant" />
 			<param index="0" name="clip_index" type="int" />
-			<param index="1" name="property" type="int" enum="GaussianSplatting.AnimationProperty" />
+			<param index="1" name="property" type="int" enum="GaussianAnimationStateMachine.AnimationProperty" />
 			<param index="2" name="keyframe_index" type="int" />
 			<description>
 			</description>
@@ -128,14 +128,14 @@
 			</description>
 		</method>
 		<method name="get_state" qualifiers="const">
-			<return type="int" enum="GaussianSplatting.AnimationState" />
+			<return type="int" enum="GaussianAnimationStateMachine.AnimationState" />
 			<description>
 			</description>
 		</method>
 		<method name="has_track" qualifiers="const">
 			<return type="bool" />
 			<param index="0" name="clip_index" type="int" />
-			<param index="1" name="property" type="int" enum="GaussianSplatting.AnimationProperty" />
+			<param index="1" name="property" type="int" enum="GaussianAnimationStateMachine.AnimationProperty" />
 			<description>
 			</description>
 		</method>
@@ -170,7 +170,7 @@
 		<method name="remove_keyframe">
 			<return type="void" />
 			<param index="0" name="clip_index" type="int" />
-			<param index="1" name="property" type="int" enum="GaussianSplatting.AnimationProperty" />
+			<param index="1" name="property" type="int" enum="GaussianAnimationStateMachine.AnimationProperty" />
 			<param index="2" name="keyframe_index" type="int" />
 			<description>
 			</description>
@@ -178,7 +178,7 @@
 		<method name="remove_track_from_clip">
 			<return type="void" />
 			<param index="0" name="clip_index" type="int" />
-			<param index="1" name="property" type="int" enum="GaussianSplatting.AnimationProperty" />
+			<param index="1" name="property" type="int" enum="GaussianAnimationStateMachine.AnimationProperty" />
 			<description>
 			</description>
 		</method>

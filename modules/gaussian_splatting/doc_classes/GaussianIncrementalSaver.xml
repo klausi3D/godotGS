@@ -99,7 +99,7 @@
 		<method name="record_animation_change">
 			<return type="void" />
 			<param index="0" name="clip_index" type="int" />
-			<param index="1" name="property" type="int" enum="GaussianSplatting.AnimationProperty" />
+			<param index="1" name="property" type="int" enum="GaussianAnimationStateMachine.AnimationProperty" />
 			<param index="2" name="old_data" type="Dictionary" />
 			<param index="3" name="new_data" type="Dictionary" />
 			<description>
