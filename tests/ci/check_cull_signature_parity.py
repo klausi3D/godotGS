@@ -50,7 +50,11 @@ _HASH_STMT_RE = re.compile(r"\bseed\s*=\s*_hash\w*\s*\(")
 # member declared inside one is not active and must not be counted.
 _IF_ZERO_RE = re.compile(r"^#\s*if\s+(?:0|false)\b")
 _IF_RE = re.compile(r"^#\s*if")
-_ELSE_RE = re.compile(r"^#\s*el(?:se|if)\b")
+# Only an unconditional #else re-enables a `#if 0` region. #elif is left disabled:
+# its condition may also be false (`#elif 0`), and treating an unevaluated #elif as
+# active would risk counting a compiled-out hash line -- staying disabled fails
+# closed instead.
+_ELSE_RE = re.compile(r"^#\s*else\b")
 _ENDIF_RE = re.compile(r"^#\s*endif\b")
 # An access specifier is the only struct-body line that is unambiguously not a
 # data member. Everything else that does not parse as a field is reported as
@@ -254,13 +258,23 @@ def _extract_hashed_fields(text: str, fn_name: str) -> set[str] | None:
     body = _brace_body(text, fn_name)
     if body is None:
         return None
-    # A field counts as hashed only when it appears in a statement that folds a
-    # value into the running hash (`seed = _hash*(... config.<field> ...)`). A bare
-    # read that never reaches `seed` (a debug/temp local, a log line) does not.
+    # A field counts as hashed only when it appears inside the argument list of a
+    # `seed = _hash*(...)` call -- i.e. it is actually folded into the running hash.
+    # A read elsewhere (a debug/temp local or a log line, even on the same physical
+    # line as a real fold) does not count.
     hashed: set[str] = set()
-    for line in body.splitlines():
-        if _HASH_STMT_RE.search(line):
-            hashed.update(_CONFIG_READ_RE.findall(line))
+    for match in _HASH_STMT_RE.finditer(body):
+        open_paren = match.end() - 1  # the '(' the regex ends on
+        depth = 0
+        for i in range(open_paren, len(body)):
+            char = body[i]
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0:
+                    hashed.update(_CONFIG_READ_RE.findall(body[open_paren + 1 : i]))
+                    break
     return hashed
 
 
