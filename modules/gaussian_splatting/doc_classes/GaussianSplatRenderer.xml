@@ -822,19 +822,6 @@
 				Returns [code]true[/code] if pipeline trace recording is enabled.
 			</description>
 		</method>
-		<method name="set_debug_state_guardrails_enabled">
-			<return type="void" />
-			<param index="0" name="enabled" type="bool" />
-			<description>
-				Enables or disables runtime state guardrail checks that validate pipeline invariants. Useful for catching rendering state bugs.
-			</description>
-		</method>
-		<method name="get_debug_state_guardrails_enabled">
-			<return type="bool" />
-			<description>
-				Returns [code]true[/code] if state guardrails are enabled.
-			</description>
-		</method>
 		<method name="set_debug_cull_guardrails_enabled">
 			<return type="void" />
 			<param index="0" name="enabled" type="bool" />
@@ -1176,9 +1163,6 @@
 		</member>
 		<member name="debug/enable_pipeline_trace" type="bool" setter="set_debug_pipeline_trace_enabled" getter="get_debug_pipeline_trace_enabled" default="false">
 			Enables pipeline trace recording for performance analysis.
-		</member>
-		<member name="debug/enable_state_guardrails" type="bool" setter="set_debug_state_guardrails_enabled" getter="get_debug_state_guardrails_enabled" default="false">
-			Enables runtime state invariant validation.
 		</member>
 		<member name="debug/enable_splat_audit" type="bool" setter="set_debug_splat_audit_enabled" getter="get_debug_splat_audit_enabled" default="false">
 			Enables per-frame GPU buffer auditing.

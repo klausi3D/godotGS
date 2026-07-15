@@ -444,6 +444,7 @@
     {
       "effective_state": "none",
       "key": "rendering/gaussian_splatting/debug/enable_pipeline_trace",
+      "notes": "Live debug toggle: bound GaussianSplatRenderer node property (debug/enable_pipeline_trace) plus a raw ProjectSettings read in RenderDebugStateOrchestrator that seeds debug_config.enable_pipeline_trace. Node-facing debug control; intentionally kept editor-visible on the node.",
       "publicness": "debug_only",
       "test_coverage": "inventory_only"
     },
@@ -456,12 +457,7 @@
     {
       "effective_state": "none",
       "key": "rendering/gaussian_splatting/debug/enable_splat_audit",
-      "publicness": "debug_only",
-      "test_coverage": "inventory_only"
-    },
-    {
-      "effective_state": "none",
-      "key": "rendering/gaussian_splatting/debug/enable_state_guardrails",
+      "notes": "Live debug toggle: bound GaussianSplatRenderer node property (debug/enable_splat_audit) plus a raw ProjectSettings read that seeds debug_config.enable_splat_audit (per-frame GPU buffer audit readback). Node-facing debug control; intentionally kept editor-visible on the node.",
       "publicness": "debug_only",
       "test_coverage": "inventory_only"
     },
@@ -486,6 +482,7 @@
     {
       "effective_state": "none",
       "key": "rendering/gaussian_splatting/debug/force_unclustered_lights",
+      "notes": "Live raw-only debug hook (unregistered, no GLOBAL_DEF): read via gpu_debug_utils.h is_debug_force_unclustered_lights_enabled() and consumed in render_pipeline_stages.cpp to force the unclustered lighting path. Hidden by nature (unregistered); no editor presence.",
       "publicness": "debug_only",
       "test_coverage": "inventory_only"
     },
@@ -496,11 +493,11 @@
       "test_coverage": "inventory_only"
     },
     {
-      "effective_state": "none",
+      "effective_state": "StreamingUploadPipeline/StreamingVisibilityController/VRAMBudgetRegulator.layout_hint_validation_strict",
       "key": "rendering/gaussian_splatting/debug/layout_hint_validation_strict",
-      "notes": "Legacy debug fallback for layout validation; keep documented until streaming/layout_hint_validation_strict migration is settled.",
-      "publicness": "debug_only",
-      "test_coverage": "documented_gap"
+      "notes": "Deprecated read-only alias (#173) of the canonical streaming/layout_hint_validation_strict. Consulted only when the canonical key is not explicitly set, and emits a one-time deprecation WARN. Kept for project.godot compatibility.",
+      "publicness": "deprecated_alias",
+      "test_coverage": "covered"
     },
     {
       "effective_state": "GaussianSplatSettingsManager::DebugOverlaySettings.show_density_heatmap",
@@ -529,6 +526,7 @@
     {
       "effective_state": "none",
       "key": "rendering/gaussian_splatting/debug/splat_audit_sample_count",
+      "notes": "Live debug parameter: bound GaussianSplatRenderer node property (debug/splat_audit_sample_count) plus a raw ProjectSettings read that seeds debug_config.splat_audit_sample_count (clamped 1..DEBUG_SPLAT_AUDIT_MAX_SAMPLES). Node-facing debug control; intentionally kept editor-visible on the node.",
       "publicness": "debug_only",
       "test_coverage": "inventory_only"
     },
@@ -662,7 +660,10 @@
     {
       "effective_state": "g_gpu_sorting_config.debug_validate_prefix",
       "key": "rendering/gaussian_splatting/gpu_sorting/debug_validate_prefix",
-      "test_coverage": "inventory_only"
+      "notes": "Debug-only validation lever: cross-checks GPU prefix totals vs a CPU reference (forces a sync stall). Registered under #ifdef DEBUG_ENABLED. Editor-visible in dev builds and settable via ProjectSettings; labeled debug by scope. PROPERTY_USAGE_NO_EDITOR is not honored for ProjectSettings (see #491). Public baseline key.",
+      "scope": "debug",
+      "test_coverage": "inventory_only",
+      "visibility": "editor_visible"
     },
     {
       "effective_state": "g_gpu_sorting_config.depth_bits",
@@ -687,12 +688,18 @@
     {
       "effective_state": "g_gpu_sorting_config.enable_prefix_readback",
       "key": "rendering/gaussian_splatting/gpu_sorting/enable_prefix_readback",
-      "test_coverage": "inventory_only"
+      "notes": "Debug-only sync-readback lever for the overlap count (causes a GPU stall). Registered under #ifdef DEBUG_ENABLED. Editor-visible in dev builds and settable via ProjectSettings; labeled debug by scope. PROPERTY_USAGE_NO_EDITOR is not honored for ProjectSettings (see #491). Public baseline key.",
+      "scope": "debug",
+      "test_coverage": "inventory_only",
+      "visibility": "editor_visible"
     },
     {
       "effective_state": "g_gpu_sorting_config.enable_stage_timestamps",
       "key": "rendering/gaussian_splatting/gpu_sorting/enable_stage_timestamps",
-      "test_coverage": "inventory_only"
+      "notes": "Profiling lever: enables per-stage GPU timestamp capture in the tile renderer, not a rendering control. Editor-visible and settable via ProjectSettings; labeled diagnostic by scope. PROPERTY_USAGE_NO_EDITOR is not honored for ProjectSettings (see #491). Public baseline key.",
+      "scope": "diagnostic",
+      "test_coverage": "inventory_only",
+      "visibility": "editor_visible"
     },
     {
       "effective_state": "g_gpu_sorting_config.enable_tie_breaker",
@@ -739,7 +746,10 @@
     {
       "effective_state": "g_gpu_sorting_config.profiling_preserve_gpu_timestamps",
       "key": "rendering/gaussian_splatting/gpu_sorting/profiling_preserve_gpu_timestamps",
-      "test_coverage": "inventory_only"
+      "notes": "Profiling-only lever: skips synchronous prefix readback to keep timestamp buffers intact (estimates overlap count). Registered under #ifdef DEBUG_ENABLED. Editor-visible in dev builds and settable via ProjectSettings; labeled diagnostic by scope. PROPERTY_USAGE_NO_EDITOR is not honored for ProjectSettings (see #491). Public baseline key.",
+      "scope": "diagnostic",
+      "test_coverage": "inventory_only",
+      "visibility": "editor_visible"
     },
     {
       "effective_state": "g_gpu_sorting_config.radix_bits",
@@ -749,6 +759,8 @@
     {
       "effective_state": "g_gpu_sorting_config.subgroup_prefix_mode",
       "key": "rendering/gaussian_splatting/gpu_sorting/subgroup_prefix_mode",
+      "notes": "User-facing compatibility/workaround lever (auto / force_on / force_off) for the subgroup radix-prefix path, used to route around driver quirks. Deliberately kept editor-visible (NOT NO_EDITOR) unlike the profiling/debug levers in this family (#173).",
+      "scope": "compatibility",
       "test_coverage": "inventory_only"
     },
     {
@@ -1119,7 +1131,10 @@
     {
       "effective_state": "SortingStrategyConfig::validate_sorted_output",
       "key": "rendering/gaussian_splatting/sorting/validate_sorted_output",
-      "test_coverage": "inventory_only"
+      "notes": "Debug validation lever: verifies sorted-key monotonicity after the GPU sort (forces a sync stall), not a general runtime control. Editor-visible and settable via ProjectSettings; labeled debug by scope. PROPERTY_USAGE_NO_EDITOR is not honored for ProjectSettings so it is not hidden from the editor (see #491). Public baseline key.",
+      "scope": "debug",
+      "test_coverage": "inventory_only",
+      "visibility": "editor_visible"
     },
     {
       "effective_state": "StreamingUploadPipeline/StreamingVisibilityController/VRAMBudgetRegulator.async_pack_enabled",
@@ -1149,9 +1164,9 @@
     {
       "effective_state": "StreamingUploadPipeline/StreamingVisibilityController/VRAMBudgetRegulator.layout_hint_validation_strict",
       "key": "rendering/gaussian_splatting/streaming/layout_hint_validation_strict",
-      "notes": "Runtime-only guardrail key retained as internal until ownership and reload semantics are formalized.",
+      "notes": "Canonical layout-hint strict-validation toggle (#173). The older debug/layout_hint_validation_strict spelling is retained as a read-only deprecated alias. Runtime-only guardrail key kept internal until ownership and reload semantics are formalized.",
       "publicness": "internal",
-      "test_coverage": "documented_gap"
+      "test_coverage": "covered"
     },
     {
       "effective_state": "StreamingUploadPipeline/StreamingVisibilityController/VRAMBudgetRegulator.max_chunk_loads_per_frame",

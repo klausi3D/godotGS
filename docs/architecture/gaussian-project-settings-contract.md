@@ -182,6 +182,69 @@ API history; they are **not** retired). Each new canonical key was registered wi
 the same default and editor visibility as the old key and added to the manifest +
 `public_settings`. This change is behavior-neutral for the effective value.
 
+## Debug / diagnostic / profiling settings (closeout slice S7-#173)
+
+Slice S7-#173 did three behavior-neutral things: it **removed** one inert key,
+**de-duplicated** a double-spelled key, and **labeled** the remaining live debug /
+profiling / diagnostic hooks so their scope is truthful and (where they are pure
+profiling/debug levers that were editor-visible) so they no longer present as
+general runtime controls.
+
+- **Removed (inert):** `debug/enable_state_guardrails`. Its sole consumer,
+  `_check_dual_state_sync`, was already deleted, leaving the key an inert
+  placeholder that was still exposed as a bound `GaussianSplatRenderer` node
+  property and read from `ProjectSettings`. The setting read, the
+  `enable_state_guardrails` debug-config member, the `set/get_debug_state_guardrails_enabled`
+  methods, the `ADD_PROPERTY` / `bind_method` / doc-class `<member>` + `<method>`
+  entries, and the manifest entry were all deleted. It was `debug_only` and not in
+  the public API baseline, so no retirement record was needed. No runtime effect.
+- **De-duplicated:** `streaming/layout_hint_validation_strict` is now the
+  **canonical** layout-hint strict-validation toggle;
+  `debug/layout_hint_validation_strict` is a read-only **deprecated alias**. The
+  resolver (`gs_layout_hint::_layout_hint_strict_validation_enabled`) reads the
+  canonical when explicitly set, else the deprecated alias with a one-time `WARN`,
+  else the default (`false`). Neither key is `GLOBAL_DEF`-registered, so
+  `has_setting()` is true only when a `project.godot` explicitly carries the key.
+  Setting **either** key still enables strict validation, so this is
+  behavior-neutral for a project that sets one key. The alias is flagged
+  `deprecated_alias` in the manifest and added to `public_settings`.
+- **Labeled (editor-visible):** the pure profiling/debug/validation levers below are
+  registered with `GLOBAL_DEF` and are clearly labeled in the manifest by `scope`
+  (debug / diagnostic) + notes so they no longer read as general runtime controls.
+  They remain **editor-visible**: `PROPERTY_USAGE_NO_EDITOR` is **not honored** for
+  ProjectSettings — `ProjectSettings::_get_property_list()` overwrites the custom
+  usage flags with `EDITOR | STORAGE` for any non-internal setting — so the flag was
+  dropped (it was a no-op) and these keys stay visible. Truly hiding them would
+  require `ProjectSettings::set_as_internal(path, true)`; the module-wide reliance on
+  the ineffective `NO_EDITOR` flag is tracked in
+  [#491](https://github.com/klausi3D/godotGS/issues/491).
+  `gpu_sorting/subgroup_prefix_mode` is deliberately user-facing (a
+  compatibility/workaround lever that routes around driver quirks in the subgroup
+  radix-prefix path).
+
+Manifest note: a public-API baseline key must be classified `public`,
+`cleanup_candidate`, or `deprecated_alias` (or be retired). These keys therefore
+keep `publicness: public` and express their debug/profiling nature via `scope` +
+notes, rather than `publicness: debug_only` (which would drop them out of the public
+surface and fail the baseline-alignment guard).
+
+| Key | Kind | Scope | Editor |
+| --- | --- | --- | --- |
+| `debug/enable_pipeline_trace` | Bound node debug toggle + raw read (seeds `debug_config.enable_pipeline_trace`) | debug | Editor-visible (node property; kept) |
+| `debug/enable_splat_audit` | Bound node debug toggle + raw read (per-frame GPU buffer audit) | debug | Editor-visible (node property; kept) |
+| `debug/splat_audit_sample_count` | Bound node debug parameter + raw read | debug | Editor-visible (node property; kept) |
+| `debug/force_unclustered_lights` | Raw-only unregistered debug hook (forces unclustered lighting) | debug | Hidden (unregistered by nature) |
+| `gpu_sorting/enable_stage_timestamps` | Per-stage GPU-timestamp profiling | diagnostic | Editor-visible (labeled debug; NO_EDITOR not honored — #491) |
+| `gpu_sorting/subgroup_prefix_mode` | Compatibility/workaround lever (auto/force_on/force_off) | compatibility | Editor-visible (kept, by design) |
+| `gpu_sorting/enable_prefix_readback` | Debug sync-readback (`DEBUG_ENABLED` only; GPU stall) | debug | Editor-visible (labeled debug; NO_EDITOR not honored — #491) |
+| `gpu_sorting/debug_validate_prefix` | Debug prefix cross-check (`DEBUG_ENABLED` only; GPU stall) | debug | Editor-visible (labeled debug; NO_EDITOR not honored — #491) |
+| `gpu_sorting/profiling_preserve_gpu_timestamps` | Profiling-only timestamp preservation (`DEBUG_ENABLED` only) | diagnostic | Editor-visible (labeled debug; NO_EDITOR not honored — #491) |
+| `sorting/validate_sorted_output` | Debug sorted-key monotonicity validation (GPU stall) | debug | Editor-visible (labeled debug; NO_EDITOR not honored — #491) |
+
+`import/ply_ascii_strict_parse` is listed in issue #173 but does **not** exist on
+`master` (0 references in module source); it is already-gone and required no code
+change.
+
 ## Known Registration Gaps
 
 The manifest also records live runtime reads that need follow-up ownership
