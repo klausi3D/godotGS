@@ -20,7 +20,9 @@ MODULE = ROOT / "modules" / "gaussian_splatting"
 REGISTER_TYPES = MODULE / "register_types.cpp"
 DOC_CLASSES = MODULE / "doc_classes"
 
-_REGISTER_RE = re.compile(r"\bGDREGISTER(?:_ABSTRACT|_INTERNAL|_RUNTIME)?_CLASS\(\s*(\w+)\s*\)")
+# Capture the leaf class name, tolerating a namespace qualifier — ClassDB and the
+# doc XML are keyed by the leaf, so GDREGISTER_CLASS(GaussianSplatting::Foo) -> Foo.
+_REGISTER_RE = re.compile(r"\bGDREGISTER(?:_ABSTRACT|_INTERNAL|_RUNTIME)?_CLASS\(\s*(?:\w+::)*(\w+)\s*\)")
 # The doc build (doc_data.gen.h generation + class.xsd validation) is the authority
 # on XML well-formedness; this guard only needs the class name and the brief text,
 # so it scans with targeted regexes instead of an XML parser (avoids Bandit B314 on

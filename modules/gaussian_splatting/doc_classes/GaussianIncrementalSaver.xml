@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="GaussianIncrementalSaver" inherits="Resource" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Incremental delta saver for Gaussian scenes ([code].gsif[/code]).
+	</brief_description>
+	<description>
+		A [Resource] that writes incremental delta saves ([code].gsif[/code]) so edits to a Gaussian scene can be persisted without rewriting the full baseline. Writes go through the module's atomic-save helper.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="clear_changes">
+			<return type="void" />
+			<description>
+			</description>
+		</method>
+		<method name="create_baseline">
+			<return type="int" enum="Error" />
+			<param index="0" name="baseline_file_path" type="String" />
+			<param index="1" name="gaussian_data" type="GaussianData" />
+			<param index="2" name="animation" type="GaussianAnimationStateMachine" default="null" />
+			<description>
+			</description>
+		</method>
+		<method name="estimate_save_size" qualifiers="const">
+			<return type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="find_incremental_files" qualifiers="static">
+			<return type="Array" />
+			<param index="0" name="directory" type="String" />
+			<param index="1" name="basename" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="get_animation_change_count" qualifiers="const">
+			<return type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="get_baseline_file" qualifiers="const">
+			<return type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="get_change_count" qualifiers="const">
+			<return type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="get_change_statistics" qualifiers="const">
+			<return type="Dictionary" />
+			<description>
+			</description>
+		</method>
+		<method name="get_changed_splat_indices" qualifiers="const">
+			<return type="Array" />
+			<description>
+			</description>
+		</method>
+		<method name="get_incremental_file_info" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="file_path" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="get_splat_change_count" qualifiers="const">
+			<return type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="is_incremental_file" qualifiers="static">
+			<return type="bool" />
+			<param index="0" name="file_path" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="is_tracking_enabled" qualifiers="const">
+			<return type="bool" />
+			<description>
+			</description>
+		</method>
+		<method name="load_and_apply_changes">
+			<return type="int" enum="Error" />
+			<param index="0" name="incremental_file_path" type="String" />
+			<param index="1" name="gaussian_data" type="GaussianData" />
+			<param index="2" name="animation" type="GaussianAnimationStateMachine" default="null" />
+			<description>
+			</description>
+		</method>
+		<method name="merge_incremental_files">
+			<return type="int" enum="Error" />
+			<param index="0" name="files" type="Array" />
+			<param index="1" name="output" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="record_animation_change">
+			<return type="void" />
+			<param index="0" name="clip_index" type="int" />
+			<param index="1" name="property" type="int" enum="GaussianSplatting.AnimationProperty" />
+			<param index="2" name="old_data" type="Dictionary" />
+			<param index="3" name="new_data" type="Dictionary" />
+			<description>
+			</description>
+		</method>
+		<method name="record_metadata_change">
+			<return type="void" />
+			<param index="0" name="key" type="String" />
+			<param index="1" name="old_value" type="Variant" />
+			<param index="2" name="new_value" type="Variant" />
+			<description>
+			</description>
+		</method>
+		<method name="save_changes">
+			<return type="int" enum="Error" />
+			<param index="0" name="incremental_file_path" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="should_auto_save" qualifiers="const">
+			<return type="bool" />
+			<description>
+			</description>
+		</method>
+		<method name="should_create_full_save" qualifiers="const">
+			<return type="bool" />
+			<description>
+			</description>
+		</method>
+		<method name="start_tracking">
+			<return type="void" />
+			<param index="0" name="baseline_file" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="stop_tracking">
+			<return type="void" />
+			<description>
+			</description>
+		</method>
+		<method name="update_baseline">
+			<return type="int" enum="Error" />
+			<param index="0" name="new_baseline_file_path" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="validate_incremental_file" qualifiers="const">
+			<return type="int" enum="Error" />
+			<param index="0" name="file_path" type="String" />
+			<description>
+			</description>
+		</method>
+	</methods>
+</class>

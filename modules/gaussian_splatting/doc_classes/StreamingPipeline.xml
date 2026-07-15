@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <class name="StreamingPipeline" inherits="RefCounted" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
 	<brief_description>
-		Coordinates the Gaussian streaming process.
+		Coordinates streaming of visible splat data to the GPU.
 	</brief_description>
 	<description>
-		Drives the end-to-end streaming pipeline — chunk admission, GPU upload, and frame synchronization — that keeps the visible working set of a large world resident on the GPU.
+		Drives streaming of the visible splat ranges to the GPU through a [GaussianMemoryStream], handling upload and frame synchronization for the streamed render path.
 	</description>
 	<tutorials>
 	</tutorials>
