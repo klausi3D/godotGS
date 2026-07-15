@@ -46,16 +46,12 @@ _CONFIG_READ_RE = re.compile(r"\bconfig\.(\w+)\b")
 # A field counts as hashed only if it appears in such a statement, so a debug/temp
 # read like `const float x = config.knob;` or a log line does not mark it hashed.
 _HASH_STMT_RE = re.compile(r"\bseed\s*=\s*_hash\w*\s*\(")
-# `#if 0` / `#if false` ... `#endif` regions are compiled out, so a hash line or a
-# member declared inside one is not active and must not be counted.
-_IF_ZERO_RE = re.compile(r"^#\s*if\s+(?:0|false)\b")
-_IF_RE = re.compile(r"^#\s*if")
-# Only an unconditional #else re-enables a `#if 0` region. #elif is left disabled:
-# its condition may also be false (`#elif 0`), and treating an unevaluated #elif as
-# active would risk counting a compiled-out hash line -- staying disabled fails
-# closed instead.
-_ELSE_RE = re.compile(r"^#\s*else\b")
-_ENDIF_RE = re.compile(r"^#\s*endif\b")
+# A preprocessor directive line. The guard cannot statically resolve which branch
+# of a conditional is compiled, so rather than guess -- risking a counted-but-dead
+# hash line or a dropped-but-active member -- it fails closed if either parsed
+# region contains any directive. These regions are meant to be free of conditional
+# compilation so the member set and the hash set are unambiguous.
+_PP_DIRECTIVE_RE = re.compile(r"^\s*#")
 # An access specifier is the only struct-body line that is unambiguously not a
 # data member. Everything else that does not parse as a field is reported as
 # unrecognized (fail closed) rather than guessed at, so an attributed or
@@ -74,36 +70,6 @@ _LINE_COMMENT_RE = re.compile(r"//[^\n]*")
 def _strip_cpp_comments(text: str) -> str:
     text = _BLOCK_COMMENT_RE.sub(lambda m: "\n" * m.group(0).count("\n"), text)
     return _LINE_COMMENT_RE.sub("", text)
-
-
-def _strip_disabled_blocks(text: str) -> str:
-    """Blank out `#if 0` / `#if false` ... `#endif` regions (nesting-aware; a
-    top-level `#else`/`#elif` re-enables) so compiled-out members or hash lines are
-    not parsed as active. Line count is preserved so no lines merge."""
-    out: list[str] = []
-    disabled = False
-    nest = 0
-    for line in text.split("\n"):
-        stripped = line.lstrip()
-        if not disabled:
-            if _IF_ZERO_RE.match(stripped):
-                disabled = True
-                nest = 0
-                out.append("")
-            else:
-                out.append(line)
-            continue
-        if _IF_RE.match(stripped):
-            nest += 1
-        elif _ENDIF_RE.match(stripped):
-            if nest == 0:
-                disabled = False
-            else:
-                nest -= 1
-        elif _ELSE_RE.match(stripped) and nest == 0:
-            disabled = False
-        out.append("")
-    return "\n".join(out)
 
 
 # Fields deliberately NOT hashed. Each maps to (reason, requires_hashed) where
@@ -165,11 +131,11 @@ WAIVERS: dict[str, tuple[str, tuple[str, ...]]] = {
 def _brace_body(text: str, anchor: str) -> str | None:
     """Return the `{...}` body (contents only) that follows `anchor` in `text`.
 
-    Comments and `#if 0` regions are stripped from the whole text *before* the
-    brace scan, so a `{` or `}` inside a comment or compiled-out block cannot
-    mis-bound the body. Returns None if the anchor or a balanced body is not found.
+    Comments are stripped from the whole text *before* the brace scan, so a `{` or
+    `}` inside a `//` or `/* */` comment cannot mis-bound the body. Returns None if
+    the anchor or a balanced body is not found.
     """
-    stripped = _strip_disabled_blocks(_strip_cpp_comments(text))
+    stripped = _strip_cpp_comments(text)
     start = stripped.find(anchor)
     if start == -1:
         return None
@@ -218,8 +184,8 @@ def _has_content_after_first_statement(line: str) -> bool:
     return False
 
 
-def _extract_struct_fields(text: str, struct_name: str) -> tuple[list[str], list[str]]:
-    """Return (field_names, unrecognized_lines).
+def _extract_struct_fields(body: str) -> tuple[list[str], list[str]]:
+    """Return (field_names, unrecognized_lines) from a struct body.
 
     Fail closed: any non-blank line in the struct body that is neither a parsed
     data member nor an access specifier is reported as unrecognized, so a member in
@@ -227,9 +193,6 @@ def _extract_struct_fields(text: str, struct_name: str) -> tuple[list[str], list
     etc.) cannot be silently dropped -- it must be classified deliberately by
     extending this parser.
     """
-    body = _brace_body(text, f"struct {struct_name}")
-    if body is None:
-        return [], []
     fields: list[str] = []
     unrecognized: list[str] = []
     for line in body.splitlines():
@@ -254,10 +217,7 @@ def _extract_struct_fields(text: str, struct_name: str) -> tuple[list[str], list
     return fields, unrecognized
 
 
-def _extract_hashed_fields(text: str, fn_name: str) -> set[str] | None:
-    body = _brace_body(text, fn_name)
-    if body is None:
-        return None
+def _extract_hashed_fields(body: str) -> set[str]:
     # A field counts as hashed only when it appears inside the argument list of a
     # `seed = _hash*(...)` call -- i.e. it is actually folded into the running hash.
     # A read elsewhere (a debug/temp local or a log line, even on the same physical
@@ -324,9 +284,32 @@ def main() -> int:
         print(f"[cull-signature-parity] FAIL missing {SIGNATURE_SOURCE.relative_to(ROOT)}")
         return 1
 
-    fields, unrecognized = _extract_struct_fields(CULLER_HEADER.read_text(encoding="utf-8"), STRUCT_NAME)
-    if not fields:
+    struct_body = _brace_body(CULLER_HEADER.read_text(encoding="utf-8"), f"struct {STRUCT_NAME}")
+    if struct_body is None:
         print(f"[cull-signature-parity] FAIL could not parse struct {STRUCT_NAME} in {CULLER_HEADER.name}")
+        return 1
+    sig_body = _brace_body(SIGNATURE_SOURCE.read_text(encoding="utf-8"), SIGNATURE_FN)
+    if sig_body is None:
+        print(f"[cull-signature-parity] FAIL could not find {SIGNATURE_FN} in {SIGNATURE_SOURCE.name}")
+        return 1
+
+    # Fail closed on conditional compilation in either region: the guard cannot know
+    # which branch is compiled, so a directive risks a counted-but-dead hash line or
+    # a dropped-but-active member. Keep these regions preprocessor-free.
+    for label, body in ((STRUCT_NAME, struct_body), (SIGNATURE_FN, sig_body)):
+        directives = [ln.strip() for ln in body.splitlines() if _PP_DIRECTIVE_RE.match(ln)]
+        if directives:
+            for directive in directives:
+                print(
+                    f"[cull-signature-parity] FAIL {label} contains a preprocessor directive "
+                    f"`{directive}`; keep this region free of conditional compilation so the "
+                    f"member set and the hash set can be enumerated deterministically"
+                )
+            return 1
+
+    fields, unrecognized = _extract_struct_fields(struct_body)
+    if not fields:
+        print(f"[cull-signature-parity] FAIL parsed no fields from struct {STRUCT_NAME}")
         return 1
     # Fail closed on any struct-body line the parser does not recognize, so a new
     # member in unsupported syntax cannot slip past the parity check unseen.
@@ -339,12 +322,8 @@ def main() -> int:
         return 1
     field_set = set(fields)
 
-    hashed = _extract_hashed_fields(SIGNATURE_SOURCE.read_text(encoding="utf-8"), SIGNATURE_FN)
-    if hashed is None:
-        print(f"[cull-signature-parity] FAIL could not find {SIGNATURE_FN} in {SIGNATURE_SOURCE.name}")
-        return 1
     # Only count reads of real struct fields (ignore any incidental config.* helper).
-    hashed_fields = hashed & field_set
+    hashed_fields = _extract_hashed_fields(sig_body) & field_set
 
     failures = _collect_failures(fields, field_set, hashed_fields)
     if failures:
