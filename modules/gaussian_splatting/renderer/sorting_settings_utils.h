@@ -83,9 +83,11 @@ static inline float get_target_sort_time_ms(ProjectSettings *p_ps, float p_fallb
 	// because after GLOBAL_DEF a key set exactly to its default is indistinguishable
 	// from unset. So if a project still carries a deprecated alias AND sets the
 	// canonical to its exact default, the alias supplies the value (with a warning)
-	// rather than the canonical default. This self-heals: save_to_project_settings()
-	// writes the canonical and clears the aliases, so one save (or removing the old
-	// key) resolves it. The lod/ and pipeline/ alias loaders share this behavior.
+	// rather than the canonical default. To resolve it, remove the deprecated alias
+	// or set the canonical to a non-default value. (save_to_project_settings() would
+	// write the canonical and clear the aliases, but it runs only from an init-time
+	// validation-failure reset, not a normal save, so it is not a reliable migration
+	// path.) The lod/ and pipeline/ alias loaders share this read-precedence limitation.
 	// 1. Explicit canonical (diagnostics/) override wins.
 	if (has_explicit_target_sort_time_override(p_ps)) {
 		return gs::settings::get_float(p_ps, canonical_sort_target_time_path(), p_fallback);
