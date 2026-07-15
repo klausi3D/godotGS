@@ -52,12 +52,12 @@ _HASH_STMT_RE = re.compile(r"\bseed\s*=\s*_hash\w*\s*\(")
 # region contains any directive. These regions are meant to be free of conditional
 # compilation so the member set and the hash set are unambiguous.
 _PP_DIRECTIVE_RE = re.compile(r"^\s*#")
-# An access specifier is the only struct-body line that is unambiguously not a
-# data member. Everything else that does not parse as a field is reported as
-# unrecognized (fail closed) rather than guessed at, so an attributed or
-# macro-wrapped member (e.g. `alignas(16) float knob = 0;`) cannot be silently
-# dropped by a broad "looks like a method" heuristic.
-_ACCESS_SPECIFIER_RE = re.compile(r"^(?:public|private|protected)\s*:")
+# A line that is *only* an access specifier is the one struct-body line that is
+# unambiguously not a data member. The `$` anchor is required so a member packed
+# after the label on the same line (`public: float knob = 0;`, valid C++) is not
+# skipped with it. Everything else that does not parse as a field is reported as
+# unrecognized (fail closed) rather than guessed at.
+_ACCESS_SPECIFIER_RE = re.compile(r"^(?:public|private|protected)\s*:\s*$")
 # `//` line comments and `/* */` block comments. Stripped before parsing so a
 # commented-out hash line or a `config.<field>` mention in a comment is not
 # miscounted as a real signature read (nor a commented field as a struct member).
