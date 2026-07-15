@@ -1889,6 +1889,125 @@ default with no warning. A persisted config migrates to the canonical key on sav
 API history; they are <strong>not</strong> retired). Each new canonical key was registered with
 the same default and editor visibility as the old key and added to the manifest +
 <code>public_settings</code>. This change is behavior-neutral for the effective value.</p>
+<h2 id="debug-diagnostic-profiling-settings-closeout-slice-s7-173">Debug / diagnostic / profiling settings (closeout slice S7-#173)<a class="headerlink" href="#debug-diagnostic-profiling-settings-closeout-slice-s7-173" title="Permanent link">¶</a></h2>
+<p>Slice S7-#173 did three behavior-neutral things: it <strong>removed</strong> one inert key,
+<strong>de-duplicated</strong> a double-spelled key, and <strong>labeled</strong> the remaining live debug /
+profiling / diagnostic hooks so their scope is truthful and (where they are pure
+profiling/debug levers that were editor-visible) so they no longer present as
+general runtime controls.</p>
+<ul>
+<li><strong>Removed (inert):</strong> <code>debug/enable_state_guardrails</code>. Its sole consumer,
+  <code>_check_dual_state_sync</code>, was already deleted, leaving the key an inert
+  placeholder that was still exposed as a bound <code>GaussianSplatRenderer</code> node
+  property and read from <code>ProjectSettings</code>. The setting read, the
+  <code>enable_state_guardrails</code> debug-config member, the <code>set/get_debug_state_guardrails_enabled</code>
+  methods, the <code>ADD_PROPERTY</code> / <code>bind_method</code> / doc-class <code>&lt;member&gt;</code> + <code>&lt;method&gt;</code>
+  entries, and the manifest entry were all deleted. It was <code>debug_only</code> and not in
+  the public API baseline, so no retirement record was needed. No runtime effect.</li>
+<li><strong>De-duplicated:</strong> <code>streaming/layout_hint_validation_strict</code> is now the
+  <strong>canonical</strong> layout-hint strict-validation toggle;
+  <code>debug/layout_hint_validation_strict</code> is a read-only <strong>deprecated alias</strong>. The
+  resolver (<code>gs_layout_hint::_layout_hint_strict_validation_enabled</code>) reads the
+  canonical when explicitly set, else the deprecated alias with a one-time <code>WARN</code>,
+  else the default (<code>false</code>). Neither key is <code>GLOBAL_DEF</code>-registered, so
+  <code>has_setting()</code> is true only when a <code>project.godot</code> explicitly carries the key.
+  Setting <strong>either</strong> key still enables strict validation, so this is
+  behavior-neutral for a project that sets one key. The alias is flagged
+  <code>deprecated_alias</code> in the manifest and added to <code>public_settings</code>.</li>
+<li><strong>Labeled (editor-visible):</strong> the pure profiling/debug/validation levers below are
+  registered with <code>GLOBAL_DEF</code> and are clearly labeled in the manifest by <code>scope</code>
+  (debug / diagnostic) + notes so they no longer read as general runtime controls.
+  They remain <strong>editor-visible</strong>: <code>PROPERTY_USAGE_NO_EDITOR</code> is <strong>not honored</strong> for
+  ProjectSettings — <code>ProjectSettings::_get_property_list()</code> overwrites the custom
+  usage flags with <code>EDITOR | STORAGE</code> for any non-internal setting — so the flag was
+  dropped (it was a no-op) and these keys stay visible. Truly hiding them would
+  require <code>ProjectSettings::set_as_internal(path, true)</code>; the module-wide reliance on
+  the ineffective <code>NO_EDITOR</code> flag is tracked in
+  <a href="https://github.com/klausi3D/godotGS/issues/491">#491</a>.
+  <code>gpu_sorting/subgroup_prefix_mode</code> is deliberately user-facing (a
+  compatibility/workaround lever that routes around driver quirks in the subgroup
+  radix-prefix path).</li>
+</ul>
+<p>Manifest note: a public-API baseline key must be classified <code>public</code>,
+<code>cleanup_candidate</code>, or <code>deprecated_alias</code> (or be retired). These keys therefore
+keep <code>publicness: public</code> and express their debug/profiling nature via <code>scope</code> +
+notes, rather than <code>publicness: debug_only</code> (which would drop them out of the public
+surface and fail the baseline-alignment guard).</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Kind</th>
+<th>Scope</th>
+<th>Editor</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>debug/enable_pipeline_trace</code></td>
+<td>Bound node debug toggle + raw read (seeds <code>debug_config.enable_pipeline_trace</code>)</td>
+<td>debug</td>
+<td>Editor-visible (node property; kept)</td>
+</tr>
+<tr>
+<td><code>debug/enable_splat_audit</code></td>
+<td>Bound node debug toggle + raw read (per-frame GPU buffer audit)</td>
+<td>debug</td>
+<td>Editor-visible (node property; kept)</td>
+</tr>
+<tr>
+<td><code>debug/splat_audit_sample_count</code></td>
+<td>Bound node debug parameter + raw read</td>
+<td>debug</td>
+<td>Editor-visible (node property; kept)</td>
+</tr>
+<tr>
+<td><code>debug/force_unclustered_lights</code></td>
+<td>Raw-only unregistered debug hook (forces unclustered lighting)</td>
+<td>debug</td>
+<td>Hidden (unregistered by nature)</td>
+</tr>
+<tr>
+<td><code>gpu_sorting/enable_stage_timestamps</code></td>
+<td>Per-stage GPU-timestamp profiling</td>
+<td>diagnostic</td>
+<td>Editor-visible (labeled debug; NO_EDITOR not honored — #491)</td>
+</tr>
+<tr>
+<td><code>gpu_sorting/subgroup_prefix_mode</code></td>
+<td>Compatibility/workaround lever (auto/force_on/force_off)</td>
+<td>compatibility</td>
+<td>Editor-visible (kept, by design)</td>
+</tr>
+<tr>
+<td><code>gpu_sorting/enable_prefix_readback</code></td>
+<td>Debug sync-readback (<code>DEBUG_ENABLED</code> only; GPU stall)</td>
+<td>debug</td>
+<td>Editor-visible (labeled debug; NO_EDITOR not honored — #491)</td>
+</tr>
+<tr>
+<td><code>gpu_sorting/debug_validate_prefix</code></td>
+<td>Debug prefix cross-check (<code>DEBUG_ENABLED</code> only; GPU stall)</td>
+<td>debug</td>
+<td>Editor-visible (labeled debug; NO_EDITOR not honored — #491)</td>
+</tr>
+<tr>
+<td><code>gpu_sorting/profiling_preserve_gpu_timestamps</code></td>
+<td>Profiling-only timestamp preservation (<code>DEBUG_ENABLED</code> only)</td>
+<td>diagnostic</td>
+<td>Editor-visible (labeled debug; NO_EDITOR not honored — #491)</td>
+</tr>
+<tr>
+<td><code>sorting/validate_sorted_output</code></td>
+<td>Debug sorted-key monotonicity validation (GPU stall)</td>
+<td>debug</td>
+<td>Editor-visible (labeled debug; NO_EDITOR not honored — #491)</td>
+</tr>
+</tbody>
+</table>
+<p><code>import/ply_ascii_strict_parse</code> is listed in issue #173 but does <strong>not</strong> exist on
+<code>master</code> (0 references in module source); it is already-gone and required no code
+change.</p>
 <h2 id="known-registration-gaps">Known Registration Gaps<a class="headerlink" href="#known-registration-gaps" title="Permanent link">¶</a></h2>
 <p>The manifest also records live runtime reads that need follow-up ownership
 decisions:</p>
@@ -1921,7 +2040,7 @@ are not user-facing <code>ProjectSettings</code> contracts.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 14, 2026 22:30:51 UTC">July 14, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 15, 2026 00:44:50 UTC">July 15, 2026</span>
   </span>
 
     

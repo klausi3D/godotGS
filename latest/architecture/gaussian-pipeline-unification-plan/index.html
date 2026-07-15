@@ -2308,15 +2308,15 @@ Audience: rendering, tools, and pipeline engineers</p>
 <h2 id="verified-current-state-constraints">Verified Current-State Constraints<a class="headerlink" href="#verified-current-state-constraints" title="Permanent link">¶</a></h2>
 <p>These current facts shape the plan:</p>
 <ul>
-<li><code>GaussianSplatNode3D</code> already submits through <a href="https://github.com/klausi3D/godotGS/blob/ba28aa8dc5fcd6c55c85321313ebe7a9c3076c53/modules/gaussian_splatting/core/gaussian_splat_scene_director.cpp">GaussianSplatSceneDirector</a>.</li>
-<li><code>GaussianSplatWorld3D</code> still pushes renderer data directly through <a href="https://github.com/klausi3D/godotGS/blob/ba28aa8dc5fcd6c55c85321313ebe7a9c3076c53/modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp">gaussian_splat_world_3d.cpp</a>.</li>
+<li><code>GaussianSplatNode3D</code> already submits through <a href="https://github.com/klausi3D/godotGS/blob/53d1eed5df53453badcc2114ff26026c51fae817/modules/gaussian_splatting/core/gaussian_splat_scene_director.cpp">GaussianSplatSceneDirector</a>.</li>
+<li><code>GaussianSplatWorld3D</code> still pushes renderer data directly through <a href="https://github.com/klausi3D/godotGS/blob/53d1eed5df53453badcc2114ff26026c51fae817/modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp">gaussian_splat_world_3d.cpp</a>.</li>
 <li><code>GaussianSplatWorld3D</code> also owns renderer-setting application, tier overrides, and renderer ownership arbitration.</li>
-<li>The data-upload path still instantiates a streaming system in <a href="https://github.com/klausi3D/godotGS/blob/ba28aa8dc5fcd6c55c85321313ebe7a9c3076c53/modules/gaussian_splatting/renderer/render_data_orchestrator.cpp">render_data_orchestrator.cpp</a>.</li>
-<li>The instanced path still depends on streaming readiness in <a href="https://github.com/klausi3D/godotGS/blob/ba28aa8dc5fcd6c55c85321313ebe7a9c3076c53/modules/gaussian_splatting/renderer/render_instancing_orchestrator.cpp">render_instancing_orchestrator.cpp</a> and <a href="https://github.com/klausi3D/godotGS/blob/ba28aa8dc5fcd6c55c85321313ebe7a9c3076c53/modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp">gaussian_splat_renderer.cpp</a>.</li>
+<li>The data-upload path still instantiates a streaming system in <a href="https://github.com/klausi3D/godotGS/blob/53d1eed5df53453badcc2114ff26026c51fae817/modules/gaussian_splatting/renderer/render_data_orchestrator.cpp">render_data_orchestrator.cpp</a>.</li>
+<li>The instanced path still depends on streaming readiness in <a href="https://github.com/klausi3D/godotGS/blob/53d1eed5df53453badcc2114ff26026c51fae817/modules/gaussian_splatting/renderer/render_instancing_orchestrator.cpp">render_instancing_orchestrator.cpp</a> and <a href="https://github.com/klausi3D/godotGS/blob/53d1eed5df53453badcc2114ff26026c51fae817/modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp">gaussian_splat_renderer.cpp</a>.</li>
 <li>The current instance-pipeline contract is atlas-shaped across cull, sort, raster, and tile stages.</li>
-<li>Route control is now owned solely by enum-based <code>route_policy</code> in <a href="https://github.com/klausi3D/godotGS/blob/ba28aa8dc5fcd6c55c85321313ebe7a9c3076c53/modules/gaussian_splatting/core/gs_project_settings.h">gs_project_settings.h</a>.</li>
-<li>The editor still sets both <code>splat_asset</code> and <code>ply_file_path</code> in <a href="https://github.com/klausi3D/godotGS/blob/ba28aa8dc5fcd6c55c85321313ebe7a9c3076c53/modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp">gaussian_editor_plugin.cpp</a>.</li>
-<li><code>ply_file_path</code> is still a real public API and load path in <a href="https://github.com/klausi3D/godotGS/blob/ba28aa8dc5fcd6c55c85321313ebe7a9c3076c53/modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp">gaussian_splat_node_3d.cpp</a> and <a href="https://github.com/klausi3D/godotGS/blob/ba28aa8dc5fcd6c55c85321313ebe7a9c3076c53/modules/gaussian_splatting/nodes/gaussian_splat_node_helpers.cpp">gaussian_splat_node_helpers.cpp</a>.</li>
+<li>Route control is now owned solely by enum-based <code>route_policy</code> in <a href="https://github.com/klausi3D/godotGS/blob/53d1eed5df53453badcc2114ff26026c51fae817/modules/gaussian_splatting/core/gs_project_settings.h">gs_project_settings.h</a>.</li>
+<li>The editor still sets both <code>splat_asset</code> and <code>ply_file_path</code> in <a href="https://github.com/klausi3D/godotGS/blob/53d1eed5df53453badcc2114ff26026c51fae817/modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp">gaussian_editor_plugin.cpp</a>.</li>
+<li><code>ply_file_path</code> is still a real public API and load path in <a href="https://github.com/klausi3D/godotGS/blob/53d1eed5df53453badcc2114ff26026c51fae817/modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp">gaussian_splat_node_3d.cpp</a> and <a href="https://github.com/klausi3D/godotGS/blob/53d1eed5df53453badcc2114ff26026c51fae817/modules/gaussian_splatting/nodes/gaussian_splat_node_helpers.cpp">gaussian_splat_node_helpers.cpp</a>.</li>
 <li>Route IDs and renderer stats already exist, but they are not explained well to users.</li>
 </ul>
 <h2 id="refactor-strategy">Refactor Strategy<a class="headerlink" href="#refactor-strategy" title="Permanent link">¶</a></h2>
@@ -2608,7 +2608,7 @@ Audience: rendering, tools, and pipeline engineers</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 14, 2026 22:30:51 UTC">July 14, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 15, 2026 00:44:50 UTC">July 15, 2026</span>
   </span>
 
     
