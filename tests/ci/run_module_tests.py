@@ -38,14 +38,17 @@ HEADLESS_GAUSSIAN_SCOPED_TAGS: tuple[str, ...] = (
     # tags (zero runtime tests) must NOT appear here because strict lanes fail on
     # zero coverage.
     "Animation",
+    "AtomicWrite",  # G2: promoted from the advisory [untagged] lane to a strict blocking lane.
     "ComputeInfra",
     "Config",
     "Container",
     "Editor",
     "Importer",
+    "MalformedCorpus",  # G2: the aggregate malformed-input gate (WorldIO/PLY/SPZ/Persistence).
     "Node",
     "PLY",
     "Persistence",
+    "SPZ",  # G2: promoted from the advisory [untagged] lane to a strict blocking lane.
     "SceneTree",
     "SortBenchmark",
     "Synthetic",
@@ -95,6 +98,13 @@ MODULE_TEST_FILTERS: tuple[tuple[str, tuple[str, ...], tuple[str, ...], bool], .
     ("GaussianSplatting [VRAMBudgetRegulator]", ("*GaussianSplatting*][VRAMBudgetRegulator]*",), ("*][RequiresGPU]*",), True),
     ("GaussianSplatting [ViewTransform]", ("*GaussianSplatting*][ViewTransform]*",), ("*][RequiresGPU]*",), True),
     ("GaussianSplatting [WorldIO]", ("*GaussianSplatting*][WorldIO]*",), ("*][RequiresGPU]*",), True),
+    # G2 (exit criterion; ledger #458): the malformed-input corpus gate plus the
+    # SPZ and atomic-write lanes, promoted from the advisory [untagged] safety net
+    # to strict blocking lanes so a hostile-input or crash-atomicity regression
+    # hard-fails CI. [MalformedCorpus] aggregates the per-format malformed cases.
+    ("GaussianSplatting [MalformedCorpus]", ("*GaussianSplatting*][MalformedCorpus]*",), ("*][RequiresGPU]*",), True),
+    ("GaussianSplatting [SPZ]", ("*GaussianSplatting*][SPZ]*",), ("*][RequiresGPU]*",), True),
+    ("GaussianSplatting [AtomicWrite]", ("*GaussianSplatting*][AtomicWrite]*",), ("*][RequiresGPU]*",), True),
     # Safety-net lane for unscoped [GaussianSplatting] tests.  Advisory because
     # doctest's --test-case-exclude parsing is unreliable beyond ~10 repeated
     # flags, so the exclude list cannot guarantee precise filtering.  Real
@@ -233,6 +243,28 @@ STATIC_FORMAT_GUARDS: tuple[tuple[str, Path, tuple[str, ...]], ...] = (
         (
             r"_check_dual_state_sync was removed:.*?validated nothing",
         ),
+    ),
+    # G2 "all savers atomic" (exit criterion; ledger #458): every final-output
+    # writer must route its destination write through gs_atomic_file_write (temp
+    # -> fsync -> atomic rename with backup swap), so a crash mid-save cannot
+    # truncate the prior good file. The [AtomicWrite] doctest lane proves the
+    # helper is crash-atomic; these guards lock in that each saver actually USES
+    # it (the PLY cache writer delegates to the world saver, so it is covered
+    # transitively). If a saver is intentionally re-plumbed, update the guard.
+    (
+        "atomic_saver_world_io",
+        MODULE_SOURCE_DIR / "io" / "gaussian_splat_world_io.cpp",
+        (r"gs_atomic_file_write\s*\(",),
+    ),
+    (
+        "atomic_saver_scene_serializer",
+        MODULE_SOURCE_DIR / "persistence" / "gaussian_scene_serializer.cpp",
+        (r"gs_atomic_file_write\s*\(",),
+    ),
+    (
+        "atomic_saver_incremental",
+        MODULE_SOURCE_DIR / "persistence" / "incremental_saver.cpp",
+        (r"gs_atomic_file_write\s*\(",),
     ),
 )
 
