@@ -76,9 +76,12 @@ non-existent CI check.
 - **PLY loader** (`PLYLoader::load_file`, `[PLY]`, 5): missing `end_header`,
   unknown property type, vertex_count out of int range; integer-typed properties
   convert to float (A4), including big-endian byte-swap.
-- **PLY importer / ASCII** (`[Importer]`, 3): missing required PLY properties,
-  malformed ASCII rows, unknown raw extension.
-- **SPZ loader** (`SPZLoader::load_file`, `[SPZ]` 7 + `[Importer]` 6): bad magic,
+- **PLY importer / ASCII** (`[Importer]`, 2): missing required PLY properties,
+  malformed ASCII rows.
+- **Asset loader** (`GaussianSplatAsset::load_from_file`, `[Importer]`, 1):
+  hard-fails on an unknown raw file extension.
+- **SPZ** (`SPZLoader::load_file` — exercised at loader level via `[SPZ]` (7) and
+  at importer level via `[Importer]` (6)): bad magic,
   unsupported version, header < 16 B, zero / over-cap point count, `sh_degree` > 3,
   `fractional_bits` > 24 (**A2**); truncated / oversized payload sections,
   oversized decompression claims, header-derived decompression cap, malformed gzip
@@ -94,7 +97,7 @@ non-existent CI check.
   handling — plus three `STATIC_FORMAT_GUARDS` locking in that each saver routes
   through the helper.
 
-### Known gaps (○, follow-on)
+### Known gaps
 
 - No dedicated **importer-side A1 over-allocation** test — the compressed
   `splat_count` / `gaussian_bytes` overflow is tested against the WorldIO *loader*,
@@ -107,8 +110,8 @@ non-existent CI check.
 
 ## Optional follow-ons (not required for G2)
 
-- **Gap-fill cases:** the four items under [Known gaps](#known-gaps--follow-on)
-  above. Each lands under the fix-first rule if it reveals a new hole.
+- **Gap-fill cases:** the four items under [Known gaps](#known-gaps) above. Each
+  lands under the fix-first rule if it reveals a new hole.
 - **Nightly mutation fuzzer** (discovery, non-blocking): a scheduled
   `continue-on-error` job that mutates valid saver outputs, spawns the binary once
   per file (so an abort kills only that child), and reports candidate holes as
