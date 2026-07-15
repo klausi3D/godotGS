@@ -28,26 +28,24 @@ human-readable migration companion.
 A renamed key is not deleted immediately. It becomes a **read-only deprecated
 alias**:
 
-1. The **canonical** key is registered normally and is what the editor shows.
+1. The **canonical** key is what the supported surface uses going forward.
 2. The old (alias) key is still **read** as a fallback — but only when the
    canonical key is not explicitly set — and reading it emits a **one-time
-   deprecation `WARN`**.
-3. For most aliases, when a project that still carries the old key is **saved**,
-   the value is written to the canonical key and the alias is cleared
-   (self-heal). After one save-and-reload the warning stops.
+   deprecation `WARN`** per session.
 
-**Exception — `debug/layout_hint_validation_strict` does not self-heal.** That
-alias is a pure read-only fallback: neither it nor its canonical key is
-`GLOBAL_DEF`-registered, and there is no write-back/clear path, so saving the
-project does **not** migrate or remove it. To stop the warning you must manually
-rename the key to `streaming/layout_hint_validation_strict` (or delete it) in
-`project.godot`. The LOD, sorting, and pipeline aliases below do self-heal on
-save.
+To stop the warning and move to the supported key, **manually** set the canonical
+key (or rename the old key to it) in `project.godot` / the Project Settings
+dialog. The engine does **not** automatically migrate the value on a normal
+project save — the old key persists until you change it. (The module's
+`save_to_project_settings()` helpers do rewrite the canonical key and clear the
+alias, but they run only from an init-time *validation-failure* reset that also
+restores defaults — not a value-preserving migration, and not something a normal
+save triggers.)
 
-So existing projects keep working unchanged; they just log one warning until
-re-saved (or, for the layout-hint alias, until manually renamed). A removed (not
-aliased) key has no runtime effect at all — delete any `project.godot` entry for
-it at your convenience.
+So existing projects keep working unchanged; they just log one deprecation warning
+per session until the old key is manually renamed. A removed (not aliased) key has
+no runtime effect at all — delete any `project.godot` entry for it at your
+convenience.
 
 ## Removed keys
 
@@ -84,10 +82,9 @@ tracks retired *baseline* keys). No migration is needed; remove any
 
 ## Renamed keys (read-only deprecated aliases)
 
-The old key still works as a read-only fallback with a one-time warning and — for
-every key except the layout-hint alias — self-heals on save (see
-[Deprecation lifecycle](#deprecation-lifecycle)). Move to the canonical key when
-convenient.
+The old key still works as a read-only fallback and logs a one-time deprecation
+warning (see [Deprecation lifecycle](#deprecation-lifecycle)). Move to the
+canonical key by renaming it manually — the value is not auto-migrated on save.
 
 | Old key (`rendering/gaussian_splatting/…`) | Canonical key (`rendering/gaussian_splatting/…`) | Why renamed |
 | --- | --- | --- |
@@ -95,7 +92,7 @@ convenient.
 | `sorting/target_sort_time_ms` | `diagnostics/sort_target_time_ms` | it is a diagnostics/telemetry target, not a sorting control ([#168](https://github.com/klausi3D/godotGS/issues/168)) |
 | `gpu_sorting/target_sort_time_ms` | `diagnostics/sort_target_time_ms` | older spelling of the same key; `sorting/…` is the intermediate alias ([#168](https://github.com/klausi3D/godotGS/issues/168)) |
 | `pipeline/enable_all_experimental` | `pipeline/enable_all_pipeline_experimental` | old name wrongly implied engine-wide scope ([#169](https://github.com/klausi3D/godotGS/issues/169)) |
-| `debug/layout_hint_validation_strict` | `streaming/layout_hint_validation_strict` | control belongs to the streaming layout path, not generic debug ([#173](https://github.com/klausi3D/godotGS/issues/173)). **Does not self-heal on save** — rename or delete manually. |
+| `debug/layout_hint_validation_strict` | `streaming/layout_hint_validation_strict` | control belongs to the streaming layout path, not generic debug ([#173](https://github.com/klausi3D/godotGS/issues/173)) |
 
 Read precedence for the target-sort-time family is
 `diagnostics/sort_target_time_ms` → `sorting/target_sort_time_ms` →

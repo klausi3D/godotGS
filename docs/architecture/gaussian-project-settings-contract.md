@@ -159,7 +159,9 @@ read-only **deprecated alias** so existing `project.godot` files keep working. T
 effective value is unchanged: the canonical key wins when explicitly set,
 otherwise the deprecated alias is read (with a one-time deprecation `WARN`),
 otherwise the registered default; a default project (neither set) resolves to the
-default with no warning. A persisted config migrates to the canonical key on save.
+default with no warning. The deprecated alias is **not** automatically migrated on
+save — rename it to the canonical key manually in `project.godot` to stop the
+warning.
 
 - `lod/debug_visualization` → `lod/diagnostic_logging` (#167). It is a diagnostic
   LOG-gate (it gates a periodic LOD diagnostic log line and the config-summary
