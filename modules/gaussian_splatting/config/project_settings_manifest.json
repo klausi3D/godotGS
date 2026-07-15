@@ -885,7 +885,7 @@
       "effective_state": "LODConfig/GPUCuller.importance_threshold",
       "key": "rendering/gaussian_splatting/lod/importance_threshold",
       "notes": "Registered in register_lod_project_settings() (lod/lod_config.cpp) with a float range hint. Default is a -1 sentinel = 'auto': GPUCuller leaves importance_cull_threshold to the runtime overflow auto-tuner (the raw read used to fall back to the tuned member); only an explicit override (>= 0) pins a fixed threshold, so registration is behavior-neutral. Global baseline behind the per-renderer cull/importance_threshold (#163).",
-      "test_coverage": "inventory_only"
+      "test_coverage": "partial"
     },
     {
       "effective_state": "LODConfig/GPUCuller.max_distance",
@@ -1055,7 +1055,10 @@
     {
       "effective_state": "GaussianSplatManager device initialization flag.",
       "key": "rendering/gaussian_splatting/renderdoc_compatibility",
-      "test_coverage": "inventory_only"
+      "notes": "Device-init compatibility toggle: forces RenderDoc-friendly capture behavior. Auto-detected via _detect_renderdoc(); this key is the manual override (default false, behavior-neutral). Public, editor-visible compatibility knob; basic registration+default test in test_config_validation.h. Downstream-effect test tracked by #174 (#163).",
+      "scope": "compatibility",
+      "test_coverage": "partial",
+      "visibility": "editor_visible"
     },
     {
       "effective_state": "none",
@@ -1202,13 +1205,13 @@
       "effective_state": "StreamingUploadPipeline/StreamingVisibilityController/VRAMBudgetRegulator.max_sync_fallback_loads_per_frame",
       "key": "rendering/gaussian_splatting/streaming/max_sync_fallback_loads_per_frame",
       "notes": "Registered in the manager streaming block (core/gaussian_splat_manager.cpp) with an int range hint; default 1 mirrors SchedulerState::DEFAULT_SYNC_FALLBACK_LOADS_PER_FRAME (the read hard-caps at 8) so registration is behavior-neutral (#163).",
-      "test_coverage": "inventory_only"
+      "test_coverage": "partial"
     },
     {
       "effective_state": "StreamingUploadPipeline/StreamingVisibilityController/VRAMBudgetRegulator.max_sync_fallback_queue_size",
       "key": "rendering/gaussian_splatting/streaming/max_sync_fallback_queue_size",
       "notes": "Registered in the manager streaming block (core/gaussian_splat_manager.cpp) with an int range hint; default 2048 mirrors SchedulerState::DEFAULT_SYNC_FALLBACK_QUEUE_SIZE (the read floors at 64) so registration is behavior-neutral (#163).",
-      "test_coverage": "inventory_only"
+      "test_coverage": "partial"
     },
     {
       "effective_state": "StreamingUploadPipeline/StreamingVisibilityController/VRAMBudgetRegulator.max_upload_mb_per_frame",
