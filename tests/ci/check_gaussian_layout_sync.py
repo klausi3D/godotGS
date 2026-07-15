@@ -697,6 +697,30 @@ def _check_render_params_version(
         )
 
 
+def _check_render_params_reverse_coverage(
+    members: tuple[_UboMember, ...],
+    host_offsets: dict[str, int],
+    glsl_rel: Path,
+    host_rel: Path,
+    failures: list[str],
+) -> None:
+    """Reverse (C++ -> GLSL) coverage: every non-`_pad*` `offsetof(TileRenderParamsGPU, ...)`
+    contract field must have a matching non-`_pad*` GLSL member. The forward loop iterates
+    GLSL members, so a host padding slot promoted to a real field (its offsetof assert
+    updated) while the GLSL block still declares that slot as `_pad*` would otherwise go
+    unnoticed -- the forward loop skips the GLSL pad and never sees the new host field. With
+    this the check is bidirectional by name. `_pad*` names are excluded on BOTH sides (host
+    `_pad_before_camera` vs GLSL `_pad0`/`_pad1` legitimately differ in name/count)."""
+    glsl_nonpad = {member.name for member in members if not member.name.startswith("_pad")}
+    for host_name in sorted(host_offsets):
+        if host_name.startswith("_pad"):
+            continue
+        if host_name not in glsl_nonpad:
+            failures.append(
+                f"{host_rel}: TileRenderParamsGPU.{host_name} has an offsetof contract but no matching non-pad RenderParams member in {glsl_rel} (host field added / stale GLSL pad?)"
+            )
+
+
 def _check_render_params_ubo(host_text: str, failures: list[str]) -> None:
     """Validate the RenderParams std140 uniform block against TileRenderParamsGPU.
 
@@ -711,10 +735,12 @@ def _check_render_params_ubo(host_text: str, failures: list[str]) -> None:
     caught, and (4) the member's total scalar component WIDTH matches the C++ field -- so a
     same-kind shape drift the offset+kind checks cannot see (GLSL `vec4`->`float` padded
     back to the same offsets/size) is still caught. Scalar kind + byte width + component
-    count together fully pin any std140 UBO member type. It also asserts the block size
-    matches the C++ `sizeof` contract and the two GS_RENDER_PARAMS_LAYOUT_VERSION numbers
-    agree. Padding members are skipped: they carry different names/counts across the two
-    files (host `_pad_before_camera[2]` vs GLSL `_pad0`/`_pad1`) but occupy equal space.
+    count together fully pin any std140 UBO member type. It then adds (5) reverse coverage --
+    every non-pad C++ offsetof-contract field must have a non-pad GLSL member -- so the
+    mapping is bidirectional by name. It also asserts the block size matches the C++ `sizeof`
+    contract and the two GS_RENDER_PARAMS_LAYOUT_VERSION numbers agree. Padding members are
+    skipped on both sides: they carry different names/counts across the two files (host
+    `_pad_before_camera[2]` vs GLSL `_pad0`/`_pad1`) but occupy equal space.
     """
     glsl_text = RENDER_PARAMS_GLSL.read_text(encoding="utf-8")
     glsl_rel = RENDER_PARAMS_GLSL.relative_to(ROOT)
@@ -750,6 +776,8 @@ def _check_render_params_ubo(host_text: str, failures: list[str]) -> None:
         if member.name.startswith("_pad"):
             continue
         _check_ubo_member(member, host_offsets, host_types, host_constants, glsl_rel, host_rel, failures)
+
+    _check_render_params_reverse_coverage(members, host_offsets, glsl_rel, host_rel, failures)
 
     block_size = _round_up(end_offset, 16)
     if block_size != host_size:
@@ -823,7 +851,7 @@ def main() -> int:
         + ", ".join(host_name for _, host_name, _ in EXTRA_MIRROR_STRUCTS)
         + "."
     )
-    print("[gaussian-layout-check] RenderParams std140 uniform block matches TileRenderParamsGPU offsets, scalar kinds, byte widths, component widths, size, and layout version.")
+    print("[gaussian-layout-check] RenderParams std140 uniform block matches TileRenderParamsGPU (bidirectional): offsets, scalar kinds, byte widths, component widths, reverse coverage, size, and layout version.")
     return 0
 
 
