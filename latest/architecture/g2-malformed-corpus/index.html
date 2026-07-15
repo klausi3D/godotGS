@@ -7,7 +7,7 @@
       
       
       
-        <link rel="canonical" href="https://klausi3d.github.io/godotGS/latest/api/gaussian_splat_world3d/">
+        <link rel="canonical" href="https://klausi3d.github.io/godotGS/latest/architecture/g2-malformed-corpus/">
       
       
       
@@ -20,7 +20,7 @@
     
     
       
-        <title>GaussianSplatWorld3D API Reference - Godot Gaussian Splatting Docs</title>
+        <title>G2 — malformed-file corpus lane - Godot Gaussian Splatting Docs</title>
       
     
     
@@ -81,7 +81,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#gaussiansplatworld3d-api-reference" class="md-skip">
+        <a href="#g2-malformed-file-corpus-lane" class="md-skip">
           Skip to content
         </a>
       
@@ -120,7 +120,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              GaussianSplatWorld3D API Reference
+              G2 — malformed-file corpus lane
             
           </span>
         </div>
@@ -1073,7 +1073,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../" class="md-nav__link">
+      <a href="../../api/" class="md-nav__link">
         
   
   
@@ -1101,7 +1101,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../gaussian_splat_node3d/" class="md-nav__link">
+      <a href="../../api/gaussian_splat_node3d/" class="md-nav__link">
         
   
   
@@ -1129,7 +1129,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../gdscript_reference/" class="md-nav__link">
+      <a href="../../api/gdscript_reference/" class="md-nav__link">
         
   
   
@@ -1157,7 +1157,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../shader_reference/" class="md-nav__link">
+      <a href="../../api/shader_reference/" class="md-nav__link">
         
   
   
@@ -1503,7 +1503,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architecture/overview/" class="md-nav__link">
+      <a href="../overview/" class="md-nav__link">
         
   
   
@@ -1642,55 +1642,22 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
       
         <li class="md-nav__item">
-  <a href="#purpose" class="md-nav__link">
+  <a href="#how-it-works" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Purpose
+        How it works
       
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#payload-semantics" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Payload Semantics
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#usage" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Usage
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#api" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        API
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="API">
+    <nav class="md-nav" aria-label="How it works">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#enums" class="md-nav__link">
+  <a href="#regression-guard-only-the-abort-reality" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Enums
+        Regression-guard only (the abort reality)
       
     </span>
   </a>
@@ -1698,32 +1665,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#properties" class="md-nav__link">
+  <a href="#workflow-for-a-newly-discovered-hole" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Properties
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#methods" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Methods
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#signals" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Signals
+        Workflow for a newly discovered hole
       
     </span>
   </a>
@@ -1736,10 +1681,38 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#examples" class="md-nav__link">
+  <a href="#coverage" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Examples
+        Coverage
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Coverage">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#known-gaps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known gaps
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#optional-follow-ons-not-required-for-g2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optional follow-ons (not required for G2)
       
     </span>
   </a>
@@ -1747,10 +1720,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#troubleshooting" class="md-nav__link">
+  <a href="#running-locally" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Troubleshooting
+        Running locally
       
     </span>
   </a>
@@ -1783,225 +1756,126 @@
   
 
 
-<h1 id="gaussiansplatworld3d-api-reference">GaussianSplatWorld3D API Reference<a class="headerlink" href="#gaussiansplatworld3d-api-reference" title="Permanent link">¶</a></h1>
-<h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
-<p>Use <code>GaussianSplatWorld3D</code> to render merged multi-asset Gaussian splat worlds from a <code>GaussianSplatWorld</code> resource in a <code>Node3D</code> scene (<code>modules/gaussian_splatting/nodes/gaussian_splat_world_3d.h:10</code>).</p>
-<h2 id="payload-semantics">Payload Semantics<a class="headerlink" href="#payload-semantics" title="Permanent link">¶</a></h2>
-<p><code>GaussianSplatWorld3D</code> submits the actual payload carried by its <code>GaussianSplatWorld</code> resource. A normal uncompressed <code>.gsplatworld</code> load is <code>streamable_uncompressed</code>: it has a valid chunk payload source and no resident <code>GaussianData</code>, so chunks can be read from the file on demand. Compressed <code>.gsplatworld</code>, <code>.gsplatcache</code>, explicit <code>load_resident()</code>, and direct PLY/SPZ instance imports are <code>resident_only</code>.</p>
-<p>The route policy controls backend selection, not source residency. Check <code>GaussianSplatRenderer.get_render_stats()</code> for <code>payload_mode</code>, <code>payload_streamable</code>, <code>payload_source_active</code>, <code>resident_payload_active</code>, and <code>payload_resident_only_reason</code> when debugging whether a world is actually out-of-core streamable.</p>
-<h2 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">¶</a></h2>
-<table>
-  <thead>
-    <tr>
-      <th>Task</th>
-      <th>Primary API</th>
-      <th>Implementation</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>Assign a merged world resource.</td>
-      <td><code>set_world(world)</code></td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp:234</code></td>
-    </tr>
-    <tr>
-      <td>Apply world data to the shared renderer.</td>
-      <td><code>apply_world()</code></td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp:300</code></td>
-    </tr>
-    <tr>
-      <td>Remove world data and reset bounds.</td>
-      <td><code>clear_world()</code></td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp:305</code></td>
-    </tr>
-    <tr>
-      <td>Configure quality and LOD parameters.</td>
-      <td><code>set_lod_bias(bias)</code>, <code>set_max_render_distance(distance)</code>, <code>set_max_splat_count(count)</code></td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp:258</code></td>
-    </tr>
-    <tr>
-      <td>Access the shared renderer instance.</td>
-      <td><code>get_renderer()</code></td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp:123</code></td>
-    </tr>
-  </tbody>
-</table>
-
-<h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">¶</a></h2>
-<h3 id="enums">Enums<a class="headerlink" href="#enums" title="Permanent link">¶</a></h3>
-<p>This class does not define any enums.</p>
-<h3 id="properties">Properties<a class="headerlink" href="#properties" title="Permanent link">¶</a></h3>
-<table>
-  <thead>
-    <tr>
-      <th>Inspector path</th>
-      <th>Type</th>
-      <th>Accessors</th>
-      <th>Notes</th>
-      <th>Source</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code>world</code></td>
-      <td><code>GaussianSplatWorld</code></td>
-      <td><code>set_world</code>, <code>get_world</code></td>
-      <td>Resource containing merged Gaussian data, bounds, and static chunks.</td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp:125</code></td>
-    </tr>
-    <tr>
-      <td><code>auto_apply_on_ready</code></td>
-      <td><code>bool</code></td>
-      <td><code>set_auto_apply_on_ready</code>, <code>is_auto_apply_on_ready</code></td>
-      <td>When enabled, calls <code>apply_world()</code> automatically on <code>NOTIFICATION_READY</code>.</td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp:127</code></td>
-    </tr>
-    <tr>
-      <td><code>cast_shadow</code></td>
-      <td><code>bool</code></td>
-      <td><code>set_cast_shadow</code>, <code>is_cast_shadow</code></td>
-      <td>Applies shadow casting setting to the render instance.</td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp:128</code></td>
-    </tr>
-    <tr>
-      <td><code>quality/lod_enabled</code></td>
-      <td><code>bool</code></td>
-      <td><code>set_lod_enabled</code>, <code>is_lod_enabled</code></td>
-      <td>Toggles level-of-detail processing on the renderer.</td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp:131</code></td>
-    </tr>
-    <tr>
-      <td><code>quality/lod_bias</code></td>
-      <td><code>float</code></td>
-      <td><code>set_lod_bias</code>, <code>get_lod_bias</code></td>
-      <td>Clamped to <code>0.1..4.0</code>.</td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp:132</code></td>
-    </tr>
-    <tr>
-      <td><code>quality/max_render_distance</code></td>
-      <td><code>float</code></td>
-      <td><code>set_max_render_distance</code>, <code>get_max_render_distance</code></td>
-      <td>Clamped to <code>&gt;= 0.0</code>. Suffix <code>m</code> in inspector.</td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp:134</code></td>
-    </tr>
-    <tr>
-      <td><code>quality/max_splat_count</code></td>
-      <td><code>int</code></td>
-      <td><code>set_max_splat_count</code>, <code>get_max_splat_count</code></td>
-      <td>Clamped to <code>&gt;= 1000</code>.</td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp:136</code></td>
-    </tr>
-    <tr>
-      <td><code>rendering/frustum_culling</code></td>
-      <td><code>bool</code></td>
-      <td><code>set_use_frustum_culling</code>, <code>is_frustum_culling_enabled</code></td>
-      <td>Applies immediately to renderer settings when the renderer is valid.</td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp:140</code></td>
-    </tr>
-    <tr>
-      <td><code>rendering/async_upload_enabled</code></td>
-      <td><code>bool</code></td>
-      <td><code>set_async_upload_enabled</code>, <code>is_async_upload_enabled</code></td>
-      <td>Enables asynchronous GPU upload for world data.</td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp:142</code></td>
-    </tr>
-    <tr>
-      <td><code>rendering/opacity</code></td>
-      <td><code>float</code></td>
-      <td><code>set_opacity</code>, <code>get_opacity</code></td>
-      <td>Clamped to <code>0.0..1.0</code>.</td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp:144</code></td>
-    </tr>
-  </tbody>
-</table>
-
-<h3 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">¶</a></h3>
-<table>
-  <thead>
-    <tr>
-      <th>Method</th>
-      <th>Behavior</th>
-      <th>Source</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code>apply_world()</code></td>
-      <td>Ensures a renderer exists, then applies the current <code>GaussianSplatWorld</code> resource to the shared renderer, registering ownership and pushing quality/streaming settings.</td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp:300</code></td>
-    </tr>
-    <tr>
-      <td><code>clear_world()</code></td>
-      <td>Unregisters the shared renderer, resets bounds to empty, and updates the render instance.</td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp:305</code></td>
-    </tr>
-    <tr>
-      <td><code>get_renderer()</code></td>
-      <td>Returns the shared <code>GaussianSplatRenderer</code> instance for the node's World3D.</td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp:123</code></td>
-    </tr>
-  </tbody>
-</table>
-
-<h3 id="signals">Signals<a class="headerlink" href="#signals" title="Permanent link">¶</a></h3>
-<p>This class does not define any signals.</p>
-<h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">¶</a></h2>
-<div class="highlight"><pre><span></span><code><span class="k">extends</span><span class="w"> </span><span class="n">Node3D</span>
-
-<span class="err">@</span><span class="k">onready</span><span class="w"> </span><span class="k">var</span><span class="w"> </span><span class="n">world_node</span><span class="p">:</span><span class="w"> </span><span class="n">GaussianSplatWorld3D</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">$</span><span class="n">GaussianSplatWorld3D</span>
-
-<span class="k">func</span><span class="w"> </span><span class="n">_ready</span><span class="p">()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="nb nb-Type">void</span><span class="p">:</span>
-<span class="w">    </span><span class="k">var</span><span class="w"> </span><span class="n">world_res</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="nb">load</span><span class="p">(</span><span class="s2">"res://worlds/cityscape.gsplatworld"</span><span class="p">)</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="n">GaussianSplatWorld</span>
-<span class="w">    </span><span class="n">world_node</span><span class="o">.</span><span class="n">set_world</span><span class="p">(</span><span class="n">world_res</span><span class="p">)</span>
-<span class="w">    </span><span class="n">world_node</span><span class="o">.</span><span class="n">set_lod_bias</span><span class="p">(</span><span class="mf">1.5</span><span class="p">)</span>
-<span class="w">    </span><span class="n">world_node</span><span class="o">.</span><span class="n">set_max_render_distance</span><span class="p">(</span><span class="mf">500.0</span><span class="p">)</span>
-<span class="w">    </span><span class="n">world_node</span><span class="o">.</span><span class="n">set_opacity</span><span class="p">(</span><span class="mf">0.9</span><span class="p">)</span>
-<span class="w">    </span><span class="n">world_node</span><span class="o">.</span><span class="n">apply_world</span><span class="p">()</span>
+<h1 id="g2-malformed-file-corpus-lane">G2 — malformed-file corpus lane<a class="headerlink" href="#g2-malformed-file-corpus-lane" title="Permanent link">¶</a></h1>
+<p><strong>Exit criterion G2</strong> (Production-Readiness Program, ledger
+<a href="https://github.com/klausi3D/godotGS/issues/458">#458</a>):</p>
+<blockquote>
+<p>A malformed-file corpus in CI never aborts / UBs / over-allocates, and all
+savers are atomic.</p>
+</blockquote>
+<p>Phase A hardened four specific hostile-input holes in the import / persistence
+read paths (ADR <a href="../adr-import-input-hardening/"><code>adr-import-input-hardening.md</code></a>).
+This lane turns those one-off fixes into a single, blocking, growing gate.</p>
+<h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">¶</a></h2>
+<ul>
+<li><strong>A single strict gate by tag aggregation.</strong> Malformed-file-<strong>input</strong> rejection
+  tests across the import / persistence read paths carry a cross-cutting
+  <code>[MalformedCorpus]</code> tag in their <code>TEST_CASE</code> name. doctest matches the whole
+  decorated name, so each case stays in its per-format lane (<code>[WorldIO]</code>, <code>[PLY]</code>,
+  <code>[SPZ]</code>, <code>[Persistence]</code>, <code>[Importer]</code>) <strong>and</strong> joins the aggregate
+  <code>[MalformedCorpus]</code> lane — no test is moved or duplicated. (Value-level
+  rejections that are not file input — e.g. <code>[Config]</code> validation of invalid
+  config <em>values</em> — are intentionally out of scope.)</li>
+<li><strong>In-test byte generators, no committed blobs.</strong> Most cases write a
+  structurally valid file (a <strong>positive control</strong> asserts it loads), then patch
+  one field so the matching guard is the sole failure cause; some PLY and
+  persistence cases build a synthetic malformed fixture directly, and a couple of
+  PLY cases assert correct <em>handling</em> (integer-typed-property conversion) of
+  hostile-but-legal input rather than rejection. This
+  keeps diffs reviewable, deterministic across runners, and clear of the
+  tracked-artifact hygiene guard (<code>tests/ci/run_module_tests.py</code>).</li>
+<li><strong>Strict, blocking lanes.</strong> <code>[MalformedCorpus]</code>, <code>[SPZ]</code>, and <code>[AtomicWrite]</code>
+  are strict <code>MODULE_TEST_FILTERS</code> lanes (<code>tests/ci/run_module_tests.py</code>), run by
+  the blocking <code>module-validation</code> job
+  (<code>.github/workflows/gaussian_production_gates.yml</code>). A hostile-input or
+  crash-atomicity regression hard-fails CI.</li>
+<li><strong>"All savers atomic" is locked in statically.</strong> Three <code>STATIC_FORMAT_GUARDS</code>
+  (<code>atomic_saver_world_io</code> / <code>_scene_serializer</code> / <code>_incremental</code>) assert each
+  final-output writer routes through <code>gs_atomic_file_write</code>. The <code>[AtomicWrite]</code>
+  doctest lane proves the helper is crash-atomic; the guards prove each saver
+  <em>uses</em> it (the PLY cache writer delegates to the world saver → covered).</li>
+</ul>
+<h3 id="regression-guard-only-the-abort-reality">Regression-guard only (the abort reality)<a class="headerlink" href="#regression-guard-only-the-abort-reality" title="Permanent link">¶</a></h3>
+<p>doctest cannot catch <code>abort()</code> / <code>CRASH_COND</code>. A genuinely <strong>un-hardened</strong> hole
+aborts the process and erases the lane's summary. Therefore <strong>every corpus entry
+must already be hardened</strong> — the corpus proves fixes <em>stay</em> fixed, it does not
+discover new holes. A reverted fix still blocks CI both ways: a fix reverted to a
+<em>wrong error</em> fails a doctest assertion; a fix reverted to a <em>re-introduced abort</em>
+kills the (isolated, dedicated) lane process → non-zero exit → strict-lane failure.</p>
+<h3 id="workflow-for-a-newly-discovered-hole">Workflow for a newly discovered hole<a class="headerlink" href="#workflow-for-a-newly-discovered-hole" title="Permanent link">¶</a></h3>
+<ol>
+<li><strong>Fix first.</strong> Harden the parser so the input fails cleanly (<code>ERR_FILE_*</code>,
+   never abort/UB/over-alloc). This is an R3 change (persistence read path) under
+   the input-hardening ADR — its own PR, CODEOWNER + human approval, GPU/runtime
+   evidence as required.</li>
+<li><strong>Then add the case.</strong> Add a distilled in-test byte-generator case tagged
+   <code>[…][MalformedCorpus]</code>, with a positive control, asserting the exact <code>ERR_FILE_*</code>.</li>
+</ol>
+<p>Never add an un-hardened case — it would abort the lane.</p>
+<h2 id="coverage">Coverage<a class="headerlink" href="#coverage" title="Permanent link">¶</a></h2>
+<p>The <strong>authoritative</strong> coverage is the set of <code>[MalformedCorpus]</code>-tagged tests
+themselves (43 cases at time of writing). This section summarizes them per read
+path — each item corresponds to a tagged case, so it cannot silently drift from a
+non-existent CI check.</p>
+<ul>
+<li><strong>WorldIO loader</strong> (<code>ResourceFormatLoaderGaussianSplatWorld::load</code>, <code>[WorldIO]</code>,
+  8): bad magic, wrong version, truncated file, metadata range overflow
+  (<code>fits_within</code>), high-SH count without the high-SH flag, chunk-index byte-count
+  overflow; compressed: <code>splat_count</code> over the resident payload cap, and a blob
+  that does not decompress to the declared size.</li>
+<li><strong>gsplatworld importer</strong> (<code>ResourceImporter*</code>, <code>[Importer]</code>, 3): rejects
+  invalid, truncated, and decode-invalid payloads.</li>
+<li><strong>PLY loader</strong> (<code>PLYLoader::load_file</code>, <code>[PLY]</code>, 5): missing <code>end_header</code>,
+  unknown property type, vertex_count out of int range; integer-typed properties
+  convert to float (A4), including big-endian byte-swap.</li>
+<li><strong>PLY importer / ASCII</strong> (<code>[Importer]</code>, 2): missing required PLY properties,
+  malformed ASCII rows.</li>
+<li><strong>Asset loader</strong> (<code>GaussianSplatAsset::load_from_file</code>, <code>[Importer]</code>, 1):
+  hard-fails on an unknown raw file extension.</li>
+<li><strong>SPZ</strong> (<code>SPZLoader::load_file</code> — exercised at loader level via <code>[SPZ]</code> (7) and
+  at importer level via <code>[Importer]</code> (6)): bad magic,
+  unsupported version, header &lt; 16 B, zero / over-cap point count, <code>sh_degree</code> &gt; 3,
+  <code>fractional_bits</code> &gt; 24 (<strong>A2</strong>); truncated / oversized payload sections,
+  oversized decompression claims, header-derived decompression cap, malformed gzip
+  optional headers. (SPZ has both loader-level and importer-level coverage.)</li>
+<li><strong>GSF scene serializer</strong> (<code>load_scene</code>, <code>[Persistence]</code>, 7): non-chunked
+  magic-at-byte0, forward-incompatible version, truncated chunked header, and
+  checksum stripped / tampered / zeroed (protected + legacy).</li>
+<li><strong>Incremental <code>.gsif</code> loader</strong> (<code>[Persistence]</code>, 4): malformed change tables,
+  truncated change-table header, out-of-range and overflow-sized payload slices.</li>
+<li><strong>Atomic savers</strong> (<code>gs_atomic_file_write</code>): the "savers atomic" clause of G2,
+  carried by <code>[AtomicWrite]</code> (not <code>[MalformedCorpus]</code>): a failed write leaves the
+  prior file byte-intact, atomic replace with no temp/backup litter, relative-path
+  handling — plus three <code>STATIC_FORMAT_GUARDS</code> locking in that each saver routes
+  through the helper.</li>
+</ul>
+<h3 id="known-gaps">Known gaps<a class="headerlink" href="#known-gaps" title="Permanent link">¶</a></h3>
+<ul>
+<li>No dedicated <strong>importer-side A1 over-allocation</strong> test — the compressed
+  <code>splat_count</code> / <code>gaussian_bytes</code> overflow is tested against the WorldIO <em>loader</em>,
+  not <code>ResourceImporterGSplatWorld</code>'s validator mirror.</li>
+<li>No test exercises the fallible <strong><code>memalloc</code> OOM-probe</strong> path — the tagged A1 case
+  trips the <code>INT32_MAX</code> size cap first.</li>
+<li>No <strong><code>.gsplatcache</code> corrupt-cache fallback</strong> test — cache reads reuse the
+  world-format guards but are not fed a malformed cache directly.</li>
+<li>No <strong>compressed gzip-bomb within</strong> the <code>INT32_MAX</code> cap.</li>
+</ul>
+<h2 id="optional-follow-ons-not-required-for-g2">Optional follow-ons (not required for G2)<a class="headerlink" href="#optional-follow-ons-not-required-for-g2" title="Permanent link">¶</a></h2>
+<ul>
+<li><strong>Gap-fill cases:</strong> the four items under <a href="#known-gaps">Known gaps</a> above. Each
+  lands under the fix-first rule if it reveals a new hole.</li>
+<li><strong>Nightly mutation fuzzer</strong> (discovery, non-blocking): a scheduled
+  <code>continue-on-error</code> job that mutates valid saver outputs, spawns the binary once
+  per file (so an abort kills only that child), and reports candidate holes as
+  artifacts. It never auto-feeds the blocking corpus — a human triages → R3 fix →
+  distilled case added. This is how the corpus <em>grows</em> while staying "hardened-only".</li>
+</ul>
+<h2 id="running-locally">Running locally<a class="headerlink" href="#running-locally" title="Permanent link">¶</a></h2>
+<div class="highlight"><pre><span></span><code>python -m SCons platform=windows target=editor dev_build=yes tests=yes -j14
+bin/godot.windows.editor.dev.x86_64.console.exe --headless --test --test-case="*][MalformedCorpus]*"
+python tests/ci/run_module_tests.py --godot-binary &lt;binary&gt;   # full harness, strict lanes
+python tests/ci/run_module_tests.py --guard-only              # static atomic-saver guards
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><span class="k">extends</span><span class="w"> </span><span class="n">Node3D</span>
-
-<span class="c1">## Clears the current world and applies a new one at runtime.</span>
-<span class="err">@</span><span class="k">onready</span><span class="w"> </span><span class="k">var</span><span class="w"> </span><span class="n">world_node</span><span class="p">:</span><span class="w"> </span><span class="n">GaussianSplatWorld3D</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">$</span><span class="n">GaussianSplatWorld3D</span>
-
-<span class="k">func</span><span class="w"> </span><span class="n">swap_world</span><span class="p">(</span><span class="n">new_resource</span><span class="p">:</span><span class="w"> </span><span class="n">GaussianSplatWorld</span><span class="p">)</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="nb nb-Type">void</span><span class="p">:</span>
-<span class="w">    </span><span class="n">world_node</span><span class="o">.</span><span class="n">clear_world</span><span class="p">()</span>
-<span class="w">    </span><span class="n">world_node</span><span class="o">.</span><span class="n">set_world</span><span class="p">(</span><span class="n">new_resource</span><span class="p">)</span>
-<span class="w">    </span><span class="n">world_node</span><span class="o">.</span><span class="n">set_async_upload_enabled</span><span class="p">(</span><span class="bp">true</span><span class="p">)</span>
-<span class="w">    </span><span class="n">world_node</span><span class="o">.</span><span class="n">set_use_frustum_culling</span><span class="p">(</span><span class="bp">true</span><span class="p">)</span>
-<span class="w">    </span><span class="n">world_node</span><span class="o">.</span><span class="n">set_max_splat_count</span><span class="p">(</span><span class="mi">2000000</span><span class="p">)</span>
-</code></pre></div>
-<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">¶</a></h2>
-<table>
-  <thead>
-    <tr>
-      <th>Problem</th>
-      <th>Action</th>
-      <th>Source</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>World data does not appear after assigning a resource.</td>
-      <td>Ensure <code>auto_apply_on_ready</code> is enabled, or call <code>apply_world()</code> manually after the node enters the tree.</td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp:162</code></td>
-    </tr>
-    <tr>
-      <td>Non-identity transform warning logged at startup.</td>
-      <td>Place the <code>GaussianSplatWorld3D</code> node at the scene origin. Merged world data is assumed to be in world space.</td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp:425</code></td>
-    </tr>
-    <tr>
-      <td>Renderer ownership conflict prevents data from loading.</td>
-      <td>Only one <code>GaussianSplatWorld3D</code> per World3D should drive the shared renderer. Remove or disable duplicate world nodes.</td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp:455</code></td>
-    </tr>
-    <tr>
-      <td>Zero-splat warning printed and renderer stays disconnected.</td>
-      <td>Verify the <code>GaussianSplatWorld</code> resource was exported with splat data. Check the source <code>GaussianSplatContainer</code> merge result.</td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp:498</code></td>
-    </tr>
-  </tbody>
-</table>
 
 
 

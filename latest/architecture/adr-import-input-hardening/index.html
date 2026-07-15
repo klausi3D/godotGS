@@ -1818,16 +1818,24 @@ against this ADR when implemented.</p>
 <li><strong>No format/version change.</strong> No <code>.gsplatworld</code>/<code>.gsf</code>/<code>.spz</code>/<code>.ply</code> file that
   loads today stops loading (except crafted files that <em>should</em> be rejected).
   Verified per slice by a load/round-trip test on saver output.</li>
-<li><strong>New rejections are conservative.</strong> A1's caps only reject payloads that either
-  exceed the GPU single-buffer limit (unusable regardless) or are wildly
-  disproportionate to their compressed size (not producible by the saver).</li>
+<li><strong>New rejections are conservative.</strong> A1's caps only reject payloads that exceed
+  the addressable / decompressible size limit (<code>INT32_MAX</code>, unusable regardless)
+  or that fail a fallible pre-resize allocation probe — never a payload that
+  actually fits. (An earlier revision added a compression-ratio cap; it was
+  removed, because valid highly-regular saver output can legitimately exceed any
+  fixed ratio — see <em>No ratio cap</em> above.)</li>
 <li><strong>Constants are duplicated by hand</strong> between the loader and the importer
   validator (following the file's existing convention for magic/version/flags).
   This is flagged for Phase F3 (unify co-bumped constants behind a shared
   header); until then each cap carries a <code>KEEP IN SYNC</code> comment.</li>
-<li><strong>Seeds the G2 malformed-file corpus.</strong> The per-slice regression fixtures
-  (crafted/truncated/adversarial-header) become the CI corpus that exit
-  criterion G2 requires.</li>
+<li><strong>Realized as the G2 malformed-file corpus lane.</strong> The per-slice regression
+  fixtures (crafted/truncated/adversarial-header) are now aggregated under a
+  single strict, blocking <code>[MalformedCorpus]</code> doctest lane, with <code>[SPZ]</code> and
+  <code>[AtomicWrite]</code> promoted to strict lanes and a static "all savers atomic"
+  guard — realizing exit criterion <strong>G2</strong>. See
+  <a href="../g2-malformed-corpus/"><code>g2-malformed-corpus.md</code></a> for the coverage matrix and
+  the fix-first-then-add workflow. New hostile-input holes are hardened here first
+  (a fix PR under this ADR) and only then added to the corpus.</li>
 </ul>
 
 
@@ -1849,7 +1857,7 @@ against this ADR when implemented.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 15, 2026 08:46:50 UTC">July 15, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 15, 2026 10:47:45 UTC">July 15, 2026</span>
   </span>
 
     
