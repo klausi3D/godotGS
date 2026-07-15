@@ -68,7 +68,7 @@ Legend: **✓** covered · **—** n/a / structurally impossible · **○** opti
 | --- | :---: | :---: | :---: | :---: | :---: | :---: |
 | WorldIO uncompressed (`ResourceFormatLoaderGaussianSplatWorld::load`) | ✓ | ✓ | ✓ | ✓ (metadata `fits_within`, SH-flag, chunk-idx) | — (bounded by `fits_within`) | ✓ |
 | WorldIO compressed (`kFlagCompressed`) | — | ✓ | ✓ | ✓ (blob mismatch) | ✓ (`splat_count` > INT32_MAX + OOM probe) | ○ gzip-bomb *within* INT32_MAX |
-| gsplatworld importer (`ResourceImporter*`, `[Importer]`) | ✓ | via loader | via loader | ✓ (invalid payloads) | ✓ (A1 mirror cap) | ✓ (decode-invalid) |
+| gsplatworld importer (`ResourceImporter*`, `[Importer]`) | ✓ | via loader | via loader | ✓ (invalid payloads) | ○ (A1 mirror cap — no dedicated importer test) | ✓ (decode-invalid) |
 | PLY loader (`PLYLoader::load_file`) | ✓ | (implicit) | — | ✓ (vertex_count) | — | ✓ (unknown type, int-typed props, big-endian) |
 | PLY importer / ASCII (`[Importer]`) | — | — | — | ✓ (missing required props) | — | ✓ (malformed ASCII rows, unknown extension) |
 | PLY cache read (`.gsplatcache`) | via world guards | via world guards | via world guards | via world guards | via world guards | ○ corrupt-cache fallback test |
