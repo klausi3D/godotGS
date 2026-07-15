@@ -400,6 +400,28 @@ RUNTIME_SHADER_MATRIX: tuple[ShaderMatrixEntry, ...] = (
                 _merge_defines(TILE_GLOBAL_SORT_DEFINES, ("GS_TILE_PREFIX_PASS_3=1", "GS_PREFIX_LOCAL_SIZE=128")),
                 ("#1318",),
             ),
+            # GS_ENABLE_SUBGROUPS reaches every prefix-scan pass at runtime:
+            # ShaderCompilationManager::_build_prefix_defines() derives from
+            # TileRenderer::_build_common_shader_defines(true), and tile_prefix_scan.glsl
+            # includes platform_compat.glsl where the define switches the subgroup
+            # extensions to `require`. Compile the subgroup permutation of all three
+            # passes so the runtime subgroup path never ships uncompiled. The
+            # per-variant _variant_target_env() lifts these to target-env vulkan1.1.
+            Variant(
+                "pass1_subgroups",
+                _merge_defines(TILE_GLOBAL_SORT_DEFINES, ("GS_TILE_PREFIX_PASS_1=1", "GS_PREFIX_LOCAL_SIZE=128", "GS_ENABLE_SUBGROUPS=1")),
+                ("#1318",),
+            ),
+            Variant(
+                "pass2_subgroups",
+                _merge_defines(TILE_GLOBAL_SORT_DEFINES, ("GS_TILE_PREFIX_PASS_2=1", "GS_PREFIX_LOCAL_SIZE=256", "GS_ENABLE_SUBGROUPS=1")),
+                ("#1318",),
+            ),
+            Variant(
+                "pass3_subgroups",
+                _merge_defines(TILE_GLOBAL_SORT_DEFINES, ("GS_TILE_PREFIX_PASS_3=1", "GS_PREFIX_LOCAL_SIZE=128", "GS_ENABLE_SUBGROUPS=1")),
+                ("#1318",),
+            ),
         ),
     ),
     ShaderMatrixEntry(
@@ -673,6 +695,9 @@ REQUIRED_VARIANT_DEFINES: dict[str, tuple[str, ...]] = {
         "GS_PACKED_STAGE_DATA=1",     # packed projection payload (tile_projection_common.glsl:13)
         "GS_SH_AMORTIZATION=1",       # SH color cache binding (tile_binning.glsl:283)
         "GS_ENABLE_SUBGROUPS=1",      # subgroup extensions (platform_compat.glsl:18)
+    ),
+    "modules/gaussian_splatting/shaders/tile_prefix_scan.glsl": (
+        "GS_ENABLE_SUBGROUPS=1",      # subgroup extensions via _build_prefix_defines (platform_compat.glsl:18)
     ),
     "modules/gaussian_splatting/shaders/tile_rasterizer.glsl": (
         "GS_PACKED_STAGE_DATA=1",
