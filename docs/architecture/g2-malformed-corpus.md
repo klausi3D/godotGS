@@ -59,29 +59,56 @@ kills the (isolated, dedicated) lane process → non-zero exit → strict-lane f
 
 Never add an un-hardened case — it would abort the lane.
 
-## Coverage matrix
+## Coverage
 
-Legend: **✓** covered · **—** n/a / structurally impossible · **○** optional gap
-(follow-on).
+The **authoritative** coverage is the set of `[MalformedCorpus]`-tagged tests
+themselves (43 cases at time of writing). This section summarizes them per read
+path — each item corresponds to a tagged case, so it cannot silently drift from a
+non-existent CI check.
 
-| Parser entry point | Truncation | Bad magic | Bad version | OOB / overflow counts & offsets | Over-alloc count | Format-specific |
-| --- | :---: | :---: | :---: | :---: | :---: | :---: |
-| WorldIO uncompressed (`ResourceFormatLoaderGaussianSplatWorld::load`) | ✓ | ✓ | ✓ | ✓ (metadata `fits_within`, SH-flag, chunk-idx) | — (bounded by `fits_within`) | ✓ |
-| WorldIO compressed (`kFlagCompressed`) | — | ✓ | ✓ | ✓ (blob mismatch) | ✓ (`splat_count` > INT32_MAX + OOM probe) | ○ gzip-bomb *within* INT32_MAX |
-| gsplatworld importer (`ResourceImporter*`, `[Importer]`) | ✓ | via loader | via loader | ✓ (invalid payloads) | ○ (A1 mirror cap — no dedicated importer test) | ✓ (decode-invalid) |
-| PLY loader (`PLYLoader::load_file`) | ✓ | (implicit) | — | ✓ (vertex_count) | — | ✓ (unknown type, int-typed props, big-endian) |
-| PLY importer / ASCII (`[Importer]`) | — | — | — | ✓ (missing required props) | — | ✓ (malformed ASCII rows, unknown extension) |
-| PLY cache read (`.gsplatcache`) | via world guards | via world guards | via world guards | via world guards | via world guards | ○ corrupt-cache fallback test |
-| SPZ loader (`SPZLoader::load_file`, `[SPZ]` + `[Importer]`) | ✓ (< 16 B) | ✓ | ✓ | ✓ (num_points 0 / > cap) | ✓ (count cap + payload/decomp caps) | ✓ (`fractional_bits` > 24 = A2; `sh_degree` > 3; malformed gzip header) |
-| GSF scene serializer (`load_scene`) | ✓ | ✓ | ✓ | ✓ (checksum strip/tamper/zero) | — | — |
-| Incremental `.gsif` loader | ✓ | — | — | ✓ (bad table, OOR / overflow slices) | ✓ | — |
-| Atomic savers (`gs_atomic_file_write`) | ✓ (fail preserves prior) | — | — | — | — | ✓ (no litter, relative-path) + static routing guards |
+- **WorldIO loader** (`ResourceFormatLoaderGaussianSplatWorld::load`, `[WorldIO]`,
+  8): bad magic, wrong version, truncated file, metadata range overflow
+  (`fits_within`), high-SH count without the high-SH flag, chunk-index byte-count
+  overflow; compressed: `splat_count` over the resident payload cap, and a blob
+  that does not decompress to the declared size.
+- **gsplatworld importer** (`ResourceImporter*`, `[Importer]`, 3): rejects
+  invalid, truncated, and decode-invalid payloads.
+- **PLY loader** (`PLYLoader::load_file`, `[PLY]`, 5): missing `end_header`,
+  unknown property type, vertex_count out of int range; integer-typed properties
+  convert to float (A4), including big-endian byte-swap.
+- **PLY importer / ASCII** (`[Importer]`, 3): missing required PLY properties,
+  malformed ASCII rows, unknown raw extension.
+- **SPZ loader** (`SPZLoader::load_file`, `[SPZ]` 7 + `[Importer]` 6): bad magic,
+  unsupported version, header < 16 B, zero / over-cap point count, `sh_degree` > 3,
+  `fractional_bits` > 24 (**A2**); truncated / oversized payload sections,
+  oversized decompression claims, header-derived decompression cap, malformed gzip
+  optional headers. (SPZ has both loader-level and importer-level coverage.)
+- **GSF scene serializer** (`load_scene`, `[Persistence]`, 7): non-chunked
+  magic-at-byte0, forward-incompatible version, truncated chunked header, and
+  checksum stripped / tampered / zeroed (protected + legacy).
+- **Incremental `.gsif` loader** (`[Persistence]`, 4): malformed change tables,
+  truncated change-table header, out-of-range and overflow-sized payload slices.
+- **Atomic savers** (`gs_atomic_file_write`): the "savers atomic" clause of G2,
+  carried by `[AtomicWrite]` (not `[MalformedCorpus]`): a failed write leaves the
+  prior file byte-intact, atomic replace with no temp/backup litter, relative-path
+  handling — plus three `STATIC_FORMAT_GUARDS` locking in that each saver routes
+  through the helper.
+
+### Known gaps (○, follow-on)
+
+- No dedicated **importer-side A1 over-allocation** test — the compressed
+  `splat_count` / `gaussian_bytes` overflow is tested against the WorldIO *loader*,
+  not `ResourceImporterGSplatWorld`'s validator mirror.
+- No test exercises the fallible **`memalloc` OOM-probe** path — the tagged A1 case
+  trips the `INT32_MAX` size cap first.
+- No **`.gsplatcache` corrupt-cache fallback** test — cache reads reuse the
+  world-format guards but are not fed a malformed cache directly.
+- No **compressed gzip-bomb within** the `INT32_MAX` cap.
 
 ## Optional follow-ons (not required for G2)
 
-- **Gap-fill cases** (○ above): a compressed gzip-bomb within the INT32_MAX cap,
-  a dedicated importer-validator A1 mirror test, and a corrupt-`.gsplatcache`
-  fallback test. Each lands under the fix-first rule if it reveals a new hole.
+- **Gap-fill cases:** the four items under [Known gaps](#known-gaps--follow-on)
+  above. Each lands under the fix-first rule if it reveals a new hole.
 - **Nightly mutation fuzzer** (discovery, non-blocking): a scheduled
   `continue-on-error` job that mutates valid saver outputs, spawns the binary once
   per file (so an abort kills only that child), and reports candidate holes as
