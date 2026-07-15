@@ -82,9 +82,12 @@ against this ADR when implemented.
 - **No format/version change.** No `.gsplatworld`/`.gsf`/`.spz`/`.ply` file that
   loads today stops loading (except crafted files that *should* be rejected).
   Verified per slice by a load/round-trip test on saver output.
-- **New rejections are conservative.** A1's caps only reject payloads that either
-  exceed the GPU single-buffer limit (unusable regardless) or are wildly
-  disproportionate to their compressed size (not producible by the saver).
+- **New rejections are conservative.** A1's caps only reject payloads that exceed
+  the addressable / decompressible size limit (`INT32_MAX`, unusable regardless)
+  or that fail a fallible pre-resize allocation probe — never a payload that
+  actually fits. (An earlier revision added a compression-ratio cap; it was
+  removed, because valid highly-regular saver output can legitimately exceed any
+  fixed ratio — see *No ratio cap* above.)
 - **Constants are duplicated by hand** between the loader and the importer
   validator (following the file's existing convention for magic/version/flags).
   This is flagged for Phase F3 (unify co-bumped constants behind a shared

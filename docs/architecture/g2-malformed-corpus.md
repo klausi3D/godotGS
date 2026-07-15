@@ -12,14 +12,20 @@ This lane turns those one-off fixes into a single, blocking, growing gate.
 
 ## How it works
 
-- **A single strict gate by tag aggregation.** Every malformed-**input**
-  rejection test carries a cross-cutting `[MalformedCorpus]` tag in its
-  `TEST_CASE` name. doctest matches the whole decorated name, so each case stays
-  in its per-format lane (`[WorldIO]`, `[PLY]`, `[SPZ]`, `[Persistence]`) **and**
-  joins the aggregate `[MalformedCorpus]` lane — no test is moved or duplicated.
-- **In-test byte generators, no committed blobs.** Each case writes a
-  structurally valid file (a **positive control** asserts it loads), then patches
-  exactly one field so the matching loader guard is the sole failure cause. This
+- **A single strict gate by tag aggregation.** Malformed-file-**input** rejection
+  tests across the import / persistence read paths carry a cross-cutting
+  `[MalformedCorpus]` tag in their `TEST_CASE` name. doctest matches the whole
+  decorated name, so each case stays in its per-format lane (`[WorldIO]`, `[PLY]`,
+  `[SPZ]`, `[Persistence]`, `[Importer]`) **and** joins the aggregate
+  `[MalformedCorpus]` lane — no test is moved or duplicated. (Value-level
+  rejections that are not file input — e.g. `[Config]` validation of invalid
+  config *values* — are intentionally out of scope.)
+- **In-test byte generators, no committed blobs.** Most cases write a
+  structurally valid file (a **positive control** asserts it loads), then patch
+  one field so the matching guard is the sole failure cause; some PLY and
+  persistence cases build a synthetic malformed fixture directly, and a couple of
+  PLY cases assert correct *handling* (integer-typed-property conversion) of
+  hostile-but-legal input rather than rejection. This
   keeps diffs reviewable, deterministic across runners, and clear of the
   tracked-artifact hygiene guard (`tests/ci/run_module_tests.py`).
 - **Strict, blocking lanes.** `[MalformedCorpus]`, `[SPZ]`, and `[AtomicWrite]`
@@ -62,11 +68,12 @@ Legend: **✓** covered · **—** n/a / structurally impossible · **○** opti
 | --- | :---: | :---: | :---: | :---: | :---: | :---: |
 | WorldIO uncompressed (`ResourceFormatLoaderGaussianSplatWorld::load`) | ✓ | ✓ | ✓ | ✓ (metadata `fits_within`, SH-flag, chunk-idx) | — (bounded by `fits_within`) | ✓ |
 | WorldIO compressed (`kFlagCompressed`) | — | ✓ | ✓ | ✓ (blob mismatch) | ✓ (`splat_count` > INT32_MAX + OOM probe) | ○ gzip-bomb *within* INT32_MAX |
-| WorldIO importer validator (editor) | — | — | — | ✓ (mirror cap) | ✓ (mirror) | ○ dedicated mirror test |
+| gsplatworld importer (`ResourceImporter*`, `[Importer]`) | ✓ | via loader | via loader | ✓ (invalid payloads) | ✓ (A1 mirror cap) | ✓ (decode-invalid) |
 | PLY loader (`PLYLoader::load_file`) | ✓ | (implicit) | — | ✓ (vertex_count) | — | ✓ (unknown type, int-typed props, big-endian) |
+| PLY importer / ASCII (`[Importer]`) | — | — | — | ✓ (missing required props) | — | ✓ (malformed ASCII rows, unknown extension) |
 | PLY cache read (`.gsplatcache`) | via world guards | via world guards | via world guards | via world guards | via world guards | ○ corrupt-cache fallback test |
-| SPZ loader (`SPZLoader::load_file`) | ✓ (< 16 B) | ✓ | ✓ | ✓ (num_points 0 / > cap) | ✓ (count cap before sizing) | ✓ (`fractional_bits` > 24 = A2; `sh_degree` > 3) |
-| GSF scene serializer (`load_scene`) | ✓ | ✓ | ✓ | ✓ (checksum strip/tamper/zero) | — | ✓ (unknown-chunk skip) |
+| SPZ loader (`SPZLoader::load_file`, `[SPZ]` + `[Importer]`) | ✓ (< 16 B) | ✓ | ✓ | ✓ (num_points 0 / > cap) | ✓ (count cap + payload/decomp caps) | ✓ (`fractional_bits` > 24 = A2; `sh_degree` > 3; malformed gzip header) |
+| GSF scene serializer (`load_scene`) | ✓ | ✓ | ✓ | ✓ (checksum strip/tamper/zero) | — | — |
 | Incremental `.gsif` loader | ✓ | — | — | ✓ (bad table, OOR / overflow slices) | ✓ | — |
 | Atomic savers (`gs_atomic_file_write`) | ✓ (fail preserves prior) | — | — | — | — | ✓ (no litter, relative-path) + static routing guards |
 

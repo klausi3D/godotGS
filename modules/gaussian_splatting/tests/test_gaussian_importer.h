@@ -820,7 +820,7 @@ TEST_CASE("[GaussianSplatting][Importer] Imported fidelity defaults do not overr
     _remove_user_file(save_base_path + ".res");
 }
 
-TEST_CASE("[GaussianSplatting][Importer] Missing required PLY properties fail consistently across strict paths") {
+TEST_CASE("[GaussianSplatting][Importer][MalformedCorpus] Missing required PLY properties fail consistently across strict paths") {
     const String source_path = "user://gaussian_missing_required_opacity.ply";
     const String save_base_path = "user://gaussian_missing_required_opacity_import";
 
@@ -1199,7 +1199,7 @@ TEST_CASE("[GaussianSplatting][Importer] SPZ importer handles missing file grace
     CHECK_MESSAGE(import_err == ERR_FILE_NOT_FOUND, "SPZ importer should return ERR_FILE_NOT_FOUND for missing files.");
 }
 
-TEST_CASE("[GaussianSplatting][Importer] SPZ loader rejects truncated payload sections") {
+TEST_CASE("[GaussianSplatting][Importer][MalformedCorpus] SPZ loader rejects truncated payload sections") {
     const String source_path = "user://gaussian_spz_truncated_payload.spz";
 
     // Version 2, 2 points, SH degree 0. Minimum payload is 38 bytes; provide 37 bytes.
@@ -1259,7 +1259,7 @@ TEST_CASE("[GaussianSplatting][Importer] SPZ loader marks DC encoding as linear 
     _remove_user_file(source_path);
 }
 
-TEST_CASE("[GaussianSplatting][Importer] SPZ loader rejects out-of-range fractional_bits") {
+TEST_CASE("[GaussianSplatting][Importer][MalformedCorpus] SPZ loader rejects out-of-range fractional_bits") {
     // A2 regression: fractional_bits is used as `1 << fractional_bits` in
     // fixed_to_float(); >= 31 is shift UB and > 24 is nonsensical for the 24-bit
     // fixed-point positions. Craft a structurally VALID single-point v2 file (the
@@ -1448,7 +1448,7 @@ TEST_CASE("[GaussianSplatting][Importer] PLY importer propagates SH band-1 coeff
     _remove_user_file(save_base_path + ".res");
 }
 
-TEST_CASE("[GaussianSplatting][Importer] PLY ASCII loader hard-fails on malformed rows") {
+TEST_CASE("[GaussianSplatting][Importer][MalformedCorpus] PLY ASCII loader hard-fails on malformed rows") {
     // Behavior change: previously a project-setting could downgrade malformed-row
     // handling to a warn-and-skip. That path has been removed — malformed ASCII
     // rows now always return ERR_FILE_CORRUPT.
@@ -1490,7 +1490,7 @@ end_header
     _remove_user_file(source_path);
 }
 
-TEST_CASE("[GaussianSplatting][Importer] GaussianSplatAsset::load_from_file hard-fails on unknown raw extensions") {
+TEST_CASE("[GaussianSplatting][Importer][MalformedCorpus] GaussianSplatAsset::load_from_file hard-fails on unknown raw extensions") {
     // Behavior change: unknown raw extensions previously fell through to the PLY loader.
     // They now hard-fail with ERR_FILE_UNRECOGNIZED instead of probing loosely.
     const String source_path = "user://gaussian_asset_unknown_ext.xyz";
@@ -1638,7 +1638,7 @@ TEST_CASE("[GaussianSplatting][Importer] populate_gaussian_data defaults missing
     CHECK(gaussian_get_dc_encoding(g.render_meta) == GAUSSIAN_DC_ENCODING_LINEAR_RGB);
 }
 
-TEST_CASE("[GaussianSplatting][Importer] SPZ loader rejects oversized payload sections") {
+TEST_CASE("[GaussianSplatting][Importer][MalformedCorpus] SPZ loader rejects oversized payload sections") {
     const String source_path = "user://gaussian_spz_oversized_payload.spz";
 
     // Version 2, 1 point, SH degree 0. Exact payload is 19 bytes; provide 20 bytes.
@@ -1665,7 +1665,7 @@ TEST_CASE("[GaussianSplatting][Importer] SPZ loader rejects oversized payload se
     _remove_user_file(source_path);
 }
 
-TEST_CASE("[GaussianSplatting][Importer] SPZ loader rejects oversized decompression claims") {
+TEST_CASE("[GaussianSplatting][Importer][MalformedCorpus] SPZ loader rejects oversized decompression claims") {
     const String source_path = "user://gaussian_spz_oversized_claim.spz";
 
     // Minimal gzip-like stream with ISIZE trailer set to 2 GiB - 1.
@@ -1700,7 +1700,7 @@ TEST_CASE("[GaussianSplatting][Importer] SPZ loader rejects oversized decompress
     _remove_user_file(source_path);
 }
 
-TEST_CASE("[GaussianSplatting][Importer] SPZ loader rejects malformed gzip optional headers") {
+TEST_CASE("[GaussianSplatting][Importer][MalformedCorpus] SPZ loader rejects malformed gzip optional headers") {
     const String source_path = "user://gaussian_spz_malformed_gzip_header.spz";
 
     PackedByteArray malformed_gzip;
@@ -1734,7 +1734,7 @@ TEST_CASE("[GaussianSplatting][Importer] SPZ loader rejects malformed gzip optio
     _remove_user_file(source_path);
 }
 
-TEST_CASE("[GaussianSplatting][Importer] SPZ loader enforces header-derived decompression cap") {
+TEST_CASE("[GaussianSplatting][Importer][MalformedCorpus] SPZ loader enforces header-derived decompression cap") {
     const String source_path = "user://gaussian_spz_payload_cap.spz";
 
     // Version 2, SH degree 3, 20M points => expected payload exceeds 1 GiB cap.
@@ -1948,7 +1948,7 @@ TEST_CASE("[GaussianSplatting][Importer] gsplatworld importer preserves payload 
     _remove_user_file(imported_path);
 }
 
-TEST_CASE("[GaussianSplatting][Importer] gsplatworld importer rejects invalid payloads") {
+TEST_CASE("[GaussianSplatting][Importer][MalformedCorpus] gsplatworld importer rejects invalid payloads") {
     const String source_path = "user://gsplatworld_importer_invalid_source.gsplatworld";
     const String save_base_path = "user://gsplatworld_importer_invalid";
     const String imported_path = save_base_path + ".gsplatworld";
@@ -1973,7 +1973,7 @@ TEST_CASE("[GaussianSplatting][Importer] gsplatworld importer rejects invalid pa
     _remove_user_file(imported_path);
 }
 
-TEST_CASE("[GaussianSplatting][Importer] gsplatworld importer rejects truncated payloads") {
+TEST_CASE("[GaussianSplatting][Importer][MalformedCorpus] gsplatworld importer rejects truncated payloads") {
     Ref<GaussianData> data;
     data.instantiate();
     data->resize(2);
@@ -2048,7 +2048,7 @@ TEST_CASE("[GaussianSplatting][Importer] gsplatworld importer rejects truncated 
     _remove_user_file(imported_path);
 }
 
-TEST_CASE("[GaussianSplatting][Importer] gsplatworld importer rejects decode-invalid payloads") {
+TEST_CASE("[GaussianSplatting][Importer][MalformedCorpus] gsplatworld importer rejects decode-invalid payloads") {
     Ref<GaussianData> data;
     data.instantiate();
     data->resize(2);
