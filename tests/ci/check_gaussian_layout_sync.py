@@ -133,11 +133,16 @@ _UBO_BLOCK_RE = re.compile(r"uniform\s+RenderParams\s*\{(?P<body>.*?)\}\s*params
 _UBO_FIELD_RE = re.compile(r"^(?P<type>\w+)\s+(?P<name>\w+)(?:\[(?P<count>[A-Za-z_]\w*|\d+)\])?\s*;$")
 _GLSL_DEFINE_RE = re.compile(r"^\s*#define\s+(?P<name>\w+)\s+(?P<value>\d+)\b", re.MULTILINE)
 _RENDER_PARAMS_VERSION_HOST_RE = re.compile(r"GS_RENDER_PARAMS_LAYOUT_VERSION\s*=\s*(\d+)")
-# Host C++ field: leading scalar type token + name, tolerating 1D and 2D array suffixes
-# (e.g. `float effector_spheres[GS_MAX_SPHERE_EFFECTORS][4];`). Only the base type token
-# is captured -- layout is NOT computed for the UBO host struct, so this deliberately
-# avoids the mat/2D-array parsing the std430 engine cannot do.
-_HOST_FIELD_TYPE_RE = re.compile(r"^(?P<type>\w+)\s+(?P<name>\w+)\s*(?:\[[A-Za-z0-9_]+\]\s*)*;$")
+# Host C++ field: leading scalar type token + name + any trailing 1D/2D array suffixes
+# (e.g. `float effector_spheres[GS_MAX_SPHERE_EFFECTORS][4];`). The base type token drives
+# the scalar-kind check; the array dimensions drive the vector-WIDTH check. Full layout is
+# still NOT computed -- this deliberately avoids the mat/std140-stride parsing the std430
+# engine cannot do; it only multiplies scalar counts.
+_HOST_FIELD_TYPE_RE = re.compile(r"^(?P<type>\w+)\s+(?P<name>\w+)\s*(?P<dims>(?:\[[A-Za-z0-9_]+\]\s*)*);$")
+_HOST_ARRAY_DIM_RE = re.compile(r"\[([A-Za-z0-9_]+)\]")
+# File-level C++ constants (e.g. `static constexpr uint32_t GS_MAX_SPHERE_EFFECTORS = 4;`)
+# used to resolve host array bounds for the width check.
+_HOST_CONST_RE = re.compile(r"static\s+constexpr\s+\w+\s+(?P<name>\w+)\s*=\s*(?P<value>\d+)[uU]?\s*;")
 
 # Scalar "kind" of a type: float / uint / int. mat* and vec* are float-kind; uvec*/uint
 # are uint-kind; ivec*/int are int-kind. A same-size type drift (e.g. GLSL `uint`->`float`
@@ -154,6 +159,23 @@ _HOST_SCALAR_KIND: dict[str, str] = {
     "Vector2": "float", "Vector3": "float", "Vector4": "float", "Color": "float",
     "uint": "uint", "uint32_t": "uint", "uint16_t": "uint", "uint8_t": "uint",
     "int": "int", "int32_t": "int", "int16_t": "int", "int8_t": "int",
+}
+# Scalar component count of one element of a type (the WIDTH check compares total scalar
+# counts, so a member's width is base-components x product(array dims)). Comparing TOTAL
+# scalars -- not (element_width, array_len) pairs -- is what makes the legitimate
+# C++ `float x[N][4]` <-> GLSL `vec4 x[N]` and `float m[16]` <-> `mat4 m` pairings match
+# (16 == 16) without reintroducing 2D-array/mat layout parsing.
+_GLSL_BASE_COMPONENTS: dict[str, int] = {
+    "float": 1, "int": 1, "uint": 1,
+    "vec2": 2, "vec3": 3, "vec4": 4,
+    "ivec2": 2, "ivec3": 3, "ivec4": 4,
+    "uvec2": 2, "uvec3": 3, "uvec4": 4,
+    "mat2": 4, "mat3": 9, "mat4": 16,
+}
+_HOST_BASE_COMPONENTS: dict[str, int] = {
+    "float": 1, "double": 1, "uint": 1, "uint32_t": 1, "uint16_t": 1, "uint8_t": 1,
+    "int": 1, "int32_t": 1, "int16_t": 1, "int8_t": 1,
+    "Vector2": 2, "Vector3": 3, "Vector4": 4, "Color": 4,
 }
 
 
@@ -476,17 +498,24 @@ class _UboMember:
     name: str
     type_name: str
     offset: int
+    array_len: int  # resolved GLSL array length (1 when the member is not an array)
 
 
-def _parse_host_struct_field_types(host_text: str, struct_name: str) -> dict[str, str]:
-    """Return {field_name: base C++ type token} for a struct, tolerating 1D/2D array
-    suffixes. Layout is deliberately NOT computed (that needs the mat/2D-array parsing we
-    avoid); only the leading scalar type token is captured so its scalar KIND can be
-    compared against the GLSL mirror."""
+@dataclass(frozen=True)
+class _HostFieldType:
+    base_type: str
+    array_dims: tuple[str, ...]  # raw dimension tokens, e.g. ("GS_MAX_SPHERE_EFFECTORS", "4")
+
+
+def _parse_host_struct_field_types(host_text: str, struct_name: str) -> dict[str, _HostFieldType]:
+    """Return {field_name: _HostFieldType(base_type, array_dims)} for a struct, tolerating
+    1D/2D array suffixes. Full layout is deliberately NOT computed (that needs the
+    mat/std140-stride parsing we avoid); only the base scalar type token and the raw array
+    dimensions are captured, which is enough for the scalar-KIND and total-WIDTH checks."""
     match = _struct_pattern(struct_name).search(host_text)
     if not match:
         raise RuntimeError(f"Could not find `struct {struct_name}` to read field types")
-    types: dict[str, str] = {}
+    types: dict[str, _HostFieldType] = {}
     for raw_line in match.group("body").splitlines():
         line = raw_line.split("//", 1)[0].strip()
         if not line or line.startswith(("static_assert", "static ", "using ", "typedef ", "friend ", "#")):
@@ -495,8 +524,26 @@ def _parse_host_struct_field_types(host_text: str, struct_name: str) -> dict[str
             continue
         field_match = _HOST_FIELD_TYPE_RE.match(line)
         if field_match:
-            types[field_match.group("name")] = field_match.group("type")
+            dims = tuple(_HOST_ARRAY_DIM_RE.findall(field_match.group("dims")))
+            types[field_match.group("name")] = _HostFieldType(field_match.group("type"), dims)
     return types
+
+
+def _host_field_scalar_width(field: _HostFieldType, host_constants: dict[str, int]) -> int | None:
+    """Total scalar-component count of a host field = base components x product(array dims),
+    or None if the base type is unknown or a dimension token cannot be resolved."""
+    base = _HOST_BASE_COMPONENTS.get(field.base_type)
+    if base is None:
+        return None
+    width = base
+    for dim in field.array_dims:
+        if dim.isdigit():
+            width *= int(dim)
+        elif dim in host_constants:
+            width *= host_constants[dim]
+        else:
+            return None
+    return width
 
 
 def _walk_std140_members(
@@ -533,7 +580,7 @@ def _walk_std140_members(
             failures.append(f"{glsl_rel}: {exc}")
             return None
         offset = _round_up(offset, alignment)
-        members.append(_UboMember(name, type_name, offset))
+        members.append(_UboMember(name, type_name, offset, count if count is not None else 1))
         offset += size
     return tuple(members), offset
 
@@ -541,14 +588,17 @@ def _walk_std140_members(
 def _check_ubo_member(
     member: _UboMember,
     host_offsets: dict[str, int],
-    host_types: dict[str, str],
+    host_types: dict[str, _HostFieldType],
+    host_constants: dict[str, int],
     glsl_rel: Path,
     host_rel: Path,
     failures: list[str],
 ) -> None:
-    """Assert one non-pad UBO member matches the C++ contract in both std140 OFFSET and
-    scalar KIND (float/uint/int). The kind check catches same-size type drift the offset
-    check cannot see (e.g. GLSL `uint`->`float`, `uvec4`->`vec4`)."""
+    """Assert one non-pad UBO member matches the C++ contract in std140 OFFSET, scalar KIND
+    (float/uint/int), and total scalar WIDTH. The kind check catches same-size type drift
+    the offset check cannot see (GLSL `uint`->`float`, `uvec4`->`vec4`); the width check
+    catches same-kind shape drift the offset+kind checks cannot see (GLSL `vec4`->`float`
+    padded back to the same offsets/size)."""
     expected_offset = host_offsets.get(member.name)
     if expected_offset is None:
         failures.append(
@@ -565,21 +615,42 @@ def _check_ubo_member(
             f"{glsl_rel}: RenderParams.{member.name} GLSL type `{member.type_name}` has no known scalar kind; cannot verify against TileRenderParamsGPU"
         )
         return
-    host_type = host_types.get(member.name)
-    if host_type is None:
+    host_field = host_types.get(member.name)
+    if host_field is None:
         # Fail closed: a member checked for offset must have a parseable C++ field type.
         failures.append(
-            f"{glsl_rel}: RenderParams member `{member.name}` has no parseable C++ field in TileRenderParamsGPU ({host_rel}); cannot verify scalar kind"
+            f"{glsl_rel}: RenderParams member `{member.name}` has no parseable C++ field in TileRenderParamsGPU ({host_rel}); cannot verify scalar kind/width"
         )
         return
-    host_kind = _HOST_SCALAR_KIND.get(host_type)
+
+    host_kind = _HOST_SCALAR_KIND.get(host_field.base_type)
     if host_kind is None:
         failures.append(
-            f"{host_rel}: TileRenderParamsGPU.{member.name} C++ type `{host_type}` has no known scalar kind; cannot verify RenderParams.{member.name}"
+            f"{host_rel}: TileRenderParamsGPU.{member.name} C++ type `{host_field.base_type}` has no known scalar kind; cannot verify RenderParams.{member.name}"
         )
     elif glsl_kind != host_kind:
         failures.append(
-            f"{glsl_rel}: RenderParams.{member.name} scalar kind `{glsl_kind}` (`{member.type_name}`) != TileRenderParamsGPU.{member.name} `{host_kind}` (`{host_type}`)"
+            f"{glsl_rel}: RenderParams.{member.name} scalar kind `{glsl_kind}` (`{member.type_name}`) != TileRenderParamsGPU.{member.name} `{host_kind}` (`{host_field.base_type}`)"
+        )
+
+    # Total scalar WIDTH: GLSL base components x array length vs C++ base components x
+    # product(array dims). Comparing totals makes `float x[N][4]` <-> `vec4 x[N]` (16==16)
+    # and `float m[16]` <-> `mat4 m` (16==16) match while still catching a same-kind shrink.
+    glsl_width = _GLSL_BASE_COMPONENTS.get(member.type_name)
+    if glsl_width is None:
+        failures.append(
+            f"{glsl_rel}: RenderParams.{member.name} GLSL type `{member.type_name}` has no known component width; cannot verify against TileRenderParamsGPU"
+        )
+        return
+    glsl_width *= member.array_len
+    host_width = _host_field_scalar_width(host_field, host_constants)
+    if host_width is None:
+        failures.append(
+            f"{host_rel}: TileRenderParamsGPU.{member.name} C++ field `{host_field.base_type}{''.join(f'[{d}]' for d in host_field.array_dims)}` width is unresolvable; cannot verify RenderParams.{member.name}"
+        )
+    elif glsl_width != host_width:
+        failures.append(
+            f"{glsl_rel}: RenderParams.{member.name} scalar width {glsl_width} (`{member.type_name}` x{member.array_len}) != TileRenderParamsGPU.{member.name} width {host_width}"
         )
 
 
@@ -605,13 +676,15 @@ def _check_render_params_ubo(host_text: str, failures: list[str]) -> None:
     RenderParams is a `uniform` block (not a `struct`) with mat4 and vec4[const]
     members, so the std430 struct machinery above cannot handle it. For every non-`_pad*`
     member this asserts (1) the std140 offset lands on the C++
-    `offsetof(TileRenderParamsGPU, <same name>)` contract and (2) the member's scalar KIND
+    `offsetof(TileRenderParamsGPU, <same name>)` contract, (2) the member's scalar KIND
     (float/uint/int) matches the C++ field's scalar kind -- so a same-size type drift the
-    offset check cannot see (GLSL `uint`->`float`, `uvec4`->`vec4`) is still caught. It
-    also asserts the block size matches the C++ `sizeof` contract and the two
-    GS_RENDER_PARAMS_LAYOUT_VERSION numbers agree. Padding members are skipped: they carry
-    different names/counts across the two files (host `_pad_before_camera[2]` vs GLSL
-    `_pad0`/`_pad1`) but occupy equal space.
+    offset check cannot see (GLSL `uint`->`float`, `uvec4`->`vec4`) is still caught, and
+    (3) the member's total scalar WIDTH matches the C++ field -- so a same-kind shape drift
+    the offset+kind checks cannot see (GLSL `vec4`->`float` padded back to the same
+    offsets/size) is still caught. It also asserts the block size matches the C++ `sizeof`
+    contract and the two GS_RENDER_PARAMS_LAYOUT_VERSION numbers agree. Padding members are
+    skipped: they carry different names/counts across the two files (host
+    `_pad_before_camera[2]` vs GLSL `_pad0`/`_pad1`) but occupy equal space.
     """
     glsl_text = RENDER_PARAMS_GLSL.read_text(encoding="utf-8")
     glsl_rel = RENDER_PARAMS_GLSL.relative_to(ROOT)
@@ -627,6 +700,7 @@ def _check_render_params_ubo(host_text: str, failures: list[str]) -> None:
     host_offsets = _parse_struct_offset_contracts(host_text, "TileRenderParamsGPU")
     host_size = _parse_struct_size_contract(host_text, "TileRenderParamsGPU")
     host_types = _parse_host_struct_field_types(host_text, "TileRenderParamsGPU")
+    host_constants = {m.group("name"): int(m.group("value")) for m in _HOST_CONST_RE.finditer(host_text)}
     if host_size is None:
         failures.append(f"{host_rel}: missing `sizeof(TileRenderParamsGPU)` static_assert to anchor RenderParams")
         return
@@ -645,7 +719,7 @@ def _check_render_params_ubo(host_text: str, failures: list[str]) -> None:
     for member in members:
         if member.name.startswith("_pad"):
             continue
-        _check_ubo_member(member, host_offsets, host_types, glsl_rel, host_rel, failures)
+        _check_ubo_member(member, host_offsets, host_types, host_constants, glsl_rel, host_rel, failures)
 
     block_size = _round_up(end_offset, 16)
     if block_size != host_size:
@@ -719,7 +793,7 @@ def main() -> int:
         + ", ".join(host_name for _, host_name, _ in EXTRA_MIRROR_STRUCTS)
         + "."
     )
-    print("[gaussian-layout-check] RenderParams std140 uniform block matches TileRenderParamsGPU offsets, scalar kinds, size, and layout version.")
+    print("[gaussian-layout-check] RenderParams std140 uniform block matches TileRenderParamsGPU offsets, scalar kinds, widths, size, and layout version.")
     return 0
 
 
