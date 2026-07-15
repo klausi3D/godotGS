@@ -21,7 +21,7 @@ REGISTER_TYPES = MODULE / "register_types.cpp"
 DOC_CLASSES = MODULE / "doc_classes"
 CONFIG_PY = MODULE / "config.py"
 
-# Capture the leaf class name, tolerating a namespace qualifier — ClassDB and the
+# Capture the leaf class name, tolerating a namespace qualifier - ClassDB and the
 # doc XML are keyed by the leaf, so GDREGISTER_CLASS(GaussianSplatting::Foo) -> Foo.
 _REGISTER_RE = re.compile(r"\bGDREGISTER(?:_ABSTRACT|_INTERNAL|_RUNTIME)?_CLASS\(\s*(?:\w+::)*(\w+)\s*\)")
 # The doc build (doc_data.gen.h generation + class.xsd validation) is the authority
@@ -60,7 +60,7 @@ def main() -> int:
 
     failures: list[str] = []
     # Every registered class must be listed in config.py get_doc_classes() so its XML
-    # is embedded into the editor docs — a present-but-unlisted XML is silently ignored.
+    # is embedded into the editor docs - a present-but-unlisted XML is silently ignored.
     for class_name in sorted(registered):
         if class_name not in doc_list_set:
             failures.append(
@@ -105,7 +105,7 @@ def main() -> int:
         return 1
 
     print(
-        f"[doc-classes-check] PASSED — all {len(registered)} registered classes have a doc_classes XML with a non-empty brief."
+        f"[doc-classes-check] PASSED - all {len(registered)} registered classes have a doc_classes XML with a non-empty brief."
     )
     return 0
 
