@@ -175,7 +175,20 @@ _GLSL_BASE_COMPONENTS: dict[str, int] = {
 _HOST_BASE_COMPONENTS: dict[str, int] = {
     "float": 1, "double": 1, "uint": 1, "uint32_t": 1, "uint16_t": 1, "uint8_t": 1,
     "int": 1, "int32_t": 1, "int16_t": 1, "int8_t": 1,
-    "Vector2": 2, "Vector3": 3, "Vector4": 4, "Color": 4,
+    "Vector2": 2, "Vector3": 3, "Vector4": 4, "Color": 4, "Quaternion": 4,
+}
+# Byte width of ONE scalar component of a host type. GLSL std140 UBO scalar components are
+# always 4 bytes, so every non-pad host member's per-component byte width must be 4 -- a
+# narrowed host field (e.g. uint32_t -> uint16_t + a 16-bit pad) keeps offsets/size/kind
+# and component count but is a real 32-vs-16-bit ABI drift the byte-width check catches.
+# Vector*/Color/Quaternion are float-component (4 bytes each).
+_GLSL_STD140_SCALAR_BYTES = 4
+_HOST_SCALAR_BYTES: dict[str, int] = {
+    "float": 4, "int": 4, "int32_t": 4, "uint": 4, "uint32_t": 4,
+    "int16_t": 2, "uint16_t": 2,
+    "int8_t": 1, "uint8_t": 1, "bool": 1,
+    "int64_t": 8, "uint64_t": 8, "double": 8,
+    "Vector2": 4, "Vector3": 4, "Vector4": 4, "Color": 4, "Quaternion": 4,
 }
 
 
@@ -633,6 +646,20 @@ def _check_ubo_member(
             f"{glsl_rel}: RenderParams.{member.name} scalar kind `{glsl_kind}` (`{member.type_name}`) != TileRenderParamsGPU.{member.name} `{host_kind}` (`{host_field.base_type}`)"
         )
 
+    # Scalar BYTE WIDTH: GLSL std140 UBO scalar components are always 4 bytes, so the host
+    # per-component byte width must be 4. Catches a narrowed host field (uint32_t ->
+    # uint16_t + pad) that keeps offsets/size/kind/component-count but is a 32-vs-16-bit
+    # ABI drift. Fails closed if the host base token has no known byte width.
+    host_bytes = _HOST_SCALAR_BYTES.get(host_field.base_type)
+    if host_bytes is None:
+        failures.append(
+            f"{host_rel}: TileRenderParamsGPU.{member.name} C++ type `{host_field.base_type}` has no known scalar byte width; cannot verify RenderParams.{member.name}"
+        )
+    elif host_bytes != _GLSL_STD140_SCALAR_BYTES:
+        failures.append(
+            f"{glsl_rel}: RenderParams.{member.name} host scalar byte width {host_bytes} (`{host_field.base_type}`) != std140 GLSL scalar byte width {_GLSL_STD140_SCALAR_BYTES}"
+        )
+
     # Total scalar WIDTH: GLSL base components x array length vs C++ base components x
     # product(array dims). Comparing totals makes `float x[N][4]` <-> `vec4 x[N]` (16==16)
     # and `float m[16]` <-> `mat4 m` (16==16) match while still catching a same-kind shrink.
@@ -678,13 +705,16 @@ def _check_render_params_ubo(host_text: str, failures: list[str]) -> None:
     member this asserts (1) the std140 offset lands on the C++
     `offsetof(TileRenderParamsGPU, <same name>)` contract, (2) the member's scalar KIND
     (float/uint/int) matches the C++ field's scalar kind -- so a same-size type drift the
-    offset check cannot see (GLSL `uint`->`float`, `uvec4`->`vec4`) is still caught, and
-    (3) the member's total scalar WIDTH matches the C++ field -- so a same-kind shape drift
-    the offset+kind checks cannot see (GLSL `vec4`->`float` padded back to the same
-    offsets/size) is still caught. It also asserts the block size matches the C++ `sizeof`
-    contract and the two GS_RENDER_PARAMS_LAYOUT_VERSION numbers agree. Padding members are
-    skipped: they carry different names/counts across the two files (host
-    `_pad_before_camera[2]` vs GLSL `_pad0`/`_pad1`) but occupy equal space.
+    offset check cannot see (GLSL `uint`->`float`, `uvec4`->`vec4`) is still caught, (3) the
+    host per-component scalar BYTE WIDTH is 4 (GLSL std140 scalars are always 4 bytes) -- so
+    a narrowed host field (uint32_t -> uint16_t + pad) that keeps offsets/size/kind is still
+    caught, and (4) the member's total scalar component WIDTH matches the C++ field -- so a
+    same-kind shape drift the offset+kind checks cannot see (GLSL `vec4`->`float` padded
+    back to the same offsets/size) is still caught. Scalar kind + byte width + component
+    count together fully pin any std140 UBO member type. It also asserts the block size
+    matches the C++ `sizeof` contract and the two GS_RENDER_PARAMS_LAYOUT_VERSION numbers
+    agree. Padding members are skipped: they carry different names/counts across the two
+    files (host `_pad_before_camera[2]` vs GLSL `_pad0`/`_pad1`) but occupy equal space.
     """
     glsl_text = RENDER_PARAMS_GLSL.read_text(encoding="utf-8")
     glsl_rel = RENDER_PARAMS_GLSL.relative_to(ROOT)
@@ -793,7 +823,7 @@ def main() -> int:
         + ", ".join(host_name for _, host_name, _ in EXTRA_MIRROR_STRUCTS)
         + "."
     )
-    print("[gaussian-layout-check] RenderParams std140 uniform block matches TileRenderParamsGPU offsets, scalar kinds, widths, size, and layout version.")
+    print("[gaussian-layout-check] RenderParams std140 uniform block matches TileRenderParamsGPU offsets, scalar kinds, byte widths, component widths, size, and layout version.")
     return 0
 
 
