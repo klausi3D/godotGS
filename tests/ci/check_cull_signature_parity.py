@@ -144,6 +144,21 @@ def _brace_body(text: str, anchor: str) -> str | None:
     return None
 
 
+def _has_top_level_comma(line: str) -> bool:
+    """True if `line` has a comma outside any (), [], or {} -- i.e. a second
+    declarator (`float a = 0, b = 1;`), not a comma inside an initializer such as
+    `Size2i(1280, 720)`."""
+    depth = 0
+    for char in line:
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth = max(0, depth - 1)
+        elif char == "," and depth == 0:
+            return True
+    return False
+
+
 def _extract_struct_fields(text: str, struct_name: str) -> tuple[list[str], list[str]]:
     """Return (field_names, unrecognized_lines).
 
@@ -164,7 +179,13 @@ def _extract_struct_fields(text: str, struct_name: str) -> tuple[list[str], list
             continue
         match = _FIELD_RE.match(line)
         if match:
-            fields.append(match.group(1))
+            # A top-level comma means a second declarator on this line, which
+            # _FIELD_RE does not capture; reject it (declare one member per line)
+            # rather than silently drop the trailing declarators.
+            if _has_top_level_comma(stripped):
+                unrecognized.append(stripped)
+            else:
+                fields.append(match.group(1))
             continue
         if _ACCESS_SPECIFIER_RE.match(stripped):
             continue
