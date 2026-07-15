@@ -133,6 +133,28 @@ _UBO_BLOCK_RE = re.compile(r"uniform\s+RenderParams\s*\{(?P<body>.*?)\}\s*params
 _UBO_FIELD_RE = re.compile(r"^(?P<type>\w+)\s+(?P<name>\w+)(?:\[(?P<count>[A-Za-z_]\w*|\d+)\])?\s*;$")
 _GLSL_DEFINE_RE = re.compile(r"^\s*#define\s+(?P<name>\w+)\s+(?P<value>\d+)\b", re.MULTILINE)
 _RENDER_PARAMS_VERSION_HOST_RE = re.compile(r"GS_RENDER_PARAMS_LAYOUT_VERSION\s*=\s*(\d+)")
+# Host C++ field: leading scalar type token + name, tolerating 1D and 2D array suffixes
+# (e.g. `float effector_spheres[GS_MAX_SPHERE_EFFECTORS][4];`). Only the base type token
+# is captured -- layout is NOT computed for the UBO host struct, so this deliberately
+# avoids the mat/2D-array parsing the std430 engine cannot do.
+_HOST_FIELD_TYPE_RE = re.compile(r"^(?P<type>\w+)\s+(?P<name>\w+)\s*(?:\[[A-Za-z0-9_]+\]\s*)*;$")
+
+# Scalar "kind" of a type: float / uint / int. mat* and vec* are float-kind; uvec*/uint
+# are uint-kind; ivec*/int are int-kind. A same-size type drift (e.g. GLSL `uint`->`float`
+# or `uvec4`->`vec4`) keeps the byte offset but changes how the shader reinterprets the
+# bytes, so the UBO check compares kinds per member in addition to offsets.
+_GLSL_SCALAR_KIND: dict[str, str] = {
+    "float": "float", "vec2": "float", "vec3": "float", "vec4": "float",
+    "mat2": "float", "mat3": "float", "mat4": "float",
+    "uint": "uint", "uvec2": "uint", "uvec3": "uint", "uvec4": "uint",
+    "int": "int", "ivec2": "int", "ivec3": "int", "ivec4": "int",
+}
+_HOST_SCALAR_KIND: dict[str, str] = {
+    "float": "float", "double": "float",
+    "Vector2": "float", "Vector3": "float", "Vector4": "float", "Color": "float",
+    "uint": "uint", "uint32_t": "uint", "uint16_t": "uint", "uint8_t": "uint",
+    "int": "int", "int32_t": "int", "int16_t": "int", "int8_t": "int",
+}
 
 
 def _struct_pattern(name: str) -> re.Pattern[str]:
@@ -449,16 +471,147 @@ def _std140_member_layout(type_name: str, count: int | None) -> tuple[int, int]:
     return align, stride * count
 
 
+@dataclass(frozen=True)
+class _UboMember:
+    name: str
+    type_name: str
+    offset: int
+
+
+def _parse_host_struct_field_types(host_text: str, struct_name: str) -> dict[str, str]:
+    """Return {field_name: base C++ type token} for a struct, tolerating 1D/2D array
+    suffixes. Layout is deliberately NOT computed (that needs the mat/2D-array parsing we
+    avoid); only the leading scalar type token is captured so its scalar KIND can be
+    compared against the GLSL mirror."""
+    match = _struct_pattern(struct_name).search(host_text)
+    if not match:
+        raise RuntimeError(f"Could not find `struct {struct_name}` to read field types")
+    types: dict[str, str] = {}
+    for raw_line in match.group("body").splitlines():
+        line = raw_line.split("//", 1)[0].strip()
+        if not line or line.startswith(("static_assert", "static ", "using ", "typedef ", "friend ", "#")):
+            continue
+        if "(" in line:  # skip method declarations
+            continue
+        field_match = _HOST_FIELD_TYPE_RE.match(line)
+        if field_match:
+            types[field_match.group("name")] = field_match.group("type")
+    return types
+
+
+def _walk_std140_members(
+    body: str, defines: dict[str, int], glsl_rel: Path, failures: list[str]
+) -> tuple[tuple[_UboMember, ...], int] | None:
+    """Walk a std140 uniform-block body, returning (members, end_offset). Each member
+    records its resolved std140 offset. Returns None (after appending a failure) if a
+    line, array bound, or type cannot be parsed."""
+    members: list[_UboMember] = []
+    offset = 0
+    for raw_line in body.splitlines():
+        line = raw_line.split("//", 1)[0].strip()
+        if not line or line.startswith("#"):
+            continue
+        field_match = _UBO_FIELD_RE.match(line)
+        if not field_match:
+            failures.append(f"{glsl_rel}: unsupported RenderParams member syntax: {raw_line.strip()}")
+            return None
+        type_name = field_match.group("type")
+        name = field_match.group("name")
+        count_token = field_match.group("count")
+        if count_token is None:
+            count = None
+        elif count_token.isdigit():
+            count = int(count_token)
+        elif count_token in defines:
+            count = defines[count_token]
+        else:
+            failures.append(f"{glsl_rel}: unresolved RenderParams array bound `{count_token}` for member `{name}`")
+            return None
+        try:
+            alignment, size = _std140_member_layout(type_name, count)
+        except RuntimeError as exc:
+            failures.append(f"{glsl_rel}: {exc}")
+            return None
+        offset = _round_up(offset, alignment)
+        members.append(_UboMember(name, type_name, offset))
+        offset += size
+    return tuple(members), offset
+
+
+def _check_ubo_member(
+    member: _UboMember,
+    host_offsets: dict[str, int],
+    host_types: dict[str, str],
+    glsl_rel: Path,
+    host_rel: Path,
+    failures: list[str],
+) -> None:
+    """Assert one non-pad UBO member matches the C++ contract in both std140 OFFSET and
+    scalar KIND (float/uint/int). The kind check catches same-size type drift the offset
+    check cannot see (e.g. GLSL `uint`->`float`, `uvec4`->`vec4`)."""
+    expected_offset = host_offsets.get(member.name)
+    if expected_offset is None:
+        failures.append(
+            f"{glsl_rel}: RenderParams member `{member.name}` has no matching offsetof(TileRenderParamsGPU, {member.name}) contract in {host_rel}"
+        )
+    elif member.offset != expected_offset:
+        failures.append(
+            f"{glsl_rel}: RenderParams.{member.name} std140 offset {member.offset} != TileRenderParamsGPU contract {expected_offset}"
+        )
+
+    glsl_kind = _GLSL_SCALAR_KIND.get(member.type_name)
+    if glsl_kind is None:
+        failures.append(
+            f"{glsl_rel}: RenderParams.{member.name} GLSL type `{member.type_name}` has no known scalar kind; cannot verify against TileRenderParamsGPU"
+        )
+        return
+    host_type = host_types.get(member.name)
+    if host_type is None:
+        # Fail closed: a member checked for offset must have a parseable C++ field type.
+        failures.append(
+            f"{glsl_rel}: RenderParams member `{member.name}` has no parseable C++ field in TileRenderParamsGPU ({host_rel}); cannot verify scalar kind"
+        )
+        return
+    host_kind = _HOST_SCALAR_KIND.get(host_type)
+    if host_kind is None:
+        failures.append(
+            f"{host_rel}: TileRenderParamsGPU.{member.name} C++ type `{host_type}` has no known scalar kind; cannot verify RenderParams.{member.name}"
+        )
+    elif glsl_kind != host_kind:
+        failures.append(
+            f"{glsl_rel}: RenderParams.{member.name} scalar kind `{glsl_kind}` (`{member.type_name}`) != TileRenderParamsGPU.{member.name} `{host_kind}` (`{host_type}`)"
+        )
+
+
+def _check_render_params_version(
+    host_text: str, defines: dict[str, int], glsl_rel: Path, host_rel: Path, failures: list[str]
+) -> None:
+    host_version_match = _RENDER_PARAMS_VERSION_HOST_RE.search(host_text)
+    host_version = int(host_version_match.group(1)) if host_version_match else None
+    glsl_version = defines.get("GS_RENDER_PARAMS_LAYOUT_VERSION")
+    if host_version is None:
+        failures.append(f"{host_rel}: missing `GS_RENDER_PARAMS_LAYOUT_VERSION` constant to anchor RenderParams")
+    elif glsl_version is None:
+        failures.append(f"{glsl_rel}: missing `#define GS_RENDER_PARAMS_LAYOUT_VERSION` to anchor RenderParams")
+    elif host_version != glsl_version:
+        failures.append(
+            f"GS_RENDER_PARAMS_LAYOUT_VERSION mismatch: host {host_version} ({host_rel}) != shader {glsl_version} ({glsl_rel})"
+        )
+
+
 def _check_render_params_ubo(host_text: str, failures: list[str]) -> None:
     """Validate the RenderParams std140 uniform block against TileRenderParamsGPU.
 
     RenderParams is a `uniform` block (not a `struct`) with mat4 and vec4[const]
-    members, so the std430 struct machinery above cannot handle it. This computes the
-    std140 offset of every member and asserts each non-`_pad*` member lands on the C++
-    `offsetof(TileRenderParamsGPU, <same name>)` contract, that the block size matches
-    the C++ `sizeof` contract, and that the two GS_RENDER_PARAMS_LAYOUT_VERSION numbers
-    agree. Padding members are skipped: they carry different names/counts across the two
-    files (host `_pad_before_camera[2]` vs GLSL `_pad0`/`_pad1`) but occupy equal space.
+    members, so the std430 struct machinery above cannot handle it. For every non-`_pad*`
+    member this asserts (1) the std140 offset lands on the C++
+    `offsetof(TileRenderParamsGPU, <same name>)` contract and (2) the member's scalar KIND
+    (float/uint/int) matches the C++ field's scalar kind -- so a same-size type drift the
+    offset check cannot see (GLSL `uint`->`float`, `uvec4`->`vec4`) is still caught. It
+    also asserts the block size matches the C++ `sizeof` contract and the two
+    GS_RENDER_PARAMS_LAYOUT_VERSION numbers agree. Padding members are skipped: they carry
+    different names/counts across the two files (host `_pad_before_camera[2]` vs GLSL
+    `_pad0`/`_pad1`) but occupy equal space.
     """
     glsl_text = RENDER_PARAMS_GLSL.read_text(encoding="utf-8")
     glsl_rel = RENDER_PARAMS_GLSL.relative_to(ROOT)
@@ -473,72 +626,34 @@ def _check_render_params_ubo(host_text: str, failures: list[str]) -> None:
 
     host_offsets = _parse_struct_offset_contracts(host_text, "TileRenderParamsGPU")
     host_size = _parse_struct_size_contract(host_text, "TileRenderParamsGPU")
+    host_types = _parse_host_struct_field_types(host_text, "TileRenderParamsGPU")
     if host_size is None:
         failures.append(f"{host_rel}: missing `sizeof(TileRenderParamsGPU)` static_assert to anchor RenderParams")
         return
     if not host_offsets:
         failures.append(f"{host_rel}: no `offsetof(TileRenderParamsGPU, ...)` contracts found to anchor RenderParams")
         return
+    if not host_types:
+        failures.append(f"{host_rel}: no parseable TileRenderParamsGPU field types to anchor RenderParams scalar kinds")
+        return
 
-    offset = 0
-    for raw_line in block_match.group("body").splitlines():
-        line = raw_line.split("//", 1)[0].strip()
-        if not line or line.startswith("#"):
+    walked = _walk_std140_members(block_match.group("body"), defines, glsl_rel, failures)
+    if walked is None:
+        return
+    members, end_offset = walked
+
+    for member in members:
+        if member.name.startswith("_pad"):
             continue
-        field_match = _UBO_FIELD_RE.match(line)
-        if not field_match:
-            failures.append(f"{glsl_rel}: unsupported RenderParams member syntax: {raw_line.strip()}")
-            return
-        type_name = field_match.group("type")
-        name = field_match.group("name")
-        count_token = field_match.group("count")
-        if count_token is None:
-            count = None
-        elif count_token.isdigit():
-            count = int(count_token)
-        elif count_token in defines:
-            count = defines[count_token]
-        else:
-            failures.append(f"{glsl_rel}: unresolved RenderParams array bound `{count_token}` for member `{name}`")
-            return
-        try:
-            alignment, size = _std140_member_layout(type_name, count)
-        except RuntimeError as exc:
-            failures.append(f"{glsl_rel}: {exc}")
-            return
-        offset = _round_up(offset, alignment)
-        member_offset = offset
-        offset += size
+        _check_ubo_member(member, host_offsets, host_types, glsl_rel, host_rel, failures)
 
-        if name.startswith("_pad"):
-            continue
-        expected = host_offsets.get(name)
-        if expected is None:
-            failures.append(
-                f"{glsl_rel}: RenderParams member `{name}` has no matching offsetof(TileRenderParamsGPU, {name}) contract in {host_rel}"
-            )
-        elif member_offset != expected:
-            failures.append(
-                f"{glsl_rel}: RenderParams.{name} std140 offset {member_offset} != TileRenderParamsGPU contract {expected}"
-            )
-
-    block_size = _round_up(offset, 16)
+    block_size = _round_up(end_offset, 16)
     if block_size != host_size:
         failures.append(
             f"{glsl_rel}: RenderParams std140 block size {block_size} != TileRenderParamsGPU contract {host_size}"
         )
 
-    host_version_match = _RENDER_PARAMS_VERSION_HOST_RE.search(host_text)
-    host_version = int(host_version_match.group(1)) if host_version_match else None
-    glsl_version = defines.get("GS_RENDER_PARAMS_LAYOUT_VERSION")
-    if host_version is None:
-        failures.append(f"{host_rel}: missing `GS_RENDER_PARAMS_LAYOUT_VERSION` constant to anchor RenderParams")
-    elif glsl_version is None:
-        failures.append(f"{glsl_rel}: missing `#define GS_RENDER_PARAMS_LAYOUT_VERSION` to anchor RenderParams")
-    elif host_version != glsl_version:
-        failures.append(
-            f"GS_RENDER_PARAMS_LAYOUT_VERSION mismatch: host {host_version} ({host_rel}) != shader {glsl_version} ({glsl_rel})"
-        )
+    _check_render_params_version(host_text, defines, glsl_rel, host_rel, failures)
 
 
 def main() -> int:
@@ -604,7 +719,7 @@ def main() -> int:
         + ", ".join(host_name for _, host_name, _ in EXTRA_MIRROR_STRUCTS)
         + "."
     )
-    print("[gaussian-layout-check] RenderParams std140 uniform block matches TileRenderParamsGPU offsets, size, and layout version.")
+    print("[gaussian-layout-check] RenderParams std140 uniform block matches TileRenderParamsGPU offsets, scalar kinds, size, and layout version.")
     return 0
 
 
