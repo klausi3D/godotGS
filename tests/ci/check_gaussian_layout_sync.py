@@ -11,6 +11,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 HOST_LAYOUT = ROOT / "modules" / "gaussian_splatting" / "renderer" / "gaussian_gpu_layout.h"
+STREAMING_QUANTIZATION_H = ROOT / "modules" / "gaussian_splatting" / "core" / "streaming_quantization.h"
+RENDER_PARAMS_GLSL = ROOT / "modules" / "gaussian_splatting" / "shaders" / "includes" / "gs_render_params.glsl"
 SHADER_ROOTS = (
     ROOT / "modules" / "gaussian_splatting" / "shaders",
     ROOT / "modules" / "gaussian_splatting" / "compute",
@@ -20,24 +22,34 @@ EMBEDDED_SHADER_MIRROR_FILES = (
 )
 TARGET_STRUCT_NAMES = ("PackedGaussian", "Gaussian", "GaussianQuantized")
 
-# Additional CPU<->GPU mirror structs declared in gaussian_gpu_layout.h that also
-# appear as GLSL `struct`s of the same name (the instancing / asset / chunk tables)
-# and carry literal sizeof/offsetof static_assert contracts. Each is (a) checked for
-# host self-consistency (computed layout == its own static_asserts) and (b) compared
-# field-by-field, by std430 offset, against every GLSL mirror. This extends the guard
-# beyond the PackedGaussian family so these push-through GPU structs cannot silently
-# drift from their shader mirrors. (AssetMetaGPU is intentionally excluded for now: it
-# nests an AssetLodRangeGPU[GS_MAX_ASSET_LODS] array whose bound is an external
-# constant, which needs nested-struct-array + constant-resolution support the layout
-# engine does not yet have — tracked as a follow-on.)
+# Additional CPU<->GPU mirror structs that also appear as GLSL `struct`s (the
+# instancing / asset / chunk tables and the per-chunk quantization bounds) and carry
+# literal sizeof/offsetof static_assert contracts. Each spec is
+# (host_header_path, host_struct_name, shader_struct_name). Each mirror is (a) checked
+# for host self-consistency (computed layout == its own static_asserts) and (b)
+# compared field-by-field, by std430 offset, against every GLSL mirror. This extends
+# the guard beyond the PackedGaussian family so these push-through GPU structs cannot
+# silently drift from their shader mirrors.
+#
+# The host struct usually lives in gaussian_gpu_layout.h with the same name as its GLSL
+# mirror, but the spec supports (a) a different host header and (b) a host name that
+# differs from the shader name -- as with ChunkQuantizationGPU (host, in
+# core/streaming_quantization.h) vs `struct ChunkQuantization` (GLSL). Field names still
+# match one-to-one between the two mirrors, so the comparison is by field name.
+#
+# (AssetMetaGPU is intentionally excluded for now: it nests an
+# AssetLodRangeGPU[GS_MAX_ASSET_LODS] array whose bound is an external constant, which
+# needs nested-struct-array + constant-resolution support the layout engine does not
+# yet have -- tracked as a follow-on.)
 EXTRA_MIRROR_STRUCTS = (
-    "InstanceDataGPU",
-    "InstanceGradingGPU",
-    "AssetLodRangeGPU",
-    "ChunkMetaGPU",
-    "AssetChunkIndexGPU",
-    "VisibleChunkRefGPU",
-    "SplatRefGPU",
+    (HOST_LAYOUT, "InstanceDataGPU", "InstanceDataGPU"),
+    (HOST_LAYOUT, "InstanceGradingGPU", "InstanceGradingGPU"),
+    (HOST_LAYOUT, "AssetLodRangeGPU", "AssetLodRangeGPU"),
+    (HOST_LAYOUT, "ChunkMetaGPU", "ChunkMetaGPU"),
+    (HOST_LAYOUT, "AssetChunkIndexGPU", "AssetChunkIndexGPU"),
+    (HOST_LAYOUT, "VisibleChunkRefGPU", "VisibleChunkRefGPU"),
+    (HOST_LAYOUT, "SplatRefGPU", "SplatRefGPU"),
+    (STREAMING_QUANTIZATION_H, "ChunkQuantizationGPU", "ChunkQuantization"),
 )
 
 
@@ -98,6 +110,29 @@ _VECTOR_COMPONENT_COUNTS = {
     "uvec4": 4,
 }
 _STRUCT_RE_TEMPLATE = r"struct(?:\s+alignas\((?P<align>\d+)\))?\s+{name}\s*\{{(?P<body>.*?)\}};"
+
+# std140 member layout: type -> (base_alignment, base_size) in bytes. Used only by the
+# RenderParams uniform-block checker (blocks are std140, not std430 like the SSBO
+# structs above). A mat4 is 4 column vec4s (16-aligned, 64 bytes).
+_STD140_TYPES: dict[str, tuple[int, int]] = {
+    "float": (4, 4),
+    "int": (4, 4),
+    "uint": (4, 4),
+    "vec2": (8, 8),
+    "vec3": (16, 12),
+    "vec4": (16, 16),
+    "ivec2": (8, 8),
+    "ivec3": (16, 12),
+    "ivec4": (16, 16),
+    "uvec2": (8, 8),
+    "uvec3": (16, 12),
+    "uvec4": (16, 16),
+    "mat4": (16, 64),
+}
+_UBO_BLOCK_RE = re.compile(r"uniform\s+RenderParams\s*\{(?P<body>.*?)\}\s*params\s*;", re.DOTALL)
+_UBO_FIELD_RE = re.compile(r"^(?P<type>\w+)\s+(?P<name>\w+)(?:\[(?P<count>[A-Za-z_]\w*|\d+)\])?\s*;$")
+_GLSL_DEFINE_RE = re.compile(r"^\s*#define\s+(?P<name>\w+)\s+(?P<value>\d+)\b", re.MULTILINE)
+_RENDER_PARAMS_VERSION_HOST_RE = re.compile(r"GS_RENDER_PARAMS_LAYOUT_VERSION\s*=\s*(\d+)")
 
 
 def _struct_pattern(name: str) -> re.Pattern[str]:
@@ -362,40 +397,148 @@ def _discover_struct_mirrors(struct_name: str) -> tuple[Path, ...]:
     return tuple(mirrors)
 
 
-def _check_extra_mirror_struct(struct_name: str, host_text: str, failures: list[str]) -> None:
-    host_def = _parse_struct_definition(HOST_LAYOUT, struct_name)
-    host_layout = _layout_struct({struct_name: host_def}, struct_name, "host")
+def _check_extra_mirror_struct(host_header: Path, host_name: str, shader_name: str, failures: list[str]) -> None:
+    host_text = host_header.read_text(encoding="utf-8")
+    host_def = _parse_struct_definition(host_header, host_name)
+    host_layout = _layout_struct({host_name: host_def}, host_name, "host")
 
     # (a) Host self-consistency: the layout the engine computes must match this
     # struct's own literal sizeof/offsetof contracts, so the contracts stay the
     # single source of truth even before comparing to shaders.
-    contract_size = _parse_struct_size_contract(host_text, struct_name)
+    contract_size = _parse_struct_size_contract(host_text, host_name)
     if contract_size is None:
         failures.append(
-            f"{HOST_LAYOUT.relative_to(ROOT)}: `{struct_name}` is in EXTRA_MIRROR_STRUCTS but has no literal `sizeof` static_assert to anchor"
+            f"{host_header.relative_to(ROOT)}: `{host_name}` is in EXTRA_MIRROR_STRUCTS but has no literal `sizeof` static_assert to anchor"
         )
     elif host_layout.size != contract_size:
         failures.append(
-            f"{HOST_LAYOUT.relative_to(ROOT)}: computed {struct_name} size {host_layout.size} != host contract {contract_size}"
+            f"{host_header.relative_to(ROOT)}: computed {host_name} size {host_layout.size} != host contract {contract_size}"
         )
-    for field_name, expected_offset in _parse_struct_offset_contracts(host_text, struct_name).items():
+    for field_name, expected_offset in _parse_struct_offset_contracts(host_text, host_name).items():
         actual_offset = host_layout.offsets.get(field_name)
         if actual_offset != expected_offset:
             failures.append(
-                f"{HOST_LAYOUT.relative_to(ROOT)}: {struct_name}.{field_name} computed offset {actual_offset} != host contract {expected_offset}"
+                f"{host_header.relative_to(ROOT)}: {host_name}.{field_name} computed offset {actual_offset} != host contract {expected_offset}"
             )
 
     # (b) Every GLSL mirror must match the host layout (field names, std430
-    # signatures, offsets, size).
-    mirrors = _discover_struct_mirrors(struct_name)
+    # signatures, offsets, size). The GLSL struct may carry a different name than
+    # the host struct, but its field names match one-to-one.
+    mirrors = _discover_struct_mirrors(shader_name)
     if not mirrors:
         failures.append(
-            f"{struct_name}: no GLSL mirror `struct {struct_name}` found under shaders/ or compute/"
+            f"{shader_name}: no GLSL mirror `struct {shader_name}` found under shaders/ or compute/"
         )
     for shader_path in mirrors:
-        shader_def = _parse_struct_definition(shader_path, struct_name)
-        shader_layout = _layout_struct({struct_name: shader_def}, struct_name, "shader")
-        _compare_layouts(host_layout, shader_layout, shader_path, struct_name, struct_name, failures)
+        shader_def = _parse_struct_definition(shader_path, shader_name)
+        shader_layout = _layout_struct({shader_name: shader_def}, shader_name, "shader")
+        _compare_layouts(host_layout, shader_layout, shader_path, shader_name, host_name, failures)
+
+
+def _std140_member_layout(type_name: str, count: int | None) -> tuple[int, int]:
+    """Return (alignment, total_size) in bytes for one std140 uniform-block member."""
+    if type_name not in _STD140_TYPES:
+        raise RuntimeError(f"Unsupported std140 uniform member type `{type_name}`")
+    base_align, base_size = _STD140_TYPES[type_name]
+    if count is None:
+        return base_align, base_size
+    # std140 arrays: element alignment and stride round up to 16 bytes (vec4 rule),
+    # so vec4[N] has stride 16 and mat4[N] has stride 64.
+    stride = _round_up(base_size, 16)
+    align = _round_up(base_align, 16)
+    return align, stride * count
+
+
+def _check_render_params_ubo(host_text: str, failures: list[str]) -> None:
+    """Validate the RenderParams std140 uniform block against TileRenderParamsGPU.
+
+    RenderParams is a `uniform` block (not a `struct`) with mat4 and vec4[const]
+    members, so the std430 struct machinery above cannot handle it. This computes the
+    std140 offset of every member and asserts each non-`_pad*` member lands on the C++
+    `offsetof(TileRenderParamsGPU, <same name>)` contract, that the block size matches
+    the C++ `sizeof` contract, and that the two GS_RENDER_PARAMS_LAYOUT_VERSION numbers
+    agree. Padding members are skipped: they carry different names/counts across the two
+    files (host `_pad_before_camera[2]` vs GLSL `_pad0`/`_pad1`) but occupy equal space.
+    """
+    glsl_text = RENDER_PARAMS_GLSL.read_text(encoding="utf-8")
+    glsl_rel = RENDER_PARAMS_GLSL.relative_to(ROOT)
+    host_rel = HOST_LAYOUT.relative_to(ROOT)
+
+    defines = {m.group("name"): int(m.group("value")) for m in _GLSL_DEFINE_RE.finditer(glsl_text)}
+
+    block_match = _UBO_BLOCK_RE.search(glsl_text)
+    if not block_match:
+        failures.append(f"{glsl_rel}: could not find `uniform RenderParams {{ ... }} params;` block")
+        return
+
+    host_offsets = _parse_struct_offset_contracts(host_text, "TileRenderParamsGPU")
+    host_size = _parse_struct_size_contract(host_text, "TileRenderParamsGPU")
+    if host_size is None:
+        failures.append(f"{host_rel}: missing `sizeof(TileRenderParamsGPU)` static_assert to anchor RenderParams")
+        return
+    if not host_offsets:
+        failures.append(f"{host_rel}: no `offsetof(TileRenderParamsGPU, ...)` contracts found to anchor RenderParams")
+        return
+
+    offset = 0
+    for raw_line in block_match.group("body").splitlines():
+        line = raw_line.split("//", 1)[0].strip()
+        if not line or line.startswith("#"):
+            continue
+        field_match = _UBO_FIELD_RE.match(line)
+        if not field_match:
+            failures.append(f"{glsl_rel}: unsupported RenderParams member syntax: {raw_line.strip()}")
+            return
+        type_name = field_match.group("type")
+        name = field_match.group("name")
+        count_token = field_match.group("count")
+        if count_token is None:
+            count = None
+        elif count_token.isdigit():
+            count = int(count_token)
+        elif count_token in defines:
+            count = defines[count_token]
+        else:
+            failures.append(f"{glsl_rel}: unresolved RenderParams array bound `{count_token}` for member `{name}`")
+            return
+        try:
+            alignment, size = _std140_member_layout(type_name, count)
+        except RuntimeError as exc:
+            failures.append(f"{glsl_rel}: {exc}")
+            return
+        offset = _round_up(offset, alignment)
+        member_offset = offset
+        offset += size
+
+        if name.startswith("_pad"):
+            continue
+        expected = host_offsets.get(name)
+        if expected is None:
+            failures.append(
+                f"{glsl_rel}: RenderParams member `{name}` has no matching offsetof(TileRenderParamsGPU, {name}) contract in {host_rel}"
+            )
+        elif member_offset != expected:
+            failures.append(
+                f"{glsl_rel}: RenderParams.{name} std140 offset {member_offset} != TileRenderParamsGPU contract {expected}"
+            )
+
+    block_size = _round_up(offset, 16)
+    if block_size != host_size:
+        failures.append(
+            f"{glsl_rel}: RenderParams std140 block size {block_size} != TileRenderParamsGPU contract {host_size}"
+        )
+
+    host_version_match = _RENDER_PARAMS_VERSION_HOST_RE.search(host_text)
+    host_version = int(host_version_match.group(1)) if host_version_match else None
+    glsl_version = defines.get("GS_RENDER_PARAMS_LAYOUT_VERSION")
+    if host_version is None:
+        failures.append(f"{host_rel}: missing `GS_RENDER_PARAMS_LAYOUT_VERSION` constant to anchor RenderParams")
+    elif glsl_version is None:
+        failures.append(f"{glsl_rel}: missing `#define GS_RENDER_PARAMS_LAYOUT_VERSION` to anchor RenderParams")
+    elif host_version != glsl_version:
+        failures.append(
+            f"GS_RENDER_PARAMS_LAYOUT_VERSION mismatch: host {host_version} ({host_rel}) != shader {glsl_version} ({glsl_rel})"
+        )
 
 
 def main() -> int:
@@ -444,8 +587,10 @@ def main() -> int:
         _compare_layouts(expected_layout, shader_layout, shader_path, struct_name, expected_label, failures)
 
     host_text = HOST_LAYOUT.read_text(encoding="utf-8")
-    for struct_name in EXTRA_MIRROR_STRUCTS:
-        _check_extra_mirror_struct(struct_name, host_text, failures)
+    for host_header, host_name, shader_name in EXTRA_MIRROR_STRUCTS:
+        _check_extra_mirror_struct(host_header, host_name, shader_name, failures)
+
+    _check_render_params_ubo(host_text, failures)
 
     if failures:
         for failure in failures:
@@ -455,10 +600,11 @@ def main() -> int:
     print("[gaussian-layout-check] PASSED")
     print("[gaussian-layout-check] PackedGaussian and PackedGaussianQuantized host/mirror field signatures, offsets, and size are aligned.")
     print(
-        "[gaussian-layout-check] Instancing/asset/chunk mirror structs are aligned: "
-        + ", ".join(EXTRA_MIRROR_STRUCTS)
+        "[gaussian-layout-check] Instancing/asset/chunk/quantization mirror structs are aligned: "
+        + ", ".join(host_name for _, host_name, _ in EXTRA_MIRROR_STRUCTS)
         + "."
     )
+    print("[gaussian-layout-check] RenderParams std140 uniform block matches TileRenderParamsGPU offsets, size, and layout version.")
     return 0
 
 
