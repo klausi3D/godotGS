@@ -2083,6 +2083,8 @@ static uint32_t _required_tile_bits(uint32_t p_total_tiles) {
 SortKeyConfig TileRenderer::_get_effective_sort_key_config() const {
     SortKeyConfig cfg = SortKeyConfig::from_settings();
     if (!render_settings.global_sort_enabled) {
+        // note: the non-global-sort path is intentionally not covered by the
+        // 32-bit-engage warn/flag below (low-risk, out of scope for C4a).
         return cfg;
     }
 
@@ -2115,6 +2117,11 @@ SortKeyConfig TileRenderer::_get_effective_sort_key_config() const {
 			cfg.depth_bits = 32;
 			cfg.enable_tie_breaker = true;
 		}
+	}
+
+	if (cfg.key_bits == 32) {
+		WARN_PRINT_ONCE("[TileRenderer] 32-bit sort keys ENGAGED (opt-in): 16-bit depth precision; expect banding/flicker on real-scan content. 64-bit is the only shippable config.");
+		diagnostics.sort_key_32bit_engaged = true;
 	}
 
     return cfg;

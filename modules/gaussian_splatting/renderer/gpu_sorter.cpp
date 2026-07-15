@@ -465,6 +465,10 @@ void SortingMetricsCollector::record_sort(uint32_t element_count, float time_ms,
     metrics.last_sort_indirect = indirect;
     metrics.last_sort_async = sort_async;
     metrics.total_sorts++;
+    if (key_bits == 32) {
+        metrics.total_32bit_sorts++;
+        WARN_PRINT_ONCE("[GPUSorter] 32-bit sort key path executed at runtime (opt-in, degraded 16-bit depth precision).");
+    }
     if (element_count > 0) {
         metrics.total_elements_sorted += element_count;
     }

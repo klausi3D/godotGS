@@ -73,6 +73,10 @@ struct SortingMetrics {
     float avg_sort_time_ms = 0.0f;
     float peak_sort_time_ms = 0.0f;
     uint32_t total_sorts = 0;
+    // Count of sorts that executed with the opt-in 32-bit sort-key path (degraded
+    // 16-bit depth precision). 64-bit is the only shippable config; a non-zero
+    // value here means the degraded path engaged at runtime. Unit-testable signal.
+    uint32_t total_32bit_sorts = 0;
     uint32_t async_sorts = 0;
     float async_speedup = 1.0f;
     uint64_t total_elements_sorted = 0;
