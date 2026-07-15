@@ -116,6 +116,32 @@ WAIVERS: dict[str, tuple[str, tuple[str, ...]]] = {
 }
 
 
+def _brace_body(text: str, anchor: str) -> str | None:
+    """Return the `{...}` body (contents only) that follows `anchor` in `text`.
+
+    Comments are stripped from the whole text *before* the brace scan, so a `{` or
+    `}` inside a `//` or `/* */` comment cannot mis-bound the body. Returns None if
+    the anchor or a balanced body is not found.
+    """
+    stripped = _strip_cpp_comments(text)
+    start = stripped.find(anchor)
+    if start == -1:
+        return None
+    brace = stripped.find("{", start)
+    if brace == -1:
+        return None
+    depth = 0
+    for i in range(brace, len(stripped)):
+        char = stripped[i]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return stripped[brace + 1 : i]
+    return None
+
+
 def _extract_struct_fields(text: str, struct_name: str) -> tuple[list[str], list[str]]:
     """Return (field_names, unrecognized_lines).
 
@@ -124,24 +150,9 @@ def _extract_struct_fields(text: str, struct_name: str) -> tuple[list[str], list
     method/ctor/static_assert line, which all contain "(") is reported as
     unrecognized so a new member in unsupported syntax cannot be silently dropped.
     """
-    start = text.find(f"struct {struct_name}")
-    if start == -1:
+    body = _brace_body(text, f"struct {struct_name}")
+    if body is None:
         return [], []
-    brace = text.find("{", start)
-    if brace == -1:
-        return [], []
-    depth = 0
-    end = brace
-    for i in range(brace, len(text)):
-        char = text[i]
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                end = i
-                break
-    body = _strip_cpp_comments(text[brace + 1 : end])
     fields: list[str] = []
     unrecognized: list[str] = []
     for line in body.splitlines():
@@ -159,24 +170,9 @@ def _extract_struct_fields(text: str, struct_name: str) -> tuple[list[str], list
 
 
 def _extract_hashed_fields(text: str, fn_name: str) -> set[str] | None:
-    start = text.find(fn_name)
-    if start == -1:
+    body = _brace_body(text, fn_name)
+    if body is None:
         return None
-    brace = text.find("{", start)
-    if brace == -1:
-        return None
-    depth = 0
-    end = brace
-    for i in range(brace, len(text)):
-        char = text[i]
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                end = i
-                break
-    body = _strip_cpp_comments(text[brace + 1 : end])
     return set(_CONFIG_READ_RE.findall(body))
 
 
