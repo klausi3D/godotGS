@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 import sys
+import xml.parsers.expat  # low-level well-formedness check; not the ElementTree API Bandit B314 warns about
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -34,6 +35,17 @@ _BRIEF_RE = re.compile(r"<brief_description>(.*?)</brief_description>", re.DOTAL
 
 def _registered_classes(text: str) -> set[str]:
     return set(_REGISTER_RE.findall(text))
+
+
+def _well_formed_error(text: str) -> str | None:
+    # Reject a malformed doc XML (e.g. an unclosed tag) before accepting it, even
+    # though the editor doc build is the ultimate authority on validity.
+    parser = xml.parsers.expat.ParserCreate()
+    try:
+        parser.Parse(text, True)
+    except xml.parsers.expat.ExpatError as exc:
+        return str(exc)
+    return None
 
 
 def _doc_class_list(text: str) -> list[str]:
@@ -81,6 +93,10 @@ def main() -> int:
             )
             continue
         text = xml_path.read_text(encoding="utf-8")
+        wf_error = _well_formed_error(text)
+        if wf_error is not None:
+            failures.append(f"doc_classes/{class_name}.xml is not well-formed XML: {wf_error}")
+            continue
         name_match = _CLASS_NAME_RE.search(text)
         if not name_match:
             failures.append(f"doc_classes/{class_name}.xml has no `<class name=...>` root element")
