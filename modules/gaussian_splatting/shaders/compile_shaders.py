@@ -110,6 +110,32 @@ TILE_GLOBAL_SORT_DEFINES = (
     "GS_SORT_DEPTH_BITS=32",
 )
 
+# Default 64-bit production layout WITH the deterministic tie-break suffix that
+# TileRenderer::_build_binning_shader_defines() emits in normal frames: tie_bits=16
+# whenever the tile id fits in <=16 bits (i.e. essentially every real scene). This is
+# the DEFAULT shipped 64-bit path and exercises tile_binning.glsl's tie-break branch
+# (the GS_SORT_TIE_BITS > 0 arm of gs_pack_sort_key, tile_binning.glsl:342). The base
+# TILE_GLOBAL_SORT_DEFINES above leaves GS_SORT_TIE_BITS at its #ifndef default of 0,
+# so without this group the production tie path was never compiled.
+TILE_SORT_TIE_DEFINES = TILE_GLOBAL_SORT_DEFINES + ("GS_SORT_TIE_BITS=16",)
+
+# 32-bit sort-key layout. Runtime-reachable only via an explicit opt-in
+# (gpu_sorting/gpu_preset="custom" + key_bits=32 with a valid tile/depth split).
+# SortKeyConfig::from_settings() (renderer/gpu_sorter.cpp) clamps the registered
+# 32/32 tile/depth defaults to tile=32/depth=0 under key_bits=32, which
+# TileRenderer::_get_effective_sort_key_config() then rejects back to 64-bit; the
+# smallest valid split that survives to the shader is tile=16/depth=16 (the historical
+# 32/16/16 layout the shader itself references at tile_binning.glsl:305-311). tie_bits
+# is always 0 for 32-bit keys (tie_bits>0 is emitted only when key_bits>32). This
+# exercises the GS_SORT_KEY_BITS == 32 arm of gs_pack_sort_key (tile_binning.glsl:293).
+TILE_SORT_KEY32_DEFINES = (
+    "GS_TILE_GLOBAL_SORT=1",
+    "GS_SORT_KEY_BITS=32",
+    "GS_SORT_TILE_BITS=16",
+    "GS_SORT_DEPTH_BITS=16",
+    "GS_SORT_TIE_BITS=0",
+)
+
 TILE_DIAGNOSTICS_OFF = ("GS_DEBUG_COUNTERS_DISABLED=1",)
 
 
@@ -201,6 +227,156 @@ RUNTIME_SHADER_MATRIX: tuple[ShaderMatrixEntry, ...] = (
                 ),
                 ("#1267", "#1318"),
             ),
+            # --- G4 per-branch coverage: runtime-selectable emit-pass permutations ---
+            # The base emit_prod above compiles only the 64-bit, no-tie, unpacked,
+            # unquantized path. The following singleton toggles + one combined build
+            # exercise every remaining runtime-selectable #ifdef branch in the emit
+            # pass. No full Cartesian product (keeps the CI lane fast).
+            Variant(
+                "emit_tie",
+                _merge_defines(
+                    TILE_COMMON_DEFINES,
+                    TILE_SORT_TIE_DEFINES,
+                    TILE_DIAGNOSTICS_OFF,
+                    (
+                        "GS_DISPATCH_LOCAL_SIZE_X=256",
+                        "GS_TILE_GLOBAL_SORT_EMIT_PASS=1",
+                    ),
+                ),
+                ("#1267", "#1318"),
+            ),
+            Variant(
+                "emit_key32",
+                _merge_defines(
+                    TILE_COMMON_DEFINES,
+                    TILE_SORT_KEY32_DEFINES,
+                    TILE_DIAGNOSTICS_OFF,
+                    (
+                        "GS_DISPATCH_LOCAL_SIZE_X=256",
+                        "GS_TILE_GLOBAL_SORT_EMIT_PASS=1",
+                    ),
+                ),
+                ("#1267", "#1318"),
+            ),
+            Variant(
+                "emit_quantized",
+                _merge_defines(
+                    TILE_COMMON_DEFINES,
+                    TILE_GLOBAL_SORT_DEFINES,
+                    TILE_DIAGNOSTICS_OFF,
+                    (
+                        "GS_DISPATCH_LOCAL_SIZE_X=256",
+                        "GS_TILE_GLOBAL_SORT_EMIT_PASS=1",
+                        "USE_QUANTIZED_GAUSSIANS=1",
+                    ),
+                ),
+                ("#1267", "#1318"),
+            ),
+            Variant(
+                "emit_packed",
+                _merge_defines(
+                    TILE_COMMON_DEFINES,
+                    TILE_GLOBAL_SORT_DEFINES,
+                    TILE_DIAGNOSTICS_OFF,
+                    (
+                        "GS_DISPATCH_LOCAL_SIZE_X=256",
+                        "GS_TILE_GLOBAL_SORT_EMIT_PASS=1",
+                        "GS_PACKED_STAGE_DATA=1",
+                    ),
+                ),
+                ("#1267", "#1318"),
+            ),
+            Variant(
+                "emit_sh_amortized",
+                _merge_defines(
+                    TILE_COMMON_DEFINES,
+                    TILE_GLOBAL_SORT_DEFINES,
+                    TILE_DIAGNOSTICS_OFF,
+                    (
+                        "GS_DISPATCH_LOCAL_SIZE_X=256",
+                        "GS_TILE_GLOBAL_SORT_EMIT_PASS=1",
+                        "GS_SH_AMORTIZATION=1",
+                    ),
+                ),
+                ("#1267", "#1318"),
+            ),
+            Variant(
+                "emit_subgroups",
+                _merge_defines(
+                    TILE_COMMON_DEFINES,
+                    TILE_GLOBAL_SORT_DEFINES,
+                    TILE_DIAGNOSTICS_OFF,
+                    (
+                        "GS_DISPATCH_LOCAL_SIZE_X=256",
+                        "GS_TILE_GLOBAL_SORT_EMIT_PASS=1",
+                        "GS_ENABLE_SUBGROUPS=1",
+                    ),
+                ),
+                ("#1267", "#1318"),
+            ),
+            Variant(
+                "emit_prod_full",
+                _merge_defines(
+                    TILE_COMMON_DEFINES,
+                    TILE_SORT_TIE_DEFINES,
+                    TILE_DIAGNOSTICS_OFF,
+                    (
+                        "GS_DISPATCH_LOCAL_SIZE_X=256",
+                        "GS_TILE_GLOBAL_SORT_EMIT_PASS=1",
+                        "GS_PACKED_STAGE_DATA=1",
+                        "GS_SH_AMORTIZATION=1",
+                        "USE_QUANTIZED_GAUSSIANS=1",
+                    ),
+                ),
+                ("#1267", "#1318"),
+            ),
+            # Count-pass mirrors: _build_binning_count_defines() derives from
+            # _build_common_shader_defines(true), so the quantized / packed / subgroup
+            # toggles reach the count pass too (buffer-layout + platform-compat
+            # branches). Tie/key32 do NOT apply to the count pass (gs_pack_sort_key is
+            # guarded by GS_TILE_GLOBAL_SORT_EMIT_PASS), so they are not mirrored here.
+            Variant(
+                "count_quantized",
+                _merge_defines(
+                    TILE_COMMON_DEFINES,
+                    TILE_GLOBAL_SORT_DEFINES,
+                    TILE_DIAGNOSTICS_OFF,
+                    (
+                        "GS_DISPATCH_LOCAL_SIZE_X=256",
+                        "GS_TILE_GLOBAL_SORT_COUNT_PASS=1",
+                        "USE_QUANTIZED_GAUSSIANS=1",
+                    ),
+                ),
+                ("#1318",),
+            ),
+            Variant(
+                "count_packed",
+                _merge_defines(
+                    TILE_COMMON_DEFINES,
+                    TILE_GLOBAL_SORT_DEFINES,
+                    TILE_DIAGNOSTICS_OFF,
+                    (
+                        "GS_DISPATCH_LOCAL_SIZE_X=256",
+                        "GS_TILE_GLOBAL_SORT_COUNT_PASS=1",
+                        "GS_PACKED_STAGE_DATA=1",
+                    ),
+                ),
+                ("#1318",),
+            ),
+            Variant(
+                "count_subgroups",
+                _merge_defines(
+                    TILE_COMMON_DEFINES,
+                    TILE_GLOBAL_SORT_DEFINES,
+                    TILE_DIAGNOSTICS_OFF,
+                    (
+                        "GS_DISPATCH_LOCAL_SIZE_X=256",
+                        "GS_TILE_GLOBAL_SORT_COUNT_PASS=1",
+                        "GS_ENABLE_SUBGROUPS=1",
+                    ),
+                ),
+                ("#1318",),
+            ),
         ),
     ),
     ShaderMatrixEntry(
@@ -209,19 +385,46 @@ RUNTIME_SHADER_MATRIX: tuple[ShaderMatrixEntry, ...] = (
         stages=("compute",),
         issue_ids=("#1267", "#1318"),
         variants=(
+            # The runtime compiles every prefix pass at GS_PREFIX_LOCAL_SIZE=256
+            # (GaussianSplatting::kTilePrefixPassLocalSize, renderer/tile_prefix_scan_utils.h:14;
+            # ShaderCompilationManager::compile_prefix_shaders() passes that constant for
+            # passes 1, 2 and 3). There is no runtime path that uses a 128-thread prefix
+            # workgroup, so every variant below compiles at the true 256-thread shape.
             Variant(
-                "pass1_small",
-                _merge_defines(TILE_GLOBAL_SORT_DEFINES, ("GS_TILE_PREFIX_PASS_1=1", "GS_PREFIX_LOCAL_SIZE=128")),
+                "pass1",
+                _merge_defines(TILE_GLOBAL_SORT_DEFINES, ("GS_TILE_PREFIX_PASS_1=1", "GS_PREFIX_LOCAL_SIZE=256")),
                 ("#1318",),
             ),
             Variant(
-                "pass2_large",
+                "pass2",
                 _merge_defines(TILE_GLOBAL_SORT_DEFINES, ("GS_TILE_PREFIX_PASS_2=1", "GS_PREFIX_LOCAL_SIZE=256")),
                 ("#1318",),
             ),
             Variant(
-                "pass3_small",
-                _merge_defines(TILE_GLOBAL_SORT_DEFINES, ("GS_TILE_PREFIX_PASS_3=1", "GS_PREFIX_LOCAL_SIZE=128")),
+                "pass3",
+                _merge_defines(TILE_GLOBAL_SORT_DEFINES, ("GS_TILE_PREFIX_PASS_3=1", "GS_PREFIX_LOCAL_SIZE=256")),
+                ("#1318",),
+            ),
+            # GS_ENABLE_SUBGROUPS reaches every prefix-scan pass at runtime:
+            # ShaderCompilationManager::_build_prefix_defines() derives from
+            # TileRenderer::_build_common_shader_defines(true), and tile_prefix_scan.glsl
+            # includes platform_compat.glsl where the define switches the subgroup
+            # extensions to `require`. Compile the subgroup permutation of all three
+            # passes (at the same runtime 256-thread size) so the runtime subgroup path
+            # never ships uncompiled. _variant_target_env() lifts these to vulkan1.1.
+            Variant(
+                "pass1_subgroups",
+                _merge_defines(TILE_GLOBAL_SORT_DEFINES, ("GS_TILE_PREFIX_PASS_1=1", "GS_PREFIX_LOCAL_SIZE=256", "GS_ENABLE_SUBGROUPS=1")),
+                ("#1318",),
+            ),
+            Variant(
+                "pass2_subgroups",
+                _merge_defines(TILE_GLOBAL_SORT_DEFINES, ("GS_TILE_PREFIX_PASS_2=1", "GS_PREFIX_LOCAL_SIZE=256", "GS_ENABLE_SUBGROUPS=1")),
+                ("#1318",),
+            ),
+            Variant(
+                "pass3_subgroups",
+                _merge_defines(TILE_GLOBAL_SORT_DEFINES, ("GS_TILE_PREFIX_PASS_3=1", "GS_PREFIX_LOCAL_SIZE=256", "GS_ENABLE_SUBGROUPS=1")),
                 ("#1318",),
             ),
         ),
@@ -248,6 +451,28 @@ RUNTIME_SHADER_MATRIX: tuple[ShaderMatrixEntry, ...] = (
                     ("GS_TILE_GLOBAL_SORT=1", "GS_MAX_RASTER_SPLATS_PER_TILE=4096", "GS_COLLECT_RASTER_STATS=1", "GS_SORT_KEY_BITS=32"),
                 ),
                 ("#1324",),
+            ),
+            # GS_PACKED_STAGE_DATA and GS_ENABLE_SUBGROUPS come from
+            # _build_common_shader_defines() and reach the rasterizer at runtime, so
+            # the packed payload unpack path (tile_projection_common.glsl) and the
+            # platform_compat subgroup extensions must both be compiled.
+            Variant(
+                "packed",
+                _merge_defines(
+                    TILE_COMMON_DEFINES,
+                    TILE_DIAGNOSTICS_OFF,
+                    ("GS_TILE_GLOBAL_SORT=1", "GS_MAX_RASTER_SPLATS_PER_TILE=4096", "GS_SORT_KEY_BITS=64", "GS_PACKED_STAGE_DATA=1"),
+                ),
+                ("#1267", "#1318"),
+            ),
+            Variant(
+                "subgroups",
+                _merge_defines(
+                    TILE_COMMON_DEFINES,
+                    TILE_DIAGNOSTICS_OFF,
+                    ("GS_TILE_GLOBAL_SORT=1", "GS_MAX_RASTER_SPLATS_PER_TILE=4096", "GS_SORT_KEY_BITS=64", "GS_ENABLE_SUBGROUPS=1"),
+                ),
+                ("#1267", "#1318"),
             ),
         ),
     ),
@@ -312,6 +537,39 @@ RUNTIME_SHADER_MATRIX: tuple[ShaderMatrixEntry, ...] = (
                     ),
                 ),
                 ("#1318",),
+            ),
+            # Packed payload + subgroup paths reach the compute rasterizer via
+            # _build_common_shader_defines() the same way they reach the fragment
+            # rasterizer above.
+            Variant(
+                "packed",
+                _merge_defines(
+                    TILE_COMMON_DEFINES,
+                    TILE_DIAGNOSTICS_OFF,
+                    (
+                        "GS_TILE_GLOBAL_SORT=1",
+                        "GS_MAX_RASTER_SPLATS_PER_TILE=4096",
+                        "GS_TILE_RASTER_COMPUTE=1",
+                        "GS_SORT_KEY_BITS=64",
+                        "GS_PACKED_STAGE_DATA=1",
+                    ),
+                ),
+                ("#1267", "#1318"),
+            ),
+            Variant(
+                "subgroups",
+                _merge_defines(
+                    TILE_COMMON_DEFINES,
+                    TILE_DIAGNOSTICS_OFF,
+                    (
+                        "GS_TILE_GLOBAL_SORT=1",
+                        "GS_MAX_RASTER_SPLATS_PER_TILE=4096",
+                        "GS_TILE_RASTER_COMPUTE=1",
+                        "GS_SORT_KEY_BITS=64",
+                        "GS_ENABLE_SUBGROUPS=1",
+                    ),
+                ),
+                ("#1267", "#1318"),
             ),
         ),
     ),
@@ -421,6 +679,40 @@ RUNTIME_SHADER_MATRIX: tuple[ShaderMatrixEntry, ...] = (
         variants=(Variant("default", ("GS_DISPATCH_LOCAL_SIZE_X=256",), ("#1318", "#1320")),),
     ),
 )
+
+
+# G4 exit criterion ("every runtime-selectable shader permutation branch is compiled
+# in CI"), made self-enforcing. Each key is a shader source (repo-relative, POSIX
+# separators); each value is the set of exact define TOKENS (NAME=VALUE) that at least
+# one of that source's matrix variants MUST carry. These tokens map 1:1 to
+# runtime-selectable #ifdef branches whose runtime define is emitted by
+# TileRenderer::_build_common_shader_defines() / _build_binning_shader_defines() /
+# _build_raster_shader_defines() (see renderer/tile_renderer.cpp and the define audit
+# in renderer/spirv_disk_cache.cpp). Adding a runtime-selectable branch to one of
+# these shaders without a matrix variant that compiles it fails this check with a
+# non-zero exit, the same way the entrypoint-coverage check does. Messages are
+# ASCII-only. Do not weaken this map to make a build pass.
+REQUIRED_VARIANT_DEFINES: dict[str, tuple[str, ...]] = {
+    "modules/gaussian_splatting/shaders/tile_binning.glsl": (
+        "GS_SORT_KEY_BITS=32",        # 32-bit sort-key pack path (tile_binning.glsl:293)
+        "GS_SORT_TIE_BITS=16",        # default 64-bit tie-break suffix (tile_binning.glsl:342)
+        "USE_QUANTIZED_GAUSSIANS=1",  # quantized atlas buffer layout (tile_binning.glsl:89)
+        "GS_PACKED_STAGE_DATA=1",     # packed projection payload (tile_projection_common.glsl:13)
+        "GS_SH_AMORTIZATION=1",       # SH color cache binding (tile_binning.glsl:283)
+        "GS_ENABLE_SUBGROUPS=1",      # subgroup extensions (platform_compat.glsl:18)
+    ),
+    "modules/gaussian_splatting/shaders/tile_prefix_scan.glsl": (
+        "GS_ENABLE_SUBGROUPS=1",      # subgroup extensions via _build_prefix_defines (platform_compat.glsl:18)
+    ),
+    "modules/gaussian_splatting/shaders/tile_rasterizer.glsl": (
+        "GS_PACKED_STAGE_DATA=1",
+        "GS_ENABLE_SUBGROUPS=1",
+    ),
+    "modules/gaussian_splatting/shaders/tile_rasterizer_compute.glsl": (
+        "GS_PACKED_STAGE_DATA=1",
+        "GS_ENABLE_SUBGROUPS=1",
+    ),
+}
 
 
 ABI_CONTRACTS: tuple[ValidationContract, ...] = (
@@ -707,6 +999,23 @@ def _find_shader_compiler(preference: str) -> CompilerTool | None:
     return None
 
 
+def _variant_target_env(defines: tuple[str, ...]) -> str | None:
+    """Minimum compiler target env required by a variant's runtime-selectable defines.
+
+    Subgroup ops (subgroupAdd / subgroupBallot / ... in tile_raster_common.glsl)
+    require SPIR-V 1.3, which maps to the Vulkan 1.1 target environment. At runtime
+    these permutations are compiled only when the device advertises subgroup support
+    (a Vulkan 1.1+ capability, gated by TileRenderer::_detect_subgroup_support), so the
+    offline matrix compiles the GS_ENABLE_SUBGROUPS variants against the same minimum
+    environment. Non-subgroup variants return None and keep the default target env, so
+    their compile command is unchanged.
+    """
+    for define in defines:
+        if define.split("=", 1)[0] == "GS_ENABLE_SUBGROUPS":
+            return "vulkan1.1"
+    return None
+
+
 def _compiler_command(
     tool: CompilerTool,
     stage: str,
@@ -714,9 +1023,12 @@ def _compiler_command(
     output_path: Path,
     defines: tuple[str, ...],
     include_dirs: tuple[Path, ...],
+    target_env: str | None = None,
 ) -> list[str]:
     if tool.kind == "glslc":
         cmd = [tool.path, "-O", f"-fshader-stage={stage}"]
+        if target_env:
+            cmd.append(f"--target-env={target_env}")
         for include_dir in include_dirs:
             cmd.extend(["-I", str(include_dir)])
         for define in defines:
@@ -734,6 +1046,8 @@ def _compiler_command(
         if glslang_stage is None:
             raise ValueError(f"Unsupported shader stage '{stage}' for glslangValidator")
         cmd = [tool.path, "-V", "-S", glslang_stage, "-o", str(output_path)]
+        if target_env:
+            cmd.extend(["--target-env", target_env])
         for include_dir in include_dirs:
             cmd.append(f"-I{include_dir}")
         for define in defines:
@@ -837,6 +1151,54 @@ def _validate_runtime_matrix_coverage() -> tuple[bool, dict[str, object]]:
     }
 
 
+def _validate_required_variant_defines() -> tuple[bool, dict[str, object]]:
+    """G4: every runtime-selectable branch must be exercised by >=1 matrix variant.
+
+    For each source in REQUIRED_VARIANT_DEFINES, union the define tokens across all of
+    that source's variants and confirm every required token is present. Fails (returned
+    ok=False -> non-zero process exit via checks_ok) if any required branch has no
+    compiling variant. This makes the exit criterion self-enforcing rather than relying
+    on a reviewer to notice a newly added #ifdef. ASCII-only output.
+    """
+    entry_by_source = {
+        entry.source.relative_to(REPO_ROOT).as_posix(): entry for entry in RUNTIME_SHADER_MATRIX
+    }
+
+    missing: list[str] = []
+    checked = 0
+    for source, required_defines in sorted(REQUIRED_VARIANT_DEFINES.items()):
+        entry = entry_by_source.get(source)
+        if entry is None:
+            missing.append(f"{source}: source not present in RUNTIME_SHADER_MATRIX")
+            continue
+
+        exercised: set[str] = set()
+        for variant in entry.variants:
+            exercised.update(variant.defines)
+
+        for required in required_defines:
+            checked += 1
+            if required not in exercised:
+                missing.append(f"{source}: no variant exercises `{required}`")
+
+    ok = len(missing) == 0
+
+    print(f"[matrix] Required runtime-branch define tokens checked: {checked}")
+    if missing:
+        print(f"[matrix][FAIL] Runtime-selectable branches without a compile variant ({ISSUE_RUNTIME_MATRIX}):")
+        for item in missing:
+            print(f"  - {item}")
+    else:
+        print(f"[matrix][PASS] Every required runtime-selectable branch has a compile variant ({ISSUE_RUNTIME_MATRIX}).")
+
+    return ok, {
+        "ok": ok,
+        "checked": checked,
+        "missing": missing,
+        "required": {source: list(defines) for source, defines in REQUIRED_VARIANT_DEFINES.items()},
+    }
+
+
 def _print_matrix() -> None:
     print(f"[matrix] Explicit runtime shader matrix ({len(RUNTIME_SHADER_MATRIX)} entries)")
     for entry in RUNTIME_SHADER_MATRIX:
@@ -895,7 +1257,8 @@ def _compile_entry(
 
             for variant in entry.variants:
                 output_file = output_dir / f"{entry.key}.{variant.name}.{stage}.spv"
-                cmd = _compiler_command(tool, stage, temp_file, output_file, variant.defines, include_dirs)
+                target_env = _variant_target_env(variant.defines)
+                cmd = _compiler_command(tool, stage, temp_file, output_file, variant.defines, include_dirs, target_env)
                 proc = subprocess.run(cmd, capture_output=True, text=True)
                 ok = proc.returncode == 0
                 entry_ok = entry_ok and ok
@@ -986,6 +1349,9 @@ def main() -> int:
     matrix_ok, matrix_summary = _validate_runtime_matrix_coverage()
     summary["matrix_coverage"] = matrix_summary
 
+    required_defines_ok, required_defines_summary = _validate_required_variant_defines()
+    summary["required_variant_defines"] = required_defines_summary
+
     abi_ok, abi_results = _run_contract_set("ABI", ABI_CONTRACTS)
     summary["abi_contracts"] = abi_results
 
@@ -995,7 +1361,7 @@ def main() -> int:
     diagnostics_ok, diagnostics_results = _run_contract_set("Diagnostics", DIAGNOSTICS_CONTRACTS)
     summary["diagnostics_contracts"] = diagnostics_results
 
-    checks_ok = matrix_ok and abi_ok and counter_ok and diagnostics_ok
+    checks_ok = matrix_ok and required_defines_ok and abi_ok and counter_ok and diagnostics_ok
 
     compile_enabled = not args.contracts_only and not args.skip_compile
     compile_results: list[dict[str, object]] = []
