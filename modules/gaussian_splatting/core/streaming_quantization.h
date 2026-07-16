@@ -4,6 +4,7 @@
 #include "gaussian_data.h"
 #include "core/math/vector3.h"
 #include "core/templates/local_vector.h"
+#include <cstddef>
 #include <cstdint>
 
 // ============================================================================
@@ -93,5 +94,17 @@ struct alignas(16) ChunkQuantizationGPU {
 };
 
 static_assert(sizeof(ChunkQuantizationGPU) == 64, "ChunkQuantizationGPU must be 64 bytes");
+// Anchor each field offset so the CPU<->GPU mirror (GLSL `struct ChunkQuantization`
+// in shaders/includes/quantization_dequant.glsl) stays byte-for-byte in sync. These
+// offsets are also verified by tests/ci/check_gaussian_layout_sync.py against the
+// std430 GLSL layout; keep both in lockstep.
+static_assert(offsetof(ChunkQuantizationGPU, position_min) == 0, "ChunkQuantizationGPU.position_min offset mismatch");
+static_assert(offsetof(ChunkQuantizationGPU, position_bits) == 12, "ChunkQuantizationGPU.position_bits offset mismatch");
+static_assert(offsetof(ChunkQuantizationGPU, position_range) == 16, "ChunkQuantizationGPU.position_range offset mismatch");
+static_assert(offsetof(ChunkQuantizationGPU, scale_bits) == 28, "ChunkQuantizationGPU.scale_bits offset mismatch");
+static_assert(offsetof(ChunkQuantizationGPU, scale_min) == 32, "ChunkQuantizationGPU.scale_min offset mismatch");
+static_assert(offsetof(ChunkQuantizationGPU, start_index) == 44, "ChunkQuantizationGPU.start_index offset mismatch");
+static_assert(offsetof(ChunkQuantizationGPU, scale_range) == 48, "ChunkQuantizationGPU.scale_range offset mismatch");
+static_assert(offsetof(ChunkQuantizationGPU, count) == 60, "ChunkQuantizationGPU.count offset mismatch");
 
 #endif // STREAMING_QUANTIZATION_H
