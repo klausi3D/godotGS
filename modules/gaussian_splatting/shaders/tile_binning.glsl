@@ -669,7 +669,7 @@ vec3 project_gaussian_2d(Gaussian g, out vec2 screen_pos, out mat2 cov2d, out fl
     // Low-pass filter (added to cov2d diagonal). The same Mip-Splatting low-pass
     // SuperSplat / Inria use, but ALWAYS paired with the α-rescale companion below
     // so the dilation does not become pure fattening.
-    float low_pass_filter = clamp(params._pad_before_jacobian, 0.05, 2.0);
+    float low_pass_filter = clamp(params.low_pass_filter, 0.05, 2.0);
     cov2d[0][0] += low_pass_filter;
     cov2d[1][1] += low_pass_filter;
 

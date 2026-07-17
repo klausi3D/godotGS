@@ -33,7 +33,7 @@ layout(set = 1, binding = 0, std140) uniform RenderParams {
     float cull_far_tolerance; // Extra tolerance past the far plane for culling
     float tiny_splat_screen_radius; // Drop splats smaller than this pixel radius
     float max_conic_aspect;  // Max aspect ratio for conic clamping (lower = less stretching)
-    float _pad_before_jacobian; // std140: align jacobian_diag_flags (vec4) to 16 bytes
+    float low_pass_filter; // Mip-Splatting projection low-pass / cov2d diagonal floor; also aligns jacobian_diag_flags (vec4) to 16 bytes
     // Jacobian diagnostic toggles: x=bypass_radius_depth_floor, y=bypass_j_col2_clamp, z=invert_j_col2_sign, w=reserved
     vec4 jacobian_diag_flags;
     // Debug overlay flags:

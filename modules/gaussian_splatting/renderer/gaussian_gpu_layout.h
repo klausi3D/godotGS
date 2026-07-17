@@ -426,7 +426,7 @@ struct alignas(16) TileRenderParamsGPU {
     float cull_far_tolerance;
     float tiny_splat_screen_radius;
     float max_conic_aspect;
-    float _pad_before_jacobian; // std140: align jacobian_diag_flags (vec4) to 16 bytes
+    float low_pass_filter; // Mip-Splatting projection low-pass / cov2d diagonal floor; also aligns jacobian_diag_flags (vec4) to 16 bytes
     float jacobian_diag_flags[4];
     float debug_overlay_flags[4];
     // Spherical Harmonics configuration:
@@ -537,7 +537,7 @@ static_assert(offsetof(TileRenderParamsGPU, _pad_overlap) == 348, "TileRenderPar
 static_assert(offsetof(TileRenderParamsGPU, cull_far_tolerance) == 352, "TileRenderParamsGPU.cull_far_tolerance offset mismatch");
 static_assert(offsetof(TileRenderParamsGPU, tiny_splat_screen_radius) == 356, "TileRenderParamsGPU.tiny_splat_screen_radius offset mismatch");
 static_assert(offsetof(TileRenderParamsGPU, max_conic_aspect) == 360, "TileRenderParamsGPU.max_conic_aspect offset mismatch");
-static_assert(offsetof(TileRenderParamsGPU, _pad_before_jacobian) == 364, "TileRenderParamsGPU._pad_before_jacobian offset mismatch");
+static_assert(offsetof(TileRenderParamsGPU, low_pass_filter) == 364, "TileRenderParamsGPU.low_pass_filter offset mismatch");
 static_assert(offsetof(TileRenderParamsGPU, jacobian_diag_flags) == 368, "TileRenderParamsGPU.jacobian_diag_flags offset mismatch");
 static_assert(offsetof(TileRenderParamsGPU, debug_overlay_flags) == 384, "TileRenderParamsGPU.debug_overlay_flags offset mismatch");
 static_assert(offsetof(TileRenderParamsGPU, sh_config) == 400, "TileRenderParamsGPU.sh_config offset mismatch");
