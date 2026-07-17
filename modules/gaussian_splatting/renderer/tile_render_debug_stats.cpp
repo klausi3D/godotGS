@@ -170,23 +170,18 @@ void TileRenderer::TileRendererDebugStats::poll_overflow_drop_signal(RenderingDe
     // dump_gpu_debug_counters) is debug-gated, so a pure production frame never learns that a
     // drop happened -- this reads back just sizeof(uint32_t) at the field offset, a tiny async
     // GPU->CPU copy (never a synchronous stall), and only while a prior read is not in flight.
-    // The signal is STICKY (clear_counters does not reset it), so skipping while pending cannot
-    // lose a drop: whatever drop set it persists until a readback reads it here.
+    // The signal is STICKY (clear_counters leaves it intact on normal frames), so skipping
+    // while pending cannot lose a drop: whatever drop set it persists until a readback reads it
+    // here. Re-arming (resetting the signal after a read counted it) is done by clear_counters
+    // at FRAME START -- before the EMIT writer -- not here, so a drop on the re-arm frame is
+    // still captured (see on_overflow_signal_readback + clear_counters).
     if (!p_device || !overflow_statistics_buffer.is_valid()) {
         return;
-    }
-    const uint32_t signal_offset = static_cast<uint32_t>(offsetof(OverflowStatsSnapshot, overflow_drop_signal));
-    // Re-arm: once a readback has COUNTED a sticky drop, clear ONLY the 4-byte signal so the
-    // next drop re-sets it (edge-triggered per read-interval). Done here rather than in the
-    // readback callback so the clear runs on the render thread with a valid device, GPU-ordered
-    // after the read that observed the drop.
-    if (overflow_signal_needs_clear) {
-        p_device->buffer_clear(overflow_statistics_buffer, signal_offset, sizeof(uint32_t));
-        overflow_signal_needs_clear = false;
     }
     if (p_frame_serial == 0 || overflow_signal_readback.pending) {
         return;
     }
+    const uint32_t signal_offset = static_cast<uint32_t>(offsetof(OverflowStatsSnapshot, overflow_drop_signal));
     overflow_signal_readback.requested_frame_serial = p_frame_serial;
     Callable callback = callable_mp(&owner, &TileRenderer::_on_overflow_signal_readback);
     Error err = p_device->buffer_get_data_async(overflow_statistics_buffer, callback, signal_offset, sizeof(uint32_t));
@@ -208,8 +203,9 @@ void TileRenderer::TileRendererDebugStats::on_overflow_signal_readback(const Vec
         // silently. The running drop COUNT stays in overflow_splats_clamped (debug path);
         // overflow_drop_events counts CPU read-intervals in which at least one drop occurred
         // (the signal is sticky, so this is reliably non-zero whenever drops happen -- it is
-        // NOT a per-frame count; the WARN_ONCE is the primary signal). Request the re-arm clear
-        // (performed by the next poll) so the following drop re-sets the sticky flag.
+        // NOT a per-frame count; the WARN_ONCE is the primary signal). Request the re-arm: the
+        // NEXT frame-start clear_counters (which runs BEFORE that frame's EMIT writer) full-
+        // clears the buffer and consumes this flag, so the re-arm frame's own drop is not lost.
         WARN_PRINT_ONCE("[TileRenderer] Overlap-record overflow: the tile-binning pass dropped "
                 "overlap records (per-tile capacity or the global overlap-record budget was "
                 "exhausted); some splats are not being rendered. Increase the overlap-record "
@@ -306,14 +302,22 @@ void TileRenderer::TileRendererDebugStats::clear_counters(RenderingDevice *p_dev
 	if (debug_counter_buffer.is_valid()) {
 		p_device->buffer_clear(debug_counter_buffer, 0, sizeof(DebugCounterSnapshot));
 	}
-	// Clear the per-frame overflow stats prefix, but DELIBERATELY leave the trailing
-	// overflow_drop_signal (last uint) intact. C4b (G4): that field is a STICKY drop flag --
-	// clearing it every frame would let the async readback (~2-frame latency + skip-while-
-	// pending) miss a drop that occurred and was cleared before it was ever read. The sticky
-	// flag is re-armed by poll_overflow_drop_signal only AFTER a readback has counted it.
+	// C4b (G4): the trailing overflow_drop_signal (last uint) is a STICKY drop flag.
+	//  - Normal frame: clear only the per-frame prefix [0, size - 4), LEAVING the signal intact
+	//    so a drop persists across frames (the async readback has ~2-frame latency and skips
+	//    while a read is pending; clearing it every frame could wipe a drop before it is read).
+	//  - Re-arm frame (a prior readback already COUNTED the sticky drop -> needs_clear set):
+	//    clear the FULL buffer [0, size) HERE, at frame start, BEFORE the tile-binning EMIT
+	//    writer runs, and consume the flag. The EMIT pass then re-sets the signal iff THIS frame
+	//    drops, so the re-arm frame's own drop is still captured by the end-of-frame read. (An
+	//    end-of-frame re-arm would instead wipe this frame's drop after EMIT.) This clear shares
+	//    the existing per-frame-stats clear path, so it inherits the same before-EMIT ordering.
 	if (overflow_statistics_buffer.is_valid()) {
-		p_device->buffer_clear(overflow_statistics_buffer, 0,
-				sizeof(OverflowStatsSnapshot) - sizeof(uint32_t));
+		const uint32_t clear_size = overflow_signal_needs_clear
+				? static_cast<uint32_t>(sizeof(OverflowStatsSnapshot))
+				: static_cast<uint32_t>(sizeof(OverflowStatsSnapshot) - sizeof(uint32_t));
+		p_device->buffer_clear(overflow_statistics_buffer, 0, clear_size);
+		overflow_signal_needs_clear = false;
 	}
 }
 

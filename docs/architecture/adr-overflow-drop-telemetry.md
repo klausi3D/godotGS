@@ -83,8 +83,12 @@ go non-zero and the WARN fires once. Classify with `scripts/agentic/classify_cha
   cleared on frame N+2 before frame N's readback (scheduled while the signal was still zero)
   ever observed it -- a silently lost drop, defeating G4. With the sticky flag, whatever drop
   set it survives until a readback reads it; that readback emits `WARN_ONCE` + bumps the
-  counter, then re-arms by clearing only the 4-byte signal. Consequently `overflow_drop_events`
-  counts **CPU read-intervals in which at least one drop occurred**, not per-frame drops -- it
-  is reliably non-zero whenever drops happen (the WARN is the primary signal). Layout parity is
+  counter and requests a re-arm. The re-arm runs in the **frame-start** buffer clear (before
+  that frame's EMIT writer): a normal frame clears only the prefix `[0, size - 4)` (signal
+  sticky), while a re-arm frame clears the full buffer `[0, size)` and consumes the flag -- so
+  the re-arm frame's own drop is re-set by EMIT and still captured by the end-of-frame read (an
+  end-of-frame re-arm would wipe it after EMIT). Consequently `overflow_drop_events` counts
+  **CPU read-intervals in which at least one drop occurred**, not per-frame drops -- it is
+  reliably non-zero whenever drops happen (the WARN is the primary signal). Layout parity is
   unchanged: the signal is still a trailing `uint`, still validated by the OverflowStats
   layout-sync guard.
