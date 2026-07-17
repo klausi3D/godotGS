@@ -226,8 +226,15 @@ private:
     bool last_instance_visible_splat_count_valid = false;
     uint32_t last_instance_visible_splat_count_frame = 0;
     // C4b (G4): persistent count of frames whose instance-count clamp raised overflow_flag.
-    // Bumped from both the async readback and the sync bootstrap path.
+    // Bumped (once per frame) from both the async readback and the sync bootstrap/recovery path.
     uint32_t instance_count_overflow_events = 0;
+    // C4b (G4): frame-keyed de-dup for the counter above. A single production frame can be
+    // sampled by BOTH the sync path (which sets last_instance_visible_splat_count_frame) AND
+    // the async callback (accepted at request_frame == that same frame); both funnel their
+    // frame counter through _note_instance_count_overflow(), which counts/WARNs at most once
+    // per distinct frame. `_valid` distinguishes "never counted" from "counted frame 0".
+    uint32_t last_instance_overflow_frame = 0;
+    bool instance_overflow_frame_valid = false;
     String last_compute_error;
 
     // BUF-3 optimization: Store reference to culler instead of copying data.
@@ -266,6 +273,9 @@ private:
     void ensure_remap_resources(RenderingDevice *p_device);
     void ensure_gather_resources(RenderingDevice *p_device);
     bool _publish_sorted_results(const Vector<uint8_t> &p_sorted_index_bytes);
+    // C4b (G4): count + WARN an instance-count overflow at most once per production frame,
+    // regardless of whether the sample came from the sync path or the async callback.
+    void _note_instance_count_overflow(uint32_t p_frame_counter);
 #ifdef TESTS_ENABLED
 public:
 #endif

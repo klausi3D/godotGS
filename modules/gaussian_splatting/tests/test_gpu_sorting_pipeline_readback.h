@@ -156,6 +156,44 @@ TEST_CASE("[GaussianSplatting][GPU Sort Pipeline] Instance-count overflow_flag r
 	CHECK(pipeline->get_instance_count_overflow_events() == 1u);
 }
 
+TEST_CASE("[GaussianSplatting][GPU Sort Pipeline] A single production frame counts an instance-count overflow exactly once (C4b/G4 de-dup)") {
+	// C4b (G4): one production frame can be sampled by BOTH the sync bootstrap/recovery path
+	// AND the async readback callback (which is accepted because request_frame equals the frame
+	// the sync path already recorded). Both funnel through _note_instance_count_overflow(),
+	// keyed on the frame counter, so the counter (and WARN) must fire at most ONCE for that
+	// frame. Two accepted readbacks for the SAME frame counter model that sync+async double-hit;
+	// without the frame-keyed de-dup this would count 2.
+	Ref<GPUSortingPipeline> pipeline;
+	pipeline.instantiate();
+	REQUIRE(pipeline.is_valid());
+	CHECK(pipeline->get_instance_count_overflow_events() == 0u);
+
+	auto &count_state = pipeline->_test_instance_count_readback_state();
+
+	// First sample for frame 30 (models the sync path recording the overflow).
+	count_state.pending = true;
+	count_state.generation = 40;
+	count_state.pending_frame_counter = 30;
+	pipeline->_test_set_last_instance_visible_splat_count_state(0, false, 0);
+	pipeline->_on_instance_count_readback(_make_indirect_dispatch_payload(64, 1, 4096), 40);
+	CHECK(pipeline->get_instance_count_overflow_events() == 1u);
+
+	// Second sample for the SAME frame 30 (models the async callback for that frame). It is
+	// accepted (request_frame 30 is not < the recorded frame 30) but must NOT re-count.
+	count_state.pending = true;
+	count_state.generation = 41;
+	count_state.pending_frame_counter = 30;
+	pipeline->_on_instance_count_readback(_make_indirect_dispatch_payload(64, 1, 4096), 41);
+	CHECK(pipeline->get_instance_count_overflow_events() == 1u);
+
+	// A later, distinct frame that also overflows increments again (per-frame, not global).
+	count_state.pending = true;
+	count_state.generation = 42;
+	count_state.pending_frame_counter = 31;
+	pipeline->_on_instance_count_readback(_make_indirect_dispatch_payload(64, 1, 4096), 42);
+	CHECK(pipeline->get_instance_count_overflow_events() == 2u);
+}
+
 TEST_CASE("[GaussianSplatting][GPU Sort Pipeline] Clearing instance pipeline inputs resets readback ownership state") {
 	Ref<GPUSortingPipeline> pipeline;
 	pipeline.instantiate();

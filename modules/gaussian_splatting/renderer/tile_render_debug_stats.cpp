@@ -90,7 +90,6 @@ void TileRenderer::TileRendererDebugStats::on_debug_counters_readback(const Vect
     const DebugCounterSnapshot *ptr = reinterpret_cast<const DebugCounterSnapshot *>(p_data.ptr());
     cached_debug_counters = *ptr;
     cached_debug_frame_serial = debug_counter_readback.requested_frame_serial;
-
 }
 
 void TileRenderer::TileRendererDebugStats::on_overflow_stats_readback(const Vector<uint8_t> &p_data) {

@@ -1,3 +1,4 @@
+#include "core/config/project_settings.h"
 #include "core/math/vector2i.h"
 #include "core/math/vector3.h"
 #include "core/object/ref_counted.h"
@@ -11,7 +12,9 @@
 #include <utility>
 
 #include "../renderer/tile_renderer.h"
+#include "../renderer/gpu_sorting_config.h"
 #include "../core/gaussian_data.h"
+#include "gs_test_setting_guard.h"
 
 namespace {
 
@@ -116,6 +119,10 @@ public:
     TestResult test_performance_regression(RenderingDevice *p_rd);
     TestResult test_renderer_lifecycle_leak_detection(RenderingDevice *p_rd);
     TestResult test_zero_work_frame_resets_raster_timing(RenderingDevice *p_rd);
+    // C4b (G4), Channel A: provoke a binning overlap-record drop and assert the always-on
+    // resident-signal telemetry (overflow_drop_events) goes non-zero. Self-initializes the
+    // tile renderer, so it can be driven standalone from a dedicated [RequiresGPU] TEST_CASE.
+    TestResult test_overflow_drop_telemetry(RenderingDevice *p_rd);
 
     // Test utilities
     Vector<Gaussian> generate_test_gaussians(uint32_t count, bool valid = true);
@@ -1374,6 +1381,98 @@ bool TileRendererRegressionTest::generate_reference_captures(RenderingDevice *p_
     return true;
 }
 
+TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_overflow_drop_telemetry(RenderingDevice *p_rd) {
+    // C4b / exit criterion G4 ("no silent degradation"), Channel A: on-GPU proof that a real
+    // binning overlap-record drop makes the always-on resident-signal telemetry fire. Force
+    // max_overlap_records to its minimum valid value (100000) so a dense 100K-splat cloud at
+    // 512x512 (each splat covering several tiles) exhausts the GLOBAL overlap-record budget ->
+    // the EMIT-pass drop sites set overflow_drop_signal, which the always-on async readback
+    // surfaces as a non-zero get_overflow_drop_events(). Runs on the self-hosted GPU harness
+    // lane (needs a real device); it cannot execute on the agent's rasterless environment.
+    TestResult result;
+
+    ProjectSettings *ps = ProjectSettings::get_singleton();
+    {
+        // Scope the guard so it restores the setting BEFORE we re-sync the global config below.
+        ProjectSettingGuard overlap_guard(ps, GPUSortingConfig::MAX_OVERLAP_RECORDS_PATH);
+        if (ps) {
+            ps->set_setting(GPUSortingConfig::MAX_OVERLAP_RECORDS_PATH, 100000); // MIN_OVERLAP_RECORDS
+        }
+        g_gpu_sorting_config.load_from_project_settings();
+
+        result = [&]() -> TestResult {
+            TestResult r;
+
+            Error err = tile_renderer->initialize(p_rd, Vector2i(TEST_VIEWPORT_WIDTH, TEST_VIEWPORT_HEIGHT), TEST_TILE_SIZE);
+            if (err != OK) {
+                r.error_message = "Failed to initialize tile renderer for overflow-drop telemetry test";
+                return r;
+            }
+            tile_renderer->set_debug_binning_counters_enabled(true);
+
+            const uint32_t baseline_drop_events = tile_renderer->get_overflow_drop_events();
+
+            Vector<Gaussian> gaussians = generate_test_gaussians(OVERFLOW_TEST_SPLAT_COUNT);
+            RID gaussian_buffer = create_test_gaussian_buffer(p_rd, gaussians);
+            RID sorted_indices = create_test_sorted_indices(p_rd, OVERFLOW_TEST_SPLAT_COUNT);
+            auto free_buffers = [&]() {
+                if (gaussian_buffer.is_valid()) {
+                    p_rd->free(gaussian_buffer);
+                }
+                if (sorted_indices.is_valid()) {
+                    p_rd->free(sorted_indices);
+                }
+            };
+            if (!gaussian_buffer.is_valid() || !sorted_indices.is_valid()) {
+                free_buffers();
+                r.error_message = "Failed to create overflow-drop telemetry test buffers";
+                return r;
+            }
+
+            TileRenderer::RenderParams params = make_render_params(gaussian_buffer, sorted_indices,
+                    OVERFLOW_TEST_SPLAT_COUNT, TEST_VIEWPORT_WIDTH, TEST_VIEWPORT_HEIGHT, TEST_TILE_SIZE);
+
+            // Render enough frames to (a) sustain drops and (b) let the ~2-frame async
+            // resident-signal readback complete and increment overflow_drop_events.
+            uint32_t drop_events = baseline_drop_events;
+            uint32_t clamped_seen = 0;
+            for (int frame = 0; frame < 24; frame++) {
+                RID output = tile_renderer->render(p_rd, params);
+                if (!output.is_valid()) {
+                    free_buffers();
+                    r.error_message = "Render failed under overflow-drop telemetry workload";
+                    return r;
+                }
+                clamped_seen = MAX<uint32_t>(clamped_seen, tile_renderer->get_overflow_stats().overflow_splats_clamped);
+                drop_events = tile_renderer->get_overflow_drop_events();
+                if (drop_events > baseline_drop_events) {
+                    break;
+                }
+            }
+
+            free_buffers();
+
+            if (drop_events <= baseline_drop_events) {
+                r.error_message = vformat(
+                        "overflow_drop_events did not increment after 24 frames of a dense overflow workload "
+                        "(baseline=%u final=%u; overflow_splats_clamped observed=%u). clamped==0 => the workload "
+                        "did not provoke a binning overlap-record drop; clamped>0 => the Channel A resident-signal "
+                        "telemetry did not fire.",
+                        baseline_drop_events, drop_events, clamped_seen);
+                return r;
+            }
+
+            r.passed = true;
+            return r;
+        }();
+    }
+    // Guard has restored the project setting; re-sync the global config so later tests see the
+    // original max_overlap_records rather than the forced-low value.
+    g_gpu_sorting_config.load_from_project_settings();
+
+    return result;
+}
+
 bool TileRendererRegressionTest::validate_against_reference(RID output_texture, const String &reference_name) {
     // Stub implementation
     return true;
@@ -1411,4 +1510,35 @@ TEST_CASE("[TileRenderer] Range pipeline regression test") {
 // calls this symbol so the linker keeps the object and the cases actually run.
 extern "C" int tile_renderer_regression_test_cpp_force_link() {
     return 0;
+}
+
+// C4b / exit criterion G4 ("no silent degradation"), Channel A on-GPU evidence. Tagged
+// [RequiresGPU] so the self-hosted "GPU Harness + Visual Gate" lane runs it (the gs-gpu-test
+// runner filters `*[RequiresGPU]*`). It provokes a real binning overlap-record drop and asserts
+// the always-on resident-signal telemetry counter (overflow_drop_events) goes non-zero. Cannot
+// run in the agent's rasterless environment; skips cleanly when no rendering device is available.
+TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] Overflow-record drop raises the C4b telemetry counter") {
+    RenderingServer *rs = RenderingServer::get_singleton();
+    if (!rs) {
+        MESSAGE("[TileRenderer] RenderingServer not available, skipping overflow-drop telemetry test");
+        return;
+    }
+
+    RenderingDevice *rd = rs->create_local_rendering_device();
+    if (!rd) {
+        MESSAGE("[TileRenderer] Could not create local rendering device, skipping overflow-drop telemetry test");
+        return;
+    }
+
+    Ref<TileRendererRegressionTest> regression_test;
+    regression_test.instantiate();
+
+    TileRendererRegressionTest::TestResult result = regression_test->test_overflow_drop_telemetry(rd);
+
+    memdelete(rd);
+
+    if (!result.passed) {
+        MESSAGE(result.error_message.utf8().get_data());
+    }
+    CHECK(result.passed);
 }

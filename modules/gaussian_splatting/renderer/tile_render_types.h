@@ -148,6 +148,12 @@ struct TileOverflowStatsSnapshot {
 	uint32_t overflow_drop_signal = 0;
 };
 
+// C4b: anchor the host mirror size so tests/ci/check_gaussian_layout_sync.py can validate
+// this struct against the OverflowStats / OverflowStatisticsBuffer SSBO (binding 3) declared
+// in tile_binning.glsl + the two tile_rasterizer shaders. 22 uint32_t fields, std430-tight.
+static_assert(sizeof(TileOverflowStatsSnapshot) == 88,
+		"TileOverflowStatsSnapshot must match the 88-byte binding-3 OverflowStats SSBO layout");
+
 struct TileSplatAuditSnapshot {
 	bool valid = false;
 	uint64_t frame_serial = 0;

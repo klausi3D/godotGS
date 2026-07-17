@@ -12,6 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 HOST_LAYOUT = ROOT / "modules" / "gaussian_splatting" / "renderer" / "gaussian_gpu_layout.h"
 STREAMING_QUANTIZATION_H = ROOT / "modules" / "gaussian_splatting" / "core" / "streaming_quantization.h"
+TILE_RENDER_TYPES_H = ROOT / "modules" / "gaussian_splatting" / "renderer" / "tile_render_types.h"
 RENDER_PARAMS_GLSL = ROOT / "modules" / "gaussian_splatting" / "shaders" / "includes" / "gs_render_params.glsl"
 SHADER_ROOTS = (
     ROOT / "modules" / "gaussian_splatting" / "shaders",
@@ -83,7 +84,15 @@ class LayoutSpec:
 
 
 _HOST_OFFSET_RE = re.compile(r"static_assert\(offsetof\(PackedGaussian,\s*(\w+)\) == (\d+)")
-_FIELD_RE = re.compile(r"^\s*(?P<type>\w+)\s+(?P<name>\w+)(?:\[(?P<count>[A-Za-z_]\w*|\d+)\])?\s*;\s*$")
+# Field declaration, tolerating an optional C++ default-member-initializer (`= 0`) before the
+# `;` so host mirror structs that default-initialize their fields (e.g. TileOverflowStatsSnapshot)
+# parse identically to the initializer-free GPU structs. The default value is consumed and
+# ignored (layout is driven by type + array count only). Backward compatible: initializer-free
+# declarations still match, since the `= ...` group is optional.
+_FIELD_RE = re.compile(r"^\s*(?P<type>\w+)\s+(?P<name>\w+)(?:\[(?P<count>[A-Za-z_]\w*|\d+)\])?\s*(?:=\s*[^;]+?)?\s*;\s*$")
+# GLSL SSBO block: `buffer NAME { ... } instance;` (the binding-3 OverflowStats mirror is a
+# buffer block, not a `struct`, so it needs a distinct discovery pattern from _STRUCT_RE_TEMPLATE).
+_BUFFER_BLOCK_RE_TEMPLATE = r"buffer\s+{name}\s*\{{(?P<body>.*?)\}}\s*\w+\s*;"
 _CONST_RE = re.compile(r"^static constexpr \w+\s+(?P<name>\w+)\s*=\s*(?P<value>\d+)[uU]?\s*;\s*$")
 _SCALAR_BASE_TYPES: dict[str, tuple[str, int, int]] = {
     "float": ("float", 4, 4),
@@ -217,15 +226,13 @@ def _parse_host_size_contract(path: Path, struct_name: str) -> int:
     return int(size_match.group(1))
 
 
-def _parse_struct_definition(path: Path, struct_name: str) -> StructDef:
-    text = path.read_text(encoding="utf-8")
-    match = _struct_pattern(struct_name).search(text)
-    if not match:
-        raise RuntimeError(f"Could not find `struct {struct_name}` in {path}")
-
+def _parse_fields_from_body(body: str, path: Path) -> tuple[RawField, ...]:
+    """Parse the scalar/vector/array field declarations from a struct or buffer-block body.
+    Shared by _parse_struct_definition (C++/GLSL `struct`) and _parse_buffer_block_definition
+    (GLSL `buffer` SSBO block); tolerates C++ default-member-initializers via _FIELD_RE."""
     fields: list[RawField] = []
     constants: dict[str, int] = {}
-    for raw_line in match.group("body").splitlines():
+    for raw_line in body.splitlines():
         line = raw_line.split("//", 1)[0].strip()
         if not line:
             continue
@@ -250,7 +257,26 @@ def _parse_struct_definition(path: Path, struct_name: str) -> StructDef:
         else:
             raise RuntimeError(f"Unknown array bound `{count}` in {path}: {raw_line.strip()}")
         fields.append(RawField(field_match.group("type"), field_match.group("name"), count_value))
-    return StructDef(struct_name, tuple(fields), int(match.group("align")) if match.group("align") else None)
+    return tuple(fields)
+
+
+def _parse_struct_definition(path: Path, struct_name: str) -> StructDef:
+    text = path.read_text(encoding="utf-8")
+    match = _struct_pattern(struct_name).search(text)
+    if not match:
+        raise RuntimeError(f"Could not find `struct {struct_name}` in {path}")
+    fields = _parse_fields_from_body(match.group("body"), path)
+    return StructDef(struct_name, fields, int(match.group("align")) if match.group("align") else None)
+
+
+def _parse_buffer_block_definition(path: Path, block_name: str) -> StructDef:
+    text = path.read_text(encoding="utf-8")
+    pattern = re.compile(_BUFFER_BLOCK_RE_TEMPLATE.format(name=re.escape(block_name)), re.DOTALL)
+    match = pattern.search(text)
+    if not match:
+        raise RuntimeError(f"Could not find `buffer {block_name} {{ ... }} <instance>;` in {path}")
+    fields = _parse_fields_from_body(match.group("body"), path)
+    return StructDef(block_name, fields, None)
 
 
 def _discover_shader_struct_sources() -> tuple[tuple[Path, str], ...]:
@@ -490,6 +516,46 @@ def _check_extra_mirror_struct(host_header: Path, host_name: str, shader_name: s
         shader_def = _parse_struct_definition(shader_path, shader_name)
         shader_layout = _layout_struct({shader_name: shader_def}, shader_name, "shader")
         _compare_layouts(host_layout, shader_layout, shader_path, shader_name, host_name, failures)
+
+
+# C4b: the binding-3 overlap-statistics SSBO is a GLSL `buffer` block (not a `struct`) and is
+# declared under two block type names across three shaders (all with identical fields and the
+# shared `overflow_stats` instance). Validate the host mirror TileOverflowStatsSnapshot against
+# EVERY one of those declarations so a trailing/edited field on any single side is caught -- a
+# silent drift here is GPU-buffer corruption. host = C++ struct; shaders = buffer blocks.
+OVERFLOW_STATS_HOST_NAME = "TileOverflowStatsSnapshot"
+OVERFLOW_STATS_SHADER_MIRRORS: tuple[tuple[Path, str], ...] = (
+    (ROOT / "modules" / "gaussian_splatting" / "shaders" / "tile_binning.glsl", "OverflowStats"),
+    (ROOT / "modules" / "gaussian_splatting" / "shaders" / "tile_rasterizer.glsl", "OverflowStatisticsBuffer"),
+    (ROOT / "modules" / "gaussian_splatting" / "shaders" / "tile_rasterizer_compute.glsl", "OverflowStatisticsBuffer"),
+)
+
+
+def _check_overflow_stats_mirror(failures: list[str]) -> None:
+    host_text = TILE_RENDER_TYPES_H.read_text(encoding="utf-8")
+    host_def = _parse_struct_definition(TILE_RENDER_TYPES_H, OVERFLOW_STATS_HOST_NAME)
+    host_layout = _layout_struct({OVERFLOW_STATS_HOST_NAME: host_def}, OVERFLOW_STATS_HOST_NAME, "host")
+
+    # Host self-consistency: computed layout must match this struct's own sizeof static_assert.
+    contract_size = _parse_struct_size_contract(host_text, OVERFLOW_STATS_HOST_NAME)
+    if contract_size is None:
+        failures.append(
+            f"{TILE_RENDER_TYPES_H.relative_to(ROOT)}: `{OVERFLOW_STATS_HOST_NAME}` has no literal `sizeof` static_assert to anchor the OverflowStats mirror"
+        )
+    elif host_layout.size != contract_size:
+        failures.append(
+            f"{TILE_RENDER_TYPES_H.relative_to(ROOT)}: computed {OVERFLOW_STATS_HOST_NAME} size {host_layout.size} != host contract {contract_size}"
+        )
+
+    # Every shader buffer-block declaration of the shared binding-3 buffer must match the host
+    # layout field-by-field (names, std430 signatures, offsets, size).
+    for shader_path, block_name in OVERFLOW_STATS_SHADER_MIRRORS:
+        if not shader_path.exists():
+            failures.append(f"{block_name}: expected OverflowStats shader mirror {shader_path.relative_to(ROOT)} not found")
+            continue
+        block_def = _parse_buffer_block_definition(shader_path, block_name)
+        block_layout = _layout_struct({block_name: block_def}, block_name, "shader")
+        _compare_layouts(host_layout, block_layout, shader_path, block_name, OVERFLOW_STATS_HOST_NAME, failures)
 
 
 def _std140_member_layout(type_name: str, count: int | None) -> tuple[int, int]:
@@ -837,6 +903,8 @@ def main() -> int:
     for host_header, host_name, shader_name in EXTRA_MIRROR_STRUCTS:
         _check_extra_mirror_struct(host_header, host_name, shader_name, failures)
 
+    _check_overflow_stats_mirror(failures)
+
     _check_render_params_ubo(host_text, failures)
 
     if failures:
@@ -849,6 +917,11 @@ def main() -> int:
     print(
         "[gaussian-layout-check] Instancing/asset/chunk/quantization mirror structs are aligned: "
         + ", ".join(host_name for _, host_name, _ in EXTRA_MIRROR_STRUCTS)
+        + "."
+    )
+    print(
+        "[gaussian-layout-check] OverflowStats binding-3 SSBO matches host TileOverflowStatsSnapshot across "
+        + ", ".join(path.name for path, _ in OVERFLOW_STATS_SHADER_MIRRORS)
         + "."
     )
     print("[gaussian-layout-check] RenderParams std140 uniform block matches TileRenderParamsGPU (bidirectional): offsets, scalar kinds, byte widths, component widths, reverse coverage, size, and layout version.")
