@@ -1202,7 +1202,6 @@ def _run_lane(
     instancing_execution_mode = None
     instancing_execution_path = None
     instancing_execution_reason = None
-    instance_pipeline_true_single_pass_enabled = None
     stage_cull_time_ms = None
     stage_sort_time_ms = None
     stage_raster_time_ms = None
@@ -1280,9 +1279,6 @@ def _run_lane(
         instancing_execution_mode = _report_renderer_metric(report, "instance_pipeline_execution_mode")
         instancing_execution_path = _report_renderer_metric(report, "instance_pipeline_execution_path")
         instancing_execution_reason = _report_renderer_metric(report, "instance_pipeline_execution_reason")
-        instance_pipeline_true_single_pass_enabled = _report_renderer_metric(
-            report, "instance_pipeline_true_single_pass_enabled"
-        )
         stage_cull_time_ms = _report_renderer_metric(report, "stage_cull_time_ms")
         stage_sort_time_ms = _report_renderer_metric(report, "stage_sort_time_ms")
         stage_raster_time_ms = _report_renderer_metric(report, "stage_raster_time_ms")
@@ -1400,7 +1396,6 @@ def _run_lane(
         "instancing_execution_mode": instancing_execution_mode,
         "instancing_execution_path": instancing_execution_path,
         "instancing_execution_reason": instancing_execution_reason,
-        "instance_pipeline_true_single_pass_enabled": instance_pipeline_true_single_pass_enabled,
         "stage_cull_time_ms": stage_cull_time_ms,
         "stage_sort_time_ms": stage_sort_time_ms,
         "stage_raster_time_ms": stage_raster_time_ms,

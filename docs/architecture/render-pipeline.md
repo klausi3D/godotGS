@@ -29,23 +29,24 @@ flowchart LR
     Raster --> Output[Final Output]
 ```
 
-## Execution Modes (Single-Pass vs Serial)
+## Backend Route Policy (Resident vs Streaming)
 
-Instancing mode policy is controlled by project settings:
-
-- `rendering/gaussian_splatting/instance_pipeline/true_single_pass_enabled`
-- `rendering/gaussian_splatting/instance_pipeline/benchmark_allow_serial_multi_asset`
-
-Mode behavior in orchestrators:
-
-- `single_pass`: production path (one cull/sort/raster chain for the frame)
-- `serial`: benchmark/diagnostic replay path when explicitly allowed
-- `single_pass_forced`: serial was requested but policy forced single-pass
+`GaussianSplatRenderer::render_scene_instance` picks a resident or a streaming
+backend for the frame via `build_frame_backend_plan`. The requested policy comes
+from the project setting `rendering/gaussian_splatting/streaming/route_policy`
+(`GS_ROUTE_RESIDENT` or `GS_ROUTE_STREAMING`, default streaming), refined by
+`should_prefer_resident_backend` using the active world submission's residency
+hint; `GaussianSplatNode3D` (direct per-instance content) always publishes a
+resident hint regardless of `route_policy`. A `single_route_per_frame` invariant
+means there is no same-frame fallback between backends: if the resident backend
+is preferred but not feasible, the frame is skipped rather than retried on the
+streaming backend. There is no separate "single-pass vs serial" execution-mode
+toggle — that control surface was removed by #326 (b153169114a, 2026-05-12).
 
 Related sources:
 
+- [../../modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp](../../modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp) (`build_frame_backend_plan`, `should_prefer_resident_backend`)
 - [../../modules/gaussian_splatting/renderer/render_streaming_orchestrator.cpp](../../modules/gaussian_splatting/renderer/render_streaming_orchestrator.cpp)
-- [../../modules/gaussian_splatting/renderer/render_instancing_orchestrator.cpp](../../modules/gaussian_splatting/renderer/render_instancing_orchestrator.cpp)
 
 ## Stage Contracts
 
