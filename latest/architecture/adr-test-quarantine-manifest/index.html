@@ -7,13 +7,9 @@
       
       
       
-        <link rel="canonical" href="https://klausi3d.github.io/godotGS/latest/reference/color-grading/">
+        <link rel="canonical" href="https://klausi3d.github.io/godotGS/latest/architecture/adr-test-quarantine-manifest/">
       
       
-        <link rel="prev" href="../../api/shader_reference/">
-      
-      
-        <link rel="next" href="../../migration/">
       
       
         
@@ -24,7 +20,7 @@
     
     
       
-        <title>Color Grading Reference - Godot Gaussian Splatting Docs</title>
+        <title>ADR: Test quarantine manifest (production-readiness C3 / exit criterion G5) - Godot Gaussian Splatting Docs</title>
       
     
     
@@ -85,7 +81,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#color-grading-reference" class="md-skip">
+        <a href="#adr-test-quarantine-manifest-production-readiness-c3-exit-criterion-g5" class="md-skip">
           Skip to content
         </a>
       
@@ -124,7 +120,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Color Grading Reference
+              ADR: Test quarantine manifest (production-readiness C3 / exit criterion G5)
             
           </span>
         </div>
@@ -273,13 +269,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../reference/" class="md-tabs__link">
           
   
   
@@ -907,8 +901,6 @@
       
   
   
-    
-  
   
   
     
@@ -940,23 +932,20 @@
     
     
       
-        
-        
-      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked="">
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3">
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../" class="md-nav__link ">
+            <a href="../../reference/" class="md-nav__link ">
               
   
   
@@ -974,13 +963,13 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="">
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1000,7 +989,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../project-settings/" class="md-nav__link">
+      <a href="../../reference/project-settings/" class="md-nav__link">
         
   
   
@@ -1028,7 +1017,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../compatibility-matrix/" class="md-nav__link">
+      <a href="../../reference/compatibility-matrix/" class="md-nav__link">
         
   
   
@@ -1193,37 +1182,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Color Grading Reference
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../reference/color-grading/" class="md-nav__link">
         
   
   
@@ -1239,81 +1201,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
-      
-        <li class="md-nav__item">
-  <a href="#purpose" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Purpose
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#usage" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Usage
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#api" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        API
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#examples" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Examples
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#troubleshooting" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Troubleshooting
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1532,7 +1419,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../build-test-ci/" class="md-nav__link">
+      <a href="../../reference/build-test-ci/" class="md-nav__link">
         
   
   
@@ -1616,7 +1503,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architecture/overview/" class="md-nav__link">
+      <a href="../overview/" class="md-nav__link">
         
   
   
@@ -1755,10 +1642,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
       
         <li class="md-nav__item">
-  <a href="#purpose" class="md-nav__link">
+  <a href="#context-problem" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Purpose
+        Context / problem
       
     </span>
   </a>
@@ -1766,10 +1653,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#usage" class="md-nav__link">
+  <a href="#decision" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Usage
+        Decision
       
     </span>
   </a>
@@ -1777,10 +1664,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#api" class="md-nav__link">
+  <a href="#decisions-the-owner-needs-to-make" class="md-nav__link">
     <span class="md-ellipsis">
       
-        API
+        Decisions the owner needs to make
       
     </span>
   </a>
@@ -1788,21 +1675,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#examples" class="md-nav__link">
+  <a href="#consequences" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Examples
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#troubleshooting" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Troubleshooting
+        Consequences
       
     </span>
   </a>
@@ -1835,199 +1711,96 @@
   
 
 
-<h1 id="color-grading-reference">Color Grading Reference<a class="headerlink" href="#color-grading-reference" title="Permanent link">¶</a></h1>
-<div class="admonition info">
-<p class="admonition-title">Scope</p>
-<p>For developers and technical artists who need field ranges, method contracts, and GPU mapping details.
-This page covers exact API lookup after you already know the workflow.
-It complements the canonical <a href="../../features/color-grading-quick-start/">Color Grading Quick Start</a>.</p>
-</div>
-<h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
-<p>Use this reference for the current color grading API on <code>GaussianSplatNode3D</code>, including runtime grading and bake/restore workflows.</p>
-<h2 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">¶</a></h2>
-<table>
-<thead>
-<tr>
-<th>Task</th>
-<th>Action</th>
-<th>Source</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Assign grading to a node</td>
-<td>Call <code>set_color_grading()</code> or set <code>rendering/color_grading</code> with a <code>ColorGradingResource</code></td>
-<td><code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:190</code>, <code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:192</code></td>
-</tr>
-<tr>
-<td>Apply grading in real time</td>
-<td>Keep resource <code>enabled=true</code>; renderer packs values into tile render params each frame</td>
-<td><code>modules/gaussian_splatting/resources/color_grading_resource.h:10</code>, <code>modules/gaussian_splatting/renderer/tile_render_stages.cpp:323</code></td>
-</tr>
-<tr>
-<td>Bake grading into splat data</td>
-<td>Call <code>bake_color_grading()</code> to update SH DC coefficients in <code>GaussianData</code></td>
-<td><code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:1794</code>, <code>modules/gaussian_splatting/core/gaussian_data.cpp:1816</code></td>
-</tr>
-<tr>
-<td>Restore original colors</td>
-<td>Call <code>restore_color_grading()</code> to restore pre-bake SH DC values</td>
-<td><code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:1821</code>, <code>modules/gaussian_splatting/core/gaussian_data.cpp:1855</code></td>
-</tr>
-</tbody>
-</table>
-<h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">¶</a></h2>
-<table>
-<thead>
-<tr>
-<th>Resource field</th>
-<th>Type</th>
-<th>Range/default</th>
-<th>Source</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>enabled</code></td>
-<td><code>bool</code></td>
-<td>default <code>true</code></td>
-<td><code>modules/gaussian_splatting/resources/color_grading_resource.h:10</code></td>
-</tr>
-<tr>
-<td><code>exposure</code></td>
-<td><code>float</code></td>
-<td><code>[-5.0, 5.0]</code>, default <code>0.0</code></td>
-<td><code>modules/gaussian_splatting/resources/color_grading_resource.h:11</code></td>
-</tr>
-<tr>
-<td><code>contrast</code></td>
-<td><code>float</code></td>
-<td><code>[0.0, 2.0]</code>, default <code>1.0</code></td>
-<td><code>modules/gaussian_splatting/resources/color_grading_resource.h:12</code></td>
-</tr>
-<tr>
-<td><code>saturation</code></td>
-<td><code>float</code></td>
-<td><code>[0.0, 2.0]</code>, default <code>1.0</code></td>
-<td><code>modules/gaussian_splatting/resources/color_grading_resource.h:13</code></td>
-</tr>
-<tr>
-<td><code>temperature</code></td>
-<td><code>float</code></td>
-<td><code>[-100.0, 100.0]</code>, default <code>0.0</code></td>
-<td><code>modules/gaussian_splatting/resources/color_grading_resource.h:14</code></td>
-</tr>
-<tr>
-<td><code>tint</code></td>
-<td><code>float</code></td>
-<td><code>[-100.0, 100.0]</code>, default <code>0.0</code></td>
-<td><code>modules/gaussian_splatting/resources/color_grading_resource.h:15</code></td>
-</tr>
-<tr>
-<td><code>hue_shift</code></td>
-<td><code>float</code></td>
-<td><code>[-180.0, 180.0]</code>, default <code>0.0</code></td>
-<td><code>modules/gaussian_splatting/resources/color_grading_resource.h:16</code></td>
-</tr>
-</tbody>
-</table>
-<table>
-<thead>
-<tr>
-<th>Node method</th>
-<th>Return</th>
-<th>Behavior</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>set_color_grading(grading)</code></td>
-<td><code>void</code></td>
-<td>Assigns resource and marks render state dirty</td>
-</tr>
-<tr>
-<td><code>bake_color_grading()</code></td>
-<td><code>Error</code></td>
-<td>Applies CPU grading to SH DC and disables runtime grading to avoid double-apply</td>
-</tr>
-<tr>
-<td><code>restore_color_grading()</code></td>
-<td><code>void</code></td>
-<td>Restores backed-up SH DC and re-enables runtime grading</td>
-</tr>
-<tr>
-<td><code>is_color_grading_baked()</code></td>
-<td><code>bool</code></td>
-<td>Returns bake state from underlying <code>GaussianData</code></td>
-</tr>
-</tbody>
-</table>
-<table>
-<thead>
-<tr>
-<th>GPU mapping</th>
-<th>Layout</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>color_grading_primary</code></td>
-<td><code>x=enabled</code>, <code>y=exposure</code>, <code>z=contrast</code>, <code>w=saturation</code> (<code>TileRenderParamsGPU</code>)</td>
-</tr>
-<tr>
-<td><code>color_grading_secondary</code></td>
-<td><code>x=temperature</code>, <code>y=tint</code>, <code>z=hue_shift</code>, <code>w=reserved</code> (<code>TileRenderParamsGPU</code>)</td>
-</tr>
-</tbody>
-</table>
-<p>Source: <code>modules/gaussian_splatting/renderer/gaussian_gpu_layout.h:354</code>, <code>modules/gaussian_splatting/renderer/tile_render_stages.cpp:323</code>, <code>modules/gaussian_splatting/shaders/includes/color_grading_binning.glsl:30</code>.</p>
-<h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">¶</a></h2>
-<div class="highlight"><pre><span></span><code><span class="k">var</span><span class="w"> </span><span class="n">grading</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">ColorGradingResource</span><span class="o">.</span><span class="n">new</span><span class="p">()</span>
-<span class="n">grading</span><span class="o">.</span><span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="bp">true</span>
-<span class="n">grading</span><span class="o">.</span><span class="n">exposure</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0.25</span>
-<span class="n">grading</span><span class="o">.</span><span class="n">contrast</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1.1</span>
-<span class="n">grading</span><span class="o">.</span><span class="n">saturation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1.05</span>
-<span class="n">grading</span><span class="o">.</span><span class="n">temperature</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">8.0</span>
-<span class="n">grading</span><span class="o">.</span><span class="n">tint</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">-</span><span class="mf">4.0</span>
-<span class="n">grading</span><span class="o">.</span><span class="n">hue_shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">6.0</span>
-
-<span class="k">var</span><span class="w"> </span><span class="n">splat_node</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="o">$</span><span class="n">GaussianSplatNode3D</span>
-<span class="n">splat_node</span><span class="o">.</span><span class="n">set_color_grading</span><span class="p">(</span><span class="n">grading</span><span class="p">)</span>
-
-<span class="k">var</span><span class="w"> </span><span class="n">err</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">splat_node</span><span class="o">.</span><span class="n">bake_color_grading</span><span class="p">()</span>
-<span class="k">if</span><span class="w"> </span><span class="n">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">OK</span><span class="p">:</span>
-<span class="w">    </span><span class="n">push_error</span><span class="p">(</span><span class="s2">"Bake failed: </span><span class="si">%s</span><span class="s2">"</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="n">err</span><span class="p">)</span>
-
-<span class="k">if</span><span class="w"> </span><span class="n">splat_node</span><span class="o">.</span><span class="n">is_color_grading_baked</span><span class="p">():</span>
-<span class="w">    </span><span class="n">splat_node</span><span class="o">.</span><span class="n">restore_color_grading</span><span class="p">()</span>
-</code></pre></div>
-<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">¶</a></h2>
-<table>
-<thead>
-<tr>
-<th>Symptom</th>
-<th>Cause</th>
-<th>Action</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>bake_color_grading()</code> returns <code>ERR_UNCONFIGURED</code></td>
-<td>Node has no grading resource or no loaded gaussian data</td>
-<td>Assign a <code>ColorGradingResource</code> and load data before baking (<code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:1795</code>, <code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:1800</code>)</td>
-</tr>
-<tr>
-<td>Colors look doubly graded</td>
-<td>Runtime grading was re-enabled while baked colors are still applied</td>
-<td>Call <code>restore_color_grading()</code> before re-baking and keep runtime grading disabled during baked mode (<code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:1813</code>)</td>
-</tr>
-<tr>
-<td>Runtime sliders do not change output</td>
-<td>Resource is unset or disabled</td>
-<td>Confirm node property <code>rendering/color_grading</code> and <code>enabled</code> state (<code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:192</code>, <code>modules/gaussian_splatting/resources/color_grading_resource.h:10</code>)</td>
-</tr>
-</tbody>
-</table>
+<h1 id="adr-test-quarantine-manifest-production-readiness-c3-exit-criterion-g5">ADR: Test quarantine manifest (production-readiness C3 / exit criterion G5)<a class="headerlink" href="#adr-test-quarantine-manifest-production-readiness-c3-exit-criterion-g5" title="Permanent link">¶</a></h1>
+<ul>
+<li><strong>Status:</strong> Accepted (owner sign-off 2026-07-16 — Slice 1 "empty-dark mechanism"
+  approved; the design below, incl. the two-manifest split and the per-entry human-approval
+  rule, is adopted as written; each future quarantine entry remains individually human-gated).</li>
+<li><strong>Risk class:</strong> R3 — the core change edits <code>tests/ci/run_module_tests.py</code> lane-execution
+  logic (<code>.agentic/policy.json</code> classifies that file as deterministic-check machinery),
+  and quarantine <em>approvals</em> are human-gated per the program charter §6. This ADR is the
+  required design-note-before-implementation.</li>
+<li><strong>Program ledger:</strong> #458. <strong>Related:</strong> #329 (26–29 GPU <code>[SceneTree]</code>/<code>[Importer]</code> tests
+  deferred), #395 (missing <code>history_artifact_audit.py</code>).</li>
+</ul>
+<h2 id="context-problem">Context / problem<a class="headerlink" href="#context-problem" title="Permanent link">¶</a></h2>
+<p>G5 ("testing enforced, not just present") requires: <em>no excluded test category without an
+in-repo tracked waiver (file with issue links); known failures live in a quarantine
+manifest, not in memory.</em></p>
+<p>Today:
+- Advisory (<code>strict=False</code>) lanes in <code>run_module_tests.py</code> <strong>swallow failures untracked</strong> —
+  <code>_report_failed_lane</code> prints "(advisory lane, continuing)" and returns success, so any
+  regression there is invisible and linked to no issue.
+- The oft-cited "4 pre-existing GaussianSplatting test failures" is <strong>unverified stale
+  memory</strong> — <code>project_test_baseline.md</code> does not exist in-repo or git history; the only
+  in-repo trace is an April CI-audit note that explicitly could not confirm which cases
+  failed. <strong>The real failing set is currently unknown</strong> and must be measured, not assumed.
+- The GPU <code>[SceneTree]</code>/<code>[Importer]</code> deferrals (#329) are hardcoded excludes with the
+  release-gate manifest's <code>deferred_requires_gpu_waivers</code> array <strong>empty</strong>, despite its
+  <code>closure_policy</code> requiring an explicit waiver per deferred test.</p>
+<h2 id="decision">Decision<a class="headerlink" href="#decision" title="Permanent link">¶</a></h2>
+<p>Introduce a JSON quarantine manifest that the CI harness consults explicitly, plus a schema
+guard. Specifics:</p>
+<ol>
+<li>
+<p><strong>Format — JSON</strong>, <code>tests/ci/quarantine_manifest.json</code>, mirroring the field vocabulary
+   already validated for <code>renderer_release_gate_manifest.json:deferred_requires_gpu_waivers</code>
+   (<code>test_name</code>/<code>issue_url</code>/<code>owner</code>/<code>expires_utc</code>/<code>risk</code>/<code>mitigation</code>), plus
+   <code>lane</code> (must equal a real <code>MODULE_TEST_FILTERS</code> name) and <code>base_sha_proven_failing</code>.
+   A human-readable mirror <code>docs/reference/test-quarantine.md</code> is explicitly non-authoritative.
+   <em>Rationale:</em> the harness must consult it programmatically and the anti-rot logic needs
+   typed fields; a Markdown table cannot be parsed reliably and would drift.</p>
+</li>
+<li>
+<p><strong>Semantics (no gate weakened):</strong></p>
+</li>
+<li>A quarantined lane's failure is <strong>tolerated but loudly reported and counted</strong>
+     (<code>[QUARANTINE] ... failed as expected (issue ...)</code>), not silently swallowed.</li>
+<li>A quarantined lane that <strong>passes</strong> <strong>fails the run</strong> (<code>[QUARANTINE-STALE] ... delete
+     its entry</code>) — the manifest is self-cleaning and cannot rot.</li>
+<li>A lane <strong>absent</strong> from the manifest keeps today's exact behavior (strict still blocks).</li>
+<li>
+<p>A schema guard (runs in the fast <code>--guard-only</code> lane) rejects any entry missing
+     <code>issue_url</code>/<code>base_sha_proven_failing</code>/<code>owner</code>/<code>reason</code>/<code>risk</code>, naming an unknown lane,
+     or past its <code>expires_utc</code>.</p>
+</li>
+<li>
+<p><strong>Two non-overlapping manifests:</strong> headless-lane quarantine → the new
+   <code>quarantine_manifest.json</code>; the GPU <code>[SceneTree]</code>/<code>[Importer]</code> deferred set → populate the
+   existing <code>renderer_release_gate_manifest.json:deferred_requires_gpu_waivers</code> (link #329),
+   satisfying its closure policy. Documented in <code>test-quarantine.md</code>.</p>
+</li>
+<li>
+<p><strong>Rollout — ships dark:</strong></p>
+</li>
+<li><strong>Slice 1 (mechanism):</strong> all harness changes + schema guard + a committed <strong>empty</strong>
+     manifest (<code>entries: []</code>) → byte-for-byte today's behavior; plus a <code>unittest</code> covering
+     tolerate / stale-pass-fails / expired-fails / unknown-lane-fails / empty-noop.</li>
+<li><strong>Slice 2 (populate — needs evidence + per-entry human approval):</strong> re-establish the
+     real failing set on the self-hosted <strong>GPU runner</strong> (<code>run_module_tests.py</code> +
+     <code>run_gpu_harness.py</code>), open one issue per reproduced failure (proven on the base SHA
+     per charter §2.7), then add manifest entries. <strong>Every quarantine entry is a human-gated
+     approval (charter §6).</strong></li>
+</ol>
+<h2 id="decisions-the-owner-needs-to-make">Decisions the owner needs to make<a class="headerlink" href="#decisions-the-owner-needs-to-make" title="Permanent link">¶</a></h2>
+<ul>
+<li><strong>D1 — Approve this R3/ADR-first process and the design above?</strong> (Y/N or amendments.)</li>
+<li><strong>D2 — Confirm "empty-manifest-ships-dark" Slice 1 first</strong> (mechanism only, zero behavior
+  change), before any lane is quarantined? (Recommended: yes.)</li>
+<li><strong>D3 — Confirm the two-manifest split</strong> (headless → new manifest; GPU-deferred → existing
+  release-gate waiver array)? (Recommended: yes — avoids a third overlapping source.)</li>
+<li><strong>D4 — Standing rule for entries:</strong> each quarantine entry requires (a) a reproduced
+  failure on a named base SHA, (b) a tracking issue, (c) your explicit approval. Agents may
+  draft entries but never self-approve. (Recommended: adopt as written.)</li>
+</ul>
+<h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">¶</a></h2>
+<ul>
+<li>Regressions in currently-advisory lanes become visible + tracked; the manifest cannot rot
+  (stale-pass fails CI). No existing gate is loosened — quarantine is purely additive and
+  explicit. The unverified "4 failures" claim is retired in favor of measured evidence.</li>
+<li>Cost: Slice 2 needs GPU-runner time to establish the real failing set (agents cannot
+  raster locally).</li>
+</ul>
 
 
 
@@ -2048,7 +1821,7 @@ It complements the canonical <a href="../../features/color-grading-quick-start/"
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 17, 2026 10:34:08 UTC">July 17, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 17, 2026 10:34:04 UTC">July 17, 2026</span>
   </span>
 
     
@@ -2079,44 +1852,6 @@ It complements the canonical <a href="../../features/color-grading-quick-start/"
       
         <footer class="md-footer">
   
-    
-      
-      <nav class="md-footer__inner md-grid" aria-label="Footer">
-        
-          
-          <a href="../../api/shader_reference/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Shader Reference">
-            <div class="md-footer__button md-icon">
-              
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg>
-            </div>
-            <div class="md-footer__title">
-              <span class="md-footer__direction">
-                Previous
-              </span>
-              <div class="md-ellipsis">
-                Shader Reference
-              </div>
-            </div>
-          </a>
-        
-        
-          
-          <a href="../../migration/" class="md-footer__link md-footer__link--next" aria-label="Next: Migration Guide">
-            <div class="md-footer__title">
-              <span class="md-footer__direction">
-                Next
-              </span>
-              <div class="md-ellipsis">
-                Migration Guide
-              </div>
-            </div>
-            <div class="md-footer__button md-icon">
-              
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"></path></svg>
-            </div>
-          </a>
-        
-      </nav>
     
   
   <div class="md-footer-meta md-typeset">

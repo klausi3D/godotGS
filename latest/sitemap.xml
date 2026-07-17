@@ -73,6 +73,10 @@
          <lastmod>2026-07-17</lastmod>
     </url>
     <url>
+         <loc>https://klausi3d.github.io/godotGS/latest/architecture/adr-test-quarantine-manifest/</loc>
+         <lastmod>2026-07-17</lastmod>
+    </url>
+    <url>
          <loc>https://klausi3d.github.io/godotGS/latest/architecture/culling-and-hierarchy/</loc>
          <lastmod>2026-07-17</lastmod>
     </url>
@@ -298,6 +302,10 @@
     </url>
     <url>
          <loc>https://klausi3d.github.io/godotGS/latest/reference/renderer-release-gates/</loc>
+         <lastmod>2026-07-17</lastmod>
+    </url>
+    <url>
+         <loc>https://klausi3d.github.io/godotGS/latest/reference/test-quarantine/</loc>
          <lastmod>2026-07-17</lastmod>
     </url>
     <url>
