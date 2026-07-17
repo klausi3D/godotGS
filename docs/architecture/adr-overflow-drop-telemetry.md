@@ -76,3 +76,15 @@ go non-zero and the WARN fires once. Classify with `scripts/agentic/classify_cha
   G4. Option A adds a small, bounded per-frame telemetry cost (documented, default-on,
   toggleable); Option B trades that for a hot-shader edit and heavier review. No new GPU
   counters; existing ones are reused.
+- **Implementation refinement (review, PR #508):** the resident `overflow_drop_signal` is
+  made **sticky** -- the per-frame clear of the overflow-stats buffer excludes the trailing
+  signal word, so it persists until the CPU reads it. Otherwise, with the async readback's
+  ~2-frame latency and skip-while-pending, a drop that set the signal on frame N+1 could be
+  cleared on frame N+2 before frame N's readback (scheduled while the signal was still zero)
+  ever observed it -- a silently lost drop, defeating G4. With the sticky flag, whatever drop
+  set it survives until a readback reads it; that readback emits `WARN_ONCE` + bumps the
+  counter, then re-arms by clearing only the 4-byte signal. Consequently `overflow_drop_events`
+  counts **CPU read-intervals in which at least one drop occurred**, not per-frame drops -- it
+  is reliably non-zero whenever drops happen (the WARN is the primary signal). Layout parity is
+  unchanged: the signal is still a trailing `uint`, still validated by the OverflowStats
+  layout-sync guard.

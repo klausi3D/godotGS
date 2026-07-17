@@ -207,8 +207,9 @@ public:
     SortingMetrics get_sorter_metrics() const;
     // True once the opt-in 32-bit sort-key path survived config resolution and engaged.
     bool is_sort_key_32bit_engaged() const { return diagnostics.sort_key_32bit_engaged; }
-    // C4b (G4): running count of production frames in which the tile-binning EMIT pass dropped
-    // at least one overlap record. Fed by the always-on overflow_drop_signal readback.
+    // C4b (G4): count of CPU read-intervals in which the tile-binning EMIT pass dropped at least
+    // one overlap record. Fed by the always-on STICKY overflow_drop_signal readback; reliably
+    // non-zero whenever drops happen (not a per-frame count).
     uint32_t get_overflow_drop_events() const { return diagnostics.overflow_drop_events; }
 
     void set_debug_log_resolve(bool p_enabled);

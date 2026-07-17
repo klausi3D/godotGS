@@ -1387,8 +1387,10 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_overflow
     // max_overlap_records to its minimum valid value (100000) so a dense 100K-splat cloud at
     // 512x512 (each splat covering several tiles) exhausts the GLOBAL overlap-record budget ->
     // the EMIT-pass drop sites set overflow_drop_signal, which the always-on async readback
-    // surfaces as a non-zero get_overflow_drop_events(). Runs on the self-hosted GPU harness
-    // lane (needs a real device); it cannot execute on the agent's rasterless environment.
+    // surfaces as a non-zero get_overflow_drop_events(). The signal is sticky (not cleared per
+    // frame), so the drop cannot be lost to async-readback timing -- this genuinely exercises
+    // the sticky path. Runs on the self-hosted GPU harness lane (needs a real device); it cannot
+    // execute on the agent's rasterless environment.
     TestResult result;
 
     ProjectSettings *ps = ProjectSettings::get_singleton();
@@ -1534,6 +1536,12 @@ TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] Overflow-record drop r
     regression_test.instantiate();
 
     TileRendererRegressionTest::TestResult result = regression_test->test_overflow_drop_telemetry(rd);
+
+    // Release the regression test (its ~TileRenderer runs cleanup() on the device) BEFORE
+    // deleting the local device, matching the other [RequiresGPU] teardown idiom (e.g.
+    // bm.unref() in test_gpu_buffer_manager_lifetime.h). Running the destructor after
+    // memdelete(rd) would dereference a freed device (use-after-free at teardown).
+    regression_test.unref();
 
     memdelete(rd);
 

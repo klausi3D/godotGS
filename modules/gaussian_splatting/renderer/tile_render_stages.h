@@ -63,6 +63,10 @@
         // kept separate from overflow_stats_readback so production telemetry never contends
         // with the debug-gated full-overflow-buffer readback.
         mutable AsyncReadbackState overflow_signal_readback;
+        // C4b (G4): set true once a readback has COUNTED a sticky drop; the next poll clears the
+        // 4-byte signal (re-arming it) on the render thread with a valid device. Deferring the
+        // clear to poll (not the readback callback) keeps GPU command ordering sane.
+        mutable bool overflow_signal_needs_clear = false;
     };
 
     struct TileRenderParamsBuilder {

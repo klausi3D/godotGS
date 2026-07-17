@@ -342,11 +342,14 @@ struct TileDiagnosticsState {
 	// actually engages (see TileRenderer::_get_effective_sort_key_config). mutable
 	// because that config getter is const, mirroring last_render_stats above.
 	mutable bool sort_key_32bit_engaged = false;
-	// C4b (G4, "no silent degradation"): persistent count of production frames in which the
-	// tile-binning EMIT pass dropped at least one overlap record (per-tile capacity or global
-	// overlap budget exhausted). Incremented from the always-on overflow_drop_signal readback
-	// (TileRendererDebugStats::on_overflow_signal_readback); surfaced in the binning debug
-	// dict. mutable because the readback callback fires from a const-context frame path.
+	// C4b (G4, "no silent degradation"): count of CPU read-INTERVALS in which the tile-binning
+	// EMIT pass dropped at least one overlap record (per-tile capacity or global overlap budget
+	// exhausted). Fed by the always-on STICKY overflow_drop_signal readback
+	// (TileRendererDebugStats::on_overflow_signal_readback); surfaced in the binning debug dict.
+	// Because the signal is sticky (persists until read), this is reliably non-zero whenever any
+	// drop happens -- it is NOT a per-frame count (a read-interval may span several frames); the
+	// WARN_ONCE is the primary signal. mutable because the readback callback fires from a
+	// const-context frame path.
 	mutable uint32_t overflow_drop_events = 0;
 	bool runtime_statistics_enabled = false;
 	Vector<uint32_t> tile_density_snapshot;

@@ -170,15 +170,23 @@ void TileRenderer::TileRendererDebugStats::poll_overflow_drop_signal(RenderingDe
     // dump_gpu_debug_counters) is debug-gated, so a pure production frame never learns that a
     // drop happened -- this reads back just sizeof(uint32_t) at the field offset, a tiny async
     // GPU->CPU copy (never a synchronous stall), and only while a prior read is not in flight.
-    // The buffer is cleared at frame start (_clear_debug_counters), so the flag reflects the
-    // most recent EMIT pass.
+    // The signal is STICKY (clear_counters does not reset it), so skipping while pending cannot
+    // lose a drop: whatever drop set it persists until a readback reads it here.
     if (!p_device || !overflow_statistics_buffer.is_valid()) {
         return;
+    }
+    const uint32_t signal_offset = static_cast<uint32_t>(offsetof(OverflowStatsSnapshot, overflow_drop_signal));
+    // Re-arm: once a readback has COUNTED a sticky drop, clear ONLY the 4-byte signal so the
+    // next drop re-sets it (edge-triggered per read-interval). Done here rather than in the
+    // readback callback so the clear runs on the render thread with a valid device, GPU-ordered
+    // after the read that observed the drop.
+    if (overflow_signal_needs_clear) {
+        p_device->buffer_clear(overflow_statistics_buffer, signal_offset, sizeof(uint32_t));
+        overflow_signal_needs_clear = false;
     }
     if (p_frame_serial == 0 || overflow_signal_readback.pending) {
         return;
     }
-    const uint32_t signal_offset = static_cast<uint32_t>(offsetof(OverflowStatsSnapshot, overflow_drop_signal));
     overflow_signal_readback.requested_frame_serial = p_frame_serial;
     Callable callback = callable_mp(&owner, &TileRenderer::_on_overflow_signal_readback);
     Error err = p_device->buffer_get_data_async(overflow_statistics_buffer, callback, signal_offset, sizeof(uint32_t));
@@ -198,13 +206,17 @@ void TileRenderer::TileRendererDebugStats::on_overflow_signal_readback(const Vec
         // G4: overlap-record drops are a real, image-affecting degradation (some splats are
         // not rendered). Surface it loudly once and count it always, instead of dropping
         // silently. The running drop COUNT stays in overflow_splats_clamped (debug path);
-        // overflow_drop_events counts the production frames in which any drop occurred.
+        // overflow_drop_events counts CPU read-intervals in which at least one drop occurred
+        // (the signal is sticky, so this is reliably non-zero whenever drops happen -- it is
+        // NOT a per-frame count; the WARN_ONCE is the primary signal). Request the re-arm clear
+        // (performed by the next poll) so the following drop re-sets the sticky flag.
         WARN_PRINT_ONCE("[TileRenderer] Overlap-record overflow: the tile-binning pass dropped "
                 "overlap records (per-tile capacity or the global overlap-record budget was "
                 "exhausted); some splats are not being rendered. Increase the overlap-record "
                 "budget or reduce splat density. Shown once; see the overflow_drop_events "
                 "counter for the running total.");
         owner.diagnostics.overflow_drop_events++;
+        overflow_signal_needs_clear = true;
     }
 }
 
@@ -294,9 +306,14 @@ void TileRenderer::TileRendererDebugStats::clear_counters(RenderingDevice *p_dev
 	if (debug_counter_buffer.is_valid()) {
 		p_device->buffer_clear(debug_counter_buffer, 0, sizeof(DebugCounterSnapshot));
 	}
-	// Clear overflow stats as well
+	// Clear the per-frame overflow stats prefix, but DELIBERATELY leave the trailing
+	// overflow_drop_signal (last uint) intact. C4b (G4): that field is a STICKY drop flag --
+	// clearing it every frame would let the async readback (~2-frame latency + skip-while-
+	// pending) miss a drop that occurred and was cleared before it was ever read. The sticky
+	// flag is re-armed by poll_overflow_drop_signal only AFTER a readback has counted it.
 	if (overflow_statistics_buffer.is_valid()) {
-		p_device->buffer_clear(overflow_statistics_buffer, 0, sizeof(OverflowStatsSnapshot));
+		p_device->buffer_clear(overflow_statistics_buffer, 0,
+				sizeof(OverflowStatsSnapshot) - sizeof(uint32_t));
 	}
 }
 
