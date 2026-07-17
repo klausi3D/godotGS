@@ -31,6 +31,18 @@ private:
     bool bounds_dirty = true;
     bool warned_non_identity_transform = false;
 
+    // Sticky "this node has a live, successfully-registered world submission"
+    // flag. Set true when _register_shared_renderer() successfully submits to
+    // the director; cleared only by clear_world() (explicit user intent to
+    // deactivate). NOTIFICATION_EXIT_TREE deliberately does NOT clear this --
+    // it tears down the *live* director/RS state (see _notification's
+    // EXIT_TREE case) but does not change what the node was configured to
+    // show. NOTIFICATION_ENTER_TREE consults this flag to distinguish a
+    // node's first-ever entry (gated by auto_apply_on_ready, as before) from
+    // a re-entry after reparenting (exit+enter), where the prior submission
+    // must be restored unconditionally -- see issue #517.
+    bool was_world_submission_active = false;
+
     AABB local_aabb;
     AABB world_aabb;
 
