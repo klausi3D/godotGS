@@ -120,6 +120,18 @@ def _failing_summary_no_case_output() -> str:
     )
 
 
+def _fail_output_with_skip(case: str = FAILING_CASE) -> str:
+    # The matching failing case PLUS a NEW "Skipping test - ..." marker (one
+    # skipped doctest marker). doctest's skip line matches DOCTEST_SKIP_MARKER_RE.
+    return (
+        _case_failure_block(case)
+        + "Skipping test - GPU device unavailable\n"
+        + "[doctest] test cases: 3 | 1 passed | 1 failed | 1 skipped\n"
+        + "[doctest] assertions: 10 | 9 passed | 1 failed\n"
+        + "[doctest] Status: FAILURE!\n"
+    )
+
+
 def _no_coverage_output() -> str:
     return (
         "[doctest] test cases: 0 | 0 passed | 0 failed\n"
@@ -334,6 +346,35 @@ class QuarantineLaneWiringTests(unittest.TestCase):
             )
         self.assertEqual(rc, 1, out)
         self.assertIn("[module-tests][QUARANTINE-UNVERIFIED]", out)
+
+    def test_quarantined_matching_case_with_new_skip_marker_fails_in_strict_ci(self) -> None:
+        # Round-4: the approved failing case is present, but the lane ALSO printed
+        # a new "Skipping test" marker. In strict CI a quarantine must apply the
+        # same skipped-marker policy as a normal lane and FAIL - it tolerates only
+        # its exact known failure, never newly skipped coverage.
+        with mock.patch.dict(os.environ, {"CI": "1"}):
+            with _manifest([_valid_entry()]):
+                rc, out = _run_lane(
+                    VALID_LANE, strict=True, godot_result=(False, False, _fail_output_with_skip())
+                )
+        self.assertEqual(rc, 1, out)
+        self.assertIn("[module-tests][QUARANTINE-UNEXPECTED]", out)
+        self.assertIn("newly skipped coverage", out)
+
+    def test_quarantined_skip_marker_tolerated_updates_totals_when_not_ci(self) -> None:
+        # Outside strict CI the skipped-marker policy does not fail the lane, but
+        # the skip counts must still be folded into the totals so they are not
+        # silently reported as 0 behind the quarantine.
+        with mock.patch.dict(os.environ, {"CI": ""}):
+            with _manifest([_valid_entry()]):
+                rc, out = _run_lane(
+                    VALID_LANE, strict=True, godot_result=(False, False, _fail_output_with_skip())
+                )
+        self.assertEqual(rc, 0, out)
+        self.assertIn("failed as expected in matched case(s)", out)
+        self.assertIn("quarantined_failing=1", out)
+        self.assertIn("lanes_with_skips=1", out)
+        self.assertIn("skipped_markers=1", out)
 
     def test_quarantined_zero_coverage_is_coverage_lost_and_nonzero(self) -> None:
         # Codex P2 (comment 3601513465): a quarantined lane that exits 0 with a

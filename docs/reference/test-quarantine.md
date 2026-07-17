@@ -74,6 +74,14 @@ every other exit-0 result fails, so a stale or misconfigured entry cannot hide.
   closed (the failure cannot be confirmed to be the quarantined one):
   `[module-tests][QUARANTINE-UNVERIFIED] ...`. Tolerated runs increment
   `quarantined_failing` (surfaced in the totals line).
+  A quarantine tolerates ONLY its exact known failure, never a NEW skipped test:
+  if a matched-failure lane ALSO printed a `Skipping test - ...` marker, the same
+  strict-CI skipped-marker policy that applies to non-quarantined lanes applies
+  here and the run fails:
+  `[module-tests][QUARANTINE-UNEXPECTED] '<lane>' is quarantined but introduced newly skipped coverage (N skipped marker(s)) in strict CI - failing (issue <url>).`
+  When a lane IS tolerated, its skipped-marker counts are still folded into the
+  totals (`lanes_with_skips` / `skipped_markers`) so newly-skipped coverage is
+  never hidden behind the quarantine.
 - **Quarantined lane that CRASHED** (nonzero exit with no per-case doctest
   summary): a crash takes down the whole lane, so per-case matching is impossible
   and the lane is tolerated as a whole:

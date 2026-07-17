@@ -1790,17 +1790,51 @@ def _classify_quarantined_lane_outcome(ok: bool, output: str) -> str:
 
 
 def _tolerate_quarantined_lane(
-    output: str, totals: DoctestTotals, message: str
+    name: str,
+    strict: bool,
+    issue: str,
+    output: str,
+    totals: DoctestTotals,
+    skipped_markers: int,
+    message: str,
 ) -> int | None:
-    """Emit the tolerate message, count the lane, and continue (return None)."""
+    """Tolerate a quarantined lane's known failure, or fail if it also introduced
+    NEW skipped coverage.
+
+    A quarantine tolerates ONLY its exact known failure - never a NEW skipped
+    test. This mirrors _enforce_skipped_marker_policy for non-quarantined strict
+    lanes: in strict CI, any skipped doctest marker fails the lane. When the lane
+    IS tolerated, the skip counts are still folded into the totals so
+    lanes_with_skips / skipped_markers reflect reality instead of a silent 0.
+    """
+    if skipped_markers > 0 and strict and _is_ci():
+        print(
+            f"[module-tests][QUARANTINE-UNEXPECTED] '{name}' is quarantined but "
+            f"introduced newly skipped coverage ({skipped_markers} skipped marker(s)) "
+            f"in strict CI - failing (issue {issue})."
+        )
+        _print_output_if_present(output)
+        return 1
+
     print(message)
     _print_output_if_present(output)
     totals.quarantined_failing += 1
+    # Reflect skipped coverage even when the lane is tolerated, so the totals do
+    # not hide newly-skipped tests behind the quarantine.
+    totals.skipped_markers += skipped_markers
+    if skipped_markers > 0:
+        totals.lanes_with_skip_markers += 1
     return None
 
 
 def _handle_quarantined_expected_fail(
-    name: str, output: str, entry: dict, totals: DoctestTotals, issue: str, base: str
+    name: str,
+    strict: bool,
+    output: str,
+    entry: dict,
+    totals: DoctestTotals,
+    issue: str,
+    base: str,
 ) -> int | None:
     """The quarantined lane failed. Honor the entry only for the named failure.
 
@@ -1808,7 +1842,9 @@ def _handle_quarantined_expected_fail(
     failed tests/assertions): tolerate ONLY if every failing case matches the
     entry's 'test_case'. If any OTHER case failed, that is a new regression and
     the run fails. If failures are reported but no case name can be parsed, fail
-    closed (we cannot confirm the failure is the quarantined one).
+    closed (we cannot confirm the failure is the quarantined one). Even a fully
+    matched failure is NOT tolerated if it also introduced newly skipped coverage
+    in strict CI (handled in _tolerate_quarantined_lane).
 
     Scenario B - the lane CRASHED (nonzero exit, no per-case summary): a crash
     takes down the whole lane, so per-case matching is impossible and the lane is
@@ -1821,7 +1857,7 @@ def _handle_quarantined_expected_fail(
         failed_tests,
         _passed_asserts,
         failed_asserts,
-        _skipped_markers,
+        skipped_markers,
         summary_found,
     ) = _parse_doctest_results(output)
     pattern = (entry.get("test_case") or "").strip()
@@ -1830,8 +1866,12 @@ def _handle_quarantined_expected_fail(
     if not runnable_failure:
         # Scenario B: crash / no parseable per-case failure info.
         return _tolerate_quarantined_lane(
+            name,
+            strict,
+            issue,
             output,
             totals,
+            skipped_markers,
             f"[module-tests][QUARANTINE] '{name}' crashed as expected "
             f"(no per-case doctest summary; tolerating the whole lane - a crash "
             f"cannot be narrowed to test_case '{pattern}'); (issue {issue}, base {base}).",
@@ -1870,15 +1910,19 @@ def _handle_quarantined_expected_fail(
         return 1
 
     return _tolerate_quarantined_lane(
+        name,
+        strict,
+        issue,
         output,
         totals,
+        skipped_markers,
         f"[module-tests][QUARANTINE] '{name}' failed as expected in matched case(s) "
         f"{failing_cases} (test_case '{pattern}', issue {issue}, base {base}); tolerating.",
     )
 
 
 def _handle_quarantined_lane(
-    name: str, ok: bool, output: str, entry: dict, totals: DoctestTotals
+    name: str, strict: bool, ok: bool, output: str, entry: dict, totals: DoctestTotals
 ) -> int | None:
     """Apply quarantine semantics to one lane. Returns an exit code to abort on,
     or None to continue to the next lane."""
@@ -1912,7 +1956,9 @@ def _handle_quarantined_lane(
         _print_output_if_present(output)
         return 1
 
-    return _handle_quarantined_expected_fail(name, output, entry, totals, issue, base)
+    return _handle_quarantined_expected_fail(
+        name, strict, output, entry, totals, issue, base
+    )
 
 
 def _run_doctest_lanes(
@@ -1935,7 +1981,7 @@ def _run_doctest_lanes(
         quarantine_entry = quarantine.get(name)
         if quarantine_entry is not None:
             exit_code = _handle_quarantined_lane(
-                name, ok, output, quarantine_entry, totals
+                name, strict, ok, output, quarantine_entry, totals
             )
             if exit_code is not None:
                 return exit_code
