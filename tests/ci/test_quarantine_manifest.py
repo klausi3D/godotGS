@@ -14,6 +14,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -124,7 +125,7 @@ def _run_lane(lane_name: str, strict: bool, godot_result):
 class QuarantineGuardTests(unittest.TestCase):
     def test_empty_manifest_passes_guard_and_loads_empty(self) -> None:
         with _manifest([]):
-            ok, messages = harness._run_quarantine_manifest_guard()
+            ok, messages = harness._validate_quarantine_manifest_schema()
             self.assertTrue(ok, messages)
             self.assertEqual(harness._load_quarantine(), {})
 
@@ -136,8 +137,8 @@ class QuarantineGuardTests(unittest.TestCase):
         self.assertEqual(data.get("entries"), [])
         # The loader on the real committed file yields an empty map (inert).
         self.assertEqual(harness._load_quarantine(committed), {})
-        # And the guard passes against the committed file.
-        ok, messages = harness._run_quarantine_manifest_guard()
+        # And the schema guard passes against the committed file.
+        ok, messages = harness._validate_quarantine_manifest_schema()
         self.assertTrue(ok, messages)
 
     def test_missing_file_loads_empty_and_guard_passes(self) -> None:
@@ -145,18 +146,18 @@ class QuarantineGuardTests(unittest.TestCase):
         self.assertFalse(missing.is_file())
         with mock.patch.object(harness, "QUARANTINE_MANIFEST_PATH", missing):
             self.assertEqual(harness._load_quarantine(), {})
-            ok, _ = harness._run_quarantine_manifest_guard()
+            ok, _ = harness._validate_quarantine_manifest_schema()
             self.assertTrue(ok)
 
     def test_expired_entry_fails_guard(self) -> None:
         with _manifest([_valid_entry(expires_utc=_past_iso())]):
-            ok, messages = harness._run_quarantine_manifest_guard()
+            ok, messages = harness._validate_quarantine_manifest_schema()
             self.assertFalse(ok)
             self.assertTrue(any("past its expires_utc" in m for m in messages), messages)
 
     def test_unknown_lane_fails_guard(self) -> None:
         with _manifest([_valid_entry(lane="No Such Lane")]):
-            ok, messages = harness._run_quarantine_manifest_guard()
+            ok, messages = harness._validate_quarantine_manifest_schema()
             self.assertFalse(ok)
             self.assertTrue(
                 any("not present in MODULE_TEST_FILTERS" in m for m in messages), messages
@@ -166,7 +167,7 @@ class QuarantineGuardTests(unittest.TestCase):
         entry = _valid_entry()
         del entry["issue_url"]
         with _manifest([entry]):
-            ok, messages = harness._run_quarantine_manifest_guard()
+            ok, messages = harness._validate_quarantine_manifest_schema()
             self.assertFalse(ok)
             self.assertTrue(
                 any("missing required field 'issue_url'" in m for m in messages), messages
@@ -174,13 +175,13 @@ class QuarantineGuardTests(unittest.TestCase):
 
     def test_malformed_json_fails_guard(self) -> None:
         with _raw_manifest("{not valid json"):
-            ok, messages = harness._run_quarantine_manifest_guard()
+            ok, messages = harness._validate_quarantine_manifest_schema()
             self.assertFalse(ok)
             self.assertTrue(any("not valid JSON" in m for m in messages), messages)
 
     def test_valid_future_entry_passes_guard_and_loads(self) -> None:
         with _manifest([_valid_entry()]):
-            ok, messages = harness._run_quarantine_manifest_guard()
+            ok, messages = harness._validate_quarantine_manifest_schema()
             self.assertTrue(ok, messages)
             loaded = harness._load_quarantine()
             self.assertIn(VALID_LANE, loaded)
@@ -188,9 +189,23 @@ class QuarantineGuardTests(unittest.TestCase):
     def test_guard_messages_are_ascii(self) -> None:
         # A non-ASCII byte has crashed CI's cp1252 stdout before; keep it clean.
         with _manifest([_valid_entry(lane="No Such Lane", expires_utc=_past_iso())]):
-            _, messages = harness._run_quarantine_manifest_guard()
+            _, messages = harness._validate_quarantine_manifest_schema()
             for message in messages:
                 message.encode("ascii")  # raises UnicodeEncodeError on failure
+
+    def test_full_guard_runs_unittest_and_recursion_guard_short_circuits(self) -> None:
+        # The full guard runs schema validation AND the mechanism's unit test.
+        # With the recursion-guard env var set (as it is in the spawned child),
+        # the unit-test step short-circuits instead of re-spawning the suite, so
+        # this test never forks. Schema passes on the committed empty manifest.
+        with mock.patch.dict(
+            os.environ, {harness.QUARANTINE_UNITTEST_ACTIVE_ENV: "1"}
+        ):
+            ok, messages = harness._run_quarantine_manifest_guard()
+        self.assertTrue(ok, messages)
+        self.assertTrue(
+            any("nested guard invocation" in m for m in messages), messages
+        )
 
 
 class QuarantineLaneWiringTests(unittest.TestCase):
@@ -202,12 +217,17 @@ class QuarantineLaneWiringTests(unittest.TestCase):
         self.assertIn("failed as expected", out)
         self.assertIn("quarantined_failing=1", out)
 
-    def test_quarantined_no_coverage_is_tolerated(self) -> None:
+    def test_quarantined_zero_coverage_is_coverage_lost_and_nonzero(self) -> None:
+        # Codex P2 (comment 3601513465): a quarantined lane that exits 0 with a
+        # summary but zero executed coverage (its filter stopped matching any
+        # test) must NOT be tolerated - it means the entry is stale/misconfigured
+        # and lost its coverage. It fails the run instead of being counted as an
+        # expected failure.
         with _manifest([_valid_entry()]):
             rc, out = _run_lane(VALID_LANE, strict=True, godot_result=(True, False, _no_coverage_output()))
-        self.assertEqual(rc, 0, out)
-        self.assertIn("failed as expected", out)
-        self.assertIn("quarantined_failing=1", out)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("exercised no failing test", out)
+        self.assertNotIn("failed as expected", out)
 
     def test_quarantined_pass_is_stale_and_nonzero(self) -> None:
         with _manifest([_valid_entry()]):
@@ -236,25 +256,34 @@ class QuarantineLaneWiringTests(unittest.TestCase):
 class QuarantineClassificationTests(unittest.TestCase):
     def test_classify_clean_pass(self) -> None:
         self.assertEqual(
-            harness._classify_quarantined_lane_outcome(True, True, _pass_output()),
+            harness._classify_quarantined_lane_outcome(True, _pass_output()),
             "clean_pass",
         )
 
     def test_classify_expected_fail_on_crash(self) -> None:
+        # Nonzero exit with no summary is a genuine crash-failure.
         self.assertEqual(
-            harness._classify_quarantined_lane_outcome(True, False, _no_summary_output()),
+            harness._classify_quarantined_lane_outcome(False, _no_summary_output()),
             "expected_fail",
         )
 
     def test_classify_expected_fail_on_failing_summary(self) -> None:
+        # Nonzero exit with a failing summary is a genuine failure signal.
         self.assertEqual(
-            harness._classify_quarantined_lane_outcome(True, False, _fail_output()),
+            harness._classify_quarantined_lane_outcome(False, _fail_output()),
             "expected_fail",
+        )
+
+    def test_classify_coverage_lost_on_exit0_zero_coverage(self) -> None:
+        # Exit 0 with a summary but zero executed coverage -> coverage_lost.
+        self.assertEqual(
+            harness._classify_quarantined_lane_outcome(True, _no_coverage_output()),
+            "coverage_lost",
         )
 
     def test_classify_harness_error_on_clean_exit_no_summary(self) -> None:
         self.assertEqual(
-            harness._classify_quarantined_lane_outcome(True, True, _no_summary_output()),
+            harness._classify_quarantined_lane_outcome(True, _no_summary_output()),
             "harness_error",
         )
 
