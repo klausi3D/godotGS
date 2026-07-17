@@ -129,15 +129,17 @@ class QuarantineGuardTests(unittest.TestCase):
             self.assertTrue(ok, messages)
             self.assertEqual(harness._load_quarantine(), {})
 
-    def test_committed_manifest_is_empty_and_inert(self) -> None:
+    def test_committed_manifest_is_schema_valid(self) -> None:
+        # The guard runs this unit test in CI, so this must assert only that the
+        # committed manifest is SCHEMA-VALID - never that it is specifically
+        # EMPTY. Asserting empty here would block the Slice 2 population path the
+        # moment a valid human-approved entry is committed. An empty manifest and
+        # a valid populated manifest both satisfy this.
         committed = ROOT / "tests" / "ci" / "quarantine_manifest.json"
         self.assertTrue(committed.is_file(), "committed manifest must exist")
         data = json.loads(committed.read_text(encoding="utf-8"))
         self.assertEqual(data.get("schema_version"), 1)
-        self.assertEqual(data.get("entries"), [])
-        # The loader on the real committed file yields an empty map (inert).
-        self.assertEqual(harness._load_quarantine(committed), {})
-        # And the schema guard passes against the committed file.
+        self.assertIsInstance(data.get("entries"), list)
         ok, messages = harness._validate_quarantine_manifest_schema()
         self.assertTrue(ok, messages)
 
@@ -179,12 +181,26 @@ class QuarantineGuardTests(unittest.TestCase):
             self.assertFalse(ok)
             self.assertTrue(any("not valid JSON" in m for m in messages), messages)
 
-    def test_valid_future_entry_passes_guard_and_loads(self) -> None:
-        with _manifest([_valid_entry()]):
+    def test_valid_populated_manifest_is_accepted_and_honored(self) -> None:
+        # Forward-compat (Slice 2): a populated manifest carrying a valid,
+        # human-approved entry must be ACCEPTED by the guard and honored by the
+        # loader - never blocked. Proves the documented population path works.
+        entry = _valid_entry()
+        with _manifest([entry]):
+            # Schema validation accepts the populated manifest.
             ok, messages = harness._validate_quarantine_manifest_schema()
             self.assertTrue(ok, messages)
+            # The full guard also accepts it (recursion env set so the nested
+            # unit-test step short-circuits instead of re-spawning the suite).
+            with mock.patch.dict(
+                os.environ, {harness.QUARANTINE_UNITTEST_ACTIVE_ENV: "1"}
+            ):
+                guard_ok, _ = harness._run_quarantine_manifest_guard()
+            self.assertTrue(guard_ok)
+            # The loader returns the entry keyed by its lane.
             loaded = harness._load_quarantine()
             self.assertIn(VALID_LANE, loaded)
+            self.assertEqual(loaded[VALID_LANE]["issue_url"], entry["issue_url"])
 
     def test_guard_messages_are_ascii(self) -> None:
         # A non-ASCII byte has crashed CI's cp1252 stdout before; keep it clean.
@@ -197,7 +213,8 @@ class QuarantineGuardTests(unittest.TestCase):
         # The full guard runs schema validation AND the mechanism's unit test.
         # With the recursion-guard env var set (as it is in the spawned child),
         # the unit-test step short-circuits instead of re-spawning the suite, so
-        # this test never forks. Schema passes on the committed empty manifest.
+        # this test never forks. Schema passes on the committed manifest (empty
+        # or validly populated).
         with mock.patch.dict(
             os.environ, {harness.QUARANTINE_UNITTEST_ACTIVE_ENV: "1"}
         ):
