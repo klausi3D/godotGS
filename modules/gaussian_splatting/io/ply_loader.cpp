@@ -24,13 +24,46 @@ namespace {
 //       written by v1 may hold zeroed positions/opacity/scales for such PLYs,
 //       so a stale v1 .gsplatcache is rejected and the raw PLY is re-parsed
 //       automatically — no manual cache deletion required.
-static constexpr int PLY_CACHE_VERSION = 2;
+//   v3: parse_header now rejects vertex-element `property list` declarations
+//       (issue #511) and accounts for elements declared BEFORE `vertex`
+//       (issue #512) instead of silently misaligning the per-vertex stride /
+//       reading a preceding element's bytes as vertex data. A v1/v2 cache may
+//       hold GaussianData that was decoded from a mis-parsed layout, so a stale
+//       pre-v3 .gsplatcache is rejected and the raw PLY is re-parsed (which now
+//       either loads correctly or fails loudly) — no manual cache deletion
+//       required.
+static constexpr int PLY_CACHE_VERSION = 3;
 
 static constexpr int SH_DC_COMPONENTS = 3;
 static constexpr int SH_REST_COMPONENTS = 45;
 static constexpr int SH_FIRST_ORDER_COEFFS = 3;
 static constexpr int SH_HIGH_ORDER_COEFFS = 12;
 static constexpr float SH_C0 = 0.28209479177387814f;
+
+// Byte size of a fixed-size (non-list) PLY scalar property type, or 0 for an
+// unknown/unsupported type. Shared by the vertex-property decoder and the
+// preceding-element stride accounting added for issue #512 so both use one
+// authoritative type->size table.
+static int _ply_scalar_type_size(const String &p_type) {
+    if (p_type == "float" || p_type == "float32") {
+        return 4;
+    } else if (p_type == "double" || p_type == "float64") {
+        return 8;
+    } else if (p_type == "uchar" || p_type == "uint8") {
+        return 1;
+    } else if (p_type == "ushort" || p_type == "uint16") {
+        return 2;
+    } else if (p_type == "int" || p_type == "int32") {
+        return 4;
+    } else if (p_type == "short" || p_type == "int16") {
+        return 2;
+    } else if (p_type == "uint" || p_type == "uint32") {
+        return 4;
+    } else if (p_type == "char" || p_type == "int8") {
+        return 1;
+    }
+    return 0;
+}
 
 static bool _variant_to_uint64(const Variant &p_value, uint64_t &r_out) {
     switch (p_value.get_type()) {
@@ -226,6 +259,22 @@ Error PLYLoader::parse_header(Ref<FileAccess> file) {
     // header that overflows int sizing in resize() / chunked parsing below.
     static constexpr int64_t PLY_MAX_VERTEX_COUNT = 1ll << 30;
 
+    // Issue #512: a legal PLY may declare other elements (face/camera/...)
+    // BEFORE `vertex`. In a binary PLY every element's data is stored back to
+    // back in declaration order, so a preceding element's rows occupy bytes
+    // ahead of the vertex block; assuming vertex data starts at header_size
+    // reads those bytes as vertex data (silent misparse). Track the fixed-size
+    // footprint of every element declared before `vertex` (binary: total bytes,
+    // ASCII: total rows) so the data parsers can skip past it. A preceding
+    // element whose rows are variable-length (`property list`) has no fixed
+    // size, so the offset is undecidable and we reject rather than misparse.
+    bool seen_vertex = false;
+    bool current_element_is_preceding = false; // non-vertex element before vertex
+    int64_t current_element_count = 0;
+    int64_t current_element_stride = 0; // fixed-size bytes per row of current preceding element
+    int64_t pre_vertex_data_bytes = 0; // binary: bytes of all elements before vertex
+    int64_t pre_vertex_row_count = 0; // ASCII: rows of all elements before vertex
+
     while (!file->eof_reached()) {
         line = file->get_line().strip_edges();
 
@@ -243,64 +292,114 @@ Error PLYLoader::parse_header(Ref<FileAccess> file) {
                 }
             }
         } else if (line.begins_with("element")) {
+            // A new element closes the previous one: if that previous element
+            // was a fixed-size element declared before `vertex`, fold its data
+            // footprint into the pre-vertex accumulators now.
+            if (current_element_is_preceding) {
+                pre_vertex_data_bytes += current_element_count * current_element_stride;
+                pre_vertex_row_count += current_element_count;
+            }
+            current_element_is_preceding = false;
+            current_element_count = 0;
+            current_element_stride = 0;
+
             Vector<String> parts = line.split(" ");
             if (parts.size() >= 2) {
                 current_element = parts[1]; // Could be "vertex", "face", etc.
-                if (current_element == "vertex" && parts.size() >= 3) {
-                    const int64_t parsed_count = parts[2].to_int();
-                    if (parsed_count < 1 || parsed_count > PLY_MAX_VERTEX_COUNT) {
+                const int64_t parsed_count = (parts.size() >= 3) ? parts[2].to_int() : -1;
+                if (current_element == "vertex") {
+                    seen_vertex = true;
+                    if (parts.size() >= 3) {
+                        if (parsed_count < 1 || parsed_count > PLY_MAX_VERTEX_COUNT) {
+                            GS_LOG_ERROR_DEFAULT(vformat(
+                                    "[PLY] vertex count out of range: %d (must be 1..%d)",
+                                    parsed_count, PLY_MAX_VERTEX_COUNT));
+                            return ERR_FILE_CORRUPT;
+                        }
+                        header.vertex_count = static_cast<int>(parsed_count);
+                        vertex_property_offset = 0; // Reset offset for vertex properties
+                        header.properties.clear();
+                    }
+                } else if (!seen_vertex) {
+                    // Non-vertex element declared before `vertex`: its data
+                    // precedes the vertex block. It must carry a valid row count
+                    // or we cannot size the skip, so fail closed.
+                    if (parsed_count < 0 || parsed_count > PLY_MAX_VERTEX_COUNT) {
                         GS_LOG_ERROR_DEFAULT(vformat(
-                                "[PLY] vertex count out of range: %d (must be 1..%d)",
-                                parsed_count, PLY_MAX_VERTEX_COUNT));
+                                "[PLY] element '%s' declared before 'vertex' has an invalid row "
+                                "count; refusing to guess the vertex data offset",
+                                current_element));
                         return ERR_FILE_CORRUPT;
                     }
-                    header.vertex_count = static_cast<int>(parsed_count);
-                    vertex_property_offset = 0; // Reset offset for vertex properties
-                    header.properties.clear();
+                    current_element_is_preceding = true;
+                    current_element_count = parsed_count;
                 }
+                // A non-vertex element declared AFTER `vertex` is trailing data
+                // we never read, so it needs no tracking.
             }
-        } else if (line.begins_with("property") && current_element == "vertex") {
-            // Only process properties if we're in the vertex element section
-            PLYProperty prop;
+        } else if (line.begins_with("property")) {
             Vector<String> parts = line.split(" ");
             if (parts.size() >= 3) {
-                if (parts[1] == "list") {
-                    continue; // Unsupported property list
+                const bool is_list = (parts[1] == "list");
+                if (current_element == "vertex") {
+                    if (is_list) {
+                        // Issue #511: a per-vertex list is variable length, so
+                        // the vertex stride is not fixed. Dropping it (the old
+                        // `continue`) misaligned every vertex after the first and
+                        // still "succeeded" with garbage. Reject instead.
+                        GS_LOG_ERROR_DEFAULT(vformat(
+                                "[PLY] vertex element declares an unsupported variable-length "
+                                "'property list' ('%s'); refusing to load rather than misalign the "
+                                "per-vertex stride",
+                                parts[parts.size() - 1]));
+                        return ERR_FILE_CORRUPT;
+                    }
+
+                    PLYProperty prop;
+                    prop.type = parts[1];
+                    prop.name = parts[2];
+
+                    const int size = _ply_scalar_type_size(prop.type);
+                    if (size <= 0) {
+                        GS_LOG_ERROR_DEFAULT(vformat(
+                                "[PLY] unknown property type '%s' for property '%s'",
+                                prop.type, prop.name));
+                        return ERR_FILE_CORRUPT;
+                    }
+                    prop.size = size;
+                    prop.offset = vertex_property_offset;
+                    vertex_property_offset += prop.size;
+                    header.properties.push_back(prop);
+                } else if (current_element_is_preceding) {
+                    if (is_list) {
+                        // Issue #512: a variable-length row in a preceding
+                        // element makes the vertex data offset undecidable
+                        // without parsing every row. Reject rather than misparse.
+                        GS_LOG_ERROR_DEFAULT(vformat(
+                                "[PLY] element '%s' declared before 'vertex' uses an unsupported "
+                                "variable-length 'property list'; cannot compute the vertex data offset",
+                                current_element));
+                        return ERR_FILE_CORRUPT;
+                    }
+                    const int size = _ply_scalar_type_size(parts[1]);
+                    if (size <= 0) {
+                        GS_LOG_ERROR_DEFAULT(vformat(
+                                "[PLY] element '%s' declared before 'vertex' has a property of "
+                                "unknown type '%s'; cannot compute the vertex data offset",
+                                current_element, parts[1]));
+                        return ERR_FILE_CORRUPT;
+                    }
+                    current_element_stride += size;
                 }
-
-                prop.type = parts[1];
-                prop.name = parts[2];
-
-                // Determine size based on type
-                if (prop.type == "float" || prop.type == "float32") {
-                    prop.size = 4;
-                } else if (prop.type == "double" || prop.type == "float64") {
-                    prop.size = 8;
-                } else if (prop.type == "uchar" || prop.type == "uint8") {
-                    prop.size = 1;
-                } else if (prop.type == "ushort" || prop.type == "uint16") {
-                    prop.size = 2;
-                } else if (prop.type == "int" || prop.type == "int32") {
-                    prop.size = 4;
-                } else if (prop.type == "short" || prop.type == "int16") {
-                    prop.size = 2;
-                } else if (prop.type == "uint" || prop.type == "uint32") {
-                    prop.size = 4;
-                } else if (prop.type == "char" || prop.type == "int8") {
-                    prop.size = 1;
-                } else {
-                    GS_LOG_ERROR_DEFAULT(vformat(
-                            "[PLY] unknown property type '%s' for property '%s'",
-                            prop.type, prop.name));
-                    return ERR_FILE_CORRUPT;
-                }
-
-                prop.offset = vertex_property_offset;
-                vertex_property_offset += prop.size;
-
-                header.properties.push_back(prop);
+                // Properties of a trailing (post-vertex) element are ignored.
             }
         } else if (line == "end_header") {
+            // Fold a preceding element that ended immediately before end_header
+            // (defensive: `vertex` normally follows, but stay consistent).
+            if (current_element_is_preceding) {
+                pre_vertex_data_bytes += current_element_count * current_element_stride;
+                pre_vertex_row_count += current_element_count;
+            }
             header.header_size = file->get_position();
             found_end_header = true;
             break;
@@ -315,6 +414,14 @@ Error PLYLoader::parse_header(Ref<FileAccess> file) {
     if (header.vertex_count == 0) {
         return ERR_FILE_CORRUPT;
     }
+
+    // Vertex data begins after the header text plus any fixed-size elements
+    // declared before `vertex` (issue #512). For the common vertex-first
+    // layout pre_vertex_data_bytes/pre_vertex_row_count are 0 and this equals
+    // header_size / skips no rows.
+    header.vertex_data_offset = static_cast<uint64_t>(header.header_size) +
+            static_cast<uint64_t>(pre_vertex_data_bytes);
+    header.pre_vertex_row_count = pre_vertex_row_count;
 
     return OK;
 }
@@ -573,6 +680,13 @@ Error PLYLoader::parse_binary_data(Ref<FileAccess> file) {
         }
     };
 
+    // Seek to where the vertex element's data actually begins. This is
+    // header_size for the common vertex-first layout, and skips past any
+    // fixed-size elements declared before `vertex` (issue #512). parse_header
+    // rejects layouts whose preceding elements are variable-length, so this
+    // offset is always well defined here.
+    file->seek(header.vertex_data_offset);
+
     const uint64_t total_bytes = uint64_t(vertex_size) * uint64_t(header.vertex_count);
     const uint64_t max_bulk_bytes = static_cast<uint64_t>(INT_MAX);
     const uint64_t target_chunk_bytes = 16ull * 1024ull * 1024ull;
@@ -655,6 +769,16 @@ Error PLYLoader::parse_ascii_data(Ref<FileAccess> file) {
         if (rest_property_exists[idx]) {
             has_rest_properties = true;
         }
+    }
+
+    // Skip the data rows of any elements declared before `vertex` (issue #512).
+    // parse_header rejects variable-length preceding elements, so each such
+    // element contributes exactly its declared row count of lines here.
+    for (int64_t skip = 0; skip < header.pre_vertex_row_count; skip++) {
+        if (file->eof_reached()) {
+            return ERR_FILE_CORRUPT;
+        }
+        file->get_line();
     }
 
     // ASCII parsing - simpler but slower
