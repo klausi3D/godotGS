@@ -1865,6 +1865,102 @@ def _tolerate_quarantined_lane(
     return None
 
 
+def _warn_stale_quarantine_entry(name: str, pattern: str, entry: dict) -> None:
+    """WARN (not a failure) that an approved entry matched no current failing case.
+
+    The lane is still tolerated, but the entry is either fixed or simply did not
+    run this pass - surfacing it prompts a human to re-verify or remove it so a
+    fixed quarantine cannot silently re-tolerate a future regression. It is a WARN
+    rather than a hard fail because we cannot distinguish "fixed" from "did not run
+    this run" (env-skipped / filtered) without parsing passed-case names; the
+    expires_utc field remains the hard backstop.
+    """
+    issue = entry.get("issue_url") or "unknown-issue"
+    print(
+        f"[module-tests][QUARANTINE-STALE-ENTRY] lane '{name}' entry for test_case "
+        f"'{pattern}' matched no current failing case (fixed, or did not run this "
+        f"run); review/remove (issue {issue})."
+    )
+
+
+def _handle_quarantined_runnable_failure(
+    name: str,
+    strict: bool,
+    output: str,
+    pattern_entries: list[tuple[str, dict]],
+    approved_patterns: list[str],
+    skipped_markers: int,
+    totals: DoctestTotals,
+    issue_refs: str,
+) -> int | None:
+    """Scenario A: the lane RAN and reported per-case failures.
+
+    Tolerate only if every failing case matches at least one approved pattern;
+    otherwise fail. When tolerated, WARN on any approved entry that matched no
+    current failing case (a fixed / not-run stale entry) via
+    _warn_stale_quarantine_entry - the lane is still tolerated (rc unchanged).
+    """
+    # 'test_case' is required by the schema guard, so no approved pattern here
+    # means a misconfigured manifest bypassed the guard; fail closed.
+    if not approved_patterns:
+        print(
+            f"[module-tests][QUARANTINE-UNVERIFIED] '{name}' failed but no manifest "
+            f"entry has a test_case to match against; refusing to tolerate a whole "
+            f"runnable lane - failing (issue {issue_refs})."
+        )
+        _print_output_if_present(output)
+        return 1
+
+    failing_cases = _parse_failing_doctest_cases(output)
+    if not failing_cases:
+        print(
+            f"[module-tests][QUARANTINE-UNVERIFIED] '{name}' reported failures but no "
+            f"failing test-case name could be parsed; cannot confirm they match the "
+            f"approved patterns {approved_patterns} - failing (issue {issue_refs})."
+        )
+        _print_output_if_present(output)
+        return 1
+
+    unexpected = [
+        case
+        for case in failing_cases
+        if not any(_test_case_matches(pattern, case) for pattern in approved_patterns)
+    ]
+    if unexpected:
+        print(
+            f"[module-tests][QUARANTINE-UNEXPECTED] '{name}' quarantines patterns "
+            f"{approved_patterns} but other case(s) failed: {unexpected}; new "
+            f"regression - failing (issue {issue_refs})."
+        )
+        _print_output_if_present(output)
+        return 1
+
+    # Every failing case matched an approved pattern. Partition the entries into
+    # those whose pattern matched a current failure (still live) and those that
+    # matched none (fixed this run, or did not run) - WARN on the latter so a
+    # stale entry surfaces for review instead of silently lingering.
+    matched_patterns: list[str] = []
+    matched_entries: list[dict] = []
+    for pattern, entry in pattern_entries:
+        if any(_test_case_matches(pattern, case) for case in failing_cases):
+            matched_patterns.append(pattern)
+            matched_entries.append(entry)
+        else:
+            _warn_stale_quarantine_entry(name, pattern, entry)
+
+    return _tolerate_quarantined_lane(
+        name,
+        strict,
+        issue_refs,
+        output,
+        totals,
+        skipped_markers,
+        f"[module-tests][QUARANTINE] '{name}' failed as expected in matched case(s) "
+        f"{failing_cases} (matched patterns {_dedupe_preserving_order(matched_patterns)}, "
+        f"issue {_quarantine_issue_refs(matched_entries)}); tolerating.",
+    )
+
+
 def _handle_quarantined_expected_fail(
     name: str,
     strict: bool,
@@ -1924,66 +2020,16 @@ def _handle_quarantined_expected_fail(
             f"cannot be narrowed to a single test_case); (issue {issue_refs}).",
         )
 
-    # Scenario A: runnable failure with per-case info. Every entry is required by
-    # the schema guard to carry a test_case, so no approved pattern here means a
-    # misconfigured manifest bypassed the guard; fail closed.
-    if not approved_patterns:
-        print(
-            f"[module-tests][QUARANTINE-UNVERIFIED] '{name}' failed but no manifest "
-            f"entry has a test_case to match against; refusing to tolerate a whole "
-            f"runnable lane - failing (issue {issue_refs})."
-        )
-        _print_output_if_present(output)
-        return 1
-
-    failing_cases = _parse_failing_doctest_cases(output)
-    if not failing_cases:
-        print(
-            f"[module-tests][QUARANTINE-UNVERIFIED] '{name}' reported failures but no "
-            f"failing test-case name could be parsed; cannot confirm they match the "
-            f"approved patterns {approved_patterns} - failing (issue {issue_refs})."
-        )
-        _print_output_if_present(output)
-        return 1
-
-    unexpected = [
-        case
-        for case in failing_cases
-        if not any(_test_case_matches(pattern, case) for pattern in approved_patterns)
-    ]
-    if unexpected:
-        print(
-            f"[module-tests][QUARANTINE-UNEXPECTED] '{name}' quarantines patterns "
-            f"{approved_patterns} but other case(s) failed: {unexpected}; new "
-            f"regression - failing (issue {issue_refs})."
-        )
-        _print_output_if_present(output)
-        return 1
-
-    # Every failing case matched an approved pattern -> tolerate. Reference the
-    # entries whose pattern actually matched, for diagnostics.
-    matched_patterns = _dedupe_preserving_order(
-        pattern
-        for pattern, _ in pattern_entries
-        if any(_test_case_matches(pattern, case) for case in failing_cases)
-    )
-    matched_issue_refs = _quarantine_issue_refs(
-        [
-            entry
-            for pattern, entry in pattern_entries
-            if any(_test_case_matches(pattern, case) for case in failing_cases)
-        ]
-    )
-    return _tolerate_quarantined_lane(
+    # Scenario A: runnable failure with per-case info (delegated for clarity).
+    return _handle_quarantined_runnable_failure(
         name,
         strict,
-        issue_refs,
         output,
-        totals,
+        pattern_entries,
+        approved_patterns,
         skipped_markers,
-        f"[module-tests][QUARANTINE] '{name}' failed as expected in matched case(s) "
-        f"{failing_cases} (matched patterns {matched_patterns}, issue {matched_issue_refs}); "
-        f"tolerating.",
+        totals,
+        issue_refs,
     )
 
 

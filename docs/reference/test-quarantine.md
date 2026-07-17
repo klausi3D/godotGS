@@ -86,6 +86,15 @@ every other exit-0 result fails, so a stale or misconfigured entry cannot hide.
   closed (the failure cannot be confirmed to be the quarantined one):
   `[module-tests][QUARANTINE-UNVERIFIED] ...`. Tolerated runs increment
   `quarantined_failing` (surfaced in the totals line).
+  When a multi-entry lane IS tolerated, any entry whose `test_case` matched **no**
+  current failing case is surfaced as a **WARN** (the lane is still tolerated - rc
+  unchanged):
+  `[module-tests][QUARANTINE-STALE-ENTRY] lane '<lane>' entry for test_case '<pattern>' matched no current failing case (fixed, or did not run this run); review/remove (issue <url>).`
+  This prompts a human to re-verify or remove the entry so a fixed quarantine
+  cannot silently re-tolerate a future regression of that case. It is a WARN, not
+  a hard fail, because the harness cannot distinguish "fixed" from "did not run
+  this pass" (env-skipped / filtered) without parsing passed-case names; the
+  `expires_utc` field remains the hard backstop that forces re-verification.
   A quarantine tolerates ONLY its exact known failure, never a NEW skipped test:
   if a matched-failure lane ALSO printed a `Skipping test - ...` marker, the same
   strict-CI skipped-marker policy that applies to non-quarantined lanes applies

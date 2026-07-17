@@ -379,6 +379,32 @@ class QuarantineLaneWiringTests(unittest.TestCase):
         self.assertIn("[module-tests][QUARANTINE-UNEXPECTED]", out)
         self.assertIn(third, out)
 
+    def test_quarantined_stale_entry_warns_but_still_tolerates(self) -> None:
+        # Round-7: a 2-entry lane where only ONE approved case actually fails.
+        # The lane is still tolerated (rc 0), and the entry that matched no
+        # current failing case is surfaced as a QUARANTINE-STALE-ENTRY WARN (not
+        # a failure - it may be fixed OR simply did not run this pass).
+        entries = [
+            _valid_entry(test_case=MATCHING_TEST_CASE, issue_url="https://x/issues/1"),
+            _valid_entry(test_case=SECOND_TEST_CASE, issue_url="https://x/issues/2"),
+        ]
+        with _manifest(entries):
+            rc, out = _run_lane(
+                VALID_LANE,
+                strict=True,
+                godot_result=(False, False, _fail_output()),  # only FAILING_CASE fails
+            )
+        self.assertEqual(rc, 0, out)
+        self.assertIn("failed as expected in matched case(s)", out)
+        # Exactly one stale-entry WARN, naming the un-matched (second) entry's
+        # pattern + its issue, and NOT the still-live first pattern.
+        stale_lines = [ln for ln in out.splitlines() if "QUARANTINE-STALE-ENTRY" in ln]
+        self.assertEqual(len(stale_lines), 1, out)
+        self.assertIn(SECOND_TEST_CASE, stale_lines[0])
+        self.assertIn("https://x/issues/2", stale_lines[0])
+        self.assertNotIn(MATCHING_TEST_CASE, stale_lines[0])
+        self.assertIn("quarantined_failing=1", out)
+
     def test_quarantined_mixed_matching_and_unexpected_fails_the_run(self) -> None:
         # A lane where the quarantined case AND another case both fail: the
         # unexpected one still forces the run to fail.
