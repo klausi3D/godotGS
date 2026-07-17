@@ -120,6 +120,42 @@ TEST_CASE("[GaussianSplatting][GPU Sort Pipeline] Instance-count readbacks rejec
 	CHECK(pipeline->_test_get_last_instance_visible_splat_count_frame() == 71);
 }
 
+TEST_CASE("[GaussianSplatting][GPU Sort Pipeline] Instance-count overflow_flag raises the persistent overflow-event counter (C4b/G4)") {
+	// C4b (exit criterion G4, "no silent degradation"), Channel B: when the instance-count
+	// clamp shader raises overflow_flag, _on_instance_count_readback must bump the persistent
+	// instance_count_overflow_events counter (and WARN_PRINT_ONCE). This is the CPU-side
+	// contract; on-GPU provocation of a real clamp is the GPU-harness lane's job.
+	Ref<GPUSortingPipeline> pipeline;
+	pipeline.instantiate();
+	REQUIRE(pipeline.is_valid());
+	CHECK(pipeline->get_instance_count_overflow_events() == 0u);
+
+	auto &count_state = pipeline->_test_instance_count_readback_state();
+
+	// (1) An accepted, NON-overflowing readback must NOT bump the counter.
+	count_state.pending = true;
+	count_state.generation = 5;
+	count_state.pending_frame_counter = 10;
+	pipeline->_test_set_last_instance_visible_splat_count_state(0, false, 0);
+	pipeline->_on_instance_count_readback(_make_indirect_dispatch_payload(64, 0, 64), 5);
+	CHECK(pipeline->get_instance_count_overflow_events() == 0u);
+
+	// (2) An accepted, overflowing readback (overflow_flag=1) bumps the counter once.
+	count_state.pending = true;
+	count_state.generation = 6;
+	count_state.pending_frame_counter = 11;
+	pipeline->_on_instance_count_readback(_make_indirect_dispatch_payload(64, 1, 4096), 6);
+	CHECK(pipeline->get_instance_count_overflow_events() == 1u);
+
+	// (3) A STALE overflowing readback is rejected on generation mismatch BEFORE the flag
+	// check, so it must not bump the counter.
+	count_state.pending = true;
+	count_state.generation = 8;
+	count_state.pending_frame_counter = 20;
+	pipeline->_on_instance_count_readback(_make_indirect_dispatch_payload(64, 1, 4096), 7);
+	CHECK(pipeline->get_instance_count_overflow_events() == 1u);
+}
+
 TEST_CASE("[GaussianSplatting][GPU Sort Pipeline] Clearing instance pipeline inputs resets readback ownership state") {
 	Ref<GPUSortingPipeline> pipeline;
 	pipeline.instantiate();

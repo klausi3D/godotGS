@@ -980,6 +980,17 @@ void GPUSortingPipeline::_on_instance_count_readback(const Vector<uint8_t> &p_da
     last_instance_visible_splat_count = indirect->element_count;
     last_instance_visible_splat_count_valid = true;
     last_instance_visible_splat_count_frame = request_frame;
+    if (indirect->overflow_flag != 0u) {
+        // C4b / exit criterion G4 ("no silent degradation"): the instance-count clamp shader
+        // clamped the visible splat count to the sort/dispatch capacity, so some splats are
+        // not sorted or rendered. Previously this only surfaced via the debug-gated trace;
+        // make it loud once and counted always.
+        WARN_PRINT_ONCE("[GPU Sort] Instance-count overflow: the visible splat count exceeded "
+                "the sort/dispatch capacity and was clamped; some splats will not be sorted or "
+                "rendered. Increase the sort element capacity or reduce the visible splat count. "
+                "Shown once; see the instance_count_overflow_events counter for the running total.");
+        instance_count_overflow_events++;
+    }
     if (GaussianSplatting::debug_trace_is_enabled()) {
         GaussianSplatting::debug_trace_record_instance_counts(
                 indirect->element_count, indirect->unclamped_total, indirect->overflow_flag);
@@ -1024,6 +1035,15 @@ bool GPUSortingPipeline::_capture_instance_count_sync(RenderingDevice *p_device,
     last_instance_visible_splat_count = indirect->element_count;
     last_instance_visible_splat_count_valid = true;
     last_instance_visible_splat_count_frame = p_frame_counter;
+    if (indirect->overflow_flag != 0u) {
+        // C4b / G4: same overflow surfacing as the async path (_on_instance_count_readback),
+        // for the sync bootstrap route so the very first frame's clamp is not silent either.
+        WARN_PRINT_ONCE("[GPU Sort] Instance-count overflow: the visible splat count exceeded "
+                "the sort/dispatch capacity and was clamped; some splats will not be sorted or "
+                "rendered. Increase the sort element capacity or reduce the visible splat count. "
+                "Shown once; see the instance_count_overflow_events counter for the running total.");
+        instance_count_overflow_events++;
+    }
     if (r_resolved_visible) {
         *r_resolved_visible = MIN(indirect->element_count, p_safe_visible_max);
     }

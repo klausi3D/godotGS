@@ -140,6 +140,12 @@ struct TileOverflowStatsSnapshot {
 	uint32_t raster_reject_quadratic = 0;
 	uint32_t raster_reject_lod_opacity = 0;
 	uint32_t raster_reject_blend_alpha = 0;
+	// C4b (G4, "no silent degradation"): resident overlap-record drop flag. Trailing
+	// field, so no existing offset shifts. Mirrors the trailing `uint overflow_drop_signal`
+	// of the OverflowStats SSBO in tile_binning.glsl (binding 3) byte-for-byte. Set to 1 by
+	// the binning EMIT pass on any overlap-record drop; read back every production frame to
+	// raise a one-shot WARN + bump TileDiagnosticsState::overflow_drop_events.
+	uint32_t overflow_drop_signal = 0;
 };
 
 struct TileSplatAuditSnapshot {
@@ -330,6 +336,12 @@ struct TileDiagnosticsState {
 	// actually engages (see TileRenderer::_get_effective_sort_key_config). mutable
 	// because that config getter is const, mirroring last_render_stats above.
 	mutable bool sort_key_32bit_engaged = false;
+	// C4b (G4, "no silent degradation"): persistent count of production frames in which the
+	// tile-binning EMIT pass dropped at least one overlap record (per-tile capacity or global
+	// overlap budget exhausted). Incremented from the always-on overflow_drop_signal readback
+	// (TileRendererDebugStats::on_overflow_signal_readback); surfaced in the binning debug
+	// dict. mutable because the readback callback fires from a const-context frame path.
+	mutable uint32_t overflow_drop_events = 0;
 	bool runtime_statistics_enabled = false;
 	Vector<uint32_t> tile_density_snapshot;
 	bool capture_tile_density_snapshot = false;

@@ -11,6 +11,7 @@
 #include "core/io/json.h"
 #include "../logger/gs_debug_trace.h"
 #include "../interfaces/debug_overlay_system.h"
+#include "../interfaces/gpu_sorting_pipeline.h"
 #include "../interfaces/sync_policy.h"
 #include "../interfaces/output_compositor.h"
 
@@ -532,6 +533,19 @@ Dictionary RenderDebugStateOrchestrator::get_binning_debug_counters() const {
 	// The reason code is the last GaussianSplatting::UnsortedCompositeReason (0 == NONE).
 	out["unsorted_composite_frames"] = (int64_t)tr->get_unsorted_composite_frames();
 	out["unsorted_composite_last_reason"] = (int64_t)tr->get_unsorted_composite_last_reason();
+
+	// Overflow-drop telemetry (C4b, "no silent degradation"). Channel A: overlap-record drops
+	// in the tile-binning EMIT pass, surfaced via the always-on resident-signal readback.
+	// Channel B: instance-count clamp overflow in the GPU sorting pipeline.
+	out["overflow_drop_events"] = (int64_t)tr->get_overflow_drop_events();
+	int64_t instance_count_overflow_events = 0;
+	if (renderer) {
+		const Ref<GPUSortingPipeline> &sorting_pipeline = renderer->get_subsystem_state().sorting_pipeline;
+		if (sorting_pipeline.is_valid()) {
+			instance_count_overflow_events = (int64_t)sorting_pipeline->get_instance_count_overflow_events();
+		}
+	}
+	out["instance_count_overflow_events"] = instance_count_overflow_events;
 
 	return out;
 }

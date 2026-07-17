@@ -71,6 +71,10 @@ public:
     void set_instance_pipeline_inputs(const InstancePipelineInputs &p_inputs);
     void clear_instance_pipeline_inputs();
     uint32_t get_last_instance_visible_splat_count() const { return last_instance_visible_splat_count; }
+    // C4b (exit criterion G4, "no silent degradation"): running count of frames in which the
+    // instance-count clamp shader raised its overflow_flag (the visible splat count exceeded
+    // the sort/dispatch capacity and was clamped). Surfaced in the binning debug dict.
+    uint32_t get_instance_count_overflow_events() const { return instance_count_overflow_events; }
     void test_set_last_instance_visible_splat_count(uint32_t p_count, uint32_t p_frame_counter = 0) {
         instance_count_readback_state.pending = false;
         instance_count_readback_state.generation++;
@@ -221,6 +225,9 @@ private:
     uint32_t last_instance_visible_splat_count = 0;
     bool last_instance_visible_splat_count_valid = false;
     uint32_t last_instance_visible_splat_count_frame = 0;
+    // C4b (G4): persistent count of frames whose instance-count clamp raised overflow_flag.
+    // Bumped from both the async readback and the sync bootstrap path.
+    uint32_t instance_count_overflow_events = 0;
     String last_compute_error;
 
     // BUF-3 optimization: Store reference to culler instead of copying data.

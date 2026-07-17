@@ -16,6 +16,14 @@
         void on_debug_counters_readback(const Vector<uint8_t> &p_data);
         void on_overflow_stats_readback(const Vector<uint8_t> &p_data);
         void on_splat_audit_readback(const Vector<uint8_t> &p_data);
+        // C4b (G4): always-on production readback of just the resident overflow_drop_signal
+        // scalar (a small async GPU->CPU read; never a sync stall). poll_overflow_drop_signal
+        // schedules it every frame the binning EMIT pass ran; on a non-zero flag,
+        // on_overflow_signal_readback raises a one-shot WARN + bumps
+        // owner.diagnostics.overflow_drop_events. Independent of the debug-gated overflow
+        // readback above so it stays live in a pure production frame.
+        void poll_overflow_drop_signal(RenderingDevice *p_device, uint64_t p_frame_serial);
+        void on_overflow_signal_readback(const Vector<uint8_t> &p_data);
         void _log_readback_state_if_needed(uint64_t p_frame_serial, bool p_log_enabled) const;
         void _schedule_debug_readbacks(RenderingDevice *p_device, uint64_t p_frame_serial,
                 bool p_has_debug_buffer, bool p_has_overflow_buffer);
@@ -51,6 +59,10 @@
         mutable AsyncReadbackState debug_counter_readback;
         mutable AsyncReadbackState overflow_stats_readback;
         mutable AsyncReadbackState splat_audit_readback;
+        // C4b (G4): dedicated pending-state for the always-on overflow_drop_signal readback,
+        // kept separate from overflow_stats_readback so production telemetry never contends
+        // with the debug-gated full-overflow-buffer readback.
+        mutable AsyncReadbackState overflow_signal_readback;
     };
 
     struct TileRenderParamsBuilder {

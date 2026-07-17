@@ -175,6 +175,15 @@ layout(set = 0, binding = 3, std430) buffer OverflowStats {
     uint raster_reject_quadratic;     // quadratic > GS_RASTER_ALPHA_REJECT_Q (spatial extent)
     uint raster_reject_lod_opacity;   // base_opacity * lod_blend <= GS_RASTER_ALPHA_THRESHOLD
     uint raster_reject_blend_alpha;   // blend_alpha <= 0 after remaining-alpha multiply
+    // C4b (exit criterion G4, "no silent degradation"): always-resident drop signal.
+    // Set to 1 (flag, NOT a second count) whenever an overlap record is dropped below,
+    // co-located with the existing overflow_splats_clamped atomicAdd. The host reads back
+    // just this scalar every production frame (a small always-on async readback) to raise a
+    // WARN_PRINT_ONCE + bump the persistent overflow_drop_events counter, so overlap-record
+    // overflow is loud + counted in production instead of silently dropped. The drop COUNT
+    // stays in overflow_splats_clamped (reused, no redundant GPU counter). Cleared each frame
+    // with the rest of this buffer, so it reflects THIS frame's drops.
+    uint overflow_drop_signal;
 } overflow_stats;
 
 layout(set = 0, binding = 5, std430) buffer TileCounts {
@@ -1414,6 +1423,7 @@ void main() {
                 // Undo the cursor increment so tile_counts reflects emitted (clamped) records.
                 atomicAdd(tile_counts.counts[tile_idx], 0xFFFFFFFFu); // -1
                 atomicAdd(overflow_stats.overflow_splats_clamped, 1u);
+                atomicMax(overflow_stats.overflow_drop_signal, 1u); // C4b: resident drop flag (per-tile capacity)
                 continue;
             }
             uint record_idx = range.x + local_offset;
@@ -1421,6 +1431,7 @@ void main() {
             if (record_idx >= overlap_limit) {
                 // Global overlap budget exhausted. Do not write past the allocated key/value range.
                 atomicAdd(overflow_stats.overflow_splats_clamped, 1u);
+                atomicMax(overflow_stats.overflow_drop_signal, 1u); // C4b: resident drop flag (global overlap budget)
                 continue;
             }
             global_sort_keys.keys[record_idx] = gs_pack_sort_key(tile_idx, linear_depth, global_idx);

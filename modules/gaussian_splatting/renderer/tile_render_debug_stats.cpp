@@ -42,6 +42,7 @@ using GaussianSplatting::ScopedGpuMarkerEx;
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 
 namespace {
@@ -161,6 +162,51 @@ void TileRenderer::TileRendererDebugStats::on_splat_audit_readback(const Vector<
 
     cached_splat_audit_snapshot = snapshot;
     cached_splat_audit_frame_serial = splat_audit_readback.requested_frame_serial;
+}
+
+void TileRenderer::TileRendererDebugStats::poll_overflow_drop_signal(RenderingDevice *p_device, uint64_t p_frame_serial) {
+    // C4b / exit criterion G4 ("no silent degradation"): always-on production readback of
+    // ONLY the resident overflow_drop_signal scalar (a trailing uint in the always-resident
+    // OverflowStats SSBO, binding 3). The full-buffer overflow readback (get_overflow_stats /
+    // dump_gpu_debug_counters) is debug-gated, so a pure production frame never learns that a
+    // drop happened -- this reads back just sizeof(uint32_t) at the field offset, a tiny async
+    // GPU->CPU copy (never a synchronous stall), and only while a prior read is not in flight.
+    // The buffer is cleared at frame start (_clear_debug_counters), so the flag reflects the
+    // most recent EMIT pass.
+    if (!p_device || !overflow_statistics_buffer.is_valid()) {
+        return;
+    }
+    if (p_frame_serial == 0 || overflow_signal_readback.pending) {
+        return;
+    }
+    const uint32_t signal_offset = static_cast<uint32_t>(offsetof(OverflowStatsSnapshot, overflow_drop_signal));
+    overflow_signal_readback.requested_frame_serial = p_frame_serial;
+    Callable callback = callable_mp(&owner, &TileRenderer::_on_overflow_signal_readback);
+    Error err = p_device->buffer_get_data_async(overflow_statistics_buffer, callback, signal_offset, sizeof(uint32_t));
+    if (err == OK) {
+        overflow_signal_readback.pending = true;
+    }
+}
+
+void TileRenderer::TileRendererDebugStats::on_overflow_signal_readback(const Vector<uint8_t> &p_data) {
+    overflow_signal_readback.pending = false;
+    if ((size_t)p_data.size() < sizeof(uint32_t)) {
+        return;
+    }
+    uint32_t drop_signal = 0;
+    std::memcpy(&drop_signal, p_data.ptr(), sizeof(uint32_t));
+    if (drop_signal != 0u) {
+        // G4: overlap-record drops are a real, image-affecting degradation (some splats are
+        // not rendered). Surface it loudly once and count it always, instead of dropping
+        // silently. The running drop COUNT stays in overflow_splats_clamped (debug path);
+        // overflow_drop_events counts the production frames in which any drop occurred.
+        WARN_PRINT_ONCE("[TileRenderer] Overlap-record overflow: the tile-binning pass dropped "
+                "overlap records (per-tile capacity or the global overlap-record budget was "
+                "exhausted); some splats are not being rendered. Increase the overlap-record "
+                "budget or reduce splat density. Shown once; see the overflow_drop_events "
+                "counter for the running total.");
+        owner.diagnostics.overflow_drop_events++;
+    }
 }
 
 void TileRenderer::TileRendererDebugStats::create_buffers(RenderingDevice *p_device) {

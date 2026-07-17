@@ -1266,6 +1266,13 @@ private:
 		// Dump GPU debug counters for diagnosing splat disappearance.
 		renderer._dump_gpu_debug_counters(params);
 
+		// C4b (exit criterion G4, "no silent degradation"): always-on overlap-record drop
+		// telemetry. Only meaningful when the global-sort EMIT pass ran (the sole writer of the
+		// resident drop signal), so gate on it to avoid a wasted async readback otherwise.
+		if (renderer.render_settings.global_sort_enabled) {
+			renderer._poll_overflow_drop_telemetry();
+		}
+
 		if (renderer.render_settings.global_sort_enabled) {
 			renderer.global_sort_resources.prepare_next_tile_counts_buffer(resource_device);
 			tile_counts_buffer_prepared = true;
@@ -1458,6 +1465,10 @@ void TileRenderer::_on_debug_counters_readback(const Vector<uint8_t> &p_data) {
 
 void TileRenderer::_on_overflow_stats_readback(const Vector<uint8_t> &p_data) {
     debug_stats.on_overflow_stats_readback(p_data);
+}
+
+void TileRenderer::_on_overflow_signal_readback(const Vector<uint8_t> &p_data) {
+    debug_stats.on_overflow_signal_readback(p_data);
 }
 
 void TileRenderer::_on_splat_audit_readback(const Vector<uint8_t> &p_data) {
@@ -3507,6 +3518,14 @@ void TileRenderer::_collect_render_statistics() {
 
 void TileRenderer::_dump_gpu_debug_counters(const RenderParams &p_params) {
 	debug_stats.dump_gpu_debug_counters(_get_resource_device(), p_params, frame_state.current_frame_serial);
+}
+
+void TileRenderer::_poll_overflow_drop_telemetry() {
+	// C4b (G4): unconditional (production) poll of the resident overlap-record drop signal.
+	// Unlike _dump_gpu_debug_counters (gated on debug_dump_gpu_counters), this always runs so
+	// overlap-record overflow is surfaced (WARN_ONCE + overflow_drop_events) even in a pure
+	// production frame. Cheap: a single small async readback, throttled by its own pending flag.
+	debug_stats.poll_overflow_drop_signal(_get_resource_device(), frame_state.current_frame_serial);
 }
 
 float TileRenderer::get_projection_success_rate_pct() const {

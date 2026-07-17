@@ -207,6 +207,9 @@ public:
     SortingMetrics get_sorter_metrics() const;
     // True once the opt-in 32-bit sort-key path survived config resolution and engaged.
     bool is_sort_key_32bit_engaged() const { return diagnostics.sort_key_32bit_engaged; }
+    // C4b (G4): running count of production frames in which the tile-binning EMIT pass dropped
+    // at least one overlap record. Fed by the always-on overflow_drop_signal readback.
+    uint32_t get_overflow_drop_events() const { return diagnostics.overflow_drop_events; }
 
     void set_debug_log_resolve(bool p_enabled);
     bool get_debug_log_resolve() const { return diagnostics.debug_log_resolve; }
@@ -330,6 +333,8 @@ private:
     void _queue_submission(RenderingDevice *p_device, bool p_requires_sync = false);
     void _flush_pending_submission(bool p_block);
     void _dump_gpu_debug_counters(const RenderParams &p_params);
+    // C4b (G4): always-on production poll of the resident overlap-record drop signal.
+    void _poll_overflow_drop_telemetry();
     bool _resolve_texture_owner(const char *p_label, const RID &p_texture, RenderingDevice *&r_owner,
             RenderingDevice *p_main_device, RenderDeviceManager *p_manager, bool p_log_errors);
     void _collect_render_statistics();
@@ -497,6 +502,7 @@ private:
     void _on_overflow_flag_readback(const Vector<uint8_t> &p_data, int64_t p_request_frame_serial);
     void _on_debug_counters_readback(const Vector<uint8_t> &p_data);
     void _on_overflow_stats_readback(const Vector<uint8_t> &p_data);
+    void _on_overflow_signal_readback(const Vector<uint8_t> &p_data);
     void _on_splat_audit_readback(const Vector<uint8_t> &p_data);
     void _on_tile_counts_readback(const Vector<uint8_t> &p_data, int64_t p_request_frame_serial);
     static bool _instance_pipeline_bindings_changed(const InstancePipelineBindings &p_bindings,
