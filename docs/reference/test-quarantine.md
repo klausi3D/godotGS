@@ -92,8 +92,14 @@ every other exit-0 result fails, so a stale or misconfigured entry cannot hide.
   doctest prints without a `TEST CASE:` prefix, are likewise treated as
   unparseable and fail closed rather than being silently tolerated.)
 - **Quarantined lane that PASSES with real executed coverage:** the run fails
-  (anti-rot):
+  (anti-rot), **regardless of the process exit code**. The doctest summary is
+  authoritative about what ran, so an all-pass summary means the tracked failure
+  is gone:
   `[module-tests][QUARANTINE-STALE] '<lane>' is quarantined but PASSED - delete its manifest entry (issue <url>).`
+  If the tests all pass but the process then exits nonzero (a teardown/harness
+  crash after the tests), that is a stale quarantine *and* a new crash - both
+  reasons to fail:
+  `[module-tests][QUARANTINE-STALE] '<lane>' passed all tests (nonzero exit indicates a teardown/harness failure) - delete the entry / investigate the crash (issue <url>).`
   A quarantine entry cannot outlive the failure it tracks.
 - **Quarantined lane that exits 0 with zero executed coverage** (its filter no
   longer matches any test after a rename/removal): the run fails - the entry is

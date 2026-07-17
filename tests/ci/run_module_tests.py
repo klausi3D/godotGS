@@ -1755,13 +1755,20 @@ def _classify_quarantined_lane_outcome(ok: bool, output: str) -> str:
     a doctest summary reporting failed tests or assertions. Everything else on an
     exit-0 run means the quarantine is stale or misconfigured and must fail.
 
-    - expected_fail: nonzero/crash exit, or a summary with failed_tests>0 or
-      failed_asserts>0. The known, quarantined failure - tolerated, reported,
-      counted.
-    - clean_pass: exit 0 with a summary showing real executed coverage and zero
-      failures. The failure is gone; the entry is stale (anti-rot) - fail.
-    - coverage_lost: exit 0 with a summary but zero executed coverage (the lane's
-      filter no longer matches any test). Stale/misconfigured - fail.
+    The doctest SUMMARY is inspected first; the exit code only decides the
+    no-summary cases. The only outcomes that are ever tolerated downstream are
+    'expected_fail' (a summary whose failures all match test_case) and a genuine
+    crash (no summary + nonzero exit); everything else fails.
+
+    - expected_fail: a summary with failed_tests>0 or failed_asserts>0, OR no
+      summary with a nonzero/crash exit. The known, quarantined failure -
+      tolerated (after case matching) or a whole-lane crash.
+    - clean_pass: a summary showing real executed coverage and zero failures,
+      REGARDLESS of exit code. The tests pass, so the quarantine is stale; a
+      nonzero exit on top means an additional teardown/harness crash. Either way
+      it must fail (anti-rot).
+    - coverage_lost: a summary but zero executed coverage (the lane's filter no
+      longer matches any test). Stale/misconfigured - fail.
     - harness_error: exit 0 with no doctest summary at all. Nothing ran to fail -
       fail.
     """
@@ -1774,19 +1781,22 @@ def _classify_quarantined_lane_outcome(ok: bool, output: str) -> str:
         summary_found,
     ) = _parse_doctest_results(output)
 
-    # A real failure signal is the ONLY thing we tolerate.
-    if not ok:
-        # Nonzero exit / crash (with or without a summary) is a genuine failure.
-        return "expected_fail"
-    if summary_found and (failed_tests > 0 or failed_asserts > 0):
-        return "expected_fail"
+    # Inspect the summary FIRST: a doctest summary is authoritative about what
+    # ran, and the exit code must not override it (a clean all-pass summary that
+    # then exits nonzero is a stale quarantine plus a teardown crash, not a
+    # tolerable failure).
+    if summary_found:
+        if failed_tests > 0 or failed_asserts > 0:
+            return "expected_fail"
+        if passed_tests > 0 and passed_asserts > 0:
+            return "clean_pass"
+        return "coverage_lost"
 
-    # From here the run exited 0 with no failure signal: the lane did NOT fail.
-    if not summary_found:
-        return "harness_error"
-    if passed_tests > 0 and passed_asserts > 0:
-        return "clean_pass"
-    return "coverage_lost"
+    # No summary at all: the exit code is the only signal.
+    if not ok:
+        # Genuine crash before any summary -> tolerable whole-lane failure.
+        return "expected_fail"
+    return "harness_error"
 
 
 def _tolerate_quarantined_lane(
@@ -1931,10 +1941,17 @@ def _handle_quarantined_lane(
     outcome = _classify_quarantined_lane_outcome(ok, output)
 
     if outcome == "clean_pass":
-        print(
-            f"[module-tests][QUARANTINE-STALE] '{name}' is quarantined but PASSED "
-            f"- delete its manifest entry (issue {issue})."
-        )
+        if ok:
+            print(
+                f"[module-tests][QUARANTINE-STALE] '{name}' is quarantined but PASSED "
+                f"- delete its manifest entry (issue {issue})."
+            )
+        else:
+            print(
+                f"[module-tests][QUARANTINE-STALE] '{name}' passed all tests (nonzero "
+                f"exit indicates a teardown/harness failure) - delete the entry / "
+                f"investigate the crash (issue {issue})."
+            )
         _print_output_if_present(output)
         return 1
 

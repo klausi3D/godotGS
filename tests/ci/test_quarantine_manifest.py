@@ -395,6 +395,19 @@ class QuarantineLaneWiringTests(unittest.TestCase):
         self.assertIn("[module-tests][QUARANTINE-STALE]", out)
         self.assertIn("PASSED", out)
 
+    def test_quarantined_clean_summary_with_nonzero_exit_fails(self) -> None:
+        # Round-5: a CLEAN all-pass summary that then exits nonzero (a teardown /
+        # harness crash after all tests passed) must NOT be tolerated as a crash.
+        # The summary is authoritative: the tracked failure is gone (stale) AND
+        # there is a new teardown crash - both reasons to fail the run.
+        with _manifest([_valid_entry()]):
+            rc, out = _run_lane(VALID_LANE, strict=True, godot_result=(False, False, _pass_output()))
+        self.assertEqual(rc, 1, out)
+        self.assertIn("[module-tests][QUARANTINE-STALE]", out)
+        self.assertIn("passed all tests", out)
+        self.assertNotIn("crashed as expected", out)
+        self.assertNotIn("failed as expected", out)
+
     def test_quarantined_harness_error_is_nonzero(self) -> None:
         # exit 0 with no doctest summary must NOT be read as an expected failure.
         with _manifest([_valid_entry()]):
@@ -416,6 +429,13 @@ class QuarantineClassificationTests(unittest.TestCase):
     def test_classify_clean_pass(self) -> None:
         self.assertEqual(
             harness._classify_quarantined_lane_outcome(True, _pass_output()),
+            "clean_pass",
+        )
+
+    def test_classify_clean_pass_even_with_nonzero_exit(self) -> None:
+        # Summary-first: an all-pass summary is clean_pass regardless of exit code.
+        self.assertEqual(
+            harness._classify_quarantined_lane_outcome(False, _pass_output()),
             "clean_pass",
         )
 
