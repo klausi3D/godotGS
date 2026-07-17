@@ -22,6 +22,24 @@ _FORCE_INLINE_ bool _indexed_request_extends_run(uint32_t p_index, uint32_t p_ru
 	return p_index == p_run_end || (p_run_end < UINT32_MAX && p_index == p_run_end + 1);
 }
 
+// Fail-closed guard for the staged SH capture. The destination is a
+// uint32_t-indexed LocalVector<Vector3>, so an element count above UINT32_MAX
+// cannot be represented. Historically the resize truncated the 64-bit count to
+// 32 bits (`resize(uint32_t(count))`) while the copy used the full 64-bit width,
+// overrunning the heap when `p_count * sh_high_order > UINT32_MAX` (reachable via
+// a hostile sparse `.gsplatworld`; the indexed path can also cross the boundary
+// through duplicate indices, where the requested slot count exceeds splat_count).
+// Refuse rather than truncate. On success `r_count` receives the u32-safe count.
+_FORCE_INLINE_ bool _sh_capture_count_fits_u32(uint64_t p_element_count, const char *p_label, uint32_t &r_count) {
+	if (p_element_count > uint64_t(UINT32_MAX)) {
+		ERR_PRINT(vformat("[StagedFileSource] Refusing %s SH capture: %s coefficients exceed the 32-bit destination capacity.",
+				p_label, String::num_uint64(p_element_count)));
+		return false;
+	}
+	r_count = uint32_t(p_element_count);
+	return true;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -211,10 +229,16 @@ bool StagedFileChunkPayloadSource::capture_chunk_snapshot(uint32_t p_start, uint
 
 	if (sh_high_order > 0 && sh_data_offset > 0) {
 		const uint64_t sh_per_splat = uint64_t(sh_high_order);
+		const uint64_t sh_element_count = uint64_t(p_count) * sh_per_splat;
+		uint32_t sh_element_count_u32 = 0;
+		if (!_sh_capture_count_fits_u32(sh_element_count, "contiguous", sh_element_count_u32)) {
+			return false;
+		}
 		const uint64_t sh_byte_offset = sh_data_offset + uint64_t(p_start) * sh_per_splat * sizeof(Vector3);
-		const uint64_t sh_byte_count = uint64_t(p_count) * sh_per_splat * sizeof(Vector3);
+		// Resize width and copy width both derive from the same u32-verified count.
+		const uint64_t sh_byte_count = uint64_t(sh_element_count_u32) * sizeof(Vector3);
 
-		r_sh_high_order_out.resize(uint32_t(p_count * sh_per_splat));
+		r_sh_high_order_out.resize(sh_element_count_u32);
 		if (!_read_exact(file.ptr(), sh_byte_offset, r_sh_high_order_out.ptr(), sh_byte_count, "SH data", &got)) {
 			return false;
 		}
@@ -321,16 +345,27 @@ bool StagedFileChunkPayloadSource::capture_indexed_chunk_snapshot(const uint32_t
 
 	if (sh_high_order > 0 && sh_data_offset > 0) {
 		const uint64_t sh_per_splat = uint64_t(sh_high_order);
-		const uint64_t logical_sh_byte_count = uint64_t(p_count) * sh_per_splat * sizeof(Vector3);
-		r_sh_high_order_out.resize(uint32_t(p_count * sh_per_splat));
+		const uint64_t out_element_count = uint64_t(p_count) * sh_per_splat;
+		uint32_t out_element_count_u32 = 0;
+		if (!_sh_capture_count_fits_u32(out_element_count, "indexed-output", out_element_count_u32)) {
+			return false;
+		}
+		const uint64_t logical_sh_byte_count = uint64_t(out_element_count_u32) * sizeof(Vector3);
+		r_sh_high_order_out.resize(out_element_count_u32);
 		logical_bytes_requested += logical_sh_byte_count;
 
 		if (use_contiguous_range) {
+			const uint64_t range_element_count = uint64_t(range_count) * sh_per_splat;
+			uint32_t range_element_count_u32 = 0;
+			if (!_sh_capture_count_fits_u32(range_element_count, "indexed-range", range_element_count_u32)) {
+				return false;
+			}
 			const uint64_t sh_byte_offset = sh_data_offset + uint64_t(min_idx) * sh_per_splat * sizeof(Vector3);
-			const uint64_t sh_byte_count = uint64_t(range_count) * sh_per_splat * sizeof(Vector3);
+			// Resize width and copy width both derive from the same u32-verified count.
+			const uint64_t sh_byte_count = uint64_t(range_element_count_u32) * sizeof(Vector3);
 
 			LocalVector<Vector3> sh_range_buf;
-			sh_range_buf.resize(uint32_t(range_count * sh_per_splat));
+			sh_range_buf.resize(range_element_count_u32);
 			if (!_read_exact(file.ptr(), sh_byte_offset, sh_range_buf.ptr(), sh_byte_count, "SH data", &got)) {
 				return false;
 			}
@@ -357,9 +392,15 @@ bool StagedFileChunkPayloadSource::capture_indexed_chunk_snapshot(const uint32_t
 				}
 
 				const uint32_t run_count = run_end - run_start + 1;
+				const uint64_t run_element_count = uint64_t(run_count) * sh_per_splat;
+				uint32_t run_element_count_u32 = 0;
+				if (!_sh_capture_count_fits_u32(run_element_count, "indexed-run", run_element_count_u32)) {
+					return false;
+				}
 				const uint64_t sh_byte_offset = sh_data_offset + uint64_t(run_start) * sh_per_splat * sizeof(Vector3);
-				const uint64_t sh_byte_count = uint64_t(run_count) * sh_per_splat * sizeof(Vector3);
-				sh_run_buf.resize(uint32_t(uint64_t(run_count) * sh_per_splat));
+				// Resize width and copy width both derive from the same u32-verified count.
+				const uint64_t sh_byte_count = uint64_t(run_element_count_u32) * sizeof(Vector3);
+				sh_run_buf.resize(run_element_count_u32);
 				if (!_read_exact(file.ptr(), sh_byte_offset, sh_run_buf.ptr(), sh_byte_count, "SH data", &got)) {
 					return false;
 				}
