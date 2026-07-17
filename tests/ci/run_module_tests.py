@@ -743,9 +743,11 @@ def _parse_quarantine_expiry(value: str) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-def _load_quarantine(path: Path | None = None) -> dict[str, dict]:
-    """Return the quarantine map keyed by lane name.
+def _load_quarantine(path: Path | None = None) -> dict[str, list[dict]]:
+    """Return the quarantine map: lane name -> LIST of entries for that lane.
 
+    A lane may carry more than one entry (one per approved failing test_case),
+    so entries are grouped into a list per lane rather than one entry per lane.
     A missing file, unreadable/invalid JSON, a non-object root, a non-list
     'entries', or an empty 'entries' all resolve to an empty map, so an empty
     (or absent) manifest is behaviorally inert: no lane is treated as
@@ -765,13 +767,13 @@ def _load_quarantine(path: Path | None = None) -> dict[str, dict]:
     entries = data.get("entries")
     if not isinstance(entries, list):
         return {}
-    quarantine: dict[str, dict] = {}
+    quarantine: dict[str, list[dict]] = {}
     for entry in entries:
         if not isinstance(entry, dict):
             continue
         lane = entry.get("lane")
         if isinstance(lane, str) and lane:
-            quarantine[lane] = entry
+            quarantine.setdefault(lane, []).append(entry)
     return quarantine
 
 
@@ -780,9 +782,13 @@ def _validate_quarantine_entry(
     entry: object,
     valid_lanes: set[str],
     now: datetime,
-    seen_lanes: set[str],
+    seen_lane_cases: set[tuple[str, str]],
 ) -> list[str]:
-    """Validate a single manifest entry; return ASCII-only failure messages."""
+    """Validate a single manifest entry; return ASCII-only failure messages.
+
+    Repeated lanes are allowed (multiple entries per lane, one per approved
+    test_case); only an exact-duplicate (lane, test_case) pair is rejected.
+    """
     label = f"entry[{index}]"
     if not isinstance(entry, dict):
         return [f"Quarantine {label} must be a JSON object."]
@@ -802,11 +808,15 @@ def _validate_quarantine_entry(
             failures.append(
                 f"Quarantine {label} names a lane not present in MODULE_TEST_FILTERS."
             )
-        if lane in seen_lanes:
-            failures.append(
-                f"Quarantine {label} duplicates an earlier entry for the same lane."
-            )
-        seen_lanes.add(lane)
+        test_case = entry.get("test_case")
+        if isinstance(test_case, str) and test_case.strip():
+            key = (lane, test_case.strip())
+            if key in seen_lane_cases:
+                failures.append(
+                    f"Quarantine {label} duplicates an earlier entry for the same "
+                    f"(lane, test_case)."
+                )
+            seen_lane_cases.add(key)
 
     expires = entry.get("expires_utc")
     if isinstance(expires, str) and expires.strip():
@@ -865,10 +875,10 @@ def _validate_quarantine_manifest_schema() -> tuple[bool, list[str]]:
 
     valid_lanes = {name for name, *_ in MODULE_TEST_FILTERS}
     now = datetime.now(timezone.utc)
-    seen_lanes: set[str] = set()
+    seen_lane_cases: set[tuple[str, str]] = set()
     for index, entry in enumerate(entries):
         failures.extend(
-            _validate_quarantine_entry(index, entry, valid_lanes, now, seen_lanes)
+            _validate_quarantine_entry(index, entry, valid_lanes, now, seen_lane_cases)
         )
 
     if failures:
@@ -1799,6 +1809,24 @@ def _classify_quarantined_lane_outcome(ok: bool, output: str) -> str:
     return "harness_error"
 
 
+def _dedupe_preserving_order(values: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value not in seen:
+            seen.add(value)
+            result.append(value)
+    return result
+
+
+def _quarantine_issue_refs(entries: list[dict]) -> str:
+    """Comma-joined, de-duplicated issue URLs across a lane's entries."""
+    refs = _dedupe_preserving_order(
+        (entry.get("issue_url") or "unknown-issue") for entry in entries
+    )
+    return ", ".join(refs) if refs else "unknown-issue"
+
+
 def _tolerate_quarantined_lane(
     name: str,
     strict: bool,
@@ -1841,20 +1869,22 @@ def _handle_quarantined_expected_fail(
     name: str,
     strict: bool,
     output: str,
-    entry: dict,
+    entries: list[dict],
     totals: DoctestTotals,
-    issue: str,
-    base: str,
+    issue_refs: str,
 ) -> int | None:
-    """The quarantined lane failed. Honor the entry only for the named failure.
+    """The quarantined lane failed. Honor the entries only for their named failures.
+
+    A lane may carry several entries, one per approved failing case; the lane's
+    approved patterns are the UNION of every entry's 'test_case'.
 
     Scenario A - the lane RAN and reported per-case failures (summary with
-    failed tests/assertions): tolerate ONLY if every failing case matches the
-    entry's 'test_case'. If any OTHER case failed, that is a new regression and
-    the run fails. If failures are reported but no case name can be parsed, fail
-    closed (we cannot confirm the failure is the quarantined one). Even a fully
-    matched failure is NOT tolerated if it also introduced newly skipped coverage
-    in strict CI (handled in _tolerate_quarantined_lane).
+    failed tests/assertions): tolerate ONLY if every failing case matches at
+    least one approved pattern. If any failing case matches NONE, that is a new
+    regression and the run fails. If failures are reported but no case name can
+    be parsed, fail closed (we cannot confirm the failures are the quarantined
+    ones). A fully matched failure is still NOT tolerated if it also introduced
+    newly skipped coverage in strict CI (handled in _tolerate_quarantined_lane).
 
     Scenario B - the lane CRASHED (nonzero exit, no per-case summary): a crash
     takes down the whole lane, so per-case matching is impossible and the lane is
@@ -1870,7 +1900,14 @@ def _handle_quarantined_expected_fail(
         skipped_markers,
         summary_found,
     ) = _parse_doctest_results(output)
-    pattern = (entry.get("test_case") or "").strip()
+
+    # Union of approved test_case patterns across ALL of the lane's entries.
+    pattern_entries = [
+        ((entry.get("test_case") or "").strip(), entry)
+        for entry in entries
+        if (entry.get("test_case") or "").strip()
+    ]
+    approved_patterns = _dedupe_preserving_order(pattern for pattern, _ in pattern_entries)
 
     runnable_failure = summary_found and (failed_tests > 0 or failed_asserts > 0)
     if not runnable_failure:
@@ -1878,23 +1915,23 @@ def _handle_quarantined_expected_fail(
         return _tolerate_quarantined_lane(
             name,
             strict,
-            issue,
+            issue_refs,
             output,
             totals,
             skipped_markers,
             f"[module-tests][QUARANTINE] '{name}' crashed as expected "
             f"(no per-case doctest summary; tolerating the whole lane - a crash "
-            f"cannot be narrowed to test_case '{pattern}'); (issue {issue}, base {base}).",
+            f"cannot be narrowed to a single test_case); (issue {issue_refs}).",
         )
 
-    # Scenario A: runnable failure with per-case info. 'test_case' is required by
-    # the schema guard, so an empty pattern here means a misconfigured entry
-    # bypassed the guard; fail closed rather than tolerate a whole lane.
-    if not pattern:
+    # Scenario A: runnable failure with per-case info. Every entry is required by
+    # the schema guard to carry a test_case, so no approved pattern here means a
+    # misconfigured manifest bypassed the guard; fail closed.
+    if not approved_patterns:
         print(
-            f"[module-tests][QUARANTINE-UNVERIFIED] '{name}' failed but its manifest "
-            f"entry has no test_case to match against; refusing to tolerate a whole "
-            f"runnable lane - failing (issue {issue})."
+            f"[module-tests][QUARANTINE-UNVERIFIED] '{name}' failed but no manifest "
+            f"entry has a test_case to match against; refusing to tolerate a whole "
+            f"runnable lane - failing (issue {issue_refs})."
         )
         _print_output_if_present(output)
         return 1
@@ -1903,54 +1940,78 @@ def _handle_quarantined_expected_fail(
     if not failing_cases:
         print(
             f"[module-tests][QUARANTINE-UNVERIFIED] '{name}' reported failures but no "
-            f"failing test-case name could be parsed; cannot confirm they match "
-            f"test_case '{pattern}' - failing (issue {issue})."
+            f"failing test-case name could be parsed; cannot confirm they match the "
+            f"approved patterns {approved_patterns} - failing (issue {issue_refs})."
         )
         _print_output_if_present(output)
         return 1
 
-    unexpected = [case for case in failing_cases if not _test_case_matches(pattern, case)]
+    unexpected = [
+        case
+        for case in failing_cases
+        if not any(_test_case_matches(pattern, case) for pattern in approved_patterns)
+    ]
     if unexpected:
         print(
-            f"[module-tests][QUARANTINE-UNEXPECTED] '{name}' quarantines test_case "
-            f"'{pattern}' but other case(s) failed: {unexpected}; new regression - "
-            f"failing (issue {issue})."
+            f"[module-tests][QUARANTINE-UNEXPECTED] '{name}' quarantines patterns "
+            f"{approved_patterns} but other case(s) failed: {unexpected}; new "
+            f"regression - failing (issue {issue_refs})."
         )
         _print_output_if_present(output)
         return 1
 
+    # Every failing case matched an approved pattern -> tolerate. Reference the
+    # entries whose pattern actually matched, for diagnostics.
+    matched_patterns = _dedupe_preserving_order(
+        pattern
+        for pattern, _ in pattern_entries
+        if any(_test_case_matches(pattern, case) for case in failing_cases)
+    )
+    matched_issue_refs = _quarantine_issue_refs(
+        [
+            entry
+            for pattern, entry in pattern_entries
+            if any(_test_case_matches(pattern, case) for case in failing_cases)
+        ]
+    )
     return _tolerate_quarantined_lane(
         name,
         strict,
-        issue,
+        issue_refs,
         output,
         totals,
         skipped_markers,
         f"[module-tests][QUARANTINE] '{name}' failed as expected in matched case(s) "
-        f"{failing_cases} (test_case '{pattern}', issue {issue}, base {base}); tolerating.",
+        f"{failing_cases} (matched patterns {matched_patterns}, issue {matched_issue_refs}); "
+        f"tolerating.",
     )
 
 
 def _handle_quarantined_lane(
-    name: str, strict: bool, ok: bool, output: str, entry: dict, totals: DoctestTotals
+    name: str,
+    strict: bool,
+    ok: bool,
+    output: str,
+    entries: list[dict],
+    totals: DoctestTotals,
 ) -> int | None:
-    """Apply quarantine semantics to one lane. Returns an exit code to abort on,
-    or None to continue to the next lane."""
-    issue = entry.get("issue_url") or "unknown-issue"
-    base = entry.get("base_sha_proven_failing") or "unknown-base"
+    """Apply quarantine semantics to one lane (which may carry several entries).
+    Returns an exit code to abort on, or None to continue to the next lane."""
+    issue_refs = _quarantine_issue_refs(entries)
+    entry_word = "entry" if len(entries) == 1 else "entries"
     outcome = _classify_quarantined_lane_outcome(ok, output)
 
     if outcome == "clean_pass":
         if ok:
             print(
                 f"[module-tests][QUARANTINE-STALE] '{name}' is quarantined but PASSED "
-                f"- delete its manifest entry (issue {issue})."
+                f"- delete its manifest {entry_word} (issue {issue_refs})."
             )
         else:
             print(
                 f"[module-tests][QUARANTINE-STALE] '{name}' passed all tests (nonzero "
-                f"exit indicates a teardown/harness failure) - delete the entry / "
-                f"investigate the crash (issue {issue})."
+                f"exit indicates a teardown/harness failure) - delete the {entry_word} / "
+                f"investigate the crash (issue {issue_refs})."
             )
         _print_output_if_present(output)
         return 1
@@ -1958,8 +2019,8 @@ def _handle_quarantined_lane(
     if outcome == "coverage_lost":
         print(
             f"[module-tests][QUARANTINE] '{name}' is quarantined but exercised no "
-            f"failing test (0 coverage; stale/misconfigured entry) - failing "
-            f"(issue {issue})."
+            f"failing test (0 coverage; stale/misconfigured {entry_word}) - failing "
+            f"(issue {issue_refs})."
         )
         _print_output_if_present(output)
         return 1
@@ -1968,13 +2029,13 @@ def _handle_quarantined_lane(
         print(
             f"[module-tests][QUARANTINE] '{name}' is quarantined but produced no doctest "
             f"summary (exit 0 harness error); refusing to treat as an expected failure "
-            f"(issue {issue})."
+            f"(issue {issue_refs})."
         )
         _print_output_if_present(output)
         return 1
 
     return _handle_quarantined_expected_fail(
-        name, strict, output, entry, totals, issue, base
+        name, strict, output, entries, totals, issue_refs
     )
 
 
@@ -1995,10 +2056,10 @@ def _run_doctest_lanes(
             totals.lanes_unavailable += 1
             continue
 
-        quarantine_entry = quarantine.get(name)
-        if quarantine_entry is not None:
+        lane_entries = quarantine.get(name)
+        if lane_entries:
             exit_code = _handle_quarantined_lane(
-                name, strict, ok, output, quarantine_entry, totals
+                name, strict, ok, output, lane_entries, totals
             )
             if exit_code is not None:
                 return exit_code

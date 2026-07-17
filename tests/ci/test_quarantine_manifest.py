@@ -51,6 +51,9 @@ def _past_iso(days: int = 1) -> str:
 # that matches it (and not other cases in the lane).
 FAILING_CASE = "[GaussianSplatting][Animation] plays a clip"
 MATCHING_TEST_CASE = "*plays a clip*"
+# A second, distinct approved failing case in the SAME lane (multiple entries).
+SECOND_FAILING_CASE = "[GaussianSplatting][Animation] loops the clip"
+SECOND_TEST_CASE = "*loops the clip*"
 
 
 def _valid_entry(**overrides) -> dict:
@@ -242,6 +245,28 @@ class QuarantineGuardTests(unittest.TestCase):
                 any("missing required field 'test_case'" in m for m in messages), messages
             )
 
+    def test_two_entries_same_lane_different_test_case_accepted(self) -> None:
+        # Round-6: multiple entries per lane are allowed, one per approved case.
+        entries = [
+            _valid_entry(test_case=MATCHING_TEST_CASE, issue_url="https://x/issues/1"),
+            _valid_entry(test_case=SECOND_TEST_CASE, issue_url="https://x/issues/2"),
+        ]
+        with _manifest(entries):
+            ok, messages = harness._validate_quarantine_manifest_schema()
+            self.assertTrue(ok, messages)
+            loaded = harness._load_quarantine()
+            self.assertEqual(len(loaded[VALID_LANE]), 2)
+
+    def test_exact_duplicate_lane_test_case_rejected(self) -> None:
+        # Same (lane, test_case) twice is a real duplicate and is rejected.
+        entries = [_valid_entry(), _valid_entry()]
+        with _manifest(entries):
+            ok, messages = harness._validate_quarantine_manifest_schema()
+            self.assertFalse(ok)
+            self.assertTrue(
+                any("(lane, test_case)" in m for m in messages), messages
+            )
+
     def test_malformed_json_fails_guard(self) -> None:
         with _raw_manifest("{not valid json"):
             ok, messages = harness._validate_quarantine_manifest_schema()
@@ -264,10 +289,11 @@ class QuarantineGuardTests(unittest.TestCase):
             ):
                 guard_ok, _ = harness._run_quarantine_manifest_guard()
             self.assertTrue(guard_ok)
-            # The loader returns the entry keyed by its lane.
+            # The loader returns a LIST of entries keyed by lane.
             loaded = harness._load_quarantine()
             self.assertIn(VALID_LANE, loaded)
-            self.assertEqual(loaded[VALID_LANE]["issue_url"], entry["issue_url"])
+            self.assertEqual(len(loaded[VALID_LANE]), 1)
+            self.assertEqual(loaded[VALID_LANE][0]["issue_url"], entry["issue_url"])
 
     def test_guard_messages_are_ascii(self) -> None:
         # A non-ASCII byte has crashed CI's cp1252 stdout before; keep it clean.
@@ -313,6 +339,45 @@ class QuarantineLaneWiringTests(unittest.TestCase):
         self.assertEqual(rc, 1, out)
         self.assertIn("[module-tests][QUARANTINE-UNEXPECTED]", out)
         self.assertIn(other, out)
+
+    def test_quarantined_two_entries_same_lane_both_cases_tolerated(self) -> None:
+        # Round-6: two entries for the same lane (distinct approved cases). A run
+        # where BOTH approved cases fail is tolerated (union of patterns).
+        entries = [
+            _valid_entry(test_case=MATCHING_TEST_CASE, issue_url="https://x/issues/1"),
+            _valid_entry(test_case=SECOND_TEST_CASE, issue_url="https://x/issues/2"),
+        ]
+        with _manifest(entries):
+            rc, out = _run_lane(
+                VALID_LANE,
+                strict=True,
+                godot_result=(False, False, _multi_fail_output([FAILING_CASE, SECOND_FAILING_CASE])),
+            )
+        self.assertEqual(rc, 0, out)
+        self.assertIn("failed as expected in matched case(s)", out)
+        self.assertIn("quarantined_failing=1", out)
+
+    def test_quarantined_two_entries_third_unapproved_case_fails_the_run(self) -> None:
+        # Round-6 core: with two approved entries, a THIRD non-approved failing
+        # case in the same lane still fails the run.
+        third = "[GaussianSplatting][Animation] a third unapproved test"
+        entries = [
+            _valid_entry(test_case=MATCHING_TEST_CASE, issue_url="https://x/issues/1"),
+            _valid_entry(test_case=SECOND_TEST_CASE, issue_url="https://x/issues/2"),
+        ]
+        with _manifest(entries):
+            rc, out = _run_lane(
+                VALID_LANE,
+                strict=True,
+                godot_result=(
+                    False,
+                    False,
+                    _multi_fail_output([FAILING_CASE, SECOND_FAILING_CASE, third]),
+                ),
+            )
+        self.assertEqual(rc, 1, out)
+        self.assertIn("[module-tests][QUARANTINE-UNEXPECTED]", out)
+        self.assertIn(third, out)
 
     def test_quarantined_mixed_matching_and_unexpected_fails_the_run(self) -> None:
         # A lane where the quarantined case AND another case both fail: the

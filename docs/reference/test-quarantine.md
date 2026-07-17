@@ -38,7 +38,7 @@ Each object in `entries` describes one quarantined lane.
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `lane` | yes | Must equal a lane name in `MODULE_TEST_FILTERS` (e.g. `GaussianSplatting [Synthetic]`). The guard rejects unknown lanes. |
+| `lane` | yes | Must equal a lane name in `MODULE_TEST_FILTERS` (e.g. `GaussianSplatting [Synthetic]`). The guard rejects unknown lanes. A lane may appear in more than one entry (see below). |
 | `reason` | yes | Short human explanation of the failure. |
 | `issue_url` | yes | Link to the tracking issue for the failure. |
 | `base_sha_proven_failing` | yes | The base commit SHA on which the failure was reproduced (charter section 2.7). |
@@ -49,6 +49,17 @@ Each object in `entries` describes one quarantined lane.
 | `mitigation` | no | Optional note on interim mitigation. |
 
 `schema_version` at the top level must be `1`.
+
+### Multiple entries per lane
+
+A single lane bundles many doctest cases, so it may need to quarantine more than
+one known failure. **Multiple entries may share the same `lane`, one per approved
+`test_case`.** The guard allows repeated lanes and rejects only an exact-duplicate
+`(lane, test_case)` pair. At runtime a lane's **approved patterns are the union**
+of the `test_case` globs across all of its entries: a runnable failure is
+tolerated only if every failing case matches at least one approved pattern, and
+any failing case matching none fails the run. (One entry per lane is the common
+case and behaves exactly as before.)
 
 ## Harness semantics (no gate weakened)
 
@@ -64,12 +75,13 @@ every other exit-0 result fails, so a stale or misconfigured entry cannot hide.
   block; advisory lanes still advise.
 - **Quarantined lane that RAN and reported per-case failures** (a doctest summary
   with failed tests or assertions): the failing doctest case names are extracted
-  and matched against the entry's `test_case`. The failure is tolerated **only if
-  every failing case matches** `test_case`:
-  `[module-tests][QUARANTINE] '<lane>' failed as expected in matched case(s) [...] (test_case '<pattern>', issue <url>, base <sha>); tolerating.`
-  If any **other** case failed in the same lane, that is a new regression and the
-  run fails:
-  `[module-tests][QUARANTINE-UNEXPECTED] '<lane>' quarantines test_case '<pattern>' but other case(s) failed: [...]; new regression - failing (issue <url>).`
+  and matched against the lane's **approved patterns** (the union of `test_case`
+  globs across all of the lane's entries). The failure is tolerated **only if
+  every failing case matches at least one approved pattern**:
+  `[module-tests][QUARANTINE] '<lane>' failed as expected in matched case(s) [...] (matched patterns [...], issue <url>); tolerating.`
+  If any **other** case failed in the same lane (matching none of the approved
+  patterns), that is a new regression and the run fails:
+  `[module-tests][QUARANTINE-UNEXPECTED] '<lane>' quarantines patterns [...] but other case(s) failed: [...]; new regression - failing (issue <url>).`
   If failures are reported but no failing case name can be parsed, the run fails
   closed (the failure cannot be confirmed to be the quarantined one):
   `[module-tests][QUARANTINE-UNVERIFIED] ...`. Tolerated runs increment
