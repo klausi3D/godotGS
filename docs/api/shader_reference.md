@@ -807,9 +807,9 @@ RenderParams (params)
       <td>Max aspect ratio for conic clamping (lower = less stretching)</td>
     </tr>
     <tr>
-      <td><pre><code>_pad_before_jacobian</code></pre></td>
+      <td><pre><code>low_pass_filter</code></pre></td>
       <td><pre><code>float</code></pre></td>
-      <td>std140: align jacobian_diag_flags (vec4) to 16 bytes</td>
+      <td>Mip-Splatting projection low-pass / cov2d diagonal floor; also aligns jacobian_diag_flags (vec4) to 16 bytes</td>
     </tr>
     <tr>
       <td><pre><code>jacobian_diag_flags</code></pre></td>

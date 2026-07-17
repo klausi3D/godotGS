@@ -240,7 +240,7 @@ TileRenderParamsGPU TileRenderer::TileRenderParamsBuilder::build_params(const Re
 	params.cull_far_tolerance = p_params.cull_far_tolerance;
 	params.tiny_splat_screen_radius = p_params.tiny_splat_screen_radius;
 	params.max_conic_aspect = p_params.max_conic_aspect;
-	params._pad_before_jacobian = CLAMP(p_params.low_pass_filter, 0.05f, 2.0f);
+	params.low_pass_filter = CLAMP(p_params.low_pass_filter, 0.05f, 2.0f);
 
 	// Jacobian diagnostic toggles
 	params.jacobian_diag_flags[0] = p_params.jacobian_bypass_radius_depth_floor ? 1.0f : 0.0f;
