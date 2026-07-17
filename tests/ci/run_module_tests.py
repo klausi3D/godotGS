@@ -148,10 +148,18 @@ QUARANTINE_MANIFEST_PATH = ROOT / "tests" / "ci" / "quarantine_manifest.json"
 QUARANTINE_MANIFEST_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_quarantine_manifest.py"
 QUARANTINE_UNITTEST_ACTIVE_ENV = "GS_QUARANTINE_MANIFEST_UNITTEST_ACTIVE"
 # Fields every populated entry MUST carry (Slice 2, human-gated). 'lane' must
-# equal a real MODULE_TEST_FILTERS name; 'test_case' and 'mitigation' are
-# optional/descriptive and are not enforced here.
+# equal a real MODULE_TEST_FILTERS name. 'test_case' is REQUIRED (round-3 review):
+# a lane bundles many doctest cases, so a lane-only quarantine would tolerate any
+# NEW unrelated failure in that lane until the entry expires. 'test_case' is a
+# doctest-style wildcard ('*'/'?' only; use '*...*' for a substring) matched
+# against the failing doctest case names so only the named failure is tolerated. On a
+# whole-lane CRASH (no per-case info) the match cannot be applied and the lane is
+# tolerated as a whole - a documented limitation (see docs/reference/
+# test-quarantine.md); target the narrowest possible lane in that case.
+# 'mitigation' remains optional/descriptive and is not enforced here.
 QUARANTINE_REQUIRED_FIELDS: tuple[str, ...] = (
     "lane",
+    "test_case",
     "reason",
     "issue_url",
     "base_sha_proven_failing",
@@ -1100,6 +1108,61 @@ def _parse_doctest_results(output: str) -> tuple[int, int, int, int, int, bool]:
     )
 
 
+# doctest's ConsoleReporter prints a "TEST CASE:  <name>" header
+# (logTestStart) before a test case emits its first output, then a
+# "<file>(<line>): ERROR: ..." (or "FATAL ERROR:") line for each failed
+# assertion. WARNING:/MESSAGE: lines are not failures. See
+# thirdparty/doctest/doctest.h (logTestStart / log_assert / failureString).
+DOCTEST_TEST_CASE_NAME_RE = re.compile(r"^TEST CASE:\s+(?P<name>.+?)\s*$")
+DOCTEST_FAILURE_LINE_RE = re.compile(r"(?:^|\s)(?:FATAL\s+)?ERROR:\s")
+
+
+def _parse_failing_doctest_cases(output: str) -> list[str]:
+    """Return the ordered, de-duplicated names of doctest test cases that emitted
+    a failure (ERROR / FATAL ERROR).
+
+    Attribution is stateful: the current case is taken from the most recent
+    "TEST CASE:  <name>" header, and a following ERROR line marks that case as
+    failing. WARNING:/MESSAGE: lines are ignored (not failures). BDD SCENARIO
+    cases (whose name doctest prints without the "TEST CASE:" prefix) are not
+    captured here; a failure in one is treated as unparseable, which fails
+    closed rather than being silently tolerated.
+    """
+    failing: list[str] = []
+    seen: set[str] = set()
+    current: str | None = None
+    for line in output.splitlines():
+        name_match = DOCTEST_TEST_CASE_NAME_RE.match(line)
+        if name_match:
+            current = name_match.group("name")
+            continue
+        if current is not None and DOCTEST_FAILURE_LINE_RE.search(line):
+            if current not in seen:
+                seen.add(current)
+                failing.append(current)
+    return failing
+
+
+def _test_case_matches(pattern: str, case_name: str) -> bool:
+    """Match a manifest 'test_case' wildcard against a full doctest test-case name.
+
+    Mirrors doctest's own filter wildcards, which support ONLY '*' and '?'; every
+    other character (including the '[' ']' of tag prefixes) is literal. Use
+    '*...*' for a substring match, e.g. '*plays a clip*' or
+    '[GaussianSplatting][Animation]*'.
+    """
+    regex = ["^"]
+    for char in pattern:
+        if char == "*":
+            regex.append(".*")
+        elif char == "?":
+            regex.append(".")
+        else:
+            regex.append(re.escape(char))
+    regex.append("$")
+    return re.match("".join(regex), case_name, re.DOTALL) is not None
+
+
 GuardRunner = Callable[[], tuple[bool, list[str]]]
 GuardStep = Callable[[], int | None]
 TestRun = tuple[str, list[str], bool]
@@ -1726,6 +1789,94 @@ def _classify_quarantined_lane_outcome(ok: bool, output: str) -> str:
     return "coverage_lost"
 
 
+def _tolerate_quarantined_lane(
+    output: str, totals: DoctestTotals, message: str
+) -> int | None:
+    """Emit the tolerate message, count the lane, and continue (return None)."""
+    print(message)
+    _print_output_if_present(output)
+    totals.quarantined_failing += 1
+    return None
+
+
+def _handle_quarantined_expected_fail(
+    name: str, output: str, entry: dict, totals: DoctestTotals, issue: str, base: str
+) -> int | None:
+    """The quarantined lane failed. Honor the entry only for the named failure.
+
+    Scenario A - the lane RAN and reported per-case failures (summary with
+    failed tests/assertions): tolerate ONLY if every failing case matches the
+    entry's 'test_case'. If any OTHER case failed, that is a new regression and
+    the run fails. If failures are reported but no case name can be parsed, fail
+    closed (we cannot confirm the failure is the quarantined one).
+
+    Scenario B - the lane CRASHED (nonzero exit, no per-case summary): a crash
+    takes down the whole lane, so per-case matching is impossible and the lane is
+    tolerated as a whole. This is a documented limitation (see
+    docs/reference/test-quarantine.md): a crash-quarantine can mask a NEW crash
+    in the same lane, so such an entry should target the narrowest lane filter.
+    """
+    (
+        _passed_tests,
+        failed_tests,
+        _passed_asserts,
+        failed_asserts,
+        _skipped_markers,
+        summary_found,
+    ) = _parse_doctest_results(output)
+    pattern = (entry.get("test_case") or "").strip()
+
+    runnable_failure = summary_found and (failed_tests > 0 or failed_asserts > 0)
+    if not runnable_failure:
+        # Scenario B: crash / no parseable per-case failure info.
+        return _tolerate_quarantined_lane(
+            output,
+            totals,
+            f"[module-tests][QUARANTINE] '{name}' crashed as expected "
+            f"(no per-case doctest summary; tolerating the whole lane - a crash "
+            f"cannot be narrowed to test_case '{pattern}'); (issue {issue}, base {base}).",
+        )
+
+    # Scenario A: runnable failure with per-case info. 'test_case' is required by
+    # the schema guard, so an empty pattern here means a misconfigured entry
+    # bypassed the guard; fail closed rather than tolerate a whole lane.
+    if not pattern:
+        print(
+            f"[module-tests][QUARANTINE-UNVERIFIED] '{name}' failed but its manifest "
+            f"entry has no test_case to match against; refusing to tolerate a whole "
+            f"runnable lane - failing (issue {issue})."
+        )
+        _print_output_if_present(output)
+        return 1
+
+    failing_cases = _parse_failing_doctest_cases(output)
+    if not failing_cases:
+        print(
+            f"[module-tests][QUARANTINE-UNVERIFIED] '{name}' reported failures but no "
+            f"failing test-case name could be parsed; cannot confirm they match "
+            f"test_case '{pattern}' - failing (issue {issue})."
+        )
+        _print_output_if_present(output)
+        return 1
+
+    unexpected = [case for case in failing_cases if not _test_case_matches(pattern, case)]
+    if unexpected:
+        print(
+            f"[module-tests][QUARANTINE-UNEXPECTED] '{name}' quarantines test_case "
+            f"'{pattern}' but other case(s) failed: {unexpected}; new regression - "
+            f"failing (issue {issue})."
+        )
+        _print_output_if_present(output)
+        return 1
+
+    return _tolerate_quarantined_lane(
+        output,
+        totals,
+        f"[module-tests][QUARANTINE] '{name}' failed as expected in matched case(s) "
+        f"{failing_cases} (test_case '{pattern}', issue {issue}, base {base}); tolerating.",
+    )
+
+
 def _handle_quarantined_lane(
     name: str, ok: bool, output: str, entry: dict, totals: DoctestTotals
 ) -> int | None:
@@ -1761,13 +1912,7 @@ def _handle_quarantined_lane(
         _print_output_if_present(output)
         return 1
 
-    print(
-        f"[module-tests][QUARANTINE] '{name}' failed as expected "
-        f"(issue {issue}, base {base}); tolerating."
-    )
-    _print_output_if_present(output)
-    totals.quarantined_failing += 1
-    return None
+    return _handle_quarantined_expected_fail(name, output, entry, totals, issue, base)
 
 
 def _run_doctest_lanes(

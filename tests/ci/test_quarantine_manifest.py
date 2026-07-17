@@ -47,10 +47,16 @@ def _past_iso(days: int = 1) -> str:
     return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
 
+# The doctest case that _fail_output() reports as failing, and a test_case glob
+# that matches it (and not other cases in the lane).
+FAILING_CASE = "[GaussianSplatting][Animation] plays a clip"
+MATCHING_TEST_CASE = "*plays a clip*"
+
+
 def _valid_entry(**overrides) -> dict:
     entry = {
         "lane": VALID_LANE,
-        "test_case": "descriptive optional case",
+        "test_case": MATCHING_TEST_CASE,
         "reason": "known failure reproduced on base SHA",
         "issue_url": "https://github.com/example/repo/issues/999",
         "base_sha_proven_failing": "7c5b79aacbe2188da22f837cb37824a829d8e074",
@@ -70,10 +76,47 @@ def _pass_output(tests: int = 3, asserts: int = 10) -> str:
     )
 
 
-def _fail_output() -> str:
+def _case_failure_block(case: str) -> str:
+    # Mirrors doctest's ConsoleReporter failure block: a lazily-printed
+    # "TEST CASE:  <name>" header followed by a "<file>(<line>): ERROR: ..." line.
+    return (
+        "===============================================================================\n"
+        "modules/gaussian_splatting/tests/test_animation.h(42):\n"
+        f"TEST CASE:  {case}\n"
+        "\n"
+        "modules/gaussian_splatting/tests/test_animation.h(50): ERROR: CHECK( a == b ) is NOT correct!\n"
+        "  values: CHECK( 1 == 2 )\n"
+        "\n"
+    )
+
+
+def _fail_output(case: str = FAILING_CASE, total_cases: int = 3) -> str:
+    # A realistic doctest failing run: one failing case block + the summary.
+    return (
+        _case_failure_block(case)
+        + f"[doctest] test cases: {total_cases} | {total_cases - 1} passed | 1 failed\n"
+        + "[doctest] assertions: 10 | 9 passed | 1 failed\n"
+        + "[doctest] Status: FAILURE!\n"
+    )
+
+
+def _multi_fail_output(case_names: list[str]) -> str:
+    blocks = "".join(_case_failure_block(case) for case in case_names)
+    n = len(case_names)
+    return (
+        blocks
+        + f"[doctest] test cases: {n + 1} | 1 passed | {n} failed\n"
+        + f"[doctest] assertions: 10 | {10 - n} passed | {n} failed\n"
+        + "[doctest] Status: FAILURE!\n"
+    )
+
+
+def _failing_summary_no_case_output() -> str:
+    # Summary reports failures but no TEST CASE header -> case name unparseable.
     return (
         "[doctest] test cases: 3 | 2 passed | 1 failed\n"
         "[doctest] assertions: 10 | 9 passed | 1 failed\n"
+        "[doctest] Status: FAILURE!\n"
     )
 
 
@@ -175,6 +218,18 @@ class QuarantineGuardTests(unittest.TestCase):
                 any("missing required field 'issue_url'" in m for m in messages), messages
             )
 
+    def test_missing_test_case_fails_guard(self) -> None:
+        # test_case is REQUIRED (round-3): a lane-only quarantine would tolerate
+        # any failure in the lane, so the schema guard rejects an entry without it.
+        entry = _valid_entry()
+        del entry["test_case"]
+        with _manifest([entry]):
+            ok, messages = harness._validate_quarantine_manifest_schema()
+            self.assertFalse(ok)
+            self.assertTrue(
+                any("missing required field 'test_case'" in m for m in messages), messages
+            )
+
     def test_malformed_json_fails_guard(self) -> None:
         with _raw_manifest("{not valid json"):
             ok, messages = harness._validate_quarantine_manifest_schema()
@@ -226,13 +281,59 @@ class QuarantineGuardTests(unittest.TestCase):
 
 
 class QuarantineLaneWiringTests(unittest.TestCase):
-    def test_quarantined_fail_is_tolerated(self) -> None:
+    def test_quarantined_matching_case_failure_is_tolerated(self) -> None:
+        # The only failing case matches the entry's test_case -> tolerated.
         with _manifest([_valid_entry()]):
             rc, out = _run_lane(VALID_LANE, strict=True, godot_result=(False, False, _fail_output()))
         self.assertEqual(rc, 0, out)
         self.assertIn("[module-tests][QUARANTINE]", out)
-        self.assertIn("failed as expected", out)
+        self.assertIn("failed as expected in matched case(s)", out)
         self.assertIn("quarantined_failing=1", out)
+
+    def test_quarantined_different_case_in_same_lane_fails_the_run(self) -> None:
+        # Round-3 core: a NEW/unrelated case failing in the same quarantined lane
+        # must NOT be tolerated - it is a regression and fails the run.
+        other = "[GaussianSplatting][Animation] a different unrelated test"
+        with _manifest([_valid_entry(test_case=MATCHING_TEST_CASE)]):
+            rc, out = _run_lane(
+                VALID_LANE, strict=True, godot_result=(False, False, _fail_output(case=other))
+            )
+        self.assertEqual(rc, 1, out)
+        self.assertIn("[module-tests][QUARANTINE-UNEXPECTED]", out)
+        self.assertIn(other, out)
+
+    def test_quarantined_mixed_matching_and_unexpected_fails_the_run(self) -> None:
+        # A lane where the quarantined case AND another case both fail: the
+        # unexpected one still forces the run to fail.
+        other = "[GaussianSplatting][Animation] a different unrelated test"
+        with _manifest([_valid_entry(test_case=MATCHING_TEST_CASE)]):
+            rc, out = _run_lane(
+                VALID_LANE,
+                strict=True,
+                godot_result=(False, False, _multi_fail_output([FAILING_CASE, other])),
+            )
+        self.assertEqual(rc, 1, out)
+        self.assertIn("[module-tests][QUARANTINE-UNEXPECTED]", out)
+        self.assertIn(other, out)
+
+    def test_quarantined_crash_is_whole_lane_tolerated(self) -> None:
+        # A crash (nonzero exit, no per-case summary) cannot be narrowed; the
+        # whole lane is tolerated (documented limitation).
+        with _manifest([_valid_entry()]):
+            rc, out = _run_lane(VALID_LANE, strict=True, godot_result=(False, False, _no_summary_output()))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("crashed as expected", out)
+        self.assertIn("quarantined_failing=1", out)
+
+    def test_quarantined_runnable_failure_without_case_name_fails(self) -> None:
+        # A runnable failure whose failing case name cannot be parsed fails closed
+        # (we cannot confirm it is the quarantined case).
+        with _manifest([_valid_entry()]):
+            rc, out = _run_lane(
+                VALID_LANE, strict=True, godot_result=(False, False, _failing_summary_no_case_output())
+            )
+        self.assertEqual(rc, 1, out)
+        self.assertIn("[module-tests][QUARANTINE-UNVERIFIED]", out)
 
     def test_quarantined_zero_coverage_is_coverage_lost_and_nonzero(self) -> None:
         # Codex P2 (comment 3601513465): a quarantined lane that exits 0 with a
@@ -303,6 +404,58 @@ class QuarantineClassificationTests(unittest.TestCase):
             harness._classify_quarantined_lane_outcome(True, _no_summary_output()),
             "harness_error",
         )
+
+
+class DoctestCaseParsingTests(unittest.TestCase):
+    def test_parses_single_failing_case(self) -> None:
+        self.assertEqual(
+            harness._parse_failing_doctest_cases(_fail_output()),
+            [FAILING_CASE],
+        )
+
+    def test_parses_two_failing_cases_in_order(self) -> None:
+        other = "[GaussianSplatting][Animation] second failing case"
+        self.assertEqual(
+            harness._parse_failing_doctest_cases(_multi_fail_output([FAILING_CASE, other])),
+            [FAILING_CASE, other],
+        )
+
+    def test_ignores_warning_and_message_only_cases(self) -> None:
+        # A case that only emits WARNING/MESSAGE (no ERROR) is not a failure.
+        output = (
+            "===============================================================================\n"
+            "test.h(10):\n"
+            "TEST CASE:  [GaussianSplatting][Animation] warns but passes\n"
+            "\n"
+            "test.h(12): WARNING: CHECK( x ) is NOT correct!\n"
+            "test.h(13): MESSAGE: some note\n"
+            "\n"
+            "[doctest] test cases: 2 | 2 passed | 0 failed\n"
+            "[doctest] assertions: 5 | 5 passed | 0 failed\n"
+        )
+        self.assertEqual(harness._parse_failing_doctest_cases(output), [])
+
+    def test_no_case_header_yields_no_names(self) -> None:
+        self.assertEqual(
+            harness._parse_failing_doctest_cases(_failing_summary_no_case_output()), []
+        )
+
+
+class DoctestCaseMatchingTests(unittest.TestCase):
+    def test_substring_glob_matches(self) -> None:
+        self.assertTrue(harness._test_case_matches("*plays a clip*", FAILING_CASE))
+
+    def test_tag_prefixed_glob_matches_literally(self) -> None:
+        # '[' ']' are literal (not fnmatch char classes).
+        self.assertTrue(
+            harness._test_case_matches("[GaussianSplatting][Animation]*", FAILING_CASE)
+        )
+
+    def test_non_matching_pattern_does_not_match(self) -> None:
+        self.assertFalse(harness._test_case_matches("*unrelated*", FAILING_CASE))
+
+    def test_question_mark_wildcard(self) -> None:
+        self.assertTrue(harness._test_case_matches("*play? a clip*", FAILING_CASE))
 
 
 if __name__ == "__main__":

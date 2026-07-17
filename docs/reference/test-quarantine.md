@@ -45,7 +45,7 @@ Each object in `entries` describes one quarantined lane.
 | `owner` | yes | Who owns getting the lane back to green. |
 | `risk` | yes | Risk class of the quarantined area (e.g. `R3`). |
 | `expires_utc` | yes | ISO-8601 UTC timestamp. The guard fails once this is in the past, forcing re-verification or removal. |
-| `test_case` | no | Optional descriptive test-case name/pattern within the lane. |
+| `test_case` | yes | Doctest-style wildcard (`*` and `?` only; use `*...*` for a substring) matched against the failing doctest case name(s). A lane bundles many cases, so this narrows the quarantine to the specific known failure - only a failure whose case name matches is tolerated; any other case failing in the same lane fails the run. Required. (On a whole-lane crash the match cannot be applied - see below.) |
 | `mitigation` | no | Optional note on interim mitigation. |
 
 `schema_version` at the top level must be `1`.
@@ -62,12 +62,27 @@ every other exit-0 result fails, so a stale or misconfigured entry cannot hide.
 
 - **Lane absent from the manifest:** today's exact behavior. Strict lanes still
   block; advisory lanes still advise.
-- **Quarantined lane that fails (nonzero/crash exit, or a summary with failed
-  tests or assertions):** tolerated but loudly reported and counted, not
-  silently swallowed:
-  `[module-tests][QUARANTINE] '<lane>' failed as expected (issue <url>, base <sha>); tolerating.`
-  The run continues and `quarantined_failing` is incremented (surfaced in the
-  totals line).
+- **Quarantined lane that RAN and reported per-case failures** (a doctest summary
+  with failed tests or assertions): the failing doctest case names are extracted
+  and matched against the entry's `test_case`. The failure is tolerated **only if
+  every failing case matches** `test_case`:
+  `[module-tests][QUARANTINE] '<lane>' failed as expected in matched case(s) [...] (test_case '<pattern>', issue <url>, base <sha>); tolerating.`
+  If any **other** case failed in the same lane, that is a new regression and the
+  run fails:
+  `[module-tests][QUARANTINE-UNEXPECTED] '<lane>' quarantines test_case '<pattern>' but other case(s) failed: [...]; new regression - failing (issue <url>).`
+  If failures are reported but no failing case name can be parsed, the run fails
+  closed (the failure cannot be confirmed to be the quarantined one):
+  `[module-tests][QUARANTINE-UNVERIFIED] ...`. Tolerated runs increment
+  `quarantined_failing` (surfaced in the totals line).
+- **Quarantined lane that CRASHED** (nonzero exit with no per-case doctest
+  summary): a crash takes down the whole lane, so per-case matching is impossible
+  and the lane is tolerated as a whole:
+  `[module-tests][QUARANTINE] '<lane>' crashed as expected (no per-case doctest summary; tolerating the whole lane ...).`
+  **Limitation:** a crash-quarantine can mask a NEW crash in the same lane until
+  the entry expires. Mitigate by targeting the **narrowest possible lane filter**
+  so the tolerated blast radius is minimal. (BDD `SCENARIO` cases, whose name
+  doctest prints without a `TEST CASE:` prefix, are likewise treated as
+  unparseable and fail closed rather than being silently tolerated.)
 - **Quarantined lane that PASSES with real executed coverage:** the run fails
   (anti-rot):
   `[module-tests][QUARANTINE-STALE] '<lane>' is quarantined but PASSED - delete its manifest entry (issue <url>).`
@@ -95,6 +110,10 @@ Agents may draft entries but never self-approve. Before an entry is added:
 2. Open a tracking issue and put its URL in `issue_url`.
 3. Fill every required field, set a bounded `expires_utc`, and get explicit
    owner approval.
+4. Set `test_case` to the narrowest wildcard that matches the known failing
+   case(s) and nothing else, so a new failure elsewhere in the lane still fails
+   the run. If the failure is a whole-lane crash (no per-case granularity),
+   choose the narrowest `lane` filter available to bound what the entry masks.
 
 Removing an entry is expected as soon as the underlying failure is fixed; the
 stale-pass check will fail the build if a fixed lane is left quarantined.
