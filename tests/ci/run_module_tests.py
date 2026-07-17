@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import importlib.util
 import json
 import os
@@ -128,6 +129,30 @@ MODULE_TEST_FILTERS: tuple[tuple[str, tuple[str, ...], tuple[str, ...], bool], .
 REQUIRES_RD_TEST_FILTERS: tuple[tuple[str, tuple[str, ...], tuple[str, ...], bool], ...] = (
     ("GaussianSplatting [requires-RD]", ("*GaussianSplatting*][RequiresGPU]*",), (), False),
 )
+# Test quarantine manifest (production-readiness C3 / exit criterion G5; ledger
+# #458). The manifest is the single tracked home for known-failing headless
+# lanes: each entry names a real MODULE_TEST_FILTERS lane whose failure has been
+# proven on a base SHA and linked to an issue, so a known failure lives in the
+# repo (not in memory) without weakening any gate. It ships EMPTY (entries: [])
+# in Slice 1, which is behaviorally inert. See the ADR
+# (docs/architecture/adr-test-quarantine-manifest.md) and the non-authoritative
+# mirror (docs/reference/test-quarantine.md). The GPU [SceneTree]/[Importer]
+# deferrals live in a separate manifest
+# (renderer_release_gate_manifest.json:deferred_requires_gpu_waivers, #329).
+QUARANTINE_MANIFEST_PATH = ROOT / "tests" / "ci" / "quarantine_manifest.json"
+# Fields every populated entry MUST carry (Slice 2, human-gated). 'lane' must
+# equal a real MODULE_TEST_FILTERS name; 'test_case' and 'mitigation' are
+# optional/descriptive and are not enforced here.
+QUARANTINE_REQUIRED_FIELDS: tuple[str, ...] = (
+    "lane",
+    "reason",
+    "issue_url",
+    "base_sha_proven_failing",
+    "owner",
+    "risk",
+    "expires_utc",
+)
+
 GS_RUN_GPU_TESTS_ENV = "GS_RUN_GPU_TESTS"
 DISALLOWED_TRACKED_ARTIFACT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("Python cache directory", re.compile(r"(^|/)__pycache__/")),
@@ -689,6 +714,141 @@ def _run_renderer_release_gate_guard() -> tuple[bool, list[str]]:
     return True, output_lines
 
 
+def _parse_quarantine_expiry(value: str) -> datetime | None:
+    """Parse an ISO-8601 expires_utc into a UTC-aware datetime, or None."""
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except (AttributeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _load_quarantine(path: Path | None = None) -> dict[str, dict]:
+    """Return the quarantine map keyed by lane name.
+
+    A missing file, unreadable/invalid JSON, a non-object root, a non-list
+    'entries', or an empty 'entries' all resolve to an empty map, so an empty
+    (or absent) manifest is behaviorally inert: no lane is treated as
+    quarantined. The schema guard (_run_quarantine_manifest_guard) is the
+    enforcement point for malformed manifests; this loader is intentionally
+    lenient so it never raises inside the lane loop.
+    """
+    manifest_path = path if path is not None else QUARANTINE_MANIFEST_PATH
+    if not manifest_path.is_file():
+        return {}
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    entries = data.get("entries")
+    if not isinstance(entries, list):
+        return {}
+    quarantine: dict[str, dict] = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        lane = entry.get("lane")
+        if isinstance(lane, str) and lane:
+            quarantine[lane] = entry
+    return quarantine
+
+
+def _run_quarantine_manifest_guard() -> tuple[bool, list[str]]:
+    """Schema-validate the quarantine manifest (runs in the --guard-only lane).
+
+    An empty manifest passes trivially. A populated entry must carry every
+    required field, must name a lane present in MODULE_TEST_FILTERS, and must
+    not be past its expires_utc. All messages are ASCII-only.
+    """
+    path = QUARANTINE_MANIFEST_PATH
+    try:
+        rel = path.relative_to(ROOT)
+    except ValueError:
+        rel = path
+    if not path.is_file():
+        return True, [f"Quarantine manifest absent ({rel}); no lanes quarantined."]
+
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return False, [f"Quarantine manifest unreadable ({rel}): {exc}"]
+
+    try:
+        data = json.loads(raw)
+    except ValueError as exc:
+        return False, [f"Quarantine manifest is not valid JSON ({rel}): {exc}"]
+
+    if not isinstance(data, dict):
+        return False, [f"Quarantine manifest root must be a JSON object ({rel})."]
+
+    failures: list[str] = []
+    schema_version = data.get("schema_version")
+    if schema_version != 1:
+        failures.append(
+            f"Quarantine manifest schema_version must be 1 (got {schema_version!r})."
+        )
+
+    entries = data.get("entries")
+    if not isinstance(entries, list):
+        return False, [f"Quarantine manifest 'entries' must be a list ({rel})."]
+
+    valid_lanes = {name for name, *_ in MODULE_TEST_FILTERS}
+    now = datetime.now(timezone.utc)
+    seen_lanes: set[str] = set()
+    for index, entry in enumerate(entries):
+        label = f"entry[{index}]"
+        if not isinstance(entry, dict):
+            failures.append(f"Quarantine {label} must be a JSON object.")
+            continue
+
+        lane = entry.get("lane")
+        if isinstance(lane, str) and lane:
+            label = f"entry[{index}] lane '{lane}'"
+
+        for field in QUARANTINE_REQUIRED_FIELDS:
+            value = entry.get(field)
+            if not isinstance(value, str) or not value.strip():
+                failures.append(
+                    f"Quarantine {label} is missing required field '{field}'."
+                )
+
+        if isinstance(lane, str) and lane:
+            if lane not in valid_lanes:
+                failures.append(
+                    f"Quarantine {label} names a lane not present in MODULE_TEST_FILTERS."
+                )
+            if lane in seen_lanes:
+                failures.append(
+                    f"Quarantine {label} duplicates an earlier entry for the same lane."
+                )
+            seen_lanes.add(lane)
+
+        expires = entry.get("expires_utc")
+        if isinstance(expires, str) and expires.strip():
+            parsed = _parse_quarantine_expiry(expires)
+            if parsed is None:
+                failures.append(
+                    f"Quarantine {label} has an unparseable expires_utc '{expires}'."
+                )
+            elif parsed <= now:
+                failures.append(
+                    f"Quarantine {label} is past its expires_utc '{expires}'; "
+                    "re-verify the failure and refresh the entry or remove it."
+                )
+
+    if failures:
+        return False, failures
+
+    plural = "entry" if len(entries) == 1 else "entries"
+    return True, [
+        f"Quarantine manifest schema guard passed ({len(entries)} {plural}, {rel})."
+    ]
+
+
 def _tests_unavailable(output: str) -> bool:
     normalized_output = " ".join(output.lower().split())
     markers = (
@@ -899,6 +1059,7 @@ class DoctestTotals:
     lanes_with_skip_markers: int = 0
     lanes_with_executed_coverage: int = 0
     lanes_unavailable: int = 0
+    quarantined_failing: int = 0
 
     def add_lane_stats(self, stats: DoctestLaneStats) -> None:
         self.passed_tests += stats.passed_tests
@@ -1235,6 +1396,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
         ),
         (
             True,
+            _run_quarantine_manifest_guard,
+            "Quarantine manifest guard failed.",
+            "Quarantine manifest guard passed.",
+        ),
+        (
+            True,
             _run_benchmark_asset_guard,
             "Benchmark asset path guard failed.",
             "Benchmark asset path guard passed.",
@@ -1448,9 +1615,86 @@ def _print_doctest_totals(totals: DoctestTotals) -> None:
         f"[module-tests] Gaussian splatting module tests passed "
         f"(lanes={totals.lanes}, lanes_with_coverage={totals.lanes_with_executed_coverage}, "
         f"lanes_with_skips={totals.lanes_with_skip_markers}, lanes_unavailable={totals.lanes_unavailable}, "
+        f"quarantined_failing={totals.quarantined_failing}, "
         f"skipped_markers={totals.skipped_markers}, passed_tests={totals.passed_tests}, "
         f"passed_assertions={totals.passed_asserts})."
     )
+
+
+def _classify_quarantined_lane_outcome(strict: bool, ok: bool, output: str) -> str:
+    """Classify a quarantined lane's run as clean_pass / harness_error / expected_fail.
+
+    - clean_pass: the lane produced a doctest summary with real executed
+      coverage and zero failures (and, in strict CI, no skip markers). This is
+      an anti-rot signal - the manifest entry is stale and must be deleted.
+    - harness_error: the process exited 0 yet produced no doctest summary at
+      all. This is NOT an expected failure (nothing actually ran to fail), so it
+      must not be tolerated - it is surfaced as a hard error.
+    - expected_fail: anything else (nonzero/crash exit, failing tests or
+      assertions, or a summary with no executed coverage) - the known,
+      quarantined failure. Tolerated but loudly reported and counted.
+    """
+    (
+        passed_tests,
+        failed_tests,
+        passed_asserts,
+        failed_asserts,
+        skipped_markers,
+        summary_found,
+    ) = _parse_doctest_results(output)
+
+    if not summary_found:
+        # A clean exit with no summary means nothing was executed to fail;
+        # refuse to read that as an expected failure (harness error). A nonzero
+        # exit with no summary is a genuine crash-failure we tolerate.
+        return "harness_error" if ok else "expected_fail"
+
+    has_executed_coverage = passed_tests > 0 and passed_asserts > 0
+    clean_pass = (
+        ok and failed_tests == 0 and failed_asserts == 0 and has_executed_coverage
+    )
+    if clean_pass and skipped_markers > 0 and strict and _is_ci():
+        # Skipped coverage disqualifies a clean pass under the strict CI policy,
+        # matching _enforce_skipped_marker_policy for non-quarantined lanes.
+        clean_pass = False
+    if clean_pass:
+        return "clean_pass"
+    return "expected_fail"
+
+
+def _handle_quarantined_lane(
+    name: str, strict: bool, ok: bool, output: str, entry: dict, totals: DoctestTotals
+) -> int | None:
+    """Apply quarantine semantics to one lane. Returns an exit code to abort on,
+    or None to continue to the next lane."""
+    issue = entry.get("issue_url") or "unknown-issue"
+    base = entry.get("base_sha_proven_failing") or "unknown-base"
+    outcome = _classify_quarantined_lane_outcome(strict, ok, output)
+
+    if outcome == "clean_pass":
+        print(
+            f"[module-tests][QUARANTINE-STALE] '{name}' is quarantined but PASSED "
+            f"- delete its manifest entry (issue {issue})."
+        )
+        _print_output_if_present(output)
+        return 1
+
+    if outcome == "harness_error":
+        print(
+            f"[module-tests][QUARANTINE] '{name}' is quarantined but produced no doctest "
+            f"summary (exit 0 harness error); refusing to treat as an expected failure "
+            f"(issue {issue})."
+        )
+        _print_output_if_present(output)
+        return 1
+
+    print(
+        f"[module-tests][QUARANTINE] '{name}' failed as expected "
+        f"(issue {issue}, base {base}); tolerating."
+    )
+    _print_output_if_present(output)
+    totals.quarantined_failing += 1
+    return None
 
 
 def _run_doctest_lanes(
@@ -1460,6 +1704,7 @@ def _run_doctest_lanes(
     allow_tests_unavailable: bool,
 ) -> int:
     totals = DoctestTotals()
+    quarantine = _load_quarantine()
     for name, run_args, strict in test_runs:
         totals.lanes += 1
         ok, skipped, output = _run_godot(godot, run_args)
@@ -1467,6 +1712,15 @@ def _run_doctest_lanes(
             if not _report_unavailable_lane(name, output, tests_unavailable_mode, allow_tests_unavailable):
                 return 1
             totals.lanes_unavailable += 1
+            continue
+
+        quarantine_entry = quarantine.get(name)
+        if quarantine_entry is not None:
+            exit_code = _handle_quarantined_lane(
+                name, strict, ok, output, quarantine_entry, totals
+            )
+            if exit_code is not None:
+                return exit_code
             continue
 
         if not ok:
