@@ -1,12 +1,46 @@
 #include "animation_state_machine.h"
 #include "core/object/class_db.h"
 #include "core/string/ustring.h"
+#include "core/math/math_funcs.h"
 #include "../persistence/incremental_saver.h"
 #include "../logger/gs_logger.h"
 
 namespace GaussianSplatting {
 
 namespace {
+
+// Positive floor for a clip's duration. A duration of exactly 0 makes the loop
+// wrap in update() evaluate fmod(current_time, 0) -> NaN, which then poisons
+// every subsequent time comparison and freezes playback (#598). Every producer
+// (add_clip / set_clip_duration / from_dict) clamps to this floor so a zero (or
+// negative) duration can never be stored.
+constexpr float MIN_CLIP_DURATION = 1e-4f;
+
+// Floors a duration to MIN_CLIP_DURATION and rejects non-finite input.
+//
+// `MAX(MIN_CLIP_DURATION, p_duration)` alone is NOT sufficient: MAX is
+// `m_a > m_b ? m_a : m_b` (core/typedefs.h), and a comparison against NaN is
+// always false, so `MAX(MIN_CLIP_DURATION, NaN)` evaluates
+// `MIN_CLIP_DURATION > NaN` -> false -> returns the NaN argument unchanged.
+// The same false-comparison lets a +Infinity duration through unclamped too.
+// A NaN or +Infinity clip duration then makes every later comparison against
+// it (`clip.duration > 0.0f`, `current_time >= clip.duration` in update())
+// evaluate false, so the clip never wraps and never stops: playback silently
+// freezes at the last keyframe forever, with no crash and no error -- an
+// adjacent gap to the #598 zero-duration fmod defect, closed here at the
+// single point every clip-duration producer funnels through.
+float _sanitize_clip_duration(float p_duration) {
+    if (!Math::is_finite(p_duration)) {
+        // Degraded paths must be explicit and observable, not silent (see
+        // module AGENTS.md). A non-finite duration is not a normal "clamp a
+        // small/negative value" case -- it always indicates bad caller/save
+        // data, so it is worth a log even though the zero/negative floor
+        // below stays silent.
+        GS_LOG_WARN_DEFAULT(vformat("Animation clip duration %s is not finite; using floor %s instead", rtos(p_duration), rtos(MIN_CLIP_DURATION)));
+        return MIN_CLIP_DURATION;
+    }
+    return MAX(MIN_CLIP_DURATION, p_duration);
+}
 
 Dictionary _clip_to_dict(const AnimationClip &clip, int index) {
     Dictionary dict;
@@ -234,6 +268,9 @@ void GaussianAnimationStateMachine::_bind_methods() {
     ClassDB::bind_method(D_METHOD("is_playing"), &GaussianAnimationStateMachine::is_playing);
 
     // Blending
+    ClassDB::bind_method(D_METHOD("switch_to_clip_delayed", "clip_index", "switch_delay"), &GaussianAnimationStateMachine::switch_to_clip_delayed, DEFVAL(0.3f));
+    // Deprecated: historical name that implied a cross-fade the engine never performed
+    // (it schedules a delayed hard cut). Kept as an alias so existing scripts keep working.
     ClassDB::bind_method(D_METHOD("blend_to_clip", "clip_index", "blend_duration"), &GaussianAnimationStateMachine::blend_to_clip, DEFVAL(0.3f));
     ClassDB::bind_method(D_METHOD("set_clip_weight", "clip_index", "weight"), &GaussianAnimationStateMachine::set_clip_weight);
     ClassDB::bind_method(D_METHOD("get_clip_weight", "clip_index"), &GaussianAnimationStateMachine::get_clip_weight);
@@ -278,8 +315,11 @@ int GaussianAnimationStateMachine::add_clip(const String& p_name, float p_durati
         return -1;
     }
 
+    // Floor the duration (and reject NaN/+Inf) so a degenerate value cannot
+    // reach fmod(time, 0) -> NaN or freeze playback via an unusable comparison.
+    const float duration = _sanitize_clip_duration(p_duration);
     int index = clips.size();
-    clips.push_back(AnimationClip(p_name, p_duration));
+    clips.push_back(AnimationClip(p_name, duration));
     clip_name_to_index[p_name] = index;
 
     if (incremental_saver.is_valid()) {
@@ -290,7 +330,7 @@ int GaussianAnimationStateMachine::add_clip(const String& p_name, float p_durati
 }
 
 void GaussianAnimationStateMachine::remove_clip(int p_index) {
-    _validate_clip_index(p_index);
+    ERR_FAIL_INDEX(p_index, static_cast<int>(clips.size()));
 
     String clip_name = clips[p_index].name;
     Dictionary clip_before;
@@ -328,31 +368,34 @@ void GaussianAnimationStateMachine::remove_clip_by_name(const String& p_name) {
 }
 
 String GaussianAnimationStateMachine::get_clip_name(int p_index) const {
-    _validate_clip_index(p_index);
+    ERR_FAIL_INDEX_V(p_index, static_cast<int>(clips.size()), String());
     return clips[p_index].name;
 }
 
 float GaussianAnimationStateMachine::get_clip_duration(int p_index) const {
-    _validate_clip_index(p_index);
+    ERR_FAIL_INDEX_V(p_index, static_cast<int>(clips.size()), 0.0f);
     return clips[p_index].duration;
 }
 
 void GaussianAnimationStateMachine::set_clip_duration(int p_index, float p_duration) {
-    _validate_clip_index(p_index);
+    ERR_FAIL_INDEX(p_index, static_cast<int>(clips.size()));
     float previous = clips[p_index].duration;
-    clips[p_index].duration = MAX(0.0f, p_duration);
+    // Floor the duration (and reject NaN/+Inf) so a looping clip cannot reach
+    // fmod(time, 0) -> NaN, and a non-finite value cannot freeze playback via
+    // an always-false comparison.
+    clips[p_index].duration = _sanitize_clip_duration(p_duration);
     if (incremental_saver.is_valid()) {
         incremental_saver->record_metadata_change(vformat("clip:%s:duration", clips[p_index].name), previous, clips[p_index].duration);
     }
 }
 
 bool GaussianAnimationStateMachine::get_clip_looping(int p_index) const {
-    _validate_clip_index(p_index);
+    ERR_FAIL_INDEX_V(p_index, static_cast<int>(clips.size()), false);
     return clips[p_index].looping;
 }
 
 void GaussianAnimationStateMachine::set_clip_looping(int p_index, bool p_looping) {
-    _validate_clip_index(p_index);
+    ERR_FAIL_INDEX(p_index, static_cast<int>(clips.size()));
     bool previous = clips[p_index].looping;
     clips[p_index].looping = p_looping;
     if (incremental_saver.is_valid() && previous != p_looping) {
@@ -361,7 +404,7 @@ void GaussianAnimationStateMachine::set_clip_looping(int p_index, bool p_looping
 }
 
 void GaussianAnimationStateMachine::add_track_to_clip(int p_clip_index, AnimationProperty p_property) {
-    _validate_clip_index(p_clip_index);
+    ERR_FAIL_INDEX(p_clip_index, static_cast<int>(clips.size()));
     clips[p_clip_index].add_track(p_property);
     if (incremental_saver.is_valid()) {
         int track_index = clips[p_clip_index].tracks.size() - 1;
@@ -372,7 +415,7 @@ void GaussianAnimationStateMachine::add_track_to_clip(int p_clip_index, Animatio
 }
 
 void GaussianAnimationStateMachine::remove_track_from_clip(int p_clip_index, AnimationProperty p_property) {
-    _validate_clip_index(p_clip_index);
+    ERR_FAIL_INDEX(p_clip_index, static_cast<int>(clips.size()));
 
     for (uint32_t i = 0; i < clips[p_clip_index].tracks.size(); i++) {
         if (clips[p_clip_index].tracks[i].property == p_property) {
@@ -390,12 +433,12 @@ void GaussianAnimationStateMachine::remove_track_from_clip(int p_clip_index, Ani
 }
 
 bool GaussianAnimationStateMachine::has_track(int p_clip_index, AnimationProperty p_property) const {
-    _validate_clip_index(p_clip_index);
+    ERR_FAIL_INDEX_V(p_clip_index, static_cast<int>(clips.size()), false);
     return clips[p_clip_index].get_track(p_property) != nullptr;
 }
 
 void GaussianAnimationStateMachine::add_keyframe(int p_clip_index, AnimationProperty p_property, float p_time, const Variant& p_value) {
-    _validate_clip_index(p_clip_index);
+    ERR_FAIL_INDEX(p_clip_index, static_cast<int>(clips.size()));
 
     AnimationTrack* track = clips[p_clip_index].get_track(p_property);
     if (!track) {
@@ -414,7 +457,7 @@ void GaussianAnimationStateMachine::add_keyframe(int p_clip_index, AnimationProp
 }
 
 void GaussianAnimationStateMachine::add_keyframe_bezier(int p_clip_index, AnimationProperty p_property, float p_time, const Variant& p_value, const Vector2& p_in_handle, const Vector2& p_out_handle) {
-    _validate_clip_index(p_clip_index);
+    ERR_FAIL_INDEX(p_clip_index, static_cast<int>(clips.size()));
 
     AnimationTrack* track = clips[p_clip_index].get_track(p_property);
     if (!track) {
@@ -434,7 +477,7 @@ void GaussianAnimationStateMachine::add_keyframe_bezier(int p_clip_index, Animat
 }
 
 void GaussianAnimationStateMachine::remove_keyframe(int p_clip_index, AnimationProperty p_property, int p_keyframe_index) {
-    _validate_clip_index(p_clip_index);
+    ERR_FAIL_INDEX(p_clip_index, static_cast<int>(clips.size()));
 
     AnimationTrack* track = clips[p_clip_index].get_track(p_property);
     if (track && p_keyframe_index >= 0 && static_cast<uint32_t>(p_keyframe_index) < track->keyframes.size()) {
@@ -450,14 +493,14 @@ void GaussianAnimationStateMachine::remove_keyframe(int p_clip_index, AnimationP
 }
 
 int GaussianAnimationStateMachine::get_keyframe_count(int p_clip_index, AnimationProperty p_property) const {
-    _validate_clip_index(p_clip_index);
+    ERR_FAIL_INDEX_V(p_clip_index, static_cast<int>(clips.size()), 0);
 
     const AnimationTrack* track = clips[p_clip_index].get_track(p_property);
     return track ? track->keyframes.size() : 0;
 }
 
 float GaussianAnimationStateMachine::get_keyframe_time(int p_clip_index, AnimationProperty p_property, int p_keyframe_index) const {
-    _validate_clip_index(p_clip_index);
+    ERR_FAIL_INDEX_V(p_clip_index, static_cast<int>(clips.size()), 0.0f);
 
     const AnimationTrack* track = clips[p_clip_index].get_track(p_property);
     if (track && p_keyframe_index >= 0 && static_cast<uint32_t>(p_keyframe_index) < track->keyframes.size()) {
@@ -467,7 +510,7 @@ float GaussianAnimationStateMachine::get_keyframe_time(int p_clip_index, Animati
 }
 
 Variant GaussianAnimationStateMachine::get_keyframe_value(int p_clip_index, AnimationProperty p_property, int p_keyframe_index) const {
-    _validate_clip_index(p_clip_index);
+    ERR_FAIL_INDEX_V(p_clip_index, static_cast<int>(clips.size()), Variant());
 
     const AnimationTrack* track = clips[p_clip_index].get_track(p_property);
     if (track && p_keyframe_index >= 0 && static_cast<uint32_t>(p_keyframe_index) < track->keyframes.size()) {
@@ -478,7 +521,7 @@ Variant GaussianAnimationStateMachine::get_keyframe_value(int p_clip_index, Anim
 
 void GaussianAnimationStateMachine::play(int p_clip_index) {
     if (p_clip_index >= 0) {
-        _validate_clip_index(p_clip_index);
+        ERR_FAIL_INDEX(p_clip_index, static_cast<int>(clips.size()));
         current_clip_index = p_clip_index;
     } else if (current_clip_index < 0 && !clips.is_empty()) {
         current_clip_index = 0;
@@ -505,33 +548,62 @@ void GaussianAnimationStateMachine::seek(float p_time) {
     state = ANIMATION_STATE_SEEKING;
 }
 
-void GaussianAnimationStateMachine::blend_to_clip(int p_clip_index, float p_blend_duration) {
-    _validate_clip_index(p_clip_index);
+void GaussianAnimationStateMachine::switch_to_clip_delayed(int p_clip_index, float p_switch_delay) {
+    ERR_FAIL_INDEX(p_clip_index, static_cast<int>(clips.size()));
 
-    // Self-reference guard: blending to the already-playing clip is a no-op.
+    // Self-reference guard: switching to the already-playing clip is a no-op.
     if (p_clip_index == current_clip_index) {
         return;
     }
 
-    // Depth limit: prevent excessive blend chain accumulation.
+    // Depth limit: prevent excessive scheduled-switch accumulation.
     static constexpr uint32_t MAX_BLEND_CHAIN_DEPTH = 8;
     if (blend_targets.size() >= MAX_BLEND_CHAIN_DEPTH) {
-        GS_LOG_WARN_DEFAULT("blend_to_clip: blend chain depth limit reached (" + itos(MAX_BLEND_CHAIN_DEPTH) + "), ignoring blend request");
+        GS_LOG_WARN_DEFAULT("switch_to_clip_delayed: pending-switch depth limit reached (" + itos(MAX_BLEND_CHAIN_DEPTH) + "), ignoring request");
         return;
+    }
+
+    // NOTE (#599): this schedules a DELAYED HARD SWITCH, not a cross-fade. The
+    // samplers only ever read clips[current_clip_index]; _update_blend_weights
+    // advances transition_time and, once it reaches transition_duration, commits
+    // current_clip_index = p_clip_index in one step. Real weighted cross-fade
+    // sampling is tracked as a follow-up (see doc_classes XML / docs/features/animation.md).
+    // A NaN switch-delay would otherwise reach `MAX(0.0f, NaN)` -> NaN (the
+    // same false-comparison trap as MIN_CLIP_DURATION above: MAX's `m_a > m_b`
+    // check is false whenever either side is NaN, so it returns the NaN
+    // argument unchanged). _update_blend_weights() would then compute
+    // blend_progress = CLAMP(transition_time / NaN, 0, 1) = NaN forever
+    // (CLAMP's comparisons are equally false against NaN), so
+    // `blend_progress >= 1.0f` never fires: the scheduled switch never
+    // commits and permanently occupies one of the MAX_BLEND_CHAIN_DEPTH slots.
+    // Treat a non-finite delay as "commit on the next update()" instead
+    // (transition_duration 0 already means immediate, below). Log it: a
+    // degraded path must be observable, not silent (module AGENTS.md).
+    float switch_delay = p_switch_delay;
+    if (!Math::is_finite(switch_delay)) {
+        GS_LOG_WARN_DEFAULT(vformat("switch_to_clip_delayed: switch_delay %s is not finite; switching immediately instead", rtos(p_switch_delay)));
+        switch_delay = 0.0f;
     }
 
     BlendTarget target;
     target.clip_index = p_clip_index;
     target.target_weight = 1.0f;
     target.transition_time = 0.0f;
-    target.transition_duration = MAX(0.0f, p_blend_duration);
+    target.transition_duration = MAX(0.0f, switch_delay);
     target.blend_progress = 0.0f;
 
     blend_targets.push_back(target);
 }
 
+void GaussianAnimationStateMachine::blend_to_clip(int p_clip_index, float p_blend_duration) {
+    // Deprecated alias: the historical name implied a cross-fade that was never
+    // implemented. Forward to switch_to_clip_delayed(), which names the actual
+    // behavior (a delayed hard switch). See #599.
+    switch_to_clip_delayed(p_clip_index, p_blend_duration);
+}
+
 void GaussianAnimationStateMachine::set_clip_weight(int p_clip_index, float p_weight) {
-    _validate_clip_index(p_clip_index);
+    ERR_FAIL_INDEX(p_clip_index, static_cast<int>(clips.size()));
 
     // Find existing blend target or create new one
     for (uint32_t i = 0; i < blend_targets.size(); i++) {
@@ -552,7 +624,7 @@ void GaussianAnimationStateMachine::set_clip_weight(int p_clip_index, float p_we
 }
 
 float GaussianAnimationStateMachine::get_clip_weight(int p_clip_index) const {
-    _validate_clip_index(p_clip_index);
+    ERR_FAIL_INDEX_V(p_clip_index, static_cast<int>(clips.size()), 0.0f);
 
     for (uint32_t i = 0; i < blend_targets.size(); i++) {
         if (blend_targets[i].clip_index == p_clip_index) {
@@ -578,7 +650,11 @@ void GaussianAnimationStateMachine::update(float p_delta) {
 
     // Handle looping
     const AnimationClip& clip = clips[current_clip_index];
-    if (clip.looping && current_time >= clip.duration) {
+    // Only wrap a positive-length looping clip: fmod(current_time, 0) is NaN and
+    // would poison every later time comparison, freezing playback (#598).
+    // Producers already floor duration to MIN_CLIP_DURATION; this guard is
+    // defense-in-depth for durations set through other paths (e.g. from_dict()).
+    if (clip.looping && clip.duration > 0.0f && current_time >= clip.duration) {
         current_time = fmod(current_time, clip.duration);
     } else if (current_time >= clip.duration) {
         current_time = clip.duration;
@@ -853,7 +929,11 @@ void GaussianAnimationStateMachine::from_dict(const Dictionary& p_dict) {
 
         AnimationClip clip;
         clip.name = clip_dict.get("name", "");
-        clip.duration = clip_dict.get("duration", 1.0f);
+        // Floor the deserialized duration (and reject NaN/+Inf) so a hand-built
+        // or legacy/corrupt dictionary carrying a zero/negative/non-finite
+        // duration cannot reach fmod(time, 0) -> NaN or freeze playback (#598).
+        const float loaded_duration = clip_dict.get("duration", 1.0f);
+        clip.duration = _sanitize_clip_duration(loaded_duration);
         clip.looping = clip_dict.get("looping", false);
 
         Array tracks_array = clip_dict.get("tracks", Array());
@@ -887,10 +967,6 @@ void GaussianAnimationStateMachine::from_dict(const Dictionary& p_dict) {
     }
 
     state = ANIMATION_STATE_STOPPED;
-}
-
-void GaussianAnimationStateMachine::_validate_clip_index(int p_index) const {
-    ERR_FAIL_INDEX(p_index, static_cast<int>(clips.size()));
 }
 
 void GaussianAnimationStateMachine::_update_blend_weights(float p_delta) {

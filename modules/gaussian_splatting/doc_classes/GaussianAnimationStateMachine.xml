@@ -43,11 +43,12 @@
 			<description>
 			</description>
 		</method>
-		<method name="blend_to_clip">
+		<method name="blend_to_clip" deprecated="Use [method switch_to_clip_delayed]; this name implied a cross-fade that is not implemented.">
 			<return type="void" />
 			<param index="0" name="clip_index" type="int" />
 			<param index="1" name="blend_duration" type="float" default="0.3" />
 			<description>
+				Deprecated alias for [method switch_to_clip_delayed]. The historical name implied a cross-fade, but the state machine only performs a delayed hard switch: the target clip is never sampled or blended, and after [param blend_duration] seconds playback jumps to it in a single step. An out-of-range [param clip_index] is rejected safely without aborting the engine. Real weighted cross-fade sampling is tracked as a follow-up (godotGS issue #614).
 			</description>
 		</method>
 		<method name="get_clip_count" qualifiers="const">
@@ -265,6 +266,14 @@
 		<method name="stop">
 			<return type="void" />
 			<description>
+			</description>
+		</method>
+		<method name="switch_to_clip_delayed">
+			<return type="void" />
+			<param index="0" name="clip_index" type="int" />
+			<param index="1" name="switch_delay" type="float" default="0.3" />
+			<description>
+				Schedules a switch to the clip at [param clip_index] after [param switch_delay] seconds. This is a delayed hard cut, not a cross-fade: until the delay elapses the current clip keeps playing unchanged, then playback jumps to the target clip in a single step. An out-of-range [param clip_index] is rejected safely without aborting the engine. Real weighted cross-fade sampling is not yet implemented (tracked as godotGS issue #614).
 			</description>
 		</method>
 		<method name="update">
