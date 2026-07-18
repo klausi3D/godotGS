@@ -619,6 +619,26 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 			}
 			return Ref<Resource>();
 		}
+		// The SH coefficient array is held in a uint32_t-indexed LocalVector<Vector3>
+		// by BOTH the resident payload (GaussianData, materialized below) and the
+		// file-backed staged capture (StagedFileChunkPayloadSource, published below).
+		// An element count above UINT32_MAX cannot be represented: the staged capture
+		// resizes its destination with a 32-bit-truncated count yet copies the full
+		// 64-bit width, overrunning the heap on a hostile world that declares a huge
+		// (e.g. sparse ~51 GiB) SH extent while satisfying the byte-range `fits_within`
+		// check below. Refuse such an asset here rather than truncate downstream. A
+		// legitimate world never exceeds this bound (GaussianData itself cannot hold
+		// more than UINT32_MAX coefficients), so this rejects only crafted inputs. This
+		// is the *count* cap the extent-only checked_mul/fits_within guards deliberately
+		// do not provide (#582).
+		if (sh_count > uint64_t(UINT32_MAX)) {
+			if (r_error) {
+				*r_error = ERR_FILE_CORRUPT;
+			}
+			ERR_PRINT(vformat("[GaussianSplatWorld] Refusing to load %s: declared SH extent (%s coefficients = splat_count %d * sh_high_order %d) exceeds the 32-bit container capacity.",
+					p_path, String::num_uint64(sh_count), splat_count, sh_high_order));
+			return Ref<Resource>();
+		}
 		if (!fits_within(sh_offset, sh_bytes, file_len)) {
 			if (r_error) {
 				*r_error = ERR_FILE_CORRUPT;
