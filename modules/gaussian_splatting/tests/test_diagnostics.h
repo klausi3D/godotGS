@@ -301,3 +301,187 @@ TEST_CASE("[Gaussian Diagnostics] Production metrics preserve GPU timing capture
     CHECK(summary.has("avg_stage_total_ms"));
     CHECK(int64_t(summary.get("frame_count", int64_t(0))) == 1);
 }
+
+// #528: the per-frame telemetry reset is now single-sourced in the
+// PerformanceMetrics::reset_*() helpers (see render_performance_types.h), replacing
+// hand-maintained field-by-field lists duplicated across render-path sites. These
+// tests pin the two properties the refactor must preserve:
+//  (1) each reset group returns exactly its fields to their struct defaults
+//      (fresh-vs-reset equality), and
+//  (2) the resets never touch cumulative counters or per-stage outputs
+//      (a blanket `*this = {}` reset was rejected for this reason).
+// The static coverage guard tests/ci/check_metric_reset_parity.py enforces that
+// every field carries a reset disposition; these doctests pin the runtime values.
+TEST_CASE("[Gaussian Diagnostics][PerformanceMetrics][Reset] reset helpers restore struct defaults") {
+    using PerformanceMetrics = GaussianSplatRenderer::PerformanceMetrics;
+    const PerformanceMetrics fresh;
+    PerformanceMetrics m;
+
+    // Mutate every field the reset helpers cover to a non-default value.
+    // reset_raster_frame_stats group:
+    m.raster_path_reason = "stale";
+    m.raster_compute_allowed = true;
+    m.raster_total_tiles = 11;
+    m.raster_empty_tiles = 12;
+    m.raster_overflow_tiles = 13;
+    m.raster_max_splats_per_tile = 14;
+    m.raster_avg_splats_per_tile = 15.0f;
+    m.raster_occupancy_ratio = 0.16f;
+    m.raster_dense_ratio = 0.17f;
+    m.raster_overflow_ratio = 0.18f;
+    m.raster_overlap_records = 19;
+    m.raster_overlap_record_budget = 20;
+    m.raster_overlap_record_budget_effective = 21;
+    m.raster_overlap_record_budget_configured = 22;
+    m.raster_overlap_thinning_keep_ratio = 0.23f; // default is 1.0f
+    m.raster_feature_global_sort = true;
+    m.raster_feature_packed_stage_data = true;
+    m.raster_feature_tighter_bounds = true;
+    m.raster_feature_sh_amortization = true;
+    m.raster_sh_amortization_divisor = 24; // default is 1
+    m.raster_feature_quantized_storage = true;
+    m.raster_feature_debug_counters = true;
+    m.raster_tile_splat_capacity = 25;
+    m.raster_max_raster_splats_per_tile = 26;
+    m.raster_shader_defines_hash = 27;
+    // reset_gpu_core_pass_timings group:
+    m.gpu_frame_time_ms = 30.0f;
+    m.gpu_frame_time_valid = true;
+    m.gpu_tile_overlap_count_time_ms = 31.0f;
+    m.gpu_tile_overlap_count_time_valid = true;
+    m.gpu_tile_binning_time_ms = 32.0f;
+    m.gpu_tile_overlap_emit_time_ms = 33.0f;
+    m.gpu_tile_overlap_emit_time_valid = true;
+    m.gpu_tile_overlap_sort_time_ms = 34.0f;
+    m.gpu_tile_overlap_sort_time_valid = true;
+    m.tile_overlap_sort_cpu_dispatch_ms = 35.0f;
+    m.tile_overlap_sort_cpu_dispatch_valid = true;
+    m.gpu_tile_raster_time_ms = 36.0f;
+    m.gpu_tile_raster_time_valid = true;
+    // reset_gpu_extended_pass_timings group:
+    m.gpu_tile_prefix_time_ms = 40.0f;
+    m.gpu_tile_prefix_time_valid = true;
+    m.tile_prefix_cpu_sync_fallback_ms = 41.0f;
+    m.tile_prefix_cpu_sync_fallback_valid = true;
+    m.gpu_tile_resolve_time_ms = 42.0f;
+    m.gpu_tile_resolve_time_valid = true;
+    // reset_gpu_timeline_metrics group:
+    m.gpu_timeline_inflight_frames = 50;
+    m.gpu_timeline_completed_frames = 51;
+    m.gpu_timeline_stall_count = 52;
+    m.gpu_timeline_stall_ms = 53.0f;
+    m.gpu_timeline_last_value = 54;
+    // reset_gpu_readback_state group:
+    m.gpu_utilization = 0.60f;
+    m.gpu_timing_frame_serial = 61;
+    m.gpu_timing_frames_behind = 62;
+    m.tile_sort_sync_fallback_count = 63;
+
+    m.reset_raster_frame_stats();
+    m.reset_gpu_core_pass_timings();
+    m.reset_gpu_extended_pass_timings();
+    m.reset_gpu_timeline_metrics();
+    m.reset_gpu_readback_state();
+
+    // Every covered field is back to its struct default (fresh == reset).
+    CHECK(m.raster_path_reason == fresh.raster_path_reason);
+    CHECK(m.raster_compute_allowed == fresh.raster_compute_allowed);
+    CHECK(m.raster_total_tiles == fresh.raster_total_tiles);
+    CHECK(m.raster_empty_tiles == fresh.raster_empty_tiles);
+    CHECK(m.raster_overflow_tiles == fresh.raster_overflow_tiles);
+    CHECK(m.raster_max_splats_per_tile == fresh.raster_max_splats_per_tile);
+    CHECK(m.raster_avg_splats_per_tile == doctest::Approx(fresh.raster_avg_splats_per_tile));
+    CHECK(m.raster_occupancy_ratio == doctest::Approx(fresh.raster_occupancy_ratio));
+    CHECK(m.raster_dense_ratio == doctest::Approx(fresh.raster_dense_ratio));
+    CHECK(m.raster_overflow_ratio == doctest::Approx(fresh.raster_overflow_ratio));
+    CHECK(m.raster_overlap_records == fresh.raster_overlap_records);
+    CHECK(m.raster_overlap_record_budget == fresh.raster_overlap_record_budget);
+    CHECK(m.raster_overlap_record_budget_effective == fresh.raster_overlap_record_budget_effective);
+    CHECK(m.raster_overlap_record_budget_configured == fresh.raster_overlap_record_budget_configured);
+    CHECK(m.raster_overlap_thinning_keep_ratio == doctest::Approx(fresh.raster_overlap_thinning_keep_ratio));
+    CHECK(m.raster_feature_global_sort == fresh.raster_feature_global_sort);
+    CHECK(m.raster_feature_packed_stage_data == fresh.raster_feature_packed_stage_data);
+    CHECK(m.raster_feature_tighter_bounds == fresh.raster_feature_tighter_bounds);
+    CHECK(m.raster_feature_sh_amortization == fresh.raster_feature_sh_amortization);
+    CHECK(m.raster_sh_amortization_divisor == fresh.raster_sh_amortization_divisor);
+    CHECK(m.raster_feature_quantized_storage == fresh.raster_feature_quantized_storage);
+    CHECK(m.raster_feature_debug_counters == fresh.raster_feature_debug_counters);
+    CHECK(m.raster_tile_splat_capacity == fresh.raster_tile_splat_capacity);
+    CHECK(m.raster_max_raster_splats_per_tile == fresh.raster_max_raster_splats_per_tile);
+    CHECK(m.raster_shader_defines_hash == fresh.raster_shader_defines_hash);
+    CHECK(m.gpu_frame_time_ms == doctest::Approx(fresh.gpu_frame_time_ms));
+    CHECK(m.gpu_frame_time_valid == fresh.gpu_frame_time_valid);
+    CHECK(m.gpu_tile_overlap_count_time_ms == doctest::Approx(fresh.gpu_tile_overlap_count_time_ms));
+    CHECK(m.gpu_tile_overlap_count_time_valid == fresh.gpu_tile_overlap_count_time_valid);
+    CHECK(m.gpu_tile_binning_time_ms == doctest::Approx(fresh.gpu_tile_binning_time_ms));
+    CHECK(m.gpu_tile_overlap_emit_time_ms == doctest::Approx(fresh.gpu_tile_overlap_emit_time_ms));
+    CHECK(m.gpu_tile_overlap_emit_time_valid == fresh.gpu_tile_overlap_emit_time_valid);
+    CHECK(m.gpu_tile_overlap_sort_time_ms == doctest::Approx(fresh.gpu_tile_overlap_sort_time_ms));
+    CHECK(m.gpu_tile_overlap_sort_time_valid == fresh.gpu_tile_overlap_sort_time_valid);
+    CHECK(m.tile_overlap_sort_cpu_dispatch_ms == doctest::Approx(fresh.tile_overlap_sort_cpu_dispatch_ms));
+    CHECK(m.tile_overlap_sort_cpu_dispatch_valid == fresh.tile_overlap_sort_cpu_dispatch_valid);
+    CHECK(m.gpu_tile_raster_time_ms == doctest::Approx(fresh.gpu_tile_raster_time_ms));
+    CHECK(m.gpu_tile_raster_time_valid == fresh.gpu_tile_raster_time_valid);
+    CHECK(m.gpu_tile_prefix_time_ms == doctest::Approx(fresh.gpu_tile_prefix_time_ms));
+    CHECK(m.gpu_tile_prefix_time_valid == fresh.gpu_tile_prefix_time_valid);
+    CHECK(m.tile_prefix_cpu_sync_fallback_ms == doctest::Approx(fresh.tile_prefix_cpu_sync_fallback_ms));
+    CHECK(m.tile_prefix_cpu_sync_fallback_valid == fresh.tile_prefix_cpu_sync_fallback_valid);
+    CHECK(m.gpu_tile_resolve_time_ms == doctest::Approx(fresh.gpu_tile_resolve_time_ms));
+    CHECK(m.gpu_tile_resolve_time_valid == fresh.gpu_tile_resolve_time_valid);
+    CHECK(m.gpu_timeline_inflight_frames == fresh.gpu_timeline_inflight_frames);
+    CHECK(m.gpu_timeline_completed_frames == fresh.gpu_timeline_completed_frames);
+    CHECK(m.gpu_timeline_stall_count == fresh.gpu_timeline_stall_count);
+    CHECK(m.gpu_timeline_stall_ms == doctest::Approx(fresh.gpu_timeline_stall_ms));
+    CHECK(m.gpu_timeline_last_value == fresh.gpu_timeline_last_value);
+    CHECK(m.gpu_utilization == doctest::Approx(fresh.gpu_utilization));
+    CHECK(m.gpu_timing_frame_serial == fresh.gpu_timing_frame_serial);
+    CHECK(m.gpu_timing_frames_behind == fresh.gpu_timing_frames_behind);
+    CHECK(m.tile_sort_sync_fallback_count == fresh.tile_sort_sync_fallback_count);
+}
+
+TEST_CASE("[Gaussian Diagnostics][PerformanceMetrics][Reset] per-frame resets never touch cumulative/per-stage fields") {
+    using PerformanceMetrics = GaussianSplatRenderer::PerformanceMetrics;
+    PerformanceMetrics m;
+
+    // Representative cumulative counters, rolling aggregates, and per-stage outputs
+    // that the reset helpers must leave untouched (would be corrupted by a blanket
+    // `*this = {}`). Seed them with sentinels that differ from the struct defaults.
+    m.total_frames_rendered = 900;
+    m.raster_pipeline_reformats = 7;               // deliberately monotonic
+    m.sort_cache_hits = 901;
+    m.cull_projection_contract_mismatch_count = 902;
+    m.avg_frame_time_ms = 9.03f;
+    m.peak_frame_time_ms = 9.04f;
+    m.last_frame_start_usec = 905;
+    m.uploaded_splat_count = 906;
+    m.rendered_splat_count = 907;
+    m.buffer_upload_time_ms = 9.08f;
+    m.culling_time_ms = 9.09f;
+    m.data_source = "sentinel_source";
+    m.raster_path = "sentinel_path";
+    m.cull_route_uid = "sentinel_route";
+    m.visible_after_culling = 910;
+
+    // Apply the full set of reset helpers (superset of any single site's composition).
+    m.reset_raster_frame_stats();
+    m.reset_gpu_core_pass_timings();
+    m.reset_gpu_extended_pass_timings();
+    m.reset_gpu_timeline_metrics();
+    m.reset_gpu_readback_state();
+
+    CHECK(m.total_frames_rendered == 900);
+    CHECK(m.raster_pipeline_reformats == 7);
+    CHECK(m.sort_cache_hits == 901);
+    CHECK(m.cull_projection_contract_mismatch_count == 902);
+    CHECK(m.avg_frame_time_ms == doctest::Approx(9.03f));
+    CHECK(m.peak_frame_time_ms == doctest::Approx(9.04f));
+    CHECK(m.last_frame_start_usec == 905);
+    CHECK(m.uploaded_splat_count == 906);
+    CHECK(m.rendered_splat_count == 907);
+    CHECK(m.buffer_upload_time_ms == doctest::Approx(9.08f));
+    CHECK(m.culling_time_ms == doctest::Approx(9.09f));
+    CHECK(m.data_source == String("sentinel_source"));
+    CHECK(m.raster_path == String("sentinel_path"));
+    CHECK(m.cull_route_uid == String("sentinel_route"));
+    CHECK(m.visible_after_culling == 910);
+}
