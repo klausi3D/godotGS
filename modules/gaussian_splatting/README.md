@@ -17,12 +17,12 @@ Related docs: [ARCHITECTURE](ARCHITECTURE.md), [READING_ORDER](READING_ORDER.md)
 
 ## Key Features
 
-- **Tile-based rasterizer** with cull -> sort -> raster -> composite stages (`renderer/render_pipeline_stages.*`). Graphics raster pipeline is pre-created at module init to avoid first-frame stalls.
+- **Tile-based rasterizer** with cull -> sort -> raster -> composite stages (`renderer/render_pipeline_stages.*`). Graphics raster pipeline is pre-created eagerly during `TileRenderer::initialize()` (probable-format guess, lazily reformatted if wrong) to avoid first-frame stalls in the common case. See `ARCHITECTURE.md`.
 - **Scratch-copy output compositor** (`interfaces/output_compositor.*`) - eliminates the workgroup R/W hazard that caused the #256 black-blocks regression. See `ARCHITECTURE.md` for details.
 - **Persistent SPIR-V disk cache** (`renderer/spirv_disk_cache.*`) - module reloads skip the SPIR-V compile step on cache hit, keyed per-device.
 - **Right-sized streaming persistent buffer** - sized to actual scene need rather than a fixed upper bound (`core/gaussian_streaming.*`).
 - **GPU sorters** - Bitonic, Radix, and OneSweep variants in `renderer/gpu_sorter.*`.
-- **Startup trace** (`logger/startup_trace.{cpp,h}`) - RAII `GS_STARTUP_SCOPE(name)` instrumentation that attributes module-init time across ~15 phases. Each `[StartupTrace]` line emits at the first rendered frame of an asset open. Gated by `rendering/gaussian_splatting/diagnostics/startup_trace` (default on).
+- **Startup trace** (`logger/startup_trace.{cpp,h}`) - RAII `GS_STARTUP_SCOPE(name)` instrumentation that attributes module-init time across 17 scope sites. Each `[StartupTrace]` line emits at the first rendered frame of an asset open. Gated by `rendering/gaussian_splatting/diagnostics/startup_trace` (default on).
 
 ## Build Integration
 

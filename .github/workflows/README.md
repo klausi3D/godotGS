@@ -12,7 +12,7 @@ GitHub's Actions tab can also show historical workflow names from past runs, dis
 | Docs Pages (Versioned) | `docs_pages.yml` | Builds and deploys MkDocs docs with mike versioning to `gh-pages`. | Publishes `latest` from `master/main` and versioned docs from `v*` tags. |
 | Gaussian Production Gates | `gaussian_production_gates.yml` | Enforces guard checks, pipeline smoke, runtime validation, the blocking streaming gate, and optional non-blocking benchmark evidence surfaces. | Owns the single Windows build for validation workflows. `streaming-gpu-ci` is the canonical blocking GPU-backed streaming runtime gate; `openworld-proof-dev` and `openworld-proof-weekly` are evidence-only benchmark surfaces. |
 | Gaussian Shader Validation | `gaussian_shader_validation.yml` | Validates shader compile matrix and host/shader contract checks. | Focused shader CI gate. |
-| Release Builds | `release_builds.yml` | Builds Linux and Windows editors for CI artifacts, nightly prereleases, and optional stable-tag publishes. | Publishes Linux tarballs and Windows zips on the nightly schedule and on `v*` tag pushes. |
+| Release Builds | `release_builds.yml` | Builds Linux and Windows editors for CI artifacts, nightly prereleases, and stable-tag publishes. | Publishes Linux tarballs and Windows zips on the nightly schedule and on `v*` tag pushes. The `finite_math_guard` job blocks publication on every channel, and the `release_candidate_gate` job gates the stable/tag publish path (both-platform builds + `--mode candidate` validation, fail-closed); see below. |
 | Agentic PR Gate | `agentic_pr_gate.yml` | Fork-safe, always-on gate: validates the agentic control plane, runs the agentic tests, the agentic/governance link check, and the GPU-free `--guard-only` lane. | GitHub-hosted (`ubuntu-latest`); runs on every PR and the merge queue. Required status check (job name): `agentic-pr-gate`. |
 
 ## Required Checks
@@ -77,6 +77,68 @@ repo does not track a qlty configuration/log contract. If branch protection
 later requires qlty, update the manifest before treating a qlty result as part
 of public-alpha signoff.
 
+### Fast-math finiteness guard (`finite_math_guard`)
+
+`release_builds.yml` carries a `finite_math_guard` job (issue #590). The shipping
+configuration (`target=template_release`, which resolves `optimize=auto ->
+speed`) compiles the module with GCC/Clang `-ffast-math`, under which the
+compiler is free to fold away NaN/Inf checks. No other lane builds
+`optimize=speed`, so a regression that re-disables the import and GPU-payload
+finiteness guards would otherwise ship silently.
+
+The job builds the module with `optimize=speed` on GCC and runs the
+`GaussianData` finiteness doctest against that binary, asserting both that the
+doctest passed **and** that the filter actually matched a case (doctest exits 0
+on zero matches).
+
+`publish_release` lists the job under `needs:` **and** asserts
+`needs.finite_math_guard.result == 'success'` in its `if:`. The explicit result
+assertion is required: `publish_release` uses `always()`, so a `needs:` entry
+alone would not block anything and a failing guard could sit next to a published
+release. The gate applies to every publishing channel, nightly included, because
+every channel ships the same module code.
+
+`release_candidate_gate` (below) also lists `finite_math_guard` under `needs:`
+and asserts `needs.finite_math_guard.result == 'success'` in its own `if:`. That
+puts the finiteness guard *inside* the publication dependency graph rather than
+beside it: a failed guard skips the candidate gate, which in turn fails
+`publish_release`'s `needs.release_candidate_gate.result == 'success'` check.
+`release_candidate_gate` runs under `always()` too, so the same rule applies —
+the `needs:` entry alone would block nothing without the explicit assertion.
+
+### Stable-tag publish gate (`release_candidate_gate`)
+
+A `v*` tag push (and a manual stable dispatch) resolves to `channel=stable,
+publish=true` in `release_builds.yml`. The `release_candidate_gate` job gates
+that publish path (issue #593):
+
+- it fails the stable/candidate path unless **both** `build_linux` and
+  `build_windows` succeeded (no Linux-only stable release);
+- it runs `check_renderer_release_gates.py --mode candidate` against a
+  public-alpha evidence bundle and **fails closed** when the bundle is absent, so
+  a tag cannot publish without passing candidate validation;
+- `publish_release` hard-depends on the gate and sets
+  `fail_on_unmatched_files: true` for the stable channel;
+- it binds the evidence to reality: `--expected-commit ${{ github.sha }}` (the
+  bundle must be for the commit being published) and `--artifact-sha
+  <group>=<sha256>` for each archive built in this run (the bundle must record
+  the digests of the bytes actually being shipped);
+- it writes a `release-attestation.json` over the payload it validated, and
+  `publish_release` re-hashes what it downloaded and refuses to publish unless
+  every file and the commit match (`tests/ci/release_attestation.py`). A stale
+  bundle, a rebuilt artifact, an injected file, or a missing attestation all
+  fail the publish closed.
+
+Nightly prereleases are a pass-through (the gate does not run candidate
+validation for them) and keep the Linux-only / relaxed-unmatched behavior so a
+Windows runner outage cannot stall the nightly cadence.
+
+**Scoped gap:** no CI lane yet produces the candidate evidence bundle (issue
+#360), so the gate currently fails closed on every real `v*` tag. A maintainer
+cutting a candidate points the `RELEASE_CANDIDATE_EVIDENCE` (and optional
+`RELEASE_CANDIDATE_ISSUES`) repo/environment variable at a produced bundle. See
+`docs/reference/renderer-release-gates.md` for details.
+
 ## Runner Trust Boundary (fork PRs)
 
 The self-hosted Windows/GPU runners are persistent and must never execute
@@ -112,7 +174,7 @@ maintainer (see the project governance docs under `docs/governance/`).
 
 | Workflow | Schedule (UTC) | Behavior |
 | --- | --- | --- |
-| `baseline_qa.yml` | `30 3 * * *` | Runs in update mode and publishes `qa-regression-baseline` for future compare runs. |
+| `baseline_qa.yml` | `30 3 * * *` | Runs in update mode and publishes the `gpu-harness-recaptured-baselines` artifact (recaptured PNGs + provenance); opens a recapture PR when `BASELINE_UPDATE_PAT` is provisioned. |
 | `gaussian_production_gates.yml` | `30 3 * * 1` | Runs the non-blocking `openworld-proof-weekly` benchmark evidence surface. |
 | `release_builds.yml` | `30 2 * * *` | Builds and publishes the nightly prerelease, then prunes older nightly releases and tags. |
 

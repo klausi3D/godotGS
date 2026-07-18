@@ -523,6 +523,11 @@ Ref<GaussianSplatAsset> _make_thumbnail_fixture_asset(int p_splat_count = 6) {
 
 struct _PreviewGeneratorThreadContext {
     Ref<GaussianSplatAsset> asset;
+    // Optional: a pre-configured generator (e.g. with a test-shrunk
+    // test_set_wait_timeout_usec(), or pre-aborted). If left null, the
+    // worker instantiates a fresh default-timeout generator, matching the
+    // original (pre-#592-regression-test) behavior.
+    Ref<GaussianSplatAssetPreviewGenerator> generator;
     Ref<Texture2D> texture;
     Dictionary metadata;
     Semaphore done;
@@ -533,8 +538,10 @@ static void _preview_generator_thread(void *p_userdata) {
     _PreviewGeneratorThreadContext *ctx = static_cast<_PreviewGeneratorThreadContext *>(p_userdata);
     ctx->ran_on_worker = !Thread::is_main_thread();
 
-    Ref<GaussianSplatAssetPreviewGenerator> generator;
-    generator.instantiate();
+    Ref<GaussianSplatAssetPreviewGenerator> generator = ctx->generator;
+    if (generator.is_null()) {
+        generator.instantiate();
+    }
     ctx->texture = generator->generate(ctx->asset, Size2(96, 96), ctx->metadata);
     ctx->done.post();
 }
@@ -940,6 +947,158 @@ TEST_CASE("[GaussianSplatting][Thumbnail] Editor preview generator uses stored i
     CHECK(ctx.ran_on_worker);
     CHECK(ctx.texture.is_valid());
     CHECK(String(ctx.metadata.get(StringName("gaussian_preview_source"), String())) == "stored_thumbnail");
+#endif
+}
+
+// #592 residual gap (external review): the happy-path test above proves the
+// bounded wait completes when the main queue IS flushed. It never exercised
+// the two reasons the wait was bounded in the first place: main-queue
+// starvation (the timeout firing) and editor shutdown (abort() firing). Both
+// are proven below. Neither test ever flushes the main message queue, so
+// the worker's request can only be resolved by timeout or by abort() -- the
+// exact starved/aborted conditions #592 was written to survive.
+// Tagged [Editor] (not just [Thumbnail]) so Godot's doctest harness
+// (tests/test_main.cpp's GodotTestCaseListener::test_case_start(), which
+// gates on the literal substring "[Editor]"/"[SceneTree]" in the test name)
+// stands up a MessageQueue main singleton for the duration of this test.
+// Without it, MessageQueue::get_main_singleton() is null, so
+// _create_preview_texture_from_image() takes its
+// ERR_FAIL_NULL_V_MSG(main_queue, ...) early-out on the very first line and
+// never reaches the wait/poll/timeout logic this test exists to exercise --
+// this is not hypothetical: dropping the tag makes this test pass for the
+// wrong reason (an instant early return, not an honored timeout).
+TEST_CASE("[GaussianSplatting][Thumbnail][Editor] Editor preview generator gives up (not hang) when the main queue is starved (#592)") {
+#ifndef THREADS_ENABLED
+    MESSAGE("Skipping - THREADS_ENABLED is not enabled in this build");
+    return;
+#else
+    // A fixture with no stored preview image: get_preview_image() is null, so
+    // the "stored thumbnail" attempt short-circuits instantly and the worker
+    // falls through to generating (and then trying to texture-ify) a fresh
+    // thumbnail -- the same wait/poll/timeout code path as the stored-image
+    // case, just reached the other way.
+    Ref<GaussianSplatAsset> asset = _make_thumbnail_fixture_asset(1);
+    asset->set_source_path("res://preview_worker_starvation_fixture.ply");
+
+    Ref<GaussianSplatAssetPreviewGenerator> generator;
+    generator.instantiate();
+    // Shrink the bounded wait so this test proves the timeout actually fires
+    // without waiting out the real 10s production backstop. Production code
+    // never calls this setter (see gaussian_editor_plugin.cpp registration);
+    // it exists solely for this regression test.
+    const uint64_t test_timeout_usec = 30 * 1000; // 30 ms.
+    generator->test_set_wait_timeout_usec(test_timeout_usec);
+
+    _PreviewGeneratorThreadContext ctx;
+    ctx.asset = asset;
+    ctx.generator = generator;
+
+    Thread worker;
+    const uint64_t start_usec = OS::get_singleton()->get_ticks_usec();
+    worker.start(_preview_generator_thread, &ctx);
+    CHECK(worker.is_started());
+    if (worker.is_started()) {
+        // Deliberately never flush the main queue: this simulates main-queue
+        // starvation. If the worker still blocked in wait() (the pre-#592
+        // bug) or never re-checked its deadline, this call would hang the
+        // whole test binary.
+        worker.wait_to_finish();
+    }
+    const uint64_t elapsed_usec = OS::get_singleton()->get_ticks_usec() - start_usec;
+
+    // The worker must return (not hang), honoring roughly the configured
+    // timeout -- not returning instantly (which would mean the timeout was
+    // not honored at all) and nowhere near the real 10s production default.
+    CHECK(elapsed_usec >= test_timeout_usec);
+    CHECK(elapsed_usec < 5 * 1000 * 1000); // Generous bound, still far below the 10s prod backstop.
+
+    CHECK(ctx.ran_on_worker);
+    CHECK_FALSE(ctx.texture.is_valid());
+    CHECK(String(ctx.metadata.get(StringName("gaussian_preview_source"), String())) != "stored_thumbnail");
+
+    // Lifetime contract from #592: abandoning the wait must not free the
+    // shared request out from under the still-queued main-thread callable.
+    // The message is still sitting in the main queue (never flushed above);
+    // flush it now and prove running it is still safe (no crash, no UAF)
+    // even though nothing reads its result anymore.
+    CallQueue *main_queue = MessageQueue::get_main_singleton();
+    if (main_queue) {
+        main_queue->flush();
+    }
+#endif
+}
+
+// See the [Editor] tag note on the starvation test above: this test needs
+// the same MessageQueue main singleton, for the same reason.
+TEST_CASE("[GaussianSplatting][Thumbnail][Editor] Editor preview generator aborts promptly instead of waiting out the timeout (#592)") {
+#ifndef THREADS_ENABLED
+    MESSAGE("Skipping - THREADS_ENABLED is not enabled in this build");
+    return;
+#else
+    // Self-protection against a vacuous pass. Unlike the starvation test above
+    // -- whose `elapsed_usec >= test_timeout_usec` assertion cannot hold if the
+    // worker returned instantly -- EVERY assertion in this test also holds on
+    // an early return: a fast elapsed time, ran_on_worker, and a null texture
+    // are exactly what _create_preview_texture_from_image()'s
+    // ERR_FAIL_NULL_V_MSG(main_queue, ...) early-out produces. So if the
+    // [Editor] tag were ever dropped from this test's name, the harness would
+    // not create the MessageQueue main singleton, the worker would bail on the
+    // first line, and this test would go green while proving nothing about
+    // abort(). Fail loudly on that precondition instead.
+    REQUIRE_MESSAGE(MessageQueue::get_main_singleton() != nullptr,
+            "This test requires the [Editor] tag in its name: tests/test_main.cpp's "
+            "GodotTestCaseListener gates MessageQueue main-singleton setup on the "
+            "literal substring \"[Editor]\"/\"[SceneTree]\". Without it the worker "
+            "early-returns and every assertion below passes for the wrong reason.");
+
+    Ref<GaussianSplatAsset> asset = _make_thumbnail_fixture_asset(1);
+    asset->set_source_path("res://preview_worker_abort_fixture.ply");
+
+    Ref<GaussianSplatAssetPreviewGenerator> generator;
+    generator.instantiate();
+    // Deliberately leave the wait timeout at its real production default: this
+    // test must prove abort() unblocks the worker almost immediately
+    // regardless of the timeout value, exactly as
+    // EditorResourcePreview::stop() needs during editor shutdown.
+    REQUIRE(generator->test_get_wait_timeout_usec() == GaussianSplatAssetPreviewGenerator::DEFAULT_WAIT_TIMEOUT_USEC);
+
+    // Call abort() before the worker even starts. The wait loop re-checks
+    // aborted.is_set() every poll iteration regardless of when it was set,
+    // so this is a deterministic stand-in for EditorResourcePreview::stop()
+    // racing with (or preceding) an in-flight generate() call -- it removes
+    // any dependence on thread-scheduling timing from this test.
+    generator->abort();
+
+    _PreviewGeneratorThreadContext ctx;
+    ctx.asset = asset;
+    ctx.generator = generator;
+
+    Thread worker;
+    const uint64_t start_usec = OS::get_singleton()->get_ticks_usec();
+    worker.start(_preview_generator_thread, &ctx);
+    CHECK(worker.is_started());
+    if (worker.is_started()) {
+        // Main queue is deliberately never flushed: only abort() can unblock
+        // this worker.
+        worker.wait_to_finish();
+    }
+    const uint64_t elapsed_usec = OS::get_singleton()->get_ticks_usec() - start_usec;
+
+    // abort() must short-circuit the wait almost immediately: nowhere near
+    // the 10s production timeout (and this generator was never given a
+    // shrunk timeout, so a pass here cannot be explained by the timeout
+    // firing instead of the abort signal).
+    CHECK(elapsed_usec < 2 * 1000 * 1000); // Well under 2s, let alone 10s.
+    CHECK(ctx.ran_on_worker);
+    CHECK_FALSE(ctx.texture.is_valid());
+
+    // Same lifetime contract as the starvation test above: flushing the
+    // still-queued callable after the wait was abandoned must not crash or
+    // use freed memory.
+    CallQueue *main_queue = MessageQueue::get_main_singleton();
+    if (main_queue) {
+        main_queue->flush();
+    }
 #endif
 }
 

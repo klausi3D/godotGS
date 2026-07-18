@@ -303,7 +303,6 @@ bool test_scalability() {
         HierarchicalSplatStructure structure;
         HierarchicalSplatStructure::BuildParams params;
         params.max_depth = 8;
-        params.parallel_build = (count > 10000);
 
         uint64_t start = OS::get_singleton()->get_ticks_usec();
         structure.build_hierarchy(splats, params);
@@ -499,7 +498,7 @@ TEST_CASE("[GaussianSplatting] Hierarchical LOD query keeps index and weight car
     memdelete(camera);
 }
 
-TEST_CASE("[GaussianSplatting] Hierarchical parallel_build fallback still subdivides the tree") {
+TEST_CASE("[GaussianSplatting] Hierarchical large build subdivides the tree") {
     GaussianSplatting::Tests::LODSystemTest fixture;
     Vector<GaussianSplatting::GaussianData> splats = fixture.generate_test_splats(20000, 75.0f);
 
@@ -507,7 +506,6 @@ TEST_CASE("[GaussianSplatting] Hierarchical parallel_build fallback still subdiv
     GaussianSplatting::HierarchicalSplatStructure::BuildParams params;
     params.max_depth = 7;
     params.min_splats_per_node = 16;
-    params.parallel_build = true;
     structure.build_hierarchy(splats, params);
 
     const GaussianSplatting::HierarchicalSplatStructure::TreeStats stats = structure.get_statistics();

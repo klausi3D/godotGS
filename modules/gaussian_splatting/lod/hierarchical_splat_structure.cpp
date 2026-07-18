@@ -89,13 +89,11 @@ void HierarchicalSplatStructure::build_hierarchy(
     root->depth = 0;
     nodes_created++;
 
-    // Keep the live path safe until a real parallel builder exists.
-    if (params.parallel_build && total_splats > 10000) {
-        WARN_PRINT_ONCE("[HierarchicalSplatStructure] parallel_build requested, but the parallel hierarchy builder is not implemented; falling back to sequential build.");
-        build_node_recursive(root.get(), splat_data, 0, total_splats, 0, params);
-    } else {
-        build_node_recursive(root.get(), splat_data, 0, total_splats, 0, params);
-    }
+    // The builder is sequential. A parallel (WorkerThreadPool subtree) builder was
+    // never implemented; the former `parallel_build` flag only warned and ran this
+    // same path, so it was removed rather than advertise a capability that does not
+    // exist (#605). Follow-up for real parallelism tracked separately.
+    build_node_recursive(root.get(), splat_data, 0, total_splats, 0, params);
 
     // Compute statistics for all nodes
     compute_node_statistics(root.get(), splat_data);

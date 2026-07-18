@@ -82,7 +82,6 @@ public:
         uint32_t min_splats_per_node = 16; // Minimum splats to subdivide
         float size_threshold = 0.01f;      // Minimum node size
         bool compute_importance = true;    // Consume source GaussianData::importance for LOD decisions; otherwise treat splats as equally important.
-        bool parallel_build = false;       // Requests parallel build, but the live path still uses the supported sequential builder.
     };
 
 public:

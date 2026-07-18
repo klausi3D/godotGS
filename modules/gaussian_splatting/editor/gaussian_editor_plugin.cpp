@@ -188,6 +188,10 @@ GaussianEditorPlugin::~GaussianEditorPlugin() {
     hot_reload_processing = false;
 }
 
+GaussianSplatNode3D *GaussianEditorPlugin::_get_current_node() const {
+    return Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(current_node_id));
+}
+
 void GaussianEditorPlugin::_bind_methods() {
     // Bind methods if needed for signals
 }
@@ -300,7 +304,7 @@ void GaussianEditorPlugin::edit(Object *p_object) {
     _clear_selection();
 
     if (GaussianSplatNode3D *node = Object::cast_to<GaussianSplatNode3D>(p_object)) {
-        current_node = node;
+        current_node_id = node->get_instance_id();
         current_renderer = node->get_renderer();
         active_asset = node->get_splat_asset();
         current_source_path = _get_node_source_path(node);
@@ -354,6 +358,11 @@ Error GaussianEditorPlugin::_import_from_path(const String &p_path, const Dictio
 
     EditorFileSystem *fs = EditorFileSystem::get_singleton();
     ERR_FAIL_NULL_V(fs, ERR_UNCONFIGURED);
+
+    // Resolve the selection once, fresh, at the top of this call — this
+    // method runs from both direct UI callbacks and the hot-reload timer
+    // path, so current_node must not be a stale raw pointer (#515).
+    GaussianSplatNode3D *current_node = _get_current_node();
 
     // Select importer based on file extension.
     String extension = p_path.get_extension().to_lower();
@@ -430,6 +439,7 @@ void GaussianEditorPlugin::_show_reimport_dialog(const Dictionary &p_options) {
 void GaussianEditorPlugin::_sync_ui_from_asset() {
     // Keep hot-reload watches aligned with the current selection; all visible UI
     // has moved to the asset inspector and import dialog.
+    GaussianSplatNode3D *current_node = _get_current_node();
     ObjectID node_id = current_node ? current_node->get_instance_id() : ObjectID();
     if (!current_source_path.is_empty()) {
         _track_hot_reload_source(current_source_path, last_import_options, node_id);
@@ -441,7 +451,7 @@ void GaussianEditorPlugin::_sync_ui_from_asset() {
 
 void GaussianEditorPlugin::_clear_selection() {
     current_renderer.unref();
-    current_node = nullptr;
+    current_node_id = ObjectID();
     active_asset.unref();
     current_source_path.clear();
     last_import_options.clear();
@@ -638,6 +648,7 @@ static uint64_t _get_file_timestamp(const String &p_path) {
 }
 
 void GaussianEditorPlugin::_on_import_dialog_watch(const String &p_path) {
+    GaussianSplatNode3D *current_node = _get_current_node();
     ObjectID node_id = current_node ? current_node->get_instance_id() : ObjectID();
     _track_hot_reload_source(p_path, Dictionary(), node_id);
 }
@@ -727,7 +738,7 @@ void GaussianEditorPlugin::_process_hot_reload_for_watch(const String &p_path, H
     Vector<GaussianSplatNode3D *> watched_nodes = _collect_live_hot_reload_nodes(p_watch.node_ids);
     GaussianSplatNode3D *target_node = watched_nodes.is_empty() ? nullptr : watched_nodes[0];
 
-    GaussianSplatNode3D *previous_node = current_node;
+    ObjectID previous_node_id = current_node_id;
     Ref<GaussianSplatRenderer> previous_renderer = current_renderer;
     Ref<GaussianSplatAsset> previous_asset = active_asset;
     String previous_source_path = current_source_path;
@@ -735,13 +746,13 @@ void GaussianEditorPlugin::_process_hot_reload_for_watch(const String &p_path, H
     const bool restore_selection_asset = previous_asset.is_valid() &&
             (previous_asset->get_path() == p_path || previous_source_path == p_path);
 
-    const bool context_swapped = target_node && target_node != current_node;
+    const bool context_swapped = target_node && target_node->get_instance_id() != current_node_id;
 
     auto restore_context = [&]() {
         if (!context_swapped) {
             return;
         }
-        current_node = previous_node;
+        current_node_id = previous_node_id;
         current_renderer = previous_renderer;
         active_asset = previous_asset;
         current_source_path = previous_source_path;
@@ -771,7 +782,7 @@ void GaussianEditorPlugin::_process_hot_reload_for_watch(const String &p_path, H
         }
 
         if (target_node) {
-            current_node = target_node;
+            current_node_id = target_node->get_instance_id();
             current_renderer = target_node->get_renderer();
             active_asset = target_node->get_splat_asset();
             current_source_path = _get_node_source_path(target_node);
@@ -800,8 +811,10 @@ void GaussianEditorPlugin::_process_hot_reload_for_watch(const String &p_path, H
 	}
 
 	_apply_hot_reload_asset_to_nodes(p_path, watched_nodes, refreshed_asset);
-    if (watched_nodes.is_empty() && current_node) {
-        current_node->force_update();
+    if (watched_nodes.is_empty()) {
+        if (GaussianSplatNode3D *current_node = _get_current_node()) {
+            current_node->force_update();
+        }
     }
     if (!watched_nodes.is_empty() && (current_source_path == p_path ||
             (active_asset.is_valid() && active_asset->get_path() == p_path))) {

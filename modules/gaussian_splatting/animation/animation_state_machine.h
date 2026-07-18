@@ -95,7 +95,6 @@ private:
     Ref<GaussianIncrementalSaver> incremental_saver;
 
     // Internal methods
-    void _validate_clip_index(int p_index) const;
     void _update_blend_weights(float p_delta);
     Variant _sample_track_at_time(const AnimationTrack& track, float time, int splat_index) const;
 
@@ -135,7 +134,10 @@ public:
     void pause();
     void stop();
     void seek(float p_time);
-    void set_playback_speed(float p_speed) { playback_speed = p_speed; }
+    // Defined out-of-line: it rejects non-finite input via the shared
+    // sanitizer in the .cpp. A non-finite speed makes current_time non-finite
+    // in update(), which freezes playback (#598 second adjacent gap).
+    void set_playback_speed(float p_speed);
     float get_playback_speed() const { return playback_speed; }
 
     // State queries
@@ -145,6 +147,12 @@ public:
     bool is_playing() const { return state == ANIMATION_STATE_PLAYING; }
 
     // Blending system
+    // Schedules a DELAYED HARD SWITCH to p_clip_index after p_switch_delay seconds.
+    // This does NOT cross-fade: until the delay elapses the current clip is sampled
+    // unchanged, then current_clip_index is committed in one step (#599).
+    void switch_to_clip_delayed(int p_clip_index, float p_switch_delay = 0.3f);
+    // Deprecated alias for switch_to_clip_delayed(); the historical name implied a
+    // cross-fade that was never implemented. Retained for script back-compat.
     void blend_to_clip(int p_clip_index, float p_blend_duration = 0.3f);
     void set_clip_weight(int p_clip_index, float p_weight);
     float get_clip_weight(int p_clip_index) const;

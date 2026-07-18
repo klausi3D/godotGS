@@ -150,6 +150,7 @@
 			<return type="int" enum="Error" />
 			<param index="0" name="file_path" type="String" />
 			<description>
+				Returns [constant @GlobalScope.OK] if [param file_path] is a structurally valid incremental ([code].gsif[/code]) file. Validation runs the same non-mutating header, change-table, payload-bounds and payload-decode checks that [method load_and_apply_changes] performs, rather than only checking the magic bytes, so a file that validates will also apply.
 			</description>
 		</method>
 	</methods>

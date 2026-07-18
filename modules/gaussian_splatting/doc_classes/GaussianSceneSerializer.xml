@@ -5,6 +5,8 @@
 	</brief_description>
 	<description>
 		A [Resource] that serializes Gaussian splat scenes to, and loads them from, the on-disk [code].gsf[/code] format (magic/version-checked, optionally per-chunk checksummed). Writes go through the module's atomic-save helper.
+		[method load_scene] is transactional: the whole file is parsed and structurally validated (declared chunk count plus a terminating end-of-file chunk) before anything is committed to the target, so a truncated or incomplete file is rejected instead of loading partially. [method validate_file] runs that same parser in a non-mutating mode, so a file that validates will also load.
+		[b]Known limitation (issue #600):[/b] the format persists only the per-splat data (which embeds the first-order spherical-harmonic band). It does [b]not[/b] persist the high-order SH sidecar or the 2D (surfel) mode flag; both reset to their defaults on load. [method save_scene] emits a runtime warning when a save would drop either of them. Lossless persistence is deferred to a future format revision.
 	</description>
 	<tutorials>
 	</tutorials>
@@ -87,6 +89,7 @@
 			<param index="2" name="animation" type="GaussianAnimationStateMachine" default="null" />
 			<param index="3" name="metadata" type="Variant" default="null" />
 			<description>
+				Loads a [code].gsf[/code] scene into [param gaussian_data] (and, when supplied, [param animation] and [param metadata]). The load is transactional: the file is parsed and structurally validated in full before any target is mutated, so a truncated or structurally incomplete file returns [constant @GlobalScope.ERR_FILE_CORRUPT] and leaves the targets untouched. The high-order SH sidecar and 2D-mode flag are not carried by the format (see the class description, issue #600).
 			</description>
 		</method>
 		<method name="remove_asset_reference">
@@ -111,6 +114,7 @@
 			<param index="2" name="animation" type="GaussianAnimationStateMachine" />
 			<param index="3" name="metadata" type="Dictionary" default="{}" />
 			<description>
+				Serializes [param gaussian_data] (and, when supplied, [param animation] and [param metadata]) to a [code].gsf[/code] file through the module's atomic-save helper. Emits a runtime warning if [param gaussian_data] carries high-order SH coefficients or is flagged 2D, because the format does not persist those (see the class description, issue #600).
 			</description>
 		</method>
 		<method name="set_compression_level">
@@ -146,6 +150,7 @@
 			<return type="int" enum="Error" />
 			<param index="0" name="file_path" type="String" />
 			<description>
+				Returns [constant @GlobalScope.OK] if [param file_path] is a structurally valid [code].gsf[/code] file. Validation runs the same parser [method load_scene] uses (in a non-mutating mode), so a file that validates will also load; it does not stop at the header. When this serializer has checksums enabled it also verifies every chunk checksum.
 			</description>
 		</method>
 	</methods>

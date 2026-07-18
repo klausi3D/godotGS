@@ -36,7 +36,13 @@ private:
 
     // Current selection
     Ref<GaussianSplatRenderer> current_renderer;
-    GaussianSplatNode3D *current_node = nullptr;
+    // The selected node is dereferenced from deferred/async contexts (the
+    // hot-reload timer callback, _import_from_path()), so it is tracked by
+    // ObjectID and resolved via ObjectDB::get_instance() at each use — the
+    // same pattern as the inspector plugins and the hot-reload node lists
+    // (HotReloadWatch::node_ids) below — instead of a raw pointer that could
+    // dangle if the node is freed between edit() and a later deferred call.
+    ObjectID current_node_id;
     Ref<GaussianSplatAsset> active_asset;
     String current_source_path;
     Dictionary last_import_options;
@@ -71,6 +77,10 @@ private:
     int inspector_stats_frame_accumulator = 0;
 
     void _initialize_editor_ui_once();
+    // Resolves current_node_id to a live node, or nullptr if it has been
+    // freed since it was set. Call this at the top of any method (including
+    // deferred/timer callbacks) that needs to dereference the selection.
+    GaussianSplatNode3D *_get_current_node() const;
     void _on_import_file_selected(const String &p_path);
     void _update_stats();
     void _update_inspector_stats();

@@ -18,13 +18,13 @@ platforms:
       - "The production evidence route in tests/ci/collect_production_evidence.ps1 exercises non-headless Vulkan runtime scripts on Windows."
     notes: "Windows is the strongest in-repo validation lane, but the current fresh green evidence is from PR #368 rather than older failing master runs. Windows nightly assets are current public artifacts when that lane succeeds; they are not a workflow guarantee for every publish. No stable v* release is published yet."
   Linux:
-    state: sample-project-tested
+    state: smoke-tested
     public_binaries: "Guaranteed nightly publish floor: Linux editor tarball in release runs where publishing succeeds."
     evidence:
       - "SUPPORTED_PLATFORMS in modules/gaussian_splatting/config.py accepts linuxbsd."
       - "Release Builds compiles and publishes the Linux editor in .github/workflows/release_builds.yml."
-      - "Baseline QA builds a Linux editor, imports the project, and runs baseline QA under xvfb in .github/workflows/baseline_qa.yml."
-    notes: "Linux remains the fastest public evaluation path and the guaranteed release asset floor. The documented validation includes a sample-project QA lane under xvfb, but it is still not an interactive editor or hardware-GPU validation row; no fresh run ID is added in this docs slice."
+      - "Baseline QA builds a Linux editor, imports the project, and runs the ply, pipeline, runtime, and module categories headless under xvfb in .github/workflows/baseline_qa.yml (CPU-Only QA Tests job, run_baseline_qa.py --categories ply,pipeline,runtime,module)."
+    notes: "Linux remains the fastest public evaluation path and the guaranteed release asset floor. Corrected 2026-07-18 (#596): the Linux CI lane does not select the qa or sorting categories, so no QA-scene or GPU-sorting lane actually runs on Linux — smoke-tested (minimal headless import + runtime lane) is the accurate level, not sample-project-tested (which requires a QA-scene lane to pass). No fresh run ID is added in this docs slice."
   macOS:
     state: build-supported
     public_binaries: "No public macOS binaries at present; build from source."
@@ -57,11 +57,11 @@ tested_configurations:
       - "PR #368 Actions run 26128105716 runtime-validation-report: passed=3/3; GPU Streaming Stress tier_1m within_budget=true, frame_p95_ms=159.624, residency_ratio=1.0, fallback_rate=0.0"
     notes: "Fresh passing evidence is PR-scoped until the calibration lands on master. It proves the adapter, render route, and streaming runtime gate; Windows OS version and NVIDIA driver version are still not printed in repo-owned evidence."
   - platform: "Linux"
-    state: "sample-project-tested"
+    state: "smoke-tested"
     os_version: "Ubuntu 24.04.4 LTS (image ubuntu-24.04 20260323.65.1)"
     gpu: "No discrete GPU exposed in the published artifact (xvfb / headless CPU-only lane)"
     driver_runtime: "mesa-vulkan-drivers 25.2.8-0ubuntu0.24.04.1 + xvfb headless import lane"
     evidence:
-      - ".github/workflows/baseline_qa.yml CPU-only lane"
+      - ".github/workflows/baseline_qa.yml CPU-Only QA Tests job (ply, pipeline, runtime, module categories only — no qa or sorting category)"
       - ".github/workflows/release_builds.yml Linux editor build lane"
-    notes: "This row preserves the previously documented sample-project/headless evidence. It is not refreshed with a current run ID in this docs slice, and it is still a headless xvfb lane rather than an interactive editor or hardware-GPU validation row."
+    notes: "Corrected 2026-07-18 (#596): this row previously claimed sample-project-tested / a passing QA-scene lane, but the Linux CPU-only job does not select the qa category (or sorting), so no QA-scene or GPU-sorting evidence exists for this platform. It is a headless xvfb import + runtime smoke lane, not an interactive editor or hardware-GPU validation row. Not refreshed with a current run ID in this docs slice."

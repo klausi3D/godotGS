@@ -76,10 +76,80 @@ manifest and reclassify #369 before cutting a candidate.
 
 The contract checker currently validates that required workflow files exist and
 contain the required job markers. It does not yet parse GitHub Actions YAML
-deeply enough to prove manual-input bypasses, path-filter bypasses, Linux-only
-publishing, unmatched release-file allowances, or open-world advisory-only
-behavior. Those no-downgrade rules remain documented review policy in the
-manifest until a workflow-behavior parser is added.
+deeply enough to prove manual-input bypasses, path-filter bypasses, or
+open-world advisory-only behavior. Those no-downgrade rules remain documented
+review policy in the manifest until a workflow-behavior parser is added.
+
+## Stable Release Candidate Gate
+
+`release_builds.yml` maps a `v*` tag push (and a manual stable dispatch) to
+`channel=stable, publish=true`. That publish path is gated by the
+`release_candidate_gate` job, which the manifest tracks as a required job marker
+for `release_builds.yml` (issue #593):
+
+- **No Linux-only stable release.** For the stable/candidate channel the gate
+  fails unless both `build_linux` and `build_windows` succeeded, so a Windows
+  runner outage blocks a stable publish instead of silently shipping a
+  Linux-only release. Nightly prereleases keep the Linux-only tolerance.
+- **No unmatched release files.** `publish_release` sets
+  `fail_on_unmatched_files: true` for the stable channel, so a missing asset
+  fails the publish rather than shipping a partial release. Nightly keeps the
+  relaxed behavior.
+- **Candidate validation is required.** For the stable/tag path the gate runs
+  `check_renderer_release_gates.py --mode candidate` against a public-alpha
+  evidence bundle and **fails closed** when that bundle is absent, so a tag can
+  never publish without passing candidate validation. `publish_release` hard
+  depends on the gate's success.
+
+**Remaining scoped gap (issue #360).** No CI lane yet produces the public-alpha
+candidate evidence bundle (candidate GPU-harness report, benchmark-lane report,
+artifact SHA/commit-parity, and issue snapshot). Until that pipeline is wired,
+the gate fails closed on every real `v*` tag; a maintainer cutting a candidate
+supplies the bundle out-of-band by pointing the `RELEASE_CANDIDATE_EVIDENCE`
+(and optional `RELEASE_CANDIDATE_ISSUES`) repo/environment variable at a
+produced bundle. Generating the bundle in-workflow so a green stable tag is
+self-proving is tracked as follow-up under #360/#593.
+
+### Evidence is bound to the commit and to the shipped bytes
+
+Candidate validation on its own only proves the evidence bundle is *internally*
+consistent: `--mode candidate` re-hashes the files the bundle points at and
+checks them against the bundle's own recorded `godot_binary_commit`. A bundle
+produced for an older, fully validated commit stays internally consistent
+forever, so without further binding it would authorize publishing a *different*,
+never-validated commit's binaries. Three checks close that hole:
+
+1. **Commit binding.** The gate passes `--expected-commit ${{ github.sha }}`.
+   The bundle's `commit` must equal the commit being published, exactly.
+2. **Built-bytes binding.** The gate downloads the archives `build_linux` and
+   `build_windows` produced *in this run*, hashes them, and passes
+   `--artifact-sha linux_release_archive=<sha256>` (and the Windows equivalent).
+   The bundle must record exactly those digests, so the validated artifact and
+   the built artifact are provably the same bytes. The gate also requires each
+   published `.sha256` sidecar to describe its archive, and requires the Linux
+   `BUILD-INFO.txt` to record the commit being published — the latter applies on
+   the nightly channel too, which has no evidence bundle at all.
+3. **Shipped-bytes binding.** `publish_release` runs as a separate job that
+   re-downloads the artifacts, so the gate never saw what it uploads. The gate
+   therefore writes a `release-attestation.json` (commit + sha256 of every file
+   it validated) via `tests/ci/release_attestation.py generate`, and
+   `publish_release` re-hashes its downloaded payload and requires an exact
+   match with `release_attestation.py verify` before calling
+   `softprops/action-gh-release`. A missing attestation, a changed digest, a
+   missing asset, an unattested extra file, or a commit mismatch all fail the
+   publish.
+
+Together these make the release chain closed: `github.sha` == evidence commit ==
+BUILD-INFO commit; evidence artifact digests == digests of the archives built in
+this run == digests in the attestation == digests of the bytes uploaded to the
+GitHub release.
+
+The contract checker verifies the `release_candidate_gate` job marker is present
+but does not parse the job's runtime both-platform / candidate / binding logic;
+those specifics remain YAML-level enforcement recorded under
+`workflow_policy.workflow_enforced_rules` in the manifest. The binding logic
+itself is unit-tested in `tests/ci/test_renderer_release_gates.py`
+(`CandidateSupplyChainBindingTests`) and `tests/ci/test_release_attestation.py`.
 
 ## Renderer Evidence
 

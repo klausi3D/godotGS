@@ -1118,11 +1118,14 @@ TEST_CASE("[GaussianSplatting][WorldIO][MalformedCorpus] gsplatworld rejects a c
     _remove_world_io_fixture(path);
 }
 
-// F6 (checked_mul_u64 on splat_count * sh_high_order * sizeof(Vector3)) is
-// defense-in-depth and not reachable through the public header inputs: the
-// sh_high_order <= 12 cap caps sh_bytes at splat_count * 144, which fits in
-// uint64 for any uint32 splat_count. No standalone test is added — the path
-// would require directly invoking the helper.
+// The SH extent guards form a ladder over splat_count * sh_high_order (both are
+// uncapped uint32 header fields — the loader deliberately does NOT clamp
+// sh_high_order, see io/gaussian_splat_world_io.cpp): (1) checked_mul_u64 rejects
+// products whose *byte* size overflows uint64; (2) the UINT32_MAX count cap (#582)
+// rejects products that fit uint64 but exceed the uint32-indexed LocalVector that
+// both the resident payload and the file-backed staged capture use; (3) fits_within
+// rejects byte extents that do not fit the file. Guard (2) is exercised end-to-end
+// by the two #582 regressions at the end of this file.
 
 TEST_CASE("[GaussianSplatting][WorldIO][MalformedCorpus] gsplatworld rejects chunk-index byte-count overflow") {
     // Crafts a chunk record whose indices_offset+index_count produces a
@@ -1185,6 +1188,110 @@ TEST_CASE("[GaussianSplatting][WorldIO][MalformedCorpus] gsplatworld rejects chu
     Ref<Resource> result = loader.load(path, "", &err);
     CHECK_EQ(err, ERR_FILE_CORRUPT);
     CHECK_FALSE(result.is_valid());
+
+    _remove_world_io_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][MalformedCorpus] gsplatworld rejects an SH extent whose element count overflows the 32-bit container") {
+    // #582 regression (publication side). sh_high_order is an uncapped uint32 header
+    // field, so a crafted world can declare splat_count * sh_high_order > UINT32_MAX.
+    // The SH coefficient array is held in a uint32_t-indexed LocalVector<Vector3> by
+    // both the resident payload and the file-backed staged capture; a count above
+    // UINT32_MAX cannot be represented, and the staged capture used to resize with a
+    // truncated 32-bit count while copying the full 64-bit width (heap overrun). The
+    // loader must refuse such an asset up front (ERR_FILE_CORRUPT), never publish a
+    // staged source over it.
+    //
+    // Minimal fixture: splat_count=2, sh_high_order=0x80000001, so the product is
+    // 2^32 + 2 (just over UINT32_MAX) yet gaussian_bytes stays 288 so the gaussian
+    // range guard passes and control reaches the SH count cap. (A true sparse ~51 GiB
+    // fixture that would also slip past the byte-extent `fits_within` check is
+    // impractical on NTFS in the test harness; the count cap is what refuses the
+    // sparse variant, and the direct-capture regression below drives the truncation
+    // path end-to-end.)
+    const String path = _make_world_io_fixture_path("malformed_sh_count_overflow");
+
+    MalformedWorldHeader hdr;
+    hdr.flags = 1u << 3u; // kFlagHasHighSh
+    hdr.splat_count = 2u;
+    hdr.sh_high_order = 0x80000001u; // 2147483649; 2 * 2147483649 == 2^32 + 2 > UINT32_MAX
+    hdr.gaussian_offset = 104u;
+    hdr.sh_offset = 104u + 2u * uint64_t(sizeof(Gaussian));
+    REQUIRE(_write_malformed_world(path, hdr, 2u * uint64_t(sizeof(Gaussian))));
+
+    ResourceFormatLoaderGaussianSplatWorld loader;
+    Error err = OK;
+    Ref<Resource> result = loader.load(path, "", &err);
+    CHECK_EQ(err, ERR_FILE_CORRUPT);
+    CHECK_FALSE(result.is_valid());
+
+    _remove_world_io_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][MalformedCorpus] StagedFileChunkPayloadSource refuses an indexed SH capture whose element count overflows the 32-bit destination") {
+    // #582 regression (isolating). The staged SH capture resized its destination with
+    // a uint32_t-truncated element count (`resize(uint32_t(p_count * sh_per_splat))`)
+    // but copied the full 64-bit width, so when p_count * sh_high_order > UINT32_MAX
+    // the destination was undersized and the copy overran the heap. The indexed path
+    // reaches the boundary through DUPLICATE indices: p_count (the number of requested
+    // slots) can exceed splat_count while every index stays in-bounds, so the
+    // load-time cap on splat_count * sh_high_order does not bound it — the capture
+    // itself must fail closed.
+    //
+    // Values chosen so p_count * sh_high_order == 2^32 exactly: the OLD resize
+    // truncated to 0 and the following copy loop indexed a zero-length LocalVector
+    // through operator[] (CRASH_BAD_UNSIGNED_INDEX in dev builds) — the heap overrun.
+    // WITHOUT the fix this test aborts/overruns; WITH the fix the capture returns
+    // false before any resize. Allocations stay small: the fixture holds only
+    // splat_count(2) gaussians + range_count(2) * sh_high_order SH coefficients
+    // (~1.5 MiB), and only that 2-splat range is ever read.
+    const uint32_t sh_high_order = 1u << 16; // 65536
+    const uint32_t splat_count = 2u;
+    const uint32_t requested_count = 1u << 16; // 65536; 65536 * 65536 == 2^32 > UINT32_MAX
+
+    const String path = _make_world_io_fixture_path("staged_sh_overflow_indexed");
+    const uint64_t gaussian_bytes = uint64_t(splat_count) * sizeof(Gaussian);
+    const uint64_t sh_offset = gaussian_bytes;
+    const uint64_t sh_range_bytes = uint64_t(splat_count) * uint64_t(sh_high_order) * sizeof(Vector3);
+    {
+        Ref<FileAccess> f = FileAccess::open(path, FileAccess::WRITE);
+        REQUIRE(f.is_valid());
+        const Vector<Gaussian> g = build_staged_payload_gaussians(splat_count);
+        f->store_buffer(reinterpret_cast<const uint8_t *>(g.ptr()), gaussian_bytes);
+        PackedByteArray zeros;
+        zeros.resize(1 << 16);
+        uint64_t remaining = sh_range_bytes;
+        while (remaining > 0) {
+            const uint64_t n = MIN(remaining, uint64_t(zeros.size()));
+            f->store_buffer(zeros.ptr(), n);
+            remaining -= n;
+        }
+        f.unref();
+    }
+
+    Ref<StagedFileChunkPayloadSource> source;
+    source.instantiate();
+    source->configure(path, 0, sh_offset, splat_count, /*sh_degree=*/3u, /*sh_first_order=*/0u, sh_high_order, AABB());
+
+    // 65536 duplicate slots alternating {0,1}: max_idx = 1 < splat_count, yet
+    // requested_count * sh_high_order == 2^32.
+    LocalVector<uint32_t> indices;
+    indices.resize(requested_count);
+    for (uint32_t i = 0; i < requested_count; i++) {
+        indices[i] = i & 1u;
+    }
+
+    LocalVector<Gaussian> snapshot;
+    LocalVector<Vector3> sh_high;
+    uint32_t sh_first = 0;
+    uint32_t sh_high_count = 0;
+    const bool ok = source->capture_indexed_chunk_snapshot(indices.ptr(), requested_count,
+            snapshot, sh_high, sh_first, sh_high_count);
+
+    // Fail-closed: refuse rather than truncate-and-overrun. The destination is left
+    // untouched (no partial/truncated allocation).
+    CHECK_FALSE(ok);
+    CHECK(sh_high.is_empty());
 
     _remove_world_io_fixture(path);
 }
