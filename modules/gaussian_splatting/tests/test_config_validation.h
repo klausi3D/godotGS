@@ -612,6 +612,164 @@ TEST_CASE("[GaussianSplatting][Config] GPUSortingConfig rejects invalid max_sort
 		config.max_sort_elements = 100000000;
 		CHECK(config.validate());
 	}
+
+	SUBCASE("Element count above buffer-safe maximum is invalid") {
+		config.max_sort_elements = 500000001;
+		CHECK_FALSE(config.validate());
+		CHECK(config.get_validation_errors().contains("Max sort elements must be <= 500,000,000"));
+	}
+}
+
+// The scalar 500M ceiling only bounds the temp KEY buffer (500M * 8 B = 4.0 GB).
+// The dominant sort-path allocation is the RadixSort per-workgroup/per-bin/per-pass
+// histogram, which scales with radix_bits and workgroup_size:
+//
+//   histogram_bytes = ceil(N / workgroup_size) * (1 << radix_bits) * ceil(key_bits / radix_bits) * 4
+//
+// RenderingDevice::storage_buffer_create() takes a uint32_t, so an oversized value
+// truncates modulo 2^32 and hands back a buffer smaller than the shaders index.
+// validate() must therefore reject on TOTAL sort-path allocation, not on the key
+// buffer alone.
+TEST_CASE("[GaussianSplatting][Config] GPUSortingConfig rejects sort-path allocation that would truncate") {
+	GPUSortingConfig config;
+	config.reset_to_defaults();
+
+	SUBCASE("Default knobs at the 500M ceiling stay within the device size type") {
+		// wg=256, radix_bits=4, key_bits=64:
+		//   workgroups      = ceil(500,000,000 / 256)   = 1,953,125
+		//   histogram_bytes = 1,953,125 * 16 * 16 * 4   = 2,000,000,000
+		//   temp_keys       = 500,000,000 * 8           = 4,000,000,000
+		// Largest is 4,000,000,000 <= UINT32_MAX (4,294,967,295), so this is safe.
+		config.max_sort_elements = 500000000;
+		CHECK(config.validate());
+	}
+
+	SUBCASE("8-bit radix at the 500M ceiling overflows and is rejected") {
+		// wg=256, radix_bits=8, key_bits=64:
+		//   workgroups      = 1,953,125
+		//   histogram_bytes = 1,953,125 * 256 * 8 * 4 = 16,000,000,000  (~14.9 GiB)
+		// 16,000,000,000 mod 2^32 = 3,115,098,112 -> would silently truncate.
+		config.max_sort_elements = 500000000;
+		config.radix_bits = 8;
+		CHECK_FALSE(config.validate());
+		CHECK(config.get_validation_errors().contains("overflows the RenderingDevice buffer size type"));
+	}
+
+	SUBCASE("Smallest workgroup with 8-bit radix overflows even at the default element count") {
+		// wg=64, radix_bits=8, key_bits=64 -> 128 bytes of histogram PER ELEMENT:
+		//   workgroups      = ceil(50,000,000 / 64)  = 781,250
+		//   histogram_bytes = 781,250 * 256 * 8 * 4  = 6,400,000,000  (~5.96 GiB)
+		// 6,400,000,000 mod 2^32 = 2,105,032,704 -> would silently truncate.
+		config.max_sort_elements = 50000000; // the shipped default
+		config.radix_bits = 8;
+		config.workgroup_size = 64;
+		CHECK_FALSE(config.validate());
+		CHECK(config.get_validation_errors().contains("overflows the RenderingDevice buffer size type"));
+	}
+
+	SUBCASE("Worst-case knobs at the 500M ceiling overflow by a wide margin") {
+		// wg=64, radix_bits=8, key_bits=64:
+		//   histogram_bytes = ceil(500,000,000 / 64) * 256 * 8 * 4 = 64,000,000,000 (~59.6 GiB)
+		// 64,000,000,000 mod 2^32 = 3,870,457,856 -> would silently truncate.
+		config.max_sort_elements = 500000000;
+		config.radix_bits = 8;
+		config.workgroup_size = 64;
+		CHECK_FALSE(config.validate());
+	}
+
+	SUBCASE("Shipped defaults are well inside the bound") {
+		// wg=256, radix_bits=4, key_bits=64, N=50,000,000:
+		//   histogram_bytes = ceil(50,000,000 / 256) * 16 * 16 * 4 = 200,000,512 (~191 MiB)
+		//   temp_keys       = 400,000,000
+		CHECK(config.validate());
+		CHECK(config.get_validation_errors().is_empty());
+	}
+
+	SUBCASE("8-bit radix remains usable at a genuinely safe element count") {
+		// The guard bounds allocation, it does not ban the 8-bit knob.
+		// wg=256, radix_bits=8, key_bits=64, N=100,000,000:
+		//   histogram_bytes = ceil(100,000,000 / 256) * 256 * 8 * 4 = 3,200,000,000 <= UINT32_MAX
+		config.max_sort_elements = 100000000;
+		config.radix_bits = 8;
+		CHECK(config.validate());
+	}
+}
+
+TEST_CASE("[GaussianSplatting][Config] sort_path_max_buffer_bytes reports the true 64-bit size") {
+	// The helper must report the UNTRUNCATED size so callers can reject; if it
+	// wrapped internally the guard would be useless.
+	CHECK(GPUSortingConstants::sort_path_max_buffer_bytes(500000000ull, 8, 64, 64) == 64000000000ull);
+	CHECK(GPUSortingConstants::sort_path_max_buffer_bytes(500000000ull, 8, 256, 64) == 16000000000ull);
+	CHECK(GPUSortingConstants::sort_path_max_buffer_bytes(50000000ull, 8, 64, 64) == 6400000000ull);
+	// Default knobs at the ceiling: temp_keys (4.0 GB) dominates the 2.0 GB histogram.
+	CHECK(GPUSortingConstants::sort_path_max_buffer_bytes(500000000ull, 4, 256, 64) == 4000000000ull);
+
+	CHECK_FALSE(GPUSortingConstants::sort_path_allocation_fits_device_size(500000000ull, 8, 256, 64));
+	CHECK(GPUSortingConstants::sort_path_allocation_fits_device_size(500000000ull, 4, 256, 64));
+}
+
+TEST_CASE("[GaussianSplatting][Config] sort_path_max_buffer_bytes is total for any radix_bits") {
+	// REGRESSION: the helper used to compute `1ull << radix_bits` after guarding
+	// radix_bits only as `> 0`. A shift count at or above the width of the promoted
+	// type is UNDEFINED BEHAVIOUR, so radix_bits >= 64 was UB inside the very helper
+	// the validation surface calls to describe a bad configuration. The helper must
+	// now be TOTAL: defined for every input, with a fail-closed sentinel for radix
+	// widths it cannot size, so it can never depend on being called in the right order.
+	const uint32_t unsupported_radix[] = {0, 1, 2, 3, 5, 6, 7, 9, 16, 31, 32, 33, 63, 64, 65, 127, 128, 255, UINT32_MAX};
+	for (uint32_t radix : unsupported_radix) {
+		CHECK_FALSE(GPUSortingConstants::is_supported_radix_bits(radix));
+		// Defined result, regardless of element count — including the zero-element
+		// path, which must not short-circuit around the unsupported radix.
+		CHECK(GPUSortingConstants::sort_path_max_buffer_bytes(50000000ull, radix, 256, 64) ==
+				GPUSortingConstants::SORT_PATH_SIZE_UNSUPPORTED);
+		CHECK(GPUSortingConstants::sort_path_max_buffer_bytes(0ull, radix, 256, 64) ==
+				GPUSortingConstants::SORT_PATH_SIZE_UNSUPPORTED);
+		// Fail closed: an unsupported config must never look like it fits.
+		CHECK_FALSE(GPUSortingConstants::sort_path_allocation_fits_device_size(50000000ull, radix, 256, 64));
+	}
+
+	// The supported widths are unchanged and still size normally.
+	CHECK(GPUSortingConstants::is_supported_radix_bits(4));
+	CHECK(GPUSortingConstants::is_supported_radix_bits(8));
+	CHECK(GPUSortingConstants::sort_path_max_buffer_bytes(0ull, 4, 256, 64) == 0ull);
+	CHECK(GPUSortingConstants::sort_path_max_buffer_bytes(50000000ull, 8, 64, 64) == 6400000000ull);
+}
+
+TEST_CASE("[GaussianSplatting][Config] get_validation_errors survives an out-of-range radix_bits") {
+	// REGRESSION: get_validation_errors() calls sort_path_max_buffer_bytes()
+	// UNCONDITIONALLY — unlike validate(), it does NOT short-circuit through the
+	// `radix_bits == 4 || radix_bits == 8` check first. So a setting like
+	// radix_bits = 64 hit the undefined shift *while producing the error message that
+	// exists to report it*. A validation path must never be unsafe on exactly the
+	// malformed input it is there to describe.
+	GPUSortingConfig config;
+	config.reset_to_defaults();
+
+	// 64 == the width of the uint64 shifted by the helper; 32 == the width of a
+	// uint32 (the sibling shift in gpu_sorter.cpp); 0 was the only value guarded.
+	const uint32_t bad_radix[] = {0, 32, 64, 65, UINT32_MAX};
+	for (uint32_t radix : bad_radix) {
+		config.radix_bits = radix;
+		CHECK_FALSE(config.validate());
+		// Must return a real, specific error rather than crashing or misbehaving.
+		const String errors = config.get_validation_errors();
+		CHECK_FALSE(errors.is_empty());
+		CHECK(errors.contains("Radix bits must be 4 or 8"));
+		// And it must NOT report the fail-closed sentinel as if it were a byte count.
+		CHECK_FALSE(errors.contains(String::num_uint64(GPUSortingConstants::SORT_PATH_SIZE_UNSUPPORTED)));
+		// Nor may it claim an allocation-size overflow derived from a radix width the
+		// sort path cannot build: that byte count is meaningless (and, before the fix,
+		// was the product of an undefined shift). The radix error above is the truth.
+		CHECK_FALSE(errors.contains("overflows the RenderingDevice buffer size type"));
+	}
+
+	// A supported radix with a genuinely oversized allocation still reports the
+	// allocation error — the sentinel path must not have swallowed it.
+	config.radix_bits = 8;
+	config.workgroup_size = 64;
+	config.max_sort_elements = 50000000;
+	CHECK_FALSE(config.validate());
+	CHECK(config.get_validation_errors().contains("overflows the RenderingDevice buffer size type"));
 }
 
 TEST_CASE("[GaussianSplatting][Config] GPUSortingConfig rejects invalid radix_bits") {
@@ -1436,7 +1594,7 @@ TEST_CASE("[GaussianSplatting][Config] GPUSortingConfig edge case: maximum valid
 
 	// Test maximum reasonable values
 	config.target_sort_time_ms = 1000.0f; // 1 second
-	config.max_sort_elements = UINT32_MAX;
+	config.max_sort_elements = 500000000;
 	config.performance_log_interval = UINT32_MAX;
 
 	CHECK(config.validate());

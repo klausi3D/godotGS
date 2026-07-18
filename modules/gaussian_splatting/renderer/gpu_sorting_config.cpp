@@ -240,6 +240,13 @@ void GPUSortingConfig::reset_to_defaults() {
 }
 
 bool GPUSortingConfig::validate() const {
+    // Absolute ceiling on sort elements: 500M * 8 bytes/element = 4.0 GB for the
+    // 64-bit-key RadixSort temp keys, below RenderingDevice's uint32_t buffer-size
+    // limit. This scalar alone is NOT sufficient — the histogram/wg-prefix buffers
+    // scale with radix_bits/workgroup_size/key_bits and are the dominant term, so
+    // the config-dependent check below must also pass. See
+    // GPUSortingConstants::sort_path_max_buffer_bytes().
+    const uint32_t MAX_SORT_ELEMENTS_LIMIT = 500000000;
     // Maximum overlap records budget: 200M records uses ~2.4 GB VRAM (keys + values).
     // Minimum: 100K records to ensure small scenes work.
     const uint32_t MIN_OVERLAP_RECORDS = 100000;
@@ -249,6 +256,7 @@ bool GPUSortingConfig::validate() const {
 
     return target_sort_time_ms > 0.1f &&
            max_sort_elements > 1000 &&
+           max_sort_elements <= MAX_SORT_ELEMENTS_LIMIT &&
            max_overlap_records >= MIN_OVERLAP_RECORDS &&
            max_overlap_records <= MAX_OVERLAP_RECORDS_LIMIT &&
            max_raster_splats_per_tile >= MIN_RASTER_SPLATS_PER_TILE &&
@@ -259,7 +267,12 @@ bool GPUSortingConfig::validate() const {
            (tile_bits + depth_bits > 0) &&
            (tile_bits + depth_bits <= key_bits) &&
            performance_log_interval > 0 &&
-           subgroup_prefix_mode <= SUBGROUP_PREFIX_FORCE_OFF;
+           subgroup_prefix_mode <= SUBGROUP_PREFIX_FORCE_OFF &&
+           // Every sort-path buffer must fit RenderingDevice's uint32_t size
+           // parameter. Checked last so the knob ranges above are already known
+           // good when this runs.
+           GPUSortingConstants::sort_path_allocation_fits_device_size(
+                   uint64_t(max_sort_elements), radix_bits, workgroup_size, key_bits);
 }
 
 String GPUSortingConfig::get_validation_errors() const {
@@ -267,6 +280,32 @@ String GPUSortingConfig::get_validation_errors() const {
 
     if (target_sort_time_ms <= 0.1f) errors += "Target sort time must be > 0.1ms\n";
     if (max_sort_elements <= 1000) errors += "Max sort elements must be > 1000\n";
+    if (max_sort_elements > 500000000) {
+        errors += "Max sort elements must be <= 500,000,000 (prevents 64-bit key buffer size overflow)\n";
+    }
+    {
+        // NOTE: unlike validate(), this runs UNCONDITIONALLY — it must produce a
+        // message for exactly the malformed input it exists to report, so it can
+        // never assume the knob ranges below have already been checked.
+        // sort_path_max_buffer_bytes() is total for any input and returns
+        // SORT_PATH_SIZE_UNSUPPORTED for a radix_bits it cannot size (formerly this
+        // shifted by radix_bits here, which is UB for radix_bits >= 64).
+        const uint64_t sort_buffer_bytes = GPUSortingConstants::sort_path_max_buffer_bytes(
+                uint64_t(max_sort_elements), radix_bits, workgroup_size, key_bits);
+        if (sort_buffer_bytes == GPUSortingConstants::SORT_PATH_SIZE_UNSUPPORTED) {
+            // radix_bits is outside the supported set, so there is no meaningful
+            // byte count to report; the dedicated radix_bits error below names the
+            // actual problem. Emitting the sentinel as a size would be a lie.
+        } else if (sort_buffer_bytes > uint64_t(UINT32_MAX)) {
+            errors += vformat(
+                    "Sort path allocation overflows the RenderingDevice buffer size type: "
+                    "max_sort_elements=%d with radix_bits=%d, workgroup_size=%d, key_bits=%d needs a "
+                    "%s-byte buffer (limit %s). Lower max_sort_elements, raise workgroup_size, or "
+                    "lower radix_bits.\n",
+                    max_sort_elements, radix_bits, workgroup_size, key_bits,
+                    String::num_uint64(sort_buffer_bytes), String::num_uint64(uint64_t(UINT32_MAX)));
+        }
+    }
     if (max_overlap_records < 100000) {
         errors += "Max overlap records must be >= 100,000 (too low may cause render cutoff)\n";
     }
