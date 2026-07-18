@@ -142,7 +142,105 @@ struct PerformanceMetrics {
 	float avg_frame_to_frame_ms = 0.0f;
 	uint64_t cull_projection_contract_mismatch_count = 0;
 	uint32_t raster_pipeline_reformats = 0;
+
+	// --- Single-source per-frame reset helpers (#528) --------------------------
+	// The renderer clears stale telemetry field-by-field at several render-path
+	// sites. Those hand-lists used to be duplicated inline (drift risk: a new
+	// metric added to the struct but missed at a site silently reports the
+	// previous route's value). Each helper below owns exactly one logical group of
+	// fields; every reset site composes the groups it needs, so a group's field
+	// membership is defined once. `tests/ci/check_metric_reset_parity.py` fails
+	// closed if any struct field is neither covered by a helper nor listed in the
+	// guard's explicit not-per-frame-reset allow-list, so a newly added metric can
+	// never silently escape a reset decision. Every value assigned here is the
+	// field's struct default, so the helpers preserve the byte-identical behavior
+	// of the inline lists they replace.
+	//
+	// These are deliberately *partial* resets, not a blanket `*this = {}`: the
+	// sites intentionally leave cumulative/lifetime counters (e.g.
+	// total_frames_rendered, raster_pipeline_reformats) and per-stage outputs
+	// untouched. A single whole-struct reset would corrupt those.
+
+	// Per-frame raster tile occupancy + feature-flag snapshot.
+	void reset_raster_frame_stats();
+	// "Core" GPU tile pass timings (frame + overlap-count..raster).
+	void reset_gpu_core_pass_timings();
+	// Extended GPU tile pass timings (prefix, prefix CPU-sync fallback, resolve).
+	void reset_gpu_extended_pass_timings();
+	// GPU timeline / frame-pacing counters.
+	void reset_gpu_timeline_metrics();
+	// GPU readback-derived state cleared when no rasterizer is present:
+	// utilization, timing serial/behind, and the tile-sort sync fallback counter.
+	void reset_gpu_readback_state();
 };
+
+inline void PerformanceMetrics::reset_raster_frame_stats() {
+	raster_path_reason = String();
+	raster_compute_allowed = false;
+	raster_total_tiles = 0;
+	raster_empty_tiles = 0;
+	raster_overflow_tiles = 0;
+	raster_max_splats_per_tile = 0;
+	raster_avg_splats_per_tile = 0.0f;
+	raster_occupancy_ratio = 0.0f;
+	raster_dense_ratio = 0.0f;
+	raster_overflow_ratio = 0.0f;
+	raster_overlap_records = 0;
+	raster_overlap_record_budget = 0;
+	raster_overlap_record_budget_effective = 0;
+	raster_overlap_record_budget_configured = 0;
+	raster_overlap_thinning_keep_ratio = 1.0f;
+	raster_feature_global_sort = false;
+	raster_feature_packed_stage_data = false;
+	raster_feature_tighter_bounds = false;
+	raster_feature_sh_amortization = false;
+	raster_sh_amortization_divisor = 1;
+	raster_feature_quantized_storage = false;
+	raster_feature_debug_counters = false;
+	raster_tile_splat_capacity = 0;
+	raster_max_raster_splats_per_tile = 0;
+	raster_shader_defines_hash = 0;
+}
+
+inline void PerformanceMetrics::reset_gpu_core_pass_timings() {
+	gpu_frame_time_ms = 0.0f;
+	gpu_frame_time_valid = false;
+	gpu_tile_overlap_count_time_ms = 0.0f;
+	gpu_tile_overlap_count_time_valid = false;
+	gpu_tile_binning_time_ms = 0.0f;
+	gpu_tile_overlap_emit_time_ms = 0.0f;
+	gpu_tile_overlap_emit_time_valid = false;
+	gpu_tile_overlap_sort_time_ms = 0.0f;
+	gpu_tile_overlap_sort_time_valid = false;
+	tile_overlap_sort_cpu_dispatch_ms = 0.0f;
+	tile_overlap_sort_cpu_dispatch_valid = false;
+	gpu_tile_raster_time_ms = 0.0f;
+	gpu_tile_raster_time_valid = false;
+}
+
+inline void PerformanceMetrics::reset_gpu_extended_pass_timings() {
+	gpu_tile_prefix_time_ms = 0.0f;
+	gpu_tile_prefix_time_valid = false;
+	tile_prefix_cpu_sync_fallback_ms = 0.0f;
+	tile_prefix_cpu_sync_fallback_valid = false;
+	gpu_tile_resolve_time_ms = 0.0f;
+	gpu_tile_resolve_time_valid = false;
+}
+
+inline void PerformanceMetrics::reset_gpu_timeline_metrics() {
+	gpu_timeline_inflight_frames = 0;
+	gpu_timeline_completed_frames = 0;
+	gpu_timeline_stall_count = 0;
+	gpu_timeline_stall_ms = 0.0f;
+	gpu_timeline_last_value = 0;
+}
+
+inline void PerformanceMetrics::reset_gpu_readback_state() {
+	gpu_utilization = 0.0f;
+	gpu_timing_frame_serial = 0;
+	gpu_timing_frames_behind = 0;
+	tile_sort_sync_fallback_count = 0;
+}
 
 struct PerformanceState {
 	PerformanceMetrics metrics;
