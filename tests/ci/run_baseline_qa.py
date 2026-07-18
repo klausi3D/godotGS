@@ -26,6 +26,40 @@ TEST_CATEGORIES = ("ply", "pipeline", "sorting", "runtime", "module", "qa")
 CATEGORY_ALIASES = {"all": None}
 CLI_CATEGORY_CHOICES = tuple(CATEGORY_ALIASES.keys()) + TEST_CATEGORIES
 
+# A missing QA baseline is a coverage gap, not a pass. Real golden baselines
+# don't exist yet (blocked on #522/#138), so this script must not fabricate
+# one or silently treat "nothing to compare against" as success without
+# saying so loudly. --require-qa-baseline (or this env var) is the switch
+# that turns the gap into a hard failure once a real baseline lands; no
+# workflow sets either today (see #596).
+REQUIRE_QA_BASELINE_ENV = "GS_CI_REQUIRE_QA_BASELINE"
+QA_BASELINE_COVERAGE_GAP_NOTE = (
+    "QA baseline regression detection is not enforced: no golden baseline "
+    "exists yet (blocked on #522/#138). This is a coverage gap, not a "
+    "verified pass. Pass --require-qa-baseline (or set "
+    f"{REQUIRE_QA_BASELINE_ENV}=1) once a real baseline is committed to make "
+    "this fail instead of skip."
+)
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    """Mirror the GDScript CI harness's env-flag parsing (tests/ci/test_gpu_sorting_ci.gd)."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _ci_warning(message: str) -> None:
+    """Print a [WARN] line plus, under GitHub Actions, a `::warning::`
+    annotation — so a coverage gap shows up in the Checks UI/PR summary
+    instead of only in step logs someone has to open and scroll through."""
+    print(f"[WARN] {message}")
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        # https://docs.github.com/actions/using-workflows/workflow-commands-for-github-actions
+        escaped = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+        print(f"::warning title=QA baseline coverage gap::{escaped}")
+
 
 def resolve_root_path(path_value: str) -> Path:
     """Resolve relative paths from repository root for stable CI behavior."""
@@ -124,6 +158,7 @@ class BaselineQARunner:
     ) -> bool:
         comparison: Dict[str, Any] = {
             "status": "skipped",
+            "coverage_gap": True,
             "mode": "compare",
             "qa_results_path": str(qa_results_path),
             "baseline_path": str(baseline_path),
@@ -139,10 +174,10 @@ class BaselineQARunner:
             "missing_scenes": [],
             "new_scenes": [],
             "regressions": [],
-            "notes": [reason],
+            "notes": [reason, QA_BASELINE_COVERAGE_GAP_NOTE],
             "timestamp_unix": time.time(),
         }
-        print(f"[WARN] {reason} (skipping comparison)")
+        _ci_warning(f"{reason} (skipping comparison). {QA_BASELINE_COVERAGE_GAP_NOTE}")
         self.test_results["summary"]["qa_baseline"] = comparison
         self._write_baseline_artifacts(comparison, report_path, summary_path)
         return True
@@ -448,11 +483,20 @@ class BaselineQARunner:
 
     def _build_baseline_summary_markdown(self, comparison: Dict[str, Any]) -> str:
         status = str(comparison.get("status", "unknown"))
-        icon = "[PASS]" if status in {"passed", "updated"} else "[WARN]" if status == "skipped" else "[FAIL]"
+        coverage_gap = bool(comparison.get("coverage_gap", False))
+        if coverage_gap:
+            icon = "[NO BASELINE - COVERAGE GAP]"
+        elif status in {"passed", "updated"}:
+            icon = "[PASS]"
+        elif status == "skipped":
+            icon = "[WARN]"
+        else:
+            icon = "[FAIL]"
         lines = [
             "# QA Baseline Regression Summary",
             "",
             f"- Status: {icon} `{status}`",
+            f"- Coverage gap (no baseline to enforce against): `{coverage_gap}`",
             f"- Mode: `{comparison.get('mode', 'unknown')}`",
             f"- Baseline path: `{comparison.get('baseline_path', '')}`",
             f"- Baseline present: `{comparison.get('baseline_exists', False)}`",
@@ -540,6 +584,7 @@ class BaselineQARunner:
         """Store or compare QA results against baseline snapshots."""
         comparison: Dict[str, Any] = {
             "status": "not_run",
+            "coverage_gap": False,
             "mode": "update" if update_baseline else "compare",
             "qa_results_path": str(qa_results_path),
             "baseline_path": str(baseline_path),
@@ -606,9 +651,11 @@ class BaselineQARunner:
                 self._write_baseline_artifacts(comparison, report_path, summary_path)
                 return False
 
-            print(f"[WARN] {message} (skipping comparison)")
             comparison["status"] = "skipped"
+            comparison["coverage_gap"] = True
             comparison["notes"].append(f"{message} (comparison skipped)")
+            comparison["notes"].append(QA_BASELINE_COVERAGE_GAP_NOTE)
+            _ci_warning(f"{message} (skipping comparison). {QA_BASELINE_COVERAGE_GAP_NOTE}")
             self.test_results["summary"]["qa_baseline"] = comparison
             self._write_baseline_artifacts(comparison, report_path, summary_path)
             return True
@@ -892,7 +939,13 @@ def main(argv: Optional[List[str]] = None):
     parser.add_argument(
         "--require-qa-baseline",
         action="store_true",
-        help="Fail if baseline file is unavailable in compare mode.",
+        help=(
+            "Fail if baseline file is unavailable in compare mode, instead of "
+            f"skipping with a coverage-gap warning. Equivalent to setting "
+            f"{REQUIRE_QA_BASELINE_ENV}=1. Not passed by any workflow today: "
+            "real QA baselines don't exist yet (#522, #138). Flip this (or the "
+            "env var) once one is committed to tests/ci/baselines/qa_results.json."
+        ),
     )
     parser.add_argument(
         "--baseline-report",
@@ -928,8 +981,15 @@ def main(argv: Optional[List[str]] = None):
 
     if args.quick and category_arg_provided:
         print("[WARN] Ignoring --quick because --category was provided.")
-    if args.update_qa_baseline and args.require_qa_baseline:
-        print("[WARN] Ignoring --require-qa-baseline because --update-qa-baseline was provided.")
+    # --require-qa-baseline and the env var are equivalent switches (see
+    # REQUIRE_QA_BASELINE_ENV above) so enforcement can be flipped on from a
+    # workflow env block without a code/argv change once a real baseline exists.
+    require_qa_baseline_flag = args.require_qa_baseline or _env_flag(REQUIRE_QA_BASELINE_ENV)
+    if args.update_qa_baseline and require_qa_baseline_flag:
+        print(
+            "[WARN] Ignoring --require-qa-baseline/"
+            f"{REQUIRE_QA_BASELINE_ENV} because --update-qa-baseline was provided."
+        )
 
     # Resolve --categories (plural) into a set if provided
     categories_set = None
@@ -979,7 +1039,7 @@ def main(argv: Optional[List[str]] = None):
                 qa_results_path=qa_results_path,
                 baseline_path=qa_baseline_path,
                 update_baseline=args.update_qa_baseline,
-                require_baseline=args.require_qa_baseline and not args.update_qa_baseline,
+                require_baseline=require_qa_baseline_flag and not args.update_qa_baseline,
                 report_path=baseline_report_path,
                 summary_path=baseline_summary_path,
             )

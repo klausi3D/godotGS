@@ -2,6 +2,18 @@ extends SceneTree
 
 # CI-ready GPU Sorting Test
 # Tests GPU sorting functionality with performance validation and proper error handling
+#
+# COVERAGE BOUNDARY (see #594, #622): this suite only exercises the
+# GDScript-visible surface of the sorting subsystem, which is construction
+# only. IGPUSorter/RadixSort::_bind_methods() (gpu_sorter.cpp) does not bind
+# sort()/initialize()/sort_async() to GDScript, so there is no scriptable way
+# for this file to feed a sorter real data and assert output order — the
+# dataset-sorting lanes below intentionally skip rather than fake coverage.
+# Real order-asserting GPU sort tests exist natively (doctest, tagged
+# [RequiresGPU]) in modules/gaussian_splatting/tests/test_gpu_sorting.cpp,
+# but per #622 they are not currently wired into any passing CI batch either
+# (tests/ci/run_gpu_harness.py's GpuSorting batch filter matches 0 of them).
+# Until #622 lands, GPU sort-order correctness has no CI coverage anywhere.
 
 var test_results = {
 	"test_name": "GPU Sorting Tests",
@@ -13,7 +25,8 @@ var test_results = {
 	"skipped_tests": 0,
 	"errors": [],
 	"details": [],
-	"performance_metrics": {}
+	"performance_metrics": {},
+	"coverage_note": "Construction-only smoke checks (RadixSort.new()); no sort-order assertions run in this lane. See #594, #622 for the tracked coverage gap and why it can't be closed from GDScript alone."
 }
 
 # Validation mode:
@@ -61,6 +74,7 @@ func _initialize():
 func _run_suite():
 	print("=== GPU Sorting CI Test Suite ===")
 	print("Script started, running tests...")
+	print("COVERAGE NOTE: " + test_results.coverage_note)
 	test_results.start_time = Time.get_unix_time_from_system()
 	print("Validation mode: %s" % _validation_mode())
 	print("GPU-required CI mode: %s" % ("enabled" if _is_gpu_required_ci_mode() else "disabled"))
@@ -378,6 +392,7 @@ func generate_test_report():
 	print("Failed: %d" % test_results.failed_tests)
 	print("Skipped: %d" % test_results.skipped_tests)
 	print("Duration: %.2f seconds" % duration)
+	print("⚠️  COVERAGE BOUNDARY: " + test_results.coverage_note)
 
 	# Performance summary
 	if test_results.performance_metrics.size() > 0:
