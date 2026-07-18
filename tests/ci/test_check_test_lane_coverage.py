@@ -196,12 +196,50 @@ class RequiresRdIsNotCoverage(unittest.TestCase):
                 f"requires-RD-only case is undeclared: {name}",
             )
 
-    def test_gpu_world_cases_are_counted_in_the_world_declaration(self):
-        """The 4 [RequiresGPU] [World] cases looked laned; they must now be declared."""
+    def test_gpu_world_cases_are_not_credited_to_the_requires_rd_catalogue(self):
+        """[RequiresGPU] [World] cases must be attributed, not treated as covered.
+
+        DERIVED, never hardcoded. An earlier version asserted count == 7 ("3
+        non-GPU + 4 [RequiresGPU]"), which broke the moment #660 moved those 4
+        into real GPU batches - a genuine coverage IMPROVEMENT turned the suite
+        red. Pinning a number here re-creates the drift this guard exists to
+        catch, so assert the property instead: every stranded [World] case is
+        attributed to the [World] declaration, and the declared count equals
+        what is actually attributed.
+        """
+        analysis = GUARD.analyze()
         declarations, _ = GUARD._load_unlaned_declarations()
-        world = next(e for e in declarations if e["test_case"] == "[GaussianSplatting][World]*")
+        index = next(
+            i
+            for i, e in enumerate(declarations)
+            if e["test_case"] == "[GaussianSplatting][World]*"
+        )
+        matched_by, undeclared = GUARD.attribute(analysis.stranded, declarations)
+
+        pattern = str(declarations[index]["test_case"])
+        world_stranded = [
+            name
+            for name, _ in analysis.stranded
+            if GUARD._doctest_wildcmp(name, pattern)
+        ]
         self.assertEqual(
-            world["count"], 7, "3 non-GPU + 4 [RequiresGPU] [World] cases are stranded"
+            matched_by[index],
+            len(world_stranded),
+            "every stranded case matching the [World] pattern must land on that "
+            "declaration, not on a later catch-all",
+        )
+        # NOTE: cases whose tag ORDER puts [World] later (e.g.
+        # [GaussianSplatting][SceneDirector][World]...) do not match this
+        # pattern and are legitimately absorbed by the catch-all. They are
+        # still declared - `undeclared` below is the assertion that matters.
+        self.assertEqual(
+            declarations[index]["count"],
+            matched_by[index],
+            "declared [World] count must equal the attributed stranded count",
+        )
+        self.assertFalse(
+            [name for name, _ in undeclared if "][World]" in name],
+            "no [World] case may be stranded-but-undeclared",
         )
 
 
