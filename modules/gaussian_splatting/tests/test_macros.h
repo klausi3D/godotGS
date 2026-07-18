@@ -107,6 +107,70 @@ public:
         return;                                                           \
     }
 
+// Issue #641 helper: acquire a *local* (non-main) RenderingDevice for tests
+// that legitimately need to own and submit/sync their own device (TileRenderer
+// pipeline creation, the sync-policy contract tests). Two bootstraps can supply
+// one, and before #641 these tests only knew about the first:
+//
+//   * plain `--test` WITH a real RenderingServer (i.e. a `[SceneTree]`-tagged
+//     case, tests/test_main.cpp:333) -> `rs->create_local_rendering_device()`.
+//     Under `--headless` this still returns nullptr: the mock DisplayServer has
+//     no RenderingDevice behind it.
+//   * `--gs-gpu-test` (modules/gaussian_splatting/tests/gs_gpu_test_runner.cpp)
+//     -> there is NO RenderingServer at all, but `_bootstrap_rd()` creates an
+//     offscreen `RenderingDevice` that becomes `RenderingDevice::get_singleton()`.
+//     `RenderingDevice::create_local_device()` (servers/rendering/rendering_device.cpp:7350)
+//     spawns a fresh local device from its context.
+//
+// Returns nullptr when neither bootstrap is present, so the caller skips instead
+// of failing a precondition it cannot satisfy.
+inline RenderingDevice *gs_test_create_local_rendering_device() {
+    if (RenderingServer *rs = RenderingServer::get_singleton()) {
+        if (RenderingDevice *device = rs->create_local_rendering_device()) {
+            return device;
+        }
+    }
+    if (RenderingDevice *rd = RenderingDevice::get_singleton()) {
+        return rd->create_local_device();
+    }
+    return nullptr;
+}
+
+// RAII owner for the device above, mirroring ScopedFallbackRD. The local device
+// is ALWAYS owned by the test (both bootstraps hand back a fresh device), so the
+// guard frees it unconditionally on every scope exit — normal return, early
+// return, or a doctest REQUIRE throw. This is the #334 leak pattern applied to
+// the local-device call sites, which previously relied on a hand-written
+// `memdelete(local_device)` on each return path.
+class ScopedLocalRD {
+public:
+    RenderingDevice *rd = nullptr;
+
+    ScopedLocalRD() {
+        rd = gs_test_create_local_rendering_device();
+    }
+    ~ScopedLocalRD() {
+        if (rd) {
+            memdelete(rd);
+        }
+    }
+    ScopedLocalRD(const ScopedLocalRD &) = delete;
+    ScopedLocalRD &operator=(const ScopedLocalRD &) = delete;
+};
+
+// Publishes an owned `RenderingDevice *local_device` into the calling test's
+// scope, or skips the test when no lane-provided bootstrap can supply one.
+// Tag any TEST_CASE using this `[RequiresGPU]` so the `--gs-gpu-test` harness
+// (tests/ci/run_gpu_harness.py) actually executes it; without that tag it is
+// unreachable by every CI lane, which is exactly the #641 defect.
+#define REQUIRE_LOCAL_GPU_DEVICE()                                        \
+    ScopedLocalRD _gs_local_rd_scope;                                     \
+    RenderingDevice *local_device = _gs_local_rd_scope.rd;                \
+    if (local_device == nullptr) {                                        \
+        MESSAGE("Skipping test - local RenderingDevice unavailable");     \
+        return;                                                           \
+    }
+
 // PR #352 helper for streaming tests: cheap probe symmetric to
 // REQUIRE_GPU_DEVICE(). Skips the calling test when the streaming pipeline
 // has no usable RenderingDevice — i.e. when

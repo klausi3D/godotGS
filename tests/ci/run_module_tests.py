@@ -122,7 +122,17 @@ MODULE_TEST_FILTERS: tuple[tuple[str, tuple[str, ...], tuple[str, ...], bool], .
     # are parsed in test names.
     ("GaussianSplatting [Lifetime]", ("*][Lifetime]*",), ("*][RequiresGPU]*",), True),
     ("GaussianSplatting [Renderer]", ("*GaussianSplatting*][Renderer]*",), ("*][RequiresGPU]*",), False),
-    ("TileRenderer", ("*Shader compilation on local device*",), (), False),
+    # #641: "Shader compilation on local device" is now
+    # `[TileRenderer][RequiresGPU]` and runs in the GPU harness's `TileRenderer`
+    # batch (tests/ci/run_gpu_harness.py), which is the only lane that can give
+    # it a RenderingDevice. The exclude is added so this headless lane stops
+    # claiming to cover a GPU case; it will report "no executed coverage"
+    # (advisory) until it is repointed. Repointing it at the whole
+    # `*[TileRenderer]*` family — which would be real headless coverage of the
+    # prefix-scan/shared-memory contract cases — is blocked on #637, whose
+    # test_tile_async_readback_freshness.cpp cases SIGSEGV under `--test` and
+    # would crash the lane. Do NOT exclude them to work around that.
+    ("TileRenderer", ("*Shader compilation on local device*",), ("*][RequiresGPU]*",), False),
     ("GPU Memory Stream", ("*Triple Buffering*",), (), False),
     ("Streaming Pipeline", ("*[Streaming Pipeline]*",), (), False),
 )
