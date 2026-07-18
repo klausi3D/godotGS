@@ -15,7 +15,13 @@
   duplication + fail-closed) and #525 (embedded sorter GLSL outside the C5 compile
   matrix). **Related but distinct:** #588 (destructor dispatch can block — a separate
   lifetime bug, not addressed here; see "Issue-closure mapping").
-- **Base:** anchored at `origin/master` `237a4b1cc3965fdbd6f12dec825c0e2077b2e9ce`.
+- **Base:** originally anchored at `origin/master`
+  `237a4b1cc3965fdbd6f12dec825c0e2077b2e9ce`. **Re-anchored in review round 2 to
+  `9161d92f349`** (~30 commits later); every `file:line` below was re-verified against that
+  master by `grep -n`, and the drifted ones are corrected in place. The re-anchoring is
+  material, not cosmetic: PR #627 landed in that window and closed the metric-reset half of
+  #528 (§1.4). Anchors that moved are listed in
+  §"Anchor re-verification log" so a reviewer can tell correction from silent edit.
   Builds on the W0 characterization in
   [`stage-first-ownership-inventory.md`](stage-first-ownership-inventory.md) (issue
   #356) — this ADR is the W1/W2 target and migration plan that inventory called for.
@@ -37,7 +43,8 @@
 > slice inherits the ownership map, the corrected map below is normative and the migration
 > plan in §4 is re-derived from it.
 
-**Verified ownership map** (`GaussianSplatRenderer`, base SHA `237a4b1cc3`):
+**Verified ownership map** (`GaussianSplatRenderer`, re-verified on master `9161d92f349` —
+every row below still holds, each owning declaration confirmed a **by-value** member):
 
 | Bucket | Actual owner | Owning declaration | Facade forwarder |
 | --- | --- | --- | --- |
@@ -63,7 +70,7 @@ So: **nine of the fourteen buckets are already owned by an orchestrator or by
 clean pattern the ADR was proposing to build — it owns `render_config` and is the **only**
 orchestrator header that declares **no** `GaussianSplatRenderer *renderer` back-pointer.
 
-Three further count corrections, all verified by grep at the base SHA:
+Three further count corrections, all re-verified by grep on master `9161d92f349`:
 
 - There are **11** `render_*_orchestrator.h` headers, not twelve. **10** declare the raw
   back-pointer `GaussianSplatRenderer *renderer` — `render_config_orchestrator.h` does not.
@@ -74,9 +81,12 @@ Three further count corrections, all verified by grep at the base SHA:
   `render_pipeline_stages.cpp` (16), `render_diagnostics_orchestrator.cpp` (14),
   `render_output_orchestrator.cpp` (7).
 - There are **40** `static … fallback;` locals in `gaussian_splat_renderer.cpp`, not 18.
-  **18** are in the `FrameStateProvider` block (before `:2600`) and **22** are in the
-  facade's own bucket accessors (`:2634-2764`, `:3061-3068`). §1.2 previously addressed only
-  the first 18.
+  **18** are in the `FrameStateProvider` method bodies (`:678-838`) and **22** are in the
+  facade's own bucket accessors (`:2635-2761`). §1.2 previously addressed only the first 18.
+  *(Corrected in round 2: the 22 do **not** extend to `:3061-3068`. `get_debug_state`
+  (`:3061-3068`) is the one forwarder pair in the block that uses **no** `static … fallback;`,
+  so the ADR's uniform "every forwarder has its own static fallback" description is wrong for
+  that pair. S8's grep guard must still reach zero across the file.)*
 
 **The actual defect, restated correctly.** The problem is *not* that the facade owns
 everything and the orchestrators are namespaces. It is that ownership is real but
@@ -91,7 +101,7 @@ everything and the orchestrators are namespaces. It is that ownership is real bu
    the facade without the orchestrator knowing.
 3. `FrameStateProvider` then re-exports them a **third** time as `IFrameStateView` +
    `IFrameMutationAccess` (`gaussian_splat_renderer.h:476-511`), and `FrameDeps` caches raw
-   pointers to the same objects (`h:387-405`) as a **fourth** alias.
+   pointers to the same objects (`h:386-435`, field list `:387-405`) as a **fourth** alias.
 
 So a single `SortingState` is reachable as: orchestrator member → facade accessor →
 provider getter → `deps.sorting_state` pointer. Four aliases, two of them with `static`
@@ -127,7 +137,7 @@ There are **40** `static … fallback;` function-local statics in
 - **18 in the `FrameStateProvider` block** (before `:2600`) — one per bucket getter, e.g.
   `static SortingState fallback;`. The mutable variants return a mutable reference to this
   shared object (`get_sorting_state_mut()`, `:767-775`).
-- **22 in the facade's own forwarding accessors** (`:2634-2764`, `:3061-3068`) — e.g.
+- **22 in the facade's own forwarding accessors** (`:2635-2761`; note `get_debug_state` at `:3061-3068` has none) — e.g.
   `GaussianSplatRenderer::get_scene_state()` at `:2634-2638`:
   ```cpp
   static SceneState fallback;
@@ -176,7 +186,7 @@ RenderFrameContext frame_context = p_frame_context;
 ```
 
 The codebase has already been bitten by this exact class of bug and works around it
-in-place (`render_pipeline_stages.cpp:1174-1177`):
+in-place (`render_pipeline_stages.cpp:1175-1177`; rebind at `:1178-1182`):
 
 ```cpp
 // This path copies RenderFrameContext before attaching frame_plan, so any incoming
@@ -192,26 +202,57 @@ below makes the context **non-copyable** rather than adding another self-referen
 
 ### 1.4 Hazard C — hand-maintained parallel lists with no parity guard (#528, #570, #591)
 
-The single shared `PerformanceMetrics` bundle is zeroed **field-by-field** at three
-independent sites, each ~30–40 fields, none generated from the struct:
+> **Superseded in part — review round 2. The metric-reset half of this hazard is FIXED on
+> master.** PR **#627** (merged 2026-07-18, closing **#528**) landed after this ADR's base and
+> is not reflected in the text below. It also **refuted this ADR's proposed mechanism**. See
+> the re-scoping note at the end of this subsection and the corrected **S1** row in §4 before
+> planning any work here.
 
-| Site | Lines | Scope |
+The single shared `PerformanceMetrics` bundle was zeroed **field-by-field** at three
+independent sites, none generated from the struct:
+
+| Site | Function | Scope |
 | --- | --- | --- |
-| `render_pipeline_stages.cpp` | `2040-2084` | raster/GPU metric reset (frame skip path) |
-| `render_pipeline_stages.cpp` | `2943-2983` | raster/GPU metric reset (main path, `render_sorted_splats_with_context`) |
-| `render_resource_orchestrator.cpp` | `541-568` | GPU-pass metric reset (no-rasterizer branch) |
+| `render_pipeline_stages.cpp` | `reset_render_state_for_frame` | frame-skip path: raster tile snapshot + **full** GPU pass timings + timeline |
+| `render_pipeline_stages.cpp` | `render_sorted_splats_with_context` | main path: `raster_path="unknown"` + raster tile snapshot + **core** GPU pass timings only |
+| `render_resource_orchestrator.cpp` | `update_gpu_pass_metrics_from_tile_renderer` (no-rasterizer branch) | **all** GPU timing groups + readback state; deliberately leaves the monotonic `raster_pipeline_reformats` |
 
 A new `PerformanceMetrics` field added to the struct but missed at any one site
 silently reports **the previous route's value** — a stale-telemetry bug class (#528).
 The same hand-list pattern (no parity guard) recurs in the ~100-key diagnostics
-Dictionaries built field-by-field in `render_diagnostics_orchestrator.cpp:299ff`
+Dictionaries built field-by-field in `render_diagnostics_orchestrator.cpp`
 (`_append_production_frame_metrics`) and the route-UID→label maps in
 `render_route_labels.cpp`.
 
+**What #627 landed, and what it refuted.** Verified on master `9161d92f349`:
+
+- **Landed:** five named group helpers on `PerformanceMetrics` —
+  `reset_raster_frame_stats()`, `reset_gpu_core_pass_timings()`,
+  `reset_gpu_extended_pass_timings()`, `reset_gpu_timeline_metrics()`,
+  `reset_gpu_readback_state()` (`renderer/render_types/render_performance_types.h:165-174`),
+  each site composing the groups it needs. Plus a fail-closed field-coverage parity guard,
+  `tests/ci/check_metric_reset_parity.py`, wired into the `--guard-only` lane
+  (`tests/ci/run_module_tests.py:32-33`, `:741`, `:1605`), which requires every struct field
+  to be either reset-covered or in an explicit `NOT_RESET_FIELDS` allow-list with a reason
+  (93 fields accounted for: 53 covered, 40 explicitly not-per-frame-reset).
+- **Refuted:** this ADR's §2.3 proposal to *"give `PerformanceMetrics` a `reset()` (or
+  `*this = PerformanceMetrics{};` default-init semantics) and call it at all three sites."*
+  #627 checked the three sites field-by-field and found they reset **intentionally different
+  subsets** — they are partial resets, not three copies of one full reset. A blanket reset
+  would zero cumulative/lifetime counters (`total_frames_rendered`, the deliberately-monotonic
+  `raster_pipeline_reformats`), rolling aggregates, and per-stage outputs the sites preserve
+  on purpose. **That is a behavior change, not a dedup**, and the ADR's characterization of
+  the three sites as interchangeable ~30–40-field lists was the reason it looked safe.
+- **NOT landed:** the **diagnostics-dict key-set guard** and the **route-label key-set
+  guard**. #528's own body names both as the same class ("no parity guards either"), and
+  #627 touched neither `render_diagnostics_orchestrator.cpp` nor `render_route_labels.cpp`;
+  no file under `tests/ci/` references either. **This ADR makes both an exit criterion in
+  R9**, so R9 is currently unmet by the merged work and S1 is only *partially* discharged.
+
 **Stage-exit stamping duplication (#570):** four near-identical ~40-line
 `StageResult`/`StageIO` skip/fail stamping blocks exist in
-`render_sorted_splats_with_context` alone (`render_pipeline_stages.cpp:3005, 3026,
-3083, 3114`), and again in `render_instancing_orchestrator.cpp:196-225`. Each repeats
+`render_sorted_splats_with_context` alone (`render_pipeline_stages.cpp:3022, 3027, 3053,
+3058` — corrected in round 2 from `3005/3026/3083/3114`), and again in `render_instancing_orchestrator.cpp:196-225`. Each repeats
 `make_downstream_skip_result(...)` + `stamp_stage_result_contract(...)` + `_init_stage_io(...)`.
 The audit measures ~30–40% of frame-path LOC as this ritual.
 
@@ -247,7 +288,7 @@ the **only consumers** of that flag are the debug overlay, a debug-dict serializ
 frame proceeds regardless:
 
 ```cpp
-// render_pipeline_stages.cpp:1460-1469
+// render_pipeline_stages.cpp:1460-1469 (the _finalize_stage_io call is at :1467)
 const bool count_invalid = io.output_count > io.input_count;
 const bool buffer_missing = cull_state.gpu_visible_indices_count > 0 && !io.output_buffer.is_valid();
 ... _finalize_stage_io(renderer, "cull", io, validation);
@@ -267,8 +308,8 @@ full GLSL source for each, embedded as runtime `vformat(R"(#version 450 …)")` 
 | --- | --- | --- |
 | `BitonicSort` | `539-946` | `596` (compare/swap kernel) |
 | `GPUSorterFactory` / policy | `948-1178` | — |
-| `RadixSort` (+ variants) | `1180-2013+` | `1649` histogram, `1734` wg-prefix, `1802` bin-prefix, `1847` scatter, `2173` indirect-dispatch |
-| OneSweep variant kernels | `2749-2982` | `2749, 2816, 2912, 2975` |
+| `RadixSort` (+ variants) | `1180-2013+` | `1656` histogram, `1741` wg-prefix, `1809` bin-prefix, `1854` scatter, `2204` indirect-dispatch |
+| OneSweep variant kernels | `2731-3006+` (ctor `2731`, `_bind_methods` `2739`) | `2780, 2847, 2943, 3006` |
 
 These strings are compiled at runtime via `create_compute_shader_from_spirv`
 (`gpu_sorter.cpp:138`). The C5 shader-permutation CI
@@ -284,7 +325,7 @@ tile cluster does **not** share this defect.)
 ### 1.7 The `tile_renderer.cpp` sub-cluster (~3,579 LOC): stages already split, orchestration not
 
 Unlike gpu_sorter, `tile_renderer.cpp` embeds **no** GLSL: it pulls shader source from
-generated headers (`tile_renderer.cpp:30-33`, `#include "../shaders/tile_binning.glsl.gen.h"`
+generated headers (`tile_renderer.cpp:31-34`, `#include "../shaders/tile_binning.glsl.gen.h"`
 etc.), and those `.glsl` files are already in the C5 matrix — so the tile cluster has
 no #525 exposure. Its per-stage GPU work is **already delegated** to sibling TUs:
 `tile_render_binning.cpp`, `tile_render_prefix_scan.cpp`,
@@ -296,13 +337,13 @@ the inventory flags as ex-globals now member-owned: `subgroup_support_cache`
 (`tile_renderer.h:450`) and `adaptive_overlap_budget_runtime_state`
 (`tile_renderer.h:463-464`). What is **still monolithic** inside `tile_renderer.cpp`:
 
-- `RenderFrameExecutor` — the per-frame pipeline state machine, `tile_renderer.cpp:270-1352` (~1,080 LOC, the single largest unit; owns validate→params→global-sort→raster→resolve→finalize).
+- `RenderFrameExecutor` — the per-frame pipeline state machine, `tile_renderer.cpp:271-1352` (~1,080 LOC, the single largest unit; owns validate→params→global-sort→raster→resolve→finalize).
 - `initialize`/`cleanup`/`_ensure_resources` lifetime (`1474-1727`, `1783-1878`).
 - Shader-defines assembly + compilation orchestration + `_detect_subgroup_support` (`2023-2385`).
 - GPU timestamp/timing subsystem (`2426-2757`).
 - `_evaluate_raster_path` compute-vs-fragment decision (`2778-2853`).
 - Device/descriptor + instance-pipeline-binding cache (`2971-3225`); statistics/density aggregation (`3273-3458`).
-- The adaptive-overlap-budget free-function subsystem in the anonymous namespace (`129-266`), which operates on the public runtime-state struct but is not part of `TileAdaptiveController`.
+- The adaptive-overlap-budget free-function subsystem in the anonymous namespace (the anon namespace spans `47-269`), which operates on the public runtime-state struct but is not part of `TileAdaptiveController`.
 
 Tile decomposition is therefore a *continuation* of an already-started split (extract
 `RenderFrameExecutor`, the timing subsystem, and shader-compile orchestration into
@@ -410,13 +451,23 @@ snapshot, not from the live renderer:
 
 ### 2.3 Unit C — single-source metric reset + stage-exit helper (fixes 1.4 / #528, #570, #591)
 
-- **Reset:** give `PerformanceMetrics` a `reset()` (or `*this = PerformanceMetrics{};`
-  default-init semantics) and call it at all three sites (§1.4). Replace the three
-  hand-lists with the one call. Add a **static parity guard** in the spirit of C6/C7
-  (`tests/ci/check_gaussian_layout_sync.py`) asserting the reset covers every field —
-  or, better, make reset structural so no list exists to drift. The same guard family
-  covers the diagnostics-Dictionary key set (`render_diagnostics_orchestrator.cpp:299ff`)
-  and the route-label map (`render_route_labels.cpp`).
+- **Reset — DONE on master, and the original proposal here was wrong.** This ADR proposed
+  *"give `PerformanceMetrics` a `reset()` (or `*this = PerformanceMetrics{};`) and call it at
+  all three sites."* **Do not implement that.** Per §1.4, PR #627 established that the three
+  sites are intentional *partial* resets of different subsets, so a blanket reset would zero
+  cumulative counters and per-stage outputs — a behavior change. The shipped design is five
+  **named group helpers** composed per site
+  (`render_types/render_performance_types.h:165-174`) plus the fail-closed
+  `tests/ci/check_metric_reset_parity.py` coverage guard. That half of #528 is closed;
+  nothing remains to do here.
+- **Diagnostics + route-label key sets — STILL OPEN.** The same guard family was proposed
+  for the ~100-key diagnostics Dictionary (`render_diagnostics_orchestrator.cpp`,
+  `_append_production_frame_metrics`) and the route-UID→label map
+  (`render_route_labels.cpp`). **Neither guard exists**: no file under `tests/ci/` references
+  either symbol. This is the remaining content of S1 and the unmet part of **R9**. The
+  metric-reset guard is the model to copy — it parses the producing code and requires each
+  key to be either covered or explicitly allow-listed with a reason, failing closed on syntax
+  it does not recognize.
 - **Stage-exit helper (#570):** one `stamp_stage_exit(route_uid, reason, metrics_deltas,
   io_fields)` consolidating the four+one duplicated ~40-line blocks (§1.4). Behavior is
   a mechanical fold — the produced `StageResult`/`StageIO` must be byte-identical.
@@ -443,6 +494,42 @@ reason — fail-closed is the default.
 sub-contexts. Facade methods become **thin delegations** to owned services with
 explicit input/output types — the #356 "done when" (facade methods delegate to small
 owned services with explicit contracts; new code reviewable by subsystem).
+
+> **Reachability defect (review round 2): S1–S9 cannot deliver this criterion.** Verified on
+> master `9161d92f349`:
+>
+> ```
+> grep -rnE '^[A-Za-z_].*GaussianSplatRenderer::[A-Za-z_~]+\(' --include=*.cpp modules/ tests/
+> ```
+>
+> yields **275** `GaussianSplatRenderer::` method **definitions**, of which only **124** live
+> in `gaussian_splat_renderer.cpp`. **147 — a majority — are defined in
+> `render_*_orchestrator.cpp` TUs** (debug_state 40, quality 23, device 19, config 17, data 13,
+> sorting 11, output 10, diagnostics 8, resource 5, instancing 1), with the remaining 4 in
+> `interfaces/interactive_state_manager.cpp` (3) and `gaussian_splat_renderer_bindings.cpp` (1).
+>
+> These are facade methods *physically relocated into orchestrator TUs* while remaining members
+> of `GaussianSplatRenderer` and calling facade privates. They are the inverse of the target
+> shape: the orchestrator TU is a file-level split, not an ownership boundary, so the method
+> still has full access to the facade's state and no explicit input/output contract. **No slice
+> in §4 touches them.** S7/S8/S9 restructure the frame path, the provider and the state ports;
+> none of them converts a `GaussianSplatRenderer::foo()` defined in
+> `render_quality_orchestrator.cpp` into `RenderQualityOrchestrator::foo()` with a typed
+> contract. So #356's first "done when" — *"Renderer facade methods delegate to small owned
+> services with explicit input/output contracts"* — is **not reachable by this ADR's current
+> slices**, and #356 must not be closed on their completion.
+>
+> This is the subject of **D6**. Two honest dispositions, both of which keep S1–S9 as written:
+>
+> - **Amend the criterion for this ADR**: this ADR closes the *state-ownership* half of #356
+>   (owned sub-contexts, typed ports, no shared mutable god-bundle), and the 147-method
+>   relocation is explicitly declared out of scope, with #356 staying open until a separate
+>   work-stream lands it.
+> - **Add a slice S11** (after S9) that migrates the 147 definitions to real orchestrator
+>   member functions. This is large, mechanical, and carries the ODR/PMF hazard of R12 at scale;
+>   it should be counted and staged per-orchestrator, not attempted in one diff.
+>
+> Either way the ADR must **stop implying** that finishing S9 satisfies #356's facade criterion.
 
 ---
 
@@ -475,7 +562,7 @@ Two independent moves, sequenced so each is CI-green:
 
 - `gpu_sorter_bitonic.cpp` (`BitonicSort`, §1.6 `539-946`),
   `gpu_sorter_radix.cpp` (`RadixSort` + variants, `1180-2013+`),
-  `gpu_sorter_onesweep.cpp` (OneSweep kernels, `2749-2982`), with
+  `gpu_sorter_onesweep.cpp` (OneSweep kernels, from `2731`), with
   `gpu_sorter_factory.cpp` retaining `GPUSorterFactory` + policy/probe
   (`948-1178`, plus the `_probe_*`/`select_sort_algorithm` helpers). Shared
   declarations stay in `gpu_sorter.h`.
@@ -496,7 +583,7 @@ inventory's W1→W2→W3 gate.
 
 | Slice | Risk | Change | Behavior-preservation proof |
 | --- | --- | --- | --- |
-| **S1** — metric reset single-source | R2 | `PerformanceMetrics::reset()` + call at the 3 sites (§1.4); add parity guard | Guard passes; doctest asserts reset zeroes every field; frame telemetry diff on GrandmasHouse identical before/after |
+| **S1** *(re-scoped — metric-reset half already merged)* — diagnostics-dict + route-label key-set parity guards | R1 (guard scripts + tests only; no render-path edit) | **Not** `PerformanceMetrics::reset()` — that half shipped in #627 and its blanket-reset form was refuted (§1.4, §2.3). Remaining: a fail-closed key-set parity guard for the ~100-key diagnostics Dictionary (`render_diagnostics_orchestrator.cpp`, `_append_production_frame_metrics`) and for the route-UID→label map (`render_route_labels.cpp`), modeled on `tests/ci/check_metric_reset_parity.py` | Guard fails-without proof (inject an untracked key → CI fails; remove → passes), matching #627's evidence pattern; guard wired into the `--guard-only` lane; **no render-path source edited**, so no GPU evidence is required for this slice |
 | **S2** — stage-exit helper (#570) | R2 | Fold the 4+1 stamping blocks into `stamp_stage_exit(...)` | `StageResult`/`StageIO` byte-identical on the skip/fail paths (unit test snapshots each route UID); runtime route-label telemetry unchanged |
 | **S3** — publisher sizing/clamp helper (#591) | R2 | Extract shared clamp + buffer-population; keep distinct sizing inputs | Resident + streaming `InstancePipelineBuffers` fields identical before/after on a streamed and a resident scene; VRAM + sort-cap telemetry unchanged |
 | **S4** — StageIO fail-closed (#587) | R2 | `validation_failed` → failed `StageResult`; per-stage branch; doctest | New doctest: poisoned StageIO fails the stage; existing valid frames still render (visual gate on real-scan content); no new skips on GrandmasHouse |
@@ -515,7 +602,9 @@ guard, baseline, or threshold is weakened to pass.
 
 **Sequencing rationale:** S1–S4 are pure de-duplication/fail-closed folds that make
 the state contract *legible* without moving ownership (inventory W1 "make ownership
-explicit"). S5–S6 isolate the sorter (independent of the facade). S7–S9 perform the
+explicit"). **S1's metric-reset half is already done on master (#627); what remains of S1 is
+guard-script-only and touches no render-path source, so it is unblocked, R1, and can land in
+parallel with S2–S4 rather than gating them.** S5–S6 isolate the sorter (independent of the facade). S7–S9 perform the
 actual ownership cut (inventory W2/W3) only after the duplication is gone and tests
 pin the route/stage/StageIO contracts — so the risky state-partition lands on a
 characterized, guard-protected base. S10 (tile) is optional and last.
@@ -526,8 +615,8 @@ characterized, guard-protected base. S10 (tile) is optional and last.
 
 | Issue | Title (short) | Closed/advanced by | Proof |
 | --- | --- | --- | --- |
-| **#356** | Decompose renderer around owned state | S7–S9 (tracked; full close when facade delegates to owned services) | Facade = thin delegations; per-stage ports; no shared mutable god-bundle |
-| **#528** | Hand-maintained ~40-field metric reset ×3, no parity guard | **S1** | Single `reset()` + parity guard; diagnostics-dict + route-label guards |
+| **#356** | Decompose renderer around owned state | S7–S9 close the **state-ownership** half only. The **facade-delegation** half is **not reachable by S1–S9** (§2.5): 147 of 275 `GaussianSplatRenderer::` method definitions live in `render_*_orchestrator.cpp` TUs as relocated facade members, and no slice converts them. **Do not close #356 on S9.** | Per-stage ports + no shared mutable god-bundle (deliverable). Facade-delegation criterion: pending **D6** — either amended out of this ADR's scope or given a dedicated slice/work-stream |
+| **#528** | Hand-maintained ~40-field metric reset ×3, no parity guard | **CLOSED by PR #627** (merged 2026-07-18, after this ADR's original base) — *not* by this ADR | Five composable `reset_*()` group helpers (`render_performance_types.h:165-174`) + fail-closed `tests/ci/check_metric_reset_parity.py` in the `--guard-only` lane. **The blanket `reset()` this ADR proposed was rejected as a behavior change.** The diagnostics-dict + route-label key-set guards named in #528's body did **not** land and remain as the re-scoped **S1** |
 | **#529** | `frame_plan` borrow exempt from `validate()` — latent UAF | **S7** | Plan owned by a `FrameExecution` scope *outside* the context; `RenderFrameContext` non-copyable (compile-enforced), so the `:1134` copy hazard goes with it; validator exemption deleted; 3 stack-borrows retired |
 | **#570** | Duplicated ~40-line stage-exit stamping | **S2** | One `stamp_stage_exit` helper; byte-identical results |
 | **#591** | Dup `InstancePipelineBuffers`/`sort_cap` clamp resident vs streaming | **S3** | Shared clamp + population helper; distinct sizing kept |
@@ -557,7 +646,7 @@ Checkable. A slice that violates one is rejected even with green CI.
 | **R6** | Zero `static … fallback;` locals remain in `gaussian_splat_renderer.cpp` after S8 — all 40, not just the provider's 18. | Grep guard, count must reach 0. |
 | **R7** | A missing dependency produces a **typed skip with a route UID**, never a write to a shared global and never a silently-continued frame. | S4's fail-closed doctest + the S8 frame-entry skip test. |
 | **R8** | After S4, a poisoned `StageIO` (`output_count > input_count`, or missing output buffer with nonzero count) **fails the stage**. Per-stage exemptions exist only where documented with a written reason. | New doctest per §2.4; the exemption list is enumerated in-code. |
-| **R9** | `PerformanceMetrics` reset is structural (no hand-maintained field list) and covers every field; the same holds for the diagnostics key set and route-label map. | S1's parity guard; a doctest asserting reset zeroes every field. |
+| **R9** | `PerformanceMetrics` reset is structural and covers every field **(already satisfied on master by #627 — five composable `reset_*()` group helpers plus the fail-closed `tests/ci/check_metric_reset_parity.py`; note the invariant is *group-composable*, not a single blanket `reset()`, which was deliberately rejected)**; the same must hold for the diagnostics key set and the route-label map — **both still unguarded, and the remaining content of the re-scoped S1**. | Metric half: the merged parity guard + the `test_diagnostics.h` reset doctests. Diagnostics/route-label half: new key-set parity guards with a fails-without proof. |
 | **R10** | Stage-exit stamping produces **byte-identical** `StageResult`/`StageIO` before and after the S2 fold, for every route UID. | Snapshot unit test per route UID. |
 | **R11** | Sorter GLSL: every runtime-selectable permutation compiles in CI after S5. No kernel remains invisible to the compile matrix. | `compile_shaders.py` matrix green with the new files + permutations; grep guard that no `R"(#version` remains in the sorter TUs. |
 | **R12** | The S6 TU split introduces no ODR violation: **every** method definition of each split class lands in exactly one TU (enumerated, not diff-grepped), and `_bind_methods` moves with its class. | Link-clean build + the enumerate-all-method-defs check (per the #434 lesson). |
@@ -588,8 +677,13 @@ contract. Every slice states which invariants it touches and attaches:
    (sorted-key monotonicity + visual gate), plus SPIR-V byte-compare of extracted vs inline
    kernels where feasible. Maintainer/CODEOWNER review for the workflow edit.
 7. **Base anchoring:** base SHA recorded, and confirmation that the `file:line` anchors used
-   were re-verified against it. Several anchors in this ADR's first revision had drifted
-   (e.g. `render_pipeline_stages.cpp:1162` → `:1173`).
+   were re-verified against it. This has now bitten twice — anchors drifted in revision 1
+   (e.g. `render_pipeline_stages.cpp:1162` → `:1173`) and again by revision 2, when the base
+   went ~30 commits stale and a merged PR (#627) silently invalidated **S1**. See the
+   §"Anchor re-verification log". **Every slice must re-verify its own anchors against the
+   commit it branches from, and must re-check whether any merged PR has already discharged
+   part of its scope — a stale ADR slice is the failure mode this document has actually
+   experienced, not a hypothetical one.**
 
 ## Decisions the owner needs to make
 
@@ -607,6 +701,26 @@ contract. Every slice states which invariants it touches and attaches:
   own maintainer-gated PR? (Recommended: keep together; it is the point of #525.)
 - **D5 — #588 and tile S10** stay separable: #588 gets its own PR; S10 (tile) is
   optional and deferred until facade+sorter land? (Recommended: yes.)
+- **D6 — #356's facade-delegation exit criterion (§2.5): amend it, or add a slice for it?**
+  Evidence: **147 of 275** `GaussianSplatRenderer::` method definitions are defined in
+  `render_*_orchestrator.cpp` TUs while remaining facade members that call facade privates —
+  a file-level split, not an ownership boundary. **No slice in §4 touches them**, so
+  completing S1–S9 cannot satisfy #356's *"facade methods delegate to small owned services
+  with explicit input/output contracts."* The tradeoff:
+  - **Amend (recommended).** Declare this ADR's scope to be the state-ownership half; state
+    plainly that the 147-method relocation is a **separate work-stream** and keep #356 open
+    past S9. Cost: #356 stays open longer and the remaining work is unowned until someone
+    files it. Benefit: no slice is graded against a criterion it structurally cannot meet,
+    and the S1–S9 sequence stays small and reviewable.
+  - **Add S11.** A dedicated post-S9 slice migrating the 147 definitions to real orchestrator
+    member functions, staged per-orchestrator (debug_state 40, quality 23, device 19, config
+    17, data 13, sorting 11, output 10, diagnostics 8, resource 5, instancing 1). Cost: large
+    and mechanical, and it carries the **R12** ODR/PMF hazard at scale — every method
+    definition of each class must be enumerated into exactly one TU, per the #434 lesson.
+    Benefit: #356 closes on this ADR.
+
+  Either answer is fine; what is not fine is leaving the current implication that S9 closes
+  #356. **Also confirm the corrected denominator: 147 of 275, not "147 of 272."**
 
 ## Consequences
 
@@ -624,6 +738,37 @@ contract. Every slice states which invariants it touches and attaches:
   diff small and each behavior-preservation proof self-contained.
 - **No gate weakened:** every slice adds or preserves guards; none lowers a baseline,
   threshold, or coverage bar.
+
+## Anchor re-verification log (review round 2)
+
+Every `file:line` in this ADR was re-checked by `grep -n` against master `9161d92f349`. The
+ownership map (§1.1), all nine facade forwarders, the three `frame_plan` borrow sites, the
+`validate()` exemption, the `access_*_mutable()` escapes, the publisher clamp pair, the
+`_finalize_stage_io` definition, `compile_shaders.py:142`/`:684`, the destructor dispatch, and
+both `stage-first-ownership-inventory.md` quotes are **unchanged**. The counts (11 headers,
+10 back-pointers, 78 provider constructions, 40 static fallbacks) all reproduce. Corrected:
+
+| Item | Was | Now |
+| --- | --- | --- |
+| `FrameDeps` struct extent | `h:387-405` | `h:386-435` (field list `:387-405`) |
+| Rebinding comment, stage runner | `render_pipeline_stages.cpp:1174-1177` | `:1175-1177` (`:1174` is blank) |
+| 2nd metric-reset site | `render_pipeline_stages.cpp:2943-2983` | `:2909-2910` — and it is now a `reset_*()` group call, not a hand-list (§1.4) |
+| Stage-exit stamping sites | `:3005, 3026, 3083, 3114` | `:3022, 3027, 3053, 3058` |
+| Cull `_finalize_stage_io` call | inside `:1460-1469` | the call itself is at `:1467` |
+| RadixSort embedded GLSL | `1649, 1734, 1802, 1847, 2173` | `1656, 1741, 1809, 1854, 2204` (uniform +7) |
+| OneSweep block + GLSL | `2749-2982`; `2749, 2816, 2912, 2975` | ctor `2731`, `_bind_methods` `2739`; GLSL `2780, 2847, 2943, 3006` |
+| `tile_renderer.cpp` shader includes | `:30-33` | `:31-34` (`:30` is `performance_monitors.h`) |
+| `RenderFrameExecutor` | `:270-1352` | `:271-1352` |
+| Anonymous-namespace subsystem | `:129-266` | the anonymous namespace spans `:47-269` |
+| Facade static fallbacks | `:2634-2764` + `:3061-3068` | `:2635-2761` only; `get_debug_state` has none |
+| `GaussianSplatRenderer::` definitions | "147 of 272" (review comment) | **147 of 275** |
+
+**Stale anchors in the source itself**, found during this pass and worth fixing independently
+of this ADR: `render_instancing_orchestrator.cpp:178` and `render_pipeline_stages.cpp:1171`
+both say *"`RenderFrameDeps::validate()` exempts `frame_plan` (see
+`gaussian_splat_renderer.h:387-389`)"*. The exemption actually lives at **`h:428-431`**;
+`h:387-389` is now the top of the `FrameDeps` field list. S7 deletes these comments anyway,
+but until then they misdirect.
 
 ## Related docs
 
