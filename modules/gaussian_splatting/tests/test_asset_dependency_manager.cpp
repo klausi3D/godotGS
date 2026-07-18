@@ -195,21 +195,29 @@ TEST_CASE("[GaussianSplatting][AssetDependencyManager] recursive dependency cach
     CHECK(manager->is_dependency_cache_dirty_for_tests());
     CHECK(manager->get_dependency_cache_entry_count_for_tests() == 0);
 
+    // Contract: a recursive dependency query returns the transitive closure of the
+    // queried asset's dependencies and EXCLUDES the queried asset itself. See
+    // AssetDependencyManager::_topological_sort_dependencies ("Recursive dependency
+    // queries should only return dependencies, not the queried asset itself") and
+    // resolve_load_order(), which appends the queried asset after this result and
+    // would emit it twice if the query were self-inclusive.
     const Vector<AssetID> deps_a_initial = manager->get_dependencies(asset_a_id, true);
     CHECK(!manager->is_dependency_cache_dirty_for_tests());
     CHECK(manager->get_dependency_cache_entry_count_for_tests() == 1);
-    CHECK(_asset_id_vector_contains(deps_a_initial, asset_a_id));
+    CHECK(!_asset_id_vector_contains(deps_a_initial, asset_a_id));
     CHECK(_asset_id_vector_contains(deps_a_initial, asset_b_id));
-    CHECK(deps_a_initial.size() == 2);
+    CHECK(deps_a_initial.size() == 1);
 
     const Vector<AssetID> deps_a_cached = manager->get_dependencies(asset_a_id, true);
     CHECK(manager->get_dependency_cache_entry_count_for_tests() == 1);
     CHECK(deps_a_cached.size() == deps_a_initial.size());
 
+    // B has no dependencies of its own, so its closure is empty -- but it is still
+    // cached, so the entry count must grow.
     const Vector<AssetID> deps_b_initial = manager->get_dependencies(asset_b_id, true);
     CHECK(manager->get_dependency_cache_entry_count_for_tests() == 2);
-    CHECK(deps_b_initial.size() == 1);
-    CHECK(_asset_id_vector_contains(deps_b_initial, asset_b_id));
+    CHECK(deps_b_initial.size() == 0);
+    CHECK(!_asset_id_vector_contains(deps_b_initial, asset_b_id));
 
     CHECK(manager->add_dependency(asset_a_id, asset_c_id) == OK);
     CHECK(manager->is_dependency_cache_dirty_for_tests());
@@ -218,8 +226,8 @@ TEST_CASE("[GaussianSplatting][AssetDependencyManager] recursive dependency cach
     const Vector<AssetID> deps_a_after_add = manager->get_dependencies(asset_a_id, true);
     CHECK(!manager->is_dependency_cache_dirty_for_tests());
     CHECK(manager->get_dependency_cache_entry_count_for_tests() == 1);
-    CHECK(deps_a_after_add.size() == 3);
-    CHECK(_asset_id_vector_contains(deps_a_after_add, asset_a_id));
+    CHECK(deps_a_after_add.size() == 2);
+    CHECK(!_asset_id_vector_contains(deps_a_after_add, asset_a_id));
     CHECK(_asset_id_vector_contains(deps_a_after_add, asset_b_id));
     CHECK(_asset_id_vector_contains(deps_a_after_add, asset_c_id));
 
@@ -230,8 +238,8 @@ TEST_CASE("[GaussianSplatting][AssetDependencyManager] recursive dependency cach
     const Vector<AssetID> deps_a_after_remove = manager->get_dependencies(asset_a_id, true);
     CHECK(!manager->is_dependency_cache_dirty_for_tests());
     CHECK(manager->get_dependency_cache_entry_count_for_tests() == 1);
-    CHECK(deps_a_after_remove.size() == 2);
-    CHECK(_asset_id_vector_contains(deps_a_after_remove, asset_a_id));
+    CHECK(deps_a_after_remove.size() == 1);
+    CHECK(!_asset_id_vector_contains(deps_a_after_remove, asset_a_id));
     CHECK(_asset_id_vector_contains(deps_a_after_remove, asset_c_id));
     CHECK(!_asset_id_vector_contains(deps_a_after_remove, asset_b_id));
 
@@ -241,8 +249,48 @@ TEST_CASE("[GaussianSplatting][AssetDependencyManager] recursive dependency cach
 
     const Vector<AssetID> deps_c_cached = manager->get_dependencies(asset_c_id, true);
     CHECK(manager->get_dependency_cache_entry_count_for_tests() == 3);
-    CHECK(deps_c_cached.size() == 1);
-    CHECK(_asset_id_vector_contains(deps_c_cached, asset_c_id));
+    CHECK(deps_c_cached.size() == 0);
+    CHECK(!_asset_id_vector_contains(deps_c_cached, asset_c_id));
+
+    // Recursion must actually traverse: with A -> C and C -> B, querying A returns
+    // both C (direct) and B (transitive), still without A itself. This is the part
+    // of the "recursive" contract a direct-dependency-only implementation would fail.
+    CHECK(manager->add_dependency(asset_c_id, asset_b_id) == OK);
+    const Vector<AssetID> deps_a_transitive = manager->get_dependencies(asset_a_id, true);
+    CHECK(deps_a_transitive.size() == 2);
+    CHECK(_asset_id_vector_contains(deps_a_transitive, asset_c_id));
+    CHECK(_asset_id_vector_contains(deps_a_transitive, asset_b_id));
+    CHECK(!_asset_id_vector_contains(deps_a_transitive, asset_a_id));
+
+    // Topological order: a dependency must precede the asset that depends on it,
+    // so the transitively-reached B comes before its dependent C.
+    int index_of_b = -1;
+    int index_of_c = -1;
+    for (int i = 0; i < deps_a_transitive.size(); i++) {
+        if (deps_a_transitive[i] == asset_b_id) {
+            index_of_b = i;
+        } else if (deps_a_transitive[i] == asset_c_id) {
+            index_of_c = i;
+        }
+    }
+    CHECK(index_of_b >= 0);
+    CHECK(index_of_c >= 0);
+    CHECK(index_of_b < index_of_c);
+
+    // The self-exclusion contract is load-bearing for resolve_load_order(), which
+    // appends the queried asset itself: it must appear exactly once, and last.
+    const Vector<AssetID> load_order = manager->resolve_load_order(asset_a_id);
+    CHECK(load_order.size() == 3);
+    if (load_order.size() == 3) {
+        CHECK(load_order[2] == asset_a_id);
+    }
+    int asset_a_occurrences = 0;
+    for (int i = 0; i < load_order.size(); i++) {
+        if (load_order[i] == asset_a_id) {
+            asset_a_occurrences++;
+        }
+    }
+    CHECK(asset_a_occurrences == 1);
 
     _remove_user_file(asset_a_path);
     _remove_user_file(asset_b_path);
