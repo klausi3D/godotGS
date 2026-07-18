@@ -252,3 +252,11 @@ TEST_CASE("[GaussianSplatting][AssetDependencyManager] recursive dependency cach
 } // namespace TestGaussianSplatting
 
 #endif // TESTS_ENABLED
+
+// Force-link anchor (#178): a doctest TEST_CASE registers via a file-scope static
+// initializer; MSVC drops this whole object from the module static library when
+// nothing references it, silently discarding the cases. test_gaussian_splatting.h
+// calls this symbol so the linker keeps the object and the cases actually run.
+extern "C" int test_asset_dependency_manager_cpp_force_link() {
+    return 0;
+}

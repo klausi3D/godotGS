@@ -30,6 +30,7 @@ PROJECT_SETTINGS_MANIFEST_GUARD_SCRIPT = MODULE_SOURCE_DIR / "tests" / "check_pr
 GAUSSIAN_LAYOUT_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_gaussian_layout_sync.py"
 CULL_SIGNATURE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_cull_signature_parity.py"
 DOC_CLASSES_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_doc_classes_complete.py"
+TEST_LINKAGE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_test_linkage.py"
 RENDERER_RELEASE_GATE_SCRIPT = ROOT / "tests" / "ci" / "check_renderer_release_gates.py"
 RENDERER_RELEASE_GATE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_renderer_release_gates.py"
 HISTORY_ARTIFACT_AUDIT_SCRIPT = ROOT / "scripts" / "repo" / "history_artifact_audit.py"
@@ -685,6 +686,23 @@ def _run_doc_classes_guard() -> tuple[bool, list[str]]:
     if code != 0:
         if not output_lines:
             output_lines = [f"doc_classes completeness guard failed with exit code {code}."]
+        return False, output_lines
+
+    return True, output_lines
+
+
+def _run_test_linkage_guard() -> tuple[bool, list[str]]:
+    if not TEST_LINKAGE_GUARD_SCRIPT.is_file():
+        return False, [
+            f"Missing test linkage guard script: {TEST_LINKAGE_GUARD_SCRIPT.relative_to(ROOT)}"
+        ]
+
+    code, out, err = _run_command([sys.executable, str(TEST_LINKAGE_GUARD_SCRIPT)])
+    output_lines = [line for line in (out + err).splitlines() if line.strip()]
+
+    if code != 0:
+        if not output_lines:
+            output_lines = [f"Test linkage guard failed with exit code {code}."]
         return False, output_lines
 
     return True, output_lines
@@ -1523,6 +1541,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_doc_classes_guard,
             "doc_classes completeness guard failed.",
             "doc_classes completeness guard passed.",
+        ),
+        (
+            True,
+            _run_test_linkage_guard,
+            "Test linkage guard failed.",
+            "Test linkage guard passed.",
         ),
         (
             True,

@@ -157,3 +157,11 @@ TEST_CASE("[TileRenderer] Prefix CPU fallback writes deterministic renderer rang
     renderer->cleanup();
     memdelete(local_device);
 }
+
+// Force-link anchor (#178): a doctest TEST_CASE registers via a file-scope static
+// initializer; MSVC drops this whole object from the module static library when
+// nothing references it, silently discarding the cases. test_gaussian_splatting.h
+// calls this symbol so the linker keeps the object and the cases actually run.
+extern "C" int test_tile_prefix_scan_renderer_limit_cpp_force_link() {
+    return 0;
+}
