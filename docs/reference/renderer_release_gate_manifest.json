@@ -139,9 +139,35 @@
     "documented_non_enforced_rules": [
       "manual workflow inputs must not bypass public-alpha readiness",
       "path filters must not downgrade public-alpha readiness",
-      "public-alpha release publication must not be Linux-only",
-      "public-alpha release publication must not allow unmatched release files",
       "open-world proof must be blocking rather than advisory"
+    ],
+    "workflow_enforced_rules": [
+      {
+        "rule": "stable/candidate release publication must not be Linux-only",
+        "enforced_by": ".github/workflows/release_builds.yml release_candidate_gate job (fails the stable/tag path unless both build_linux and build_windows succeeded)",
+        "checker_scope": "The contract checker verifies the release_candidate_gate job marker is present; it does not parse the job's runtime both-platform logic.",
+        "issue": 593
+      },
+      {
+        "rule": "stable/candidate release publication must not allow unmatched release files",
+        "enforced_by": ".github/workflows/release_builds.yml publish_release sets fail_on_unmatched_files to true when channel == stable",
+        "checker_scope": "The contract checker does not parse the fail_on_unmatched_files value; this remains YAML-level enforcement.",
+        "issue": 593
+      },
+      {
+        "rule": "a stable/candidate (v*) tag must not publish without passing check_renderer_release_gates.py --mode candidate",
+        "enforced_by": ".github/workflows/release_builds.yml release_candidate_gate job runs --mode candidate on the stable/tag path and fails closed when the evidence bundle is absent; publish_release requires release_candidate_gate success",
+        "checker_scope": "The contract checker verifies the release_candidate_gate job marker is present; it does not parse the job's runtime candidate invocation.",
+        "remaining_gap": "No CI lane yet produces the public-alpha candidate evidence bundle (GPU-harness report, benchmark-lane report, artifact SHA/commit-parity, issue snapshot). Until that pipeline is wired (issue #360), the gate fails closed on every real v* tag; a maintainer supplies the bundle out-of-band via RELEASE_CANDIDATE_EVIDENCE.",
+        "issue": 593
+      },
+      {
+        "rule": "candidate evidence must be bound to the commit being published and to the exact bytes being shipped",
+        "enforced_by": ".github/workflows/release_builds.yml release_candidate_gate passes --expected-commit ${{ github.sha }} and --artifact-sha <group>=<sha256> for each archive built in the run, requires the Linux BUILD-INFO commit to equal the published commit, and writes release-attestation.json; publish_release re-hashes its downloaded payload with tests/ci/release_attestation.py verify and refuses to publish on any mismatch",
+        "checker_scope": "check_renderer_release_gates.py implements and unit-tests the --expected-commit / --artifact-sha bindings (tests/ci/test_renderer_release_gates.py::CandidateSupplyChainBindingTests); the attestation round-trip is unit-tested in tests/ci/test_release_attestation.py. The contract checker does not parse the workflow YAML that wires these flags.",
+        "rationale": "--mode candidate alone only proves the evidence bundle is internally consistent, so a stale bundle from an older validated commit could authorize publishing newer, never-validated binaries.",
+        "issue": 593
+      }
     ],
     "required_workflows": [
       {
@@ -157,7 +183,7 @@
       {
         "file": ".github/workflows/release_builds.yml",
         "required_for_public_alpha": true,
-        "required_jobs": ["build_linux", "build_windows", "publish_release"]
+        "required_jobs": ["build_linux", "build_windows", "release_candidate_gate", "publish_release"]
       }
     ],
     "open_world_proof": {

@@ -878,6 +878,94 @@ def _validate_candidate_deferred_waivers(
     return failures
 
 
+def _normalize_sha(value: Any) -> str:
+    return str(value).strip().lower()
+
+
+def _candidate_expected_commit_failures(evidence: dict[str, Any], expected_commit: Any) -> list[str]:
+    """Bind the evidence bundle to the commit that is actually being published.
+
+    Without this, ``--mode candidate`` only proves the bundle is *internally*
+    consistent (its recorded artifact digests match its recorded
+    ``godot_binary_commit``). A bundle produced for an older, fully validated
+    commit stays internally consistent forever, so it would authorize publishing
+    a *different*, never-validated commit's binaries. The release workflow passes
+    ``--expected-commit ${{ github.sha }}``; anything but an exact match fails
+    closed (#593 supply-chain binding).
+    """
+    if not expected_commit:
+        return []
+    expected = _normalize_sha(expected_commit)
+    actual = _normalize_sha(evidence.get("commit") or "")
+    if not actual:
+        # _candidate_commit_metadata_failures already reports the missing field;
+        # still fail here so an empty commit can never satisfy the binding.
+        return [f"candidate evidence has no commit to bind to the published commit {expected}"]
+    if actual != expected:
+        return [
+            "candidate evidence commit does not match the commit being published: "
+            f"evidence commit={actual} published commit={expected}. "
+            "The evidence bundle must be regenerated for the commit under release."
+        ]
+    return []
+
+
+def _candidate_expected_artifact_sha_failures(
+    evidence: dict[str, Any],
+    expected_artifact_shas: dict[str, str] | None,
+) -> list[str]:
+    """Bind the evidence bundle to the exact bytes that will be shipped.
+
+    ``_candidate_artifact_integrity_failures`` only re-hashes the file the bundle
+    itself points at, which lives next to the bundle. The archives that
+    ``publish_release`` uploads are built by this workflow run and never touch
+    that path, so a stale-but-consistent bundle would validate while completely
+    different bytes shipped. The release workflow hashes the archives it just
+    built and passes them as ``--artifact-sha <group>=<sha256>``; every named
+    group must exist in the bundle and record exactly that digest.
+    """
+    if not expected_artifact_shas:
+        return []
+    failures: list[str] = []
+    artifacts = evidence.get("artifacts")
+    if not isinstance(artifacts, dict):
+        return [
+            "candidate evidence has no artifacts object to bind the built release "
+            f"archives to: {sorted(expected_artifact_shas)}"
+        ]
+    for group in sorted(expected_artifact_shas):
+        built_sha = _normalize_sha(expected_artifact_shas[group])
+        artifact = artifacts.get(group)
+        if not isinstance(artifact, dict):
+            failures.append(
+                f"candidate evidence is missing artifact group {group}; cannot bind the "
+                f"built release archive (sha256={built_sha}) to the evidence bundle"
+            )
+            continue
+        recorded_sha = _normalize_sha(artifact.get("sha256") or "")
+        if not recorded_sha:
+            failures.append(f"candidate artifact {group} records no sha256 to bind against")
+            continue
+        if recorded_sha != built_sha:
+            failures.append(
+                f"candidate artifact {group} sha256 does not match the archive built for this "
+                f"release: evidence={recorded_sha} built={built_sha}. The validated bytes are "
+                "not the bytes being published."
+            )
+    return failures
+
+
+def _parse_artifact_sha_arg(value: str) -> tuple[str, str]:
+    group, sep, digest = str(value).partition("=")
+    group = group.strip()
+    digest = digest.strip().lower()
+    if not sep or not group or not digest:
+        raise argparse.ArgumentTypeError(f"--artifact-sha expects <group>=<sha256>, got {value!r}")
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise argparse.ArgumentTypeError(f"--artifact-sha digest must be a hex sha256, got {digest!r}")
+    return group, digest
+
+
 def _candidate_commit_metadata_failures(evidence: dict[str, Any]) -> list[str]:
     failures: list[str] = []
     if not evidence.get("commit"):
@@ -1506,6 +1594,8 @@ def validate_candidate(
     manifest: dict[str, Any],
     evidence: dict[str, Any],
     issues: Any | None = None,
+    expected_commit: str | None = None,
+    expected_artifact_shas: dict[str, str] | None = None,
 ) -> list[str]:
     failures = validate_contract(root, manifest)
     if not isinstance(evidence, dict):
@@ -1514,6 +1604,8 @@ def validate_candidate(
 
     failures.extend(_candidate_selector_failures(manifest, evidence))
     failures.extend(_candidate_commit_metadata_failures(evidence))
+    failures.extend(_candidate_expected_commit_failures(evidence, expected_commit))
+    failures.extend(_candidate_expected_artifact_sha_failures(evidence, expected_artifact_shas))
 
     known_limitations = manifest.get("known_limitations_page")
     if known_limitations:
@@ -1787,6 +1879,27 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--candidate-evidence", default=None)
     parser.add_argument("--issues-json", default=None)
     parser.add_argument(
+        "--expected-commit",
+        default=None,
+        help=(
+            "Commit SHA the release is publishing (candidate mode). The evidence bundle's "
+            "'commit' must equal it exactly, so a stale-but-internally-consistent bundle "
+            "cannot authorize publishing a different commit's binaries."
+        ),
+    )
+    parser.add_argument(
+        "--artifact-sha",
+        action="append",
+        default=[],
+        metavar="GROUP=SHA256",
+        type=_parse_artifact_sha_arg,
+        help=(
+            "Bind an evidence artifact group to the sha256 of the archive actually built for "
+            "this release (candidate mode, repeatable). The bundle must record exactly this "
+            "digest for that group."
+        ),
+    )
+    parser.add_argument(
         "--lifetime-stdout",
         default=None,
         help="Path to stdout artifact containing [GS-LIFETIME] JSON lines (required for --mode lifetime).",
@@ -1834,7 +1947,25 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         evidence = _load_json(Path(args.candidate_evidence))
         issues = _load_json(Path(args.issues_json)) if args.issues_json else None
-        failures = validate_candidate(root, manifest, evidence, issues)
+        artifact_shas: dict[str, str] = {}
+        for group, digest in args.artifact_sha:
+            previous = artifact_shas.get(group)
+            if previous is not None and previous != digest:
+                print(
+                    f"--artifact-sha specified twice for {group} with different digests "
+                    f"({previous} vs {digest})",
+                    file=sys.stderr,
+                )
+                return 2
+            artifact_shas[group] = digest
+        failures = validate_candidate(
+            root,
+            manifest,
+            evidence,
+            issues,
+            expected_commit=args.expected_commit,
+            expected_artifact_shas=artifact_shas,
+        )
 
     if failures:
         print("Renderer release gate check failed:")
