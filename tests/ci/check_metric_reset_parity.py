@@ -68,6 +68,13 @@ _RESET_DEF_RE = re.compile(
 # A statement inside a reset body that assigns a member: `field = value;`. Bare
 # assignment (no leading type token) distinguishes it from a field *declaration*.
 _ASSIGN_RE = re.compile(r"^\s*(\w+)\s*=[^=]")
+# The ONLY non-data-member line shape this guard skips inside the struct body:
+# a zero-arg `void reset_name();` declaration. Deliberately narrow -- the
+# previous "skip any line containing (" rule also swallowed real data members
+# with constructor-call initializers (`Vector2 x = Vector2(0, 0);`), which is a
+# silent false pass. Anything else bearing parens now has to parse as a data
+# member or be reported as unrecognized.
+_METHOD_DECL_RE = re.compile(r"^(?:inline\s+)?void\s+reset_\w+\s*\(\s*\)\s*;$")
 _PP_DIRECTIVE_RE = re.compile(r"^\s*#")
 _ACCESS_SPECIFIER_RE = re.compile(r"^(?:public|private|protected)\s*:\s*$")
 _BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
@@ -78,6 +85,20 @@ def _strip_cpp_comments(text: str) -> str:
     text = _BLOCK_COMMENT_RE.sub(lambda m: "\n" * m.group(0).count("\n"), text)
     return _LINE_COMMENT_RE.sub("", text)
 
+
+# Growing this allow-list is how the guard would be quietly hollowed out: adding
+# one line moves a field from "must be reset" to "exempt", and nothing else in
+# the diff has to change. The pin below makes that impossible to do invisibly --
+# an addition must also bump this number in the same diff, so the exemption
+# shows up as a deliberate edit to a reviewed constant rather than as a
+# one-line append buried in a 40-entry dict. Bump it only together with a real
+# justification for the new entry; never bump it to make the guard pass.
+EXPECTED_NOT_RESET_COUNT = 40
+# The reason string is the whole point of an entry (it is what a reviewer reads
+# to judge the exemption), so it is validated rather than trusted to be filled
+# in: an empty or placeholder reason fails the guard.
+MINIMUM_REASON_LENGTH = 12
+_PLACEHOLDER_REASONS = {"todo", "tbd", "n/a", "na", "none", "fixme", "xxx", "?"}
 
 # Fields deliberately NOT cleared by a per-frame reset helper. Each maps to a reason.
 # Categories: cumulative/lifetime counters; rolling aggregates maintained across
@@ -165,27 +186,53 @@ def _has_top_level_comma(line: str) -> bool:
     return False
 
 
+def _is_balanced(line: str) -> bool:
+    """Whether (), [] and {} are balanced on this single line."""
+    pairs = {")": "(", "]": "[", "}": "{"}
+    stack: list[str] = []
+    for char in line:
+        if char in "([{":
+            stack.append(char)
+        elif char in ")]}":
+            if not stack or stack.pop() != pairs[char]:
+                return False
+    return not stack
+
+
 def _extract_struct_fields(body: str) -> tuple[list[str], list[str]]:
     """Return (field_names, unrecognized_lines). Fail closed: any struct-body line
     that is neither a parsed data member, a `reset_*` method declaration, nor an
-    access specifier is reported as unrecognized so it must be classified."""
+    access specifier is reported as unrecognized so it must be classified.
+
+    This used to `continue` on any line containing "(", to skip the
+    `void reset_x();` declarations. That silently swallowed data members whose
+    initializer calls a constructor -- `Vector2 x = Vector2(0, 0);` vanished
+    from the check entirely while the guard still reported "all N fields" and
+    exited 0, contradicting its own fail-closed contract. The ignored surface is
+    now exactly the reset-declaration shape (_METHOD_DECL_RE); a paren-bearing
+    line that is not that shape must parse as a data member or it is reported.
+    """
     fields: list[str] = []
     unrecognized: list[str] = []
     for line in body.splitlines():
         stripped = line.strip()
         if not stripped or stripped in ("{", "}"):
             continue
-        # Method declarations (`void reset_x();`) carry a "(" and are not data members.
-        if "(" in stripped:
+        if _METHOD_DECL_RE.match(stripped) or _ACCESS_SPECIFIER_RE.match(stripped):
             continue
         match = _FIELD_RE.match(line)
-        if match:
-            if _has_top_level_comma(stripped):
-                unrecognized.append(stripped)
-            else:
-                fields.append(match.group(1))
-            continue
-        if _ACCESS_SPECIFIER_RE.match(stripped):
+        # A data member must be a single, self-contained, balanced declaration.
+        # Anything else -- a multi-line declaration, a comma list, brace-init, a
+        # template type, an unparsed method -- is reported rather than guessed
+        # at. The guard classifies C++ it is sure of and fails on the rest; it
+        # does not try to emulate a C++ parser.
+        if (
+            match
+            and stripped.endswith(";")
+            and _is_balanced(stripped)
+            and not _has_top_level_comma(stripped)
+        ):
+            fields.append(match.group(1))
             continue
         unrecognized.append(stripped)
     return fields, unrecognized
@@ -223,6 +270,29 @@ def main() -> int:
     prefix = "[metric-reset-parity]"
     if not PERF_HEADER.is_file():
         print(f"{prefix} FAIL missing {PERF_HEADER.relative_to(ROOT)}")
+        return 1
+
+    if len(NOT_RESET_FIELDS) != EXPECTED_NOT_RESET_COUNT:
+        print(
+            f"{prefix} FAIL NOT_RESET_FIELDS has {len(NOT_RESET_FIELDS)} entries but "
+            f"EXPECTED_NOT_RESET_COUNT is {EXPECTED_NOT_RESET_COUNT}. Exempting a field "
+            f"from per-frame reset must be a deliberate, visible change: update the pin "
+            f"in the same diff as the entry, with a justification in review."
+        )
+        return 1
+
+    thin_reasons = [
+        field
+        for field, reason in NOT_RESET_FIELDS.items()
+        if len(reason.strip()) < MINIMUM_REASON_LENGTH
+        or reason.strip().lower().rstrip(".") in _PLACEHOLDER_REASONS
+    ]
+    if thin_reasons:
+        for field in thin_reasons:
+            print(
+                f"{prefix} FAIL NOT_RESET_FIELDS['{field}'] has an empty or placeholder "
+                f"reason; state why the field must persist across frames"
+            )
         return 1
 
     text = PERF_HEADER.read_text(encoding="utf-8")
