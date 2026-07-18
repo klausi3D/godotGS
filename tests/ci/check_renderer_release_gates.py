@@ -121,7 +121,28 @@ def _load_gpu_harness_batches(root: Path, script_rel: str) -> dict[str, tuple[st
 
 
 def _filter_matches(filter_pattern: str, test_name: str) -> bool:
-    return fnmatch.fnmatchcase(test_name, filter_pattern)
+    """Match a doctest --test-case pattern against a test-case name.
+
+    #329: this used `fnmatch.fnmatchcase`, which is NOT doctest's grammar.
+    doctest treats only `*` and `?` as special (see doctest's wildcard matcher);
+    `fnmatch` additionally treats `[...]` as a character class. Every doctest
+    name here is bracket-heavy ("[GaussianSplatting][Node][RequiresGPU] ..."),
+    so the two disagree badly: under fnmatch the Integration, OutputCompositor
+    and TileRenderer batches each matched 0 tests while really matching 2, 3
+    and 3. That silently under-counts `minimum_test_cases`, so promoting any
+    of those batches to REQUIRED would have failed the gate with a bogus
+    "matches 0 tests".
+
+    It also forced batch authors to contort their filters into bracket-free
+    phrases purely to keep fnmatch and doctest agreeing (see the comments on
+    the RendererPipeline / Lifetime batches). With real doctest semantics a
+    filter can just say what it means.
+    """
+    regex = "".join(
+        ".*" if ch == "*" else ("." if ch == "?" else re.escape(ch))
+        for ch in filter_pattern
+    )
+    return re.fullmatch(regex, test_name, re.DOTALL) is not None
 
 
 def _is_broad_required_filter(filter_pattern: str) -> bool:
@@ -149,8 +170,29 @@ def _deferred_requires_gpu_tests(
     manifest: dict[str, Any],
     tests: Iterable[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    deferred_tags = set(manifest.get("requires_gpu_test_snapshot", {}).get("deferred_tags_any", []))
-    return [item for item in tests if deferred_tags.intersection(item["tags"])]
+    # #329: deferral used to be purely tag-based ("every [SceneTree] or
+    # [Importer] RequiresGPU case is deferred"). That is no longer true: the
+    # [SceneTree] corpus now runs in the NodeSceneTree / WorldSceneTree /
+    # SceneDirectorSceneTree batches of run_gpu_harness.py, and only the
+    # individually-broken cases are still deferred.
+    #
+    # So the deferred set is the union of:
+    #   * tag-based deferral   (deferred_tags_any)   — a whole family that
+    #     cannot run at all; [Importer] is the only remaining one, and
+    #   * name-based deferral  (deferred_test_names_any) — individual cases
+    #     carved out of an otherwise-running batch via BatchSpec.excludes.
+    #
+    # Keeping both means "which tests are deferred" has exactly one machine-
+    # readable answer, instead of living in a Python comment that drifts (this
+    # issue's original defect: a comment claiming 26 while the truth was 28).
+    snapshot = manifest.get("requires_gpu_test_snapshot", {})
+    deferred_tags = set(snapshot.get("deferred_tags_any", []))
+    deferred_names = set(snapshot.get("deferred_test_names_any", []))
+    return [
+        item
+        for item in tests
+        if deferred_tags.intersection(item["tags"]) or item["name"] in deferred_names
+    ]
 
 
 def _validate_manifest_basics(root: Path, manifest: dict[str, Any]) -> list[str]:

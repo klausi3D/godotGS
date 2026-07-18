@@ -263,6 +263,14 @@ public:
     // by the about-to-be-deleted scene tree nodes will drop in their own dtors that follow
     // PREDELETE. After teardown the next register_* call rebuilds the SharedWorld lazily.
     void teardown_world_for_scenario(const RID &p_scenario);
+    // Idempotent teardown of EVERY SharedWorld, equivalent to what
+    // `~GaussianSplatSceneDirector` does via worlds.clear() but callable while the
+    // engine is still fully alive. Added for the --gs-gpu-test harness (#329), which
+    // must free renderer-owned GPU resources before it destroys the RenderingDevice
+    // it owns, and destroy that device before Main::test_cleanup() deletes Engine.
+    // Safe to call at any point: after it returns the director simply rebuilds each
+    // SharedWorld lazily on the next register_* call.
+    void release_all_worlds();
     // Public wrapper around _prune_world_if_unused. Required by per-instance PREDELETE
     // handlers (GaussianSplatNode3D and GaussianSplatWorld3D) to garbage-collect the
     // SharedWorld AFTER renderer.unref() finally drops the node's reference. The

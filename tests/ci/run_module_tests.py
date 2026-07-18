@@ -1002,6 +1002,29 @@ def _run_quarantine_manifest_unittest() -> tuple[bool, list[str]]:
     return True, ["Quarantine manifest unit test passed."]
 
 
+def _run_gpu_harness_deferred_contract_guard() -> tuple[bool, list[str]]:
+    """Guard (#329): every [RequiresGPU] test runs in a named GPU batch, is
+    waived, or sits in the recorded unbatched backlog.
+
+    This lane is deliberately headless-only and needs no GPU: it is pure static
+    analysis of the test corpus against run_gpu_harness.py's BatchSpecs and the
+    release-gate manifest. It catches the #329 failure mode -- a test that
+    executes in no lane at all -- on every PR, not just on the GPU runner.
+    """
+    script = ROOT / "tests" / "ci" / "test_gpu_harness_deferred_contract.py"
+    if not script.is_file():
+        return False, [f"Missing GPU harness deferred contract guard: {script.relative_to(ROOT)}"]
+
+    code, out, err = _run_command([sys.executable, str(script)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"GPU harness deferred contract guard failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["GPU harness deferred contract guard passed."]
+
+
 def _run_quarantine_manifest_guard() -> tuple[bool, list[str]]:
     """Guard step (runs in the --guard-only lane): schema-validate the manifest
     and then run the mechanism's unit test. Fails on either."""
@@ -1641,6 +1664,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_benchmark_asset_guard,
             "Benchmark asset path guard failed.",
             "Benchmark asset path guard passed.",
+        ),
+        (
+            True,
+            _run_gpu_harness_deferred_contract_guard,
+            "GPU harness deferred contract guard failed.",
+            "GPU harness deferred contract guard passed.",
         ),
     ]
     for enabled, runner, failure_summary, success_summary in optional_message_guards:

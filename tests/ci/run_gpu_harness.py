@@ -39,11 +39,16 @@ REPORT_SCHEMA_VERSION = 1
 # without re-shaping the supervisor; they currently report "0 tests
 # matched" which the supervisor treats as success (advisory) per batch.
 #
-# Intentionally no catch-all "*[RequiresGPU]*" batch: the wildcard would
-# match the 26 [SceneTree]+[RequiresGPU] tests deferred to v2 of the
-# harness (Issue #329), which crash with an access violation because
-# SceneTree isn't initialized. Tests that aren't in a named batch stay
-# invisible until they're added explicitly.
+# Intentionally no catch-all "*[RequiresGPU]*" batch: tests that aren't in a
+# named batch stay invisible until they're added explicitly, and a wildcard
+# would silently absorb every future tag family (including [Importer], which
+# still cannot run here).
+#
+# #329 note: this comment used to claim the [SceneTree]+[RequiresGPU] cases
+# "crash with an access violation because SceneTree isn't initialized". That
+# diagnosis was wrong on both counts, and the hardcoded count ("26") had
+# silently drifted to 28 — which is why no number is hardcoded anywhere in this
+# file any more. See DEFERRED_SCENETREE_NOTE below.
 @dataclass(frozen=True)
 class BatchSpec:
     name: str
@@ -52,6 +57,17 @@ class BatchSpec:
     # a single batch is known to take measurably longer (or shorter) than the
     # default, so a hung batch can't burn the budget reserved for later ones.
     timeout_seconds: Optional[int] = None
+    # doctest `--test-case-exclude=` patterns subtracted from `filters` (#329).
+    #
+    # Use ONLY to carve out cases that are known-broken and declared in
+    # docs/reference/renderer_release_gate_manifest.json:deferred_requires_gpu_waivers.
+    # A guard (tests/ci/test_gpu_harness_deferred_contract.py) requires every
+    # exclude here to have a matching waiver entry, so an exclusion cannot be
+    # used to quietly drop a case that merely became inconvenient.
+    #
+    # The excluded case rejoins the batch automatically once its waiver is
+    # removed, which is the direction we want drift to flow.
+    excludes: tuple[str, ...] = ()
 
 
 BATCHES: tuple[BatchSpec, ...] = (
@@ -113,6 +129,59 @@ BATCHES: tuple[BatchSpec, ...] = (
             "*asset_attach_detach lifetime proof*",
             "*tile_shader_recompile frees old shaders*",
     )),
+    # ------------------------------------------------------------------
+    # #329: the [SceneTree]+[RequiresGPU] corpus, which until now executed in
+    # NO lane at all — excluded from every headless lane in run_module_tests.py
+    # and matching none of the named batches above.
+    #
+    # Two harness bugs (both fixed in gs_gpu_test_runner.cpp, not worked around
+    # here) were keeping them out:
+    #
+    #   1. `gs_gpu_test_main` never called DisplayServerMock::register_mock_driver().
+    #      The globally-registered GodotTestCaseListener DOES build a SceneTree for
+    #      these cases, but it first looks for a DisplayServer driver named "mock";
+    #      finding none it created nothing, then called RenderingServerDefault::init()
+    #      with no DisplayServer behind it -> null deref in RendererCompositor::create.
+    #      That — not "SceneTree isn't initialized" — was the access violation.
+    #   2. Teardown order destroyed the RenderingDevice before module
+    #      uninitialization freed renderer GPU resources through it. Cases ran
+    #      green and crashed on the way out.
+    #
+    # Filters are the literal tag triples (doctest treats brackets literally),
+    # so a newly added [SceneTree] GPU case joins the right batch automatically
+    # instead of silently landing nowhere — the failure mode this issue is about.
+    #
+    # NOT in REQUIRED_BATCHES yet: 9 of the 28 cases are genuinely broken and are
+    # excluded below, each with a waiver in the release-gate manifest. Promote
+    # these to required once the waiver list is empty (see #329 follow-ups).
+    BatchSpec("NodeSceneTree", ("*[Node][SceneTree][RequiresGPU]*",), excludes=(
+            # Real behaviour failures, first ever observed (never executed before).
+            # Renderer keeps debug_show_density_heatmap set after the settings
+            # owner exits the tree.
+            "*Shared renderer hides node-local debug settings*",
+            # Hidden nodes still occupy instance-buffer rows.
+            "*Shared renderer instance buffer drops hidden nodes*",
+            "*Shared renderer preserves local painterly and color grading state*",
+            "*Shared renderer full-fidelity override only follows attached assets*",
+            "*Shared renderer ignores hidden full-fidelity assets*",
+            # Hard crash: REQUIRE(node_a_index >= 0) fails, and because this build
+            # is DOCTEST_CONFIG_NO_EXCEPTIONS (disable_exceptions=True, #656)
+            # REQUIRE does not abort — the -1 is then used as an index and takes
+            # down the whole run ("Index p_index = 4294967295 is out of bounds").
+            "*Scene sphere effectors build per-instance selection masks*",
+    )),
+    BatchSpec("WorldSceneTree", ("*[World][SceneTree][RequiresGPU]*",), excludes=(
+            # GPU sort sync-contract violation: "device already submitted, call
+            # sync to wait until done", then a fault inside
+            # GPUSortingPipeline::_capture_instance_count_sync -> buffer_get_data
+            # -> _flush_and_stall_for_all_frames.
+            "*World submission renders through the resident instanced route*",
+            "*Resident rejection preserves resident diagnostics*",
+            # VK_ERROR_DEVICE_LOST — RenderingDeviceDriverVulkan::on_device_lost
+            # during device finalize. A real GPU fault, not a harness artifact.
+            "*Explicit resident quantization rejection falls back*",
+    )),
+    BatchSpec("SceneDirectorSceneTree", ("*[SceneDirector][SceneTree][RequiresGPU]*",)),
 )
 
 # Batches whose filter MUST resolve to at least one matching doctest test case
@@ -137,6 +206,25 @@ BATCHES: tuple[BatchSpec, ...] = (
 # "candidate GPU harness report includes zero rid_leak_bytes for required batches"
 # evidence #352 demands. Runnable now that the runner starts WorkerThreadPool (#392).
 REQUIRED_BATCHES: frozenset[str] = frozenset({"CompositorHazard", "RendererPipeline", "Lifetime"})
+
+# #329: the deferred-case count is DERIVED, never hardcoded.
+#
+# The previous version of this file stated "26 [SceneTree]+[RequiresGPU] tests
+# deferred" in a prose comment. The corpus grew to 28 and nothing noticed,
+# because a number in a Python comment is not checked by anything. Both the
+# count and the identity of every still-deferred case now come from
+# docs/reference/renderer_release_gate_manifest.json:deferred_requires_gpu_waivers,
+# which tests/ci/test_gpu_harness_deferred_contract.py cross-checks against the
+# real test corpus and against the `excludes` above.
+#
+# Ask the source, not this comment:
+#   python tests/ci/test_gpu_harness_deferred_contract.py --print-summary
+DEFERRED_SCENETREE_NOTE = (
+    "The [SceneTree]+[RequiresGPU] corpus runs in the NodeSceneTree / WorldSceneTree / "
+    "SceneDirectorSceneTree batches. Cases still deferred are exactly the BatchSpec.excludes "
+    "entries, each of which must carry a waiver in "
+    "docs/reference/renderer_release_gate_manifest.json:deferred_requires_gpu_waivers."
+)
 
 # Validate at import time that every required batch name actually exists in
 # BATCHES — without this, renaming a batch but forgetting to update the
@@ -193,6 +281,7 @@ SUPERVISOR_EXIT_GODOT_MISSING = 3
 class BatchResult:
     name: str
     filters: tuple[str, ...]
+    excludes: tuple[str, ...] = ()
     rc: int = -1
     wall_seconds: float = 0.0
     timed_out: bool = False
@@ -219,6 +308,7 @@ class BatchResult:
         return {
             "name": self.name,
             "filters": list(self.filters),
+            "excludes": list(self.excludes),
             "rc": self.rc,
             "wall_seconds": round(self.wall_seconds, 3),
             "timed_out": self.timed_out,
@@ -308,6 +398,7 @@ def _run_batch(
     godot_binary: Path,
     name: str,
     filters: tuple[str, ...],
+    excludes: tuple[str, ...],
     timeout_sec: int,
     extra_args: list[str],
 ) -> BatchResult:
@@ -325,11 +416,19 @@ def _run_batch(
     # comma-separated form is the doctest-supported multi-pattern syntax.
     if filters:
         args.append(f"--test-case={','.join(filters)}")
+    # Same packing rule applies to excludes: one comma-separated arg, not one
+    # arg per pattern.
+    if excludes:
+        args.append(f"--test-case-exclude={','.join(excludes)}")
     args.extend(extra_args)
 
-    result = BatchResult(name=name, filters=filters)
+    result = BatchResult(name=name, filters=filters, excludes=excludes)
     started = datetime.datetime.now(datetime.timezone.utc)
-    print(f"[run_gpu_harness] >> batch={name} filters={list(filters)} timeout={timeout_sec}s", flush=True)
+    print(
+        f"[run_gpu_harness] >> batch={name} filters={list(filters)} "
+        f"excludes={list(excludes)} timeout={timeout_sec}s",
+        flush=True,
+    )
 
     # Stream stdout/stderr through bounded ring buffers rather than
     # subprocess.run(capture_output=True)'s unbounded buffering. A test that
@@ -583,7 +682,7 @@ def main() -> int:
     for spec in selected:
         # Per-batch timeout overrides --timeout when set on the BatchSpec.
         batch_timeout = spec.timeout_seconds if spec.timeout_seconds is not None else args.timeout
-        r = _run_batch(godot, spec.name, spec.filters, batch_timeout, args.extra_arg)
+        r = _run_batch(godot, spec.name, spec.filters, spec.excludes, batch_timeout, args.extra_arg)
         results.append(r)
         if r.rc != 0 and abs(r.rc) > abs(max_rc):
             max_rc = r.rc

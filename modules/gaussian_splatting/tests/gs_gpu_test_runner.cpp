@@ -17,6 +17,9 @@
 #include "core/templates/local_vector.h"
 #include "main/main.h"
 
+#include "modules/gaussian_splatting/core/gaussian_splat_scene_director.h"
+
+#include "tests/display_server_mock.h"
 #include "tests/test_macros.h"
 
 #if defined(RD_ENABLED)
@@ -61,8 +64,7 @@ GsGpuTestOptions _parse_options(int argc, char *argv[]) {
 			// Only an INCLUSIVE filter suppresses the default-filter injection.
 			// `--test-case-exclude=` alone should still get the default
 			// `*[RequiresGPU]*` filter; otherwise doctest would run every test
-			// in the binary (including the 26 [SceneTree]+[RequiresGPU] cases
-			// that crash without SceneTree bootstrap — Issue #329).
+			// in the binary, including non-GPU cases this bootstrap cannot serve.
 			opt.inject_default_filter = false;
 		}
 	}
@@ -155,8 +157,16 @@ int _run_doctest(int argc, char *argv[], const GsGpuTestOptions &opt) {
 		// forgets to pass a narrower filter.
 		//
 		// Excluded categories:
-		//   - `[SceneTree]`: 26 cases require a SceneTree singleton not
-		//     wired up by Main::test_setup(); tracked in Issue #329.
+		//   - `[SceneTree]`: these DO run under this harness now (#329 registers
+		//     the mock DisplayServer driver below and fixes teardown order), but a
+		//     handful still crash hard -- one of them takes the whole process down
+		//     via a non-aborting REQUIRE (#656). A bare `--gs-gpu-test` with no
+		//     filter is a convenience entry point, so it stays conservative. The
+		//     supervisor runs them properly through the NodeSceneTree /
+		//     WorldSceneTree / SceneDirectorSceneTree batches, which pass explicit
+		//     `--test-case=` filters and therefore bypass this injection entirely.
+		//     The still-broken cases are listed as BatchSpec.excludes there, each
+		//     with a waiver in the release-gate manifest.
 		//   - `[Importer]`: needs full ResourceLoader/ResourceSaver setup
 		//     including type-registration for GaussianSplatAsset's preview
 		//     I/O paths; the offscreen RD bootstrap is intentionally
@@ -312,6 +322,35 @@ int gs_gpu_test_main(int argc, char *argv[]) {
 	// assertions instead of skipping via REQUIRE_WORKER_THREAD_POOL().
 	WorkerThreadPool::get_singleton()->init();
 
+	// Issue #329: register the mock DisplayServer driver exactly as
+	// tests/test_main.cpp:240 does. `gs_gpu_test_main` bypasses `test_main()`
+	// entirely (it owns its own doctest::Context), so without this call the
+	// "mock" driver is never registered.
+	//
+	// That absence — not a missing SceneTree — is what made every
+	// [SceneTree]+[RequiresGPU] case crash under this harness. The globally
+	// registered GodotTestCaseListener (tests/test_main.cpp:333) DOES build a
+	// full SceneTree for [SceneTree]-tagged cases here, but it first scans
+	// DisplayServer::get_create_function_count() for a driver named "mock" and
+	// silently creates nothing when it is absent. It then calls
+	// RenderingServerDefault::init() with no DisplayServer behind it, and
+	// RendererCompositor::create() dereferences null:
+	//
+	//   [2] RendererCompositor::create
+	//   [3] RenderingServerDefault::_init
+	//   [4] RenderingServerDefault::init
+	//   [5] GodotTestCaseListener::test_case_start
+	//
+	// Registering the driver lets the listener take its normal path, so the
+	// deferred cases run here instead of crashing. Cheap and inert for
+	// non-[SceneTree] cases: registration only adds a create-function entry;
+	// nothing is instantiated unless a [SceneTree]/[Editor] case asks for it.
+	// (test_main.cpp:239 additionally calls OS::set_cmdline(); that member is
+	// protected and only reachable from test_main's friend context, and no
+	// deferred case reads OS::get_cmdline_args(), so it is deliberately not
+	// mirrored here.)
+	DisplayServerMock::register_mock_driver();
+
 	const GsGpuTestOptions opt = _parse_options(argc, argv);
 
 	int bootstrap_rc = _bootstrap_rd(opt);
@@ -324,6 +363,40 @@ int gs_gpu_test_main(int argc, char *argv[]) {
 	int rc = _run_doctest(argc, argv, opt);
 	g_in_gs_gpu_mode = false;
 
+	// Issue #329: three-phase teardown. The two obvious orderings each crash,
+	// because the lifetime constraints are circular:
+	//
+	//   * `_teardown_rd()` BEFORE `Main::test_cleanup()` (the original order)
+	//     kills the RenderingDevice while the GaussianSplatSceneDirector still
+	//     owns SharedWorld renderers. Module uninitialization inside
+	//     test_cleanup() then frees their GPU resources through a dangling
+	//     device:
+	//         [0] RenderingDevice::_compute_list_set_push_constant
+	//         [2] ShaderRD::ShaderRD
+	//         [5] GaussianSplatting::TileShaderResources::reset_state
+	//         [7] TileRenderer::_release_compiled_shaders
+	//        [10] GaussianSplatRenderer::~GaussianSplatRenderer
+	//        [22] GaussianSplatSceneDirector::~GaussianSplatSceneDirector
+	//        [27] Main::test_cleanup
+	//
+	//   * `Main::test_cleanup()` BEFORE `_teardown_rd()` inverts the problem:
+	//     test_cleanup() deletes the Engine singleton, and
+	//     `RenderingDevice::~RenderingDevice` reads it during finalize:
+	//         [0] Engine::is_extra_gpu_memory_tracking_enabled
+	//         [2] RenderingDeviceDriverVulkan::pipeline_free
+	//         [3] RenderingDevice::_free_pending_resources
+	//         [6] RenderingDevice::finalize
+	//         [7] RenderingDevice::~RenderingDevice
+	//        [10] _teardown_rd
+	//
+	// So: drop the module's device-backed state FIRST (device + manager both
+	// still live, which is the order #589 requires), THEN the device, THEN the
+	// engine. The pre-existing batches never hit this because they release
+	// their renderers inside the test body; only a SceneDirector-owned
+	// SharedWorld -- what a [SceneTree] case builds -- survives the test case.
+	if (GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton()) {
+		director->release_all_worlds();
+	}
 	_teardown_rd();
 	Main::test_cleanup();
 	return rc;

@@ -158,12 +158,60 @@ tracks every `[RequiresGPU]` doctest by a checked snapshot. The snapshot is
 deliberately strict: adding, renaming, or deleting a GPU test without updating
 the manifest fails contract validation.
 
-`[SceneTree][RequiresGPU]` and `[Importer][RequiresGPU]` tests remain deferred
-because the current offscreen GPU harness does not bootstrap those integration
-paths. They are still release blockers. Public-alpha signoff and closure of
+`[Importer][RequiresGPU]` tests remain deferred by TAG: the offscreen GPU
+harness does not bootstrap the ResourceLoader/ResourceSaver paths they need.
+
+`[SceneTree][RequiresGPU]` is **no longer** a deferred tag (#329). That corpus
+now executes in the `NodeSceneTree`, `WorldSceneTree` and
+`SceneDirectorSceneTree` batches of `tests/ci/run_gpu_harness.py`. Two harness
+bugs had kept all 28 cases out of every lane: the runner never registered the
+mock `DisplayServer` driver the `[SceneTree]` listener needs (so
+`RenderingServerDefault::init()` ran with no DisplayServer and null-dereffed),
+and its teardown destroyed the `RenderingDevice` before module uninitialization
+freed renderer GPU resources through it.
+
+Individual cases that are genuinely broken are deferred **by name**
+(`deferred_test_names_any`) rather than by tag, so a whole family is never
+re-deferred to hide a handful of failures. Public-alpha signoff and closure of
 #350/#360 require either zero deferred tests or explicit waivers in the manifest
 with owner, date, issue URL, product risk, mitigation, and a known-limitations
 docs path.
+
+### Every GPU Test Is Accounted For
+
+`tests/ci/test_gpu_harness_deferred_contract.py` (wired into the headless
+`run_module_tests.py --guard-only` lane, so it runs on every PR without a GPU)
+enforces a total partition of the `[RequiresGPU]` corpus:
+
+| Bucket | Meaning | Where declared |
+| --- | --- | --- |
+| running | matches a `BatchSpec` filter and is not excluded | `tests/ci/run_gpu_harness.py` |
+| deferred | proven broken; has owner, risk, expiry, issue | `deferred_requires_gpu_waivers` |
+| backlog | never executed, never triaged | `unbatched_requires_gpu_backlog` |
+
+`running + deferred + backlog` must equal the corpus exactly, and the recorded
+`coverage_snapshot` must match reality. A test in none of the three buckets
+fails the guard — that is the #329 defect (a test that executes nowhere and is
+written down nowhere) made mechanically impossible to reintroduce.
+
+The backlog is a **ratchet**: entries may only be removed. It exists because
+#329 measurement showed the gap is much wider than the 28 `[SceneTree]` cases —
+**zero** `[RequiresGPU]` tests execute in any headless lane (every
+`MODULE_TEST_FILTERS` lane carries the `*][RequiresGPU]*` exclude), so the GPU
+harness is the only place they can run, and most are still in no batch.
+
+> **Match with doctest semantics, never `fnmatch`.** doctest treats only `*` and
+> `?` as special; `[tags]` are literal. `fnmatch` reads `[...]` as a character
+> class, and since every case name here is bracket-heavy the two disagree badly
+> — under `fnmatch` the `Integration`, `OutputCompositor` and `TileRenderer`
+> batches appeared to match 0 tests while really matching 2, 3 and 3.
+> `check_renderer_release_gates.py:_filter_matches` implements doctest's rule.
+
+Current counts are derived, never hardcoded:
+
+```
+python tests/ci/test_gpu_harness_deferred_contract.py --print-summary
+```
 
 ## Visual And Benchmark Rules
 

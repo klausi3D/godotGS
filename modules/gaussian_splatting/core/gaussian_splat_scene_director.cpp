@@ -2204,6 +2204,37 @@ void GaussianSplatSceneDirector::teardown_world_for_scenario(const RID &p_scenar
 	// world_mutex.
 }
 
+void GaussianSplatSceneDirector::release_all_worlds() {
+	// #329: same teardown `~GaussianSplatSceneDirector` performs via worlds.clear(),
+	// but callable while the surrounding engine is still fully alive.
+	//
+	// The --gs-gpu-test harness owns the RenderingDevice it created, and that device
+	// must be destroyed before Main::test_cleanup() deletes the Engine singleton
+	// (RenderingDevice::~RenderingDevice reads Engine for GPU memory tracking).
+	// Module uninitialization inside test_cleanup() is where the director would
+	// otherwise drop its renderers -- i.e. strictly after the device is gone. Neither
+	// teardown order works on its own; the harness therefore calls this first, while
+	// BOTH the device and the GaussianSplatManager are live, which is exactly the
+	// ordering #589 requires for renderer teardown.
+	//
+	// Snapshot the scenario keys under the lock, then reuse teardown_world_for_scenario()
+	// per key with the lock released: that path already implements the #611 deferred
+	// renderer-release discipline (dropping a renderer Ref under world_mutex is a
+	// lock-order inversion against the render thread).
+	LocalVector<RID> scenarios;
+	{
+		MutexLock lock(world_mutex);
+		scenarios.reserve(worlds.size());
+		for (const KeyValue<RID, SharedWorld> &E : worlds) {
+			scenarios.push_back(E.key);
+		}
+	}
+
+	for (const RID &scenario : scenarios) {
+		teardown_world_for_scenario(scenario);
+	}
+}
+
 bool GaussianSplatSceneDirector::get_world_submission(ObjectID p_owner_id, WorldSubmission *r_submission) const {
 	ERR_FAIL_NULL_V(r_submission, false);
 
