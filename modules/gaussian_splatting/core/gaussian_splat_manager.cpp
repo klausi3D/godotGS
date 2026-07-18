@@ -691,7 +691,9 @@ GaussianSplatManager::~GaussianSplatManager() {
     _release_registered_resources();
     _destroy_local_devices();
 
-    singleton = nullptr;
+    if (singleton == this) {
+        singleton = nullptr;
+    }
 }
 
 void GaussianSplatManager::_bind_methods() {
