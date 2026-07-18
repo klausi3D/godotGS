@@ -10,27 +10,32 @@ memory, and how the CI harness treats them.
 > JSON/harness disagree, the JSON and harness win. The design rationale lives in
 > the ADR [`docs/architecture/adr-test-quarantine-manifest.md`](../architecture/adr-test-quarantine-manifest.md).
 
-## Two non-overlapping manifests
+## Three non-overlapping homes
 
-There are two separate homes for excluded/known-failing tests. They do not
+There are three separate homes for excluded/known-failing tests. They do not
 overlap:
 
 | Test kind | Home | Enforced by |
 | --- | --- | --- |
-| Headless doctest lanes (`MODULE_TEST_FILTERS` in `run_module_tests.py`) | `tests/ci/quarantine_manifest.json` | `_run_quarantine_manifest_guard` + the doctest-lane wiring in `run_module_tests.py` |
+| Headless doctest lanes (`MODULE_TEST_FILTERS` in `run_module_tests.py`) that are known-**failing** | `tests/ci/quarantine_manifest.json` -> `entries` | `_run_quarantine_manifest_guard` + the doctest-lane wiring in `run_module_tests.py` |
+| Test cases that match **no lane at all** and therefore never run (issue #520) | `tests/ci/quarantine_manifest.json` -> `unlaned_tests` | `tests/ci/check_test_lane_coverage.py` |
 | GPU `[SceneTree]` / `[Importer]` tests deferred because no GPU runner is available (issue #329) | `renderer_release_gate_manifest.json:deferred_requires_gpu_waivers` | `tests/ci/check_renderer_release_gates.py` (its `closure_policy`) |
 
-A headless lane that is known-failing goes in the quarantine manifest. A
-GPU-only test that cannot run in the current CI environment goes in the
-release-gate waiver array. Never duplicate an entry across both.
+A headless lane that runs and fails goes in `entries`. A test that no lane ever
+selects goes in `unlaned_tests`. A GPU-only test that cannot run in the current
+CI environment goes in the release-gate waiver array. Never duplicate an entry
+across two of them - they answer different questions ("this fails", "this never
+runs", "this cannot run here").
 
-## Status: ships empty (Slice 1)
+## Status of `entries`: ships empty (Slice 1)
 
-The manifest currently ships **empty** (`{"schema_version": 1, "entries": []}`).
-An empty manifest is behaviorally inert: no lane is treated as quarantined, and
-the harness behaves exactly as it did before the mechanism existed (no gate,
-lane outcome, or exit code changes). Populating the manifest is Slice 2 and is
-individually human-gated (see below).
+The `entries` array currently ships **empty**. An empty `entries` is
+behaviorally inert: no lane is treated as quarantined, and the harness behaves
+exactly as it did before the mechanism existed (no gate, lane outcome, or exit
+code changes). Populating it is Slice 2 and is individually human-gated (see
+below).
+
+`unlaned_tests` is **not** empty - see its own section below.
 
 ## Schema
 
@@ -49,6 +54,60 @@ Each object in `entries` describes one quarantined lane.
 | `mitigation` | no | Optional note on interim mitigation. |
 
 `schema_version` at the top level must be `1`.
+
+## `unlaned_tests` - tests that match no lane (#520)
+
+`tests/ci/check_test_lane_coverage.py` parses every `TEST_CASE` name out of the
+test sources, imports the lane definitions from `run_module_tests.py`
+(`MODULE_TEST_FILTERS`) and `run_gpu_harness.py` (`BATCHES`), and fails when a
+registered case matches **none** of them.
+
+`REQUIRES_RD_TEST_FILTERS` is deliberately not counted as coverage: the runner
+only appends that lane under `--gpu`/`GS_RUN_GPU_TESTS=1`, which the blocking
+workflow does not pass, and it is `strict=False` regardless. It is a catalogue,
+not a lane, so crediting it would report coverage that does not exist. Such a
+case compiles, links and registers, but no lane ever selects it: it can never
+run and can never fail CI.
+
+Both sides are derived, never transcribed. #520 catalogued three stranded
+families by hand and missed a fourth (`[World]`) that existed at filing time; a
+hand-maintained list is the same class of artifact as the bug.
+
+Matching uses **doctest's** wildcard semantics, ported from
+`thirdparty/doctest/doctest.h` (`wildcmp`): only `*` and `?` are special, `[` and
+`]` are literal, and matching is case-insensitive because doctest's
+`case_sensitive` option defaults to false. Python's `fnmatch` treats `[...]` as a
+character class and answers a different question - an `fnmatch`-based lane audit
+is unreliable.
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `test_case` | yes | Doctest-style wildcard matched against stranded case names. Keep it as narrow as the family allows. |
+| `count` | yes | Exactly how many stranded cases this declaration covers. Family wildcards are open-ended, so without a count a brand-new stranded case joining an already-declared family would pass silently — the declaration would amnesty tests written long after anyone agreed to it. |
+| `reason` | yes | Why these cases have no lane, and what it would take to give them one. |
+| `issue_url` | yes | Tracking issue. |
+| `owner` | yes | Who owns getting them laned. |
+| `expires_utc` | yes | ISO-8601 UTC. The guard fails once this is in the past. |
+| `risk` | no | Risk class, for consistency with `entries`. |
+
+Declarations are verified in **both** directions and on the count: an entry
+matching zero stranded cases fails as stale; an entry matching **more** than it
+declares fails, naming the newcomer; an entry matching **fewer** fails with an
+instruction to lower the count so the slack cannot be reoccupied. The list can
+neither rot into a permanent amnesty nor quietly widen.
+
+### What the guard does not check
+
+It does not fail on cases that reach only a **non-strict** lane. 416 of 756
+registered cases reach no strict module lane and no GPU batch, most of them
+legitimately (GPU harness, advisory safety nets). Gating that today would demand
+hundreds of declarations, turning this manifest into the rubber stamp it exists
+to prevent. The number is printed on every run so it stays visible and can be
+ratcheted deliberately.
+
+It also does not detect a case that matches a lane and then early-returns past
+every assertion. That is vacuity, not stranding - a different defect that no lane
+configuration can see.
 
 ### Multiple entries per lane
 

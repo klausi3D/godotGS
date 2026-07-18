@@ -1,1 +1,105 @@
-{"schema_version": 1, "entries": []}
+{
+  "schema_version": 1,
+  "entries": [],
+  "unlaned_tests": [
+    {
+      "test_case": "[GaussianSplatting][GeneratePLY]*",
+      "count": 1,
+      "reason": "Deliberate: a fixture GENERATOR with disk side effects, not an assertion. It is invoked explicitly by tests/runtime/prepare_synthetic_assets.py, never by a CI lane, and run_module_tests.py already excludes [GeneratePLY] from the untagged safety net for that reason. Recorded here so the exclusion is declared in a machine-readable place rather than only in a code comment.",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/520",
+      "owner": "klausi3D",
+      "risk": "R1",
+      "expires_utc": "2026-10-15T00:00:00Z"
+    },
+    {
+      "test_case": "[GaussianSplatting][Thumbnail]*",
+      "count": 2,
+      "reason": "UNDECIDED, not deliberate. [Thumbnail] is listed in UNTAGGED_GAUSSIAN_EXCLUDE_TAGS but no [Thumbnail] lane was ever defined, so both cases in test_gaussian_importer.h are excluded from the only lane that would have run them. Named in #520's title. Fix is to add a strict [Thumbnail] lane, which needs a proven-green run first: these cases have never executed in CI, so their pass/fail state is unknown.",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/520",
+      "owner": "klausi3D",
+      "risk": "R1",
+      "expires_utc": "2026-10-15T00:00:00Z"
+    },
+    {
+      "test_case": "[GPU Memory Stream]*",
+      "count": 6,
+      "reason": "UNDECIDED, not deliberate. The lane NAMED 'GPU Memory Stream' in run_module_tests.py filters on '*Triple Buffering*', a phrase that matches none of these six cases, so the lane's name suggests coverage it does not provide. Named in #520. Widening the filter needs a proven-green run first; 'Memory Leak Detection' in particular has never executed.",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/520",
+      "owner": "klausi3D",
+      "risk": "R1",
+      "expires_utc": "2026-10-15T00:00:00Z"
+    },
+    {
+      "test_case": "[Streaming VRAM]*",
+      "count": 1,
+      "reason": "UNDECIDED. Single case in test_gpu_streaming.cpp carrying a [Streaming VRAM] tag that exists nowhere else in the repo; the 'Streaming Pipeline' lane matches '*[Streaming Pipeline]*' and does not reach it. Not catalogued in #520 - surfaced by this guard.",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/520",
+      "owner": "klausi3D",
+      "risk": "R1",
+      "expires_utc": "2026-10-15T00:00:00Z"
+    },
+    {
+      "test_case": "[Integration]*",
+      "count": 9,
+      "reason": "PARTIALLY ADDRESSED by #641, which added the GPU-harness 'Integration' batch matching '*Integration*][RequiresGPU]*'. These nine cases carry no [RequiresGPU] tag, so that batch does not reach them and neither does any module lane. #641 fixed the tagged subset and left this one dark.",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/641",
+      "owner": "klausi3D",
+      "risk": "R1",
+      "expires_utc": "2026-10-15T00:00:00Z"
+    },
+    {
+      "test_case": "[GaussianSplatting][World]*",
+      "count": 7,
+      "reason": "The headline orphan of #520. run_module_tests.py excludes '*][World][SceneTree]*' from the [SceneTree] lane, which reads as de-duplication against a [World] lane, but no [World] lane exists. The neighbouring [Node]/[Container] exclusions DO dedupe against real lanes, which camouflaged this one. 3 of the 7 carry no [RequiresGPU]; the other 4 were previously credited to the opt-in [requires-RD] catalogue, which blocking CI never runs - so they looked laned while being just as invisible (Codex, PR #658). Adding a strict [World] lane is the fix for the 3, and the 4 need a GPU harness batch; both need a proven-green run.",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/520",
+      "owner": "klausi3D",
+      "risk": "R1",
+      "expires_utc": "2026-10-15T00:00:00Z"
+    },
+    {
+      "test_case": "[GaussianSplatting][NodeSurface][World]*",
+      "count": 1,
+      "reason": "Same [World] orphan as above, reached through a different tag order ([NodeSurface][World], no [SceneTree]), so a pattern anchored on '[World][SceneTree]' does not cover it. Listed separately to keep each declaration's blast radius visible rather than widening the pattern to '*[World]*'.",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/520",
+      "owner": "klausi3D",
+      "risk": "R1",
+      "expires_utc": "2026-10-15T00:00:00Z"
+    },
+    {
+      "test_case": "[TileRenderer]*",
+      "count": 14,
+      "reason": "BLOCKED on #637. run_module_tests.py's 'TileRenderer' lane is deliberately narrowed to '*Shader compilation on local device*' because repointing it at the whole [TileRenderer] family would pull in test_tile_async_readback_freshness.cpp, whose four cases SIGSEGV under --test (#637) and would crash the lane. The existing code comment says exactly this. The other ten cases (prefix-scan ABI/dispatch/CPU-fallback, shared-memory contract, range regression) are collateral: they are host-only and would very likely pass, but cannot be laned until the crashers are separable.",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/637",
+      "owner": "klausi3D",
+      "risk": "R1",
+      "expires_utc": "2026-10-15T00:00:00Z"
+    },
+    {
+      "test_case": "[VisualCompare]*",
+      "count": 3,
+      "reason": "UNDECIDED. Three self-tests of the visual-comparison helper in visual_compare.h (PNG round-trip, mismatch detection, tolerance). They carry no [GaussianSplatting] prefix, so the untagged safety net does not reach them either. Not catalogued in #520 - surfaced by this guard.",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/520",
+      "owner": "klausi3D",
+      "risk": "R1",
+      "expires_utc": "2026-10-15T00:00:00Z"
+    },
+    {
+      "test_case": "[RendererSceneCull] Hidden indexing policy gates Gaussian exemption",
+      "count": 1,
+      "reason": "Gaussian-relevant but lives in the ENGINE test tree (tests/servers/rendering/test_renderer_scene_cull.h), and carries no [GaussianSplatting] tag, so no module lane or GPU batch reaches it. It asserts RendererSceneCull::allows_hidden_visibility_indexing gates the INSTANCE_GAUSSIAN_SPLAT exemption - a real contract on our engine delta. Surfaced only after this guard's corpus scan was widened to the engine tree recursively; a tag-filtered, top-level-only scan missed it. Fix is a lane that reaches gaussian-relevant engine-tree cases, which needs a proven-green run.",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/520",
+      "owner": "klausi3D",
+      "risk": "R1",
+      "expires_utc": "2026-10-15T00:00:00Z"
+    },
+    {
+      "test_case": "*][RequiresGPU]*",
+      "count": 87,
+      "reason": "Catch-all for [RequiresGPU] cases that no run_gpu_harness.py batch reaches. These were previously credited to REQUIRES_RD_TEST_FILTERS ('GaussianSplatting [requires-RD]'), but _build_module_test_runs() only appends that lane under --gpu / GS_RUN_GPU_TESTS=1 and the blocking workflow (.github/workflows/gaussian_production_gates.yml) invokes the runner without it. That lane's own comment calls itself 'a catalogue of renderer-dependent tests', and it is strict=False even when it does run - so crediting it reported coverage that does not exist (Codex, PR #658). Declared as ONE entry deliberately: the long-term home for GPU deferrals is renderer_release_gate_manifest.json:deferred_requires_gpu_waivers under #329, which is owned elsewhere and currently empty; this entry keeps the cases visible and counted until #329 populates it. The count means a NEW [RequiresGPU] case that no batch reaches still fails this guard.",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
+      "owner": "klausi3D",
+      "risk": "R1",
+      "expires_utc": "2026-10-15T00:00:00Z"
+    }
+  ]
+}
