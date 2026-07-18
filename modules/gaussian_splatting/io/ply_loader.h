@@ -61,6 +61,14 @@ public:
         int vertex_count = 0;
         Vector<PLYProperty> properties;
         int header_size = 0;
+        // Absolute byte offset (binary PLY) at which the vertex element's data
+        // begins. Equals header_size when `vertex` is the first element; when
+        // other elements are declared BEFORE `vertex` their fixed-size data
+        // precedes the vertex block, so this skips past it (issue #512).
+        uint64_t vertex_data_offset = 0;
+        // ASCII PLY: number of data rows (lines) belonging to elements declared
+        // before `vertex`, which must be skipped before reading vertex rows.
+        int64_t pre_vertex_row_count = 0;
     };
 
 private:

@@ -82,7 +82,17 @@ public:
     //       the cached decode is unaffected (ADR "Two distinct caches"). Because
     //       pruning is opt-in and Ultra stays byte-identical, no shipped asset
     //       silently changes on the bump.
-    virtual int get_format_version() const override { return 9; }
+    //   v10: the PLY binary/ASCII parser now rejects vertex-element
+    //       `property list` declarations (issue #511) and accounts for elements
+    //       declared before `vertex` (issue #512) instead of silently loading a
+    //       misaligned/mis-offset vertex block. An asset imported by v1-v9 from
+    //       such a PLY holds garbage splats in its .res, so bumping the format
+    //       version makes Godot's scanner re-run import() automatically (which
+    //       now either decodes correctly or fails loudly). This pairs with the
+    //       matching PLY_CACHE_VERSION 2->3 bump so the raw decode cache is also
+    //       invalidated. (SPZ has its own loader and does not share this parse
+    //       chain, so ResourceImporterSPZ::get_format_version() is unchanged.)
+    virtual int get_format_version() const override { return 10; }
 
     // Validation helpers
     Error validate_ply_properties(const Ref<class PLYLoader> &p_loader) const;
