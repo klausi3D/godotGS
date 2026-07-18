@@ -295,6 +295,14 @@ struct TilePerformanceMetrics {
 	float rasterization_ms = 0.0f;
 	uint32_t profiling_cached_overlap_total = 0;
 	uint64_t sort_sync_fallback_count = 0;
+	// Persistent count of frames the global-composite path rasterized UNSORTED because
+	// its GPU sorter was unavailable (capability-gated fallback; wrong alpha order). This
+	// is distinct from sort_sync_fallback_count (sorter EXISTS, async→sync dispatch
+	// fallback, still sorted — issue #9). Surfaced via
+	// TileRenderer::get_unsorted_composite_frames() and get_binning_debug_counters() so the
+	// degradation is observable in production instead of a single one-shot log line (#586).
+	// Reset with the whole struct in TileRenderer::release() (perf_metrics = TilePerformanceMetrics()).
+	uint64_t unsorted_composite_frames = 0;
 	// Counts how many times the cached graphics raster pipeline was rebuilt due to a
 	// framebuffer-format mismatch (e.g. when the eager pre-create at init used a
 	// "probable" color format that differed from the live framebuffer).

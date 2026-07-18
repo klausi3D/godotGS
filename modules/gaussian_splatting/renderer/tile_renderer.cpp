@@ -22,6 +22,7 @@
 #include "resource_owner_mismatch_contract.h"
 #include "sh_config.h"
 #include "shader_compilation_helper.h"
+#include "sort_fallback_policy.h"
 #include "../logger/gs_logger.h"
 #include "../interfaces/gs_raster_thresholds.h"
 #include "../interfaces/render_device_manager.h"
@@ -783,12 +784,13 @@ private:
 				GS_LOG_ERROR_DEFAULT("[TileRenderer] Global composite sort enabled but resources are unavailable");
 				return false;
 			}
-			if (!renderer.global_sort_resources.sorter.is_valid() && params.splat_count > 0) {
-				if (!renderer.global_sort_resources.sorter_missing_logged) {
-					GS_LOG_WARN_DEFAULT("[TileRenderer] Global composite sorter unavailable; rendering unsorted tiles");
-					renderer.global_sort_resources.sorter_missing_logged = true;
-				}
-			}
+			// NOTE: The unsorted-composite observability (persistent counter + throttled WARN)
+			// lives at the authoritative sort-dispatch decision below (search
+			// "unsorted_composite_frames"), NOT here. This pre-binning point is BEFORE several
+			// early-returns (uniform-set acquisition, tile-range build), so a missing sorter
+			// here does not yet imply the frame will actually rasterize unsorted content; the
+			// root cause is already logged once at sorter-enable time by
+			// TileGlobalSortResources::ensure_resources/disable_sorter.
 
 			// Pass 1: count overlaps per tile.
 			renderer.binning_stage.clear_tile_counts(resource_device);
@@ -1026,9 +1028,33 @@ private:
 				renderer.timing_state.last_overlap_sort_cpu_dispatch_ms = float(sort_dispatch_end_usec - sort_dispatch_start_usec) / 1000.0f;
 				renderer.timing_state.overlap_sort_cpu_dispatch_valid = true;
 			} else if ((allow_sync_readback ? (overlap_record_count > 0) : (params.splat_count > 0)) &&
-					!renderer.global_sort_resources.sorter.is_valid() && !renderer.global_sort_resources.sorter_missing_logged) {
-				GS_LOG_WARN_DEFAULT("[TileRenderer] Global composite sorter unavailable; rendering unsorted tiles");
-				renderer.global_sort_resources.sorter_missing_logged = true;
+					!renderer.global_sort_resources.sorter.is_valid()) {
+				// Global-composite sorter unavailable but there IS translucent content to
+				// composite this frame: we skip the sort and rasterize tiles in UNSORTED order
+				// (wrong alpha compositing). This is capability-gated — it only happens when
+				// TileGlobalSortResources::ensure_resources/disable_sorter could not build a
+				// sorter (indirect-compute probe false, sorter creation failed, or the created
+				// sorter lacked indirect support); it does NOT fire on desktop GPUs with
+				// indirect compute. The root cause is logged once at enable time by
+				// disable_sorter.
+				//
+				// BEHAVIOR DECISION (#586): keep rendering unsorted rather than skipping the
+				// frame or tearing down global-composite mode. On hardware that genuinely
+				// cannot build the sorter, dropping/blanking the frame would black-screen —
+				// worse than a slightly-wrong z-order — and reusing a stale prior sort would
+				// present wrong order from a moved camera as if correct. So we degrade
+				// visibly but make it OBSERVABLE: bump a persistent per-frame counter and warn
+				// on a throttle (not a one-shot) so the degradation surfaces in production
+				// telemetry, not just once per process.
+				// sorter_missing_logged is intentionally NOT touched here: it is owned by
+				// disable_sorter as the one-shot guard for the ROOT-CAUSE line at enable time.
+				// This site's observability is the persistent counter + throttled WARN below.
+				const uint64_t unsorted_frames = ++renderer.perf_metrics.unsorted_composite_frames;
+				if (GaussianSplatting::should_warn_unsorted_composite(unsorted_frames)) {
+					GS_LOG_WARN_DEFAULT(vformat(
+							"[TileRenderer] Global composite sorter unavailable; rasterizing UNSORTED tiles (wrong alpha order) — %d frame(s) so far (capability-gated fallback)",
+							int(unsorted_frames)));
+				}
 			}
 
 			// GPU-driven: sort reads element_count directly from global_sort_resources.indirect_dispatch_buffer.

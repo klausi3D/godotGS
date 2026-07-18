@@ -169,6 +169,9 @@ public:
     float get_tile_assignment_time() const { return perf_metrics.tile_assignment_ms; }
     float get_rasterization_time() const { return perf_metrics.rasterization_ms; }
 	uint64_t get_sort_sync_fallback_count() const { return perf_metrics.sort_sync_fallback_count; }
+	// Persistent count of frames the global-composite path rasterized UNSORTED because its
+	// GPU sorter was unavailable (capability-gated fallback; wrong alpha order) — see #586.
+	uint64_t get_unsorted_composite_frames() const { return perf_metrics.unsorted_composite_frames; }
 	uint32_t get_raster_pipeline_reformat_count() const { return perf_metrics.raster_pipeline_reformats; }
 	float get_last_submission_cpu_ms() const { return timing_state.last_submission_cpu_ms; }
 	float get_last_gpu_frame_time_ms() const { return timing_state.last_frame_gpu_ms; }

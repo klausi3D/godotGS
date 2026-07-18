@@ -36,6 +36,32 @@ static inline bool allow_unsorted_cpu_fallback_in_orchestrator(bool p_strict_glo
 	return p_positions_ready || !p_strict_global_sort;
 }
 
+// Warning throttle for the global-composite UNSORTED fallback.
+//
+// When the global-composite path has translucent content to composite but no
+// usable GPU sorter (capability-gated: the indirect-compute probe failed, sorter
+// creation failed, or the created sorter lacked indirect support), it rasterizes
+// tiles in UNSORTED order — wrong alpha compositing. On hardware that genuinely
+// cannot build the sorter, dropping the frame would black-screen, which is worse
+// than a slightly-wrong z-order, so the renderer keeps rendering; but the
+// degradation must stay OBSERVABLE. Every such frame bumps a persistent counter
+// (TilePerformanceMetrics::unsorted_composite_frames, surfaced via
+// get_binning_debug_counters()); this predicate rate-limits the paired WARN so it
+// is visible in production without one line per frame. It fires on the first
+// degraded frame and then once per interval — NOT one-shot-forever, so a
+// persistent degradation keeps re-surfacing in the log.
+//
+// Argument is the post-increment counter value (first degraded frame == 1).
+static constexpr uint64_t UNSORTED_COMPOSITE_WARN_INTERVAL_FRAMES = 300;
+
+static inline bool should_warn_unsorted_composite(uint64_t p_unsorted_composite_frames) {
+	if (p_unsorted_composite_frames == 0) {
+		return false;
+	}
+	return p_unsorted_composite_frames == 1 ||
+			(p_unsorted_composite_frames % UNSORTED_COMPOSITE_WARN_INTERVAL_FRAMES) == 0;
+}
+
 // Sort fallback policy. The instance domain has no safe unsorted fallback, so
 // the only options are reuse-previous or fail. The global domain keeps the CPU
 // sort as the correctness-preserving fallback when the GPU sort fails.
