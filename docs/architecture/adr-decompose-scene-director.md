@@ -133,6 +133,14 @@ render-thread query means a *read* can invalidate a *cache* mid-frame — exactl
 "never hand out mutation from a const query" anti-pattern the renderer refactor split into
 `IFrameStateView` vs `IFrameMutationAccess` (`gaussian-renderer-refactor-memory.md`).
 
+Two precisions that matter for the fix (see §2a): the **liveness test itself is not stale** —
+`scope_alive` is recomputed fresh at `:103-104` on every build, so the drop decision is always
+current; only the `scope_root_valid` latch and its paired generation bump are stateful. And
+the bump the render path issues is read by the render path itself
+(`render_streaming_orchestrator.cpp:794`, `:1682`) to decide whether to rebuild — self-invalidation
+with no defined ordering. Removing the write therefore requires a replacement trigger, not just
+a deletion; §2a defines it.
+
 ### 1e. O(worlds) linear scans under the lock
 
 Reverse lookups are unindexed linear scans of every world:
@@ -260,9 +268,9 @@ with the four house fields (owned state / locking / canonical-vs-derived / wirin
 - **`SphereEffectorStore`** (Kind B).
   *Owns:* `sphere_effectors` + `sphere_effector_lookup` + `sphere_effector_generation` +
   `registration_serial`. The sorted-payload builder becomes a **pure function over an immutable
-  snapshot** (Kind A helper); scope-root liveness revalidation (and the `scope_root_valid` /
-  generation write) moves to an explicit main-thread `revalidate_scope_roots()`, removing the
-  `const_cast` render-thread mutation (§1d).
+  snapshot** (Kind A helper); the `scope_root_valid` / generation **write** moves to an
+  explicit main-thread `revalidate_scope_roots()` with the concrete triggers defined in
+  §2a, removing the `const_cast` render-thread mutation (§1d).
 - **`SubmissionStore`** (Kind B).
   *Owns:* `world_submission` + the renderer restore-state snapshot; drives apply/rollback through
   a `RendererLifecycleOwner` handle. Isolates ownership-arbitration and rollback (`:2049-2080`)
@@ -276,6 +284,73 @@ The per-instance **scene-effector filter cache** (`scene_tree_ancestor_ids`, lay
 root — `gaussian_splat_scene_director.h:334-341`) stays on the instance record but is written only
 through the main-thread `update_instance_scene_effector_filter` path (`:982`); documented as
 `InstanceStore`-owned derived state. No unit introduces a process-global lock, per the house rule.
+
+### 2a. Scope-root revalidation — the concrete trigger (was undefined)
+
+> **Corrected in review round 1.** The previous revision said scope-root revalidation
+> "moves to an explicit main-thread `revalidate_scope_roots()`" but never said **what fires
+> it**. A revalidation step with no trigger is a revalidation step that never runs, and here
+> that is not a cosmetic gap — it would be a **behavior regression**, for the reason in
+> "why the check exists" below.
+
+**What the code actually does today** (`scene_director_sphere_effectors.cpp:102-117`) — the
+distinction the previous revision blurred:
+
+- **Liveness is *not* cached and *not* stale.** `scope_alive` is recomputed from scratch on
+  every payload build (`:103-104`, `ObjectDB::get_instance(record.scope_root_id)` +
+  `cast_to<Node>`), and the keep/drop decision at `:105` uses that fresh value. A dead scope
+  root stops matching immediately, on the next frame, always.
+- **Only the *latch and the invalidation* are stateful.** `scope_root_valid` (`h:362`) is
+  written **only** at `:107` and `:114`, and is **read only at `:106`/`:112`** — never by any
+  eligibility, mask, payload, or debug path. Its sole purpose is to fire the paired
+  `sphere_effector_generation++` (`:108`/`:115`) **once, on the edge**, instead of every
+  frame.
+
+So the defect is narrower and sharper than "revalidation happens on the render thread": a
+**render-thread read path bumps the very generation counter the render path uses to decide
+whether to rebuild** (`render_streaming_orchestrator.cpp:794`, `:1682`;
+`resident_instance_contract_publisher.cpp:291`) — self-invalidation with no defined
+ordering — and it does so with a raw `++` (`:108`, `:115`) that bypasses the wrap-guarded
+`_bump_instance_generation` helper (`gaussian_splat_scene_director.cpp:23-28`) every other
+bump site uses.
+
+**Why the check exists at all — and why it cannot simply be deleted.** On the effector side,
+the scope root is re-resolved only on `NOTIFICATION_ENTER_TREE`
+(`nodes/sphere_effector_3d.cpp:101`), `NOTIFICATION_ENTER_WORLD` (`:111`),
+`NOTIFICATION_TRANSFORM_CHANGED` (`:124`), and `set_scope_root()` (`:303-309`) — all routing
+through `_sync_with_director()` (`:136-174`). **A static effector whose scope-root node is
+freed receives none of these events.** There is no timer, no per-frame sweep, and no
+`ObjectDB` death notification anywhere in the module (verified: zero `revalidate*` /
+`refresh_scope*` mechanisms exist). The render-path check is currently the *only* thing that
+notices. Moving it to a main-thread method without a trigger would mean nothing notices.
+
+**Decision — the trigger set.** `SphereEffectorStore::revalidate_scope_roots()` is invoked
+from exactly these places, all on the main thread, all in the director facade:
+
+| # | Trigger | Fires from | Rationale |
+|---|---|---|---|
+| **T1** | **Every effector mutation** — `update_sphere_effector` / `register_sphere_effector` / `unregister_sphere_effector` | `gaussian_splat_scene_director.cpp:1850`, `:1841`, `:2009` | The store is already locked and already bumping the generation; revalidating here is free. **Also fixes the latch-reset bug**: today `update_sphere_effector` (`:1972-1975`) can re-point `scope_root_id` at a new node while `scope_root_valid` keeps the *previous* root's latch value, and never resets it to the declared `true` default. `revalidate_scope_roots()` must re-derive the latch from the new ID. |
+| **T2** | **Every instance-side scene-effector filter update** — `update_instance_scene_effector_filter` | `gaussian_splat_scene_director.cpp:980-1022`, called from `gaussian_splat_node_3d.cpp:2480` and `:2522` | This is the existing main-thread scene-topology-changed signal (ENTER_TREE, ENTER_WORLD, the effector setters, visibility flips). Scope roots are scene-topology state; they revalidate on the same edge. |
+| **T3** | **World teardown / prune** — `teardown_world_for_scenario`, `_prune_world_if_unused` | `:2131`, `:748` | Bulk node destruction is exactly when scope roots die en masse. |
+| **T4** | **A bounded main-thread sweep**, once per `WorldContext` per N frames (N configurable, default 1 — i.e. every main-thread director tick), scanning only effectors with `scope_mode != SPHERE_EFFECTOR_SCOPE_WORLD`. | The manager's existing main-thread tick, `gaussian_splat_manager.cpp:660` (`_process_active_nodes_main_thread`) | **This is the trigger that replaces the render-path check.** T1–T3 are all *mutation-driven*; none of them fires when a scope-root node is freed while nothing else changes — which is precisely the case the render-path check was added to catch. Without T4 the decomposition regresses behavior. |
+
+**T4 is mandatory, not optional.** If the owner rejects T4 (e.g. on cost grounds), the
+correct fallback is to **keep the liveness check on the read path** and move only the
+*write* off it — i.e. the payload builder continues to compute `scope_alive` fresh and drop
+dead-scoped effectors (preserving today's behavior exactly), but records the edge into a
+main-thread-drained queue instead of mutating under `const_cast`. What is **not** acceptable
+is moving the check to a main-thread method that nothing calls. Both options are costed in
+D5.
+
+**Cost note.** T4 scans only non-WORLD-scoped effectors and performs one
+`ObjectDB::get_instance` each — the same work the render path does today, moved to the main
+thread and done once per frame instead of once per renderer per frame. For any realistic
+effector count this is strictly cheaper than the status quo.
+
+**Ordering requirement.** `revalidate_scope_roots()` must run **before** the frame's snapshot
+is published (§4 Step 6), so the render path observes a stable generation for the whole
+frame. Combined with §3-invariant-2, this is what makes the render snapshot genuinely
+read-only.
 
 ```mermaid
 graph TD
@@ -372,13 +447,20 @@ asset-record-count tests pass unchanged; the 64-bit key path is now type-enforce
 
 **Step 2 — `SphereEffectorStore` + remove the `const_cast` render-thread mutation (R1).**
 Move effector state and methods (`update_sphere_effector` `:1850`, `unregister_sphere_effector`,
-`_build_sorted_sphere_effector_payload`) into `SphereEffectorStore`. Split scope-root revalidation
-into an explicit `revalidate_scope_roots()` invoked on the main thread; the render-path builder
-becomes a pure function over an immutable snapshot (§1d, §3-invariant-2). Delete the two dead
+`_build_sorted_sphere_effector_payload`) into `SphereEffectorStore`. Add
+`revalidate_scope_roots()` **wired to all four triggers T1–T4 in the same PR** (§2a); the
+render-path builder becomes a pure function over an immutable snapshot (§1d,
+§3-invariant-2). Route the two raw `++` bumps (`:108`, `:115`) through
+`_bump_instance_generation` so the wrap-skips-0 guard applies uniformly. Delete the two dead
 node-reading helpers (`:181`, `:224`, §1h) in the same PR.
 *Behavior-preservation proof:* the sphere-effector suite (payload ordering, scope filtering,
 multi-match warnings) and `get_scene_effector_debug_state_for_instance` output are byte-identical
-for a fixed frame; a new unit asserts the payload builder performs no writes.
+for a fixed frame; a new unit asserts the payload builder performs no writes; **and a new
+regression test covers the trigger gap directly** — register a SUBTREE/EXPLICIT_ROOT effector,
+free its scope-root node **without touching any effector or instance property**, tick the main
+thread, and assert the effector stops matching within one frame and the generation bumped
+exactly once. That test must **fail** if `revalidate_scope_roots()` is present but unwired
+(the defect this correction exists to prevent).
 *Closes:* the hidden-mutable-state slice of #356.
 
 **Step 3 — `WorldRegistry` reverse indexes + `RendererLifecycleOwner`, corrected teardown order +
@@ -469,6 +551,58 @@ construction, `initialize()`, and teardown never run inside a registry critical 
 node/world/director unref+prune ordering (#551) and module teardown order (#589) are expressed in
 types, not comments; and (6) `AssetId` is a type, so an asset-identity mis-pick fails to compile (#545).
 
+## Invariant list — what every step is graded against
+
+Checkable. A step that violates one is rejected even with green CI. "Exit check" above is
+the end-state; this is the per-step contract.
+
+| # | Invariant | How it is checked |
+| --- | --- | --- |
+| **D1** | **No `const` method mutates state or a generation counter.** Zero `const_cast` on `SharedWorld`/`WorldContext` or any record in the render path. | Grep guard: zero `const_cast<SharedWorld` / `const_cast<SphereEffectorRecord` in the director TUs. Unit test asserting the payload builder performs no writes. |
+| **D2** | **Every generation counter has exactly one writing owner**, and every bump goes through the wrap-guarded helper (`_bump_instance_generation`, `:23-28`). No raw `++`. | Grep guard: zero raw `sphere_effector_generation++` / `instance_generation++` outside the helper. |
+| **D3** | **`revalidate_scope_roots()` is reachable from all four triggers T1–T4 (§2a).** A dead scope root stops matching within one main-thread tick **without** any effector or instance property changing. | The Step 2 regression test described above. This is the specific defect the review caught; the test is the guard. |
+| **D4** | **Dead-scope behavior is preserved exactly**: a SUBTREE/EXPLICIT_ROOT effector whose scope root no longer resolves is excluded from the payload, and the exclusion invalidates dependent caches exactly once per edge (not per frame). | Byte-identical payload for a fixed frame + a bump-count assertion across N frames (expect 1, not N). |
+| **D5** | **`scope_root_valid` is re-derived on re-point.** `update_sphere_effector` changing `scope_root_id` cannot leave the previous root's latch value in place. | Unit test: point at root A (dead), re-point at root B (alive), assert the effector matches and the latch is correct. Fixes a live bug (`:1972-1975`). |
+| **D6** | **No blocking renderer call happens while the registry lock is held** — not `initialize()`, not `apply/restore_world_submission_*`, not `renderer.unref()`/dtor. | Step 3 review + a lock-order assertion in debug builds; `GS_LOCK_ORDER_GUARD` coverage on the new registry lock. |
+| **D7** | **No store calls into `Node` / `ObjectDB` while holding a lock.** Node→world resolution happens on the caller thread and passes a resolved `RID` in. | Grep guard on `ObjectDB::get_instance` inside locked scopes in the director TUs; the four §1c sites must be gone. |
+| **D8** | **The `world_mutex` ↔ manager L1–L4 non-nesting invariant is preserved** throughout; no step introduces a process-global lock. | `GS_LOCK_ORDER_GUARD` levels unchanged; lock-declaration count guard. |
+| **D9** | **The renderer `Ref` in `WorldContext` remains the only strong reference.** No step duplicates it. | Grep + the RID-count lifetime tests. |
+| **D10** | **The unref+prune ordering cannot be expressed wrong** at the node/world call sites after Step 3 — the two operations are not separately callable there. | Compile-time proof + `test_renderer_lifetime_proof` scenario_c (F6 reload) green. |
+| **D11** | **Module teardown is director-before-manager** after Step 3 (`register_types.cpp:247-260` reversed), and a retained renderer at shutdown does not observe a null manager singleton unsafely. | The #589 retained-renderer shutdown regression test. |
+| **D12** | **`AssetId` is a strong type** after Step 1; a 64→32-bit truncation of an asset identity **fails to compile**. | A negative compile test (or a `static_assert` on the conversion) plus the existing `test_asset_records_key` collision regression. |
+| **D13** | **Per-frame GPU buffers are byte-identical** to the pre-change path for a fixed captured scene, at every step. | Buffer capture + diff on a fixed scene; visual gate on real-scan content for Steps 5–6. |
+| **D14** | **The stale `teardown_world_for_scenario` header doc (§1h) is corrected, not carried forward**, and the two dead node-reading helpers are deleted. | Diff review in Steps 2/3. |
+
+## Evidence a step must produce
+
+Every step states which invariants it touches and attaches:
+
+1. **Guard lane:** `run_module_tests.py --guard-only` green, plus the D1/D2/D7/D8 grep
+   guards, which land with the step that makes them true.
+2. **Targeted suites green without modification:** sphere-effector, asset-identity,
+   instance-registration/world-switch, LOD-hysteresis, world-submission
+   ownership-arbitration/rollback, and the lifetime suites. Modifying an existing assertion
+   is a review blocker absent a written reason.
+3. **Step 2 specifically (D3, D4, D5):** the trigger-gap regression test, plus a
+   bump-count-across-N-frames measurement showing edge-triggered (1) rather than
+   per-frame (N) invalidation. A `revalidate_scope_roots()` that exists but is unwired must
+   make this test fail — demonstrate that by running it against a deliberately-unwired build
+   once, and attach the failure.
+4. **Step 3 (D6, D10, D11) — R2, renderer lifetime:** `test_renderer_lifetime_proof` (F6
+   reload / scenario-close no-leak) and RID-count lifetime tests green, plus the #589
+   retained-renderer shutdown regression, plus the compile-time ordering proof. GPU/perf
+   review.
+5. **Steps 5–6 (D13) — R2/R3:** per-frame buffer byte-comparison on a captured scene, a
+   contention/latency measurement for Step 6, and a **visual gate on real-scan content
+   (GrandmasHouse)**. Agents cannot raster locally; absent GPU-runner output this reports
+   "not run", never "passed". Step 6 additionally requires a second independent review and
+   does not merge until Steps 1–5 have landed.
+6. **Base anchoring:** base SHA recorded; `file:line` anchors re-verified against it before
+   implementing (they drift).
+
+No step weakens a guard, baseline, or threshold. A behavior change discovered to be
+necessary is lifted into its own PR with its own sign-off.
+
 ## Decisions the owner needs to make
 
 - **D1 — Scope of this ADR's follow-ups.** Approve Steps 1–5 (host-side ownership, R1/R2) as the
@@ -480,6 +614,13 @@ types, not comments; and (6) `AssetId` is a type, so an asset-identity mis-pick 
   streaming `uint32` slot + dense/resident id schemes also be typed in follow-ups tracked here?
 - **D4 — Core→renderer dependency inversion.** Out of scope for these steps (D-confirm), or should a
   later step introduce a renderer interface at the `RendererLifecycleOwner` seam?
+- **D5 — Scope-root revalidation trigger (§2a).** Adopt triggers **T1–T4 including the
+  bounded main-thread sweep T4** (recommended — T1–T3 are all mutation-driven and none fires
+  when a scope-root node is freed while nothing else changes, which is exactly the case the
+  current render-path check catches)? Or take the fallback: keep the fresh liveness check on
+  the read path and move only the *write* to a main-thread-drained queue? **Rejecting both is
+  not available** — a `revalidate_scope_roots()` that nothing calls is a behavior regression
+  in which dead-scoped effectors keep matching indefinitely.
 
 ## Non-goals
 
