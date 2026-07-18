@@ -251,6 +251,64 @@ class ControlFlowHeaders(ScanTestCase):
         self.assertClean("  REQUIRE(ptr != nullptr);\n  if (other) {\n    ptr->f();\n  }")
 
 
+class ShortCircuitGuards(ScanTestCase):
+    """C++ short-circuiting makes some dereferences unreachable (Codex #659).
+
+    The only FALSE-POSITIVE finding in this review series: `if (ptr && ptr->f())`
+    is safe, and flagging it would block the guard lane on correct code. A guard
+    that cries wolf gets weakened by whoever hits it next, so this matters as much
+    as the under-reports.
+    """
+
+    def test_and_guard_is_safe(self):
+        self.assertClean("  REQUIRE(ptr != nullptr);\n  if (ptr && ptr->ready()) { s(); }")
+
+    def test_or_negated_guard_is_safe(self):
+        self.assertClean("  REQUIRE(ptr != nullptr);\n  if (!ptr || ptr->ready()) { s(); }")
+
+    def test_explicit_comparison_guard_is_safe(self):
+        self.assertClean(
+            "  REQUIRE(ptr != nullptr);\n  if (ptr != nullptr && ptr->f()) { s(); }"
+        )
+
+    def test_is_valid_guard_is_safe(self):
+        self.assertClean("  REQUIRE(ref.is_valid());\n  CHECK(ref.is_valid() && ref->f());")
+
+    def test_is_null_or_guard_is_safe(self):
+        self.assertClean("  REQUIRE_FALSE(ref.is_null());\n  CHECK(ref.is_null() || ref->f());")
+
+    def test_ternary_guard_is_safe(self):
+        self.assertClean("  REQUIRE(ptr != nullptr);\n  int v = ptr ? ptr->f() : 0;")
+
+    def test_short_circuit_applies_outside_control_flow_too(self):
+        # Not just headers: a plain assertion has the same semantics.
+        self.assertClean("  REQUIRE(ptr != nullptr);\n  CHECK(ptr && ptr->size() == 3);")
+
+    def test_unrelated_condition_does_not_guard(self):
+        self.assertFlagged(
+            "  REQUIRE(ptr != nullptr);\n  if (other && ptr->ready()) { s(); }", "ptr"
+        )
+
+    def test_guard_after_the_deref_does_not_help(self):
+        # Evaluation order matters: only the prefix can guard.
+        self.assertFlagged(
+            "  REQUIRE(ptr != nullptr);\n  if (ptr->ready() && ptr) { s(); }", "ptr"
+        )
+
+    def test_or_without_negation_does_not_guard(self):
+        # `ptr || ptr->f()` evaluates the deref precisely when ptr is falsy.
+        self.assertFlagged("  REQUIRE(ptr != nullptr);\n  CHECK(ptr || ptr->f());", "ptr")
+
+    def test_unrelated_ternary_condition_does_not_guard(self):
+        self.assertFlagged("  REQUIRE(ptr != nullptr);\n  int v = other ? ptr->f() : 0;", "ptr")
+
+    def test_a_later_bare_deref_is_still_reported(self):
+        """Each dereference is judged on its own prefix, not the statement's."""
+        self.assertFlagged(
+            "  REQUIRE(ptr != nullptr);\n  CHECK(ptr && ptr->a());\n  ptr->b();", "ptr"
+        )
+
+
 class DoctestMacroNames(ScanTestCase):
     """Every predicate row must name macros doctest actually exposes (Codex #659).
 

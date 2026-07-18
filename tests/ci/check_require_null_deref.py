@@ -54,6 +54,12 @@ where nothing in between could have made the dereference safe.
 * Dereference: `x->`, `*x`, `x[`. Note `x.foo()` is NOT treated as a
   dereference - on a `Ref<T>` it is a safe call on the handle, and on a value
   type it is not a dereference at all.
+* A dereference C++ short-circuiting cannot reach is not flagged:
+  `if (ptr && ptr->f())`, `if (!ptr || ptr->f())`, `ptr ? ptr->f() : x` and the
+  explicit `ptr != nullptr && ptr->f()` / `ref.is_valid() && ref->f()` forms are
+  all safe. Only the text BEFORE a dereference can guard it, so
+  `if (ptr->f() && ptr)` is still flagged, and each dereference in a statement is
+  judged on its own prefix.
 * The forward scan stops at anything that changes reachability or the symbol:
   `if` / `for` / `while` / `switch` / `return` / `else`, a block boundary, or a
   reassignment of the symbol. But it checks that statement's **header** before
@@ -288,20 +294,56 @@ def _symbol_regex(symbol: str) -> str:
     return r"\s*(?:\.|->)\s*".join(rendered)
 
 
+def _deref_positions(symbol: str, text: str) -> list[int]:
+    """Offsets in `text` where `symbol` is dereferenced."""
+    sym = _symbol_regex(symbol)
+    positions: list[int] = []
+    for pattern in (
+        rf"(?<![\w.>]){sym}\s*->",
+        rf"(?<![\w)\]]){sym}\s*\[",
+        rf"(?<![\w)\]])\*\s*{sym}\b",
+    ):
+        positions.extend(match.start() for match in re.finditer(pattern, text))
+    return sorted(positions)
+
+
+def _short_circuit_guarded(symbol: str, text: str, deref_at: int) -> bool:
+    """True when C++ short-circuiting prevents reaching the dereference.
+
+    `if (ptr && ptr->ready())` and `if (!ptr || ptr->ready())` never evaluate the
+    dereference when the symbol is null, so flagging them is a false positive
+    (Codex, PR #659). Only the text BEFORE the dereference can guard it, so that
+    is all this inspects - `if (ptr->ready() && ptr)` is still unguarded, and a
+    LATER bare dereference in the same statement is still reported because each
+    dereference position is judged on its own prefix.
+    """
+    prefix = text[:deref_at]
+    sym = _symbol_regex(symbol)
+    # `ptr &&` / `ptr != nullptr &&` / `ptr.is_valid() &&` / `ptr ? ... :`
+    positive = (
+        rf"(?<![\w.>]){sym}\s*"
+        rf"(?:!=\s*(?:nullptr|NULL)|(?:\.|->)\s*is_valid\s*\(\s*\))?\s*(?:&&|\?)"
+    )
+    # `!ptr ||` / `ptr == nullptr ||` / `ptr.is_null() ||`
+    negative = (
+        rf"(?:!\s*{sym}|(?<![\w.>]){sym}\s*"
+        rf"(?:==\s*(?:nullptr|NULL)|(?:\.|->)\s*is_null\s*\(\s*\)))\s*\|\|"
+    )
+    return re.search(positive, prefix) is not None or re.search(negative, prefix) is not None
+
+
 def _derefs(symbol: str, statement: str) -> bool:
     """True when `statement` dereferences `symbol`.
 
     `symbol->`, `*symbol` and `symbol[` count. A trailing `symbol.` does NOT: on a
     Ref<T> that is a call on the handle itself, which is exactly what is safe.
+    A dereference that C++ short-circuiting cannot reach does not count either -
+    see _short_circuit_guarded().
     """
-    sym = _symbol_regex(symbol)
-    if re.search(rf"(?<![\w.>]){sym}\s*->", statement):
-        return True
-    if re.search(rf"(?<![\w)\]]){sym}\s*\[", statement):
-        return True
-    if re.search(rf"(?<![\w)\]])\*\s*{sym}\b", statement):
-        return True
-    return False
+    return any(
+        not _short_circuit_guarded(symbol, statement, at)
+        for at in _deref_positions(symbol, statement)
+    )
 
 
 def _reassigns(symbol: str, statement: str) -> bool:
