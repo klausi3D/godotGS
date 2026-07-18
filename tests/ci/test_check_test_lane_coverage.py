@@ -103,36 +103,23 @@ class DeclarationCounts(unittest.TestCase):
             self.assertGreaterEqual(entry["count"], 1)
 
     def test_declared_counts_equal_the_real_stranded_counts(self):
-        """The shipped counts must equal reality, so a new case cannot hide."""
+        """The shipped counts must equal reality, so a new case cannot hide.
+
+        Uses the guard's own analyze()/attribute() rather than re-deriving the
+        lane rules: an earlier version of this test duplicated them and silently
+        disagreed once the guard stopped crediting the requires-RD catalogue.
+        """
         declarations, problems = GUARD._load_unlaned_declarations()
         self.assertEqual(problems, [])
-
-        runner = GUARD._load_module("_rmt_for_test", GUARD.CI_DIR / "run_module_tests.py")
-        harness = GUARD._load_module("_rgh_for_test", GUARD.CI_DIR / "run_gpu_harness.py")
-        linkage = GUARD._load_module("_ctl_for_test", GUARD.CI_DIR / "check_test_linkage.py")
-        cases, _ = GUARD._collect_corpus(linkage._strip_comments)
-
-        module_lanes = list(runner.MODULE_TEST_FILTERS) + list(runner.REQUIRES_RD_TEST_FILTERS)
-        batches = [(b.name, tuple(b.filters)) for b in harness.BATCHES]
-
-        stranded = [
-            name
-            for name, _ in cases
-            if not any(GUARD._lane_matches(name, inc, exc) for _, inc, exc, _ in module_lanes)
-            and not any(
-                GUARD._doctest_wildcmp(name, pattern) for _, filters in batches for pattern in filters
-            )
-        ]
-
-        for entry in declarations:
-            actual = sum(
-                1 for name in stranded if GUARD._doctest_wildcmp(name, str(entry["test_case"]))
-            )
+        analysis = GUARD.analyze()
+        matched_by, undeclared = GUARD.attribute(analysis.stranded, declarations)
+        self.assertEqual(undeclared, [], "every stranded case must be declared")
+        for index, entry in enumerate(declarations):
             self.assertEqual(
-                actual,
+                matched_by[index],
                 entry["count"],
-                f"{entry['test_case']!r}: declares {entry['count']} but matches {actual} "
-                f"stranded case(s)",
+                f"{entry['test_case']!r}: declares {entry['count']} but is attributed "
+                f"{matched_by[index]} stranded case(s)",
             )
 
     def test_a_new_case_in_a_declared_family_is_not_covered_by_the_wildcard_alone(self):
@@ -143,6 +130,78 @@ class DeclarationCounts(unittest.TestCase):
         self.assertTrue(
             GUARD._doctest_wildcmp(newcomer, tile["test_case"]),
             "the wildcard does match it - which is exactly why a count is required",
+        )
+
+
+class RequiresRdIsNotCoverage(unittest.TestCase):
+    """The opt-in [requires-RD] catalogue must not count as CI coverage.
+
+    Codex #658: `_build_module_test_runs()` only appends that lane under
+    `--gpu` / `GS_RUN_GPU_TESTS=1`, and the blocking workflow invokes the runner
+    without it. Crediting it made cases look covered when no CI lane could fail
+    on them - the same under-report class as the family-wildcard hole.
+    """
+
+    def setUp(self):
+        self.runner = GUARD._load_module("_rmt_rd", GUARD.CI_DIR / "run_module_tests.py")
+        self.harness = GUARD._load_module("_rgh_rd", GUARD.CI_DIR / "run_gpu_harness.py")
+        linkage = GUARD._load_module("_ctl_rd", GUARD.CI_DIR / "check_test_linkage.py")
+        self.cases, _ = GUARD._collect_corpus(linkage._strip_comments)
+
+    def _hits(self, name):
+        module = any(
+            GUARD._lane_matches(name, i, e) for _, i, e, _ in self.runner.MODULE_TEST_FILTERS
+        )
+        rd = any(
+            GUARD._lane_matches(name, i, e) for _, i, e, _ in self.runner.REQUIRES_RD_TEST_FILTERS
+        )
+        gpu = any(
+            GUARD._doctest_wildcmp(name, p) for b in self.harness.BATCHES for p in b.filters
+        )
+        return module, rd, gpu
+
+    def test_the_requires_rd_lane_is_opt_in_in_the_runner(self):
+        """If this ever becomes unconditional, the exclusion here must be revisited."""
+        source = (GUARD.CI_DIR / "run_module_tests.py").read_text(encoding="utf-8")
+        index = source.index("REQUIRES_RD_TEST_FILTERS:")
+        appended = source.index("for name, test_filters, exclude_filters, strict in REQUIRES_RD_TEST_FILTERS", index)
+        preceding = source[:appended].rstrip().splitlines()[-1]
+        self.assertIn(
+            "if run_gpu:",
+            preceding,
+            "the requires-RD lane is no longer gated on run_gpu; re-evaluate whether it "
+            "should count as coverage",
+        )
+
+    def test_codex_cited_case_is_treated_as_stranded(self):
+        name = "[GaussianSplatting][RequiresGPU] Debug projection output matches golden gradient"
+        self.assertIn(name, [n for n, _ in self.cases], "the cited case must be in the corpus")
+        module, rd, gpu = self._hits(name)
+        self.assertFalse(module)
+        self.assertFalse(gpu)
+        self.assertTrue(rd, "it does match requires-RD - which is exactly why crediting it hid it")
+
+    def test_requires_rd_only_cases_are_all_declared(self):
+        declarations, problems = GUARD._load_unlaned_declarations()
+        self.assertEqual(problems, [])
+        rd_only = [
+            name
+            for name, _ in self.cases
+            if not self._hits(name)[0] and not self._hits(name)[2] and self._hits(name)[1]
+        ]
+        self.assertTrue(rd_only, "expected requires-RD-only cases to exist")
+        for name in rd_only:
+            self.assertTrue(
+                any(GUARD._doctest_wildcmp(name, str(e["test_case"])) for e in declarations),
+                f"requires-RD-only case is undeclared: {name}",
+            )
+
+    def test_gpu_world_cases_are_counted_in_the_world_declaration(self):
+        """The 4 [RequiresGPU] [World] cases looked laned; they must now be declared."""
+        declarations, _ = GUARD._load_unlaned_declarations()
+        world = next(e for e in declarations if e["test_case"] == "[GaussianSplatting][World]*")
+        self.assertEqual(
+            world["count"], 7, "3 non-GPU + 4 [RequiresGPU] [World] cases are stranded"
         )
 
 

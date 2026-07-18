@@ -59,8 +59,13 @@ Each object in `entries` describes one quarantined lane.
 
 `tests/ci/check_test_lane_coverage.py` parses every `TEST_CASE` name out of the
 test sources, imports the lane definitions from `run_module_tests.py`
-(`MODULE_TEST_FILTERS` + `REQUIRES_RD_TEST_FILTERS`) and `run_gpu_harness.py`
-(`BATCHES`), and fails when a registered case matches **none** of them. Such a
+(`MODULE_TEST_FILTERS`) and `run_gpu_harness.py` (`BATCHES`), and fails when a
+registered case matches **none** of them.
+
+`REQUIRES_RD_TEST_FILTERS` is deliberately not counted as coverage: the runner
+only appends that lane under `--gpu`/`GS_RUN_GPU_TESTS=1`, which the blocking
+workflow does not pass, and it is `strict=False` regardless. It is a catalogue,
+not a lane, so crediting it would report coverage that does not exist. Such a
 case compiles, links and registers, but no lane ever selects it: it can never
 run and can never fail CI.
 

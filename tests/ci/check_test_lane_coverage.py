@@ -4,11 +4,21 @@
 ## The failure this guards against
 
 A doctest `TEST_CASE` only ever executes if some lane's wildcard filter matches
-its name. Lanes are declared in two places:
+its name. The lanes a CI run can actually execute are:
 
-* `tests/ci/run_module_tests.py` - `MODULE_TEST_FILTERS` + `REQUIRES_RD_TEST_FILTERS`
-  (the headless module lanes), and
+* `tests/ci/run_module_tests.py` - `MODULE_TEST_FILTERS` (the headless module
+  lanes), and
 * `tests/ci/run_gpu_harness.py` - `BATCHES` (the GPU harness batches).
+
+`REQUIRES_RD_TEST_FILTERS` is deliberately **not** counted. `_build_module_test_runs()`
+only appends that lane under `--gpu` / `GS_RUN_GPU_TESTS=1`, and the blocking
+workflow (`.github/workflows/gaussian_production_gates.yml`) invokes the runner
+without it; even when it does run it is `strict=False`. Its own comment calls it
+"a catalogue of renderer-dependent tests". Crediting a catalogue as coverage
+would make cases look covered when no CI lane can fail on them - which is the
+defect this guard exists to find, not one it should commit (Codex, PR #658). The
+count of stranded cases that appear in that catalogue is printed as a separate,
+non-gating number.
 
 Nothing has ever checked that the union of those filters actually covers the
 corpus. When it does not, the affected cases compile, link and register, are
@@ -50,8 +60,8 @@ case-sensitive matcher, can disagree with what CI actually runs.
 
 ## What FAILS
 
-A registered test case that matches **no lane in any runner** and is not declared
-in `tests/ci/quarantine_manifest.json` under `unlaned_tests`.
+A registered test case that matches **no lane a CI run can execute** and is not
+declared in `tests/ci/quarantine_manifest.json` under `unlaned_tests`.
 
 Declaring an exclusion requires an owner, a linked issue, an expiry and a
 **count**, so a test that nobody runs is a tracked decision rather than an
@@ -78,7 +88,7 @@ no lane here" is not a defect for them.
 
 ## What this guard deliberately does NOT check
 
-* **Whether a matched lane is strict.** 409 of 749 registered cases reach no
+* **Whether a matched lane is strict.** 416 of 756 registered cases reach no
   *strict* lane - most of them legitimately, because they live in the GPU harness
   or in an advisory safety-net lane. Failing on that today would demand ~400
   quarantine entries, i.e. it would turn the manifest into the very rubber stamp
@@ -100,6 +110,7 @@ import importlib.util
 import json
 import re
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
@@ -304,61 +315,104 @@ def _load_unlaned_declarations() -> tuple[list[dict], list[str]]:
     return valid, problems
 
 
-def main() -> int:
-    failures: list[str] = []
-    notes: list[str] = []
+@dataclass
+class Analysis:
+    """The corpus/lane picture. Single source of truth for the guard AND its test."""
 
+    cases: list[tuple[str, str]]
+    stranded: list[tuple[str, str]]
+    no_strict: int
+    requires_rd_only: int
+    notes: list[str]
+
+
+def analyze() -> Analysis:
+    """Compute which registered cases no CI lane can run.
+
+    Exposed (rather than inlined in main) so the unit test asserts against the
+    SAME logic the guard uses. An earlier version re-derived the lane set inside
+    the test, and the two silently disagreed the moment the guard's rules changed
+    - the exact drift this guard exists to catch.
+    """
     runner = _load_module("_gs_run_module_tests", CI_DIR / "run_module_tests.py")
     harness = _load_module("_gs_run_gpu_harness", CI_DIR / "run_gpu_harness.py")
     linkage = _load_module("_gs_check_test_linkage", CI_DIR / "check_test_linkage.py")
 
-    cases, corpus_notes = _collect_corpus(linkage._strip_comments)
-    notes.extend(corpus_notes)
-    if not cases:
-        print("[test-lane-coverage] FAIL parsed 0 TEST_CASEs - the corpus scan is broken.")
-        return 1
+    cases, notes = _collect_corpus(linkage._strip_comments)
 
-    module_lanes = [
-        (name, inc, exc, strict)
-        for name, inc, exc, strict in
-        list(runner.MODULE_TEST_FILTERS) + list(runner.REQUIRES_RD_TEST_FILTERS)
-    ]
+    # Lanes that a CI run can actually execute. REQUIRES_RD_TEST_FILTERS is NOT
+    # among them: `_build_module_test_runs()` only appends that lane under
+    # --gpu / GS_RUN_GPU_TESTS=1, and the blocking workflow
+    # (.github/workflows/gaussian_production_gates.yml) invokes the runner
+    # without it. Its own comment says it "serves as a catalogue of
+    # renderer-dependent tests" - crediting a catalogue as coverage would report
+    # coverage that does not exist, which is the defect this guard exists to find.
+    module_lanes = list(runner.MODULE_TEST_FILTERS)
+    requires_rd_lanes = list(runner.REQUIRES_RD_TEST_FILTERS)
     gpu_batches = [(batch.name, tuple(batch.filters)) for batch in harness.BATCHES]
 
     stranded: list[tuple[str, str]] = []
     no_strict = 0
+    requires_rd_only = 0
     for case_name, file_name in cases:
-        module_hits = [
-            name for name, inc, exc, _ in module_lanes if _lane_matches(case_name, inc, exc)
-        ]
-        strict_hits = [
-            name for name, inc, exc, strict in module_lanes
-            if strict and _lane_matches(case_name, inc, exc)
-        ]
-        gpu_hits = [
-            name for name, filters in gpu_batches
-            if any(_doctest_wildcmp(case_name, pattern) for pattern in filters)
-        ]
-        if not module_hits and not gpu_hits:
+        module_hit = any(_lane_matches(case_name, inc, exc) for _, inc, exc, _ in module_lanes)
+        strict_hit = any(
+            _lane_matches(case_name, inc, exc)
+            for _, inc, exc, strict in module_lanes
+            if strict
+        )
+        gpu_hit = any(
+            _doctest_wildcmp(case_name, pattern)
+            for _, filters in gpu_batches
+            for pattern in filters
+        )
+        if not module_hit and not gpu_hit:
             stranded.append((case_name, file_name))
-        if not strict_hits and not gpu_hits:
+            if any(_lane_matches(case_name, inc, exc) for _, inc, exc, _ in requires_rd_lanes):
+                requires_rd_only += 1
+        if not strict_hit and not gpu_hit:
             no_strict += 1
+
+    return Analysis(cases, stranded, no_strict, requires_rd_only, notes)
+
+
+def attribute(
+    stranded: list[tuple[str, str]], declarations: list[dict]
+) -> tuple[dict[int, int], list[tuple[str, str]]]:
+    """First-match attribution of stranded cases to declarations.
+
+    First match wins, so declaration ORDER matters: a narrow family listed before
+    a catch-all keeps its own cases. Shared with the unit test for the same reason
+    as analyze().
+    """
+    matched_by: dict[int, int] = {index: 0 for index in range(len(declarations))}
+    undeclared: list[tuple[str, str]] = []
+    for case_name, file_name in stranded:
+        for index, entry in enumerate(declarations):
+            if _doctest_wildcmp(case_name, str(entry["test_case"])):
+                matched_by[index] += 1
+                break
+        else:
+            undeclared.append((case_name, file_name))
+    return matched_by, undeclared
+
+
+def main() -> int:
+    failures: list[str] = []
+
+    analysis = analyze()
+    cases, notes = analysis.cases, analysis.notes
+    if not cases:
+        print("[test-lane-coverage] FAIL parsed 0 TEST_CASEs - the corpus scan is broken.")
+        return 1
+    stranded = analysis.stranded
+    no_strict = analysis.no_strict
+    requires_rd_only = analysis.requires_rd_only
 
     declarations, manifest_problems = _load_unlaned_declarations()
     failures.extend(manifest_problems)
 
-    undeclared: list[tuple[str, str]] = []
-    matched_by: dict[int, int] = {index: 0 for index in range(len(declarations))}
-    for case_name, file_name in stranded:
-        hit = None
-        for index, entry in enumerate(declarations):
-            if _doctest_wildcmp(case_name, str(entry["test_case"])):
-                hit = index
-                break
-        if hit is None:
-            undeclared.append((case_name, file_name))
-        else:
-            matched_by[hit] += 1
+    matched_by, undeclared = attribute(stranded, declarations)
 
     for index, entry in enumerate(declarations):
         actual = matched_by[index]
@@ -415,6 +469,11 @@ def main() -> int:
         f"[test-lane-coverage] report (not gated): {no_strict} case(s) reach no STRICT "
         f"module lane and no GPU batch - see this script's docstring for why that is "
         f"reported rather than failed."
+    )
+    print(
+        f"[test-lane-coverage] report (not gated): {requires_rd_only} of the stranded "
+        f"case(s) are listed in the opt-in [requires-RD] catalogue, which blocking CI "
+        f"never runs. The catalogue is not counted as coverage."
     )
     return 0
 
