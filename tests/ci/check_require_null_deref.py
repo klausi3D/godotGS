@@ -46,7 +46,11 @@ short forward window - by a statement that **dereferences that same symbol**,
 where nothing in between could have made the dereference safe.
 
 * Null-ish predicates: `x != nullptr`, `x != NULL`, `x.is_valid()`,
-  `x->is_valid()`, `REQUIRE_FALSE(x.is_null())`, `REQUIRE_NE(x, nullptr)`.
+  `x->is_valid()`, `REQUIRE_FALSE(x.is_null())`, `REQUIRE_UNARY_FALSE(x.is_null())`,
+  `REQUIRE_NE(x, nullptr)`. The predicate may span physical lines
+  (`REQUIRE(
+    ptr != nullptr);`) - continuation lines are joined until the
+  parentheses balance.
 * A "symbol" may be a member chain or a no-arg getter call, so
   `state.hierarchical_structure` and `loaded->get_gaussian_data()` are each one
   symbol. Calls WITH arguments are not: matching those textually would be
@@ -55,11 +59,18 @@ where nothing in between could have made the dereference safe.
   dereference - on a `Ref<T>` it is a safe call on the handle, and on a value
   type it is not a dereference at all.
 * A dereference C++ short-circuiting cannot reach is not flagged:
-  `if (ptr && ptr->f())`, `if (!ptr || ptr->f())`, `ptr ? ptr->f() : x` and the
-  explicit `ptr != nullptr && ptr->f()` / `ref.is_valid() && ref->f()` forms are
-  all safe. Only the text BEFORE a dereference can guard it, so
-  `if (ptr->f() && ptr)` is still flagged, and each dereference in a statement is
-  judged on its own prefix.
+  `ptr && ptr->f()`, `!ptr || ptr->f()`, `ptr ? ptr->f() : x`, and the explicit
+  `ptr != nullptr && ptr->f()` / `ref.is_valid() && ref->f()` forms.
+  The guard must **dominate** the dereference, not merely precede it textually:
+  the expression is decomposed by precedence (`?:`, then `||`, then `&&`,
+  descending one parenthesis layer at a time), so
+    - `ptr && (a || ptr->f())`          -> safe, the outer `&&` dominates;
+    - `(ptr && ptr->f()) || ptr->g()`   -> FLAGGED, `ptr->g()` runs precisely when
+      the left disjunct is false, i.e. when ptr is null;
+    - `ptr ? x : ptr->f()`              -> FLAGGED, the else-branch runs when null;
+    - `ptr->f() && ptr`                 -> FLAGGED, the dereference is evaluated first.
+  Anything the decomposition cannot parse unambiguously is treated as UNGUARDED,
+  because a guard that under-reports is worse here than one that over-reports.
 * The forward scan stops at anything that changes reachability or the symbol:
   `if` / `for` / `while` / `switch` / `return` / `else`, a block boundary, or a
   reassignment of the symbol. But it checks that statement's **header** before
@@ -89,13 +100,18 @@ exactly the false confidence #656 is about:
    guard stops at the `if` because it cannot tell which conditions protect the
    symbol. Only the control-flow HEADER is checked - `if (ptr->is_ready())`
    evaluates the dereference before any guarding, so that IS flagged.
-5. **Dereferences inside a macro body** that expands to one, and
+5. **Symbols reached through `::`.** `MessageQueue::get_main_singleton() != nullptr`
+   is not matched, because the symbol grammar covers `.` and `->` chains only. Two
+   such REQUIREs exist in the corpus today; neither is followed by a dereference,
+   so this is latent. Widening the grammar is deliberately left as follow-up
+   rather than bundled into an already long review.
+6. **Dereferences inside a macro body** that expands to one, and
    dereferences of a container's *element* (`v[0]->f()` after
    `REQUIRE(!v.is_empty())`).
-6. **Any REQUIRE whose failure is harmful for a non-dereference reason** - e.g.
+7. **Any REQUIRE whose failure is harmful for a non-dereference reason** - e.g.
    `REQUIRE(count == 3);` followed by code that indexes past the end.
 
-Reliable detection of (2), (4) and (6) needs real type and dataflow information, i.e.
+Reliable detection of (2), (4) and (7) needs real type and dataflow information, i.e.
 a compiler plugin or a clang-tidy check, not a source scan. This guard is scoped
 to the highest-confidence shape on purpose. It is a ratchet against the pattern
 spreading, not a proof that the corpus is free of it: of the ~800 `REQUIRE*`
@@ -307,29 +323,228 @@ def _deref_positions(symbol: str, text: str) -> list[int]:
     return sorted(positions)
 
 
+def _positive_test(symbol: str, expr: str) -> bool:
+    """`expr` being TRUE implies `symbol` is non-null (`ptr`, `ptr != nullptr`, ...)."""
+    sym = _symbol_regex(symbol)
+    body = _strip_outer_parens(expr.strip())[0].strip()
+    return any(
+        re.fullmatch(pattern, body)
+        for pattern in (
+            sym,
+            rf"{sym}\s*!=\s*(?:nullptr|NULL)",
+            rf"(?:nullptr|NULL)\s*!=\s*{sym}",
+            rf"{sym}\s*(?:\.|->)\s*is_valid\s*\(\s*\)",
+        )
+    )
+
+
+def _negative_test(symbol: str, expr: str) -> bool:
+    """`expr` being FALSE implies `symbol` is non-null (`!ptr`, `ptr == nullptr`, ...)."""
+    sym = _symbol_regex(symbol)
+    body = _strip_outer_parens(expr.strip())[0].strip()
+    return any(
+        re.fullmatch(pattern, body)
+        for pattern in (
+            rf"!\s*{sym}",
+            rf"{sym}\s*==\s*(?:nullptr|NULL)",
+            rf"(?:nullptr|NULL)\s*==\s*{sym}",
+            rf"{sym}\s*(?:\.|->)\s*is_null\s*\(\s*\)",
+        )
+    )
+
+
+def _strip_outer_parens(text: str) -> tuple[str, int]:
+    """Remove one wrapping paren pair if it encloses the WHOLE text.
+
+    Returns (inner_text, offset_of_inner_within_text).
+    """
+    stripped = text.strip()
+    offset = len(text) - len(text.lstrip())
+    if not stripped.startswith("(") or not stripped.endswith(")"):
+        return text, 0
+    depth = 0
+    for i, ch in enumerate(stripped):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0 and i != len(stripped) - 1:
+                return text, 0  # the pair closes early; not a full wrap
+    return stripped[1:-1], offset + 1
+
+
+def _split_top_level(text: str, op: str) -> list[tuple[int, int]]:
+    """Spans of `text` separated by `op` at parenthesis depth 0."""
+    spans: list[tuple[int, int]] = []
+    depth = 0
+    start = 0
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif depth == 0 and text.startswith(op, i):
+            spans.append((start, i))
+            i += len(op)
+            start = i
+            continue
+        i += 1
+    spans.append((start, len(text)))
+    return spans
+
+
+def _ternary_spans(text: str) -> tuple[tuple[int, int], tuple[int, int], tuple[int, int]] | None:
+    """Split `cond ? a : b` at depth 0, or None when it is not an unambiguous ternary.
+
+    `::` is skipped so scope resolution is never mistaken for the ternary colon.
+    Anything ambiguous returns None, which makes the caller treat the dereference
+    as UNGUARDED - failing toward reporting, since a guard that under-reports is
+    worse than one that over-reports.
+    """
+    depth = 0
+    q = -1
+    for i, ch in enumerate(text):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif depth == 0 and ch == "?":
+            q = i
+            break
+    if q == -1:
+        return None
+    depth = 0
+    i = q + 1
+    while i < len(text):
+        ch = text[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif depth == 0 and ch == ":":
+            if text.startswith("::", i) or (i > 0 and text[i - 1] == ":"):
+                i += 2
+                continue
+            return (0, q), (q + 1, i), (i + 1, len(text))
+        i += 1
+    return None
+
+
+def _enclosing_group(text: str, at: int) -> tuple[int, int] | None:
+    """Span inside the OUTERMOST parenthesis pair containing `at`, or None.
+
+    Outermost, not innermost: descending must peel ONE layer at a time so the
+    operators at each level are examined on the way down. Jumping straight to the
+    innermost group skips them - `CHECK(ptr && (a || ptr->f()))` would land on
+    `a || ptr->f()` and never see the `ptr &&` that guards it.
+    """
+    depth = 0
+    start: int | None = None
+    for i, ch in enumerate(text):
+        if ch == "(":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0 and start is not None:
+                if start < at < i:
+                    return (start + 1, i)
+                start = None
+    return None
+
+
+def _condition_tail(expr: str) -> str:
+    """Drop a leading assignment so only the condition remains.
+
+    `int v = ptr ? ptr->f() : 0` hands us `int v = ptr` as the ternary condition;
+    without this the positive test would fail and the safe branch would be
+    reported.
+    """
+    depth = 0
+    last = -1
+    for i, ch in enumerate(expr):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif depth == 0 and ch == "=":
+            if i > 0 and expr[i - 1] in "=!<>":
+                continue
+            if i + 1 < len(expr) and expr[i + 1] == "=":
+                continue
+            last = i
+    return expr[last + 1 :] if last >= 0 else expr
+
+
 def _short_circuit_guarded(symbol: str, text: str, deref_at: int) -> bool:
     """True when C++ short-circuiting prevents reaching the dereference.
 
-    `if (ptr && ptr->ready())` and `if (!ptr || ptr->ready())` never evaluate the
-    dereference when the symbol is null, so flagging them is a false positive
-    (Codex, PR #659). Only the text BEFORE the dereference can guard it, so that
-    is all this inspects - `if (ptr->ready() && ptr)` is still unguarded, and a
-    LATER bare dereference in the same statement is still reported because each
-    dereference position is judged on its own prefix.
+    A guard must DOMINATE the dereference, not merely precede it textually. An
+    earlier prefix-search version accepted `(ptr && ptr->f()) || ptr->g()` because
+    `ptr &&` appeared somewhere earlier - but `ptr->g()` runs precisely when the
+    left disjunct is false, i.e. when ptr is null. That was a false NEGATIVE
+    introduced while fixing a false positive (Codex, PR #659).
+
+    So the expression is decomposed by precedence instead:
+
+    * `cond ? a : b` - `a` is guarded by a positive test, `b` by a negative one;
+    * `A || B`       - `B` is guarded only if an EARLIER disjunct is a NEGATIVE test
+                       (`!ptr || ptr->f()`), since `B` runs when they are false;
+    * `A && B`       - `B` is guarded only if an EARLIER conjunct is a POSITIVE test
+                       (`ptr && ptr->f()`), since `B` runs when they are true.
+
+    Recursion descends into whichever part contains the dereference, so an outer
+    guard still counts (`ptr && (a || ptr->f())`). Anything it cannot parse
+    unambiguously is reported as unguarded.
     """
-    prefix = text[:deref_at]
-    sym = _symbol_regex(symbol)
-    # `ptr &&` / `ptr != nullptr &&` / `ptr.is_valid() &&` / `ptr ? ... :`
-    positive = (
-        rf"(?<![\w.>]){sym}\s*"
-        rf"(?:!=\s*(?:nullptr|NULL)|(?:\.|->)\s*is_valid\s*\(\s*\))?\s*(?:&&|\?)"
-    )
-    # `!ptr ||` / `ptr == nullptr ||` / `ptr.is_null() ||`
-    negative = (
-        rf"(?:!\s*{sym}|(?<![\w.>]){sym}\s*"
-        rf"(?:==\s*(?:nullptr|NULL)|(?:\.|->)\s*is_null\s*\(\s*\)))\s*\|\|"
-    )
-    return re.search(positive, prefix) is not None or re.search(negative, prefix) is not None
+    if deref_at < 0 or deref_at > len(text):
+        return False
+
+    inner, offset = _strip_outer_parens(text)
+    if offset:
+        return _short_circuit_guarded(symbol, inner, deref_at - offset)
+
+    def contains(span: tuple[int, int]) -> bool:
+        return span[0] <= deref_at < span[1]
+
+    ternary = _ternary_spans(text)
+    if ternary:
+        cond, when_true, when_false = ternary
+        condition = _condition_tail(text[cond[0] : cond[1]])
+        if contains(when_true) and _positive_test(symbol, condition):
+            return True
+        if contains(when_false) and _negative_test(symbol, condition):
+            return True
+        for span in (cond, when_true, when_false):
+            if contains(span):
+                return _short_circuit_guarded(
+                    symbol, text[span[0] : span[1]], deref_at - span[0]
+                )
+        return False
+
+    for op, test in (("||", _negative_test), ("&&", _positive_test)):
+        spans = _split_top_level(text, op)
+        if len(spans) == 1:
+            continue
+        for position, span in enumerate(spans):
+            if not contains(span):
+                continue
+            if any(test(symbol, text[s[0] : s[1]]) for s in spans[:position]):
+                return True
+            return _short_circuit_guarded(symbol, text[span[0] : span[1]], deref_at - span[0])
+        return False
+
+    # No top-level operator applies, so the dereference sits inside a call's
+    # argument list (`CHECK(ptr && ptr->f())`). Peel ONE parenthesis layer and
+    # re-examine. This runs AFTER the operator splits, so an outer guard still
+    # wins: `ptr && (a || ptr->f())` is decided by the outer `&&`.
+    group = _enclosing_group(text, deref_at)
+    if group:
+        return _short_circuit_guarded(symbol, text[group[0] : group[1]], deref_at - group[0])
+    return False
 
 
 def _derefs(symbol: str, statement: str) -> bool:
@@ -407,6 +622,22 @@ def _statements(lines: list[str], start_index: int) -> list[tuple[int, str]]:
     return statements
 
 
+def _logical_line(lines: list[str], index: int) -> tuple[str, int]:
+    """Join continuation lines from `index` until parentheses balance.
+
+    Returns (joined_text, index_of_last_line_consumed). Bounded so a stray
+    unbalanced '(' cannot swallow the rest of the file.
+    """
+    text = lines[index]
+    depth = text.count("(") - text.count(")")
+    last = index
+    while depth > 0 and last + 1 < len(lines) and last - index < 12:
+        last += 1
+        text = f"{text.rstrip()} {lines[last].strip()}"
+        depth += lines[last].count("(") - lines[last].count(")")
+    return text, last
+
+
 def _scan_file(path: Path) -> list[tuple[int, str, str, str]]:
     """Return (line, symbol, form, statement) for each violation in the file."""
     text = _strip_comments(path.read_text(encoding="utf-8", errors="replace"))
@@ -414,6 +645,14 @@ def _scan_file(path: Path) -> list[tuple[int, str, str, str]]:
     violations: list[tuple[int, str, str, str]] = []
 
     for index, line in enumerate(lines):
+        # A REQUIRE may be split across physical lines:
+        #     REQUIRE(
+        #             ptr != nullptr);
+        # Matching only the current line made those invisible (Codex, PR #659), so
+        # continuation lines are joined until the parentheses balance. Predicates
+        # are anchored at ^\s*REQUIRE, so a continuation line can never itself
+        # start a second, duplicate match.
+        line, last_index = _logical_line(lines, index)
         symbol = None
         form = ""
         for form_name, pattern in _NULLISH_PATTERNS:
@@ -429,8 +668,8 @@ def _scan_file(path: Path) -> list[tuple[int, str, str, str]]:
         # line is scanned before moving on. Starting at index + 1 skipped it
         # entirely - and that one-liner is exactly the shape tests/AGENTS.md uses
         # to describe the bug (Codex, PR #659).
-        for stmt_line, statement in _same_line_rest(line, index + 1) + _statements(
-            lines, index + 1
+        for stmt_line, statement in _same_line_rest(line, last_index + 1) + _statements(
+            lines, last_index + 1
         ):
             if _CONTROL_FLOW_RE.match(statement):
                 # A control-flow statement guards its BODY, never its own

@@ -309,6 +309,117 @@ class ShortCircuitGuards(ScanTestCase):
         )
 
 
+class GuardMustDominate(ScanTestCase):
+    """A short-circuit guard must DOMINATE the dereference (Codex #659).
+
+    The first version of the short-circuit fix searched the textual prefix, which
+    accepted `(ptr && ptr->f()) || ptr->g()` — a false NEGATIVE introduced while
+    fixing a false positive. These cases pin the precedence decomposition.
+    """
+
+    def test_disjunct_after_a_guarded_group_is_not_guarded(self):
+        self.assertFlagged(
+            "  REQUIRE(ptr != nullptr);\n  CHECK((ptr && ptr->f()) || ptr->g());", "ptr"
+        )
+
+    def test_group_containing_a_guard_does_not_guard_a_later_disjunct(self):
+        self.assertFlagged(
+            "  REQUIRE(ptr != nullptr);\n  CHECK((ptr && a) || ptr->g());", "ptr"
+        )
+
+    def test_ternary_else_branch_is_not_guarded_by_a_positive_condition(self):
+        self.assertFlagged("  REQUIRE(ptr != nullptr);\n  int v = ptr ? x : ptr->f();", "ptr")
+
+    def test_guard_inside_an_earlier_conjunct_group_does_not_escape_it(self):
+        self.assertFlagged("  REQUIRE(ptr != nullptr);\n  CHECK((a && ptr->f()) || b);", "ptr")
+
+    def test_negated_unrelated_symbol_does_not_guard(self):
+        self.assertFlagged("  REQUIRE(ptr != nullptr);\n  CHECK(!other || ptr->f());", "ptr")
+
+    def test_outer_conjunct_guards_a_nested_group(self):
+        self.assertClean("  REQUIRE(ptr != nullptr);\n  CHECK(ptr && (a || ptr->f()));")
+
+    def test_outer_negated_disjunct_guards_a_nested_group(self):
+        self.assertClean("  REQUIRE(ptr != nullptr);\n  CHECK(!ptr || (a && ptr->f()));")
+
+    def test_ternary_true_branch_is_guarded(self):
+        self.assertClean("  REQUIRE(ptr != nullptr);\n  int v = ptr ? ptr->f() : 0;")
+
+    def test_ternary_else_branch_guarded_by_a_negative_condition(self):
+        self.assertClean("  REQUIRE(ptr != nullptr);\n  int v = !ptr ? 0 : ptr->f();")
+
+    def test_guard_in_an_earlier_conjunct_still_works(self):
+        self.assertClean("  REQUIRE(ptr != nullptr);\n  CHECK(ptr && a && ptr->f());")
+
+    def test_decomposition_helpers(self):
+        self.assertTrue(GUARD._positive_test("ptr", " ptr "))
+        self.assertTrue(GUARD._positive_test("ptr", "ptr != nullptr"))
+        self.assertTrue(GUARD._positive_test("ref", "ref.is_valid()"))
+        self.assertFalse(GUARD._positive_test("ptr", "ptr->f()"))
+        self.assertFalse(GUARD._positive_test("ptr", "other"))
+        self.assertTrue(GUARD._negative_test("ptr", "!ptr"))
+        self.assertTrue(GUARD._negative_test("ptr", "ptr == nullptr"))
+        self.assertTrue(GUARD._negative_test("ref", "ref.is_null()"))
+        self.assertFalse(GUARD._negative_test("ptr", "!other"))
+        # An assignment prefix must not hide the ternary condition.
+        self.assertEqual(GUARD._condition_tail("int v = ptr ").strip(), "ptr")
+        self.assertEqual(GUARD._condition_tail("ptr != nullptr").strip(), "ptr != nullptr")
+
+    def test_enclosing_group_peels_outermost_first(self):
+        text = "CHECK(ptr && (a || ptr->f()))"
+        at = text.index("ptr->f()")
+        span = GUARD._enclosing_group(text, at)
+        self.assertEqual(text[span[0] : span[1]], "ptr && (a || ptr->f())")
+
+
+class MultiLineRequire(ScanTestCase):
+    """A REQUIRE whose predicate spans physical lines (Codex #659).
+
+    Latent at the time of the fix: the corpus has 34 multi-line `REQUIRE*` calls,
+    but in the null-ish ones only the MESSAGE wraps — the predicate itself is on
+    the first line, which the anchored pattern already matched. The baseline is
+    unchanged at 325.
+    """
+
+    def test_predicate_split_across_lines(self):
+        self.assertFlagged("  REQUIRE(\n      ptr != nullptr);\n  ptr->method();", "ptr")
+
+    def test_message_form_split_across_lines(self):
+        self.assertFlagged(
+            '  REQUIRE_MESSAGE(\n      ptr != nullptr,\n      "needed");\n  ptr->method();',
+            "ptr",
+        )
+
+    def test_is_valid_form_split_across_lines(self):
+        self.assertFlagged("  REQUIRE(\n      ref.is_valid());\n  ref->method();", "ref")
+
+    def test_require_ne_split_across_lines(self):
+        self.assertFlagged("  REQUIRE_NE(\n      ptr,\n      nullptr);\n  ptr->method();", "ptr")
+
+    def test_forward_scan_resumes_after_the_last_joined_line(self):
+        # If the scan restarted at index+1 it would read the continuation line as
+        # the "next statement" and miss the real one.
+        self.assertFlagged(
+            '  REQUIRE_MESSAGE(\n      ptr != nullptr,\n      "m");\n  ptr->method();', "ptr"
+        )
+
+    def test_split_predicate_then_guarded_use_is_clean(self):
+        self.assertClean("  REQUIRE(\n      ptr != nullptr);\n  if (ptr) { ptr->f(); }")
+
+    def test_split_predicate_without_deref_is_clean(self):
+        self.assertClean("  REQUIRE(\n      ptr != nullptr);\n  other();")
+
+    def test_continuation_line_does_not_produce_a_second_match(self):
+        found = self.scan("  REQUIRE(\n      ptr != nullptr);\n  ptr->method();")
+        self.assertEqual(len(found), 1, "the predicate line must not match again on its own")
+
+    def test_logical_line_is_bounded(self):
+        # A stray unbalanced paren must not swallow the file.
+        lines = ["REQUIRE(("] + [f"line_{i};" for i in range(40)]
+        _, last = GUARD._logical_line(lines, 0)
+        self.assertLess(last, 13)
+
+
 class DoctestMacroNames(ScanTestCase):
     """Every predicate row must name macros doctest actually exposes (Codex #659).
 
