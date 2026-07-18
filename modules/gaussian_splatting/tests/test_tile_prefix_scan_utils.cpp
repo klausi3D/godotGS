@@ -126,3 +126,11 @@ TEST_CASE("[TileRenderer] CPU prefix fallback computes saturated dispatch groups
     CHECK(result.indirect_dispatch.dispatch_z == 1u);
     CHECK(result.indirect_dispatch.overflow_flag == 0u);
 }
+
+// Force-link anchor (#178): a doctest TEST_CASE registers via a file-scope static
+// initializer; MSVC drops this whole object from the module static library when
+// nothing references it, silently discarding the cases. test_gaussian_splatting.h
+// calls this symbol so the linker keeps the object and the cases actually run.
+extern "C" int test_tile_prefix_scan_utils_cpp_force_link() {
+    return 0;
+}

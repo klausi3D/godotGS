@@ -6,14 +6,22 @@
 /*                        https://godotengine.org                         */
 /**************************************************************************/
 
-#include "test_gaussian_splatting.h"
-#include "test_ply_importer.h"
-#include "test_animation_interpolation.h"
-#include "test_animation_safety.h"
-#include "test_deformation_math.h"
-#include "test_lighting_bias.h"
-#include "test_persistence_roundtrip.h"
+// NOTE (#178): this file must NOT #include "test_gaussian_splatting.h" (the
+// aggregator) or any other tests/*.h TEST_CASE header. Every tests/*.h is
+// already glob-included once, always, into modules_tests.gen.h's single
+// translation unit (tests/test_main.cpp); #pragma once only dedupes within one
+// TU, so re-including those headers here would compile a SECOND copy of every
+// TEST_CASE they declare into this .cpp's own object file. As long as this
+// object was silently linker-dropped that extra copy was harmless - but this
+// file now carries a force_link anchor (see test_gaussian_splatting.h) so its
+// object always links, and a re-included copy would double-register (and
+// double-run) every affected TEST_CASE. Include only what this file's own
+// code below actually needs.
+#include "test_macros.h"
 #include "synthetic_splat_generators.h"
+#include "../core/gaussian_data.h"
+#include "../core/gaussian_splat_manager.h"
+#include "../renderer/gaussian_splat_renderer.h"
 
 #ifdef TESTS_ENABLED
 
@@ -91,3 +99,11 @@ TEST_CASE("[GaussianSplatting] Tile renderer fallback without streaming") {
 } // namespace TestGaussianSplatting
 
 #endif // TESTS_ENABLED
+
+// Force-link anchor (#178): a doctest TEST_CASE registers via a file-scope static
+// initializer; MSVC drops this whole object from the module static library when
+// nothing references it, silently discarding the cases. test_gaussian_splatting.h
+// calls this symbol so the linker keeps the object and the cases actually run.
+extern "C" int test_gaussian_splatting_cpp_force_link() {
+    return 0;
+}
