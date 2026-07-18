@@ -76,6 +76,27 @@ void GaussianSplatWorld3D::_notification(int p_what) {
         GS_LOG_RENDERER_DEBUG(vformat("[GSWORLD-DBG] _notification p_what=%d", p_what));
     }
     switch (p_what) {
+        case NOTIFICATION_ENTER_TREE: {
+            // NOTIFICATION_READY only fires once per node lifetime, so a node
+            // that is removed and re-added (reparenting is exit+enter) never
+            // sees READY again. NOTIFICATION_EXIT_TREE below unregisters the
+            // world submission and frees render_instance/gaussian_base, so
+            // without this the node stays dark after re-entry until someone
+            // calls apply_world() or a property setter runs -- see #517.
+            //
+            // Gated on was_world_submission_active (not unconditional) so a
+            // node's *first* entry still respects auto_apply_on_ready exactly
+            // as before: was_world_submission_active only becomes true after
+            // a successful _register_shared_renderer(), which on first entry
+            // only happens via NOTIFICATION_READY below. Re-entries after a
+            // prior successful apply restore that state unconditionally,
+            // independent of auto_apply_on_ready -- that flag governs whether
+            // to *start* showing the world automatically, not whether an
+            // already-active world survives a reparent.
+            if (was_world_submission_active) {
+                apply_world();
+            }
+        } break;
         case NOTIFICATION_READY: {
             if (log_enabled) {
                 GS_LOG_RENDERER_DEBUG("[GSWORLD-DBG] NOTIFICATION_READY received!");
@@ -164,11 +185,25 @@ void GaussianSplatWorld3D::_notification(int p_what) {
             }
             last_known_scenario = RID();
         } break;
-        case NOTIFICATION_TRANSFORM_CHANGED: {
-            bounds_dirty = true;
-            _update_bounds();
-            _update_render_instance();
-        } break;
+        // No NOTIFICATION_TRANSFORM_CHANGED case: this node does not call
+        // set_notify_transform(true), so Godot never delivers it, and that is
+        // intentional rather than an oversight (see #516). GaussianSplatWorld
+        // resources are authored in world space -- _apply_world_internal()
+        // above already treats a non-identity *global* transform as a
+        // compat-warned (or, under
+        // rendering/gaussian_splatting/world/strict_identity_transform,
+        // hard-rejected) misconfiguration, captured once at apply time
+        // (NOTIFICATION_READY / apply_world() / set_world()). Wiring live
+        // transform tracking would not fix that contract violation -- the
+        // GPU-submitted splat data stays fixed at its world-authored
+        // coordinates regardless, so continuously re-deriving local_aabb's
+        // world-space transform from a moving node would only walk the
+        // render instance's culling volume away from where the content
+        // actually is. A node that stays at identity (the supported,
+        // documented case) never needs a transform update in the first
+        // place. If this contract changes, revisit together with the
+        // strict_identity_transform gate and the warned_non_identity_transform
+        // one-shot warning below.
         case NOTIFICATION_VISIBILITY_CHANGED: {
             _update_render_instance();
         } break;
@@ -270,6 +305,11 @@ void GaussianSplatWorld3D::apply_world() {
 
 void GaussianSplatWorld3D::clear_world() {
     _unregister_shared_renderer();
+    // Explicit user intent to deactivate: unlike EXIT_TREE's teardown (which
+    // must be transparently restored on tree re-entry, see #517), this is a
+    // deliberate "stop showing a world" call and must NOT be auto-resumed on
+    // the next NOTIFICATION_ENTER_TREE.
+    was_world_submission_active = false;
     local_aabb = AABB();
     world_aabb = AABB();
     bounds_dirty = false;
@@ -481,6 +521,7 @@ void GaussianSplatWorld3D::_register_shared_renderer() {
         return;
     }
 
+    was_world_submission_active = true;
     _ensure_renderer();
 }
 

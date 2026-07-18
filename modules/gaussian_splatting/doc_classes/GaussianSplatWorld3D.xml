@@ -5,6 +5,7 @@
 	</brief_description>
 	<description>
 		GaussianSplatWorld3D renders an entire GaussianSplatWorld resource containing multiple merged splat datasets as a single unified scene. It manages its own GaussianSplatRenderer instance, handles GPU resource lifecycle, and supports quality settings parity with GaussianSplatNode3D. Use [method apply_world] to load and display the world data, or enable [member auto_apply_on_ready] for automatic initialization.
+		GaussianSplatWorld resources are authored in world space, so this node's global transform is expected to stay at identity; it is checked once when the world data is applied, not tracked live. A non-identity transform silently misplaces the rendered splats relative to the node's own bounds and triggers a one-time warning (or, with the project setting [code]rendering/gaussian_splatting/world/strict_identity_transform[/code] enabled, is rejected outright). Removing and re-adding this node to the scene tree (for example when reparenting) automatically restores a previously-applied world; [member auto_apply_on_ready] only governs whether the world is applied automatically the first time the node becomes ready.
 	</description>
 	<tutorials>
 	</tutorials>
