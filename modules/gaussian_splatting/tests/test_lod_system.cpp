@@ -99,14 +99,29 @@ public:
     // it just happens not to crash. The camera must be parented into the
     // SceneTree root before its transform is set, and detached before deletion.
     Camera3D* create_test_camera(const Vector3& position = Vector3(0, 0, 10)) {
+        // REQUIRE, not `if`: silently handing back an unparented camera would
+        // restore exactly the vacuous-pass state this fixture exists to remove -
+        // an empty frustum and an identity transform that every assertion below
+        // trivially satisfies, with no signal that the test proved nothing. If the
+        // SceneTree is missing the case is untagged/misconfigured; fail loudly.
+        // Checked BEFORE memnew so a failure cannot leak the camera.
+        SceneTree* tree = SceneTree::get_singleton();
+        REQUIRE_MESSAGE(tree != nullptr,
+                "SceneTree singleton is null - tag this TEST_CASE [SceneTree] so "
+                "tests/test_main.cpp bootstraps it; an unparented Camera3D yields an "
+                "empty frustum and would make this test pass vacuously.");
+        REQUIRE_MESSAGE(tree->get_root() != nullptr,
+                "SceneTree root is null - an unparented Camera3D yields an empty "
+                "frustum and would make this test pass vacuously.");
+
         Camera3D* camera = memnew(Camera3D);
 
-        SceneTree* tree = SceneTree::get_singleton();
-        if (tree != nullptr && tree->get_root() != nullptr) {
-            // Parent FIRST: set_global_transform() on a node outside the tree is
-            // a no-op that logs `Condition "!is_inside_tree()" is true`.
-            tree->get_root()->add_child(camera);
-        }
+        // Parent FIRST: set_global_transform() on a node outside the tree is
+        // a no-op that logs `Condition "!is_inside_tree()" is true`.
+        tree->get_root()->add_child(camera);
+
+        // The frustum is only real once the camera is actually inside the tree.
+        REQUIRE(camera->is_inside_tree());
 
         Transform3D transform;
         transform.origin = position;
