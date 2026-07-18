@@ -293,6 +293,11 @@ TEST_CASE("[GaussianSplatting] GaussianData::load_from_file hard-fails on unknow
 }
 
 TEST_CASE("[GaussianSplatting] GaussianData GPU payload validation rejects non-finite and out-of-range values") {
+	// Regression guard for issue #590: the finiteness checks below are built on
+	// Math::is_finite (std::isfinite). Under GCC/Clang -ffast-math (implied
+	// -ffinite-math-only) those calls fold to constants and NaN/Inf splats pass
+	// validation. This case must keep rejecting them, and the optimize=speed CI
+	// lane runs it against the actual fast-math build to catch a flag regression.
 	Ref<::GaussianData> data;
 	data.instantiate();
 
@@ -302,11 +307,31 @@ TEST_CASE("[GaussianSplatting] GaussianData GPU payload validation rejects non-f
 	data->set_gaussians(gaussians);
 	CHECK(data->validate_gpu_payload() == OK);
 
-	gaussians[0].opacity = std::numeric_limits<float>::infinity();
+	const float inf = std::numeric_limits<float>::infinity();
+	const float nan = std::numeric_limits<float>::quiet_NaN();
+
+	// Inf opacity must be rejected.
+	gaussians[0].opacity = inf;
 	data->set_gaussians(gaussians);
 	String inf_error;
 	CHECK(data->validate_gpu_payload(&inf_error) == ERR_INVALID_DATA);
 	CHECK_FALSE(inf_error.is_empty());
+
+	// NaN opacity must be rejected (the classic is_nan/is_finite fold case).
+	gaussians[0] = _make_test_gaussian(Vector3(1, 2, 3), Color(1, 1, 1, 1));
+	gaussians[0].opacity = nan;
+	data->set_gaussians(gaussians);
+	String nan_opacity_error;
+	CHECK(data->validate_gpu_payload(&nan_opacity_error) == ERR_INVALID_DATA);
+	CHECK_FALSE(nan_opacity_error.is_empty());
+
+	// NaN position must be rejected.
+	gaussians[0] = _make_test_gaussian(Vector3(1, 2, 3), Color(1, 1, 1, 1));
+	gaussians[0].position.x = nan;
+	data->set_gaussians(gaussians);
+	String nan_position_error;
+	CHECK(data->validate_gpu_payload(&nan_position_error) == ERR_INVALID_DATA);
+	CHECK_FALSE(nan_position_error.is_empty());
 
 	gaussians[0] = _make_test_gaussian(Vector3(1, 2, 3), Color(1, 1, 1, 1));
 	gaussians[0].scale.x = -1.0f;
