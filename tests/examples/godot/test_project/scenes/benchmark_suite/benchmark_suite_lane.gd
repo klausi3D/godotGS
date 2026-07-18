@@ -13,8 +13,6 @@ var DEFAULT_CAPTURE_PROGRESS_MARKERS := PackedFloat32Array([0.25, 0.5, 0.75])
 const DEFAULT_VISUAL_SSIM_THRESHOLD := 0.95
 const DEFAULT_VISUAL_PSNR_THRESHOLD := 30.0
 const SETTINGS_APPLY_INTERVAL := 0.1
-const INSTANCE_SINGLE_PASS_SETTING := "rendering/gaussian_splatting/instance_pipeline/true_single_pass_enabled"
-const INSTANCE_BENCH_SERIAL_MULTI_ASSET_SETTING := "rendering/gaussian_splatting/instance_pipeline/benchmark_allow_serial_multi_asset"
 const STREAMING_VRAM_CHUNK_CAP_MONITOR := "gaussian_splatting/streaming_vram_chunk_cap_hit"
 
 const MONITOR_KEYS := [
@@ -44,8 +42,6 @@ const MONITOR_KEYS := [
 const PROJECT_SETTING_KEYS := [
 	"rendering/gaussian_splatting/streaming/route_policy",
 	"rendering/gaussian_splatting/instance_pipeline/enabled",
-	INSTANCE_SINGLE_PASS_SETTING,
-	INSTANCE_BENCH_SERIAL_MULTI_ASSET_SETTING,
 	"rendering/gaussian_splatting/quality/tier_preset",
 	"rendering/gaussian_splatting/quality/tier_apply_pipeline_toggles",
 	"rendering/gaussian_splatting/quality/tier_apply_streaming_budgets",
@@ -93,7 +89,6 @@ const RENDER_TELEMETRY_KEYS := [
 	"instance_pipeline_execution_mode",
 	"instance_pipeline_execution_path",
 	"instance_pipeline_execution_reason",
-	"instance_pipeline_true_single_pass_enabled",
 	"instance_pipeline_instance_count",
 	"effective_quality_preset",
 	"effective_max_splats",
@@ -1493,14 +1488,14 @@ func _setting_snapshot_value_or_default(key: String, fallback):
 func _apply_lane_project_settings(config: Dictionary) -> void:
 	_set_project_setting("rendering/gaussian_splatting/streaming/route_policy", int(config.get("route_policy", 1)))
 	_set_project_setting("rendering/gaussian_splatting/instance_pipeline/enabled", bool(config.get("instance_pipeline_enabled", true)))
-	var bench_serial_multi_asset_default := bool(_setting_snapshot_value_or_default(INSTANCE_BENCH_SERIAL_MULTI_ASSET_SETTING, false))
-	_set_project_setting(INSTANCE_BENCH_SERIAL_MULTI_ASSET_SETTING, bench_serial_multi_asset_default)
-	if instancing_mode == "serial":
-		_set_project_setting(INSTANCE_SINGLE_PASS_SETTING, false)
-		_set_project_setting(INSTANCE_BENCH_SERIAL_MULTI_ASSET_SETTING, true)
-	elif instancing_mode == "single_pass":
-		_set_project_setting(INSTANCE_SINGLE_PASS_SETTING, true)
-		_set_project_setting(INSTANCE_BENCH_SERIAL_MULTI_ASSET_SETTING, false)
+	# NOTE: `instancing_mode` ("auto" / "serial" / "single_pass") no longer configures any
+	# renderer behavior. It used to toggle two project settings
+	# (instance_pipeline/true_single_pass_enabled, instance_pipeline/benchmark_allow_serial_multi_asset)
+	# that were removed by #326 (b153169114a) and had no C++ reader left; those writes were
+	# deleted here as dead code (issue #561). `instancing_mode` is still threaded through as a
+	# report/label field (see `instancing_mode` in the returned report dict) for lane bookkeeping,
+	# but the instance_pipeline_ab_serial / instance_pipeline_ab_single_pass lanes are no longer
+	# behaviorally distinguished by this script.
 	_set_project_setting("rendering/gaussian_splatting/quality/tier_preset", "custom")
 	_set_project_setting("rendering/gaussian_splatting/quality/tier_apply_pipeline_toggles", false)
 	_set_project_setting("rendering/gaussian_splatting/quality/tier_apply_streaming_budgets", false)
