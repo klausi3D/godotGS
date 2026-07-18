@@ -42,6 +42,53 @@ float _sanitize_clip_duration(float p_duration) {
     return MAX(MIN_CLIP_DURATION, p_duration);
 }
 
+// The duration sanitizer above guards only ONE operand of the
+// `current_time >= clip.duration` comparison in update(). The other operand --
+// `current_time` -- and the `playback_speed` that drives it reach that same
+// comparison from four ClassDB-bound producers (seek / set_playback_speed /
+// update / from_dict), so the identical silent-freeze class was still fully
+// reachable through them:
+//
+//   * seek() stored `MAX(0.0f, p_time)`, the exact MAX-vs-NaN trap documented
+//     above: `0.0f > NaN` is false, so a NaN time was stored unchanged.
+//   * set_playback_speed() was a raw inline store, so a +/-Infinity speed made
+//     `current_time += p_delta * playback_speed` non-finite; with a +Infinity
+//     current_time the NEW `clip.duration > 0.0f` guard PASSES (the duration is
+//     finite and sane) and the wrap computes fmod(+Inf, d) -> NaN, re-opening
+//     the very #598 defect from the operand the duration sanitizer cannot see.
+//   * update()'s delta is script-supplied and was unvalidated.
+//   * from_dict() read both fields raw from an attacker-/corruption-reachable
+//     dictionary, fifteen lines above the duration sanitizer in the same
+//     function.
+//
+// Guarding is done where each value ENTERS the system rather than at each point
+// of use, so one guard covers every consumer -- the same principle the duration
+// sanitizer follows. `Math::is_finite()` is used explicitly because a naive
+// `if (x > 0)` does NOT reject NaN (every NaN comparison is false).
+
+// Playback time is a non-negative, finite quantity. Non-finite input is
+// replaced with the 0.0 floor and logged; ordinary negative input keeps the
+// pre-existing silent clamp to 0.
+float _sanitize_playback_time(float p_time) {
+    if (!Math::is_finite(p_time)) {
+        GS_LOG_WARN_DEFAULT(vformat("Animation playback time %s is not finite; using 0 instead", rtos(p_time)));
+        return 0.0f;
+    }
+    return MAX(0.0f, p_time);
+}
+
+// Playback speed must be finite. A negative (reverse) speed is deliberately
+// still accepted -- it is a plausible caller request -- and is contained by the
+// non-negative time floor applied in update(); true reverse playback (backward
+// loop wrapping) is not implemented.
+float _sanitize_playback_speed(float p_speed) {
+    if (!Math::is_finite(p_speed)) {
+        GS_LOG_WARN_DEFAULT(vformat("Animation playback speed %s is not finite; using 1 instead", rtos(p_speed)));
+        return 1.0f;
+    }
+    return p_speed;
+}
+
 Dictionary _clip_to_dict(const AnimationClip &clip, int index) {
     Dictionary dict;
     dict["index"] = index;
@@ -544,8 +591,16 @@ void GaussianAnimationStateMachine::stop() {
 }
 
 void GaussianAnimationStateMachine::seek(float p_time) {
-    current_time = MAX(0.0f, p_time);
+    // `MAX(0.0f, p_time)` alone stored a NaN unchanged (`0.0f > NaN` is false),
+    // and play() deliberately does NOT reset current_time -- a seek must be
+    // honoured, and stop() already zeroes it -- so `seek(NAN); play(0)` froze
+    // playback forever. Reject the non-finite value where it enters instead.
+    current_time = _sanitize_playback_time(p_time);
     state = ANIMATION_STATE_SEEKING;
+}
+
+void GaussianAnimationStateMachine::set_playback_speed(float p_speed) {
+    playback_speed = _sanitize_playback_speed(p_speed);
 }
 
 void GaussianAnimationStateMachine::switch_to_clip_delayed(int p_clip_index, float p_switch_delay) {
@@ -645,8 +700,25 @@ void GaussianAnimationStateMachine::update(float p_delta) {
         return;
     }
 
+    // update(delta) is ClassDB-bound, so the delta is script-supplied. A
+    // non-finite delta makes current_time non-finite on the first call, after
+    // which every comparison against it is false and playback freezes
+    // permanently. Skip the bad frame rather than poisoning persistent state.
+    if (!Math::is_finite(p_delta)) {
+        GS_LOG_WARN_DEFAULT(vformat("Animation update() delta %s is not finite; skipping this frame", rtos(p_delta)));
+        return;
+    }
+
     // Update time
     current_time += p_delta * playback_speed;
+
+    // Floor at zero. A finite negative playback_speed (or a negative delta)
+    // otherwise drives current_time below zero, where neither the loop wrap nor
+    // the stop branch can ever fire. Reverse playback is not implemented; this
+    // contains the request instead of letting it run away.
+    if (current_time < 0.0f) {
+        current_time = 0.0f;
+    }
 
     // Handle looping
     const AnimationClip& clip = clips[current_clip_index];
@@ -916,9 +988,15 @@ void GaussianAnimationStateMachine::from_dict(const Dictionary& p_dict) {
     clip_name_to_index.clear();
     blend_targets.clear();
 
-    // Load basic properties
-    current_time = p_dict.get("current_time", 0.0f);
-    playback_speed = p_dict.get("playback_speed", 1.0f);
+    // Load basic properties. Sanitize the playback state for the same reason
+    // the clip duration below is sanitized: this is the deserialization path,
+    // so a corrupt or hostile dictionary could otherwise restore a state
+    // machine that is already frozen at a non-finite current_time /
+    // playback_speed (#598 second adjacent gap).
+    const float loaded_time = p_dict.get("current_time", 0.0f);
+    current_time = _sanitize_playback_time(loaded_time);
+    const float loaded_speed = p_dict.get("playback_speed", 1.0f);
+    playback_speed = _sanitize_playback_speed(loaded_speed);
     current_clip_index = p_dict.get("current_clip_index", -1);
     splat_count = p_dict.get("splat_count", 0);
 

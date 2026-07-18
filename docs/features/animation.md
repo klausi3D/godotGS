@@ -107,11 +107,32 @@ func _process(delta: float) -> void:
 | `play(clip_index)` | Starts playback. Pass `-1` to resume the current clip. | `modules/gaussian_splatting/animation/animation_state_machine.cpp:223` |
 | `pause()` | Pauses playback at the current time. | `modules/gaussian_splatting/animation/animation_state_machine.cpp:224` |
 | `stop()` | Stops playback and resets to the beginning. | `modules/gaussian_splatting/animation/animation_state_machine.cpp:225` |
-| `seek(time)` | Jumps to a specific time in the current clip. | `modules/gaussian_splatting/animation/animation_state_machine.cpp:226` |
-| `set_playback_speed(speed)` | Changes the playback rate multiplier. | `modules/gaussian_splatting/animation/animation_state_machine.cpp:227` |
-| `update(delta)` | Advances the animation by `delta` seconds. Call this every frame. | `modules/gaussian_splatting/animation/animation_state_machine.cpp:242` |
+| `seek(time)` | Jumps to a specific time in the current clip. Negative times clamp to `0`; a non-finite time is rejected with a warning (see below). | `modules/gaussian_splatting/animation/animation_state_machine.cpp:260` |
+| `set_playback_speed(speed)` | Changes the playback rate multiplier. A non-finite speed is rejected with a warning (see below). | `modules/gaussian_splatting/animation/animation_state_machine.cpp:261` |
+| `update(delta)` | Advances the animation by `delta` seconds. Call this every frame. A non-finite `delta` skips the frame (see below). | `modules/gaussian_splatting/animation/animation_state_machine.cpp:279` |
 | `is_playing()` | Returns `true` when the state machine is in the `PLAYING` state. | `modules/gaussian_splatting/animation/animation_state_machine.cpp:234` |
 | `get_current_time()` | Returns the current playback position in seconds. | `modules/gaussian_splatting/animation/animation_state_machine.cpp:232` |
+
+#### Non-finite playback values are rejected
+
+`NAN`, `INF` and `-INF` are rejected at the point they enter the state machine,
+because a non-finite time or speed makes *every* later comparison against it
+false (`NaN < x`, `NaN > x` and `NaN == x` are all false). Playback would then
+never wrap and never stop: it freezes silently, with no crash and no error.
+
+| Input | Behaviour |
+| --- | --- |
+| `seek(non-finite)` | Warns, seeks to `0` instead. |
+| `set_playback_speed(non-finite)` | Warns, uses `1.0` instead. |
+| `update(non-finite)` | Warns, skips the frame; the current time is left untouched. |
+| `from_dict()` with a non-finite `current_time` / `playback_speed` | Warns, substitutes `0` / `1.0`. Applies to loading a corrupt or hand-edited save. |
+
+`play()` deliberately does **not** reset the current time, so a `seek()` is
+honoured by a following `play()`; `stop()` is what resets to `0`.
+
+A finite *negative* `set_playback_speed()` is accepted, but true reverse
+playback is not implemented — the current time is floored at `0` rather than
+wrapping backwards.
 
 ### Switching between clips
 

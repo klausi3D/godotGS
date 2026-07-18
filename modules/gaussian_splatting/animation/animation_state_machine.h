@@ -134,7 +134,10 @@ public:
     void pause();
     void stop();
     void seek(float p_time);
-    void set_playback_speed(float p_speed) { playback_speed = p_speed; }
+    // Defined out-of-line: it rejects non-finite input via the shared
+    // sanitizer in the .cpp. A non-finite speed makes current_time non-finite
+    // in update(), which freezes playback (#598 second adjacent gap).
+    void set_playback_speed(float p_speed);
     float get_playback_speed() const { return playback_speed; }
 
     // State queries

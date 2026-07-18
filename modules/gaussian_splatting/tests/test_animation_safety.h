@@ -400,3 +400,351 @@ TEST_CASE("[GaussianSplatting][Animation] deprecated blend_to_clip alias forward
     CHECK_EQ(sm.get_current_clip(), b); // committed hard switch
     CHECK(Math::is_equal_approx(sm.sample_opacity(0, -1.0f), 0.75f));
 }
+
+// ---------------------------------------------------------------------------
+// #598 second adjacent gap: the OTHER operand of `current_time >= clip.duration`
+//
+// The duration sanitizer above guards only one side of that comparison. The
+// other side -- `current_time` -- and the `playback_speed` that drives it were
+// still unguarded at four ClassDB-bound producers (seek / set_playback_speed /
+// update / from_dict), so the identical silent-freeze class remained fully
+// reachable from script and from a corrupt save file. The tests below pin each
+// producer. Each one FAILS if its guard is reverted.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("[GaussianSplatting][Animation] seek(NaN) then play() cannot freeze playback (#598 second adjacent gap)") {
+    using namespace GaussianSplatting;
+
+    const float nan_value = std::numeric_limits<float>::quiet_NaN();
+
+    // THE REPRO. Pre-fix, seek() stored `current_time = MAX(0.0f, p_time)`,
+    // the identical MAX-vs-NaN trap this PR documents for durations: MAX is
+    // `m_a > m_b ? m_a : m_b`, `0.0f > NaN` is false, so the NaN argument was
+    // returned unchanged and stored. play() does NOT reset current_time (by
+    // design -- a seek must be honoured, and stop() already zeroes it), so the
+    // NaN survived into update(), where EVERY comparison against it is false:
+    // the loop wrap never fires, the stop branch never fires, and
+    // `current_time += delta * speed` keeps it NaN forever. Playback freezes
+    // silently -- no crash, no error -- which is exactly the #598 defect this
+    // PR claims to close, reached through the other operand.
+    GaussianAnimationStateMachine sm;
+    sm.set_splat_count(1);
+    const int idx = sm.add_clip("freeze_repro", 4.0f);
+    REQUIRE(idx == 0);
+    sm.set_clip_looping(0, true);
+
+    ERR_PRINT_OFF;
+    sm.seek(nan_value);
+    ERR_PRINT_ON;
+
+    // The guard must reject the NaN at the point it ENTERS the system.
+    CHECK_FALSE(Math::is_nan(sm.get_current_time()));
+    CHECK(sm.get_current_time() >= 0.0f);
+
+    sm.play(0);
+    REQUIRE(sm.is_playing());
+
+    // Post-fix this advances and wraps normally. Pre-fix every one of these
+    // reads NaN and the clip is frozen for good.
+    bool advanced = false;
+    for (int i = 0; i < 64; i++) {
+        const float before = sm.get_current_time();
+        sm.update(0.5f);
+        const float t = sm.get_current_time();
+        CHECK_FALSE(Math::is_nan(t));
+        CHECK_FALSE(Math::is_inf(t));
+        CHECK(t >= 0.0f);
+        CHECK(t <= 4.0f);
+        // NOTE: the finiteness test on both operands is load-bearing. `NaN !=
+        // NaN` is TRUE, so a naive `t != before` would report "advanced" on
+        // the very frozen-at-NaN state this assertion exists to catch.
+        if (Math::is_finite(t) && Math::is_finite(before) && t != before) {
+            advanced = true;
+        }
+    }
+    // The freeze signature: time never makes finite progress. This is the
+    // assertion that catches a reverted seek() guard.
+    CHECK(advanced);
+    CHECK_EQ(sm.get_state(), ANIMATION_STATE_PLAYING);
+}
+
+TEST_CASE("[GaussianSplatting][Animation] seek rejects +/-Infinity and floors negative times (#598 second adjacent gap)") {
+    using namespace GaussianSplatting;
+
+    const float pos_inf = std::numeric_limits<float>::infinity();
+    const float neg_inf = -pos_inf;
+
+    GaussianAnimationStateMachine sm;
+    sm.set_splat_count(1);
+    sm.add_clip("seek_bounds", 4.0f);
+    sm.set_clip_looping(0, true);
+
+    // +Infinity: pre-fix `MAX(0.0f, +Inf)` stored +Inf, which makes the
+    // non-looping stop branch fire immediately and, for a looping clip,
+    // reaches fmod(+Inf, d) -> NaN. Both are the freeze.
+    ERR_PRINT_OFF;
+    sm.seek(pos_inf);
+    ERR_PRINT_ON;
+    CHECK(Math::is_finite(sm.get_current_time()));
+    CHECK(sm.get_current_time() >= 0.0f);
+
+    // -Infinity: `MAX(0.0f, -Inf)` happened to clamp to 0, but only by luck of
+    // the comparison ordering; pin it explicitly.
+    ERR_PRINT_OFF;
+    sm.seek(neg_inf);
+    ERR_PRINT_ON;
+    CHECK(Math::is_finite(sm.get_current_time()));
+    CHECK(sm.get_current_time() >= 0.0f);
+
+    // Ordinary negative time still floors at 0 (unchanged contract).
+    sm.seek(-5.0f);
+    CHECK(Math::is_equal_approx(sm.get_current_time(), 0.0f));
+
+    // A finite in-range seek is untouched by the guard.
+    sm.seek(2.5f);
+    CHECK(Math::is_equal_approx(sm.get_current_time(), 2.5f));
+
+    // And playback still runs after all of that.
+    sm.play(0);
+    for (int i = 0; i < 16; i++) {
+        sm.update(0.5f);
+        CHECK(Math::is_finite(sm.get_current_time()));
+    }
+    CHECK_EQ(sm.get_state(), ANIMATION_STATE_PLAYING);
+}
+
+TEST_CASE("[GaussianSplatting][Animation] set_playback_speed(+Infinity) cannot reach fmod(+Inf, d) -> NaN (#598 second adjacent gap)") {
+    using namespace GaussianSplatting;
+
+    const float pos_inf = std::numeric_limits<float>::infinity();
+
+    // Pre-fix this re-opened the very defect #598 closed, from the other
+    // operand: set_playback_speed(+Inf) was a raw inline store, so
+    // `current_time += p_delta * playback_speed` made current_time +Inf; the
+    // NEW `clip.duration > 0.0f` guard then PASSED (duration is sanitized and
+    // finite), `current_time >= clip.duration` PASSED, and the wrap computed
+    // fmod(+Inf, d) -> NaN. The duration sanitizer cannot catch this, because
+    // the bad value is not in the duration operand.
+    GaussianAnimationStateMachine sm;
+    sm.set_splat_count(1);
+    sm.add_clip("speed_inf", 4.0f);
+    sm.set_clip_looping(0, true);
+
+    ERR_PRINT_OFF;
+    sm.set_playback_speed(pos_inf);
+    ERR_PRINT_ON;
+    CHECK(Math::is_finite(sm.get_playback_speed()));
+
+    sm.play(0);
+    REQUIRE(sm.is_playing());
+
+    for (int i = 0; i < 32; i++) {
+        sm.update(0.5f);
+        const float t = sm.get_current_time();
+        CHECK_FALSE(Math::is_nan(t));
+        CHECK_FALSE(Math::is_inf(t));
+        CHECK(t >= 0.0f);
+        CHECK(t <= 4.0f);
+    }
+    CHECK_EQ(sm.get_state(), ANIMATION_STATE_PLAYING);
+}
+
+TEST_CASE("[GaussianSplatting][Animation] set_playback_speed rejects NaN and -Infinity and contains negative speed (#598 second adjacent gap)") {
+    using namespace GaussianSplatting;
+
+    const float nan_value = std::numeric_limits<float>::quiet_NaN();
+    const float neg_inf = -std::numeric_limits<float>::infinity();
+
+    {
+        // NaN speed: `current_time += delta * NaN` makes current_time NaN on
+        // the very first update() -- the freeze again.
+        GaussianAnimationStateMachine sm;
+        sm.set_splat_count(1);
+        sm.add_clip("speed_nan", 4.0f);
+        sm.set_clip_looping(0, true);
+
+        ERR_PRINT_OFF;
+        sm.set_playback_speed(nan_value);
+        ERR_PRINT_ON;
+        CHECK_FALSE(Math::is_nan(sm.get_playback_speed()));
+        CHECK(Math::is_finite(sm.get_playback_speed()));
+
+        sm.play(0);
+        for (int i = 0; i < 16; i++) {
+            sm.update(0.5f);
+            CHECK_FALSE(Math::is_nan(sm.get_current_time()));
+        }
+        CHECK_EQ(sm.get_state(), ANIMATION_STATE_PLAYING);
+    }
+
+    {
+        // -Infinity speed: drives current_time to -Inf, where the stop branch
+        // never fires and the clip runs backwards forever.
+        GaussianAnimationStateMachine sm;
+        sm.set_splat_count(1);
+        sm.add_clip("speed_neg_inf", 4.0f);
+
+        ERR_PRINT_OFF;
+        sm.set_playback_speed(neg_inf);
+        ERR_PRINT_ON;
+        CHECK(Math::is_finite(sm.get_playback_speed()));
+
+        sm.play(0);
+        for (int i = 0; i < 16; i++) {
+            sm.update(0.5f);
+            CHECK(Math::is_finite(sm.get_current_time()));
+            CHECK(sm.get_current_time() >= 0.0f);
+        }
+    }
+
+    {
+        // A finite NEGATIVE speed stays allowed (it is a plausible reverse
+        // request), but must not drive current_time below zero -- the time
+        // floor contains it. Reverse playback is not otherwise implemented;
+        // see the PR body.
+        GaussianAnimationStateMachine sm;
+        sm.set_splat_count(1);
+        sm.add_clip("speed_reverse", 4.0f);
+        sm.set_clip_looping(0, true);
+        sm.set_playback_speed(-2.0f);
+        CHECK(Math::is_equal_approx(sm.get_playback_speed(), -2.0f));
+
+        sm.seek(3.0f);
+        sm.play(0);
+        for (int i = 0; i < 32; i++) {
+            sm.update(0.5f);
+            const float t = sm.get_current_time();
+            CHECK(Math::is_finite(t));
+            CHECK(t >= 0.0f);
+        }
+    }
+
+    {
+        // A finite ordinary speed is untouched by the guard.
+        GaussianAnimationStateMachine sm;
+        sm.set_playback_speed(2.5f);
+        CHECK(Math::is_equal_approx(sm.get_playback_speed(), 2.5f));
+    }
+}
+
+TEST_CASE("[GaussianSplatting][Animation] update() rejects a non-finite delta (#598 second adjacent gap)") {
+    using namespace GaussianSplatting;
+
+    const float nan_value = std::numeric_limits<float>::quiet_NaN();
+    const float pos_inf = std::numeric_limits<float>::infinity();
+    const float neg_inf = -pos_inf;
+
+    // update(delta) is ClassDB-bound, so a script supplies the delta directly.
+    // An unguarded non-finite delta poisons current_time on the first call and
+    // freezes playback exactly like the seek/speed paths.
+    const float bad_deltas[3] = { nan_value, pos_inf, neg_inf };
+
+    for (int d = 0; d < 3; d++) {
+        GaussianAnimationStateMachine sm;
+        sm.set_splat_count(1);
+        sm.add_clip("bad_delta", 4.0f);
+        sm.set_clip_looping(0, true);
+        sm.seek(1.0f);
+        sm.play(0);
+        REQUIRE(sm.is_playing());
+
+        const float before = sm.get_current_time();
+
+        ERR_PRINT_OFF;
+        sm.update(bad_deltas[d]);
+        ERR_PRINT_ON;
+
+        // The bad frame is skipped, not applied: time is untouched and finite.
+        CHECK(Math::is_finite(sm.get_current_time()));
+        CHECK(Math::is_equal_approx(sm.get_current_time(), before));
+        CHECK_EQ(sm.get_state(), ANIMATION_STATE_PLAYING);
+
+        // And the state machine still advances normally afterwards.
+        sm.update(0.5f);
+        CHECK(Math::is_finite(sm.get_current_time()));
+        CHECK(sm.get_current_time() > before);
+    }
+}
+
+TEST_CASE("[GaussianSplatting][Animation] from_dict sanitizes non-finite current_time and playback_speed (#598 second adjacent gap)") {
+    using namespace GaussianSplatting;
+
+    const float nan_value = std::numeric_limits<float>::quiet_NaN();
+    const float pos_inf = std::numeric_limits<float>::infinity();
+    const float neg_inf = -pos_inf;
+
+    // This is the DESERIALIZATION path -- reachable from a corrupt or hostile
+    // save file, not just from a script typo. Pre-fix it read both fields raw,
+    // fifteen lines above the duration sanitizer in the same function, so a
+    // saved dictionary could restore a state machine that was already frozen.
+    struct Case {
+        float time;
+        float speed;
+    };
+    const Case cases[5] = {
+        { nan_value, 1.0f },
+        { pos_inf, 1.0f },
+        { neg_inf, 1.0f },
+        { 0.0f, nan_value },
+        { 0.0f, pos_inf },
+    };
+
+    for (int c = 0; c < 5; c++) {
+        Dictionary clip_dict;
+        clip_dict["name"] = "restored";
+        clip_dict["duration"] = 4.0f;
+        clip_dict["looping"] = true;
+        clip_dict["tracks"] = Array();
+
+        Array clips_array;
+        clips_array.push_back(clip_dict);
+
+        Dictionary dict;
+        dict["current_time"] = cases[c].time;
+        dict["playback_speed"] = cases[c].speed;
+        dict["current_clip_index"] = 0;
+        dict["splat_count"] = 1;
+        dict["clips"] = clips_array;
+
+        GaussianAnimationStateMachine sm;
+        ERR_PRINT_OFF;
+        sm.from_dict(dict);
+        ERR_PRINT_ON;
+
+        CHECK(Math::is_finite(sm.get_current_time()));
+        CHECK(sm.get_current_time() >= 0.0f);
+        CHECK(Math::is_finite(sm.get_playback_speed()));
+
+        // A restored machine must actually play, not resume frozen.
+        sm.play(0);
+        REQUIRE(sm.is_playing());
+        bool advanced = false;
+        for (int i = 0; i < 32; i++) {
+            const float before = sm.get_current_time();
+            sm.update(0.5f);
+            const float t = sm.get_current_time();
+            CHECK(Math::is_finite(t));
+            CHECK(t >= 0.0f);
+            CHECK(t <= 4.0f);
+            // Finiteness on both operands is load-bearing: NaN != NaN is true.
+            if (Math::is_finite(t) && Math::is_finite(before) && t != before) {
+                advanced = true;
+            }
+        }
+        CHECK(advanced);
+    }
+
+    // A well-formed dictionary round-trips untouched.
+    {
+        GaussianAnimationStateMachine src;
+        src.set_splat_count(1);
+        src.add_clip("ok", 4.0f);
+        src.seek(1.5f);
+        src.set_playback_speed(2.0f);
+
+        GaussianAnimationStateMachine dst;
+        dst.from_dict(src.to_dict());
+        CHECK(Math::is_equal_approx(dst.get_current_time(), 1.5f));
+        CHECK(Math::is_equal_approx(dst.get_playback_speed(), 2.0f));
+    }
+}

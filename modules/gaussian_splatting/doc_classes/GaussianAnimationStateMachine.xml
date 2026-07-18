@@ -222,6 +222,9 @@
 			<return type="void" />
 			<param index="0" name="time" type="float" />
 			<description>
+				Jumps playback to [param time] (in seconds) and puts the machine in the seeking state.
+				Negative times are clamped to [code]0[/code]. A non-finite [param time] ([code]NAN[/code], [code]INF[/code], [code]-INF[/code]) is rejected with a warning and replaced by [code]0[/code]: it would otherwise be stored as-is and make every later time comparison false, silently freezing playback forever.
+				[method play] does not reset the current time, so a seek is honoured by a subsequent [method play].
 			</description>
 		</method>
 		<method name="set_clip_duration">
@@ -255,6 +258,9 @@
 			<return type="void" />
 			<param index="0" name="speed" type="float" />
 			<description>
+				Sets the playback rate multiplier applied to the delta passed to [method update].
+				A non-finite [param speed] ([code]NAN[/code], [code]INF[/code], [code]-INF[/code]) is rejected with a warning and replaced by [code]1[/code]: it would otherwise make the current time non-finite on the next [method update] and silently freeze playback.
+				A finite negative speed is accepted, but true reverse playback is not implemented — the current time is floored at [code]0[/code] rather than wrapping backwards.
 			</description>
 		</method>
 		<method name="set_splat_count">
@@ -280,6 +286,8 @@
 			<return type="void" />
 			<param index="0" name="delta" type="float" />
 			<description>
+				Advances playback by [param delta] seconds scaled by the rate set with [method set_playback_speed], handling loop wrapping, clip stop and scheduled clip switches. Call this once per frame while playing.
+				A non-finite [param delta] ([code]NAN[/code], [code]INF[/code], [code]-INF[/code]) is rejected with a warning and the frame is skipped, leaving the current time untouched: applying it would poison the current time permanently and silently freeze playback.
 			</description>
 		</method>
 	</methods>
