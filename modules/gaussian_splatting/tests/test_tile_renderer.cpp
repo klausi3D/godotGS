@@ -6,18 +6,14 @@
 #include "../renderer/tile_renderer.h"
 #include "servers/rendering_server.h"
 
-TEST_CASE("[TileRenderer] Shader compilation on local device") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    CHECK_MESSAGE(rs != nullptr, "RenderingServer singleton must exist for TileRenderer tests");
-    if (rs == nullptr) {
-        return;
-    }
-
-    RenderingDevice *local_device = rs->create_local_rendering_device();
-    CHECK_MESSAGE(local_device != nullptr, "Failed to create local RenderingDevice for TileRenderer test");
-    if (local_device == nullptr) {
-        return;
-    }
+// #641: both cases below need a real local RenderingDevice to create pipelines.
+// They previously hard-failed `CHECK(rs != nullptr)` under plain `--test`, and
+// were untagged, so no CI lane could ever execute them. `[RequiresGPU]` routes
+// them to the `TileRenderer` batch of tests/ci/run_gpu_harness.py (filter
+// `*TileRenderer*][RequiresGPU]*`, previously catalogued-but-empty), and
+// REQUIRE_LOCAL_GPU_DEVICE() degrades to an explicit skip on headless lanes.
+TEST_CASE("[TileRenderer][RequiresGPU] Shader compilation on local device") {
+    REQUIRE_LOCAL_GPU_DEVICE();
 
     Ref<TileRenderer> renderer;
     renderer.instantiate();
@@ -28,21 +24,10 @@ TEST_CASE("[TileRenderer] Shader compilation on local device") {
     CHECK(renderer->get_tile_raster_pipeline().is_valid());
 
     renderer->cleanup();
-    memdelete(local_device);
 }
 
-TEST_CASE("[TileRenderer] Output format coercion keeps deterministic defaults") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    CHECK_MESSAGE(rs != nullptr, "RenderingServer singleton must exist for TileRenderer tests");
-    if (rs == nullptr) {
-        return;
-    }
-
-    RenderingDevice *local_device = rs->create_local_rendering_device();
-    CHECK_MESSAGE(local_device != nullptr, "Failed to create local RenderingDevice for TileRenderer test");
-    if (local_device == nullptr) {
-        return;
-    }
+TEST_CASE("[TileRenderer][RequiresGPU] Output format coercion keeps deterministic defaults") {
+    REQUIRE_LOCAL_GPU_DEVICE();
 
     Ref<TileRenderer> renderer;
     renderer.instantiate();
@@ -50,10 +35,20 @@ TEST_CASE("[TileRenderer] Output format coercion keeps deterministic defaults") 
             RD::DATA_FORMAT_R8G8B8A8_SRGB);
     CHECK_MESSAGE(err == OK, "TileRenderer initialization should succeed with explicit SRGB output format");
     if (err != OK) {
-        memdelete(local_device);
         return;
     }
 
+    // KNOWN FAILING — genuine PRODUCT bug, filed as #643. Do not "fix" this by
+    // relaxing the assertion. On a real device `initialize()` above returns OK
+    // while `create_output_textures()` (tile_render_resources.cpp:474) tried to
+    // create an SRGB texture with TEXTURE_USAGE_STORAGE_BIT, which no driver
+    // allows, leaving the renderer with NO output texture and
+    // `config_state.output_format == RD::DATA_FORMAT_MAX`. The module already
+    // has `_resolve_storage_compatible_color_format()` (tile_renderer.cpp:104),
+    // which maps SRGB -> UNORM exactly for this, but never calls it on the
+    // creation path. #643 must decide the contract (coerce to UNORM, or fail
+    // initialize()) and then update this expectation to the DECIDED contract —
+    // not to whatever the code currently does.
     CHECK(renderer->get_output_format() == RD::DATA_FORMAT_R8G8B8A8_SRGB);
 
     renderer->set_output_format(RD::DATA_FORMAT_MAX);
@@ -64,7 +59,6 @@ TEST_CASE("[TileRenderer] Output format coercion keeps deterministic defaults") 
     CHECK(renderer->get_output_format() == RD::DATA_FORMAT_R8G8B8A8_UNORM);
 
     renderer->cleanup();
-    memdelete(local_device);
 }
 
 TEST_CASE("[TileRenderer] Prefix emergency fallback only triggers at device-dispatch limits") {

@@ -8,6 +8,8 @@
 #include "core/math/random_number_generator.h"
 #include "core/math/projection.h"
 #include "scene/3d/camera_3d.h"
+#include "scene/main/scene_tree.h"
+#include "scene/main/window.h"
 #include "tests/test_macros.h"
 
 namespace GaussianSplatting {
@@ -80,8 +82,32 @@ public:
         return splats;
     }
 
+    // #636: `memnew(Camera3D)` dereferences `RenderingServer::get_singleton()`
+    // unconditionally in the Camera3D constructor (scene/3d/camera_3d.cpp:859,
+    // `camera = RenderingServer::get_singleton()->camera_create();`), and again
+    // in set_fov/set_near/set_far (camera_3d.cpp:302) and the destructor. The
+    // singleton only exists for test cases whose name carries `[SceneTree]` or
+    // `[Editor]` (tests/test_main.cpp:333), so EVERY TEST_CASE calling this
+    // helper MUST be tagged `[SceneTree]` or it segfaults the whole process.
+    //
+    // #636 (second defect, found while fixing the first): tagging alone is not
+    // enough. `Camera3D::get_frustum()` is `ERR_FAIL_COND_V(!is_inside_world(),
+    // Vector<Plane>())` (scene/3d/camera_3d.cpp:780) and
+    // `Node3D::get_global_transform()` is guarded by `is_inside_tree()`. A
+    // free-standing `memnew(Camera3D)` therefore hands every caller an EMPTY
+    // frustum and an IDENTITY transform, so a query against it proves nothing —
+    // it just happens not to crash. The camera must be parented into the
+    // SceneTree root before its transform is set, and detached before deletion.
     Camera3D* create_test_camera(const Vector3& position = Vector3(0, 0, 10)) {
         Camera3D* camera = memnew(Camera3D);
+
+        SceneTree* tree = SceneTree::get_singleton();
+        if (tree != nullptr && tree->get_root() != nullptr) {
+            // Parent FIRST: set_global_transform() on a node outside the tree is
+            // a no-op that logs `Condition "!is_inside_tree()" is true`.
+            tree->get_root()->add_child(camera);
+        }
+
         Transform3D transform;
         transform.origin = position;
         transform.basis = Basis();  // Looking down -Z
@@ -90,6 +116,18 @@ public:
         camera->set_near(0.1f);
         camera->set_far(1000.0f);
         return camera;
+    }
+
+    // Paired teardown for create_test_camera(). Detaches from the SceneTree root
+    // before freeing so the root does not hold a dangling child pointer.
+    static void destroy_test_camera(Camera3D* camera) {
+        if (camera == nullptr) {
+            return;
+        }
+        if (Node* parent = camera->get_parent()) {
+            parent->remove_child(camera);
+        }
+        memdelete(camera);
     }
 };
 
@@ -183,7 +221,7 @@ bool test_frustum_culling() {
                       result.lod_stats.lod2_count,
                       result.lod_stats.lod3_count));
 
-    memdelete(camera);
+    GaussianSplatting::Tests::LODSystemTest::destroy_test_camera(camera);
     return success;
 }
 
@@ -330,7 +368,7 @@ bool test_scalability() {
                              query_time, target));
         }
 
-        memdelete(camera);
+        GaussianSplatting::Tests::LODSystemTest::destroy_test_camera(camera);
     }
 
     return success;
@@ -481,7 +519,7 @@ TEST_CASE("[GaussianSplatting] Renderer LOD bias and distance affect culling") {
     memdelete(manager);
 }
 
-TEST_CASE("[GaussianSplatting] Hierarchical LOD query keeps index and weight cardinality") {
+TEST_CASE("[GaussianSplatting][SceneTree] Hierarchical LOD query keeps index and weight cardinality") {
     GaussianSplatting::Tests::LODSystemTest fixture;
     Vector<GaussianSplatting::GaussianData> splats = fixture.generate_test_splats(4096, 40.0f);
 
@@ -518,7 +556,7 @@ TEST_CASE("[GaussianSplatting] Hierarchical LOD query keeps index and weight car
     CHECK(capped.visible_indices.size() <= 256);
     CHECK(capped.visible_indices.size() == capped.lod_weights.size());
 
-    memdelete(camera);
+    GaussianSplatting::Tests::LODSystemTest::destroy_test_camera(camera);
 }
 
 TEST_CASE("[GaussianSplatting] Hierarchical large build subdivides the tree") {
@@ -541,7 +579,7 @@ TEST_CASE("[GaussianSplatting] Hierarchical large build subdivides the tree") {
     CHECK_FALSE(root->is_leaf());
 }
 
-TEST_CASE("[GaussianSplatting] Hierarchical empty rebuild clears hierarchy state") {
+TEST_CASE("[GaussianSplatting][SceneTree] Hierarchical empty rebuild clears hierarchy state") {
     GaussianSplatting::Tests::LODSystemTest fixture;
     Vector<GaussianSplatting::GaussianData> splats = fixture.generate_grid_splats(4, 4, 4, 2.0f);
 
@@ -577,7 +615,7 @@ TEST_CASE("[GaussianSplatting] Hierarchical empty rebuild clears hierarchy state
     CHECK(query.lod_weights.size() == 0);
     CHECK(query.culled_percentage == doctest::Approx(0.0f));
 
-    memdelete(camera);
+    GaussianSplatting::Tests::LODSystemTest::destroy_test_camera(camera);
 }
 
 TEST_CASE("[GaussianSplatting] Hierarchical build preserves source importance weights") {
@@ -606,7 +644,7 @@ TEST_CASE("[GaussianSplatting] Hierarchical build preserves source importance we
     CHECK(uniform_root->importance_sum == doctest::Approx(4.0f));
 }
 
-TEST_CASE("[GaussianSplatting] Hierarchical small leaf query stays aligned and full-detail") {
+TEST_CASE("[GaussianSplatting][SceneTree] Hierarchical small leaf query stays aligned and full-detail") {
     GaussianSplatting::Tests::LODSystemTest fixture;
     Vector<GaussianSplatting::GaussianData> splats = fixture.generate_grid_splats(2, 2, 2, 1.5f);
 
@@ -637,10 +675,10 @@ TEST_CASE("[GaussianSplatting] Hierarchical small leaf query stays aligned and f
         CHECK(query.lod_weights[i] == doctest::Approx(1.0f));
     }
 
-    memdelete(camera);
+    GaussianSplatting::Tests::LODSystemTest::destroy_test_camera(camera);
 }
 
-TEST_CASE("[GaussianSplatting] Hierarchical query returns empty for a non-intersecting frustum") {
+TEST_CASE("[GaussianSplatting][SceneTree] Hierarchical query returns empty for a non-intersecting frustum") {
     GaussianSplatting::Tests::LODSystemTest fixture;
     Vector<GaussianSplatting::GaussianData> splats = fixture.generate_grid_splats(3, 3, 3, 2.0f);
 
@@ -662,10 +700,10 @@ TEST_CASE("[GaussianSplatting] Hierarchical query returns empty for a non-inters
     CHECK(query.nodes_frustum_culled > 0);
     CHECK(query.splats_frustum_culled == splats.size());
 
-    memdelete(camera);
+    GaussianSplatting::Tests::LODSystemTest::destroy_test_camera(camera);
 }
 
-TEST_CASE("[GaussianSplatting] Hierarchical capped query is deterministic across repeated calls") {
+TEST_CASE("[GaussianSplatting][SceneTree] Hierarchical capped query is deterministic across repeated calls") {
     GaussianSplatting::Tests::LODSystemTest fixture;
     Vector<GaussianSplatting::GaussianData> splats = fixture.generate_test_splats(4096, 40.0f);
 
@@ -703,7 +741,7 @@ TEST_CASE("[GaussianSplatting] Hierarchical capped query is deterministic across
         CHECK(first.lod_weights[i] == doctest::Approx(second.lod_weights[i]));
     }
 
-    memdelete(camera);
+    GaussianSplatting::Tests::LODSystemTest::destroy_test_camera(camera);
 }
 
 // Force-link anchor (#178): a doctest TEST_CASE registers via a file-scope static
