@@ -47,6 +47,10 @@ where nothing in between could have made the dereference safe.
 
 * Null-ish predicates: `x != nullptr`, `x != NULL`, `x.is_valid()`,
   `x->is_valid()`, `REQUIRE_FALSE(x.is_null())`, `REQUIRE_NE(x, nullptr)`.
+* A "symbol" may be a member chain or a no-arg getter call, so
+  `state.hierarchical_structure` and `loaded->get_gaussian_data()` are each one
+  symbol. Calls WITH arguments are not: matching those textually would be
+  comparing expressions, not tracking a symbol.
 * Dereference: `x->`, `*x`, `x[`. Note `x.foo()` is NOT treated as a
   dereference - on a `Ref<T>` it is a safe call on the handle, and on a value
   type it is not a dereference at all.
@@ -105,7 +109,7 @@ covered.
 
 ## Baseline
 
-The pattern predates the guard: 320 sites across 32 files match it today. #656 is
+The pattern predates the guard: 325 sites across 32 files match it today. #656 is
 explicit that they must not be mass-rewritten, so `require_null_deref_baseline.json`
 records a **fingerprint per site** and the guard fails on any change to that set.
 
@@ -117,7 +121,9 @@ set reports both the removed and the added site.
 The fingerprint is (symbol, predicate form, hash of the dereferencing statement) -
 deliberately NOT the line number, which would go stale on every unrelated edit
 above it and train people to regenerate without reading, which is how a guard
-becomes a formality.
+becomes a formality. The FULL statement is hashed: hashing a truncation made
+sites differing only past the cut collapse into one identity, silently weakening
+the ratchet. Truncation is a display concern only (see `_elide`).
 
 The ratchet only turns one way. A **removed** fingerprint also fails, with an
 instruction to delete it from the baseline - so fixing sites tightens the guard
@@ -136,7 +142,7 @@ ROOT = Path(__file__).resolve().parents[2]
 MODULE_TESTS_DIR = ROOT / "modules" / "gaussian_splatting" / "tests"
 ENGINE_TESTS_DIR = ROOT / "tests"
 
-# Pre-existing violations, so the guard can land without the 320-site rewrite
+# Pre-existing violations, so the guard can land without the 325-site rewrite
 # #656 explicitly rules out. Tracking issue:
 # https://github.com/klausi3D/godotGS/issues/656
 #
@@ -176,10 +182,14 @@ _CONTROL_FLOW_RE = re.compile(
 
 # A C++ identifier, or a member chain reached through '.' / '->' that we treat as
 # a single symbol (e.g. `state.hierarchical_structure`,
-# `resource_state.buffer_manager`). The chain is matched greedily; regex
-# backtracking peels the trailing `.is_valid()` / `.is_null()` back off in the
-# predicate patterns below.
-_SYMBOL = r"[A-Za-z_]\w*(?:\s*(?:\.|->)\s*[A-Za-z_]\w*)*"
+# `resource_state.buffer_manager`). Segments may end in a NO-ARG call, so a
+# getter form like `loaded->get_gaussian_data()` is one symbol too - that shape
+# occurs in the corpus (test_gaussian_splat_world_io.h:711) and was previously
+# skipped entirely (Codex, PR #659). Arguments are deliberately not supported:
+# matching `f(a, b)` textually would start comparing expressions, not symbols.
+# The chain is matched greedily; regex backtracking peels the trailing
+# `.is_valid()` / `.is_null()` back off in the predicate patterns below.
+_SYMBOL = r"[A-Za-z_]\w*(?:\s*\(\s*\))?(?:\s*(?:\.|->)\s*[A-Za-z_]\w*(?:\s*\(\s*\))?)*"
 
 # Null-ish REQUIRE forms. Each yields the symbol asserted to be non-null.
 _NULLISH_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -263,7 +273,14 @@ def _symbol_regex(symbol: str) -> str:
     match across them would be an under-report.
     """
     parts = [part for part in re.split(r"\s*(?:\.|->)\s*", symbol) if part]
-    return r"\s*(?:\.|->)\s*".join(re.escape(part) for part in parts)
+    rendered = []
+    for part in parts:
+        if part.endswith(")"):
+            name = part.split("(", 1)[0].strip()
+            rendered.append(re.escape(name) + r"\s*\(\s*\)")
+        else:
+            rendered.append(re.escape(part))
+    return r"\s*(?:\.|->)\s*".join(rendered)
 
 
 def _derefs(symbol: str, statement: str) -> bool:
@@ -341,10 +358,10 @@ def _scan_file(path: Path) -> list[tuple[int, str, str, str]]:
                 # (the body is out of scope: we cannot tell what guards it).
                 header = statement.split("{", 1)[0]
                 if _derefs(symbol, header):
-                    violations.append((index + 1, symbol, form, header.strip()[:120]))
+                    violations.append((index + 1, symbol, form, header.strip()))
                 break
             if _derefs(symbol, statement):
-                violations.append((index + 1, symbol, form, statement.strip()[:120]))
+                violations.append((index + 1, symbol, form, statement.strip()))
                 break
             if _ASSERT_MACRO_RE.match(statement):
                 continue
@@ -383,8 +400,20 @@ def _multiset_difference(left: list[str], right: list[str]) -> list[str]:
     return out
 
 
+def _elide(text: str, limit: int) -> str:
+    """Shorten for DISPLAY only. Never feed this to fingerprint()."""
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
 def fingerprint(symbol: str, form: str, statement: str) -> str:
-    """Stable identity for one violation site, independent of its line number."""
+    """Stable identity for one violation site, independent of its line number.
+
+    Hashes the FULL statement. An earlier version hashed a 120-character
+    truncation, so two sites differing only past column 120 collapsed to one
+    fingerprint and the ratchet silently stopped distinguishing them (Codex,
+    PR #659) - two test_lod_system.cpp query sites did exactly that. Truncation
+    is a display concern; see _elide().
+    """
     normalized = re.sub(r"\s+", " ", statement).strip()
     digest = hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:10]
     return f"{symbol}|{form}|{digest}"
@@ -449,7 +478,7 @@ def main() -> int:
             for print_ in added:
                 line_no, symbol, form, statement = where[name][print_]
                 failures.append(
-                    f"    line {line_no}: REQUIRE({symbol} {form}) then `{statement[:90]}`"
+                    f"    line {line_no}: REQUIRE({symbol} {form}) then `{_elide(statement, 90)}`"
                 )
             failures.append(
                 f"    REQUIRE does not abort in this build (DOCTEST_CONFIG_NO_EXCEPTIONS): on "

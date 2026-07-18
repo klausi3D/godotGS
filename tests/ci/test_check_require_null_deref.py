@@ -251,6 +251,87 @@ class ControlFlowHeaders(ScanTestCase):
         self.assertClean("  REQUIRE(ptr != nullptr);\n  if (other) {\n    ptr->f();\n  }")
 
 
+class GetterExpressions(ScanTestCase):
+    """A no-arg getter call is part of the symbol (Codex #659)."""
+
+    def test_ref_returning_getter_then_arrow(self):
+        self.assertFlagged(
+            "  REQUIRE(loaded->get_gaussian_data().is_valid());\n"
+            "  CHECK(loaded->get_gaussian_data()->get_count() == 1);",
+            "loaded->get_gaussian_data()",
+        )
+
+    def test_dot_getter_then_arrow(self):
+        self.assertFlagged(
+            "  REQUIRE(holder.get_thing().is_valid());\n  holder.get_thing()->run();",
+            "holder.get_thing()",
+        )
+
+    def test_getter_nullptr_form(self):
+        self.assertFlagged(
+            "  REQUIRE(tree->get_root() != nullptr);\n  tree->get_root()->add_child(node);",
+            "tree->get_root()",
+        )
+
+    def test_getter_handle_call_is_not_a_dereference(self):
+        self.assertClean(
+            "  REQUIRE(loaded->get_gaussian_data().is_valid());\n"
+            "  loaded->get_gaussian_data().unref();"
+        )
+
+    def test_different_getter_is_not_flagged(self):
+        self.assertClean(
+            "  REQUIRE(loaded->get_gaussian_data().is_valid());\n  loaded->get_other()->f();"
+        )
+
+
+class FingerprintUsesFullStatement(unittest.TestCase):
+    """Hashing a truncated statement collapsed distinct sites into one identity."""
+
+    def test_statements_differing_past_the_display_limit_differ(self):
+        prefix = "const Result query = structure.query_visible_splats(camera->get_frustum(), "
+        prefix += "x" * 150
+        a = prefix + ", FIRST_VARIANT);"
+        b = prefix + ", SECOND_VARIANT);"
+        self.assertEqual(a[:120], b[:120], "the prefixes must be identical for this to prove anything")
+        self.assertNotEqual(
+            GUARD.fingerprint("camera", "!= nullptr", a),
+            GUARD.fingerprint("camera", "!= nullptr", b),
+        )
+
+    def test_scan_returns_untruncated_statements(self):
+        # Long tail in CODE, not in a string literal: literals are blanked by
+        # _strip_comments, so a long string would not exercise truncation at all.
+        long_tail = " + ".join(f"value_{i}" for i in range(40))
+        body = "  REQUIRE(ptr != nullptr);\n" f"  CHECK(ptr->method() == {long_tail});"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "test_synthetic.h"
+            path.write_text('TEST_CASE("[S] c") {\n' + body + "\n}\n", encoding="utf-8")
+            found = GUARD._scan_file(path)
+        self.assertEqual(len(found), 1)
+        self.assertGreater(
+            len(found[0][3]), 120, "the statement must reach fingerprint() untruncated"
+        )
+
+    def test_elide_shortens_only_for_display(self):
+        self.assertEqual(GUARD._elide("short", 90), "short")
+        long_text = "z" * 200
+        self.assertEqual(len(GUARD._elide(long_text, 90)), 90)
+
+    def test_no_truncation_collisions_in_the_shipped_baseline(self):
+        """Duplicates are legal (identical statements), but not from truncation."""
+        for name, violations in GUARD.scan_all().items():
+            by_print: dict[str, set[str]] = {}
+            for _, symbol, form, statement in violations:
+                by_print.setdefault(GUARD.fingerprint(symbol, form, statement), set()).add(statement)
+            for print_, statements in by_print.items():
+                self.assertEqual(
+                    len(statements),
+                    1,
+                    f"{name}: fingerprint {print_} covers {len(statements)} DIFFERENT statements",
+                )
+
+
 class SwapDetection(unittest.TestCase):
     """A count-only baseline licenses a swap; the fingerprint set must not.
 

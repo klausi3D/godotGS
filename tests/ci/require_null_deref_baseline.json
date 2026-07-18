@@ -48,6 +48,8 @@
       "data|is_valid()|6886d3a184",
       "data|is_valid()|bdabf76a7e",
       "data|is_valid()|ddf52a3bb0",
+      "dialog->_test_get_loaded_asset()|is_valid()|9738c937cf",
+      "dialog->_test_get_loaded_asset()|is_valid()|f7d3ceea29",
       "file|is_valid()|5d86a5bd8e",
       "file|is_valid()|bcfe8b0877",
       "preview_node|!= nullptr|95d6c23da3",
@@ -141,7 +143,9 @@
       "f|is_valid()|9e986f0326",
       "f|is_valid()|f3c72d4089",
       "f|is_valid()|f8056c461b",
+      "loaded->get_gaussian_data()|is_valid()|b7b894f20d",
       "loaded|is_valid()|d80f5152e3",
+      "resident_loaded->get_gaussian_data()|is_valid()|55f240aaf8",
       "resident_loaded|is_valid()|d6d72c1143",
       "source_backed|is_valid()|c10f693618"
     ],
@@ -172,12 +176,13 @@
     "test_lod_system.cpp": [
       "camera|!= nullptr|46a478bc14",
       "camera|!= nullptr|46a478bc14",
-      "camera|!= nullptr|4b2cb7eba8",
-      "camera|!= nullptr|4b2cb7eba8",
+      "camera|!= nullptr|71f9de493f",
+      "camera|!= nullptr|dfeb364d80",
       "root|!= nullptr|3ab99a1132",
       "root|!= nullptr|5fa4d5b227",
       "root|!= nullptr|cf22dc2804",
       "root|!= nullptr|cf22dc2804",
+      "tree->get_root()|!= nullptr|6cca21d158",
       "tree|!= nullptr|75d3cce1ac",
       "uniform_root|!= nullptr|4b35a050c0"
     ],
@@ -264,8 +269,8 @@
       "director|!= nullptr|e40e95c059",
       "instance_node|!= nullptr|45c93730d5",
       "instance_node|!= nullptr|6f8e0acad4",
-      "node_a|!= nullptr|a0dbd6e250",
-      "node_b|!= nullptr|72917e2804",
+      "node_a|!= nullptr|767333feda",
+      "node_b|!= nullptr|e90af22be4",
       "node|!= nullptr|1d6ab6b573",
       "node|!= nullptr|602d259858",
       "node|!= nullptr|602d259858",
@@ -367,8 +372,8 @@
       "tree|!= nullptr|045d8d132a"
     ],
     "test_shadow_pass_isolation.h": [
-      "renderer|is_valid()|43b746af14",
-      "renderer|is_valid()|a7e9908f12"
+      "renderer|is_valid()|035539e9fc",
+      "renderer|is_valid()|43b746af14"
     ],
     "test_spz_importer.h": [
       "asset|is_valid()|64b366dfc4",
