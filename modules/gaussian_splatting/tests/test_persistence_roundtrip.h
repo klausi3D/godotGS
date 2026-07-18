@@ -1287,69 +1287,100 @@ TEST_CASE("[GaussianSplatting][Persistence] Decompressed-size guard: codec-physi
     const GaussianSplatting::CompressionType ZSTD = GaussianSplatting::CompressionType::ZSTD;
     const GaussianSplatting::CompressionType LZ4 = GaussianSplatting::CompressionType::LZ4;
     const uint64_t UNBOUNDED = uint64_t(UINT32_MAX); // corroboration wide open; isolate the other bounds
+    const uint64_t NO_BUDGET = UINT64_MAX; // memory budget wide open; the budget axis is tested separately
 
     // -- No absolute INT32_MAX cap. A legitimate large asset (~15M splats at 144 B
     // each -> a > INT32_MAX uncompressed Zstd chunk) whose compressed size is
     // proportionate MUST still be accepted; this fork's Compression::decompress
     // takes an int64 destination size and MODE_ZSTD has no INT32_MAX guard.
     const uint64_t big_original = uint64_t(INT32_MAX) + (64ull * 1024 * 1024); // ~2.06 GiB
-    CHECK_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(big_original, big_original / 2, ZSTD, UNBOUNDED),
+    CHECK_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(big_original, big_original / 2, ZSTD, UNBOUNDED, NO_BUDGET),
             "A > INT32_MAX chunk with a proportionate compressed size must be accepted (no absolute INT32_MAX cap)");
-    CHECK_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(uint64_t(UINT32_MAX), uint64_t(UINT32_MAX) / 2, ZSTD, UNBOUNDED),
+    CHECK_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(uint64_t(UINT32_MAX), uint64_t(UINT32_MAX) / 2, ZSTD, UNBOUNDED, NO_BUDGET),
             "A chunk at the uint32 ceiling with a proportionate compressed size must be accepted");
 
     // -- (c) The codec-physical bound must not reject real, measured writer output.
     // Zstd level 3 on 1,000,000 identical 144-byte splats produces 13,347 bytes
     // from a 144,000,004-byte payload (ratio ~10,789:1). The OLD 4096:1 ratio bound
     // rejected exactly this. Measured values, not estimates.
-    CHECK_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(144000004ull, 13347ull, ZSTD, UNBOUNDED),
+    CHECK_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(144000004ull, 13347ull, ZSTD, UNBOUNDED, NO_BUDGET),
             "Measured real writer output (1M identical splats, ratio ~10,789:1) must be accepted");
     // And at Zstd's own structural limit: all-zero input tops out near 32,768:1
     // (measured 268,435,456 B -> 8,211 B). The bound must still clear that.
-    CHECK_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(268435456ull, 8211ull, ZSTD, UNBOUNDED),
+    CHECK_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(268435456ull, 8211ull, ZSTD, UNBOUNDED, NO_BUDGET),
             "Zstd at its structural max expansion (~32,696:1, measured) must be accepted");
 
     // -- The codec-physical bound is still a real bound: nothing may exceed it.
     // Zstd cannot emit more than ~32768 bytes per compressed byte, ever.
-    CHECK_FALSE_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(uint64_t(UINT32_MAX), 8, ZSTD, UNBOUNDED),
+    CHECK_FALSE_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(uint64_t(UINT32_MAX), 8, ZSTD, UNBOUNDED, NO_BUDGET),
             "A few-byte chunk claiming ~4 GiB decompressed exceeds Zstd's physical expansion limit");
     // FastLZ expands far less than Zstd, and the bound is codec-aware.
-    CHECK_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(64ull * 1024, 1024, LZ4, UNBOUNDED),
-            "FastLZ within its 128:1 allowance must be accepted");
-    CHECK_FALSE_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(64ull * 1024 * 1024, 1024, LZ4, UNBOUNDED),
+    CHECK_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(64ull * 1024, 1024, LZ4, UNBOUNDED, NO_BUDGET),
+            "FastLZ within its allowance must be accepted");
+    CHECK_FALSE_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(64ull * 1024 * 1024, 1024, LZ4, UNBOUNDED, NO_BUDGET),
             "FastLZ cannot expand 1 KiB to 64 MiB; the bound must be codec-aware, not one global ratio");
+    // -- FastLZ LEVEL 2 (thirdparty/misc/fastlz.c:566-571 selects it for any input
+    // >= 64 KiB, which is every scene worth compressing) has NO match-length cap.
+    // It spends one 0xFF byte per 255 output bytes (fastlz.c:444-447, decoded at
+    // :528-535), so it reaches ~255:1 -- not the 88:1/128:1 of level 1's 264-byte
+    // MAX_LEN. A bound of 128 REJECTED this writer's own LZ4 output; these two
+    // cases pin the corrected bound from both sides and fail if it regresses.
+    CHECK_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(200ull * 1024 * 1024, 1024ull * 1024, LZ4, UNBOUNDED, NO_BUDGET),
+            "FastLZ level 2 reaches ~255:1; a 200:1 claim is physically producible and must be accepted (a 128:1 bound rejects it)");
+    CHECK_FALSE_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(300ull * 1024 * 1024, 1024ull * 1024, LZ4, UNBOUNDED, NO_BUDGET),
+            "FastLZ still cannot exceed ~255:1; a 300:1 claim must be rejected");
 
     // -- Field-width bound.
-    CHECK_FALSE_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(uint64_t(UINT32_MAX) + 1, uint64_t(UINT32_MAX), ZSTD, UNBOUNDED),
+    CHECK_FALSE_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(uint64_t(UINT32_MAX) + 1, uint64_t(UINT32_MAX), ZSTD, UNBOUNDED, NO_BUDGET),
             "A declared size beyond the uint32 on-disk field width must be rejected");
     // -- No input bytes can produce output bytes.
-    CHECK_FALSE_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(1024, 0, ZSTD, UNBOUNDED),
+    CHECK_FALSE_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(1024, 0, ZSTD, UNBOUNDED, NO_BUDGET),
             "A zero-byte compressed payload cannot decompress to anything");
 
     // -- (d) The corroborated ceiling is what stops cheap amplification. A payload
     // that clears the codec bound is STILL refused when nothing in the file
     // justifies an allocation that large.
-    CHECK_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(16ull * 1024 * 1024, 4096, ZSTD, 16ull * 1024 * 1024),
+    CHECK_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(16ull * 1024 * 1024, 4096, ZSTD, 16ull * 1024 * 1024, NO_BUDGET),
             "A claim exactly at the corroborated ceiling must be accepted");
-    CHECK_FALSE_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(16ull * 1024 * 1024 + 1, 4096, ZSTD, 16ull * 1024 * 1024),
+    CHECK_FALSE_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(16ull * 1024 * 1024 + 1, 4096, ZSTD, 16ull * 1024 * 1024, NO_BUDGET),
             "One byte past the corroborated ceiling must be rejected");
     // The concrete reviewer scenario: ~1 MiB of compressed bytes must not buy ~4 GiB
     // when the surrounding file corroborates only a small scene. (1 MiB clears the
     // Zstd physical bound on its own -- 32768:1 -> 32 GiB -- so corroboration, not
     // the ratio, is what refuses it.)
     const uint64_t one_mib_compressed = 1024ull * 1024;
-    CHECK_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(uint64_t(UINT32_MAX), one_mib_compressed, ZSTD, UNBOUNDED),
+    CHECK_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(uint64_t(UINT32_MAX), one_mib_compressed, ZSTD, UNBOUNDED, NO_BUDGET),
             "Precondition: ~1 MiB of Zstd input CAN physically emit ~4 GiB, so the codec bound alone cannot refuse it");
     const uint64_t small_scene_corroborated = uint64_t(sizeof(uint32_t)) + 1000ull * uint64_t(sizeof(Gaussian));
-    CHECK_FALSE_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(uint64_t(UINT32_MAX), one_mib_compressed, ZSTD, small_scene_corroborated),
+    CHECK_FALSE_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(uint64_t(UINT32_MAX), one_mib_compressed, ZSTD, small_scene_corroborated, NO_BUDGET),
             "~1 MiB compressed must NOT buy ~4 GiB when the scene header corroborates only 1000 splats");
 
     // -- The uncorroborated ceiling applied to ANIMATION_DATA is a hard absolute cap.
     CHECK_FALSE_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(
                                 GaussianSplatting::GSF_MAX_UNCORROBORATED_DECOMPRESSED_CHUNK_SIZE + 1,
                                 one_mib_compressed, ZSTD,
-                                GaussianSplatting::GSF_MAX_UNCORROBORATED_DECOMPRESSED_CHUNK_SIZE),
+                                GaussianSplatting::GSF_MAX_UNCORROBORATED_DECOMPRESSED_CHUNK_SIZE, NO_BUDGET),
             "An uncorroborated chunk may not exceed the absolute uncorroborated ceiling");
+
+    // -- (e) The memory budget: the ONLY bound that refuses an internally
+    // CONSISTENT hostile file. Here the claim clears the uint32 width, the codec
+    // bound (1 MiB of Zstd can physically emit 32 GiB) AND corroboration (the
+    // header declares enough splats), exactly as a self-consistent attacker would
+    // arrange -- so only the budget can refuse it.
+    // The largest self-consistent GAUSSIAN_DATA claim the format permits: the
+    // chunk payload is a uint32 field, so at 144 B/splat the ceiling is
+    // 29,826,161 splats => 4 + 29,826,161*144 = 4,294,967,188 bytes (just under
+    // UINT32_MAX = 4,294,967,295). A hostile file sets its header splat_count to
+    // exactly this, so the claim corroborates itself.
+    const uint64_t max_self_consistent_claim = uint64_t(sizeof(uint32_t)) + 29826161ull * uint64_t(sizeof(Gaussian));
+    CHECK_MESSAGE(max_self_consistent_claim == 4294967188ull,
+            "The documented worst-case self-consistent claim must match the format's actual arithmetic");
+    CHECK_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(max_self_consistent_claim, one_mib_compressed, ZSTD, max_self_consistent_claim, NO_BUDGET),
+            "Precondition: a self-consistent ~4 GiB claim passes every file-derived bound, so the budget is the only remaining defense");
+    CHECK_FALSE_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(max_self_consistent_claim, one_mib_compressed, ZSTD, max_self_consistent_claim, 1024ull * 1024 * 1024),
+            "A self-consistent ~4 GiB claim must be refused by a 1 GiB memory budget");
+    CHECK_MESSAGE(GaussianSplatting::GSF_MIN_LOAD_ALLOCATION_BUDGET_BYTES >= 64ull * 1024 * 1024,
+            "The budget floor must stay large enough that ordinary scenes load on a machine that cannot report its memory");
 }
 
 TEST_CASE("[GaussianSplatting][Persistence] Reader loads its OWN writer's highly compressible scene (round-trip)") {
@@ -1427,6 +1458,367 @@ TEST_CASE("[GaussianSplatting][Persistence] Reader loads its OWN writer's highly
     // validate_file() must agree with load_scene() on the very same file.
     CHECK_MESSAGE(reader.validate_file(path) == OK,
             "validate_file must accept a file load_scene accepts");
+
+    _remove_persistence_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][Persistence] Reader loads its OWN writer's LZ4/FastLZ scene (round-trip)") {
+    // BLOCKER 1 from the PR #618 independent review. The Zstd side of this bug was
+    // fixed; the FastLZ side was not. CompressionType::LZ4 maps to Godot's
+    // MODE_FASTLZ, which calls fastlz_compress() on the whole buffer and therefore
+    // selects fastlz LEVEL 2 for any input >= 64 KiB. Level 2 has no match-length
+    // cap and spends one 0xFF byte per 255 output bytes, so it reaches ~255:1 --
+    // but the guard capped FastLZ expansion at 128:1, describing level 1's
+    // 264-byte MAX_LEN instead. A repetitive scene saved with LZ4 therefore SAVED
+    // fine and then failed to load: the reader rejecting its own writer's output.
+    //
+    // The pre-existing tests missed this because none of them ever ran an LZ4
+    // scene end to end -- they only probed the bound at 64:1 (accepted) and at an
+    // absurd ratio (rejected), i.e. on both sides of the real 255:1 boundary but
+    // never across it.
+    const int kSplats = 150000;
+
+    Ref<GaussianData> data;
+    data.instantiate();
+    {
+        Vector<Gaussian> gaussians;
+        gaussians.resize(kSplats);
+        Gaussian g = {};
+        g.position = Vector3(4.0f, 5.0f, 6.0f);
+        g.scale = Vector3(0.25f, 0.25f, 0.25f);
+        g.rotation = Quaternion();
+        g.opacity = 0.5f;
+        g.sh_dc = Color(0.1f, 0.2f, 0.3f, 1.0f);
+        for (int i = 0; i < kSplats; i++) {
+            gaussians.write[i] = g; // Identical => maximally compressible, and legitimate.
+        }
+        data->set_gaussians(gaussians);
+    }
+    CHECK_MESSAGE(data->get_count() == kSplats, "Fixture scene should hold the requested splat count");
+
+    const String path = _make_persistence_fixture_path("test_lz4_roundtrip");
+    CHECK_MESSAGE(_ensure_persistence_fixture_dir(path), "Persistence fixture directory should be available");
+
+    GaussianSplatting::GaussianSceneSerializer writer;
+    writer.set_compression_type(GaussianSplatting::CompressionType::LZ4);
+    const Error save_err = writer.save_scene(path, data.ptr(), nullptr, Dictionary());
+    CHECK_MESSAGE(save_err == OK, "Writer must save a highly compressible scene with LZ4/FastLZ");
+
+    // Prove the fixture is genuinely past the old 128:1 bound, otherwise this test
+    // would pass vacuously even with the buggy bound restored.
+    {
+        Ref<FileAccess> probe = FileAccess::open(path, FileAccess::READ);
+        CHECK_MESSAGE(probe.is_valid(), "Saved LZ4 fixture should be readable");
+        if (probe.is_valid()) {
+            const uint64_t on_disk = probe->get_length();
+            const uint64_t uncompressed_payload = uint64_t(sizeof(uint32_t)) + uint64_t(kSplats) * uint64_t(sizeof(Gaussian));
+            CHECK_MESSAGE(uncompressed_payload > 64ull * 1024,
+                    "Fixture payload must exceed 64 KiB so FastLZ level 2 (the uncapped one) is selected");
+            CHECK_MESSAGE(on_disk * 128 < uncompressed_payload,
+                    "Fixture must compress past the old 128:1 FastLZ bound (else the test is vacuous)");
+        }
+    }
+
+    // The actual claim: this reader loads what this writer wrote.
+    GaussianSplatting::GaussianSceneSerializer reader;
+    Ref<GaussianData> loaded;
+    loaded.instantiate();
+    const Error load_err = reader.load_scene(path, loaded.ptr(), nullptr, nullptr);
+    CHECK_MESSAGE(load_err == OK,
+            "Reader MUST load its own writer's LZ4 scene (pre-fix: ERR_FILE_CORRUPT at the 128:1 bound)");
+    CHECK_MESSAGE(loaded->get_count() == kSplats, "Round-tripped LZ4 scene must keep every splat");
+    if (loaded->get_count() == kSplats) {
+        const LocalVector<Gaussian> &out = loaded->get_gaussian_storage();
+        CHECK_MESSAGE(out[0].position.is_equal_approx(Vector3(4.0f, 5.0f, 6.0f)), "First splat position must survive LZ4");
+        CHECK_MESSAGE(out[kSplats - 1].position.is_equal_approx(Vector3(4.0f, 5.0f, 6.0f)), "Last splat position must survive LZ4");
+        CHECK_MESSAGE(Math::is_equal_approx(out[kSplats - 1].opacity, 0.5f), "Last splat opacity must survive LZ4");
+    }
+
+    CHECK_MESSAGE(reader.validate_file(path) == OK,
+            "validate_file must accept an LZ4 file load_scene accepts");
+
+    _remove_persistence_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][Persistence] Loading a zero-splat scene CLEARS the target") {
+    // BLOCKER 2 from the PR #618 independent review. The writer omits the
+    // GAUSSIAN_DATA chunk when get_count() == 0, and the reader used to commit
+    // gaussians only when that chunk existed. So saving an empty scene and loading
+    // it into a populated target returned OK while leaving the PREVIOUS scene's
+    // splats in place -- the load reported success and the target held data that
+    // was not what was saved. Silent data corruption from an ordinary user action.
+    const String path = _make_persistence_fixture_path("test_empty_scene_clears_target");
+    CHECK_MESSAGE(_ensure_persistence_fixture_dir(path), "Persistence fixture directory should be available");
+
+    // Save a deliberately EMPTY scene.
+    Ref<GaussianData> empty;
+    empty.instantiate();
+    CHECK_MESSAGE(empty->get_count() == 0, "Fixture source scene must be empty");
+
+    GaussianSplatting::GaussianSceneSerializer writer;
+    const Error save_err = writer.save_scene(path, empty.ptr(), nullptr, Dictionary());
+    CHECK_MESSAGE(save_err == OK, "Writer must save a zero-splat scene");
+
+    // Load it into a target that ALREADY holds a different scene.
+    Ref<GaussianData> target;
+    target.instantiate();
+    {
+        Vector<Gaussian> stale;
+        stale.resize(64);
+        for (int i = 0; i < 64; i++) {
+            stale.write[i].position = Vector3(i, i, i);
+            stale.write[i].scale = Vector3(1, 1, 1);
+            stale.write[i].rotation = Quaternion();
+            stale.write[i].opacity = 1.0f;
+        }
+        target->set_gaussians(stale);
+    }
+    CHECK_MESSAGE(target->get_count() == 64, "Target must start populated, or the test proves nothing");
+
+    GaussianSplatting::GaussianSceneSerializer reader;
+    const Error load_err = reader.load_scene(path, target.ptr(), nullptr, nullptr);
+    CHECK_MESSAGE(load_err == OK, "Loading a zero-splat scene must succeed");
+    CHECK_MESSAGE(target->get_count() == 0,
+            "Loading a zero-splat scene MUST clear the target (pre-fix: the previous scene's 64 splats survived a successful load)");
+
+    _remove_persistence_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][Persistence][MalformedCorpus] A checksum-disabled loader rejects a tampered protected file") {
+    // MAJOR 3 from the PR #618 independent review. validate_file() always ran a
+    // strict checksum probe and rejected a tampered file that advertised checksum
+    // protection, but load_scene() parsed with checksums disabled whenever
+    // enable_checksum == false. A checksum-disabled loader would therefore happily
+    // LOAD a tampered protected file that validate_file() on the same instance
+    // rejected -- the two disagreed about the same bytes.
+    //
+    // enable_checksum is a WRITER setting; on read it may add verification but
+    // never remove verification the FILE asked for. Both paths now share one
+    // policy, so both must reject, and they must return the SAME verdict.
+    const String path = _make_persistence_fixture_path("test_tampered_protected_checksum_off");
+    CHECK_MESSAGE(_ensure_persistence_fixture_dir(path), "Persistence fixture directory should be available");
+
+    Ref<GaussianData> data;
+    data.instantiate();
+    {
+        Vector<Gaussian> gaussians;
+        gaussians.resize(8);
+        for (int i = 0; i < 8; i++) {
+            gaussians.write[i].position = Vector3(i, 0, 0);
+            gaussians.write[i].scale = Vector3(1, 1, 1);
+            gaussians.write[i].rotation = Quaternion();
+            gaussians.write[i].opacity = 1.0f;
+        }
+        data->set_gaussians(gaussians);
+    }
+
+    GaussianSplatting::GaussianSceneSerializer writer;
+    writer.set_enable_checksum(true); // The file ADVERTISES checksum protection.
+    CHECK_MESSAGE(writer.save_scene(path, data.ptr(), nullptr, Dictionary()) == OK,
+            "Checksum-protected fixture should save");
+
+    // Tamper a header-payload byte that is not the magic, so the ONLY thing that
+    // can catch it is the checksum.
+    {
+        Ref<FileAccess> file = _open_persistence_fixture(path, FileAccess::READ_WRITE);
+        CHECK_MESSAGE(file.is_valid(), "Should be able to mutate the protected fixture");
+        if (file.is_valid()) {
+            const uint64_t creation_time_offset = uint64_t(GaussianSplatting::GSF_CHUNK_HEADER_SIZE) + 40;
+            file->seek(creation_time_offset);
+            const uint8_t original = file->get_8();
+            file->seek(creation_time_offset);
+            file->store_8(original ^ 0xFF);
+        }
+    }
+
+    // A loader with checksums explicitly DISABLED.
+    GaussianSplatting::GaussianSceneSerializer lenient;
+    lenient.set_enable_checksum(false);
+
+    Ref<GaussianData> loaded;
+    loaded.instantiate();
+    const Error load_err = lenient.load_scene(path, loaded.ptr(), nullptr, nullptr);
+    const Error validate_err = lenient.validate_file(path);
+
+    CHECK_MESSAGE(load_err != OK,
+            "A checksum-disabled load MUST still reject a tampered file that advertises checksum protection (pre-fix: returned OK)");
+    CHECK_MESSAGE(validate_err != OK,
+            "validate_file must reject the same tampered protected file");
+    CHECK_MESSAGE(load_err == validate_err,
+            "load_scene and validate_file must return the SAME verdict on the same file -- that is the whole point of MAJOR 3");
+
+    _remove_persistence_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][Persistence] A checksum-disabled loader still loads an UNPROTECTED file") {
+    // Guard the other side of MAJOR 3: unifying the checksum policy must not turn
+    // into "always verify", which would break files legitimately written without
+    // checksums. Nothing in such a file claims protection, so verification is
+    // correctly skipped and both paths accept it.
+    const String path = _make_persistence_fixture_path("test_unprotected_checksum_off");
+    CHECK_MESSAGE(_ensure_persistence_fixture_dir(path), "Persistence fixture directory should be available");
+
+    Ref<GaussianData> data;
+    data.instantiate();
+    {
+        Vector<Gaussian> gaussians;
+        gaussians.resize(8);
+        for (int i = 0; i < 8; i++) {
+            gaussians.write[i].position = Vector3(i, 1, 2);
+            gaussians.write[i].scale = Vector3(1, 1, 1);
+            gaussians.write[i].rotation = Quaternion();
+            gaussians.write[i].opacity = 1.0f;
+        }
+        data->set_gaussians(gaussians);
+    }
+
+    GaussianSplatting::GaussianSceneSerializer writer;
+    writer.set_enable_checksum(false);
+    CHECK_MESSAGE(writer.save_scene(path, data.ptr(), nullptr, Dictionary()) == OK,
+            "Unprotected fixture should save");
+
+    GaussianSplatting::GaussianSceneSerializer lenient;
+    lenient.set_enable_checksum(false);
+    Ref<GaussianData> loaded;
+    loaded.instantiate();
+    CHECK_MESSAGE(lenient.load_scene(path, loaded.ptr(), nullptr, nullptr) == OK,
+            "A checksum-disabled loader must still load a file written without checksums");
+    CHECK_MESSAGE(loaded->get_count() == 8, "Unprotected round-trip must keep every splat");
+    CHECK_MESSAGE(lenient.validate_file(path) == OK,
+            "validate_file must agree that an unprotected file is loadable");
+
+    _remove_persistence_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][Persistence][MalformedCorpus] The load memory budget bounds a real load") {
+    // MAJOR 5 from the PR #618 independent review. The codec and corroboration
+    // bounds check a chunk against the FILE, so an internally CONSISTENT hostile
+    // file satisfies both and still forces a multi-GiB allocation. The absolute
+    // budget is the only remaining defense. This test proves the budget is
+    // actually WIRED INTO the load path rather than merely existing as a pure
+    // function -- pinning it below the fixture's size must make a real,
+    // well-formed, otherwise-valid load fail.
+    const String path = _make_persistence_fixture_path("test_load_memory_budget");
+    CHECK_MESSAGE(_ensure_persistence_fixture_dir(path), "Persistence fixture directory should be available");
+
+    const int kSplats = 4096; // ~590 KB uncompressed payload.
+    Ref<GaussianData> data;
+    data.instantiate();
+    {
+        Vector<Gaussian> gaussians;
+        gaussians.resize(kSplats);
+        for (int i = 0; i < kSplats; i++) {
+            gaussians.write[i].position = Vector3(i % 97, i % 31, i % 13);
+            gaussians.write[i].scale = Vector3(1, 1, 1);
+            gaussians.write[i].rotation = Quaternion();
+            gaussians.write[i].opacity = 1.0f;
+        }
+        data->set_gaussians(gaussians);
+    }
+
+    GaussianSplatting::GaussianSceneSerializer writer;
+    CHECK_MESSAGE(writer.save_scene(path, data.ptr(), nullptr, Dictionary()) == OK,
+            "Budget fixture should save");
+
+    GaussianSplatting::GaussianSceneSerializer reader;
+
+    // With the budget pinned far below the payload, the load must be refused.
+    GaussianSplatting::GaussianSceneSerializer::set_load_allocation_budget_override(4096);
+    Ref<GaussianData> refused;
+    refused.instantiate();
+    const Error budgeted_err = reader.load_scene(path, refused.ptr(), nullptr, nullptr);
+    GaussianSplatting::GaussianSceneSerializer::set_load_allocation_budget_override(0);
+
+    CHECK_MESSAGE(budgeted_err != OK,
+            "A load whose chunk exceeds the pinned memory budget must be refused (proves the budget is wired into the load path)");
+    CHECK_MESSAGE(refused->get_count() == 0,
+            "A budget-refused load must not commit anything to the target");
+
+    // And with the budget restored to its OS-derived default, the very same file
+    // must load -- the budget must not reject ordinary scenes.
+    Ref<GaussianData> loaded;
+    loaded.instantiate();
+    CHECK_MESSAGE(reader.load_scene(path, loaded.ptr(), nullptr, nullptr) == OK,
+            "The same file must load once the budget is back to its OS-derived default");
+    CHECK_MESSAGE(loaded->get_count() == kSplats, "The unbudgeted load must keep every splat");
+    CHECK_MESSAGE(GaussianSplatting::GaussianSceneSerializer::get_load_allocation_budget_bytes()
+                    >= GaussianSplatting::GSF_MIN_LOAD_ALLOCATION_BUDGET_BYTES,
+            "The default budget must never fall below the documented floor");
+
+    _remove_persistence_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][Persistence][MalformedCorpus] GAUSSIAN_DATA count must match the scene header exactly") {
+    // MAJOR 4 from the PR #618 independent review: the GAUS payload schema was
+    // checked with `expected > actual`, i.e. as a LOWER bound. Trailing decoded
+    // bytes were accepted, and a chunk count SMALLER than the header's splat_count
+    // was accepted -- so a file could disagree with itself about how many splats
+    // it holds and still load "successfully", silently yielding a different scene
+    // than the one that was saved. The schema is exact and is now enforced as such.
+    const String path = _make_persistence_fixture_path("test_gaus_count_mismatch");
+    CHECK_MESSAGE(_ensure_persistence_fixture_dir(path), "Persistence fixture directory should be available");
+
+    const int kSplats = 32;
+    Ref<GaussianData> data;
+    data.instantiate();
+    {
+        Vector<Gaussian> gaussians;
+        gaussians.resize(kSplats);
+        for (int i = 0; i < kSplats; i++) {
+            gaussians.write[i].position = Vector3(i, 0, 0);
+            gaussians.write[i].scale = Vector3(1, 1, 1);
+            gaussians.write[i].rotation = Quaternion();
+            gaussians.write[i].opacity = 1.0f;
+        }
+        data->set_gaussians(gaussians);
+    }
+
+    GaussianSplatting::GaussianSceneSerializer writer;
+    writer.set_compression_type(GaussianSplatting::CompressionType::NONE);
+    writer.set_enable_checksum(false); // So the tamper is caught by the schema, not the checksum.
+    CHECK_MESSAGE(writer.save_scene(path, data.ptr(), nullptr, Dictionary()) == OK,
+            "Uncompressed, unchecksummed fixture should save");
+
+    // Rewrite the GAUSSIAN_DATA chunk's leading splat count to fewer splats than
+    // the payload (and than the scene header) actually carries.
+    bool patched = false;
+    {
+        Ref<FileAccess> file = _open_persistence_fixture(path, FileAccess::READ_WRITE);
+        CHECK_MESSAGE(file.is_valid(), "Should be able to mutate the fixture");
+        if (file.is_valid()) {
+            const uint64_t file_length = file->get_length();
+            file->seek(0);
+            while (file->get_position() + uint64_t(GaussianSplatting::GSF_CHUNK_HEADER_SIZE) <= file_length) {
+                const uint32_t chunk_type = file->get_32();
+                const uint32_t chunk_size = file->get_32();
+                file->get_32(); // checksum
+                file->get_32(); // flags
+                const uint64_t payload_offset = file->get_position();
+                if (payload_offset > file_length || uint64_t(chunk_size) > file_length - payload_offset) {
+                    break;
+                }
+                if (chunk_type == uint32_t(GaussianSplatting::ChunkType::GAUSSIAN_DATA)) {
+                    file->seek(payload_offset);
+                    file->store_32(uint32_t(kSplats - 1)); // One splat short of the truth.
+                    patched = true;
+                    break;
+                }
+                file->seek(payload_offset + uint64_t(chunk_size));
+            }
+        }
+    }
+    CHECK_MESSAGE(patched, "Fixture should contain a GAUSSIAN_DATA chunk to patch");
+
+    GaussianSplatting::GaussianSceneSerializer reader;
+    reader.set_enable_checksum(false);
+    Ref<GaussianData> loaded;
+    loaded.instantiate();
+    const Error load_err = reader.load_scene(path, loaded.ptr(), nullptr, nullptr);
+    CHECK_MESSAGE(load_err == ERR_FILE_CORRUPT,
+            "A GAUSSIAN_DATA count that disagrees with the payload length and the scene header must be rejected (pre-fix: loaded 31 of 32 splats and returned OK)");
+    CHECK_MESSAGE(loaded->get_count() == 0, "A rejected load must not commit anything");
+    CHECK_MESSAGE(reader.validate_file(path) == load_err,
+            "validate_file must return the same verdict as load_scene");
 
     _remove_persistence_fixture(path);
 }
