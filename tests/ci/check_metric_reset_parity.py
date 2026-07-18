@@ -46,9 +46,24 @@ STRUCT_NAME = "PerformanceMetrics"
 # "<type...> <name> = <default>;" or "<type...> <name>;". Method declarations
 # ("void reset_x();") are excluded separately because a "(" follows the name.
 _FIELD_RE = re.compile(r"^\s*[\w:]+(?:\s*[*&])?\s+(\w+)\s*(?:=|;)")
-# An out-of-line reset helper definition: `inline void PerformanceMetrics::name() {`.
+# An out-of-line reset helper definition:
+# `inline void PerformanceMetrics::reset_name() {`. The `reset_` prefix on the
+# captured name is REQUIRED, not decorative: without it this regex would match
+# any zero-arg inline mutator on the struct (e.g. a hypothetical
+# `mark_frame_started()` that increments a counter), and any field it happened
+# to assign would be counted as reset-covered even though the method never
+# resets anything -- a false pass (audit #528 follow-up: a non-reset no-arg
+# mutator was being counted as reset coverage). Requiring the prefix shrinks
+# the accepted surface to exactly the helpers this guard is meant to recognize.
+#
+# Out of scope (cannot be done by a regex, and is not attempted): confirming a
+# `reset_*`-named method's body is *semantically* a reset (e.g. it could not
+# catch a `reset_foo()` that, by bug, increments instead of zeroing a field).
+# That is a code-review concern, not this guard's job -- the guard's contract
+# is "every field has an explicit, named reset disposition", not "every
+# disposition is bug-free".
 _RESET_DEF_RE = re.compile(
-    r"\binline\s+void\s+" + re.escape(STRUCT_NAME) + r"::(\w+)\s*\(\s*\)\s*\{"
+    r"\binline\s+void\s+" + re.escape(STRUCT_NAME) + r"::(reset_\w+)\s*\(\s*\)\s*\{"
 )
 # A statement inside a reset body that assigns a member: `field = value;`. Bare
 # assignment (no leading type token) distinguishes it from a field *declaration*.

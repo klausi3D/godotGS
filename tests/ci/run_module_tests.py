@@ -30,6 +30,7 @@ PROJECT_SETTINGS_MANIFEST_GUARD_SCRIPT = MODULE_SOURCE_DIR / "tests" / "check_pr
 GAUSSIAN_LAYOUT_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_gaussian_layout_sync.py"
 CULL_SIGNATURE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_cull_signature_parity.py"
 METRIC_RESET_PARITY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_metric_reset_parity.py"
+METRIC_RESET_PARITY_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_metric_reset_parity.py"
 DOC_CLASSES_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_doc_classes_complete.py"
 RENDERER_RELEASE_GATE_SCRIPT = ROOT / "tests" / "ci" / "check_renderer_release_gates.py"
 RENDERER_RELEASE_GATE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_renderer_release_gates.py"
@@ -709,18 +710,31 @@ def _run_cull_signature_parity_guard() -> tuple[bool, list[str]]:
 
 
 def _run_metric_reset_parity_guard() -> tuple[bool, list[str]]:
-    if not METRIC_RESET_PARITY_GUARD_SCRIPT.is_file():
-        return False, [
-            f"Missing metric-reset parity guard script: {METRIC_RESET_PARITY_GUARD_SCRIPT.relative_to(ROOT)}"
-        ]
+    # Mirrors _run_renderer_release_gate_guard: run the guard script against
+    # the committed header, then the guard's own unit test (which pins the
+    # parser's matching rules against synthetic fixtures, incl. the #627
+    # non-reset-mutator counterexample) so a future regex change is caught
+    # even if it happens not to flag anything in the current header.
+    missing = [
+        path.relative_to(ROOT)
+        for path in (METRIC_RESET_PARITY_GUARD_SCRIPT, METRIC_RESET_PARITY_TEST_SCRIPT)
+        if not path.is_file()
+    ]
+    if missing:
+        return False, [f"Missing metric-reset parity guard file: {path}" for path in missing]
 
-    code, out, err = _run_command([sys.executable, str(METRIC_RESET_PARITY_GUARD_SCRIPT)])
-    output_lines = [line for line in (out + err).splitlines() if line.strip()]
-
-    if code != 0:
-        if not output_lines:
-            output_lines = [f"Metric-reset parity guard failed with exit code {code}."]
-        return False, output_lines
+    output_lines: list[str] = []
+    commands = (
+        [sys.executable, str(METRIC_RESET_PARITY_GUARD_SCRIPT)],
+        [sys.executable, str(METRIC_RESET_PARITY_TEST_SCRIPT)],
+    )
+    for args in commands:
+        code, out, err = _run_command(args)
+        output_lines.extend(line for line in (out + err).splitlines() if line.strip())
+        if code != 0:
+            if not output_lines:
+                output_lines = [f"Metric-reset parity guard failed with exit code {code}."]
+            return False, output_lines
 
     return True, output_lines
 
