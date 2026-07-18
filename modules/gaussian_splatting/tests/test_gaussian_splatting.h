@@ -79,8 +79,10 @@
 	// is referenced. Each anchor below forces its object into the link so its
 	// TEST_CASE registrations actually run. The check_test_linkage.py CI guard
 	// fails if a test .cpp with TEST_CASEs lacks an anchor here (or an explicit
-	// KNOWN_UNLINKED allow-list entry). test_gpu_sorting.cpp is intentionally NOT
-	// anchored (structurally broken, tracked in #622) and is allow-listed instead.
+	// KNOWN_UNLINKED allow-list entry). test_gpu_sorting.cpp is NOT anchored and
+	// is allow-listed instead - that exclusion is an OPEN QUESTION awaiting
+	// maintainer disposition, not a demonstrated defect; see the entry in
+	// check_test_linkage.py and #622.
 	// test_painterly_viewport_copy.cpp is likewise intentionally NOT anchored:
 	// force-linking it breaks the build with LNK2019 (its case calls
 	// GaussianSplatRenderer::test_override_rendering_device(), which is declared
