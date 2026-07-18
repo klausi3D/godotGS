@@ -23,24 +23,52 @@ static const uint32_t CHUNK_FLAG_COMPRESSED = 1 << 0;
 static const uint32_t MAX_SCENE_HEADER_CHUNK_SIZE = 64 * 1024; // Guard format probes against oversized header payloads.
 static const uint16_t SCENE_FLAG_INCREMENTAL = 1u << 0;
 static const uint16_t SCENE_FLAG_CHECKSUM_ENABLED = 1u << 1;
-// Anti-decompress-bomb policy for a compressed chunk (#603a).
+// Anti-decompress-bomb policy for a compressed chunk (#603a, revised by the
+// PR #618 independent review).
 //
-// The declared decompressed size lives in a uint32 on-disk field, so UINT32_MAX
-// is already the absolute ceiling -- no smaller artificial cap is imposed. In
-// particular there is NO INT32_MAX cap: the GSF default codec is Zstd, and this
-// fork's `Compression::decompress` takes an int64 destination size with no
-// INT32_MAX guard for MODE_ZSTD (core/io/compression.cpp), so a legitimately
-// large asset (e.g. 15M+ splats at 144 B each -> a > INT32_MAX Zstd chunk) both
-// decompresses fine and must load. Capping at INT32_MAX would falsely reject it.
+// The previous policy was a single arbitrary decompressed:compressed ratio of
+// 4096:1 with a 16 MiB floor. That was WRONG in the dangerous direction: it
+// rejected files this serializer's own writer produces. Zstd reaches ~10,800:1
+// on a legitimately repetitive scene (measured: 1,000,000 identical splats ->
+// 144,000,004 B payload -> 13,347 compressed B), so any scene above the 16 MiB
+// floor with strongly repeated splats saved fine and then failed to load. A
+// reader that cannot read its own writer's output is data loss, so the ratio
+// axis is no longer used as a policy knob at all.
 //
-// To still stop a tiny hostile chunk from forcing a multi-GiB allocation, the
-// declared size must also stay within a generous ratio of the ACTUAL compressed
-// bytes, with a small floor so a legitimately tiny-but-compressible chunk still
-// expands. A genuine large asset has a proportionally large compressed size and
-// passes; a few hostile bytes cannot claim gigabytes. See
-// is_decompressed_chunk_size_plausible().
-static const uint64_t MAX_DECOMPRESS_RATIO = 4096; // decompressed : compressed
-static const uint64_t MIN_DECOMPRESS_ALLOWANCE = 16ull * 1024 * 1024; // 16 MiB floor for tiny chunks
+// The declared size is now accepted only if it passes BOTH of these, neither of
+// which is a tunable heuristic:
+//
+//   1. The codec's PHYSICAL maximum expansion. A codec cannot emit more bytes
+//      than its own container format allows per input byte. For Zstd the bound
+//      is one 4-byte RLE block header per 128 KiB output block => 32768:1
+//      (verified empirically: incompressible-to-all-zero input tops out at
+//      32,696:1). For FastLZ the long-match opcode is 3 bytes per <= 264-byte
+//      copy => 88:1; 128:1 is used as a conservative overshoot. Because this is
+//      a property of the format rather than of the data, it can NEVER reject a
+//      stream the writer produced.
+//
+//   2. A CORROBORATED ceiling supplied by the caller: the largest decompressed
+//      size the surrounding file structure independently justifies. For
+//      GAUSSIAN_DATA that is the scene header's own splat_count (already read
+//      and checksum-verified before the chunk), so a hostile chunk can no longer
+//      claim a multi-GiB allocation for free -- the lie must also be consistent
+//      with a separate, checksum-covered field. Chunks with no independent
+//      corroboration (ANIMATION_DATA) get a hard absolute ceiling instead.
+//
+// Honest limitation: a file that is internally CONSISTENT (header declaring ~30M
+// splats plus a genuinely ~32768:1-compressible Zstd frame) can still drive a
+// multi-GiB allocation. Bounding that case requires a loader-wide memory budget,
+// not a per-chunk size test, and is deliberately out of scope here -- an
+// absolute sub-4-GiB per-chunk cap would re-break legitimately large assets,
+// which is the regression 80657370486 already had to undo once.
+static const uint64_t ZSTD_MAX_EXPANSION_RATIO = 32768; // 128 KiB block / 4 B RLE block header
+static const uint64_t FASTLZ_MAX_EXPANSION_RATIO = 128; // MAX_LEN 264 per 3-byte opcode = 88:1, rounded up
+// Fixed per-frame container overhead that produces no output bytes (Zstd frame
+// header is 6-18 B). Added to the compressed size so a minimal frame is never
+// under-budgeted.
+static const uint64_t CODEC_FRAME_OVERHEAD_ALLOWANCE = 32;
+// The absolute ceiling for chunks nothing corroborates lives in the header as
+// GSF_MAX_UNCORROBORATED_DECOMPRESSED_CHUNK_SIZE so tests can pin it.
 
 Compression::Mode _to_compression_mode(CompressionType type) {
     switch (type) {
@@ -116,6 +144,42 @@ SceneHeader _unpack_scene_header(const PackedByteArray &bytes) {
     }
 
     return header;
+}
+
+// THE single authoritative decode contract for a chunk's compression (#602).
+//
+// It is derived ONLY from the chunk's own on-disk flags. No serializer instance
+// state participates, so validate_file() and load_scene() cannot disagree about
+// whether (or how) a chunk is compressed. The previous code fell back to the
+// *instance's* `compression_type` when the codec bits were zero, which meant a
+// default-constructed validation probe (Zstd) and a caller-configured loader
+// (LZ4/NONE) applied different rules to the same bytes -- a file could validate
+// OK and then fail or mis-decode on load.
+//
+// Fails closed: the compressed flag with an unknown/zero codec id is corruption,
+// never an invitation to guess. This serializer's writer always stamps a real
+// codec id (it only sets CHUNK_FLAG_COMPRESSED from ZSTD/LZ4), so no file it has
+// ever produced is affected.
+Error _resolve_chunk_compression(uint32_t chunk_flags, bool &r_compressed, CompressionType &r_type) {
+    r_compressed = (chunk_flags & CHUNK_FLAG_COMPRESSED) != 0;
+    r_type = CompressionType::NONE;
+    if (!r_compressed) {
+        return OK;
+    }
+    const uint32_t codec_id = (chunk_flags >> 8) & 0xFF;
+    switch (codec_id) {
+        case (uint32_t)CompressionType::ZSTD:
+            r_type = CompressionType::ZSTD;
+            return OK;
+        case (uint32_t)CompressionType::LZ4:
+            r_type = CompressionType::LZ4;
+            return OK;
+        default:
+            ERR_FAIL_V_MSG(ERR_FILE_CORRUPT, vformat(
+                    "GSF chunk sets the compressed flag but declares unsupported codec id %d "
+                    "(flags=0x%08X).",
+                    (int64_t)codec_id, chunk_flags));
+    }
 }
 
 Error _ensure_file_write_ok(const Ref<FileAccess> &file, const char *context) {
@@ -219,36 +283,63 @@ PackedByteArray GaussianSceneSerializer::_compress_data(const PackedByteArray &d
     return result;
 }
 
-bool GaussianSceneSerializer::is_decompressed_chunk_size_plausible(uint64_t original_size, uint64_t compressed_size) {
-    // The declared size can never exceed the uint32 on-disk field width.
+uint64_t GaussianSceneSerializer::max_codec_expansion_bytes(CompressionType type, uint64_t compressed_size) {
+    uint64_t ratio = 1;
+    switch (type) {
+        case CompressionType::ZSTD:
+            ratio = ZSTD_MAX_EXPANSION_RATIO;
+            break;
+        case CompressionType::LZ4:
+            ratio = FASTLZ_MAX_EXPANSION_RATIO;
+            break;
+        case CompressionType::NONE:
+        default:
+            return compressed_size; // Stored verbatim; no expansion is possible.
+    }
+    // Overflow-safe: saturate instead of wrapping.
+    if (compressed_size > (UINT64_MAX / ratio) - CODEC_FRAME_OVERHEAD_ALLOWANCE) {
+        return UINT64_MAX;
+    }
+    return (compressed_size + CODEC_FRAME_OVERHEAD_ALLOWANCE) * ratio;
+}
+
+bool GaussianSceneSerializer::is_decompressed_chunk_size_plausible(uint64_t original_size, uint64_t compressed_size,
+        CompressionType type, uint64_t corroborated_max_size) {
+    // 1. The declared size can never exceed the uint32 on-disk field width.
     if (original_size > uint64_t(UINT32_MAX)) {
         return false;
     }
-    // Ratio bound (with a small floor for tiny chunks), overflow-safe: a genuine
-    // large chunk has a proportionally large compressed size and passes, while a
-    // few hostile bytes cannot claim gigabytes.
-    if (compressed_size > (UINT64_MAX / MAX_DECOMPRESS_RATIO)) {
-        return true; // Compressed payload already enormous; the ratio is not the limiter.
+    // 2. No input bytes means no output bytes.
+    if (compressed_size == 0) {
+        return original_size == 0;
     }
-    uint64_t ratio_bound = compressed_size * MAX_DECOMPRESS_RATIO;
-    if (ratio_bound < MIN_DECOMPRESS_ALLOWANCE) {
-        ratio_bound = MIN_DECOMPRESS_ALLOWANCE;
+    // 3. Independent corroboration from elsewhere in the file (see the policy
+    //    comment at the top of this file). This is what stops a hostile chunk
+    //    from claiming a large allocation on its own say-so.
+    if (original_size > corroborated_max_size) {
+        return false;
     }
-    return original_size <= ratio_bound;
+    // 4. The codec's physical maximum expansion. A property of the container
+    //    format, so this can never reject a stream the writer produced.
+    return original_size <= max_codec_expansion_bytes(type, compressed_size);
 }
 
-PackedByteArray GaussianSceneSerializer::_decompress_data(const PackedByteArray &compressed_data, uint32_t original_size, CompressionType type) const {
+PackedByteArray GaussianSceneSerializer::_decompress_data(const PackedByteArray &compressed_data, uint32_t original_size,
+        CompressionType type, uint64_t corroborated_max_size) const {
     if (type == CompressionType::NONE) {
         return compressed_data;
     }
 
     // Reject an implausible declared size BEFORE allocating, so a few hostile
-    // header bytes cannot drive a multi-GiB allocation, while a genuinely large
-    // asset (whose compressed size is proportionally large) still loads (#603a).
-    ERR_FAIL_COND_V_MSG(!is_decompressed_chunk_size_plausible(uint64_t(original_size), uint64_t(compressed_data.size())),
+    // header bytes cannot drive a multi-GiB allocation, while every stream this
+    // serializer's writer can produce still loads (#603a).
+    ERR_FAIL_COND_V_MSG(!is_decompressed_chunk_size_plausible(uint64_t(original_size), uint64_t(compressed_data.size()), type, corroborated_max_size),
             PackedByteArray(),
-            vformat("Gaussian scene chunk declares an implausible decompressed size (%d bytes from %d compressed).",
-                    (int64_t)original_size, (int64_t)compressed_data.size()));
+            vformat("Gaussian scene chunk declares an implausible decompressed size (%d bytes from %d compressed; "
+                    "codec max %d, corroborated max %d).",
+                    (int64_t)original_size, (int64_t)compressed_data.size(),
+                    (int64_t)MIN(max_codec_expansion_bytes(type, uint64_t(compressed_data.size())), uint64_t(INT64_MAX)),
+                    (int64_t)MIN(corroborated_max_size, uint64_t(INT64_MAX))));
 
     Compression::Mode mode = _to_compression_mode(type);
     PackedByteArray result;
@@ -257,8 +348,49 @@ PackedByteArray GaussianSceneSerializer::_decompress_data(const PackedByteArray 
     if (decompressed_size < 0) {
         ERR_FAIL_V_MSG(PackedByteArray(), "Failed to decompress Gaussian scene chunk.");
     }
-    result.resize(decompressed_size);
+    // The declared size is a contract, not a hint: a stream that decodes to a
+    // different length than the chunk advertised is corrupt, not "short".
+    ERR_FAIL_COND_V_MSG(uint64_t(decompressed_size) != uint64_t(original_size), PackedByteArray(),
+            vformat("Gaussian scene chunk decompressed to %d bytes but declared %d.",
+                    (int64_t)decompressed_size, (int64_t)original_size));
     return result;
+}
+
+Error GaussianSceneSerializer::_decode_chunk_payload(const PackedByteArray &raw, const ChunkHeader &header,
+        uint64_t corroborated_max_size, const char *chunk_name, PackedByteArray &r_payload) const {
+    // Single unwrap path shared by every compressible chunk reader, so the
+    // compression contract is applied in exactly one place (#602).
+    bool compressed = false;
+    CompressionType type = CompressionType::NONE;
+    const Error codec_err = _resolve_chunk_compression(header.flags, compressed, type);
+    if (codec_err != OK) {
+        return codec_err;
+    }
+
+    if (!compressed) {
+        r_payload = raw;
+        return OK;
+    }
+
+    ERR_FAIL_COND_V_MSG(raw.size() < (int)sizeof(uint32_t), ERR_FILE_CORRUPT,
+            vformat("Compressed %s chunk is too small to carry its decompressed-size field.", chunk_name));
+
+    uint32_t original_size = 0;
+    const uint8_t *r = raw.ptr();
+    memcpy(&original_size, r, sizeof(uint32_t));
+
+    PackedByteArray compressed_payload;
+    compressed_payload.resize(raw.size() - sizeof(uint32_t));
+    if (!compressed_payload.is_empty()) {
+        memcpy(compressed_payload.ptrw(), r + sizeof(uint32_t), compressed_payload.size());
+    }
+
+    r_payload = _decompress_data(compressed_payload, original_size, type, corroborated_max_size);
+    // _decompress_data fails closed (empty result) on a rejected/failed decode;
+    // surface that as corruption instead of parsing garbage.
+    ERR_FAIL_COND_V_MSG(r_payload.is_empty() && original_size > 0, ERR_FILE_CORRUPT,
+            vformat("Failed to decompress %s chunk.", chunk_name));
+    return OK;
 }
 
 uint32_t GaussianSceneSerializer::_calculate_checksum(const PackedByteArray &data) const {
@@ -417,6 +549,22 @@ Error GaussianSceneSerializer::_read_chunk_header(Ref<FileAccess> file, ChunkHea
         return ERR_FILE_EOF;
     }
 
+    // A chunk header is exactly GSF_CHUNK_HEADER_SIZE bytes on disk. FileAccess
+    // does NOT report a short read: get_32() zero-fills the bytes it could not
+    // read and returns normally, so a file ending mid-header used to yield a
+    // fully-formed-looking header made of trailing zeros. That let a file
+    // truncated inside its final 16-byte END_OF_FILE header still satisfy both
+    // the terminator check and the declared chunk count, i.e. a truncated file
+    // was accepted as complete. Require the whole header to actually be present.
+    const uint64_t header_offset = file->get_position();
+    const uint64_t file_length = file->get_length();
+    if (header_offset >= file_length) {
+        return ERR_FILE_EOF;
+    }
+    ERR_FAIL_COND_V_MSG(file_length - header_offset < uint64_t(GSF_CHUNK_HEADER_SIZE), ERR_FILE_CORRUPT,
+            vformat("GSF chunk header is truncated: %d of %d bytes remain.",
+                    (int64_t)(file_length - header_offset), (int64_t)GSF_CHUNK_HEADER_SIZE));
+
     header.type = (ChunkType)file->get_32();
     header.size = file->get_32();
     header.checksum = file->get_32();
@@ -450,30 +598,26 @@ Error GaussianSceneSerializer::_read_scene_header(Ref<FileAccess> file, SceneHea
     return OK;
 }
 
-Error GaussianSceneSerializer::_read_gaussian_data_chunk(Ref<FileAccess> file, const ChunkHeader &header, LocalVector<Gaussian> &r_gaussians) const {
+Error GaussianSceneSerializer::_read_gaussian_data_chunk(Ref<FileAccess> file, const ChunkHeader &header,
+        uint32_t p_declared_splat_count, LocalVector<Gaussian> &r_gaussians) const {
     PackedByteArray buffer = file->get_buffer(header.size);
+    ERR_FAIL_COND_V_MSG(uint64_t(buffer.size()) != uint64_t(header.size), ERR_FILE_CORRUPT,
+            "GAUSSIAN_DATA chunk payload is shorter than its declared size (truncated).");
     if (enable_checksum && !_verify_checksum(buffer, header.checksum)) {
         return ERR_FILE_CORRUPT;
     }
 
-    PackedByteArray payload = buffer;
-    if (header.flags & CHUNK_FLAG_COMPRESSED) {
-        ERR_FAIL_COND_V(header.size < sizeof(uint32_t), ERR_FILE_CORRUPT);
-        CompressionType type = (CompressionType)((header.flags >> 8) & 0xFF);
-        if (type == CompressionType::NONE) {
-            type = compression_type;
-        }
-        uint32_t original_size = 0;
-        const uint8_t *r = buffer.ptr();
-        memcpy(&original_size, r, sizeof(uint32_t));
-        PackedByteArray compressed_payload;
-        compressed_payload.resize(buffer.size() - sizeof(uint32_t));
-        memcpy(compressed_payload.ptrw(), r + sizeof(uint32_t), compressed_payload.size());
-        payload = _decompress_data(compressed_payload, original_size, type);
-        // _decompress_data fails closed (empty result) on a rejected/failed
-        // decode; surface that as corruption instead of parsing garbage.
-        ERR_FAIL_COND_V_MSG(payload.is_empty() && original_size > 0, ERR_FILE_CORRUPT,
-                "Failed to decompress GAUSSIAN_DATA chunk.");
+    // Corroboration for the decompression bound: the scene header independently
+    // declared how many splats this file holds, and it was read (and checksum
+    // verified) before this chunk. That fixes the exact number of decompressed
+    // bytes this chunk is entitled to, so the chunk's own declared size can no
+    // longer authorise an allocation by itself (#603a).
+    const uint64_t corroborated_max_size = uint64_t(sizeof(uint32_t)) + uint64_t(p_declared_splat_count) * uint64_t(sizeof(Gaussian));
+
+    PackedByteArray payload;
+    const Error decode_err = _decode_chunk_payload(buffer, header, corroborated_max_size, "GAUSSIAN_DATA", payload);
+    if (decode_err != OK) {
+        return decode_err;
     }
 
     ERR_FAIL_COND_V(payload.size() < (int)sizeof(uint32_t), ERR_FILE_CORRUPT);
@@ -504,26 +648,20 @@ Error GaussianSceneSerializer::_read_gaussian_data_chunk(Ref<FileAccess> file, c
 
 Error GaussianSceneSerializer::_read_animation_data_chunk(Ref<FileAccess> file, const ChunkHeader &header, Dictionary &r_animation_dict) const {
     PackedByteArray buffer = file->get_buffer(header.size);
+    ERR_FAIL_COND_V_MSG(uint64_t(buffer.size()) != uint64_t(header.size), ERR_FILE_CORRUPT,
+            "ANIMATION_DATA chunk payload is shorter than its declared size (truncated).");
     if (enable_checksum && !_verify_checksum(buffer, header.checksum)) {
         return ERR_FILE_CORRUPT;
     }
 
-    PackedByteArray payload = buffer;
-    if (header.flags & CHUNK_FLAG_COMPRESSED) {
-        ERR_FAIL_COND_V(header.size < sizeof(uint32_t), ERR_FILE_CORRUPT);
-        CompressionType type = (CompressionType)((header.flags >> 8) & 0xFF);
-        if (type == CompressionType::NONE) {
-            type = compression_type;
-        }
-        uint32_t original_size = 0;
-        const uint8_t *r = buffer.ptr();
-        memcpy(&original_size, r, sizeof(uint32_t));
-        PackedByteArray compressed_payload;
-        compressed_payload.resize(buffer.size() - sizeof(uint32_t));
-        memcpy(compressed_payload.ptrw(), r + sizeof(uint32_t), compressed_payload.size());
-        payload = _decompress_data(compressed_payload, original_size, type);
-        ERR_FAIL_COND_V_MSG(payload.is_empty() && original_size > 0, ERR_FILE_CORRUPT,
-                "Failed to decompress ANIMATION_DATA chunk.");
+    // Nothing else in the file corroborates an animation payload's decompressed
+    // size, so it gets the hard absolute ceiling instead (see the policy comment
+    // at the top of this file). Real clip dictionaries are kilobytes.
+    PackedByteArray payload;
+    const Error decode_err = _decode_chunk_payload(buffer, header,
+            GSF_MAX_UNCORROBORATED_DECOMPRESSED_CHUNK_SIZE, "ANIMATION_DATA", payload);
+    if (decode_err != OK) {
+        return decode_err;
     }
 
     Variant var;
@@ -775,7 +913,7 @@ Error GaussianSceneSerializer::_read_scene_body(const Ref<FileAccess> &file, con
 
         switch (chunk.type) {
             case ChunkType::GAUSSIAN_DATA:
-                err = _read_gaussian_data_chunk(file, chunk, r_staging.gaussians);
+                err = _read_gaussian_data_chunk(file, chunk, header.splat_count, r_staging.gaussians);
                 if (err == OK) {
                     r_staging.has_gaussian_chunk = true;
                 }

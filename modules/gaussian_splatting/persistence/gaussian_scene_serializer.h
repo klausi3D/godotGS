@@ -65,6 +65,17 @@ struct SceneHeader {
 // because of compiler struct padding).
 static const uint32_t SCENE_HEADER_PACKED_SIZE = 60;
 
+// On-disk size of a ChunkHeader (4 x uint32). Spelled out rather than taken from
+// sizeof(ChunkHeader) so the wire format never depends on compiler padding.
+static const uint32_t GSF_CHUNK_HEADER_SIZE = 16;
+
+// Absolute ceiling for a compressed chunk whose decompressed size nothing else in
+// the file independently corroborates (currently ANIMATION_DATA, a Variant-encoded
+// clip dictionary measured in kilobytes). Chunks that ARE corroborated -- today
+// GAUSSIAN_DATA, bounded by the scene header's splat_count -- use that instead.
+// See the anti-decompress-bomb policy comment in gaussian_scene_serializer.cpp.
+static const uint64_t GSF_MAX_UNCORROBORATED_DECOMPRESSED_CHUNK_SIZE = 64ull * 1024 * 1024;
+
 struct AssetReference {
     String path;
     String type;
@@ -143,7 +154,9 @@ private:
     // Chunk readers decode into caller-owned staging out-params and never mutate
     // the target objects or this serializer, so the same code path drives both
     // load_scene() (which commits) and validate_file() (which discards).
-    Error _read_gaussian_data_chunk(Ref<FileAccess> file, const ChunkHeader& header, LocalVector<Gaussian>& r_gaussians) const;
+    // p_declared_splat_count comes from the already-verified scene header and
+    // caps how many decompressed bytes this chunk may claim (#603a).
+    Error _read_gaussian_data_chunk(Ref<FileAccess> file, const ChunkHeader& header, uint32_t p_declared_splat_count, LocalVector<Gaussian>& r_gaussians) const;
     Error _read_animation_data_chunk(Ref<FileAccess> file, const ChunkHeader& header, Dictionary& r_animation_dict) const;
     Error _read_metadata_chunk(Ref<FileAccess> file, const ChunkHeader& header, Dictionary& r_metadata) const;
     Error _read_asset_refs_chunk(Ref<FileAccess> file, const ChunkHeader& header, LocalVector<AssetReference>& r_refs) const;
@@ -162,7 +175,14 @@ private:
 
     // Compression helpers
     PackedByteArray _compress_data(const PackedByteArray& data, CompressionType type, bool& r_used_compression) const;
-    PackedByteArray _decompress_data(const PackedByteArray& compressed_data, uint32_t original_size, CompressionType type) const;
+    PackedByteArray _decompress_data(const PackedByteArray& compressed_data, uint32_t original_size, CompressionType type,
+            uint64_t corroborated_max_size) const;
+    // The ONE place a chunk's compression contract is applied. Every compressible
+    // chunk reader goes through this, and the codec is resolved purely from the
+    // chunk's on-disk flags (never from this instance's compression_type), so
+    // validate_file() and load_scene() cannot diverge (#602).
+    Error _decode_chunk_payload(const PackedByteArray& raw, const ChunkHeader& header,
+            uint64_t corroborated_max_size, const char* chunk_name, PackedByteArray& r_payload) const;
 
     // Script bindings
     void set_compression_type_bind(int type);
@@ -253,12 +273,23 @@ public:
     static String get_file_extension() { return "gsf"; } // Gaussian Scene File
     static Array get_supported_compression_types();
 
+    // Largest number of bytes codec `type` can PHYSICALLY emit from
+    // `compressed_size` input bytes, given its container format (Zstd: one 4-byte
+    // RLE block header per 128 KiB block; FastLZ: one 3-byte opcode per <= 264-byte
+    // copy). Saturates instead of overflowing. Because this is a property of the
+    // format, not of the data, it can never reject a stream our writer produced.
+    static uint64_t max_codec_expansion_bytes(CompressionType type, uint64_t compressed_size);
+
     // Anti-decompress-bomb bound for a compressed chunk (#603a): true when a chunk
     // declaring `original_size` decompressed bytes from `compressed_size` bytes is
-    // plausible. Bounded by the uint32 field width and a generous size ratio (with
-    // a small floor). Public + static so it can be unit-tested at the boundary
-    // without allocating multi-GiB buffers. Not a bound (script) method.
-    static bool is_decompressed_chunk_size_plausible(uint64_t original_size, uint64_t compressed_size);
+    // acceptable. Bounded by (1) the uint32 on-disk field width, (2) the
+    // corroborated ceiling the surrounding file structure justifies, and (3) the
+    // codec's physical maximum expansion -- NOT by a tunable ratio heuristic, which
+    // previously rejected this serializer's own highly-compressible output.
+    // Public + static so it can be unit-tested at the boundary without allocating
+    // multi-GiB buffers. Not a bound (script) method.
+    static bool is_decompressed_chunk_size_plausible(uint64_t original_size, uint64_t compressed_size,
+            CompressionType type, uint64_t corroborated_max_size);
 };
 
 } // namespace GaussianSplatting
