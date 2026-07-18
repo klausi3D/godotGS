@@ -18,15 +18,46 @@
 
 void GaussianSplatAssetPreviewGenerator::_bind_methods() {}
 
-namespace {
 // Backstop timeout for the worker's wait on main-thread texture creation. Under
 // normal operation the main message queue is flushed every frame, so the request
 // completes within a frame or two; this bound only trips on genuine starvation
 // (the main loop no longer flushing) so the preview worker can never block
-// forever. Editor shutdown is handled promptly and separately via abort().
-constexpr uint64_t PREVIEW_TEXTURE_WAIT_TIMEOUT_USEC = 10 * 1000 * 1000; // 10 s.
+// forever.
+//
+// Why 10s, and why editor shutdown does not actually pay this cost (#592
+// residual-gap assessment): EditorResourcePreview::stop() -- the only caller
+// of abort() -- calls abort() on every generator FIRST, then loops flushing
+// MessageQueue::get_singleton() every 10ms until its own worker thread
+// reports exited (see editor/inspector/editor_resource_preview.cpp). So a
+// real shutdown resolves this wait one of two ways, both fast: (a) the
+// poll loop below observes aborted.is_set() within one
+// PREVIEW_TEXTURE_WAIT_POLL_USEC tick (~2ms), or (b) even if that racy check
+// is missed, stop()'s own flush loop lets the queued create_texture()
+// message run within ~10ms anyway. The full 10s is only ever spent when the
+// main thread is starved for a reason OTHER than a normal
+// EditorResourcePreview::stop() shutdown (e.g. a genuine deadlock/hang
+// elsewhere) -- a scenario where the editor is already unresponsive for an
+// unrelated reason, so shortening this bound would buy no user-visible
+// responsiveness. It would, however, raise the odds of a false-positive
+// blank preview during an ordinary transient main-thread stall (heavy
+// import, shader compile, etc.) that is longer than the shortened bound but
+// well under 10s. 10s is kept as the conservative choice; see
+// test_set_wait_timeout_usec() below for how the starvation/abort paths are
+// still covered by a fast regression test despite that.
+//
+// Defined as a class member (not an anonymous-namespace constant) so
+// test_set_wait_timeout_usec() can override it per instance for a fast,
+// deterministic starvation regression test; production code never calls that
+// setter, so every real instance uses this value unless told otherwise.
+const uint64_t GaussianSplatAssetPreviewGenerator::DEFAULT_WAIT_TIMEOUT_USEC = 10 * 1000 * 1000; // 10 s.
+
+namespace {
 constexpr uint64_t PREVIEW_TEXTURE_WAIT_POLL_USEC = 2000; // 2 ms.
 } // namespace
+
+GaussianSplatAssetPreviewGenerator::GaussianSplatAssetPreviewGenerator() :
+		wait_timeout_usec(DEFAULT_WAIT_TIMEOUT_USEC) {
+}
 
 // Reference-counted shared state for a cross-thread texture-creation request.
 // It is a heap RefCounted (not a bare stack Object) so its lifetime can be
@@ -83,7 +114,7 @@ Ref<Texture2D> GaussianSplatAssetPreviewGenerator::_create_preview_texture_from_
 	// "destroyed while a thread waits" UB) and can never hang forever: it gives
 	// up on abort (editor shutdown, via abort()) or after the timeout (main-queue
 	// starvation) and fails the preview gracefully.
-	const uint64_t deadline_usec = OS::get_singleton()->get_ticks_usec() + PREVIEW_TEXTURE_WAIT_TIMEOUT_USEC;
+	const uint64_t deadline_usec = OS::get_singleton()->get_ticks_usec() + wait_timeout_usec.load(std::memory_order_acquire);
 	bool completed = false;
 	while (true) {
 		if (request->done.try_wait()) {

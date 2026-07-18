@@ -7,11 +7,22 @@
 
 #include "core/templates/safe_refcount.h"
 
+#include <atomic>
+
 class GaussianThumbnailGenerator;
 class Image;
 
 class GaussianSplatAssetPreviewGenerator : public EditorResourcePreviewGenerator {
 	GDCLASS(GaussianSplatAssetPreviewGenerator, EditorResourcePreviewGenerator);
+
+	// Bounded-wait backstop for the worker's main-thread texture-creation
+	// request (see _create_preview_texture_from_image()). Defaults to
+	// DEFAULT_WAIT_TIMEOUT_USEC; test_set_wait_timeout_usec() lets a
+	// starvation regression test shrink it so the bail-out can be proven
+	// without waiting out the real production timeout. Mirrors
+	// RenderThreadDispatcher::timeout_usec / GaussianSplatRenderer's
+	// test_set_render_thread_dispatch_timeout_usec seam.
+	mutable std::atomic<uint64_t> wait_timeout_usec;
 
 	mutable Ref<GaussianThumbnailGenerator> thumbnail_generator;
 	// Set from abort() (called on every generator by EditorResourcePreview::stop()
@@ -29,11 +40,22 @@ protected:
 	static void _bind_methods();
 
 public:
+	// Production default for wait_timeout_usec; defined in the .cpp.
+	static const uint64_t DEFAULT_WAIT_TIMEOUT_USEC;
+
+	GaussianSplatAssetPreviewGenerator();
+
 	virtual bool handles(const String &p_type) const override;
 	virtual Ref<Texture2D> generate(const Ref<Resource> &p_from, const Size2 &p_size, Dictionary &p_metadata) const override;
 	virtual Ref<Texture2D> generate_from_path(const String &p_path, const Size2 &p_size, Dictionary &p_metadata) const override;
 	virtual bool generate_small_preview_automatically() const override;
 	virtual void abort() override;
+
+	// Test-only seam (used by modules/gaussian_splatting/tests/test_gaussian_importer.h):
+	// override/query the bounded wait timeout. Never called from production
+	// code paths (registration in gaussian_editor_plugin.cpp never touches it).
+	void test_set_wait_timeout_usec(uint64_t p_timeout_usec) { wait_timeout_usec.store(p_timeout_usec, std::memory_order_release); }
+	uint64_t test_get_wait_timeout_usec() const { return wait_timeout_usec.load(std::memory_order_acquire); }
 };
 
 #endif // TOOLS_ENABLED
