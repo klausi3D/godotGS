@@ -49,7 +49,7 @@
     },
     {
       "test_case": "[GaussianSplatting][World]*",
-      "count": 7,
+      "count": 3,
       "reason": "The headline orphan of #520. run_module_tests.py excludes '*][World][SceneTree]*' from the [SceneTree] lane, which reads as de-duplication against a [World] lane, but no [World] lane exists. The neighbouring [Node]/[Container] exclusions DO dedupe against real lanes, which camouflaged this one. 3 of the 7 carry no [RequiresGPU]; the other 4 were previously credited to the opt-in [requires-RD] catalogue, which blocking CI never runs - so they looked laned while being just as invisible (Codex, PR #658). Adding a strict [World] lane is the fix for the 3, and the 4 need a GPU harness batch; both need a proven-green run.",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/520",
       "owner": "klausi3D",
@@ -94,7 +94,7 @@
     },
     {
       "test_case": "*][RequiresGPU]*",
-      "count": 87,
+      "count": 63,
       "reason": "Catch-all for [RequiresGPU] cases that no run_gpu_harness.py batch reaches. These were previously credited to REQUIRES_RD_TEST_FILTERS ('GaussianSplatting [requires-RD]'), but _build_module_test_runs() only appends that lane under --gpu / GS_RUN_GPU_TESTS=1 and the blocking workflow (.github/workflows/gaussian_production_gates.yml) invokes the runner without it. That lane's own comment calls itself 'a catalogue of renderer-dependent tests', and it is strict=False even when it does run - so crediting it reported coverage that does not exist (Codex, PR #658). Declared as ONE entry deliberately: the long-term home for GPU deferrals is renderer_release_gate_manifest.json:deferred_requires_gpu_waivers under #329, which is owned elsewhere and currently empty; this entry keeps the cases visible and counted until #329 populates it. The count means a NEW [RequiresGPU] case that no batch reaches still fails this guard.",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
       "owner": "klausi3D",
