@@ -30,6 +30,87 @@ static constexpr uint32_t DEFAULT_KEY_BITS = 64;
 static constexpr uint32_t DEFAULT_TILE_BITS = 32;
 static constexpr uint32_t DEFAULT_DEPTH_BITS = 32;
 
+// ---------------------------------------------------------------------------
+// Sort-path allocation bound
+// ---------------------------------------------------------------------------
+// RenderingDevice::storage_buffer_create() takes the size as a **uint32_t**
+// (servers/rendering/rendering_device.h). Every buffer the sort path allocates is
+// sized from the element count, so a large enough element count produces a size
+// that silently TRUNCATES modulo 2^32: the device hands back a buffer far smaller
+// than the shaders index, and the sort writes out of bounds. That is silent VRAM
+// corruption, which is strictly worse than a clean rejection — so the element
+// count must be bounded by the LARGEST buffer the path allocates, not just by the
+// key buffer.
+//
+// The dominant term is NOT the key buffer. RadixSort preallocates a per-workgroup,
+// per-bin, per-pass histogram (and an identically sized workgroup-prefix buffer):
+//
+//   workgroups      = ceil(N / workgroup_size)
+//   radix_size      = 1 << radix_bits
+//   num_passes      = ceil(key_bits / radix_bits)
+//   histogram_bytes = workgroups * radix_size * num_passes * 4
+//
+// which scales as N * (radix_size * num_passes * 4 / workgroup_size). At the
+// permissive end of the validated knob ranges (workgroup_size=64, radix_bits=8,
+// key_bits=64) that is 128 bytes PER ELEMENT — 16x the 8-byte 64-bit key buffer.
+// The safe element count therefore depends on radix_bits / workgroup_size /
+// key_bits and cannot be expressed as one scalar constant.
+//
+// Returns the largest single storage_buffer_create() size, in bytes, computed in
+// 64-bit so the result is the TRUE required size even when it exceeds uint32.
+// Callers reject when the result exceeds UINT32_MAX. Bounding the byte total also
+// bounds RadixSort's uint32 `histogram_stride` intermediate (stride <= bytes / 4).
+inline uint64_t sort_path_max_buffer_bytes(uint64_t p_max_elements, uint32_t p_radix_bits,
+		uint32_t p_workgroup_size, uint32_t p_key_bits) {
+	if (p_max_elements == 0) {
+		return 0;
+	}
+	const uint32_t radix_bits = p_radix_bits > 0 ? p_radix_bits : DEFAULT_RADIX_BITS;
+	const uint32_t workgroup_size = p_workgroup_size > 0 ? p_workgroup_size : DEFAULT_WORKGROUP_SIZE;
+	const uint32_t key_bits = p_key_bits > 32 ? 64u : 32u;
+
+	// --- RadixSort (gpu_sorter.cpp RadixSort::initialize) ---
+	const uint64_t radix_size = 1ull << radix_bits;
+	uint64_t num_passes = (uint64_t(key_bits) + radix_bits - 1ull) / radix_bits;
+	if (num_passes == 0) {
+		num_passes = 1;
+	}
+	uint64_t workgroups = (p_max_elements + workgroup_size - 1ull) / workgroup_size;
+	if (workgroups == 0) {
+		workgroups = 1;
+	}
+	// histogram_buffer and wg_prefix_buffer are both this size.
+	const uint64_t histogram_bytes = workgroups * radix_size * num_passes * sizeof(uint32_t);
+	const uint64_t key_stride_bytes = (key_bits > 32) ? 8ull : 4ull;
+	const uint64_t temp_keys_bytes = p_max_elements * key_stride_bytes;
+	const uint64_t temp_values_bytes = p_max_elements * sizeof(uint32_t);
+
+	// --- OneSweepSort (fixed WORKGROUP_SIZE/RADIX_SIZE, 32-bit keys) ---
+	const uint64_t onesweep_workgroups =
+			(p_max_elements + DEFAULT_WORKGROUP_SIZE - 1ull) / DEFAULT_WORKGROUP_SIZE;
+	const uint64_t onesweep_histogram_bytes = onesweep_workgroups * RADIX_SIZE * sizeof(uint32_t);
+
+	uint64_t largest = histogram_bytes;
+	if (temp_keys_bytes > largest) {
+		largest = temp_keys_bytes;
+	}
+	if (temp_values_bytes > largest) {
+		largest = temp_values_bytes;
+	}
+	if (onesweep_histogram_bytes > largest) {
+		largest = onesweep_histogram_bytes;
+	}
+	return largest;
+}
+
+// True when every buffer the sort path allocates for this configuration fits in
+// RenderingDevice's uint32_t size parameter (i.e. nothing truncates).
+inline bool sort_path_allocation_fits_device_size(uint64_t p_max_elements, uint32_t p_radix_bits,
+		uint32_t p_workgroup_size, uint32_t p_key_bits) {
+	return sort_path_max_buffer_bytes(p_max_elements, p_radix_bits, p_workgroup_size, p_key_bits) <=
+			uint64_t(UINT32_MAX);
+}
+
 } // namespace GPUSortingConstants
 
 #endif // GPU_SORTING_CONSTANTS_H
