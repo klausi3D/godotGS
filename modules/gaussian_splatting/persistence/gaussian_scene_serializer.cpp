@@ -12,6 +12,7 @@
 #include "core/variant/array.h"
 #include "../logger/gs_logger.h"
 
+#include <cstdint>
 #include <cstring>
 
 namespace GaussianSplatting {
@@ -22,6 +23,13 @@ static const uint32_t CHUNK_FLAG_COMPRESSED = 1 << 0;
 static const uint32_t MAX_SCENE_HEADER_CHUNK_SIZE = 64 * 1024; // Guard format probes against oversized header payloads.
 static const uint16_t SCENE_FLAG_INCREMENTAL = 1u << 0;
 static const uint16_t SCENE_FLAG_CHECKSUM_ENABLED = 1u << 1;
+// Absolute cap on a chunk's declared decompressed size (#603a). Mirrors the
+// .gsplatworld INT32_MAX cap (issue #459): Godot's Compression::decompress works
+// through a C++ `int` length, so it can never emit more than INT32_MAX bytes.
+// A chunk declaring a larger `original_size` can therefore NEVER decompress, so
+// rejecting it up front only moves a guaranteed failure ahead of a pointless
+// multi-GiB allocation driven by a few hostile header bytes.
+static const uint32_t MAX_DECOMPRESSED_CHUNK_SIZE = uint32_t(INT32_MAX);
 
 Compression::Mode _to_compression_mode(CompressionType type) {
     switch (type) {
@@ -204,6 +212,13 @@ PackedByteArray GaussianSceneSerializer::_decompress_data(const PackedByteArray 
     if (type == CompressionType::NONE) {
         return compressed_data;
     }
+
+    // Cap the file-supplied original_size against a sane absolute bound BEFORE
+    // allocating, so a few hostile header bytes cannot drive a multi-GiB
+    // allocation (#603a).
+    ERR_FAIL_COND_V_MSG(original_size > MAX_DECOMPRESSED_CHUNK_SIZE, PackedByteArray(),
+            vformat("Gaussian scene chunk declares an implausible decompressed size (%d bytes > %d cap).",
+                    (int64_t)original_size, (int64_t)MAX_DECOMPRESSED_CHUNK_SIZE));
 
     Compression::Mode mode = _to_compression_mode(type);
     PackedByteArray result;
@@ -405,9 +420,7 @@ Error GaussianSceneSerializer::_read_scene_header(Ref<FileAccess> file, SceneHea
     return OK;
 }
 
-Error GaussianSceneSerializer::_read_gaussian_data_chunk(Ref<FileAccess> file, const ChunkHeader &header, ::GaussianData *gaussian_data) {
-    ERR_FAIL_NULL_V(gaussian_data, ERR_INVALID_PARAMETER);
-
+Error GaussianSceneSerializer::_read_gaussian_data_chunk(Ref<FileAccess> file, const ChunkHeader &header, LocalVector<Gaussian> &r_gaussians) const {
     PackedByteArray buffer = file->get_buffer(header.size);
     if (enable_checksum && !_verify_checksum(buffer, header.checksum)) {
         return ERR_FILE_CORRUPT;
@@ -427,6 +440,10 @@ Error GaussianSceneSerializer::_read_gaussian_data_chunk(Ref<FileAccess> file, c
         compressed_payload.resize(buffer.size() - sizeof(uint32_t));
         memcpy(compressed_payload.ptrw(), r + sizeof(uint32_t), compressed_payload.size());
         payload = _decompress_data(compressed_payload, original_size, type);
+        // _decompress_data fails closed (empty result) on a rejected/failed
+        // decode; surface that as corruption instead of parsing garbage.
+        ERR_FAIL_COND_V_MSG(payload.is_empty() && original_size > 0, ERR_FILE_CORRUPT,
+                "Failed to decompress GAUSSIAN_DATA chunk.");
     }
 
     ERR_FAIL_COND_V(payload.size() < (int)sizeof(uint32_t), ERR_FILE_CORRUPT);
@@ -437,30 +454,25 @@ Error GaussianSceneSerializer::_read_gaussian_data_chunk(Ref<FileAccess> file, c
     const uint64_t expected_payload_size = sizeof(uint32_t) + uint64_t(count) * sizeof(Gaussian);
     ERR_FAIL_COND_V(expected_payload_size > uint64_t(payload.size()), ERR_FILE_CORRUPT);
 
-    // Reconstruct through the canonical bulk setter so octree, overlays,
-    // animation caches, SH first-order count, and content revision are all
-    // invalidated/recomputed in one place. The previous resize()+set_gaussian()
-    // loop left sh_first_order_count at 0 because set_gaussian does not scan
-    // sh_1[] to rederive SH metadata.
+    // Decode into the caller's staging vector; the canonical bulk commit happens
+    // in load_scene() only once the whole file has parsed (transactional, #601).
     //
-    // Format limitation: the GAUSSIAN_DATA chunk carries only the per-splat
+    // Format limitation (#600): the GAUSSIAN_DATA chunk carries only the per-splat
     // `Gaussian` struct bytes (which embed the first-order SH triplet `sh_1[3]`).
     // The high-order SH sidecar (`sh_high_order_coefficients`) is NOT persisted
     // by this format, and the 2D-mode flag is not persisted either. After load
-    // both reset to defaults (sh_high_order_count == 0, is_2d_mode == false).
-    // Callers that need high-order SH must persist it outside this serializer.
-    LocalVector<Gaussian> loaded_gaussians;
+    // both reset to defaults (sh_high_order_count == 0, is_2d_mode == false); the
+    // writer emits a runtime warning when a save would drop them.
+    r_gaussians.clear();
     if (count > 0) {
-        loaded_gaussians.resize(count);
-        memcpy(loaded_gaussians.ptr(), r + sizeof(uint32_t), uint64_t(count) * sizeof(Gaussian));
+        r_gaussians.resize(count);
+        memcpy(r_gaussians.ptr(), r + sizeof(uint32_t), uint64_t(count) * sizeof(Gaussian));
     }
-    gaussian_data->set_gaussians(loaded_gaussians);
 
     return OK;
 }
 
-Error GaussianSceneSerializer::_read_animation_data_chunk(Ref<FileAccess> file, const ChunkHeader &header, GaussianAnimationStateMachine *animation) {
-    ERR_FAIL_NULL_V(animation, ERR_INVALID_PARAMETER);
+Error GaussianSceneSerializer::_read_animation_data_chunk(Ref<FileAccess> file, const ChunkHeader &header, Dictionary &r_animation_dict) const {
     PackedByteArray buffer = file->get_buffer(header.size);
     if (enable_checksum && !_verify_checksum(buffer, header.checksum)) {
         return ERR_FILE_CORRUPT;
@@ -480,6 +492,8 @@ Error GaussianSceneSerializer::_read_animation_data_chunk(Ref<FileAccess> file, 
         compressed_payload.resize(buffer.size() - sizeof(uint32_t));
         memcpy(compressed_payload.ptrw(), r + sizeof(uint32_t), compressed_payload.size());
         payload = _decompress_data(compressed_payload, original_size, type);
+        ERR_FAIL_COND_V_MSG(payload.is_empty() && original_size > 0, ERR_FILE_CORRUPT,
+                "Failed to decompress ANIMATION_DATA chunk.");
     }
 
     Variant var;
@@ -487,12 +501,15 @@ Error GaussianSceneSerializer::_read_animation_data_chunk(Ref<FileAccess> file, 
     if (err != OK) {
         return err;
     }
-    Dictionary dict = var;
-    animation->from_dict(dict);
+    // Fail closed on a payload that does not decode into a Dictionary rather than
+    // silently applying an empty clip set (staged; committed in load_scene()).
+    ERR_FAIL_COND_V_MSG(var.get_type() != Variant::DICTIONARY, ERR_FILE_CORRUPT,
+            "ANIMATION_DATA chunk did not decode into a Dictionary.");
+    r_animation_dict = var;
     return OK;
 }
 
-Error GaussianSceneSerializer::_read_metadata_chunk(Ref<FileAccess> file, const ChunkHeader &header, Dictionary &r_metadata) {
+Error GaussianSceneSerializer::_read_metadata_chunk(Ref<FileAccess> file, const ChunkHeader &header, Dictionary &r_metadata) const {
     PackedByteArray buffer = file->get_buffer(header.size);
     if (enable_checksum && !_verify_checksum(buffer, header.checksum)) {
         return ERR_FILE_CORRUPT;
@@ -503,11 +520,13 @@ Error GaussianSceneSerializer::_read_metadata_chunk(Ref<FileAccess> file, const 
     if (err != OK) {
         return err;
     }
+    ERR_FAIL_COND_V_MSG(var.get_type() != Variant::DICTIONARY, ERR_FILE_CORRUPT,
+            "METADATA chunk did not decode into a Dictionary.");
     r_metadata = var;
     return OK;
 }
 
-Error GaussianSceneSerializer::_read_asset_refs_chunk(Ref<FileAccess> file, const ChunkHeader &header) {
+Error GaussianSceneSerializer::_read_asset_refs_chunk(Ref<FileAccess> file, const ChunkHeader &header, LocalVector<AssetReference> &r_refs) const {
     PackedByteArray buffer = file->get_buffer(header.size);
     if (enable_checksum && !_verify_checksum(buffer, header.checksum)) {
         return ERR_FILE_CORRUPT;
@@ -518,19 +537,21 @@ Error GaussianSceneSerializer::_read_asset_refs_chunk(Ref<FileAccess> file, cons
     if (err != OK) {
         return err;
     }
+    ERR_FAIL_COND_V_MSG(var.get_type() != Variant::ARRAY, ERR_FILE_CORRUPT,
+            "ASSET_REFS chunk did not decode into an Array.");
 
     Array refs = var;
-    asset_references.clear();
-    asset_path_to_index.clear();
-    asset_references.resize(refs.size());
+    // Decode into the caller's staging vector; asset_references + the path index
+    // are committed in load_scene() only after the whole file validates (#601).
+    r_refs.clear();
+    r_refs.resize(refs.size());
     for (int i = 0; i < refs.size(); i++) {
         Dictionary dict = refs[i];
-        asset_references[i].path = dict.get("path", "");
-        asset_references[i].type = dict.get("type", "");
-        asset_references[i].checksum = dict.get("checksum", (int64_t)0);
-        asset_references[i].file_size = dict.get("file_size", (int64_t)0);
-        asset_references[i].modification_time = dict.get("modified", (int64_t)0);
-        asset_path_to_index[asset_references[i].path] = i;
+        r_refs[i].path = dict.get("path", "");
+        r_refs[i].type = dict.get("type", "");
+        r_refs[i].checksum = dict.get("checksum", (int64_t)0);
+        r_refs[i].file_size = dict.get("file_size", (int64_t)0);
+        r_refs[i].modification_time = dict.get("modified", (int64_t)0);
     }
 
     return OK;
@@ -577,6 +598,24 @@ Error GaussianSceneSerializer::save_scene(const String &file_path, const ::Gauss
 }
 
 Error GaussianSceneSerializer::_write_scene_to_file(const Ref<FileAccess> &file, const ::GaussianData *gaussian_data, const GaussianAnimationStateMachine *animation, const Dictionary &p_metadata) {
+    // Honest lossy-save warning (#600). The GAUSSIAN_DATA chunk persists only the
+    // per-splat `Gaussian` struct bytes (which embed first-order SH). The
+    // high-order SH sidecar and the 2D-mode flag are NOT part of the .gsf format
+    // yet, so they will be dropped on load. Warn instead of losing data silently.
+    // A lossless versioned schema is deferred to the ADR for #600.
+    if (gaussian_data != nullptr) {
+        const uint32_t dropped_sh_high_order = gaussian_data->get_sh_high_order_count();
+        const bool dropped_2d_mode = gaussian_data->get_2d_mode();
+        if (dropped_sh_high_order > 0 || dropped_2d_mode) {
+            WARN_PRINT(vformat(
+                    "GaussianSceneSerializer: the .gsf format does not persist high-order "
+                    "spherical-harmonic coefficients (%d per splat) or the 2D-mode flag "
+                    "(is_2d_mode=%s); these will reset to defaults on load. Lossless "
+                    "persistence is tracked by issue #600 (deferred to a format ADR).",
+                    (int64_t)dropped_sh_high_order, dropped_2d_mode ? "true" : "false"));
+        }
+    }
+
     SceneHeader header = {};
     header.magic = GAUSSIAN_SCENE_MAGIC;
     header.version = GAUSSIAN_SCENE_VERSION;
@@ -678,11 +717,107 @@ Error GaussianSceneSerializer::_write_scene_to_file(const Ref<FileAccess> &file,
     return _ensure_file_write_ok(file, "save_scene");
 }
 
-Error GaussianSceneSerializer::load_scene(const String &file_path, ::GaussianData *gaussian_data, GaussianAnimationStateMachine *animation, Dictionary *r_metadata) {
-    ERR_FAIL_NULL_V(gaussian_data, ERR_INVALID_PARAMETER);
-    Ref<FileAccess> file = FileAccess::open(file_path, FileAccess::READ);
-    ERR_FAIL_COND_V_MSG(file.is_null(), ERR_FILE_NOT_FOUND, "Unable to open Gaussian scene file: " + file_path);
+Error GaussianSceneSerializer::_read_scene_body(const Ref<FileAccess> &file, const String &file_path, const SceneHeader &header, LoadStaging &r_staging) const {
+    const uint64_t file_length = file->get_length();
 
+    bool done = false;
+    while (!done && !file->eof_reached()) {
+        ChunkHeader chunk;
+        Error err = _read_chunk_header(file, chunk);
+        if (err != OK) {
+            if (err == ERR_FILE_EOF) {
+                break;
+            }
+            return err;
+        }
+
+        // Bound every chunk payload against the actual remaining file bytes
+        // BEFORE reading it. This (a) rejects truncated files (#601) and
+        // (b) caps get_buffer() so a hostile 32-bit chunk size cannot drive a
+        // multi-GiB allocation (#603a).
+        const uint64_t payload_offset = file->get_position();
+        ERR_FAIL_COND_V_MSG(payload_offset > file_length, ERR_FILE_CORRUPT,
+                "GSF chunk header extends past end of file: " + file_path);
+        ERR_FAIL_COND_V_MSG(uint64_t(chunk.size) > file_length - payload_offset, ERR_FILE_CORRUPT,
+                "GSF chunk payload extends past end of file (truncated?): " + file_path);
+
+        r_staging.chunks_parsed++;
+
+        switch (chunk.type) {
+            case ChunkType::GAUSSIAN_DATA:
+                err = _read_gaussian_data_chunk(file, chunk, r_staging.gaussians);
+                if (err == OK) {
+                    r_staging.has_gaussian_chunk = true;
+                }
+                break;
+            case ChunkType::ANIMATION_DATA:
+                // Always decode (validates the chunk); commit is deferred and only
+                // applied to the caller's animation object if one was provided.
+                err = _read_animation_data_chunk(file, chunk, r_staging.animation_dict);
+                if (err == OK) {
+                    r_staging.has_animation_chunk = true;
+                }
+                break;
+            case ChunkType::METADATA:
+                err = _read_metadata_chunk(file, chunk, r_staging.metadata);
+                if (err == OK) {
+                    r_staging.has_metadata_chunk = true;
+                }
+                break;
+            case ChunkType::ASSET_REFS:
+                err = _read_asset_refs_chunk(file, chunk, r_staging.asset_references);
+                if (err == OK) {
+                    r_staging.has_asset_refs_chunk = true;
+                }
+                break;
+            case ChunkType::END_OF_FILE:
+                r_staging.saw_eof_chunk = true;
+                done = true;
+                break;
+            default: {
+                // Forward compatibility: skip unknown chunk types and preserve
+                // them so they survive a round-trip (load -> re-save).
+                WARN_PRINT(vformat(
+                        "Unknown chunk type 0x%08X encountered in '%s', skipping %d bytes.",
+                        (uint32_t)chunk.type, file_path, chunk.size));
+                UnknownChunk unk;
+                unk.type_raw = (uint32_t)chunk.type;
+                unk.flags = chunk.flags;
+                unk.checksum = chunk.checksum;
+                if (chunk.size > 0) {
+                    unk.payload = file->get_buffer(chunk.size);
+                    ERR_FAIL_COND_V_MSG(unk.payload.size() != (int)chunk.size,
+                            ERR_FILE_CORRUPT,
+                            "Failed to read unknown chunk payload.");
+                }
+                r_staging.unknown_chunks.push_back(unk);
+                err = OK;
+            } break;
+        }
+
+        if (err != OK) {
+            return err;
+        }
+    }
+
+    // Structural-completeness contract (#601): a well-formed file MUST terminate
+    // with an END_OF_FILE chunk and MUST contain exactly the chunk count the
+    // header declared. A truncated file (loop ended on EOF-of-stream, not on the
+    // EOF chunk) or a file with a missing/extra chunk is rejected instead of
+    // silently loading as OK.
+    ERR_FAIL_COND_V_MSG(!r_staging.saw_eof_chunk, ERR_FILE_CORRUPT,
+            "GSF file is missing its END_OF_FILE chunk (truncated or incomplete): " + file_path);
+    const uint64_t chunks_seen = uint64_t(r_staging.chunks_parsed) + 1; // + the HEADER chunk read before the body.
+    ERR_FAIL_COND_V_MSG(chunks_seen != uint64_t(header.total_chunks), ERR_FILE_CORRUPT,
+            vformat("GSF chunk count mismatch in '%s': header declares %d, parsed %d.",
+                    file_path, (int64_t)header.total_chunks, (int64_t)chunks_seen));
+    ERR_FAIL_COND_V_MSG(header.splat_count > 0 && !r_staging.has_gaussian_chunk, ERR_FILE_CORRUPT,
+            vformat("GSF header declares %d splats but the file contains no GAUSSIAN_DATA chunk: %s",
+                    (int64_t)header.splat_count, file_path));
+    return OK;
+}
+
+Error GaussianSceneSerializer::_read_scene_into_staging(const Ref<FileAccess> &file, const String &file_path, LoadStaging &r_staging) const {
     SceneHeader scene_header;
     Error err = _read_scene_header(file, scene_header);
     if (err != OK) {
@@ -712,71 +847,46 @@ Error GaussianSceneSerializer::load_scene(const String &file_path, ::GaussianDat
         }
     }
 
-    // Clear any previously stored unknown chunks before loading.
-    unknown_chunks.clear();
+    return _read_scene_body(file, file_path, scene_header, r_staging);
+}
 
-    bool done = false;
-    while (!done && !file->eof_reached()) {
-        ChunkHeader chunk;
-        err = _read_chunk_header(file, chunk);
-        if (err != OK) {
-            if (err == ERR_FILE_EOF) {
-                break;
-            }
-            return err;
-        }
+Error GaussianSceneSerializer::load_scene(const String &file_path, ::GaussianData *gaussian_data, GaussianAnimationStateMachine *animation, Dictionary *r_metadata) {
+    ERR_FAIL_NULL_V(gaussian_data, ERR_INVALID_PARAMETER);
+    Ref<FileAccess> file = FileAccess::open(file_path, FileAccess::READ);
+    ERR_FAIL_COND_V_MSG(file.is_null(), ERR_FILE_NOT_FOUND, "Unable to open Gaussian scene file: " + file_path);
 
-        switch (chunk.type) {
-            case ChunkType::GAUSSIAN_DATA:
-                err = _read_gaussian_data_chunk(file, chunk, gaussian_data);
-                break;
-            case ChunkType::ANIMATION_DATA:
-                if (animation) {
-                    err = _read_animation_data_chunk(file, chunk, animation);
-                } else {
-                    file->seek(file->get_position() + chunk.size);
-                    err = OK;
-                }
-                break;
-            case ChunkType::METADATA:
-                if (r_metadata) {
-                    err = _read_metadata_chunk(file, chunk, *r_metadata);
-                } else {
-                    file->seek(file->get_position() + chunk.size);
-                    err = OK;
-                }
-                break;
-            case ChunkType::ASSET_REFS:
-                err = _read_asset_refs_chunk(file, chunk);
-                break;
-            case ChunkType::END_OF_FILE:
-                done = true;
-                break;
-            default: {
-                // Forward compatibility: skip unknown chunk types and preserve
-                // them so they survive a round-trip (load -> re-save).
-                WARN_PRINT(vformat(
-                        "Unknown chunk type 0x%08X encountered in '%s', skipping %d bytes.",
-                        (uint32_t)chunk.type, file_path, chunk.size));
-                UnknownChunk unk;
-                unk.type_raw = (uint32_t)chunk.type;
-                unk.flags = chunk.flags;
-                unk.checksum = chunk.checksum;
-                if (chunk.size > 0) {
-                    unk.payload = file->get_buffer(chunk.size);
-                    ERR_FAIL_COND_V_MSG(unk.payload.size() != (int)chunk.size,
-                            ERR_FILE_CORRUPT,
-                            "Failed to read unknown chunk payload.");
-                }
-                unknown_chunks.push_back(unk);
-                err = OK;
-            } break;
-        }
+    // Transactional load (#601): parse the ENTIRE file into a staging sink first.
+    // Only when the structural parse fully succeeds do we commit to the caller's
+    // objects, so a late chunk error can never leave the target half-mutated.
+    LoadStaging staging;
+    Error err = _read_scene_into_staging(file, file_path, staging);
+    if (err != OK) {
+        return err; // Caller targets are untouched.
+    }
 
-        if (err != OK) {
-            return err;
+    // Commit staging -> caller targets. Committing gaussians through the canonical
+    // bulk setter rebuilds octree/overlay/SH-metadata/content-revision state in one
+    // place. An empty (0-splat) scene carries no GAUSSIAN_DATA chunk and leaves the
+    // target's existing gaussians untouched, matching the pre-transactional path.
+    if (staging.has_gaussian_chunk) {
+        gaussian_data->set_gaussians(staging.gaussians);
+    }
+    if (animation && staging.has_animation_chunk) {
+        animation->from_dict(staging.animation_dict);
+    }
+    if (r_metadata && staging.has_metadata_chunk) {
+        *r_metadata = staging.metadata;
+    }
+    if (staging.has_asset_refs_chunk) {
+        asset_references = staging.asset_references;
+        asset_path_to_index.clear();
+        for (uint32_t i = 0; i < asset_references.size(); i++) {
+            asset_path_to_index[asset_references[i].path] = i;
         }
     }
+    // Unknown chunks are always refreshed from this load so a subsequent re-save
+    // round-trips exactly the chunks this file carried (and no stale ones).
+    unknown_chunks = staging.unknown_chunks;
 
     return OK;
 }
@@ -918,102 +1028,94 @@ bool GaussianSceneSerializer::validate_assets() const {
     return true;
 }
 
+bool GaussianSceneSerializer::_file_claims_checksum_protection(const Ref<FileAccess> &file) const {
+    file->seek(0);
+    const uint64_t file_length = file->get_length();
+
+    ChunkHeader head;
+    if (_read_chunk_header(file, head) != OK) {
+        return true; // Unreadable header -> treat as claiming protection (conservative).
+    }
+    if (head.type != ChunkType::HEADER) {
+        return true;
+    }
+    if (head.checksum != 0) {
+        return true; // The HEAD chunk carries a checksum.
+    }
+    const uint64_t head_payload_offset = file->get_position();
+    if (head_payload_offset > file_length || uint64_t(head.size) > file_length - head_payload_offset) {
+        return true;
+    }
+    if (head.size < SCENE_HEADER_V1_SIZE) {
+        return true;
+    }
+    // Scene flags live at payload offset +6 (see _pack_scene_header).
+    file->seek(head_payload_offset + 6);
+    const uint16_t scene_flags = file->get_16();
+    if (scene_flags & SCENE_FLAG_CHECKSUM_ENABLED) {
+        return true;
+    }
+
+    // Any trailing chunk that carries a checksum also counts as claiming
+    // protection. Scan the raw chunk headers up to the END_OF_FILE marker.
+    file->seek(head_payload_offset + uint64_t(head.size));
+    while (file->get_position() + uint64_t(sizeof(ChunkHeader)) <= file_length) {
+        ChunkHeader ch;
+        if (_read_chunk_header(file, ch) != OK) {
+            return true;
+        }
+        if (ch.checksum != 0) {
+            return true;
+        }
+        const uint64_t payload_offset = file->get_position();
+        if (payload_offset > file_length || uint64_t(ch.size) > file_length - payload_offset) {
+            return true;
+        }
+        if (ch.type == ChunkType::END_OF_FILE) {
+            return false; // Reached EOF with no checksum claim anywhere.
+        }
+        file->seek(payload_offset + uint64_t(ch.size));
+    }
+    return true; // Never reached the EOF chunk -> conservative reject.
+}
+
 Error GaussianSceneSerializer::validate_file(const String &file_path) const {
     Ref<FileAccess> file = FileAccess::open(file_path, FileAccess::READ);
     ERR_FAIL_COND_V(file.is_null(), ERR_FILE_NOT_FOUND);
 
-    // Prefer strict checksum validation.
-    // Legacy fallback is only allowed when checksum validation is explicitly
-    // disabled on this serializer instance.
-    SceneHeader header;
-    GaussianSceneSerializer strict_probe;
-    strict_probe.set_enable_checksum(true);
-    Error strict_err = strict_probe._read_scene_header(file, header);
-    Error err = strict_err;
-    if (strict_err != OK) {
+    // #602: run the SAME transactional parser load_scene uses, into a throwaway
+    // staging sink, so validate_file can never be weaker than an actual load.
+    // The old checksum-success path returned after only the header and never
+    // scanned the trailing chunks, so a file could pass validate_file and then
+    // fail load_scene.
+    {
+        GaussianSceneSerializer strict_probe;
+        strict_probe.set_enable_checksum(true);
+        file->seek(0);
+        LoadStaging strict_staging;
+        const Error strict_err = strict_probe._read_scene_into_staging(file, file_path, strict_staging);
+        if (strict_err == OK) {
+            return OK;
+        }
+        // This serializer demands checksum integrity -> a strict failure is fatal.
         if (enable_checksum) {
             return strict_err;
         }
-        file->seek(0);
-        ChunkHeader chunk_header;
-        Error header_err = _read_chunk_header(file, chunk_header);
-        if (header_err != OK) {
-            return header_err;
-        }
-
-        file->seek(0);
-        GaussianSceneSerializer legacy_probe;
-        legacy_probe.set_enable_checksum(false);
-        err = legacy_probe._read_scene_header(file, header);
-        if (err != OK) {
-            return err;
-        }
-
-        // Keep checksum integrity for files that were explicitly written with
-        // checksum protection, even when the chunk checksum field is tampered.
-        if ((header.flags & SCENE_FLAG_CHECKSUM_ENABLED) != 0) {
-            return strict_err;
-        }
-
-        if (chunk_header.checksum != 0) {
-            return strict_err;
-        }
-
-        // Legacy checksum-compatible fallback is only safe when all chunk
-        // checksums are absent. Do not trust header.total_chunks after strict
-        // checksum failure because the header payload itself is unverified.
-        const uint64_t file_length = file->get_length();
-        const uint64_t max_chunk_scan_u64 = file_length / sizeof(ChunkHeader) + 1;
-        const uint32_t max_chunk_scan = max_chunk_scan_u64 > uint64_t(UINT32_MAX)
-                ? UINT32_MAX
-                : uint32_t(max_chunk_scan_u64);
-        bool saw_eof_chunk = false;
-        for (uint32_t chunk_index = 1; chunk_index <= max_chunk_scan; chunk_index++) {
-            ChunkHeader trailing_chunk_header;
-            Error trailing_err = _read_chunk_header(file, trailing_chunk_header);
-            if (trailing_err != OK) {
-                return strict_err;
-            }
-            if (trailing_chunk_header.checksum != 0) {
-                return strict_err;
-            }
-            const uint64_t payload_offset = file->get_position();
-            if (file_length < payload_offset || uint64_t(trailing_chunk_header.size) > (file_length - payload_offset)) {
-                return strict_err;
-            }
-            if (trailing_chunk_header.type == ChunkType::END_OF_FILE) {
-                if (trailing_chunk_header.size != 0 || payload_offset != file_length) {
-                    return strict_err;
-                }
-                saw_eof_chunk = true;
-                break;
-            }
-            if (trailing_chunk_header.size == 0) {
-                return strict_err;
-            }
-            file->seek(payload_offset + uint64_t(trailing_chunk_header.size));
-        }
-        if (!saw_eof_chunk) {
+        // Legacy fallback runs only when checksum validation is explicitly
+        // disabled on this serializer instance. Never rubber-stamp a file that
+        // ADVERTISES checksum protection (scene flag set, or any non-zero chunk
+        // checksum) -- that would let a tampered, originally-protected file pass
+        // unverified.
+        if (_file_claims_checksum_protection(file)) {
             return strict_err;
         }
     }
-    if (err != OK) {
-        return err;
-    }
-    if (header.magic != GAUSSIAN_SCENE_MAGIC) {
-        return ERR_FILE_UNRECOGNIZED;
-    }
-    if (header.version == 0) {
-        return ERR_FILE_UNRECOGNIZED;
-    }
-    // Version negotiation: allow forward-compatible files whose
-    // minimum_reader_version is within our supported range.
-    if (header.version > GAUSSIAN_SCENE_VERSION) {
-        if (header.minimum_reader_version > GAUSSIAN_SCENE_VERSION) {
-            return ERR_FILE_UNRECOGNIZED;
-        }
-    }
-    return OK;
+
+    GaussianSceneSerializer legacy_probe;
+    legacy_probe.set_enable_checksum(false);
+    file->seek(0);
+    LoadStaging legacy_staging;
+    return legacy_probe._read_scene_into_staging(file, file_path, legacy_staging);
 }
 
 Dictionary GaussianSceneSerializer::get_file_info(const String &file_path) const {

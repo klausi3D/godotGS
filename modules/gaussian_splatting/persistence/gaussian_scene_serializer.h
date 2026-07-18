@@ -98,6 +98,29 @@ private:
     };
     Vector<UnknownChunk> unknown_chunks;
 
+    // Staging sink for a transactional load (#601). The scene is parsed in full
+    // into this structure; nothing is committed to the caller's GaussianData /
+    // animation / metadata (or to this serializer's asset/unknown-chunk state)
+    // until the ENTIRE structural parse succeeds. A late chunk error therefore
+    // never leaves a half-mutated target. validate_file() (#602) reuses the exact
+    // same parser with a throwaway staging sink so it can never be weaker than
+    // load_scene().
+    struct LoadStaging {
+        LocalVector<Gaussian> gaussians;
+        bool has_gaussian_chunk = false;
+        Dictionary animation_dict;
+        bool has_animation_chunk = false;
+        Dictionary metadata;
+        bool has_metadata_chunk = false;
+        LocalVector<AssetReference> asset_references;
+        bool has_asset_refs_chunk = false;
+        Vector<UnknownChunk> unknown_chunks;
+        // Chunks read inside the body loop (every chunk after HEADER, INCLUDING
+        // the END_OF_FILE chunk). Used to enforce header.total_chunks on load.
+        uint32_t chunks_parsed = 0;
+        bool saw_eof_chunk = false;
+    };
+
     // Cached checksum for the most recently written chunk. This keeps the
     // public API of `_write_chunk_header` simple while still allowing callers
     // to pre-compute the checksum once the payload has been assembled.
@@ -117,10 +140,25 @@ private:
 
     Error _read_chunk_header(Ref<FileAccess> file, ChunkHeader& header) const;
     Error _read_scene_header(Ref<FileAccess> file, SceneHeader& header) const;
-    Error _read_gaussian_data_chunk(Ref<FileAccess> file, const ChunkHeader& header, ::GaussianData* gaussian_data);
-    Error _read_animation_data_chunk(Ref<FileAccess> file, const ChunkHeader& header, GaussianAnimationStateMachine* animation);
-    Error _read_metadata_chunk(Ref<FileAccess> file, const ChunkHeader& header, Dictionary& r_metadata);
-    Error _read_asset_refs_chunk(Ref<FileAccess> file, const ChunkHeader& header);
+    // Chunk readers decode into caller-owned staging out-params and never mutate
+    // the target objects or this serializer, so the same code path drives both
+    // load_scene() (which commits) and validate_file() (which discards).
+    Error _read_gaussian_data_chunk(Ref<FileAccess> file, const ChunkHeader& header, LocalVector<Gaussian>& r_gaussians) const;
+    Error _read_animation_data_chunk(Ref<FileAccess> file, const ChunkHeader& header, Dictionary& r_animation_dict) const;
+    Error _read_metadata_chunk(Ref<FileAccess> file, const ChunkHeader& header, Dictionary& r_metadata) const;
+    Error _read_asset_refs_chunk(Ref<FileAccess> file, const ChunkHeader& header, LocalVector<AssetReference>& r_refs) const;
+
+    // Transactional read pipeline (#601/#602). _read_scene_into_staging reads the
+    // scene header, negotiates the version, then parses the full body into
+    // `r_staging`, enforcing the declared chunk count and a terminating
+    // END_OF_FILE chunk. It mutates nothing outside `r_staging`.
+    Error _read_scene_body(const Ref<FileAccess>& file, const String& file_path, const SceneHeader& header, LoadStaging& r_staging) const;
+    Error _read_scene_into_staging(const Ref<FileAccess>& file, const String& file_path, LoadStaging& r_staging) const;
+    // Legacy defense (validate_file, checksum-disabled path): true when the file
+    // advertises checksum protection (scene flag set or any non-zero chunk
+    // checksum), so a checksum-disabled validator never rubber-stamps a tampered
+    // file that was originally written checksum-protected.
+    bool _file_claims_checksum_protection(const Ref<FileAccess>& file) const;
 
     // Compression helpers
     PackedByteArray _compress_data(const PackedByteArray& data, CompressionType type, bool& r_used_compression) const;

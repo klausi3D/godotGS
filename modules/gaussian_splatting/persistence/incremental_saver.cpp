@@ -99,32 +99,12 @@ Error _encode_variant_to_bytes(const Variant &value, PackedByteArray &out_bytes)
     return encode_variant(value, out_bytes.ptrw(), len, true);
 }
 
-Variant _decode_variant_from_bytes(const PackedByteArray &bytes) {
-    Variant value;
-    if (bytes.is_empty()) {
-        return value;
-    }
-    Error err = decode_variant(value, bytes.ptr(), bytes.size(), nullptr, true);
-    if (err != OK) {
-        return Variant();
-    }
-    return value;
-}
-
 PackedByteArray _pack_change_data(const Dictionary &dict) {
     PackedByteArray bytes;
     if (_encode_variant_to_bytes(dict, bytes) != OK) {
         bytes.clear();
     }
     return bytes;
-}
-
-Dictionary _unpack_change_data(const PackedByteArray &bytes) {
-    Variant value = _decode_variant_from_bytes(bytes);
-    if (value.get_type() == Variant::DICTIONARY) {
-        return value;
-    }
-    return Dictionary();
 }
 
 int _find_clip_index_by_name(GaussianAnimationStateMachine *p_animation, const String &p_clip_name) {
@@ -798,14 +778,14 @@ Error GaussianIncrementalSaver::save_changes(const String &incremental_file_path
     return OK;
 }
 
-Error GaussianIncrementalSaver::load_and_apply_changes(const String &incremental_file_path, ::GaussianData *gaussian_data, GaussianAnimationStateMachine *animation) {
-    Ref<FileAccess> file = FileAccess::open(incremental_file_path, FileAccess::READ);
-    ERR_FAIL_COND_V(file.is_null(), ERR_FILE_NOT_FOUND);
+Error GaussianIncrementalSaver::_read_incremental_layout(const Ref<FileAccess> &file, const String &path,
+        uint64_t &r_change_timestamp, uint64_t &r_baseline_timestamp, uint32_t &r_baseline_splat_count,
+        LocalVector<ChangeEntry> &r_entries, PackedByteArray &r_data_blob) const {
     const uint64_t file_length = file->get_length();
     ERR_FAIL_COND_V(file_length < INCREMENTAL_HEADER_DISK_SIZE, ERR_FILE_CORRUPT);
 
     uint32_t magic = file->get_32();
-    ERR_FAIL_COND_V_MSG(magic != INCREMENTAL_MAGIC, ERR_FILE_UNRECOGNIZED, "Invalid incremental file: " + incremental_file_path);
+    ERR_FAIL_COND_V_MSG(magic != INCREMENTAL_MAGIC, ERR_FILE_UNRECOGNIZED, "Invalid incremental file: " + path);
     uint16_t version = file->get_16();
     ERR_FAIL_COND_V(version > INCREMENTAL_VERSION, ERR_FILE_CORRUPT);
     uint16_t layout_version = file->get_16();
@@ -814,9 +794,9 @@ Error GaussianIncrementalSaver::load_and_apply_changes(const String &incremental
                     "The file was written with an incompatible struct layout. "
                     "Re-export the incremental file or revert to the full baseline.",
                     (int)layout_version, (int)INCREMENTAL_SAVER_LAYOUT_VERSION));
-    uint64_t change_timestamp = file->get_64();
-    baseline_timestamp = file->get_64();
-    baseline_splat_count = file->get_32();
+    r_change_timestamp = file->get_64();
+    r_baseline_timestamp = file->get_64();
+    r_baseline_splat_count = file->get_32();
     uint32_t change_count = file->get_32();
     ERR_FAIL_COND_V(file->get_error() != OK, ERR_FILE_CORRUPT);
     ERR_FAIL_COND_V(change_count > MAX_INCREMENTAL_CHANGE_COUNT, ERR_FILE_CORRUPT);
@@ -828,12 +808,12 @@ Error GaussianIncrementalSaver::load_and_apply_changes(const String &incremental
     ERR_FAIL_COND_V(!_safe_u64_mul(uint64_t(change_count), INCREMENTAL_ENTRY_DISK_SIZE, required_entry_bytes), ERR_FILE_CORRUPT);
     ERR_FAIL_COND_V(required_entry_bytes > bytes_after_header, ERR_FILE_CORRUPT);
 
-    LocalVector<ChangeEntry> entries;
-    entries.resize(change_count);
+    r_entries.clear();
+    r_entries.resize(change_count);
     for (uint32_t i = 0; i < change_count; i++) {
-        Error entry_err = _read_change_entry(file, entries[i]);
+        Error entry_err = _read_change_entry(file, r_entries[i]);
         ERR_FAIL_COND_V(entry_err != OK, ERR_FILE_CORRUPT);
-        ERR_FAIL_COND_V(entries[i].type > ChangeType::METADATA_MODIFIED, ERR_FILE_CORRUPT);
+        ERR_FAIL_COND_V(r_entries[i].type > ChangeType::METADATA_MODIFIED, ERR_FILE_CORRUPT);
     }
 
     const uint64_t payload_start = uint64_t(file->get_position());
@@ -841,9 +821,9 @@ Error GaussianIncrementalSaver::load_and_apply_changes(const String &incremental
     const uint64_t payload_available = file_length - payload_start;
 
     uint64_t max_offset = 0;
-    for (uint32_t i = 0; i < entries.size(); i++) {
-        const uint64_t offset = uint64_t(entries[i].data_offset);
-        const uint64_t size = uint64_t(entries[i].data_size);
+    for (uint32_t i = 0; i < r_entries.size(); i++) {
+        const uint64_t offset = uint64_t(r_entries[i].data_offset);
+        const uint64_t size = uint64_t(r_entries[i].data_size);
         ERR_FAIL_COND_V(offset > payload_available, ERR_FILE_CORRUPT);
         uint64_t end = 0;
         ERR_FAIL_COND_V(!_safe_u64_add(offset, size, end), ERR_FILE_CORRUPT);
@@ -855,24 +835,69 @@ Error GaussianIncrementalSaver::load_and_apply_changes(const String &incremental
     ERR_FAIL_COND_V(!_safe_u64_add(payload_start, max_offset, payload_end), ERR_FILE_CORRUPT);
     ERR_FAIL_COND_V(payload_end > file_length, ERR_FILE_CORRUPT);
 
-    PackedByteArray data_blob = file->get_buffer(max_offset);
-    ERR_FAIL_COND_V(uint64_t(data_blob.size()) != max_offset, ERR_FILE_CORRUPT);
+    r_data_blob = file->get_buffer(max_offset);
+    ERR_FAIL_COND_V(uint64_t(r_data_blob.size()) != max_offset, ERR_FILE_CORRUPT);
+    return OK;
+}
 
+Error GaussianIncrementalSaver::_decode_change_payload(const PackedByteArray &data_blob, const ChangeEntry &entry, Dictionary &r_dict) {
+    const uint64_t entry_end = uint64_t(entry.data_offset) + uint64_t(entry.data_size);
+    ERR_FAIL_COND_V(entry_end > uint64_t(data_blob.size()), ERR_FILE_CORRUPT);
+    // A change entry must carry a non-empty, well-formed Dictionary payload. A
+    // decode failure or a non-Dictionary result is corruption, NOT a signal to
+    // silently apply defaults (#603b).
+    ERR_FAIL_COND_V_MSG(entry.data_size == 0, ERR_FILE_CORRUPT, "Incremental change entry has an empty payload.");
+    PackedByteArray payload;
+    payload.resize(entry.data_size);
+    memcpy(payload.ptrw(), data_blob.ptr() + entry.data_offset, entry.data_size);
+
+    Variant decoded;
+    Error decode_err = decode_variant(decoded, payload.ptr(), payload.size(), nullptr, true);
+    ERR_FAIL_COND_V_MSG(decode_err != OK, ERR_FILE_CORRUPT, "Incremental change payload failed to decode.");
+    ERR_FAIL_COND_V_MSG(decoded.get_type() != Variant::DICTIONARY, ERR_FILE_CORRUPT,
+            "Incremental change payload is not a Dictionary.");
+    r_dict = decoded;
+    return OK;
+}
+
+Error GaussianIncrementalSaver::load_and_apply_changes(const String &incremental_file_path, ::GaussianData *gaussian_data, GaussianAnimationStateMachine *animation) {
+    Ref<FileAccess> file = FileAccess::open(incremental_file_path, FileAccess::READ);
+    ERR_FAIL_COND_V(file.is_null(), ERR_FILE_NOT_FOUND);
+
+    uint64_t change_timestamp = 0;
+    uint64_t loaded_baseline_timestamp = 0;
+    uint32_t loaded_baseline_splat_count = 0;
+    LocalVector<ChangeEntry> entries;
+    PackedByteArray data_blob;
+    Error layout_err = _read_incremental_layout(file, incremental_file_path,
+            change_timestamp, loaded_baseline_timestamp, loaded_baseline_splat_count, entries, data_blob);
+    if (layout_err != OK) {
+        return layout_err;
+    }
+
+    // Strict-decode every change payload BEFORE mutating saver state, so a corrupt
+    // entry aborts the load rather than being swallowed into a default-valued
+    // change (#603b).
+    Vector<Dictionary> decoded;
+    decoded.resize(entries.size());
+    for (uint32_t i = 0; i < entries.size(); i++) {
+        Error decode_err = _decode_change_payload(data_blob, entries[i], decoded.write[i]);
+        if (decode_err != OK) {
+            return decode_err;
+        }
+    }
+
+    // Commit: header fields + rebuilt change tables (only reached after the whole
+    // file has validated and every payload decoded cleanly).
+    baseline_timestamp = loaded_baseline_timestamp;
+    baseline_splat_count = loaded_baseline_splat_count;
     splat_changes.clear();
     animation_changes.clear();
     metadata_changes.clear();
 
     for (uint32_t i = 0; i < entries.size(); i++) {
         const ChangeEntry &entry = entries[i];
-        const uint64_t entry_end = uint64_t(entry.data_offset) + uint64_t(entry.data_size);
-        ERR_FAIL_COND_V(entry_end > uint64_t(data_blob.size()), ERR_FILE_CORRUPT);
-        PackedByteArray payload;
-        payload.resize(entry.data_size);
-        if (entry.data_size > 0) {
-            memcpy(payload.ptrw(), data_blob.ptr() + entry.data_offset, entry.data_size);
-        }
-
-        Dictionary dict = _unpack_change_data(payload);
+        const Dictionary &dict = decoded[i];
         switch (entry.type) {
             case ChangeType::SPLAT_MODIFIED: {
                 SplatChange change;
@@ -1032,9 +1057,26 @@ Error GaussianIncrementalSaver::update_baseline(const String &new_baseline_file_
 Error GaussianIncrementalSaver::validate_incremental_file(const String &file_path) const {
     Ref<FileAccess> file = FileAccess::open(file_path, FileAccess::READ);
     ERR_FAIL_COND_V(file.is_null(), ERR_FILE_NOT_FOUND);
-    uint32_t magic = file->get_32();
-    if (magic != INCREMENTAL_MAGIC) {
-        return ERR_FILE_UNRECOGNIZED;
+
+    // #602: validate by running the SAME non-mutating structural + decode parse
+    // that load_and_apply_changes uses (into throwaway staging), instead of only
+    // sniffing the 4 magic bytes. A file that passes here will also load.
+    uint64_t change_timestamp = 0;
+    uint64_t baseline_ts = 0;
+    uint32_t baseline_count = 0;
+    LocalVector<ChangeEntry> entries;
+    PackedByteArray data_blob;
+    Error layout_err = _read_incremental_layout(file, file_path,
+            change_timestamp, baseline_ts, baseline_count, entries, data_blob);
+    if (layout_err != OK) {
+        return layout_err;
+    }
+    for (uint32_t i = 0; i < entries.size(); i++) {
+        Dictionary dict;
+        Error decode_err = _decode_change_payload(data_blob, entries[i], dict);
+        if (decode_err != OK) {
+            return decode_err;
+        }
     }
     return OK;
 }
