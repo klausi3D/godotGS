@@ -78,19 +78,22 @@ is unreliable.
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `test_case` | yes | Doctest-style wildcard matched against stranded case names. Keep it as narrow as the family allows. |
+| `count` | yes | Exactly how many stranded cases this declaration covers. Family wildcards are open-ended, so without a count a brand-new stranded case joining an already-declared family would pass silently — the declaration would amnesty tests written long after anyone agreed to it. |
 | `reason` | yes | Why these cases have no lane, and what it would take to give them one. |
 | `issue_url` | yes | Tracking issue. |
 | `owner` | yes | Who owns getting them laned. |
 | `expires_utc` | yes | ISO-8601 UTC. The guard fails once this is in the past. |
 | `risk` | no | Risk class, for consistency with `entries`. |
 
-Declarations are verified in **both** directions: an entry matching zero
-currently-stranded cases fails as stale, so the list cannot rot into a permanent
-amnesty after the tests are laned, renamed or deleted.
+Declarations are verified in **both** directions and on the count: an entry
+matching zero stranded cases fails as stale; an entry matching **more** than it
+declares fails, naming the newcomer; an entry matching **fewer** fails with an
+instruction to lower the count so the slack cannot be reoccupied. The list can
+neither rot into a permanent amnesty nor quietly widen.
 
 ### What the guard does not check
 
-It does not fail on cases that reach only a **non-strict** lane. 415 of 755
+It does not fail on cases that reach only a **non-strict** lane. 416 of 756
 registered cases reach no strict module lane and no GPU batch, most of them
 legitimately (GPU harness, advisory safety nets). Gating that today would demand
 hundreds of declarations, turning this manifest into the rubber stamp it exists

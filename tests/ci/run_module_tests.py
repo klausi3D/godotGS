@@ -34,6 +34,7 @@ METRIC_RESET_PARITY_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_metric_res
 DOC_CLASSES_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_doc_classes_complete.py"
 TEST_LINKAGE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_test_linkage.py"
 TEST_LANE_COVERAGE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_test_lane_coverage.py"
+TEST_LANE_COVERAGE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_test_lane_coverage.py"
 RENDERER_RELEASE_GATE_SCRIPT = ROOT / "tests" / "ci" / "check_renderer_release_gates.py"
 RENDERER_RELEASE_GATE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_renderer_release_gates.py"
 BASELINE_QA_REQUIRE_FLAG_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_baseline_qa_require_flag.py"
@@ -729,20 +730,18 @@ def _run_test_lane_coverage_guard() -> tuple[bool, list[str]]:
     guard IMPORTS this module to read MODULE_TEST_FILTERS / REQUIRES_RD_TEST_FILTERS,
     so calling it in-process would re-enter the runner.
     """
-    if not TEST_LANE_COVERAGE_GUARD_SCRIPT.is_file():
-        return False, [
-            f"Missing test lane coverage guard script: "
-            f"{TEST_LANE_COVERAGE_GUARD_SCRIPT.relative_to(ROOT)}"
-        ]
-
-    code, out, err = _run_command([sys.executable, str(TEST_LANE_COVERAGE_GUARD_SCRIPT)])
-    output_lines = [line for line in (out + err).splitlines() if line.strip()]
-
-    if code != 0:
-        if not output_lines:
-            output_lines = [f"Test lane coverage guard failed with exit code {code}."]
-        return False, output_lines
-
+    for label, script in (
+        ("Test lane coverage guard unit test", TEST_LANE_COVERAGE_TEST_SCRIPT),
+        ("Test lane coverage guard", TEST_LANE_COVERAGE_GUARD_SCRIPT),
+    ):
+        if not script.is_file():
+            return False, [f"Missing {label} script: {script.relative_to(ROOT)}"]
+        code, out, err = _run_command([sys.executable, str(script)])
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if code != 0:
+            if not output_lines:
+                output_lines = [f"{label} failed with exit code {code}."]
+            return False, output_lines
     return True, output_lines
 
 

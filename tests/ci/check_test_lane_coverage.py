@@ -53,10 +53,28 @@ case-sensitive matcher, can disagree with what CI actually runs.
 A registered test case that matches **no lane in any runner** and is not declared
 in `tests/ci/quarantine_manifest.json` under `unlaned_tests`.
 
-Declaring an exclusion requires an owner, a linked issue and an expiry, so a test
-that nobody runs is a tracked decision rather than an accident. Declarations are
-verified in both directions: an entry that matches **zero** currently-stranded
-cases FAILS as stale, so the list cannot rot into a permanent amnesty.
+Declaring an exclusion requires an owner, a linked issue, an expiry and a
+**count**, so a test that nobody runs is a tracked decision rather than an
+accident.
+
+The count is what stops a declaration becoming an open-ended amnesty. Patterns
+like `[TileRenderer]*` are family wildcards, so without it a brand-new stranded
+case joining an already-declared family would pass silently - the declaration
+would cover tests written long after anyone agreed to it. Declarations are
+verified in **both** directions: an entry matching zero stranded cases FAILS as
+stale, an entry matching more than it declares FAILS as an undeclared newcomer,
+and an entry matching fewer FAILS with an instruction to lower the count so the
+slack cannot be reoccupied.
+
+## Corpus scope
+
+The module tests, plus the engine test tree scanned **recursively** for cases
+whose name mentions gaussian - `tests/test_projection_math.cpp` carries tagged
+`[Projection]` cases, and `tests/servers/rendering/test_renderer_scene_cull.h`
+carries an untagged one that a tag-filtered, top-level-only scan misses. Upstream
+Godot's other engine tests are deliberately out of scope: they run under Godot's
+own unfiltered `--test` suite rather than our gaussian-scoped lanes, so "matches
+no lane here" is not a defect for them.
 
 ## What this guard deliberately does NOT check
 
@@ -97,6 +115,7 @@ QUARANTINE_MANIFEST_PATH = CI_DIR / "quarantine_manifest.json"
 # an expiry is an untracked skip wearing a manifest entry's clothes.
 UNLANED_REQUIRED_FIELDS: tuple[str, ...] = (
     "test_case",
+    "count",
     "reason",
     "issue_url",
     "owner",
@@ -104,7 +123,7 @@ UNLANED_REQUIRED_FIELDS: tuple[str, ...] = (
 )
 
 _CASE_RE = re.compile(r'\bTEST_CASE\s*\(\s*"((?:[^"\\]|\\.)*)"')
-_GAUSSIAN_TAG = "[gaussiansplatting]"
+_GAUSSIAN_NAME = "gaussian"
 
 
 def _load_module(alias: str, path: Path):
@@ -193,19 +212,33 @@ def _collect_corpus(strip_comments) -> tuple[list[tuple[str, str]], list[str]]:
         for match in _CASE_RE.finditer(text):
             cases.append((match.group(1), path.name))
 
-    # The corpus is not confined to the module directory: tests/test_projection_math.cpp
-    # carries [GaussianSplatting][Projection] cases from the engine tests dir. Discover
-    # those by scanning for the module tag rather than by naming the file.
-    for path in sorted(ENGINE_TESTS_DIR.glob("*.cpp")):
+    # The corpus is not confined to the module directory. Scan the whole engine
+    # test tree RECURSIVELY and keep any case whose NAME mentions gaussian, rather
+    # than requiring the [GaussianSplatting] tag: tests/test_projection_math.cpp
+    # carries tagged [Projection] cases, while
+    # tests/servers/rendering/test_renderer_scene_cull.h carries an untagged
+    # "[RendererSceneCull] Hidden indexing policy gates Gaussian exemption" case
+    # that a tag-filtered, non-recursive scan misses entirely.
+    #
+    # Matching on the name (not the tag) is the derived rule: our lanes are
+    # gaussian-scoped, so a gaussian-relevant case is exactly what they are
+    # supposed to cover. Upstream Godot's other engine tests are deliberately out
+    # of scope - they run under Godot's own unfiltered --test suite, not our lanes,
+    # so "matches no gaussian lane" is not a defect for them.
+    for path in sorted(
+        list(ENGINE_TESTS_DIR.rglob("*.cpp")) + list(ENGINE_TESTS_DIR.rglob("*.h"))
+    ):
         text = strip_comments(path.read_text(encoding="utf-8", errors="replace"))
-        found = [m.group(1) for m in _CASE_RE.finditer(text)]
-        tagged = [name for name in found if _GAUSSIAN_TAG in name.lower()]
-        if tagged:
+        relevant = [
+            m.group(1) for m in _CASE_RE.finditer(text) if _GAUSSIAN_NAME in m.group(1).lower()
+        ]
+        if relevant:
+            rel = path.relative_to(ROOT).as_posix()
             notes.append(
-                f"corpus includes {len(tagged)} [GaussianSplatting] case(s) from "
-                f"tests/{path.name} (outside the module tests directory)."
+                f"corpus includes {len(relevant)} gaussian-relevant case(s) from "
+                f"{rel} (outside the module tests directory)."
             )
-            cases.extend((name, path.name) for name in tagged)
+            cases.extend((name, path.name) for name in relevant)
 
     return cases, notes
 
@@ -241,6 +274,12 @@ def _load_unlaned_declarations() -> tuple[list[dict], list[str]]:
             problems.append(
                 f"unlaned_tests[{index}] ({entry.get('test_case', '?')!r}) is missing "
                 f"required field(s): {', '.join(missing)}."
+            )
+            continue
+        if not isinstance(entry.get("count"), int) or entry["count"] < 1:
+            problems.append(
+                f"unlaned_tests[{index}] ({entry['test_case']!r}) 'count' must be a positive "
+                f"integer (the number of stranded cases this declaration covers)."
             )
             continue
         expires_raw = str(entry["expires_utc"]).strip()
@@ -322,11 +361,27 @@ def main() -> int:
             matched_by[hit] += 1
 
     for index, entry in enumerate(declarations):
-        if matched_by[index] == 0:
+        actual = matched_by[index]
+        declared = entry["count"]
+        if actual == 0:
             failures.append(
                 f"unlaned_tests[{index}] ({entry['test_case']!r}) matches NO currently "
                 f"stranded test case. It is stale - the tests were given a lane, renamed "
                 f"or deleted. Remove the declaration."
+            )
+        elif actual > declared:
+            failures.append(
+                f"unlaned_tests[{index}] ({entry['test_case']!r}) now matches {actual} "
+                f"stranded case(s) but declares {declared}. {actual - declared} NEW stranded "
+                f"case(s) joined an already-declared family - a wildcard declaration must not "
+                f"silently amnesty cases written after it. Give the new case(s) a lane, or "
+                f"raise 'count' deliberately with justification ({entry['issue_url']})."
+            )
+        elif actual < declared:
+            failures.append(
+                f"unlaned_tests[{index}] ({entry['test_case']!r}) matches {actual} stranded "
+                f"case(s) but declares {declared}. Case(s) were laned, renamed or deleted - "
+                f"lower 'count' to {actual} so the slack cannot be reoccupied."
             )
 
     for case_name, file_name in undeclared:
@@ -343,8 +398,9 @@ def main() -> int:
 
     if failures:
         print(
-            f"[test-lane-coverage] FAIL {len(undeclared)} undeclared stranded case(s) "
-            f"of {len(stranded)} stranded / {len(cases)} registered."
+            f"[test-lane-coverage] FAIL {len(failures)} problem(s); "
+            f"{len(undeclared)} undeclared of {len(stranded)} stranded / "
+            f"{len(cases)} registered."
         )
         for failure in failures:
             print(f"  - {failure}")
