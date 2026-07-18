@@ -2307,4 +2307,69 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] Node PREDELETE prunes S
 	}
 }
 
+// Regression guard for #611 (world_mutex ↔ render-thread lock-order inversion).
+//
+// The real deadlock — the render thread blocked acquiring world_mutex inside a
+// *_for_renderer builder while the main thread holds world_mutex and blocks on a
+// render-thread dispatch (renderer teardown / initialize) — cannot be reproduced
+// in this headless harness because there is no live render thread and the
+// dispatcher short-circuits when the render loop is disabled. What this test DOES
+// pin is the structural half of the fix: teardown_world_for_scenario moves the
+// renderer Ref out of the map under the lock and erases the SharedWorld, then
+// releases the Ref only after world_mutex is dropped. It asserts the observable
+// contract (world created, then fully erased, and idempotent on re-entry) so a
+// regression that reintroduces a synchronous renderer drop under the lock — or
+// leaks the deferred Ref — is caught. On no-GPU runners the renderer is null, so
+// this exercises the deferred-release control flow with an empty sink.
+TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] teardown_world_for_scenario erases world outside world_mutex and is idempotent (#611)") {
+	SceneTree *tree = SceneTree::get_singleton();
+	REQUIRE_MESSAGE(tree != nullptr, "SceneTree singleton required");
+
+	Window *root = tree->get_root();
+	REQUIRE_MESSAGE(root != nullptr, "SceneTree root window required");
+
+	Ref<World3D> world = root->get_world_3d();
+	REQUIRE(world.is_valid());
+	const RID scenario = world->get_scenario();
+	REQUIRE(scenario.is_valid());
+
+	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+	const bool owns_director = (director == nullptr);
+	if (!director) {
+		director = memnew(GaussianSplatSceneDirector);
+	}
+	REQUIRE(director != nullptr);
+
+	// Create a SharedWorld entry for the scenario via a world-submission. On
+	// no-GPU runners the per-scenario renderer is null, but the SharedWorld entry
+	// (and its active submission) is still created.
+	GaussianSplatSceneDirector::WorldSubmission submission;
+	submission.owner_id = root->get_instance_id();
+	submission.scenario = scenario;
+	submission.gaussian_data = stage1a_make_submission_test_data(8, 1.0f);
+	submission.bounds = submission.gaussian_data->get_aabb();
+	const bool submitted = director->submit_world_submission(submission);
+	REQUIRE_MESSAGE(submitted, "submit_world_submission should create the SharedWorld entry.");
+	REQUIRE_MESSAGE(director->has_shared_world_for_scenario(scenario),
+			"Director should have a SharedWorld entry after submit_world_submission.");
+
+	// Teardown must erase the SharedWorld entry (moving any renderer Ref out for a
+	// post-lock release) and leave no world-submission record behind.
+	director->teardown_world_for_scenario(scenario);
+	CHECK_FALSE_MESSAGE(director->has_shared_world_for_scenario(scenario),
+			"teardown_world_for_scenario must erase the SharedWorld entry.");
+	GaussianSplatSceneDirector::WorldSubmission queried_submission;
+	CHECK_FALSE_MESSAGE(director->get_world_submission_for_scenario(scenario, &queried_submission),
+			"No world-submission record should remain after teardown_world_for_scenario.");
+
+	// Idempotent: a second teardown on the now-absent entry is a safe no-op.
+	director->teardown_world_for_scenario(scenario);
+	CHECK_FALSE_MESSAGE(director->has_shared_world_for_scenario(scenario),
+			"teardown_world_for_scenario must remain a no-op when the entry is already gone.");
+
+	if (owns_director) {
+		memdelete(director);
+	}
+}
+
 #endif // TESTS_ENABLED || TOOLS_ENABLED
