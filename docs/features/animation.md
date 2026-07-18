@@ -113,9 +113,14 @@ func _process(delta: float) -> void:
 | `is_playing()` | Returns `true` when the state machine is in the `PLAYING` state. | `modules/gaussian_splatting/animation/animation_state_machine.cpp:234` |
 | `get_current_time()` | Returns the current playback position in seconds. | `modules/gaussian_splatting/animation/animation_state_machine.cpp:232` |
 
-### Blending between clips
+### Switching between clips
 
-The blending system allows smooth transitions between clips over a specified duration. Each clip has a weight that can be controlled directly or driven by `blend_to_clip`.
+> **Note:** cross-fade blending is not yet implemented. `switch_to_clip_delayed()`
+> schedules a *delayed hard cut*: until the delay elapses the current clip keeps
+> playing unchanged, then playback jumps to the target clip in a single step. The
+> target clip is never sampled or weighted during the delay. `set_clip_weight()` /
+> `get_clip_weight()` track a weight value that no sampler currently reads. Real
+> weighted cross-fade sampling is tracked as a follow-up (godotGS issue #614).
 
 ```gdscript
 # Create a second clip
@@ -124,15 +129,16 @@ anim.set_clip_looping(idle_idx, true)
 anim.add_track_to_clip(idle_idx, GaussianAnimationStateMachine.ANIMATION_PROPERTY_POSITION)
 # ... add keyframes ...
 
-# Blend from current clip to "idle" over 0.5 seconds
-anim.blend_to_clip(idle_idx, 0.5)
+# Switch to "idle" after 0.5 seconds (delayed hard cut, not a cross-fade)
+anim.switch_to_clip_delayed(idle_idx, 0.5)
 ```
 
 | Method | Description | Implementation reference |
 | --- | --- | --- |
-| `blend_to_clip(clip_index, blend_duration)` | Smoothly transitions to the target clip. Default duration is 0.3 seconds. | `modules/gaussian_splatting/animation/animation_state_machine.cpp:237` |
-| `set_clip_weight(clip_index, weight)` | Manually sets the blend weight for a clip. | `modules/gaussian_splatting/animation/animation_state_machine.cpp:238` |
-| `get_clip_weight(clip_index)` | Returns the current blend weight. | `modules/gaussian_splatting/animation/animation_state_machine.cpp:239` |
+| `switch_to_clip_delayed(clip_index, switch_delay)` | Schedules a delayed hard switch to the target clip after `switch_delay` seconds (default 0.3). Not a cross-fade. | `modules/gaussian_splatting/animation/animation_state_machine.cpp` |
+| `blend_to_clip(clip_index, blend_duration)` | **Deprecated** alias for `switch_to_clip_delayed()`; the name implied a cross-fade that is not implemented. | `modules/gaussian_splatting/animation/animation_state_machine.cpp` |
+| `set_clip_weight(clip_index, weight)` | Sets a clip's blend weight. Stored but not yet consumed by any sampler. | `modules/gaussian_splatting/animation/animation_state_machine.cpp` |
+| `get_clip_weight(clip_index)` | Returns the current stored blend weight. | `modules/gaussian_splatting/animation/animation_state_machine.cpp` |
 
 ### Sampling
 
