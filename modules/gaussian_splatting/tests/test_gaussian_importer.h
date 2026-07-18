@@ -916,11 +916,26 @@ TEST_CASE("[GaussianSplatting][Thumbnail] Generator caches deterministic asset+s
     CHECK(int(stats.get(StringName("entries"), 0)) == 3);
 }
 
-TEST_CASE("[GaussianSplatting][Thumbnail] Editor preview generator uses stored images on worker threads") {
+// [SceneTree] is required, not decorative: on a worker thread
+// GaussianSplatAssetPreviewGenerator::generate() routes through
+// _create_preview_texture_from_image(), which marshals ImageTexture creation
+// onto the main thread via MessageQueue::get_main_singleton() and hard-fails
+// when that queue is absent (gaussian_resource_preview_generator.cpp:95-97).
+// tests/test_main.cpp only constructs the main MessageQueue (and the
+// RenderingServer that ImageTexture needs) for cases whose name contains
+// [SceneTree] or [Editor]. [SceneTree] is the lighter of the two and is
+// sufficient here -- nothing on this path reads EditorSettings/EditorPaths.
+TEST_CASE("[GaussianSplatting][Thumbnail][SceneTree] Editor preview generator uses stored images on worker threads") {
 #ifndef THREADS_ENABLED
     MESSAGE("Skipping - THREADS_ENABLED is not enabled in this build");
     return;
 #else
+    // Fail loudly if the fixture is ever lost (e.g. the tag is renamed away)
+    // instead of degrading into a test that silently asserts nothing.
+    REQUIRE_MESSAGE(MessageQueue::get_main_singleton() != nullptr,
+            "Main MessageQueue must exist (provided by the [SceneTree] tag); without it the "
+            "worker-thread preview path cannot create a texture and this test is meaningless.");
+
     Ref<GaussianSplatAsset> asset;
     asset.instantiate();
     asset->set_splat_count(1);
