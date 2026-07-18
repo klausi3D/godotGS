@@ -76,10 +76,44 @@ manifest and reclassify #369 before cutting a candidate.
 
 The contract checker currently validates that required workflow files exist and
 contain the required job markers. It does not yet parse GitHub Actions YAML
-deeply enough to prove manual-input bypasses, path-filter bypasses, Linux-only
-publishing, unmatched release-file allowances, or open-world advisory-only
-behavior. Those no-downgrade rules remain documented review policy in the
-manifest until a workflow-behavior parser is added.
+deeply enough to prove manual-input bypasses, path-filter bypasses, or
+open-world advisory-only behavior. Those no-downgrade rules remain documented
+review policy in the manifest until a workflow-behavior parser is added.
+
+## Stable Release Candidate Gate
+
+`release_builds.yml` maps a `v*` tag push (and a manual stable dispatch) to
+`channel=stable, publish=true`. That publish path is gated by the
+`release_candidate_gate` job, which the manifest tracks as a required job marker
+for `release_builds.yml` (issue #593):
+
+- **No Linux-only stable release.** For the stable/candidate channel the gate
+  fails unless both `build_linux` and `build_windows` succeeded, so a Windows
+  runner outage blocks a stable publish instead of silently shipping a
+  Linux-only release. Nightly prereleases keep the Linux-only tolerance.
+- **No unmatched release files.** `publish_release` sets
+  `fail_on_unmatched_files: true` for the stable channel, so a missing asset
+  fails the publish rather than shipping a partial release. Nightly keeps the
+  relaxed behavior.
+- **Candidate validation is required.** For the stable/tag path the gate runs
+  `check_renderer_release_gates.py --mode candidate` against a public-alpha
+  evidence bundle and **fails closed** when that bundle is absent, so a tag can
+  never publish without passing candidate validation. `publish_release` hard
+  depends on the gate's success.
+
+**Remaining scoped gap (issue #360).** No CI lane yet produces the public-alpha
+candidate evidence bundle (candidate GPU-harness report, benchmark-lane report,
+artifact SHA/commit-parity, and issue snapshot). Until that pipeline is wired,
+the gate fails closed on every real `v*` tag; a maintainer cutting a candidate
+supplies the bundle out-of-band by pointing the `RELEASE_CANDIDATE_EVIDENCE`
+(and optional `RELEASE_CANDIDATE_ISSUES`) repo/environment variable at a
+produced bundle. Generating the bundle in-workflow so a green stable tag is
+self-proving is tracked as follow-up under #360/#593.
+
+The contract checker verifies the `release_candidate_gate` job marker is present
+but does not parse the job's runtime both-platform / candidate logic; those
+specifics remain YAML-level enforcement recorded under
+`workflow_policy.workflow_enforced_rules` in the manifest.
 
 ## Renderer Evidence
 

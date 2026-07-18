@@ -455,6 +455,95 @@ jobs:
             repo/${{ steps.package.outputs.checksum }}
           retention-days: 14
 
+  release_candidate_gate:
+    name: Release candidate gate
+    runs-on: ubuntu-latest
+    needs:
+      - release_metadata
+      - build_linux
+      - build_windows
+    # Runs whenever a publish is requested so `publish_release` can hard-depend
+    # on this job's success (fail-closed wiring for #593). This job is the single
+    # authority for "is a stable/candidate release allowed to publish":
+    #
+    #   * Stable/candidate channel (a `v*` tag push or a manual stable dispatch):
+    #     REQUIRES both platform builds AND a passing
+    #     `check_renderer_release_gates.py --mode candidate` run against a
+    #     public-alpha evidence bundle. If the evidence bundle is absent, the gate
+    #     FAILS (fail-closed) and the release cannot publish.
+    #   * Nightly prereleases: pass-through. The public-alpha candidate contract
+    #     (docs/reference/renderer_release_gate_manifest.json) governs only the
+    #     stable/candidate release path; nightly prereleases keep the Linux-only
+    #     tolerance below.
+    if: always() && needs.release_metadata.outputs.publish == 'true'
+    env:
+      # Repo-relative path to the public-alpha candidate evidence bundle and its
+      # issue snapshot. These are produced by the public-alpha evidence pipeline
+      # tracked by issue #360 (candidate GPU-harness report, benchmark-lane
+      # report, artifact SHA/commit-parity, issue snapshot). That pipeline is NOT
+      # yet wired into CI, so on a real `v*` tag these files are absent and the
+      # gate fails closed. A maintainer cutting a candidate points
+      # RELEASE_CANDIDATE_EVIDENCE at a produced bundle via a repo/environment
+      # variable. TODO(#360/#593): generate this bundle in-workflow so a green
+      # stable tag is self-proving instead of relying on an out-of-band bundle.
+      RELEASE_CANDIDATE_EVIDENCE: ${{ vars.RELEASE_CANDIDATE_EVIDENCE || 'release-candidate-evidence/candidate_evidence.json' }}
+      RELEASE_CANDIDATE_ISSUES: ${{ vars.RELEASE_CANDIDATE_ISSUES || 'release-candidate-evidence/issue_snapshot.json' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Require both platform builds for a stable release
+        if: needs.release_metadata.outputs.channel == 'stable'
+        run: |
+          set -euo pipefail
+          ok=1
+          if [[ "${{ needs.build_linux.result }}" != "success" ]]; then
+            echo "::error::Linux build result is '${{ needs.build_linux.result }}'; a stable release must ship both platforms."
+            ok=0
+          fi
+          if [[ "${{ needs.build_windows.result }}" != "success" ]]; then
+            echo "::error::Windows build result is '${{ needs.build_windows.result }}'; a stable release must ship both platforms (no Linux-only stable publish, #593)."
+            ok=0
+          fi
+          if [[ "$ok" != "1" ]]; then
+            exit 1
+          fi
+          echo "Both platform builds succeeded."
+
+      - name: Validate release candidate (public-alpha gate)
+        if: needs.release_metadata.outputs.channel == 'stable'
+        run: |
+          set -euo pipefail
+          evidence="${RELEASE_CANDIDATE_EVIDENCE}"
+          issues="${RELEASE_CANDIDATE_ISSUES}"
+          echo "Resolving release-candidate evidence bundle: ${evidence}"
+          if [[ ! -f "${evidence}" ]]; then
+            echo "::error::Release-candidate evidence bundle not found at '${evidence}'."
+            echo "::error::A stable/tag publish is gated on 'check_renderer_release_gates.py --mode candidate' (#593)."
+            echo "::error::Produce the public-alpha evidence bundle (issue #360) and set the RELEASE_CANDIDATE_EVIDENCE repo/environment variable, or do not push a v* tag."
+            exit 1
+          fi
+          args=(--mode candidate --candidate-evidence "${evidence}")
+          if [[ -f "${issues}" ]]; then
+            args+=(--issues-json "${issues}")
+          else
+            echo "No issue snapshot at '${issues}'; the evidence bundle must embed issue_snapshot or the candidate check fails closed."
+          fi
+          echo "Running: python tests/ci/check_renderer_release_gates.py ${args[*]}"
+          python tests/ci/check_renderer_release_gates.py "${args[@]}"
+
+      - name: Non-stable channel (candidate gate not required)
+        if: needs.release_metadata.outputs.channel != 'stable'
+        run: |
+          echo "Channel '${{ needs.release_metadata.outputs.channel }}' is a prerelease; the public-alpha candidate gate governs only the stable/tag release path. Skipping candidate validation."
+
   publish_release:
     name: Publish GitHub release
     runs-on: ubuntu-latest
@@ -462,13 +551,19 @@ jobs:
       - release_metadata
       - build_linux
       - build_windows
-    # Publish as long as the Linux lane succeeded. A Windows runner outage
-    # must not prevent a Linux-only release; the Windows artifact is
-    # downloaded optionally below and included if available.
+      - release_candidate_gate
+    # A stable release cannot publish unless `release_candidate_gate` succeeded:
+    # that gate enforces both-platform builds AND `--mode candidate` validation
+    # for the stable/tag path, and fails closed when the evidence bundle is
+    # absent (#593). Nightly prereleases still tolerate a Linux-only publish (a
+    # Windows runner outage must not block the nightly cadence): the gate is a
+    # pass-through for nightly, the Windows artifact is downloaded optionally
+    # below, and `fail_on_unmatched_files` is relaxed for the nightly channel.
     if: |
       always() &&
       needs.release_metadata.outputs.publish == 'true' &&
-      needs.build_linux.result == 'success'
+      needs.build_linux.result == 'success' &&
+      needs.release_candidate_gate.result == 'success'
     steps:
       - name: Download Linux contributor artifact
         uses: actions/download-artifact@v4
@@ -492,7 +587,12 @@ jobs:
           prerelease: ${{ needs.release_metadata.outputs.prerelease == 'true' }}
           draft: false
           generate_release_notes: true
-          fail_on_unmatched_files: false
+          # Stable releases must not silently ship a partial asset set: if any
+          # listed file is missing the publish fails (#593). The stable path is
+          # guaranteed both-platform by release_candidate_gate, so every file
+          # below exists. Nightly prereleases keep the relaxed behavior because
+          # they tolerate a Linux-only publish.
+          fail_on_unmatched_files: ${{ needs.release_metadata.outputs.channel == 'stable' }}
           files: |
             release-assets/linux/godotgs-linux-x86_64-${{ needs.release_metadata.outputs.tag }}.tar.xz
             release-assets/linux/godotgs-linux-x86_64-${{ needs.release_metadata.outputs.tag }}.sha256

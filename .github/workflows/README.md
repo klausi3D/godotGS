@@ -12,7 +12,7 @@ GitHub's Actions tab can also show historical workflow names from past runs, dis
 | Docs Pages (Versioned) | `docs_pages.yml` | Builds and deploys MkDocs docs with mike versioning to `gh-pages`. | Publishes `latest` from `master/main` and versioned docs from `v*` tags. |
 | Gaussian Production Gates | `gaussian_production_gates.yml` | Enforces guard checks, pipeline smoke, runtime validation, the blocking streaming gate, and optional non-blocking benchmark evidence surfaces. | Owns the single Windows build for validation workflows. `streaming-gpu-ci` is the canonical blocking GPU-backed streaming runtime gate; `openworld-proof-dev` and `openworld-proof-weekly` are evidence-only benchmark surfaces. |
 | Gaussian Shader Validation | `gaussian_shader_validation.yml` | Validates shader compile matrix and host/shader contract checks. | Focused shader CI gate. |
-| Release Builds | `release_builds.yml` | Builds Linux and Windows editors for CI artifacts, nightly prereleases, and optional stable-tag publishes. | Publishes Linux tarballs and Windows zips on the nightly schedule and on `v*` tag pushes. |
+| Release Builds | `release_builds.yml` | Builds Linux and Windows editors for CI artifacts, nightly prereleases, and stable-tag publishes. | Publishes Linux tarballs and Windows zips on the nightly schedule and on `v*` tag pushes. The `release_candidate_gate` job gates the stable/tag publish path (both-platform builds + `--mode candidate` validation, fail-closed; see below). |
 | Agentic PR Gate | `agentic_pr_gate.yml` | Fork-safe, always-on gate: validates the agentic control plane, runs the agentic tests, the agentic/governance link check, and the GPU-free `--guard-only` lane. | GitHub-hosted (`ubuntu-latest`); runs on every PR and the merge queue. Required status check (job name): `agentic-pr-gate`. |
 
 ## Required Checks
@@ -76,6 +76,30 @@ signal because `master` branch protection has no required status checks and the
 repo does not track a qlty configuration/log contract. If branch protection
 later requires qlty, update the manifest before treating a qlty result as part
 of public-alpha signoff.
+
+### Stable-tag publish gate (`release_candidate_gate`)
+
+A `v*` tag push (and a manual stable dispatch) resolves to `channel=stable,
+publish=true` in `release_builds.yml`. The `release_candidate_gate` job gates
+that publish path (issue #593):
+
+- it fails the stable/candidate path unless **both** `build_linux` and
+  `build_windows` succeeded (no Linux-only stable release);
+- it runs `check_renderer_release_gates.py --mode candidate` against a
+  public-alpha evidence bundle and **fails closed** when the bundle is absent, so
+  a tag cannot publish without passing candidate validation;
+- `publish_release` hard-depends on the gate and sets
+  `fail_on_unmatched_files: true` for the stable channel.
+
+Nightly prereleases are a pass-through (the gate does not run candidate
+validation for them) and keep the Linux-only / relaxed-unmatched behavior so a
+Windows runner outage cannot stall the nightly cadence.
+
+**Scoped gap:** no CI lane yet produces the candidate evidence bundle (issue
+#360), so the gate currently fails closed on every real `v*` tag. A maintainer
+cutting a candidate points the `RELEASE_CANDIDATE_EVIDENCE` (and optional
+`RELEASE_CANDIDATE_ISSUES`) repo/environment variable at a produced bundle. See
+`docs/reference/renderer-release-gates.md` for details.
 
 ## Runner Trust Boundary (fork PRs)
 
