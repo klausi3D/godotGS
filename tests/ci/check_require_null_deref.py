@@ -197,7 +197,12 @@ _NULLISH_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("!= NULL", re.compile(rf"^\s*REQUIRE(?:_MESSAGE)?\s*\(\s*({_SYMBOL})\s*!=\s*NULL\b")),
     ("nullptr !=", re.compile(rf"^\s*REQUIRE(?:_MESSAGE)?\s*\(\s*nullptr\s*!=\s*({_SYMBOL})\b")),
     ("is_valid()", re.compile(rf"^\s*REQUIRE(?:_MESSAGE|_UNARY)?\s*\(\s*({_SYMBOL})\s*(?:\.|->)\s*is_valid\s*\(\s*\)")),
-    ("!is_null()", re.compile(rf"^\s*REQUIRE_FALSE(?:_MESSAGE|_UNARY_FALSE)?\s*\(\s*({_SYMBOL})\s*(?:\.|->)\s*is_null\s*\(\s*\)")),
+    # doctest exposes REQUIRE_FALSE, REQUIRE_FALSE_MESSAGE and REQUIRE_UNARY_FALSE.
+    # An earlier `REQUIRE_FALSE(?:_MESSAGE|_UNARY_FALSE)?` put the alternation on
+    # the wrong side of the prefix: it accepted the NONEXISTENT
+    # REQUIRE_FALSE_UNARY_FALSE and missed the real REQUIRE_UNARY_FALSE
+    # (Codex, PR #659).
+    ("!is_null()", re.compile(rf"^\s*(?:REQUIRE_FALSE(?:_MESSAGE)?|REQUIRE_UNARY_FALSE)\s*\(\s*({_SYMBOL})\s*(?:\.|->)\s*is_null\s*\(\s*\)")),
     ("REQUIRE_NE nullptr", re.compile(rf"^\s*REQUIRE_NE\s*\(\s*({_SYMBOL})\s*,\s*nullptr\s*\)")),
     ("REQUIRE_NE nullptr", re.compile(rf"^\s*REQUIRE_NE\s*\(\s*nullptr\s*,\s*({_SYMBOL})\s*\)")),
 )
@@ -333,6 +338,7 @@ def _statements(lines: list[str], start_index: int) -> list[tuple[int, str]]:
     statements: list[tuple[int, str]] = []
     buffer = ""
     buffer_line = 0
+    depth = 0
     for offset in range(start_index, min(start_index + 60, len(lines))):
         raw = lines[offset]
         stripped = raw.strip()
@@ -341,7 +347,17 @@ def _statements(lines: list[str], start_index: int) -> list[tuple[int, str]]:
         if not buffer:
             buffer_line = offset + 1
         buffer = f"{buffer} {stripped}".strip()
-        if ";" in stripped or stripped.endswith("{") or stripped.endswith("}"):
+        # Depth tracking so the two ';' inside a MULTI-LINE `for (a; b; c)` header
+        # do not each look like a statement terminator. Without it only the
+        # initializer was emitted, the `for` matched as control flow, and the scan
+        # broke before ever reading the condition - missing a dereference that is
+        # evaluated before the loop body can guard anything (Codex, PR #659).
+        # Literals are already blanked by _strip_comments, so no parenthesis here
+        # can come from inside a string.
+        depth = max(0, depth + stripped.count("(") - stripped.count(")"))
+        if depth == 0 and (
+            ";" in stripped or stripped.endswith("{") or stripped.endswith("}")
+        ):
             statements.append((buffer_line, buffer))
             buffer = ""
             if len(statements) >= _SCAN_STATEMENTS:

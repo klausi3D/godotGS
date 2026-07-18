@@ -251,6 +251,120 @@ class ControlFlowHeaders(ScanTestCase):
         self.assertClean("  REQUIRE(ptr != nullptr);\n  if (other) {\n    ptr->f();\n  }")
 
 
+class DoctestMacroNames(ScanTestCase):
+    """Every predicate row must name macros doctest actually exposes (Codex #659).
+
+    `REQUIRE_FALSE(?:_MESSAGE|_UNARY_FALSE)?` put the alternation on the wrong
+    side of the prefix: it accepted the nonexistent `REQUIRE_FALSE_UNARY_FALSE`
+    and missed the real `REQUIRE_UNARY_FALSE`.
+    """
+
+    REAL_MACROS = (
+        "REQUIRE",
+        "REQUIRE_MESSAGE",
+        "REQUIRE_FALSE",
+        "REQUIRE_FALSE_MESSAGE",
+        "REQUIRE_UNARY",
+        "REQUIRE_UNARY_FALSE",
+        "REQUIRE_NE",
+    )
+
+    def test_every_macro_this_guard_names_exists_in_doctest(self):
+        """Guard against inventing a macro name again - check against the header."""
+        doctest_header = (
+            Path(__file__).resolve().parents[2] / "thirdparty" / "doctest" / "doctest.h"
+        ).read_text(encoding="utf-8", errors="replace")
+        for macro in self.REAL_MACROS:
+            self.assertIn(
+                f"define DOCTEST_{macro}",
+                doctest_header,
+                f"{macro} is not a real doctest macro",
+            )
+        self.assertNotIn(
+            "define DOCTEST_REQUIRE_FALSE_UNARY_FALSE",
+            doctest_header,
+            "if this ever exists, the old regex was not as wrong as believed",
+        )
+
+    def test_require_unary_false_is_null(self):
+        self.assertFlagged("  REQUIRE_UNARY_FALSE(ref.is_null());\n  ref->f();", "ref")
+
+    def test_require_false_is_null(self):
+        self.assertFlagged("  REQUIRE_FALSE(ref.is_null());\n  ref->f();", "ref")
+
+    def test_require_false_message_is_null(self):
+        self.assertFlagged(
+            '  REQUIRE_FALSE_MESSAGE(ref.is_null(), "needed");\n  ref->f();', "ref"
+        )
+
+    def test_require_unary_is_valid(self):
+        self.assertFlagged("  REQUIRE_UNARY(ref.is_valid());\n  ref->f();", "ref")
+
+    def test_asserting_the_pointer_IS_null_is_not_a_null_guard(self):
+        # REQUIRE_UNARY(x.is_null()) asserts the opposite; flagging it would be wrong.
+        self.assertClean("  REQUIRE_UNARY(ref.is_null());\n  ref->f();")
+
+
+class MultiLineControlFlowHeaders(ScanTestCase):
+    """A ';' inside a for-header is not a statement terminator (Codex #659).
+
+    Latent at the time of the fix: the scanned corpus contains multi-line `for`
+    headers, but only range-based ones (no semicolons), and none follows a
+    null-ish REQUIRE. So this closes a future hole rather than recovering sites -
+    the baseline is unchanged at 325.
+    """
+
+    def test_multi_line_for_header_deref_is_flagged(self):
+        self.assertFlagged(
+            "  REQUIRE(ptr != nullptr);\n"
+            "  for (int i = 0;\n"
+            "       i < ptr->size();\n"
+            "       ++i) {\n"
+            "    step();\n"
+            "  }",
+            "ptr",
+        )
+
+    def test_multi_line_for_header_without_deref_is_clean(self):
+        self.assertClean(
+            "  REQUIRE(ptr != nullptr);\n"
+            "  for (int i = 0;\n"
+            "       i < count;\n"
+            "       ++i) {\n"
+            "    step();\n"
+            "  }"
+        )
+
+    def test_single_line_for_header_still_flagged(self):
+        self.assertFlagged(
+            "  REQUIRE(ptr != nullptr);\n  for (int i = 0; i < ptr->size(); ++i) {\n    s();\n  }",
+            "ptr",
+        )
+
+    def test_multi_line_if_condition_deref_is_flagged(self):
+        self.assertFlagged(
+            "  REQUIRE(ptr != nullptr);\n  if (ptr->ready() &&\n      other) {\n    s();\n  }",
+            "ptr",
+        )
+
+    def test_multi_line_call_argument_deref_is_flagged(self):
+        self.assertFlagged(
+            "  REQUIRE(ptr != nullptr);\n  helper(first_argument,\n         ptr->value());",
+            "ptr",
+        )
+
+    def test_range_based_for_over_a_brace_list_is_unchanged(self):
+        # The two real multi-line headers in the corpus are this shape; they must
+        # keep grouping exactly as before (baseline fingerprints are unchanged).
+        self.assertClean(
+            "  REQUIRE(ptr != nullptr);\n"
+            "  for (Kind kind : { Kind::A,\n"
+            "         Kind::B }) {\n"
+            "    step(kind);\n"
+            "  }"
+        )
+
+
 class SameLineStatements(ScanTestCase):
     """The dangerous pattern written on ONE line (Codex #659).
 
