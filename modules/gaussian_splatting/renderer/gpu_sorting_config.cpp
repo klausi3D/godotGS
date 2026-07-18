@@ -284,9 +284,19 @@ String GPUSortingConfig::get_validation_errors() const {
         errors += "Max sort elements must be <= 500,000,000 (prevents 64-bit key buffer size overflow)\n";
     }
     {
+        // NOTE: unlike validate(), this runs UNCONDITIONALLY — it must produce a
+        // message for exactly the malformed input it exists to report, so it can
+        // never assume the knob ranges below have already been checked.
+        // sort_path_max_buffer_bytes() is total for any input and returns
+        // SORT_PATH_SIZE_UNSUPPORTED for a radix_bits it cannot size (formerly this
+        // shifted by radix_bits here, which is UB for radix_bits >= 64).
         const uint64_t sort_buffer_bytes = GPUSortingConstants::sort_path_max_buffer_bytes(
                 uint64_t(max_sort_elements), radix_bits, workgroup_size, key_bits);
-        if (sort_buffer_bytes > uint64_t(UINT32_MAX)) {
+        if (sort_buffer_bytes == GPUSortingConstants::SORT_PATH_SIZE_UNSUPPORTED) {
+            // radix_bits is outside the supported set, so there is no meaningful
+            // byte count to report; the dedicated radix_bits error below names the
+            // actual problem. Emitting the sentinel as a size would be a lie.
+        } else if (sort_buffer_bytes > uint64_t(UINT32_MAX)) {
             errors += vformat(
                     "Sort path allocation overflows the RenderingDevice buffer size type: "
                     "max_sort_elements=%d with radix_bits=%d, workgroup_size=%d, key_bits=%d needs a "

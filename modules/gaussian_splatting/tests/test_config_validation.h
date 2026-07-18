@@ -708,6 +708,70 @@ TEST_CASE("[GaussianSplatting][Config] sort_path_max_buffer_bytes reports the tr
 	CHECK(GPUSortingConstants::sort_path_allocation_fits_device_size(500000000ull, 4, 256, 64));
 }
 
+TEST_CASE("[GaussianSplatting][Config] sort_path_max_buffer_bytes is total for any radix_bits") {
+	// REGRESSION: the helper used to compute `1ull << radix_bits` after guarding
+	// radix_bits only as `> 0`. A shift count at or above the width of the promoted
+	// type is UNDEFINED BEHAVIOUR, so radix_bits >= 64 was UB inside the very helper
+	// the validation surface calls to describe a bad configuration. The helper must
+	// now be TOTAL: defined for every input, with a fail-closed sentinel for radix
+	// widths it cannot size, so it can never depend on being called in the right order.
+	const uint32_t unsupported_radix[] = {0, 1, 2, 3, 5, 6, 7, 9, 16, 31, 32, 33, 63, 64, 65, 127, 128, 255, UINT32_MAX};
+	for (uint32_t radix : unsupported_radix) {
+		CHECK_FALSE(GPUSortingConstants::is_supported_radix_bits(radix));
+		// Defined result, regardless of element count — including the zero-element
+		// path, which must not short-circuit around the unsupported radix.
+		CHECK(GPUSortingConstants::sort_path_max_buffer_bytes(50000000ull, radix, 256, 64) ==
+				GPUSortingConstants::SORT_PATH_SIZE_UNSUPPORTED);
+		CHECK(GPUSortingConstants::sort_path_max_buffer_bytes(0ull, radix, 256, 64) ==
+				GPUSortingConstants::SORT_PATH_SIZE_UNSUPPORTED);
+		// Fail closed: an unsupported config must never look like it fits.
+		CHECK_FALSE(GPUSortingConstants::sort_path_allocation_fits_device_size(50000000ull, radix, 256, 64));
+	}
+
+	// The supported widths are unchanged and still size normally.
+	CHECK(GPUSortingConstants::is_supported_radix_bits(4));
+	CHECK(GPUSortingConstants::is_supported_radix_bits(8));
+	CHECK(GPUSortingConstants::sort_path_max_buffer_bytes(0ull, 4, 256, 64) == 0ull);
+	CHECK(GPUSortingConstants::sort_path_max_buffer_bytes(50000000ull, 8, 64, 64) == 6400000000ull);
+}
+
+TEST_CASE("[GaussianSplatting][Config] get_validation_errors survives an out-of-range radix_bits") {
+	// REGRESSION: get_validation_errors() calls sort_path_max_buffer_bytes()
+	// UNCONDITIONALLY — unlike validate(), it does NOT short-circuit through the
+	// `radix_bits == 4 || radix_bits == 8` check first. So a setting like
+	// radix_bits = 64 hit the undefined shift *while producing the error message that
+	// exists to report it*. A validation path must never be unsafe on exactly the
+	// malformed input it is there to describe.
+	GPUSortingConfig config;
+	config.reset_to_defaults();
+
+	// 64 == the width of the uint64 shifted by the helper; 32 == the width of a
+	// uint32 (the sibling shift in gpu_sorter.cpp); 0 was the only value guarded.
+	const uint32_t bad_radix[] = {0, 32, 64, 65, UINT32_MAX};
+	for (uint32_t radix : bad_radix) {
+		config.radix_bits = radix;
+		CHECK_FALSE(config.validate());
+		// Must return a real, specific error rather than crashing or misbehaving.
+		const String errors = config.get_validation_errors();
+		CHECK_FALSE(errors.is_empty());
+		CHECK(errors.contains("Radix bits must be 4 or 8"));
+		// And it must NOT report the fail-closed sentinel as if it were a byte count.
+		CHECK_FALSE(errors.contains(String::num_uint64(GPUSortingConstants::SORT_PATH_SIZE_UNSUPPORTED)));
+		// Nor may it claim an allocation-size overflow derived from a radix width the
+		// sort path cannot build: that byte count is meaningless (and, before the fix,
+		// was the product of an undefined shift). The radix error above is the truth.
+		CHECK_FALSE(errors.contains("overflows the RenderingDevice buffer size type"));
+	}
+
+	// A supported radix with a genuinely oversized allocation still reports the
+	// allocation error — the sentinel path must not have swallowed it.
+	config.radix_bits = 8;
+	config.workgroup_size = 64;
+	config.max_sort_elements = 50000000;
+	CHECK_FALSE(config.validate());
+	CHECK(config.get_validation_errors().contains("overflows the RenderingDevice buffer size type"));
+}
+
 TEST_CASE("[GaussianSplatting][Config] GPUSortingConfig rejects invalid radix_bits") {
 	GPUSortingConfig config;
 	config.reset_to_defaults();

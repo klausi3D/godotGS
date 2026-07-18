@@ -1511,7 +1511,14 @@ Error RadixSort::create_variant(RenderingDevice *device, uint32_t radix_bits) {
     if (!device) {
         return ERR_CANT_CREATE;
     }
-    if (radix_bits == 0) {
+    // Reject any radix width the sort path cannot build BEFORE `1u << radix_bits`
+    // below: a shift count >= 32 on a uint32 is undefined behaviour, and radix_bits
+    // arrives here straight from the (possibly unvalidated) global config via
+    // primary_radix_bits. Checking only `== 0` left 32, 64, ... as UB.
+    if (!GPUSortingConstants::is_supported_radix_bits(radix_bits)) {
+        GS_LOG_ERROR_DEFAULT(vformat(
+                "RadixSort: unsupported radix_bits=%d (must be 4 or 8); refusing to create a sort variant.",
+                radix_bits));
         return ERR_INVALID_PARAMETER;
     }
 
@@ -3452,7 +3459,17 @@ bool RadixSort::is_supported(RenderingDevice *p_rd) {
     // The old probe checked only the OneSweep RADIX_SIZE (256) words and ignored bin_masks entirely, so an
     // 8-bit radix with a large workgroup (e.g. 512 → ~18 KB) could pass the probe and then fail pipeline
     // creation on GPUs with a 16 KB shared-memory limit. Size it from the ACTUAL radix config.
-    const uint32_t actual_radix_bits = config.radix_bits > 0 ? config.radix_bits : GPUSortingConstants::DEFAULT_RADIX_BITS;
+    // Fail closed on a radix width we cannot build. `1u << radix_bits` below is UB
+    // for radix_bits >= 32, and this probe reads the global config directly, which
+    // is not guaranteed validated at this point. Answering "supported" for a config
+    // that create_variant() will reject anyway would also be wrong on its own terms.
+    const uint32_t actual_radix_bits = config.radix_bits;
+    if (!GPUSortingConstants::is_supported_radix_bits(actual_radix_bits)) {
+        GS_LOG_WARN_DEFAULT(vformat(
+                "[GPU Sort] RadixSort unavailable: unsupported radix_bits=%d (must be 4 or 8)",
+                actual_radix_bits));
+        return false;
+    }
     const uint32_t actual_radix_size = 1u << actual_radix_bits;
     const uint32_t mask_words = (required_workgroup_size + 31u) / 32u;
     const uint32_t scatter_shared_uints = actual_radix_size * (2u + mask_words);
