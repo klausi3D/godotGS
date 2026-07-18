@@ -6,6 +6,7 @@
 #include "core/math/aabb.h"
 #include "core/math/vector2i.h"
 #include "core/math/vector3.h"
+#include "core/object/object_id.h"
 #include "core/object/ref_counted.h"
 #include "core/string/ustring.h"
 #include "core/templates/local_vector.h"
@@ -128,6 +129,15 @@ public:
         float overflow_autotune_tiny_max = 1.0f; // max delta above baseline
         bool hierarchical_structure_dirty = true;
         std::unique_ptr<GaussianSplatting::HierarchicalSplatStructure> hierarchical_structure;
+        // Identity + content revision of the GaussianData the cached hierarchy was
+        // built from. The hierarchy is rebuilt when either changes so in-place edits
+        // (which bump GaussianData::content_revision) and swaps to a different
+        // resource do not reuse stale LOD bounds and wrongly cull valid splats (#604).
+        ObjectID hierarchical_structure_source_id;
+        uint64_t hierarchical_structure_source_revision = 0;
+        // Monotonic counter incremented on every hierarchy (re)build; observable so
+        // tests can assert invalidation actually rebuilt the tree (#604).
+        uint64_t hierarchical_structure_build_count = 0;
         Vector<StaticChunk> static_chunks;
         uint64_t static_chunks_revision = 1;
         LocalVector<int> visible_static_chunk_indices;

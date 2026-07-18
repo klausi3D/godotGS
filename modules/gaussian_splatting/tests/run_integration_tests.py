@@ -390,8 +390,8 @@ script = ExtResource("1")
                 "description": "Test HierarchicalSplatStructure build and query behavior"
             },
             {
-                "name": "hierarchy_parallel_build",
-                "description": "Test HierarchicalSplatStructure parallel-build fallback"
+                "name": "hierarchy_large_build",
+                "description": "Test HierarchicalSplatStructure large sequential build subdivision"
             },
             {
                 "name": "renderer_lod_culling",
