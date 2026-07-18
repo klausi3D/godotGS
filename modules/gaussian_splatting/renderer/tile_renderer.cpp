@@ -784,11 +784,11 @@ private:
 				GS_LOG_ERROR_DEFAULT("[TileRenderer] Global composite sort enabled but resources are unavailable");
 				return false;
 			}
-			// NOTE: The unsorted-composite observability (persistent counter + throttled WARN)
-			// lives at the authoritative sort-dispatch decision below (search
-			// "unsorted_composite_frames"), NOT here. This pre-binning point is BEFORE several
-			// early-returns (uniform-set acquisition, tile-range build), so a missing sorter
-			// here does not yet imply the frame will actually rasterize unsorted content; the
+			// NOTE: The unsorted-composite accounting (persistent counter + throttled WARN)
+			// lives at the SINGLE CHOKE POINT below (search "SINGLE CHOKE POINT"), NOT here.
+			// This pre-binning point is BEFORE several early-returns (uniform-set acquisition,
+			// tile-range build), so a missing sorter here does not yet imply the frame will
+			// actually rasterize unsorted content; counting it here would over-report. The
 			// root cause is already logged once at sorter-enable time by
 			// TileGlobalSortResources::ensure_resources/disable_sorter.
 
@@ -970,8 +970,18 @@ private:
 			// In async mode overlap_record_count can be stale, so allow indirect-backed
 			// paths to proceed even when CPU splat_count transiently reports zero.
 			const bool has_instance_indirect = renderer.instance_pipeline_buffers.indirect_dispatch_buffer.is_valid();
-			const bool should_attempt_sort = renderer.global_sort_resources.sorter.is_valid() &&
-					(allow_sync_readback ? (overlap_record_count > 0) : (params.splat_count > 0 || has_instance_indirect));
+			// SINGLE source of truth for "there is translucent content to composite this
+			// frame". The sort gate below AND the unsorted-output counter at the choke
+			// point both derive from this one value, so the counter's notion of "work"
+			// can never drift from the sort's (#586: an earlier revision re-derived it and
+			// dropped the indirect term, silently missing every GPU-driven frame).
+			const bool has_translucent_work = GaussianSplatting::global_composite_has_translucent_work(
+					allow_sync_readback, overlap_record_count, params.splat_count, has_instance_indirect);
+			const bool should_attempt_sort = renderer.global_sort_resources.sorter.is_valid() && has_translucent_work;
+			// What happened at the dispatch site; classified once, below.
+			GaussianSplatting::GlobalSortAttemptOutcome sort_outcome =
+					GaussianSplatting::GlobalSortAttemptOutcome::NOT_ATTEMPTED;
+			int sort_dispatch_error = 0;
 			// Reset only CPU dispatch and timestamp range — leave the GPU
 			// timing fields alone, since the standard timestamp resolution
 			// path (_resolve_timestamp_range / async parser) populates them
@@ -1006,6 +1016,7 @@ private:
 					renderer.timing_state.overlap_sort_timestamp.end_index = sort_ts.end_index;
 					renderer.timing_state.overlap_sort_timestamp.label = "TileOverlapSort";
 				}
+				sort_outcome = GaussianSplatting::GlobalSortAttemptOutcome::SUBMITTED;
 				if (sort_timeline == 0) {
 					if (readback_policy.allow_sync_sort_fallback) {
 						renderer.perf_metrics.sort_sync_fallback_count++;
@@ -1013,12 +1024,15 @@ private:
 								renderer.global_sort_resources.keys_buffer,
 								renderer.global_sort_resources.values_buffer,
 								renderer.global_sort_resources.indirect_dispatch_buffer);
-						if (sort_err != OK) {
-							GS_LOG_WARN_DEFAULT(vformat("[TileRenderer] Global composite sort failed (%d); rendering unsorted tiles", sort_err));
-						}
+						// Record the outcome only; the unsorted-output accounting (counter +
+						// throttled WARN) is owned by the single choke point after this block,
+						// so this failure mode cannot be added without being counted.
+						sort_outcome = (sort_err == OK)
+								? GaussianSplatting::GlobalSortAttemptOutcome::SYNC_FALLBACK_OK
+								: GaussianSplatting::GlobalSortAttemptOutcome::SYNC_FALLBACK_FAILED;
+						sort_dispatch_error = int(sort_err);
 					} else {
-						GS_LOG_WARN_DEFAULT(vformat("[TileRenderer] Global composite async sort returned timeline=0 (policy=%s); rendering unsorted tiles",
-								gs_sort_policy::mode_name(readback_policy.mode)));
+						sort_outcome = GaussianSplatting::GlobalSortAttemptOutcome::NOT_SUBMITTED;
 					}
 				}
 				if (allow_sync_readback) {
@@ -1027,33 +1041,42 @@ private:
 				const uint64_t sort_dispatch_end_usec = OS::get_singleton()->get_ticks_usec();
 				renderer.timing_state.last_overlap_sort_cpu_dispatch_ms = float(sort_dispatch_end_usec - sort_dispatch_start_usec) / 1000.0f;
 				renderer.timing_state.overlap_sort_cpu_dispatch_valid = true;
-			} else if ((allow_sync_readback ? (overlap_record_count > 0) : (params.splat_count > 0)) &&
-					!renderer.global_sort_resources.sorter.is_valid()) {
-				// Global-composite sorter unavailable but there IS translucent content to
-				// composite this frame: we skip the sort and rasterize tiles in UNSORTED order
-				// (wrong alpha compositing). This is capability-gated — it only happens when
-				// TileGlobalSortResources::ensure_resources/disable_sorter could not build a
-				// sorter (indirect-compute probe false, sorter creation failed, or the created
-				// sorter lacked indirect support); it does NOT fire on desktop GPUs with
-				// indirect compute. The root cause is logged once at enable time by
-				// disable_sorter.
-				//
-				// BEHAVIOR DECISION (#586): keep rendering unsorted rather than skipping the
-				// frame or tearing down global-composite mode. On hardware that genuinely
-				// cannot build the sorter, dropping/blanking the frame would black-screen —
-				// worse than a slightly-wrong z-order — and reusing a stale prior sort would
-				// present wrong order from a moved camera as if correct. So we degrade
-				// visibly but make it OBSERVABLE: bump a persistent per-frame counter and warn
-				// on a throttle (not a one-shot) so the degradation surfaces in production
-				// telemetry, not just once per process.
-				// sorter_missing_logged is intentionally NOT touched here: it is owned by
-				// disable_sorter as the one-shot guard for the ROOT-CAUSE line at enable time.
-				// This site's observability is the persistent counter + throttled WARN below.
+			}
+
+			// ---------------------------------------------------------------------
+			// SINGLE CHOKE POINT for unsorted-output accounting (#586).
+			//
+			// Every way this frame can end up compositing translucent splats in the
+			// wrong order funnels through here, because the decision is derived from
+			// the one `has_translucent_work` value and the one `sort_outcome` value
+			// rather than being re-tested at each failure site. Do NOT add an
+			// increment anywhere else: add a GlobalSortAttemptOutcome instead, which
+			// classify_unsorted_composite() then forces you to classify.
+			//
+			// IMPORTANT — this is observability, NOT a fix. When the reason is not
+			// NONE this frame is presented with mathematically incorrect alpha
+			// compositing. #586 (make unsorted compositing impossible) stays OPEN.
+			// sorter_missing_logged is deliberately untouched: it belongs to
+			// disable_sorter as the one-shot guard for the ROOT-CAUSE line emitted at
+			// sorter-enable time.
+			// ---------------------------------------------------------------------
+			const GaussianSplatting::UnsortedCompositeReason unsorted_reason =
+					GaussianSplatting::classify_unsorted_composite(has_translucent_work, sort_outcome);
+			if (unsorted_reason != GaussianSplatting::UnsortedCompositeReason::NONE) {
 				const uint64_t unsorted_frames = ++renderer.perf_metrics.unsorted_composite_frames;
+				renderer.perf_metrics.unsorted_composite_last_reason = uint8_t(unsorted_reason);
 				if (GaussianSplatting::should_warn_unsorted_composite(unsorted_frames)) {
-					GS_LOG_WARN_DEFAULT(vformat(
-							"[TileRenderer] Global composite sorter unavailable; rasterizing UNSORTED tiles (wrong alpha order) — %d frame(s) so far (capability-gated fallback)",
-							int(unsorted_frames)));
+					if (sort_dispatch_error != 0) {
+						GS_LOG_WARN_DEFAULT(vformat(
+								"[TileRenderer] Global composite rasterizing UNSORTED tiles (INCORRECT alpha order): %s (err=%d) — %d frame(s) so far",
+								GaussianSplatting::unsorted_composite_reason_name(unsorted_reason),
+								sort_dispatch_error, int(unsorted_frames)));
+					} else {
+						GS_LOG_WARN_DEFAULT(vformat(
+								"[TileRenderer] Global composite rasterizing UNSORTED tiles (INCORRECT alpha order): %s (policy=%s) — %d frame(s) so far",
+								GaussianSplatting::unsorted_composite_reason_name(unsorted_reason),
+								gs_sort_policy::mode_name(readback_policy.mode), int(unsorted_frames)));
+					}
 				}
 			}
 
