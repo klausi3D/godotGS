@@ -261,7 +261,14 @@ TEST_CASE("[GaussianSplatting] Painterly shader permutations compile") {
     }
 }
 
-TEST_CASE("[GaussianSplatting] Painterly material validation contract") {
+// #636: the two cases below build an `ImageTexture` via
+// `ImageTexture::create_from_image()`, which reaches
+// `ImageTexture::set_image()` -> `RenderingServer::get_singleton()->texture_2d_create()`
+// (scene/resources/image_texture.cpp:99) with no null check. The RenderingServer
+// singleton is only bootstrapped for `[SceneTree]`/`[Editor]`-tagged cases
+// (tests/test_main.cpp:333), so both carry `[SceneTree]`. They need the headless
+// RenderingServerDefault only — no RenderingDevice, hence no `[RequiresGPU]`.
+TEST_CASE("[GaussianSplatting][SceneTree] Painterly material validation contract") {
     Ref<PainterlyMaterial> material;
     material.instantiate();
 
@@ -321,7 +328,7 @@ TEST_CASE("[GaussianSplatting] Painterly material validation contract") {
     CHECK(restored->get_temporal_stability() == material->get_temporal_stability());
 }
 
-TEST_CASE("[GaussianSplatting] Painterly deserialize emits a single changed signal") {
+TEST_CASE("[GaussianSplatting][SceneTree] Painterly deserialize emits a single changed signal") {
     Ref<PainterlyMaterial> source;
     source.instantiate();
 
