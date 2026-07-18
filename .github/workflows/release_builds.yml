@@ -559,6 +559,237 @@ jobs:
             repo/${{ steps.package.outputs.checksum }}
           retention-days: 14
 
+  release_candidate_gate:
+    name: Release candidate gate
+    runs-on: ubuntu-latest
+    needs:
+      - release_metadata
+      - build_linux
+      - build_windows
+      - finite_math_guard
+    # Runs whenever a publish is requested so `publish_release` can hard-depend
+    # on this job's success (fail-closed wiring for #593). This job is the single
+    # authority for "is a stable/candidate release allowed to publish":
+    #
+    #   * Stable/candidate channel (a `v*` tag push or a manual stable dispatch):
+    #     REQUIRES both platform builds AND a passing
+    #     `check_renderer_release_gates.py --mode candidate` run against a
+    #     public-alpha evidence bundle. If the evidence bundle is absent, the gate
+    #     FAILS (fail-closed) and the release cannot publish.
+    #   * Nightly prereleases: pass-through. The public-alpha candidate contract
+    #     (docs/reference/renderer_release_gate_manifest.json) governs only the
+    #     stable/candidate release path; nightly prereleases keep the Linux-only
+    #     tolerance below.
+    #
+    # INTEGRATION (#612 + #620 union): the fast-math finiteness guard (#590) is
+    # part of THIS gate's dependency graph, not a sibling of it. Because this job
+    # runs under `always()`, a `needs:` entry alone blocks nothing -- the result
+    # must be asserted explicitly, exactly as `publish_release` does for this
+    # job. `finite_math_guard` gates EVERY publishing channel (nightly included)
+    # because every channel ships the same module code; a binary whose NaN/Inf
+    # guards were folded away by -ffast-math is precisely what that lane exists
+    # to stop. Asserting it here means a failed guard makes this gate `skipped`,
+    # which in turn fails `publish_release`'s `result == 'success'` check.
+    if: |
+      always() &&
+      needs.release_metadata.outputs.publish == 'true' &&
+      needs.finite_math_guard.result == 'success'
+    env:
+      # Repo-relative path to the public-alpha candidate evidence bundle and its
+      # issue snapshot. These are produced by the public-alpha evidence pipeline
+      # tracked by issue #360 (candidate GPU-harness report, benchmark-lane
+      # report, artifact SHA/commit-parity, issue snapshot). That pipeline is NOT
+      # yet wired into CI, so on a real `v*` tag these files are absent and the
+      # gate fails closed. A maintainer cutting a candidate points
+      # RELEASE_CANDIDATE_EVIDENCE at a produced bundle via a repo/environment
+      # variable. TODO(#360/#593): generate this bundle in-workflow so a green
+      # stable tag is self-proving instead of relying on an out-of-band bundle.
+      RELEASE_CANDIDATE_EVIDENCE: ${{ vars.RELEASE_CANDIDATE_EVIDENCE || 'release-candidate-evidence/candidate_evidence.json' }}
+      RELEASE_CANDIDATE_ISSUES: ${{ vars.RELEASE_CANDIDATE_ISSUES || 'release-candidate-evidence/issue_snapshot.json' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Require both platform builds for a stable release
+        if: needs.release_metadata.outputs.channel == 'stable'
+        run: |
+          set -euo pipefail
+          ok=1
+          if [[ "${{ needs.build_linux.result }}" != "success" ]]; then
+            echo "::error::Linux build result is '${{ needs.build_linux.result }}'; a stable release must ship both platforms."
+            ok=0
+          fi
+          if [[ "${{ needs.build_windows.result }}" != "success" ]]; then
+            echo "::error::Windows build result is '${{ needs.build_windows.result }}'; a stable release must ship both platforms (no Linux-only stable publish, #593)."
+            ok=0
+          fi
+          if [[ "$ok" != "1" ]]; then
+            exit 1
+          fi
+          echo "Both platform builds succeeded."
+
+      # Everything below binds the release decision to the *bytes this run built*.
+      # The candidate bundle alone is only internally consistent; it must also be
+      # shown to describe this commit and these archives, and the archives the
+      # gate blessed must be the archives publish_release uploads.
+      - name: Download Linux release payload built by this run
+        if: needs.build_linux.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: godotgs-linux-${{ needs.release_metadata.outputs.channel }}-${{ github.run_number }}
+          path: release-payload/linux
+
+      - name: Download Windows release payload built by this run
+        if: needs.build_windows.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: godotgs-windows-${{ needs.release_metadata.outputs.channel }}-${{ github.run_number }}
+          path: release-payload/windows
+
+      - name: Hash release payload and bind it to this commit
+        id: built
+        if: needs.build_linux.result == 'success'
+        run: |
+          set -euo pipefail
+
+          # Exactly one match or fail: an ambiguous glob means the payload carries
+          # an archive we did not intend to ship.
+          resolve_one() {
+            local dir="$1" pattern="$2"
+            local -a found=()
+            mapfile -t found < <(find "${dir}" -maxdepth 1 -type f -name "${pattern}" | sort)
+            if [[ "${#found[@]}" -ne 1 ]]; then
+              echo "::error::Expected exactly one '${pattern}' in ${dir}; found ${#found[@]}: ${found[*]-none}" >&2
+              return 1
+            fi
+            printf '%s\n' "${found[0]}"
+          }
+
+          # The published .sha256 sidecar must describe the archive we ship.
+          # Compare digest fields rather than running `sha256sum -c`: the Linux
+          # sidecar records the build-time path (dist/...), which does not exist
+          # in the downloaded payload, so -c would fail on a correct archive.
+          check_sidecar() {
+            local archive="$1" sidecar="$2"
+            local recorded actual
+            recorded="$(awk 'NR==1{print tolower($1)}' "${sidecar}")"
+            actual="$(sha256sum "${archive}" | cut -d' ' -f1)"
+            if [[ "${recorded}" != "${actual}" ]]; then
+              echo "::error::Checksum sidecar ${sidecar} records ${recorded} but ${archive} hashes to ${actual}." >&2
+              return 1
+            fi
+            printf '%s\n' "${actual}"
+          }
+
+          linux_archive="$(resolve_one release-payload/linux 'godotgs-linux-x86_64-*.tar.xz')"
+          linux_sidecar="$(resolve_one release-payload/linux 'godotgs-linux-x86_64-*.sha256')"
+          echo "Linux archive: ${linux_archive}"
+
+          # BUILD-INFO.txt is generated by build_linux from GITHUB_SHA. Requiring
+          # the recorded commit to equal the commit being published rejects a
+          # payload produced for any other commit -- including on the nightly
+          # channel, which has no candidate evidence bundle at all.
+          build_info="release-payload/linux/BUILD-INFO.txt"
+          if [[ ! -f "${build_info}" ]]; then
+            echo "::error::Linux payload has no BUILD-INFO.txt; cannot bind it to a commit."
+            exit 1
+          fi
+          recorded_commit="$(sed -n 's/^commit=//p' "${build_info}" | head -n 1)"
+          if [[ "${recorded_commit}" != "${GITHUB_SHA}" ]]; then
+            echo "::error::Linux payload BUILD-INFO commit '${recorded_commit}' != commit being published '${GITHUB_SHA}'."
+            exit 1
+          fi
+
+          linux_sha="$(check_sidecar "${linux_archive}" "${linux_sidecar}")"
+          echo "linux_sha=${linux_sha}" >> "$GITHUB_OUTPUT"
+          echo "Linux archive sha256=${linux_sha}"
+
+          windows_sha=""
+          if [[ -d release-payload/windows ]]; then
+            windows_archive="$(resolve_one release-payload/windows 'godotgs-windows-x86_64-*.zip')"
+            windows_sidecar="$(resolve_one release-payload/windows 'godotgs-windows-x86_64-*.sha256')"
+            windows_sha="$(check_sidecar "${windows_archive}" "${windows_sidecar}")"
+            echo "Windows archive: ${windows_archive} sha256=${windows_sha}"
+          fi
+          echo "windows_sha=${windows_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate release candidate (public-alpha gate)
+        if: needs.release_metadata.outputs.channel == 'stable'
+        run: |
+          set -euo pipefail
+          evidence="${RELEASE_CANDIDATE_EVIDENCE}"
+          issues="${RELEASE_CANDIDATE_ISSUES}"
+          echo "Resolving release-candidate evidence bundle: ${evidence}"
+          if [[ ! -f "${evidence}" ]]; then
+            echo "::error::Release-candidate evidence bundle not found at '${evidence}'."
+            echo "::error::A stable/tag publish is gated on 'check_renderer_release_gates.py --mode candidate' (#593)."
+            echo "::error::Produce the public-alpha evidence bundle (issue #360) and set the RELEASE_CANDIDATE_EVIDENCE repo/environment variable, or do not push a v* tag."
+            exit 1
+          fi
+          args=(--mode candidate --candidate-evidence "${evidence}")
+          if [[ -f "${issues}" ]]; then
+            args+=(--issues-json "${issues}")
+          else
+            echo "No issue snapshot at '${issues}'; the evidence bundle must embed issue_snapshot or the candidate check fails closed."
+          fi
+
+          # Supply-chain binding (#593 review): the bundle must be FOR this commit
+          # and must record the digests of the archives this run actually built.
+          # Without these two flags a stale but internally consistent bundle --
+          # one whose own artifact digests match its own recorded commit -- would
+          # authorize publishing binaries it never validated.
+          args+=(--expected-commit "${GITHUB_SHA}")
+          linux_sha="${{ steps.built.outputs.linux_sha }}"
+          windows_sha="${{ steps.built.outputs.windows_sha }}"
+          if [[ -z "${linux_sha}" ]]; then
+            echo "::error::No Linux archive digest was computed; refusing to validate a candidate against unknown bytes."
+            exit 1
+          fi
+          args+=(--artifact-sha "linux_release_archive=${linux_sha}")
+          if [[ -z "${windows_sha}" ]]; then
+            # The both-platform step above already failed the stable path in this
+            # case; belt-and-braces so the binding can never be silently partial.
+            echo "::error::No Windows archive digest was computed; a stable release must bind both platforms."
+            exit 1
+          fi
+          args+=(--artifact-sha "windows_release_archive=${windows_sha}")
+
+          echo "Running: python tests/ci/check_renderer_release_gates.py ${args[*]}"
+          python tests/ci/check_renderer_release_gates.py "${args[@]}"
+
+      - name: Non-stable channel (candidate gate not required)
+        if: needs.release_metadata.outputs.channel != 'stable'
+        run: |
+          echo "Channel '${{ needs.release_metadata.outputs.channel }}' is a prerelease; the public-alpha candidate gate governs only the stable/tag release path. Skipping candidate validation."
+          echo "The commit binding and release attestation still apply to this channel."
+
+      - name: Attest the exact bytes this gate validated
+        if: needs.build_linux.result == 'success'
+        run: |
+          set -euo pipefail
+          python tests/ci/release_attestation.py generate \
+            --root release-payload \
+            --commit "${GITHUB_SHA}" \
+            --tag "${{ needs.release_metadata.outputs.tag }}" \
+            --channel "${{ needs.release_metadata.outputs.channel }}" \
+            --output release-attestation/release-attestation.json
+
+      - name: Upload release attestation
+        if: needs.build_linux.result == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: godotgs-release-attestation-${{ needs.release_metadata.outputs.channel }}-${{ github.run_number }}
+          path: release-attestation/release-attestation.json
+          retention-days: 14
+          if-no-files-found: error
+
   publish_release:
     name: Publish GitHub release
     runs-on: ubuntu-latest
@@ -567,11 +798,16 @@ jobs:
       - build_linux
       - build_windows
       - finite_math_guard
-    # Publish as long as the Linux lane succeeded. A Windows runner outage
-    # must not prevent a Linux-only release; the Windows artifact is
-    # downloaded optionally below and included if available.
+      - release_candidate_gate
+    # A stable release cannot publish unless `release_candidate_gate` succeeded:
+    # that gate enforces both-platform builds AND `--mode candidate` validation
+    # for the stable/tag path, and fails closed when the evidence bundle is
+    # absent (#593). Nightly prereleases still tolerate a Linux-only publish (a
+    # Windows runner outage must not block the nightly cadence): the gate is a
+    # pass-through for nightly, the Windows artifact is downloaded optionally
+    # below, and `fail_on_unmatched_files` is relaxed for the nightly channel.
     #
-    # The fast-math finiteness guard (#590) is NOT optional: `publish_release`
+    # The fast-math finiteness guard (#590) is NOT optional either: this job
     # uses `always()`, so listing a job under `needs:` alone does not block
     # anything -- the result must be asserted explicitly. Requiring
     # `finite_math_guard.result == 'success'` is what makes the guard a real
@@ -579,12 +815,31 @@ jobs:
     # publishing channel because every channel ships the same module code, and
     # a shipped binary whose NaN/Inf guards were folded away by -ffast-math is
     # exactly the failure this lane exists to prevent.
+    #
+    # INTEGRATION (#612 + #620 union): the guard is asserted BOTH here and in
+    # `release_candidate_gate` (which also runs under `always()`). The gate-side
+    # assertion puts the guard inside the publication dependency graph; this
+    # direct assertion is the belt-and-braces edge, so the guard still blocks
+    # even if the gate's own conditions are later relaxed. Neither side was
+    # dropped.
     if: |
       always() &&
       needs.release_metadata.outputs.publish == 'true' &&
       needs.build_linux.result == 'success' &&
-      needs.finite_math_guard.result == 'success'
+      needs.finite_math_guard.result == 'success' &&
+      needs.release_candidate_gate.result == 'success'
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          path: repo
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Download Linux contributor artifact
         uses: actions/download-artifact@v4
         with:
@@ -598,6 +853,40 @@ jobs:
           name: godotgs-windows-${{ needs.release_metadata.outputs.channel }}-${{ github.run_number }}
           path: release-assets/windows
 
+      - name: Download release attestation
+        uses: actions/download-artifact@v4
+        with:
+          name: godotgs-release-attestation-${{ needs.release_metadata.outputs.channel }}-${{ github.run_number }}
+          path: release-attestation
+
+      # Fail-closed link between "what release_candidate_gate validated" and
+      # "what we are about to upload". The gate hashed the payload it blessed;
+      # here we re-hash the payload we downloaded and require an exact match on
+      # every file plus on the commit. Any divergence -- a re-run that rebuilt an
+      # artifact, an artifact replaced under a colliding name, an extra file
+      # slipped into the payload -- stops the publish instead of shipping bytes
+      # nobody validated (#593 supply-chain binding).
+      - name: Verify shipped bytes against the release attestation
+        env:
+          TAG: ${{ needs.release_metadata.outputs.tag }}
+          WINDOWS_OK: ${{ needs.build_windows.result == 'success' }}
+        run: |
+          set -euo pipefail
+          args=(
+            verify
+            --root release-assets
+            --commit "${GITHUB_SHA}"
+            --attestation release-attestation/release-attestation.json
+            --require "linux/godotgs-linux-x86_64-${TAG}.tar.xz"
+            --require "linux/godotgs-linux-x86_64-${TAG}.sha256"
+            --require "linux/BUILD-INFO.txt"
+          )
+          if [[ "${WINDOWS_OK}" == "true" ]]; then
+            args+=(--require "windows/godotgs-windows-x86_64-${TAG}.zip")
+            args+=(--require "windows/godotgs-windows-x86_64-${TAG}.sha256")
+          fi
+          python repo/tests/ci/release_attestation.py "${args[@]}"
+
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
@@ -607,7 +896,12 @@ jobs:
           prerelease: ${{ needs.release_metadata.outputs.prerelease == 'true' }}
           draft: false
           generate_release_notes: true
-          fail_on_unmatched_files: false
+          # Stable releases must not silently ship a partial asset set: if any
+          # listed file is missing the publish fails (#593). The stable path is
+          # guaranteed both-platform by release_candidate_gate, so every file
+          # below exists. Nightly prereleases keep the relaxed behavior because
+          # they tolerate a Linux-only publish.
+          fail_on_unmatched_files: ${{ needs.release_metadata.outputs.channel == 'stable' }}
           files: |
             release-assets/linux/godotgs-linux-x86_64-${{ needs.release_metadata.outputs.tag }}.tar.xz
             release-assets/linux/godotgs-linux-x86_64-${{ needs.release_metadata.outputs.tag }}.sha256

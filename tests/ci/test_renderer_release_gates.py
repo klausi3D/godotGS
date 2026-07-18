@@ -2608,5 +2608,86 @@ class GpuHarnessLifetimeSkipGateTests(unittest.TestCase):
         self.assertIn("Lifetime", self.harness.REQUIRED_BATCHES)
 
 
+class CandidateSupplyChainBindingTests(unittest.TestCase):
+    """The evidence bundle must describe the commit AND the bytes being shipped.
+
+    Before this binding existed, `--mode candidate` only proved the bundle was
+    internally consistent, so a stale bundle from an older validated commit could
+    authorize publishing a newer, never-validated build (#593 review).
+    """
+
+    def _fixture(self) -> tuple[Path, dict[str, Any], dict[str, Any]]:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        manifest = _base_manifest(root)
+        evidence = _valid_candidate_evidence(root)
+        return root, manifest, evidence
+
+    def test_expected_commit_accepts_matching_bundle(self) -> None:
+        root, manifest, evidence = self._fixture()
+        failures = checker._candidate_expected_commit_failures(evidence, "ABC")
+        self.assertEqual([], failures, "commit comparison must be case-insensitive on hex")
+
+    def test_stale_bundle_for_another_commit_fails_closed(self) -> None:
+        root, manifest, evidence = self._fixture()
+        failures = checker._candidate_expected_commit_failures(evidence, "deadbeef")
+        self.assertTrue(any("does not match the commit being published" in f for f in failures))
+
+    def test_missing_commit_cannot_satisfy_binding(self) -> None:
+        root, manifest, evidence = self._fixture()
+        evidence["commit"] = ""
+        failures = checker._candidate_expected_commit_failures(evidence, "deadbeef")
+        self.assertTrue(any("no commit to bind" in f for f in failures))
+
+    def test_no_expected_commit_keeps_legacy_behaviour(self) -> None:
+        root, manifest, evidence = self._fixture()
+        self.assertEqual([], checker._candidate_expected_commit_failures(evidence, None))
+
+    def test_artifact_digest_binding_rejects_different_bytes(self) -> None:
+        root, manifest, evidence = self._fixture()
+        recorded = evidence["artifacts"]["linux_release_archive"]["sha256"]
+        self.assertEqual(
+            [],
+            checker._candidate_expected_artifact_sha_failures(
+                evidence, {"linux_release_archive": recorded}
+            ),
+        )
+        failures = checker._candidate_expected_artifact_sha_failures(
+            evidence, {"linux_release_archive": "0" * 64}
+        )
+        self.assertTrue(any("not the bytes being published" in f for f in failures))
+
+    def test_artifact_digest_binding_rejects_missing_group(self) -> None:
+        root, manifest, evidence = self._fixture()
+        failures = checker._candidate_expected_artifact_sha_failures(
+            evidence, {"windows_release_archive": "1" * 64}
+        )
+        self.assertTrue(any("missing artifact group windows_release_archive" in f for f in failures))
+
+    def test_validate_candidate_threads_bindings_through(self) -> None:
+        root, manifest, evidence = self._fixture()
+        failures = checker.validate_candidate(
+            root,
+            manifest,
+            evidence,
+            [],
+            expected_commit="not-the-evidence-commit",
+            expected_artifact_shas={"linux_release_archive": "2" * 64},
+        )
+        self.assertTrue(any("does not match the commit being published" in f for f in failures))
+        self.assertTrue(any("not the bytes being published" in f for f in failures))
+
+    def test_artifact_sha_cli_arg_rejects_malformed_values(self) -> None:
+        with self.assertRaises(Exception):
+            checker._parse_artifact_sha_arg("linux_release_archive")
+        with self.assertRaises(Exception):
+            checker._parse_artifact_sha_arg("linux_release_archive=nothex")
+        self.assertEqual(
+            ("linux_release_archive", "a" * 64),
+            checker._parse_artifact_sha_arg("linux_release_archive=" + "A" * 64),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
