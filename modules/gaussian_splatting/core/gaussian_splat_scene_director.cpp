@@ -14,6 +14,7 @@
 #include "scene/main/node.h"
 
 #include <cstring>
+#include <utility>
 
 static bool _is_scene_director_log_enabled() {
 	// Canonical gate: all_debug || frame || data, honoring GS_SILENCE_LOGS.
@@ -745,13 +746,22 @@ bool GaussianSplatSceneDirector::_should_prune_world(const SharedWorld &p_world)
 	return p_world.renderer->get_reference_count() <= 1;
 }
 
-void GaussianSplatSceneDirector::_prune_world_if_unused(const RID &p_scenario) {
-	const SharedWorld *world = worlds.getptr(p_scenario);
+void GaussianSplatSceneDirector::_prune_world_if_unused(const RID &p_scenario,
+		LocalVector<Ref<GaussianSplatRenderer>> &r_deferred_release) {
+	SharedWorld *world = worlds.getptr(p_scenario);
 	if (!world) {
 		return;
 	}
 	if (!_should_prune_world(*world)) {
 		return;
+	}
+	// #611: move the renderer Ref out of the map entry BEFORE erasing so that
+	// ~GaussianSplatRenderer (which blocks on a render-thread dispatch) does not
+	// run while world_mutex is held. r_deferred_release is owned by the caller and
+	// destroyed only after world_mutex is released, so the actual teardown happens
+	// outside the critical section.
+	if (world->renderer.is_valid()) {
+		r_deferred_release.push_back(std::move(world->renderer));
 	}
 	worlds.erase(p_scenario);
 }
@@ -1112,6 +1122,9 @@ void GaussianSplatSceneDirector::update_instance_params(ObjectID p_node_id, floa
 }
 
 void GaussianSplatSceneDirector::unregister_instance(ObjectID p_node_id) {
+	// #611: declared before the lock so any renderer freed by the prune below drops
+	// its blocking teardown AFTER world_mutex is released.
+	LocalVector<Ref<GaussianSplatRenderer>> deferred_renderer_release;
 	MutexLock lock(world_mutex);
 	SharedWorld *world = _get_world_for_instance(p_node_id);
 	if (!world) {
@@ -1139,7 +1152,7 @@ void GaussianSplatSceneDirector::unregister_instance(ObjectID p_node_id) {
 	_bump_instance_generation(world->instance_generation);
 	_bump_instance_asset_generation(world->instance_asset_generation);
 
-	_prune_world_if_unused(world->scenario);
+	_prune_world_if_unused(world->scenario, deferred_renderer_release);
 }
 
 void GaussianSplatSceneDirector::register_instance_submission(ObjectID p_node_id, const Ref<GaussianSplatAsset> &p_asset,
@@ -1855,6 +1868,9 @@ void GaussianSplatSceneDirector::update_sphere_effector(ObjectID p_effector_id, 
 		return;
 	}
 
+	// #611: declared before the lock so any renderer freed by the prune below drops
+	// its blocking teardown AFTER world_mutex is released.
+	LocalVector<Ref<GaussianSplatRenderer>> deferred_renderer_release;
 	MutexLock lock(world_mutex);
 	SharedWorld *target_world = _get_world_for_effector(p_effector_id);
 	SharedWorld *existing_world = _find_world_for_effector(p_effector_id);
@@ -1882,7 +1898,7 @@ void GaussianSplatSceneDirector::update_sphere_effector(ObjectID p_effector_id, 
 		p_world->sphere_effectors.remove_at(last_index);
 		p_world->sphere_effector_lookup.erase(p_effector_id);
 		_bump_instance_generation(p_world->sphere_effector_generation);
-		_prune_world_if_unused(p_world->scenario);
+		_prune_world_if_unused(p_world->scenario, deferred_renderer_release);
 	};
 
 	if (existing_world && existing_world != target_world) {
@@ -2011,6 +2027,9 @@ void GaussianSplatSceneDirector::unregister_sphere_effector(ObjectID p_effector_
 		return;
 	}
 
+	// #611: declared before the lock so any renderer freed by the prune below drops
+	// its blocking teardown AFTER world_mutex is released.
+	LocalVector<Ref<GaussianSplatRenderer>> deferred_renderer_release;
 	MutexLock lock(world_mutex);
 	SharedWorld *world = _find_world_for_effector(p_effector_id);
 	if (!world) {
@@ -2031,7 +2050,7 @@ void GaussianSplatSceneDirector::unregister_sphere_effector(ObjectID p_effector_
 	world->sphere_effectors.remove_at(last_index);
 	world->sphere_effector_lookup.erase(p_effector_id);
 	_bump_instance_generation(world->sphere_effector_generation);
-	_prune_world_if_unused(world->scenario);
+	_prune_world_if_unused(world->scenario, deferred_renderer_release);
 }
 
 bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &p_submission) {
@@ -2081,6 +2100,9 @@ bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &
 }
 
 void GaussianSplatSceneDirector::release_world_submission(ObjectID p_owner_id) {
+	// #611: declared before the lock so any renderer freed by the prune below drops
+	// its blocking teardown AFTER world_mutex is released.
+	LocalVector<Ref<GaussianSplatRenderer>> deferred_renderer_release;
 	MutexLock lock(world_mutex);
 	SharedWorld *world = _find_world_for_world_submission(p_owner_id);
 	if (!world) {
@@ -2089,15 +2111,18 @@ void GaussianSplatSceneDirector::release_world_submission(ObjectID p_owner_id) {
 	const RID scenario = world->scenario;
 	_restore_world_submission_renderer(*world, world->world_submission.renderer_restore_state);
 	world->world_submission = SharedWorld::WorldSubmissionRecord();
-	_prune_world_if_unused(scenario);
+	_prune_world_if_unused(scenario, deferred_renderer_release);
 }
 
 void GaussianSplatSceneDirector::try_prune_world_if_unused(const RID &p_scenario) {
 	if (!p_scenario.is_valid()) {
 		return;
 	}
+	// #611: declared before the lock so any renderer freed by the prune below drops
+	// its blocking teardown AFTER world_mutex is released.
+	LocalVector<Ref<GaussianSplatRenderer>> deferred_renderer_release;
 	MutexLock lock(world_mutex);
-	_prune_world_if_unused(p_scenario);
+	_prune_world_if_unused(p_scenario, deferred_renderer_release);
 }
 
 bool GaussianSplatSceneDirector::has_shared_world_for_scenario(const RID &p_scenario) const {
@@ -2139,33 +2164,44 @@ void GaussianSplatSceneDirector::teardown_world_for_scenario(const RID &p_scenar
 	if (!p_scenario.is_valid()) {
 		return;
 	}
-	MutexLock lock(world_mutex);
-	SharedWorld *entry = worlds.getptr(p_scenario);
-	if (!entry) {
-		// Already torn down (e.g. another peer on the same scenario beat us to
-		// the punch) or never existed -- both are no-ops.
-		return;
+	// #611: the renderer's world-submission clear + teardown both block on a
+	// render-thread dispatch, and the render thread can be blocked acquiring
+	// world_mutex inside a *_for_renderer builder. Move the renderer Ref out of
+	// the map under the lock, then run those blocking calls AFTER releasing the
+	// lock. Declared before the lock so it drops after the MutexLock scope ends.
+	Ref<GaussianSplatRenderer> deferred_renderer_release;
+	{
+		MutexLock lock(world_mutex);
+		SharedWorld *entry = worlds.getptr(p_scenario);
+		if (!entry) {
+			// Already torn down (e.g. another peer on the same scenario beat us to
+			// the punch) or never existed -- both are no-ops.
+			return;
+		}
+
+		// Clear every Ref-holding field on the SharedWorld and move the renderer
+		// Ref out so the map entry is no longer the owner. The moved-out Ref is the
+		// last owner and is released only after world_mutex is dropped, below.
+		entry->instances.clear();
+		entry->instance_lookup.clear();
+		entry->sphere_effectors.clear();
+		entry->sphere_effector_lookup.clear();
+		entry->asset_records.clear();
+		entry->world_submission = SharedWorld::WorldSubmissionRecord();
+		deferred_renderer_release = std::move(entry->renderer);
+
+		// Erase the map entry -- last reference holder for everything above.
+		worlds.erase(p_scenario);
 	}
 
-	// Drop the renderer's world-submission contract first so the renderer no
-	// longer points at the gaussian_data / payload_source we are about to
-	// release. If the renderer is the last owner this is a no-op once we unref.
-	if (entry->renderer.is_valid()) {
-		entry->renderer->clear_world_submission_contract();
+	// world_mutex is released. Drop the renderer's world-submission contract (so it
+	// no longer points at the gaussian_data / payload_source) and then the renderer
+	// itself; both may block waiting on the render thread.
+	if (deferred_renderer_release.is_valid()) {
+		deferred_renderer_release->clear_world_submission_contract();
 	}
-
-	// Clear every Ref-holding field on the SharedWorld so the only owner of
-	// the renderer/data is the about-to-be-erased map entry.
-	entry->instances.clear();
-	entry->instance_lookup.clear();
-	entry->sphere_effectors.clear();
-	entry->sphere_effector_lookup.clear();
-	entry->asset_records.clear();
-	entry->world_submission = SharedWorld::WorldSubmissionRecord();
-	entry->renderer.unref();
-
-	// Erase the map entry -- last reference holder for everything above.
-	worlds.erase(p_scenario);
+	// deferred_renderer_release drops here -> ~GaussianSplatRenderer runs outside
+	// world_mutex.
 }
 
 bool GaussianSplatSceneDirector::get_world_submission(ObjectID p_owner_id, WorldSubmission *r_submission) const {
