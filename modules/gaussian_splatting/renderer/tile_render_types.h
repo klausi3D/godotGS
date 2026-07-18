@@ -295,6 +295,21 @@ struct TilePerformanceMetrics {
 	float rasterization_ms = 0.0f;
 	uint32_t profiling_cached_overlap_total = 0;
 	uint64_t sort_sync_fallback_count = 0;
+	// Persistent count of frames the global-composite path rasterized UNSORTED — i.e.
+	// presented mathematically INCORRECT alpha compositing. Counts ALL causes (sorter
+	// unavailable, sync sort dispatch failed, async sort not submitted) and both the
+	// CPU-counted and GPU-driven/indirect work paths, because it is bumped at the one
+	// choke point that classifies the frame (see classify_unsorted_composite in
+	// sort_fallback_policy.h). Distinct from sort_sync_fallback_count (sorter EXISTS and
+	// the async→sync fallback SUCCEEDS, so output is still correctly sorted — issue #9).
+	// Surfaced via TileRenderer::get_unsorted_composite_frames() and
+	// get_binning_debug_counters(). This is observability only: #586 (never composite
+	// translucent splats unsorted) remains OPEN.
+	// Reset with the whole struct in TileRenderer::release() (perf_metrics = TilePerformanceMetrics()).
+	uint64_t unsorted_composite_frames = 0;
+	// Most recent GaussianSplatting::UnsortedCompositeReason (0 == NONE) so telemetry can
+	// tell a capability-gated absence from a sort-dispatch failure without log scraping.
+	uint8_t unsorted_composite_last_reason = 0;
 	// Counts how many times the cached graphics raster pipeline was rebuilt due to a
 	// framebuffer-format mismatch (e.g. when the eager pre-create at init used a
 	// "probable" color format that differed from the live framebuffer).
