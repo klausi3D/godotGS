@@ -73,17 +73,49 @@ in comments and are silently breakable by a reorder:
   fix (Codex review comments #3294797692 / #3294797697 on PR #387; director contract at
   `gaussian_splat_scene_director.h:266-276`). **Correct today, prose-guarded.**
 
-- **B — settings single-owner.** A file-static, mutex-guarded map
-  (`g_renderer_settings_owner_mutex` / `g_renderer_settings_owner_lookup`,
-  `helpers.cpp:35-80`) elects one node as the settings owner per renderer.
-  `can_apply_renderer_settings()` (`helpers.cpp:1294-1325`) is the gate; non-owner peers
-  silently drop renderer-wide writes — `max_splat_count`
-  (`helpers.cpp:1385-1390`, WARN-once), painterly setters early-return
-  (`cpp:1026-1089`), debug overlays gate on `!_is_renderer_shared_with_other_content`
-  (`helpers.cpp:622-758`). The inspector-hiding in `_validate_property`
-  (`cpp:517-536`) must be kept **manually** in sync — its own comment says *"see
-  gaussian_splat_node_helpers.cpp:1284-1378 for the ownership/silent-drop logic these
-  match."* Two duplicated string lists, one invariant.
+- **B — settings gating. NOT one invariant — three distinct predicates.** (Corrected in
+  review round 1; the earlier revision described this as a single "settings single-owner"
+  rule, which would have licensed a decomposition that silently changed behavior. §B1 below
+  is now the normative statement.)
+
+  A file-static, mutex-guarded map (`g_renderer_settings_owner_mutex` /
+  `g_renderer_settings_owner_lookup`, `helpers.cpp:35-36`, helpers at `:38-80`) elects one
+  node as the settings owner per renderer. But **ownership is only one of three predicates
+  in force**, and they are not equivalent:
+
+  | | Predicate | Definition | Semantics when it denies |
+  |---|---|---|---|
+  | **P1** | `can_apply_renderer_settings()` — `helpers.cpp:1294-1325` | node holds the ownership lease for this renderer **and** is in tree/world **and** has local source data **and** the renderer's active scene data belongs to this node | write **dropped silently** |
+  | **P2** | `_is_renderer_shared_with_other_content()` — `helpers.cpp:97-111` *and a duplicate* `cpp:41-58` | director reports `get_instance_count_for_renderer() > 1` **or** `has_world_submission_for_renderer()` | write **dropped, or the value forced to a safe default, for every node incl. the owner** |
+  | **P3** | splat-count mismatch heuristic — `helpers.cpp:1385` | `renderer_splat_count > 0 && renderer_splat_count != local_splat_count` | write dropped + `WARN_PRINT_ONCE` (`:1387`) |
+
+  Three consequences the decomposition **must** preserve, none of which follows from a
+  single lease:
+
+  1. **P2 is not P1.** The four `show_*` debug flags are not merely dropped when the
+     renderer is shared — they are **actively forced to `false` even for the lease-holding
+     owner** (`helpers.cpp:608-611`, `shared_renderer ? false : owner.show_*`). A
+     lease-gated setter cannot express "forced off for the owner too."
+  2. **The painterly setters gate on P2 alone, with no ownership check**, and they
+     `return` **before writing the node-local member** (`cpp:1026-1029`, `1039-1042`,
+     `1051-1054`, `1068-1071`, `1081-1084`) — so the property value is discarded, not just
+     the renderer write. `set_enable_painterly` (`cpp:1011-1024`) is the asymmetric
+     exception: no P2 gate at all.
+  3. **`_validate_property` keys off P2 alone** (`cpp:518-536`), never P1. So on a shared
+     renderer the *owner's* inspector rows are hidden too. Deriving hiding from
+     `holds_settings_lease()` — as an earlier revision of this ADR proposed — would make
+     the owner's rows **reappear**. That is a behavior change, not a refactor.
+
+  Additionally, **P1's "check" is itself a mutation**: `can_apply_renderer_settings()` is
+  declared `const` but releases (`:1319`) and claims (`:1324`) entries in the global map on
+  every call. And color grading is deliberately **exempt** from all three
+  (`helpers.cpp:1403-1410`: *"No shared-renderer gate needed: peers no longer share a
+  single color_grading slot"*), with an independent ungated push path at `cpp:1884-1912`.
+
+  The hiding/gating string lists are kept **manually** in sync — `_validate_property`'s own
+  comment points at `gaussian_splat_node_helpers.cpp:1284-1378`, which is already ~10 lines
+  off from the real `can_apply_renderer_settings()` range (`:1294-1325`). The drift is
+  measurable today, and §B1 records it rather than pretending the two lists agree.
 
 - **C — color-grading replay flags.** `grading_pushed_for_current_data` and
   `grading_explicit_pending` (`gaussian_splat_node_3d.h:184-192`) form a two-track replay
@@ -96,6 +128,52 @@ in comments and are silently breakable by a reorder:
   (`gaussian_splat_node_3d.h:209-214`). The dependency is prose-only.
 
 These are the invariants #551 wants encoded in *types*, not comments.
+
+### B1 — the gating matrix that must be carried forward verbatim
+
+This table is **normative**. It is the current, verified behavior at the base SHA, and it is
+the acceptance criterion for every step that touches settings. A step may change *where* a
+predicate is evaluated; it may **not** change *which* predicate governs a property, or what
+denial does. Any intended change is a separate, owner-approved behavior PR — never a
+side effect of decomposition.
+
+| Property / write | Gated by | Denial effect | Site |
+|---|---|---|---|
+| `set_max_splats` | P1 **then** P3 | dropped + `WARN_PRINT_ONCE` | `helpers.cpp:1385-1390` |
+| `set_lod_enabled`, `set_lod_bias`, `set_lod_max_distance`, `set_frustum_culling`, `set_async_upload_enabled` | P1 | dropped silently | `helpers.cpp:1392-1397` |
+| `set_painterly_enabled` (from `apply_renderer_settings`) | P1 | dropped silently | `helpers.cpp:1398` |
+| `set_painterly_edge_threshold/stroke_opacity/stroke_length/gamma` | P1 | dropped silently | `helpers.cpp:1399-1402` |
+| `set_streaming_config_overrides` | P1 | dropped silently | `helpers.cpp:1454` |
+| `debug/overlay_opacity`, `debug/debug_draw_mode`, `debug/runtime_preview` | P1 **only** | dropped silently; **not** hidden in inspector | `helpers.cpp:699`, `:712`, `:731` |
+| `show_tile_grid`, `show_density_heatmap`, `show_performance_hud`, `show_residency_hud` | P1 **and** P2 | renderer write dropped; **and forced to `false` for the owner too** when P2 holds | gates `helpers.cpp:631-632`, `646-647`, `661-662`, `752-753`; forcing `:608-611` |
+| node-local `show_*` member + `GaussianSplatSettingsManager` persistence | **ungated** — written before the gate | always applied | `helpers.cpp:627/629`, `642/644`, `657/659`, `748/750` |
+| `edge_threshold`, `stroke_opacity`, `stroke_width`, `temporal_blend`, `painterly_seed` (setters) | P2 **only**, no ownership check | **node-local member write also skipped** | `cpp:1026-1089` |
+| `enable_painterly` (setter) | **ungated at the setter** (asymmetric — deliberate today) | — | `cpp:1011-1024` |
+| `color_variation` | no renderer control exists — explicit no-op | — | `cpp:1063-1066` |
+| color grading | **deliberately exempt** from P1/P2/P3 | always applied per-instance | `helpers.cpp:1403-1410`; independent path `cpp:1884-1912` |
+| camera transform / projection | **ungated**, every node, every frame | — | `cpp:1590-1591` (this is #550, and Step 6 is the *only* step licensed to change it) |
+| `_validate_property` inspector hiding | P2 **only** | hides `painterly/*`, the four `debug/show_*`, `quality/lod_bias`, `quality/max_splat_count` — **including for the owner** | `cpp:518-536` |
+| sharing-status change detection | per-frame poll, not an event | re-runs `_apply_renderer_settings()` + `notify_property_list_changed()` | `cpp:1677-1686` (`shared_renderer_multi_instance_state`, decl `h:239`) |
+
+**Known pre-existing inconsistencies — preserve them, or fix them in a named separate PR.**
+The decomposition must not silently "clean these up," because each is observable:
+
+- Hidden but not P2-gated: `painterly/enabled`, `quality/lod_bias`, `quality/max_splat_count`
+  (their setters have no P2 gate, so a shared-renderer owner can still set them from GDScript
+  and the write lands).
+- P1-gated but never hidden: `debug/overlay_opacity`, `debug/debug_draw_mode`,
+  `debug/runtime_preview`, `quality/max_render_distance`, `rendering/frustum_culling`.
+- `quality/preset` stays editable while the `lod_bias` / `max_splat_count` it drives are
+  hidden — a hidden knob remains indirectly movable.
+- `_is_renderer_shared_with_other_content` is **duplicated** with two signatures
+  (`helpers.cpp:97-111` taking `GaussianSplatNode3D &`, `cpp:41-58` taking
+  `const Ref<GaussianSplatRenderer> &`). Collapsing the duplicate to one function is in scope
+  for Step 2 and is behavior-preserving; changing its *predicate* is not.
+- Only **one** drop in the entire surface warns (`helpers.cpp:1387`). Every other denial —
+  the whole `apply_renderer_settings` body, all eight debug setters, all five painterly
+  setters — is completely silent. Making denials observable is desirable but is a
+  **behavior change**: it belongs in its own PR with its own sign-off, not inside a
+  decomposition step.
 
 ## Decision
 
@@ -131,12 +209,39 @@ scene-facing responsibility, and shrink to thin forwarders once 1/3/5/7/10/11 mo
   becomes a private of `RendererRegistration`, refreshed on attach. The mirrored 40-line
   comments shrink to a 3-line pointer at the guard.
 
-- **Invariant B → `RendererSettingsLease` token.** The file-static owner map becomes a typed
-  lease held by `RendererRegistration`. Only a **held lease** exposes the renderer-wide
-  setters (`set_max_splats`, painterly, debug overlays). `_validate_property` hiding is
-  derived from `registration.holds_settings_lease()` — one source of truth, deleting the
-  duplicated string list at `cpp:517-536`. Dead-owner stealing (`_settings_owner_is_live`,
-  `helpers.cpp:38-44`) becomes the lease's `try_acquire`.
+- **Invariant B → `RendererSettingsLease` (P1) *plus* a preserved `SharingState` (P2) —
+  two seams, not one.** (Corrected in review round 1. The earlier revision proposed a single
+  lease and derived `_validate_property` hiding from `holds_settings_lease()`; per §B1 that
+  would have unhidden the owner's inspector rows on a shared renderer and dropped the
+  "forced to `false` even for the owner" semantics of the four `show_*` flags. Both are
+  behavior changes and both are now forbidden.)
+
+  - **P1 becomes `RendererSettingsLease`,** a typed token held by `RendererRegistration`,
+    replacing the file-static map. Dead-owner stealing (`_settings_owner_is_live`,
+    `helpers.cpp:38-44`) becomes `try_acquire`. Because today's `can_apply_renderer_settings()`
+    mutates the map from a `const` method (`:1319`/`:1324`), the lease API must make the
+    acquire/release **explicit and non-`const`**, with a separate pure
+    `holds_lease()` query — this is the one place the refactor legitimately improves the
+    shape without changing the predicate.
+  - **P2 stays a distinct, separately-evaluated predicate** — a `SharingState` value
+    (`instance_count > 1 || has_world_submission`) read from the director, exposed as
+    `registration.sharing_state()`. The two duplicated implementations
+    (`helpers.cpp:97-111`, `cpp:41-58`) collapse into this one function; the predicate is
+    unchanged.
+  - **P3 (the splat-count heuristic, `helpers.cpp:1385`) is carried forward verbatim** as a
+    guard inside the `set_max_splats` path. It is *not* folded into the lease: it is a
+    different question ("does the renderer already carry someone else's splat count?") and
+    two peers with equal counts must continue not to trip it.
+  - **`_validate_property` hiding continues to derive from P2 alone** — from
+    `sharing_state()`, **never** from `holds_settings_lease()`. This keeps the owner's rows
+    hidden on a shared renderer, exactly as today. The win is that the duplicated string
+    list at `cpp:517-536` is replaced by one `constexpr` list shared with the gating sites,
+    so drift becomes impossible; the *predicate* is untouched.
+  - **The `show_*` "force to `false` when shared" semantics (`helpers.cpp:608-611`) is part
+    of the contract**, not an implementation detail: `DebugOverlayController::sync_to_renderer`
+    takes both the lease *and* the `SharingState` and reproduces the forcing exactly.
+  - **Color grading stays exempt** from all three predicates, and the ungated per-instance
+    push path (`cpp:1884-1912`) is preserved as-is.
 
 - **Invariant C → `GradingReplayState`.** The two bools become a small enum-driven type with
   named transitions (`ArmedExplicit`, `PushedForWindow`, `Idle`) inside `ColorGradingPolicy`;
@@ -165,10 +270,20 @@ property names byte-identical; behavior is preserved and proven per step.
   It befriends nothing; takes inputs by value, returns `ResolvedQuality`. Biggest LOC drop,
   no GPU/lifetime. **Gate:** guard lane + new `tests/…/test_quality_policy.h` (preset tables,
   tier caps, `GS_LOD_BIAS_MIN/MAX` clamps). *(R1.)*
-- **Step 2 — `RendererSettingsLease`** (invariant B). Replace the free-function owner map and
-  `can_apply_renderer_settings()` bool with the lease; derive `_validate_property` hiding from
-  lease-holding. Behavior-preserving. **Gate:** existing lifetime tests + new lease unit test
-  (acquire / steal-dead-owner / release / peer-denied). *(R2.)*
+- **Step 2 — `RendererSettingsLease` (P1) + `SharingState` (P2) + preserved P3** (invariant B).
+  Replace the free-function owner map with the lease; collapse the two duplicate
+  `_is_renderer_shared_with_other_content` implementations into one `sharing_state()`;
+  keep `_validate_property` hiding derived from **P2**; keep the P3 splat-count heuristic on
+  the `set_max_splats` path; keep the `show_*` force-to-`false`-when-shared semantics.
+  Behavior-preserving in the strong sense of §B1.
+  **Gate (blocking):** a **gating matrix table test** that asserts the §B1 table cell-by-cell —
+  for each property, on each of {sole node, shared-renderer owner, shared-renderer non-owner,
+  dead-owner-stolen}, assert (a) whether the renderer write lands, (b) whether the node-local
+  member is written, (c) whether the inspector row is hidden. This test must be written
+  **against the base SHA first and pass unmodified there**, then still pass on the head —
+  that is what makes "behavior-preserving" checkable rather than asserted. Plus the existing
+  lifetime tests and a lease unit test (acquire / steal-dead-owner / release / peer-denied).
+  *(R2.)*
 - **Step 3 — `release_renderer_and_prune` / `PruneAfterUnref`** (invariant A, **#551**).
   Rewrite **both** node and world PREDELETE to the single atomic call; delete the mirrored
   comments. **Gate (blocking):** `tests/…/test_renderer_lifetime_proof.h` scenario_c (F6
@@ -215,6 +330,50 @@ property names byte-identical; behavior is preserved and proven per step.
   second rebases onto the other. No step bundles unrelated work; each is independently
   reversible.
 
+## Invariant list — what every step is graded against
+
+Checkable. A step that violates one is rejected even with green CI.
+
+| # | Invariant | How it is checked |
+| --- | --- | --- |
+| **N1** | The §B1 gating matrix holds cell-for-cell. No property changes which predicate governs it; no denial changes its effect (dropped / forced-off / node-local-also-skipped). | The Step 2 gating matrix table test, written against the base and passing unmodified on head. |
+| **N2** | `_validate_property` hiding derives from **P2 (`sharing_state()`) only** — never from lease-holding. The owner's rows stay hidden on a shared renderer. | Explicit case in the matrix test: shared-renderer **owner** → rows hidden. |
+| **N3** | The `show_*` flags are forced to `false` when P2 holds, **including for the lease holder**; the node-local member and settings-manager persistence still receive the write. | Matrix test rows (a)+(b) for the four `show_*` flags. |
+| **N4** | The painterly setters gated on P2 continue to skip the **node-local member write**, not just the renderer write. `set_enable_painterly` remains ungated at the setter. | Matrix test row (b) for the five setters + the asymmetry case. |
+| **N5** | P3 (splat-count heuristic) remains a distinct guard: two peers with **equal** splat counts do not trip it. | Unit test with two equal-count peers asserting the write lands and no WARN fires. |
+| **N6** | Color grading remains exempt from P1/P2/P3, and the independent push path stays ungated. | Shared-renderer peer grading test unchanged. |
+| **N7** | Exactly one definition of the P2 predicate exists after Step 2 (the duplicate is deleted, not forked). | Grep guard: one `sharing_state()` definition; zero `_is_renderer_shared_with_other_content`. |
+| **N8** | Exactly one source of truth for the hidden-property name list; the gating sites and `_validate_property` consume the same list. | Grep guard: the property-name string list appears once. |
+| **N9** | The PREDELETE unref-then-prune ordering (invariant A) cannot be expressed wrong at the call site — the two operations are not separately callable there. | Step 3: compile-time proof (the separate ops are private/unavailable at the site) + `test_renderer_lifetime_proof.h` scenario_c green. |
+| **N10** | The public GDScript API and every serialized property name are byte-identical across all seven steps. | Property-list snapshot test; doc_classes completeness guard stays green. |
+| **N11** | No new script surface: every collaborator is a plain internal C++ type, never `GDREGISTER`'d. | Grep guard on `GDREGISTER_CLASS` count in `register_types.cpp` (unchanged). |
+| **N12** | Friendship strictly decreases; zero `friend class` grants in `gaussian_splat_node_3d.h` after Step 7. | Grep guard, monotonically non-increasing. |
+| **N13** | Camera publication changes **only** in Step 6. No earlier step alters `cpp:1590-1591` semantics. | Diff review per step. |
+
+## Evidence a step must produce
+
+1. **Gating matrix evidence (N1–N6):** the matrix test output from the base SHA and from the
+   head, attached and diffed. This is the single most important artifact in this ADR — the
+   defect it guards against (silently changing which predicate governs which property) is
+   invisible to every other check.
+2. **Guard lane:** `run_module_tests.py --guard-only` green, plus the N7/N8/N11/N12 grep
+   guards, which land with the step that makes them true.
+3. **Targeted tests:** existing node, lifetime, grading, and shared-renderer suites green
+   **without modification**. Modifying an existing assertion is a review blocker absent a
+   written reason.
+4. **Step 3 (R3):** runtime lifetime evidence — RID counts across an F6 reload cycle, with
+   `test_renderer_lifetime_proof.h` scenario_c green, plus the compile-time ordering proof.
+   Separate owner sign-off.
+5. **Step 6 (R2, rendering-adjacent):** visual validation on real-scan content
+   (GrandmasHouse, shared renderer, multi-node) from the GPU runner. Agents cannot raster
+   locally; absent runner output this reports "not run", never "passed".
+6. **Step 5:** editor-preview smoke + the new node+`splat_asset` integration coverage (#299).
+7. **Base anchoring:** base SHA recorded; `file:line` anchors re-verified against it.
+
+No step weakens a guard, baseline, or threshold. A behavior change discovered to be
+*necessary* is lifted out into its own PR with its own sign-off — it never rides inside a
+decomposition step.
+
 ## Decisions the owner needs to make
 
 - **D1 — Adopt "ownership seams, not friends" as the target** (owned collaborators, no
@@ -226,3 +385,10 @@ property names byte-identical; behavior is preserved and proven per step.
   evidence gate, and Step 6 requires GPU visual validation.
 - **D4 — Sequence Step 3 against PR #578** (which lands first for the shared world-node
   PREDELETE edit)?
+- **D5 — Confirm the §B1 gating matrix is frozen for the decomposition.** The three
+  predicates (P1 lease / P2 sharing / P3 splat-count heuristic) and the listed pre-existing
+  inconsistencies are carried forward **verbatim**, and every fix to them is a separate,
+  separately-approved behavior PR. In particular, confirm we do **not** take the tempting
+  simplifications: collapsing P2 into the lease, deriving inspector hiding from
+  lease-holding, or making the silent denials warn. (Recommended: yes, freeze — each of
+  those is user-visible.)
