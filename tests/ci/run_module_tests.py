@@ -33,6 +33,8 @@ METRIC_RESET_PARITY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_metric_reset_p
 METRIC_RESET_PARITY_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_metric_reset_parity.py"
 DOC_CLASSES_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_doc_classes_complete.py"
 TEST_LINKAGE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_test_linkage.py"
+REQUIRE_NULL_DEREF_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_require_null_deref.py"
+REQUIRE_NULL_DEREF_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_require_null_deref.py"
 RENDERER_RELEASE_GATE_SCRIPT = ROOT / "tests" / "ci" / "check_renderer_release_gates.py"
 RENDERER_RELEASE_GATE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_renderer_release_gates.py"
 BASELINE_QA_REQUIRE_FLAG_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_baseline_qa_require_flag.py"
@@ -718,6 +720,30 @@ def _run_test_linkage_guard() -> tuple[bool, list[str]]:
             output_lines = [f"Test linkage guard failed with exit code {code}."]
         return False, output_lines
 
+    return True, output_lines
+
+
+def _run_require_null_deref_guard() -> tuple[bool, list[str]]:
+    """#656: REQUIRE does not abort under DOCTEST_CONFIG_NO_EXCEPTIONS.
+
+    Flags `REQUIRE(<null-ish>)` followed by a dereference of the same symbol,
+    which crashes the whole test binary instead of failing one case. Runs the
+    guard's own unit test first, so the tree/false-positive discrimination is
+    exercised in the fast --guard-only lane (mirrors the metric-reset parity
+    guard).
+    """
+    for label, script in (
+        ("REQUIRE null-deref guard unit test", REQUIRE_NULL_DEREF_TEST_SCRIPT),
+        ("REQUIRE null-deref guard", REQUIRE_NULL_DEREF_GUARD_SCRIPT),
+    ):
+        if not script.is_file():
+            return False, [f"Missing {label} script: {script.relative_to(ROOT)}"]
+        code, out, err = _run_command([sys.executable, str(script)])
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if code != 0:
+            if not output_lines:
+                output_lines = [f"{label} failed with exit code {code}."]
+            return False, output_lines
     return True, output_lines
 
 
@@ -1617,6 +1643,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_test_linkage_guard,
             "Test linkage guard failed.",
             "Test linkage guard passed.",
+        ),
+        (
+            True,
+            _run_require_null_deref_guard,
+            "REQUIRE null-deref guard failed.",
+            "REQUIRE null-deref guard passed.",
         ),
         (
             True,
