@@ -24,21 +24,80 @@
 
 ## 1. Current state — the shared-state bundle map
 
-### 1.1 One mutable bundle, twelve namespaces over it
+### 1.1 One *aliased* bundle — the buckets are orchestrator-owned and facade-forwarded
 
-`GaussianSplatRenderer` (`renderer/gaussian_splat_renderer.{h,cpp}` + bindings,
-~5,404 LOC across the three files) holds every per-renderer bucket as a direct
-member/alias: `SceneState`, `StreamingState`, `SortingState`, `PipelineState`,
-`PerformanceState`, `FrameState`, `ViewState`, `RenderConfig`, `DebugState`,
-`DeviceState`, `ResourceState`, `SubsystemState`
-(`gaussian_splat_renderer.h:201-334`). The twelve orchestrators do **not** own any of
-these; each holds a raw back-pointer `GaussianSplatRenderer *renderer` and reaches
-through it:
+> **Correction (review round 1). The previous revision of this section asserted an
+> ownership map that is the inverse of the code.** It claimed `GaussianSplatRenderer`
+> "holds every per-renderer bucket as a direct member/alias … at
+> `gaussian_splat_renderer.h:201-334`" and that "the twelve orchestrators do **not** own
+> any of these." Both claims are false, and `h:201-334` contains almost no member
+> declarations at all — it is a block of `using` type aliases and nested `struct`
+> *definitions*. The only actual member in that range is
+> `RenderFrameContextManager frame_context_manager;` (`h:306`). Because every downstream
+> slice inherits the ownership map, the corrected map below is normative and the migration
+> plan in §4 is re-derived from it.
 
-- `render_{config,data,debug_state,device,diagnostics,instancing,output,quality,resource,sorting,streaming}_orchestrator.h` — every one declares `GaussianSplatRenderer *renderer = nullptr` as a member (verified 12/12, e.g. `render_resource_orchestrator.h:18,47`, `render_streaming_orchestrator.h:12,69`).
-- The access path is `FrameStateProvider`, constructed **61 times** from the raw
-  renderer pointer across the facade, the stage runner, and all 12 orchestrators
-  (e.g. `render_resource_orchestrator.cpp:535` `FrameStateProvider state_provider(renderer);`).
+**Verified ownership map** (`GaussianSplatRenderer`, base SHA `237a4b1cc3`):
+
+| Bucket | Actual owner | Owning declaration | Facade forwarder |
+| --- | --- | --- | --- |
+| `SceneState` | `RenderDataOrchestrator` | `render_data_orchestrator.h:66` | `gaussian_splat_renderer.cpp:2634-2644` |
+| `StreamingState` | `RenderDataOrchestrator` | `render_data_orchestrator.h:67` | `:2742-2752` |
+| `SortingState` | `RenderSortingOrchestrator` | `render_sorting_orchestrator.h:80` | `:2730-2740` |
+| `PipelineState` | `RenderResourceOrchestrator` | `render_resource_orchestrator.h:45` | `:2670-2680` |
+| `ResourceState` | `RenderResourceOrchestrator` | `render_resource_orchestrator.h:46` | `:2754-2764` |
+| `RenderConfig` | `RenderConfigOrchestrator` | `render_config_orchestrator.h:58` | `:2646-2656` |
+| `DeviceState` | `RenderDeviceOrchestrator` | `render_device_orchestrator.h` (`device_state`) | `:2658-2668` |
+| `DebugState` | `RenderDebugStateOrchestrator` | via `get_state()` | `:3061-3068` |
+| `PerformanceSettings` | `RenderQualityOrchestrator` | via `get_performance_settings()` | `:2682-2692` |
+| `FrameState`, `ViewState` | `RenderFrameContextManager` | `gaussian_splat_renderer.h:306` | `frame_context_manager` |
+| `PerformanceState` | **facade, direct member** | `gaussian_splat_renderer.h:604` | — |
+| `TestDataState` | **facade, direct member** | `h:605` | — |
+| `TileRendererState` | **facade, direct member** | `h:610` | — |
+| `SubsystemState` | **facade, direct member** | `h:619` | — |
+| `ShadowBlitState` | **facade, direct member** | `h:765` | — |
+
+So: **nine of the fourteen buckets are already owned by an orchestrator or by
+`frame_context_manager`, by value.** Only five are direct facade members, and they sit at
+`h:604-765`, not `h:201-334`. `RenderConfigOrchestrator` in particular is *already* the
+clean pattern the ADR was proposing to build — it owns `render_config` and is the **only**
+orchestrator header that declares **no** `GaussianSplatRenderer *renderer` back-pointer.
+
+Three further count corrections, all verified by grep at the base SHA:
+
+- There are **11** `render_*_orchestrator.h` headers, not twelve. **10** declare the raw
+  back-pointer `GaussianSplatRenderer *renderer` — `render_config_orchestrator.h` does not.
+  The claim "verified 12/12" was wrong in both numerator and denominator.
+- `FrameStateProvider` is constructed **78** times, not 61 — and **8 of those are outside
+  `renderer/`** (`interfaces/painterly_renderer.cpp` ×7, `interfaces/debug_overlay_system.cpp` ×1),
+  which the previous scope map missed entirely. Highest concentrations:
+  `render_pipeline_stages.cpp` (16), `render_diagnostics_orchestrator.cpp` (14),
+  `render_output_orchestrator.cpp` (7).
+- There are **40** `static … fallback;` locals in `gaussian_splat_renderer.cpp`, not 18.
+  **18** are in the `FrameStateProvider` block (before `:2600`) and **22** are in the
+  facade's own bucket accessors (`:2634-2764`, `:3061-3068`). §1.2 previously addressed only
+  the first 18.
+
+**The actual defect, restated correctly.** The problem is *not* that the facade owns
+everything and the orchestrators are namespaces. It is that ownership is real but
+**unenforced and doubly aliased**:
+
+1. Each orchestrator owns its bucket by value, but hands out **mutable references** to it
+   (`access_scene_state_mutable()`, `render_data_orchestrator.h:56`;
+   `access_sorting_state_mutable()`, `render_sorting_orchestrator.h:55`), so the owner
+   cannot assert it is the only writer.
+2. The facade **re-exports** those references through 22 forwarding accessors, each with its
+   own `static` fallback, so every consumer reaches an orchestrator's private state through
+   the facade without the orchestrator knowing.
+3. `FrameStateProvider` then re-exports them a **third** time as `IFrameStateView` +
+   `IFrameMutationAccess` (`gaussian_splat_renderer.h:476-511`), and `FrameDeps` caches raw
+   pointers to the same objects (`h:387-405`) as a **fourth** alias.
+
+So a single `SortingState` is reachable as: orchestrator member → facade accessor →
+provider getter → `deps.sorting_state` pointer. Four aliases, two of them with `static`
+fallbacks, none of them a partition. **The decomposition's job is to collapse the alias
+chain and make the existing ownership enforceable — not to invent ownership that is
+already there.**
 
 `FrameStateProvider` (`gaussian_splat_renderer.h:476-511`, impl
 `gaussian_splat_renderer.cpp:623-800+`) implements **both** `IFrameStateView` (read)
@@ -62,24 +121,36 @@ mutate any bucket. There is no compile-time partition of who-writes-what.
 
 ### 1.2 Hazard A — the `static` fallback objects are hidden process-global mutable state
 
-Every `FrameStateProvider` getter has a `static SortingState fallback;` /
-`static StreamingState fallback;` / … local (`gaussian_splat_renderer.cpp:677-800+`,
-one per bucket). These exist only to satisfy the reference-returning signature when
-`renderer_view` is null, but they are **function-local statics shared across all
-renderer instances and threads**. The mutable variants return a mutable reference to
-this shared object (`get_sorting_state_mut()`, `:767-775`). A null-renderer mutation
-path would silently write a process-global; the inventory already flags this
-(`stage-first-ownership-inventory.md:168`, "FrameStateProvider fallback statics and
-broad mutable accessors … split into read-only snapshots plus small mutation sinks").
+There are **40** `static … fallback;` function-local statics in
+`gaussian_splat_renderer.cpp`, at **two** levels of the alias chain (§1.1):
+
+- **18 in the `FrameStateProvider` block** (before `:2600`) — one per bucket getter, e.g.
+  `static SortingState fallback;`. The mutable variants return a mutable reference to this
+  shared object (`get_sorting_state_mut()`, `:767-775`).
+- **22 in the facade's own forwarding accessors** (`:2634-2764`, `:3061-3068`) — e.g.
+  `GaussianSplatRenderer::get_scene_state()` at `:2634-2638`:
+  ```cpp
+  static SceneState fallback;
+  ERR_FAIL_NULL_V(data_orchestrator, fallback);
+  return data_orchestrator->access_scene_state_mutable();
+  ```
+
+Both sets are **function-local statics shared across all renderer instances and threads**.
+A null-orchestrator or null-renderer mutation path silently writes a process-global that
+every renderer in the process observes. The inventory already flags the provider half
+(`stage-first-ownership-inventory.md:168`, "FrameStateProvider fallback statics and broad
+mutable accessors … split into read-only snapshots plus small mutation sinks"); the facade
+half is the larger set and was previously unaccounted for. **Any slice that removes only
+the provider's 18 leaves the majority of the hazard in place** — see S8's corrected scope.
 
 ### 1.3 Hazard B — `frame_plan` borrow is a designed use-after-scope trap (#529)
 
 `RenderFramePlan` is built as a **stack local** and its address is stored into
-`frame_context.deps.frame_plan` at three sites:
+`frame_context.deps.frame_plan` at three sites (line anchors corrected):
 
-- `gaussian_splat_renderer.cpp:2591-2595` (resident/main route)
-- `render_instancing_orchestrator.cpp:170-181` (instanced route)
-- `render_pipeline_stages.cpp:1162` (stage-runner build path)
+- `gaussian_splat_renderer.cpp:2595` (resident/main route)
+- `render_instancing_orchestrator.cpp:180` (instanced route)
+- `render_pipeline_stages.cpp:1173` (stage-runner build path; previously cited as `:1162`)
 
 `RenderFrameContext::FrameDeps::validate()` validates 14 pointers but **deliberately
 exempts `frame_plan`** (`gaussian_splat_renderer.h:428-431`), and the instancing site
@@ -95,6 +166,29 @@ carries an in-code confession:
 The codebase increasingly threads `RenderFrameContext` across stage boundaries; any
 future deferral/async of a stage turns this borrow into silent UB that no guard
 catches. It is duplicated at three sites, so the trap is not localized.
+
+**And `RenderFrameContext` is already copied by value** — `render_pipeline_stages.cpp:1134`:
+
+```cpp
+// Copy frame context first, then build frame_plan and update deps.
+// The provider must be constructed AFTER this so it sees the updated deps.
+RenderFrameContext frame_context = p_frame_context;
+```
+
+The codebase has already been bitten by this exact class of bug and works around it
+in-place (`render_pipeline_stages.cpp:1174-1177`):
+
+```cpp
+// This path copies RenderFrameContext before attaching frame_plan, so any incoming
+// provider-backed seams still point at the caller's deps object. Rebind both seams
+// to a local provider over the copied deps to avoid stale frame_plan/state pointers.
+```
+
+`RenderFrameContext` therefore already contains **self-referential pointers that do not
+survive a copy** — `state_view` and `mutation_access` (`h:383-384`) point at stack locals,
+and the copy at `:1134` is only safe because `:1178-1182` explicitly rebinds them. This is
+the precise reason §2.1's original proposal is unsafe, and it is why the corrected design
+below makes the context **non-copyable** rather than adding another self-reference to it.
 
 ### 1.4 Hazard C — hand-maintained parallel lists with no parity guard (#528, #570, #591)
 
@@ -224,23 +318,64 @@ and sorter work and is sequenced last (see §4, optional S10).
 frame, and (c) narrow result sinks a stage may write.** A stage receives only the
 capabilities it needs, by type — not the whole renderer.
 
-### 2.1 Unit A — `FramePlan` becomes an owned value, produced once (fixes 1.2, 1.3)
+### 2.1 Unit A — `FramePlan` gets a named owner outside the context (fixes 1.3 / #529)
 
-- Make `RenderFramePlan` a **value member of `RenderFrameContext`** (owned for the
-  frame's lifetime), not a borrowed pointer to a caller stack local. `FrameDeps`
-  exposes it as `const RenderFramePlan &` / `const RenderFramePlan *` **into the
-  owning context**, and `validate()` stops needing an exemption because there is no
-  dangling borrow. This deletes the three `&frame_plan` stack-address stores
-  (§1.3) and their warning comment.
-- Contract: `FramePlan` is **immutable after `build_frame_plan(...)`** for that frame.
-  Build it exactly once per frame at the single route-selection site; downstream
-  stages read it. (`build_frame_plan` already exists as a pure function taking
-  explicit inputs — `gaussian_splat_renderer.h:551-568` — so this is a lifetime/owner
-  change, not a logic rewrite.)
-- If a future async/deferred stage is genuinely required, back `FramePlan` with a
-  pooled allocation carrying a **generation/scope token** the validator checks —
-  the alternative #529 proposes. Recommended now: the value-member form (simplest,
-  removes the trap outright).
+> **Corrected in review round 1.** The previous revision proposed making `RenderFramePlan`
+> a **value member of `RenderFrameContext`** while `FrameDeps` continued to expose it as a
+> pointer "into the owning context." Given the by-value copy at
+> `render_pipeline_stages.cpp:1134` (§1.3), that design is **actively worse than the status
+> quo**: copying the context would produce an object whose `deps.frame_plan` points at the
+> *source* context's plan member. The pointer is non-null, so `validate()` — which the same
+> revision claimed "now covers frame_plan" — would **pass**, while the consumer silently
+> reads another context's plan and dangles as soon as the source dies. A latent
+> use-after-scope with a loud comment would have been traded for a silent aliasing bug with
+> a green validator. The corrected design below removes the self-reference entirely.
+
+**Design: the plan is owned by a frame-scoped owner that the context borrows from, and the
+context is made non-copyable.**
+
+- Introduce `FrameExecution` (name provisional) — a **stack-scoped owner** created once at
+  the single route-selection site per frame. It owns, by value: the `RenderFramePlan`, the
+  `FrameStateProvider`, and the `RenderFrameContext`. Nothing inside `RenderFrameContext`
+  points at anything inside `RenderFrameContext`.
+  ```
+  class FrameExecution {              // stack-scoped, one per frame per route
+      RenderFramePlan  plan_;         // built exactly once, const thereafter
+      FrameStateProvider provider_;   // outlives every stage in this frame
+      RenderFrameContext ctx_;        // deps.frame_plan == &plan_  (owner is OUTSIDE ctx_)
+  public:
+      FrameExecution(const FrameExecution &) = delete;   // non-copyable, non-movable
+      FrameExecution &operator=(const FrameExecution &) = delete;
+      const RenderFramePlan &plan() const { return plan_; }
+      RenderFrameContext &context() { return ctx_; }
+  };
+  ```
+- **`RenderFrameContext` becomes non-copyable and non-movable** (`= delete` on the copy and
+  move members). This is the load-bearing part: it makes the `:1134` copy a **compile
+  error**, forcing that path to be rewritten to take `RenderFrameContext &` — which is what
+  the rebinding comment at `:1174-1177` is manually simulating today. Deleting the copy
+  also retires the existing `state_view` / `mutation_access` self-reference hazard, not just
+  the plan one.
+- **`validate()` stops exempting `frame_plan`.** Once the plan's owner outlives the context
+  by construction and the context cannot be copied, a null `frame_plan` is a real error and
+  the exemption comment (`gaussian_splat_renderer.h:428-431`) is deleted rather than
+  reworded.
+- **Lifetime statement (normative):** `FramePlan` is created exactly once per frame per
+  route, at the route-selection site, by `build_frame_plan(...)`. It is **immutable after
+  construction** — expose it downstream only as `const RenderFramePlan &`. Its lifetime is
+  exactly the enclosing `FrameExecution` scope. **No stage may store, defer, or async-pass
+  it**; a stage that needs plan data past its own scope copies the fields it needs into its
+  own result type. (`build_frame_plan` is already a pure function over explicit inputs —
+  `gaussian_splat_renderer.h:551-568` — so this is a lifetime/ownership change, not a logic
+  rewrite.)
+- **If a future async/deferred stage is genuinely required**, the plan moves to a pooled
+  allocation carrying a **generation/scope token** that `validate()` checks (the alternative
+  #529 proposes) — *not* to a context-embedded value. Deferral must not be added in the same
+  slice that changes ownership.
+
+Why not simply keep the borrow and document it harder: the three borrow sites plus the
+by-value copy mean the invariant is already stated in three comment blocks and still
+unenforceable. Deleting the copy constructor is the only step here that a compiler checks.
 
 ### 2.2 Unit B — split `IFrameStateView` / `IFrameMutationAccess` into per-stage capability views (fixes 1.1, 1.2)
 
@@ -255,11 +390,19 @@ snapshot, not from the live renderer:
 | `CompositePort` | raster output, output_compositor, render target | `composite_io` sink | Composite stage |
 | `ResourceOwner` | — | owns/frees GPU RIDs (device generation guarded) | resource orchestrator |
 
-- **Kill the `static` fallbacks (§1.2):** capability ports take references to *owned*
-  sub-contexts (constructed non-null at frame entry), so no accessor needs a
-  reference-returning null fallback. The provider's `static X fallback;` locals are
-  deleted; a missing dependency becomes a typed-skip at frame entry, not a silent
-  shared-global write.
+- **Kill the `static` fallbacks (§1.2) — all 40, at both levels.** Capability ports take
+  references to the *existing* orchestrator-owned buckets (resolved non-null once at frame
+  entry), so no accessor needs a reference-returning null fallback. Both the provider's 18
+  and the facade's 22 forwarding-accessor statics are deleted; a missing dependency becomes
+  a **typed skip at frame entry**, not a silent shared-global write. A slice that deletes
+  only one of the two sets does not close this hazard.
+- **Narrow the owners' own mutable escapes.** Because the buckets are already
+  orchestrator-owned (§1.1), the ports should be resolved from the owning orchestrator, and
+  the `access_*_mutable()` escapes (`render_data_orchestrator.h:56,58`,
+  `render_sorting_orchestrator.h:55`) shrink to exactly the ports that need them. This is the
+  step that converts *nominal* ownership into *enforced* ownership; it is the real content of
+  #356's "owned state boundaries," and it is smaller than the previous revision implied
+  because the by-value ownership already exists.
 - `FrameStateProvider` remains **only as a temporary adapter** implementing these
   ports over the existing buckets during migration (the inventory's "temporary adapter
   over smaller snapshots/sinks, not a renamed god object",
@@ -359,8 +502,8 @@ inventory's W1→W2→W3 gate.
 | **S4** — StageIO fail-closed (#587) | R2 | `validation_failed` → failed `StageResult`; per-stage branch; doctest | New doctest: poisoned StageIO fails the stage; existing valid frames still render (visual gate on real-scan content); no new skips on GrandmasHouse |
 | **S5** — extract sorter GLSL to files + C5 matrix (#525) | **R3** (workflow) | Move embedded kernels to `.glsl`, wire into `compile_shaders.py` + workflow triggers | Shader-validation matrix compiles every sorter permutation green; runtime A/B: bitonic/radix/onesweep each still sort correctly (sorted-key monotonicity + visual gate); SPIR-V byte-compare of extracted vs inline kernel where feasible |
 | **S6** — split `gpu_sorter.cpp` into per-algorithm TUs | R2 | Mechanical TU split + `SCsub` (§3.2) | Link-clean (no ODR dup/missing symbol); binary behavior identical (same sorter selected + same output on a fixed scene); enumerate-all-method-defs check |
-| **S7** — `FramePlan` becomes owned value (#529) | R2 | Value member on `RenderFrameContext`; delete 3 `&frame_plan` borrows + validator exemption | `validate()` now covers frame_plan; frame output identical on resident + instanced + stage-runner routes; ASan/UBSan clean over the frame path |
-| **S8** — per-stage capability ports; delete `static` fallbacks (§1.1, §1.2) | R2 | Introduce `CullPort`/`SortPort`/`RasterPort`/`CompositePort`; `FrameStateProvider` becomes adapter over them | Each stage reads/writes only its port (compile-enforced); no `static` fallback remains; full frame telemetry + visual gate unchanged across all routes |
+| **S7** — `FramePlan` gets a named owner; `RenderFrameContext` becomes non-copyable (#529) | R2 | Introduce `FrameExecution` (§2.1); `= delete` copy/move on `RenderFrameContext`; rewrite the `:1134` copy to a reference; delete the 3 borrow comments + the validator exemption | Copy-deletion is compile-enforced (the `:1134` copy must fail to compile before it is rewritten — show that build error as evidence); `validate()` now covers `frame_plan`; frame output identical on resident + instanced + stage-runner routes; ASan/UBSan clean over the frame path |
+| **S8** — per-stage capability ports; delete **all 40** `static` fallbacks (§1.1, §1.2) | R2 | Introduce `CullPort`/`SortPort`/`RasterPort`/`CompositePort` resolved from the owning orchestrators; narrow `access_*_mutable()`; `FrameStateProvider` becomes adapter over them | Each stage reads/writes only its port (compile-enforced); **zero** `static … fallback;` remain in `gaussian_splat_renderer.cpp` (grep guard, both the 18 provider and 22 facade sets); full frame telemetry + visual gate unchanged across all routes |
 | **S9** — cleanup: remove the `FrameStateProvider` adapter + shims | R2 | Delete the transitional adapter once all call sites use ports | Facade methods are thin delegations; dependency-rule check; final visual + telemetry parity |
 | **S10** — (optional) extract `RenderFrameExecutor` + timing + shader-compile from `tile_renderer.cpp` (§1.7) | R2 | Move the ~1,080-LOC executor, GPU-timing subsystem, and shader-compile orchestration into owned services | Tile frame output + timing telemetry identical on GrandmasHouse; stage delegation unchanged; ships after facade+sorter |
 
@@ -385,7 +528,7 @@ characterized, guard-protected base. S10 (tile) is optional and last.
 | --- | --- | --- | --- |
 | **#356** | Decompose renderer around owned state | S7–S9 (tracked; full close when facade delegates to owned services) | Facade = thin delegations; per-stage ports; no shared mutable god-bundle |
 | **#528** | Hand-maintained ~40-field metric reset ×3, no parity guard | **S1** | Single `reset()` + parity guard; diagnostics-dict + route-label guards |
-| **#529** | `frame_plan` borrow exempt from `validate()` — latent UAF | **S7** | Owned value member; validator covers it; 3 stack-borrows deleted |
+| **#529** | `frame_plan` borrow exempt from `validate()` — latent UAF | **S7** | Plan owned by a `FrameExecution` scope *outside* the context; `RenderFrameContext` non-copyable (compile-enforced), so the `:1134` copy hazard goes with it; validator exemption deleted; 3 stack-borrows retired |
 | **#570** | Duplicated ~40-line stage-exit stamping | **S2** | One `stamp_stage_exit` helper; byte-identical results |
 | **#591** | Dup `InstancePipelineBuffers`/`sort_cap` clamp resident vs streaming | **S3** | Shared clamp + population helper; distinct sizing kept |
 | **#587** | `StageIO.validation_failed` diagnostic-only | **S4** | Fail-closed StageResult + doctest |
@@ -400,12 +543,63 @@ characterized, guard-protected base. S10 (tile) is optional and last.
 
 ---
 
+## Invariant list — what every slice is graded against
+
+Checkable. A slice that violates one is rejected even with green CI.
+
+| # | Invariant | How it is checked |
+| --- | --- | --- |
+| **R1** | The §1.1 ownership map is accurate and stays accurate: each bucket has exactly one owning declaration, and the ADR's table matches the code. | A CI guard that re-derives the owner of each bucket from the accessor bodies and diffs against the §1.1 table. This ADR was approved on a wrong map once; the guard is the fix. |
+| **R2** | No new alias of a bucket is introduced. The alias chain (owner → facade accessor → provider → `deps` pointer) only ever shortens. | Grep guard: count of facade forwarding accessors + provider getters is monotonically non-increasing. |
+| **R3** | **`RenderFrameContext` is non-copyable and non-movable** after S7, and no self-referential pointer into it exists (`frame_plan`, `state_view`, `mutation_access` all point at objects that outlive it). | Compile-enforced (`= delete`); a static-assert on `!std::is_copy_constructible_v<RenderFrameContext>`. |
+| **R4** | `FrameDeps::validate()` has **no exemptions**. Every pointer it declares is validated, `frame_plan` included. | Read the function; assert the exemption comment is gone and a null-plan case fails. |
+| **R5** | `FramePlan` is built exactly once per frame per route, is `const` downstream, and is never stored, deferred, or async-passed. | Grep guard: `build_frame_plan(` call sites == route-selection sites; downstream signatures take `const RenderFramePlan &`. |
+| **R6** | Zero `static … fallback;` locals remain in `gaussian_splat_renderer.cpp` after S8 — all 40, not just the provider's 18. | Grep guard, count must reach 0. |
+| **R7** | A missing dependency produces a **typed skip with a route UID**, never a write to a shared global and never a silently-continued frame. | S4's fail-closed doctest + the S8 frame-entry skip test. |
+| **R8** | After S4, a poisoned `StageIO` (`output_count > input_count`, or missing output buffer with nonzero count) **fails the stage**. Per-stage exemptions exist only where documented with a written reason. | New doctest per §2.4; the exemption list is enumerated in-code. |
+| **R9** | `PerformanceMetrics` reset is structural (no hand-maintained field list) and covers every field; the same holds for the diagnostics key set and route-label map. | S1's parity guard; a doctest asserting reset zeroes every field. |
+| **R10** | Stage-exit stamping produces **byte-identical** `StageResult`/`StageIO` before and after the S2 fold, for every route UID. | Snapshot unit test per route UID. |
+| **R11** | Sorter GLSL: every runtime-selectable permutation compiles in CI after S5. No kernel remains invisible to the compile matrix. | `compile_shaders.py` matrix green with the new files + permutations; grep guard that no `R"(#version` remains in the sorter TUs. |
+| **R12** | The S6 TU split introduces no ODR violation: **every** method definition of each split class lands in exactly one TU (enumerated, not diff-grepped), and `_bind_methods` moves with its class. | Link-clean build + the enumerate-all-method-defs check (per the #434 lesson). |
+| **R13** | Frame output is unchanged: identical rendered result and identical telemetry on resident, instanced, and stage-runner routes, for a fixed scene and camera path. | Telemetry diff + visual gate on real-scan content (GrandmasHouse), per slice. |
+| **R14** | No guard, baseline, threshold, or coverage bar is lowered in any slice. | Diff review; guard files unmodified except to strengthen. |
+
+## Evidence a slice must produce
+
+Renderer work is **R2, escalating to R3** for S5 (workflow edit) and any serialized/format
+contract. Every slice states which invariants it touches and attaches:
+
+1. **Ownership-map evidence (R1, R2):** for any slice that moves state, the re-derived
+   ownership table from the head, diffed against §1.1. This ADR's first revision shipped an
+   inverted map; no slice is approved without this diff.
+2. **Compile-enforcement evidence (R3, R12):** for S7, the **build error** produced by the
+   `:1134` copy before it is rewritten — that error is the proof the copy is really gone,
+   not merely edited. For S6, the enumerated method-definition list and a clean link.
+3. **Guard lane:** `run_module_tests.py --guard-only` green, plus the R5/R6/R11 grep guards,
+   landing with the slice that makes them true.
+4. **Behavior-preservation proof** as specified per-slice in the §4 table — byte-identical
+   `StageResult`/`StageIO`, identical `InstancePipelineBuffers`, identical telemetry.
+5. **Runtime/GPU evidence (R13):** the production-gates runtime harness, the GPU harness, and
+   a **visual gate on real-scan content (GrandmasHouse)** measured against the immutable base.
+   Agents cannot raster locally; a slice without GPU-runner output reports "not run", never
+   "passed".
+6. **S5 additionally (R3-class):** the shader-validation matrix compiling every sorter
+   permutation, plus a runtime A/B showing bitonic/radix/onesweep each still sort correctly
+   (sorted-key monotonicity + visual gate), plus SPIR-V byte-compare of extracted vs inline
+   kernels where feasible. Maintainer/CODEOWNER review for the workflow edit.
+7. **Base anchoring:** base SHA recorded, and confirmation that the `file:line` anchors used
+   were re-verified against it. Several anchors in this ADR's first revision had drifted
+   (e.g. `render_pipeline_stages.cpp:1162` → `:1173`).
+
 ## Decisions the owner needs to make
 
 - **D1 — Approve this ADR-first R0 design and the S1–S9(+S10) ordering?** (Y/N / amend.)
-- **D2 — `FramePlan` owner (§2.1):** value member on `RenderFrameContext` (recommended,
-  removes #529 outright) vs pooled allocation + generation token? (Recommended: value
-  member.)
+- **D2 — `FramePlan` owner (§2.1):** `FrameExecution` stack-scoped owner **outside** the
+  context + non-copyable `RenderFrameContext` (recommended — removes #529 and the existing
+  `state_view`/`mutation_access` copy hazard together) vs pooled allocation + generation
+  token? The previously-recommended "value member on `RenderFrameContext`" option is
+  **withdrawn**: §1.3 shows the context is copied at `render_pipeline_stages.cpp:1134`, which
+  would make that design a silent aliasing bug that `validate()` cannot catch.
 - **D3 — StageIO fail-closed default (§2.4 / #587):** adopt "poisoned StageIO fails the
   stage" as the default, with per-stage documented exemptions only? (Recommended: yes.)
 - **D4 — S5 is R3** (edits `gaussian_shader_validation.yml`): confirm the shader-matrix
