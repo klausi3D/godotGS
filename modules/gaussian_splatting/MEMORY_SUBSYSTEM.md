@@ -9,27 +9,55 @@ This module has two distinct GPU memory paths that share data but serve differen
 ```
 Resident path (non-streaming)
   GaussianSplatRenderer
-    -> GPUBufferManager (double-buffered resident storage)
+    -> ResidentInstanceContractPublisher (resident atlas storage: resident_atlas_gaussian_buffer)
+    -> GPUBufferManager (sort-key + sorted-indices buffers only; its own gaussian_buffer is dead-by-default)
 
 Streaming path
   GaussianSplatRenderer
     -> GaussianStreamingSystem (visibility + budget)
-        -> GaussianMemoryStream (triple-buffered uploads + pool)
+        -> StreamingUploadPipeline (pack threads + upload queue -> persistent_buffer)
+        -> GaussianMemoryStream (optional, diagnostics-only proxy; not an upload path)
 ```
 
 ## Components and Responsibilities
 
-### GPUBufferManager (resident data)
+### ResidentInstanceContractPublisher (resident atlas storage)
+- **Files**: `renderer/resident_instance_contract_publisher.h`, `renderer/resident_instance_contract_publisher.cpp`
+- **Role**: Owns the resident path's real GPU storage. Builds and uploads the
+  `resident_atlas_gaussian_buffer` (plus its quantized variant) that the
+  instance pipeline actually binds, applying `ResidentAtlasBudget` importance
+  subsetting when the asset exceeds the resident VRAM cap.
+- **Entry point**: `GaussianSplatRenderer::_publish_resident_direct_data_contract()`
+  calls `ResidentInstanceContractPublisher::publish_resident_direct_data_contract()`.
+
+### GPUBufferManager (sort-key / sorted-indices buffers)
 - **Files**: `renderer/gpu_buffer_manager.h`, `renderer/gpu_buffer_manager.cpp`
-- **Role**: Allocates and manages resident GPU buffers used when streaming is not active.
-- **Buffers**: Double-buffered Gaussian data + sort keys + indices.
+- **Role**: Allocates the double-buffered sort-key and sorted-indices buffers
+  used by both paths. Its own resident `gaussian_buffer` allocation is an
+  opt-in manual-upload path that production never enables —
+  `renderer/render_resource_orchestrator.cpp` always initializes it with
+  `allocate_gaussian_buffer=false`, and `upload_gaussian_data()` has no
+  production caller (see `renderer/gpu_buffer_manager.cpp:147-155`). Real
+  resident Gaussian data comes from `ResidentInstanceContractPublisher` above.
 - **Memory tracking**: Provides `get_memory_usage_mb()` as a size estimate, but does **not** enforce budgets.
 
-### GaussianMemoryStream (streamed uploads)
+### StreamingUploadPipeline (streamed uploads)
+- **Files**: `core/streaming_upload_pipeline.h`, `core/streaming_upload_pipeline.cpp`
+- **Role**: Owned by `GaussianStreamingSystem` (its `upload_pipeline` member).
+  Runs pack worker threads that snapshot/compress chunk payloads plus an
+  upload queue that writes them into the streaming path's `persistent_buffer`
+  (see [Persistent Buffer Right-Sizing](#persistent-buffer-right-sizing)).
+  This is the real streaming upload path.
+- **Memory tracking**: Exposes pack/upload telemetry (bytes, queue depth, latency) via `PackTelemetry`; does **not** decide budgets.
+
+### GaussianMemoryStream (optional diagnostics proxy)
 - **Files**: `renderer/gpu_memory_stream.h`, `renderer/gpu_memory_stream.cpp`
-- **Role**: Triple-buffered upload path with a suballocation pool for streaming chunks.
-- **Buffers**: Three GPU buffers + pooled suballocations for reuse.
-- **Memory tracking**: Reports allocated/used MB and efficiency; does **not** decide budgets.
+- **Role**: Not part of the production upload path. `GaussianStreamingSystem::attach_memory_stream()`
+  stores it as `memory_stream_proxy`, which only receives `begin_frame()`/`end_frame()`
+  calls and reports `get_task_debug_state()` for diagnostics — it does not pack
+  or upload chunk data itself. Actual streamed uploads flow through
+  `StreamingUploadPipeline` above.
+- **Memory tracking**: Reports allocated/used MB and efficiency for its own (diagnostics-only) buffers; does **not** decide budgets.
 
 ### GaussianStreamingSystem + VRAMBudgetRegulator (budgeting)
 - **Files**: `core/gaussian_streaming.h`, `core/gaussian_streaming.cpp`
@@ -106,15 +134,15 @@ User-facing summary of these settings and metrics:
 
 ## When to Use Which Path
 
-- **Resident path** (`GPUBufferManager`): small/medium datasets, no streaming, lower per-frame overhead.
-- **Streaming path** (`GaussianMemoryStream` + `GaussianStreamingSystem`): large datasets, dynamic loading, budget-aware eviction.
+- **Resident path** (`ResidentInstanceContractPublisher`): small/medium datasets, no streaming, lower per-frame overhead.
+- **Streaming path** (`StreamingUploadPipeline` + `GaussianStreamingSystem`): large datasets, dynamic loading, budget-aware eviction.
 
 ## Debugging and Metrics
 
 - **Budget warnings**: `GaussianStreamingSystem::is_vram_budget_warning_active()`
 - **Budget stats**: `GaussianStreamingSystem::get_vram_debug_stats()`
-- **Stream usage**: `GaussianMemoryStream::get_allocated_memory_mb()`, `get_used_memory_mb()`, `get_memory_efficiency()`
-- **Resident usage**: `GPUBufferManager::get_memory_usage_mb()`
+- **Stream usage**: `StreamingUploadPipeline::telemetry` (pack/upload bytes, queue depth, latency)
+- **Resident usage**: `GPUBufferManager::get_memory_usage_mb()` (sort-key/index buffers only; resident atlas size is tracked via `resident_atlas_gaussian_buffer_size` on the renderer's resource state)
 
 For the per-owner lifetime contract of each buffer in this subsystem (who creates, who destroys, idempotency, threading), see [`docs/architecture/renderer-lifetime-ownership.md`](../../docs/architecture/renderer-lifetime-ownership.md).
 
