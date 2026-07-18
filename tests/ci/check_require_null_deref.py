@@ -83,24 +83,42 @@ spreading, not a proof that the corpus is free of it: of the ~800 `REQUIRE*`
 usages in the module tests, the null-ish subset alone is ~460, and most of those
 are followed by something this guard cannot and should not judge.
 
+## Scope boundary
+
+Scanned: `modules/gaussian_splatting/tests/*.{h,cpp}` and the top level of
+`tests/test_*.cpp`. **Not** scanned: the rest of the engine test tree
+(`tests/core/`, `tests/servers/`, ...). Those are upstream Godot's tests; they run
+under the same no-exceptions configuration and the same crash is possible there,
+but policing upstream is out of this module's scope and would bury the module
+signal under an unownable baseline. If a module-owned test is ever added under a
+nested engine test directory, widen `_test_sources()` rather than assuming it is
+covered.
+
 ## Baseline
 
-The pattern predates the guard: 315 sites across 32 files match it today. #656 is
-explicit that they must not be mass-rewritten, so `BASELINE` records a per-file
-**count** and the guard fails when a file exceeds it.
+The pattern predates the guard: 318 sites across 32 files match it today. #656 is
+explicit that they must not be mass-rewritten, so `require_null_deref_baseline.json`
+records a **fingerprint per site** and the guard fails on any change to that set.
 
-The baseline is a count per file, not a list of line numbers, on purpose: a
-line-keyed baseline would go stale on every unrelated edit to a test file and
-train people to regenerate it without reading it, which is how a guard becomes a
-formality.
+A count-only baseline is not enough. It licenses a swap: fix one site the
+prescribed way and add a brand-new one in the same file, and the count is
+unchanged, so the guard reports "0 new" and the new crash ships. The fingerprint
+set reports both the removed and the added site.
 
-The ratchet only turns one way. A file **below** its baseline also fails, with an
-instruction to lower the number - so fixing sites tightens the guard permanently
-instead of leaving slack for new ones to occupy.
+The fingerprint is (symbol, predicate form, hash of the dereferencing statement) -
+deliberately NOT the line number, which would go stale on every unrelated edit
+above it and train people to regenerate without reading, which is how a guard
+becomes a formality.
+
+The ratchet only turns one way. A **removed** fingerprint also fails, with an
+instruction to delete it from the baseline - so fixing sites tightens the guard
+permanently instead of leaving slack for new ones to occupy.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import sys
 from pathlib import Path
@@ -109,47 +127,28 @@ ROOT = Path(__file__).resolve().parents[2]
 MODULE_TESTS_DIR = ROOT / "modules" / "gaussian_splatting" / "tests"
 ENGINE_TESTS_DIR = ROOT / "tests"
 
-# Pre-existing violations per file (basename -> count), so the guard can land
-# without the 315-site rewrite #656 explicitly rules out. Tracking issue:
+# Pre-existing violations, so the guard can land without the 318-site rewrite
+# #656 explicitly rules out. Tracking issue:
 # https://github.com/klausi3D/godotGS/issues/656
 #
-# This is a RATCHET: a file over its number fails (new violation), and a file
-# under its number also fails (lower the number). Never raise an entry to make a
-# check pass - that is the one edit this file exists to prevent.
-BASELINE: dict[str, int] = {
-    "test_batched_async_readback.h": 2,
-    "test_config_validation.h": 3,
-    "test_data_authority_hardening.h": 3,
-    "test_debug_hud_lifecycle.h": 6,
-    "test_diagnostics.h": 3,
-    "test_gaussian_data.h": 1,
-    "test_gaussian_importer.h": 19,
-    "test_gaussian_splat_asset_prune.h": 2,
-    "test_gaussian_splat_container.h": 6,
-    "test_gaussian_splat_node.h": 66,
-    "test_gaussian_splat_world_io.h": 7,
-    "test_gaussian_streaming_lifecycle.cpp": 4,
-    "test_gpu_culler_hierarchy.h": 1,
-    "test_gpu_sorting_pipeline_readback.h": 3,
-    "test_gpu_streaming.cpp": 3,
-    "test_gpu_streaming.h": 1,
-    "test_lod_system.cpp": 10,
-    "test_node_bootstrap.h": 2,
-    "test_node_surface_cleanup.h": 4,
-    "test_output_compositor_composite_hazard.h": 3,
-    "test_painterly_material.cpp": 2,
-    "test_ply_importer.h": 29,
-    "test_renderer_lifetime_proof.h": 3,
-    "test_renderer_pipeline.h": 6,
-    "test_scene_director_asset_id_collision.h": 8,
-    "test_scene_director_submission_scaffolding.h": 85,
-    "test_sentinel_tier_defaults.h": 14,
-    "test_shadow_instance_subset.h": 6,
-    "test_shadow_pass_isolation.h": 2,
-    "test_spz_importer.h": 4,
-    "test_vram_budget_regulator.h": 6,
-    "visual_compare.h": 1,
-}
+# The baseline records a FINGERPRINT PER SITE, not a count per file. A count-only
+# baseline licenses a swap: fix one site the prescribed way and add a brand-new
+# one in the same file, and the count is unchanged, so the guard reports "0 new"
+# and the new crash ships. A fingerprint set catches that -- the removed
+# fingerprint and the added one are both reported.
+#
+# The fingerprint is (symbol, predicate form, hash of the dereferencing
+# statement). Deliberately NOT the line number: a line-keyed baseline goes stale
+# on every unrelated edit above it and trains people to regenerate without
+# reading, which is how a guard becomes a formality. Renaming a variable does
+# re-fingerprint its site; that surfaces as one removed + one added, which is
+# accurate.
+#
+# This is a RATCHET: an added fingerprint fails (new violation), and a removed
+# one also fails, telling you to drop it from the baseline. Never add a
+# fingerprint to make a check pass - that is the one edit this file exists to
+# prevent.
+BASELINE_PATH = Path(__file__).resolve().parent / "require_null_deref_baseline.json"
 BASELINE_ISSUE = "https://github.com/klausi3D/godotGS/issues/656"
 
 # How many statements to look ahead after the REQUIRE before giving up.
@@ -166,9 +165,12 @@ _CONTROL_FLOW_RE = re.compile(
     r"break\b|continue\b|do\b|try\b|catch\b|SUBCASE\b|TEST_CASE\b)"
 )
 
-# A C++ identifier, optionally reached through a member chain we treat as one
-# symbol (e.g. `node->renderer`). Kept simple on purpose.
-_SYMBOL = r"[A-Za-z_]\w*"
+# A C++ identifier, or a member chain reached through '.' / '->' that we treat as
+# a single symbol (e.g. `state.hierarchical_structure`,
+# `resource_state.buffer_manager`). The chain is matched greedily; regex
+# backtracking peels the trailing `.is_valid()` / `.is_null()` back off in the
+# predicate patterns below.
+_SYMBOL = r"[A-Za-z_]\w*(?:\s*(?:\.|->)\s*[A-Za-z_]\w*)*"
 
 # Null-ish REQUIRE forms. Each yields the symbol asserted to be non-null.
 _NULLISH_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -244,13 +246,24 @@ def _strip_comments(text: str) -> str:
     return "\n".join(lines_out)
 
 
+def _symbol_regex(symbol: str) -> str:
+    """Build a regex matching `symbol`, tolerating whitespace and `.`/`->` in a chain.
+
+    The two accessors are treated as interchangeable: a chain asserted as `a.b`
+    and dereferenced as `a->b` is the same object either way, and refusing to
+    match across them would be an under-report.
+    """
+    parts = [part for part in re.split(r"\s*(?:\.|->)\s*", symbol) if part]
+    return r"\s*(?:\.|->)\s*".join(re.escape(part) for part in parts)
+
+
 def _derefs(symbol: str, statement: str) -> bool:
     """True when `statement` dereferences `symbol`.
 
-    `symbol->`, `*symbol` and `symbol[` count. `symbol.` does NOT: on a Ref<T>
-    that is a call on the handle itself, which is exactly what is safe.
+    `symbol->`, `*symbol` and `symbol[` count. A trailing `symbol.` does NOT: on a
+    Ref<T> that is a call on the handle itself, which is exactly what is safe.
     """
-    sym = re.escape(symbol)
+    sym = _symbol_regex(symbol)
     if re.search(rf"(?<![\w.>]){sym}\s*->", statement):
         return True
     if re.search(rf"(?<![\w)\]]){sym}\s*\[", statement):
@@ -262,7 +275,7 @@ def _derefs(symbol: str, statement: str) -> bool:
 
 def _reassigns(symbol: str, statement: str) -> bool:
     """True when the statement looks like it rebinds the symbol."""
-    sym = re.escape(symbol)
+    sym = _symbol_regex(symbol)
     return re.search(rf"(?<![\w.>]){sym}\s*=(?!=)", statement) is not None
 
 
@@ -340,6 +353,54 @@ def scan_all() -> dict[str, list[tuple[int, str, str, str]]]:
     return results
 
 
+def _multiset_difference(left: list[str], right: list[str]) -> list[str]:
+    """Elements of `left` not covered by `right`, honouring duplicates."""
+    remaining = list(right)
+    out: list[str] = []
+    for item in left:
+        if item in remaining:
+            remaining.remove(item)
+        else:
+            out.append(item)
+    return out
+
+
+def fingerprint(symbol: str, form: str, statement: str) -> str:
+    """Stable identity for one violation site, independent of its line number."""
+    normalized = re.sub(r"\s+", " ", statement).strip()
+    digest = hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:10]
+    return f"{symbol}|{form}|{digest}"
+
+
+def scan_fingerprints() -> dict[str, list[str]]:
+    """Basename -> sorted fingerprints of every violation in that file."""
+    return {
+        name: sorted(fingerprint(sym, form, stmt) for _, sym, form, stmt in violations)
+        for name, violations in scan_all().items()
+    }
+
+
+def load_baseline() -> tuple[dict[str, list[str]], list[str]]:
+    """Read the fingerprint baseline. A missing or malformed file is a FAILURE, never a pass."""
+    if not BASELINE_PATH.is_file():
+        return {}, [
+            f"Baseline file missing: {BASELINE_PATH.name}. Refusing to treat an absent "
+            f"baseline as 'nothing to report'."
+        ]
+    try:
+        data = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return {}, [f"Baseline file is not valid JSON: {exc}"]
+    if not isinstance(data, dict) or not isinstance(data.get("files"), dict):
+        return {}, ["Baseline file must be an object with a 'files' object."]
+    out: dict[str, list[str]] = {}
+    for name, prints in data["files"].items():
+        if not isinstance(prints, list) or not all(isinstance(p, str) for p in prints):
+            return {}, [f"Baseline entry '{name}' must be a list of fingerprint strings."]
+        out[name] = sorted(prints)
+    return out, []
+
+
 def main() -> int:
     files = _test_sources()
     if not files:
@@ -347,18 +408,28 @@ def main() -> int:
         return 1
 
     found = scan_all()
-    failures: list[str] = []
+    found_prints = scan_fingerprints()
+    baseline, failures = load_baseline()
     total = sum(len(v) for v in found.values())
+    # line lookup so a report can point at the source even though the baseline
+    # itself is line-independent.
+    where = {
+        name: {
+            fingerprint(sym, form, stmt): (line_no, sym, form, stmt)
+            for line_no, sym, form, stmt in violations
+        }
+        for name, violations in found.items()
+    }
 
-    for name in sorted(set(found) | set(BASELINE)):
-        actual = len(found.get(name, []))
-        allowed = BASELINE.get(name, 0)
-        if actual > allowed:
-            failures.append(
-                f"{name}: {actual} REQUIRE-then-dereference site(s), baseline allows "
-                f"{allowed}. New site(s):"
-            )
-            for line_no, symbol, form, statement in found[name][: actual - allowed + 2]:
+    for name in sorted(set(found_prints) | set(baseline)):
+        actual = found_prints.get(name, [])
+        allowed = baseline.get(name, [])
+        added = _multiset_difference(actual, allowed)
+        removed = _multiset_difference(allowed, actual)
+        if added:
+            failures.append(f"{name}: {len(added)} NEW REQUIRE-then-dereference site(s):")
+            for print_ in added:
+                line_no, symbol, form, statement = where[name][print_]
                 failures.append(
                     f"    line {line_no}: REQUIRE({symbol} {form}) then `{statement[:90]}`"
                 )
@@ -368,13 +439,14 @@ def main() -> int:
                 f"the whole test binary, taking every later case with it. Write instead: "
                 f"if (!<symbol>) {{ FAIL(\"...\"); return; }}  ({BASELINE_ISSUE})"
             )
-        elif actual < allowed:
+        if removed:
             failures.append(
-                f"{name}: {actual} site(s) remain but the baseline still allows {allowed}. "
-                f"Sites were fixed - lower BASELINE[\"{name}\"] to {actual} "
-                f"({'remove the entry' if actual == 0 else 'tighten the ratchet'}) so the "
-                f"slack cannot be reoccupied."
+                f"{name}: {len(removed)} baselined site(s) no longer found - the ratchet must "
+                f"tighten. Remove these from {BASELINE_PATH.name} so the slack cannot be "
+                f"reoccupied by a new violation:"
             )
+            for print_ in removed:
+                failures.append(f"    {print_}")
 
     if failures:
         print(f"[require-null-deref] FAIL {total} site(s) found across {len(found)} file(s).")
@@ -384,7 +456,7 @@ def main() -> int:
 
     print(
         f"[require-null-deref] PASS {len(files)} test source(s) scanned; "
-        f"{total} baselined site(s) across {len(found)} file(s), 0 new."
+        f"{total} baselined site(s) across {len(found)} file(s), 0 new, 0 stale."
     )
     return 0
 

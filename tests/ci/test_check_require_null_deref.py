@@ -169,19 +169,113 @@ class StripCommentsPreservesLineNumbers(unittest.TestCase):
         self.assertIn("REQUIRE(ptr != nullptr);", source.split("\n")[line_no - 1])
 
 
+class MemberChains(ScanTestCase):
+    """A member chain is one symbol. The docstring once claimed this without doing it."""
+
+    def test_dot_chain_then_arrow(self):
+        self.assertFlagged(
+            "  REQUIRE(state.hierarchical_structure != nullptr);\n"
+            "  const AABB b = state.hierarchical_structure->get_bounds();",
+            "state.hierarchical_structure",
+        )
+
+    def test_dot_chain_is_valid_then_arrow(self):
+        self.assertFlagged(
+            "  REQUIRE(resource_state.buffer_manager.is_valid());\n"
+            "  const Error e = resource_state.buffer_manager->initialize(rd, 16);",
+            "resource_state.buffer_manager",
+        )
+
+    def test_arrow_chain(self):
+        self.assertFlagged(
+            "  REQUIRE(node->renderer != nullptr);\n  node->renderer->flush();",
+            "node->renderer",
+        )
+
+    def test_sibling_member_is_not_confused_with_a_prefix(self):
+        # `state.hierarchical_structure_build_count` must not satisfy a
+        # dereference of `state.hierarchical_structure`.
+        self.assertClean(
+            "  REQUIRE(state.hierarchical_structure != nullptr);\n"
+            "  const uint64_t n = state.hierarchical_structure_build_count;"
+        )
+
+    def test_different_chain_root_is_not_flagged(self):
+        self.assertClean("  REQUIRE(a.member != nullptr);\n  b.member->f();")
+
+
+class SwapDetection(unittest.TestCase):
+    """A count-only baseline licenses a swap; the fingerprint set must not.
+
+    Reviewer-demonstrated hole: fix one site the prescribed way AND add a new one
+    in the same file, and a per-file count is unchanged -> PASS, "0 new".
+    """
+
+    def _prints(self, body: str) -> list[str]:
+        source = 'TEST_CASE("[Synthetic] case") {\n' + body + "\n}\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "test_synthetic.h"
+            path.write_text(source, encoding="utf-8")
+            return sorted(
+                GUARD.fingerprint(sym, form, stmt)
+                for _, sym, form, stmt in GUARD._scan_file(path)
+            )
+
+    def test_swap_keeps_the_count_but_changes_the_fingerprints(self):
+        before = self._prints("  REQUIRE(alpha != nullptr);\n  alpha->method();")
+        after = self._prints("  REQUIRE(beta != nullptr);\n  beta->other();")
+        self.assertEqual(len(before), 1)
+        self.assertEqual(len(after), 1, "count is unchanged - this is the hole")
+        self.assertNotEqual(before, after, "fingerprints MUST differ, or the swap is invisible")
+        self.assertEqual(GUARD._multiset_difference(after, before), after)
+        self.assertEqual(GUARD._multiset_difference(before, after), before)
+
+    def test_fingerprint_is_independent_of_line_number(self):
+        plain = self._prints("  REQUIRE(alpha != nullptr);\n  alpha->method();")
+        shifted = self._prints(
+            "  int filler = 0;\n  (void)filler;\n  REQUIRE(alpha != nullptr);\n  alpha->method();"
+        )
+        self.assertEqual(plain, shifted)
+
+    def test_duplicate_sites_are_counted_as_a_multiset(self):
+        both = self._prints(
+            "  REQUIRE(alpha != nullptr);\n  alpha->method();\n"
+            "  REQUIRE(alpha != nullptr);\n  alpha->method();"
+        )
+        self.assertEqual(len(both), 2)
+        self.assertEqual(both[0], both[1])
+        # Removing one of an identical pair must still register as a removal.
+        self.assertEqual(len(GUARD._multiset_difference(both, both[:1])), 1)
+
+
 class BaselineIntegrity(unittest.TestCase):
-    def test_baseline_counts_are_positive(self):
-        for name, count in GUARD.BASELINE.items():
-            self.assertGreater(count, 0, f"{name}: a zero baseline entry should be removed")
+    def test_baseline_loads(self):
+        baseline, problems = GUARD.load_baseline()
+        self.assertEqual(problems, [])
+        self.assertTrue(baseline)
+
+    def test_baseline_entries_are_non_empty(self):
+        baseline, _ = GUARD.load_baseline()
+        for name, prints in baseline.items():
+            self.assertTrue(prints, f"{name}: an empty baseline entry should be removed")
 
     def test_baseline_matches_the_corpus(self):
         """The shipped baseline must equal reality, in both directions."""
-        found = GUARD.scan_all()
+        baseline, _ = GUARD.load_baseline()
         self.assertEqual(
-            {name: len(v) for name, v in found.items()},
-            dict(GUARD.BASELINE),
-            "BASELINE has drifted from the corpus; run the guard for the diff.",
+            GUARD.scan_fingerprints(),
+            baseline,
+            "baseline has drifted from the corpus; run the guard for the diff.",
         )
+
+    def test_missing_baseline_file_is_a_failure_not_a_pass(self):
+        original = GUARD.BASELINE_PATH
+        try:
+            GUARD.BASELINE_PATH = original.with_name("does_not_exist.json")
+            _, problems = GUARD.load_baseline()
+            self.assertTrue(problems)
+        finally:
+            GUARD.BASELINE_PATH = original
 
     def test_guard_passes_on_the_current_tree(self):
         self.assertEqual(GUARD.main(), 0)
