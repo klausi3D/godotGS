@@ -252,6 +252,13 @@ public:
     static bool is_gaussian_scene_file(const String& file_path);
     static String get_file_extension() { return "gsf"; } // Gaussian Scene File
     static Array get_supported_compression_types();
+
+    // Anti-decompress-bomb bound for a compressed chunk (#603a): true when a chunk
+    // declaring `original_size` decompressed bytes from `compressed_size` bytes is
+    // plausible. Bounded by the uint32 field width and a generous size ratio (with
+    // a small floor). Public + static so it can be unit-tested at the boundary
+    // without allocating multi-GiB buffers. Not a bound (script) method.
+    static bool is_decompressed_chunk_size_plausible(uint64_t original_size, uint64_t compressed_size);
 };
 
 } // namespace GaussianSplatting

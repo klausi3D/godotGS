@@ -23,13 +23,24 @@ static const uint32_t CHUNK_FLAG_COMPRESSED = 1 << 0;
 static const uint32_t MAX_SCENE_HEADER_CHUNK_SIZE = 64 * 1024; // Guard format probes against oversized header payloads.
 static const uint16_t SCENE_FLAG_INCREMENTAL = 1u << 0;
 static const uint16_t SCENE_FLAG_CHECKSUM_ENABLED = 1u << 1;
-// Absolute cap on a chunk's declared decompressed size (#603a). Mirrors the
-// .gsplatworld INT32_MAX cap (issue #459): Godot's Compression::decompress works
-// through a C++ `int` length, so it can never emit more than INT32_MAX bytes.
-// A chunk declaring a larger `original_size` can therefore NEVER decompress, so
-// rejecting it up front only moves a guaranteed failure ahead of a pointless
-// multi-GiB allocation driven by a few hostile header bytes.
-static const uint32_t MAX_DECOMPRESSED_CHUNK_SIZE = uint32_t(INT32_MAX);
+// Anti-decompress-bomb policy for a compressed chunk (#603a).
+//
+// The declared decompressed size lives in a uint32 on-disk field, so UINT32_MAX
+// is already the absolute ceiling -- no smaller artificial cap is imposed. In
+// particular there is NO INT32_MAX cap: the GSF default codec is Zstd, and this
+// fork's `Compression::decompress` takes an int64 destination size with no
+// INT32_MAX guard for MODE_ZSTD (core/io/compression.cpp), so a legitimately
+// large asset (e.g. 15M+ splats at 144 B each -> a > INT32_MAX Zstd chunk) both
+// decompresses fine and must load. Capping at INT32_MAX would falsely reject it.
+//
+// To still stop a tiny hostile chunk from forcing a multi-GiB allocation, the
+// declared size must also stay within a generous ratio of the ACTUAL compressed
+// bytes, with a small floor so a legitimately tiny-but-compressible chunk still
+// expands. A genuine large asset has a proportionally large compressed size and
+// passes; a few hostile bytes cannot claim gigabytes. See
+// is_decompressed_chunk_size_plausible().
+static const uint64_t MAX_DECOMPRESS_RATIO = 4096; // decompressed : compressed
+static const uint64_t MIN_DECOMPRESS_ALLOWANCE = 16ull * 1024 * 1024; // 16 MiB floor for tiny chunks
 
 Compression::Mode _to_compression_mode(CompressionType type) {
     switch (type) {
@@ -208,17 +219,36 @@ PackedByteArray GaussianSceneSerializer::_compress_data(const PackedByteArray &d
     return result;
 }
 
+bool GaussianSceneSerializer::is_decompressed_chunk_size_plausible(uint64_t original_size, uint64_t compressed_size) {
+    // The declared size can never exceed the uint32 on-disk field width.
+    if (original_size > uint64_t(UINT32_MAX)) {
+        return false;
+    }
+    // Ratio bound (with a small floor for tiny chunks), overflow-safe: a genuine
+    // large chunk has a proportionally large compressed size and passes, while a
+    // few hostile bytes cannot claim gigabytes.
+    if (compressed_size > (UINT64_MAX / MAX_DECOMPRESS_RATIO)) {
+        return true; // Compressed payload already enormous; the ratio is not the limiter.
+    }
+    uint64_t ratio_bound = compressed_size * MAX_DECOMPRESS_RATIO;
+    if (ratio_bound < MIN_DECOMPRESS_ALLOWANCE) {
+        ratio_bound = MIN_DECOMPRESS_ALLOWANCE;
+    }
+    return original_size <= ratio_bound;
+}
+
 PackedByteArray GaussianSceneSerializer::_decompress_data(const PackedByteArray &compressed_data, uint32_t original_size, CompressionType type) const {
     if (type == CompressionType::NONE) {
         return compressed_data;
     }
 
-    // Cap the file-supplied original_size against a sane absolute bound BEFORE
-    // allocating, so a few hostile header bytes cannot drive a multi-GiB
-    // allocation (#603a).
-    ERR_FAIL_COND_V_MSG(original_size > MAX_DECOMPRESSED_CHUNK_SIZE, PackedByteArray(),
-            vformat("Gaussian scene chunk declares an implausible decompressed size (%d bytes > %d cap).",
-                    (int64_t)original_size, (int64_t)MAX_DECOMPRESSED_CHUNK_SIZE));
+    // Reject an implausible declared size BEFORE allocating, so a few hostile
+    // header bytes cannot drive a multi-GiB allocation, while a genuinely large
+    // asset (whose compressed size is proportionally large) still loads (#603a).
+    ERR_FAIL_COND_V_MSG(!is_decompressed_chunk_size_plausible(uint64_t(original_size), uint64_t(compressed_data.size())),
+            PackedByteArray(),
+            vformat("Gaussian scene chunk declares an implausible decompressed size (%d bytes from %d compressed).",
+                    (int64_t)original_size, (int64_t)compressed_data.size()));
 
     Compression::Mode mode = _to_compression_mode(type);
     PackedByteArray result;

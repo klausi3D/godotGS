@@ -1221,10 +1221,11 @@ TEST_CASE("[GaussianSplatting][Persistence][MalformedCorpus] validate_file rejec
     _remove_persistence_fixture(path);
 }
 
-TEST_CASE("[GaussianSplatting][Persistence][MalformedCorpus] load_scene rejects an oversized declared decompressed size") {
-    // #603a: a compressed GAUSSIAN_DATA chunk that declares an implausibly large
-    // decompressed original_size must be rejected BEFORE the multi-GiB allocation,
-    // mirroring the .gsplatworld INT32_MAX cap (issue #459).
+TEST_CASE("[GaussianSplatting][Persistence][MalformedCorpus] load_scene rejects a decompress-bomb chunk (hostile ratio)") {
+    // #603a: a compressed GAUSSIAN_DATA chunk whose declared decompressed size is
+    // wildly out of proportion to its actual compressed bytes (a decompress bomb)
+    // must be rejected BEFORE the multi-GiB allocation. The guard is a ratio bound,
+    // NOT an absolute INT32_MAX cap (see the boundary-acceptance test below).
     const String path = _make_persistence_fixture_path("test_oversized_original_size");
     Ref<FileAccess> file = _open_persistence_fixture(path, FileAccess::WRITE);
     CHECK_MESSAGE(file.is_valid(), "Should be able to create oversized-chunk fixture");
@@ -1235,12 +1236,13 @@ TEST_CASE("[GaussianSplatting][Persistence][MalformedCorpus] load_scene rejects 
 
     _write_gsf_header_chunk(file, /*total_chunks=*/3, /*splat_count=*/1);
 
-    // GAUSSIAN_DATA chunk: CHUNK_FLAG_COMPRESSED (bit 0) | ZSTD (bits 8+), with a
-    // hostile original_size that exceeds the decompressed-size cap.
+    // GAUSSIAN_DATA chunk: CHUNK_FLAG_COMPRESSED (bit 0) | ZSTD (bits 8+). Only 8
+    // compressed bytes claim ~4 GiB decompressed -- a hostile ratio far beyond any
+    // real codec, so the ratio guard trips before allocation.
     const uint32_t compressed_flags = 0x1u | (uint32_t(GaussianSplatting::CompressionType::ZSTD) << 8);
-    const uint32_t bogus_original_size = 0xFFFFFFFFu; // > INT32_MAX
+    const uint32_t bogus_original_size = 0xFFFFFFFFu; // ~4 GiB from 8 compressed bytes
     PackedByteArray fake_compressed;
-    fake_compressed.resize(8); // arbitrary; the cap trips before decompression runs
+    fake_compressed.resize(8); // arbitrary; the ratio guard trips before decompression runs
     const uint32_t gaussian_payload_size = uint32_t(sizeof(uint32_t)) + uint32_t(fake_compressed.size());
     file->store_32((uint32_t)GaussianSplatting::ChunkType::GAUSSIAN_DATA);
     file->store_32(gaussian_payload_size);
@@ -1262,9 +1264,42 @@ TEST_CASE("[GaussianSplatting][Persistence][MalformedCorpus] load_scene rejects 
     loaded_data.instantiate();
     Error load_err = serializer.load_scene(path, loaded_data.ptr(), nullptr, nullptr);
     CHECK_MESSAGE(load_err == ERR_FILE_CORRUPT,
-            "load_scene must reject a chunk whose declared decompressed size exceeds the cap");
+            "load_scene must reject a decompress-bomb chunk (hostile decompressed:compressed ratio)");
 
     _remove_persistence_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][Persistence] Decompressed-size guard accepts large proportionate chunks, rejects hostile ratios") {
+    // Regression (PR #618 independent review): the decompressed-size guard must be
+    // a RATIO bound, not an absolute INT32_MAX cap. A legitimate large asset
+    // (e.g. ~15M splats at 144 B each -> a > INT32_MAX uncompressed Zstd chunk)
+    // whose compressed size is proportionate MUST be accepted -- this fork's
+    // Compression::decompress takes an int64 destination size and MODE_ZSTD has no
+    // INT32_MAX guard, so the (INT32_MAX, UINT32_MAX] band loaded fine on base.
+    //
+    // The guard is tested directly at the boundary (rather than by allocating a
+    // multi-GiB buffer end to end), because it runs BEFORE the resize() -- it is
+    // exactly the gate that regressed.
+    using Serializer = GaussianSplatting::GaussianSceneSerializer;
+
+    // A >INT32_MAX chunk with a proportionate compressed size (ratio 2, like real
+    // float data) MUST be accepted -- the whole point of the fix.
+    const uint64_t big_original = uint64_t(INT32_MAX) + (64ull * 1024 * 1024); // ~2.06 GiB, inside the regressed band
+    CHECK_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(big_original, big_original / 2),
+            "A > INT32_MAX chunk with a proportionate compressed size must be accepted (no absolute INT32_MAX cap)");
+    // Right up to the uint32 field ceiling with a proportionate compressed size.
+    CHECK_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(uint64_t(UINT32_MAX), uint64_t(UINT32_MAX) / 2),
+            "A chunk at the uint32 ceiling with a proportionate compressed size must be accepted");
+
+    // Hostile ratios / impossible sizes MUST be rejected.
+    CHECK_FALSE_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(uint64_t(UINT32_MAX), 8),
+            "A few-byte chunk claiming ~4 GiB decompressed must be rejected (decompress-bomb guard)");
+    CHECK_FALSE_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(uint64_t(UINT32_MAX) + 1, uint64_t(UINT32_MAX)),
+            "A declared size beyond the uint32 on-disk field width must be rejected");
+
+    // A tiny but highly compressible chunk still gets the small floor allowance.
+    CHECK_MESSAGE(Serializer::is_decompressed_chunk_size_plausible(1u << 20, 64),
+            "A tiny chunk may still decompress up to the small floor (1 MiB <= 16 MiB floor)");
 }
 
 TEST_CASE("[GaussianSplatting][Persistence][MalformedCorpus] Incremental loader rejects a change payload that fails to decode") {
