@@ -453,7 +453,7 @@ void PainterlyMaterial::set_stroke_density_curve(const Ref<Curve> &p_curve) {
 }
 
 void PainterlyMaterial::set_stroke_density_resolution(int p_resolution) {
-    int resolution = MAX(8, p_resolution);
+    int resolution = CLAMP(p_resolution, 8, 2048);
     if (resolution == stroke_density_resolution) {
         return;
     }
@@ -463,7 +463,7 @@ void PainterlyMaterial::set_stroke_density_resolution(int p_resolution) {
 }
 
 void PainterlyMaterial::set_stroke_density_strength(float p_strength) {
-    float clamped = MAX(p_strength, 0.0f);
+    float clamped = CLAMP(p_strength, 0.0f, 10.0f);
     if (Math::is_equal_approx(clamped, stroke_density_strength)) {
         return;
     }

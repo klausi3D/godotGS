@@ -612,6 +612,12 @@ TEST_CASE("[GaussianSplatting][Config] GPUSortingConfig rejects invalid max_sort
 		config.max_sort_elements = 100000000;
 		CHECK(config.validate());
 	}
+
+	SUBCASE("Element count above buffer-safe maximum is invalid") {
+		config.max_sort_elements = 500000001;
+		CHECK_FALSE(config.validate());
+		CHECK(config.get_validation_errors().contains("Max sort elements must be <= 500,000,000"));
+	}
 }
 
 TEST_CASE("[GaussianSplatting][Config] GPUSortingConfig rejects invalid radix_bits") {
@@ -1436,7 +1442,7 @@ TEST_CASE("[GaussianSplatting][Config] GPUSortingConfig edge case: maximum valid
 
 	// Test maximum reasonable values
 	config.target_sort_time_ms = 1000.0f; // 1 second
-	config.max_sort_elements = UINT32_MAX;
+	config.max_sort_elements = 500000000;
 	config.performance_log_interval = UINT32_MAX;
 
 	CHECK(config.validate());

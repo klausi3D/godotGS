@@ -240,6 +240,9 @@ void GPUSortingConfig::reset_to_defaults() {
 }
 
 bool GPUSortingConfig::validate() const {
+    // Maximum sort elements: 500M * 8 bytes/element = 4.0 GB for 64-bit-key
+    // RadixSort temp keys, below RenderingDevice's uint32_t buffer-size limit.
+    const uint32_t MAX_SORT_ELEMENTS_LIMIT = 500000000;
     // Maximum overlap records budget: 200M records uses ~2.4 GB VRAM (keys + values).
     // Minimum: 100K records to ensure small scenes work.
     const uint32_t MIN_OVERLAP_RECORDS = 100000;
@@ -249,6 +252,7 @@ bool GPUSortingConfig::validate() const {
 
     return target_sort_time_ms > 0.1f &&
            max_sort_elements > 1000 &&
+           max_sort_elements <= MAX_SORT_ELEMENTS_LIMIT &&
            max_overlap_records >= MIN_OVERLAP_RECORDS &&
            max_overlap_records <= MAX_OVERLAP_RECORDS_LIMIT &&
            max_raster_splats_per_tile >= MIN_RASTER_SPLATS_PER_TILE &&
@@ -267,6 +271,9 @@ String GPUSortingConfig::get_validation_errors() const {
 
     if (target_sort_time_ms <= 0.1f) errors += "Target sort time must be > 0.1ms\n";
     if (max_sort_elements <= 1000) errors += "Max sort elements must be > 1000\n";
+    if (max_sort_elements > 500000000) {
+        errors += "Max sort elements must be <= 500,000,000 (prevents 64-bit key buffer size overflow)\n";
+    }
     if (max_overlap_records < 100000) {
         errors += "Max overlap records must be >= 100,000 (too low may cause render cutoff)\n";
     }
