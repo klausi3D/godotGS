@@ -607,6 +607,81 @@ TEST_CASE("[GaussianSplatting][World][SceneTree] strict identity transform rejec
 	}
 }
 
+// Regression test for #517: GaussianSplatWorld3D::NOTIFICATION_EXIT_TREE
+// unregisters the world submission and frees render_instance/gaussian_base,
+// but NOTIFICATION_READY only fires once per node lifetime. Reparenting a
+// node is exit+enter, so before the fix a re-added world node stayed dark
+// until something explicitly called apply_world() or a property setter.
+// Mirrors the GaussianSplatNode3D analog above ("Shared renderer survives
+// temporary last-instance unregister") but asserts on the world-submission
+// record directly, since world submissions are director bookkeeping that
+// does not require a real GPU renderer to exist (see the ownership-gate
+// tests above).
+TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] World submission survives tree re-entry after reparent") {
+	SceneTree *tree = SceneTree::get_singleton();
+	REQUIRE_MESSAGE(tree != nullptr, "SceneTree singleton required");
+
+	Window *root = tree->get_root();
+	REQUIRE_MESSAGE(root != nullptr, "SceneTree root window required");
+
+	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+	const bool owns_director = (director == nullptr);
+	if (!director) {
+		director = memnew(GaussianSplatSceneDirector);
+	}
+	REQUIRE(director != nullptr);
+
+	Ref<GaussianSplatWorld> world_resource;
+	world_resource.instantiate();
+	world_resource->set_gaussian_data(stage1a_make_submission_test_data(6, 2.0f));
+	Vector<GaussianSplatRenderer::StaticChunk> chunks;
+	chunks.push_back(stage1a_make_submission_test_chunk(0));
+	world_resource->set_static_chunks(chunks);
+
+	GaussianSplatWorld3D *world_node = memnew(GaussianSplatWorld3D);
+	REQUIRE(world_node != nullptr);
+	// Default auto_apply_on_ready (true): the first tree-entry applies the
+	// world via NOTIFICATION_READY, matching the common configuration and
+	// keeping this test independent of the auto_apply_on_ready gate, which
+	// only governs first-entry behavior (see gaussian_splat_world_3d.cpp's
+	// NOTIFICATION_ENTER_TREE comment).
+	world_node->set_world(world_resource);
+
+	root->add_child(world_node);
+	tree->process(0.0);
+
+	const ObjectID owner_id = world_node->get_instance_id();
+	GaussianSplatSceneDirector::WorldSubmission submission;
+	REQUIRE_MESSAGE(director->get_world_submission(owner_id, &submission),
+			"auto_apply_on_ready should have registered the world submission on first READY.");
+
+	// Reparenting (or any tree removal + re-add) is exit+enter. Confirm
+	// EXIT_TREE actually tears the submission down, so the re-entry check
+	// below exercises the fix rather than a no-op.
+	root->remove_child(world_node);
+	tree->process(0.0);
+	CHECK_FALSE_MESSAGE(director->get_world_submission(owner_id, &submission),
+			"NOTIFICATION_EXIT_TREE must unregister the world submission.");
+
+	// Re-entry: NOTIFICATION_READY does NOT fire again. Before the #517 fix
+	// the node stayed dark here until apply_world() or a setter ran.
+	root->add_child(world_node);
+	tree->process(0.0);
+	CHECK_MESSAGE(director->get_world_submission(owner_id, &submission),
+			"NOTIFICATION_ENTER_TREE must restore a previously-active world submission on re-entry.");
+	CHECK(submission.owner_id == owner_id);
+	CHECK(submission.gaussian_data == world_resource->get_gaussian_data());
+
+	world_node->clear_world();
+	root->remove_child(world_node);
+	memdelete(world_node);
+	tree->process(0.0);
+
+	if (owns_director) {
+		memdelete(director);
+	}
+}
+
 TEST_CASE("[GaussianSplatting][SceneDirector][WorldSubmission][SceneTree] Zero-splat submissions do not surface residency authority") {
 	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
 	const bool owns_director = (director == nullptr);
