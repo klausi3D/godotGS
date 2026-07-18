@@ -253,7 +253,20 @@ if env["optimize"] == "speed":
             msvc_flags.append("/arch:AVX2")
         env_gaussian_splatting.Append(CCFLAGS=msvc_flags)
     else:
-        ccflags = ["-O3", "-ffast-math"]
+        # This branch is what GCC/Clang actually take (their env has no truthy
+        # is_msvc). -ffast-math implies -ffinite-math-only there, which lets the
+        # compiler assume no NaN/Inf ever occurs and folds std::isfinite/isnan/
+        # isinf to constants. That silently disables the module's finiteness
+        # guards (GaussianData payload validation, the PLY/SPZ import checks,
+        # streaming transform checks — all built on Math::is_finite, an
+        # _ALWAYS_INLINE_ wrapper that inherits this TU's flags), so NaN/Inf
+        # splats would pass validation on shipping GCC/Clang template_release
+        # builds. -fno-finite-math-only, placed AFTER -ffast-math so it wins,
+        # keeps the rest of fast-math's speed while restoring correct NaN/Inf
+        # semantics. See issue #590. (MSVC ignores these GNU-style flags with a
+        # D9002 warning, so this addition is a no-op for cl.exe; the sibling
+        # /fp:fast branch does not imply finite-math-only and needs no change.)
+        ccflags = ["-O3", "-ffast-math", "-fno-finite-math-only"]
         if native_arch:
             ccflags.append("-march=native")
         elif gs_avx2_enabled and env.get("arch") in ("x86_64", "x86_32"):
