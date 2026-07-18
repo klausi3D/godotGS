@@ -152,16 +152,29 @@ TEST_SUITE("[Gaussian Splatting Integration]") {
         gs_device_utils::safe_submit_and_sync(nullptr);
     }
 
-    TEST_CASE("[Integration] Sync policy enforces main-device no-submit/no-sync contract") {
-        RenderingServer *rs = RenderingServer::get_singleton();
-        CHECK(rs != nullptr);
-        if (rs == nullptr) {
-            return;
+    // #641: KNOWN-UNREACHABLE. This case needs a device with
+    // `is_main_rendering_device() == true`, and
+    // `RenderingDevice::initialize()` only sets that flag when the device is
+    // BOTH the singleton AND bound to a real main window
+    // (servers/rendering/rendering_device.cpp:6705,
+    // `is_main_instance = (singleton == this) && (p_main_window != DisplayServer::INVALID_WINDOW_ID)`).
+    // No test lane in this repo provides one:
+    //   * `--headless --test` + `[SceneTree]` gives a RenderingServerDefault on
+    //     the mock DisplayServer, whose `get_rendering_device()` is nullptr.
+    //   * `--gs-gpu-test` creates an offscreen device with the default
+    //     `p_main_window = INVALID_WINDOW_ID`, so `is_main_instance` is false by
+    //     construction (that is exactly why it can submit/sync at all).
+    // Running its assertions would require a NEW windowed-GPU doctest lane
+    // (a real DisplayServer + main-window RenderingDevice). Until that lane
+    // exists this skips explicitly rather than silently passing; #641 stays
+    // open for it. The precondition guard below is deliberately loud.
+    TEST_CASE("[Integration][RequiresGPU] Sync policy enforces main-device no-submit/no-sync contract") {
+        RenderingDevice *main_rd = nullptr;
+        if (RenderingServer *rs = RenderingServer::get_singleton()) {
+            main_rd = rs->get_rendering_device();
         }
-
-        RenderingDevice *main_rd = rs->get_rendering_device();
-        if (main_rd == nullptr) {
-            MESSAGE("Skipping test - Main RenderingDevice unavailable");
+        if (main_rd == nullptr || !main_rd->is_main_rendering_device()) {
+            MESSAGE("Skipping test - no MAIN RenderingDevice; no CI lane provides one (see #641)");
             return;
         }
 
@@ -186,18 +199,13 @@ TEST_SUITE("[Gaussian Splatting Integration]") {
         CHECK_FALSE(error_capture.has_message_containing("sync can only be called after submit"));
     }
 
-    TEST_CASE("[Integration] Sync policy treats local devices as submission-capable") {
-        RenderingServer *rs = RenderingServer::get_singleton();
-        CHECK(rs != nullptr);
-        if (rs == nullptr) {
-            return;
-        }
-
-        RenderingDevice *local_rd = rs->create_local_rendering_device();
-        if (local_rd == nullptr) {
-            MESSAGE("Skipping test - Local RenderingDevice unavailable");
-            return;
-        }
+    // #641: needs a real local RenderingDevice to submit/sync against. It used
+    // to hard-fail `CHECK(rs != nullptr)` under plain `--test` and matched no CI
+    // lane filter. `[RequiresGPU]` routes it to the new `Integration` batch of
+    // tests/ci/run_gpu_harness.py.
+    TEST_CASE("[Integration][RequiresGPU] Sync policy treats local devices as submission-capable") {
+        REQUIRE_LOCAL_GPU_DEVICE();
+        RenderingDevice *local_rd = local_device;
 
         CHECK_FALSE(local_rd->is_main_rendering_device());
         CHECK(gs_device_utils::is_local_device(local_rd));
@@ -208,7 +216,6 @@ TEST_SUITE("[Gaussian Splatting Integration]") {
         sync_policy.instantiate();
         CHECK(sync_policy.is_valid());
         if (!sync_policy.is_valid()) {
-            memdelete(local_rd);
             return;
         }
 
@@ -218,8 +225,6 @@ TEST_SUITE("[Gaussian Splatting Integration]") {
 
         CHECK_FALSE(error_capture.has_message_containing("Only local devices can submit and sync"));
         CHECK_FALSE(error_capture.has_message_containing("sync can only be called after submit"));
-
-        memdelete(local_rd);
     }
 
     TEST_CASE("[Integration] Component instantiation and basic linkage") {

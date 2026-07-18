@@ -42,18 +42,13 @@ TEST_CASE("[TileRenderer] Prefix pass2 dispatch limit boundary is explicit") {
     CHECK(GaussianSplatting::tile_prefix_pass2_requires_cpu_fallback(total_workgroups, pass2_dispatch_x - 1u));
 }
 
-TEST_CASE("[TileRenderer] Prefix CPU fallback writes deterministic renderer range buffers") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    CHECK_MESSAGE(rs != nullptr, "RenderingServer singleton must exist for TileRenderer tests");
-    if (rs == nullptr) {
-        return;
-    }
-
-    RenderingDevice *local_device = rs->create_local_rendering_device();
-    CHECK_MESSAGE(local_device != nullptr, "Failed to create local RenderingDevice for TileRenderer test");
-    if (local_device == nullptr) {
-        return;
-    }
+// #641: this case allocates real GPU buffers and reads them back, so it needs a
+// live local RenderingDevice. It previously hard-failed `CHECK(rs != nullptr)`
+// under plain `--test` and matched no CI lane filter at all. `[RequiresGPU]`
+// routes it to the `TileRenderer` GPU-harness batch; the sibling pure-math case
+// above stays untagged and keeps running in the headless lane.
+TEST_CASE("[TileRenderer][RequiresGPU] Prefix CPU fallback writes deterministic renderer range buffers") {
+    REQUIRE_LOCAL_GPU_DEVICE();
 
     Ref<TileRenderer> renderer;
     renderer.instantiate();
@@ -68,7 +63,6 @@ TEST_CASE("[TileRenderer] Prefix CPU fallback writes deterministic renderer rang
     Error err = renderer->initialize(local_device, Vector2i(64, 16), 1);
     CHECK_MESSAGE(err == OK, "TileRenderer initialization should succeed for CPU prefix fallback test");
     if (err != OK) {
-        memdelete(local_device);
         return;
     }
 
@@ -155,7 +149,6 @@ TEST_CASE("[TileRenderer] Prefix CPU fallback writes deterministic renderer rang
     CHECK(count == 3u);
 
     renderer->cleanup();
-    memdelete(local_device);
 }
 
 // Force-link anchor (#178): a doctest TEST_CASE registers via a file-scope static

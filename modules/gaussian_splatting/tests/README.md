@@ -124,10 +124,11 @@ The Python supervisor drives `--gs-gpu-test` in **per-batch subprocesses** so a 
 | `CompositorHazard` | `*HazardRepro*` | Active (canonical regression) |
 | `OutputCompositor` | `*OutputCompositor*][RequiresGPU]*` | Catalogued, empty |
 | `ComputeInfrastructure` | `*ComputeInfra*][RequiresGPU]*` | Catalogued, empty |
-| `TileRenderer` | `*TileRenderer*][RequiresGPU]*` | Catalogued, empty |
+| `TileRenderer` | `*TileRenderer*][RequiresGPU]*` | Active (3 cases, #641) |
 | `GpuSorting` | `*Sort*][RequiresGPU]*` | Catalogued, empty |
 | `MemoryStream` | `*MemoryStream*][RequiresGPU]*` | Catalogued, empty |
 | `Streaming` | `*Streaming*][RequiresGPU]*` | Catalogued, empty |
+| `Integration` | `*Integration*][RequiresGPU]*` | Active (1 of 2 cases, #641) |
 
 `REQUIRED_BATCHES = {"CompositorHazard"}`. The set is asserted at import time and an empty filter on a required batch fails the gate.
 

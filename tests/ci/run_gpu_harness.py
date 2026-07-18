@@ -62,6 +62,16 @@ BATCHES: tuple[BatchSpec, ...] = (
     BatchSpec("GpuSorting", ("*Sort*][RequiresGPU]*",)),
     BatchSpec("MemoryStream", ("*MemoryStream*][RequiresGPU]*",)),
     BatchSpec("Streaming", ("*Streaming*][RequiresGPU]*",)),
+    # #641: the sync-policy device-contract tests in
+    # modules/gaussian_splatting/tests/test_integration.cpp. They need a real
+    # local RenderingDevice, which only this harness provides; before #641 they
+    # were untagged and matched no lane's filter in either run_module_tests.py or
+    # here, so they had never executed once since being written. NOT in
+    # REQUIRED_BATCHES: one of the two ("...main-device no-submit/no-sync
+    # contract") still cannot run anywhere — it needs a main-window
+    # RenderingDevice that no lane creates — so requiring a matching, executing
+    # case here would encode a promise the harness cannot keep.
+    BatchSpec("Integration", ("*Integration*][RequiresGPU]*",)),
     # Render route/stage cascade failure-injection coverage for #351. These tests carry no
     # subsystem bracket tag, so the batch matches on the descriptive phrase. The phrases are
     # deliberately NOT wrapped in "[...]" brackets: the manifest contract check matches with

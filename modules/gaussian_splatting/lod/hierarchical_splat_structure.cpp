@@ -474,9 +474,17 @@ void HierarchicalSplatStructure::get_lod_splats(
         // Reduced detail - sample splats based on importance
         uint32_t target_count = node->splat_count;
 
-        // Reduce count based on LOD level
-        if (lod_level == 1) target_count = target_count / 2;
-        else if (lod_level == 2) target_count = target_count / 4;
+        // Reduce count based on LOD level.
+        //
+        // #636: every branch MUST clamp to >= 1. `target_count` is the divisor
+        // of `node->splat_count / target_count` below, so a node small enough to
+        // round the division down to 0 caused an integer DIVIDE BY ZERO and
+        // crashed the process. A leaf holding 1-3 splats at lod_level 2 (1/4 ==
+        // 0) or 1 splat at lod_level 1 (1/2 == 0) hits it; measured 178 times in
+        // a single 4096-splat query. The lod_level 3 branch already had the
+        // `MAX(1u, ...)` clamp, which is the invariant the other two omitted.
+        if (lod_level == 1) target_count = MAX(1u, target_count / 2);
+        else if (lod_level == 2) target_count = MAX(1u, target_count / 4);
         else if (lod_level == 3) target_count = MAX(1u, target_count / 10);
 
         // Sample splats uniformly (can be improved with importance sampling)
