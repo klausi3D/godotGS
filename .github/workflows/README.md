@@ -89,7 +89,16 @@ that publish path (issue #593):
   public-alpha evidence bundle and **fails closed** when the bundle is absent, so
   a tag cannot publish without passing candidate validation;
 - `publish_release` hard-depends on the gate and sets
-  `fail_on_unmatched_files: true` for the stable channel.
+  `fail_on_unmatched_files: true` for the stable channel;
+- it binds the evidence to reality: `--expected-commit ${{ github.sha }}` (the
+  bundle must be for the commit being published) and `--artifact-sha
+  <group>=<sha256>` for each archive built in this run (the bundle must record
+  the digests of the bytes actually being shipped);
+- it writes a `release-attestation.json` over the payload it validated, and
+  `publish_release` re-hashes what it downloaded and refuses to publish unless
+  every file and the commit match (`tests/ci/release_attestation.py`). A stale
+  bundle, a rebuilt artifact, an injected file, or a missing attestation all
+  fail the publish closed.
 
 Nightly prereleases are a pass-through (the gate does not run candidate
 validation for them) and keep the Linux-only / relaxed-unmatched behavior so a

@@ -110,10 +110,46 @@ supplies the bundle out-of-band by pointing the `RELEASE_CANDIDATE_EVIDENCE`
 produced bundle. Generating the bundle in-workflow so a green stable tag is
 self-proving is tracked as follow-up under #360/#593.
 
+### Evidence is bound to the commit and to the shipped bytes
+
+Candidate validation on its own only proves the evidence bundle is *internally*
+consistent: `--mode candidate` re-hashes the files the bundle points at and
+checks them against the bundle's own recorded `godot_binary_commit`. A bundle
+produced for an older, fully validated commit stays internally consistent
+forever, so without further binding it would authorize publishing a *different*,
+never-validated commit's binaries. Three checks close that hole:
+
+1. **Commit binding.** The gate passes `--expected-commit ${{ github.sha }}`.
+   The bundle's `commit` must equal the commit being published, exactly.
+2. **Built-bytes binding.** The gate downloads the archives `build_linux` and
+   `build_windows` produced *in this run*, hashes them, and passes
+   `--artifact-sha linux_release_archive=<sha256>` (and the Windows equivalent).
+   The bundle must record exactly those digests, so the validated artifact and
+   the built artifact are provably the same bytes. The gate also requires each
+   published `.sha256` sidecar to describe its archive, and requires the Linux
+   `BUILD-INFO.txt` to record the commit being published — the latter applies on
+   the nightly channel too, which has no evidence bundle at all.
+3. **Shipped-bytes binding.** `publish_release` runs as a separate job that
+   re-downloads the artifacts, so the gate never saw what it uploads. The gate
+   therefore writes a `release-attestation.json` (commit + sha256 of every file
+   it validated) via `tests/ci/release_attestation.py generate`, and
+   `publish_release` re-hashes its downloaded payload and requires an exact
+   match with `release_attestation.py verify` before calling
+   `softprops/action-gh-release`. A missing attestation, a changed digest, a
+   missing asset, an unattested extra file, or a commit mismatch all fail the
+   publish.
+
+Together these make the release chain closed: `github.sha` == evidence commit ==
+BUILD-INFO commit; evidence artifact digests == digests of the archives built in
+this run == digests in the attestation == digests of the bytes uploaded to the
+GitHub release.
+
 The contract checker verifies the `release_candidate_gate` job marker is present
-but does not parse the job's runtime both-platform / candidate logic; those
-specifics remain YAML-level enforcement recorded under
-`workflow_policy.workflow_enforced_rules` in the manifest.
+but does not parse the job's runtime both-platform / candidate / binding logic;
+those specifics remain YAML-level enforcement recorded under
+`workflow_policy.workflow_enforced_rules` in the manifest. The binding logic
+itself is unit-tested in `tests/ci/test_renderer_release_gates.py`
+(`CandidateSupplyChainBindingTests`) and `tests/ci/test_release_attestation.py`.
 
 ## Renderer Evidence
 
