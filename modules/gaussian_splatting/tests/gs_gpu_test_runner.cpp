@@ -225,9 +225,14 @@ struct GsGpuRidLeakListener : public doctest::IReporter {
 	explicit GsGpuRidLeakListener(const doctest::ContextOptions &) {}
 
 	uint64_t case_start_memory = 0;
+	// #329: remember the case name so a leak advisory can NAME the offender.
+	// It used to print `test=advisory`, which made a non-zero total
+	// untriageable -- you knew the batch leaked but not which case.
+	String case_name;
 
-	void test_case_start(const doctest::TestCaseData &) override {
+	void test_case_start(const doctest::TestCaseData &p_data) override {
 		case_start_memory = 0;
+		case_name = String(p_data.m_name);
 		if (!g_in_gs_gpu_mode) {
 			return;
 		}
@@ -249,6 +254,26 @@ struct GsGpuRidLeakListener : public doctest::IReporter {
 	void test_case_end(const doctest::CurrentTestCaseStats &) override {
 		if (!g_in_gs_gpu_mode) {
 			return;
+		}
+		// #329 (Codex review): drop the SceneDirector's retained SharedWorld
+		// renderers BEFORE sampling, or their GPU memory is attributed to
+		// whichever case happened to run.
+		//
+		// The director owns a Ref<GaussianSplatRenderer> per scenario that
+		// outlives the case's SceneTree, so without this every [SceneTree] case
+		// that built a renderer reported a false multi-hundred-MB leak. Measured
+		// on this branch before the fix: NodeSceneTree 2,115,072,932 B,
+		// SceneDirectorSceneTree 332,889,640 B, WorldSceneTree 237,081,416 B —
+		// and run_gpu_harness.py folds `total_rid_leak_bytes > 0` into
+		// gate_failed GLOBALLY (not just for required batches), so those bogus
+		// numbers failed the whole harness.
+		//
+		// This runs AFTER GodotTestCaseListener::test_case_end has torn the
+		// SceneTree down (see the priority-0 registration note below), so the
+		// nodes' own Refs are already gone and dropping the director's Ref
+		// actually frees the renderer instead of just decrementing a refcount.
+		if (GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton()) {
+			director->release_all_worlds();
 		}
 #if defined(RD_ENABLED)
 		// 4 MiB threshold over the GS-owned buffers+textures delta (see
@@ -275,8 +300,8 @@ struct GsGpuRidLeakListener : public doctest::IReporter {
 					// listener reporters can't call CHECK_MESSAGE, so we
 					// surface the signal via stdout and let the supervisor
 					// escalate.
-					print_line(vformat("[GS-GPU][RID-LEAK?] bytes=%s test=advisory",
-							String::num_uint64(delta)));
+					print_line(vformat("[GS-GPU][RID-LEAK?] bytes=%s test=%s",
+							String::num_uint64(delta), case_name));
 				}
 			}
 		}
@@ -295,7 +320,26 @@ struct GsGpuRidLeakListener : public doctest::IReporter {
 	void test_case_skipped(const doctest::TestCaseData &) override {}
 };
 
-REGISTER_LISTENER("GsGpuRidLeakListener", 1, GsGpuRidLeakListener);
+// Priority 0, NOT 1 (#329, Codex review). doctest builds its active-listener
+// list by iterating getListeners() -- a map keyed by (priority, name) -- and
+// inserting each one at reporters_currently_used.begin() (doctest.h:6891-6892),
+// which REVERSES map order. Callbacks then run front-to-back (doctest.h:4112).
+//
+// At priority 1 this listener sorted after "GodotTestCaseListener" in the map
+// ("Go" < "Gs"), so after the reversal it ran FIRST -- meaning test_case_end
+// sampled GPU memory while the case's SceneTree, its nodes, and every Ref they
+// hold were still alive. Every [SceneTree] case therefore looked like a huge
+// leak.
+//
+// Priority 0 sorts this listener FIRST in the map, so the reversal puts it
+// LAST: test_case_start now samples after the SceneTree is built and
+// test_case_end samples after it is torn down. That is the symmetric,
+// meaningful measurement -- SceneTree bring-up cost is excluded from the
+// baseline instead of being counted as a leak at the end.
+//
+// If a third listener is ever added, re-derive the order rather than assuming
+// it; the insert-at-begin reversal is easy to get backwards.
+REGISTER_LISTENER("GsGpuRidLeakListener", 0, GsGpuRidLeakListener);
 
 } // namespace
 

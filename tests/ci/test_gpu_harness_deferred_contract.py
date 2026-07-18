@@ -38,6 +38,7 @@ Run standalone:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import re
@@ -50,6 +51,32 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 MANIFEST_PATH = ROOT / "docs" / "reference" / "renderer_release_gate_manifest.json"
 HARNESS_PATH = ROOT / "tests" / "ci" / "run_gpu_harness.py"
 GATE_PATH = ROOT / "tests" / "ci" / "check_renderer_release_gates.py"
+
+# ---------------------------------------------------------------------------
+# PINNED BASELINE (Codex review on #329). Do not "update to make CI pass".
+#
+# The first version of this guard read the allowed backlog out of the manifest
+# and compared the manifest against itself. That is not a ratchet: a PR could
+# add a brand-new [RequiresGPU] test, append its name to
+# unbatched_requires_gpu_backlog.test_names in the same commit, and go green --
+# licensing exactly the "executes in no lane" gap the guard exists to prevent.
+#
+# The baseline therefore lives HERE, in the guard, not in the data the guard
+# checks. Any change to the backlog set -- addition, removal, or rename --
+# changes BACKLOG_FINGERPRINT and fails CI first. Growth additionally trips
+# BACKLOG_MAX_ENTRIES.
+#
+# Legitimate SHRINK (the only direction allowed):
+#   1. move the test into a real batch in run_gpu_harness.py,
+#   2. delete its name from the manifest backlog,
+#   3. re-pin both constants below (BACKLOG_MAX_ENTRIES must go DOWN),
+#      using: python tests/ci/test_gpu_harness_deferred_contract.py --print-fingerprint
+#
+# Raising BACKLOG_MAX_ENTRIES is a red flag in review: it means a GPU test was
+# added that executes nowhere. A newly written [RequiresGPU] test belongs in a
+# batch, full stop.
+BACKLOG_MAX_ENTRIES = 70
+BACKLOG_FINGERPRINT = "9c396108fe492f7af29a67a7528ac4dc7f2d69b9dd6b3f8cb3b3c6636805ce39"
 
 
 def _load(name: str, path: Path):
@@ -68,6 +95,12 @@ def doctest_match(pattern: str, name: str) -> bool:
         ".*" if ch == "*" else ("." if ch == "?" else re.escape(ch)) for ch in pattern
     )
     return re.fullmatch(regex, name, re.DOTALL) is not None
+
+
+def backlog_fingerprint(names: list[str]) -> str:
+    """Order-independent fingerprint of the backlog name set."""
+    payload = "\n".join(sorted(names)).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def _corpus() -> list[dict[str, Any]]:
@@ -134,6 +167,39 @@ class GpuHarnessDeferredContractTests(unittest.TestCase):
             "Appending to unbatched_requires_gpu_backlog is allowed ONLY for pre-existing cases;\n"
             "a newly written [RequiresGPU] test must land in a batch.\n"
             "Undeclared orphans:\n  " + "\n  ".join(undeclared),
+        )
+
+    def test_backlog_cannot_grow_past_pinned_baseline(self):
+        """The manifest backlog may not exceed the baseline pinned in THIS file.
+
+        Codex review: without this, a PR that adds a [RequiresGPU] test and
+        appends it to the manifest backlog in the same commit goes green,
+        because the guard would be treating the edited manifest as its own
+        baseline.
+        """
+        backlog = self.manifest.get("unbatched_requires_gpu_backlog", {}).get("test_names", [])
+        self.assertLessEqual(
+            len(backlog),
+            BACKLOG_MAX_ENTRIES,
+            f"unbatched_requires_gpu_backlog grew to {len(backlog)}, above the pinned "
+            f"BACKLOG_MAX_ENTRIES={BACKLOG_MAX_ENTRIES}. A newly written [RequiresGPU] test must "
+            f"land in a batch in tests/ci/run_gpu_harness.py, not in the backlog. Do NOT raise "
+            f"the constant to make this pass.",
+        )
+
+    def test_backlog_fingerprint_matches_pinned_baseline(self):
+        """Any edit to the backlog set must be a deliberate, visible re-pin."""
+        backlog = self.manifest.get("unbatched_requires_gpu_backlog", {}).get("test_names", [])
+        actual = backlog_fingerprint(backlog)
+        self.assertEqual(
+            actual,
+            BACKLOG_FINGERPRINT,
+            "unbatched_requires_gpu_backlog changed without re-pinning this guard.\n"
+            f"  pinned: {BACKLOG_FINGERPRINT}\n  actual: {actual}\n"
+            "If you REMOVED entries (the only allowed direction), re-pin with\n"
+            "  python tests/ci/test_gpu_harness_deferred_contract.py --print-fingerprint\n"
+            "and lower BACKLOG_MAX_ENTRIES to match. If you ADDED entries, stop: put the test\n"
+            "in a batch instead.",
         )
 
     def test_unbatched_backlog_is_a_ratchet(self):
@@ -242,6 +308,79 @@ class GpuHarnessDeferredContractTests(unittest.TestCase):
             "every deferred test needs exactly one waiver",
         )
 
+    def test_leak_listener_samples_after_scenetree_teardown(self):
+        """GsGpuRidLeakListener must outrank GodotTestCaseListener (#329, Codex review).
+
+        doctest builds its active-listener list by iterating getListeners() -- a
+        map keyed by (priority, name) -- and inserting each at
+        reporters_currently_used.begin() (doctest.h:6891-6892), which REVERSES
+        map order; callbacks then run front-to-back (doctest.h:4112).
+
+        So the listener that sorts FIRST in the map runs LAST. To sample GPU
+        memory after the SceneTree is torn down, GsGpuRidLeakListener must sort
+        strictly before GodotTestCaseListener -- i.e. carry a strictly lower
+        priority. At equal priority (both were 1) the name breaks the tie,
+        "GodotTestCaseListener" < "GsGpuRidLeakListener", and the leak listener
+        sampled while the whole SceneTree was still alive: 2.72 GB of phantom
+        leaks across the new batches, which run_gpu_harness.py folds into
+        gate_failed globally.
+
+        Derive BOTH priorities from source so this still fails if upstream
+        Godot changes its listener's priority.
+        """
+        runner = (
+            ROOT / "modules" / "gaussian_splatting" / "tests" / "gs_gpu_test_runner.cpp"
+        ).read_text(encoding="utf-8", errors="replace")
+        godot = (ROOT / "tests" / "test_main.cpp").read_text(encoding="utf-8", errors="replace")
+
+        def priority_of(text: str, listener: str) -> int:
+            match = re.search(
+                r'REGISTER_LISTENER\(\s*"' + re.escape(listener) + r'"\s*,\s*(\d+)\s*,', text
+            )
+            self.assertIsNotNone(match, f"could not find REGISTER_LISTENER for {listener}")
+            return int(match.group(1))
+
+        leak_priority = priority_of(runner, "GsGpuRidLeakListener")
+        godot_priority = priority_of(godot, "GodotTestCaseListener")
+        self.assertLess(
+            leak_priority,
+            godot_priority,
+            f"GsGpuRidLeakListener priority ({leak_priority}) must be strictly lower than "
+            f"GodotTestCaseListener's ({godot_priority}) so it runs LAST and samples GPU memory "
+            f"AFTER SceneTree teardown. doctest reverses map order when building the listener "
+            f"list. Raising this priority silently reintroduces multi-GB phantom leak reports.",
+        )
+
+    def test_leak_listener_releases_worlds_before_sampling(self):
+        """The SceneDirector's retained renderers must be dropped before sampling.
+
+        They outlive the case's SceneTree, so without this every [SceneTree]
+        case that built a renderer reports a false leak regardless of listener
+        ordering.
+        """
+        runner_path = ROOT / "modules" / "gaussian_splatting" / "tests" / "gs_gpu_test_runner.cpp"
+        text = runner_path.read_text(encoding="utf-8", errors="replace")
+        start = text.find("void test_case_end(")
+        self.assertNotEqual(start, -1, "GsGpuRidLeakListener::test_case_end not found")
+        end = text.find("void report_query(", start)
+        body = text[start:end]
+
+        release_at = body.find("release_all_worlds()")
+        self.assertNotEqual(
+            release_at,
+            -1,
+            "test_case_end must call GaussianSplatSceneDirector::release_all_worlds() so "
+            "director-retained renderer GPU memory is not attributed to the running case.",
+        )
+        sample_at = body.find("get_memory_usage(")
+        self.assertNotEqual(sample_at, -1, "test_case_end must sample GPU memory usage")
+        self.assertLess(
+            release_at,
+            sample_at,
+            "release_all_worlds() must be called BEFORE the post-case memory sample, "
+            "otherwise the retained renderers are still counted as a leak.",
+        )
+
     def test_no_duplicate_waivers(self):
         names = [w["test_name"] for w in self.waivers]
         self.assertEqual(sorted(names), sorted(set(names)), "duplicate waiver entries")
@@ -287,7 +426,13 @@ def _print_summary() -> int:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--print-summary", action="store_true")
+    parser.add_argument("--print-fingerprint", action="store_true")
     args, rest = parser.parse_known_args()
+    if args.print_fingerprint:
+        _names = _manifest().get("unbatched_requires_gpu_backlog", {}).get("test_names", [])
+        print(f"BACKLOG_MAX_ENTRIES = {len(_names)}")
+        print(f'BACKLOG_FINGERPRINT = "{backlog_fingerprint(_names)}"')
+        raise SystemExit(0)
     if args.print_summary:
         raise SystemExit(_print_summary())
     unittest.main(argv=[sys.argv[0], *rest])

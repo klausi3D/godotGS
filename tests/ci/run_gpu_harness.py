@@ -743,6 +743,30 @@ def main() -> int:
     # gate_failed below. If a future driver/runner's allocator pool trips the
     # listener on the canonical hazard test, retune the threshold in
     # gs_gpu_test_runner.cpp rather than the supervisor side.
+    # #329 measurement note. Two distinct things were conflated here before:
+    #
+    #   * MIS-ATTRIBUTION (fixed): the SceneDirector retained a
+    #     Ref<GaussianSplatRenderer> per scenario that outlived each case's
+    #     SceneTree, and the leak listener sampled before SceneTree teardown.
+    #     Together those reported 2,720,433,428 bytes across the new [SceneTree]
+    #     batches. Fixed in gs_gpu_test_runner.cpp (release_all_worlds() before
+    #     sampling, listener demoted to priority 0 so it samples last).
+    #
+    #   * ALLOCATOR HIGH-WATER GROWTH (not fixed, pre-existing): the residual is
+    #     one-time pool warmup billed to whichever case touches it FIRST. Proven
+    #     order-dependent: running "Shared renderer instance buffer tracks
+    #     per-node opacity" alone reports 12,000,256 B, but with any earlier
+    #     renderer-building case in the same process it reports 0 -- and
+    #     excluding the top reporters simply moves the same 12 MB onto the next
+    #     case (whack-a-mole). It is not a per-case leak, so cases are NOT
+    #     excluded for it and the threshold is NOT raised.
+    #
+    # This metric already fails on master for the same reason: the untouched
+    # TileRenderer batch reports 35,389,440 B on base 9161d92f349, so
+    # `total_rid_leak_bytes > 0` is red before this PR. Making the signal able to
+    # distinguish a real leak from pool growth is #335's documented follow-up
+    # (switch to a handle-count signal); do not "fix" it by retuning the
+    # threshold here.
     total_rid_leak_bytes = sum(r.rid_leak_bytes for r in results)
 
     # Batches where the doctest summary regex failed to match. Locale shifts,
