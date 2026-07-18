@@ -21,6 +21,20 @@
 //        which then poisoned every later comparison and froze playback. The fix
 //        floors duration at all producers and guards the loop wrap.
 //
+// #598 (adjacent gap, closed in the same hardening pass) - the original fix
+//        used `MAX(MIN_CLIP_DURATION, p_duration)` to floor a zero/negative
+//        duration. MAX is `m_a > m_b ? m_a : m_b`, and any comparison against
+//        NaN is false, so `MAX(MIN_CLIP_DURATION, NaN)` returned the NaN
+//        argument unchanged (a +Infinity duration passed through the same
+//        way). A non-finite clip.duration makes every later comparison
+//        (`clip.duration > 0.0f`, `current_time >= clip.duration`) evaluate
+//        false, so update() never wraps and never stops the clip: playback
+//        silently freezes forever, with no crash and no error. The fix adds
+//        an explicit `Math::is_finite()` check at every duration producer
+//        (add_clip / set_clip_duration / from_dict) and at the analogous
+//        switch-delay producer (switch_to_clip_delayed), which had the
+//        identical MAX-vs-NaN gap in its own transition_duration.
+//
 // #599 - `blend_to_clip()` never cross-faded: it enqueues a target that, on
 //        completion, HARD-SWITCHES `current_clip_index`. It is renamed to
 //        `switch_to_clip_delayed()` (with `blend_to_clip` kept as a deprecated
@@ -30,6 +44,8 @@
 #include "test_macros.h"
 #include "../animation/animation_state_machine.h"
 #include "core/math/math_funcs.h"
+
+#include <limits>
 
 TEST_CASE("[GaussianSplatting][Animation] bad clip index returns safely from every bound method (#597)") {
     using namespace GaussianSplatting;
@@ -141,6 +157,157 @@ TEST_CASE("[GaussianSplatting][Animation] clip-duration producers reject non-pos
     sm.from_dict(root);
     REQUIRE(sm.get_clip_count() == 1);
     CHECK(sm.get_clip_duration(0) > 0.0f);
+}
+
+TEST_CASE("[GaussianSplatting][Animation] clip-duration producers reject NaN and +/-Infinity (#598 adjacent gap)") {
+    using namespace GaussianSplatting;
+
+    const float nan_value = std::numeric_limits<float>::quiet_NaN();
+    const float pos_inf = std::numeric_limits<float>::infinity();
+    const float neg_inf = -std::numeric_limits<float>::infinity();
+
+    GaussianAnimationStateMachine sm;
+
+    // add_clip: MAX(floor, p_duration) alone would return NaN/+Inf unchanged
+    // (any comparison against NaN is false, and MIN_CLIP_DURATION > +Inf is
+    // also false), so add_clip must sanitize before storing.
+    const int nan_clip = sm.add_clip("nan", nan_value);
+    REQUIRE(nan_clip == 0);
+    CHECK_FALSE(Math::is_nan(sm.get_clip_duration(nan_clip)));
+    CHECK_FALSE(Math::is_inf(sm.get_clip_duration(nan_clip)));
+    CHECK(sm.get_clip_duration(nan_clip) > 0.0f);
+
+    const int pos_inf_clip = sm.add_clip("pos_inf", pos_inf);
+    REQUIRE(pos_inf_clip == 1);
+    CHECK_FALSE(Math::is_nan(sm.get_clip_duration(pos_inf_clip)));
+    CHECK_FALSE(Math::is_inf(sm.get_clip_duration(pos_inf_clip)));
+    CHECK(sm.get_clip_duration(pos_inf_clip) > 0.0f);
+
+    const int neg_inf_clip = sm.add_clip("neg_inf", neg_inf);
+    REQUIRE(neg_inf_clip == 2);
+    CHECK_FALSE(Math::is_nan(sm.get_clip_duration(neg_inf_clip)));
+    CHECK_FALSE(Math::is_inf(sm.get_clip_duration(neg_inf_clip)));
+    CHECK(sm.get_clip_duration(neg_inf_clip) > 0.0f);
+
+    // set_clip_duration: the same guard applies when overwriting a live clip.
+    sm.set_clip_duration(0, nan_value);
+    CHECK_FALSE(Math::is_nan(sm.get_clip_duration(0)));
+    CHECK(sm.get_clip_duration(0) > 0.0f);
+
+    sm.set_clip_duration(0, pos_inf);
+    CHECK_FALSE(Math::is_inf(sm.get_clip_duration(0)));
+    CHECK(sm.get_clip_duration(0) > 0.0f);
+
+    sm.set_clip_duration(0, neg_inf);
+    CHECK_FALSE(Math::is_inf(sm.get_clip_duration(0)));
+    CHECK(sm.get_clip_duration(0) > 0.0f);
+
+    // from_dict: a corrupt or hand-built save carrying a non-finite duration
+    // must be sanitized on load too, not only through the live setters.
+    const float bad_durations[] = { nan_value, pos_inf, neg_inf };
+    for (float bad_duration : bad_durations) {
+        Dictionary clip_dict;
+        clip_dict["name"] = "loaded";
+        clip_dict["duration"] = bad_duration;
+        clip_dict["looping"] = true;
+        Array clips_array;
+        clips_array.push_back(clip_dict);
+        Dictionary root;
+        root["clips"] = clips_array;
+        sm.from_dict(root);
+        REQUIRE(sm.get_clip_count() == 1);
+        CHECK_FALSE(Math::is_nan(sm.get_clip_duration(0)));
+        CHECK_FALSE(Math::is_inf(sm.get_clip_duration(0)));
+        CHECK(sm.get_clip_duration(0) > 0.0f);
+    }
+}
+
+TEST_CASE("[GaussianSplatting][Animation] a NaN clip duration cannot freeze a looping clip via an always-false comparison (#598 adjacent gap)") {
+    using namespace GaussianSplatting;
+
+    const float nan_value = std::numeric_limits<float>::quiet_NaN();
+
+    // Pre-fix, a NaN duration would pass MAX(floor, NaN) unchanged, so the
+    // loop-wrap guard `clip.duration > 0.0f` (itself a comparison) is false
+    // for NaN: the clip never wraps, current_time grows unbounded, and
+    // sampling sticks at the final keyframe forever. Prove the sanitized
+    // (finite, positive) duration wraps correctly instead.
+    GaussianAnimationStateMachine sm;
+    const int idx = sm.add_clip("loop_nan", nan_value);
+    REQUIRE(idx == 0);
+    const float duration = sm.get_clip_duration(0);
+    REQUIRE(duration > 0.0f);
+    REQUIRE_FALSE(Math::is_nan(duration));
+
+    sm.set_clip_looping(0, true);
+    sm.set_splat_count(1);
+    sm.play(0);
+    REQUIRE(sm.is_playing());
+
+    for (int i = 0; i < 64; i++) {
+        sm.update(0.5f);
+        const float t = sm.get_current_time();
+        CHECK_FALSE(Math::is_nan(t));
+        CHECK_FALSE(Math::is_inf(t));
+        CHECK(t >= 0.0f);
+        CHECK(t < duration);
+    }
+    CHECK_EQ(sm.get_state(), ANIMATION_STATE_PLAYING);
+}
+
+TEST_CASE("[GaussianSplatting][Animation] a +Infinity clip duration cannot prevent a non-looping clip from stopping (#598 adjacent gap)") {
+    using namespace GaussianSplatting;
+
+    const float pos_inf = std::numeric_limits<float>::infinity();
+
+    // Pre-fix, a +Infinity duration would pass MAX(floor, +Inf) unchanged
+    // (MIN_CLIP_DURATION > +Inf is false), so `current_time >= clip.duration`
+    // would never fire and the clip would never stop. Prove the sanitized
+    // (finite, tiny) duration still lets a non-looping clip stop.
+    GaussianAnimationStateMachine sm;
+    const int idx = sm.add_clip("stop_inf", pos_inf);
+    REQUIRE(idx == 0);
+    const float duration = sm.get_clip_duration(0);
+    REQUIRE(duration > 0.0f);
+    REQUIRE_FALSE(Math::is_inf(duration));
+
+    sm.set_splat_count(1);
+    sm.play(0);
+    REQUIRE(sm.is_playing());
+
+    for (int i = 0; i < 8 && sm.is_playing(); i++) {
+        sm.update(1.0f);
+    }
+    CHECK_EQ(sm.get_state(), ANIMATION_STATE_STOPPED);
+    const float t = sm.get_current_time();
+    CHECK_FALSE(Math::is_nan(t));
+    CHECK_FALSE(Math::is_inf(t));
+}
+
+TEST_CASE("[GaussianSplatting][Animation] switch_to_clip_delayed rejects a NaN switch-delay (#598 adjacent gap, #599)") {
+    using namespace GaussianSplatting;
+
+    const float nan_value = std::numeric_limits<float>::quiet_NaN();
+
+    GaussianAnimationStateMachine sm;
+    sm.set_splat_count(1);
+    const int a = sm.add_clip("A", 10.0f);
+    const int b = sm.add_clip("B", 10.0f);
+    sm.add_keyframe(a, ANIMATION_PROPERTY_OPACITY, 0.0f, 0.25f);
+    sm.add_keyframe(b, ANIMATION_PROPERTY_OPACITY, 0.0f, 0.75f);
+    sm.play(a);
+    REQUIRE(sm.get_current_clip() == a);
+
+    // Pre-fix, MAX(0.0f, NaN) left transition_duration == NaN, so
+    // _update_blend_weights' `transition_duration <= 0.0f` check was false
+    // and its CLAMP(...) also returned NaN (CLAMP's comparisons are equally
+    // false against NaN), so `blend_progress >= 1.0f` never fired: the
+    // switch was stuck forever. The sanitized delay must instead commit on
+    // the very next update() (treated as an immediate switch).
+    sm.switch_to_clip_delayed(b, nan_value);
+    sm.update(0.0f);
+    CHECK_EQ(sm.get_current_clip(), b);
+    CHECK(Math::is_equal_approx(sm.sample_opacity(0, -1.0f), 0.75f));
 }
 
 TEST_CASE("[GaussianSplatting][Animation] zero-duration looping clip never produces NaN playback (#598)") {

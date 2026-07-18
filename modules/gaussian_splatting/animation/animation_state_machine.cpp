@@ -1,6 +1,7 @@
 #include "animation_state_machine.h"
 #include "core/object/class_db.h"
 #include "core/string/ustring.h"
+#include "core/math/math_funcs.h"
 #include "../persistence/incremental_saver.h"
 #include "../logger/gs_logger.h"
 
@@ -14,6 +15,32 @@ namespace {
 // (add_clip / set_clip_duration / from_dict) clamps to this floor so a zero (or
 // negative) duration can never be stored.
 constexpr float MIN_CLIP_DURATION = 1e-4f;
+
+// Floors a duration to MIN_CLIP_DURATION and rejects non-finite input.
+//
+// `MAX(MIN_CLIP_DURATION, p_duration)` alone is NOT sufficient: MAX is
+// `m_a > m_b ? m_a : m_b` (core/typedefs.h), and a comparison against NaN is
+// always false, so `MAX(MIN_CLIP_DURATION, NaN)` evaluates
+// `MIN_CLIP_DURATION > NaN` -> false -> returns the NaN argument unchanged.
+// The same false-comparison lets a +Infinity duration through unclamped too.
+// A NaN or +Infinity clip duration then makes every later comparison against
+// it (`clip.duration > 0.0f`, `current_time >= clip.duration` in update())
+// evaluate false, so the clip never wraps and never stops: playback silently
+// freezes at the last keyframe forever, with no crash and no error -- an
+// adjacent gap to the #598 zero-duration fmod defect, closed here at the
+// single point every clip-duration producer funnels through.
+float _sanitize_clip_duration(float p_duration) {
+    if (!Math::is_finite(p_duration)) {
+        // Degraded paths must be explicit and observable, not silent (see
+        // module AGENTS.md). A non-finite duration is not a normal "clamp a
+        // small/negative value" case -- it always indicates bad caller/save
+        // data, so it is worth a log even though the zero/negative floor
+        // below stays silent.
+        GS_LOG_WARN_DEFAULT(vformat("Animation clip duration %s is not finite; using floor %s instead", rtos(p_duration), rtos(MIN_CLIP_DURATION)));
+        return MIN_CLIP_DURATION;
+    }
+    return MAX(MIN_CLIP_DURATION, p_duration);
+}
 
 Dictionary _clip_to_dict(const AnimationClip &clip, int index) {
     Dictionary dict;
@@ -288,8 +315,9 @@ int GaussianAnimationStateMachine::add_clip(const String& p_name, float p_durati
         return -1;
     }
 
-    // Floor the duration so a zero/negative value cannot reach fmod(time, 0) -> NaN (#598).
-    const float duration = MAX(MIN_CLIP_DURATION, p_duration);
+    // Floor the duration (and reject NaN/+Inf) so a degenerate value cannot
+    // reach fmod(time, 0) -> NaN or freeze playback via an unusable comparison.
+    const float duration = _sanitize_clip_duration(p_duration);
     int index = clips.size();
     clips.push_back(AnimationClip(p_name, duration));
     clip_name_to_index[p_name] = index;
@@ -352,8 +380,10 @@ float GaussianAnimationStateMachine::get_clip_duration(int p_index) const {
 void GaussianAnimationStateMachine::set_clip_duration(int p_index, float p_duration) {
     ERR_FAIL_INDEX(p_index, static_cast<int>(clips.size()));
     float previous = clips[p_index].duration;
-    // Floor the duration so a looping clip cannot reach fmod(time, 0) -> NaN (#598).
-    clips[p_index].duration = MAX(MIN_CLIP_DURATION, p_duration);
+    // Floor the duration (and reject NaN/+Inf) so a looping clip cannot reach
+    // fmod(time, 0) -> NaN, and a non-finite value cannot freeze playback via
+    // an always-false comparison.
+    clips[p_index].duration = _sanitize_clip_duration(p_duration);
     if (incremental_saver.is_valid()) {
         incremental_saver->record_metadata_change(vformat("clip:%s:duration", clips[p_index].name), previous, clips[p_index].duration);
     }
@@ -538,11 +568,28 @@ void GaussianAnimationStateMachine::switch_to_clip_delayed(int p_clip_index, flo
     // advances transition_time and, once it reaches transition_duration, commits
     // current_clip_index = p_clip_index in one step. Real weighted cross-fade
     // sampling is tracked as a follow-up (see doc_classes XML / docs/features/animation.md).
+    // A NaN switch-delay would otherwise reach `MAX(0.0f, NaN)` -> NaN (the
+    // same false-comparison trap as MIN_CLIP_DURATION above: MAX's `m_a > m_b`
+    // check is false whenever either side is NaN, so it returns the NaN
+    // argument unchanged). _update_blend_weights() would then compute
+    // blend_progress = CLAMP(transition_time / NaN, 0, 1) = NaN forever
+    // (CLAMP's comparisons are equally false against NaN), so
+    // `blend_progress >= 1.0f` never fires: the scheduled switch never
+    // commits and permanently occupies one of the MAX_BLEND_CHAIN_DEPTH slots.
+    // Treat a non-finite delay as "commit on the next update()" instead
+    // (transition_duration 0 already means immediate, below). Log it: a
+    // degraded path must be observable, not silent (module AGENTS.md).
+    float switch_delay = p_switch_delay;
+    if (!Math::is_finite(switch_delay)) {
+        GS_LOG_WARN_DEFAULT(vformat("switch_to_clip_delayed: switch_delay %s is not finite; switching immediately instead", rtos(p_switch_delay)));
+        switch_delay = 0.0f;
+    }
+
     BlendTarget target;
     target.clip_index = p_clip_index;
     target.target_weight = 1.0f;
     target.transition_time = 0.0f;
-    target.transition_duration = MAX(0.0f, p_switch_delay);
+    target.transition_duration = MAX(0.0f, switch_delay);
     target.blend_progress = 0.0f;
 
     blend_targets.push_back(target);
@@ -882,10 +929,11 @@ void GaussianAnimationStateMachine::from_dict(const Dictionary& p_dict) {
 
         AnimationClip clip;
         clip.name = clip_dict.get("name", "");
-        // Floor the deserialized duration so a hand-built or legacy dictionary
-        // carrying a zero/negative duration cannot reach fmod(time, 0) -> NaN (#598).
+        // Floor the deserialized duration (and reject NaN/+Inf) so a hand-built
+        // or legacy/corrupt dictionary carrying a zero/negative/non-finite
+        // duration cannot reach fmod(time, 0) -> NaN or freeze playback (#598).
         const float loaded_duration = clip_dict.get("duration", 1.0f);
-        clip.duration = MAX(MIN_CLIP_DURATION, loaded_duration);
+        clip.duration = _sanitize_clip_duration(loaded_duration);
         clip.looping = clip_dict.get("looping", false);
 
         Array tracks_array = clip_dict.get("tracks", Array());
