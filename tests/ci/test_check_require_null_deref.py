@@ -204,6 +204,53 @@ class MemberChains(ScanTestCase):
         self.assertClean("  REQUIRE(a.member != nullptr);\n  b.member->f();")
 
 
+class ControlFlowHeaders(ScanTestCase):
+    """A control-flow statement guards its BODY, never its own condition.
+
+    Codex #659: `REQUIRE(ptr != nullptr); if (ptr->is_ready()) { ... }` used to be
+    missed entirely - the scan broke on the `if` before testing it for a
+    dereference, so the same crash pattern walked straight through the guard.
+    """
+
+    def test_deref_in_if_condition_is_flagged(self):
+        self.assertFlagged(
+            "  REQUIRE(ptr != nullptr);\n  if (ptr->is_ready()) {\n    CHECK(true);\n  }", "ptr"
+        )
+
+    def test_deref_in_while_condition_is_flagged(self):
+        self.assertFlagged(
+            "  REQUIRE(ptr != nullptr);\n  while (ptr->next()) {\n    step();\n  }", "ptr"
+        )
+
+    def test_deref_in_for_header_is_flagged(self):
+        self.assertFlagged(
+            "  REQUIRE(ptr != nullptr);\n"
+            "  for (int i = 0; i < ptr->size(); ++i) {\n    step();\n  }",
+            "ptr",
+        )
+
+    def test_deref_in_return_is_flagged(self):
+        self.assertFlagged("  REQUIRE(ptr != nullptr);\n  return ptr->size();", "ptr")
+
+    def test_deref_in_switch_condition_is_flagged(self):
+        self.assertFlagged(
+            "  REQUIRE(ptr != nullptr);\n  switch (ptr->kind()) {\n    default:\n      break;\n  }",
+            "ptr",
+        )
+
+    def test_guarded_body_is_still_not_flagged(self):
+        # The whole point of stopping at control flow: the `if` makes this safe.
+        self.assertClean("  REQUIRE(ptr != nullptr);\n  if (ptr) {\n    ptr->f();\n  }")
+
+    def test_is_valid_guarded_body_is_not_flagged(self):
+        self.assertClean("  REQUIRE(ref.is_valid());\n  if (ref.is_valid()) {\n    ref->f();\n  }")
+
+    def test_body_guarded_by_unrelated_condition_is_a_documented_blind_spot(self):
+        # Real crash, deliberately NOT flagged: we cannot tell which conditions
+        # protect the symbol. Pinned so the blind spot is a decision, not a drift.
+        self.assertClean("  REQUIRE(ptr != nullptr);\n  if (other) {\n    ptr->f();\n  }")
+
+
 class SwapDetection(unittest.TestCase):
     """A count-only baseline licenses a swap; the fingerprint set must not.
 

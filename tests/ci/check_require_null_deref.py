@@ -52,8 +52,13 @@ where nothing in between could have made the dereference safe.
   type it is not a dereference at all.
 * The forward scan stops at anything that changes reachability or the symbol:
   `if` / `for` / `while` / `switch` / `return` / `else`, a block boundary, or a
-  reassignment of the symbol. `REQUIRE(x); if (x) { x->f(); }` is therefore not
-  flagged - the `if` makes it safe.
+  reassignment of the symbol. But it checks that statement's **header** before
+  stopping, because a control-flow statement guards its body, never its own
+  condition:
+    - `REQUIRE(x); if (x) { x->f(); }`        -> NOT flagged, the `if` makes it safe;
+    - `REQUIRE(x); if (x->is_ready()) { … }`  -> FLAGGED, the condition dereferences
+      before any guarding can happen, and a non-aborting `REQUIRE` did not stop
+      us reaching it.
 * The scan crosses other assertion macros (the real corpus writes
   `REQUIRE(a); REQUIRE(b); a->f();`), and flags them if they themselves
   dereference the symbol.
@@ -68,15 +73,19 @@ exactly the false confidence #656 is about:
 2. **Dereferences through an alias.** `REQUIRE(a != nullptr); T *b = a; b->f();`
    is a real crash this guard does not see - it tracks one symbol, not
    assignment flow.
-3. **Dereferences further away than the scan window**, or after a control-flow
-   statement that does not actually make the dereference safe.
-4. **Dereferences inside a macro body** that expands to one, and
+3. **Dereferences further away than the scan window.**
+4. **Dereferences inside a control-flow BODY guarded by an unrelated condition**:
+   `REQUIRE(ptr != nullptr); if (other) { ptr->f(); }` is a real crash, but the
+   guard stops at the `if` because it cannot tell which conditions protect the
+   symbol. Only the control-flow HEADER is checked - `if (ptr->is_ready())`
+   evaluates the dereference before any guarding, so that IS flagged.
+5. **Dereferences inside a macro body** that expands to one, and
    dereferences of a container's *element* (`v[0]->f()` after
    `REQUIRE(!v.is_empty())`).
-5. **Any REQUIRE whose failure is harmful for a non-dereference reason** - e.g.
+6. **Any REQUIRE whose failure is harmful for a non-dereference reason** - e.g.
    `REQUIRE(count == 3);` followed by code that indexes past the end.
 
-Reliable detection of (2) and (5) needs real type and dataflow information, i.e.
+Reliable detection of (2), (4) and (6) needs real type and dataflow information, i.e.
 a compiler plugin or a clang-tidy check, not a source scan. This guard is scoped
 to the highest-confidence shape on purpose. It is a ratchet against the pattern
 spreading, not a proof that the corpus is free of it: of the ~800 `REQUIRE*`
@@ -96,7 +105,7 @@ covered.
 
 ## Baseline
 
-The pattern predates the guard: 318 sites across 32 files match it today. #656 is
+The pattern predates the guard: 320 sites across 32 files match it today. #656 is
 explicit that they must not be mass-rewritten, so `require_null_deref_baseline.json`
 records a **fingerprint per site** and the guard fails on any change to that set.
 
@@ -127,7 +136,7 @@ ROOT = Path(__file__).resolve().parents[2]
 MODULE_TESTS_DIR = ROOT / "modules" / "gaussian_splatting" / "tests"
 ENGINE_TESTS_DIR = ROOT / "tests"
 
-# Pre-existing violations, so the guard can land without the 318-site rewrite
+# Pre-existing violations, so the guard can land without the 320-site rewrite
 # #656 explicitly rules out. Tracking issue:
 # https://github.com/klausi3D/godotGS/issues/656
 #
@@ -324,6 +333,15 @@ def _scan_file(path: Path) -> list[tuple[int, str, str, str]]:
         # The REQUIRE itself may dereference nothing; scan what follows it.
         for stmt_line, statement in _statements(lines, index + 1):
             if _CONTROL_FLOW_RE.match(statement):
+                # A control-flow statement guards its BODY, never its own
+                # header. `if (ptr) { ptr->f(); }` is safe, but
+                # `if (ptr->is_ready())` evaluates the dereference before any
+                # guarding can happen - and a non-aborting REQUIRE did not stop
+                # us getting here. So test the header, then stop either way
+                # (the body is out of scope: we cannot tell what guards it).
+                header = statement.split("{", 1)[0]
+                if _derefs(symbol, header):
+                    violations.append((index + 1, symbol, form, header.strip()[:120]))
                 break
             if _derefs(symbol, statement):
                 violations.append((index + 1, symbol, form, statement.strip()[:120]))

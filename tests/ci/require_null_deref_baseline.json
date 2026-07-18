@@ -8,6 +8,8 @@
       "batched_readback|is_valid()|519c8fd115"
     ],
     "test_config_validation.h": [
+      "project_settings|!= nullptr|5819a5763f",
+      "project_settings|!= nullptr|5819a5763f",
       "project_settings|!= nullptr|a19a19800c",
       "project_settings|!= nullptr|ca01a2abb5",
       "ps|!= nullptr|d5d8a0936e"
