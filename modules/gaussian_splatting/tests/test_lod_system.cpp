@@ -442,15 +442,38 @@ TEST_CASE("[GaussianSplatting] Renderer LOD bias and distance affect culling") {
     CHECK_MESSAGE(visible == 1, "Increased LOD bias should tighten max distance culling");
     CHECK(Math::is_equal_approx(renderer->get_lod_bias(), 4.0f));
 
+    // Frustum culling and distance culling are independent filters (see
+    // GPUCuller::_cull_cpu: the frustum test is gated on culling_config.frustum_culling,
+    // the distance test on lod_cached_max_distance_sq). Disabling frustum culling must
+    // therefore stop splats being rejected *by the frustum* without disabling the LOD
+    // distance limit. The third splat sits at (1000, 0, -10), i.e. ~1000 units from the
+    // camera at the origin, so with lod_max_distance = 200 it is legitimately distance-
+    // culled -- exactly the behaviour asserted above at lod_max_distance = 50.
     renderer->set_frustum_culling(false);
     renderer->set_lod_bias(1.0f);
     renderer->set_lod_max_distance(200.0f);
     visible = renderer->test_cull_visible_count(cam_transform, projection, viewport);
     stats = renderer->get_render_stats();
-    CHECK(visible == 3);
     CHECK(int(stats["culled_by_frustum"]) == 0);
     CHECK(int(stats["culling_candidate_count"]) == 3);
+    CHECK_MESSAGE(visible == 2, "Disabling frustum culling must not disable LOD distance culling");
+    CHECK_MESSAGE(int(stats["culled_by_distance"]) == 1,
+            "The splat ~1000 units away must still be rejected by the 200-unit LOD distance limit");
 
+    // With both filters admitting every splat -- frustum culling off and the LOD
+    // distance limit raised past the farthest splat -- all three must survive. This
+    // pins the "nothing else silently excludes a splat" half of the contract that the
+    // frustum-disabled step is reaching for.
+    renderer->set_lod_max_distance(2000.0f);
+    visible = renderer->test_cull_visible_count(cam_transform, projection, viewport);
+    stats = renderer->get_render_stats();
+    CHECK(visible == 3);
+    CHECK(int(stats["culled_by_frustum"]) == 0);
+    CHECK(int(stats["culled_by_distance"]) == 0);
+    CHECK(int(stats["culling_candidate_count"]) == 3);
+    CHECK(int(stats["visible_after_culling"]) == visible);
+
+    renderer->set_lod_max_distance(200.0f);
     CHECK(Math::is_equal_approx(renderer->get_lod_bias(), 1.0f));
     CHECK(Math::is_equal_approx(renderer->get_lod_max_distance(), 200.0f));
 
