@@ -321,6 +321,24 @@ TEST_CASE("[GaussianSplatting] Painterly material validation contract") {
     CHECK(restored->get_temporal_stability() == material->get_temporal_stability());
 }
 
+TEST_CASE("[GaussianSplatting] Painterly material clamps stroke density settings") {
+    Ref<PainterlyMaterial> material;
+    material.instantiate();
+
+    SUBCASE("Resolution clamps to property range") {
+        material->set_stroke_density_resolution(4096);
+        CHECK(material->get_stroke_density_resolution() == 2048);
+
+        material->set_stroke_density_resolution(1);
+        CHECK(material->get_stroke_density_resolution() == 8);
+    }
+
+    SUBCASE("Strength clamps to property range") {
+        material->set_stroke_density_strength(12.5f);
+        CHECK(material->get_stroke_density_strength() == doctest::Approx(10.0f));
+    }
+}
+
 TEST_CASE("[GaussianSplatting] Painterly deserialize emits a single changed signal") {
     Ref<PainterlyMaterial> source;
     source.instantiate();

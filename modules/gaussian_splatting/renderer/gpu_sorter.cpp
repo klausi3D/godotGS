@@ -2124,12 +2124,36 @@ Error RadixSort::initialize(RenderingDevice *p_rd, uint32_t p_max_elements) {
         max_num_passes = MAX(max_num_passes, variant.num_passes);
     }
 
+    // Fail closed BEFORE allocating anything if this element count would produce a
+    // buffer larger than RenderingDevice's uint32_t size parameter. Such a size
+    // truncates modulo 2^32 and yields a buffer smaller than the shaders index —
+    // silent GPU out-of-bounds writes. A clean ERR_CANT_CREATE is always better.
+    // GPUSortingConfig::validate() rejects this at config load; this guard also
+    // covers capacities that reach initialize() from the runtime capacity path.
+    {
+        const uint64_t required_bytes = GPUSortingConstants::sort_path_max_buffer_bytes(
+                uint64_t(max_elements), primary_radix_bits, workgroup_size, key_config.key_bits);
+        if (required_bytes > uint64_t(UINT32_MAX)) {
+            GS_LOG_ERROR_DEFAULT(vformat(
+                    "RadixSort: refusing to initialize for %d elements (radix_bits=%d, workgroup_size=%d, "
+                    "key_bits=%d): largest required buffer is %s bytes, above the RenderingDevice %s-byte "
+                    "size limit. The size would truncate and corrupt VRAM.",
+                    max_elements, primary_radix_bits, workgroup_size, key_config.key_bits,
+                    String::num_uint64(required_bytes), String::num_uint64(uint64_t(UINT32_MAX))));
+            _cleanup_partial_init(resource_rd);
+            return ERR_INVALID_PARAMETER;
+        }
+    }
+
     max_workgroups = MAX<uint32_t>(1, (max_elements + workgroup_size - 1) / workgroup_size);
     workgroup_stride = max_radix_size;
     histogram_stride = max_workgroups * max_radix_size;
 
-    // Phase 2: Macro to create buffer with cleanup on failure
-#define RADIX_CREATE_BUFFER(var, size, name)     do {         var = resource_rd->storage_buffer_create(size);         if (!var.is_valid()) {             GS_LOG_ERROR_DEFAULT(vformat("RadixSort: Failed to create %s (size=%llu)", name, (uint64_t)(size)));             _cleanup_partial_init(resource_rd);             return ERR_CANT_CREATE;         }         resource_rd->set_resource_name(var, name);     } while (0)
+    // Phase 2: Macro to create buffer with cleanup on failure.
+    // The explicit UINT32_MAX check is the last line of defense: storage_buffer_create
+    // takes a uint32_t, so an unchecked 64-bit size would silently truncate instead of
+    // failing. Never let a size truncate.
+#define RADIX_CREATE_BUFFER(var, size, name)     do {         const uint64_t _rcb_size = (uint64_t)(size);         if (_rcb_size > (uint64_t)UINT32_MAX) {             GS_LOG_ERROR_DEFAULT(vformat("RadixSort: %s size %s bytes exceeds the RenderingDevice uint32 buffer size limit; refusing to truncate", name, String::num_uint64(_rcb_size)));             _cleanup_partial_init(resource_rd);             return ERR_INVALID_PARAMETER;         }         var = resource_rd->storage_buffer_create((uint32_t)_rcb_size);         if (!var.is_valid()) {             GS_LOG_ERROR_DEFAULT(vformat("RadixSort: Failed to create %s (size=%llu)", name, _rcb_size));             _cleanup_partial_init(resource_rd);             return ERR_CANT_CREATE;         }         resource_rd->set_resource_name(var, name);     } while (0)
 
     uint64_t histogram_bytes = uint64_t(histogram_stride) * uint64_t(max_num_passes) * sizeof(uint32_t);
     RADIX_CREATE_BUFFER(histogram_buffer, histogram_bytes, "GS_RadixSortHistogramBuffer");
@@ -3072,19 +3096,39 @@ void main() {
     // Create buffers
     uint32_t max_workgroups = (max_elements + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
 
+    // Fail closed rather than truncate: storage_buffer_create takes a uint32_t, and
+    // `max_workgroups * RADIX_SIZE` is evaluated in uint32 arithmetic, so a large
+    // enough element count wraps BEFORE the size ever reaches the device. Compute the
+    // sizes in 64-bit and reject anything that would not fit.
+    {
+        const uint64_t digit_histogram_bytes =
+                uint64_t(max_workgroups) * uint64_t(RADIX_SIZE) * sizeof(uint32_t);
+        const uint64_t temp_keys_bytes = uint64_t(max_elements) * sizeof(float);
+        const uint64_t temp_values_bytes = uint64_t(max_elements) * sizeof(uint32_t);
+        const uint64_t largest = MAX(digit_histogram_bytes, MAX(temp_keys_bytes, temp_values_bytes));
+        if (largest > uint64_t(UINT32_MAX)) {
+            GS_LOG_ERROR_DEFAULT(vformat(
+                    "OneSweepSort: refusing to initialize for %d elements: largest required buffer is %s "
+                    "bytes, above the RenderingDevice %s-byte size limit. The size would truncate and "
+                    "corrupt VRAM.",
+                    max_elements, String::num_uint64(largest), String::num_uint64(uint64_t(UINT32_MAX))));
+            return fail(ERR_INVALID_PARAMETER);
+        }
+    }
+
     global_histogram_buffer = resource_rd->storage_buffer_create(RADIX_SIZE * sizeof(uint32_t));
     if (!global_histogram_buffer.is_valid()) {
         return fail(ERR_CANT_CREATE);
     }
     resource_rd->set_resource_name(global_histogram_buffer, "GS_OneSweepGlobalHistogramBuffer");
 
-    digit_histogram_buffer = resource_rd->storage_buffer_create(max_workgroups * RADIX_SIZE * sizeof(uint32_t));
+    digit_histogram_buffer = resource_rd->storage_buffer_create(uint32_t(uint64_t(max_workgroups) * uint64_t(RADIX_SIZE) * sizeof(uint32_t)));
     if (!digit_histogram_buffer.is_valid()) {
         return fail(ERR_CANT_CREATE);
     }
     resource_rd->set_resource_name(digit_histogram_buffer, "GS_OneSweepDigitHistogramBuffer");
 
-    chained_scan_buffer = resource_rd->storage_buffer_create(max_workgroups * RADIX_SIZE * sizeof(uint32_t));
+    chained_scan_buffer = resource_rd->storage_buffer_create(uint32_t(uint64_t(max_workgroups) * uint64_t(RADIX_SIZE) * sizeof(uint32_t)));
     if (!chained_scan_buffer.is_valid()) {
         return fail(ERR_CANT_CREATE);
     }
