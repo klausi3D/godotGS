@@ -98,6 +98,17 @@ private:
     void _track_animation_change(int clip_index, AnimationProperty property, uint8_t change_type, const Dictionary& data);
     Error _write_change_entry(Ref<FileAccess> file, const ChangeEntry& entry) const;
     Error _read_change_entry(Ref<FileAccess> file, ChangeEntry& entry) const;
+    // Non-mutating structural read shared by load_and_apply_changes() (which then
+    // commits/applies) and validate_incremental_file() (which discards). Reads +
+    // validates the header, the change-entry table and the payload bounds, and
+    // returns the change entries plus the payload blob. Touches no saver state.
+    Error _read_incremental_layout(const Ref<FileAccess>& file, const String& path,
+            uint64_t& r_change_timestamp, uint64_t& r_baseline_timestamp, uint32_t& r_baseline_splat_count,
+            LocalVector<ChangeEntry>& r_entries, PackedByteArray& r_data_blob) const;
+    // Extracts and strict-decodes one change entry's payload into a Dictionary.
+    // A decode failure or non-Dictionary payload is reported as ERR_FILE_CORRUPT
+    // rather than collapsing to defaults (#603b).
+    static Error _decode_change_payload(const PackedByteArray& data_blob, const ChangeEntry& entry, Dictionary& r_dict);
     Error _apply_splat_changes(::GaussianData* gaussian_data) const;
     Error _apply_metadata_changes(GaussianAnimationStateMachine* animation) const;
     Error _apply_animation_changes(GaussianAnimationStateMachine* animation) const;
