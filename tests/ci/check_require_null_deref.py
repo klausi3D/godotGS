@@ -567,23 +567,39 @@ def _reassigns(symbol: str, statement: str) -> bool:
     return re.search(rf"(?<![\w.>]){sym}\s*=(?!=)", statement) is not None
 
 
-def _same_line_rest(line: str, line_no: int) -> list[tuple[int, str]]:
-    """Statements sharing the REQUIRE's own line, after its terminating ';'.
+def _line_fragments(line: str) -> list[str]:
+    """Split one logical line into its statements at depth-0 ';'.
 
-    A doctest assertion macro cannot contain a bare ';', so splitting on the
-    first one reliably ends the REQUIRE. A control-flow remainder is kept whole
-    rather than split, since `for (a; b; c)` would otherwise be shredded.
+    A doctest assertion macro cannot contain a bare ';' outside parentheses, so
+    depth-0 splitting reliably separates compacted statements. Once a
+    control-flow statement starts, the remainder is kept WHOLE rather than split,
+    since `for (a; b; c)` would otherwise be shredded.
+
+    Returning every fragment (not just the tail after the first ';') is what lets
+    EACH `REQUIRE` on a compacted line act as a guard. Matching only from the
+    start of the line meant `REQUIRE(a != nullptr); REQUIRE(b != nullptr); b->f();`
+    established a guard for `a` alone and never reported `b` (Codex, PR #659).
     """
-    if ";" not in line:
-        return []
-    rest = line.split(";", 1)[1]
-    if not rest.strip():
-        return []
-    if _CONTROL_FLOW_RE.match(rest):
-        return [(line_no, rest.strip())]
-    return [
-        (line_no, f"{fragment.strip()};") for fragment in rest.split(";") if fragment.strip()
-    ]
+    fragments: list[str] = []
+    depth = 0
+    start = 0
+    for i, ch in enumerate(line):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == ";" and depth == 0:
+            piece = line[start : i + 1].strip()
+            if piece:
+                if _CONTROL_FLOW_RE.match(piece):
+                    fragments.append(line[start:].strip())
+                    return fragments
+                fragments.append(piece)
+            start = i + 1
+    tail = line[start:].strip()
+    if tail:
+        fragments.append(tail)
+    return fragments
 
 
 def _statements(lines: list[str], start_index: int) -> list[tuple[int, str]]:
@@ -653,43 +669,60 @@ def _scan_file(path: Path) -> list[tuple[int, str, str, str]]:
         # are anchored at ^\s*REQUIRE, so a continuation line can never itself
         # start a second, duplicate match.
         line, last_index = _logical_line(lines, index)
-        symbol = None
-        form = ""
-        for form_name, pattern in _NULLISH_PATTERNS:
-            match = pattern.match(line)
-            if match:
-                symbol = match.group(1)
-                form = form_name
-                break
-        if symbol is None:
-            continue
-        # What follows the REQUIRE may be on the SAME line
-        # (`REQUIRE(ptr != nullptr); ptr->method();`), so the remainder of this
-        # line is scanned before moving on. Starting at index + 1 skipped it
-        # entirely - and that one-liner is exactly the shape tests/AGENTS.md uses
-        # to describe the bug (Codex, PR #659).
-        for stmt_line, statement in _same_line_rest(line, last_index + 1) + _statements(
-            lines, last_index + 1
-        ):
-            if _CONTROL_FLOW_RE.match(statement):
-                # A control-flow statement guards its BODY, never its own
-                # header. `if (ptr) { ptr->f(); }` is safe, but
-                # `if (ptr->is_ready())` evaluates the dereference before any
-                # guarding can happen - and a non-aborting REQUIRE did not stop
-                # us getting here. So test the header, then stop either way
-                # (the body is out of scope: we cannot tell what guards it).
-                header = statement.split("{", 1)[0]
-                if _derefs(symbol, header):
-                    violations.append((index + 1, symbol, form, header.strip()))
-                break
-            if _derefs(symbol, statement):
-                violations.append((index + 1, symbol, form, statement.strip()))
-                break
-            if _ASSERT_MACRO_RE.match(statement):
+        fragments = _line_fragments(line)
+        # EVERY null-ish REQUIRE on this logical line becomes a guard, not just
+        # the first: statements are routinely compacted onto one line, and
+        # matching once from the start left later REQUIREs unguarded.
+        for position, fragment in enumerate(fragments):
+            symbol = None
+            form = ""
+            for form_name, pattern in _NULLISH_PATTERNS:
+                match = pattern.match(fragment)
+                if match:
+                    symbol = match.group(1)
+                    form = form_name
+                    break
+            if symbol is None:
                 continue
-            if _reassigns(symbol, statement):
-                break
+            # What follows may still be on the SAME line
+            # (`REQUIRE(ptr != nullptr); ptr->method();`) - that one-liner is
+            # exactly the shape tests/AGENTS.md uses to describe the bug.
+            following = [(index + 1, f) for f in fragments[position + 1 :]]
+            _scan_forward(symbol, form, index, following + _statements(lines, last_index + 1), violations)
     return violations
+
+
+def _scan_forward(
+    symbol: str,
+    form: str,
+    index: int,
+    following: list[tuple[int, str]],
+    violations: list[tuple[int, str, str, str]],
+) -> None:
+    """Walk the statements after a null-ish REQUIRE looking for a dereference.
+
+    Appends at most one violation: the first unguarded dereference of `symbol`.
+    `index` is the zero-based line of the REQUIRE, reported as `index + 1`.
+    """
+    for _stmt_line, statement in following[:_SCAN_STATEMENTS]:
+        if _CONTROL_FLOW_RE.match(statement):
+            # A control-flow statement guards its BODY, never its own header.
+            # `if (ptr) { ptr->f(); }` is safe, but `if (ptr->is_ready())`
+            # evaluates the dereference before any guarding can happen - and a
+            # non-aborting REQUIRE did not stop us getting here. So test the
+            # header, then stop either way (the body is out of scope: we cannot
+            # tell what guards it).
+            header = statement.split("{", 1)[0]
+            if _derefs(symbol, header):
+                violations.append((index + 1, symbol, form, header.strip()))
+            return
+        if _derefs(symbol, statement):
+            violations.append((index + 1, symbol, form, statement.strip()))
+            return
+        if _ASSERT_MACRO_RE.match(statement):
+            continue
+        if _reassigns(symbol, statement):
+            return
 
 
 def _test_sources() -> list[Path]:

@@ -309,6 +309,61 @@ class ShortCircuitGuards(ScanTestCase):
         )
 
 
+class MultipleRequiresPerLine(ScanTestCase):
+    """Every REQUIRE on a compacted line is a guard, not just the first (Codex #659).
+
+    Matching once from the start of the line meant
+    `REQUIRE(a != nullptr); REQUIRE(b != nullptr); b->f();` established a guard
+    for `a` only, and the `b` crash was never reported.
+    """
+
+    def symbols(self, body: str) -> list[str]:
+        return sorted(symbol for _, symbol, _, _ in self.scan(body))
+
+    def test_second_require_is_a_guard(self):
+        self.assertEqual(
+            self.symbols("  REQUIRE(a != nullptr); REQUIRE(b != nullptr); b->f();"), ["b"]
+        )
+
+    def test_first_require_still_works(self):
+        self.assertEqual(
+            self.symbols("  REQUIRE(a != nullptr); REQUIRE(b != nullptr); a->f();"), ["a"]
+        )
+
+    def test_both_symbols_reported_when_both_dereferenced(self):
+        self.assertEqual(
+            self.symbols("  REQUIRE(a != nullptr); REQUIRE(b != nullptr); a->f(); b->g();"),
+            ["a", "b"],
+        )
+
+    def test_third_require_on_the_line(self):
+        self.assertEqual(
+            self.symbols(
+                "  REQUIRE(a != nullptr); REQUIRE(b != nullptr); REQUIRE(c != nullptr); c->f();"
+            ),
+            ["c"],
+        )
+
+    def test_compacted_guarded_use_stays_clean(self):
+        self.assertClean("  REQUIRE(a != nullptr); REQUIRE(b != nullptr); if (b) { b->f(); }")
+
+    def test_fragments_split_at_depth_zero_only(self):
+        # A ';' inside parentheses must not split the statement.
+        self.assertEqual(
+            GUARD._line_fragments("REQUIRE(a != nullptr); b->f();"),
+            ["REQUIRE(a != nullptr);", "b->f();"],
+        )
+        self.assertEqual(
+            GUARD._line_fragments("for (int i = 0; i < n; ++i) { s(); }"),
+            ["for (int i = 0; i < n; ++i) { s(); }"],
+        )
+
+    def test_control_flow_tail_is_kept_whole(self):
+        fragments = GUARD._line_fragments("REQUIRE(a != nullptr); for (int i = 0; i < n; ++i) {")
+        self.assertEqual(fragments[0], "REQUIRE(a != nullptr);")
+        self.assertEqual(fragments[1], "for (int i = 0; i < n; ++i) {")
+
+
 class GuardMustDominate(ScanTestCase):
     """A short-circuit guard must DOMINATE the dereference (Codex #659).
 
