@@ -251,6 +251,37 @@ class ControlFlowHeaders(ScanTestCase):
         self.assertClean("  REQUIRE(ptr != nullptr);\n  if (other) {\n    ptr->f();\n  }")
 
 
+class SameLineStatements(ScanTestCase):
+    """The dangerous pattern written on ONE line (Codex #659).
+
+    The forward scan used to start at the next line, so the rest of the REQUIRE's
+    own line was never inspected - and that one-liner is exactly the shape
+    tests/AGENTS.md uses to describe the bug.
+    """
+
+    def test_one_line_require_then_deref(self):
+        self.assertFlagged("  REQUIRE(ptr != nullptr); ptr->method();", "ptr")
+
+    def test_one_line_is_valid_then_deref(self):
+        self.assertFlagged("  REQUIRE(ref.is_valid()); ref->method();", "ref")
+
+    def test_one_line_if_condition_deref(self):
+        self.assertFlagged("  REQUIRE(ptr != nullptr); if (ptr->ready()) { step(); }", "ptr")
+
+    def test_one_line_guarded_body_is_clean(self):
+        self.assertClean("  REQUIRE(ptr != nullptr); if (ptr) { ptr->f(); }")
+
+    def test_one_line_without_deref_is_clean(self):
+        self.assertClean("  REQUIRE(ptr != nullptr); other();")
+
+    def test_same_line_statement_then_deref_on_the_next_line(self):
+        self.assertFlagged("  REQUIRE(ptr != nullptr); other();\n  ptr->f();", "ptr")
+
+    def test_agents_md_example_is_actually_caught(self):
+        """The doc tells contributors this crashes; the guard must agree."""
+        self.assertFlagged("  REQUIRE(ptr != nullptr); ptr->f();", "ptr")
+
+
 class GetterExpressions(ScanTestCase):
     """A no-arg getter call is part of the symbol (Codex #659)."""
 

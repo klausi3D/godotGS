@@ -305,6 +305,25 @@ def _reassigns(symbol: str, statement: str) -> bool:
     return re.search(rf"(?<![\w.>]){sym}\s*=(?!=)", statement) is not None
 
 
+def _same_line_rest(line: str, line_no: int) -> list[tuple[int, str]]:
+    """Statements sharing the REQUIRE's own line, after its terminating ';'.
+
+    A doctest assertion macro cannot contain a bare ';', so splitting on the
+    first one reliably ends the REQUIRE. A control-flow remainder is kept whole
+    rather than split, since `for (a; b; c)` would otherwise be shredded.
+    """
+    if ";" not in line:
+        return []
+    rest = line.split(";", 1)[1]
+    if not rest.strip():
+        return []
+    if _CONTROL_FLOW_RE.match(rest):
+        return [(line_no, rest.strip())]
+    return [
+        (line_no, f"{fragment.strip()};") for fragment in rest.split(";") if fragment.strip()
+    ]
+
+
 def _statements(lines: list[str], start_index: int) -> list[tuple[int, str]]:
     """Yield (line_number, statement_text) for statements after start_index.
 
@@ -347,8 +366,14 @@ def _scan_file(path: Path) -> list[tuple[int, str, str, str]]:
                 break
         if symbol is None:
             continue
-        # The REQUIRE itself may dereference nothing; scan what follows it.
-        for stmt_line, statement in _statements(lines, index + 1):
+        # What follows the REQUIRE may be on the SAME line
+        # (`REQUIRE(ptr != nullptr); ptr->method();`), so the remainder of this
+        # line is scanned before moving on. Starting at index + 1 skipped it
+        # entirely - and that one-liner is exactly the shape tests/AGENTS.md uses
+        # to describe the bug (Codex, PR #659).
+        for stmt_line, statement in _same_line_rest(line, index + 1) + _statements(
+            lines, index + 1
+        ):
             if _CONTROL_FLOW_RE.match(statement):
                 # A control-flow statement guards its BODY, never its own
                 # header. `if (ptr) { ptr->f(); }` is safe, but
