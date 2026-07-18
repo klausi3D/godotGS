@@ -272,6 +272,110 @@ jobs:
             dist/BUILD-INFO.txt
           retention-days: 14
 
+  finite_math_guard:
+    name: Fast-math Finiteness Guard (Linux optimize=speed)
+    # Issue #590: the shipping config (target=template_release resolves
+    # optimize=auto -> speed) compiles the whole module with GCC/Clang
+    # -ffast-math. No other lane builds optimize=speed, so a regression that
+    # re-disables the NaN/Inf import + payload guards would ship silently.
+    # This lane builds the module with optimize=speed on GCC (the affected
+    # toolchain) and runs the GaussianData finiteness doctest against that
+    # binary. target=editor+tests keeps the doctest runner and every module
+    # symbol linkable while still triggering the exact SCsub optimize=="speed"
+    # flag branch; NDEBUG is defined because dev_build is not set.
+    #
+    # This lane is a BLOCKING dependency of `publish_release` (see that job's
+    # `needs:` and `if:`). A guard that only reports a red X next to a green
+    # release is not a guard: without the dependency a failing finiteness check
+    # could coexist with a published release carrying exactly the NaN/Inf
+    # regression it exists to catch. It gates every publishing channel --
+    # nightly included -- because every channel ships the same module code.
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            scons \
+            pkg-config \
+            libx11-dev \
+            libxcursor-dev \
+            libxinerama-dev \
+            libxi-dev \
+            libxrandr-dev \
+            libgl1-mesa-dev \
+            libglu1-mesa-dev \
+            libasound2-dev \
+            libpulse-dev \
+            libudev-dev \
+            libvulkan-dev \
+            mesa-vulkan-drivers
+
+      - name: Restore SCons build cache
+        uses: actions/cache@v4
+        with:
+          path: .scons_cache
+          key: finite-math-scons-linux-${{ hashFiles('SConstruct', 'methods.py') }}-${{ github.sha }}
+          restore-keys: |
+            finite-math-scons-linux-${{ hashFiles('SConstruct', 'methods.py') }}-
+            finite-math-scons-linux-
+
+      - name: Build module editor with optimize=speed (fast-math path)
+        run: |
+          set -euo pipefail
+          scons platform=linuxbsd target=editor tests=yes optimize=speed \
+            gs_native_arch=no cache_path=.scons_cache cache_limit=10 -j"$(nproc)"
+
+      - name: Resolve built binary
+        id: binary
+        run: |
+          set -euo pipefail
+          godot_bin="$(find bin -maxdepth 1 -type f -executable -name 'godot*linuxbsd*editor*' | sort | head -n 1)"
+          if [[ -z "${godot_bin}" ]]; then
+            echo "Could not locate built Linux editor binary in bin/"
+            ls -la bin || true
+            exit 1
+          fi
+          echo "path=${godot_bin}" >> "$GITHUB_OUTPUT"
+
+      - name: Run finiteness doctest against the fast-math build
+        run: |
+          set -uo pipefail
+          bin="${{ steps.binary.outputs.path }}"
+          # doctest returns 0 even when the filter matches ZERO cases, so we
+          # must both check the exit code AND prove the case actually ran.
+          out="$("${bin}" --headless --test \
+            "--test-case=*GPU payload validation rejects non-finite*" 2>&1)"
+          rc=$?
+          echo "${out}"
+          if [[ ${rc} -ne 0 ]]; then
+            echo "::error::Finiteness doctest exited ${rc} — NaN/Inf guards likely folded under -ffast-math (issue #590)."
+            exit 1
+          fi
+          if ! echo "${out}" | grep -Eq 'test cases:[[:space:]]*[1-9]'; then
+            echo "::error::No finiteness test case matched the filter; cannot confirm the guard ran."
+            exit 1
+          fi
+          if echo "${out}" | grep -Eq '[1-9][0-9]* failed'; then
+            echo "::error::Finiteness doctest reported failures under optimize=speed (issue #590)."
+            exit 1
+          fi
+          echo "Finiteness guard verified under GCC optimize=speed (fast-math)."
+
   build_windows:
     name: Build Windows Editor + Contributor Artifact
     runs-on: [self-hosted, Windows, X64, godotgs]
@@ -462,6 +566,7 @@ jobs:
       - release_metadata
       - build_linux
       - build_windows
+      - finite_math_guard
     # Runs whenever a publish is requested so `publish_release` can hard-depend
     # on this job's success (fail-closed wiring for #593). This job is the single
     # authority for "is a stable/candidate release allowed to publish":
@@ -475,7 +580,20 @@ jobs:
     #     (docs/reference/renderer_release_gate_manifest.json) governs only the
     #     stable/candidate release path; nightly prereleases keep the Linux-only
     #     tolerance below.
-    if: always() && needs.release_metadata.outputs.publish == 'true'
+    #
+    # INTEGRATION (#612 + #620 union): the fast-math finiteness guard (#590) is
+    # part of THIS gate's dependency graph, not a sibling of it. Because this job
+    # runs under `always()`, a `needs:` entry alone blocks nothing -- the result
+    # must be asserted explicitly, exactly as `publish_release` does for this
+    # job. `finite_math_guard` gates EVERY publishing channel (nightly included)
+    # because every channel ships the same module code; a binary whose NaN/Inf
+    # guards were folded away by -ffast-math is precisely what that lane exists
+    # to stop. Asserting it here means a failed guard makes this gate `skipped`,
+    # which in turn fails `publish_release`'s `result == 'success'` check.
+    if: |
+      always() &&
+      needs.release_metadata.outputs.publish == 'true' &&
+      needs.finite_math_guard.result == 'success'
     env:
       # Repo-relative path to the public-alpha candidate evidence bundle and its
       # issue snapshot. These are produced by the public-alpha evidence pipeline
@@ -679,6 +797,7 @@ jobs:
       - release_metadata
       - build_linux
       - build_windows
+      - finite_math_guard
       - release_candidate_gate
     # A stable release cannot publish unless `release_candidate_gate` succeeded:
     # that gate enforces both-platform builds AND `--mode candidate` validation
@@ -687,10 +806,27 @@ jobs:
     # Windows runner outage must not block the nightly cadence): the gate is a
     # pass-through for nightly, the Windows artifact is downloaded optionally
     # below, and `fail_on_unmatched_files` is relaxed for the nightly channel.
+    #
+    # The fast-math finiteness guard (#590) is NOT optional either: this job
+    # uses `always()`, so listing a job under `needs:` alone does not block
+    # anything -- the result must be asserted explicitly. Requiring
+    # `finite_math_guard.result == 'success'` is what makes the guard a real
+    # release gate rather than a decorative red X. It applies to every
+    # publishing channel because every channel ships the same module code, and
+    # a shipped binary whose NaN/Inf guards were folded away by -ffast-math is
+    # exactly the failure this lane exists to prevent.
+    #
+    # INTEGRATION (#612 + #620 union): the guard is asserted BOTH here and in
+    # `release_candidate_gate` (which also runs under `always()`). The gate-side
+    # assertion puts the guard inside the publication dependency graph; this
+    # direct assertion is the belt-and-braces edge, so the guard still blocks
+    # even if the gate's own conditions are later relaxed. Neither side was
+    # dropped.
     if: |
       always() &&
       needs.release_metadata.outputs.publish == 'true' &&
       needs.build_linux.result == 'success' &&
+      needs.finite_math_guard.result == 'success' &&
       needs.release_candidate_gate.result == 'success'
     steps:
       - name: Checkout repository

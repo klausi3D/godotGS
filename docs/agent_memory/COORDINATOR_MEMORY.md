@@ -1,5 +1,11 @@
 # Coordinator Memory
 
+> **FROZEN — LEGACY. Not a source of truth.** This is a manually maintained
+> snapshot from a past multi-agent orchestration wave; it is no longer updated
+> and must not be used to determine current project status. Active work is
+> tracked in GitHub Issues; durable rules live in `AGENTS.md` and
+> `docs/governance/agentic-engineering.md`. See `AGENTS.md` § Legacy memory.
+
 Coordinator branch: `fix/windows-editor-tests`
 Baseline commit: `6dde6a82c3b`
 Integration branch: `integration/all-issues`

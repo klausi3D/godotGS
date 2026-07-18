@@ -12,6 +12,7 @@
 #include "core/variant/array.h"
 #include "../logger/gs_logger.h"
 
+#include <cstdint>
 #include <cstring>
 
 namespace GaussianSplatting {
@@ -22,6 +23,71 @@ static const uint32_t CHUNK_FLAG_COMPRESSED = 1 << 0;
 static const uint32_t MAX_SCENE_HEADER_CHUNK_SIZE = 64 * 1024; // Guard format probes against oversized header payloads.
 static const uint16_t SCENE_FLAG_INCREMENTAL = 1u << 0;
 static const uint16_t SCENE_FLAG_CHECKSUM_ENABLED = 1u << 1;
+// Anti-decompress-bomb policy for a compressed chunk (#603a, revised by the
+// PR #618 independent review).
+//
+// The previous policy was a single arbitrary decompressed:compressed ratio of
+// 4096:1 with a 16 MiB floor. That was WRONG in the dangerous direction: it
+// rejected files this serializer's own writer produces. Zstd reaches ~10,800:1
+// on a legitimately repetitive scene (measured: 1,000,000 identical splats ->
+// 144,000,004 B payload -> 13,347 compressed B), so any scene above the 16 MiB
+// floor with strongly repeated splats saved fine and then failed to load. A
+// reader that cannot read its own writer's output is data loss, so the ratio
+// axis is no longer used as a policy knob at all.
+//
+// The declared size is now accepted only if it passes BOTH of these, neither of
+// which is a tunable heuristic:
+//
+//   1. The codec's PHYSICAL maximum expansion. A codec cannot emit more bytes
+//      than its own container format allows per input byte. For Zstd the bound
+//      is one 4-byte RLE block header per 128 KiB output block => 32768:1
+//      (verified empirically: incompressible-to-all-zero input tops out at
+//      32,696:1). For FastLZ the long-match opcode is 3 bytes per <= 264-byte
+//      copy => 88:1; 128:1 is used as a conservative overshoot. Because this is
+//      a property of the format rather than of the data, it can NEVER reject a
+//      stream the writer produced.
+//
+//   2. A CORROBORATED ceiling supplied by the caller: the largest decompressed
+//      size the surrounding file structure independently justifies. For
+//      GAUSSIAN_DATA that is the scene header's own splat_count (already read
+//      and checksum-verified before the chunk), so a hostile chunk can no longer
+//      claim a multi-GiB allocation for free -- the lie must also be consistent
+//      with a separate, checksum-covered field. Chunks with no independent
+//      corroboration (ANIMATION_DATA) get a hard absolute ceiling instead.
+//
+//   3. An absolute MEMORY BUDGET for the load (added by the #618 review, MAJOR 5).
+//      (1) and (2) bound a chunk against the FILE, and an internally CONSISTENT
+//      hostile file satisfies both: a header declaring ~29.8M splats plus a
+//      genuinely ~32768:1-compressible Zstd frame corroborates its own ~4 GiB
+//      claim. Only an absolute ceiling refuses that, and an absolute CONSTANT
+//      would re-break legitimately large assets -- the regression 80657370486
+//      already had to undo once. So the ceiling is derived from the MACHINE
+//      (see get_load_allocation_budget_bytes) rather than tuned: it can never
+//      reject a file the host could actually have held in memory.
+static const uint64_t ZSTD_MAX_EXPANSION_RATIO = 32768; // 128 KiB block / 4 B RLE block header
+// FastLZ, derived from the codec rather than guessed. Godot's MODE_FASTLZ calls
+// fastlz_compress() on the whole buffer (core/io/compression.cpp:55-64), which
+// selects LEVEL 2 for any input >= 65536 bytes (thirdparty/misc/fastlz.c:566-571).
+// A previous value of 128 described level 1 only (its MAX_LEN is 264 bytes per
+// 3-byte opcode => 88:1, fastlz.c:58,178-183). Level 2 has NO match-length cap:
+// its match loop runs to the input bound (fastlz.c:402-421) and encodes the
+// length as a run of 0xFF bytes, one per 255 output bytes
+// (fastlz.c:444-447, decoded at fastlz.c:528-535). Per opcode group of k input
+// bytes (1 opcode + (k-2) length bytes + 1 distance byte) the decoder emits at
+// most 9 + 255*(k-2) bytes, i.e. strictly under 255 bytes per input byte and
+// asymptotically equal to it. 255 is therefore the codec's true physical bound.
+// The old 128 REJECTED this writer's own LZ4 output for any repetitive scene
+// over 64 KiB -- the same data-loss class already fixed once for Zstd.
+static const uint64_t FASTLZ_MAX_EXPANSION_RATIO = 255;
+// Fixed per-frame container overhead that produces no output bytes (Zstd frame
+// header is 6-18 B). Added to the compressed size so a minimal frame is never
+// under-budgeted.
+static const uint64_t CODEC_FRAME_OVERHEAD_ALLOWANCE = 32;
+// 0 = derive the load memory budget from the OS (the default). Non-zero pins it,
+// which is how the guard is exercised end-to-end without allocating gigabytes.
+static uint64_t _load_allocation_budget_override = 0;
+// The absolute ceiling for chunks nothing corroborates lives in the header as
+// GSF_MAX_UNCORROBORATED_DECOMPRESSED_CHUNK_SIZE so tests can pin it.
 
 Compression::Mode _to_compression_mode(CompressionType type) {
     switch (type) {
@@ -97,6 +163,42 @@ SceneHeader _unpack_scene_header(const PackedByteArray &bytes) {
     }
 
     return header;
+}
+
+// THE single authoritative decode contract for a chunk's compression (#602).
+//
+// It is derived ONLY from the chunk's own on-disk flags. No serializer instance
+// state participates, so validate_file() and load_scene() cannot disagree about
+// whether (or how) a chunk is compressed. The previous code fell back to the
+// *instance's* `compression_type` when the codec bits were zero, which meant a
+// default-constructed validation probe (Zstd) and a caller-configured loader
+// (LZ4/NONE) applied different rules to the same bytes -- a file could validate
+// OK and then fail or mis-decode on load.
+//
+// Fails closed: the compressed flag with an unknown/zero codec id is corruption,
+// never an invitation to guess. This serializer's writer always stamps a real
+// codec id (it only sets CHUNK_FLAG_COMPRESSED from ZSTD/LZ4), so no file it has
+// ever produced is affected.
+Error _resolve_chunk_compression(uint32_t chunk_flags, bool &r_compressed, CompressionType &r_type) {
+    r_compressed = (chunk_flags & CHUNK_FLAG_COMPRESSED) != 0;
+    r_type = CompressionType::NONE;
+    if (!r_compressed) {
+        return OK;
+    }
+    const uint32_t codec_id = (chunk_flags >> 8) & 0xFF;
+    switch (codec_id) {
+        case (uint32_t)CompressionType::ZSTD:
+            r_type = CompressionType::ZSTD;
+            return OK;
+        case (uint32_t)CompressionType::LZ4:
+            r_type = CompressionType::LZ4;
+            return OK;
+        default:
+            ERR_FAIL_V_MSG(ERR_FILE_CORRUPT, vformat(
+                    "GSF chunk sets the compressed flag but declares unsupported codec id %d "
+                    "(flags=0x%08X).",
+                    (int64_t)codec_id, chunk_flags));
+    }
 }
 
 Error _ensure_file_write_ok(const Ref<FileAccess> &file, const char *context) {
@@ -200,20 +302,168 @@ PackedByteArray GaussianSceneSerializer::_compress_data(const PackedByteArray &d
     return result;
 }
 
-PackedByteArray GaussianSceneSerializer::_decompress_data(const PackedByteArray &compressed_data, uint32_t original_size, CompressionType type) const {
+uint64_t GaussianSceneSerializer::max_codec_expansion_bytes(CompressionType type, uint64_t compressed_size) {
+    uint64_t ratio = 1;
+    switch (type) {
+        case CompressionType::ZSTD:
+            ratio = ZSTD_MAX_EXPANSION_RATIO;
+            break;
+        case CompressionType::LZ4:
+            ratio = FASTLZ_MAX_EXPANSION_RATIO;
+            break;
+        case CompressionType::NONE:
+        default:
+            return compressed_size; // Stored verbatim; no expansion is possible.
+    }
+    // Overflow-safe: saturate instead of wrapping.
+    if (compressed_size > (UINT64_MAX / ratio) - CODEC_FRAME_OVERHEAD_ALLOWANCE) {
+        return UINT64_MAX;
+    }
+    return (compressed_size + CODEC_FRAME_OVERHEAD_ALLOWANCE) * ratio;
+}
+
+uint64_t GaussianSceneSerializer::get_load_allocation_budget_bytes() {
+    if (_load_allocation_budget_override != 0) {
+        return _load_allocation_budget_override;
+    }
+    uint64_t budget = GSF_MIN_LOAD_ALLOCATION_BUDGET_BYTES;
+    OS *os = OS::get_singleton();
+    if (os != nullptr) {
+        const Dictionary mem = os->get_memory_info();
+        const Variant available = mem.get("available", Variant());
+        if (available.get_type() == Variant::INT) {
+            const int64_t available_bytes = available;
+            // OS::get_memory_info() reports -1 for fields a platform cannot
+            // determine (core/os/os.cpp:396-405); only a positive answer is usable.
+            if (available_bytes > 0) {
+                // Half, not all: the decode buffer and the staging vector that
+                // receives it are live at the same time (see the residual note on
+                // _read_gaussian_data_chunk), so a chunk of B bytes costs ~2B.
+                budget = MAX(budget, uint64_t(available_bytes) / 2);
+            }
+        }
+    }
+    return budget;
+}
+
+void GaussianSceneSerializer::set_load_allocation_budget_override(uint64_t bytes) {
+    _load_allocation_budget_override = bytes;
+}
+
+bool GaussianSceneSerializer::is_decompressed_chunk_size_plausible(uint64_t original_size, uint64_t compressed_size,
+        CompressionType type, uint64_t corroborated_max_size, uint64_t memory_budget) {
+    // 1. The declared size can never exceed the uint32 on-disk field width.
+    if (original_size > uint64_t(UINT32_MAX)) {
+        return false;
+    }
+    // 2. No input bytes means no output bytes.
+    if (compressed_size == 0) {
+        return original_size == 0;
+    }
+    // 3. Independent corroboration from elsewhere in the file (see the policy
+    //    comment at the top of this file). This is what stops a hostile chunk
+    //    from claiming a large allocation on its own say-so.
+    if (original_size > corroborated_max_size) {
+        return false;
+    }
+    // 4. The absolute memory budget for this load. This is the ONLY bound that
+    //    refuses an internally consistent hostile file, because such a file
+    //    corroborates its own claim (see the policy comment at the top).
+    if (original_size > memory_budget) {
+        return false;
+    }
+    // 5. The codec's physical maximum expansion. A property of the container
+    //    format, so this can never reject a stream the writer produced.
+    return original_size <= max_codec_expansion_bytes(type, compressed_size);
+}
+
+PackedByteArray GaussianSceneSerializer::_decompress_data(const PackedByteArray &compressed_data, uint32_t original_size,
+        CompressionType type, uint64_t corroborated_max_size) const {
     if (type == CompressionType::NONE) {
         return compressed_data;
     }
 
+    // Reject an implausible declared size BEFORE allocating, so a few hostile
+    // header bytes cannot drive a multi-GiB allocation, while every stream this
+    // serializer's writer can produce still loads (#603a).
+    const uint64_t memory_budget = get_load_allocation_budget_bytes();
+    ERR_FAIL_COND_V_MSG(!is_decompressed_chunk_size_plausible(uint64_t(original_size), uint64_t(compressed_data.size()), type, corroborated_max_size, memory_budget),
+            PackedByteArray(),
+            vformat("Gaussian scene chunk declares an implausible decompressed size (%d bytes from %d compressed; "
+                    "codec max %d, corroborated max %d, memory budget %d).",
+                    (int64_t)original_size, (int64_t)compressed_data.size(),
+                    (int64_t)MIN(max_codec_expansion_bytes(type, uint64_t(compressed_data.size())), uint64_t(INT64_MAX)),
+                    (int64_t)MIN(corroborated_max_size, uint64_t(INT64_MAX)),
+                    (int64_t)MIN(memory_budget, uint64_t(INT64_MAX))));
+
     Compression::Mode mode = _to_compression_mode(type);
     PackedByteArray result;
-    result.resize(original_size);
+    // A failed resize leaves `result` SHORTER than original_size; decompressing
+    // into it would then overrun the heap. Fail closed instead of trusting it.
+    ERR_FAIL_COND_V_MSG(result.resize(original_size) != OK, PackedByteArray(),
+            vformat("Out of memory allocating %d bytes for a Gaussian scene chunk.", (int64_t)original_size));
     int64_t decompressed_size = Compression::decompress(result.ptrw(), original_size, compressed_data.ptr(), compressed_data.size(), mode);
     if (decompressed_size < 0) {
         ERR_FAIL_V_MSG(PackedByteArray(), "Failed to decompress Gaussian scene chunk.");
     }
-    result.resize(decompressed_size);
+    // The declared size is a contract, not a hint: a stream that decodes to a
+    // different length than the chunk advertised is corrupt, not "short".
+    ERR_FAIL_COND_V_MSG(uint64_t(decompressed_size) != uint64_t(original_size), PackedByteArray(),
+            vformat("Gaussian scene chunk decompressed to %d bytes but declared %d.",
+                    (int64_t)decompressed_size, (int64_t)original_size));
     return result;
+}
+
+Error GaussianSceneSerializer::_decode_chunk_payload(const PackedByteArray &raw, const ChunkHeader &header,
+        uint64_t corroborated_max_size, const char *chunk_name, PackedByteArray &r_payload) const {
+    // Single unwrap path shared by every compressible chunk reader, so the
+    // compression contract is applied in exactly one place (#602).
+    bool compressed = false;
+    CompressionType type = CompressionType::NONE;
+    const Error codec_err = _resolve_chunk_compression(header.flags, compressed, type);
+    if (codec_err != OK) {
+        return codec_err;
+    }
+
+    if (!compressed) {
+        // The corroborated ceiling and the memory budget are properties of the
+        // CHUNK, not of the codec, so they apply to a stored-verbatim payload
+        // exactly as they do to a compressed one. They used to be skipped here,
+        // which left uncompressed ANIMATION_DATA with no ceiling at all (#618
+        // review, MAJOR 4). The bytes are already read at this point, but the
+        // staging structures built from them are not, and a writer never produces
+        // an uncompressed chunk larger than its corroborated size.
+        const uint64_t raw_size = uint64_t(raw.size());
+        ERR_FAIL_COND_V_MSG(raw_size > corroborated_max_size, ERR_FILE_CORRUPT,
+                vformat("Uncompressed %s chunk is %d bytes, past the %d bytes the file corroborates.",
+                        chunk_name, (int64_t)raw_size, (int64_t)MIN(corroborated_max_size, uint64_t(INT64_MAX))));
+        const uint64_t memory_budget = get_load_allocation_budget_bytes();
+        ERR_FAIL_COND_V_MSG(raw_size > memory_budget, ERR_FILE_CORRUPT,
+                vformat("Uncompressed %s chunk is %d bytes, past this load's %d-byte memory budget.",
+                        chunk_name, (int64_t)raw_size, (int64_t)MIN(memory_budget, uint64_t(INT64_MAX))));
+        r_payload = raw;
+        return OK;
+    }
+
+    ERR_FAIL_COND_V_MSG(raw.size() < (int)sizeof(uint32_t), ERR_FILE_CORRUPT,
+            vformat("Compressed %s chunk is too small to carry its decompressed-size field.", chunk_name));
+
+    uint32_t original_size = 0;
+    const uint8_t *r = raw.ptr();
+    memcpy(&original_size, r, sizeof(uint32_t));
+
+    PackedByteArray compressed_payload;
+    compressed_payload.resize(raw.size() - sizeof(uint32_t));
+    if (!compressed_payload.is_empty()) {
+        memcpy(compressed_payload.ptrw(), r + sizeof(uint32_t), compressed_payload.size());
+    }
+
+    r_payload = _decompress_data(compressed_payload, original_size, type, corroborated_max_size);
+    // _decompress_data fails closed (empty result) on a rejected/failed decode;
+    // surface that as corruption instead of parsing garbage.
+    ERR_FAIL_COND_V_MSG(r_payload.is_empty() && original_size > 0, ERR_FILE_CORRUPT,
+            vformat("Failed to decompress %s chunk.", chunk_name));
+    return OK;
 }
 
 uint32_t GaussianSceneSerializer::_calculate_checksum(const PackedByteArray &data) const {
@@ -224,7 +474,22 @@ uint32_t GaussianSceneSerializer::_calculate_checksum(const PackedByteArray &dat
 }
 
 bool GaussianSceneSerializer::_verify_checksum(const PackedByteArray &data, uint32_t expected_checksum) const {
-    if (!enable_checksum) {
+    // THE single checksum policy for the read path (#618 review, MAJOR 3).
+    //
+    // `enable_checksum` is a WRITER setting. On read it may only ever ADD
+    // verification, never remove verification the FILE asked for. Verification is
+    // therefore skipped only when this instance has checksums disabled AND nothing
+    // anywhere in the file claims checksum protection (`checksum_claimed_by_file`,
+    // computed once per parse by the _file_claims_checksum_protection prescan).
+    //
+    // That prescan is unchanged; what changed is WHERE it runs. It used to gate
+    // only validate_file()'s legacy fallback, so validate_file() was strictly
+    // stricter than load_scene(): a checksum-disabled loader would happily load a
+    // tampered protected file that validate_file() on the same instance rejected.
+    // Running it at the start of every parse makes the two agree by construction,
+    // and does so by raising the load path to the validate path's strength rather
+    // than lowering the validate path.
+    if (!enable_checksum && !checksum_claimed_by_file) {
         return true;
     }
     return _calculate_checksum(data) == expected_checksum;
@@ -372,6 +637,22 @@ Error GaussianSceneSerializer::_read_chunk_header(Ref<FileAccess> file, ChunkHea
         return ERR_FILE_EOF;
     }
 
+    // A chunk header is exactly GSF_CHUNK_HEADER_SIZE bytes on disk. FileAccess
+    // does NOT report a short read: get_32() zero-fills the bytes it could not
+    // read and returns normally, so a file ending mid-header used to yield a
+    // fully-formed-looking header made of trailing zeros. That let a file
+    // truncated inside its final 16-byte END_OF_FILE header still satisfy both
+    // the terminator check and the declared chunk count, i.e. a truncated file
+    // was accepted as complete. Require the whole header to actually be present.
+    const uint64_t header_offset = file->get_position();
+    const uint64_t file_length = file->get_length();
+    if (header_offset >= file_length) {
+        return ERR_FILE_EOF;
+    }
+    ERR_FAIL_COND_V_MSG(file_length - header_offset < uint64_t(GSF_CHUNK_HEADER_SIZE), ERR_FILE_CORRUPT,
+            vformat("GSF chunk header is truncated: %d of %d bytes remain.",
+                    (int64_t)(file_length - header_offset), (int64_t)GSF_CHUNK_HEADER_SIZE));
+
     header.type = (ChunkType)file->get_32();
     header.size = file->get_32();
     header.checksum = file->get_32();
@@ -397,7 +678,10 @@ Error GaussianSceneSerializer::_read_scene_header(Ref<FileAccess> file, SceneHea
     ERR_FAIL_COND_V(uint64_t(chunk_header.size) > remaining_bytes, ERR_FILE_CORRUPT);
 
     PackedByteArray buffer = file->get_buffer(chunk_header.size);
-    if (enable_checksum && !_verify_checksum(buffer, chunk_header.checksum)) {
+    ERR_FAIL_COND_V_MSG(uint64_t(buffer.size()) != uint64_t(chunk_header.size), ERR_FILE_CORRUPT,
+            "GSF scene header payload is shorter than its declared size (truncated).");
+
+    if (!_verify_checksum(buffer, chunk_header.checksum)) {
         return ERR_FILE_CORRUPT;
     }
 
@@ -405,28 +689,26 @@ Error GaussianSceneSerializer::_read_scene_header(Ref<FileAccess> file, SceneHea
     return OK;
 }
 
-Error GaussianSceneSerializer::_read_gaussian_data_chunk(Ref<FileAccess> file, const ChunkHeader &header, ::GaussianData *gaussian_data) {
-    ERR_FAIL_NULL_V(gaussian_data, ERR_INVALID_PARAMETER);
-
+Error GaussianSceneSerializer::_read_gaussian_data_chunk(Ref<FileAccess> file, const ChunkHeader &header,
+        uint32_t p_declared_splat_count, LocalVector<Gaussian> &r_gaussians) const {
     PackedByteArray buffer = file->get_buffer(header.size);
-    if (enable_checksum && !_verify_checksum(buffer, header.checksum)) {
+    ERR_FAIL_COND_V_MSG(uint64_t(buffer.size()) != uint64_t(header.size), ERR_FILE_CORRUPT,
+            "GAUSSIAN_DATA chunk payload is shorter than its declared size (truncated).");
+    if (!_verify_checksum(buffer, header.checksum)) {
         return ERR_FILE_CORRUPT;
     }
 
-    PackedByteArray payload = buffer;
-    if (header.flags & CHUNK_FLAG_COMPRESSED) {
-        ERR_FAIL_COND_V(header.size < sizeof(uint32_t), ERR_FILE_CORRUPT);
-        CompressionType type = (CompressionType)((header.flags >> 8) & 0xFF);
-        if (type == CompressionType::NONE) {
-            type = compression_type;
-        }
-        uint32_t original_size = 0;
-        const uint8_t *r = buffer.ptr();
-        memcpy(&original_size, r, sizeof(uint32_t));
-        PackedByteArray compressed_payload;
-        compressed_payload.resize(buffer.size() - sizeof(uint32_t));
-        memcpy(compressed_payload.ptrw(), r + sizeof(uint32_t), compressed_payload.size());
-        payload = _decompress_data(compressed_payload, original_size, type);
+    // Corroboration for the decompression bound: the scene header independently
+    // declared how many splats this file holds, and it was read (and checksum
+    // verified) before this chunk. That fixes the exact number of decompressed
+    // bytes this chunk is entitled to, so the chunk's own declared size can no
+    // longer authorise an allocation by itself (#603a).
+    const uint64_t corroborated_max_size = uint64_t(sizeof(uint32_t)) + uint64_t(p_declared_splat_count) * uint64_t(sizeof(Gaussian));
+
+    PackedByteArray payload;
+    const Error decode_err = _decode_chunk_payload(buffer, header, corroborated_max_size, "GAUSSIAN_DATA", payload);
+    if (decode_err != OK) {
+        return decode_err;
     }
 
     ERR_FAIL_COND_V(payload.size() < (int)sizeof(uint32_t), ERR_FILE_CORRUPT);
@@ -434,52 +716,57 @@ Error GaussianSceneSerializer::_read_gaussian_data_chunk(Ref<FileAccess> file, c
     uint32_t count = 0;
     memcpy(&count, r, sizeof(uint32_t));
 
+    // The GAUSSIAN_DATA schema is EXACT, not a lower bound. The old `>` test
+    // accepted trailing decoded bytes and accepted a chunk count smaller than the
+    // header's splat_count, so a file could disagree with itself about how many
+    // splats it holds and still load "successfully" (#618 review, MAJOR 4).
     const uint64_t expected_payload_size = sizeof(uint32_t) + uint64_t(count) * sizeof(Gaussian);
-    ERR_FAIL_COND_V(expected_payload_size > uint64_t(payload.size()), ERR_FILE_CORRUPT);
+    ERR_FAIL_COND_V_MSG(expected_payload_size != uint64_t(payload.size()), ERR_FILE_CORRUPT,
+            vformat("GAUSSIAN_DATA payload is %d bytes but its declared %d splats imply exactly %d.",
+                    (int64_t)payload.size(), (int64_t)count, (int64_t)expected_payload_size));
+    ERR_FAIL_COND_V_MSG(count != p_declared_splat_count, ERR_FILE_CORRUPT,
+            vformat("GAUSSIAN_DATA declares %d splats but the scene header declares %d.",
+                    (int64_t)count, (int64_t)p_declared_splat_count));
 
-    // Reconstruct through the canonical bulk setter so octree, overlays,
-    // animation caches, SH first-order count, and content revision are all
-    // invalidated/recomputed in one place. The previous resize()+set_gaussian()
-    // loop left sh_first_order_count at 0 because set_gaussian does not scan
-    // sh_1[] to rederive SH metadata.
+    // Decode into the caller's staging vector; the canonical bulk commit happens
+    // in load_scene() only once the whole file has parsed (transactional, #601).
     //
-    // Format limitation: the GAUSSIAN_DATA chunk carries only the per-splat
+    // Format limitation (#600): the GAUSSIAN_DATA chunk carries only the per-splat
     // `Gaussian` struct bytes (which embed the first-order SH triplet `sh_1[3]`).
     // The high-order SH sidecar (`sh_high_order_coefficients`) is NOT persisted
     // by this format, and the 2D-mode flag is not persisted either. After load
-    // both reset to defaults (sh_high_order_count == 0, is_2d_mode == false).
-    // Callers that need high-order SH must persist it outside this serializer.
-    LocalVector<Gaussian> loaded_gaussians;
+    // both reset to defaults (sh_high_order_count == 0, is_2d_mode == false); the
+    // writer emits a runtime warning when a save would drop them.
+    //
+    // Peak-memory note (#618 review, MAJOR 5): `payload` and `r_gaussians` are
+    // both live across this copy, so a chunk of B decompressed bytes costs ~2B at
+    // peak. get_load_allocation_budget_bytes() already halves the machine's
+    // available memory to account for exactly this, so peak <= available memory.
+    r_gaussians.clear();
     if (count > 0) {
-        loaded_gaussians.resize(count);
-        memcpy(loaded_gaussians.ptr(), r + sizeof(uint32_t), uint64_t(count) * sizeof(Gaussian));
+        r_gaussians.resize(count);
+        memcpy(r_gaussians.ptr(), r + sizeof(uint32_t), uint64_t(count) * sizeof(Gaussian));
     }
-    gaussian_data->set_gaussians(loaded_gaussians);
 
     return OK;
 }
 
-Error GaussianSceneSerializer::_read_animation_data_chunk(Ref<FileAccess> file, const ChunkHeader &header, GaussianAnimationStateMachine *animation) {
-    ERR_FAIL_NULL_V(animation, ERR_INVALID_PARAMETER);
+Error GaussianSceneSerializer::_read_animation_data_chunk(Ref<FileAccess> file, const ChunkHeader &header, Dictionary &r_animation_dict) const {
     PackedByteArray buffer = file->get_buffer(header.size);
-    if (enable_checksum && !_verify_checksum(buffer, header.checksum)) {
+    ERR_FAIL_COND_V_MSG(uint64_t(buffer.size()) != uint64_t(header.size), ERR_FILE_CORRUPT,
+            "ANIMATION_DATA chunk payload is shorter than its declared size (truncated).");
+    if (!_verify_checksum(buffer, header.checksum)) {
         return ERR_FILE_CORRUPT;
     }
 
-    PackedByteArray payload = buffer;
-    if (header.flags & CHUNK_FLAG_COMPRESSED) {
-        ERR_FAIL_COND_V(header.size < sizeof(uint32_t), ERR_FILE_CORRUPT);
-        CompressionType type = (CompressionType)((header.flags >> 8) & 0xFF);
-        if (type == CompressionType::NONE) {
-            type = compression_type;
-        }
-        uint32_t original_size = 0;
-        const uint8_t *r = buffer.ptr();
-        memcpy(&original_size, r, sizeof(uint32_t));
-        PackedByteArray compressed_payload;
-        compressed_payload.resize(buffer.size() - sizeof(uint32_t));
-        memcpy(compressed_payload.ptrw(), r + sizeof(uint32_t), compressed_payload.size());
-        payload = _decompress_data(compressed_payload, original_size, type);
+    // Nothing else in the file corroborates an animation payload's decompressed
+    // size, so it gets the hard absolute ceiling instead (see the policy comment
+    // at the top of this file). Real clip dictionaries are kilobytes.
+    PackedByteArray payload;
+    const Error decode_err = _decode_chunk_payload(buffer, header,
+            GSF_MAX_UNCORROBORATED_DECOMPRESSED_CHUNK_SIZE, "ANIMATION_DATA", payload);
+    if (decode_err != OK) {
+        return decode_err;
     }
 
     Variant var;
@@ -487,14 +774,17 @@ Error GaussianSceneSerializer::_read_animation_data_chunk(Ref<FileAccess> file, 
     if (err != OK) {
         return err;
     }
-    Dictionary dict = var;
-    animation->from_dict(dict);
+    // Fail closed on a payload that does not decode into a Dictionary rather than
+    // silently applying an empty clip set (staged; committed in load_scene()).
+    ERR_FAIL_COND_V_MSG(var.get_type() != Variant::DICTIONARY, ERR_FILE_CORRUPT,
+            "ANIMATION_DATA chunk did not decode into a Dictionary.");
+    r_animation_dict = var;
     return OK;
 }
 
-Error GaussianSceneSerializer::_read_metadata_chunk(Ref<FileAccess> file, const ChunkHeader &header, Dictionary &r_metadata) {
+Error GaussianSceneSerializer::_read_metadata_chunk(Ref<FileAccess> file, const ChunkHeader &header, Dictionary &r_metadata) const {
     PackedByteArray buffer = file->get_buffer(header.size);
-    if (enable_checksum && !_verify_checksum(buffer, header.checksum)) {
+    if (!_verify_checksum(buffer, header.checksum)) {
         return ERR_FILE_CORRUPT;
     }
 
@@ -503,13 +793,15 @@ Error GaussianSceneSerializer::_read_metadata_chunk(Ref<FileAccess> file, const 
     if (err != OK) {
         return err;
     }
+    ERR_FAIL_COND_V_MSG(var.get_type() != Variant::DICTIONARY, ERR_FILE_CORRUPT,
+            "METADATA chunk did not decode into a Dictionary.");
     r_metadata = var;
     return OK;
 }
 
-Error GaussianSceneSerializer::_read_asset_refs_chunk(Ref<FileAccess> file, const ChunkHeader &header) {
+Error GaussianSceneSerializer::_read_asset_refs_chunk(Ref<FileAccess> file, const ChunkHeader &header, LocalVector<AssetReference> &r_refs) const {
     PackedByteArray buffer = file->get_buffer(header.size);
-    if (enable_checksum && !_verify_checksum(buffer, header.checksum)) {
+    if (!_verify_checksum(buffer, header.checksum)) {
         return ERR_FILE_CORRUPT;
     }
 
@@ -518,19 +810,21 @@ Error GaussianSceneSerializer::_read_asset_refs_chunk(Ref<FileAccess> file, cons
     if (err != OK) {
         return err;
     }
+    ERR_FAIL_COND_V_MSG(var.get_type() != Variant::ARRAY, ERR_FILE_CORRUPT,
+            "ASSET_REFS chunk did not decode into an Array.");
 
     Array refs = var;
-    asset_references.clear();
-    asset_path_to_index.clear();
-    asset_references.resize(refs.size());
+    // Decode into the caller's staging vector; asset_references + the path index
+    // are committed in load_scene() only after the whole file validates (#601).
+    r_refs.clear();
+    r_refs.resize(refs.size());
     for (int i = 0; i < refs.size(); i++) {
         Dictionary dict = refs[i];
-        asset_references[i].path = dict.get("path", "");
-        asset_references[i].type = dict.get("type", "");
-        asset_references[i].checksum = dict.get("checksum", (int64_t)0);
-        asset_references[i].file_size = dict.get("file_size", (int64_t)0);
-        asset_references[i].modification_time = dict.get("modified", (int64_t)0);
-        asset_path_to_index[asset_references[i].path] = i;
+        r_refs[i].path = dict.get("path", "");
+        r_refs[i].type = dict.get("type", "");
+        r_refs[i].checksum = dict.get("checksum", (int64_t)0);
+        r_refs[i].file_size = dict.get("file_size", (int64_t)0);
+        r_refs[i].modification_time = dict.get("modified", (int64_t)0);
     }
 
     return OK;
@@ -577,6 +871,24 @@ Error GaussianSceneSerializer::save_scene(const String &file_path, const ::Gauss
 }
 
 Error GaussianSceneSerializer::_write_scene_to_file(const Ref<FileAccess> &file, const ::GaussianData *gaussian_data, const GaussianAnimationStateMachine *animation, const Dictionary &p_metadata) {
+    // Honest lossy-save warning (#600). The GAUSSIAN_DATA chunk persists only the
+    // per-splat `Gaussian` struct bytes (which embed first-order SH). The
+    // high-order SH sidecar and the 2D-mode flag are NOT part of the .gsf format
+    // yet, so they will be dropped on load. Warn instead of losing data silently.
+    // A lossless versioned schema is deferred to the ADR for #600.
+    if (gaussian_data != nullptr) {
+        const uint32_t dropped_sh_high_order = gaussian_data->get_sh_high_order_count();
+        const bool dropped_2d_mode = gaussian_data->get_2d_mode();
+        if (dropped_sh_high_order > 0 || dropped_2d_mode) {
+            WARN_PRINT(vformat(
+                    "GaussianSceneSerializer: the .gsf format does not persist high-order "
+                    "spherical-harmonic coefficients (%d per splat) or the 2D-mode flag "
+                    "(is_2d_mode=%s); these will reset to defaults on load. Lossless "
+                    "persistence is tracked by issue #600 (deferred to a format ADR).",
+                    (int64_t)dropped_sh_high_order, dropped_2d_mode ? "true" : "false"));
+        }
+    }
+
     SceneHeader header = {};
     header.magic = GAUSSIAN_SCENE_MAGIC;
     header.version = GAUSSIAN_SCENE_VERSION;
@@ -678,10 +990,116 @@ Error GaussianSceneSerializer::_write_scene_to_file(const Ref<FileAccess> &file,
     return _ensure_file_write_ok(file, "save_scene");
 }
 
-Error GaussianSceneSerializer::load_scene(const String &file_path, ::GaussianData *gaussian_data, GaussianAnimationStateMachine *animation, Dictionary *r_metadata) {
-    ERR_FAIL_NULL_V(gaussian_data, ERR_INVALID_PARAMETER);
-    Ref<FileAccess> file = FileAccess::open(file_path, FileAccess::READ);
-    ERR_FAIL_COND_V_MSG(file.is_null(), ERR_FILE_NOT_FOUND, "Unable to open Gaussian scene file: " + file_path);
+Error GaussianSceneSerializer::_read_scene_body(const Ref<FileAccess> &file, const String &file_path, const SceneHeader &header, LoadStaging &r_staging) const {
+    const uint64_t file_length = file->get_length();
+
+    bool done = false;
+    while (!done && !file->eof_reached()) {
+        ChunkHeader chunk;
+        Error err = _read_chunk_header(file, chunk);
+        if (err != OK) {
+            if (err == ERR_FILE_EOF) {
+                break;
+            }
+            return err;
+        }
+
+        // Bound every chunk payload against the actual remaining file bytes
+        // BEFORE reading it. This (a) rejects truncated files (#601) and
+        // (b) caps get_buffer() so a hostile 32-bit chunk size cannot drive a
+        // multi-GiB allocation (#603a).
+        const uint64_t payload_offset = file->get_position();
+        ERR_FAIL_COND_V_MSG(payload_offset > file_length, ERR_FILE_CORRUPT,
+                "GSF chunk header extends past end of file: " + file_path);
+        ERR_FAIL_COND_V_MSG(uint64_t(chunk.size) > file_length - payload_offset, ERR_FILE_CORRUPT,
+                "GSF chunk payload extends past end of file (truncated?): " + file_path);
+
+        r_staging.chunks_parsed++;
+
+        switch (chunk.type) {
+            case ChunkType::GAUSSIAN_DATA:
+                err = _read_gaussian_data_chunk(file, chunk, header.splat_count, r_staging.gaussians);
+                if (err == OK) {
+                    r_staging.has_gaussian_chunk = true;
+                }
+                break;
+            case ChunkType::ANIMATION_DATA:
+                // Always decode (validates the chunk); commit is deferred and only
+                // applied to the caller's animation object if one was provided.
+                err = _read_animation_data_chunk(file, chunk, r_staging.animation_dict);
+                if (err == OK) {
+                    r_staging.has_animation_chunk = true;
+                }
+                break;
+            case ChunkType::METADATA:
+                err = _read_metadata_chunk(file, chunk, r_staging.metadata);
+                if (err == OK) {
+                    r_staging.has_metadata_chunk = true;
+                }
+                break;
+            case ChunkType::ASSET_REFS:
+                err = _read_asset_refs_chunk(file, chunk, r_staging.asset_references);
+                if (err == OK) {
+                    r_staging.has_asset_refs_chunk = true;
+                }
+                break;
+            case ChunkType::END_OF_FILE:
+                r_staging.saw_eof_chunk = true;
+                done = true;
+                break;
+            default: {
+                // Forward compatibility: skip unknown chunk types and preserve
+                // them so they survive a round-trip (load -> re-save).
+                WARN_PRINT(vformat(
+                        "Unknown chunk type 0x%08X encountered in '%s', skipping %d bytes.",
+                        (uint32_t)chunk.type, file_path, chunk.size));
+                UnknownChunk unk;
+                unk.type_raw = (uint32_t)chunk.type;
+                unk.flags = chunk.flags;
+                unk.checksum = chunk.checksum;
+                if (chunk.size > 0) {
+                    unk.payload = file->get_buffer(chunk.size);
+                    ERR_FAIL_COND_V_MSG(unk.payload.size() != (int)chunk.size,
+                            ERR_FILE_CORRUPT,
+                            "Failed to read unknown chunk payload.");
+                }
+                r_staging.unknown_chunks.push_back(unk);
+                err = OK;
+            } break;
+        }
+
+        if (err != OK) {
+            return err;
+        }
+    }
+
+    // Structural-completeness contract (#601): a well-formed file MUST terminate
+    // with an END_OF_FILE chunk and MUST contain exactly the chunk count the
+    // header declared. A truncated file (loop ended on EOF-of-stream, not on the
+    // EOF chunk) or a file with a missing/extra chunk is rejected instead of
+    // silently loading as OK.
+    ERR_FAIL_COND_V_MSG(!r_staging.saw_eof_chunk, ERR_FILE_CORRUPT,
+            "GSF file is missing its END_OF_FILE chunk (truncated or incomplete): " + file_path);
+    const uint64_t chunks_seen = uint64_t(r_staging.chunks_parsed) + 1; // + the HEADER chunk read before the body.
+    ERR_FAIL_COND_V_MSG(chunks_seen != uint64_t(header.total_chunks), ERR_FILE_CORRUPT,
+            vformat("GSF chunk count mismatch in '%s': header declares %d, parsed %d.",
+                    file_path, (int64_t)header.total_chunks, (int64_t)chunks_seen));
+    ERR_FAIL_COND_V_MSG(header.splat_count > 0 && !r_staging.has_gaussian_chunk, ERR_FILE_CORRUPT,
+            vformat("GSF header declares %d splats but the file contains no GAUSSIAN_DATA chunk: %s",
+                    (int64_t)header.splat_count, file_path));
+    return OK;
+}
+
+Error GaussianSceneSerializer::_read_scene_into_staging(const Ref<FileAccess> &file, const String &file_path, LoadStaging &r_staging) const {
+    // Resolve the file's checksum claim ONCE, before anything is parsed, and never
+    // inherit it from a previous file read through this instance. Only needed when
+    // this instance has checksums disabled -- otherwise everything is verified
+    // anyway and the prescan would be wasted I/O (#618 review, MAJOR 3).
+    checksum_claimed_by_file = false;
+    if (!enable_checksum) {
+        checksum_claimed_by_file = _file_claims_checksum_protection(file);
+    }
+    file->seek(0);
 
     SceneHeader scene_header;
     Error err = _read_scene_header(file, scene_header);
@@ -712,71 +1130,53 @@ Error GaussianSceneSerializer::load_scene(const String &file_path, ::GaussianDat
         }
     }
 
-    // Clear any previously stored unknown chunks before loading.
-    unknown_chunks.clear();
+    return _read_scene_body(file, file_path, scene_header, r_staging);
+}
 
-    bool done = false;
-    while (!done && !file->eof_reached()) {
-        ChunkHeader chunk;
-        err = _read_chunk_header(file, chunk);
-        if (err != OK) {
-            if (err == ERR_FILE_EOF) {
-                break;
-            }
-            return err;
-        }
+Error GaussianSceneSerializer::load_scene(const String &file_path, ::GaussianData *gaussian_data, GaussianAnimationStateMachine *animation, Dictionary *r_metadata) {
+    ERR_FAIL_NULL_V(gaussian_data, ERR_INVALID_PARAMETER);
+    Ref<FileAccess> file = FileAccess::open(file_path, FileAccess::READ);
+    ERR_FAIL_COND_V_MSG(file.is_null(), ERR_FILE_NOT_FOUND, "Unable to open Gaussian scene file: " + file_path);
 
-        switch (chunk.type) {
-            case ChunkType::GAUSSIAN_DATA:
-                err = _read_gaussian_data_chunk(file, chunk, gaussian_data);
-                break;
-            case ChunkType::ANIMATION_DATA:
-                if (animation) {
-                    err = _read_animation_data_chunk(file, chunk, animation);
-                } else {
-                    file->seek(file->get_position() + chunk.size);
-                    err = OK;
-                }
-                break;
-            case ChunkType::METADATA:
-                if (r_metadata) {
-                    err = _read_metadata_chunk(file, chunk, *r_metadata);
-                } else {
-                    file->seek(file->get_position() + chunk.size);
-                    err = OK;
-                }
-                break;
-            case ChunkType::ASSET_REFS:
-                err = _read_asset_refs_chunk(file, chunk);
-                break;
-            case ChunkType::END_OF_FILE:
-                done = true;
-                break;
-            default: {
-                // Forward compatibility: skip unknown chunk types and preserve
-                // them so they survive a round-trip (load -> re-save).
-                WARN_PRINT(vformat(
-                        "Unknown chunk type 0x%08X encountered in '%s', skipping %d bytes.",
-                        (uint32_t)chunk.type, file_path, chunk.size));
-                UnknownChunk unk;
-                unk.type_raw = (uint32_t)chunk.type;
-                unk.flags = chunk.flags;
-                unk.checksum = chunk.checksum;
-                if (chunk.size > 0) {
-                    unk.payload = file->get_buffer(chunk.size);
-                    ERR_FAIL_COND_V_MSG(unk.payload.size() != (int)chunk.size,
-                            ERR_FILE_CORRUPT,
-                            "Failed to read unknown chunk payload.");
-                }
-                unknown_chunks.push_back(unk);
-                err = OK;
-            } break;
-        }
+    // Transactional load (#601): parse the ENTIRE file into a staging sink first.
+    // Only when the structural parse fully succeeds do we commit to the caller's
+    // objects, so a late chunk error can never leave the target half-mutated.
+    LoadStaging staging;
+    Error err = _read_scene_into_staging(file, file_path, staging);
+    if (err != OK) {
+        return err; // Caller targets are untouched.
+    }
 
-        if (err != OK) {
-            return err;
+    // Commit staging -> caller targets. Committing gaussians through the canonical
+    // bulk setter rebuilds octree/overlay/SH-metadata/content-revision state in one
+    // place.
+    //
+    // This commit is UNCONDITIONAL (#618 review, BLOCKER 2). The writer omits the
+    // GAUSSIAN_DATA chunk entirely for a 0-splat scene, so `staging.gaussians` is
+    // empty and committing it correctly CLEARS the target. Guarding the commit on
+    // `has_gaussian_chunk`, as this path used to, meant that saving an empty scene
+    // and loading it back left the PREVIOUS scene's splats in the target while
+    // still returning OK -- silent data corruption from an ordinary user action.
+    // _read_scene_body already guarantees the two agree: a header declaring >0
+    // splats with no GAUSSIAN_DATA chunk is rejected, and _read_gaussian_data_chunk
+    // rejects a chunk whose count differs from the header's.
+    gaussian_data->set_gaussians(staging.gaussians);
+    if (animation && staging.has_animation_chunk) {
+        animation->from_dict(staging.animation_dict);
+    }
+    if (r_metadata && staging.has_metadata_chunk) {
+        *r_metadata = staging.metadata;
+    }
+    if (staging.has_asset_refs_chunk) {
+        asset_references = staging.asset_references;
+        asset_path_to_index.clear();
+        for (uint32_t i = 0; i < asset_references.size(); i++) {
+            asset_path_to_index[asset_references[i].path] = i;
         }
     }
+    // Unknown chunks are always refreshed from this load so a subsequent re-save
+    // round-trips exactly the chunks this file carried (and no stale ones).
+    unknown_chunks = staging.unknown_chunks;
 
     return OK;
 }
@@ -918,102 +1318,81 @@ bool GaussianSceneSerializer::validate_assets() const {
     return true;
 }
 
+bool GaussianSceneSerializer::_file_claims_checksum_protection(const Ref<FileAccess> &file) const {
+    file->seek(0);
+    const uint64_t file_length = file->get_length();
+
+    ChunkHeader head;
+    if (_read_chunk_header(file, head) != OK) {
+        return true; // Unreadable header -> treat as claiming protection (conservative).
+    }
+    if (head.type != ChunkType::HEADER) {
+        return true;
+    }
+    if (head.checksum != 0) {
+        return true; // The HEAD chunk carries a checksum.
+    }
+    const uint64_t head_payload_offset = file->get_position();
+    if (head_payload_offset > file_length || uint64_t(head.size) > file_length - head_payload_offset) {
+        return true;
+    }
+    if (head.size < SCENE_HEADER_V1_SIZE) {
+        return true;
+    }
+    // Scene flags live at payload offset +6 (see _pack_scene_header).
+    file->seek(head_payload_offset + 6);
+    const uint16_t scene_flags = file->get_16();
+    if (scene_flags & SCENE_FLAG_CHECKSUM_ENABLED) {
+        return true;
+    }
+
+    // Any trailing chunk that carries a checksum also counts as claiming
+    // protection. Scan the raw chunk headers up to the END_OF_FILE marker.
+    file->seek(head_payload_offset + uint64_t(head.size));
+    while (file->get_position() + uint64_t(GSF_CHUNK_HEADER_SIZE) <= file_length) {
+        ChunkHeader ch;
+        if (_read_chunk_header(file, ch) != OK) {
+            return true;
+        }
+        if (ch.checksum != 0) {
+            return true;
+        }
+        const uint64_t payload_offset = file->get_position();
+        if (payload_offset > file_length || uint64_t(ch.size) > file_length - payload_offset) {
+            return true;
+        }
+        if (ch.type == ChunkType::END_OF_FILE) {
+            return false; // Reached EOF with no checksum claim anywhere.
+        }
+        file->seek(payload_offset + uint64_t(ch.size));
+    }
+    return true; // Never reached the EOF chunk -> conservative reject.
+}
+
 Error GaussianSceneSerializer::validate_file(const String &file_path) const {
     Ref<FileAccess> file = FileAccess::open(file_path, FileAccess::READ);
     ERR_FAIL_COND_V(file.is_null(), ERR_FILE_NOT_FOUND);
 
-    // Prefer strict checksum validation.
-    // Legacy fallback is only allowed when checksum validation is explicitly
-    // disabled on this serializer instance.
-    SceneHeader header;
-    GaussianSceneSerializer strict_probe;
-    strict_probe.set_enable_checksum(true);
-    Error strict_err = strict_probe._read_scene_header(file, header);
-    Error err = strict_err;
-    if (strict_err != OK) {
-        if (enable_checksum) {
-            return strict_err;
-        }
-        file->seek(0);
-        ChunkHeader chunk_header;
-        Error header_err = _read_chunk_header(file, chunk_header);
-        if (header_err != OK) {
-            return header_err;
-        }
-
-        file->seek(0);
-        GaussianSceneSerializer legacy_probe;
-        legacy_probe.set_enable_checksum(false);
-        err = legacy_probe._read_scene_header(file, header);
-        if (err != OK) {
-            return err;
-        }
-
-        // Keep checksum integrity for files that were explicitly written with
-        // checksum protection, even when the chunk checksum field is tampered.
-        if ((header.flags & SCENE_FLAG_CHECKSUM_ENABLED) != 0) {
-            return strict_err;
-        }
-
-        if (chunk_header.checksum != 0) {
-            return strict_err;
-        }
-
-        // Legacy checksum-compatible fallback is only safe when all chunk
-        // checksums are absent. Do not trust header.total_chunks after strict
-        // checksum failure because the header payload itself is unverified.
-        const uint64_t file_length = file->get_length();
-        const uint64_t max_chunk_scan_u64 = file_length / sizeof(ChunkHeader) + 1;
-        const uint32_t max_chunk_scan = max_chunk_scan_u64 > uint64_t(UINT32_MAX)
-                ? UINT32_MAX
-                : uint32_t(max_chunk_scan_u64);
-        bool saw_eof_chunk = false;
-        for (uint32_t chunk_index = 1; chunk_index <= max_chunk_scan; chunk_index++) {
-            ChunkHeader trailing_chunk_header;
-            Error trailing_err = _read_chunk_header(file, trailing_chunk_header);
-            if (trailing_err != OK) {
-                return strict_err;
-            }
-            if (trailing_chunk_header.checksum != 0) {
-                return strict_err;
-            }
-            const uint64_t payload_offset = file->get_position();
-            if (file_length < payload_offset || uint64_t(trailing_chunk_header.size) > (file_length - payload_offset)) {
-                return strict_err;
-            }
-            if (trailing_chunk_header.type == ChunkType::END_OF_FILE) {
-                if (trailing_chunk_header.size != 0 || payload_offset != file_length) {
-                    return strict_err;
-                }
-                saw_eof_chunk = true;
-                break;
-            }
-            if (trailing_chunk_header.size == 0) {
-                return strict_err;
-            }
-            file->seek(payload_offset + uint64_t(trailing_chunk_header.size));
-        }
-        if (!saw_eof_chunk) {
-            return strict_err;
-        }
-    }
-    if (err != OK) {
-        return err;
-    }
-    if (header.magic != GAUSSIAN_SCENE_MAGIC) {
-        return ERR_FILE_UNRECOGNIZED;
-    }
-    if (header.version == 0) {
-        return ERR_FILE_UNRECOGNIZED;
-    }
-    // Version negotiation: allow forward-compatible files whose
-    // minimum_reader_version is within our supported range.
-    if (header.version > GAUSSIAN_SCENE_VERSION) {
-        if (header.minimum_reader_version > GAUSSIAN_SCENE_VERSION) {
-            return ERR_FILE_UNRECOGNIZED;
-        }
-    }
-    return OK;
+    // #602: run the SAME transactional parser load_scene uses, into a throwaway
+    // staging sink, so validate_file can never be weaker than an actual load.
+    // The old checksum-success path returned after only the header and never
+    // scanned the trailing chunks, so a file could pass validate_file and then
+    // fail load_scene.
+    //
+    // #618 review, MAJOR 3: there is now exactly ONE probe, configured exactly as
+    // this instance is. The previous strict-probe-then-legacy-fallback ladder gave
+    // validate_file a STRICTER checksum policy than load_scene: a
+    // checksum-disabled loader accepted a tampered, originally-protected file that
+    // validate_file rejected. The _file_claims_checksum_protection prescan that
+    // used to gate only this function's fallback now runs at the top of EVERY
+    // parse (_read_scene_into_staging), so this single probe answers exactly the
+    // question "would load_scene accept this file?" -- by raising the load path to
+    // this function's strength, never by lowering this function's.
+    GaussianSceneSerializer probe;
+    probe.set_enable_checksum(enable_checksum);
+    file->seek(0);
+    LoadStaging staging;
+    return probe._read_scene_into_staging(file, file_path, staging);
 }
 
 Dictionary GaussianSceneSerializer::get_file_info(const String &file_path) const {

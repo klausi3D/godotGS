@@ -462,7 +462,16 @@ private:
 	static bool _apply_world_submission_to_renderer(SharedWorld &p_world, const SharedWorld::WorldSubmissionRecord &p_record,
 			const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_renderer_state);
 	bool _should_prune_world(const SharedWorld &p_world) const;
-	void _prune_world_if_unused(const RID &p_scenario);
+	// #611: prune an empty SharedWorld without releasing its
+	// Ref<GaussianSplatRenderer> under world_mutex. The renderer's teardown blocks
+	// on a render-thread dispatch, and the render thread can itself be blocked
+	// acquiring world_mutex inside a *_for_renderer builder — dropping the last
+	// renderer Ref while holding the lock is a lock-order inversion (deadlock).
+	// Any renderer that would be freed here is MOVED into r_deferred_release, which
+	// the caller MUST declare BEFORE its `MutexLock lock(world_mutex)` so the Refs
+	// drop only after the lock has been released.
+	void _prune_world_if_unused(const RID &p_scenario,
+			LocalVector<Ref<GaussianSplatRenderer>> &r_deferred_release);
 };
 
 #endif // GAUSSIAN_SPLAT_SCENE_DIRECTOR_H

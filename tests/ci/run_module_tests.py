@@ -29,9 +29,12 @@ SHADER_DEPENDENCY_GUARD_SCRIPT = MODULE_SOURCE_DIR / "tests" / "check_shader_dep
 PROJECT_SETTINGS_MANIFEST_GUARD_SCRIPT = MODULE_SOURCE_DIR / "tests" / "check_project_settings_manifest.py"
 GAUSSIAN_LAYOUT_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_gaussian_layout_sync.py"
 CULL_SIGNATURE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_cull_signature_parity.py"
+METRIC_RESET_PARITY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_metric_reset_parity.py"
+METRIC_RESET_PARITY_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_metric_reset_parity.py"
 DOC_CLASSES_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_doc_classes_complete.py"
 RENDERER_RELEASE_GATE_SCRIPT = ROOT / "tests" / "ci" / "check_renderer_release_gates.py"
 RENDERER_RELEASE_GATE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_renderer_release_gates.py"
+BASELINE_QA_REQUIRE_FLAG_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_baseline_qa_require_flag.py"
 HISTORY_ARTIFACT_AUDIT_SCRIPT = ROOT / "scripts" / "repo" / "history_artifact_audit.py"
 SYNTHETIC_ASSET_PREP_SCRIPT = ROOT / "tests" / "runtime" / "prepare_synthetic_assets.py"
 BENCHMARK_ASSET_GUARD_SCRIPT = ROOT / "tests" / "runtime" / "check_benchmark_asset_paths.py"
@@ -707,6 +710,36 @@ def _run_cull_signature_parity_guard() -> tuple[bool, list[str]]:
     return True, output_lines
 
 
+def _run_metric_reset_parity_guard() -> tuple[bool, list[str]]:
+    # Mirrors _run_renderer_release_gate_guard: run the guard script against
+    # the committed header, then the guard's own unit test (which pins the
+    # parser's matching rules against synthetic fixtures, incl. the #627
+    # non-reset-mutator counterexample) so a future regex change is caught
+    # even if it happens not to flag anything in the current header.
+    missing = [
+        path.relative_to(ROOT)
+        for path in (METRIC_RESET_PARITY_GUARD_SCRIPT, METRIC_RESET_PARITY_TEST_SCRIPT)
+        if not path.is_file()
+    ]
+    if missing:
+        return False, [f"Missing metric-reset parity guard file: {path}" for path in missing]
+
+    output_lines: list[str] = []
+    commands = (
+        [sys.executable, str(METRIC_RESET_PARITY_GUARD_SCRIPT)],
+        [sys.executable, str(METRIC_RESET_PARITY_TEST_SCRIPT)],
+    )
+    for args in commands:
+        code, out, err = _run_command(args)
+        output_lines.extend(line for line in (out + err).splitlines() if line.strip())
+        if code != 0:
+            if not output_lines:
+                output_lines = [f"Metric-reset parity guard failed with exit code {code}."]
+            return False, output_lines
+
+    return True, output_lines
+
+
 def _run_renderer_release_gate_guard() -> tuple[bool, list[str]]:
     missing = [
         path.relative_to(ROOT)
@@ -730,6 +763,27 @@ def _run_renderer_release_gate_guard() -> tuple[bool, list[str]]:
             return False, output_lines
 
     return True, output_lines
+
+
+def _run_baseline_qa_require_flag_guard() -> tuple[bool, list[str]]:
+    """Run run_baseline_qa.py's own require-baseline regression test (#596
+    follow-up: the switch was previously ignored on the QA-scene-skip path;
+    see test_baseline_qa_require_flag.py). Deterministic, no GPU/binary
+    required."""
+    if not BASELINE_QA_REQUIRE_FLAG_TEST_SCRIPT.is_file():
+        return False, [
+            f"Missing baseline QA require-flag unit test: "
+            f"{BASELINE_QA_REQUIRE_FLAG_TEST_SCRIPT.relative_to(ROOT)}"
+        ]
+
+    code, out, err = _run_command([sys.executable, str(BASELINE_QA_REQUIRE_FLAG_TEST_SCRIPT)])
+    output_lines = [line for line in (out + err).splitlines() if line.strip()]
+    if code != 0:
+        if not output_lines:
+            output_lines = [f"Baseline QA require-flag unit test failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["Baseline QA require-flag unit test passed."]
 
 
 def _parse_quarantine_expiry(value: str) -> datetime | None:
@@ -1520,6 +1574,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
         ),
         (
             True,
+            _run_metric_reset_parity_guard,
+            "Metric-reset parity guard failed.",
+            "Metric-reset parity guard passed.",
+        ),
+        (
+            True,
             _run_doc_classes_guard,
             "doc_classes completeness guard failed.",
             "doc_classes completeness guard passed.",
@@ -1529,6 +1589,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_renderer_release_gate_guard,
             "Renderer release gate guard failed.",
             "Renderer release gate guard passed.",
+        ),
+        (
+            True,
+            _run_baseline_qa_require_flag_guard,
+            "Baseline QA require-flag guard failed.",
+            "Baseline QA require-flag guard passed.",
         ),
         (
             True,

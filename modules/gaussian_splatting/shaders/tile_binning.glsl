@@ -735,8 +735,17 @@ void main() {
     g.sh_encoded[3] = uintBitsToFloat(src.sh_encoded_23.y);
     g.sh_encoded[4] = uintBitsToFloat(src.sh_encoded_45.x);
     g.sh_encoded[5] = uintBitsToFloat(src.sh_encoded_45.y);
-    g.normal = vec3(0.0);
-    g.stroke_age = 0.0;
+    // Normal + stroke_age ARE carried in the 80-byte quantized payload
+    // (pack_gaussian_quantized writes normal_xy / normal_z_stroke), so decode
+    // them here. Zeroing g.normal used to force the thinnest-axis fallback below
+    // (see normal_mode handling), which produced flat/incorrect lighting on
+    // quantized assets — the "quantized = unlit" symptom (#510).
+    g.normal = LOAD_NORMAL_QUANTIZED(src);
+    g.stroke_age = extract_stroke_age(src.normal_z_stroke);
+    // brush_axes / painterly_meta have no slot in PackedGaussianQuantized (80
+    // bytes carry only normal + stroke_age), so they cannot be recovered here and
+    // stay zeroed. The tile pipeline does not consume them; the painterly path
+    // (gaussian_splat.*) seeds its own stylization from splat position.
     g.brush_axes = vec2(0.0);
     g.painterly_meta = 0u;
     g.area = 0.0;

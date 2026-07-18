@@ -244,6 +244,22 @@ void uninitialize_gaussian_splatting_module(ModuleInitializationLevel p_level) {
                 ResourceSaver::remove_resource_format_saver(gaussian_world_format_saver);
                 gaussian_world_format_saver.unref();
             }
+            // #589: tear down in REVERSE of init order — the director (and the
+            // director-owned Ref<GaussianSplatRenderer>s its ~dtor drops via
+            // worlds.clear()) must be destroyed BEFORE the manager. Init order is
+            // manager -> director (see :125,:155); teardown must therefore be
+            // director -> manager so that each renderer's teardown still observes a
+            // live GaussianSplatManager singleton (correct owning device, buffer
+            // hand-back) instead of the null-singleton / main-device fallback. The
+            // StringName-cache release + singleton removals below are unchanged and
+            // still run after BOTH singletons are gone.
+            if (gaussian_splat_scene_director_singleton) {
+                if (Engine::get_singleton()->has_singleton("GaussianSplatSceneDirector")) {
+                    Engine::get_singleton()->remove_singleton("GaussianSplatSceneDirector");
+                }
+                memdelete(gaussian_splat_scene_director_singleton);
+                gaussian_splat_scene_director_singleton = nullptr;
+            }
             if (gaussian_splat_manager_singleton) {
                 if (Engine::get_singleton()->has_singleton("GaussianSplatManager")) {
                     Engine::get_singleton()->remove_singleton("GaussianSplatManager");
@@ -251,13 +267,6 @@ void uninitialize_gaussian_splatting_module(ModuleInitializationLevel p_level) {
                 gaussian_splat_manager_singleton->finalize_module();
                 memdelete(gaussian_splat_manager_singleton);
                 gaussian_splat_manager_singleton = nullptr;
-            }
-            if (gaussian_splat_scene_director_singleton) {
-                if (Engine::get_singleton()->has_singleton("GaussianSplatSceneDirector")) {
-                    Engine::get_singleton()->remove_singleton("GaussianSplatSceneDirector");
-                }
-                memdelete(gaussian_splat_scene_director_singleton);
-                gaussian_splat_scene_director_singleton = nullptr;
             }
             // Cleanup Custom Performance Monitors
             GaussianSplattingPerformanceMonitors::destroy_singleton();

@@ -538,34 +538,13 @@ void RenderResourceOrchestrator::update_gpu_pass_metrics_from_tile_renderer() {
 	GaussianSplatRenderer::PerformanceMetrics &metrics = state_mut.get_performance_state_mut().metrics;
 
 	if (!tile_renderer_state->renderer.is_valid()) {
-		metrics.gpu_tile_overlap_count_time_ms = 0.0f;
-		metrics.gpu_tile_overlap_count_time_valid = false;
-		metrics.gpu_tile_binning_time_ms = 0.0f;
-		metrics.gpu_tile_overlap_emit_time_ms = 0.0f;
-		metrics.gpu_tile_overlap_emit_time_valid = false;
-		metrics.gpu_tile_overlap_sort_time_ms = 0.0f;
-		metrics.gpu_tile_overlap_sort_time_valid = false;
-		metrics.tile_overlap_sort_cpu_dispatch_ms = 0.0f;
-		metrics.tile_overlap_sort_cpu_dispatch_valid = false;
-		metrics.gpu_tile_raster_time_ms = 0.0f;
-		metrics.gpu_tile_raster_time_valid = false;
-		metrics.gpu_tile_prefix_time_ms = 0.0f;
-		metrics.gpu_tile_prefix_time_valid = false;
-		metrics.tile_prefix_cpu_sync_fallback_ms = 0.0f;
-		metrics.tile_prefix_cpu_sync_fallback_valid = false;
-		metrics.gpu_tile_resolve_time_ms = 0.0f;
-		metrics.gpu_tile_resolve_time_valid = false;
-		metrics.gpu_frame_time_ms = 0.0f;
-		metrics.gpu_frame_time_valid = false;
-		metrics.gpu_utilization = 0.0f;
-		metrics.gpu_timing_frame_serial = 0;
-		metrics.gpu_timing_frames_behind = 0;
-		metrics.gpu_timeline_inflight_frames = 0;
-		metrics.gpu_timeline_completed_frames = 0;
-		metrics.gpu_timeline_stall_count = 0;
-		metrics.gpu_timeline_stall_ms = 0.0f;
-		metrics.gpu_timeline_last_value = 0;
-		metrics.tile_sort_sync_fallback_count = 0;
+		// Single-source GPU-pass metric reset (#528): with no rasterizer to read
+		// from, zero every GPU timing group plus the readback-derived state
+		// (utilization, timing serial/behind, tile-sort sync fallback counter).
+		metrics.reset_gpu_core_pass_timings();
+		metrics.reset_gpu_extended_pass_timings();
+		metrics.reset_gpu_timeline_metrics();
+		metrics.reset_gpu_readback_state();
 		// Note: leave raster_pipeline_reformats as-is across the "no rasterizer" branch.
 		// The counter is monotonic across the renderer's lifetime; resetting to 0 here
 		// would mask reformats that happened earlier in the session.

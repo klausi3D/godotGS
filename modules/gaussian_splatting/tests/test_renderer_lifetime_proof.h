@@ -859,8 +859,10 @@ TEST_CASE("[GaussianSplatting][Renderer][Lifetime][RequiresGPU] scene_director_r
 		memdelete(director);
 	}
 
-	// Mark teardown as synchronous: teardown_world_for_scenario runs all
-	// Ref drops inline under world_mutex; no deferred render-thread dispatch.
+	// Mark teardown as synchronous: teardown_world_for_scenario now drops the
+	// renderer Ref just AFTER releasing world_mutex (#611), but with the render
+	// loop disabled in this harness the drop still runs synchronously -- no
+	// deferred render-thread dispatch.
 	fixture.set_teardown_was_synchronous(true);
 
 	const bool finalize_passed = fixture.finalize();

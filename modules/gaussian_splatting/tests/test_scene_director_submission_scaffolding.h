@@ -607,6 +607,81 @@ TEST_CASE("[GaussianSplatting][World][SceneTree] strict identity transform rejec
 	}
 }
 
+// Regression test for #517: GaussianSplatWorld3D::NOTIFICATION_EXIT_TREE
+// unregisters the world submission and frees render_instance/gaussian_base,
+// but NOTIFICATION_READY only fires once per node lifetime. Reparenting a
+// node is exit+enter, so before the fix a re-added world node stayed dark
+// until something explicitly called apply_world() or a property setter.
+// Mirrors the GaussianSplatNode3D analog above ("Shared renderer survives
+// temporary last-instance unregister") but asserts on the world-submission
+// record directly, since world submissions are director bookkeeping that
+// does not require a real GPU renderer to exist (see the ownership-gate
+// tests above).
+TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] World submission survives tree re-entry after reparent") {
+	SceneTree *tree = SceneTree::get_singleton();
+	REQUIRE_MESSAGE(tree != nullptr, "SceneTree singleton required");
+
+	Window *root = tree->get_root();
+	REQUIRE_MESSAGE(root != nullptr, "SceneTree root window required");
+
+	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+	const bool owns_director = (director == nullptr);
+	if (!director) {
+		director = memnew(GaussianSplatSceneDirector);
+	}
+	REQUIRE(director != nullptr);
+
+	Ref<GaussianSplatWorld> world_resource;
+	world_resource.instantiate();
+	world_resource->set_gaussian_data(stage1a_make_submission_test_data(6, 2.0f));
+	Vector<GaussianSplatRenderer::StaticChunk> chunks;
+	chunks.push_back(stage1a_make_submission_test_chunk(0));
+	world_resource->set_static_chunks(chunks);
+
+	GaussianSplatWorld3D *world_node = memnew(GaussianSplatWorld3D);
+	REQUIRE(world_node != nullptr);
+	// Default auto_apply_on_ready (true): the first tree-entry applies the
+	// world via NOTIFICATION_READY, matching the common configuration and
+	// keeping this test independent of the auto_apply_on_ready gate, which
+	// only governs first-entry behavior (see gaussian_splat_world_3d.cpp's
+	// NOTIFICATION_ENTER_TREE comment).
+	world_node->set_world(world_resource);
+
+	root->add_child(world_node);
+	tree->process(0.0);
+
+	const ObjectID owner_id = world_node->get_instance_id();
+	GaussianSplatSceneDirector::WorldSubmission submission;
+	REQUIRE_MESSAGE(director->get_world_submission(owner_id, &submission),
+			"auto_apply_on_ready should have registered the world submission on first READY.");
+
+	// Reparenting (or any tree removal + re-add) is exit+enter. Confirm
+	// EXIT_TREE actually tears the submission down, so the re-entry check
+	// below exercises the fix rather than a no-op.
+	root->remove_child(world_node);
+	tree->process(0.0);
+	CHECK_FALSE_MESSAGE(director->get_world_submission(owner_id, &submission),
+			"NOTIFICATION_EXIT_TREE must unregister the world submission.");
+
+	// Re-entry: NOTIFICATION_READY does NOT fire again. Before the #517 fix
+	// the node stayed dark here until apply_world() or a setter ran.
+	root->add_child(world_node);
+	tree->process(0.0);
+	CHECK_MESSAGE(director->get_world_submission(owner_id, &submission),
+			"NOTIFICATION_ENTER_TREE must restore a previously-active world submission on re-entry.");
+	CHECK(submission.owner_id == owner_id);
+	CHECK(submission.gaussian_data == world_resource->get_gaussian_data());
+
+	world_node->clear_world();
+	root->remove_child(world_node);
+	memdelete(world_node);
+	tree->process(0.0);
+
+	if (owns_director) {
+		memdelete(director);
+	}
+}
+
 TEST_CASE("[GaussianSplatting][SceneDirector][WorldSubmission][SceneTree] Zero-splat submissions do not surface residency authority") {
 	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
 	const bool owns_director = (director == nullptr);
@@ -2226,6 +2301,71 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] Node PREDELETE prunes S
 			"Pre-fix this entry persisted because the second _unregister_shared_renderer() in PREDELETE "
 			"was a no-op (instance record already removed in EXIT_TREE), so _prune_world_if_unused was "
 			"never re-run with the reduced refcount. Defeated the F6-reload-leak fix in PR #387.");
+
+	if (owns_director) {
+		memdelete(director);
+	}
+}
+
+// Regression guard for #611 (world_mutex ↔ render-thread lock-order inversion).
+//
+// The real deadlock — the render thread blocked acquiring world_mutex inside a
+// *_for_renderer builder while the main thread holds world_mutex and blocks on a
+// render-thread dispatch (renderer teardown / initialize) — cannot be reproduced
+// in this headless harness because there is no live render thread and the
+// dispatcher short-circuits when the render loop is disabled. What this test DOES
+// pin is the structural half of the fix: teardown_world_for_scenario moves the
+// renderer Ref out of the map under the lock and erases the SharedWorld, then
+// releases the Ref only after world_mutex is dropped. It asserts the observable
+// contract (world created, then fully erased, and idempotent on re-entry) so a
+// regression that reintroduces a synchronous renderer drop under the lock — or
+// leaks the deferred Ref — is caught. On no-GPU runners the renderer is null, so
+// this exercises the deferred-release control flow with an empty sink.
+TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] teardown_world_for_scenario erases world outside world_mutex and is idempotent (#611)") {
+	SceneTree *tree = SceneTree::get_singleton();
+	REQUIRE_MESSAGE(tree != nullptr, "SceneTree singleton required");
+
+	Window *root = tree->get_root();
+	REQUIRE_MESSAGE(root != nullptr, "SceneTree root window required");
+
+	Ref<World3D> world = root->get_world_3d();
+	REQUIRE(world.is_valid());
+	const RID scenario = world->get_scenario();
+	REQUIRE(scenario.is_valid());
+
+	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+	const bool owns_director = (director == nullptr);
+	if (!director) {
+		director = memnew(GaussianSplatSceneDirector);
+	}
+	REQUIRE(director != nullptr);
+
+	// Create a SharedWorld entry for the scenario via a world-submission. On
+	// no-GPU runners the per-scenario renderer is null, but the SharedWorld entry
+	// (and its active submission) is still created.
+	GaussianSplatSceneDirector::WorldSubmission submission;
+	submission.owner_id = root->get_instance_id();
+	submission.scenario = scenario;
+	submission.gaussian_data = stage1a_make_submission_test_data(8, 1.0f);
+	submission.bounds = submission.gaussian_data->get_aabb();
+	const bool submitted = director->submit_world_submission(submission);
+	REQUIRE_MESSAGE(submitted, "submit_world_submission should create the SharedWorld entry.");
+	REQUIRE_MESSAGE(director->has_shared_world_for_scenario(scenario),
+			"Director should have a SharedWorld entry after submit_world_submission.");
+
+	// Teardown must erase the SharedWorld entry (moving any renderer Ref out for a
+	// post-lock release) and leave no world-submission record behind.
+	director->teardown_world_for_scenario(scenario);
+	CHECK_FALSE_MESSAGE(director->has_shared_world_for_scenario(scenario),
+			"teardown_world_for_scenario must erase the SharedWorld entry.");
+	GaussianSplatSceneDirector::WorldSubmission queried_submission;
+	CHECK_FALSE_MESSAGE(director->get_world_submission_for_scenario(scenario, &queried_submission),
+			"No world-submission record should remain after teardown_world_for_scenario.");
+
+	// Idempotent: a second teardown on the now-absent entry is a safe no-op.
+	director->teardown_world_for_scenario(scenario);
+	CHECK_FALSE_MESSAGE(director->has_shared_world_for_scenario(scenario),
+			"teardown_world_for_scenario must remain a no-op when the entry is already gone.");
 
 	if (owns_director) {
 		memdelete(director);

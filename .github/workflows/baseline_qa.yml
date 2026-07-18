@@ -153,7 +153,16 @@ jobs:
         "reason=$reason" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
         Write-Host "Resolved baseline mode: $mode ($reason)"
 
-    - name: Run GPU sorting fast gate
+    - name: Run GPU sorting construction check (no sort-order coverage)
+      # NOT a sort-correctness gate. tests/ci/test_gpu_sorting_ci.gd only
+      # exercises the GDScript-visible surface of the sorting subsystem,
+      # which is construction (RadixSort.new() + get_algorithm_name()) —
+      # IGPUSorter/RadixSort's sort()/initialize() are never bound to
+      # GDScript, so there is no scriptable way to feed a sorter real data
+      # and assert output order from this step. See #594 for the audit
+      # finding and #622 for the tracked follow-up (real order-asserting
+      # [RequiresGPU] doctests already exist in test_gpu_sorting.cpp but are
+      # not yet wired into a passing CI batch).
       env:
         GS_CI_GPU_REQUIRED: "1"
         GS_CI_VALIDATION_MODE: "strict"

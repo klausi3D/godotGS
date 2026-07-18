@@ -2038,55 +2038,13 @@ void RenderPipelineStages::reset_render_state_for_frame(const GaussianSplatRende
 	output_cache.last_strict_depth_contract_required = false;
 	GaussianSplatRenderer::PerformanceState &performance_state = state_mut.get_performance_state_mut();
 	auto &metrics = performance_state.metrics;
-	metrics.raster_path_reason = String();
-	metrics.raster_compute_allowed = false;
-	metrics.raster_total_tiles = 0;
-	metrics.raster_empty_tiles = 0;
-	metrics.raster_overflow_tiles = 0;
-	metrics.raster_max_splats_per_tile = 0;
-	metrics.raster_avg_splats_per_tile = 0.0f;
-	metrics.raster_occupancy_ratio = 0.0f;
-	metrics.raster_dense_ratio = 0.0f;
-	metrics.raster_overflow_ratio = 0.0f;
-	metrics.raster_overlap_records = 0;
-	metrics.raster_overlap_record_budget = 0;
-	metrics.raster_overlap_record_budget_effective = 0;
-	metrics.raster_overlap_record_budget_configured = 0;
-	metrics.raster_overlap_thinning_keep_ratio = 1.0f;
-	metrics.raster_feature_global_sort = false;
-	metrics.raster_feature_packed_stage_data = false;
-	metrics.raster_feature_tighter_bounds = false;
-	metrics.raster_feature_sh_amortization = false;
-	metrics.raster_sh_amortization_divisor = 1;
-	metrics.raster_feature_quantized_storage = false;
-	metrics.raster_feature_debug_counters = false;
-	metrics.raster_tile_splat_capacity = 0;
-	metrics.raster_max_raster_splats_per_tile = 0;
-	metrics.raster_shader_defines_hash = 0;
-	metrics.gpu_frame_time_ms = 0.0f;
-	metrics.gpu_frame_time_valid = false;
-	metrics.gpu_tile_overlap_count_time_ms = 0.0f;
-	metrics.gpu_tile_overlap_count_time_valid = false;
-	metrics.gpu_tile_binning_time_ms = 0.0f;
-	metrics.gpu_tile_overlap_emit_time_ms = 0.0f;
-	metrics.gpu_tile_overlap_emit_time_valid = false;
-	metrics.gpu_tile_overlap_sort_time_ms = 0.0f;
-	metrics.gpu_tile_overlap_sort_time_valid = false;
-	metrics.tile_overlap_sort_cpu_dispatch_ms = 0.0f;
-	metrics.tile_overlap_sort_cpu_dispatch_valid = false;
-	metrics.gpu_tile_raster_time_ms = 0.0f;
-	metrics.gpu_tile_raster_time_valid = false;
-	metrics.gpu_tile_prefix_time_ms = 0.0f;
-	metrics.gpu_tile_prefix_time_valid = false;
-	metrics.tile_prefix_cpu_sync_fallback_ms = 0.0f;
-	metrics.tile_prefix_cpu_sync_fallback_valid = false;
-	metrics.gpu_tile_resolve_time_ms = 0.0f;
-	metrics.gpu_tile_resolve_time_valid = false;
-	metrics.gpu_timeline_inflight_frames = 0;
-	metrics.gpu_timeline_completed_frames = 0;
-	metrics.gpu_timeline_stall_count = 0;
-	metrics.gpu_timeline_stall_ms = 0.0f;
-	metrics.gpu_timeline_last_value = 0;
+	// Single-source per-frame reset (#528). Clears the raster tile snapshot and
+	// the full GPU pass-timing + timeline groups; leaves raster_path, cumulative
+	// counters, and per-stage outputs untouched (see render_performance_types.h).
+	metrics.reset_raster_frame_stats();
+	metrics.reset_gpu_core_pass_timings();
+	metrics.reset_gpu_extended_pass_timings();
+	metrics.reset_gpu_timeline_metrics();
 }
 
 Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_viewport_size, RD::DataFormat p_target_format,
@@ -2942,45 +2900,14 @@ void RenderPipelineStages::render_sorted_splats_with_context(const GaussianSplat
 	GaussianSplatRenderer::ResourceState &resource_state = state_mut.get_resource_state_mut();
 	frame_state.render_time_ms = 0.0f;
 	auto &metrics = performance_state.metrics;
+	// Single-source per-frame reset (#528). The main path additionally stamps
+	// raster_path back to "unknown" before route selection, then clears the raster
+	// snapshot and the "core" GPU pass timings this call recomputes. It
+	// deliberately does NOT touch the extended/timeline groups here (preserving the
+	// pre-#528 behavior of this site); see render_performance_types.h.
 	metrics.raster_path = "unknown";
-	metrics.raster_path_reason = String();
-	metrics.raster_compute_allowed = false;
-	metrics.raster_total_tiles = 0;
-	metrics.raster_empty_tiles = 0;
-	metrics.raster_overflow_tiles = 0;
-	metrics.raster_max_splats_per_tile = 0;
-	metrics.raster_avg_splats_per_tile = 0.0f;
-	metrics.raster_occupancy_ratio = 0.0f;
-	metrics.raster_dense_ratio = 0.0f;
-	metrics.raster_overflow_ratio = 0.0f;
-	metrics.raster_overlap_records = 0;
-	metrics.raster_overlap_record_budget = 0;
-	metrics.raster_overlap_record_budget_effective = 0;
-	metrics.raster_overlap_record_budget_configured = 0;
-	metrics.raster_overlap_thinning_keep_ratio = 1.0f;
-	metrics.raster_feature_global_sort = false;
-	metrics.raster_feature_packed_stage_data = false;
-	metrics.raster_feature_tighter_bounds = false;
-	metrics.raster_feature_sh_amortization = false;
-	metrics.raster_sh_amortization_divisor = 1;
-	metrics.raster_feature_quantized_storage = false;
-	metrics.raster_feature_debug_counters = false;
-	metrics.raster_tile_splat_capacity = 0;
-	metrics.raster_max_raster_splats_per_tile = 0;
-	metrics.raster_shader_defines_hash = 0;
-	metrics.gpu_frame_time_ms = 0.0f;
-	metrics.gpu_frame_time_valid = false;
-	metrics.gpu_tile_overlap_count_time_ms = 0.0f;
-	metrics.gpu_tile_overlap_count_time_valid = false;
-	metrics.gpu_tile_binning_time_ms = 0.0f;
-	metrics.gpu_tile_overlap_emit_time_ms = 0.0f;
-	metrics.gpu_tile_overlap_emit_time_valid = false;
-	metrics.gpu_tile_overlap_sort_time_ms = 0.0f;
-	metrics.gpu_tile_overlap_sort_time_valid = false;
-	metrics.tile_overlap_sort_cpu_dispatch_ms = 0.0f;
-	metrics.tile_overlap_sort_cpu_dispatch_valid = false;
-	metrics.gpu_tile_raster_time_ms = 0.0f;
-	metrics.gpu_tile_raster_time_valid = false;
+	metrics.reset_raster_frame_stats();
+	metrics.reset_gpu_core_pass_timings();
 	const GaussianSplatRenderer::RenderFramePlan *frame_plan = state_view.get_frame_plan();
 	DEV_ASSERT(frame_plan);
 	ERR_FAIL_COND_MSG(!frame_plan, "RenderFramePlan missing in render_sorted_splats_with_context.");

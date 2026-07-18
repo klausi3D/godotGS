@@ -303,11 +303,25 @@ void GPUCuller::ensure_hierarchical_structure(const Ref<GaussianData> &p_data) {
     if (p_data.is_null()) {
         culling_state.hierarchical_structure.reset();
         culling_state.hierarchical_structure_dirty = true;
+        culling_state.hierarchical_structure_source_id = ObjectID();
+        culling_state.hierarchical_structure_source_revision = 0;
         return;
     }
 
     if (!culling_state.hierarchical_structure) {
         culling_state.hierarchical_structure = std::make_unique<GaussianSplatting::HierarchicalSplatStructure>();
+        culling_state.hierarchical_structure_dirty = true;
+    }
+
+    // Rebuild when the source resource identity or its content revision changed
+    // since the cached hierarchy was built. Previously the cache only tracked a
+    // dirty flag set on null/first-create/empty, so an in-place edit (which bumps
+    // GaussianData::content_revision) or a swap to a different non-empty
+    // GaussianData reused the stale hierarchy and wrongly culled valid splats (#604).
+    const ObjectID source_id = p_data->get_instance_id();
+    const uint64_t source_revision = p_data->get_content_revision();
+    if (source_id != culling_state.hierarchical_structure_source_id ||
+            source_revision != culling_state.hierarchical_structure_source_revision) {
         culling_state.hierarchical_structure_dirty = true;
     }
 
@@ -319,6 +333,8 @@ void GPUCuller::ensure_hierarchical_structure(const Ref<GaussianData> &p_data) {
     if (gaussians.is_empty()) {
         culling_state.hierarchical_structure.reset();
         culling_state.hierarchical_structure_dirty = true;
+        culling_state.hierarchical_structure_source_id = ObjectID();
+        culling_state.hierarchical_structure_source_revision = 0;
         return;
     }
 
@@ -351,10 +367,12 @@ void GPUCuller::ensure_hierarchical_structure(const Ref<GaussianData> &p_data) {
     params.max_depth = culling_state.culling_octree_max_depth;
     params.min_splats_per_node = culling_state.culling_min_gaussians;
     params.compute_importance = true;
-    params.parallel_build = gaussians.size() > 16384;
 
     culling_state.hierarchical_structure->build_hierarchy(build_data, params);
     culling_state.hierarchical_structure_dirty = false;
+    culling_state.hierarchical_structure_source_id = source_id;
+    culling_state.hierarchical_structure_source_revision = source_revision;
+    culling_state.hierarchical_structure_build_count++;
 }
 
 void GPUCuller::_ensure_shader(RenderingDevice *p_device) {

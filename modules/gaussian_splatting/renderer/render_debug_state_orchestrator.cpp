@@ -524,6 +524,14 @@ Dictionary RenderDebugStateOrchestrator::get_binning_debug_counters() const {
 	out["sort_key_32bit_engaged"] = tr->is_sort_key_32bit_engaged();
 	out["total_32bit_sorts"] = (int64_t)tr->get_sorter_metrics().total_32bit_sorts;
 
+	// Unsorted global-composite telemetry (#586, "no silent degradation"): persistent count
+	// of frames rasterized in UNSORTED order — sorter unavailable, sync sort dispatch
+	// failed, or async sort not submitted — across both CPU-counted and GPU-driven/indirect
+	// work. Non-zero => INCORRECT alpha compositing was presented on that many frames.
+	// The reason code is the last GaussianSplatting::UnsortedCompositeReason (0 == NONE).
+	out["unsorted_composite_frames"] = (int64_t)tr->get_unsorted_composite_frames();
+	out["unsorted_composite_last_reason"] = (int64_t)tr->get_unsorted_composite_last_reason();
+
 	return out;
 }
 

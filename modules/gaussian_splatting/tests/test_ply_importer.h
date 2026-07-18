@@ -397,6 +397,303 @@ end_header
     _remove_ply_fixture(path);
 }
 
+TEST_CASE("[GaussianSplatting][PLY][MalformedCorpus] reject vertex-element property list (binary, issue #511)") {
+    // A `property list` inside the vertex element makes each vertex row a
+    // variable length (count + N entries), so the per-vertex stride is not
+    // fixed. The pre-fix loader `continue`d past the list line: it dropped the
+    // property from BOTH header.properties and the stride sum, computed
+    // vertex_size from the surviving fixed properties only, and then read every
+    // vertex after the first at the wrong offset -> load "succeeded" with
+    // garbage. The fix rejects at parse_header instead.
+    const String path = _make_ply_fixture_path("vertex_list_binary");
+
+    const char *list_ply = R"(ply
+format binary_little_endian 1.0
+element vertex 2
+property float x
+property float y
+property float z
+property list uchar int extra_indices
+property float opacity
+end_header
+)";
+
+    Ref<FileAccess> f = FileAccess::open(path, FileAccess::WRITE);
+    REQUIRE_MESSAGE(f.is_valid(), "Should create vertex-list PLY fixture");
+    f->store_string(list_ply);
+    // Plausible payload bytes so the OLD code (which would size the vertex from
+    // x/y/z/opacity only) could read to completion without a short-read error.
+    f->set_big_endian(false);
+    for (int i = 0; i < 32; i++) {
+        f->store_8((uint8_t)i);
+    }
+    f.unref();
+
+    PLYLoader loader;
+    Error err = loader.load_file(path);
+    CHECK_MESSAGE(err == ERR_FILE_CORRUPT,
+            "PLY whose vertex element declares a 'property list' must be rejected, not loaded as garbage");
+
+    _remove_ply_fixture(path);
+    DirAccess::remove_absolute(path.get_basename() + ".gsplatcache");
+}
+
+TEST_CASE("[GaussianSplatting][PLY][MalformedCorpus] reject vertex-element property list (ASCII, issue #511)") {
+    // Same defect on the ASCII path: parse_header is shared, so a vertex-element
+    // list property must be rejected before any row is parsed.
+    const String path = _make_ply_fixture_path("vertex_list_ascii");
+
+    const char *list_ply = R"(ply
+format ascii 1.0
+element vertex 1
+property float x
+property float y
+property float z
+property list uchar int extra_indices
+end_header
+0.5 0.5 0.5 2 10 20
+)";
+
+    Ref<FileAccess> f = FileAccess::open(path, FileAccess::WRITE);
+    REQUIRE_MESSAGE(f.is_valid(), "Should create ASCII vertex-list PLY fixture");
+    f->store_string(list_ply);
+    f.unref();
+
+    PLYLoader loader;
+    Error err = loader.load_file(path);
+    CHECK_MESSAGE(err == ERR_FILE_CORRUPT,
+            "ASCII PLY whose vertex element declares a 'property list' must be rejected");
+
+    _remove_ply_fixture(path);
+    DirAccess::remove_absolute(path.get_basename() + ".gsplatcache");
+}
+
+TEST_CASE("[GaussianSplatting][PLY][MalformedCorpus] fixed-size element before vertex parses correctly (binary, issue #512)") {
+    // A legal PLY may declare another element (here a 1-row `camera`) BEFORE
+    // `vertex`. In a binary PLY the camera's data is stored first, so the
+    // pre-fix loader (which assumed vertex data starts at header_size) read the
+    // camera bytes as vertex 0 -> silent misparse. The fix skips the fixed-size
+    // preceding element's data and parses the vertex block correctly.
+    const String path = _make_ply_fixture_path("preceding_fixed_binary");
+
+    const char *preceding_ply = R"(ply
+format binary_little_endian 1.0
+element camera 1
+property float view_px
+property float view_py
+property float view_pz
+element vertex 2
+property float x
+property float y
+property float z
+property float scale_0
+property float scale_1
+property float scale_2
+property float rot_0
+property float rot_1
+property float rot_2
+property float rot_3
+property float opacity
+property float f_dc_0
+property float f_dc_1
+property float f_dc_2
+end_header
+)";
+
+    Ref<FileAccess> f = FileAccess::open(path, FileAccess::WRITE);
+    REQUIRE_MESSAGE(f.is_valid(), "Should create preceding-element PLY fixture");
+    f->store_string(preceding_ply);
+    f->set_big_endian(false);
+    // Camera row: distinct non-zero values. If the skip were missing, vertex 0
+    // would read these as its position.
+    f->store_float(7.0f);
+    f->store_float(8.0f);
+    f->store_float(9.0f);
+    // Vertex 0: position (0,0,0); Vertex 1: position (1,0,0). Same field order
+    // as MINIMAL_PLY_CONTENT.
+    float v0[14] = { 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 0, 0 };
+    float v1[14] = { 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 1, 0 };
+    for (int i = 0; i < 14; i++) {
+        f->store_float(v0[i]);
+    }
+    for (int i = 0; i < 14; i++) {
+        f->store_float(v1[i]);
+    }
+    f.unref();
+
+    PLYLoader loader;
+    Error err = loader.load_file(path);
+    CHECK_MESSAGE(err == OK, "PLY with a fixed-size element before 'vertex' should load correctly");
+
+    Ref<GaussianData> data = loader.get_gaussian_data();
+    REQUIRE_MESSAGE(data.is_valid(), "Loaded GaussianData should be valid");
+    REQUIRE(data->get_count() == 2);
+    CHECK(data->get_gaussian(0).position.is_equal_approx(Vector3(0, 0, 0)));
+    CHECK(data->get_gaussian(1).position.is_equal_approx(Vector3(1, 0, 0)));
+    // Regression assertion: vertex 0 must NOT be the camera row (7,8,9), which
+    // is what the pre-fix loader would have read.
+    CHECK_MESSAGE(!data->get_gaussian(0).position.is_equal_approx(Vector3(7, 8, 9)),
+            "Vertex 0 must not be the preceding element's data (offset-skip regression)");
+
+    _remove_ply_fixture(path);
+    DirAccess::remove_absolute(path.get_basename() + ".gsplatcache");
+}
+
+TEST_CASE("[GaussianSplatting][PLY][MalformedCorpus] fixed-size element before vertex parses correctly (ASCII, issue #512)") {
+    // ASCII companion to the binary preceding-element case: the loader must
+    // skip the preceding element's data rows (one line each) before reading
+    // vertex rows.
+    const String path = _make_ply_fixture_path("preceding_fixed_ascii");
+
+    const char *preceding_ply = R"(ply
+format ascii 1.0
+element camera 1
+property float view_px
+property float view_py
+property float view_pz
+element vertex 1
+property float x
+property float y
+property float z
+property float scale_0
+property float scale_1
+property float scale_2
+property float rot_0
+property float rot_1
+property float rot_2
+property float rot_3
+property float opacity
+property float f_dc_0
+property float f_dc_1
+property float f_dc_2
+end_header
+7.0 8.0 9.0
+0.5 0.5 0.5 1.0 1.0 1.0 1.0 0.0 0.0 0.0 0.8 0.5 0.5 0.5
+)";
+
+    Ref<FileAccess> f = FileAccess::open(path, FileAccess::WRITE);
+    REQUIRE_MESSAGE(f.is_valid(), "Should create ASCII preceding-element PLY fixture");
+    f->store_string(preceding_ply);
+    f.unref();
+
+    PLYLoader loader;
+    Error err = loader.load_file(path);
+    CHECK_MESSAGE(err == OK, "ASCII PLY with a preceding element should load correctly");
+
+    Ref<GaussianData> data = loader.get_gaussian_data();
+    REQUIRE_MESSAGE(data.is_valid(), "Loaded GaussianData should be valid");
+    REQUIRE(data->get_count() == 1);
+    CHECK(data->get_gaussian(0).position.is_equal_approx(Vector3(0.5f, 0.5f, 0.5f)));
+    CHECK_MESSAGE(!data->get_gaussian(0).position.is_equal_approx(Vector3(7, 8, 9)),
+            "Vertex 0 must not be the preceding camera row (ASCII row-skip regression)");
+
+    _remove_ply_fixture(path);
+    DirAccess::remove_absolute(path.get_basename() + ".gsplatcache");
+}
+
+TEST_CASE("[GaussianSplatting][PLY][MalformedCorpus] reject variable-length element before vertex (issue #512)") {
+    // A preceding element with a `property list` has variable-length rows, so
+    // the byte offset to the vertex block cannot be computed without parsing
+    // every row. The loader rejects rather than guessing (fail closed).
+    const String path = _make_ply_fixture_path("preceding_list");
+
+    const char *preceding_list_ply = R"(ply
+format binary_little_endian 1.0
+element face 1
+property list uchar int vertex_indices
+element vertex 1
+property float x
+property float y
+property float z
+end_header
+)";
+
+    Ref<FileAccess> f = FileAccess::open(path, FileAccess::WRITE);
+    REQUIRE_MESSAGE(f.is_valid(), "Should create preceding-list PLY fixture");
+    f->store_string(preceding_list_ply);
+    f->set_big_endian(false);
+    // face row (count=3 + 3 int indices) followed by one vertex of floats.
+    f->store_8((uint8_t)3);
+    f->store_32((uint32_t)0);
+    f->store_32((uint32_t)1);
+    f->store_32((uint32_t)2);
+    f->store_float(0.0f);
+    f->store_float(0.0f);
+    f->store_float(0.0f);
+    f.unref();
+
+    PLYLoader loader;
+    Error err = loader.load_file(path);
+    CHECK_MESSAGE(err == ERR_FILE_CORRUPT,
+            "PLY with a variable-length element before 'vertex' must be rejected, not misparsed");
+
+    _remove_ply_fixture(path);
+    DirAccess::remove_absolute(path.get_basename() + ".gsplatcache");
+}
+
+TEST_CASE("[GaussianSplatting][PLY][MalformedCorpus] happy-path control: vertex-first with trailing element loads (issue #511/#512)") {
+    // Positive control proving the hardened parser does NOT over-reject: a
+    // normal vertex-first PLY that also declares a TRAILING element (with a
+    // list property) after `vertex` must still load. Trailing elements are
+    // stored after the vertex block and are never read, so their presence — and
+    // even a `property list` among them — must be ignored, not rejected.
+    const String path = _make_ply_fixture_path("trailing_element_control");
+
+    const char *trailing_ply = R"(ply
+format binary_little_endian 1.0
+element vertex 2
+property float x
+property float y
+property float z
+property float scale_0
+property float scale_1
+property float scale_2
+property float rot_0
+property float rot_1
+property float rot_2
+property float rot_3
+property float opacity
+property float f_dc_0
+property float f_dc_1
+property float f_dc_2
+element face 1
+property list uchar int vertex_indices
+end_header
+)";
+
+    Ref<FileAccess> f = FileAccess::open(path, FileAccess::WRITE);
+    REQUIRE_MESSAGE(f.is_valid(), "Should create trailing-element PLY fixture");
+    f->store_string(trailing_ply);
+    f->set_big_endian(false);
+    float v0[14] = { 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 0, 0 };
+    float v1[14] = { 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 1, 0 };
+    for (int i = 0; i < 14; i++) {
+        f->store_float(v0[i]);
+    }
+    for (int i = 0; i < 14; i++) {
+        f->store_float(v1[i]);
+    }
+    // Trailing face payload (never read by the loader).
+    f->store_8((uint8_t)3);
+    f->store_32((uint32_t)0);
+    f->store_32((uint32_t)1);
+    f->store_32((uint32_t)2);
+    f.unref();
+
+    PLYLoader loader;
+    Error err = loader.load_file(path);
+    CHECK_MESSAGE(err == OK, "Vertex-first PLY with a trailing element must still load");
+
+    Ref<GaussianData> data = loader.get_gaussian_data();
+    REQUIRE_MESSAGE(data.is_valid(), "Loaded GaussianData should be valid");
+    REQUIRE(data->get_count() == 2);
+    CHECK(data->get_gaussian(0).position.is_equal_approx(Vector3(0, 0, 0)));
+    CHECK(data->get_gaussian(1).position.is_equal_approx(Vector3(1, 0, 0)));
+
+    _remove_ply_fixture(path);
+    DirAccess::remove_absolute(path.get_basename() + ".gsplatcache");
+}
+
 TEST_CASE("[GaussianSplatting][PLY] big-endian binary round-trip") {
     const String path = _make_ply_fixture_path("big_endian");
 
