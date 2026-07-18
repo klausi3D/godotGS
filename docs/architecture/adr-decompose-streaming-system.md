@@ -7,7 +7,10 @@
   multi-threaded, and the atlas stride is a GPU-payload contract (`.agentic/policy.json`
   classifies `core/gaussian_streaming.*` and the renderer atlas layout as elevated risk).
   Each slice needs runtime/GPU evidence and independent review before merge.
-- **Base:** `origin/master` @ `237a4b1cc3965fdbd6f12dec825c0e2077b2e9ce`.
+- **Base:** `origin/master` @ `384c2c6ad8d` (re-anchored in review round 2; the round-1
+  base was `237a4b1cc3965fdbd6f12dec825c0e2077b2e9ce`. Every streaming file cited below is
+  byte-identical between the two bases — only `nodes/gaussian_splat_world_3d.cpp` anchors
+  moved, and they are re-cited against the new base).
 - **Related issues:** #222 (init dedup), #513 (stride-flip hazard), #543 (peak-memory),
   #563 (MEMORY_SUBSYSTEM.md drift), #582 (SH-capture heap overflow), #591 (duplicate
   sizing/clamp helpers), #606 (raw-storage snapshot contract). **Sibling ADR:**
@@ -17,8 +20,27 @@
 
 ## Context / problem
 
-`core/gaussian_streaming.cpp` is the largest god-class in the module (4,647 LOC;
-`gaussian_streaming.h` is 591 LOC). An earlier split (ISSUE-006, see the include block at
+> **Correction (review round 2) — the class was undercounted by ~32%.** An earlier revision
+> sized `GaussianStreamingSystem` as "138 methods in one TU." It is **166 out-of-line method
+> definitions spread across five translation units**, so every "one big file" intuition about
+> the migration cost is wrong by a third:
+>
+> | TU | `GaussianStreamingSystem::` definitions | LOC |
+> | --- | ---: | ---: |
+> | `core/gaussian_streaming.cpp` | **140** (138 + ctor `:272` + dtor `:300`) | 4,647 |
+> | `core/streaming_lod_policy.cpp` | 8 | 204 |
+> | `core/streaming_diagnostics_surface.cpp` | 8 | 897 |
+> | `core/streaming_quantization.cpp` | 7 | 444 |
+> | `core/streaming_atlas.cpp` | 3 | 214 |
+> | **Total** | **166** | **6,406** (+ 591 in `gaussian_streaming.h` = **6,997**) |
+>
+> The two counts an earlier note gave — "138 in one TU" and "165 across 6" — are both wrong;
+> the second is off by one on each axis. Recount before sizing any slice: the class surface
+> is what S4/S5 must move, and four of the five TUs are already *satellite* TUs that reach
+> into the same private state (§1c), so the ownership move is wider than the LOC suggests.
+
+`core/gaussian_streaming.cpp` is the largest single TU of the module's largest god-class
+(4,647 LOC; `gaussian_streaming.h` is 591 LOC). An earlier split (ISSUE-006, see the include block at
 `gaussian_streaming.h:15-26`) moved code into per-concern translation units and introduced
 seven "controller" types:
 
@@ -88,10 +110,28 @@ accumulate `evicted_bytes_total`" idiom is **open-coded four times**, near-ident
 | `gaussian_streaming.cpp:1480-1498` | `unregister_asset` | yes |
 | `gaussian_streaming.cpp:3853-3877` | `_unload_chunk` | **no — bare `budget.loaded_chunks_count--` at `:3873`** |
 
-The fourth copy at `:3873` decrements **without** the `> 0` underflow guard the other three
-carry — a concrete divergence the duplication already hides, and exactly the failure mode
-#513 warns about (stride flips → `vram_usage` decrements skew, silently clamped at 0). The
-load side is duplicated too: `:3811-3812` (production) and `:2436-2437` (test helper).
+> **Correction (review round 2) — this is a style divergence, not a latent bug.** An earlier
+> revision called the unguarded `:3873` decrement "a concrete divergence the duplication
+> already hides" and made fixing it a headline benefit of S1. That overstates it.
+> `_unload_chunk` early-returns unless the chunk is actually loaded:
+>
+> ```
+> // gaussian_streaming.cpp:3849-3851
+> if (chunk_idx >= asset_chunks.size() || !asset_chunks[chunk_idx].is_loaded) {
+>     return;
+> }
+> ```
+>
+> The other three sites carry their `if (> 0)` guard because they decrement inside a loop
+> under `if (chunk.is_loaded)` — the *same* precondition, expressed defensively. Under **I1**
+> (`loaded_chunks_count` == count of `is_loaded` chunks) the counter is provably ≥ 1 whenever
+> `:3873` runs, so all four sites are **behaviorally identical today**. Unifying them is
+> worth doing — it removes a reader's obligation to re-derive that argument at each site, and
+> it is free once `on_chunk_released` exists — but it is a **style/robustness unification, not
+> a bug fix**, and S1 must not be justified or graded as if it fixes live underflow. The real
+> #513 exposure is the *stride* used for the `vram_usage` decrement (I4), not the counter.
+
+The load side is duplicated too: `:3811-3812` (production) and `:2436-2437` (test helper).
 
 Separately, `StreamingUploadPipeline` reaches directly into `system.atlas_allocator` to
 release slots from **eight** sites — `streaming_upload_pipeline.cpp:710, 858, 1575, 1583,
@@ -143,6 +183,42 @@ one copy only.**
    `atlas_allocator`, and `persistent_buffer` are all reachable from five TUs, no single TU can
    assert "I am the only writer of this field," so the resident-bytes invariant is unenforced
    and the four duplicated loops (1b) are the visible cost.
+
+### 1e. Live-path reachability — most default scenes execute **zero** streaming code
+
+> **Added in review round 2. This reframes the whole ADR and every characterization-test plan
+> built on it.** The decomposition is still worth doing, but *how it can be validated* changes.
+
+Backend selection is **world-scoped, and only one of the two node surfaces honours it**:
+
+| Surface | Residency hint published | Honours `rendering/gaussian_splatting/streaming/route_policy`? |
+| --- | --- | --- |
+| `GaussianSplatWorld3D` | derived from the setting (`nodes/gaussian_splat_world_3d.cpp:506-514`) | **yes** — `GS_ROUTE_STREAMING` → `SUBMISSION_RESIDENCY_HINT_STREAMING`, else `…_RESIDENT` |
+| `GaussianSplatNode3D` | **hard-pinned `SUBMISSION_RESIDENCY_HINT_RESIDENT`** at `nodes/gaussian_splat_node_3d.cpp:2451-2464` (`_register_in_director`) **and again** at `:2508-2509` (`_update_instance_params_in_director`) | **no** — the in-code comment states route policy is *"deliberately ignored here to keep backend selection world-scoped"* |
+
+Consequences that this ADR's slices must respect:
+
+1. **A scene built from plain `GaussianSplatNode3D` nodes never enters the streaming system
+   at all**, no matter what `route_policy` is set to. That is the default authoring shape for
+   single-asset content, so "most default node scenes execute zero streaming code" is the
+   normal case, not an edge case.
+2. **Any characterization harness fixtured on a `GaussianSplatNode3D` is vacuous by
+   construction.** It will report green while asserting nothing about `chunks`, `budget`,
+   `atlas_allocator`, or `persistent_buffer`, because none of them is ever touched. This is
+   exactly the module's recurring "green test that executes nothing" failure mode, and it
+   would silently certify S1–S6 as behavior-preserving without exercising a single line they
+   move. **Streaming fixtures must be built on `GaussianSplatWorld3D` with `route_policy`
+   pinned to `GS_ROUTE_STREAMING`**, and each suite must assert a non-zero streaming counter
+   (e.g. `get_vram_debug_stats().loaded_chunks_count > 0`) *before* its behavioral assertions,
+   so an accidentally-resident fixture fails loudly instead of passing vacuously.
+3. **It bounds the blast radius, and therefore the risk class of the early slices.** The
+   R2–R3 rating stands for S4/S5 (they move state the render thread reads on the world-backed
+   route), but the population actually exposed to a streaming regression is "scenes using
+   `GaussianSplatWorld3D` with `route_policy = 1`", not "all scenes". Slice risk arguments
+   should say so rather than implying module-wide exposure.
+4. **It is also the reason the §3a headless `tick_streaming_only` path matters so much**: with
+   the direct-node route pinned resident, the headless main-thread path is a
+   disproportionately large share of the streaming code that actually runs under test.
 
 ## 2. Target: components with explicit ownership + narrow interfaces
 
@@ -204,15 +280,48 @@ Each conversion is a mechanical "replace member access `system.X` with a passed 
 ledger call," which keeps diffs reviewable and behavior byte-identical when the extracted
 methods are pure moves.
 
-### 2d. Interaction with #591
+### 2d. Interaction with #591 — cross-route sizing helper **REJECTED**
 
-The resident/streaming duplicate `sort_cap` clamp + buffer-population (#591,
-`resident_instance_contract_publisher.cpp:800-814` vs `render_streaming_orchestrator.cpp:1770-1794`)
-is the same anti-pattern one layer out. The `ChunkResidencyLedger::snapshot()` +
-`get_buffer_capacity_splats()` become the shared sizing source both routes can call, so #591's
-"extract a shared sizing/clamp helper" lands naturally on top of this ADR rather than as a
-separate island. This ADR does **not** merge the two routes' *policies* (they legitimately
-differ — atlas count + structural chunks vs regulator working set); it gives them one helper.
+> **Reversed in review round 2 (owner call).** The previous revision proposed that
+> `ChunkResidencyLedger::snapshot()` + `get_buffer_capacity_splats()` "become the shared sizing
+> source both routes can call." **That is rejected.** The resident and streaming routes are
+> deliberately disjoint, and a shared sizing source re-couples them.
+
+The evidence for the rejection:
+
+- **The two routes derive their splat budget from different, unrelated quantities.** The
+  resident publisher sizes from `atlas_gaussian_count` plus a hard
+  `instance_count × dispatch_chunk_count × max_chunk_splats` floor taken with `MAX`
+  (`resident_instance_contract_publisher.cpp:800-814`). The streaming orchestrator sizes from
+  the regulator's working set, `MIN(get_effective_max_chunks(), dispatch_chunk_count)`
+  (`render_streaming_orchestrator.cpp:1765-1794`). One takes a maximum over a structural
+  requirement; the other takes a minimum against a live budget. They are not two spellings of
+  one policy.
+- **The resident route holds no reference to the streaming system at all** — `grep` for
+  `streaming_system` in `resident_instance_contract_publisher.cpp` returns only comments
+  explaining that `GaussianSplatNode3D` is *"resident-only by contract"*. Routing its sizing
+  through `ChunkResidencyLedger::snapshot()` / `get_buffer_capacity_splats()` would introduce a
+  **new** dependency from the resident route onto streaming-owned state — the precise coupling
+  this ADR exists to remove, added one layer out. Combined with §1e (the direct-node route is
+  hard-pinned resident and never boots the streaming system), the resident route would end up
+  depending on a subsystem it is guaranteed never to instantiate.
+- **The duplication #591 names is genuinely small.** What is actually identical is the ~4-line
+  `sort_cap` clamp (`max_sort_elements > 0 ? … : UINT32_MAX`, then `MIN`). #591's own text
+  concedes *"sizing policies deliberately differ"* and rates itself **low severity, no live
+  bug**.
+
+**Therefore:** this ADR takes **no dependency on #591**, and S6 no longer lists "#591 shared
+helper" as a by-product. #591 remains open and is **decidable independently** of this
+decomposition, on these terms:
+
+| Option | What it shares | Cost |
+| --- | --- | --- |
+| **A — close #591 as won't-fix** | nothing | Two ~4-line clamps stay duplicated; a future `max_sort_elements` semantic change must be applied twice. Cheapest; preserves route disjointness completely. |
+| **B — extract only the clamp** as a free function over scalars (`clamp_to_sort_cap(uint64_t, const GpuSortingConfig&)`) in a header both routes already include | the clamp expression, and nothing else — no ledger, no snapshot, no streaming state | Small and route-neutral: it takes plain integers, so it creates no dependency in either direction. Does **not** address the buffer-population duplication, which is policy and must stay separate. |
+| **C — shared sizing source via the ledger** (the previous revision's proposal) | budget/capacity state | **Rejected above.** |
+
+Recommendation for the owner: **B if #591 is to be actioned at all, otherwise A.** Either way
+it is out of scope for S1–S6.
 
 ## 3. Threading model — per-API contracts, not a blanket render-thread assertion
 
@@ -318,9 +427,9 @@ class SerializedAccessToken {          // member of ChunkResidencyLedger (§2a)
   `budget`/`chunks` at once, or re-entrancy through a callback) and is **agnostic** to
   which thread is the caller — so the headless main-thread path, the render-thread path,
   the script path, and the doctests all pass unchanged.
-- It is a **detector, not a lock**: it never blocks and never serializes. No second lock is
-  introduced over render-facing state, per the module `AGENTS.md` rule. `pack_mutex` remains
-  the sole streaming lock.
+- It is a **detector, not a lock**: it never blocks and never serializes. It adds no lock over
+  render-facing state, per the module `AGENTS.md` rule, and leaves the existing two streaming
+  locks (§3e) untouched.
 - Once §2a lands, the token lives on `ChunkResidencyLedger` and every mutating ledger method
   scopes it — turning "single writer by convention" into "single writer, checked."
 
@@ -360,7 +469,35 @@ and §3d records why.
    "single writer, checked."
 
 No lock is added over the serialized state (the module `AGENTS.md` forbids inventing a
-second lock over the same data). `pack_mutex` remains the sole streaming lock.
+second lock over the same data). The streaming subsystem's existing lock inventory is
+unchanged — see §3e, which corrects the "sole lock" claim an earlier revision made.
+
+### 3e. The streaming lock inventory — there are **two** locks, not one
+
+> **Correction (review round 2).** Both an earlier revision of this ADR and its round-1
+> invariant **I9** asserted *"`pack_mutex` remains the only lock in the streaming subsystem."*
+> **That was false on the day it was written**, which is worse than having no invariant at all:
+> a grep guard written to enforce "exactly one lock" would have failed immediately, and the
+> likely reaction would have been to weaken the guard rather than to fix the statement.
+
+The streaming subsystem declares exactly two locks (plus one semaphore), verified by grep over
+`core/gaussian_streaming.*` and `core/streaming_*`:
+
+| Lock | Declared at | Guards | Cross-thread role |
+| --- | --- | --- | --- |
+| `pack_mutex` | `core/streaming_upload_pipeline.h:261` | the pack-job and pending-upload queues | the pack-worker ↔ serialized-caller channel (§3d) |
+| `file_mutex` | `core/streaming_chunk_payload_source.h:97` (`mutable`) | the per-thread `FileAccess` cache and the I/O byte counters in `ChunkPayloadSource` | serializes file I/O for payload reads; guards **no** render-facing state |
+
+They are disjoint by design: `file_mutex` protects an I/O-side cache inside the payload source
+and never touches `chunks`, `budget`, `atlas_allocator`, or `persistent_buffer`. `pack_semaphore`
+(`streaming_upload_pipeline.h:262`) is a worker wake signal, not a mutex.
+
+The invariant worth holding is therefore the one now stated as **I9**: *no **new** lock over
+render-facing state, and no streaming path acquires the director's `world_mutex`.* The second
+clause is currently true — `world_mutex` appears **only** in
+`core/gaussian_splat_scene_director.cpp` and in no streaming TU or the streaming orchestrator —
+and it is the clause that actually protects against the lock-order inversion the sibling ADR
+(`adr-decompose-scene-director`) is fighting.
 
 ## 4. Staged migration (CI green at every step)
 
@@ -369,7 +506,8 @@ refactors provable byte-identical; 4–6 shift ownership behind the same externa
 
 1. **S1 — extract `ChunkResidencyLedger` behind the current struct (no behavior change).**
    Wrap `BudgetState` in the ledger, route the five free functions (§1a) through it. Replace the
-   four duplicated loops (§1b) with `on_chunk_released`. Fixes the `:3873` underflow divergence.
+   four duplicated loops (§1b) with `on_chunk_released`, unifying the `:3873` guard divergence
+   (a style unification — **not** a bug fix; see the §1b correction).
    *Evidence:* `tests/runtime` streaming tests + `get_vram_debug_stats` parity;
    `test_gpu_streaming.cpp` VRAM-accounting cases must be unchanged.
 2. **S2 — fold the pipeline's 8 direct `atlas_allocator.release_slot` sites** into ledger
@@ -387,6 +525,7 @@ refactors provable byte-identical; 4–6 shift ownership behind the same externa
 6. **S6 — tag every public entry point with its §3b class, add the `SerializedAccessScope`
    detector (§3c)**, and rewrite the stale MEMORY_SUBSYSTEM.md layout/component sections
    (#563) to match the new ownership map. Update `renderer-lifetime-ownership.md` cross-refs.
+   S6 **no longer carries #591** — the cross-route helper is rejected in §2d.
    *Evidence:* the full module test suite passes **unchanged** with `DEV_ENABLED` on (proving
    the detector does not reject the doctest main-thread callers), plus a headless
    `tick_streaming_only` run (proving the main-thread production path is not rejected).
@@ -434,13 +573,14 @@ immune to later flips by construction.
 
 **Net ordering:** #582 → #513 (evict/repack) → **S1** (ledger, capturing load-time bytes,
 absorbing #513's budget half) → S2 → **#222/S3** → S4 (+ optionally #606) → S5 (delete friends)
-→ S6 (asserts + #563 doc rewrite + #591 shared helper).
+→ S6 (tags + detector + #563 doc rewrite). #591 is **not** in this chain (§2d).
 
 ## Consequences
 
 - **Positive:** one writer for resident-bytes accounting (kills the four duplicated loops and
-  the `:3873` underflow), friendship deleted (S5), the render-thread contract asserted not
-  assumed, and #222/#513-budget/#563/#591 close as by-products on the same spine.
+  unifies the `:3873` guard divergence), friendship deleted (S5), the per-API thread contract
+  documented and detected rather than assumed, and #222/#513-budget/#563 close as by-products
+  on the same spine. (#591 is explicitly *not* one of them — §2d.)
 - **Negative / cost:** six sequenced PRs gated behind two pre-req bug fixes; S4–S5 touch hot
   render-thread paths (R2–R3) and need GPU/runtime evidence per slice. The ledger adds one
   indirection on the load/evict path (negligible; these are not per-splat).
@@ -458,13 +598,13 @@ a slice that cannot show the evidence in §7 for the invariants it touches is "n
 | --- | --- | --- |
 | **I1** | `vram_usage` == Σ bytes of chunks currently marked resident, and `loaded_chunks_count` == count of `is_loaded` chunks, at every `update_streaming` exit. | `get_vram_debug_stats` parity assertion in the streaming tests; must hold before and after each slice. |
 | **I2** | After S1, `ChunkResidencyLedger` is the **only** code that writes `loaded_chunks_count`, `vram_usage`, `evicted_bytes_total`, or any `pending_*`/`retired_*` counter. | Grep guard: zero writes to those fields outside the ledger TU. Mechanically checkable; add it as a CI guard in S1. |
-| **I3** | No decrement of `loaded_chunks_count` is unguarded. The `:3873` bare `--` is gone and cannot reappear (there is one decrement site). | Follows from I2 + a unit test that over-releasing clamps and reports, rather than wrapping. |
+| **I3** | There is **exactly one** `loaded_chunks_count` decrement site (inside the ledger) and it clamps rather than wraps. **Note:** this is a *structural* invariant, not a bug fix — see the §1b correction: today's four sites are behaviorally identical because every one of them is reached only when the chunk is `is_loaded`, so under I1 the counter is provably ≥ 1. I3 is graded as "one site exists", not as "an underflow was fixed." | Follows from I2 + a unit test that over-releasing clamps and reports, rather than wrapping. |
 | **I4** | `vram_usage` is decremented with the **stride the chunk was loaded at**, never a recomputed current stride. | Unit test: load at stride A, flip effective stride to B, release, assert `vram_usage` returns to its pre-load value (#513's budget half). |
 | **I5** | A slot release and its byte decrement are one operation — no code path releases an atlas slot without the paired ledger call, or vice versa. | `invariant_slot_ownership_violations` (`streaming_runtime_state.h:118`) stays 0 across all streaming tests. |
 | **I6** | Every public entry point carries exactly one §3b class tag in its header doc, and the set of `[SERIALIZED]` methods equals the set that mutates render-facing state. | Review checklist + a doc/code parity guard in S6 (tag present for every public method). |
 | **I7** | **No `[SERIALIZED]` entry point asserts thread identity.** The headless `tick_streaming_only` main-thread path, the `ClassDB`-bound script path, and the doctest callers all remain valid. | Module test suite passes unchanged with `DEV_ENABLED`; headless run of the `tick_streaming_only` path produces no new errors. This invariant exists specifically to prevent re-introducing the rejected blanket assert. |
 | **I8** | No pack worker reads owner state. `build_pending_upload_from_pack_job` and every worker entry take only value snapshots; after S2 no worker signature takes `GaussianStreamingSystem &`. | Signature review + grep: zero `&system` parameters on worker-thread functions. |
-| **I9** | `pack_mutex` remains the only lock in the streaming subsystem. No slice adds a second lock over render-facing state. | Grep guard: lock/mutex declarations in the streaming TUs stay at one. |
+| **I9** | **No slice adds a NEW lock over render-facing state** (`chunks`, budget/ledger, `atlas_allocator`, `persistent_buffer`, `asset_registry`), and **no streaming path acquires the director's `world_mutex`**. The two existing streaming locks stay at two, each keeping its current scope. | Grep guard: `Mutex`/`RWLock` declarations in the streaming TUs stay at exactly the two named below, and `world_mutex` has zero references outside `core/gaussian_splat_scene_director.cpp`. |
 | **I10** | Friendship strictly decreases. No slice adds a `friend` grant; S5 removes the six named grants (`gaussian_streaming.h:31-34`, `streaming_visibility_controller.h:54`, `streaming_global_atlas_registry.h:23`). | Grep guard on `friend class` count in the streaming headers; monotonically non-increasing, zero after S5. |
 | **I11** | No GPU payload layout changes in S1–S6; the atlas stride guard and the layout-sync guard are untouched. | `run_module_tests.py --guard-only` green; guard files unmodified in the diff. |
 | **I12** | External behavior is preserved: same chunks resident, same eviction order, same visible count for a fixed camera path. | Byte-identical `get_streaming_analytics` / `get_vram_debug_stats` on a fixed scene before and after. |
@@ -479,14 +619,22 @@ Every slice states which invariants it touches and attaches, at minimum:
    `test_gaussian_streaming_lifecycle.cpp`) green **without modification**. Modifying an
    existing test to accommodate a slice is a review blocker unless the diff shows the old
    assertion encoded a bug being fixed, with a written reason.
-3. **Accounting parity (I1, I12):** `get_vram_debug_stats` + `get_streaming_analytics` captured
+3. **Fixture non-vacuity (mandatory — see §1e):** any scene-level or characterization fixture a
+   slice adds must be built on **`GaussianSplatWorld3D` with `route_policy` pinned to
+   `GS_ROUTE_STREAMING`**. A `GaussianSplatNode3D` fixture is hard-pinned resident
+   (`gaussian_splat_node_3d.cpp:2451-2464`, `:2508-2509`) and therefore exercises **no**
+   streaming code — such a fixture is vacuous and its green result is not evidence. Every
+   streaming fixture must additionally assert a **non-zero** streaming counter (e.g.
+   `get_vram_debug_stats().loaded_chunks_count > 0`) before its behavioral assertions, so a
+   fixture that silently fell back to the resident route fails instead of passing empty.
+4. **Accounting parity (I1, I12):** `get_vram_debug_stats` + `get_streaming_analytics` captured
    on a fixed camera path on the immutable base and on the head, diffed and attached.
-4. **Runtime/GPU evidence (R2 slices — S1, S2, S4, S5):** the streaming lanes of the runtime
+5. **Runtime/GPU evidence (R2 slices — S1, S2, S4, S5):** the streaming lanes of the runtime
    harness on the GPU runner, with peak VRAM and overflow counters. Agents cannot raster
    locally; a slice without runner output reports "not run", never "passed".
-5. **Threading evidence (S6 only):** module tests with `DEV_ENABLED` on, plus a headless
+6. **Threading evidence (S6 only):** module tests with `DEV_ENABLED` on, plus a headless
    `tick_streaming_only` run, demonstrating I7 — the detector fires on neither.
-6. **Base anchoring:** the base SHA, and confirmation that the `file:line` anchors used were
+7. **Base anchoring:** the base SHA, and confirmation that the `file:line` anchors used were
    re-verified against it (they drift; see the anchoring note in the header).
 
 No slice may weaken a guard, threshold, or baseline to pass. If a slice cannot hold an
