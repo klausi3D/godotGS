@@ -214,16 +214,120 @@ is the same anti-pattern one layer out. The `ChunkResidencyLedger::snapshot()` +
 separate island. This ADR does **not** merge the two routes' *policies* (they legitimately
 differ — atlas count + structural chunks vs regulator working set); it gives them one helper.
 
-## 3. Threading model — make the implicit contract explicit and asserted
+## 3. Threading model — per-API contracts, not a blanket render-thread assertion
 
-Today the render-thread single-caller assumption is **implicit and unasserted**:
+> **Correction (review round 1).** An earlier revision of this ADR asserted that
+> "`update_streaming` has exactly one production caller" and proposed adding a
+> `DEV_ENABLED` **render-thread assert** to `update_streaming`, `register_asset`,
+> `unregister_asset`, and `begin/finalize_residency_requests`. **Both halves were wrong**,
+> and implementing them as written would have converted currently-valid calls into
+> crashes. The corrected analysis and the per-API contract table below replace that
+> proposal. The evidence is recorded in §3a because the mistake is easy to repeat.
 
-- **`update_streaming` has exactly one production caller**: the render orchestrator, at
-  `render_streaming_orchestrator.cpp:1675` and `:2406` (`tick_streaming_only`, `:2338`).
-  There is **no `is_on_render_thread()` / `is_main_thread()` assert** in `update_streaming`
-  (`gaussian_streaming.cpp:2459`) or in the orchestrator tick — the single-caller discipline is
-  a convention, not a contract. (Contrast `gaussian_data.cpp:198`,
-  `gaussian_splat_asset.cpp:197/1275/1307`, which *do* assert `Thread::is_main_thread()`.)
+### 3a. Why a blanket render-thread assert is wrong (verified against the base SHA)
+
+Three independent facts refute "render thread only":
+
+1. **There are two production call paths, and one of them is the main thread.**
+   Besides the render-thread path (`render_streaming_orchestrator.cpp:1675`, inside
+   `render_streaming_frame`, `:1463`), `update_streaming` is also reached at
+   `render_streaming_orchestrator.cpp:2406` via `tick_streaming_only`. That path is
+   entered from `GaussianSplatNode3D::_update_viewport_render_state`
+   (`nodes/gaussian_splat_node_3d.cpp:1604-1605`, guarded by
+   `OS::get_singleton()->has_feature("headless")`) ← `update_splats` (`:1453`) ←
+   `process_gaussian_render` (`:1633`) ← `GaussianSplatManager::_process_active_nodes_main_thread`
+   (`core/gaussian_splat_manager.cpp:660`), which is scheduled with
+   `callable_mp(...).call_deferred()` (`:623`) and therefore runs on the **main thread**.
+   `GaussianSplatRenderer::tick_streaming_only` (`renderer/gaussian_splat_renderer.cpp:2547-2563`)
+   performs **no render-thread dispatch** — it calls the orchestrator directly on the
+   caller's thread. The same path reaches `register_asset` / `unregister_asset`, because
+   `sync_instance_pipeline_assets` (`render_streaming_orchestrator.cpp:986`, calls at
+   `:1426`/`:1450`) is invoked from both `:1646` (render thread) and `:2376`
+   (`tick_streaming_only`, main thread).
+   In headless there is no render thread at all, so `RenderingServer::is_on_render_thread()`
+   returns false and the proposed assert would fire on **every headless frame** — including
+   the production-gates runtime harness and exported headless builds.
+
+2. **These entry points are public, `ClassDB`-bound script API.**
+   `GaussianStreamingSystem` is `GDREGISTER_CLASS`'d (`register_types.cpp:96`) and binds
+   `initialize`, `update_streaming`, `begin_residency_requests`, `request_chunk_residency`,
+   `request_asset_residency`, `finalize_residency_requests`, `begin_frame`, `end_frame`
+   and the whole diagnostics surface (`core/gaussian_streaming.cpp:494-533`). A GDScript
+   caller runs on the main thread by default. Adding a render-thread assert to a bound
+   method is a **breaking public-API change**, not the documentation of an existing
+   invariant.
+
+3. **The module's own doctests call them from the doctest (main) thread** —
+   e.g. `tests/test_gpu_streaming.cpp:1362-1600` and
+   `tests/test_gaussian_streaming_lifecycle.cpp:259-877` call `register_asset`,
+   `begin_residency_requests`, `finalize_residency_requests`, `unregister_asset` and
+   `update_streaming` directly. A `DEV_ENABLED` render-thread assert would fail the
+   module test suite, and "make the test pass" would then mean weakening the new assert —
+   which the working rules forbid.
+
+The real invariant is **not** thread *identity*; it is **serialization**: the render-facing
+state has exactly one *active* caller at a time, whichever thread that caller is on. That is
+what the design must encode.
+
+### 3b. Per-API thread contracts
+
+Every public entry point is assigned exactly one of three classes. This table is the
+contract; §6's invariant list is what a slice is graded against.
+
+| Class | Meaning | Enforcement |
+| --- | --- | --- |
+| **`[SERIALIZED]`** | Mutates render-facing state (`chunks`, budget/ledger, `atlas_allocator`, `persistent_buffer`, `asset_registry`). Callable from any thread, but **never concurrently with another `[SERIALIZED]` call on the same instance**. The caller (orchestrator or script) provides the serialization. | Debug **single-active-caller token** (§3c) — *not* a thread-identity assert. |
+| **`[SNAPSHOT-SAFE]`** | Runs on a pack worker. Touches only a value snapshot handed to it; mutates no owner state. | Existing `pack_mutex` queue boundary; reviewed as "takes no `system` reference". |
+| **`[READ-ONLY]`** | Diagnostics/getters. Safe to call concurrently with other `[READ-ONLY]` calls; may observe a torn view if raced against a `[SERIALIZED]` call. | Returns a `BudgetSnapshot`/value copy once §2a lands; documented as advisory. |
+
+Assignment of the current public surface:
+
+| Entry point | Class | Notes |
+| --- | --- | --- |
+| `update_streaming` (`gaussian_streaming.h:214`) | `[SERIALIZED]` | Render thread via `render_streaming_frame`; **main thread** via `tick_streaming_only` in headless. Both are valid. |
+| `register_asset` / `unregister_asset` (`:315-316`) | `[SERIALIZED]` | Same two paths via `sync_instance_pipeline_assets`. |
+| `begin_residency_requests` / `finalize_residency_requests` (`:217`,`:220`) | `[SERIALIZED]` | Bracket a request generation; must not interleave with another bracket. |
+| `request_chunk_residency` / `request_asset_residency` (`:218-219`) | `[SERIALIZED]` | Valid only *inside* an open begin/finalize bracket. |
+| `initialize` / `initialize_empty` / `attach_memory_stream` | `[SERIALIZED]` | Additionally: must not run concurrently with any other call on the instance. |
+| `set_chunk_payload_source` / `detach_source_data` | `[SERIALIZED]` | Mutates `asset_registry`. |
+| `pack_thread_func` / `build_pending_upload_from_pack_job` (`streaming_upload_pipeline.cpp:427`) | `[SNAPSHOT-SAFE]` | Consumes a self-contained `PackJob` (`streaming_upload_pipeline.h:35-47`); the `&system` it is handed is nominal and must be removed by S2. |
+| `get_vram_*`, `get_streaming_analytics`, `get_*_debug_stats`, `has_asset`, `get_visible_count` | `[READ-ONLY]` | Bound to script; must stay callable from the main thread. |
+
+**No entry point is `[RENDER-THREAD-ONLY]`.** If a future slice wants to introduce that
+class, it must first prove the headless `tick_streaming_only` path and the script bindings
+are gone — and that is a separate, breaking-change task, not part of this decomposition.
+
+### 3c. What to assert instead — a single-active-caller token
+
+Replace the rejected render-thread assert with a `DEV_ENABLED`-only **re-entrancy /
+concurrency detector** that encodes serialization without constraining identity:
+
+```
+// DEV_ENABLED only; zero cost in release.
+class SerializedAccessToken {          // member of ChunkResidencyLedger (§2a)
+    std::atomic<uint64_t> active_caller{0};   // Thread::get_caller_id() of the in-flight call
+    // enter(): CAS 0 -> caller_id. If the CAS fails and the holder is a DIFFERENT
+    //          thread  -> ERR: "concurrent [SERIALIZED] access".
+    //          If the holder is the SAME thread -> ERR: "re-entrant [SERIALIZED] access".
+    // exit():  store 0.
+};
+```
+
+- Every `[SERIALIZED]` entry point takes an RAII `SerializedAccessScope` at the top.
+- It catches the failure that actually threatens correctness (two threads mutating
+  `budget`/`chunks` at once, or re-entrancy through a callback) and is **agnostic** to
+  which thread is the caller — so the headless main-thread path, the render-thread path,
+  the script path, and the doctests all pass unchanged.
+- It is a **detector, not a lock**: it never blocks and never serializes. No second lock is
+  introduced over render-facing state, per the module `AGENTS.md` rule. `pack_mutex` remains
+  the sole streaming lock.
+- Once §2a lands, the token lives on `ChunkResidencyLedger` and every mutating ledger method
+  scopes it — turning "single writer by convention" into "single writer, checked."
+
+The pack-worker boundary is **unchanged** by this ADR: it is already correct by snapshot,
+and §3d records why.
+
+### 3d. The pack-worker boundary (unchanged, documented)
 - **The pack workers are the one true concurrency boundary, and it is already correct by
   snapshot**: `pack_thread_func` (`streaming_upload_pipeline.cpp:427`) dequeues a self-contained
   `PackJob` (carries `Ref<GaussianData> data_ref` + copied `source_indices`,
@@ -233,26 +337,29 @@ Today the render-thread single-caller assumption is **implicit and unasserted**:
   `budget`, `atlas_allocator`, or `persistent_buffer`. The `&system` it is handed
   (`pack_thread_func(system, …)`) is *nominal* — the snapshot boundary is what keeps it safe.
 - **All shared-state mutation (slot release, budget deltas, buffer_update) happens on the
-  render thread** inside `process_upload_queue` / `_begin_chunk_upload` / eviction, i.e. the
-  `update_streaming` caller.
+  serialized caller's thread** inside `process_upload_queue` / `_begin_chunk_upload` /
+  eviction — i.e. inside the `update_streaming` call, on whichever thread made it (render
+  thread on the `render_streaming_frame` path, main thread on the headless
+  `tick_streaming_only` path). No pack worker ever performs these mutations.
 
-**Decision — state and assert the contract:**
+**Decision — document the per-API contract, detect violations, add no lock:**
 
-1. Document in `gaussian_streaming.h` and MEMORY_SUBSYSTEM.md: *"`GaussianStreamingSystem`
+1. Document in `gaussian_streaming.h` (per method) and MEMORY_SUBSYSTEM.md: *"`GaussianStreamingSystem`
    render-facing state (`chunks`, `budget`/ledger, `atlas_allocator`, `persistent_buffer`,
-   `asset_registry`) is single-threaded on the render thread. The only cross-thread channel is
-   the `pack_mutex`-guarded pack/upload queue, which carries value snapshots only."*
-2. Add a cheap `DEV_ENABLED` assert at the top of `update_streaming` and the other mutating
-   entry points (`register_asset`, `unregister_asset`, `begin/finalize_residency_requests`)
-   that they run on the render thread (via the orchestrator's device/thread identity, matching
-   the existing `is_on_render_thread` checks in `gaussian_splat_manager.cpp:387/463`). This is a
-   **new assert, not a new lock** — it encodes the invariant that already holds and satisfies
-   the module `AGENTS.md` rule "document the lock/thread that protects any shared field."
-3. When residency mutation moves into `ChunkResidencyLedger` (§2a), the ledger is the natural
-   home for the single-writer assertion: every mutating method asserts render-thread identity,
-   turning "single caller by convention" into "single writer by construction."
+   `asset_registry`) has exactly one active caller at a time. That caller is the render thread
+   on the `render_streaming_frame` path and the **main thread** on the headless
+   `tick_streaming_only` path; both are supported. The only cross-thread channel is the
+   `pack_mutex`-guarded pack/upload queue, which carries value snapshots only."*
+   Every public method carries its `[SERIALIZED]` / `[SNAPSHOT-SAFE]` / `[READ-ONLY]` tag
+   from the §3b table in its header doc comment.
+2. Add the `DEV_ENABLED` `SerializedAccessScope` (§3c) to every `[SERIALIZED]` entry point.
+   It is a **detector, not a lock, and not a thread-identity assert** — it must not reject
+   the headless main-thread path, the script-bound path, or the doctests.
+3. When residency mutation moves into `ChunkResidencyLedger` (§2a), the ledger owns the token:
+   every mutating ledger method scopes it, turning "single caller by convention" into
+   "single writer, checked."
 
-No lock is added over render-thread-only state (the module `AGENTS.md` forbids inventing a
+No lock is added over the serialized state (the module `AGENTS.md` forbids inventing a
 second lock over the same data). `pack_mutex` remains the sole streaming lock.
 
 ## 4. Staged migration (CI green at every step)
@@ -277,9 +384,13 @@ refactors provable byte-identical; 4–6 shift ownership behind the same externa
 5. **S5 — convert `StreamingVisibilityController` and `StreamingGlobalAtlasRegistry` to read
    views;** delete the two `friend class GaussianStreamingSystem` grants and narrow the four in
    `gaussian_streaming.h:31-34`. This is the step that actually *removes* friendship.
-6. **S6 — add the render-thread asserts (§3)** and rewrite the stale MEMORY_SUBSYSTEM.md
-   layout/component sections (#563) to match the new ownership map. Update
-   `renderer-lifetime-ownership.md` cross-refs.
+6. **S6 — tag every public entry point with its §3b class, add the `SerializedAccessScope`
+   detector (§3c)**, and rewrite the stale MEMORY_SUBSYSTEM.md layout/component sections
+   (#563) to match the new ownership map. Update `renderer-lifetime-ownership.md` cross-refs.
+   *Evidence:* the full module test suite passes **unchanged** with `DEV_ENABLED` on (proving
+   the detector does not reject the doctest main-thread callers), plus a headless
+   `tick_streaming_only` run (proving the main-thread production path is not rejected).
+   A slice that changes any test to accommodate the detector is rejected.
 
 Guards that must stay green throughout: `run_module_tests.py --guard-only` (layout-sync guard
 covers mirror structs incl. `ChunkQuantizationGPU`/`RenderParams`), the cull-signature parity
@@ -336,3 +447,48 @@ absorbing #513's budget half) → S2 → **#222/S3** → S4 (+ optionally #606) 
 - **Explicitly out of scope here:** merging the resident and streaming orchestrator *policies*
   (#591 keeps distinct sizing), the #543 chunked-staging/evict-then-grow work (orthogonal peak
   memory), and any GPU atlas layout change.
+
+## 6. Invariant list — what every slice is graded against
+
+These are checkable. A slice that violates one is rejected regardless of whether CI is green;
+a slice that cannot show the evidence in §7 for the invariants it touches is "not run", never
+"passed".
+
+| # | Invariant | How it is checked |
+| --- | --- | --- |
+| **I1** | `vram_usage` == Σ bytes of chunks currently marked resident, and `loaded_chunks_count` == count of `is_loaded` chunks, at every `update_streaming` exit. | `get_vram_debug_stats` parity assertion in the streaming tests; must hold before and after each slice. |
+| **I2** | After S1, `ChunkResidencyLedger` is the **only** code that writes `loaded_chunks_count`, `vram_usage`, `evicted_bytes_total`, or any `pending_*`/`retired_*` counter. | Grep guard: zero writes to those fields outside the ledger TU. Mechanically checkable; add it as a CI guard in S1. |
+| **I3** | No decrement of `loaded_chunks_count` is unguarded. The `:3873` bare `--` is gone and cannot reappear (there is one decrement site). | Follows from I2 + a unit test that over-releasing clamps and reports, rather than wrapping. |
+| **I4** | `vram_usage` is decremented with the **stride the chunk was loaded at**, never a recomputed current stride. | Unit test: load at stride A, flip effective stride to B, release, assert `vram_usage` returns to its pre-load value (#513's budget half). |
+| **I5** | A slot release and its byte decrement are one operation — no code path releases an atlas slot without the paired ledger call, or vice versa. | `invariant_slot_ownership_violations` (`streaming_runtime_state.h:118`) stays 0 across all streaming tests. |
+| **I6** | Every public entry point carries exactly one §3b class tag in its header doc, and the set of `[SERIALIZED]` methods equals the set that mutates render-facing state. | Review checklist + a doc/code parity guard in S6 (tag present for every public method). |
+| **I7** | **No `[SERIALIZED]` entry point asserts thread identity.** The headless `tick_streaming_only` main-thread path, the `ClassDB`-bound script path, and the doctest callers all remain valid. | Module test suite passes unchanged with `DEV_ENABLED`; headless run of the `tick_streaming_only` path produces no new errors. This invariant exists specifically to prevent re-introducing the rejected blanket assert. |
+| **I8** | No pack worker reads owner state. `build_pending_upload_from_pack_job` and every worker entry take only value snapshots; after S2 no worker signature takes `GaussianStreamingSystem &`. | Signature review + grep: zero `&system` parameters on worker-thread functions. |
+| **I9** | `pack_mutex` remains the only lock in the streaming subsystem. No slice adds a second lock over render-facing state. | Grep guard: lock/mutex declarations in the streaming TUs stay at one. |
+| **I10** | Friendship strictly decreases. No slice adds a `friend` grant; S5 removes the six named grants (`gaussian_streaming.h:31-34`, `streaming_visibility_controller.h:54`, `streaming_global_atlas_registry.h:23`). | Grep guard on `friend class` count in the streaming headers; monotonically non-increasing, zero after S5. |
+| **I11** | No GPU payload layout changes in S1–S6; the atlas stride guard and the layout-sync guard are untouched. | `run_module_tests.py --guard-only` green; guard files unmodified in the diff. |
+| **I12** | External behavior is preserved: same chunks resident, same eviction order, same visible count for a fixed camera path. | Byte-identical `get_streaming_analytics` / `get_vram_debug_stats` on a fixed scene before and after. |
+
+## 7. Evidence a slice must produce
+
+Every slice states which invariants it touches and attaches, at minimum:
+
+1. **Guard lane:** `run_module_tests.py --guard-only` green, plus any new guard the slice adds
+   (I2, I6, I9, I10 are guard-shaped and should land *with* the slice that makes them true).
+2. **Targeted tests:** the streaming suites (`test_gpu_streaming.cpp`,
+   `test_gaussian_streaming_lifecycle.cpp`) green **without modification**. Modifying an
+   existing test to accommodate a slice is a review blocker unless the diff shows the old
+   assertion encoded a bug being fixed, with a written reason.
+3. **Accounting parity (I1, I12):** `get_vram_debug_stats` + `get_streaming_analytics` captured
+   on a fixed camera path on the immutable base and on the head, diffed and attached.
+4. **Runtime/GPU evidence (R2 slices — S1, S2, S4, S5):** the streaming lanes of the runtime
+   harness on the GPU runner, with peak VRAM and overflow counters. Agents cannot raster
+   locally; a slice without runner output reports "not run", never "passed".
+5. **Threading evidence (S6 only):** module tests with `DEV_ENABLED` on, plus a headless
+   `tick_streaming_only` run, demonstrating I7 — the detector fires on neither.
+6. **Base anchoring:** the base SHA, and confirmation that the `file:line` anchors used were
+   re-verified against it (they drift; see the anchoring note in the header).
+
+No slice may weaken a guard, threshold, or baseline to pass. If a slice cannot hold an
+invariant, it is split or the invariant is renegotiated in a follow-up to this ADR — not
+silently dropped.
