@@ -32,6 +32,7 @@ CULL_SIGNATURE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_cull_signature_pari
 DOC_CLASSES_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_doc_classes_complete.py"
 RENDERER_RELEASE_GATE_SCRIPT = ROOT / "tests" / "ci" / "check_renderer_release_gates.py"
 RENDERER_RELEASE_GATE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_renderer_release_gates.py"
+BASELINE_QA_REQUIRE_FLAG_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_baseline_qa_require_flag.py"
 HISTORY_ARTIFACT_AUDIT_SCRIPT = ROOT / "scripts" / "repo" / "history_artifact_audit.py"
 SYNTHETIC_ASSET_PREP_SCRIPT = ROOT / "tests" / "runtime" / "prepare_synthetic_assets.py"
 BENCHMARK_ASSET_GUARD_SCRIPT = ROOT / "tests" / "runtime" / "check_benchmark_asset_paths.py"
@@ -730,6 +731,27 @@ def _run_renderer_release_gate_guard() -> tuple[bool, list[str]]:
             return False, output_lines
 
     return True, output_lines
+
+
+def _run_baseline_qa_require_flag_guard() -> tuple[bool, list[str]]:
+    """Run run_baseline_qa.py's own require-baseline regression test (#596
+    follow-up: the switch was previously ignored on the QA-scene-skip path;
+    see test_baseline_qa_require_flag.py). Deterministic, no GPU/binary
+    required."""
+    if not BASELINE_QA_REQUIRE_FLAG_TEST_SCRIPT.is_file():
+        return False, [
+            f"Missing baseline QA require-flag unit test: "
+            f"{BASELINE_QA_REQUIRE_FLAG_TEST_SCRIPT.relative_to(ROOT)}"
+        ]
+
+    code, out, err = _run_command([sys.executable, str(BASELINE_QA_REQUIRE_FLAG_TEST_SCRIPT)])
+    output_lines = [line for line in (out + err).splitlines() if line.strip()]
+    if code != 0:
+        if not output_lines:
+            output_lines = [f"Baseline QA require-flag unit test failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["Baseline QA require-flag unit test passed."]
 
 
 def _parse_quarantine_expiry(value: str) -> datetime | None:
@@ -1529,6 +1551,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_renderer_release_gate_guard,
             "Renderer release gate guard failed.",
             "Renderer release gate guard passed.",
+        ),
+        (
+            True,
+            _run_baseline_qa_require_flag_guard,
+            "Baseline QA require-flag guard failed.",
+            "Baseline QA require-flag guard passed.",
         ),
         (
             True,

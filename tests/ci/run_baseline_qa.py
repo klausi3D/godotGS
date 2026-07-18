@@ -155,15 +155,35 @@ class BaselineQARunner:
         report_path: Optional[Path],
         summary_path: Optional[Path],
         reason: str,
+        require_baseline: bool = False,
     ) -> bool:
+        """Record that the QA Scene Suite itself did not produce results (e.g.
+        no RenderingDevice in this headless environment).
+
+        That is "legitimately not applicable" — no amount of
+        --require-qa-baseline changes whether a RenderingDevice exists, so
+        this path always allows the skip. But --require-qa-baseline /
+        GS_CI_REQUIRE_QA_BASELINE polices a *different, orthogonal* fact:
+        whether a baseline file exists at all. Previously this method
+        returned True unconditionally and never looked at require_baseline,
+        so turning the switch on had zero effect whenever the QA Scene Suite
+        itself skipped — which, since that suite's command hardcodes
+        --headless, is every current CI invocation. That made the switch
+        decorative on exactly the path production CI actually takes. Fail
+        closed here too: if the switch is on and there is still no baseline
+        to eventually enforce against, say so as a failure, not a skip.
+        """
+        baseline_exists = baseline_path.exists()
+        baseline_enforced_and_missing = require_baseline and not baseline_exists
+
         comparison: Dict[str, Any] = {
-            "status": "skipped",
+            "status": "failed" if baseline_enforced_and_missing else "skipped",
             "coverage_gap": True,
             "mode": "compare",
             "qa_results_path": str(qa_results_path),
             "baseline_path": str(baseline_path),
-            "baseline_exists": baseline_path.exists(),
-            "require_baseline": False,
+            "baseline_exists": baseline_exists,
+            "require_baseline": require_baseline,
             "thresholds": {
                 "ssim_min_delta": MINIMUM_SSIM_DROP,
                 "fps_min_ratio": MINIMUM_FPS_RATIO,
@@ -174,9 +194,24 @@ class BaselineQARunner:
             "missing_scenes": [],
             "new_scenes": [],
             "regressions": [],
-            "notes": [reason, QA_BASELINE_COVERAGE_GAP_NOTE],
+            "notes": [reason],
             "timestamp_unix": time.time(),
         }
+
+        if baseline_enforced_and_missing:
+            message = (
+                f"QA Scene Suite produced no results ({reason}) AND QA baseline "
+                f"missing at {baseline_path}, with --require-qa-baseline/"
+                f"{REQUIRE_QA_BASELINE_ENV} set. Refusing to launder a missing "
+                "baseline into a pass just because the suite also skipped."
+            )
+            comparison["notes"].append(message)
+            print(f"[FAIL] {message}")
+            self.test_results["summary"]["qa_baseline"] = comparison
+            self._write_baseline_artifacts(comparison, report_path, summary_path)
+            return False
+
+        comparison["notes"].append(QA_BASELINE_COVERAGE_GAP_NOTE)
         _ci_warning(f"{reason} (skipping comparison). {QA_BASELINE_COVERAGE_GAP_NOTE}")
         self.test_results["summary"]["qa_baseline"] = comparison
         self._write_baseline_artifacts(comparison, report_path, summary_path)
@@ -484,7 +519,15 @@ class BaselineQARunner:
     def _build_baseline_summary_markdown(self, comparison: Dict[str, Any]) -> str:
         status = str(comparison.get("status", "unknown"))
         coverage_gap = bool(comparison.get("coverage_gap", False))
-        if coverage_gap:
+        # `status == "failed"` must always win over the coverage-gap label:
+        # a hard failure (e.g. --require-qa-baseline set with no baseline,
+        # even on the QA-scene-skip path) must never render as the softer
+        # "[NO BASELINE - COVERAGE GAP]" bucket just because coverage_gap is
+        # also true for that comparison. Coverage_gap only relabels a
+        # genuine *skip* (nothing to compare, not required to fail).
+        if status == "failed":
+            icon = "[FAIL]"
+        elif coverage_gap:
             icon = "[NO BASELINE - COVERAGE GAP]"
         elif status in {"passed", "updated"}:
             icon = "[PASS]"
@@ -1033,6 +1076,7 @@ def main(argv: Optional[List[str]] = None):
                 report_path=baseline_report_path,
                 summary_path=baseline_summary_path,
                 reason=skip_reason,
+                require_baseline=require_qa_baseline_flag and not args.update_qa_baseline,
             )
         else:
             qa_ok = runner.compare_qa_baseline(
