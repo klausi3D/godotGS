@@ -1642,10 +1642,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
       
         <li class="md-nav__item">
-  <a href="#two-non-overlapping-manifests" class="md-nav__link">
+  <a href="#three-non-overlapping-homes" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Two non-overlapping manifests
+        Three non-overlapping homes
       
     </span>
   </a>
@@ -1653,10 +1653,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#status-ships-empty-slice-1" class="md-nav__link">
+  <a href="#status-of-entries-ships-empty-slice-1" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Status: ships empty (Slice 1)
+        Status of entries: ships empty (Slice 1)
       
     </span>
   </a>
@@ -1672,8 +1672,30 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Schema">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#unlaned_tests-tests-that-match-no-lane-520" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        unlaned_tests - tests that match no lane (#520)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="unlaned_tests - tests that match no lane (#520)">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-the-guard-does-not-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the guard does not check
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#multiple-entries-per-lane" class="md-nav__link">
@@ -1745,13 +1767,13 @@ page explains how known-failing module tests are tracked in-repo instead of in
 memory, and how the CI harness treats them.</p>
 <blockquote>
 <p><strong>Not authoritative.</strong> This page is a human-readable mirror. The authoritative
-source is the JSON manifest <a href="https://github.com/klausi3D/godotGS/blob/9161d92f349326e2004088638a5ab43eb4773123/tests/ci/quarantine_manifest.json"><code>tests/ci/quarantine_manifest.json</code></a>
+source is the JSON manifest <a href="https://github.com/klausi3D/godotGS/blob/6fcd83244be9a148f9d4ebbc27dd5ff897030218/tests/ci/quarantine_manifest.json"><code>tests/ci/quarantine_manifest.json</code></a>
 and the harness logic in <code>tests/ci/run_module_tests.py</code>. When this page and the
 JSON/harness disagree, the JSON and harness win. The design rationale lives in
 the ADR <a href="../../architecture/adr-test-quarantine-manifest/"><code>docs/architecture/adr-test-quarantine-manifest.md</code></a>.</p>
 </blockquote>
-<h2 id="two-non-overlapping-manifests">Two non-overlapping manifests<a class="headerlink" href="#two-non-overlapping-manifests" title="Permanent link">¶</a></h2>
-<p>There are two separate homes for excluded/known-failing tests. They do not
+<h2 id="three-non-overlapping-homes">Three non-overlapping homes<a class="headerlink" href="#three-non-overlapping-homes" title="Permanent link">¶</a></h2>
+<p>There are three separate homes for excluded/known-failing tests. They do not
 overlap:</p>
 <table>
 <thead>
@@ -1763,9 +1785,14 @@ overlap:</p>
 </thead>
 <tbody>
 <tr>
-<td>Headless doctest lanes (<code>MODULE_TEST_FILTERS</code> in <code>run_module_tests.py</code>)</td>
-<td><code>tests/ci/quarantine_manifest.json</code></td>
+<td>Headless doctest lanes (<code>MODULE_TEST_FILTERS</code> in <code>run_module_tests.py</code>) that are known-<strong>failing</strong></td>
+<td><code>tests/ci/quarantine_manifest.json</code> -&gt; <code>entries</code></td>
 <td><code>_run_quarantine_manifest_guard</code> + the doctest-lane wiring in <code>run_module_tests.py</code></td>
+</tr>
+<tr>
+<td>Test cases that match <strong>no lane at all</strong> and therefore never run (issue #520)</td>
+<td><code>tests/ci/quarantine_manifest.json</code> -&gt; <code>unlaned_tests</code></td>
+<td><code>tests/ci/check_test_lane_coverage.py</code></td>
 </tr>
 <tr>
 <td>GPU <code>[SceneTree]</code> / <code>[Importer]</code> tests deferred because no GPU runner is available (issue #329)</td>
@@ -1774,15 +1801,18 @@ overlap:</p>
 </tr>
 </tbody>
 </table>
-<p>A headless lane that is known-failing goes in the quarantine manifest. A
-GPU-only test that cannot run in the current CI environment goes in the
-release-gate waiver array. Never duplicate an entry across both.</p>
-<h2 id="status-ships-empty-slice-1">Status: ships empty (Slice 1)<a class="headerlink" href="#status-ships-empty-slice-1" title="Permanent link">¶</a></h2>
-<p>The manifest currently ships <strong>empty</strong> (<code>{"schema_version": 1, "entries": []}</code>).
-An empty manifest is behaviorally inert: no lane is treated as quarantined, and
-the harness behaves exactly as it did before the mechanism existed (no gate,
-lane outcome, or exit code changes). Populating the manifest is Slice 2 and is
-individually human-gated (see below).</p>
+<p>A headless lane that runs and fails goes in <code>entries</code>. A test that no lane ever
+selects goes in <code>unlaned_tests</code>. A GPU-only test that cannot run in the current
+CI environment goes in the release-gate waiver array. Never duplicate an entry
+across two of them - they answer different questions ("this fails", "this never
+runs", "this cannot run here").</p>
+<h2 id="status-of-entries-ships-empty-slice-1">Status of <code>entries</code>: ships empty (Slice 1)<a class="headerlink" href="#status-of-entries-ships-empty-slice-1" title="Permanent link">¶</a></h2>
+<p>The <code>entries</code> array currently ships <strong>empty</strong>. An empty <code>entries</code> is
+behaviorally inert: no lane is treated as quarantined, and the harness behaves
+exactly as it did before the mechanism existed (no gate, lane outcome, or exit
+code changes). Populating it is Slice 2 and is individually human-gated (see
+below).</p>
+<p><code>unlaned_tests</code> is <strong>not</strong> empty - see its own section below.</p>
 <h2 id="schema">Schema<a class="headerlink" href="#schema" title="Permanent link">¶</a></h2>
 <p>Each object in <code>entries</code> describes one quarantined lane.</p>
 <table>
@@ -1842,6 +1872,87 @@ individually human-gated (see below).</p>
 </tbody>
 </table>
 <p><code>schema_version</code> at the top level must be <code>1</code>.</p>
+<h2 id="unlaned_tests-tests-that-match-no-lane-520"><code>unlaned_tests</code> - tests that match no lane (#520)<a class="headerlink" href="#unlaned_tests-tests-that-match-no-lane-520" title="Permanent link">¶</a></h2>
+<p><code>tests/ci/check_test_lane_coverage.py</code> parses every <code>TEST_CASE</code> name out of the
+test sources, imports the lane definitions from <code>run_module_tests.py</code>
+(<code>MODULE_TEST_FILTERS</code>) and <code>run_gpu_harness.py</code> (<code>BATCHES</code>), and fails when a
+registered case matches <strong>none</strong> of them.</p>
+<p><code>REQUIRES_RD_TEST_FILTERS</code> is deliberately not counted as coverage: the runner
+only appends that lane under <code>--gpu</code>/<code>GS_RUN_GPU_TESTS=1</code>, which the blocking
+workflow does not pass, and it is <code>strict=False</code> regardless. It is a catalogue,
+not a lane, so crediting it would report coverage that does not exist. Such a
+case compiles, links and registers, but no lane ever selects it: it can never
+run and can never fail CI.</p>
+<p>Both sides are derived, never transcribed. #520 catalogued three stranded
+families by hand and missed a fourth (<code>[World]</code>) that existed at filing time; a
+hand-maintained list is the same class of artifact as the bug.</p>
+<p>Matching uses <strong>doctest's</strong> wildcard semantics, ported from
+<code>thirdparty/doctest/doctest.h</code> (<code>wildcmp</code>): only <code>*</code> and <code>?</code> are special, <code>[</code> and
+<code>]</code> are literal, and matching is case-insensitive because doctest's
+<code>case_sensitive</code> option defaults to false. Python's <code>fnmatch</code> treats <code>[...]</code> as a
+character class and answers a different question - an <code>fnmatch</code>-based lane audit
+is unreliable.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Required</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_case</code></td>
+<td>yes</td>
+<td>Doctest-style wildcard matched against stranded case names. Keep it as narrow as the family allows.</td>
+</tr>
+<tr>
+<td><code>count</code></td>
+<td>yes</td>
+<td>Exactly how many stranded cases this declaration covers. Family wildcards are open-ended, so without a count a brand-new stranded case joining an already-declared family would pass silently — the declaration would amnesty tests written long after anyone agreed to it.</td>
+</tr>
+<tr>
+<td><code>reason</code></td>
+<td>yes</td>
+<td>Why these cases have no lane, and what it would take to give them one.</td>
+</tr>
+<tr>
+<td><code>issue_url</code></td>
+<td>yes</td>
+<td>Tracking issue.</td>
+</tr>
+<tr>
+<td><code>owner</code></td>
+<td>yes</td>
+<td>Who owns getting them laned.</td>
+</tr>
+<tr>
+<td><code>expires_utc</code></td>
+<td>yes</td>
+<td>ISO-8601 UTC. The guard fails once this is in the past.</td>
+</tr>
+<tr>
+<td><code>risk</code></td>
+<td>no</td>
+<td>Risk class, for consistency with <code>entries</code>.</td>
+</tr>
+</tbody>
+</table>
+<p>Declarations are verified in <strong>both</strong> directions and on the count: an entry
+matching zero stranded cases fails as stale; an entry matching <strong>more</strong> than it
+declares fails, naming the newcomer; an entry matching <strong>fewer</strong> fails with an
+instruction to lower the count so the slack cannot be reoccupied. The list can
+neither rot into a permanent amnesty nor quietly widen.</p>
+<h3 id="what-the-guard-does-not-check">What the guard does not check<a class="headerlink" href="#what-the-guard-does-not-check" title="Permanent link">¶</a></h3>
+<p>It does not fail on cases that reach only a <strong>non-strict</strong> lane. 416 of 756
+registered cases reach no strict module lane and no GPU batch, most of them
+legitimately (GPU harness, advisory safety nets). Gating that today would demand
+hundreds of declarations, turning this manifest into the rubber stamp it exists
+to prevent. The number is printed on every run so it stays visible and can be
+ratcheted deliberately.</p>
+<p>It also does not detect a case that matches a lane and then early-returns past
+every assertion. That is vacuity, not stranding - a different defect that no lane
+configuration can see.</p>
 <h3 id="multiple-entries-per-lane">Multiple entries per lane<a class="headerlink" href="#multiple-entries-per-lane" title="Permanent link">¶</a></h3>
 <p>A single lane bundles many doctest cases, so it may need to quarantine more than
 one known failure. <strong>Multiple entries may share the same <code>lane</code>, one per approved
@@ -1959,7 +2070,7 @@ stale-pass check will fail the build if a fixed lane is left quarantined.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 18, 2026 21:05:18 UTC">July 18, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 18, 2026 22:42:18 UTC">July 18, 2026</span>
   </span>
 
     
