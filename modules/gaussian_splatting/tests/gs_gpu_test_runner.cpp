@@ -17,6 +17,9 @@
 #include "core/templates/local_vector.h"
 #include "main/main.h"
 
+#include "modules/gaussian_splatting/core/gaussian_splat_scene_director.h"
+
+#include "tests/display_server_mock.h"
 #include "tests/test_macros.h"
 
 #if defined(RD_ENABLED)
@@ -61,8 +64,7 @@ GsGpuTestOptions _parse_options(int argc, char *argv[]) {
 			// Only an INCLUSIVE filter suppresses the default-filter injection.
 			// `--test-case-exclude=` alone should still get the default
 			// `*[RequiresGPU]*` filter; otherwise doctest would run every test
-			// in the binary (including the 26 [SceneTree]+[RequiresGPU] cases
-			// that crash without SceneTree bootstrap — Issue #329).
+			// in the binary, including non-GPU cases this bootstrap cannot serve.
 			opt.inject_default_filter = false;
 		}
 	}
@@ -155,8 +157,16 @@ int _run_doctest(int argc, char *argv[], const GsGpuTestOptions &opt) {
 		// forgets to pass a narrower filter.
 		//
 		// Excluded categories:
-		//   - `[SceneTree]`: 26 cases require a SceneTree singleton not
-		//     wired up by Main::test_setup(); tracked in Issue #329.
+		//   - `[SceneTree]`: these DO run under this harness now (#329 registers
+		//     the mock DisplayServer driver below and fixes teardown order), but a
+		//     handful still crash hard -- one of them takes the whole process down
+		//     via a non-aborting REQUIRE (#656). A bare `--gs-gpu-test` with no
+		//     filter is a convenience entry point, so it stays conservative. The
+		//     supervisor runs them properly through the NodeSceneTree /
+		//     WorldSceneTree / SceneDirectorSceneTree batches, which pass explicit
+		//     `--test-case=` filters and therefore bypass this injection entirely.
+		//     The still-broken cases are listed as BatchSpec.excludes there, each
+		//     with a waiver in the release-gate manifest.
 		//   - `[Importer]`: needs full ResourceLoader/ResourceSaver setup
 		//     including type-registration for GaussianSplatAsset's preview
 		//     I/O paths; the offscreen RD bootstrap is intentionally
@@ -215,9 +225,14 @@ struct GsGpuRidLeakListener : public doctest::IReporter {
 	explicit GsGpuRidLeakListener(const doctest::ContextOptions &) {}
 
 	uint64_t case_start_memory = 0;
+	// #329: remember the case name so a leak advisory can NAME the offender.
+	// It used to print `test=advisory`, which made a non-zero total
+	// untriageable -- you knew the batch leaked but not which case.
+	String case_name;
 
-	void test_case_start(const doctest::TestCaseData &) override {
+	void test_case_start(const doctest::TestCaseData &p_data) override {
 		case_start_memory = 0;
+		case_name = String(p_data.m_name);
 		if (!g_in_gs_gpu_mode) {
 			return;
 		}
@@ -239,6 +254,26 @@ struct GsGpuRidLeakListener : public doctest::IReporter {
 	void test_case_end(const doctest::CurrentTestCaseStats &) override {
 		if (!g_in_gs_gpu_mode) {
 			return;
+		}
+		// #329 (Codex review): drop the SceneDirector's retained SharedWorld
+		// renderers BEFORE sampling, or their GPU memory is attributed to
+		// whichever case happened to run.
+		//
+		// The director owns a Ref<GaussianSplatRenderer> per scenario that
+		// outlives the case's SceneTree, so without this every [SceneTree] case
+		// that built a renderer reported a false multi-hundred-MB leak. Measured
+		// on this branch before the fix: NodeSceneTree 2,115,072,932 B,
+		// SceneDirectorSceneTree 332,889,640 B, WorldSceneTree 237,081,416 B —
+		// and run_gpu_harness.py folds `total_rid_leak_bytes > 0` into
+		// gate_failed GLOBALLY (not just for required batches), so those bogus
+		// numbers failed the whole harness.
+		//
+		// This runs AFTER GodotTestCaseListener::test_case_end has torn the
+		// SceneTree down (see the priority-0 registration note below), so the
+		// nodes' own Refs are already gone and dropping the director's Ref
+		// actually frees the renderer instead of just decrementing a refcount.
+		if (GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton()) {
+			director->release_all_worlds();
 		}
 #if defined(RD_ENABLED)
 		// 4 MiB threshold over the GS-owned buffers+textures delta (see
@@ -265,8 +300,8 @@ struct GsGpuRidLeakListener : public doctest::IReporter {
 					// listener reporters can't call CHECK_MESSAGE, so we
 					// surface the signal via stdout and let the supervisor
 					// escalate.
-					print_line(vformat("[GS-GPU][RID-LEAK?] bytes=%s test=advisory",
-							String::num_uint64(delta)));
+					print_line(vformat("[GS-GPU][RID-LEAK?] bytes=%s test=%s",
+							String::num_uint64(delta), case_name));
 				}
 			}
 		}
@@ -285,7 +320,26 @@ struct GsGpuRidLeakListener : public doctest::IReporter {
 	void test_case_skipped(const doctest::TestCaseData &) override {}
 };
 
-REGISTER_LISTENER("GsGpuRidLeakListener", 1, GsGpuRidLeakListener);
+// Priority 0, NOT 1 (#329, Codex review). doctest builds its active-listener
+// list by iterating getListeners() -- a map keyed by (priority, name) -- and
+// inserting each one at reporters_currently_used.begin() (doctest.h:6891-6892),
+// which REVERSES map order. Callbacks then run front-to-back (doctest.h:4112).
+//
+// At priority 1 this listener sorted after "GodotTestCaseListener" in the map
+// ("Go" < "Gs"), so after the reversal it ran FIRST -- meaning test_case_end
+// sampled GPU memory while the case's SceneTree, its nodes, and every Ref they
+// hold were still alive. Every [SceneTree] case therefore looked like a huge
+// leak.
+//
+// Priority 0 sorts this listener FIRST in the map, so the reversal puts it
+// LAST: test_case_start now samples after the SceneTree is built and
+// test_case_end samples after it is torn down. That is the symmetric,
+// meaningful measurement -- SceneTree bring-up cost is excluded from the
+// baseline instead of being counted as a leak at the end.
+//
+// If a third listener is ever added, re-derive the order rather than assuming
+// it; the insert-at-begin reversal is easy to get backwards.
+REGISTER_LISTENER("GsGpuRidLeakListener", 0, GsGpuRidLeakListener);
 
 } // namespace
 
@@ -312,6 +366,35 @@ int gs_gpu_test_main(int argc, char *argv[]) {
 	// assertions instead of skipping via REQUIRE_WORKER_THREAD_POOL().
 	WorkerThreadPool::get_singleton()->init();
 
+	// Issue #329: register the mock DisplayServer driver exactly as
+	// tests/test_main.cpp:240 does. `gs_gpu_test_main` bypasses `test_main()`
+	// entirely (it owns its own doctest::Context), so without this call the
+	// "mock" driver is never registered.
+	//
+	// That absence — not a missing SceneTree — is what made every
+	// [SceneTree]+[RequiresGPU] case crash under this harness. The globally
+	// registered GodotTestCaseListener (tests/test_main.cpp:333) DOES build a
+	// full SceneTree for [SceneTree]-tagged cases here, but it first scans
+	// DisplayServer::get_create_function_count() for a driver named "mock" and
+	// silently creates nothing when it is absent. It then calls
+	// RenderingServerDefault::init() with no DisplayServer behind it, and
+	// RendererCompositor::create() dereferences null:
+	//
+	//   [2] RendererCompositor::create
+	//   [3] RenderingServerDefault::_init
+	//   [4] RenderingServerDefault::init
+	//   [5] GodotTestCaseListener::test_case_start
+	//
+	// Registering the driver lets the listener take its normal path, so the
+	// deferred cases run here instead of crashing. Cheap and inert for
+	// non-[SceneTree] cases: registration only adds a create-function entry;
+	// nothing is instantiated unless a [SceneTree]/[Editor] case asks for it.
+	// (test_main.cpp:239 additionally calls OS::set_cmdline(); that member is
+	// protected and only reachable from test_main's friend context, and no
+	// deferred case reads OS::get_cmdline_args(), so it is deliberately not
+	// mirrored here.)
+	DisplayServerMock::register_mock_driver();
+
 	const GsGpuTestOptions opt = _parse_options(argc, argv);
 
 	int bootstrap_rc = _bootstrap_rd(opt);
@@ -324,6 +407,40 @@ int gs_gpu_test_main(int argc, char *argv[]) {
 	int rc = _run_doctest(argc, argv, opt);
 	g_in_gs_gpu_mode = false;
 
+	// Issue #329: three-phase teardown. The two obvious orderings each crash,
+	// because the lifetime constraints are circular:
+	//
+	//   * `_teardown_rd()` BEFORE `Main::test_cleanup()` (the original order)
+	//     kills the RenderingDevice while the GaussianSplatSceneDirector still
+	//     owns SharedWorld renderers. Module uninitialization inside
+	//     test_cleanup() then frees their GPU resources through a dangling
+	//     device:
+	//         [0] RenderingDevice::_compute_list_set_push_constant
+	//         [2] ShaderRD::ShaderRD
+	//         [5] GaussianSplatting::TileShaderResources::reset_state
+	//         [7] TileRenderer::_release_compiled_shaders
+	//        [10] GaussianSplatRenderer::~GaussianSplatRenderer
+	//        [22] GaussianSplatSceneDirector::~GaussianSplatSceneDirector
+	//        [27] Main::test_cleanup
+	//
+	//   * `Main::test_cleanup()` BEFORE `_teardown_rd()` inverts the problem:
+	//     test_cleanup() deletes the Engine singleton, and
+	//     `RenderingDevice::~RenderingDevice` reads it during finalize:
+	//         [0] Engine::is_extra_gpu_memory_tracking_enabled
+	//         [2] RenderingDeviceDriverVulkan::pipeline_free
+	//         [3] RenderingDevice::_free_pending_resources
+	//         [6] RenderingDevice::finalize
+	//         [7] RenderingDevice::~RenderingDevice
+	//        [10] _teardown_rd
+	//
+	// So: drop the module's device-backed state FIRST (device + manager both
+	// still live, which is the order #589 requires), THEN the device, THEN the
+	// engine. The pre-existing batches never hit this because they release
+	// their renderers inside the test body; only a SceneDirector-owned
+	// SharedWorld -- what a [SceneTree] case builds -- survives the test case.
+	if (GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton()) {
+		director->release_all_worlds();
+	}
 	_teardown_rd();
 	Main::test_cleanup();
 	return rc;
