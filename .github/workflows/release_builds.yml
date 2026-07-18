@@ -283,6 +283,13 @@ jobs:
     # binary. target=editor+tests keeps the doctest runner and every module
     # symbol linkable while still triggering the exact SCsub optimize=="speed"
     # flag branch; NDEBUG is defined because dev_build is not set.
+    #
+    # This lane is a BLOCKING dependency of `publish_release` (see that job's
+    # `needs:` and `if:`). A guard that only reports a red X next to a green
+    # release is not a guard: without the dependency a failing finiteness check
+    # could coexist with a published release carrying exactly the NaN/Inf
+    # regression it exists to catch. It gates every publishing channel --
+    # nightly included -- because every channel ships the same module code.
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -559,13 +566,24 @@ jobs:
       - release_metadata
       - build_linux
       - build_windows
+      - finite_math_guard
     # Publish as long as the Linux lane succeeded. A Windows runner outage
     # must not prevent a Linux-only release; the Windows artifact is
     # downloaded optionally below and included if available.
+    #
+    # The fast-math finiteness guard (#590) is NOT optional: `publish_release`
+    # uses `always()`, so listing a job under `needs:` alone does not block
+    # anything -- the result must be asserted explicitly. Requiring
+    # `finite_math_guard.result == 'success'` is what makes the guard a real
+    # release gate rather than a decorative red X. It applies to every
+    # publishing channel because every channel ships the same module code, and
+    # a shipped binary whose NaN/Inf guards were folded away by -ffast-math is
+    # exactly the failure this lane exists to prevent.
     if: |
       always() &&
       needs.release_metadata.outputs.publish == 'true' &&
-      needs.build_linux.result == 'success'
+      needs.build_linux.result == 'success' &&
+      needs.finite_math_guard.result == 'success'
     steps:
       - name: Download Linux contributor artifact
         uses: actions/download-artifact@v4
