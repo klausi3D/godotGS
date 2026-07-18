@@ -1985,10 +1985,10 @@
 </tr>
 <tr>
 <td>Linux</td>
-<td><code>sample-project-tested</code></td>
+<td><code>smoke-tested</code></td>
 <td>Guaranteed nightly publish floor: Linux editor tarball in release runs where publishing succeeds.</td>
-<td>SUPPORTED_PLATFORMS in modules/gaussian_splatting/config.py accepts linuxbsd.<br>Release Builds compiles and publishes the Linux editor in .github/workflows/release_builds.yml.<br>Baseline QA builds a Linux editor, imports the project, and runs baseline QA under xvfb in .github/workflows/baseline_qa.yml.</td>
-<td>Linux remains the fastest public evaluation path and the guaranteed release asset floor. The documented validation includes a sample-project QA lane under xvfb, but it is still not an interactive editor or hardware-GPU validation row; no fresh run ID is added in this docs slice.</td>
+<td>SUPPORTED_PLATFORMS in modules/gaussian_splatting/config.py accepts linuxbsd.<br>Release Builds compiles and publishes the Linux editor in .github/workflows/release_builds.yml.<br>Baseline QA builds a Linux editor, imports the project, and runs the ply, pipeline, runtime, and module categories headless under xvfb in .github/workflows/baseline_qa.yml (CPU-Only QA Tests job, run_baseline_qa.py --categories ply,pipeline,runtime,module).</td>
+<td>Linux remains the fastest public evaluation path and the guaranteed release asset floor. Corrected 2026-07-18 (#596): the Linux CI lane does not select the qa or sorting categories, so no QA-scene or GPU-sorting lane actually runs on Linux — smoke-tested (minimal headless import + runtime lane) is the accurate level, not sample-project-tested (which requires a QA-scene lane to pass). No fresh run ID is added in this docs slice.</td>
 </tr>
 <tr>
 <td>macOS</td>
@@ -2039,12 +2039,12 @@
 </tr>
 <tr>
 <td>Linux</td>
-<td><code>sample-project-tested</code></td>
+<td><code>smoke-tested</code></td>
 <td>Ubuntu 24.04.4 LTS (image ubuntu-24.04 20260323.65.1)</td>
 <td>No discrete GPU exposed in the published artifact (xvfb / headless CPU-only lane)</td>
 <td>mesa-vulkan-drivers 25.2.8-0ubuntu0.24.04.1 + xvfb headless import lane</td>
-<td>.github/workflows/baseline_qa.yml CPU-only lane<br>.github/workflows/release_builds.yml Linux editor build lane</td>
-<td>This row preserves the previously documented sample-project/headless evidence. It is not refreshed with a current run ID in this docs slice, and it is still a headless xvfb lane rather than an interactive editor or hardware-GPU validation row.</td>
+<td>.github/workflows/baseline_qa.yml CPU-Only QA Tests job (ply, pipeline, runtime, module categories only — no qa or sorting category)<br>.github/workflows/release_builds.yml Linux editor build lane</td>
+<td>Corrected 2026-07-18 (#596): this row previously claimed sample-project-tested / a passing QA-scene lane, but the Linux CPU-only job does not select the qa category (or sorting), so no QA-scene or GPU-sorting evidence exists for this platform. It is a headless xvfb import + runtime smoke lane, not an interactive editor or hardware-GPU validation row. Not refreshed with a current run ID in this docs slice.</td>
 </tr>
 </tbody>
 </table>
@@ -2110,7 +2110,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 18, 2026 18:57:43 UTC">July 18, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 18, 2026 19:00:20 UTC">July 18, 2026</span>
   </span>
 
     

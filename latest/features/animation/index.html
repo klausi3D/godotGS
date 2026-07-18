@@ -1734,13 +1734,30 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Playback control">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#non-finite-playback-values-are-rejected" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Non-finite playback values are rejected
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
           <li class="md-nav__item">
-  <a href="#blending-between-clips" class="md-nav__link">
+  <a href="#switching-between-clips" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Blending between clips
+        Switching between clips
       
     </span>
   </a>
@@ -2044,18 +2061,18 @@
 </tr>
 <tr>
 <td><code>seek(time)</code></td>
-<td>Jumps to a specific time in the current clip.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:226</code></td>
+<td>Jumps to a specific time in the current clip. Negative times clamp to <code>0</code>; a non-finite time is rejected with a warning (see below).</td>
+<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:260</code></td>
 </tr>
 <tr>
 <td><code>set_playback_speed(speed)</code></td>
-<td>Changes the playback rate multiplier.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:227</code></td>
+<td>Changes the playback rate multiplier. A non-finite speed is rejected with a warning (see below).</td>
+<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:261</code></td>
 </tr>
 <tr>
 <td><code>update(delta)</code></td>
-<td>Advances the animation by <code>delta</code> seconds. Call this every frame.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:242</code></td>
+<td>Advances the animation by <code>delta</code> seconds. Call this every frame. A non-finite <code>delta</code> skips the frame (see below).</td>
+<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:279</code></td>
 </tr>
 <tr>
 <td><code>is_playing()</code></td>
@@ -2069,16 +2086,59 @@
 </tr>
 </tbody>
 </table>
-<h3 id="blending-between-clips">Blending between clips<a class="headerlink" href="#blending-between-clips" title="Permanent link">¶</a></h3>
-<p>The blending system allows smooth transitions between clips over a specified duration. Each clip has a weight that can be controlled directly or driven by <code>blend_to_clip</code>.</p>
+<h4 id="non-finite-playback-values-are-rejected">Non-finite playback values are rejected<a class="headerlink" href="#non-finite-playback-values-are-rejected" title="Permanent link">¶</a></h4>
+<p><code>NAN</code>, <code>INF</code> and <code>-INF</code> are rejected at the point they enter the state machine,
+because a non-finite time or speed makes <em>every</em> later comparison against it
+false (<code>NaN &lt; x</code>, <code>NaN &gt; x</code> and <code>NaN == x</code> are all false). Playback would then
+never wrap and never stop: it freezes silently, with no crash and no error.</p>
+<table>
+<thead>
+<tr>
+<th>Input</th>
+<th>Behaviour</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>seek(non-finite)</code></td>
+<td>Warns, seeks to <code>0</code> instead.</td>
+</tr>
+<tr>
+<td><code>set_playback_speed(non-finite)</code></td>
+<td>Warns, uses <code>1.0</code> instead.</td>
+</tr>
+<tr>
+<td><code>update(non-finite)</code></td>
+<td>Warns, skips the frame; the current time is left untouched.</td>
+</tr>
+<tr>
+<td><code>from_dict()</code> with a non-finite <code>current_time</code> / <code>playback_speed</code></td>
+<td>Warns, substitutes <code>0</code> / <code>1.0</code>. Applies to loading a corrupt or hand-edited save.</td>
+</tr>
+</tbody>
+</table>
+<p><code>play()</code> deliberately does <strong>not</strong> reset the current time, so a <code>seek()</code> is
+honoured by a following <code>play()</code>; <code>stop()</code> is what resets to <code>0</code>.</p>
+<p>A finite <em>negative</em> <code>set_playback_speed()</code> is accepted, but true reverse
+playback is not implemented — the current time is floored at <code>0</code> rather than
+wrapping backwards.</p>
+<h3 id="switching-between-clips">Switching between clips<a class="headerlink" href="#switching-between-clips" title="Permanent link">¶</a></h3>
+<blockquote>
+<p><strong>Note:</strong> cross-fade blending is not yet implemented. <code>switch_to_clip_delayed()</code>
+schedules a <em>delayed hard cut</em>: until the delay elapses the current clip keeps
+playing unchanged, then playback jumps to the target clip in a single step. The
+target clip is never sampled or weighted during the delay. <code>set_clip_weight()</code> /
+<code>get_clip_weight()</code> track a weight value that no sampler currently reads. Real
+weighted cross-fade sampling is tracked as a follow-up (godotGS issue #614).</p>
+</blockquote>
 <div class="highlight"><pre><span></span><code><span class="c1"># Create a second clip</span>
 <span class="k">var</span><span class="w"> </span><span class="n">idle_idx</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">anim</span><span class="o">.</span><span class="n">add_clip</span><span class="p">(</span><span class="s2">"idle"</span><span class="p">,</span><span class="w"> </span><span class="mf">3.0</span><span class="p">)</span>
 <span class="n">anim</span><span class="o">.</span><span class="n">set_clip_looping</span><span class="p">(</span><span class="n">idle_idx</span><span class="p">,</span><span class="w"> </span><span class="bp">true</span><span class="p">)</span>
 <span class="n">anim</span><span class="o">.</span><span class="n">add_track_to_clip</span><span class="p">(</span><span class="n">idle_idx</span><span class="p">,</span><span class="w"> </span><span class="n">GaussianAnimationStateMachine</span><span class="o">.</span><span class="n">ANIMATION_PROPERTY_POSITION</span><span class="p">)</span>
 <span class="c1"># ... add keyframes ...</span>
 
-<span class="c1"># Blend from current clip to "idle" over 0.5 seconds</span>
-<span class="n">anim</span><span class="o">.</span><span class="n">blend_to_clip</span><span class="p">(</span><span class="n">idle_idx</span><span class="p">,</span><span class="w"> </span><span class="mf">0.5</span><span class="p">)</span>
+<span class="c1"># Switch to "idle" after 0.5 seconds (delayed hard cut, not a cross-fade)</span>
+<span class="n">anim</span><span class="o">.</span><span class="n">switch_to_clip_delayed</span><span class="p">(</span><span class="n">idle_idx</span><span class="p">,</span><span class="w"> </span><span class="mf">0.5</span><span class="p">)</span>
 </code></pre></div>
 <table>
 <thead>
@@ -2090,19 +2150,24 @@
 </thead>
 <tbody>
 <tr>
+<td><code>switch_to_clip_delayed(clip_index, switch_delay)</code></td>
+<td>Schedules a delayed hard switch to the target clip after <code>switch_delay</code> seconds (default 0.3). Not a cross-fade.</td>
+<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp</code></td>
+</tr>
+<tr>
 <td><code>blend_to_clip(clip_index, blend_duration)</code></td>
-<td>Smoothly transitions to the target clip. Default duration is 0.3 seconds.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:237</code></td>
+<td><strong>Deprecated</strong> alias for <code>switch_to_clip_delayed()</code>; the name implied a cross-fade that is not implemented.</td>
+<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp</code></td>
 </tr>
 <tr>
 <td><code>set_clip_weight(clip_index, weight)</code></td>
-<td>Manually sets the blend weight for a clip.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:238</code></td>
+<td>Sets a clip's blend weight. Stored but not yet consumed by any sampler.</td>
+<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp</code></td>
 </tr>
 <tr>
 <td><code>get_clip_weight(clip_index)</code></td>
-<td>Returns the current blend weight.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:239</code></td>
+<td>Returns the current stored blend weight.</td>
+<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp</code></td>
 </tr>
 </tbody>
 </table>
@@ -2225,7 +2290,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 18, 2026 18:57:41 UTC">July 18, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 18, 2026 19:00:18 UTC">July 18, 2026</span>
   </span>
 
     

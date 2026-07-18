@@ -1697,6 +1697,34 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#stable-release-candidate-gate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stable Release Candidate Gate
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Stable Release Candidate Gate">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#evidence-is-bound-to-the-commit-and-to-the-shipped-bytes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evidence is bound to the commit and to the shipped bytes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#renderer-evidence" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1821,10 +1849,75 @@ manifest and reclassify #369 before cutting a candidate.</p>
 <h2 id="workflow-policy-scope">Workflow Policy Scope<a class="headerlink" href="#workflow-policy-scope" title="Permanent link">¶</a></h2>
 <p>The contract checker currently validates that required workflow files exist and
 contain the required job markers. It does not yet parse GitHub Actions YAML
-deeply enough to prove manual-input bypasses, path-filter bypasses, Linux-only
-publishing, unmatched release-file allowances, or open-world advisory-only
-behavior. Those no-downgrade rules remain documented review policy in the
-manifest until a workflow-behavior parser is added.</p>
+deeply enough to prove manual-input bypasses, path-filter bypasses, or
+open-world advisory-only behavior. Those no-downgrade rules remain documented
+review policy in the manifest until a workflow-behavior parser is added.</p>
+<h2 id="stable-release-candidate-gate">Stable Release Candidate Gate<a class="headerlink" href="#stable-release-candidate-gate" title="Permanent link">¶</a></h2>
+<p><code>release_builds.yml</code> maps a <code>v*</code> tag push (and a manual stable dispatch) to
+<code>channel=stable, publish=true</code>. That publish path is gated by the
+<code>release_candidate_gate</code> job, which the manifest tracks as a required job marker
+for <code>release_builds.yml</code> (issue #593):</p>
+<ul>
+<li><strong>No Linux-only stable release.</strong> For the stable/candidate channel the gate
+  fails unless both <code>build_linux</code> and <code>build_windows</code> succeeded, so a Windows
+  runner outage blocks a stable publish instead of silently shipping a
+  Linux-only release. Nightly prereleases keep the Linux-only tolerance.</li>
+<li><strong>No unmatched release files.</strong> <code>publish_release</code> sets
+  <code>fail_on_unmatched_files: true</code> for the stable channel, so a missing asset
+  fails the publish rather than shipping a partial release. Nightly keeps the
+  relaxed behavior.</li>
+<li><strong>Candidate validation is required.</strong> For the stable/tag path the gate runs
+  <code>check_renderer_release_gates.py --mode candidate</code> against a public-alpha
+  evidence bundle and <strong>fails closed</strong> when that bundle is absent, so a tag can
+  never publish without passing candidate validation. <code>publish_release</code> hard
+  depends on the gate's success.</li>
+</ul>
+<p><strong>Remaining scoped gap (issue #360).</strong> No CI lane yet produces the public-alpha
+candidate evidence bundle (candidate GPU-harness report, benchmark-lane report,
+artifact SHA/commit-parity, and issue snapshot). Until that pipeline is wired,
+the gate fails closed on every real <code>v*</code> tag; a maintainer cutting a candidate
+supplies the bundle out-of-band by pointing the <code>RELEASE_CANDIDATE_EVIDENCE</code>
+(and optional <code>RELEASE_CANDIDATE_ISSUES</code>) repo/environment variable at a
+produced bundle. Generating the bundle in-workflow so a green stable tag is
+self-proving is tracked as follow-up under #360/#593.</p>
+<h3 id="evidence-is-bound-to-the-commit-and-to-the-shipped-bytes">Evidence is bound to the commit and to the shipped bytes<a class="headerlink" href="#evidence-is-bound-to-the-commit-and-to-the-shipped-bytes" title="Permanent link">¶</a></h3>
+<p>Candidate validation on its own only proves the evidence bundle is <em>internally</em>
+consistent: <code>--mode candidate</code> re-hashes the files the bundle points at and
+checks them against the bundle's own recorded <code>godot_binary_commit</code>. A bundle
+produced for an older, fully validated commit stays internally consistent
+forever, so without further binding it would authorize publishing a <em>different</em>,
+never-validated commit's binaries. Three checks close that hole:</p>
+<ol>
+<li><strong>Commit binding.</strong> The gate passes <code>--expected-commit ${{ github.sha }}</code>.
+   The bundle's <code>commit</code> must equal the commit being published, exactly.</li>
+<li><strong>Built-bytes binding.</strong> The gate downloads the archives <code>build_linux</code> and
+   <code>build_windows</code> produced <em>in this run</em>, hashes them, and passes
+   <code>--artifact-sha linux_release_archive=&lt;sha256&gt;</code> (and the Windows equivalent).
+   The bundle must record exactly those digests, so the validated artifact and
+   the built artifact are provably the same bytes. The gate also requires each
+   published <code>.sha256</code> sidecar to describe its archive, and requires the Linux
+   <code>BUILD-INFO.txt</code> to record the commit being published — the latter applies on
+   the nightly channel too, which has no evidence bundle at all.</li>
+<li><strong>Shipped-bytes binding.</strong> <code>publish_release</code> runs as a separate job that
+   re-downloads the artifacts, so the gate never saw what it uploads. The gate
+   therefore writes a <code>release-attestation.json</code> (commit + sha256 of every file
+   it validated) via <code>tests/ci/release_attestation.py generate</code>, and
+   <code>publish_release</code> re-hashes its downloaded payload and requires an exact
+   match with <code>release_attestation.py verify</code> before calling
+   <code>softprops/action-gh-release</code>. A missing attestation, a changed digest, a
+   missing asset, an unattested extra file, or a commit mismatch all fail the
+   publish.</li>
+</ol>
+<p>Together these make the release chain closed: <code>github.sha</code> == evidence commit ==
+BUILD-INFO commit; evidence artifact digests == digests of the archives built in
+this run == digests in the attestation == digests of the bytes uploaded to the
+GitHub release.</p>
+<p>The contract checker verifies the <code>release_candidate_gate</code> job marker is present
+but does not parse the job's runtime both-platform / candidate / binding logic;
+those specifics remain YAML-level enforcement recorded under
+<code>workflow_policy.workflow_enforced_rules</code> in the manifest. The binding logic
+itself is unit-tested in <code>tests/ci/test_renderer_release_gates.py</code>
+(<code>CandidateSupplyChainBindingTests</code>) and <code>tests/ci/test_release_attestation.py</code>.</p>
 <h2 id="renderer-evidence">Renderer Evidence<a class="headerlink" href="#renderer-evidence" title="Permanent link">¶</a></h2>
 <p>The current foundation profile requires the compositor hazard visual gate and
 tracks every <code>[RequiresGPU]</code> doctest by a checked snapshot. The snapshot is
@@ -1990,7 +2083,7 @@ live network access for the deterministic contract check.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 18, 2026 18:57:43 UTC">July 18, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 18, 2026 19:00:20 UTC">July 18, 2026</span>
   </span>
 
     
