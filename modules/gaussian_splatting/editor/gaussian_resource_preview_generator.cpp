@@ -144,7 +144,35 @@ Ref<Texture2D> GaussianSplatAssetPreviewGenerator::_create_preview_texture_from_
 }
 
 void GaussianSplatAssetPreviewGenerator::abort() {
-	// Called on the main thread by EditorResourcePreview::stop() during shutdown.
+	// Called on the main thread by EditorResourcePreview::stop(), which runs on
+	// editor shutdown (editor/editor_node.cpp) AND on every reimport
+	// (editor/docks/import_dock.cpp:589 -- "Don't try to re-create previews
+	// after import"). It is not shutdown-only.
+	//
+	// INVARIANT (documented rather than defended in code -- see below):
+	// `aborted` is one-way. Nothing ever clears it, so the first stop() latches
+	// this generator into the abort fast-path permanently.
+	//
+	// That is currently correct, but only because of a cross-file property that
+	// is invisible from this file: EditorResourcePreview::stop() joins and
+	// clears its worker thread, and EditorResourcePreview::start() has exactly
+	// ONE caller (editor/editor_node.cpp, at editor startup). The preview
+	// worker is therefore never restarted after a stop(), so no generate() call
+	// that matters can observe a stale `aborted`. If start() ever gains a
+	// second caller -- i.e. the preview worker becomes restartable after an
+	// import -- this flag MUST be cleared as part of that restart, or every
+	// preview generated afterwards will silently take the abort path and return
+	// no texture.
+	//
+	// Why documented instead of reset here: clearing `aborted` at the top of
+	// generate()/generate_from_path() would be wrong -- it would defeat an
+	// abort() that arrives while a generate() is in flight, which is precisely
+	// the shutdown race this flag exists to win. A correct reset needs a
+	// "resume" hook invoked from EditorResourcePreview::start(), which is
+	// upstream Godot code; adding one to defend a condition no current caller
+	// can reach would grow the upstream delta for no present benefit (see
+	// AGENTS.md, "Upstream Godot boundary"). The invariant is stated here, at
+	// the flag it constrains, so the next person to touch start() finds it.
 	aborted.set();
 }
 

@@ -1035,6 +1035,22 @@ TEST_CASE("[GaussianSplatting][Thumbnail][Editor] Editor preview generator abort
     MESSAGE("Skipping - THREADS_ENABLED is not enabled in this build");
     return;
 #else
+    // Self-protection against a vacuous pass. Unlike the starvation test above
+    // -- whose `elapsed_usec >= test_timeout_usec` assertion cannot hold if the
+    // worker returned instantly -- EVERY assertion in this test also holds on
+    // an early return: a fast elapsed time, ran_on_worker, and a null texture
+    // are exactly what _create_preview_texture_from_image()'s
+    // ERR_FAIL_NULL_V_MSG(main_queue, ...) early-out produces. So if the
+    // [Editor] tag were ever dropped from this test's name, the harness would
+    // not create the MessageQueue main singleton, the worker would bail on the
+    // first line, and this test would go green while proving nothing about
+    // abort(). Fail loudly on that precondition instead.
+    REQUIRE_MESSAGE(MessageQueue::get_main_singleton() != nullptr,
+            "This test requires the [Editor] tag in its name: tests/test_main.cpp's "
+            "GodotTestCaseListener gates MessageQueue main-singleton setup on the "
+            "literal substring \"[Editor]\"/\"[SceneTree]\". Without it the worker "
+            "early-returns and every assertion below passes for the wrong reason.");
+
     Ref<GaussianSplatAsset> asset = _make_thumbnail_fixture_asset(1);
     asset->set_source_path("res://preview_worker_abort_fixture.ply");
 

@@ -25,9 +25,12 @@ class GaussianSplatAssetPreviewGenerator : public EditorResourcePreviewGenerator
 	mutable std::atomic<uint64_t> wait_timeout_usec;
 
 	mutable Ref<GaussianThumbnailGenerator> thumbnail_generator;
-	// Set from abort() (called on every generator by EditorResourcePreview::stop()
-	// during editor shutdown) so the worker-thread wait below can bail promptly
-	// instead of blocking on a main queue that will no longer flush.
+	// Set from abort() (called on every generator by EditorResourcePreview::stop(),
+	// on editor shutdown and on every reimport) so the worker-thread wait below
+	// can bail promptly instead of blocking on a main queue that will no longer
+	// flush. One-way: never cleared. That is safe only because the preview
+	// worker is never restarted after a stop() -- see the invariant note on
+	// abort() in the .cpp before adding a caller to EditorResourcePreview::start().
 	SafeFlag aborted;
 
 	// Turns an Image produced on a worker thread into a Texture2D. Texture
