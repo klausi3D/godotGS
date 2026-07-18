@@ -95,3 +95,12 @@ TEST_CASE("[GaussianSplatting] Painterly viewport copy handles downscale") {
 } // namespace TestGaussianSplatting
 
 #endif // TESTS_ENABLED
+
+// NOT force-linked (#178): this file's only TEST_CASE calls
+// GaussianSplatRenderer::test_override_rendering_device(), which is declared in
+// gaussian_splat_renderer.h but never defined anywhere in the codebase. Adding a
+// force_link anchor here (mirroring the other 11 previously-dropped files) turns
+// this into a hard LNK2019 unresolved-external build break rather than a
+// runtime test failure. Left unlinked and allow-listed in
+// check_test_linkage.py's KNOWN_UNLINKED until the missing method is
+// implemented (or the test is rewritten/removed); tracked in #631.

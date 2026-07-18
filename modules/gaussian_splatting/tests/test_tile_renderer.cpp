@@ -100,3 +100,11 @@ TEST_CASE("[TileRenderer] Compute raster shared-memory requirement equals expect
     CHECK(required_bytes == expected_bytes);
     CHECK(required_bytes == 40980u);
 }
+
+// Force-link anchor (#178): a doctest TEST_CASE registers via a file-scope static
+// initializer; MSVC drops this whole object from the module static library when
+// nothing references it, silently discarding the cases. test_gaussian_splatting.h
+// calls this symbol so the linker keeps the object and the cases actually run.
+extern "C" int test_tile_renderer_cpp_force_link() {
+    return 0;
+}

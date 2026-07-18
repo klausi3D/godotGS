@@ -75,6 +75,39 @@
 	static const volatile int test_gpu_streaming_cpp_force_link_anchor = test_gpu_streaming_cpp_force_link();
 	extern "C" int test_gaussian_streaming_lifecycle_cpp_force_link();
 	static const volatile int test_gaussian_streaming_lifecycle_cpp_force_link_anchor = test_gaussian_streaming_lifecycle_cpp_force_link();
+	// #178: standalone test .cpp objects (compiled separately into the module
+	// static lib) are silently linker-dropped by MSVC unless a symbol they export
+	// is referenced. Each anchor below forces its object into the link so its
+	// TEST_CASE registrations actually run. The check_test_linkage.py CI guard
+	// fails if a test .cpp with TEST_CASEs lacks an anchor here (or an explicit
+	// KNOWN_UNLINKED allow-list entry). test_gpu_sorting.cpp is intentionally NOT
+	// anchored (structurally broken, tracked in #622) and is allow-listed instead.
+	// test_painterly_viewport_copy.cpp is likewise intentionally NOT anchored:
+	// force-linking it breaks the build with LNK2019 (its case calls
+	// GaussianSplatRenderer::test_override_rendering_device(), which is declared
+	// but never defined; tracked in #631) and is allow-listed instead.
+	extern "C" int test_asset_dependency_manager_cpp_force_link();
+	static const volatile int test_asset_dependency_manager_cpp_force_link_anchor = test_asset_dependency_manager_cpp_force_link();
+	extern "C" int test_gaussian_splatting_cpp_force_link();
+	static const volatile int test_gaussian_splatting_cpp_force_link_anchor = test_gaussian_splatting_cpp_force_link();
+	extern "C" int test_integration_cpp_force_link();
+	static const volatile int test_integration_cpp_force_link_anchor = test_integration_cpp_force_link();
+	extern "C" int test_lod_system_cpp_force_link();
+	static const volatile int test_lod_system_cpp_force_link_anchor = test_lod_system_cpp_force_link();
+	extern "C" int test_painterly_material_cpp_force_link();
+	static const volatile int test_painterly_material_cpp_force_link_anchor = test_painterly_material_cpp_force_link();
+	extern "C" int test_phase1_integration_cpp_force_link();
+	static const volatile int test_phase1_integration_cpp_force_link_anchor = test_phase1_integration_cpp_force_link();
+	extern "C" int test_tile_async_readback_freshness_cpp_force_link();
+	static const volatile int test_tile_async_readback_freshness_cpp_force_link_anchor = test_tile_async_readback_freshness_cpp_force_link();
+	extern "C" int test_tile_prefix_scan_renderer_limit_cpp_force_link();
+	static const volatile int test_tile_prefix_scan_renderer_limit_cpp_force_link_anchor = test_tile_prefix_scan_renderer_limit_cpp_force_link();
+	extern "C" int test_tile_prefix_scan_utils_cpp_force_link();
+	static const volatile int test_tile_prefix_scan_utils_cpp_force_link_anchor = test_tile_prefix_scan_utils_cpp_force_link();
+	extern "C" int test_tile_renderer_cpp_force_link();
+	static const volatile int test_tile_renderer_cpp_force_link_anchor = test_tile_renderer_cpp_force_link();
+	extern "C" int tile_renderer_regression_test_cpp_force_link();
+	static const volatile int tile_renderer_regression_test_cpp_force_link_anchor = tile_renderer_regression_test_cpp_force_link();
 
 namespace TestGaussianSplatting {
 
