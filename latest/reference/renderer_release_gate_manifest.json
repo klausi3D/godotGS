@@ -2,27 +2,55 @@
   "schema_version": 1,
   "policy_id": "renderer-public-alpha-release-gates",
   "status": "foundation",
-  "owner_issues": [350, 360],
+  "owner_issues": [
+    350,
+    360
+  ],
   "public_alpha_predicate": {
     "channel": "public-alpha",
-    "accepted_tag_patterns": ["v*-alpha*"],
-    "not_satisfied_by": ["nightly", "stable", "manual workflow intent", "advisory evidence"],
+    "accepted_tag_patterns": [
+      "v*-alpha*"
+    ],
+    "not_satisfied_by": [
+      "nightly",
+      "stable",
+      "manual workflow intent",
+      "advisory evidence"
+    ],
     "candidate_manifest_field": "release_channel=public-alpha",
     "disallow_path_filter_downgrade": true,
     "disallow_manual_downgrade": true,
     "disallow_missing_gpu_runner_downgrade": true,
     "disallow_open_world_advisory_only": true,
     "required_issue_query": {
-      "classification_labels_any": ["priority:P0", "priority:P1", "release blocker"],
-      "blocking_labels_any": ["priority:P0", "release blocker"],
-      "alpha_relevant_p1_labels_all": ["priority:P1", "alpha-relevant"],
-      "allowed_classifications": ["blocking", "accepted_alpha_limitation", "deferred"],
+      "classification_labels_any": [
+        "priority:P0",
+        "priority:P1",
+        "release blocker"
+      ],
+      "blocking_labels_any": [
+        "priority:P0",
+        "release blocker"
+      ],
+      "alpha_relevant_p1_labels_all": [
+        "priority:P1",
+        "alpha-relevant"
+      ],
+      "allowed_classifications": [
+        "blocking",
+        "accepted_alpha_limitation",
+        "deferred"
+      ],
       "accepted_limitation_requires_docs_path": true
     }
   },
   "public_alpha_issue_ledger": {
     "scope": "Every open priority:P0, priority:P1, or release blocker issue in the candidate issue snapshot must resolve to one public-alpha classification.",
-    "allowed_statuses": ["blocking", "accepted_alpha_limitation", "deferred"],
+    "allowed_statuses": [
+      "blocking",
+      "accepted_alpha_limitation",
+      "deferred"
+    ],
     "tracked_issues": [
       {
         "number": 351,
@@ -94,12 +122,167 @@
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
     "test_count": 116,
     "sha256": "de2b91114068b1902ffd10d75b56c25fe8f2742cf1bc0be5371e891fbe8b2dd9",
-    "deferred_tags_any": ["SceneTree", "Importer"],
-    "deferred_count": 29,
+    "deferred_tags_any": [
+      "Importer"
+    ],
+    "deferred_count": 10,
     "new_or_missing_test_policy": "fail-contract-check",
-    "closure_policy": "deferred RequiresGPU coverage blocks #350/#360 closure unless each remaining test has an explicit waiver below"
+    "closure_policy": "deferred RequiresGPU coverage blocks #350/#360 closure unless each remaining test has an explicit waiver below",
+    "deferred_test_names_any": [
+      "[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer hides node-local debug settings and restores them when the settings owner exits",
+      "[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer instance buffer drops hidden nodes",
+      "[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer preserves local painterly and color grading state",
+      "[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer full-fidelity override only follows attached assets",
+      "[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer ignores hidden full-fidelity assets",
+      "[GaussianSplatting][Node][SceneTree][RequiresGPU] Scene sphere effectors build per-instance selection masks",
+      "[GaussianSplatting][World][SceneTree][RequiresGPU] World submission renders through the resident instanced route without a streaming system",
+      "[GaussianSplatting][World][SceneTree][RequiresGPU] Resident rejection preserves resident diagnostics and skips streaming pivot",
+      "[GaussianSplatting][World][SceneTree][RequiresGPU] Explicit resident quantization rejection falls back to the legacy resident path"
+    ],
+    "deferral_model": "Deferred = (RequiresGPU tests tagged with any deferred_tags_any) UNION (RequiresGPU tests named in deferred_test_names_any). #329: [SceneTree] is no longer a deferred TAG -- that corpus runs in the NodeSceneTree/WorldSceneTree/SceneDirectorSceneTree batches; only the individually-broken cases listed above are still deferred."
   },
-  "deferred_requires_gpu_waivers": [],
+  "deferred_requires_gpu_waivers": [
+    {
+      "test_name": "[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer hides node-local debug settings and restores them when the settings owner exits",
+      "batch": "NodeSceneTree",
+      "exclude_pattern": "*Shared renderer hides node-local debug settings*",
+      "source_path": "modules/gaussian_splatting/tests/test_gaussian_splat_node.h",
+      "reason": "Executed for the first time under the #329 batches and FAILS: after the settings-owner node exits the tree the shared renderer still reports is_debug_show_density_heatmap()==true (test_gaussian_splat_node.h:1006 and :1012, CHECK_FALSE(true)). Real P2 property-gating defect, not a harness artifact.",
+      "risk": "medium",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
+      "owner": "klausi3D",
+      "expires_utc": "2026-10-31T00:00:00Z",
+      "mitigation": "Excluded from its GPU batch via BatchSpec.excludes; the other cases in the same batch still execute. tests/ci/test_gpu_harness_deferred_contract.py fails if this waiver is removed while the exclude remains (or vice versa).",
+      "docs_path": "docs/reference/renderer-release-gates.md",
+      "base_sha_proven_failing": "9161d92f349326e2004088638a5ab43eb4773123"
+    },
+    {
+      "test_name": "[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer instance buffer drops hidden nodes",
+      "batch": "NodeSceneTree",
+      "exclude_pattern": "*Shared renderer instance buffer drops hidden nodes*",
+      "source_path": "modules/gaussian_splatting/tests/test_gaussian_splat_node.h",
+      "reason": "Executed for the first time and FAILS: hidden nodes are not dropped from the shared renderer instance buffer.",
+      "risk": "medium",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
+      "owner": "klausi3D",
+      "expires_utc": "2026-10-31T00:00:00Z",
+      "mitigation": "Excluded from its GPU batch via BatchSpec.excludes; the other cases in the same batch still execute. tests/ci/test_gpu_harness_deferred_contract.py fails if this waiver is removed while the exclude remains (or vice versa).",
+      "docs_path": "docs/reference/renderer-release-gates.md",
+      "base_sha_proven_failing": "9161d92f349326e2004088638a5ab43eb4773123"
+    },
+    {
+      "test_name": "[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer preserves local painterly and color grading state",
+      "batch": "NodeSceneTree",
+      "exclude_pattern": "*Shared renderer preserves local painterly and color grading state*",
+      "source_path": "modules/gaussian_splatting/tests/test_gaussian_splat_node.h",
+      "reason": "Executed for the first time and FAILS: local painterly + colour-grading state is not preserved across shared-renderer ownership changes.",
+      "risk": "medium",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
+      "owner": "klausi3D",
+      "expires_utc": "2026-10-31T00:00:00Z",
+      "mitigation": "Excluded from its GPU batch via BatchSpec.excludes; the other cases in the same batch still execute. tests/ci/test_gpu_harness_deferred_contract.py fails if this waiver is removed while the exclude remains (or vice versa).",
+      "docs_path": "docs/reference/renderer-release-gates.md",
+      "base_sha_proven_failing": "9161d92f349326e2004088638a5ab43eb4773123"
+    },
+    {
+      "test_name": "[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer full-fidelity override only follows attached assets",
+      "batch": "NodeSceneTree",
+      "exclude_pattern": "*Shared renderer full-fidelity override only follows attached assets*",
+      "source_path": "modules/gaussian_splatting/tests/test_gaussian_splat_node.h",
+      "reason": "Executed for the first time and FAILS: the full-fidelity override follows unattached assets.",
+      "risk": "medium",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
+      "owner": "klausi3D",
+      "expires_utc": "2026-10-31T00:00:00Z",
+      "mitigation": "Excluded from its GPU batch via BatchSpec.excludes; the other cases in the same batch still execute. tests/ci/test_gpu_harness_deferred_contract.py fails if this waiver is removed while the exclude remains (or vice versa).",
+      "docs_path": "docs/reference/renderer-release-gates.md",
+      "base_sha_proven_failing": "9161d92f349326e2004088638a5ab43eb4773123"
+    },
+    {
+      "test_name": "[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer ignores hidden full-fidelity assets",
+      "batch": "NodeSceneTree",
+      "exclude_pattern": "*Shared renderer ignores hidden full-fidelity assets*",
+      "source_path": "modules/gaussian_splatting/tests/test_gaussian_splat_node.h",
+      "reason": "Executed for the first time and FAILS: hidden full-fidelity assets are not ignored.",
+      "risk": "medium",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
+      "owner": "klausi3D",
+      "expires_utc": "2026-10-31T00:00:00Z",
+      "mitigation": "Excluded from its GPU batch via BatchSpec.excludes; the other cases in the same batch still execute. tests/ci/test_gpu_harness_deferred_contract.py fails if this waiver is removed while the exclude remains (or vice versa).",
+      "docs_path": "docs/reference/renderer-release-gates.md",
+      "base_sha_proven_failing": "9161d92f349326e2004088638a5ab43eb4773123"
+    },
+    {
+      "test_name": "[GaussianSplatting][Node][SceneTree][RequiresGPU] Scene sphere effectors build per-instance selection masks",
+      "batch": "NodeSceneTree",
+      "exclude_pattern": "*Scene sphere effectors build per-instance selection masks*",
+      "source_path": "modules/gaussian_splatting/tests/test_gaussian_splat_node.h",
+      "reason": "CRASHES the whole batch process. REQUIRE(node_a_index >= 0) fails with -1, but this build is DOCTEST_CONFIG_NO_EXCEPTIONS (disable_exceptions=True, #656) so REQUIRE does not abort; the -1 is then used as an index -> 'FATAL: Index p_index = 4294967295 is out of bounds (count = 2)' and STATUS_STACK_BUFFER_OVERRUN (rc=0xC0000409). Must stay excluded until the index lookup is fixed, because one crash takes down every other case in the batch.",
+      "risk": "high",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
+      "owner": "klausi3D",
+      "expires_utc": "2026-10-31T00:00:00Z",
+      "mitigation": "Excluded from its GPU batch via BatchSpec.excludes; the other cases in the same batch still execute. tests/ci/test_gpu_harness_deferred_contract.py fails if this waiver is removed while the exclude remains (or vice versa).",
+      "docs_path": "docs/reference/renderer-release-gates.md",
+      "base_sha_proven_failing": "9161d92f349326e2004088638a5ab43eb4773123"
+    },
+    {
+      "test_name": "[GaussianSplatting][World][SceneTree][RequiresGPU] World submission renders through the resident instanced route without a streaming system",
+      "batch": "WorldSceneTree",
+      "exclude_pattern": "*World submission renders through the resident instanced route*",
+      "source_path": "modules/gaussian_splatting/tests/test_scene_director_submission_scaffolding.h",
+      "reason": "CRASHES: GPU sort sync-contract violation. 'device already submitted, call sync to wait until done', then a fault in GPUSortingPipeline::_capture_instance_count_sync -> RenderingDevice::buffer_get_data -> _flush_and_stall_for_all_frames -> RenderingDeviceDriverVulkan::command_timestamp_write.",
+      "risk": "high",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
+      "owner": "klausi3D",
+      "expires_utc": "2026-10-31T00:00:00Z",
+      "mitigation": "Excluded from its GPU batch via BatchSpec.excludes; the other cases in the same batch still execute. tests/ci/test_gpu_harness_deferred_contract.py fails if this waiver is removed while the exclude remains (or vice versa).",
+      "docs_path": "docs/reference/renderer-release-gates.md",
+      "base_sha_proven_failing": "9161d92f349326e2004088638a5ab43eb4773123"
+    },
+    {
+      "test_name": "[GaussianSplatting][World][SceneTree][RequiresGPU] Resident rejection preserves resident diagnostics and skips streaming pivot",
+      "batch": "WorldSceneTree",
+      "exclude_pattern": "*Resident rejection preserves resident diagnostics*",
+      "source_path": "modules/gaussian_splatting/tests/test_scene_director_submission_scaffolding.h",
+      "reason": "CRASHES with the same GPU sort sync-contract signature as the resident-instanced-route case above (shared resident submission path).",
+      "risk": "high",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
+      "owner": "klausi3D",
+      "expires_utc": "2026-10-31T00:00:00Z",
+      "mitigation": "Excluded from its GPU batch via BatchSpec.excludes; the other cases in the same batch still execute. tests/ci/test_gpu_harness_deferred_contract.py fails if this waiver is removed while the exclude remains (or vice versa).",
+      "docs_path": "docs/reference/renderer-release-gates.md",
+      "base_sha_proven_failing": "9161d92f349326e2004088638a5ab43eb4773123"
+    },
+    {
+      "test_name": "[GaussianSplatting][World][SceneTree][RequiresGPU] Explicit resident quantization rejection falls back to the legacy resident path",
+      "batch": "WorldSceneTree",
+      "exclude_pattern": "*Explicit resident quantization rejection falls back*",
+      "source_path": "modules/gaussian_splatting/tests/test_scene_director_submission_scaffolding.h",
+      "reason": "CRASHES with VK_ERROR_DEVICE_LOST: RenderingDeviceDriverVulkan::on_device_lost via print_lost_device_info during command_queue_execute_and_present, surfacing at device finalize. A real GPU fault on the resident quantization-rejection path.",
+      "risk": "high",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
+      "owner": "klausi3D",
+      "expires_utc": "2026-10-31T00:00:00Z",
+      "mitigation": "Excluded from its GPU batch via BatchSpec.excludes; the other cases in the same batch still execute. tests/ci/test_gpu_harness_deferred_contract.py fails if this waiver is removed while the exclude remains (or vice versa).",
+      "docs_path": "docs/reference/renderer-release-gates.md",
+      "base_sha_proven_failing": "9161d92f349326e2004088638a5ab43eb4773123"
+    },
+    {
+      "test_name": "[GaussianSplatting][Importer][RequiresGPU] GaussianSplatAsset loads legacy ImageTexture thumbnails",
+      "batch": null,
+      "exclude_pattern": null,
+      "source_path": "modules/gaussian_splatting/tests/test_gaussian_importer.h",
+      "reason": "The [Importer] family needs full ResourceLoader/ResourceSaver setup including type registration for GaussianSplatAsset preview I/O; the harness's offscreen RD bootstrap is deliberately lighter weight and faults inside the resource roundtrip. Deferred by TAG (deferred_tags_any), not by name: no [Importer] GPU case runs here yet.",
+      "risk": "low",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
+      "owner": "klausi3D",
+      "expires_utc": "2026-10-31T00:00:00Z",
+      "mitigation": "Excluded by the runner's default --test-case-exclude=*[Importer]* injection.",
+      "docs_path": "docs/reference/renderer-release-gates.md",
+      "base_sha_proven_failing": "9161d92f349326e2004088638a5ab43eb4773123"
+    }
+  ],
   "gpu_harness_policy": {
     "script": "tests/ci/run_gpu_harness.py",
     "blocking_profile": "renderer-release-foundation",
@@ -110,7 +293,9 @@
         "allow_skips": false,
         "allow_timeout": false,
         "allow_rid_leaks": false,
-        "reference_artifacts": ["tests/visual_baselines/composite_hazard_256x256.png"]
+        "reference_artifacts": [
+          "tests/visual_baselines/composite_hazard_256x256.png"
+        ]
       },
       {
         "name": "RendererPipeline",
@@ -173,17 +358,27 @@
       {
         "file": ".github/workflows/gaussian_production_gates.yml",
         "required_for_public_alpha": true,
-        "required_jobs": ["guards", "module-validation"]
+        "required_jobs": [
+          "guards",
+          "module-validation"
+        ]
       },
       {
         "file": ".github/workflows/baseline_qa.yml",
         "required_for_public_alpha": true,
-        "required_jobs": ["Run GPU harness"]
+        "required_jobs": [
+          "Run GPU harness"
+        ]
       },
       {
         "file": ".github/workflows/release_builds.yml",
         "required_for_public_alpha": true,
-        "required_jobs": ["build_linux", "build_windows", "release_candidate_gate", "publish_release"]
+        "required_jobs": [
+          "build_linux",
+          "build_windows",
+          "release_candidate_gate",
+          "publish_release"
+        ]
       }
     ],
     "open_world_proof": {
@@ -252,7 +447,12 @@
       "known_limitations_page",
       "open_world_proof"
     ],
-    "each_artifact_requires": ["path", "sha256", "godot_binary_commit", "godot_binary_mtime_utc"]
+    "each_artifact_requires": [
+      "path",
+      "sha256",
+      "godot_binary_commit",
+      "godot_binary_mtime_utc"
+    ]
   },
   "lifetime_accounting_proof": {
     "stdout_marker": "[GS-LIFETIME] ",
@@ -280,12 +480,19 @@
     },
     "test_binary_lane": "GaussianSplatting [Lifetime]",
     "gpu_harness_batch": "Lifetime",
-    "advisory_fields": ["stringname_orphan_delta"],
+    "advisory_fields": [
+      "stringname_orphan_delta"
+    ],
     "advisory_sentinel_value": -1,
     "advisory_fields_strict_for": {
-      "stringname_orphans": ["stringname_orphan_delta"]
+      "stringname_orphans": [
+        "stringname_orphan_delta"
+      ]
     },
-    "source_prs": [386, 389],
+    "source_prs": [
+      386,
+      389
+    ],
     "owner_issue": 352
   },
   "references": [
@@ -295,5 +502,103 @@
     "docs/assets/data/benchmark_latest.json",
     "tests/visual_baselines/README.md",
     "tests/runtime/runtime_scenarios.json"
-  ]
+  ],
+  "unbatched_requires_gpu_backlog": {
+    "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
+    "recorded_utc": "2026-07-18T00:00:00Z",
+    "recorded_at_commit": "9161d92f349326e2004088638a5ab43eb4773123",
+    "status": "untriaged",
+    "note": "[RequiresGPU] test cases that match NO named batch in tests/ci/run_gpu_harness.py and therefore execute nowhere. These are NOT waivers: unlike deferred_requires_gpu_waivers (each proven failing, with an owner and an expiry) these cases have simply never been run, so nothing is known about them. Discovered while landing #329, which addressed only the 28 [SceneTree] cases; measuring the whole corpus with correct doctest semantics showed the gap is larger. Recorded explicitly so it is counted and cannot grow silently: tests/ci/test_gpu_harness_deferred_contract.py fails on any orphan NOT listed here, so this list is a ratchet that may only shrink.",
+    "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
+    "coverage_snapshot": {
+      "requires_gpu_total": 116,
+      "running_in_a_named_batch": 36,
+      "deferred_with_waiver": 10,
+      "unbatched_backlog": 70
+    },
+    "by_source_file": {
+      "modules/gaussian_splatting/tests/test_gpu_buffer_manager_lifetime.h": 2,
+      "modules/gaussian_splatting/tests/test_gpu_sorting.cpp": 8,
+      "modules/gaussian_splatting/tests/test_gpu_sorting.h": 4,
+      "modules/gaussian_splatting/tests/test_gpu_streaming.h": 3,
+      "modules/gaussian_splatting/tests/test_memory_leak_detection.h": 3,
+      "modules/gaussian_splatting/tests/test_output_compositor_composite_hazard.h": 2,
+      "modules/gaussian_splatting/tests/test_phase1_integration.h": 1,
+      "modules/gaussian_splatting/tests/test_render_device_manager_ownership.h": 7,
+      "modules/gaussian_splatting/tests/test_render_validation.h": 1,
+      "modules/gaussian_splatting/tests/test_renderer_pipeline.h": 39
+    },
+    "test_names": [
+      "[GaussianSplatting][RequiresGPU] AUTO policy decision matrix",
+      "[GaussianSplatting][RequiresGPU] Bitonic sort - non-power-of-two",
+      "[GaussianSplatting][RequiresGPU] Bitonic sort correctness - small arrays",
+      "[GaussianSplatting][RequiresGPU] Bitonic sort performance",
+      "[GaussianSplatting][RequiresGPU] CPU fallback publishes unsorted cull order when positions are unavailable and strict sort is disabled",
+      "[GaussianSplatting][RequiresGPU] Cached render reuse requires cached depth when depth validation is requested",
+      "[GaussianSplatting][RequiresGPU] Camera-stable global fallback publishes current cull order when strict sort is disabled",
+      "[GaussianSplatting][RequiresGPU] Camera-stable instance path never publishes identity fallback",
+      "[GaussianSplatting][RequiresGPU] Clearing a resident instance contract frees tracked resident atlas buffers",
+      "[GaussianSplatting][RequiresGPU] Debug projection output matches golden gradient",
+      "[GaussianSplatting][RequiresGPU] Direct gaussian data publishes a resident atlas-shaped instance contract without a streaming system",
+      "[GaussianSplatting][RequiresGPU] Dynamic handle warmup publishes explicit streaming-not-ready skips",
+      "[GaussianSplatting][RequiresGPU] Fallback reason telemetry",
+      "[GaussianSplatting][RequiresGPU] Final output copies between targets",
+      "[GaussianSplatting][RequiresGPU] GPU Bitonic Sorting",
+      "[GaussianSplatting][RequiresGPU] GPU Memory Streaming",
+      "[GaussianSplatting][RequiresGPU] GPU Memory Streaming Performance",
+      "[GaussianSplatting][RequiresGPU] GPU Sorting Performance",
+      "[GaussianSplatting][RequiresGPU] GPU memory leak detection",
+      "[GaussianSplatting][RequiresGPU] GPU memory leak detection with renderer lifecycle",
+      "[GaussianSplatting][RequiresGPU] GPUBufferManager allocate_gaussian_buffer flag gates the dead buffer + memory",
+      "[GaussianSplatting][RequiresGPU] GPUBufferManager cleanup frees partial allocations before buffers_created",
+      "[GaussianSplatting][RequiresGPU] Global CPU cull telemetry ignores missing registered legacy buffer state",
+      "[GaussianSplatting][RequiresGPU] Global CPU cull telemetry overrides retired legacy disabled route state",
+      "[GaussianSplatting][RequiresGPU] Instance buffer upload keeps low-32-bit-colliding submission ids on distinct dense slots",
+      "[GaussianSplatting][RequiresGPU] Instance buffer upload uses the published renderer-side remap",
+      "[GaussianSplatting][RequiresGPU] Instance cull failures that fall through to global CPU publish global CPU routes",
+      "[GaussianSplatting][RequiresGPU] Instance cull failures without fallback preserve explicit no-data skip routes",
+      "[GaussianSplatting][RequiresGPU] Instanced render skips callbacks when readiness preconditions fail",
+      "[GaussianSplatting][RequiresGPU] Large array stress test",
+      "[GaussianSplatting][RequiresGPU] Memory validator reset clears all tracked state",
+      "[GaussianSplatting][RequiresGPU] Missing renderer data publishes an explicit streaming-not-ready skip",
+      "[GaussianSplatting][RequiresGPU] Modular sorter factory",
+      "[GaussianSplatting][RequiresGPU] OutputCompositor scratch resources return owned tracking to baseline across repeated shutdown",
+      "[GaussianSplatting][RequiresGPU] OutputCompositor untracked cleanup skips stale resources",
+      "[GaussianSplatting][RequiresGPU] Phase 1 Integration - Basic Components",
+      "[GaussianSplatting][RequiresGPU] Production metrics contract and perf gate reporting",
+      "[GaussianSplatting][RequiresGPU] Production metrics validation marks diagnostics-disabled mode",
+      "[GaussianSplatting][RequiresGPU] Radix sort 8-bit is correct at all workgroup sizes",
+      "[GaussianSplatting][RequiresGPU] Radix sort factory honors 32-bit key layout",
+      "[GaussianSplatting][RequiresGPU] Raster path eligibility follows viewport output format",
+      "[GaussianSplatting][RequiresGPU] Render-thread blocking dispatch only advances completion state on success",
+      "[GaussianSplatting][RequiresGPU] Render-thread blocking dispatch preserves forward progress after timeout escape",
+      "[GaussianSplatting][RequiresGPU] Render-thread blocking dispatch times out when callback never signals completion",
+      "[GaussianSplatting][RequiresGPU] Render-thread dispatch path probe stays true through a wait-for-completion timeout",
+      "[GaussianSplatting][RequiresGPU] Render-thread dispatch teardown remains bounded after timeout recovery",
+      "[GaussianSplatting][RequiresGPU] RenderDeviceManager blocks untracked free path",
+      "[GaussianSplatting][RequiresGPU] RenderDeviceManager diagnostics use stable device instance IDs",
+      "[GaussianSplatting][RequiresGPU] RenderDeviceManager exposes owned and borrowed resource counts",
+      "[GaussianSplatting][RequiresGPU] RenderDeviceManager frees tracked auto-free resource via free_owned_resource",
+      "[GaussianSplatting][RequiresGPU] RenderDeviceManager keeps owned RID semantics across passive re-track",
+      "[GaussianSplatting][RequiresGPU] RenderDeviceManager rejects foreign re-track for typed RID",
+      "[GaussianSplatting][RequiresGPU] RenderDeviceManager shutdown clears stale ownership state",
+      "[GaussianSplatting][RequiresGPU] RenderSceneInstance supports forced CPU sorting",
+      "[GaussianSplatting][RequiresGPU] Renderer teardown reaches zero owned GPU resources before device manager shutdown",
+      "[GaussianSplatting][RequiresGPU] Resident-selected failure does not pivot into streaming",
+      "[GaussianSplatting][RequiresGPU] Scene composite depth-test preserves the pipeline target when viewport scaling is active",
+      "[GaussianSplatting][RequiresGPU] Scene composite depth-test targets the presented viewport texture when scaling is disabled",
+      "[GaussianSplatting][RequiresGPU] Scene composite keeps strict depth policy when cached depth is missing",
+      "[GaussianSplatting][RequiresGPU] Stage results report streaming not-ready instead of painterly fallback",
+      "[GaussianSplatting][RequiresGPU] Stage-B instance depth culling toggles",
+      "[GaussianSplatting][RequiresGPU] Static layout fallback publishes typed validator-aligned diagnostics",
+      "[GaussianSplatting][RequiresGPU] Streaming indices validate against buffer capacity",
+      "[GaussianSplatting][RequiresGPU] Strict global sort forces a real CPU sort when the camera-stable fallback buffer is missing",
+      "[GaussianSplatting][RequiresGPU] Strict global sort refuses unsorted CPU fallback when positions are unavailable",
+      "[GaussianSplatting][RequiresGPU] Synchronous compute pipeline",
+      "[GaussianSplatting][RequiresGPU] Tile renderer composites into viewport render buffers",
+      "[GaussianSplatting][RequiresGPU] Upload processing rescues stranded async pack work",
+      "[GaussianSplatting][RequiresGPU] World static chunks keep streaming instance buffers ready without SceneDirector instances",
+      "[GaussianSplatting][RequiresGPU] World-backed RenderSceneInstance drives GPU streaming + sorting"
+    ]
+  }
 }
