@@ -395,24 +395,53 @@ TEST_CASE("[GaussianSplatting][SceneDirector][Lifetime] DeferredRendererWork ord
 	}
 
 	{
-		// REJECT PATH. Phase 1 may queue an apply of the PREVIOUS record (when it
-		// lazily creates the renderer); phase 3's rejection then queues the rollback
-		// behind it. cancel() is deliberately NOT called on this path, so both
-		// entries survive — and the rollback must dispatch LAST, or the stale apply
-		// would be the final word and a rejected submission would leave its own
-		// contract installed on the renderer.
+		// REJECT PATH ordering. Phase 1 may queue an apply of the PREVIOUS record P
+		// (when it lazily creates the renderer); phase 3's rejection then adds the
+		// rollback. cancel() is deliberately NOT called on this path, so both
+		// entries survive — and the ROLLBACK MUST RUN FIRST, leaving apply(P) as the
+		// last writer.
+		//
+		// This is the opposite of what an earlier draft of this test asserted, and
+		// the correction came from review (Codex on #674) rather than from any lane
+		// here. The reasoning: a rejection leaves the director's record at P, so the
+		// renderer must end up holding P's contract or the two diverge. The
+		// rollback's snapshot was taken from the still-blank renderer BEFORE the
+		// queued apply(P) ran, so if the rollback went last it would undo P and
+		// leave the renderer cleared under a live record. The pre-#611 code restored
+		// inline and flushed apply(P) afterwards; queue_restore_first reproduces
+		// exactly that order.
 		GaussianSplatSceneDirector::DeferredRendererWork work;
 		work.queue_apply(renderer, GaussianSplatRenderer::WorldSubmissionContract());
-		work.queue_restore(renderer, cleared);
+		work.queue_restore_first(renderer, cleared);
 		CHECK(work.size() == 2u);
-		CHECK(work.get_entry_kind(0) == GaussianSplatSceneDirector::DeferredRendererWork::Kind::APPLY);
-		// The load-bearing assertion: rollback after the stale apply, not before.
-		CHECK(work.get_entry_kind(1) == GaussianSplatSceneDirector::DeferredRendererWork::Kind::RESTORE);
+		// The load-bearing assertion: rollback BEFORE the stale apply, so apply(P)
+		// is the final word.
+		CHECK(work.get_entry_kind(0) == GaussianSplatSceneDirector::DeferredRendererWork::Kind::RESTORE);
+		CHECK(work.get_entry_kind(1) == GaussianSplatSceneDirector::DeferredRendererWork::Kind::APPLY);
 
 		work.flush();
 		// Neither entry may be dropped: the reject path's correctness is that BOTH
 		// run, in this order.
 		CHECK(work.get_dispatched_entry_count() == 2u);
+		CHECK(work.is_empty());
+	}
+
+	{
+		// With nothing already queued, queue_restore_first must degenerate to a
+		// plain append — otherwise the common rejection (renderer already existed,
+		// so phase 1 queued no apply) would depend on which entry point was used.
+		GaussianSplatSceneDirector::DeferredRendererWork work;
+		work.queue_restore_first(renderer, cleared);
+		CHECK(work.size() == 1u);
+		CHECK(work.get_entry_kind(0) == GaussianSplatSceneDirector::DeferredRendererWork::Kind::RESTORE);
+		work.flush();
+		CHECK(work.get_dispatched_entry_count() == 1u);
+	}
+
+	{
+		// A null renderer must not queue a dangling entry, matching the other kinds.
+		GaussianSplatSceneDirector::DeferredRendererWork work;
+		work.queue_restore_first(Ref<GaussianSplatRenderer>(), cleared);
 		CHECK(work.is_empty());
 	}
 

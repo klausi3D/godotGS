@@ -364,6 +364,28 @@ void GaussianSplatSceneDirector::DeferredRendererWork::queue_restore(const Ref<G
 	entries.push_back(entry);
 }
 
+void GaussianSplatSceneDirector::DeferredRendererWork::queue_restore_first(const Ref<GaussianSplatRenderer> &p_renderer,
+		const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_snapshot) {
+	if (p_renderer.is_null()) {
+		return;
+	}
+	Entry entry;
+	entry.renderer = p_renderer;
+	entry.restore_state = p_snapshot;
+	entry.kind = Kind::RESTORE;
+	// Front-insert: see the contract in the header. The rollback has to precede a
+	// stale apply queued by _get_or_create_world_for_scenario, or that apply would
+	// be undone and the renderer left cleared while the director still holds the
+	// previous record. LocalVector has no insert-at-front and the queue is at most
+	// a couple of entries deep, so rebuild it -- same shape as queue_initialize.
+	LocalVector<Entry> reordered;
+	reordered.push_back(entry);
+	for (Entry &existing : entries) {
+		reordered.push_back(existing);
+	}
+	entries = std::move(reordered);
+}
+
 void GaussianSplatSceneDirector::DeferredRendererWork::queue_initialize(const Ref<GaussianSplatRenderer> &p_renderer) {
 	if (p_renderer.is_null()) {
 		return;
@@ -2508,16 +2530,26 @@ bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &
 		} else {
 			// Rollback + reject. Queued rather than dispatched inline, because a
 			// restore's result is discarded and the queue flushes with the lock
-			// released. The stale apply that phase 1 may have queued stays in place
-			// ahead of it, so the flush order is (stale apply, rollback) and the
-			// rollback wins — which is the correct final state for a rejection.
+			// released.
+			//
+			// ORDER — front-inserted, and this is load-bearing. A rejection leaves
+			// the director's previous record P active, so the renderer must end up
+			// holding P's contract or the two diverge. When phase 1 lazily created
+			// this renderer it queued an apply of P, and
+			// `target_previous_renderer_state` was snapshotted from the still-blank
+			// renderer BEFORE that apply ran. The pre-#611 code restored inline and
+			// let the queued apply(P) flush afterwards, making P the last writer.
+			// Appending here would invert that — (apply(P), restore(blank)) — and
+			// leave the renderer cleared under a live record. Front-insertion
+			// reproduces the original ordering exactly, and degenerates to a plain
+			// append when nothing else is queued.
 			//
 			// `target_renderer` is the renderer phase 2 actually mutated. On an R2
 			// failure that is no longer the world's renderer, and restoring it — not
 			// the new one — is precisely right: we undo what we did, and leave what
 			// we never touched alone.
 			if (target_renderer.is_valid()) {
-				deferred_renderer_work.queue_restore(target_renderer, target_previous_renderer_state);
+				deferred_renderer_work.queue_restore_first(target_renderer, target_previous_renderer_state);
 			}
 		}
 	}

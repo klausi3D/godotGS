@@ -518,6 +518,38 @@ public:
                 const GaussianSplatRenderer::WorldSubmissionContract &p_contract);
         void queue_restore(const Ref<GaussianSplatRenderer> &p_renderer,
                 const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_snapshot);
+        // #611 PR B2: a restore that must run BEFORE anything already queued.
+        //
+        // This exists for exactly one caller: `submit_world_submission`'s
+        // rollback, and it is a behavioural requirement rather than a
+        // preference.
+        //
+        // When phase 1 lazily creates a renderer for a world that already has an
+        // active record P, `_get_or_create_world_for_scenario` queues an apply of
+        // P, and `target_previous_renderer_state` is snapshotted from the
+        // still-blank renderer BEFORE that apply runs. The pre-#611 code then
+        // restored INLINE and let the queued apply(P) flush afterwards, so P was
+        // the last writer and the renderer ended up holding P's contract --
+        // matching the director's record, which a rejection leaves at P.
+        //
+        // Appending the rollback instead inverts that: the flush order becomes
+        // (apply(P), restore(blank)) and the blank snapshot wins, leaving the
+        // renderer cleared while the director still considers P active. That is a
+        // real divergence, not a cosmetic one, and it is the third ordering
+        // defect this restructure has produced -- the queue and an inline call
+        // racing to be last writer.
+        //
+        // Front-insertion restores the original ordering in every case: with a
+        // queued apply present the sequence is (restore, apply(P)) as before, and
+        // with an empty queue it degenerates to the plain append.
+        //
+        // NOT safe to front-insert ahead of an INITIALIZE entry (GPU bring-up must
+        // precede any contract work). That cannot arise here: INITIALIZE is queued
+        // only by `_initialize_world_renderer`, whose sole caller is
+        // `register_instance`, never `submit_world_submission`. If that ever
+        // changes, this must insert after the leading INITIALIZE entries instead.
+        void queue_restore_first(const Ref<GaussianSplatRenderer> &p_renderer,
+                const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_snapshot);
         // #611 PR B1: defer `GaussianSplatRenderer::initialize()`.
         //
         // ORDERING — this inserts at the FRONT of the queue, and that is
