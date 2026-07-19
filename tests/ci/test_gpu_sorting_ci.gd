@@ -281,11 +281,29 @@ func test_dataset_sorting(count: int, size_label: String) -> Dictionary:
 		result.details = "Skipped %s dataset sorting test (no GPU context)" % size_label
 		return result
 
+	# See #647: a local RenderingDevice is a plain Object, not RefCounted, and it
+	# owns a live VkDevice created from the shared VkInstance. Dropping the
+	# reference leaks it — ObjectDB::cleanup() only warns, it never deletes — so
+	# the VkDevice is still alive when DisplayServerWindows' destructor reaches
+	# vkDestroyInstance, which is undefined behaviour and access-violates on some
+	# drivers. Always free it on every exit path.
+	_free_local_rendering_device(rd)
+
 	result.skipped = true
 	result.error = "Dataset sorting is validated in native tests"
 	result.details = "Skipped %s dataset sorting (renderer constructor requires native setup)" % size_label
 	test_results.performance_metrics["dataset_sorting_native_only"] = true
 	return result
+
+## Frees a local RenderingDevice obtained from
+## RenderingServer.create_local_rendering_device().
+##
+## RenderingDevice derives from Object (servers/rendering/rendering_device.h:60 ->
+## RenderingDeviceCommons -> Object), so GDScript does NOT refcount it and the
+## caller owns it. See #647 for the shutdown access violation this prevents.
+func _free_local_rendering_device(rd) -> void:
+	if rd != null and is_instance_valid(rd):
+		rd.free()
 
 ## Returns expected maximum sort time thresholds for CI.
 func get_expected_max_time(count: int) -> float:
@@ -312,10 +330,15 @@ func test_radix_sorter() -> Dictionary:
 	var sorter = RadixSort.new()
 	if sorter == null:
 		result.error = "Failed to create RadixSort instance"
+		_free_local_rendering_device(rd)
 		return result
 
 	# Check algorithm name if exposed
 	var algo_name = sorter.get_algorithm_name() if sorter.has_method("get_algorithm_name") else "RadixSort"
+
+	# RadixSort is RefCounted (gpu_sorter.h:153) and drops with `sorter`, but the
+	# local RenderingDevice is not — free it explicitly. See #647.
+	_free_local_rendering_device(rd)
 
 	result.success = true
 	result.details = "RadixSort class instantiated successfully (algorithm: %s)" % algo_name
