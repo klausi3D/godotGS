@@ -214,10 +214,20 @@ BATCHES: tuple[BatchSpec, ...] = (
     BatchSpec("WorldSceneTree", ("*[World][SceneTree][RequiresGPU]*",), excludes=(
             # Behaviour failure (NOT a crash since #685): runs to completion and
             # fails 2 of 15 assertions -- has_rendered_content() == false and
-            # get_visible_splat_count() == 0 on the resident quantization-rejection
-            # path. The VK_ERROR_DEVICE_LOST this was originally waived for was the
-            # local-device submission-balance defect, not a quantization fault; see
-            # the waiver's RE-TRIAGE note in
+            # get_visible_splat_count() == 0. The VK_ERROR_DEVICE_LOST this was
+            # originally waived for was the local-device submission-balance defect,
+            # not a quantization fault.
+            #
+            # Triaged 2026-07-19 on f232f68c630: this is a TEST BUG, not a
+            # quantization defect. The case renders into an empty render target
+            # (render_data.render_buffers = Ref<RenderSceneBuffersRD>()), so the
+            # output compositor never publishes a final texture and
+            # has_rendered_content() cannot be true for ANY configuration --
+            # verified by six instrumented variants (quantization on/off, splats
+            # in/out of frustum, 1 vs 16 frames), all of which report visible=0.
+            # The other 13 assertions -- the ones that actually cover the quantized
+            # resident publish contract -- pass. Full evidence and the recommended
+            # disposition are in the waiver entry in
             # docs/reference/renderer_release_gate_manifest.json.
             #
             # The two resident-route cases that used to sit here were excluded for
