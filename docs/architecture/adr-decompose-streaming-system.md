@@ -387,7 +387,9 @@ contract; §6's invariant list is what a slice is graded against.
 | --- | --- | --- |
 | **`[SERIALIZED]`** | Mutates render-facing state (`chunks`, budget/ledger, `atlas_allocator`, `persistent_buffer`, `asset_registry`). Callable from any thread, but **never concurrently with another `[SERIALIZED]` call on the same instance**. The caller (orchestrator or script) provides the serialization. | Debug **single-active-caller token** (§3c) — *not* a thread-identity assert. |
 | **`[SNAPSHOT-SAFE]`** | Runs on a pack worker. Touches only a value snapshot handed to it; mutates no owner state. | Existing `pack_mutex` queue boundary; reviewed as "takes no `system` reference". |
-| **`[READ-ONLY]`** | Diagnostics/getters. Safe to call concurrently with other `[READ-ONLY]` calls; may observe a torn view if raced against a `[SERIALIZED]` call. | Returns a `BudgetSnapshot`/value copy once §2a lands; documented as advisory. |
+| **`[READ-ONLY]`** | Diagnostics/getters. Safe to call concurrently with other `[READ-ONLY]` calls. Raced against a `[SERIALIZED]` call the consequence **differs by return type** — see the two sub-classes below; this distinction is load-bearing and was previously collapsed into "may observe a torn view". | Scalars: advisory, documented. `Dictionary` returns: **unresolved — see D-READONLY.** |
+| &nbsp;&nbsp;↳ **scalar counters** | `get_vram_usage` (bound `gaussian_streaming.cpp:509`) → `_get_total_vram_usage_bytes` (`:2703`) reads `persistent_buffer_size` (`:2718`) and `budget.vram_usage` (`:2719`); `get_vram_debug_stats` (bound `:524`). Both are plain non-atomic members (`streaming_runtime_state.h:21`, `gaussian_streaming.h:91`) written by `[SERIALIZED]` paths at `gaussian_streaming.cpp:3811-3812` and `:3873-3877`. Racing yields a **stale or torn scalar**. | Advisory; acceptable. Returns a `BudgetSnapshot`/value copy once §2a lands. |
+| &nbsp;&nbsp;↳ **`analytics_snapshot` (`Dictionary`)** | `get_streaming_analytics` (bound `:514`) returns `analytics_snapshot` (`streaming_diagnostics_surface.cpp:829-831`; member at `gaussian_streaming.h:168`). `end_frame` **reassigns that same `Dictionary`** (`streaming_diagnostics_surface.cpp:106+`). Copying a `Dictionary` refs a `SafeRefCount` through a **non-atomic `_p` pointer** (`core/variant/dictionary.cpp:43-44`, ref `:287`, unref/free `:345`) while the writer swaps it. That is **potential use-after-free, not a stale read** — and "return a value copy" does *not* fix it, because the copy is itself the racing operation. | **Open — D-READONLY.** |
 
 Assignment of the current public surface:
 
@@ -399,6 +401,8 @@ Assignment of the current public surface:
 | `request_chunk_residency` / `request_asset_residency` (`:218-219`) | `[SERIALIZED]` | Valid only *inside* an open begin/finalize bracket. |
 | `initialize` / `initialize_empty` / `attach_memory_stream` | `[SERIALIZED]` | Additionally: must not run concurrently with any other call on the instance. |
 | `set_chunk_payload_source` / `detach_source_data` | `[SERIALIZED]` | Mutates `asset_registry`. |
+| `begin_frame` / `end_frame` (bound at `gaussian_streaming.cpp:507-508`) | `[SERIALIZED]` | Bound, and render-facing. `begin_frame` (`:3888-3899`) advances `current_frame_idx`, bumps `total_frame_count`, clears `frame.visible_chunks`, and calls `_reset_per_frame_counters()` (`:3893`) + `_process_upload_retirements()` (`:3895`). `end_frame` writes `analytics_snapshot` (`streaming_diagnostics_surface.cpp:102-106+`), reading `budget.vram_usage` (`:108`) and `persistent_buffer_size` (`:118`). Driven from **both** paths, exactly like `update_streaming`: render (`render_streaming_orchestrator.cpp:1612` begin / `:1587` end) and headless `tick_streaming_only` (`:2372` begin / `:2386`,`:2409` end). |
+| `initialize_with_device`, `update_primary_asset_data`, `set_config_overrides`, `set_io_chunk_layout_hints`, `set_primary_chunk_layout` (`gaussian_streaming.h:201-208`) | `[SERIALIZED]` | **Public but *not* `ClassDB`-bound** — reachable only from C++, but the renderer drives them: `render_streaming_orchestrator.cpp:929` (`set_config_overrides`), `:938` (`initialize_with_device`), `:1285`/`:1311` (`set_primary_chunk_layout`), `:1348` (`set_io_chunk_layout_hints`). They mutate the same `chunks`/budget/`atlas_allocator`/`asset_registry` state as the bound surface: `update_primary_asset_data` (`gaussian_streaming.cpp:964-982`) calls `atlas_allocator.release_slot(...)` (`:968`), decrements `budget.loaded_chunks_count` (`:973`), subtracts from `vram_usage` (`:977`) and adds to `evicted_bytes_total` (`:978`). It is reached transitively via `set_primary_chunk_layout` → `:1097`, not called directly by the orchestrator. Note it is one of §1b's four release loops, so under S1 it becomes an `on_chunk_released` caller — and therefore also a §3c re-entrancy site. |
 | `pack_thread_func` / `build_pending_upload_from_pack_job` (`streaming_upload_pipeline.cpp:427`) | `[SNAPSHOT-SAFE]` | Consumes a self-contained `PackJob` (`streaming_upload_pipeline.h:35-47`); the `&system` it is handed is nominal and must be removed by S2. |
 | `get_vram_*`, `get_streaming_analytics`, `get_*_debug_stats`, `has_asset`, `get_visible_count` | `[READ-ONLY]` | Bound to script; must stay callable from the main thread. |
 
@@ -415,12 +419,37 @@ concurrency detector** that encodes serialization without constraining identity:
 // DEV_ENABLED only; zero cost in release.
 class SerializedAccessToken {          // member of ChunkResidencyLedger (§2a)
     std::atomic<uint64_t> active_caller{0};   // Thread::get_caller_id() of the in-flight call
-    // enter(): CAS 0 -> caller_id. If the CAS fails and the holder is a DIFFERENT
-    //          thread  -> ERR: "concurrent [SERIALIZED] access".
-    //          If the holder is the SAME thread -> ERR: "re-entrant [SERIALIZED] access".
-    // exit():  store 0.
+    uint32_t depth = 0;                       // re-entrancy depth for the HOLDING thread only
+    // enter(): CAS 0 -> caller_id. If the CAS succeeds, depth = 1.
+    //          If the CAS fails and the holder is a DIFFERENT thread
+    //                  -> ERR: "concurrent [SERIALIZED] access".
+    //          If the CAS fails and the holder is the SAME thread
+    //                  -> ++depth (legal nesting; see below). NOT an error.
+    // exit():  if (--depth == 0) store 0.
 };
 ```
+
+**Same-thread nesting is legal and must not be reported.** An earlier revision of this
+section made same-thread re-entry an error. That was wrong: composed with §3d's rule that
+*every mutating ledger method scopes the token*, it would fire on the **normal** path, not
+on a violation. One `update_streaming` call (`gaussian_streaming.cpp:2459`) reaches both
+ledger folds through `_run_streaming_frame_pipeline` (`:2539`):
+
+- **release side** — `_evict_for_vram_budget` (`:2586`) → `eviction_controller.evict_*` →
+  `system._unload_chunk` (`streaming_eviction_controller.cpp:197,211,314`) → the budget
+  decrements at `gaussian_streaming.cpp:3873-3877`, i.e. §2a's `on_chunk_released`.
+- **load side** — `_load_visible_chunks` / `_process_upload_queue` (`:2600`,`:2614`) →
+  `_complete_chunk_load_common` (`:3788`, `:3451`) → `budget.loaded_chunks_count++` /
+  `budget.vram_usage +=` at `:3811-3812`, i.e. §2a's `on_chunk_loaded`.
+
+So a DEV build would ERR on every eviction and every chunk load in a perfectly serialized
+frame. The depth counter above keeps the property that actually matters — **at most one
+*thread* inside the ledger at a time** — while permitting the entry-point → ledger-method
+nesting the design requires. (Equivalent alternative, if the owner prefers no counter:
+ledger methods `DEV_ASSERT` the token is *already held by the current thread* rather than
+acquiring it, making the entry-point scope the sole acquirer. That is stricter — it also
+catches a ledger mutation reached without going through a `[SERIALIZED]` entry point — but
+it forbids direct ledger use from tests, so it is recorded as an option, not the default.)
 
 - Every `[SERIALIZED]` entry point takes an RAII `SerializedAccessScope` at the top.
 - It catches the failure that actually threatens correctness (two threads mutating
@@ -466,7 +495,30 @@ and §3d records why.
    the headless main-thread path, the script-bound path, or the doctests.
 3. When residency mutation moves into `ChunkResidencyLedger` (§2a), the ledger owns the token:
    every mutating ledger method scopes it, turning "single caller by convention" into
-   "single writer, checked."
+   "single writer, checked." Because a `[SERIALIZED]` entry point reaches those ledger
+   methods **within the same call** (§3c), the scope must be re-entrant by depth for the
+   holding thread; a flat "same thread ⇒ error" token would fail on the normal path.
+
+**D-READONLY (open — owner decision).** §3b classifies diagnostics getters as `[READ-ONLY]`
+and documents them as advisory: a caller racing a `[SERIALIZED]` call may read a stale or
+torn value. For the **scalar** counters that is a deliberate, defensible trade — the cost of
+synchronizing them is real and the consumers are HUDs and tests. It is recorded here so it
+is an accepted trade rather than an omission.
+
+`analytics_snapshot` is **not** in that category, and this is the part that needs a decision
+rather than a disclosure. It is a `Dictionary`, so a racing read is a refcount race on a
+non-atomic pointer (`core/variant/dictionary.cpp:43-44`), i.e. undefined behavior, not a
+torn view. The three dispositions:
+
+| Option | What it means | Cost |
+| --- | --- | --- |
+| **A — publish under a swap** | `end_frame` builds the new `Dictionary` locally and publishes it through an atomically-swapped shared pointer; readers take a ref off the published pointer. | One indirection + a small allocation per frame; no new lock over render-facing state, so §3e is unaffected. |
+| **B — reclassify** | `get_streaming_analytics` becomes `[SERIALIZED]`-adjacent: documented as "must not be called concurrently with `end_frame`", enforced by the §3c token. | Free, but it makes a **bound script getter** unsafe-by-contract, which is close to the public-API break §3a rejected. |
+| **C — accept** | Document the race and move on. | Free, and wrong: it is UB, and the current wording ("torn view") understates it. Listed for completeness only. |
+
+This ADR does **not** pick one. Whichever is chosen must become an invariant so a slice can
+be graded on it; A is the only option that keeps the bound getter safe from script without a
+contract break.
 
 No lock is added over the serialized state (the module `AGENTS.md` forbids inventing a
 second lock over the same data). The streaming subsystem's existing lock inventory is
