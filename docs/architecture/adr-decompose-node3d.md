@@ -14,13 +14,40 @@
   **R3** trigger, so *every* step that touches the 38 `ADD_PROPERTY` registrations, the 100
   `ClassDB::bind_method` bindings, or the `_set`/`_get` compat shim
   (`gaussian_splat_node_3d.cpp:576ff`) is **R3** — not only Step 3.
-- **Base SHA:** `237a4b1cc3965fdbd6f12dec825c0e2077b2e9ce` (`origin/master`).
-  **Anchor re-verification (review round 2):** `git diff 237a4b1cc3..9161d92f349 --
-  modules/gaussian_splatting/nodes/` touches **only** `gaussian_splat_world_3d.{h,cpp}`.
-  `gaussian_splat_node_3d.{h,cpp}` and `gaussian_splat_node_helpers.cpp` are byte-identical
-  between the base and current master, so every `file:line` anchor below is valid against
-  both. Only invariant A's `gaussian_splat_world_3d.cpp:112-166` anchor needs re-checking
-  against master before Step 3 lands.
+- **Base SHA:** `237a4b1cc3965fdbd6f12dec825c0e2077b2e9ce` (`origin/master` at authoring time).
+- **⚠ Anchor status (review round 3) — the round-2 "byte-identical" claim is now FALSE and
+  the §B1 matrix needs re-anchoring before Step 2 is authored.** Round 2 stated that
+  `gaussian_splat_node_3d.{h,cpp}` and `gaussian_splat_node_helpers.cpp` were byte-identical
+  between the base and master, so every anchor held against both. That was true at
+  `9161d92f349`. It is **not** true at `b15c6ddda46`: two further commits have landed on
+  `modules/gaussian_splatting/nodes/` — `ab847aeabf3` (*"converge P2 shared-renderer gating
+  on peer-set change + gate painterly (#329) (#667)"*) and `d6def0641aa` (*"delete two dead
+  scene-effector helpers … (#680)"*) — for a combined `node_3d.cpp +96`, `node_3d.h +11`,
+  `helpers.cpp +30`.
+
+  Material consequences, because they land **on the frozen §B1 matrix itself**:
+  - **The two painterly rows below are superseded by #667.** At the base, painterly renderer
+    writes were P1-only. At master they are **P1 *and* P2**, with `set_painterly_enabled`
+    *forced to `false`* when the renderer is shared: `helpers.cpp:1415-1421` —
+    `const bool painterly_shared = _is_renderer_shared_with_other_content(owner);
+    owner.renderer->set_painterly_enabled(painterly_shared ? false : owner.enable_painterly);
+    if (!painterly_shared) { …edge_threshold/stroke_opacity/stroke_length/gamma… }`. Both
+    rows are annotated inline below.
+  - The colour-grading anchor moved `helpers.cpp:1403-1410` → `:1423-1429`.
+  - `node_3d.h` gained `_converge_shared_renderer_state()` /
+    `_notify_renderer_peers_shared_state_changed()` — a **new P2 surface** that the concern
+    map does not list.
+
+  Anchors that **did** survive unchanged and remain valid against both SHAs: `node_3d.cpp:517-536`,
+  `:41-58`, `:1011-1089`, `helpers.cpp:1294-1325`, `:1368`, `:697/710/729`, `:699/712/731`,
+  `:781`, `:995`, `node_3d.h:123-128`.
+
+  **This is a re-freeze, not a re-anchor.** #667 deliberately *changed* P2 behavior, so §B1
+  cannot simply be re-pointed at new line numbers — the matrix must be re-derived against a
+  current base and D5 re-confirmed against the new behavior. Until that happens, a Step 2
+  matrix test written from the rows below would encode pre-#667 semantics and fail on head.
+  Only invariant A's `gaussian_splat_world_3d.cpp:112-166` anchor was previously flagged for
+  re-checking; that still stands, and is now the smaller of the two problems.
 - **Primary issue:** #552 (decompose the god-class). **Also closes / advances:** #551
   (PREDELETE ordering → structural), #550 (per-frame camera writers → one writer).
   **Coordinates with:** #578 / #516 / #517 (world-node lifecycle, in flight), #558
@@ -199,16 +226,18 @@ side effect of decomposition.
 |---|---|---|---|
 | `set_max_splats` | P1 **then** P3 | dropped + `WARN_PRINT_ONCE` | `helpers.cpp:1385-1390` |
 | `set_lod_enabled`, `set_lod_bias`, `set_lod_max_distance`, `set_frustum_culling`, `set_async_upload_enabled` | P1 | dropped silently | `helpers.cpp:1392-1397` |
-| `set_painterly_enabled` (from `apply_renderer_settings`) | P1 | dropped silently | `helpers.cpp:1398` |
-| `set_painterly_edge_threshold/stroke_opacity/stroke_length/gamma` | P1 | dropped silently | `helpers.cpp:1399-1402` |
+| `set_painterly_enabled` (from `apply_renderer_settings`) | P1 @base — **P1 *and* P2 @master (#667)** | @base: dropped silently. **@master: forced to `false` when P2 holds** (`painterly_shared ? false : owner.enable_painterly`), with node-local state deliberately *not* cleared so the peer-set convergence hook can re-apply it when the node is alone again. | `helpers.cpp:1398`@base / **`:1415-1416`@master** |
+| `set_painterly_edge_threshold/stroke_opacity/stroke_length/gamma` | P1 @base — **P1 *and* P2 @master (#667)** | @base: dropped silently. **@master: skipped entirely under `if (!painterly_shared)`.** | `helpers.cpp:1399-1402`@base / **`:1417-1421`@master** |
 | `set_streaming_config_overrides` | P1 | dropped silently | `helpers.cpp:1454` |
-| `debug/overlay_opacity`, `debug/debug_draw_mode`, `debug/runtime_preview` | P1 **only** | dropped silently; **not** hidden in inspector | `helpers.cpp:699`, `:712`, `:731` |
+| `debug/overlay_opacity`, `debug/debug_draw_mode`, `debug/runtime_preview` | P1 **only** | **renderer write** dropped silently — but the **node-local member is assigned first and always persists** (`helpers.cpp:697`, `:710`, `:729`, *before* the gates at `:699`, `:712`, `:731`), as does the trailing `update_gizmos()`. Not hidden in inspector. | assigns `helpers.cpp:697`, `:710`, `:729`; gates `:699`, `:712`, `:731` |
 | `show_tile_grid`, `show_density_heatmap`, `show_performance_hud`, `show_residency_hud` | P1 **and** P2 | renderer write dropped; **and forced to `false` for the owner too** when P2 holds | gates `helpers.cpp:631-632`, `646-647`, `661-662`, `752-753`; forcing `:608-611` |
 | node-local `show_*` member + `GaussianSplatSettingsManager` persistence | **ungated** — written before the gate | always applied | `helpers.cpp:627/629`, `642/644`, `657/659`, `748/750` |
 | `edge_threshold`, `stroke_opacity`, `stroke_width`, `temporal_blend`, `painterly_seed` (setters) | P2 **only**, no ownership check | **node-local member write also skipped** | `cpp:1026-1089` |
 | `enable_painterly` (setter) | **ungated at the setter** (asymmetric — deliberate today) | — | `cpp:1011-1024` |
 | `color_variation` | no renderer control exists — explicit no-op | — | `cpp:1063-1066` |
-| color grading | **exempt from P1/P2/P3**, but **gated by P4** | push returns `false`; replay flags stay armed so a later replay retries | `helpers.cpp:1403-1410`; P4 `cpp:1880-1882`; independent path `cpp:1884-1912` |
+| color grading — **write 1 of 3**: the push inside `apply_renderer_settings` | **P1-gated** (function-level early return), exempt from **P2/P3** only | not reached at all when P1 denies | `helpers.cpp:1403-1410`@base / `:1423-1429`@master, inside `GaussianSplatNodeRendererHelper::apply_renderer_settings()` which opens at `:1364` and early-returns at `:1368` on `!can_apply_renderer_settings()` |
+| color grading — **write 2 of 3**: the independent push path | **P4** + the ordering guard below; exempt from P1/P2/P3 | push returns `false`; replay flags stay armed so a later replay retries | P4 `cpp:1880-1882` (`_can_push_color_grading_to_renderer()` at `cpp:1871-1873`); path `cpp:1884-1912` |
+| color grading — **write 3 of 3**: the registration-time seed | gated **only** on `in_tree && in_world` (`cpp:2408-2410`) — not P1, not P4, not the ordering guard | no push | `director->update_instance_color_grading(...)` at `cpp:2463`, inside `_register_instance_in_director()` (opens `:2396`) |
 | color grading — director registration not yet done | **ordering guard** (distinct from P4) | push returns `false` **without clearing** `grading_pushed_for_current_data` / `grading_explicit_pending` | `cpp:1897-1904` (rationale comment `:1900-1903`) |
 | camera transform / projection | **ungated**, every node, every frame | — | `cpp:1590-1591` (this is #550, and Step 6 is the *only* step licensed to change it) |
 | `_validate_property` inspector hiding | P2 **only** | hides `painterly/*`, the four `debug/show_*`, `quality/lod_bias`, `quality/max_splat_count` — **including for the owner** | `cpp:518-536` |
@@ -365,9 +394,12 @@ unit test, and the matrix test stays where it is. **This only works if D6 answer
     two peers with equal counts must continue not to trip it.
   - **`_validate_property` hiding continues to derive from P2 alone** — from
     `sharing_state()`, **never** from `holds_settings_lease()`. This keeps the owner's rows
-    hidden on a shared renderer, exactly as today. The win is that the duplicated string
-    list at `cpp:517-536` is replaced by one `constexpr` list shared with the gating sites,
-    so drift becomes impossible; the *predicate* is untouched.
+    hidden on a shared renderer, exactly as today. The win is that the hide set at
+    `cpp:526-532` becomes one named `constexpr` list (`kP2HiddenProperties`) instead of an
+    inline string sequence, so drift becomes impossible; the *predicate* is untouched.
+    **It is not shared with the gating sites** — see N8: the hide set and the P2-gated
+    setter set are deliberately different, and there is no duplicated list to collapse
+    (the gating sites are plain `if` guards in the setter bodies, not name lists).
   - **The `show_*` "force to `false` when shared" semantics (`helpers.cpp:608-611`) is part
     of the contract**, not an implementation detail: `DebugOverlayController::sync_to_renderer`
     takes both the lease *and* the `SharingState` and reproduces the forcing exactly.
@@ -489,9 +521,14 @@ property names byte-identical; behavior is preserved and proven per step.
   into the manager/director `CameraPublisher`. **Gate:** visual validation on GrandmasHouse
   (shared renderer, multi-node) — rendering-math-adjacent, must validate on real-scan content.
   *(R2.)*
-- **Step 7 — `DebugOverlayController` + delete the `friend` block** (11). Once all six helpers
-  are owned collaborators, remove `friend class …` (`gaussian_splat_node_3d.h:123-128`); verify
-  the header no longer exposes privates to helpers. Node header becomes a thin shell. *(R1.)*
+- **Step 7 — `DebugOverlayController` + shrink the `friend` block** (11). Remove the
+  `friend class …` grants (`gaussian_splat_node_3d.h:123-128`) for every helper that
+  preceding steps converted into an owned collaborator — Asset + Viewport (Step 5), Debug
+  (this step), Renderer (Step 2). **The Quality shell and Visibility helper are *not*
+  converted by any scheduled step** (Step 1/N14 pins the former at its current sites;
+  concern 9 keeps the latter on the shell), so how many grants remain after this step is
+  **decision D7**. Verify the header no longer exposes privates to the converted helpers.
+  Node header becomes a thin shell. *(R1.)*
 
 ## Issue-closure mapping
 
@@ -534,13 +571,13 @@ Checkable. A step that violates one is rejected even with green CI.
 | **N3** | The `show_*` flags are forced to `false` when P2 holds, **including for the lease holder**; the node-local member and settings-manager persistence still receive the write. | Matrix test rows (a)+(b) for the four `show_*` flags. |
 | **N4** | The painterly setters gated on P2 continue to skip the **node-local member write**, not just the renderer write. `set_enable_painterly` remains ungated at the setter. | Matrix test row (b) for the five setters + the asymmetry case. |
 | **N5** | P3 (splat-count heuristic) remains a distinct guard: two peers with **equal** splat counts do not trip it. | Unit test with two equal-count peers asserting the write lands and no WARN fires. |
-| **N6** | Color grading remains exempt from P1/P2/P3, and the independent push path keeps **both** of its own guards: **P4** (`cpp:1880-1882`) and the director-registration ordering guard (`cpp:1897-1904`). P4 is never replaced by P1 and never acquires P1's lease or scene-data test. | Shared-renderer peer grading test unchanged, **plus** a case asserting that a push attempted before `register_instance_in_director` returns `false` and leaves `grading_pushed_for_current_data` / `grading_explicit_pending` armed for replay. |
+| **N6** | Color grading has **three** write paths and they are not interchangeable (§B1). (i) The push inside `apply_renderer_settings` is **P1-gated** by that function's early return (`helpers.cpp:1368`) and exempt from **P2/P3 only** — it must stay behind that return. (ii) The independent push path is exempt from P1/P2/P3 and keeps **both** of its own guards: **P4** (`cpp:1880-1882`) and the director-registration ordering guard (`cpp:1897-1904`); P4 is never replaced by P1 and never acquires P1's lease or scene-data test. (iii) The registration-time seed (`cpp:2463`) is gated only on `in_tree && in_world` and must not silently acquire or lose a gate. No step may collapse the three into one path. | Shared-renderer peer grading test unchanged, **plus** (a) a case asserting a push attempted before `register_instance_in_director` returns `false` and leaves `grading_pushed_for_current_data` / `grading_explicit_pending` armed for replay, and (b) a P1-denial case asserting the `apply_renderer_settings` grading push does **not** fire while the registration seed and the independent path still behave as today. |
 | **N7** | Exactly one definition of the P2 predicate exists after Step 2 (the duplicate is deleted, not forked). | Grep guard: one `sharing_state()` definition; zero `_is_renderer_shared_with_other_content`. |
-| **N8** | Exactly one source of truth for the hidden-property name list; the gating sites and `_validate_property` consume the same list. | Grep guard: the property-name string list appears once. |
+| **N8** | **Two** canonical lists, each defined exactly once, and they are **not** required to be equal: `kP2HiddenProperties` — the `_validate_property` hide set (`cpp:526-532`: every `painterly/*`, the four `debug/show_*`, `quality/lod_bias`, `quality/max_splat_count`) — and `kP2GatedPainterlySetters` — the five setters that gate on P2 (`cpp:1027`, `:1040`, `:1052`, `:1069`, `:1082`). Their asymmetry (`painterly/enabled`, `quality/lod_bias`, `quality/max_splat_count` are hidden but **not** P2-gated; `set_enable_painterly` is ungated) is the pre-existing inconsistency frozen at §B1 and must survive verbatim. Requiring a single shared list would force one of those two behavior changes and is forbidden. | Grep guard: each list literal appears exactly once, and a matrix-test case asserting a property that is hidden-but-ungated stays hidden **and** still writes through its setter. |
 | **N9** | The PREDELETE unref-then-prune ordering (invariant A) cannot be expressed wrong at the call site — the two operations are not separately callable there. | Step 3: compile-time proof (the separate ops are private/unavailable at the site) + `test_renderer_lifetime_proof.h` scenario_c green. |
 | **N10** | The public GDScript API and every serialized property name are byte-identical across all seven steps. | Property-list snapshot test; doc_classes completeness guard stays green. |
 | **N11** | No new script surface: every collaborator is a plain internal C++ type, never `GDREGISTER`'d. | Grep guard on `GDREGISTER_CLASS` count in `register_types.cpp` (unchanged). |
-| **N12** | Friendship strictly decreases; zero `friend class` grants in `gaussian_splat_node_3d.h` after Step 7. | Grep guard, monotonically non-increasing. |
+| **N12** | Friendship strictly decreases. **The end-state count is open — see D7:** Steps 1–7 as scheduled migrate four of the six grants at `gaussian_splat_node_3d.h:123-128`, and the Quality shell + Visibility helper are deliberately left on the shell by Step 1/N14 and concern 9 respectively. "Zero after Step 7" is therefore **not** satisfiable as staged and must not gate Step 7 until D7 resolves it. | Grep guard, monotonically non-increasing (this half holds under either D7 option). |
 | **N13** | Camera publication changes **only** in Step 6. No earlier step alters `cpp:1590-1591` semantics. | Diff review per step. |
 | **N14** | The Step 1 pure core stays pure: its TU references no `GaussianSplatRenderer`, `GaussianSplatSceneDirector`, `ProjectSettings`, `Node`/`Node3D`, and none of P1/P2/P3/P4. The two tail calls at `helpers.cpp:781` and `helpers.cpp:995` remain at their current sites. | Grep guard over the new TU's includes/symbols + a per-step diff assertion that those two lines are unmodified. |
 
@@ -619,3 +656,38 @@ decomposition step.
   the public surface instead of by shrinking aliasing. Consider grading D1 on
   *field-reachability* (fields × objects that can reach them) with one writer per moved field,
   and keep N12's friend-count guard as a floor rather than the target.
+
+- **D7 — N12 ("zero friends after Step 7") is not satisfiable by Steps 1–7 as scheduled.
+  Decide how to close the gap.** There are six friend grants at
+  `gaussian_splat_node_3d.h:123-128`. The steps cover four of them: Asset + Viewport in
+  Step 5, Debug in Step 7, Renderer implicitly in Step 2. **Two are never migrated, and in
+  both cases that is deliberate elsewhere in this document:**
+  - `GaussianSplatNodeQualityHelper` — Step 1 explicitly keeps the imperative shell *"on
+    `GaussianSplatNodeQualityHelper`, at its current sites"*, and **N14** pins
+    `helpers.cpp:781` (`owner._update_instance_params_in_director();`) and `helpers.cpp:995`
+    (`owner._apply_renderer_settings();`, declared private at `gaussian_splat_node_3d.h:330`)
+    as unmodified. The shell also writes `owner.lod_bias` / `owner.max_splat_count`
+    (`helpers.cpp:777-778`) and `owner.effective_config_snapshot`. Friendship is **required**
+    by the Step 1 design that D6 recommends.
+  - `GaussianSplatNodeVisibilityHelper` — concern 9 stays on the shell, and the helper
+    reaches privates at `helpers.cpp:1209-1224` (`owner.parent_visibility_target`,
+    `owner.parent_visible`, `callable_mp(&owner, &GaussianSplatNode3D::_on_parent_visibility_changed)`)
+    and `:1288` (`owner.update_mode`, `owner._update_visibility()`).
+
+  So Step 7's precondition — *"once all six helpers are owned collaborators"* — is
+  established by no step, and an agent following the staging literally will either fail the
+  N12 gate or widen public accessors purely to delete two `friend` lines, which is the
+  failure mode the D6 note above already warns about. **Options:**
+  - **(a) Add the migration work.** A new step converts QualityHelper and VisibilityHelper
+    into non-friend owned collaborators. This must be reconciled with N14's pin on
+    `helpers.cpp:781`/`:995` — i.e. D6's core/shell split and a non-friend QualityHelper are
+    in direct tension, and choosing (a) means revisiting one of them.
+  - **(b) Scope N12 to what the steps actually deliver.** *"Friendship strictly decreases; at
+    most two grants (Quality shell, Visibility) remain after Step 7, tracked by a named
+    follow-up issue."* Correct Step 7's "all six helpers" wording accordingly. This is
+    consistent with the D6 note that friend-count is a floor, not the target — but it does
+    mean N12 stops being the clean gate it currently reads as.
+
+  This ADR does **not** pick one: (a) changes the scope of the decomposition and collides
+  with D6/N14, (b) changes what N12 asserts. Both are owner calls. **Until D7 is answered,
+  N12 must not be treated as a Step 7 blocker**, because no scheduled step can satisfy it.
