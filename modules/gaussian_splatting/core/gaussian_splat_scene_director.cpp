@@ -102,9 +102,6 @@ static const StringName &WORLD_STREAMING_VRAM_BUDGET_MB() { static const StringN
 static const StringName &WORLD_STREAMING_VRAM_MIN_CHUNKS() { static const StringName s("vram_min_chunks"); return s; }
 static const StringName &WORLD_STREAMING_VRAM_MAX_CHUNKS() { static const StringName s("vram_max_chunks"); return s; }
 static const StringName &WORLD_STREAMING_OVERRIDE_IO_SOURCE() { static const StringName s("override_io_source"); return s; }
-static const StringName &NODE_SCENE_EFFECTORS_ENABLED_PROPERTY() { static const StringName s("rendering/scene_effectors_enabled"); return s; }
-static const StringName &NODE_SCENE_EFFECTOR_LAYER_MASK_PROPERTY() { static const StringName s("rendering/scene_effector_layer_mask"); return s; }
-static const StringName &NODE_SCENE_EFFECTOR_SCOPE_ROOT_PROPERTY() { static const StringName s("rendering/scene_effector_scope_root"); return s; }
 static const StringName &EFFECTOR_ENABLED_PROPERTY() { static const StringName s("enabled"); return s; }
 static const StringName &EFFECTOR_RADIUS_PROPERTY() { static const StringName s("radius"); return s; }
 static const StringName &EFFECTOR_STRENGTH_PROPERTY() { static const StringName s("strength"); return s; }
@@ -117,14 +114,6 @@ static const StringName &EFFECTOR_LAYER_MASK_PROPERTY() { static const StringNam
 static const StringName &EFFECTOR_SCOPE_MODE_PROPERTY() { static const StringName s("scope_mode"); return s; }
 static const StringName &EFFECTOR_SCOPE_ROOT_PROPERTY() { static const StringName s("scope_root"); return s; }
 static const StringName &EFFECTOR_PRIORITY_PROPERTY() { static const StringName s("priority"); return s; }
-
-struct NodeSceneEffectorFilterState {
-	bool enabled = true;
-	uint32_t layer_mask = 1u;
-	bool has_scope_filter = false;
-	bool scope_filter_valid = true;
-	ObjectID scope_root_id;
-};
 
 static float _sanitize_finite_float(float p_value, float p_default, const String &p_context, const char *p_field) {
 	if (Math::is_finite(p_value)) {
@@ -152,98 +141,12 @@ static float _sanitize_min_float(float p_value, float p_default, float p_min, co
 	return value;
 }
 
-static ObjectID _resolve_scope_root_from_path(Node *p_owner, const NodePath &p_scope_path, bool *r_has_scope_filter, bool *r_scope_valid) {
-	if (r_has_scope_filter) {
-		*r_has_scope_filter = !p_scope_path.is_empty();
-	}
-	if (r_scope_valid) {
-		*r_scope_valid = true;
-	}
-	if (!p_owner || p_scope_path.is_empty()) {
-		return ObjectID();
-	}
-
-	Node *scope_root = p_owner->get_node_or_null(p_scope_path);
-	if (!scope_root) {
-		if (r_scope_valid) {
-			*r_scope_valid = false;
-		}
-		return ObjectID();
-	}
-	if (!(scope_root == p_owner || scope_root->is_ancestor_of(p_owner))) {
-		if (r_scope_valid) {
-			*r_scope_valid = false;
-		}
-		return ObjectID();
-	}
-	return scope_root->get_instance_id();
-}
-
-static NodeSceneEffectorFilterState _get_node_scene_effector_filter_state(const Node3D *p_node) {
-	NodeSceneEffectorFilterState filter;
-	if (!p_node) {
-		return filter;
-	}
-
-	bool valid = false;
-	const Variant enabled_variant = p_node->get(NODE_SCENE_EFFECTORS_ENABLED_PROPERTY(), &valid);
-	if (valid) {
-		if (enabled_variant.get_type() == Variant::BOOL) {
-			filter.enabled = (bool)enabled_variant;
-		} else if (enabled_variant.get_type() == Variant::INT) {
-			filter.enabled = int64_t(enabled_variant) != 0;
-		}
-	}
-
-	valid = false;
-	const Variant mask_variant = p_node->get(NODE_SCENE_EFFECTOR_LAYER_MASK_PROPERTY(), &valid);
-	if (valid) {
-		if (mask_variant.get_type() == Variant::INT) {
-			const int64_t raw_mask = int64_t(mask_variant);
-			filter.layer_mask = raw_mask < 0 ? 0u : uint32_t(raw_mask);
-		}
-	}
-
-	valid = false;
-	const Variant scope_variant = p_node->get(NODE_SCENE_EFFECTOR_SCOPE_ROOT_PROPERTY(), &valid);
-	if (valid && scope_variant.get_type() == Variant::NODE_PATH) {
-		const NodePath scope_path = scope_variant;
-		filter.scope_root_id = _resolve_scope_root_from_path(
-				const_cast<Node3D *>(p_node), scope_path,
-				&filter.has_scope_filter, &filter.scope_filter_valid);
-	}
-
-	return filter;
-}
 static float _encode_u32_as_float_bits(uint32_t p_value) {
 	float encoded = 0.0f;
 	static_assert(sizeof(encoded) == sizeof(p_value), "Expected float/u32 bit widths to match");
 	memcpy(&encoded, &p_value, sizeof(encoded));
 	return encoded;
 }
-
-static bool _node_matches_scene_effector_selection(const Node3D *p_node,
-		const NodeSceneEffectorFilterState &p_filter,
-		const GaussianSplatSceneDirector::SphereEffectorSelection &p_selection) {
-	if (!p_node || !p_filter.enabled || p_filter.layer_mask == 0u) {
-		return false;
-	}
-	if (p_filter.has_scope_filter && !p_filter.scope_filter_valid) {
-		return false;
-	}
-	if ((p_selection.layer_mask & p_filter.layer_mask) == 0u) {
-		return false;
-	}
-	if (p_filter.has_scope_filter) {
-		return p_selection.scope_root_id != ObjectID() && p_selection.scope_root_id == p_filter.scope_root_id;
-	}
-	if (p_selection.scope_mode == GaussianSplatSceneDirector::SPHERE_EFFECTOR_SCOPE_WORLD) {
-		return true;
-	}
-	Node *scope_root = Object::cast_to<Node>(ObjectDB::get_instance(p_selection.scope_root_id));
-	return scope_root && (scope_root == p_node || scope_root->is_ancestor_of(p_node));
-}
-
 
 GaussianSplatRenderer::WorldSubmissionContract GaussianSplatSceneDirector::_build_world_submission_contract(
 		const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_renderer_state,

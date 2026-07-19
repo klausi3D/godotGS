@@ -2432,9 +2432,12 @@ void GaussianSplatNode3D::_register_instance_in_director() {
         return;
     }
     // Cache the scenario so NOTIFICATION_PREDELETE can call
-    // teardown_world_for_scenario(). PREDELETE may fire after the node has been
-    // removed from its tree, at which point get_world_3d() returns null.
-    // PR 4 of #352 -- the F6 reload teardown path.
+    // GaussianSplatSceneDirector::try_prune_world_if_unused(). PREDELETE may fire
+    // after the node has been removed from its tree, at which point get_world_3d()
+    // returns null. PR 4 of #352 -- the F6 reload teardown path.
+    //
+    // NOT teardown_world_for_scenario(): see the PREDELETE handler above, which
+    // explains why a per-node PREDELETE must never run a scenario-wide teardown.
     Ref<World3D> resolved_world = get_world_3d();
     if (resolved_world.is_valid()) {
         last_known_scenario = resolved_world->get_scenario();
