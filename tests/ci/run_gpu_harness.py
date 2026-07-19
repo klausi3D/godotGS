@@ -201,7 +201,29 @@ BATCHES: tuple[BatchSpec, ...] = (
             # during device finalize. A real GPU fault, not a harness artifact.
             "*Explicit resident quantization rejection falls back*",
     )),
-    BatchSpec("SceneDirectorSceneTree", ("*[SceneDirector][SceneTree][RequiresGPU]*",)),
+    # Two filters, not one, because doctest treats "[" and "]" literally: a case
+    # tagged [SceneDirector][WorldSubmission][SceneTree][RequiresGPU] does NOT match
+    # "*[SceneDirector][SceneTree][RequiresGPU]*". The world-submission cases in
+    # test_scene_director_submission_scaffolding.h carry that extra bracket, so
+    # without the second filter they would carry a [RequiresGPU] tag while matching
+    # no batch — i.e. they would move from "vacuously green in the strict lane" to
+    # "stranded", which is not an improvement. Adding the tag order here rather than
+    # flattening the test names keeps [WorldSubmission] usable as a tag.
+    #
+    # timeout_seconds=180. This batch grew from 2 executing cases (17 assertions,
+    # 12.6 s wall) to 12 (166 assertions, 73.3 s wall measured on 7c350507f51 +
+    # this change, RTX 3090) when ten renderer-dependent cases were retagged out
+    # of the strict [SceneTree] lane, where they had been early-returning past
+    # every assertion. Under the 60 s default the batch was cut off with rc=124
+    # and no doctest summary, so its parsed totals read 0/0. Verified a BUDGET
+    # problem, not a hang: given no timeout the same filter completes cleanly
+    # (12/12 passed, 166/166 assertions, Status: SUCCESS). 180 s leaves ~2.5x
+    # headroom for a loaded CI runner. Do NOT raise this to paper over a genuine
+    # hang -- a hang must be diagnosed, not budgeted.
+    BatchSpec("SceneDirectorSceneTree", (
+            "*[SceneDirector][SceneTree][RequiresGPU]*",
+            "*[SceneDirector][WorldSubmission][SceneTree][RequiresGPU]*",
+    ), timeout_seconds=180),
 )
 
 # Batches whose filter MUST resolve to at least one matching doctest test case

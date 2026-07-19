@@ -354,11 +354,35 @@ def _run_command(
 
 
 def _build_doctest_run_args(test_case_filters: tuple[str, ...], test_case_exclude_filters: tuple[str, ...]) -> list[str]:
+    # Each option is passed ONCE with its patterns comma-joined, because doctest
+    # OVERWRITES a filter option on every repeat instead of accumulating it
+    # (thirdparty/doctest/doctest.h parses each occurrence into the same
+    # `filters` slot). Passing four separate --test-case-exclude flags therefore
+    # applied only the LAST one.
+    #
+    # Measured on 7c350507f51: the strict "GaussianSplatting [SceneTree]" lane
+    # declares four excludes, so only "*][World][SceneTree]*" was in effect and
+    # the "*][RequiresGPU]*" exclude was silently dropped -- the lane ran 67
+    # cases instead of 26, ~31 of them [RequiresGPU] cases that reached a
+    # "renderer unavailable" guard and early-returned. They could not fail, so
+    # the leak was invisible: a headless lane quietly executing (and vacuously
+    # passing) the GPU corpus it declares it does not cover.
+    #
+    # Comma-joining also retires the "unreliable beyond ~10 repeated flags"
+    # caveat on the [untagged] lane's 23 excludes -- same root cause.
+    # No filter pattern may contain a comma; doctest uses it as the separator.
     run_args = ["--headless", "--test"]
-    for test_filter in test_case_filters:
-        run_args.append(f"--test-case={test_filter}")
-    for exclude_filter in test_case_exclude_filters:
-        run_args.append(f"--test-case-exclude={exclude_filter}")
+    for option, patterns in (
+        ("--test-case", test_case_filters),
+        ("--test-case-exclude", test_case_exclude_filters),
+    ):
+        if not patterns:
+            continue
+        for pattern in patterns:
+            assert "," not in pattern, (
+                f"{option} pattern must not contain a comma (doctest's separator): {pattern!r}"
+            )
+        run_args.append(f"{option}={','.join(patterns)}")
     return run_args
 
 

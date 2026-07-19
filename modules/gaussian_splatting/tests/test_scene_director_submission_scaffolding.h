@@ -183,7 +183,7 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] World submission entryp
 	}
 }
 
-TEST_CASE("[GaussianSplatting][SceneDirector][WorldSubmission][SceneTree] Same-owner resubmit preserves the original renderer restore point") {
+TEST_CASE("[GaussianSplatting][SceneDirector][WorldSubmission][SceneTree][RequiresGPU] Same-owner resubmit preserves the original renderer restore point") {
 	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
 	const bool owns_director = (director == nullptr);
 	if (!director) {
@@ -209,7 +209,8 @@ TEST_CASE("[GaussianSplatting][SceneDirector][WorldSubmission][SceneTree] Same-o
 
 	Ref<GaussianSplatRenderer> renderer = director->get_shared_renderer(world.ptr());
 	if (!renderer.is_valid()) {
-		MESSAGE("Skipping same-owner restore-point test - shared renderer unavailable");
+		FAIL("Shared renderer unavailable for the same-owner restore-point test. " 
+				"This case is [RequiresGPU] and executes only under the --gs-gpu-test harness, which brings up a real RenderingDevice. A null shared renderer here means the harness failed to provide one -- that is a harness/product failure, not a reason to skip. (Previously this branch silently returned, so the case reported green having executed almost nothing.)");
 		root->remove_child(owner);
 		memdelete(owner);
 		tree->process(0.0);
@@ -286,7 +287,7 @@ TEST_CASE("[GaussianSplatting][SceneDirector][WorldSubmission][SceneTree] Same-o
 	}
 }
 
-TEST_CASE("[GaussianSplatting][SceneDirector][WorldSubmission][SceneTree] Same-owner resubmit defaults omitted overrides from the preserved baseline") {
+TEST_CASE("[GaussianSplatting][SceneDirector][WorldSubmission][SceneTree][RequiresGPU] Same-owner resubmit defaults omitted overrides from the preserved baseline") {
 	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
 	const bool owns_director = (director == nullptr);
 	if (!director) {
@@ -312,7 +313,8 @@ TEST_CASE("[GaussianSplatting][SceneDirector][WorldSubmission][SceneTree] Same-o
 
 	Ref<GaussianSplatRenderer> renderer = director->get_shared_renderer(world.ptr());
 	if (!renderer.is_valid()) {
-		MESSAGE("Skipping same-owner baseline-default test - shared renderer unavailable");
+		FAIL("Shared renderer unavailable for the same-owner baseline-default test. " 
+				"This case is [RequiresGPU] and executes only under the --gs-gpu-test harness, which brings up a real RenderingDevice. A null shared renderer here means the harness failed to provide one -- that is a harness/product failure, not a reason to skip. (Previously this branch silently returned, so the case reported green having executed almost nothing.)");
 		root->remove_child(owner);
 		memdelete(owner);
 		tree->process(0.0);
@@ -682,7 +684,7 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] World submission surviv
 	}
 }
 
-TEST_CASE("[GaussianSplatting][SceneDirector][WorldSubmission][SceneTree] Zero-splat submissions do not surface residency authority") {
+TEST_CASE("[GaussianSplatting][SceneDirector][WorldSubmission][SceneTree][RequiresGPU] Zero-splat submissions do not surface residency authority") {
 	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
 	const bool owns_director = (director == nullptr);
 	if (!director) {
@@ -706,7 +708,8 @@ TEST_CASE("[GaussianSplatting][SceneDirector][WorldSubmission][SceneTree] Zero-s
 
 	Ref<GaussianSplatRenderer> renderer = director->get_shared_renderer(world.ptr());
 	if (!renderer.is_valid()) {
-		MESSAGE("Skipping zero-splat authority test - shared renderer unavailable");
+		FAIL("Shared renderer unavailable for the zero-splat residency-authority test. " 
+				"This case is [RequiresGPU] and executes only under the --gs-gpu-test harness, which brings up a real RenderingDevice. A null shared renderer here means the harness failed to provide one -- that is a harness/product failure, not a reason to skip. (Previously this branch silently returned, so the case reported green having executed almost nothing.)");
 		root->remove_child(owner);
 		memdelete(owner);
 		tree->process(0.0);
@@ -757,7 +760,7 @@ TEST_CASE("[GaussianSplatting][SceneDirector][WorldSubmission][SceneTree] Zero-s
 	}
 }
 
-TEST_CASE("[GaussianSplatting][SceneDirector][WorldSubmission][SceneTree] Staged world submissions mark streaming path ownership in the backend plan") {
+TEST_CASE("[GaussianSplatting][SceneDirector][WorldSubmission][SceneTree][RequiresGPU] Staged world submissions mark streaming path ownership in the backend plan") {
 	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
 	const bool owns_director = (director == nullptr);
 	if (!director) {
@@ -789,7 +792,8 @@ TEST_CASE("[GaussianSplatting][SceneDirector][WorldSubmission][SceneTree] Staged
 
 	Ref<GaussianSplatRenderer> renderer = director->get_shared_renderer(world.ptr());
 	if (!renderer.is_valid()) {
-		MESSAGE("Skipping staged world backend-plan test - shared renderer unavailable");
+		FAIL("Shared renderer unavailable for the staged-world backend-plan test. " 
+				"This case is [RequiresGPU] and executes only under the --gs-gpu-test harness, which brings up a real RenderingDevice. A null shared renderer here means the harness failed to provide one -- that is a harness/product failure, not a reason to skip. (Previously this branch silently returned, so the case reported green having executed almost nothing.)");
 		root->remove_child(owner);
 		memdelete(owner);
 		tree->process(0.0);
@@ -1347,7 +1351,7 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] Explicit instance submi
 	}
 }
 
-TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] Mixed instance residency hints collapse to no effective renderer hint") {
+TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree][RequiresGPU] Mixed instance residency hints collapse to no effective renderer hint") {
 	SceneTree *tree = SceneTree::get_singleton();
 	REQUIRE_MESSAGE(tree != nullptr, "SceneTree singleton required");
 
@@ -1383,7 +1387,8 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] Mixed instance residenc
 	CHECK(director->get_instance_submission(node_a->get_instance_id(), &submission_a));
 	CHECK(director->get_instance_submission(node_b->get_instance_id(), &submission_b));
 	if (!submission_a.renderer.is_valid() || !submission_b.renderer.is_valid()) {
-		MESSAGE("Skipping renderer-hint checks — shared renderer unavailable (headless)");
+		FAIL("Instance submissions carry no renderer for the mixed-hint test. " 
+				"This case is [RequiresGPU] and executes only under the --gs-gpu-test harness, which brings up a real RenderingDevice. A null shared renderer here means the harness failed to provide one -- that is a harness/product failure, not a reason to skip. (Previously this branch silently returned, so the case reported green having executed almost nothing.)");
 		director->unregister_instance_submission(node_a->get_instance_id());
 		director->unregister_instance_submission(node_b->get_instance_id());
 		root->remove_child(node_a);
@@ -1419,7 +1424,7 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] Mixed instance residenc
 	}
 }
 
-TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] Active world residency hint takes precedence over instance hints") {
+TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree][RequiresGPU] Active world residency hint takes precedence over instance hints") {
 	SceneTree *tree = SceneTree::get_singleton();
 	REQUIRE_MESSAGE(tree != nullptr, "SceneTree singleton required");
 
@@ -1453,7 +1458,8 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] Active world residency 
 
 	Ref<GaussianSplatRenderer> renderer = world_node->get_renderer();
 	if (!renderer.is_valid()) {
-		MESSAGE("Skipping test - renderer unavailable");
+		FAIL("Shared renderer unavailable for the active-world residency-precedence test. "
+				"This case is [RequiresGPU] and executes only under the --gs-gpu-test harness, which brings up a real RenderingDevice. A null renderer here means the harness failed to provide one -- that is a harness/product failure, not a reason to skip. (Previously this branch silently returned, so the case could report green having executed nothing.)");
 		root->remove_child(world_node);
 		root->remove_child(instance_node);
 		memdelete(world_node);
@@ -1490,7 +1496,7 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] Active world residency 
 	}
 }
 
-TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] Shared renderer survives temporary last-instance unregister") {
+TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree][RequiresGPU] Shared renderer survives temporary last-instance unregister") {
 	SceneTree *tree = SceneTree::get_singleton();
 	REQUIRE_MESSAGE(tree != nullptr, "SceneTree singleton required");
 
@@ -1516,7 +1522,8 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] Shared renderer survive
 
 	Ref<GaussianSplatRenderer> retained_renderer = node->get_renderer();
 	if (!retained_renderer.is_valid()) {
-		MESSAGE("Skipping renderer-retention test - shared renderer unavailable");
+		FAIL("Shared renderer unavailable for the renderer-retention test. " 
+				"This case is [RequiresGPU] and executes only under the --gs-gpu-test harness, which brings up a real RenderingDevice. A null shared renderer here means the harness failed to provide one -- that is a harness/product failure, not a reason to skip. (Previously this branch silently returned, so the case reported green having executed almost nothing.)");
 		root->remove_child(node);
 		memdelete(node);
 		tree->process(0.0);
@@ -1551,7 +1558,7 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] Shared renderer survive
 	}
 }
 
-TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] Active world submission survives last-instance unregister") {
+TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree][RequiresGPU] Active world submission survives last-instance unregister") {
 	SceneTree *tree = SceneTree::get_singleton();
 	REQUIRE_MESSAGE(tree != nullptr, "SceneTree singleton required");
 
@@ -1589,7 +1596,8 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] Active world submission
 
 	Ref<GaussianSplatRenderer> renderer = world_node->get_renderer();
 	if (!renderer.is_valid()) {
-		MESSAGE("Skipping active-world retention test - renderer unavailable");
+		FAIL("Shared renderer unavailable for the active-world retention test. " 
+				"This case is [RequiresGPU] and executes only under the --gs-gpu-test harness, which brings up a real RenderingDevice. A null shared renderer here means the harness failed to provide one -- that is a harness/product failure, not a reason to skip. (Previously this branch silently returned, so the case reported green having executed almost nothing.)");
 		root->remove_child(world_node);
 		root->remove_child(instance_node);
 		memdelete(world_node);
@@ -1623,7 +1631,7 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] Active world submission
 	}
 }
 
-TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] World submission produces identity instance in build_instance_buffer_for_renderer") {
+TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree][RequiresGPU] World submission produces identity instance in build_instance_buffer_for_renderer") {
 	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
 	const bool owns_director = (director == nullptr);
 	if (!director) {
@@ -1678,7 +1686,8 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] World submission produc
 			CHECK(entry.params[0] == doctest::Approx(1.0f));
 		}
 	} else {
-		MESSAGE("Skipping instance buffer content checks - shared renderer unavailable");
+		FAIL("Shared renderer unavailable for the identity-instance buffer test. " 
+				"This case is [RequiresGPU] and executes only under the --gs-gpu-test harness, which brings up a real RenderingDevice. A null shared renderer here means the harness failed to provide one -- that is a harness/product failure, not a reason to skip. (Previously this branch silently returned, so the case reported green having executed almost nothing.)");
 	}
 
 	director->release_world_submission(submission.owner_id);
@@ -1699,7 +1708,7 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] World submission produc
 	}
 }
 
-TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] Source-backed world submission remains renderable without resident data") {
+TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree][RequiresGPU] Source-backed world submission remains renderable without resident data") {
 	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
 	const bool owns_director = (director == nullptr);
 	if (!director) {
@@ -1759,7 +1768,8 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] Source-backed world sub
 		CHECK_MESSAGE(grading_buffer.size() == 1,
 				"Source-backed world submission should produce a matching grading row.");
 	} else {
-		MESSAGE("Skipping source-backed world submission checks - shared renderer unavailable");
+		FAIL("Shared renderer unavailable for the source-backed world-submission test. " 
+				"This case is [RequiresGPU] and executes only under the --gs-gpu-test harness, which brings up a real RenderingDevice. A null shared renderer here means the harness failed to provide one -- that is a harness/product failure, not a reason to skip. (Previously this branch silently returned, so the case reported green having executed almost nothing.)");
 	}
 
 	director->release_world_submission(submission.owner_id);
@@ -1835,7 +1845,8 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] World submission with z
 TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree][RequiresGPU] Asset-backed GaussianSplatNode3D renders without direct set_gaussian_data") {
 	RenderingServer *rs = RenderingServer::get_singleton();
 	if (rs == nullptr) {
-		MESSAGE("Skipping test - Rendering server unavailable");
+		FAIL("RenderingServer singleton unavailable for the asset-backed render test. "
+				"This case is [RequiresGPU] and executes only under the --gs-gpu-test harness, which brings up a real RenderingDevice. A null RenderingServer here means the harness failed to provide one -- that is a harness/product failure, not a reason to skip. (Previously this branch silently returned, so the case could report green having executed nothing.)");
 		return;
 	}
 
@@ -1856,7 +1867,8 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree][RequiresGPU] Asset-back
 
 	Ref<GaussianSplatRenderer> renderer = node->get_renderer();
 	if (!renderer.is_valid()) {
-		MESSAGE("Skipping test - renderer unavailable");
+		FAIL("Shared renderer unavailable for the asset-backed render test. "
+				"This case is [RequiresGPU] and executes only under the --gs-gpu-test harness, which brings up a real RenderingDevice. A null renderer here means the harness failed to provide one -- that is a harness/product failure, not a reason to skip. (Previously this branch silently returned, so the case could report green having executed nothing.)");
 		root->remove_child(node);
 		memdelete(node);
 		tree->process(0.0);
@@ -1909,7 +1921,8 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree][RequiresGPU] Asset-back
 TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree][RequiresGPU] Resident publisher does not repack atlas on per-instance state changes") {
 	RenderingServer *rs = RenderingServer::get_singleton();
 	if (rs == nullptr) {
-		MESSAGE("Skipping test - Rendering server unavailable");
+		FAIL("RenderingServer singleton unavailable for the resident-publisher repack test. "
+				"This case is [RequiresGPU] and executes only under the --gs-gpu-test harness, which brings up a real RenderingDevice. A null RenderingServer here means the harness failed to provide one -- that is a harness/product failure, not a reason to skip. (Previously this branch silently returned, so the case could report green having executed nothing.)");
 		return;
 	}
 
@@ -1934,7 +1947,8 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree][RequiresGPU] Resident p
 
 	Ref<GaussianSplatRenderer> renderer = node_a->get_renderer();
 	if (!renderer.is_valid()) {
-		MESSAGE("Skipping test - renderer unavailable");
+		FAIL("Shared renderer unavailable for the resident-publisher repack test. "
+				"This case is [RequiresGPU] and executes only under the --gs-gpu-test harness, which brings up a real RenderingDevice. A null renderer here means the harness failed to provide one -- that is a harness/product failure, not a reason to skip. (Previously this branch silently returned, so the case could report green having executed nothing.)");
 		root->remove_child(node_b);
 		root->remove_child(node_a);
 		memdelete(node_b);
