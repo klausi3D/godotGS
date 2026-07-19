@@ -268,6 +268,27 @@ BATCHES: tuple[BatchSpec, ...] = (
             "*[SceneDirector][SceneTree][RequiresGPU]*",
             "*[SceneDirector][WorldSubmission][SceneTree][RequiresGPU]*",
     ), timeout_seconds=180),
+    # #690: the module's end-to-end "did we actually draw something" proof.
+    #
+    # "World-backed RenderSceneInstance drives GPU streaming + sorting" is the
+    # ONLY case that proves has_rendered_content() TRUE on a real device. It
+    # previously carried [RequiresGPU] without [SceneTree], so it matched no
+    # batch here and no module lane -- it was stranded under the catch-all
+    # `*][RequiresGPU]*` quarantine entry and self-skipped with zero assertions,
+    # which doctest reports as PASSED. Retagged [SceneTree][RequiresGPU], it
+    # needs a batch or it stays just as invisible as before.
+    #
+    # The filter is deliberately narrow. No other case in the corpus carries
+    # exactly [GaussianSplatting][SceneTree][RequiresGPU], so this batch's blast
+    # radius is precisely the one case it is named for, and a new case joining
+    # that tag triple is a deliberate opt-in to this batch rather than an
+    # accident. Measured ~16 s end to end on an RTX 3090 (device bring-up
+    # dominates); 180 s is ~11x, comfortably clear of the >=1.5x headroom the
+    # budget guard in test_gpu_harness_deferred_contract.py encodes as the
+    # minimum, and consistent with the other SceneTree batches' budgets.
+    BatchSpec("RendererSceneTree", (
+            "*[GaussianSplatting][SceneTree][RequiresGPU]*",
+    ), timeout_seconds=180),
 )
 
 # Batches whose filter MUST resolve to at least one matching doctest test case

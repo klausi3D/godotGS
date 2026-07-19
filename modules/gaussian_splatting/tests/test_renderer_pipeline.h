@@ -479,6 +479,27 @@ TEST_CASE("[GaussianSplatting][Settings] Sphere effector project settings stay r
     CHECK(double(project_settings->get_setting("rendering/gaussian_splatting/effects/sphere_effector_target_opacity")) == doctest::Approx(0.0));
 }
 
+// Forward declaration (#690): the definition lives further down, next to the
+// composite tests that were its only callers. The world-backed streaming case
+// below also tries to obtain a real render target, so the helper is declared
+// here rather than moved, to keep the diff reviewable.
+static bool create_test_render_buffers(const Vector2i &p_internal_resolution, RID &r_render_target, Ref<RenderSceneBuffersRD> &r_render_buffers,
+        const Vector2i &p_target_resolution = Vector2i(), RS::ViewportScaling3DMode p_scaling_3d_mode = RS::VIEWPORT_SCALING_3D_MODE_OFF,
+        String *r_reason = nullptr);
+
+// #690: paired teardown for the render target above, so early-return paths in
+// the world-backed streaming case cannot leak it. Idempotent on an invalid RID.
+static void gs_free_test_render_target(RID &r_render_target) {
+    if (!r_render_target.is_valid()) {
+        return;
+    }
+    RendererRD::TextureStorage *texture_storage = RendererRD::TextureStorage::get_singleton();
+    if (texture_storage != nullptr) {
+        texture_storage->render_target_free(r_render_target);
+    }
+    r_render_target = RID();
+}
+
 static void fill_gaussians(LocalVector<Gaussian> &p_gaussians, uint32_t p_count) {
     p_gaussians.resize(p_count);
     for (uint32_t i = 0; i < p_count; i++) {
@@ -1668,22 +1689,37 @@ TEST_CASE("[GaussianSplatting] Active quality tier still fills pipeline keys lef
     g_pipeline_feature_set.load_from_project_settings();
 }
 
-TEST_CASE("[GaussianSplatting][RequiresGPU] World-backed RenderSceneInstance drives GPU streaming + sorting") {
+// #690: this case is the module's end-to-end "did we actually draw something"
+// proof - it is one of only four sites that assert has_rendered_content().
+//
+// It previously carried [RequiresGPU] WITHOUT [SceneTree], so the harness never
+// brought up a RenderingServer for it and it self-skipped at the first guard
+// with ZERO assertions executed, which doctest reports as PASSED. It also
+// matched no run_gpu_harness.py batch at all, so it was stranded under the
+// catch-all `*][RequiresGPU]*` quarantine entry rather than merely mis-tagged.
+//
+// The skips below are now FAILs. A case whose own tags declare it needs a GPU
+// and a SceneTree must not silently pass when the harness fails to provide
+// them - that is precisely how this assertion class stayed unverified. REQUIRE
+// does not abort in this build (#656), hence the explicit `FAIL(...); return;`.
+TEST_CASE("[GaussianSplatting][SceneTree][RequiresGPU] World-backed RenderSceneInstance drives GPU streaming + sorting") {
     RenderingServer *rs = RenderingServer::get_singleton();
     if (rs == nullptr) {
-        MESSAGE("Skipping test - Rendering server unavailable");
+        FAIL("RenderingServer unavailable in a [SceneTree][RequiresGPU] case - the harness is "
+             "required to provide one; see #690.");
         return;
     }
 
     SceneTree *tree = SceneTree::get_singleton();
     if (tree == nullptr || tree->get_root() == nullptr) {
-        MESSAGE("Skipping test - SceneTree unavailable");
+        FAIL("SceneTree unavailable in a [SceneTree] case - the harness is required to provide "
+             "one; see #690.");
         return;
     }
 
     ProjectSettings *project_settings = ProjectSettings::get_singleton();
     if (project_settings == nullptr) {
-        MESSAGE("Skipping test - ProjectSettings unavailable");
+        FAIL("ProjectSettings unavailable - the engine bootstrap always provides one; see #690.");
         return;
     }
 
@@ -1707,11 +1743,39 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] World-backed RenderSceneInstance dri
 
     ScopedWorldStreamingRenderer fixture;
     if (!setup_world_streaming_renderer(data, make_single_static_chunk(total_gaussians, data->get_aabb()), fixture)) {
-        MESSAGE("Skipping test - world-backed renderer unavailable");
+        FAIL("World-backed renderer unavailable under a real RenderingDevice; see #690.");
         return;
     }
     Ref<GaussianSplatRenderer> renderer = fixture.renderer;
     renderer->test_release_current_streaming_system();
+
+    // #690: attempt a REAL render target, but do NOT require one.
+    //
+    // Issue #690 proposed create_test_render_buffers() as the fix for the empty
+    // Ref<RenderSceneBuffersRD> this case used to pass. That is not implementable
+    // under this harness: [SceneTree] cases get their RenderingServer from
+    // DisplayServerMock::create_func, which calls RasterizerDummy::make_current()
+    // (tests/display_server_mock.h:59-62) and advertises only the "dummy" driver.
+    // So RendererRD::TextureStorage::get_singleton() is NULL and no render target
+    // can be created, while --gs-gpu-test separately bootstraps a *local*
+    // RenderingDevice that the GS renderer actually draws on. The two are disjoint.
+    //
+    // This does not block the assertion under test. OutputCompositor sets
+    // has_valid_render from the final output RID (output_compositor.cpp:1552),
+    // BEFORE its render_buffers_rd null-check on the next line - render buffers
+    // only gate the viewport blit. So has_rendered_content() is reachable with
+    // null render buffers; what gates it here is the visible-splat count.
+    const Vector2i resolution(512, 512);
+    RID render_target;
+    Ref<RenderSceneBuffersRD> render_buffers;
+    String render_buffers_failure;
+    if (!create_test_render_buffers(resolution, render_target, render_buffers, Vector2i(),
+                RS::VIEWPORT_SCALING_3D_MODE_OFF, &render_buffers_failure)) {
+        gs_free_test_render_target(render_target);
+        render_buffers = Ref<RenderSceneBuffersRD>();
+        MESSAGE("No RD-backed render target available (" << render_buffers_failure
+                << ") - proceeding with null render buffers; see #690.");
+    }
 
     RenderSceneDataRD scene_data;
     scene_data.cam_transform = Transform3D(Basis(), Vector3(0.0f, 0.0f, 5.0f));
@@ -1719,7 +1783,7 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] World-backed RenderSceneInstance dri
 
     RenderDataRD render_data;
     render_data.scene_data = &scene_data;
-    render_data.render_buffers = Ref<RenderSceneBuffersRD>();
+    render_data.render_buffers = render_buffers;
 
     // Warm up streaming pipeline: atlas upload -> chunk loading -> instance
     // buffer creation -> cull -> sort may take many frames without the
@@ -1739,10 +1803,14 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] World-backed RenderSceneInstance dri
     CHECK(renderer->get_final_texture().is_valid());
 
     if (!pipeline_ready) {
-        MESSAGE("Instance pipeline did not fully warm up (headless CI without real GPU async readback) - "
+        // #690: the two CHECKs above are unconditional, so this branch cannot make the
+        // case pass vacuously - it only skips the downstream detail assertions once the
+        // headline proof has already failed.
+        MESSAGE("Instance pipeline did not fully warm up - "
                 "visible_splat_count=" << visible_splat_count
                 << " has_instance_pipeline_buffers=" << renderer->has_instance_pipeline_buffers());
         renderer->commit_to_render_buffers(&render_data);
+        gs_free_test_render_target(render_target);
         return;
     }
 
@@ -1754,7 +1822,33 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] World-backed RenderSceneInstance dri
     CHECK(streaming_buffers.instance_count > 0);
 
     Dictionary stats = renderer->get_render_stats();
-    CHECK(stats.get("route_uid", String()) == String(RenderRouteUID::INSTANCE_STREAMING));
+    // #690: assert the ROUTE on the key that actually carries it.
+    //
+    // This case previously asserted stats["route_uid"] == INSTANCE.STREAMING and
+    // never executed, so nobody saw that it cannot hold once the frame really
+    // renders. Those are two different keys by design:
+    //   * stats["selected_route_uid"] is the route DECISION
+    //     (render_diagnostics_orchestrator.cpp:1505 <- stage_metrics.route_uid,
+    //     set to INSTANCE.STREAMING at render_pipeline_stages.cpp:831), and
+    //   * stats["route_uid"] is debug_state.route_uid
+    //     (render_diagnostics_orchestrator.cpp:1468/545), which the raster stage
+    //     OVERWRITES with the raster path it took
+    //     (render_pipeline_stages.cpp:3095 -> INSTANCE.RASTER.COMPUTE).
+    // The module's own contract tests already encode this split
+    // (test_diagnostics.h:211-215/282, and the plan test at :294-316 above).
+    //
+    // So the old expectation was only satisfiable by a frame that never rastered.
+    // Asserting both keys is strictly stronger than the original single check: it
+    // pins the streaming route AND proves raster actually ran.
+    CHECK(stats.get("selected_route_uid", String()) == String(RenderRouteUID::INSTANCE_STREAMING));
+    const String raster_route_uid = stats.get("route_uid", String());
+    const bool rastered = raster_route_uid == String(RenderRouteUID::INSTANCE_RASTER_COMPUTE) ||
+            raster_route_uid == String(RenderRouteUID::INSTANCE_RASTER_FRAGMENT) ||
+            raster_route_uid == String(RenderRouteUID::INSTANCE_RASTER_PAINTERLY) ||
+            raster_route_uid == String(RenderRouteUID::INSTANCE_RASTER_CACHED);
+    CHECK_MESSAGE(rastered,
+            vformat("Expected a raster route UID after a frame that reports rendered content, got '%s'",
+                    raster_route_uid));
     CHECK(stats.get("using_real_data", false));
     const String data_source = stats.get("data_source", String());
     bool valid_data_source = (data_source == String("StreamingGPU")) || (data_source == String("GPUBufferManager"));
@@ -1773,6 +1867,7 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] World-backed RenderSceneInstance dri
     }
 
     renderer->commit_to_render_buffers(&render_data);
+    gs_free_test_render_target(render_target);
 }
 
 TEST_CASE("[GaussianSplatting][RequiresGPU] Upload processing rescues stranded async pack work") {
@@ -3809,15 +3904,26 @@ static RID create_test_texture(RenderingDevice *p_rd, const Vector2i &p_size, RD
     return p_rd->texture_create(format, RD::TextureView());
 }
 
+// Default arguments are declared once, on the forward declaration above (#690).
+// r_reason (#690): report WHICH precondition failed. A bare `false` here used to
+// be indistinguishable between "no TextureStorage singleton", "render target
+// creation refused" and "configure() produced no internal texture", which made
+// the first real execution of the world-backed case untriageable.
 static bool create_test_render_buffers(const Vector2i &p_internal_resolution, RID &r_render_target, Ref<RenderSceneBuffersRD> &r_render_buffers,
-        const Vector2i &p_target_resolution = Vector2i(), RS::ViewportScaling3DMode p_scaling_3d_mode = RS::VIEWPORT_SCALING_3D_MODE_OFF) {
+        const Vector2i &p_target_resolution, RS::ViewportScaling3DMode p_scaling_3d_mode, String *r_reason) {
     RendererRD::TextureStorage *texture_storage = RendererRD::TextureStorage::get_singleton();
     if (texture_storage == nullptr) {
+        if (r_reason) {
+            *r_reason = "RendererRD::TextureStorage singleton is null";
+        }
         return false;
     }
 
     r_render_target = texture_storage->render_target_create();
     if (!r_render_target.is_valid()) {
+        if (r_reason) {
+            *r_reason = "render_target_create() returned an invalid RID";
+        }
         return false;
     }
 
@@ -3835,7 +3941,13 @@ static bool create_test_render_buffers(const Vector2i &p_internal_resolution, RI
     rb_config->set_scaling_3d_mode(p_scaling_3d_mode);
     rb_config->set_view_count(1);
     r_render_buffers->configure(rb_config.ptr());
-    return r_render_buffers->has_internal_texture();
+    if (!r_render_buffers->has_internal_texture()) {
+        if (r_reason) {
+            *r_reason = "configure() produced no internal texture";
+        }
+        return false;
+    }
+    return true;
 }
 
 TEST_CASE("[GaussianSplatting][RequiresGPU] Renderer teardown reaches zero owned GPU resources before device manager shutdown") {
