@@ -430,8 +430,16 @@ Assignment of the current public surface:
 > token inside the collaborator's own mutating methods rather than at the getter; or (c) return
 > a handle that carries the scope for its lifetime. **(a) is the cheapest and matches the
 > "not user-facing API" comment already on the accessor.** The derived-tag guard must also flag
-> any public method returning a non-`const` reference or pointer to owned state, not just
-> untagged methods — otherwise the derivation has the same hole.
+> any public method that **hands out a usable handle to owned state**, not just
+> untagged methods — otherwise the derivation has the same hole. **`const`-ness of the getter is
+> not a safe filter**, because a `const` method can still return a mutable handle by value:
+> `get_vram_regulator() const` (`gaussian_streaming.h:268`) returns `Ref<VRAMBudgetRegulator>`
+> **by value from a `const` method**, and a caller holding that `Ref` can invoke
+> `set_config_override()` / `update()` (`streaming_vram_regulator.h:123-131`) while
+> `update_streaming` is concurrently reading the same regulator for admission and LOD
+> decisions. So the rule must be: flag any public method whose return type is a non-`const`
+> reference, a pointer, **or a `Ref<>`/smart handle**, to owned mutable state — regardless of
+> the method's own `const` qualification.
 
 **No entry point is `[RENDER-THREAD-ONLY]`.** If a future slice wants to introduce that
 class, it must first prove the headless `tick_streaming_only` path and the script bindings
@@ -716,7 +724,7 @@ a slice that cannot show the evidence in §7 for the invariants it touches is "n
 | **I9** | **No slice adds a NEW lock over render-facing state** (`chunks`, budget/ledger, `atlas_allocator`, `persistent_buffer`, `asset_registry`). The two existing streaming locks stay at two, each keeping its current scope. **No streaming TU acquires `world_mutex` directly**, and the set of director methods through which the streaming path acquires it **indirectly** does not grow beyond the seven inventoried in §3e. *(Note the honest form: "no streaming path acquires `world_mutex`" is **false on the base** — see §3e. The enforceable invariant is no-new-and-no-direct, not none.)* | Three-part guard, all three of which bite: (1) `Mutex`/`RWLock` declarations in the streaming TUs stay at exactly the two named below; (2) `world_mutex` has zero **textual** references in `core/gaussian_streaming.*`, `core/streaming_*.{h,cpp}`, `renderer/render_streaming_orchestrator.cpp` — currently zero, catches a *direct* acquisition; (3) **the allow-list check that actually matters** — enumerate the director calls made from the streaming TUs, intersect with the director methods that lock `world_mutex`, and fail if that set differs from the seven in §3e. **Match on the callee name, not on a receiver spelling** — an earlier revision of this list was derived with `p_director->\w+_for_renderer` and consequently missed `build_instance_grading_buffer_for_renderer`, which is called through a bare `director->` receiver. Any receiver-anchored pattern will under-report and silently shrink the frozen set. Part (3) is required because parts (1)–(2) are green through all seven existing indirect acquisitions. |
 | **I10** | Friendship strictly decreases. No slice adds a `friend` grant; S5 removes the six named grants (`gaussian_streaming.h:31-34`, `streaming_visibility_controller.h:54`, `streaming_global_atlas_registry.h:23`). | Grep guard on `friend class` count in the streaming headers; monotonically non-increasing, zero after S5. |
 | **I11** | No GPU payload layout changes in S1–S6; the atlas stride guard and the layout-sync guard are untouched. | `run_module_tests.py --guard-only` green; guard files unmodified in the diff. |
-| **I12** | External behavior is preserved: same chunks resident, same eviction order, same visible count for a fixed camera path. | Byte-identical `get_streaming_analytics` / `get_vram_debug_stats` on a fixed scene before and after. |
+| **I12** | External behavior is preserved: same chunks resident, same eviction order, same visible count for a fixed camera path. | Byte-identical **residency/budget key subset** of `get_streaming_analytics` / `get_vram_debug_stats` on a fixed scene before and after — **not** the whole snapshot, which embeds run-varying timing telemetry (see evidence item 4). |
 
 ## 7. Evidence a slice must produce
 
@@ -738,6 +746,16 @@ Every slice states which invariants it touches and attaches, at minimum:
    fixture that silently fell back to the resident route fails instead of passing empty.
 4. **Accounting parity (I1, I12):** `get_vram_debug_stats` + `get_streaming_analytics` captured
    on a fixed camera path on the immutable base and on the head, diffed and attached.
+   **Compare the residency/accounting key subset only — not the whole snapshot.** The analytics
+   Dictionary also carries live timing and contention telemetry that varies run-to-run on an
+   identical camera path: the `scheduler_*_cpu_ms`, `pack_queue_latency_*` and `pack_mutex_wait_*`
+   families, populated from `exchange_and_reset()` tick/atomic counters
+   (`streaming_diagnostics_surface.cpp:199-233`, `:323-348`). Requiring byte-identity over those
+   makes the lane fail on timing noise rather than semantic drift — which trains reviewers to
+   wave the diff through, defeating the parity check. The compared set is the residency and
+   budget keys (resident/loaded chunk counts, `vram_usage`, eviction and admission counters,
+   visible count); timing keys are reported for information and may carry tolerances, never
+   equality.
 5. **Runtime/GPU evidence (R2 slices — S1, S2, S4, S5):** the streaming lanes of the runtime
    harness on the GPU runner, with peak VRAM and overflow counters. Agents cannot raster
    locally; a slice without runner output reports "not run", never "passed".
