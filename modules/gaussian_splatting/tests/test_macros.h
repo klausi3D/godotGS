@@ -171,6 +171,41 @@ public:
         return;                                                           \
     }
 
+// #637 helper: assert the GLOBAL `RenderingDevice::get_singleton()` exists.
+//
+// This is NOT interchangeable with REQUIRE_LOCAL_GPU_DEVICE(). That macro
+// hands you a *local* device you own; this one asserts the *singleton*, which
+// is what upstream `ShaderRD::ShaderRD()` reads unguarded:
+//
+//     servers/rendering/renderer_rd/shader_rd.cpp:791
+//         if (RD::get_singleton()->get_device_vendor_name() == "NVIDIA") {
+//
+// Any type that owns a ShaderRD subclass therefore cannot be constructed at
+// all without the singleton. `TileRenderer` is such a type: its constructor's
+// member-initializer list builds `shader_resources(*this)`
+// (renderer/tile_renderer.cpp:1384), whose own member-initializer list does
+// `std::make_unique<TileBinningShaderRD>()`
+// (renderer/tile_render_resources.cpp:286), and `TileBinningShaderRD` derives
+// from `ShaderRD` (shaders/tile_binning.glsl.gen.h:37). All of that runs
+// BEFORE the first statement of TileRenderer's constructor body, so the
+// null-guards in that body cannot help.
+//
+// Production honours this invariant (every TileRenderer construction site sits
+// behind a device check), so a test that trips it has an unmet precondition —
+// hence FAIL, not a silent skip: a skip here would be the vacuous-pass shape
+// this module keeps eliminating, and #656 established that REQUIRE does not
+// abort the case in this build. Tag such a TEST_CASE `[RequiresGPU]` so the
+// `--gs-gpu-test` harness (whose _bootstrap_rd() memnew(RenderingDevice)
+// installs the singleton, servers/rendering/rendering_device.cpp:8144) runs it.
+#define REQUIRE_RENDERING_DEVICE_SINGLETON()                                   \
+    if (RenderingDevice::get_singleton() == nullptr) {                         \
+        FAIL("RenderingDevice::get_singleton() is null. This [RequiresGPU] "   \
+             "case must run under the --gs-gpu-test harness "                  \
+             "(tests/ci/run_gpu_harness.py), which bootstraps the singleton "  \
+             "that upstream ShaderRD's constructor dereferences.");            \
+        return;                                                                \
+    }
+
 // PR #352 helper for streaming tests: cheap probe symmetric to
 // REQUIRE_GPU_DEVICE(). Skips the calling test when the streaming pipeline
 // has no usable RenderingDevice — i.e. when
