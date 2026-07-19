@@ -364,6 +364,28 @@ void GaussianSplatSceneDirector::DeferredRendererWork::queue_restore(const Ref<G
 	entries.push_back(entry);
 }
 
+void GaussianSplatSceneDirector::DeferredRendererWork::queue_restore_first(const Ref<GaussianSplatRenderer> &p_renderer,
+		const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_snapshot) {
+	if (p_renderer.is_null()) {
+		return;
+	}
+	Entry entry;
+	entry.renderer = p_renderer;
+	entry.restore_state = p_snapshot;
+	entry.kind = Kind::RESTORE;
+	// Front-insert: see the contract in the header. The rollback has to precede a
+	// stale apply queued by _get_or_create_world_for_scenario, or that apply would
+	// be undone and the renderer left cleared while the director still holds the
+	// previous record. LocalVector has no insert-at-front and the queue is at most
+	// a couple of entries deep, so rebuild it -- same shape as queue_initialize.
+	LocalVector<Entry> reordered;
+	reordered.push_back(entry);
+	for (Entry &existing : entries) {
+		reordered.push_back(existing);
+	}
+	entries = std::move(reordered);
+}
+
 void GaussianSplatSceneDirector::DeferredRendererWork::queue_initialize(const Ref<GaussianSplatRenderer> &p_renderer) {
 	if (p_renderer.is_null()) {
 		return;
@@ -896,6 +918,49 @@ bool GaussianSplatSceneDirector::_apply_world_submission_to_renderer(SharedWorld
 	const GaussianSplatRenderer::WorldSubmissionContract contract =
 			_build_world_submission_contract(p_renderer_state, p_record);
 	const Error err = renderer->apply_world_submission_contract(contract);
+	if (err != OK) {
+		GS_LOG_RENDERER_ERROR(vformat("[GaussianSplatSceneDirector] Failed to apply world submission contract (err=%d).", err));
+		return false;
+	}
+	return true;
+}
+
+bool GaussianSplatSceneDirector::_apply_world_submission_contract_unlocked(
+		const Ref<GaussianSplatRenderer> &p_renderer,
+		const GaussianSplatRenderer::WorldSubmissionContract &p_contract) {
+	if (p_renderer.is_null()) {
+		// Matches _apply_world_submission_to_renderer's early-out for a world with
+		// no renderer: nothing to apply is not a failure, and must not be turned
+		// into a rejected submission.
+		return true;
+	}
+	// #611 PR B2: the inverse sense of the other boundary checks. Those report
+	// when the lock IS held because they are still on the locked path; this one is
+	// the path that fixed it, so the report is a regression alarm — it fires only
+	// if someone reintroduces the inversion by calling this under world_mutex.
+	// Either way the counter's meaning is unchanged: non-zero means a blocking
+	// render-thread dispatch was issued from inside the critical section the
+	// render thread itself needs.
+	_report_renderer_contract_lock_violation("_apply_world_submission_contract_unlocked");
+
+	// Identical error handling to _apply_world_submission_to_renderer, and that is
+	// load-bearing rather than incidental: the two failure behaviours #611 requires
+	// to stay distinct are produced INSIDE apply_world_submission_contract and are
+	// carried out solely by this Error.
+	//
+	//   set_max_splats      -> warns and returns void on dispatch timeout, so the
+	//                          contract still returns OK -> true -> the caller
+	//                          COMMITS and the max_splats change is silently
+	//                          dropped (renderer/render_quality_orchestrator.cpp).
+	//   set_gaussian_data   -> returns ERR_BUSY on dispatch timeout, so the
+	//                          contract returns non-OK -> false -> the caller
+	//                          ROLLS BACK and REJECTS the submission
+	//                          (renderer/render_data_orchestrator.cpp).
+	//
+	// Collapsing them — for example by treating any timeout uniformly, or by
+	// returning true here on error — is a behavioural regression even though it
+	// would still remove the lock inversion.
+	const Error err = p_renderer->apply_world_submission_contract(p_contract);
 	if (err != OK) {
 		GS_LOG_RENDERER_ERROR(vformat("[GaussianSplatSceneDirector] Failed to apply world submission contract (err=%d).", err));
 		return false;
@@ -2284,75 +2349,247 @@ bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &
 	}
 
 	// Runtime world path: renderer mutation, ownership arbitration, and rollback stay centralized here.
-	// #611: declared before the lock so the apply that
-	// _get_or_create_world_for_scenario may queue (when it lazily creates this
-	// world's renderer) dispatches to the render thread only after world_mutex is
-	// released. See DeferredRendererWork in the header for the ordering rules.
-	DeferredRendererWork deferred_renderer_work;
-	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
-	SharedWorld *world = _get_or_create_world_for_scenario(p_submission.scenario, true, &deferred_renderer_work);
-	if (!world) {
-		return false;
-	}
+	//
+	// #611 PR B2 — THREE-PHASE STRUCTURE. This function used to hold `world_mutex`
+	// across `_apply_world_submission_to_renderer`, which reaches a *blocking*
+	// render-thread dispatch while the render thread needs that same mutex inside
+	// the `*_for_renderer` builders. Every other such site is now deferred past the
+	// unlock (PR A, PR B1); this one cannot be, because its result gates the
+	// commit/reject decision and a destructor cannot feed a value back into a
+	// function that has already chosen its return value.
+	//
+	//   Phase 1  arbitrate  under world_mutex   -- decide, snapshot, build contract
+	//   Phase 2  apply      world_mutex RELEASED -- the blocking dispatch
+	//   Phase 3  commit     under world_mutex   -- RE-VALIDATE, then commit or reject
+	//
+	// serialized end-to-end by `world_submission_apply_mutex`, which the render
+	// thread never acquires and which is always taken before `world_mutex`.
+	//
+	// Phase 0: serialize. Two concurrent submissions must not interleave their
+	// phases, or the committed record could be one whose contract was not the last
+	// applied to the renderer. Declared FIRST so it is released LAST — after the
+	// deferred queue below has flushed.
+	MutexLock submission_lock(world_submission_apply_mutex);
 
-	SharedWorld *previous_world = _find_world_for_world_submission(p_submission.owner_id);
-	const SharedWorld::WorldSubmissionRecord target_previous_record = world->world_submission;
-	const bool same_owner = target_previous_record.active && target_previous_record.owner_id == p_submission.owner_id;
-	if (target_previous_record.active && !same_owner) {
-		if (_is_world_submission_owner_live(world->world_submission.owner_id)) {
+	// #611: declared before every lock scope below so the apply that
+	// _get_or_create_world_for_scenario may queue (when it lazily creates this
+	// world's renderer), and the rollback queued on the reject paths, dispatch to
+	// the render thread only after world_mutex is released. See
+	// DeferredRendererWork in the header for the ordering rules.
+	DeferredRendererWork deferred_renderer_work;
+
+	const RID scenario = p_submission.scenario;
+	// Carried across the phases. Deliberately NOT a `SharedWorld *`: no pointer
+	// into `worlds` survives the unlocked gap (the world may be pruned, and an
+	// insert may rehash the map), which is why phase 3 re-looks-up by scenario RID.
+	Ref<GaussianSplatRenderer> target_renderer;
+	SharedWorld::WorldSubmissionRecord candidate_record;
+	GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot target_previous_renderer_state;
+	GaussianSplatRenderer::WorldSubmissionContract contract;
+	bool needs_apply = false;
+
+	// ---------------- Phase 1: arbitrate, under world_mutex ----------------
+	{
+		GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+		SharedWorld *world = _get_or_create_world_for_scenario(scenario, true, &deferred_renderer_work);
+		if (!world) {
 			return false;
+		}
+
+		const SharedWorld::WorldSubmissionRecord target_previous_record = world->world_submission;
+		const bool same_owner = target_previous_record.active && target_previous_record.owner_id == p_submission.owner_id;
+		if (target_previous_record.active && !same_owner) {
+			if (_is_world_submission_owner_live(world->world_submission.owner_id)) {
+				// Arbitration reject. No renderer mutation has happened, so there is
+				// nothing to roll back — and the apply that
+				// _get_or_create_world_for_scenario may have queued is still the
+				// correct one (the previous record is still live), so it is
+				// deliberately left to flush.
+				return false;
+			}
+		}
+
+		target_previous_renderer_state = world->renderer.is_valid()
+				? world->renderer->snapshot_world_submission_runtime_state()
+				: GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot();
+		_store_world_submission_record(candidate_record, p_submission);
+		candidate_record.renderer_restore_state = target_previous_record.active
+				? (target_previous_record.renderer_restore_state.valid
+						? target_previous_record.renderer_restore_state
+						: target_previous_renderer_state)
+				: target_previous_renderer_state;
+
+		// Mirrors _apply_world_submission_to_renderer's early-out: an inactive
+		// record or a renderer-less world applies nothing and is not a failure.
+		if (candidate_record.active && world->renderer.is_valid()) {
+			// A strong Ref, so the renderer cannot be freed under phase 2 if this
+			// world is pruned in the gap. See the prune retry at the end of this
+			// function for the reference-count consequence of holding it.
+			target_renderer = world->renderer;
+			contract = _build_world_submission_contract(candidate_record.renderer_restore_state, candidate_record);
+			needs_apply = true;
 		}
 	}
 
-	const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot target_previous_renderer_state =
-			world->renderer.is_valid()
-					? world->renderer->snapshot_world_submission_runtime_state()
-					: GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot();
-	SharedWorld::WorldSubmissionRecord candidate_record;
-	_store_world_submission_record(candidate_record, p_submission);
-	candidate_record.renderer_restore_state = target_previous_record.active
-			? (target_previous_record.renderer_restore_state.valid
-					? target_previous_record.renderer_restore_state
-					: target_previous_renderer_state)
-			: target_previous_renderer_state;
-	if (!_apply_world_submission_to_renderer(*world, candidate_record, candidate_record.renderer_restore_state)) {
-		_restore_world_submission_renderer(*world, target_previous_renderer_state);
-		return false;
+	// ---------------- Phase 2: apply, with world_mutex RELEASED ----------------
+	// This is the whole point of the restructure: the blocking render-thread
+	// dispatch now happens with the mutex the render thread needs left free.
+	const bool applied = needs_apply
+			? _apply_world_submission_contract_unlocked(target_renderer, contract)
+			: true;
+
+	// ---------------- Phase 3: commit, under world_mutex ----------------
+	//
+	// RE-VALIDATION. Phase 1's arbitration was true when it was made, and it is
+	// still true with respect to other submissions (they are serialized behind
+	// `submission_lock`). It is NOT necessarily still true with respect to
+	// everything else that can run on the main thread while phase 2 was unlocked,
+	// so each fact phase 1 relied on is re-established here rather than assumed:
+	//
+	//   R1  the world still exists          -- re-looked-up by scenario RID, because
+	//                                          it may have been pruned and because
+	//                                          a rehash invalidates stale pointers.
+	//   R2  it still has the SAME renderer  -- phase 2 mutated `target_renderer`;
+	//                                          if the world's renderer was swapped,
+	//                                          committing would record a contract
+	//                                          the live renderer never received.
+	//   R3  the submission slot is still    -- a different, live owner may have
+	//       ours to take                       taken it in the gap; stomping it
+	//                                          would silently evict a live world.
+	//   R4  the owner's previous world      -- re-resolved, not carried from phase
+	//       is re-resolved                     1: the owner may have been re-homed.
+	//
+	// When re-validation fails the outcome is the SAME as an apply failure —
+	// rollback and reject — because the renderer has already been mutated and we
+	// have decided not to commit. That is deliberate: it keeps `false` meaning
+	// exactly one thing to GaussianSplatWorld3D ("your submission was not
+	// installed, and the renderer was put back"), rather than inventing a third
+	// outcome the caller has no handling for.
+	bool committed = false;
+	{
+		GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+		SharedWorld *world = worlds.getptr(scenario); // R1
+		const bool world_still_valid = world != nullptr;
+		// R2: pointer identity, not Ref equality — we care whether this is the very
+		// object phase 2 dispatched against.
+		//
+		// SCOPED TO `needs_apply` DELIBERATELY. When phase 2 dispatched nothing
+		// (the world had no renderer, the only way needs_apply is false — see
+		// _store_world_submission_record, which always sets active = true), there is
+		// no mutation for a renderer swap to invalidate, and the commit is pure
+		// bookkeeping. Checking identity anyway would reject whenever a renderer
+		// merely *appeared* in the gap, and a rejection is not a retry: it reads to
+		// GaussianSplatWorld3D as "another world owns this scenario"
+		// (nodes/gaussian_splat_world_3d.cpp), which stops it registering until some
+		// unrelated event re-triggers _resubmit_world_submission_if_registered().
+		// Inventing that stall would be worse than the inversion being fixed here.
+		//
+		// It also keeps every headless lane bit-identical to the pre-change
+		// behaviour: with no RenderingDevice no world ever has a renderer, so
+		// needs_apply is always false and this check never runs.
+		const bool renderer_unchanged = !needs_apply ||
+				(world_still_valid && world->renderer.ptr() == target_renderer.ptr());
+		bool slot_still_available = false;
+		if (world_still_valid) {
+			// R3: re-run phase 1's arbitration predicate against the CURRENT record.
+			const SharedWorld::WorldSubmissionRecord &current = world->world_submission;
+			const bool same_owner = current.active && current.owner_id == p_submission.owner_id;
+			slot_still_available = !current.active || same_owner ||
+					!_is_world_submission_owner_live(current.owner_id);
+		}
+
+		if (applied && world_still_valid && renderer_unchanged && slot_still_available) {
+			// #611: if _get_or_create_world_for_scenario lazily created this world's
+			// renderer in phase 1, it queued an apply of the PREVIOUS record. The
+			// commit about to be made supersedes it, and the queue flushes after
+			// world_mutex is released, so leaving it in place would re-apply the old
+			// contract on top of the new one. On every failure exit the previous
+			// record is still the live one, so their queued apply is correct and is
+			// deliberately left alone.
+			//
+			// ORDER: cancel() clears the ENTIRE queue, so it must run BEFORE the
+			// previous-world restore is queued below — otherwise it would silently
+			// drop that restore too, and the evicted world's renderer would keep a
+			// contract it no longer owns.
+			deferred_renderer_work.cancel();
+
+			// R4: re-resolve the owner's previous world under this lock rather than
+			// carrying phase 1's pointer across the gap.
+			SharedWorld *previous_world = _find_world_for_world_submission(p_submission.owner_id);
+			if (previous_world && previous_world != world) {
+				// Read the restore state BEFORE clearing the record it lives in.
+				// Result-discarded restore, so it fits the deferral pattern exactly and
+				// goes on the queue instead of dispatching under the lock.
+				deferred_renderer_work.queue_restore(previous_world->renderer,
+						previous_world->world_submission.renderer_restore_state);
+				previous_world->world_submission = SharedWorld::WorldSubmissionRecord();
+			}
+
+			world->world_submission = candidate_record;
+			committed = true;
+		} else {
+			// Rollback + reject. Queued rather than dispatched inline, because a
+			// restore's result is discarded and the queue flushes with the lock
+			// released.
+			//
+			// ORDER — front-inserted, and this is load-bearing. A rejection leaves
+			// the director's previous record P active, so the renderer must end up
+			// holding P's contract or the two diverge. When phase 1 lazily created
+			// this renderer it queued an apply of P, and
+			// `target_previous_renderer_state` was snapshotted from the still-blank
+			// renderer BEFORE that apply ran. The pre-#611 code restored inline and
+			// let the queued apply(P) flush afterwards, making P the last writer.
+			// Appending here would invert that — (apply(P), restore(blank)) — and
+			// leave the renderer cleared under a live record. Front-insertion
+			// reproduces the original ordering exactly, and degenerates to a plain
+			// append when nothing else is queued.
+			//
+			// `target_renderer` is the renderer phase 2 actually mutated. On an R2
+			// failure that is no longer the world's renderer, and restoring it — not
+			// the new one — is precisely right: we undo what we did, and leave what
+			// we never touched alone.
+			if (target_renderer.is_valid()) {
+				deferred_renderer_work.queue_restore_first(target_renderer, target_previous_renderer_state);
+			}
+		}
+	}
+	// world_mutex is released here.
+
+	// LOAD-BEARING INVARIANT for the reject exit (carried forward from PR A):
+	// deferring the queued apply means `target_previous_renderer_state` is
+	// snapshotted from a renderer that has NOT yet had the previous record applied.
+	// That divergence cannot reach the committed record only because
+	// `snapshot_world_submission_runtime_state()` hardcodes `snapshot.valid = true`
+	// (renderer/render_data_orchestrator.cpp). `valid` being unconditionally true
+	// is what makes `candidate_record.renderer_restore_state` resolve to
+	// `target_previous_record.renderer_restore_state` — captured before any of this
+	// — and therefore byte-identical to the pre-change value. If `valid` ever
+	// becomes conditional, re-derive this; the reject path would otherwise silently
+	// start restoring to a different state.
+
+	// Flush explicitly rather than leaving it to the destructor: the renderer Ref
+	// below must be dropped BEFORE the prune retry, and the queued restore must run
+	// before that Ref potentially frees the renderer.
+	deferred_renderer_work.flush();
+
+	// #611 PR B2 — REFERENCE-COUNT CONSEQUENCE, and why the prune retry exists.
+	//
+	// Holding `target_renderer` across phase 2 pushes the renderer's reference
+	// count to 2 (the world's Ref plus ours). `_should_prune_world` prunes only at
+	// `get_reference_count() <= 1`, so a concurrent `release_world_submission` in
+	// the unlocked gap would have found the count inflated and skipped its prune —
+	// leaking an empty SharedWorld, which is the exact trap release_world_submission
+	// documents at its own capture-after-prune-decision site.
+	//
+	// Dropping the Ref here is safe (world_mutex is released, so the potentially
+	// blocking ~GaussianSplatRenderer cannot invert), and the retry afterwards is a
+	// no-op whenever the world is still in use.
+	target_renderer.unref();
+	if (needs_apply) {
+		try_prune_world_if_unused(scenario);
 	}
 
-	if (previous_world && previous_world != world) {
-		_restore_world_submission_renderer(*previous_world, previous_world->world_submission.renderer_restore_state);
-		previous_world->world_submission = SharedWorld::WorldSubmissionRecord();
-	}
-
-	world->world_submission = candidate_record;
-	// #611: if _get_or_create_world_for_scenario lazily created this world's
-	// renderer above, it queued an apply of the PREVIOUS record. The commit just
-	// made supersedes it, and the queue flushes after world_mutex is released, so
-	// leaving it in place would re-apply the old contract on top of the new one.
-	// On the two failure exits above the previous record is still the live one,
-	// so their queued apply is correct and is deliberately left alone.
-	//
-	// LOAD-BEARING INVARIANT for the reject exit: deferring the queued apply
-	// means `target_previous_renderer_state` is now snapshotted from a renderer
-	// that has NOT yet had the previous record applied. That divergence cannot
-	// reach the committed record only because
-	// `snapshot_world_submission_runtime_state()` hardcodes `snapshot.valid =
-	// true` (renderer/render_data_orchestrator.cpp:662). `valid` being
-	// unconditionally true is what makes `candidate_record.renderer_restore_state`
-	// resolve to `target_previous_record.renderer_restore_state` — captured before
-	// any of this — and therefore byte-identical to the pre-change value. If
-	// `valid` ever becomes conditional, re-derive this; the reject path would
-	// otherwise silently start restoring to a different state.
-	//
-	// Scope note (#611 PR A): the apply at the top of this function and the
-	// restores on its failure paths are NOT deferred. Their results gate the
-	// commit/reject decision, which no destructor can feed a value back into;
-	// restructuring that needs the three-phase apply-serialization design tracked
-	// as PR B. The boundary check inside them counts and reports the remaining
-	// violation — see get_renderer_contract_lock_violation_count().
-	deferred_renderer_work.cancel();
-	return true;
+	return committed;
 }
 
 void GaussianSplatSceneDirector::release_world_submission(ObjectID p_owner_id) {

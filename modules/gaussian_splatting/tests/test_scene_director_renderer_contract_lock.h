@@ -357,6 +357,133 @@ TEST_CASE("[GaussianSplatting][SceneDirector][Lifetime] DeferredRendererWork def
 	}
 }
 
+// #611 PR B2 — submit_world_submission's three-phase restructure
+// (arbitrate-under-lock -> apply-unlocked -> commit-under-lock).
+//
+// SAME LIMITATION AS EVERYTHING ABOVE, and it is worth restating because this is
+// the case people most want a behavioural test for: nothing here proves the
+// stall is gone. It cannot. The two behaviours the restructure has to preserve —
+// `set_max_splats` silently dropped, `set_gaussian_data` rolled back and
+// rejected — are produced by a *dispatch timeout*, and headless never dispatches
+// at all. Asserting either one here would pass identically on a tree with the
+// inversion fully live.
+//
+// What IS provable headless is the queue bookkeeping the restructure newly
+// depends on. Phase 3 no longer dispatches its rollback inline; it queues it,
+// behind whatever `_get_or_create_world_for_scenario` may already have queued in
+// phase 1. So the FINAL renderer state after a rejection is decided entirely by
+// flush order, and these two orderings are what make the reject and commit paths
+// correct. Both are real invariants: the second one is a bug the implementation
+// hit before it was written down.
+//
+// The structural proof that the inversion itself is gone lives in
+// tests/ci/check_renderer_contract_boundary.py, whose caller-side rule reports 3
+// violations in submit_world_submission on the pre-fix tree and 0 after.
+TEST_CASE("[GaussianSplatting][SceneDirector][Lifetime] DeferredRendererWork ordering pins submit_world_submission's reject and commit paths") {
+	Ref<GaussianSplatRenderer> renderer(memnew(GaussianSplatRenderer(nullptr)));
+	if (renderer.is_null()) {
+		FAIL("could not construct a device-less GaussianSplatRenderer; the queue "
+			 "ordering the three-phase restructure relies on cannot be exercised");
+		return;
+	}
+	const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot cleared;
+	if (cleared.valid) {
+		FAIL("a default-constructed snapshot reports valid; the restore below would "
+			 "take the restore_world_submission_runtime_state path instead of the "
+			 "device-free clear path and this test would not be self-contained");
+		return;
+	}
+
+	{
+		// REJECT PATH ordering. Phase 1 may queue an apply of the PREVIOUS record P
+		// (when it lazily creates the renderer); phase 3's rejection then adds the
+		// rollback. cancel() is deliberately NOT called on this path, so both
+		// entries survive — and the ROLLBACK MUST RUN FIRST, leaving apply(P) as the
+		// last writer.
+		//
+		// This is the opposite of what an earlier draft of this test asserted, and
+		// the correction came from review (Codex on #674) rather than from any lane
+		// here. The reasoning: a rejection leaves the director's record at P, so the
+		// renderer must end up holding P's contract or the two diverge. The
+		// rollback's snapshot was taken from the still-blank renderer BEFORE the
+		// queued apply(P) ran, so if the rollback went last it would undo P and
+		// leave the renderer cleared under a live record. The pre-#611 code restored
+		// inline and flushed apply(P) afterwards; queue_restore_first reproduces
+		// exactly that order.
+		GaussianSplatSceneDirector::DeferredRendererWork work;
+		work.queue_apply(renderer, GaussianSplatRenderer::WorldSubmissionContract());
+		work.queue_restore_first(renderer, cleared);
+		CHECK(work.size() == 2u);
+		// The load-bearing assertion: rollback BEFORE the stale apply, so apply(P)
+		// is the final word.
+		CHECK(work.get_entry_kind(0) == GaussianSplatSceneDirector::DeferredRendererWork::Kind::RESTORE);
+		CHECK(work.get_entry_kind(1) == GaussianSplatSceneDirector::DeferredRendererWork::Kind::APPLY);
+
+		work.flush();
+		// Neither entry may be dropped: the reject path's correctness is that BOTH
+		// run, in this order.
+		CHECK(work.get_dispatched_entry_count() == 2u);
+		CHECK(work.is_empty());
+	}
+
+	{
+		// With nothing already queued, queue_restore_first must degenerate to a
+		// plain append — otherwise the common rejection (renderer already existed,
+		// so phase 1 queued no apply) would depend on which entry point was used.
+		GaussianSplatSceneDirector::DeferredRendererWork work;
+		work.queue_restore_first(renderer, cleared);
+		CHECK(work.size() == 1u);
+		CHECK(work.get_entry_kind(0) == GaussianSplatSceneDirector::DeferredRendererWork::Kind::RESTORE);
+		work.flush();
+		CHECK(work.get_dispatched_entry_count() == 1u);
+	}
+
+	{
+		// A null renderer must not queue a dangling entry, matching the other kinds.
+		GaussianSplatSceneDirector::DeferredRendererWork work;
+		work.queue_restore_first(Ref<GaussianSplatRenderer>(), cleared);
+		CHECK(work.is_empty());
+	}
+
+	{
+		// COMMIT PATH. cancel() clears the ENTIRE queue, not just the superseded
+		// apply it is aimed at. The commit branch also has to queue a restore for the
+		// evicted previous world, so the two operations are order-sensitive:
+		// cancel() must come FIRST.
+		//
+		// This is not hypothetical — writing the commit branch with the queue_restore
+		// ahead of the cancel() silently dropped that restore, leaving the evicted
+		// world's renderer holding a contract it no longer owned.
+		GaussianSplatSceneDirector::DeferredRendererWork work;
+		work.queue_apply(renderer, GaussianSplatRenderer::WorldSubmissionContract());
+		work.cancel();
+		work.queue_restore(renderer, cleared);
+		CHECK(work.size() == 1u);
+		CHECK(work.get_entry_kind(0) == GaussianSplatSceneDirector::DeferredRendererWork::Kind::RESTORE);
+
+		work.flush();
+		// Exactly one: the superseded apply is gone, the previous-world restore is
+		// not.
+		CHECK(work.get_dispatched_entry_count() == 1u);
+	}
+
+	{
+		// ...and the inverse order, which is the bug the branch above must not
+		// reintroduce: cancel() after queueing takes the restore with it.
+		GaussianSplatSceneDirector::DeferredRendererWork work;
+		work.queue_apply(renderer, GaussianSplatRenderer::WorldSubmissionContract());
+		work.queue_restore(renderer, cleared);
+		work.cancel();
+		CHECK(work.is_empty());
+		work.flush();
+		CHECK(work.get_dispatched_entry_count() == 0u);
+	}
+
+	// No entry may outlive the queue: every Ref taken above is released again, or
+	// the renderer would leak past the submission that borrowed it.
+	CHECK(renderer->get_reference_count() == 1);
+}
+
 } // namespace TestSceneDirectorRendererContractLock
 
 #endif // TEST_SCENE_DIRECTOR_RENDERER_CONTRACT_LOCK_H

@@ -2372,4 +2372,141 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] teardown_world_for_scen
 	}
 }
 
+// #611 PR B2 — the previous-world eviction branch in submit_world_submission's
+// commit phase.
+//
+// WHY THIS TEST EXISTS. Mutation-checking PR B2 found that branch was reachable
+// by no test in this repository, for a reason that turned out to be a corpus gap
+// rather than a structural limit: every other world-submission test here binds
+// both of its submissions to the SAME scenario (`root->get_world_3d()`), so
+// `previous_world != world` was never true. Two mutations of production code —
+// deleting the eviction entirely, and reintroducing a cancel()-ordering bug that
+// drops the queued restore — both passed the full 639-case suite.
+//
+// This test constructs a SECOND scenario, which is all that was missing.
+//
+// WHAT IT PINS, PRECISELY. The branch has two effects, and they do not have the
+// same testability:
+//
+//   1. `previous_world->world_submission` is cleared — pure bookkeeping, needs no
+//      RenderingDevice. That is what this test asserts, and it is what makes the
+//      eviction pinned rather than merely reviewed.
+//   2. a restore is queued for the previous world's renderer — headless that
+//      renderer is always null and `queue_restore` early-outs, so nothing is
+//      enqueued and nothing observable happens. This test does NOT pin it, and no
+//      headless test can; that half still needs a live device.
+//
+// So a reviewer should read this as covering the eviction's *record* half only.
+// The cancel()-ordering bug lives entirely in half 2 and remains unpinned.
+TEST_CASE("[GaussianSplatting][SceneDirector][WorldSubmission][SceneTree] Re-submitting one owner to a second scenario evicts its previous world's record") {
+	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+	const bool owns_director = (director == nullptr);
+	if (!director) {
+		director = memnew(GaussianSplatSceneDirector);
+	}
+	if (!director) {
+		FAIL("GaussianSplatSceneDirector unavailable");
+		return;
+	}
+	const GaussianSplatSceneDirector::SubmissionCounts baseline_counts = director->get_submission_counts();
+
+	SceneTree *tree = SceneTree::get_singleton();
+	if (!tree) {
+		FAIL("SceneTree singleton required");
+		return;
+	}
+	Window *root = tree->get_root();
+	if (!root) {
+		FAIL("SceneTree root window required");
+		return;
+	}
+
+	Ref<World3D> world_a = root->get_world_3d();
+	if (world_a.is_null()) {
+		FAIL("root World3D required");
+		return;
+	}
+	// The second scenario — the thing no other test in this file constructs, and
+	// the sole reason the eviction branch was unreachable.
+	Ref<World3D> world_b;
+	world_b.instantiate();
+	if (world_b.is_null()) {
+		FAIL("could not instantiate a second World3D");
+		return;
+	}
+	const RID scenario_a = world_a->get_scenario();
+	const RID scenario_b = world_b->get_scenario();
+	if (!scenario_a.is_valid() || !scenario_b.is_valid() || scenario_a == scenario_b) {
+		// Without two DISTINCT scenarios `previous_world != world` cannot hold and
+		// every assertion below would pass vacuously against the very mutation this
+		// test exists to catch.
+		FAIL("two distinct valid scenarios are required to reach the eviction branch");
+		return;
+	}
+
+	Node *owner = memnew(Node);
+	if (!owner) {
+		FAIL("could not allocate the submission owner");
+		return;
+	}
+	root->add_child(owner);
+	tree->process(0.0);
+	const ObjectID owner_id = owner->get_instance_id();
+
+	// SAME owner, DIFFERENT scenarios. That pairing is what makes
+	// _find_world_for_world_submission return world A while the commit targets
+	// world B.
+	GaussianSplatSceneDirector::WorldSubmission submission_a;
+	submission_a.owner_id = owner_id;
+	submission_a.scenario = scenario_a;
+	submission_a.gaussian_data = stage1a_make_submission_test_data(3, 0.0f);
+	submission_a.static_chunks.push_back(stage1a_make_submission_test_chunk(0));
+
+	GaussianSplatSceneDirector::WorldSubmission submission_b;
+	submission_b.owner_id = owner_id;
+	submission_b.scenario = scenario_b;
+	submission_b.gaussian_data = stage1a_make_submission_test_data(2, 20.0f);
+	submission_b.static_chunks.push_back(stage1a_make_submission_test_chunk(1));
+
+	CHECK(director->submit_world_submission(submission_a));
+	GaussianSplatSceneDirector::WorldSubmission queried;
+	CHECK(director->get_world_submission_for_scenario(scenario_a, &queried));
+	CHECK(queried.owner_id == owner_id);
+
+	CHECK(director->submit_world_submission(submission_b));
+
+	// THE LOAD-BEARING ASSERTION. Scenario A's record must be gone: the owner has
+	// moved to B, and leaving A active would mean one owner holding two world
+	// submissions, with A's renderer still bound to a contract nobody owns.
+	CHECK_FALSE(director->get_world_submission_for_scenario(scenario_a, &queried));
+
+	CHECK(director->get_world_submission_for_scenario(scenario_b, &queried));
+	CHECK(queried.owner_id == owner_id);
+	CHECK(queried.gaussian_data == submission_b.gaussian_data);
+
+	// Same claim counted rather than queried, so a regression that leaves A active
+	// is caught even if the per-scenario getter changes shape.
+	const GaussianSplatSceneDirector::SubmissionCounts after_move = director->get_submission_counts();
+	CHECK(after_move.world_submissions == baseline_counts.world_submissions + 1);
+
+	// And the owner resolves to B, not to a stale A.
+	CHECK(director->get_world_submission(owner_id, &queried));
+	CHECK(queried.scenario == scenario_b);
+
+	director->release_world_submission(owner_id);
+	CHECK_FALSE(director->get_world_submission(owner_id, &queried));
+	const GaussianSplatSceneDirector::SubmissionCounts after_release = director->get_submission_counts();
+	CHECK(after_release.world_submissions == baseline_counts.world_submissions);
+
+	// Leave no SharedWorld behind for the tests that share this director.
+	director->try_prune_world_if_unused(scenario_a);
+	director->try_prune_world_if_unused(scenario_b);
+
+	root->remove_child(owner);
+	memdelete(owner);
+	if (owns_director) {
+		memdelete(director);
+	}
+}
+
 #endif // TESTS_ENABLED || TOOLS_ENABLED

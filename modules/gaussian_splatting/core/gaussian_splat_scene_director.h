@@ -518,6 +518,38 @@ public:
                 const GaussianSplatRenderer::WorldSubmissionContract &p_contract);
         void queue_restore(const Ref<GaussianSplatRenderer> &p_renderer,
                 const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_snapshot);
+        // #611 PR B2: a restore that must run BEFORE anything already queued.
+        //
+        // This exists for exactly one caller: `submit_world_submission`'s
+        // rollback, and it is a behavioural requirement rather than a
+        // preference.
+        //
+        // When phase 1 lazily creates a renderer for a world that already has an
+        // active record P, `_get_or_create_world_for_scenario` queues an apply of
+        // P, and `target_previous_renderer_state` is snapshotted from the
+        // still-blank renderer BEFORE that apply runs. The pre-#611 code then
+        // restored INLINE and let the queued apply(P) flush afterwards, so P was
+        // the last writer and the renderer ended up holding P's contract --
+        // matching the director's record, which a rejection leaves at P.
+        //
+        // Appending the rollback instead inverts that: the flush order becomes
+        // (apply(P), restore(blank)) and the blank snapshot wins, leaving the
+        // renderer cleared while the director still considers P active. That is a
+        // real divergence, not a cosmetic one, and it is the third ordering
+        // defect this restructure has produced -- the queue and an inline call
+        // racing to be last writer.
+        //
+        // Front-insertion restores the original ordering in every case: with a
+        // queued apply present the sequence is (restore, apply(P)) as before, and
+        // with an empty queue it degenerates to the plain append.
+        //
+        // NOT safe to front-insert ahead of an INITIALIZE entry (GPU bring-up must
+        // precede any contract work). That cannot arise here: INITIALIZE is queued
+        // only by `_initialize_world_renderer`, whose sole caller is
+        // `register_instance`, never `submit_world_submission`. If that ever
+        // changes, this must insert after the leading INITIALIZE entries instead.
+        void queue_restore_first(const Ref<GaussianSplatRenderer> &p_renderer,
+                const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_snapshot);
         // #611 PR B1: defer `GaussianSplatRenderer::initialize()`.
         //
         // ORDERING — this inserts at the FRONT of the queue, and that is
@@ -569,6 +601,30 @@ private:
     // `MutexLock` (which binds the underlying std::mutex directly and would
     // bypass the ownership record).
     mutable GaussianSplatting::ThreadOwnedMutex world_mutex;
+    // #611 PR B2: serializes submit_world_submission's three-phase
+    // arbitrate-under-lock -> apply-unlocked -> commit-under-lock sequence.
+    //
+    // LOCK ORDER: always acquired BEFORE `world_mutex`, and never while holding
+    // it. It is taken in exactly one function (submit_world_submission), so that
+    // ordering is trivially consistent.
+    //
+    // THE RENDER THREAD NEVER ACQUIRES THIS MUTEX. That is the property which
+    // keeps it out of the inversion: the render thread blocks only on
+    // `world_mutex` (inside the `*_for_renderer` builders), so a main thread
+    // holding this one and waiting on a render-thread dispatch cannot be waiting
+    // on a thread that is waiting on it.
+    //
+    // WHY IT IS NEEDED AT ALL: with the apply moved outside `world_mutex`, two
+    // concurrent submissions could interleave arbitrate/apply/commit and commit a
+    // record whose contract was never the last one applied to the renderer. This
+    // mutex makes the whole three-phase sequence atomic with respect to other
+    // submissions, so re-validation on commit only has to defend against
+    // NON-submission mutations (prune, renderer swap, teardown).
+    //
+    // Recursive (Godot's `Mutex`) rather than `BinaryMutex`: re-entering
+    // submit_world_submission on one thread would break the phase logic, but it
+    // must not self-deadlock while doing so.
+    mutable Mutex world_submission_apply_mutex;
     // #611: counts entries into _apply_world_submission_to_renderer /
     // _restore_world_submission_renderer made while the calling thread holds
     // world_mutex. Non-zero means a blocking render-thread dispatch was issued
@@ -650,6 +706,23 @@ private:
 			const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_snapshot);
 	bool _apply_world_submission_to_renderer(SharedWorld &p_world, const SharedWorld::WorldSubmissionRecord &p_record,
 			const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_renderer_state);
+	// #611 PR B2: the apply for `submit_world_submission`, whose result gates the
+	// commit/reject decision and therefore CANNOT be deferred — a destructor has
+	// no way to feed a value back into a function that already chose its return
+	// value, and committing optimistically to roll back later would make that
+	// `bool` a lie to GaussianSplatWorld3D.
+	//
+	// So instead of deferring the dispatch, the caller defers the *lock*: it
+	// releases `world_mutex` before calling this and re-acquires it afterwards.
+	// This takes a `Ref` and a prebuilt contract rather than a `SharedWorld &`
+	// precisely because no `SharedWorld *` is valid across that gap — the world
+	// may be pruned, and `worlds` may rehash, invalidating every pointer into it.
+	//
+	// MUST be called with `world_mutex` released. That is not merely documented:
+	// the boundary check inside reports a violation if it is not, exactly as the
+	// two functions above do.
+	bool _apply_world_submission_contract_unlocked(const Ref<GaussianSplatRenderer> &p_renderer,
+			const GaussianSplatRenderer::WorldSubmissionContract &p_contract);
 	// #611 PR B1: the single route from this class to
 	// `GaussianSplatRenderer::initialize()`. Applies the
 	// not-initialized-and-not-pending guard, then either queues the call on

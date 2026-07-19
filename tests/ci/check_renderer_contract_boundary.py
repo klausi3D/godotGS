@@ -20,6 +20,15 @@ true: every call in the scene director to a renderer method that can reach
 `_dispatch_call_on_render_thread_blocking` must sit in one of the allowlisted
 functions.
 
+PR B2 closes the last site, `submit_world_submission`, and adds the CALLER-SIDE
+rule this file was missing. That gap mattered: the function-level check above
+passes on the pre-fix tree, because the two functions `submit_world_submission`
+called through the lock are themselves legitimately allowlisted. Proving the
+callee is instrumented says nothing about whether the caller held the mutex. So
+`check_no_boundary_call_under_lock` now asserts the property that actually
+matters -- it reports 3 violations on the pre-fix tree (director.cpp:2318, :2319,
+:2324) and 0 after.
+
 Fail-closed: a dispatching call whose enclosing function cannot be determined is
 an ERROR, not a skip.
 
@@ -72,19 +81,46 @@ ALLOWED_FUNCTIONS = {
     "GaussianSplatSceneDirector::_initialize_world_renderer": (
         "instrumented boundary: reports via _report_renderer_contract_lock_violation"
     ),
+    "GaussianSplatSceneDirector::_apply_world_submission_contract_unlocked": (
+        "#611 PR B2: submit_world_submission's apply, called between two world_mutex "
+        "scopes rather than inside one; instrumented, so calling it under the lock "
+        "still reports"
+    ),
     "GaussianSplatSceneDirector::teardown_world_for_scenario": (
         "#628: explicitly moves the renderer Ref out under the lock and calls this "
         "after the MutexLock scope has ended"
     ),
 }
 
-# The three boundary functions must keep their instrumentation. Without this the
+# The boundary functions must keep their instrumentation. Without this the
 # guard could pass on a tree where the counter had been quietly gutted.
 INSTRUMENTED_FUNCTIONS = (
     "GaussianSplatSceneDirector::_apply_world_submission_to_renderer",
     "GaussianSplatSceneDirector::_restore_world_submission_renderer",
     "GaussianSplatSceneDirector::_initialize_world_renderer",
+    "GaussianSplatSceneDirector::_apply_world_submission_contract_unlocked",
 )
+
+# #611 PR B2 -- CALLER-SIDE RULE.
+#
+# The checks above prove that every dispatching call sits in a *recognised*
+# function. They cannot prove the caller was unlocked, because that is a property
+# of the call site, not of the callee. Until PR B2 the remaining inversion lived
+# exactly there: `submit_world_submission` held world_mutex and called
+# `_apply_world_submission_to_renderer` / `_restore_world_submission_renderer`
+# straight through it. Both are allowlisted callees, so the function-level check
+# passed while the defect was fully live.
+#
+# So: a function that acquires world_mutex must not call these two at all. It has
+# two correct alternatives -- queue the work on DeferredRendererWork (when the
+# result is discarded), or restructure so the dispatch happens between lock
+# scopes (when the result gates a decision, as in submit_world_submission).
+LOCK_ACQUISITION_RE = re.compile(r"\bThreadOwnedMutexLock\s+\w+\s*\(\s*world_mutex\s*\)")
+FORBIDDEN_UNDER_LOCK = (
+    "_apply_world_submission_to_renderer",
+    "_restore_world_submission_renderer",
+)
+_FORBIDDEN_CALL_RE = re.compile(r"\b(" + "|".join(FORBIDDEN_UNDER_LOCK) + r")\s*\(")
 
 _DEFINITION_RE = re.compile(
     r"^[A-Za-z_][\w:<>*&,\s]*?\b(GaussianSplatSceneDirector(?:::\w+)+)\s*\("
@@ -165,12 +201,8 @@ def find_violations(source_text: str) -> tuple[list[str], dict[str, list[int]]]:
     return errors, found
 
 
-def check_instrumentation(source_text: str) -> list[str]:
-    """Each boundary function must still report violations."""
-    errors: list[str] = []
-    text = strip_comments(source_text)
-    lines = text.splitlines()
-
+def function_bounds(lines: list[str]) -> dict[str, tuple[int, int]]:
+    """Map each recognised function to its [start, end) line span (0-based)."""
     bounds: dict[str, tuple[int, int]] = {}
     current: str | None = None
     start = 0
@@ -183,6 +215,57 @@ def check_instrumentation(source_text: str) -> list[str]:
             start = index
     if current is not None:
         bounds[current] = (start, len(lines))
+    return bounds
+
+
+def check_no_boundary_call_under_lock(source_text: str) -> list[str]:
+    """A function that takes world_mutex must not call the locked-path boundaries.
+
+    This is the caller-side half of the guard. The function-level allowlist above
+    cannot see it: both callees are legitimately allowlisted, so a caller holding
+    world_mutex across them passes that check while being the exact defect #611
+    is about.
+    """
+    errors: list[str] = []
+    lines = strip_comments(source_text).splitlines()
+
+    for name, (begin, end) in function_bounds(lines).items():
+        lock_line: int | None = None
+        for offset in range(begin, end):
+            if lock_line is None and LOCK_ACQUISITION_RE.search(lines[offset]):
+                lock_line = offset
+                continue
+            if lock_line is None or offset == begin:
+                # Nothing acquired yet, or this is the definition line itself
+                # (whose own name would otherwise read as a call).
+                continue
+            match = _FORBIDDEN_CALL_RE.search(lines[offset])
+            if not match:
+                continue
+            errors.append(
+                f"{DIRECTOR_SOURCE.name}:{offset + 1}: `{name}` acquires world_mutex "
+                f"(line {lock_line + 1}) and then calls `{match.group(1)}`, which "
+                f"reaches a blocking render-thread dispatch.\n"
+                f"    #611: this is the lock-order inversion itself -- the render "
+                f"thread needs world_mutex inside the *_for_renderer builders, so the "
+                f"dispatch stalls for its full timeout and the operation is then "
+                f"dropped (set_max_splats) or rejected (set_gaussian_data).\n"
+                f"    Fix: if the result is discarded, queue it on "
+                f"DeferredRendererWork (declared before the lock). If the result "
+                f"gates a decision, restructure into arbitrate-under-lock -> "
+                f"apply-unlocked -> commit-under-lock and dispatch via "
+                f"_apply_world_submission_contract_unlocked, as "
+                f"submit_world_submission does."
+            )
+    return errors
+
+
+def check_instrumentation(source_text: str) -> list[str]:
+    """Each boundary function must still report violations."""
+    errors: list[str] = []
+    text = strip_comments(source_text)
+    lines = text.splitlines()
+    bounds = function_bounds(lines)
 
     for name in INSTRUMENTED_FUNCTIONS:
         if name not in bounds:
@@ -259,8 +342,67 @@ def run_self_test() -> int:
         "void GaussianSplatSceneDirector::_initialize_world_renderer() {\n"
         "\t_report_renderer_contract_lock_violation(\"y\");\n"
         "}\n"
+        "bool GaussianSplatSceneDirector::_apply_world_submission_contract_unlocked() {\n"
+        "\t_report_renderer_contract_lock_violation(\"z\");\n"
+        "}\n"
     )
     expect("a boundary that lost its violation report must be caught", len(check_instrumentation(gutted)) == 1)
+
+    # #611 PR B2 -- the caller-side rule. This is the exact pre-fix shape of
+    # submit_world_submission: it passes find_violations (both callees are
+    # allowlisted) and must be caught here instead.
+    locked_caller = (
+        "bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &p_submission) {\n"
+        "\tGaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);\n"
+        "\tif (!_apply_world_submission_to_renderer(*world, record, state)) {\n"
+        "\t\t_restore_world_submission_renderer(*world, previous);\n"
+        "\t\treturn false;\n"
+        "\t}\n"
+        "\treturn true;\n"
+        "}\n"
+    )
+    pre_fix_errors, _ = find_violations(locked_caller)
+    expect(
+        "the pre-fix locked caller must slip past the function-level check "
+        "(this is why the caller-side rule exists)",
+        not pre_fix_errors,
+    )
+    expect(
+        "a boundary call under an acquired world_mutex must be caught",
+        len(check_no_boundary_call_under_lock(locked_caller)) == 2,
+    )
+
+    # The post-fix shape -- dispatch between two lock scopes, via the unlocked
+    # helper -- must NOT be flagged, or the rule would forbid the fix itself.
+    three_phase = (
+        "bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &p_submission) {\n"
+        "\tMutexLock submission_lock(world_submission_apply_mutex);\n"
+        "\t{\n"
+        "\t\tGaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);\n"
+        "\t}\n"
+        "\tconst bool applied = _apply_world_submission_contract_unlocked(renderer, contract);\n"
+        "\t{\n"
+        "\t\tGaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);\n"
+        "\t}\n"
+        "\treturn applied;\n"
+        "}\n"
+    )
+    expect(
+        "the three-phase restructure must not be flagged by the caller-side rule",
+        not check_no_boundary_call_under_lock(three_phase),
+    )
+
+    # A function that never takes the lock may still call the boundaries -- that
+    # is _get_or_create_world_for_scenario's documented fallback.
+    unlocked_caller = (
+        "GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_get_or_create_world_for_scenario(const RID &p_scenario) {\n"
+        "\t_apply_world_submission_to_renderer(*entry, entry->world_submission, state);\n"
+        "}\n"
+    )
+    expect(
+        "a caller that does not acquire world_mutex must not be flagged",
+        not check_no_boundary_call_under_lock(unlocked_caller),
+    )
 
     if failures:
         print("Renderer-contract boundary guard SELF-TEST FAILED:", file=sys.stderr)
@@ -268,7 +410,7 @@ def run_self_test() -> int:
             print(f"  - {failure}", file=sys.stderr)
         return 1
 
-    print("Renderer-contract boundary guard self-test passed (5 discrimination cases).")
+    print("Renderer-contract boundary guard self-test passed (9 discrimination cases).")
     return 0
 
 
@@ -291,6 +433,7 @@ def main() -> int:
     source_text = DIRECTOR_SOURCE.read_text(encoding="utf-8")
     errors, found = find_violations(source_text)
     errors.extend(check_instrumentation(source_text))
+    errors.extend(check_no_boundary_call_under_lock(source_text))
 
     if errors:
         print("Renderer-contract boundary guard FAILED (#611):", file=sys.stderr)
