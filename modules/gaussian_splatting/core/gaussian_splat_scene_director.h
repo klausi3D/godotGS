@@ -266,11 +266,23 @@ public:
     // Explicit, idempotent teardown of every SharedWorld entry bound to this scenario.
     //
     // Drops the director's owned Ref<GaussianSplatRenderer> and clears all GPU-resource-bearing
-    // refs (asset records, world-submission record). Called by GaussianSplatWorld3D and
-    // GaussianSplatNode3D from NOTIFICATION_PREDELETE so editor F6 reload (which throws the
-    // SceneTree away without invoking `~GaussianSplatSceneDirector`) does not leak an entire
-    // renderer's worth of GPU allocations per cycle. See gaussian_splat_scene_director.cpp:351
-    // and the closing scenario_c test in test_renderer_lifetime_proof.h.
+    // refs (asset records, world-submission record).
+    //
+    // NOT called from any node's NOTIFICATION_PREDELETE. Both GaussianSplatWorld3D
+    // (gaussian_splat_world_3d.cpp) and GaussianSplatNode3D (gaussian_splat_node_3d.cpp)
+    // deliberately use the ownership-aware release_world_submission() +
+    // try_prune_world_if_unused() pair instead, and each carries a comment explaining why:
+    // a scenario-wide teardown would wipe the SharedWorld (instances, world-submission,
+    // renderer ref) shared by sibling nodes / a still-live peer world node in the same
+    // scenario. Do not "restore" a PREDELETE call here.
+    //
+    // Live callers are:
+    //   * release_all_worlds() (below), which reuses this path for its per-scenario teardown
+    //     because it already implements the #611 deferred renderer-release discipline; and
+    //   * tests (test_renderer_lifetime_proof.h, test_scene_director_submission_scaffolding.h).
+    // The motivating scenario is still editor F6 reload -- which throws the SceneTree away
+    // without invoking `~GaussianSplatSceneDirector` -- reached today through
+    // release_all_worlds() rather than through a node notification.
     //
     // Bypasses the `_should_prune_world` refcount>1 guard intentionally: external Refs held
     // by the about-to-be-deleted scene tree nodes will drop in their own dtors that follow
