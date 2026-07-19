@@ -470,8 +470,17 @@ property names byte-identical; behavior is preserved and proven per step.
   for each property, on each of {sole node, shared-renderer owner, shared-renderer non-owner,
   dead-owner-stolen}, assert (a) whether the renderer write lands, (b) whether the node-local
   member is written, (c) whether the inspector row is hidden. This test must be written
-  **against the base SHA first and pass unmodified there**, then still pass on the head —
-  that is what makes "behavior-preserving" checkable rather than asserted. Plus the existing
+  **against Step 2's own base first and pass unmodified there**, then still pass on the head —
+  that is what makes "behavior-preserving" checkable rather than asserted.
+
+  > **⚠ Step 2 is BLOCKED on the §B1 re-freeze (round 3).** "Its own base" is deliberately
+  > *not* the SHA recorded at the top of this document. #667 changed P2 painterly gating after
+  > that SHA (see the anchor-status note), so a matrix test authored from the rows in §B1 as
+  > they stand would encode pre-#667 semantics, pass against the recorded base, and **fail on
+  > head** — an unsatisfiable acceptance criterion, and one that would pressure an agent to
+  > "fix" the test rather than the matrix. Step 2 therefore may not start until §B1 has been
+  > re-derived against a current base and Decision D5 re-confirmed against the new behavior.
+  > Once that re-freeze lands, the base referred to here is the re-freeze base. Plus the existing
   lifetime tests and a lease unit test (acquire / steal-dead-owner / release / peer-denied).
   *(R2.)*
 
@@ -566,7 +575,7 @@ Checkable. A step that violates one is rejected even with green CI.
 
 | # | Invariant | How it is checked |
 | --- | --- | --- |
-| **N1** | The §B1 gating matrix holds cell-for-cell. No property changes which predicate governs it; no denial changes its effect (dropped / forced-off / node-local-also-skipped). | The Step 2 gating matrix table test, written against the base and passing unmodified on head. |
+| **N1** | The §B1 gating matrix holds cell-for-cell. No property changes which predicate governs it; no denial changes its effect (dropped / forced-off / node-local-also-skipped). **The matrix graded against is the re-frozen one** — see the round-3 anchor-status note and the Step 2 block; the rows as currently written predate #667. | The Step 2 gating matrix table test, written against **Step 2's own (post-re-freeze) base** and passing unmodified on head. |
 | **N2** | `_validate_property` hiding derives from **P2 (`sharing_state()`) only** — never from lease-holding. The owner's rows stay hidden on a shared renderer. | Explicit case in the matrix test: shared-renderer **owner** → rows hidden. |
 | **N3** | The `show_*` flags are forced to `false` when P2 holds, **including for the lease holder**; the node-local member and settings-manager persistence still receive the write. | Matrix test rows (a)+(b) for the four `show_*` flags. |
 | **N4** | The painterly setters gated on P2 continue to skip the **node-local member write**, not just the renderer write. `set_enable_painterly` remains ungated at the setter. | Matrix test row (b) for the five setters + the asymmetry case. |
