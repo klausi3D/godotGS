@@ -85,7 +85,7 @@
     },
     {
       "test_case": "*][RequiresGPU]*",
-      "count": 63,
+      "count": 62,
       "reason": "Catch-all for [RequiresGPU] cases that no run_gpu_harness.py batch reaches. These were previously credited to REQUIRES_RD_TEST_FILTERS ('GaussianSplatting [requires-RD]'), but _build_module_test_runs() only appends that lane under --gpu / GS_RUN_GPU_TESTS=1 and the blocking workflow (.github/workflows/gaussian_production_gates.yml) invokes the runner without it. That lane's own comment calls itself 'a catalogue of renderer-dependent tests', and it is strict=False even when it does run - so crediting it reported coverage that does not exist (Codex, PR #658). Declared as ONE entry deliberately: the long-term home for GPU deferrals is renderer_release_gate_manifest.json:deferred_requires_gpu_waivers under #329, which is owned elsewhere and currently empty; this entry keeps the cases visible and counted until #329 populates it. The count means a NEW [RequiresGPU] case that no batch reaches still fails this guard.",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
       "owner": "klausi3D",
