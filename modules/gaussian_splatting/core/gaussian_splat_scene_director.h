@@ -569,6 +569,30 @@ private:
     // `MutexLock` (which binds the underlying std::mutex directly and would
     // bypass the ownership record).
     mutable GaussianSplatting::ThreadOwnedMutex world_mutex;
+    // #611 PR B2: serializes submit_world_submission's three-phase
+    // arbitrate-under-lock -> apply-unlocked -> commit-under-lock sequence.
+    //
+    // LOCK ORDER: always acquired BEFORE `world_mutex`, and never while holding
+    // it. It is taken in exactly one function (submit_world_submission), so that
+    // ordering is trivially consistent.
+    //
+    // THE RENDER THREAD NEVER ACQUIRES THIS MUTEX. That is the property which
+    // keeps it out of the inversion: the render thread blocks only on
+    // `world_mutex` (inside the `*_for_renderer` builders), so a main thread
+    // holding this one and waiting on a render-thread dispatch cannot be waiting
+    // on a thread that is waiting on it.
+    //
+    // WHY IT IS NEEDED AT ALL: with the apply moved outside `world_mutex`, two
+    // concurrent submissions could interleave arbitrate/apply/commit and commit a
+    // record whose contract was never the last one applied to the renderer. This
+    // mutex makes the whole three-phase sequence atomic with respect to other
+    // submissions, so re-validation on commit only has to defend against
+    // NON-submission mutations (prune, renderer swap, teardown).
+    //
+    // Recursive (Godot's `Mutex`) rather than `BinaryMutex`: re-entering
+    // submit_world_submission on one thread would break the phase logic, but it
+    // must not self-deadlock while doing so.
+    mutable Mutex world_submission_apply_mutex;
     // #611: counts entries into _apply_world_submission_to_renderer /
     // _restore_world_submission_renderer made while the calling thread holds
     // world_mutex. Non-zero means a blocking render-thread dispatch was issued
@@ -650,6 +674,23 @@ private:
 			const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_snapshot);
 	bool _apply_world_submission_to_renderer(SharedWorld &p_world, const SharedWorld::WorldSubmissionRecord &p_record,
 			const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_renderer_state);
+	// #611 PR B2: the apply for `submit_world_submission`, whose result gates the
+	// commit/reject decision and therefore CANNOT be deferred — a destructor has
+	// no way to feed a value back into a function that already chose its return
+	// value, and committing optimistically to roll back later would make that
+	// `bool` a lie to GaussianSplatWorld3D.
+	//
+	// So instead of deferring the dispatch, the caller defers the *lock*: it
+	// releases `world_mutex` before calling this and re-acquires it afterwards.
+	// This takes a `Ref` and a prebuilt contract rather than a `SharedWorld &`
+	// precisely because no `SharedWorld *` is valid across that gap — the world
+	// may be pruned, and `worlds` may rehash, invalidating every pointer into it.
+	//
+	// MUST be called with `world_mutex` released. That is not merely documented:
+	// the boundary check inside reports a violation if it is not, exactly as the
+	// two functions above do.
+	bool _apply_world_submission_contract_unlocked(const Ref<GaussianSplatRenderer> &p_renderer,
+			const GaussianSplatRenderer::WorldSubmissionContract &p_contract);
 	// #611 PR B1: the single route from this class to
 	// `GaussianSplatRenderer::initialize()`. Applies the
 	// not-initialized-and-not-pending guard, then either queues the call on
