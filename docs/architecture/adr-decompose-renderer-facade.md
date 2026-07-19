@@ -5,11 +5,15 @@
   only; it changes no production code and builds nothing.
 - **Risk class:** **R0 for this document** (`docs/**` — `.agentic/policy.json`
   `path_globs: ["docs/**"]` → R0). The change it *designs* is **R2**
-  (`modules/gaussian_splatting/renderer/**`), **escalating to R3** for the one step
-  that edits `.github/workflows/gaussian_shader_validation.yml` and for any step that
-  touches a serialized/format contract. Every implementation slice carries the risk
-  class of the files it edits and needs the matching runtime/GPU evidence and
-  independent review (`docs/governance/review-policy.md`).
+  (`modules/gaussian_splatting/renderer/**`), **escalating to R3** for (a) the step that
+  edits `.github/workflows/gaussian_shader_validation.yml` (S5), (b) **the step that
+  registers a new guard in the `--guard-only` lane (S1b), because
+  `tests/ci/run_module_tests.py` is explicitly R3 in `.agentic/policy.json` (*"CI
+  deterministic-check / release-gate machinery"*)**, and (c) any step that touches a
+  serialized/format contract. Every implementation slice carries the risk class of the
+  **files it edits** — classification is path-based, not evidence-based, so "no render-path
+  source touched, therefore R1" is not a valid derivation — and needs the matching
+  runtime/GPU evidence and independent review (`docs/governance/review-policy.md`).
 - **Tracked by:** #356 (decompose renderer orchestration around owned state
   boundaries). **Closes / advances:** #528, #529, #570, #591, #587 (facade/state
   duplication + fail-closed) and #525 (embedded sorter GLSL outside the C5 compile
@@ -54,6 +58,9 @@ every row below still holds, each owning declaration confirmed a **by-value** me
 | `PipelineState` | `RenderResourceOrchestrator` | `render_resource_orchestrator.h:45` | `:2670-2680` |
 | `ResourceState` | `RenderResourceOrchestrator` | `render_resource_orchestrator.h:46` | `:2754-2764` |
 | `RenderConfig` | `RenderConfigOrchestrator` | `render_config_orchestrator.h:58` | `:2646-2656` |
+| `InteractiveStateConfig` | `RenderConfigOrchestrator` | `render_config_orchestrator.h:59` | `:2718-2728` |
+| `CullingConfig` | `RenderConfigOrchestrator` | `render_config_orchestrator.h:60` | `:2694-2704` |
+| `PainterlyConfig` | `RenderConfigOrchestrator` | `render_config_orchestrator.h:61` | `:2706-2716` |
 | `DeviceState` | `RenderDeviceOrchestrator` | `render_device_orchestrator.h` (`device_state`) | `:2658-2668` |
 | `DebugState` | `RenderDebugStateOrchestrator` | via `get_state()` | `:3061-3068` |
 | `PerformanceSettings` | `RenderQualityOrchestrator` | via `get_performance_settings()` | `:2682-2692` |
@@ -64,11 +71,24 @@ every row below still holds, each owning declaration confirmed a **by-value** me
 | `SubsystemState` | **facade, direct member** | `h:619` | — |
 | `ShadowBlitState` | **facade, direct member** | `h:765` | — |
 
-So: **nine of the fourteen buckets are already owned by an orchestrator or by
+So: **twelve of the seventeen buckets are already owned by an orchestrator or by
 `frame_context_manager`, by value.** Only five are direct facade members, and they sit at
 `h:604-765`, not `h:201-334`. `RenderConfigOrchestrator` in particular is *already* the
-clean pattern the ADR was proposing to build — it owns `render_config` and is the **only**
-orchestrator header that declares **no** `GaussianSplatRenderer *renderer` back-pointer.
+clean pattern the ADR was proposing to build — it owns **four** buckets by value and is the
+**only** orchestrator header that declares **no** `GaussianSplatRenderer *renderer`
+back-pointer.
+
+> **Count correction (review round 3).** The round-1/round-2 revisions of this table listed
+> only `RenderConfig` for `RenderConfigOrchestrator` and therefore said "nine of the
+> fourteen". That undercounted: the orchestrator also owns `InteractiveStateConfig`,
+> `CullingConfig` and `PainterlyConfig` as separate by-value members
+> (`render_config_orchestrator.h:58-61`), each forwarded through its own facade accessor
+> pair with its own `static … fallback` local. Because **R1** makes this table the
+> normative input for the owner-map CI guard and **S8** derives its port split from it, the
+> three missing buckets would have been authored out of the guard's expected set. They were
+> already inside §1.2's count of 22 facade forwarding accessors (11 bucket pairs × 2) and
+> the whole-file count of 40 `static … fallback;` locals — both of which still reproduce
+> exactly — so this is a gap in §1.1 only, not in the S8/R6 scope.
 
 Three further count corrections, all re-verified by grep on master `9161d92f349`:
 
@@ -302,9 +322,10 @@ advisory, contradicting the "no silent unsafe fallback" rule in
 ### 1.6 The `gpu_sorter.cpp` sub-cluster (~3,500 LOC): three algorithms + embedded GLSL
 
 `gpu_sorter.cpp` is one TU holding three sort algorithms plus a factory, **and** the
-full GLSL source for each, embedded as runtime `vformat(R"(#version 450 …)")` strings:
+full GLSL source for each, embedded as runtime `vformat(R"(` … newline … `#version 450` … `)")` strings
+(the raw-string opener and the `#version` directive are always on **separate lines** — see R11):
 
-| Unit | Approx lines | Embedded GLSL (`R"(#version 450`) |
+| Unit | Approx lines | Embedded GLSL (`vformat(R"(` + newline + `#version 450`) |
 | --- | --- | --- |
 | `BitonicSort` | `539-946` | `596` (compare/swap kernel) |
 | `GPUSorterFactory` / policy | `948-1178` | — |
@@ -583,7 +604,8 @@ inventory's W1→W2→W3 gate.
 
 | Slice | Risk | Change | Behavior-preservation proof |
 | --- | --- | --- | --- |
-| **S1** *(re-scoped — metric-reset half already merged)* — diagnostics-dict + route-label key-set parity guards | R1 (guard scripts + tests only; no render-path edit) | **Not** `PerformanceMetrics::reset()` — that half shipped in #627 and its blanket-reset form was refuted (§1.4, §2.3). Remaining: a fail-closed key-set parity guard for the ~100-key diagnostics Dictionary (`render_diagnostics_orchestrator.cpp`, `_append_production_frame_metrics`) and for the route-UID→label map (`render_route_labels.cpp`), modeled on `tests/ci/check_metric_reset_parity.py` | Guard fails-without proof (inject an untracked key → CI fails; remove → passes), matching #627's evidence pattern; guard wired into the `--guard-only` lane; **no render-path source edited**, so no GPU evidence is required for this slice |
+| **S1a** *(re-scoped — metric-reset half already merged)* — author the diagnostics-dict + route-label key-set parity guards | **R1** (new guard scripts + their tests under `tests/`; no render-path edit, no lane edit) | **Not** `PerformanceMetrics::reset()` — that half shipped in #627 and its blanket-reset form was refuted (§1.4, §2.3). Remaining: a fail-closed key-set parity guard for the ~100-key diagnostics Dictionary (`render_diagnostics_orchestrator.cpp`, `_append_production_frame_metrics`) and for the route-UID→label map (`render_route_labels.cpp`), modeled on `tests/ci/check_metric_reset_parity.py` | Guard fails-without proof, run **standalone** (inject an untracked key → guard exits non-zero; remove → passes), matching #627's evidence pattern; **no render-path source edited**, so no GPU evidence is required |
+| **S1b** — register those guards in the `--guard-only` lane | **R3** (CI deterministic-check machinery) | The one-file registration edit in `tests/ci/run_module_tests.py`. The lane is hard-coded there — `_run_ci_guard_steps()` (`:1898`) returns `_first_guard_failure((...))` over a literal tuple of callables, and #627's own guard is registered inside `_run_optional_message_guards()` at `:1792`. There is no manifest or plugin registry, so registration *is* an edit to that file. | Guard fails-without proof **through the lane** (`run_module_tests.py --guard-only` red, then green); plus the R3 check set and review requirements below |
 | **S2** — stage-exit helper (#570) | R2 | Fold the 4+1 stamping blocks into `stamp_stage_exit(...)` | `StageResult`/`StageIO` byte-identical on the skip/fail paths (unit test snapshots each route UID); runtime route-label telemetry unchanged |
 | **S3** — publisher sizing/clamp helper (#591) | R2 | Extract shared clamp + buffer-population; keep distinct sizing inputs | Resident + streaming `InstancePipelineBuffers` fields identical before/after on a streamed and a resident scene; VRAM + sort-cap telemetry unchanged |
 | **S4** — StageIO fail-closed (#587) | R2 | `validation_failed` → failed `StageResult`; per-stage branch; doctest | New doctest: poisoned StageIO fails the stage; existing valid frames still render (visual gate on real-scan content); no new skips on GrandmasHouse |
@@ -602,9 +624,12 @@ guard, baseline, or threshold is weakened to pass.
 
 **Sequencing rationale:** S1–S4 are pure de-duplication/fail-closed folds that make
 the state contract *legible* without moving ownership (inventory W1 "make ownership
-explicit"). **S1's metric-reset half is already done on master (#627); what remains of S1 is
-guard-script-only and touches no render-path source, so it is unblocked, R1, and can land in
-parallel with S2–S4 rather than gating them.** S5–S6 isolate the sorter (independent of the facade). S7–S9 perform the
+explicit"). **S1's metric-reset half is already done on master (#627); what remains of S1
+touches no render-path source, so it needs no GPU evidence and can land in parallel with
+S2–S4 rather than gating them. It is not, however, uniformly R1 — see the S1a/S1b split in
+the table above: risk class in `.agentic/policy.json` is assigned by *path*, and wiring a
+guard into the `--guard-only` lane means editing `tests/ci/run_module_tests.py`, which is
+explicitly R3.** S5–S6 isolate the sorter (independent of the facade). S7–S9 perform the
 actual ownership cut (inventory W2/W3) only after the duplication is gone and tests
 pin the route/stage/StageIO contracts — so the risky state-partition lands on a
 characterized, guard-protected base. S10 (tile) is optional and last.
@@ -641,14 +666,14 @@ Checkable. A slice that violates one is rejected even with green CI.
 | **R1** | The §1.1 ownership map is accurate and stays accurate: each bucket has exactly one owning declaration, and the ADR's table matches the code. | A CI guard that re-derives the owner of each bucket from the accessor bodies and diffs against the §1.1 table. This ADR was approved on a wrong map once; the guard is the fix. |
 | **R2** | No new alias of a bucket is introduced. The alias chain (owner → facade accessor → provider → `deps` pointer) only ever shortens. | Grep guard: count of facade forwarding accessors + provider getters is monotonically non-increasing. |
 | **R3** | **`RenderFrameContext` is non-copyable and non-movable** after S7, and no self-referential pointer into it exists (`frame_plan`, `state_view`, `mutation_access` all point at objects that outlive it). | Compile-enforced (`= delete`); a static-assert on `!std::is_copy_constructible_v<RenderFrameContext>`. |
-| **R4** | `FrameDeps::validate()` has **no exemptions**. Every pointer it declares is validated, `frame_plan` included. | Read the function; assert the exemption comment is gone and a null-plan case fails. |
+| **R4** | `FrameDeps::validate()` has **no *undocumented* exemption**. The `frame_plan` exemption is deleted and `frame_plan` is validated. The only permitted exemption is the two pointers that are **optional by design** — `painterly_renderer` and `jacobian_debug` (`gaussian_splat_renderer.h:406-408`, *"Optional: null disables the corresponding feature"*) — which must stay optional and stay documented as such in-code. Requiring all 16 declared pointers non-null would break every painterly-disabled and Jacobian-disabled configuration, or force dummy objects. | Read the function; assert the `frame_plan` exemption comment is gone, a null-plan case fails, **and** a null-`painterly_renderer` / null-`jacobian_debug` case still passes. |
 | **R5** | `FramePlan` is built exactly once per frame per route, is `const` downstream, and is never stored, deferred, or async-passed. | Grep guard: `build_frame_plan(` call sites == route-selection sites; downstream signatures take `const RenderFramePlan &`. |
 | **R6** | Zero `static … fallback;` locals remain in `gaussian_splat_renderer.cpp` after S8 — all 40, not just the provider's 18. | Grep guard, count must reach 0. |
 | **R7** | A missing dependency produces a **typed skip with a route UID**, never a write to a shared global and never a silently-continued frame. | S4's fail-closed doctest + the S8 frame-entry skip test. |
 | **R8** | After S4, a poisoned `StageIO` (`output_count > input_count`, or missing output buffer with nonzero count) **fails the stage**. Per-stage exemptions exist only where documented with a written reason. | New doctest per §2.4; the exemption list is enumerated in-code. |
 | **R9** | `PerformanceMetrics` reset is structural and covers every field **(already satisfied on master by #627 — five composable `reset_*()` group helpers plus the fail-closed `tests/ci/check_metric_reset_parity.py`; note the invariant is *group-composable*, not a single blanket `reset()`, which was deliberately rejected)**; the same must hold for the diagnostics key set and the route-label map — **both still unguarded, and the remaining content of the re-scoped S1**. | Metric half: the merged parity guard + the `test_diagnostics.h` reset doctests. Diagnostics/route-label half: new key-set parity guards with a fails-without proof. |
 | **R10** | Stage-exit stamping produces **byte-identical** `StageResult`/`StageIO` before and after the S2 fold, for every route UID. | Snapshot unit test per route UID. |
-| **R11** | Sorter GLSL: every runtime-selectable permutation compiles in CI after S5. No kernel remains invisible to the compile matrix. | `compile_shaders.py` matrix green with the new files + permutations; grep guard that no `R"(#version` remains in the sorter TUs. |
+| **R11** | Sorter GLSL: every runtime-selectable permutation compiles in CI after S5. No kernel remains invisible to the compile matrix. | `compile_shaders.py` matrix green with the new files + permutations; grep guard that **no `#version` line remains in `renderer/gpu_sorter*.cpp`** (count must reach 0). **Do not guard on the literal `R"(#version`** — the embedded kernels open with `vformat(R"(` and put `#version 450` on the *next* line (`gpu_sorter.cpp:596-597`, and identically at the nine other kernel sites), so that pattern matches **zero** lines in `modules/gaussian_splatting/` even before S5 extracts anything, and the guard would pass vacuously. |
 | **R12** | The S6 TU split introduces no ODR violation: **every** method definition of each split class lands in exactly one TU (enumerated, not diff-grepped), and `_bind_methods` moves with its class. | Link-clean build + the enumerate-all-method-defs check (per the #434 lesson). |
 | **R13** | Frame output is unchanged: identical rendered result and identical telemetry on resident, instanced, and stage-runner routes, for a fixed scene and camera path. | Telemetry diff + visual gate on real-scan content (GrandmasHouse), per slice. |
 | **R14** | No guard, baseline, threshold, or coverage bar is lowered in any slice. | Diff review; guard files unmodified except to strengthen. |
