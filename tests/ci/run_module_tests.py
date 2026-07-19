@@ -40,6 +40,7 @@ TEST_LANE_COVERAGE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_test_lane_c
 RENDERER_RELEASE_GATE_SCRIPT = ROOT / "tests" / "ci" / "check_renderer_release_gates.py"
 RENDERER_CONTRACT_BOUNDARY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_renderer_contract_boundary.py"
 DEVICE_SUBMISSION_CONTRACT_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_device_submission_contract.py"
+EDITOR_NODE_POINTER_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_editor_node_pointer_lifetime.py"
 RENDERER_RELEASE_GATE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_renderer_release_gates.py"
 BASELINE_QA_REQUIRE_FLAG_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_baseline_qa_require_flag.py"
 HISTORY_ARTIFACT_AUDIT_SCRIPT = ROOT / "scripts" / "repo" / "history_artifact_audit.py"
@@ -832,6 +833,36 @@ def _run_device_submission_contract_guard() -> tuple[bool, list[str]]:
             ]
         code, out, err = _run_command(
             [sys.executable, str(DEVICE_SUBMISSION_CONTRACT_GUARD_SCRIPT), *args]
+        )
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if code != 0:
+            if not output_lines:
+                output_lines = [f"{label} failed with exit code {code}."]
+            return False, output_lines
+    return True, output_lines
+
+
+def _run_editor_node_pointer_lifetime_guard() -> tuple[bool, list[str]]:
+    """#698: no raw Node pointer may survive a re-entrant editor call.
+
+    `EditorFileSystem::reimport_file_with_custom_parameters()` emits
+    `resources_reimported` synchronously, and a handler can close the scene and
+    free the node the caller resolved before the call. A null test on the
+    retained pointer does not detect that -- freed memory can still test
+    non-null -- so the only correct pattern is to carry an ObjectID across the
+    call and re-resolve through ObjectDB before each dereference. Runs its own
+    discrimination cases first, like its siblings.
+    """
+    for label, args in (
+        ("Editor node-pointer lifetime guard self-test", ["--self-test"]),
+        ("Editor node-pointer lifetime guard", []),
+    ):
+        if not EDITOR_NODE_POINTER_GUARD_SCRIPT.is_file():
+            return False, [
+                f"Missing {label} script: {EDITOR_NODE_POINTER_GUARD_SCRIPT.relative_to(ROOT)}"
+            ]
+        code, out, err = _run_command(
+            [sys.executable, str(EDITOR_NODE_POINTER_GUARD_SCRIPT), *args]
         )
         output_lines = [line for line in (out + err).splitlines() if line.strip()]
         if code != 0:
@@ -1828,6 +1859,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_device_submission_contract_guard,
             "Device-submission contract guard failed.",
             "Device-submission contract guard passed.",
+        ),
+        (
+            True,
+            _run_editor_node_pointer_lifetime_guard,
+            "Editor node-pointer lifetime guard failed.",
+            "Editor node-pointer lifetime guard passed.",
         ),
         (
             True,

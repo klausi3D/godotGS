@@ -2896,4 +2896,49 @@ TEST_CASE("[GaussianSplatting][Editor] Hot reload leaves watched nodes unchanged
 	memdelete(plugin);
 }
 
+// #698 -- the post-reimport re-resolve contract.
+//
+// `_import_from_path()` used to hold the raw `GaussianSplatNode3D *` it
+// resolved at the top of the call across
+// `EditorFileSystem::reimport_file_with_custom_parameters()`, which emits
+// `resources_reimporting` / `resources_reimported` SYNCHRONOUSLY. A handler on
+// those signals can close the scene and free the node, so every dereference
+// after that call was a potential use-after-free — and the `if (current_node)`
+// guarding them proved nothing, because a freed pointer still tests non-null.
+//
+// WHAT THIS CASE CAN AND CANNOT COVER. `_import_from_path()` is not reachable
+// from a test: it returns ERR_UNCONFIGURED before doing anything when there is
+// no `EditorFileSystem` singleton, and standing one up would require a full
+// EditorNode. So this pins the half that is testable — that the re-resolve
+// actually observes a free — while
+// tests/ci/check_editor_node_pointer_lifetime.py pins the other half, that no
+// raw node pointer is used past the re-entrant call at all. That guard reports
+// 5 violations on the pre-fix tree and 0 after; neither artifact is sufficient
+// alone, which is why both exist.
+TEST_CASE("[GaussianSplatting][Editor] Re-resolving a node ObjectID observes a free that a null test cannot") {
+	GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+	if (node == nullptr) {
+		FAIL("could not allocate a GaussianSplatNode3D; the re-resolve contract cannot be exercised");
+		return;
+	}
+	const ObjectID node_id = node->get_instance_id();
+
+	// Live: the id resolves back to this very object, so a null result later
+	// cannot be an artefact of the lookup never having worked.
+	CHECK(GaussianEditorPlugin::_internal_resolve_splat_node(node_id) == node);
+
+	// This is what a signal handler closing the scene does to the node the
+	// caller is still holding a raw pointer to.
+	memdelete(node);
+
+	CHECK_MESSAGE(GaussianEditorPlugin::_internal_resolve_splat_node(node_id) == nullptr,
+			"a freed node must not resolve; this is the only check that observes the free, "
+			"which is why the post-reimport path must re-resolve rather than null-test");
+
+	// An id that was never valid must also resolve to null rather than
+	// tripping the ObjectDB lookup — `_import_from_path` builds exactly this
+	// when nothing is selected.
+	CHECK(GaussianEditorPlugin::_internal_resolve_splat_node(ObjectID()) == nullptr);
+}
+
 #endif // TOOLS_ENABLED

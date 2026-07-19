@@ -192,6 +192,13 @@ GaussianSplatNode3D *GaussianEditorPlugin::_get_current_node() const {
     return Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(current_node_id));
 }
 
+GaussianSplatNode3D *GaussianEditorPlugin::_resolve_splat_node(ObjectID p_node_id) {
+    if (p_node_id.is_null()) {
+        return nullptr;
+    }
+    return Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(p_node_id));
+}
+
 void GaussianEditorPlugin::_bind_methods() {
     // Bind methods if needed for signals
 }
@@ -362,7 +369,19 @@ Error GaussianEditorPlugin::_import_from_path(const String &p_path, const Dictio
     // Resolve the selection once, fresh, at the top of this call — this
     // method runs from both direct UI callbacks and the hot-reload timer
     // path, so current_node must not be a stale raw pointer (#515).
+    //
+    // #698: resolving fresh here is necessary but NOT sufficient. The reimport
+    // below emits `resources_reimporting` / `resources_reimported` synchronously
+    // (editor/file_system/editor_file_system.cpp), and a handler can close the
+    // scene and free this node. So the raw pointer is only valid until that
+    // call: everything after it goes through `node_id` and
+    // `_resolve_splat_node()`, which returns null for a freed instance. A null
+    // TEST on the raw pointer would not do — freed memory can still test
+    // non-null, so `if (current_node)` after the reimport reads as a safety
+    // check while providing none. tests/ci/check_editor_node_pointer_lifetime.py
+    // enforces that no raw node pointer is used past that call.
     GaussianSplatNode3D *current_node = _get_current_node();
+    const ObjectID node_id = current_node ? current_node->get_instance_id() : ObjectID();
 
     // Select importer based on file extension.
     String extension = p_path.get_extension().to_lower();
@@ -409,18 +428,23 @@ Error GaussianEditorPlugin::_import_from_path(const String &p_path, const Dictio
         active_asset->set_source_path(p_path);
     }
 
-    ObjectID node_id = current_node ? current_node->get_instance_id() : ObjectID();
     _track_hot_reload_source(p_path, effective_options, node_id);
     if (active_asset.is_valid() && !active_asset->get_path().is_empty()) {
         _track_hot_reload_source(active_asset->get_path(), Dictionary(), node_id);
     }
 
-    if (current_node) {
-        current_node->set_splat_asset(asset);
+    // #698: re-resolve before EACH dereference, not once for the group.
+    // `set_splat_asset()` runs node setters that can notify the editor, so even
+    // the gap between these two statements is a window the first re-resolve
+    // cannot vouch for.
+    if (GaussianSplatNode3D *reimported_node = _resolve_splat_node(node_id)) {
+        reimported_node->set_splat_asset(asset);
     }
 
-    if (!current_renderer.is_valid() && current_node) {
-        current_renderer = current_node->get_renderer();
+    if (!current_renderer.is_valid()) {
+        if (GaussianSplatNode3D *reimported_node = _resolve_splat_node(node_id)) {
+            current_renderer = reimported_node->get_renderer();
+        }
     }
 
     last_import_options = effective_options;

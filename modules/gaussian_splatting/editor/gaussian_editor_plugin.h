@@ -81,6 +81,13 @@ private:
     // freed since it was set. Call this at the top of any method (including
     // deferred/timer callbacks) that needs to dereference the selection.
     GaussianSplatNode3D *_get_current_node() const;
+    // #698: resolve an ObjectID that was captured BEFORE a re-entrant editor
+    // call (a reimport emits `resources_reimported` synchronously, and a
+    // handler can close the scene) into a live node, or nullptr if the node was
+    // freed in between. This is the only construct that observes the free: a
+    // null test on the retained raw pointer reads freed memory and can report
+    // non-null. Static because it depends on nothing but the id.
+    static GaussianSplatNode3D *_resolve_splat_node(ObjectID p_node_id);
     void _on_import_file_selected(const String &p_path);
     void _update_stats();
     void _update_inspector_stats();
@@ -127,6 +134,13 @@ public:
     // These methods are not part of the user-facing API but must be accessible
     // to tightly-coupled editor helper classes.
     Ref<Texture2D> _internal_resolve_asset_thumbnail(const Ref<GaussianSplatAsset> &p_asset) { return _resolve_asset_thumbnail(p_asset); }
+    // #698: exposed so the post-reimport re-resolve contract can be tested
+    // directly. `_import_from_path()` itself is not reachable from a test — it
+    // returns ERR_UNCONFIGURED without an EditorFileSystem singleton — so this
+    // helper is the testable half; the other half (that no raw pointer survives
+    // the reimport call) is enforced by
+    // tests/ci/check_editor_node_pointer_lifetime.py.
+    static GaussianSplatNode3D *_internal_resolve_splat_node(ObjectID p_node_id) { return _resolve_splat_node(p_node_id); }
     void _internal_apply_brush_stroke(ObjectID p_node_id, const Vector3 &p_center, float p_radius, const Color &p_color, float p_strength, float p_hardness) {
         _apply_brush_stroke(p_node_id, p_center, p_radius, p_color, p_strength, p_hardness);
     }
