@@ -1504,7 +1504,21 @@ bool GPUCuller::_gpu_frustum_cull_instance(const CullParams &p_params, const Ins
     instance_readback_state.last_frame_chunk_limit = current_frame_chunk_limit;
     // Keep this hot path non-blocking: visible count publication uses the most
     // recent async sample, clamped to the current frame dispatch domain.
+    //
+    // The clamp is written back to the latch HERE, before the readback is
+    // enqueued and before the submit (#702). It used to be written back after
+    // `safe_submit`, which is correct only while a submit cannot deliver a
+    // callback. Since #686 `safe_submit` is submit+sync on a LOCAL device
+    // (gs_device_utils.h), and `sync()` drains `buffer_get_data_async`
+    // callbacks -- so the post-submit write-back clobbered the fresh count
+    // `_on_instance_counter_readback` had just published with the pre-submit
+    // snapshot. On the local-device route that snapshot is 0 on the first
+    // frame and every later frame re-clamps to it, so the latch never leaves
+    // 0, the cull publishes no visible chunks, and the sort stage (gated on
+    // `cull_output.has_visible`, renderer/render_instancing_orchestrator.cpp)
+    // never runs at all.
     uint32_t visible_chunk_count = MIN(last_instance_visible_chunk_count, current_frame_chunk_limit);
+    last_instance_visible_chunk_count = visible_chunk_count;
     uint64_t enqueued_request_id = 0;
     if (p_inputs.counter_buffer.is_valid() && !instance_readback_state.pending) {
         enqueued_request_id = instance_readback_state.next_request_id++;
@@ -1523,7 +1537,18 @@ bool GPUCuller::_gpu_frustum_cull_instance(const CullParams &p_params, const Ins
     }
     gs_device_utils::safe_submit(p_inputs.device);
 
-    last_instance_visible_chunk_count = visible_chunk_count;
+    // Consume anything the submit delivered. On a local device `safe_submit`
+    // syncs, so `_on_instance_counter_readback` may have run and published THIS
+    // frame's real count during the call above; take it instead of the
+    // pre-submit snapshot. Re-clamping is a no-op -- the callback already
+    // clamps by `instance_readback_state.last_frame_chunk_limit`, set to
+    // `current_frame_chunk_limit` a few lines up -- and it keeps the invariant
+    // stated at the top of this block true for every path out of here.
+    //
+    // On the MAIN RenderingDevice `safe_submit` is a no-op, so the latch cannot
+    // have changed and this re-read reproduces the previous value exactly: the
+    // shipping render path is bit-identical.
+    visible_chunk_count = MIN(last_instance_visible_chunk_count, current_frame_chunk_limit);
 
     r_summary.visible_after_culling = visible_chunk_count;
     uint64_t candidate_count = uint64_t(instance_count) * uint64_t(chunk_dispatch);
