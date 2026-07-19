@@ -5,27 +5,58 @@
 
 ## Canonical Command
 
-Use this as the single benchmark entrypoint:
+Use this as the single benchmark entrypoint. Build the binary **optimized** first — a
+`dev_build=yes` binary is compiled at `-O0` and its numbers are not performance evidence:
 
 ```bash
+# Optimized build. Note there is no `.dev.` in the resulting binary name.
+scons platform=<platform> target=editor dev_build=no optimize=speed debug_symbols=no tests=yes
+
 python3 tests/runtime/run_benchmark.py \
-  --godot-binary ./bin/godot.linuxbsd.editor.dev.x86_64 \
+  --godot-binary ./bin/godot.linuxbsd.editor.x86_64 \
   --project-path ./tests/examples/godot/test_project \
   --profile performance
 ```
+
+!!! danger "Do not benchmark a `.dev.` binary"
+    `dev_build=yes` produces `godot.<platform>.editor.dev.<arch>` — the `.dev.` infix is the
+    tell. Passing such a binary to `--godot-binary` produces numbers inflated by roughly an order
+    of magnitude on the CPU side, and it is how the meaningless row published here before
+    2026-07-19 was produced. The optimized binary has no `.dev.` infix
+    (`godot.linuxbsd.editor.x86_64`, `godot.windows.editor.x86_64.exe`). Check the filename you
+    pass before trusting any result.
 
 For ad hoc local exploration, `--profile` still defaults to `everything`. For benchmark evidence
 and Tier 2 closeout, `--profile performance` is the canonical lane set.
 
 ## Current Public Snapshot
 
-The current committed public result is a single low-noise raster baseline row:
+The current committed public result is a five-lane set captured on 2026-07-19 at commit
+`9161d92f349` on an **optimized** Windows build (`dev_build=no optimize=speed`), RTX 3090 /
+Ryzen 7 5800X. Values are steady-state, run 2 of 3.
+
+**`9161d92f349` was 8 commits behind `master` (`ab847aeabf3`) when this was published**, three of
+them touching runtime paths (#665, #666, #667). The
+[Performance Dashboard](../performance/index.md#currency) records why those are not expected to
+move these numbers. Re-measure rather than trusting that reasoning if a change lands on the
+per-frame render path.
 
 | Lane | Score | Avg FPS | P99 Frame (ms) | GPU Time (ms) |
 | --- | ---: | ---: | ---: | ---: |
-| `static_baseline` | 90.7 | 74.0 | 15.62 | 0.0 |
+| `static_baseline` | 97.2 | 455.1 | 3.05 | 1.69 |
+| `city_flyover` | 99.3 | 128.7 | 8.33 | 6.83 |
+| `lighting_stress` | 90.4 | 72.6 | 15.15 | 13.90 |
+| `instance_storm` | 49.3 | 31.5 | 31.82 | 30.09 |
+| `dense_resident_2m` | 24.0 | 12.3 | 87.47 | 51.93 |
 
-That snapshot is what backs the public performance dashboard until more committed lane results are added.
+That snapshot is what backs the public performance dashboard. Full hardware context, per-pass GPU
+breakdown, variance, and caveats live on the [Performance Dashboard](../performance/index.md).
+
+!!! warning "Only publish optimized-build numbers"
+    A `dev_build=yes` binary is compiled at `-O0` and inflates CPU-side frame cost by roughly an
+    order of magnitude. The row published here before 2026-07-19 came from a
+    `godot.linuxbsd.editor.dev.x86_64` binary and was not valid performance evidence. Record the
+    exact build flags with any snapshot you add.
 
 ## Standard Flags
 
@@ -75,8 +106,23 @@ Run synthetic asset preparation before benchmark collection whenever fixture or 
 be stale:
 
 ```bash
-python3 tests/runtime/prepare_synthetic_assets.py --quiet
+python3 tests/runtime/prepare_synthetic_assets.py --quiet \
+  --godot-binary ./bin/<your-godot-binary>
 ```
+
+!!! important "Pass `--godot-binary` for benchmark collection"
+    Several fixtures — including `test_splats.ply`, which most lanes resolve to — are listed in
+    `CPP_GENERATED_FILENAMES` and are produced by the engine's `[GeneratePLY]` test case when a
+    binary is supplied. Without `--godot-binary` the script falls back to lightweight Python
+    generators and writes `test_splats.ply` with **1024** splats instead of **10000**. Both forms
+    are valid for smoke coverage, but they are different workloads and will not reproduce
+    published benchmark numbers.
+
+`test_splats.ply` is gitignored and never committed. A lane whose asset is missing does **not**
+fail: it instantiates zero splat nodes, reports an implausibly high FPS, and still emits a passing
+recommendation. Always check that a lane's reported visible-splat count is non-zero before
+treating its output as evidence.
+
 Streaming-named lanes that still resolve to `test_splats.ply` are intentionally classified as
 `lightweight_smoke`; they are useful for proof-shape smoke coverage, but they are not chunked
 large-scene evidence.

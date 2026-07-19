@@ -3,28 +3,158 @@
 This page surfaces the current published benchmark snapshot and the suite lanes that are expected to grow it.
 
 Charts use `assets/data/benchmark_latest.json` generated during docs build.
-The current public dataset contains one committed result row, and the coverage table below shows the user-relevant benchmark lanes already defined in the suite.
+The current public dataset contains five committed result rows, and the coverage table below shows the remaining user-relevant benchmark lanes already defined in the suite.
 
 ## Current Public Snapshot
 
-| Lane | Purpose | Score | Avg FPS | P99 Frame (ms) | GPU Time (ms) |
-| --- | --- | ---: | ---: | ---: | ---: |
-| `static_baseline` | Low-noise raster baseline | 90.7 | 74.0 | 15.62 | 0.0 |
+### Measurement environment
 
-The snapshot above is the current committed public result. It is the reference row used by the charts below until more published scenarios are added.
+Every number on this page comes from one machine, one build, and one commit. Read the table with this context; results on other hardware will differ.
 
-This row is benchmark evidence, not a release gate. Blocking streaming/runtime readiness is enforced by the runtime validation profile named `streaming-gpu-ci`; open-world benchmark proof surfaces are useful review evidence, but they remain non-blocking unless the workflow contract changes.
+| Item | Value |
+| --- | --- |
+| Capture date | 2026-07-19 (UTC) |
+| Commit measured | `9161d92f349326e2004088638a5ab43eb4773123` |
+| `master` at publication | `ab847aeabf3` — 8 commits ahead of the measured tree ([Currency](#currency)) |
+| Build flags | `scons platform=windows target=editor dev_build=no optimize=speed debug_symbols=no tests=yes` |
+| Build type | **Optimized** (`/O2`). Not a `dev_build` binary — see the warning below. |
+| GPU | NVIDIA GeForce RTX 3090, 24 GiB, driver 591.86 |
+| CPU | AMD Ryzen 7 5800X (8C/16T) |
+| RAM | 64 GiB |
+| OS | Windows 11 Pro, build 26200 |
+| Renderer | Vulkan 1.4.325, Forward+ |
+| Profile | `run_benchmark.py --profile performance` |
+| Window | Steady-state only (first 3 s of warmup excluded) |
+
+!!! warning "Optimized builds only"
+    A `dev_build=yes` binary compiles at `-O0` and inflates CPU-side frame cost by roughly an order of magnitude on this hardware. Numbers from such a build are not performance evidence. The previously published row on this page (`static_baseline`, 74.0 avg FPS) was captured on 2026-03-19 from a `bin/godot.linuxbsd.editor.dev.x86_64` binary under the `quick` profile, on different hardware, with a different fixture size. **It has been replaced rather than compared against** — the two rows do not measure the same thing.
+
+### Results
+
+!!! info "These numbers were measured at commit `9161d92f349`, captured 2026-07-19"
+    That commit was **8 commits behind `master` (`ab847aeabf3`) at the time this page was published.** Three of those eight touch runtime paths: [#665](https://github.com/klausi3D/godotGS/pull/665) and [#666](https://github.com/klausi3D/godotGS/pull/666) (`world_mutex` deferrals in the scene director) and [#667](https://github.com/klausi3D/godotGS/pull/667) (P2 shared-renderer gating convergence). **The table below does not describe those changes.** See [Currency](#currency) for why they are not expected to move these numbers.
+
+| Lane | Scene shape | Instances | Visible splats | Avg FPS | Avg frame (ms) | P99 frame (ms) | GPU frame (ms) | GPU mem delta (MiB) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `static_baseline` | Single asset, orbit camera | 1 | 10,000 | 455.1 | 2.20 | 3.05 | 1.69 | ~318 |
+| `city_flyover` | High-altitude visibility churn | 16 | 160,000 | 128.7 | 7.77 | 8.33 | 6.83 | ~1,079 |
+| `lighting_stress` | Animated light and shading | 9 | 90,000 | 72.6 | 13.78 | 15.15 | 13.90 | ~612 |
+| `instance_storm` | Many-instance submission pressure | 36 | 360,000 | 31.5 | 31.75 | 31.82 | 30.09 | ~1,128 |
+| `dense_resident_2m` | Dense resident path | 196 | 4,900,000 | 12.3 | 81.02 | 87.47 | 51.93 | ~2,388 |
+
+**Read `dense_resident_2m` as a negative result.** At 4.9M visible splats this configuration renders at ~12 FPS — far below interactive. It is published here because it is the honest ceiling of the current resident path on a high-end desktop GPU, not because it is a good number. It is a zero-weight support lane and is excluded from the aggregate suite score.
+
+Note that the lane's name and its manifest metadata ("2M visible splats", "81 x synthetic_spiral") are stale: as configured today it instantiates 196 nodes and reports 4.9M visible splats. The measured column above is the ground truth; the lane name is not.
+
+`instance_storm` at ~31 FPS is likewise borderline rather than comfortable.
+
+### Where the GPU time goes
+
+Per-pass GPU timestamps resolve on all five lanes and sum to the reported frame total. Values are the **arithmetic mean of three runs**, and all three runs are committed at [`assets/data/benchmark_runs.json`](../assets/data/benchmark_runs.json) so every cell below can be recomputed:
+
+```python
+import json, statistics
+lanes = json.load(open("docs/assets/data/benchmark_runs.json"))["lanes"]
+runs = lanes["dense_resident_2m"]["runs"].values()
+statistics.mean(r["gpu_pass_ms"]["sort_ms"] for r in runs)   # -> 33.458
+```
+
+| Lane | Overlap count | Prefix | Overlap emit | Sort | Raster | Resolve | Total | Sort share |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `static_baseline` | 0.095 | 0.017 | 0.133 | 1.123 | 0.313 | 0.014 | 1.69 | 66% |
+| `city_flyover` | 0.237 | 0.017 | 0.351 | 4.844 | 1.767 | 0.014 | 7.23 | 67% |
+| `lighting_stress` | 0.459 | 0.017 | 0.601 | 11.745 | 1.123 | 0.015 | 13.96 | 84% |
+| `instance_storm` | 1.091 | 0.017 | 1.516 | 26.051 | 1.407 | 0.016 | 30.10 | 87% |
+| `dense_resident_2m` | 2.095 | 0.017 | 3.039 | 33.458 | 13.553 | 0.014 | 52.18 | 64% |
+
+The depth sort dominates GPU cost on every lane measured, from 64% to 87% of GPU frame time. That is the single largest optimization target in the current pipeline.
+
+### Measured vs derived
+
+Be precise about what was sampled and what was computed:
+
+- **Measured:** per-frame wall-clock delta (`delta * 1000` in the lane script); per-pass GPU timestamp ranges resolved from the tile renderer.
+- **Derived:** `Avg FPS` is the harmonic mean `frame_count / total_time`, not an average of per-frame FPS values. `Avg frame (ms)` is the arithmetic mean of the same deltas. `P99 frame (ms)` is the 99th percentile of measured deltas.
+- **Externally measured:** `GPU mem delta (MiB)` is whole-device `nvidia-smi` memory-used at peak minus an idle baseline taken immediately before each run. It is **not** a per-process figure and carries roughly ±200 MiB of noise from other GPU clients on the machine. Treat it as an order-of-magnitude indication, not an allocation accounting.
+
+### Run-to-run variance
+
+Each lane was run three times. Spread in `Avg FPS` (max−min as a share of the mean) was: `static_baseline` 2.6%, `city_flyover` 0.7%, `lighting_stress` 0.4%, `instance_storm` 0.2%, `dense_resident_2m` 0.5%. These lanes are stable enough that a single run is representative. The committed row set is run 2 of 3 (`committed_run` in the per-run dataset).
+
+All three runs are committed at [`assets/data/benchmark_runs.json`](../assets/data/benchmark_runs.json), so these spreads are recomputable from `steady_avg_fps` rather than asserted.
+
+The one metric that moves more is `city_flyover` GPU frame time (~16% spread), because the lane's camera path crosses regions of very different visible density.
+
+### Currency
+
+This snapshot was measured at `9161d92f349`, which was 8 commits behind `master` (`ab847aeabf3`) when published. Four of those eight cannot affect runtime behaviour — they change CI lane coverage, stale test-lane declarations, a `REQUIRE`-then-dereference guard in the test runner, and GPU-harness accounting. The remaining three, plus one build-policy change, were assessed as follows:
+
+| Change | Reaches the measured window? | Assessment |
+| --- | --- | --- |
+| [#657](https://github.com/klausi3D/godotGS/pull/657) — MSVC `/arch:AVX2` policy | No | Both trees compile the module at the **SSE2 baseline**. The pre-`#657` `auto` probe fails on this toolchain (verified: it prints `AVX2 not supported by toolchain, using SSE2 baseline`), and post-`#657` `auto` never enables AVX2 by design. Identical codegen. |
+| [#666](https://github.com/klausi3D/godotGS/pull/666) — defer `register_instance`'s `initialize()` | No | `register_instance` runs at node enter-tree, i.e. during the 3 s warmup that these results exclude. |
+| [#667](https://github.com/klausi3D/godotGS/pull/667) — P2 shared-renderer gating convergence | Marginally | The per-frame cost is unchanged: the gate is still one predicate evaluation per node per frame, now edge-triggered. The added convergence work fires on **peer-set change**, which in these lanes happens only during setup — no lane adds or removes nodes mid-capture. |
+| [#665](https://github.com/klausi3D/godotGS/pull/665) — `world_mutex` deferrals + `ThreadOwnedMutex` | Marginally | `world_mutex` *is* taken on per-frame render paths, so the new owner bookkeeping (one atomic store on lock; a compare and store on unlock) does reach steady state. It is on the order of tens of nanoseconds per acquisition. Reaching even the 0.5% run-to-run spread already observed on `dense_resident_2m` (~0.4 ms of an 81 ms frame) would require on the order of 10⁴ additional lock acquisitions per frame. The same change also moves apply work *out* of the lock, which if anything reduces contention. |
+
+**Judgement: a re-run was not considered warranted for numerical accuracy.** The expected effect of these changes on steady-state frame time is below the run-to-run variance already published above, so a re-measurement could not distinguish them from noise. The gap is recorded here because it is a **provenance** fact a reader is entitled to — not because the numbers are believed to be wrong. If a future change touches the per-frame render path materially, re-measure rather than trusting this reasoning.
+
+### Caveats
+
+- **Synthetic assets, not real captures.** Every lane here resolves to a generated fixture, classified `lightweight_smoke` in the asset manifest. These lanes characterize pipeline cost against known splat counts; they are not a substitute for real-scan content, and per the repo's own asset policy they must not be cited as large-scene evidence.
+- **`gpu_frame_time_source` reads `unavailable` on every lane.** This is a reporting gap, not a bad measurement: no code in the module publishes that key, so the benchmark script's default string is always used. The companion flag `gpu_frame_time_valid` is `true`, and the per-pass timings sum exactly to the reported frame total, so the GPU numbers are real. The same applies to `gpu_timing_available`, which reads `false` for the same reason.
+- **These lanes use the resident path**, not the instance pipeline (`instance_pipeline_execution_path` is empty). Per-pass GPU timing has previously been observed not to resolve on the instance-pipeline route; that limitation does not apply to the rows above, but it does mean these numbers do not characterize the instance-pipeline route.
+- **Not a release gate.** These rows are benchmark evidence. Blocking streaming/runtime readiness is enforced by the runtime validation profile `streaming-gpu-ci`; open-world benchmark proof surfaces are review evidence and remain non-blocking unless the workflow contract changes.
+
+### Reproducing these numbers
+
+```bash
+# 1. Optimized build (a dev_build binary will not reproduce these numbers)
+scons platform=windows target=editor dev_build=no optimize=speed debug_symbols=no tests=yes
+
+# 2. Generate the benchmark fixtures. Passing --godot-binary is REQUIRED:
+#    without it the script falls back to lightweight Python generators and
+#    test_splats.ply is written with 1024 splats instead of 10000, which
+#    changes every lane that depends on it.
+python tests/runtime/prepare_synthetic_assets.py \
+  --godot-binary ./bin/godot.windows.editor.x86_64.console.exe
+
+# 3. Run the five published lanes
+python tests/runtime/run_benchmark.py \
+  --godot-binary ./bin/godot.windows.editor.x86_64.console.exe \
+  --project-path ./tests/examples/godot/test_project \
+  --profile performance \
+  --lane static_baseline --lane dense_resident_2m --lane city_flyover \
+  --lane instance_storm --lane lighting_stress \
+  --output-dir tests/output/benchmark_suite --no-captures
+```
+
+!!! note "`test_splats.ply` is generated, not committed"
+    Most benchmark lanes resolve to `res://tests/fixtures/test_splats.ply`, which is gitignored and produced by step 2. If you skip that step the lanes still exit 0, but they instantiate **zero** splat nodes and report a meaningless several-thousand FPS with a passing recommendation. Always confirm a lane's reported visible-splat count is non-zero before trusting its numbers.
+
+### Raw data
+
+Three files back this page, and between them every number above is recomputable:
+
+| File | What it is |
+| --- | --- |
+| [`assets/data/benchmark_suite_report.json`](../assets/data/benchmark_suite_report.json) | Full suite report for the committed run (run 2), including per-lane telemetry. Host-specific paths are normalized to repo-relative form; no metric value is edited. |
+| [`assets/data/benchmark_runs.json`](../assets/data/benchmark_runs.json) | Per-run telemetry for **all three** runs — steady-state frame metrics and the six GPU pass timings per lane. This is what the per-pass means and the variance figures are computed from. |
+| [`assets/data/benchmark_latest.json`](../assets/data/benchmark_latest.json) | Chart dataset, generated from the suite report by `scripts/export_benchmark_vegalite.py`. Carries only the metric fields the charts consume. |
+
+No figure on this page is derived from data that is not in the repo. If a number here cannot be recomputed from those files, treat it as a bug and report it.
 
 ## Coverage Map
 
 | Lane | Purpose | Status |
 | --- | --- | --- |
 | `static_baseline` | Low-noise raster baseline | Published in `benchmark_latest.json` |
+| `city_flyover` | High-altitude visibility-change stress | Published in `benchmark_latest.json` |
+| `lighting_stress` | Animated light and shading stress | Published in `benchmark_latest.json` |
+| `instance_storm` | Many-instance submission pressure | Published in `benchmark_latest.json` |
+| `dense_resident_2m` | Dense resident path, ~4.9M visible splats | Published in `benchmark_latest.json` (zero-weight support lane) |
 | `streaming_corridor` | Camera sweep stressing chunk turnover | Defined in the benchmark suite, not yet published |
-| `city_flyover` | High-altitude visibility-change stress | Defined in the benchmark suite, not yet published |
-| `instance_storm` | Many-instance submission pressure | Defined in the benchmark suite, not yet published |
-| `lighting_stress` | Animated light and shading stress | Defined in the benchmark suite, not yet published |
 | `unified_composite` | Integrated all-systems composite lane | Defined in the benchmark suite, not yet published |
+| `open_world_corridor_proof` | Chunked large-world proof lane | Defined in the benchmark suite, not yet published |
 
 Do not cite suite-only or unpublished lanes as public performance results. They become public claims only after a real benchmark suite report is exported to `assets/data/benchmark_latest.json` and the snapshot table above is updated.
 

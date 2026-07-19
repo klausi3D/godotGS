@@ -1,0 +1,310 @@
+{
+  "description": "Per-run telemetry backing the derived rows on docs/performance/index.md. The per-pass GPU table is the arithmetic mean across the three runs below; the run-to-run variance figures are (max-min)/mean of steady_avg_fps. run_2 is the run committed in benchmark_suite_report.json and shown in the headline results table.",
+  "capture_date_utc": "2026-07-19",
+  "commit_measured": "9161d92f349326e2004088638a5ab43eb4773123",
+  "master_at_publication": "ab847aeabf329ae1a5bf78f97f1b34f3ae2ab07b",
+  "build_flags": "scons platform=windows target=editor dev_build=no optimize=speed debug_symbols=no tests=yes",
+  "gs_avx2_enabled": 0,
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX 3090",
+    "gpu_driver": "591.86",
+    "cpu": "AMD Ryzen 7 5800X",
+    "ram_gib": 64,
+    "os": "Windows 11 Pro build 26200",
+    "renderer": "Vulkan 1.4.325 Forward+"
+  },
+  "committed_run": "run_2",
+  "window": "steady-state; first 3 s of warmup excluded",
+  "notes": {
+    "measured": "per-frame wall-clock delta; per-pass GPU timestamp ranges",
+    "derived": "steady_avg_fps is the harmonic mean frame_count/total_time",
+    "gpu_frame_time_source": "reads 'unavailable' on every lane because no module code publishes that key; gpu_frame_time_valid is true and the passes sum to the frame total"
+  },
+  "lanes": {
+    "static_baseline": {
+      "instance_count": 1,
+      "visible_splats_max": 10000,
+      "runs": {
+        "run_1": {
+          "steady_avg_fps": 454.062993930408,
+          "steady_avg_frame_ms": 2.20233759052663,
+          "steady_p99_frame_ms": 3.03030303030303,
+          "steady_p1_fps": 330.0,
+          "steady_sample_count": 6812,
+          "gpu_frame_time_ms": 1.69676792621613,
+          "gpu_frame_time_valid": true,
+          "gpu_pass_ms": {
+            "overlap_count_ms": 0.0942080020904541,
+            "prefix_ms": 0.0163839999586344,
+            "overlap_emit_ms": 0.133120000362396,
+            "sort_ms": 1.12230396270752,
+            "raster_ms": 0.317440003156662,
+            "resolve_ms": 0.0133119998499751
+          }
+        },
+        "run_2": {
+          "steady_avg_fps": 455.078369979073,
+          "steady_avg_frame_ms": 2.19742370977989,
+          "steady_p99_frame_ms": 3.048,
+          "steady_p1_fps": 328.083989501312,
+          "steady_sample_count": 6827,
+          "gpu_frame_time_ms": 1.69267189502716,
+          "gpu_frame_time_valid": true,
+          "gpu_pass_ms": {
+            "overlap_count_ms": 0.0952320024371147,
+            "prefix_ms": 0.017408000305295,
+            "overlap_emit_ms": 0.133120000362396,
+            "sort_ms": 1.12127995491028,
+            "raster_ms": 0.311295986175537,
+            "resolve_ms": 0.0143360001966357
+          }
+        },
+        "run_3": {
+          "steady_avg_fps": 466.077269416427,
+          "steady_avg_frame_ms": 2.14556698131212,
+          "steady_p99_frame_ms": 2.38095238095238,
+          "steady_p1_fps": 420.0,
+          "steady_sample_count": 6992,
+          "gpu_frame_time_ms": 1.6936959028244,
+          "gpu_frame_time_valid": true,
+          "gpu_pass_ms": {
+            "overlap_count_ms": 0.0942080020904541,
+            "prefix_ms": 0.017408000305295,
+            "overlap_emit_ms": 0.132095992565155,
+            "sort_ms": 1.12639999389648,
+            "raster_ms": 0.309248000383377,
+            "resolve_ms": 0.0143360001966357
+          }
+        }
+      }
+    },
+    "city_flyover": {
+      "instance_count": 16,
+      "visible_splats_max": 160000,
+      "runs": {
+        "run_1": {
+          "steady_avg_fps": 129.512810922793,
+          "steady_avg_frame_ms": 7.72124388988925,
+          "steady_p99_frame_ms": 8.33333333333333,
+          "steady_p1_fps": 120.0,
+          "steady_sample_count": 3887,
+          "gpu_frame_time_ms": 7.98207998275757,
+          "gpu_frame_time_valid": true,
+          "gpu_pass_ms": {
+            "overlap_count_ms": 0.236543998122215,
+            "prefix_ms": 0.0163839999586344,
+            "overlap_emit_ms": 0.359423995018005,
+            "sort_ms": 4.85888004302979,
+            "raster_ms": 2.49753594398499,
+            "resolve_ms": 0.0133119998499751
+          }
+        },
+        "run_2": {
+          "steady_avg_fps": 128.657937431658,
+          "steady_avg_frame_ms": 7.77254804454793,
+          "steady_p99_frame_ms": 8.33333333333333,
+          "steady_p1_fps": 120.0,
+          "steady_sample_count": 3861,
+          "gpu_frame_time_ms": 6.83110427856445,
+          "gpu_frame_time_valid": true,
+          "gpu_pass_ms": {
+            "overlap_count_ms": 0.242688000202179,
+            "prefix_ms": 0.017408000305295,
+            "overlap_emit_ms": 0.339967995882034,
+            "sort_ms": 4.85068798065186,
+            "raster_ms": 1.36499202251434,
+            "resolve_ms": 0.0153599996119738
+          }
+        },
+        "run_3": {
+          "steady_avg_fps": 128.563629349258,
+          "steady_avg_frame_ms": 7.77824961119744,
+          "steady_p99_frame_ms": 8.33333333333333,
+          "steady_p1_fps": 120.0,
+          "steady_sample_count": 3858,
+          "gpu_frame_time_ms": 6.87718391418457,
+          "gpu_frame_time_valid": true,
+          "gpu_pass_ms": {
+            "overlap_count_ms": 0.231424003839493,
+            "prefix_ms": 0.017408000305295,
+            "overlap_emit_ms": 0.354303985834122,
+            "sort_ms": 4.82304000854492,
+            "raster_ms": 1.43769598007202,
+            "resolve_ms": 0.0133119998499751
+          }
+        }
+      }
+    },
+    "lighting_stress": {
+      "instance_count": 9,
+      "visible_splats_max": 90000,
+      "runs": {
+        "run_1": {
+          "steady_avg_fps": 72.7086569175008,
+          "steady_avg_frame_ms": 13.7535204526561,
+          "steady_p99_frame_ms": 15.0,
+          "steady_p1_fps": 66.6666666666667,
+          "steady_sample_count": 2183,
+          "gpu_frame_time_ms": 13.9264001846313,
+          "gpu_frame_time_valid": true,
+          "gpu_pass_ms": {
+            "overlap_count_ms": 0.459776014089584,
+            "prefix_ms": 0.0163839999586344,
+            "overlap_emit_ms": 0.578559994697571,
+            "sort_ms": 11.7411842346191,
+            "raster_ms": 1.11411201953888,
+            "resolve_ms": 0.0163839999586344
+          }
+        },
+        "run_2": {
+          "steady_avg_fps": 72.5732510228152,
+          "steady_avg_frame_ms": 13.7791815290957,
+          "steady_p99_frame_ms": 15.1515151515152,
+          "steady_p1_fps": 66.0,
+          "steady_sample_count": 2178,
+          "gpu_frame_time_ms": 13.8987512588501,
+          "gpu_frame_time_valid": true,
+          "gpu_pass_ms": {
+            "overlap_count_ms": 0.458752006292343,
+            "prefix_ms": 0.0163839999586344,
+            "overlap_emit_ms": 0.583679974079132,
+            "sort_ms": 11.7391357421875,
+            "raster_ms": 1.08851194381714,
+            "resolve_ms": 0.0122880004346371
+          }
+        },
+        "run_3": {
+          "steady_avg_fps": 72.4090851398107,
+          "steady_avg_frame_ms": 13.8104216904433,
+          "steady_p99_frame_ms": 15.0396666666667,
+          "steady_p1_fps": 66.4908353465281,
+          "steady_sample_count": 2173,
+          "gpu_frame_time_ms": 14.0564479827881,
+          "gpu_frame_time_valid": true,
+          "gpu_pass_ms": {
+            "overlap_count_ms": 0.458752006292343,
+            "prefix_ms": 0.017408000305295,
+            "overlap_emit_ms": 0.642048001289368,
+            "sort_ms": 11.7555198669434,
+            "raster_ms": 1.16633605957031,
+            "resolve_ms": 0.0163839999586344
+          }
+        }
+      }
+    },
+    "instance_storm": {
+      "instance_count": 36,
+      "visible_splats_max": 360000,
+      "runs": {
+        "run_1": {
+          "steady_avg_fps": 31.5389803479845,
+          "steady_avg_frame_ms": 31.7067954945444,
+          "steady_p99_frame_ms": 31.9444444444444,
+          "steady_p1_fps": 31.304347826087,
+          "steady_sample_count": 947,
+          "gpu_frame_time_ms": 30.1084156036377,
+          "gpu_frame_time_valid": true,
+          "gpu_pass_ms": {
+            "overlap_count_ms": 1.10182404518127,
+            "prefix_ms": 0.017408000305295,
+            "overlap_emit_ms": 1.51731204986572,
+            "sort_ms": 26.0505599975586,
+            "raster_ms": 1.40595197677612,
+            "resolve_ms": 0.0153599996119738
+          }
+        },
+        "run_2": {
+          "steady_avg_fps": 31.4913448735022,
+          "steady_avg_frame_ms": 31.7547568710358,
+          "steady_p99_frame_ms": 31.8181818181818,
+          "steady_p1_fps": 31.4285714285714,
+          "steady_sample_count": 946,
+          "gpu_frame_time_ms": 30.0894718170166,
+          "gpu_frame_time_valid": true,
+          "gpu_pass_ms": {
+            "overlap_count_ms": 1.0854400396347,
+            "prefix_ms": 0.0163839999586344,
+            "overlap_emit_ms": 1.51449596881866,
+            "sort_ms": 26.0508155822754,
+            "raster_ms": 1.40595197677612,
+            "resolve_ms": 0.0163839999586344
+          }
+        },
+        "run_3": {
+          "steady_avg_fps": 31.5190468628929,
+          "steady_avg_frame_ms": 31.7268477168734,
+          "steady_p99_frame_ms": 31.8181818181818,
+          "steady_p1_fps": 31.4285714285714,
+          "steady_sample_count": 947,
+          "gpu_frame_time_ms": 30.0961284637451,
+          "gpu_frame_time_valid": true,
+          "gpu_pass_ms": {
+            "overlap_count_ms": 1.0854400396347,
+            "prefix_ms": 0.0163839999586344,
+            "overlap_emit_ms": 1.51731204986572,
+            "sort_ms": 26.0526084899902,
+            "raster_ms": 1.40902400016785,
+            "resolve_ms": 0.0153599996119738
+          }
+        }
+      }
+    },
+    "dense_resident_2m": {
+      "instance_count": 196,
+      "visible_splats_max": 4900000,
+      "runs": {
+        "run_1": {
+          "steady_avg_fps": 12.4011469966797,
+          "steady_avg_frame_ms": 80.6377023244494,
+          "steady_p99_frame_ms": 82.975,
+          "steady_p1_fps": 12.0518228382043,
+          "steady_sample_count": 249,
+          "gpu_frame_time_ms": 52.1625556945801,
+          "gpu_frame_time_valid": true,
+          "gpu_pass_ms": {
+            "overlap_count_ms": 2.08383989334106,
+            "prefix_ms": 0.017408000305295,
+            "overlap_emit_ms": 3.02387189865112,
+            "sort_ms": 33.3434867858887,
+            "raster_ms": 13.6796159744263,
+            "resolve_ms": 0.0143360001966357
+          }
+        },
+        "run_2": {
+          "steady_avg_fps": 12.3430783854271,
+          "steady_avg_frame_ms": 81.017066308244,
+          "steady_p99_frame_ms": 87.473,
+          "steady_p1_fps": 11.4320990477061,
+          "steady_sample_count": 248,
+          "gpu_frame_time_ms": 51.9321594238281,
+          "gpu_frame_time_valid": true,
+          "gpu_pass_ms": {
+            "overlap_count_ms": 2.09920001029968,
+            "prefix_ms": 0.017408000305295,
+            "overlap_emit_ms": 3.04435205459595,
+            "sort_ms": 33.2646408081055,
+            "raster_ms": 13.492223739624,
+            "resolve_ms": 0.0143360001966357
+          }
+        },
+        "run_3": {
+          "steady_avg_fps": 12.3838013578581,
+          "steady_avg_frame_ms": 80.7506492637217,
+          "steady_p99_frame_ms": 83.3333333333333,
+          "steady_p1_fps": 12.0,
+          "steady_sample_count": 249,
+          "gpu_frame_time_ms": 52.4346923828125,
+          "gpu_frame_time_valid": true,
+          "gpu_pass_ms": {
+            "overlap_count_ms": 2.10124802589417,
+            "prefix_ms": 0.017408000305295,
+            "overlap_emit_ms": 3.0492160320282,
+            "sort_ms": 33.7653770446777,
+            "raster_ms": 13.4881277084351,
+            "resolve_ms": 0.0133119998499751
+          }
+        }
+      }
+    }
+  }
+}
