@@ -61,6 +61,8 @@ every row below still holds, each owning declaration confirmed a **by-value** me
 | `InteractiveStateConfig` | `RenderConfigOrchestrator` | `render_config_orchestrator.h:59` | `:2718-2728` |
 | `CullingConfig` | `RenderConfigOrchestrator` | `render_config_orchestrator.h:60` | `:2694-2704` |
 | `PainterlyConfig` | `RenderConfigOrchestrator` | `render_config_orchestrator.h:61` | `:2706-2716` |
+| `PipelineFeatureSet` (`pipeline_features_effective`) | **facade, direct member** | `gaussian_splat_renderer.h:667` | provider getter `gaussian_splat_renderer.cpp:847-852` (returns `&renderer_view->pipeline_features_effective`; **no** `static` fallback) |
+| `JacobianDebugConfig` (`jacobian_debug`) | **facade, direct member** | `gaussian_splat_renderer.h:670` | provider getter `gaussian_splat_renderer.cpp:722-728`, **with** its own `static JacobianDebugConfig fallback` |
 | `DeviceState` | `RenderDeviceOrchestrator` | `render_device_orchestrator.h` (`device_state`) | `:2658-2668` |
 | `DebugState` | `RenderDebugStateOrchestrator` | via `get_state()` | `:3061-3068` |
 | `PerformanceSettings` | `RenderQualityOrchestrator` | via `get_performance_settings()` | `:2682-2692` |
@@ -71,9 +73,11 @@ every row below still holds, each owning declaration confirmed a **by-value** me
 | `SubsystemState` | **facade, direct member** | `h:619` | — |
 | `ShadowBlitState` | **facade, direct member** | `h:765` | — |
 
-So: **twelve of the seventeen buckets are already owned by an orchestrator or by
-`frame_context_manager`, by value.** Only five are direct facade members, and they sit at
-`h:604-765`, not `h:201-334`. `RenderConfigOrchestrator` in particular is *already* the
+So: **twelve of the nineteen buckets are already owned by an orchestrator or by
+`frame_context_manager`, by value.** Seven are direct facade members: the five at
+`h:604-765` (not `h:201-334`), plus `pipeline_features_effective` (`h:667`) and
+`jacobian_debug` (`h:670`), which reach `FrameDeps` through provider getters rather than
+through a facade bucket-accessor pair. `RenderConfigOrchestrator` in particular is *already* the
 clean pattern the ADR was proposing to build — it owns **four** buckets by value and is the
 **only** orchestrator header that declares **no** `GaussianSplatRenderer *renderer`
 back-pointer.
@@ -88,7 +92,18 @@ back-pointer.
 > three missing buckets would have been authored out of the guard's expected set. They were
 > already inside §1.2's count of 22 facade forwarding accessors (11 bucket pairs × 2) and
 > the whole-file count of 40 `static … fallback;` locals — both of which still reproduce
-> exactly — so this is a gap in §1.1 only, not in the S8/R6 scope.
+> exactly — so that part is a gap in §1.1 only, not in the S8/R6 scope.
+>
+> **Extended again in the same round:** two further `FrameDeps`-backed buckets were also
+> absent — `pipeline_features`, pointing at the facade member `pipeline_features_effective`
+> (`h:396`/`h:667`, provider getter `cpp:847-852`), and the optional `jacobian_debug`
+> (`h:408`/`h:670`, provider getter `cpp:722-728` **with** its own `static
+> JacobianDebugConfig fallback`). Both are now rows. Unlike the config sub-buckets these are
+> reached through **provider getters**, not through the 11 facade bucket-accessor pairs, so
+> they were *not* already inside §1.2's count of 22 — the `jacobian_debug` fallback is one of
+> the provider block's 18. **Consequence for R1:** the owner-map guard must cover
+> provider-getter-backed state as well as accessor-pair-backed state, or it will certify a
+> map that omits exactly these two.
 
 Three further count corrections, all re-verified by grep on master `9161d92f349`:
 
@@ -613,7 +628,7 @@ inventory's W1→W2→W3 gate.
 | **S6** — split `gpu_sorter.cpp` into per-algorithm TUs | R2 | Mechanical TU split + `SCsub` (§3.2) | Link-clean (no ODR dup/missing symbol); binary behavior identical (same sorter selected + same output on a fixed scene); enumerate-all-method-defs check |
 | **S7** — `FramePlan` gets a named owner; `RenderFrameContext` becomes non-copyable (#529) | R2 | Introduce `FrameExecution` (§2.1); `= delete` copy/move on `RenderFrameContext`; rewrite the `:1134` copy to a reference; delete the 3 borrow comments + the validator exemption | Copy-deletion is compile-enforced (the `:1134` copy must fail to compile before it is rewritten — show that build error as evidence); `validate()` now covers `frame_plan`; frame output identical on resident + instanced + stage-runner routes; ASan/UBSan clean over the frame path |
 | **S8** — per-stage capability ports; delete **all 40** `static` fallbacks (§1.1, §1.2) | R2 | Introduce `CullPort`/`SortPort`/`RasterPort`/`CompositePort` resolved from the owning orchestrators; narrow `access_*_mutable()`; `FrameStateProvider` becomes adapter over them | Each stage reads/writes only its port (compile-enforced); **zero** `static … fallback;` remain in `gaussian_splat_renderer.cpp` (grep guard, both the 18 provider and 22 facade sets); full frame telemetry + visual gate unchanged across all routes |
-| **S9** — cleanup: remove the `FrameStateProvider` adapter + shims | R2 | Delete the transitional adapter once all call sites use ports | Facade methods are thin delegations; dependency-rule check; final visual + telemetry parity |
+| **S9** — cleanup: remove the `FrameStateProvider` adapter + shims | R2 | Delete the transitional adapter once all call sites use ports | Dependency-rule check; final visual + telemetry parity. **"Facade methods are thin delegations" is NOT an S9 exit criterion** — §2.5 records that 147 of the 275 `GaussianSplatRenderer::` definitions live in `render_*_orchestrator.cpp` as relocated facade members calling facade privates, and **no S1–S9 slice converts them**. That criterion belongs to whichever disposition **D6** selects (amend #356's exit criterion, or add S11); requiring it here would either be falsely declared complete or block S9 on unscheduled work. |
 | **S10** — (optional) extract `RenderFrameExecutor` + timing + shader-compile from `tile_renderer.cpp` (§1.7) | R2 | Move the ~1,080-LOC executor, GPU-timing subsystem, and shader-compile orchestration into owned services | Tile frame output + timing telemetry identical on GrandmasHouse; stage delegation unchanged; ships after facade+sorter |
 
 **Cross-cutting evidence rule (renderer = R2/R3):** every slice that touches the
