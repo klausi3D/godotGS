@@ -123,12 +123,27 @@ class DeclarationCounts(unittest.TestCase):
             )
 
     def test_a_new_case_in_a_declared_family_is_not_covered_by_the_wildcard_alone(self):
-        """The pattern still matches it - only the count makes it visible."""
+        """The pattern still matches it - only the count makes it visible.
+
+        #637: this used to hardcode the `[TileRenderer]*` declaration, so it
+        broke with StopIteration the moment that family was un-quarantined -
+        the same stale-fixture shape #663 removed from the sibling lane tests.
+        The property under test is about trailing-wildcard families in general,
+        so derive the subject from whatever the manifest currently declares.
+        """
         declarations, _ = GUARD._load_unlaned_declarations()
-        tile = next(e for e in declarations if e["test_case"] == "[TileRenderer]*")
-        newcomer = "[TileRenderer] brand new stranded case added long after the declaration"
+        family = next(
+            (e for e in declarations if e["test_case"].endswith("*")),
+            None,
+        )
+        self.assertIsNotNone(
+            family,
+            "expected at least one trailing-wildcard family declaration to exercise",
+        )
+        prefix = family["test_case"][:-1]
+        newcomer = f"{prefix} brand new stranded case added long after the declaration"
         self.assertTrue(
-            GUARD._doctest_wildcmp(newcomer, tile["test_case"]),
+            GUARD._doctest_wildcmp(newcomer, family["test_case"]),
             "the wildcard does match it - which is exactly why a count is required",
         )
 

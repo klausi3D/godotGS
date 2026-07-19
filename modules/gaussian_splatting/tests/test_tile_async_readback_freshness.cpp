@@ -1,3 +1,23 @@
+// #637: these four cases assert pure Vector<uint8_t> payload/freshness logic and
+// touch no GPU themselves -- but they build a stack `TileRenderer`, and merely
+// CONSTRUCTING one requires the global RenderingDevice singleton. TileRenderer's
+// member-initializer list builds TileShaderResources, whose own member-initializer
+// list builds TileBinningShaderRD, a ShaderRD subclass, and ShaderRD's constructor
+// dereferences RD::get_singleton() unguarded (shader_rd.cpp:791). That whole chain
+// runs before TileRenderer's constructor body, so the null-guards there are moot.
+//
+// #178 force-linked this file, which turned that latent contract violation into a
+// 100% reproducible SIGSEGV under plain `--test` (measured on c4a9db339d3: 4 crashes,
+// 0 assertions executed). This is a test-contract defect, not a product defect --
+// both production construction sites are behind fail-closed device checks
+// (render_resource_orchestrator.cpp:144 and painterly_renderer.cpp:1856), and
+// TileRenderer is not ClassDB-registered, so no script can reach it either.
+//
+// The fix is therefore to run them where their precondition holds: `[RequiresGPU]`
+// routes them to the `TileRenderer` batch of tests/ci/run_gpu_harness.py, whose
+// bootstrap installs the singleton. Under that harness all 4 pass with 29 real
+// assertions. REQUIRE_RENDERING_DEVICE_SINGLETON() keeps the precondition
+// fail-closed rather than skipping, so the cases cannot silently go vacuous.
 #include "test_macros.h"
 
 #include "../renderer/tile_renderer.h"
@@ -25,7 +45,8 @@ static Vector<uint8_t> _make_tile_counts_payload(uint32_t p_a, uint32_t p_b) {
 
 } // namespace
 
-TEST_CASE("[TileRenderer] Async overflow readback rejects stale callbacks") {
+TEST_CASE("[TileRenderer][RequiresGPU] Async overflow readback rejects stale callbacks") {
+	REQUIRE_RENDERING_DEVICE_SINGLETON();
 	TileRenderer renderer;
 	auto &state = renderer._test_async_readback().overflow_state;
 
@@ -50,7 +71,8 @@ TEST_CASE("[TileRenderer] Async overflow readback rejects stale callbacks") {
 	CHECK(state.last_unclamped_total == 2048);
 }
 
-TEST_CASE("[TileRenderer] Async overflow readback ignores short payloads without completing overlap state") {
+TEST_CASE("[TileRenderer][RequiresGPU] Async overflow readback ignores short payloads without completing overlap state") {
+	REQUIRE_RENDERING_DEVICE_SINGLETON();
 	TileRenderer renderer;
 	auto &state = renderer._test_async_readback().overflow_state;
 
@@ -75,7 +97,8 @@ TEST_CASE("[TileRenderer] Async overflow readback ignores short payloads without
 	CHECK(state.last_unclamped_total == 64);
 }
 
-TEST_CASE("[TileRenderer] Async tile-count readback rejects stale callbacks") {
+TEST_CASE("[TileRenderer][RequiresGPU] Async tile-count readback rejects stale callbacks") {
+	REQUIRE_RENDERING_DEVICE_SINGLETON();
 	TileRenderer renderer;
 	auto &state = renderer._test_async_readback().tile_counts_state;
 
@@ -102,7 +125,8 @@ TEST_CASE("[TileRenderer] Async tile-count readback rejects stale callbacks") {
 	CHECK(state.cached_counts[1] == 9);
 }
 
-TEST_CASE("[TileRenderer] Async tile-count readback ignores short payloads without advancing freshness") {
+TEST_CASE("[TileRenderer][RequiresGPU] Async tile-count readback ignores short payloads without advancing freshness") {
+	REQUIRE_RENDERING_DEVICE_SINGLETON();
 	TileRenderer renderer;
 	auto &state = renderer._test_async_readback().tile_counts_state;
 

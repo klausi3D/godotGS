@@ -66,15 +66,6 @@
       "expires_utc": "2026-10-15T00:00:00Z"
     },
     {
-      "test_case": "[TileRenderer]*",
-      "count": 14,
-      "reason": "BLOCKED on #637. run_module_tests.py's 'TileRenderer' lane is deliberately narrowed to '*Shader compilation on local device*' because repointing it at the whole [TileRenderer] family would pull in test_tile_async_readback_freshness.cpp, whose four cases SIGSEGV under --test (#637) and would crash the lane. The existing code comment says exactly this. The other ten cases (prefix-scan ABI/dispatch/CPU-fallback, shared-memory contract, range regression) are collateral: they are host-only and would very likely pass, but cannot be laned until the crashers are separable.",
-      "issue_url": "https://github.com/klausi3D/godotGS/issues/637",
-      "owner": "klausi3D",
-      "risk": "R1",
-      "expires_utc": "2026-10-15T00:00:00Z"
-    },
-    {
       "test_case": "[VisualCompare]*",
       "count": 3,
       "reason": "UNDECIDED. Three self-tests of the visual-comparison helper in visual_compare.h (PNG round-trip, mismatch detection, tolerance). They carry no [GaussianSplatting] prefix, so the untagged safety net does not reach them either. Not catalogued in #520 - surfaced by this guard.",
