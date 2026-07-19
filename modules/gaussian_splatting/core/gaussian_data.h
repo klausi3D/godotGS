@@ -146,29 +146,38 @@ constexpr GaussianDCEncoding gaussian_get_dc_encoding(uint32_t p_render_meta) {
             : GAUSSIAN_DC_ENCODING_LEGACY_BIAS;
 }
 
+// Every member must carry a default initializer. Callers routinely build a
+// Gaussian by declaration ("Gaussian g;") and assign only the fields they care
+// about, so a member without one silently inherits whatever occupied that
+// storage: area and stroke_age are range-checked by
+// GaussianData::_validate_gpu_payload_locked() and a garbage value makes
+// create_gpu_buffer() return a null RID, while painterly_meta and _padding are
+// not validated at all and reach the GPU or the serialized payload verbatim.
+// Godot's Vector2/Vector3/Quaternion/Color zero themselves through their own
+// union initializers, so only the scalars and arrays need one here. See #687.
 struct Gaussian {
     Vector3 position;
-    float opacity;
+    float opacity = 0.0f;
 
     Vector3 scale;
-    float area;
+    float area = 0.0f;
 
     Quaternion rotation;
 
     // Spherical harmonics coefficients
-    Color sh_dc;        // DC term
-    Vector3 sh_1[3];    // First-order SH
+    Color sh_dc;            // DC term
+    Vector3 sh_1[3] = {};   // First-order SH
 
     // 2D Gaussian support (surfels)
     Vector3 normal;
-    float stroke_age;
+    float stroke_age = 0.0f;
 
     // Padding for alignment
-    float _padding; // Ensures brush_axes is 8-byte aligned
+    float _padding = 0.0f; // Ensures brush_axes is 8-byte aligned
 
     // Painterly rendering extensions (packed for GPU alignment)
     Vector2 brush_axes;
-    uint32_t painterly_meta; // lower 16 bits: palette id, upper 16 bits: painterly flags / brush override ids
+    uint32_t painterly_meta = 0; // lower 16 bits: palette id, upper 16 bits: painterly flags / brush override ids
 
     // Render metadata and final padding to reach 144 bytes.
     uint32_t render_meta = 0; // lower bit stores GaussianDCEncoding

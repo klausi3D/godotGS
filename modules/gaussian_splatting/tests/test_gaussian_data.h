@@ -15,7 +15,9 @@
 #include "core/math/random_number_generator.h"
 #include "core/os/os.h"
 #include "tests/test_macros.h"
+#include <cstring>
 #include <limits>
+#include <new>
 
 namespace TestGaussianSplatting {
 
@@ -339,6 +341,97 @@ TEST_CASE("[GaussianSplatting] GaussianData GPU payload validation rejects non-f
 	String scale_error;
 	CHECK(data->validate_gpu_payload(&scale_error) == ERR_INVALID_DATA);
 	CHECK_FALSE(scale_error.is_empty());
+}
+
+TEST_CASE("[GaussianSplatting] Default-constructed Gaussian leaves no member indeterminate (#687)") {
+	// Regression guard for issue #687.
+	//
+	// Gaussian is the GPU upload struct and is routinely built by declaration
+	// ("Gaussian g;") with only the fields a caller cares about assigned --
+	// _make_test_gaussian() above assigns nine of the fourteen members, and
+	// ply_loader.cpp:801 and spz_loader.cpp:371 do the same in production. Any
+	// member without a default initializer then carries whatever already occupied
+	// that storage.
+	//
+	// This trap has fired before: #685 had to convert
+	// stage1a_make_submission_test_data() to value-initialization because every
+	// GPU-tagged case built on it logged "Gaussian[0] has invalid stroke age" and
+	// create_gpu_buffer() returned a null RID. That was fixed at the one call
+	// site; this case fixes the class by pinning the type's contract instead.
+	//
+	// The consequences are split. area and stroke_age are range-checked by
+	// GaussianData::_validate_gpu_payload_locked() (gaussian_data_gpu.cpp:113 and
+	// :116), so a garbage value makes create_gpu_buffer() bail at
+	// gaussian_data_gpu.cpp:187 and return a null RID -- the caller renders
+	// nothing while reporting success. painterly_meta and _padding are NOT
+	// validated; painterly_meta is copied straight into the upload struct
+	// (gaussian_gpu_layout.cpp:133) and reaches the shader as a bogus palette id,
+	// and _padding is memcpy'd verbatim into the serialized scene payload
+	// (gaussian_scene_serializer.cpp:508), making saved bytes non-reproducible.
+	//
+	// Placement-new over 0xFF-filled heap storage makes this deterministic:
+	// default-initialization does not write members that have no initializer, so
+	// an uninitialized float reads back as a NaN bit pattern instead of depending
+	// on whatever the stack happened to hold. This case must keep using
+	// default-initialization -- value-initialization ("Gaussian()", which
+	// LocalVector::resize performs via memnew_arr_placement) zeroes the entire
+	// object first and would hide the defect entirely.
+	unsigned char *storage = static_cast<unsigned char *>(memalloc(sizeof(Gaussian)));
+	if (storage == nullptr) {
+		FAIL("Could not allocate storage for the Gaussian probe");
+		return;
+	}
+	memset(storage, 0xFF, sizeof(Gaussian));
+	Gaussian *g = ::new (storage) Gaussian; // Default-init on purpose; see above.
+
+	// Scalars: these are the members that lacked initializers.
+	CHECK(g->opacity == 0.0f);
+	CHECK(g->area == 0.0f);
+	CHECK(g->stroke_age == 0.0f);
+	CHECK(g->_padding == 0.0f);
+	CHECK(g->painterly_meta == 0u);
+	CHECK(g->render_meta == 0u);
+	CHECK(g->_padding2[0] == 0.0f);
+	CHECK(g->_padding2[1] == 0.0f);
+
+	// Godot's math types zero themselves through their union initializer. Assert
+	// it rather than assume it, so this case still covers them if that changes.
+	CHECK(g->position == Vector3());
+	CHECK(g->scale == Vector3());
+	CHECK(g->normal == Vector3());
+	CHECK(g->rotation == Quaternion());
+	CHECK(g->sh_dc == Color());
+	CHECK(g->brush_axes == Vector2());
+	for (int i = 0; i < 3; i++) {
+		CHECK(g->sh_1[i] == Vector3());
+	}
+
+	// End-to-end: fill only the handful of fields a typical caller fills and
+	// nothing else. validate_gpu_payload() is the same gate create_gpu_buffer()
+	// applies at gaussian_data_gpu.cpp:187, so this proves the buffer is accepted
+	// (or, before the fix, refused) without needing a GPU.
+	g->position = Vector3(1.0f, 2.0f, 3.0f);
+	g->scale = Vector3(1.0f, 1.0f, 1.0f);
+	g->rotation = Quaternion(0.0f, 0.0f, 0.0f, 1.0f);
+	g->opacity = 1.0f;
+	g->sh_dc = Color(1.0f, 1.0f, 1.0f, 1.0f);
+
+	Ref<::GaussianData> data;
+	data.instantiate();
+	LocalVector<Gaussian> probe_gaussians;
+	probe_gaussians.resize(1);
+	probe_gaussians[0] = *g;
+	data->set_gaussians(probe_gaussians);
+
+	String probe_error;
+	const Error probe_result = data->validate_gpu_payload(&probe_error);
+	CHECK_MESSAGE(probe_result == OK,
+			"validate_gpu_payload() refused a partially-filled Gaussian; "
+			"create_gpu_buffer() would return a null RID. Error: ",
+			probe_error);
+
+	g->~Gaussian();
+	memfree(storage);
 }
 
 } // namespace TestGaussianSplatting
