@@ -125,13 +125,11 @@
     "deferred_tags_any": [
       "Importer"
     ],
-    "deferred_count": 10,
+    "deferred_count": 8,
     "new_or_missing_test_policy": "fail-contract-check",
     "closure_policy": "deferred RequiresGPU coverage blocks #350/#360 closure unless each remaining test has an explicit waiver below",
     "deferred_test_names_any": [
-      "[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer hides node-local debug settings and restores them when the settings owner exits",
       "[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer instance buffer drops hidden nodes",
-      "[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer preserves local painterly and color grading state",
       "[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer full-fidelity override only follows attached assets",
       "[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer ignores hidden full-fidelity assets",
       "[GaussianSplatting][Node][SceneTree][RequiresGPU] Scene sphere effectors build per-instance selection masks",
@@ -143,39 +141,11 @@
   },
   "deferred_requires_gpu_waivers": [
     {
-      "test_name": "[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer hides node-local debug settings and restores them when the settings owner exits",
-      "batch": "NodeSceneTree",
-      "exclude_pattern": "*Shared renderer hides node-local debug settings*",
-      "source_path": "modules/gaussian_splatting/tests/test_gaussian_splat_node.h",
-      "reason": "Executed for the first time under the #329 batches and FAILS: after the settings-owner node exits the tree the shared renderer still reports is_debug_show_density_heatmap()==true (test_gaussian_splat_node.h:1006 and :1012, CHECK_FALSE(true)). Real P2 property-gating defect, not a harness artifact.",
-      "risk": "medium",
-      "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
-      "owner": "klausi3D",
-      "expires_utc": "2026-10-31T00:00:00Z",
-      "mitigation": "Excluded from its GPU batch via BatchSpec.excludes; the other cases in the same batch still execute. tests/ci/test_gpu_harness_deferred_contract.py fails if this waiver is removed while the exclude remains (or vice versa).",
-      "docs_path": "docs/reference/renderer-release-gates.md",
-      "base_sha_proven_failing": "9161d92f349326e2004088638a5ab43eb4773123"
-    },
-    {
       "test_name": "[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer instance buffer drops hidden nodes",
       "batch": "NodeSceneTree",
       "exclude_pattern": "*Shared renderer instance buffer drops hidden nodes*",
       "source_path": "modules/gaussian_splatting/tests/test_gaussian_splat_node.h",
       "reason": "Executed for the first time and FAILS: hidden nodes are not dropped from the shared renderer instance buffer.",
-      "risk": "medium",
-      "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
-      "owner": "klausi3D",
-      "expires_utc": "2026-10-31T00:00:00Z",
-      "mitigation": "Excluded from its GPU batch via BatchSpec.excludes; the other cases in the same batch still execute. tests/ci/test_gpu_harness_deferred_contract.py fails if this waiver is removed while the exclude remains (or vice versa).",
-      "docs_path": "docs/reference/renderer-release-gates.md",
-      "base_sha_proven_failing": "9161d92f349326e2004088638a5ab43eb4773123"
-    },
-    {
-      "test_name": "[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer preserves local painterly and color grading state",
-      "batch": "NodeSceneTree",
-      "exclude_pattern": "*Shared renderer preserves local painterly and color grading state*",
-      "source_path": "modules/gaussian_splatting/tests/test_gaussian_splat_node.h",
-      "reason": "Executed for the first time and FAILS: local painterly + colour-grading state is not preserved across shared-renderer ownership changes.",
       "risk": "medium",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
       "owner": "klausi3D",
@@ -512,8 +482,8 @@
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
       "requires_gpu_total": 116,
-      "running_in_a_named_batch": 36,
-      "deferred_with_waiver": 10,
+      "running_in_a_named_batch": 38,
+      "deferred_with_waiver": 8,
       "unbatched_backlog": 70
     },
     "by_source_file": {
