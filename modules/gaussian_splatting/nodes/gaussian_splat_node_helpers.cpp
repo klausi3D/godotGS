@@ -1395,11 +1395,31 @@ void GaussianSplatNodeRendererHelper::apply_renderer_settings() {
     owner.renderer->set_frustum_culling(owner.use_frustum_culling);
     // Use asset-level GPU optimization setting from import metadata (defaults to true)
     owner.renderer->set_async_upload_enabled(owner.asset_optimize_for_gpu);
-    owner.renderer->set_painterly_enabled(owner.enable_painterly);
-    owner.renderer->set_painterly_edge_threshold(owner.edge_threshold);
-    owner.renderer->set_painterly_stroke_opacity(owner.stroke_opacity);
-    owner.renderer->set_painterly_stroke_length(owner.stroke_width);
-    owner.renderer->set_painterly_gamma(MAX(owner.temporal_blend, 0.01f));
+    // #329: painterly is a RENDERER-WIDE effect driven from node-local properties,
+    // so it is P2-gated exactly like the debug overlays in
+    // apply_renderer_debug_settings(): while the renderer is shared with other
+    // content the node-local values must not reach it, and painterly is forced
+    // off. Every painterly *property setter* on GaussianSplatNode3D already
+    // refuses to run while shared (set_edge_threshold, set_stroke_opacity,
+    // set_stroke_width, set_temporal_blend, set_painterly_seed), and
+    // _validate_property hides `painterly/*` on a shared renderer — but this
+    // push ran with the P1 lease check only, so the first node to claim the
+    // lease kept writing its painterly state renderer-wide anyway. That is what
+    // "Shared renderer preserves local painterly and color grading state"
+    // caught at test_gaussian_splat_node.h:1698.
+    //
+    // Node-local state is deliberately NOT cleared: set_enable_painterly keeps
+    // recording the user's choice while shared (the node still reports
+    // is_painterly_enabled() == true), and the peer-set convergence hook
+    // re-applies it when the node is alone again.
+    const bool painterly_shared = _is_renderer_shared_with_other_content(owner);
+    owner.renderer->set_painterly_enabled(painterly_shared ? false : owner.enable_painterly);
+    if (!painterly_shared) {
+        owner.renderer->set_painterly_edge_threshold(owner.edge_threshold);
+        owner.renderer->set_painterly_stroke_opacity(owner.stroke_opacity);
+        owner.renderer->set_painterly_stroke_length(owner.stroke_width);
+        owner.renderer->set_painterly_gamma(MAX(owner.temporal_blend, 0.01f));
+    }
     // Per-instance color grading — routed through the scene director. The director
     // stores grading on the node's InstanceRecord, then the director's build step
     // produces one InstanceGradingGPU row per instance indexed by
