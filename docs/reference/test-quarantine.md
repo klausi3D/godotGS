@@ -169,8 +169,11 @@ every other exit-0 result fails, so a stale or misconfigured entry cannot hide.
   **Limitation:** a crash-quarantine can mask a NEW crash in the same lane until
   the entry expires. Mitigate by targeting the **narrowest possible lane filter**
   so the tolerated blast radius is minimal. (BDD `SCENARIO` cases, whose name
-  doctest prints without a `TEST CASE:` prefix, are likewise treated as
-  unparseable and fail closed rather than being silently tolerated.)
+  doctest prints without a `TEST CASE:` prefix, are named positionally from the
+  test-start header, so a scenario failure is matched against the approved
+  `test_case` patterns like any other case instead of inheriting the previously
+  named one. A failure that still cannot be named leaves the result unparseable,
+  which fails closed rather than being silently tolerated.)
 - **Quarantined lane that PASSES with real executed coverage:** the run fails
   (anti-rot), **regardless of the process exit code**. The doctest summary is
   authoritative about what ran, so an all-pass summary means the tracked failure

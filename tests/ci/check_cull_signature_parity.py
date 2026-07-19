@@ -217,11 +217,49 @@ def _extract_struct_fields(body: str) -> tuple[list[str], list[str]]:
     return fields, unrecognized
 
 
+def _split_top_level_args(arg_text: str) -> list[str]:
+    """Split a call's argument text on top-level commas.
+
+    Commas nested inside parentheses, brackets or angle brackets belong to a
+    sub-expression (`MAX(0, x)`, `static_cast<uint64_t>(y)`) and do not separate
+    arguments.
+    """
+    args: list[str] = []
+    depth = 0
+    start = 0
+    for i, char in enumerate(arg_text):
+        if char in "([<":
+            depth += 1
+        elif char in ")]>":
+            depth -= 1
+        elif char == "," and depth == 0:
+            args.append(arg_text[start:i])
+            start = i + 1
+    args.append(arg_text[start:])
+    return args
+
+
 def _extract_hashed_fields(body: str) -> set[str]:
-    # A field counts as hashed only when it appears inside the argument list of a
-    # `seed = _hash*(...)` call -- i.e. it is actually folded into the running hash.
-    # A read elsewhere (a debug/temp local or a log line, even on the same physical
-    # line as a real fold) does not count.
+    # A field counts as hashed only when it is passed as a WHOLE argument of a
+    # `seed = _hash*(...)` call -- i.e. its exact value is folded into the running
+    # hash. Two things are deliberately NOT accepted:
+    #
+    #   * a read elsewhere (a debug/temp local or a log line, even on the same
+    #     physical line as a real fold), and
+    #   * a read buried inside a larger expression in the argument list, e.g.
+    #     `_hash_bool(config.knob > 0.0f, seed)` or `_hash_u64(sizeof(config.knob), seed)`.
+    #
+    # The second case is the reason for the whole-argument rule: such a fold is
+    # LOSSY, so many distinct values of the knob collapse to the same seed and the
+    # compositor keeps serving a stale cached render even though the knob changed.
+    # Counting it as "hashed" would be exactly the fail-open hole this guard exists
+    # to close, so anything the guard cannot prove value-preserving is left
+    # unhashed and therefore reported. A field that genuinely needs a derived fold
+    # must either fold the raw value as its own argument as well, or carry an
+    # explicit waiver.
+    #
+    # NOT covered: dataflow into `seed` itself. A fold that is later discarded (for
+    # example a subsequent `seed = HASH_MURMUR3_SEED;`) still reads as hashed here.
     hashed: set[str] = set()
     for match in _HASH_STMT_RE.finditer(body):
         open_paren = match.end() - 1  # the '(' the regex ends on
@@ -233,7 +271,10 @@ def _extract_hashed_fields(body: str) -> set[str]:
             elif char == ")":
                 depth -= 1
                 if depth == 0:
-                    hashed.update(_CONFIG_READ_RE.findall(body[open_paren + 1 : i]))
+                    for arg in _split_top_level_args(body[open_paren + 1 : i]):
+                        whole = _CONFIG_READ_RE.fullmatch(arg.strip())
+                        if whole:
+                            hashed.add(whole.group(1))
                     break
     return hashed
 
