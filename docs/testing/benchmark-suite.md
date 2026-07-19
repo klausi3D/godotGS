@@ -21,7 +21,13 @@ and Tier 2 closeout, `--profile performance` is the canonical lane set.
 
 The current committed public result is a five-lane set captured on 2026-07-19 at commit
 `9161d92f349` on an **optimized** Windows build (`dev_build=no optimize=speed`), RTX 3090 /
-Ryzen 7 5800X. Values are steady-state, run 2 of 3:
+Ryzen 7 5800X. Values are steady-state, run 2 of 3.
+
+**`9161d92f349` was 8 commits behind `master` (`ab847aeabf3`) when this was published**, three of
+them touching runtime paths (#665, #666, #667). The
+[Performance Dashboard](../performance/index.md#currency) records why those are not expected to
+move these numbers. Re-measure rather than trusting that reasoning if a change lands on the
+per-frame render path.
 
 | Lane | Score | Avg FPS | P99 Frame (ms) | GPU Time (ms) |
 | --- | ---: | ---: | ---: | ---: |

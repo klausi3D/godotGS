@@ -14,7 +14,8 @@ Every number on this page comes from one machine, one build, and one commit. Rea
 | Item | Value |
 | --- | --- |
 | Capture date | 2026-07-19 (UTC) |
-| Commit measured | `9161d92f349326e2004088638a5ab43eb4773123` (`master`) |
+| Commit measured | `9161d92f349326e2004088638a5ab43eb4773123` |
+| `master` at publication | `ab847aeabf3` — 8 commits ahead of the measured tree ([Currency](#currency)) |
 | Build flags | `scons platform=windows target=editor dev_build=no optimize=speed debug_symbols=no tests=yes` |
 | Build type | **Optimized** (`/O2`). Not a `dev_build` binary — see the warning below. |
 | GPU | NVIDIA GeForce RTX 3090, 24 GiB, driver 591.86 |
@@ -29,6 +30,9 @@ Every number on this page comes from one machine, one build, and one commit. Rea
     A `dev_build=yes` binary compiles at `-O0` and inflates CPU-side frame cost by roughly an order of magnitude on this hardware. Numbers from such a build are not performance evidence. The previously published row on this page (`static_baseline`, 74.0 avg FPS) was captured on 2026-03-19 from a `bin/godot.linuxbsd.editor.dev.x86_64` binary under the `quick` profile, on different hardware, with a different fixture size. **It has been replaced rather than compared against** — the two rows do not measure the same thing.
 
 ### Results
+
+!!! info "These numbers were measured at commit `9161d92f349`, captured 2026-07-19"
+    That commit was **8 commits behind `master` (`ab847aeabf3`) at the time this page was published.** Three of those eight touch runtime paths: [#665](https://github.com/klausi3D/godotGS/pull/665) and [#666](https://github.com/klausi3D/godotGS/pull/666) (`world_mutex` deferrals in the scene director) and [#667](https://github.com/klausi3D/godotGS/pull/667) (P2 shared-renderer gating convergence). **The table below does not describe those changes.** See [Currency](#currency) for why they are not expected to move these numbers.
 
 | Lane | Scene shape | Instances | Visible splats | Avg FPS | Avg frame (ms) | P99 frame (ms) | GPU frame (ms) | GPU mem delta (MiB) |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -71,6 +75,19 @@ Be precise about what was sampled and what was computed:
 Each lane was run three times. Spread in `Avg FPS` (max−min as a share of the mean) was: `static_baseline` 2.6%, `city_flyover` 0.7%, `lighting_stress` 0.4%, `instance_storm` 0.2%, `dense_resident_2m` 0.5%. These lanes are stable enough that a single run is representative. The committed row set is run 2 of 3.
 
 The one metric that moves more is `city_flyover` GPU frame time (~16% spread), because the lane's camera path crosses regions of very different visible density.
+
+### Currency
+
+This snapshot was measured at `9161d92f349`, which was 8 commits behind `master` (`ab847aeabf3`) when published. Four of those eight cannot affect runtime behaviour — they change CI lane coverage, stale test-lane declarations, a `REQUIRE`-then-dereference guard in the test runner, and GPU-harness accounting. The remaining three, plus one build-policy change, were assessed as follows:
+
+| Change | Reaches the measured window? | Assessment |
+| --- | --- | --- |
+| [#657](https://github.com/klausi3D/godotGS/pull/657) — MSVC `/arch:AVX2` policy | No | Both trees compile the module at the **SSE2 baseline**. The pre-`#657` `auto` probe fails on this toolchain (verified: it prints `AVX2 not supported by toolchain, using SSE2 baseline`), and post-`#657` `auto` never enables AVX2 by design. Identical codegen. |
+| [#666](https://github.com/klausi3D/godotGS/pull/666) — defer `register_instance`'s `initialize()` | No | `register_instance` runs at node enter-tree, i.e. during the 3 s warmup that these results exclude. |
+| [#667](https://github.com/klausi3D/godotGS/pull/667) — P2 shared-renderer gating convergence | Marginally | The per-frame cost is unchanged: the gate is still one predicate evaluation per node per frame, now edge-triggered. The added convergence work fires on **peer-set change**, which in these lanes happens only during setup — no lane adds or removes nodes mid-capture. |
+| [#665](https://github.com/klausi3D/godotGS/pull/665) — `world_mutex` deferrals + `ThreadOwnedMutex` | Marginally | `world_mutex` *is* taken on per-frame render paths, so the new owner bookkeeping (one atomic store on lock; a compare and store on unlock) does reach steady state. It is on the order of tens of nanoseconds per acquisition. Reaching even the 0.5% run-to-run spread already observed on `dense_resident_2m` (~0.4 ms of an 81 ms frame) would require on the order of 10⁴ additional lock acquisitions per frame. The same change also moves apply work *out* of the lock, which if anything reduces contention. |
+
+**Judgement: a re-run was not considered warranted for numerical accuracy.** The expected effect of these changes on steady-state frame time is below the run-to-run variance already published above, so a re-measurement could not distinguish them from noise. The gap is recorded here because it is a **provenance** fact a reader is entitled to — not because the numbers are believed to be wrong. If a future change touches the per-frame render path materially, re-measure rather than trusting this reasoning.
 
 ### Caveats
 
