@@ -52,6 +52,25 @@ static func resolve_asset_path(
 
 	return _resolve_manifest_asset_path(manifest, str(manifest.get("default_asset", "")))
 
+## Issue #669: minimum splat count a lane requires from its fixture.
+##
+## Benchmark fixtures are gitignored and generated. An absent fixture yields zero
+## splat nodes and a flatteringly high FPS; the lightweight Python fallback
+## generators yield a 10x-smaller fixture than the canonical C++ generators. Both
+## must fail the lane rather than produce a number, so the required count is
+## declared in the manifest and enforced at lane build time.
+static func min_splat_count_for(asset_path: String) -> int:
+	if asset_path.is_empty():
+		return 0
+	var manifest := _load_manifest()
+	var counts = manifest.get("asset_min_splat_counts", {})
+	if not (counts is Dictionary):
+		return 0
+	return int(counts.get(asset_path, 0))
+
+static func fixture_prep_command() -> String:
+	return "python tests/runtime/prepare_synthetic_assets.py --godot-binary ./bin/<your-godot-binary>"
+
 static func resolve_world_contract_path(
 	scene_id: String,
 	lane_id: String,

@@ -116,12 +116,28 @@ python3 tests/runtime/prepare_synthetic_assets.py --quiet \
     binary is supplied. Without `--godot-binary` the script falls back to lightweight Python
     generators and writes `test_splats.ply` with **1024** splats instead of **10000**. Both forms
     are valid for smoke coverage, but they are different workloads and will not reproduce
-    published benchmark numbers.
+    published benchmark numbers. Since #669 the benchmark harness enforces this rather than
+    trusting it: a lane loading the 1024-splat fixture fails instead of reporting a number.
 
-`test_splats.ply` is gitignored and never committed. A lane whose asset is missing does **not**
-fail: it instantiates zero splat nodes, reports an implausibly high FPS, and still emits a passing
-recommendation. Always check that a lane's reported visible-splat count is non-zero before
-treating its output as evidence.
+`test_splats.ply` is gitignored and never committed, so it is absent from a fresh clone.
+
+Since #669 a lane **fails closed** on a fixture that is absent, unreadable, or smaller than the
+lane declares it needs:
+
+* `run_benchmark.py` refuses to start the suite (exit `2`) and names the asset, the resolved
+  on-disk path, and the prep command.
+* A directly-launched lane scene aborts with exit `3`, writes **no** report, and prints
+  `[BENCH-LANE] FATAL` lines naming the asset and the prep command.
+
+The required counts are declared in `asset_min_splat_counts` in the benchmark asset manifest and
+are generated from `ASSET_MIN_SPLAT_COUNTS` in `prepare_synthetic_assets.py`. This is what makes
+the `--godot-binary` requirement above enforced rather than merely documented: a 1024-splat
+Python-fallback `test_splats.ply` fails the 10000-splat floor instead of silently benchmarking a
+10x-smaller workload.
+
+Before #669 such a lane instantiated zero splat nodes and reported an *implausibly high* FPS with
+a passing recommendation — the failure presented as a spectacular result rather than a broken one.
+Regression coverage lives in `tests/ci/test_benchmark_fixture_contract.py`.
 
 Streaming-named lanes that still resolve to `test_splats.ply` are intentionally classified as
 `lightweight_smoke`; they are useful for proof-shape smoke coverage, but they are not chunked

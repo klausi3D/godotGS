@@ -903,6 +903,89 @@ def _collect_missing_res_dependencies(
     return missing
 
 
+PLY_PREP_COMMAND = (
+    "python tests/runtime/prepare_synthetic_assets.py "
+    "--godot-binary ./bin/<your-godot-binary>"
+)
+
+
+def read_ply_vertex_count(path: Path) -> int | None:
+    """Return the vertex count declared in a PLY header, or None if unreadable.
+
+    Issue #669: benchmark fixtures are gitignored and generated, and the Python
+    fallback generators write a 10x-smaller `test_splats.ply` than the canonical
+    C++ generators. Reading the declared count lets the suite refuse to benchmark
+    a fixture that does not match what the lane needs, instead of publishing a
+    number produced by an unrelated (or empty) workload.
+    """
+    try:
+        with path.open("rb") as fh:
+            if fh.readline().strip() != b"ply":
+                return None
+            for _ in range(64):
+                line = fh.readline()
+                if not line:
+                    return None
+                stripped = line.strip()
+                if stripped == b"end_header":
+                    return None
+                parts = stripped.split()
+                if len(parts) == 3 and parts[0] == b"element" and parts[1] == b"vertex":
+                    try:
+                        return int(parts[2])
+                    except ValueError:
+                        return None
+    except OSError:
+        return None
+    return None
+
+
+def evaluate_fixture_contract(
+    *,
+    lane_id: str,
+    asset_path: str,
+    asset_file: Path,
+    required_splats: int,
+    asset_source: str = "",
+) -> str:
+    """Return a failure string when a lane's fixture is absent or undersized.
+
+    Returns an empty string when the fixture satisfies the lane's declared need.
+    Fails CLOSED: a fixture whose splat count cannot be determined is rejected
+    rather than assumed adequate.
+    """
+    source_suffix = f" (source={asset_source})" if asset_source else ""
+    if not asset_file.exists():
+        return (
+            f"lane={lane_id}: required benchmark fixture is MISSING: {asset_path}{source_suffix}\n"
+            f"      expected on disk at: {asset_file}\n"
+            f"      generate it with: {PLY_PREP_COMMAND}"
+        )
+    if required_splats <= 0:
+        return ""
+    if asset_file.suffix.lower() != ".ply":
+        return ""
+    actual = read_ply_vertex_count(asset_file)
+    if actual is None:
+        return (
+            f"lane={lane_id}: UNVERIFIABLE benchmark fixture: {asset_path}{source_suffix}\n"
+            f"      file: {asset_file}\n"
+            f"      could not read a vertex count from the PLY header; the lane needs "
+            f">= {required_splats} splats\n"
+            f"      regenerate it with: {PLY_PREP_COMMAND}"
+        )
+    if actual < required_splats:
+        return (
+            f"lane={lane_id}: UNDERSIZED benchmark fixture: {asset_path}{source_suffix}\n"
+            f"      file: {asset_file}\n"
+            f"      has {actual} splats but the lane requires >= {required_splats}\n"
+            f"      a fixture this size is the lightweight Python-fallback build; it is a "
+            f"different workload and will not reproduce published numbers\n"
+            f"      regenerate it WITH a binary: {PLY_PREP_COMMAND}"
+        )
+    return ""
+
+
 def _validate_suite_dependencies(
     project_path: Path,
     lanes: list[LaneDefinition],
@@ -931,11 +1014,21 @@ def _validate_suite_dependencies(
             asset_path = _resolve_res_path(project_path, asset_policy.asset_path)
         else:
             asset_path = Path(asset_policy.asset_path)
-        if not asset_path.exists():
-            failures.append(
-                f"lane={lane.lane_id}: resolved asset missing: {asset_policy.asset_path} "
-                f"(source={asset_policy.asset_source})"
-            )
+        # Issue #669: fail closed on an absent OR undersized fixture. A generated
+        # asset override is a deliberate placeholder, so only the manifest-declared
+        # contract is enforced for it.
+        required_splats = 0
+        if asset_policy.asset_source != "generated_dummy":
+            required_splats = asset_manifest.min_splat_count_for(asset_policy.asset_path)
+        contract_failure = evaluate_fixture_contract(
+            lane_id=lane.lane_id,
+            asset_path=asset_policy.asset_path,
+            asset_file=asset_path,
+            required_splats=required_splats,
+            asset_source=asset_policy.asset_source,
+        )
+        if contract_failure:
+            failures.append(contract_failure)
     return failures
 
 
@@ -1716,7 +1809,12 @@ def main() -> int:
         generated_assets=generated_assets,
     )
     if preflight_failures:
-        print("ERROR: benchmark-suite preflight failed due to missing res:// dependencies:", file=sys.stderr)
+        # Issue #669: covers missing res:// dependencies AND fixtures that are present
+        # but do not satisfy the splat-count contract the lane declares.
+        print(
+            "ERROR: benchmark-suite preflight failed; refusing to produce benchmark numbers:",
+            file=sys.stderr,
+        )
         for failure in preflight_failures:
             print(f"  - {failure}", file=sys.stderr)
         return 2

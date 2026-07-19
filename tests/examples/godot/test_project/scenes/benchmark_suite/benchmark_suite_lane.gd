@@ -13,6 +13,9 @@ var DEFAULT_CAPTURE_PROGRESS_MARKERS := PackedFloat32Array([0.25, 0.5, 0.75])
 const DEFAULT_VISUAL_SSIM_THRESHOLD := 0.95
 const DEFAULT_VISUAL_PSNR_THRESHOLD := 30.0
 const SETTINGS_APPLY_INTERVAL := 0.1
+## Issue #669: distinct non-zero exit code for "the lane refused to benchmark a
+## missing or undersized fixture", so callers can tell it apart from a crash.
+const ABORT_EXIT_CODE := 3
 const STREAMING_VRAM_CHUNK_CAP_MONITOR := "gaussian_splatting/streaming_vram_chunk_cap_hit"
 
 const MONITOR_KEYS := [
@@ -216,6 +219,9 @@ var _settings_restored := false
 var _settings_apply_accum := 0.0
 var _result_report: Dictionary = {}
 var _state_running := true
+## Issue #669: set when the lane refused to run because its fixture was absent or
+## undersized. Suppresses report writing so a vacuous run cannot be read as evidence.
+var _lane_aborted := false
 var _focus_point := Vector3.ZERO
 var _primary_renderer_owner: Node3D = null
 var _instance_nodes: Array = []
@@ -271,6 +277,9 @@ func _ready() -> void:
 	_lane_config = _config_for_preset(lane_preset)
 	_apply_lane_project_settings(_lane_config)
 	_build_instances(_lane_config)
+	# Issue #669: the fixture check failed; stop before any measurement or reporting.
+	if _lane_aborted:
+		return
 	_reload_renderer_gpu_sorting_config()
 	_apply_renderer_overrides_from_config()
 	_apply_perf_capture_renderer_settings()
@@ -814,6 +823,26 @@ func _resolved_asset_path() -> String:
 	var scene_id := BenchmarkSceneContract.scene_id_from_path(get_tree().current_scene.scene_file_path)
 	return BenchmarkSceneContract.resolve_asset_path(scene_id, lane_id, asset_override_path, placeholder_asset_path)
 
+## Issue #669: abort the lane instead of measuring a workload that does not exist.
+##
+## Writes NO report and exits non-zero, so no downstream consumer can mistake the
+## run for evidence. The message names the asset and the prep command because the
+## fixture is gitignored and generated, so "missing" is the expected state of a
+## fresh clone rather than an exotic failure.
+func _abort_lane(reason: String, asset_path: String) -> void:
+	_lane_aborted = true
+	_state_running = false
+	var prep_command := BenchmarkSceneContract.fixture_prep_command()
+	var message := "[BENCH-LANE] FATAL | lane=%s | %s" % [lane_id, reason]
+	push_error(message)
+	printerr(message)
+	printerr("[BENCH-LANE] FATAL | missing/invalid asset: %s" % asset_path)
+	printerr("[BENCH-LANE] FATAL | generate benchmark fixtures with:")
+	printerr("[BENCH-LANE] FATAL |   %s" % prep_command)
+	printerr("[BENCH-LANE] FATAL | no report written; this run is NOT benchmark evidence.")
+	if is_inside_tree():
+		get_tree().quit(ABORT_EXIT_CODE)
+
 func _build_instances(config: Dictionary) -> void:
 	for child in instance_root.get_children():
 		child.queue_free()
@@ -833,9 +862,33 @@ func _build_instances(config: Dictionary) -> void:
 	var depth_stack_step_z := float(config.get("depth_stack_step_z", 0.0))
 	var asset_path := _resolved_asset_path()
 	var splat_asset := _load_scene_asset(asset_path)
+	# Issue #669: FAIL CLOSED on an absent fixture. Previously this pushed an error and
+	# returned, leaving the lane to measure an empty scene — which renders FASTER than a
+	# real one, so the failure presented as a spectacular result (0 splats, ~16k FPS,
+	# score 95, "keep current settings"). A lane with no content is not a slow benchmark,
+	# it is not a benchmark.
 	if splat_asset == null:
-		push_error("[BENCH-LANE] Failed to load %s as GaussianSplatAsset" % asset_path)
+		_abort_lane(
+			"required benchmark fixture could not be loaded: %s" % asset_path,
+			asset_path
+		)
 		return
+
+	# Issue #669: FAIL CLOSED on an undersized fixture. `prepare_synthetic_assets.py`
+	# without --godot-binary falls back to Python generators that write test_splats.ply
+	# with 1024 splats instead of the canonical 10000, so a contributor following the
+	# docs would silently benchmark a 10x-smaller workload.
+	var required_splats := BenchmarkSceneContract.min_splat_count_for(asset_path)
+	if required_splats > 0:
+		var actual_splats := int(splat_asset.get_splat_count())
+		if actual_splats < required_splats:
+			_abort_lane(
+				"fixture %s has %d splats but lane '%s' requires >= %d (a different workload; it will not reproduce published numbers)" % [
+					asset_path, actual_splats, lane_id, required_splats
+				],
+				asset_path
+			)
+			return
 
 	for row in range(rows):
 		for col in range(cols):
@@ -860,6 +913,18 @@ func _build_instances(config: Dictionary) -> void:
 			_instance_nodes.append(node)
 			if _primary_renderer_owner == null:
 				_primary_renderer_owner = node
+
+	# Issue #669: a lane that instantiated no splat nodes measures an empty scene.
+	# Catch it regardless of HOW the count reached zero (bad rows/cols config, a future
+	# spawn path, etc.) rather than only on the asset-load route checked above.
+	if _instance_nodes.is_empty():
+		_abort_lane(
+			"lane '%s' instantiated 0 splat nodes (cols=%d rows=%d); an empty scene is not a benchmark" % [
+				lane_id, cols, rows
+			],
+			asset_path
+		)
+		return
 
 func _resolve_focus_point() -> Vector3:
 	return instance_root.global_position + Vector3(
@@ -1286,6 +1351,10 @@ func _collect_primary_node_quality() -> Dictionary:
 	return out
 
 func _finish_benchmark() -> void:
+	# Issue #669: an aborted lane never publishes a report. Belt-and-braces — _ready
+	# already returns early — so no future refactor can reintroduce a vacuous report.
+	if _lane_aborted:
+		return
 	_state_running = false
 	_capture_due_frames(true)
 	_result_report = _build_report()
@@ -1308,6 +1377,27 @@ func _finish_benchmark() -> void:
 		return
 
 	print("[BENCH-LANE] complete | lane=%s press Esc to quit, R to rerun." % lane_id)
+
+## Issue #669: true when the renderer resolved at least one real per-pass GPU
+## timestamp. Mirrors the module's own `gpu_pass_breakdown_available` roll-up
+## (render_streaming_orchestrator.cpp) so the two agree on what "GPU timing
+## resolved" means. CPU-side dispatch/sync fallbacks are deliberately excluded:
+## they are not GPU timestamps.
+func _has_resolved_gpu_pass_timing(renderer_stats: Dictionary) -> bool:
+	if bool(renderer_stats.get("gpu_pass_breakdown_available", false)):
+		return true
+	const PASS_VALID_KEYS := [
+		"gpu_tile_overlap_count_time_valid",
+		"gpu_tile_overlap_emit_time_valid",
+		"gpu_tile_overlap_sort_time_valid",
+		"gpu_tile_prefix_time_valid",
+		"gpu_tile_raster_time_valid",
+		"gpu_tile_resolve_time_valid",
+	]
+	for key_variant in PASS_VALID_KEYS:
+		if bool(renderer_stats.get(str(key_variant), false)):
+			return true
+	return false
 
 func _build_report() -> Dictionary:
 	var overall: Dictionary = BenchmarkMetricsUtil.summarize_samples(_frame_ms, _fps)
@@ -1332,14 +1422,44 @@ func _build_report() -> Dictionary:
 	overall["stage_composite_status"] = renderer_stats.get("stage_composite_status", "")
 	if renderer_stats.has("gpu_frame_time_ms"):
 		var gpu_frame_ms := float(renderer_stats.get("gpu_frame_time_ms", 0.0))
-		var gpu_frame_source := str(renderer_stats.get("gpu_frame_time_source", "unavailable"))
 		var gpu_frame_estimate := float(renderer_stats.get("gpu_frame_estimate_ms", 0.0))
-		if gpu_frame_ms <= 0.0 and gpu_frame_source == "stage_estimate":
-			gpu_frame_ms = gpu_frame_estimate
+		# Issue #669: `gpu_frame_time_source` and `gpu_timing_available` had NO producer
+		# anywhere in the module, so these reads always fell through to their defaults and
+		# reported "unavailable"/false even when per-pass timestamps resolved correctly and
+		# summed to the frame total. That reads as a measured negative — a reader discounts
+		# otherwise-valid data — which is worse than an absent field.
+		#
+		# The renderer does publish a real signal for this: `gpu_frame_time_valid`
+		# (render_diagnostics_orchestrator.cpp, render_streaming_orchestrator.cpp). Derive
+		# from that, and fall back to the per-pass validity flags so a resolved pass
+		# breakdown is not reported as "no GPU timing".
+		# `gpu_frame_estimate_ms` has no producer either, so the previous
+		# "substitute the estimate when the source is stage_estimate" branch was
+		# unreachable. It is not resurrected here: the estimate stays reported in its
+		# own field and `gpu_time_frame_ms` stays strictly measured, so a lane can
+		# never present an estimate as a measurement.
+		#
+		# The source is deliberately three-state. `check_renderer_release_gates.py`
+		# requires an explicit "unavailable" marker whenever timing is not available,
+		# so anything not backed by a real timestamp must report exactly that.
+		# A positive frame time is required before claiming availability, in either
+		# direction: check_renderer_release_gates.py treats available=true with a
+		# non-positive gpu_time_frame_ms as an invalid lane, and "available" with
+		# nothing to report would be a second flavour of the #669 defect.
+		var gpu_frame_ms_usable := gpu_frame_ms > 0.0
+		var gpu_frame_valid := bool(renderer_stats.get("gpu_frame_time_valid", false))
+		var gpu_frame_source := "unavailable"
+		if gpu_frame_ms_usable:
+			if gpu_frame_valid:
+				gpu_frame_source = "gpu_timestamp"
+			elif _has_resolved_gpu_pass_timing(renderer_stats):
+				gpu_frame_source = "gpu_pass_timestamps"
+		var gpu_timing_ok := gpu_frame_source != "unavailable"
 		overall["gpu_time_frame_ms"] = gpu_frame_ms
 		overall["gpu_time_frame_estimate_ms"] = gpu_frame_estimate
 		overall["gpu_time_frame_source"] = gpu_frame_source
-		overall["gpu_timing_available"] = bool(renderer_stats.get("gpu_timing_available", false))
+		overall["gpu_frame_time_source"] = gpu_frame_source
+		overall["gpu_timing_available"] = gpu_timing_ok
 	if renderer_stats.has("stage_cull_time_ms"):
 		overall["gpu_time_cull_ms"] = float(renderer_stats.get("stage_cull_time_ms", 0.0))
 	if renderer_stats.has("gpu_tile_raster_time_ms"):
