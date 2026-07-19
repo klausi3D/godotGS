@@ -120,8 +120,8 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 120,
-    "sha256": "4f7667c2bc61b6c19c1e1215f532c4835a10fd692339de89312e6ee8f53aaaa9",
+    "test_count": 130,
+    "sha256": "fce6998d3eae555fda944e09764d46bfc948274e9eb3c4b879e116265a742483",
     "deferred_tags_any": [
       "Importer"
     ],
@@ -481,8 +481,8 @@
     "note": "[RequiresGPU] test cases that match NO named batch in tests/ci/run_gpu_harness.py and therefore execute nowhere. These are NOT waivers: unlike deferred_requires_gpu_waivers (each proven failing, with an owner and an expiry) these cases have simply never been run, so nothing is known about them. Discovered while landing #329, which addressed only the 28 [SceneTree] cases; measuring the whole corpus with correct doctest semantics showed the gap is larger. Recorded explicitly so it is counted and cannot grow silently: tests/ci/test_gpu_harness_deferred_contract.py fails on any orphan NOT listed here, so this list is a ratchet that may only shrink.",
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
-      "requires_gpu_total": 120,
-      "running_in_a_named_batch": 42,
+      "requires_gpu_total": 130,
+      "running_in_a_named_batch": 52,
       "deferred_with_waiver": 8,
       "unbatched_backlog": 70
     },
