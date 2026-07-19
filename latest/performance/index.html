@@ -1124,6 +1124,111 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Current Public Snapshot">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#measurement-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Measurement environment
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Results
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-the-gpu-time-goes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the GPU time goes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#measured-vs-derived" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Measured vs derived
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#run-to-run-variance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run-to-run variance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#currency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Currency
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#caveats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Caveats
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reproducing-these-numbers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reproducing these numbers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#raw-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Raw data
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1824,6 +1929,111 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Current Public Snapshot">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#measurement-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Measurement environment
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Results
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-the-gpu-time-goes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the GPU time goes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#measured-vs-derived" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Measured vs derived
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#run-to-run-variance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run-to-run variance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#currency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Currency
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#caveats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Caveats
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reproducing-these-numbers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reproducing these numbers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#raw-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Raw data
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1960,32 +2170,333 @@
 <h1 id="performance-dashboard">Performance Dashboard<a class="headerlink" href="#performance-dashboard" title="Permanent link">¶</a></h1>
 <p>This page surfaces the current published benchmark snapshot and the suite lanes that are expected to grow it.</p>
 <p>Charts use <code>assets/data/benchmark_latest.json</code> generated during docs build.
-The current public dataset contains one committed result row, and the coverage table below shows the user-relevant benchmark lanes already defined in the suite.</p>
+The current public dataset contains five committed result rows, and the coverage table below shows the remaining user-relevant benchmark lanes already defined in the suite.</p>
 <h2 id="current-public-snapshot">Current Public Snapshot<a class="headerlink" href="#current-public-snapshot" title="Permanent link">¶</a></h2>
+<h3 id="measurement-environment">Measurement environment<a class="headerlink" href="#measurement-environment" title="Permanent link">¶</a></h3>
+<p>Every number on this page comes from one machine, one build, and one commit. Read the table with this context; results on other hardware will differ.</p>
+<table>
+<thead>
+<tr>
+<th>Item</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Capture date</td>
+<td>2026-07-19 (UTC)</td>
+</tr>
+<tr>
+<td>Commit measured</td>
+<td><code>9161d92f349326e2004088638a5ab43eb4773123</code></td>
+</tr>
+<tr>
+<td><code>master</code> at publication</td>
+<td><code>ab847aeabf3</code> — 8 commits ahead of the measured tree (<a href="#currency">Currency</a>)</td>
+</tr>
+<tr>
+<td>Build flags</td>
+<td><code>scons platform=windows target=editor dev_build=no optimize=speed debug_symbols=no tests=yes</code></td>
+</tr>
+<tr>
+<td>Build type</td>
+<td><strong>Optimized</strong> (<code>/O2</code>). Not a <code>dev_build</code> binary — see the warning below.</td>
+</tr>
+<tr>
+<td>GPU</td>
+<td>NVIDIA GeForce RTX 3090, 24 GiB, driver 591.86</td>
+</tr>
+<tr>
+<td>CPU</td>
+<td>AMD Ryzen 7 5800X (8C/16T)</td>
+</tr>
+<tr>
+<td>RAM</td>
+<td>64 GiB</td>
+</tr>
+<tr>
+<td>OS</td>
+<td>Windows 11 Pro, build 26200</td>
+</tr>
+<tr>
+<td>Renderer</td>
+<td>Vulkan 1.4.325, Forward+</td>
+</tr>
+<tr>
+<td>Profile</td>
+<td><code>run_benchmark.py --profile performance</code></td>
+</tr>
+<tr>
+<td>Window</td>
+<td>Steady-state only (first 3 s of warmup excluded)</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition warning">
+<p class="admonition-title">Optimized builds only</p>
+<p>A <code>dev_build=yes</code> binary compiles at <code>-O0</code> and inflates CPU-side frame cost by roughly an order of magnitude on this hardware. Numbers from such a build are not performance evidence. The previously published row on this page (<code>static_baseline</code>, 74.0 avg FPS) was captured on 2026-03-19 from a <code>bin/godot.linuxbsd.editor.dev.x86_64</code> binary under the <code>quick</code> profile, on different hardware, with a different fixture size. <strong>It has been replaced rather than compared against</strong> — the two rows do not measure the same thing.</p>
+</div>
+<h3 id="results">Results<a class="headerlink" href="#results" title="Permanent link">¶</a></h3>
+<div class="admonition info">
+<p class="admonition-title">These numbers were measured at commit <code>9161d92f349</code>, captured 2026-07-19</p>
+<p>That commit was <strong>8 commits behind <code>master</code> (<code>ab847aeabf3</code>) at the time this page was published.</strong> Three of those eight touch runtime paths: <a href="https://github.com/klausi3D/godotGS/pull/665">#665</a> and <a href="https://github.com/klausi3D/godotGS/pull/666">#666</a> (<code>world_mutex</code> deferrals in the scene director) and <a href="https://github.com/klausi3D/godotGS/pull/667">#667</a> (P2 shared-renderer gating convergence). <strong>The table below does not describe those changes.</strong> See <a href="#currency">Currency</a> for why they are not expected to move these numbers.</p>
+</div>
 <table>
 <thead>
 <tr>
 <th>Lane</th>
-<th>Purpose</th>
-<th style="text-align: right;">Score</th>
+<th>Scene shape</th>
+<th style="text-align: right;">Instances</th>
+<th style="text-align: right;">Visible splats</th>
 <th style="text-align: right;">Avg FPS</th>
-<th style="text-align: right;">P99 Frame (ms)</th>
-<th style="text-align: right;">GPU Time (ms)</th>
+<th style="text-align: right;">Avg frame (ms)</th>
+<th style="text-align: right;">P99 frame (ms)</th>
+<th style="text-align: right;">GPU frame (ms)</th>
+<th style="text-align: right;">GPU mem delta (MiB)</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>static_baseline</code></td>
-<td>Low-noise raster baseline</td>
-<td style="text-align: right;">90.7</td>
-<td style="text-align: right;">74.0</td>
-<td style="text-align: right;">15.62</td>
-<td style="text-align: right;">0.0</td>
+<td>Single asset, orbit camera</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">10,000</td>
+<td style="text-align: right;">455.1</td>
+<td style="text-align: right;">2.20</td>
+<td style="text-align: right;">3.05</td>
+<td style="text-align: right;">1.69</td>
+<td style="text-align: right;">~318</td>
+</tr>
+<tr>
+<td><code>city_flyover</code></td>
+<td>High-altitude visibility churn</td>
+<td style="text-align: right;">16</td>
+<td style="text-align: right;">160,000</td>
+<td style="text-align: right;">128.7</td>
+<td style="text-align: right;">7.77</td>
+<td style="text-align: right;">8.33</td>
+<td style="text-align: right;">6.83</td>
+<td style="text-align: right;">~1,079</td>
+</tr>
+<tr>
+<td><code>lighting_stress</code></td>
+<td>Animated light and shading</td>
+<td style="text-align: right;">9</td>
+<td style="text-align: right;">90,000</td>
+<td style="text-align: right;">72.6</td>
+<td style="text-align: right;">13.78</td>
+<td style="text-align: right;">15.15</td>
+<td style="text-align: right;">13.90</td>
+<td style="text-align: right;">~612</td>
+</tr>
+<tr>
+<td><code>instance_storm</code></td>
+<td>Many-instance submission pressure</td>
+<td style="text-align: right;">36</td>
+<td style="text-align: right;">360,000</td>
+<td style="text-align: right;">31.5</td>
+<td style="text-align: right;">31.75</td>
+<td style="text-align: right;">31.82</td>
+<td style="text-align: right;">30.09</td>
+<td style="text-align: right;">~1,128</td>
+</tr>
+<tr>
+<td><code>dense_resident_2m</code></td>
+<td>Dense resident path</td>
+<td style="text-align: right;">196</td>
+<td style="text-align: right;">4,900,000</td>
+<td style="text-align: right;">12.3</td>
+<td style="text-align: right;">81.02</td>
+<td style="text-align: right;">87.47</td>
+<td style="text-align: right;">51.93</td>
+<td style="text-align: right;">~2,388</td>
 </tr>
 </tbody>
 </table>
-<p>The snapshot above is the current committed public result. It is the reference row used by the charts below until more published scenarios are added.</p>
-<p>This row is benchmark evidence, not a release gate. Blocking streaming/runtime readiness is enforced by the runtime validation profile named <code>streaming-gpu-ci</code>; open-world benchmark proof surfaces are useful review evidence, but they remain non-blocking unless the workflow contract changes.</p>
+<p><strong>Read <code>dense_resident_2m</code> as a negative result.</strong> At 4.9M visible splats this configuration renders at ~12 FPS — far below interactive. It is published here because it is the honest ceiling of the current resident path on a high-end desktop GPU, not because it is a good number. It is a zero-weight support lane and is excluded from the aggregate suite score.</p>
+<p>Note that the lane's name and its manifest metadata ("2M visible splats", "81 x synthetic_spiral") are stale: as configured today it instantiates 196 nodes and reports 4.9M visible splats. The measured column above is the ground truth; the lane name is not.</p>
+<p><code>instance_storm</code> at ~31 FPS is likewise borderline rather than comfortable.</p>
+<h3 id="where-the-gpu-time-goes">Where the GPU time goes<a class="headerlink" href="#where-the-gpu-time-goes" title="Permanent link">¶</a></h3>
+<p>Per-pass GPU timestamps resolve on all five lanes and sum to the reported frame total. Values are the <strong>arithmetic mean of three runs</strong>, and all three runs are committed at <a href="../assets/data/benchmark_runs.json"><code>assets/data/benchmark_runs.json</code></a> so every cell below can be recomputed:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">json</span><span class="o">,</span><span class="w"> </span><span class="nn">statistics</span>
+<span class="n">lanes</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="nb">open</span><span class="p">(</span><span class="s2">"docs/assets/data/benchmark_runs.json"</span><span class="p">))[</span><span class="s2">"lanes"</span><span class="p">]</span>
+<span class="n">runs</span> <span class="o">=</span> <span class="n">lanes</span><span class="p">[</span><span class="s2">"dense_resident_2m"</span><span class="p">][</span><span class="s2">"runs"</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">()</span>
+<span class="n">statistics</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">r</span><span class="p">[</span><span class="s2">"gpu_pass_ms"</span><span class="p">][</span><span class="s2">"sort_ms"</span><span class="p">]</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">runs</span><span class="p">)</span>   <span class="c1"># -&gt; 33.458</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Lane</th>
+<th style="text-align: right;">Overlap count</th>
+<th style="text-align: right;">Prefix</th>
+<th style="text-align: right;">Overlap emit</th>
+<th style="text-align: right;">Sort</th>
+<th style="text-align: right;">Raster</th>
+<th style="text-align: right;">Resolve</th>
+<th style="text-align: right;">Total</th>
+<th style="text-align: right;">Sort share</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>static_baseline</code></td>
+<td style="text-align: right;">0.095</td>
+<td style="text-align: right;">0.017</td>
+<td style="text-align: right;">0.133</td>
+<td style="text-align: right;">1.123</td>
+<td style="text-align: right;">0.313</td>
+<td style="text-align: right;">0.014</td>
+<td style="text-align: right;">1.69</td>
+<td style="text-align: right;">66%</td>
+</tr>
+<tr>
+<td><code>city_flyover</code></td>
+<td style="text-align: right;">0.237</td>
+<td style="text-align: right;">0.017</td>
+<td style="text-align: right;">0.351</td>
+<td style="text-align: right;">4.844</td>
+<td style="text-align: right;">1.767</td>
+<td style="text-align: right;">0.014</td>
+<td style="text-align: right;">7.23</td>
+<td style="text-align: right;">67%</td>
+</tr>
+<tr>
+<td><code>lighting_stress</code></td>
+<td style="text-align: right;">0.459</td>
+<td style="text-align: right;">0.017</td>
+<td style="text-align: right;">0.601</td>
+<td style="text-align: right;">11.745</td>
+<td style="text-align: right;">1.123</td>
+<td style="text-align: right;">0.015</td>
+<td style="text-align: right;">13.96</td>
+<td style="text-align: right;">84%</td>
+</tr>
+<tr>
+<td><code>instance_storm</code></td>
+<td style="text-align: right;">1.091</td>
+<td style="text-align: right;">0.017</td>
+<td style="text-align: right;">1.516</td>
+<td style="text-align: right;">26.051</td>
+<td style="text-align: right;">1.407</td>
+<td style="text-align: right;">0.016</td>
+<td style="text-align: right;">30.10</td>
+<td style="text-align: right;">87%</td>
+</tr>
+<tr>
+<td><code>dense_resident_2m</code></td>
+<td style="text-align: right;">2.095</td>
+<td style="text-align: right;">0.017</td>
+<td style="text-align: right;">3.039</td>
+<td style="text-align: right;">33.458</td>
+<td style="text-align: right;">13.553</td>
+<td style="text-align: right;">0.014</td>
+<td style="text-align: right;">52.18</td>
+<td style="text-align: right;">64%</td>
+</tr>
+</tbody>
+</table>
+<p>The depth sort dominates GPU cost on every lane measured, from 64% to 87% of GPU frame time. That is the single largest optimization target in the current pipeline.</p>
+<h3 id="measured-vs-derived">Measured vs derived<a class="headerlink" href="#measured-vs-derived" title="Permanent link">¶</a></h3>
+<p>Be precise about what was sampled and what was computed:</p>
+<ul>
+<li><strong>Measured:</strong> per-frame wall-clock delta (<code>delta * 1000</code> in the lane script); per-pass GPU timestamp ranges resolved from the tile renderer.</li>
+<li><strong>Derived:</strong> <code>Avg FPS</code> is the harmonic mean <code>frame_count / total_time</code>, not an average of per-frame FPS values. <code>Avg frame (ms)</code> is the arithmetic mean of the same deltas. <code>P99 frame (ms)</code> is the 99th percentile of measured deltas.</li>
+<li><strong>Externally measured:</strong> <code>GPU mem delta (MiB)</code> is whole-device <code>nvidia-smi</code> memory-used at peak minus an idle baseline taken immediately before each run. It is <strong>not</strong> a per-process figure and carries roughly ±200 MiB of noise from other GPU clients on the machine. Treat it as an order-of-magnitude indication, not an allocation accounting.</li>
+</ul>
+<h3 id="run-to-run-variance">Run-to-run variance<a class="headerlink" href="#run-to-run-variance" title="Permanent link">¶</a></h3>
+<p>Each lane was run three times. Spread in <code>Avg FPS</code> (max−min as a share of the mean) was: <code>static_baseline</code> 2.6%, <code>city_flyover</code> 0.7%, <code>lighting_stress</code> 0.4%, <code>instance_storm</code> 0.2%, <code>dense_resident_2m</code> 0.5%. These lanes are stable enough that a single run is representative. The committed row set is run 2 of 3 (<code>committed_run</code> in the per-run dataset).</p>
+<p>All three runs are committed at <a href="../assets/data/benchmark_runs.json"><code>assets/data/benchmark_runs.json</code></a>, so these spreads are recomputable from <code>steady_avg_fps</code> rather than asserted.</p>
+<p>The one metric that moves more is <code>city_flyover</code> GPU frame time (~16% spread), because the lane's camera path crosses regions of very different visible density.</p>
+<h3 id="currency">Currency<a class="headerlink" href="#currency" title="Permanent link">¶</a></h3>
+<p>This snapshot was measured at <code>9161d92f349</code>, which was 8 commits behind <code>master</code> (<code>ab847aeabf3</code>) when published. Four of those eight cannot affect runtime behaviour — they change CI lane coverage, stale test-lane declarations, a <code>REQUIRE</code>-then-dereference guard in the test runner, and GPU-harness accounting. The remaining three, plus one build-policy change, were assessed as follows:</p>
+<table>
+<thead>
+<tr>
+<th>Change</th>
+<th>Reaches the measured window?</th>
+<th>Assessment</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://github.com/klausi3D/godotGS/pull/657">#657</a> — MSVC <code>/arch:AVX2</code> policy</td>
+<td>No</td>
+<td>Both trees compile the module at the <strong>SSE2 baseline</strong>. The pre-<code>#657</code> <code>auto</code> probe fails on this toolchain (verified: it prints <code>AVX2 not supported by toolchain, using SSE2 baseline</code>), and post-<code>#657</code> <code>auto</code> never enables AVX2 by design. Identical codegen.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/klausi3D/godotGS/pull/666">#666</a> — defer <code>register_instance</code>'s <code>initialize()</code></td>
+<td>No</td>
+<td><code>register_instance</code> runs at node enter-tree, i.e. during the 3 s warmup that these results exclude.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/klausi3D/godotGS/pull/667">#667</a> — P2 shared-renderer gating convergence</td>
+<td>Marginally</td>
+<td>The per-frame cost is unchanged: the gate is still one predicate evaluation per node per frame, now edge-triggered. The added convergence work fires on <strong>peer-set change</strong>, which in these lanes happens only during setup — no lane adds or removes nodes mid-capture.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/klausi3D/godotGS/pull/665">#665</a> — <code>world_mutex</code> deferrals + <code>ThreadOwnedMutex</code></td>
+<td>Marginally</td>
+<td><code>world_mutex</code> <em>is</em> taken on per-frame render paths, so the new owner bookkeeping (one atomic store on lock; a compare and store on unlock) does reach steady state. It is on the order of tens of nanoseconds per acquisition. Reaching even the 0.5% run-to-run spread already observed on <code>dense_resident_2m</code> (~0.4 ms of an 81 ms frame) would require on the order of 10⁴ additional lock acquisitions per frame. The same change also moves apply work <em>out</em> of the lock, which if anything reduces contention.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Judgement: a re-run was not considered warranted for numerical accuracy.</strong> The expected effect of these changes on steady-state frame time is below the run-to-run variance already published above, so a re-measurement could not distinguish them from noise. The gap is recorded here because it is a <strong>provenance</strong> fact a reader is entitled to — not because the numbers are believed to be wrong. If a future change touches the per-frame render path materially, re-measure rather than trusting this reasoning.</p>
+<h3 id="caveats">Caveats<a class="headerlink" href="#caveats" title="Permanent link">¶</a></h3>
+<ul>
+<li><strong>Synthetic assets, not real captures.</strong> Every lane here resolves to a generated fixture, classified <code>lightweight_smoke</code> in the asset manifest. These lanes characterize pipeline cost against known splat counts; they are not a substitute for real-scan content, and per the repo's own asset policy they must not be cited as large-scene evidence.</li>
+<li><strong><code>gpu_frame_time_source</code> reads <code>unavailable</code> on every lane.</strong> This is a reporting gap, not a bad measurement: no code in the module publishes that key, so the benchmark script's default string is always used. The companion flag <code>gpu_frame_time_valid</code> is <code>true</code>, and the per-pass timings sum exactly to the reported frame total, so the GPU numbers are real. The same applies to <code>gpu_timing_available</code>, which reads <code>false</code> for the same reason.</li>
+<li><strong>These lanes use the resident path</strong>, not the instance pipeline (<code>instance_pipeline_execution_path</code> is empty). Per-pass GPU timing has previously been observed not to resolve on the instance-pipeline route; that limitation does not apply to the rows above, but it does mean these numbers do not characterize the instance-pipeline route.</li>
+<li><strong>Not a release gate.</strong> These rows are benchmark evidence. Blocking streaming/runtime readiness is enforced by the runtime validation profile <code>streaming-gpu-ci</code>; open-world benchmark proof surfaces are review evidence and remain non-blocking unless the workflow contract changes.</li>
+</ul>
+<h3 id="reproducing-these-numbers">Reproducing these numbers<a class="headerlink" href="#reproducing-these-numbers" title="Permanent link">¶</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># 1. Optimized build (a dev_build binary will not reproduce these numbers)</span>
+scons<span class="w"> </span><span class="nv">platform</span><span class="o">=</span>windows<span class="w"> </span><span class="nv">target</span><span class="o">=</span>editor<span class="w"> </span><span class="nv">dev_build</span><span class="o">=</span>no<span class="w"> </span><span class="nv">optimize</span><span class="o">=</span>speed<span class="w"> </span><span class="nv">debug_symbols</span><span class="o">=</span>no<span class="w"> </span><span class="nv">tests</span><span class="o">=</span>yes
+
+<span class="c1"># 2. Generate the benchmark fixtures. Passing --godot-binary is REQUIRED:</span>
+<span class="c1">#    without it the script falls back to lightweight Python generators and</span>
+<span class="c1">#    test_splats.ply is written with 1024 splats instead of 10000, which</span>
+<span class="c1">#    changes every lane that depends on it.</span>
+python<span class="w"> </span>tests/runtime/prepare_synthetic_assets.py<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--godot-binary<span class="w"> </span>./bin/godot.windows.editor.x86_64.console.exe
+
+<span class="c1"># 3. Run the five published lanes</span>
+python<span class="w"> </span>tests/runtime/run_benchmark.py<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--godot-binary<span class="w"> </span>./bin/godot.windows.editor.x86_64.console.exe<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--project-path<span class="w"> </span>./tests/examples/godot/test_project<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--profile<span class="w"> </span>performance<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--lane<span class="w"> </span>static_baseline<span class="w"> </span>--lane<span class="w"> </span>dense_resident_2m<span class="w"> </span>--lane<span class="w"> </span>city_flyover<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--lane<span class="w"> </span>instance_storm<span class="w"> </span>--lane<span class="w"> </span>lighting_stress<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--output-dir<span class="w"> </span>tests/output/benchmark_suite<span class="w"> </span>--no-captures
+</code></pre></div>
+<div class="admonition note">
+<p class="admonition-title"><code>test_splats.ply</code> is generated, not committed</p>
+<p>Most benchmark lanes resolve to <code>res://tests/fixtures/test_splats.ply</code>, which is gitignored and produced by step 2. If you skip that step the lanes still exit 0, but they instantiate <strong>zero</strong> splat nodes and report a meaningless several-thousand FPS with a passing recommendation. Always confirm a lane's reported visible-splat count is non-zero before trusting its numbers.</p>
+</div>
+<h3 id="raw-data">Raw data<a class="headerlink" href="#raw-data" title="Permanent link">¶</a></h3>
+<p>Three files back this page, and between them every number above is recomputable:</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="../assets/data/benchmark_suite_report.json"><code>assets/data/benchmark_suite_report.json</code></a></td>
+<td>Full suite report for the committed run (run 2), including per-lane telemetry. Host-specific paths are normalized to repo-relative form; no metric value is edited.</td>
+</tr>
+<tr>
+<td><a href="../assets/data/benchmark_runs.json"><code>assets/data/benchmark_runs.json</code></a></td>
+<td>Per-run telemetry for <strong>all three</strong> runs — steady-state frame metrics and the six GPU pass timings per lane. This is what the per-pass means and the variance figures are computed from.</td>
+</tr>
+<tr>
+<td><a href="../assets/data/benchmark_latest.json"><code>assets/data/benchmark_latest.json</code></a></td>
+<td>Chart dataset, generated from the suite report by <code>scripts/export_benchmark_vegalite.py</code>. Carries only the metric fields the charts consume.</td>
+</tr>
+</tbody>
+</table>
+<p>No figure on this page is derived from data that is not in the repo. If a number here cannot be recomputed from those files, treat it as a bug and report it.</p>
 <h2 id="coverage-map">Coverage Map<a class="headerlink" href="#coverage-map" title="Permanent link">¶</a></h2>
 <table>
 <thead>
@@ -2002,28 +2513,38 @@ The current public dataset contains one committed result row, and the coverage t
 <td>Published in <code>benchmark_latest.json</code></td>
 </tr>
 <tr>
+<td><code>city_flyover</code></td>
+<td>High-altitude visibility-change stress</td>
+<td>Published in <code>benchmark_latest.json</code></td>
+</tr>
+<tr>
+<td><code>lighting_stress</code></td>
+<td>Animated light and shading stress</td>
+<td>Published in <code>benchmark_latest.json</code></td>
+</tr>
+<tr>
+<td><code>instance_storm</code></td>
+<td>Many-instance submission pressure</td>
+<td>Published in <code>benchmark_latest.json</code></td>
+</tr>
+<tr>
+<td><code>dense_resident_2m</code></td>
+<td>Dense resident path, ~4.9M visible splats</td>
+<td>Published in <code>benchmark_latest.json</code> (zero-weight support lane)</td>
+</tr>
+<tr>
 <td><code>streaming_corridor</code></td>
 <td>Camera sweep stressing chunk turnover</td>
 <td>Defined in the benchmark suite, not yet published</td>
 </tr>
 <tr>
-<td><code>city_flyover</code></td>
-<td>High-altitude visibility-change stress</td>
-<td>Defined in the benchmark suite, not yet published</td>
-</tr>
-<tr>
-<td><code>instance_storm</code></td>
-<td>Many-instance submission pressure</td>
-<td>Defined in the benchmark suite, not yet published</td>
-</tr>
-<tr>
-<td><code>lighting_stress</code></td>
-<td>Animated light and shading stress</td>
-<td>Defined in the benchmark suite, not yet published</td>
-</tr>
-<tr>
 <td><code>unified_composite</code></td>
 <td>Integrated all-systems composite lane</td>
+<td>Defined in the benchmark suite, not yet published</td>
+</tr>
+<tr>
+<td><code>open_world_corridor_proof</code></td>
+<td>Chunked large-world proof lane</td>
 <td>Defined in the benchmark suite, not yet published</td>
 </tr>
 </tbody>
@@ -2149,7 +2670,7 @@ larger allocation in-place.</p>
 <li><code>streaming_current_capacity</code> - chunks the persistent buffer currently fits</li>
 <li><code>streaming_grow_count</code> - times the buffer has grown since init</li>
 </ul>
-<p>See <a href="https://github.com/klausi3D/godotGS/blob/ab847aeabf329ae1a5bf78f97f1b34f3ae2ab07b/modules/gaussian_splatting/MEMORY_SUBSYSTEM.md">Memory Subsystem Guide</a>
+<p>See <a href="https://github.com/klausi3D/godotGS/blob/92c357d7e914d46235289d905d050c67779f145e/modules/gaussian_splatting/MEMORY_SUBSYSTEM.md">Memory Subsystem Guide</a>
 for the budget regulator and eviction policy that drive growth.</p>
 <h3 id="first-frame-raster-pipeline-pre-create">First-frame raster pipeline pre-create<a class="headerlink" href="#first-frame-raster-pipeline-pre-create" title="Permanent link">¶</a></h3>
 <p><code>rendering/gaussian_splatting/init/eager_raster_pipeline</code> (bool, default <code>true</code>).</p>
@@ -2182,7 +2703,7 @@ setting only if you are debugging that fallback path.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 19, 2026 01:59:53 UTC">July 19, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 19, 2026 02:59:45 UTC">July 19, 2026</span>
   </span>
 
     
