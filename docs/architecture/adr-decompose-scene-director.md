@@ -601,9 +601,19 @@ same PR** (§2a), observing the collect/resolve/reapply protocol in §2a (never 
 lock). **If D5 selects the fallback or "do nothing":** this clause and invariant D3 narrow to
 *"the payload builder performs no writes; the latch/generation edge is recorded into a
 main-thread-drained queue"*, and the trigger-gap regression test below narrows with them —
-see the closing note of Decision D5. The
-render-path builder becomes a pure function over an immutable snapshot (§1d,
-§3-invariant-2). Route the two raw `++` bumps (`:108`, `:115`) through
+see the closing note of Decision D5.
+
+**The builder's end state is also D5-conditional, and this was previously stated
+unconditionally.** Under **T1–T4**, the render-path builder becomes a pure function over an
+immutable snapshot (§1d, §3-invariant-2) — liveness has moved to the main thread, so the
+builder neither reads `ObjectDB` nor writes anything. Under the **fallback**, it is
+deliberately **not** a pure snapshot consumer: it keeps recomputing `scope_alive` on the read
+path (`scene_director_sphere_effectors.cpp:103-104`), which is exactly what preserves today's
+drop behavior; what it stops doing is *writing* — the latch/generation edge goes to a
+main-thread-drained queue instead of the two `const_cast` mutations. The fallback's contract
+is therefore **"no writes on the read path"**, not "pure function over a snapshot". Requiring
+the latter under the fallback would force the T1–T4 machinery back in through the evidence
+section. Route the two raw `++` bumps (`:108`, `:115`) through
 `_bump_instance_generation` so the wrap-skips-0 guard applies uniformly. Delete the two dead
 node-reading helpers (`:181`, `:224`, §1h) in the same PR.
 *Behavior-preservation proof:* the sphere-effector suite (payload ordering, scope filtering,
@@ -739,7 +749,7 @@ the end-state; this is the per-step contract.
 | # | Invariant | How it is checked |
 | --- | --- | --- |
 | **D1** | **No `const` method mutates state or a generation counter.** Zero `const_cast` on `SharedWorld`/`WorldContext` or any record in the render path. | Grep guard: zero `const_cast<SharedWorld` / `const_cast<SphereEffectorRecord` in the director TUs. Unit test asserting the payload builder performs no writes. |
-| **D2** | **Every generation counter has exactly one writing owner**, and every bump goes through the wrap-guarded helper (`_bump_instance_generation`, `:24-29`). No raw `++`. | Grep guard: zero raw `sphere_effector_generation++` / `instance_generation++` outside the helper. |
+| **D2** | **Every generation counter has exactly one writing owner**, and every bump goes through the wrap-guarded helper (`_bump_instance_generation`, `:24-29`). No raw `++`. **This covers every counter in the canonical-state table, not just the two named below** — including `instance_asset_generation`, which a future `AssetRetentionTable` extraction (Step 1) would otherwise be free to bump directly. | Grep guard, written **generically**: zero raw `++` / `+= 1` on any identifier matching `*_generation` outside `_bump_instance_generation`. An allow-list of two counter names would pass a raw `instance_asset_generation++` and silently lose the wrap-skips-0 contract for asset remaps. |
 | **D3** *(conditional on Decision D5)* | **Under the T1–T4 option:** `revalidate_scope_roots()` is reachable from all four triggers (§2a) — a dead scope root stops matching within one main-thread tick **without** any effector or instance property changing — and the revalidation never runs under the store lock (§2a resolution protocol, D7). **Under the fallback / do-nothing option:** narrows to "the payload builder performs no writes; the latch/generation edge is recorded into a main-thread-drained queue", and today's drop behavior is preserved exactly. | Under T1–T4: the Step 2 trigger-gap regression test described above (free a scope-root node, touch nothing else). Under the fallback: a no-writes-on-the-read-path assertion plus the unchanged dead-scope payload test. This is the specific defect the review caught; the applicable test is the guard. |
 | **D4** | **Dead-scope behavior is preserved exactly**: a SUBTREE/EXPLICIT_ROOT effector whose scope root no longer resolves is excluded from the payload, and the exclusion invalidates dependent caches exactly once per edge (not per frame). | Byte-identical payload for a fixed frame + a bump-count assertion across N frames (expect 1, not N). |
 | **D5** *(invariant; distinct from decision **D5** below — see the naming note)* | **`scope_root_valid` is re-derived on re-point.** `update_sphere_effector` changing `scope_root_id` cannot leave the previous root's latch value in place. **Severity: cosmetic — this removes a spurious cache invalidation, it does NOT fix a live bug** (see the demotion note below). | Unit test: point at root A (dead), re-point at root B (alive), assert the effector matches and the latch is correct, and assert the generation bumped **once**, not twice. |
