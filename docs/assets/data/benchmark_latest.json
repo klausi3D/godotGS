@@ -2,12 +2,56 @@
   {
     "lane_id": "static_baseline",
     "lane_name": "Low-noise raster baseline",
-    "score": 90.6599944374817,
-    "avg_fps": 74.0247959897142,
-    "p99_frame_ms": 15.6216666666666,
-    "gpu_time_frame_ms": 0.0,
+    "score": 97.2093953732936,
+    "avg_fps": 455.078369979073,
+    "p99_frame_ms": 3.048,
+    "gpu_time_frame_ms": 1.69267189502716,
     "capture_ssim_min": null,
     "capture_psnr_min": null,
-    "weight": 12.0
+    "weight": 10.0
+  },
+  {
+    "lane_id": "dense_resident_2m",
+    "lane_name": "Dense resident path (~2M visible splats) for sort/raster timing",
+    "score": 23.9923219456671,
+    "avg_fps": 12.3430783854271,
+    "p99_frame_ms": 87.473,
+    "gpu_time_frame_ms": 51.9321594238281,
+    "capture_ssim_min": null,
+    "capture_psnr_min": null,
+    "weight": 0.0
+  },
+  {
+    "lane_id": "city_flyover",
+    "lane_name": "Boundary-crossing smoke support",
+    "score": 99.3270576534575,
+    "avg_fps": 128.657937431658,
+    "p99_frame_ms": 8.33333333333333,
+    "gpu_time_frame_ms": 6.83110427856445,
+    "capture_ssim_min": null,
+    "capture_psnr_min": null,
+    "weight": 10.0
+  },
+  {
+    "lane_id": "instance_storm",
+    "lane_name": "Many-instance submission pressure",
+    "score": 49.2552626914576,
+    "avg_fps": 31.4913448735022,
+    "p99_frame_ms": 31.8181818181818,
+    "gpu_time_frame_ms": 30.0894718170166,
+    "capture_ssim_min": null,
+    "capture_psnr_min": null,
+    "weight": 10.0
+  },
+  {
+    "lane_id": "lighting_stress",
+    "lane_name": "Animated light and shading stress",
+    "score": 90.3808853206107,
+    "avg_fps": 72.5732510228152,
+    "p99_frame_ms": 15.1515151515152,
+    "gpu_time_frame_ms": 13.8987512588501,
+    "capture_ssim_min": null,
+    "capture_psnr_min": null,
+    "weight": 10.0
   }
 ]

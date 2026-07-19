@@ -2,14 +2,24 @@
 <rect width="1120" height="420" fill="#f8f6f1"/>
 <text x="180" y="28" font-family="Georgia, serif" font-size="24" fill="#182126">Lane Score</text>
 <text x="180" y="48" font-family="Menlo, Consolas, monospace" font-size="12" fill="#51606b">Weighted throughput/fidelity score per lane</text>
-<text x="168" y="116.2" text-anchor="end" font-family="Menlo, Consolas, monospace" font-size="13" fill="#182126">static_baseline</text>
-<rect x="180" y="50" width="900" height="92" fill="#e5ddd0" rx="6" ry="6"/>
-<rect x="180" y="50" width="900.0" height="92" fill="#1f8f6b" rx="6" ry="6"/>
-<text x="1088.0" y="116.2" font-family="Menlo, Consolas, monospace" font-size="12" fill="#182126">90.66</text>
-<text x="168" y="220.2" text-anchor="end" font-family="Menlo, Consolas, monospace" font-size="13" fill="#182126">integrity_sentinel</text>
-<rect x="180" y="154" width="900" height="92" fill="#e5ddd0" rx="6" ry="6"/>
-<text x="188" y="220.2" font-family="Menlo, Consolas, monospace" font-size="12" fill="#7b6f63">n/a</text>
-<text x="168" y="324.2" text-anchor="end" font-family="Menlo, Consolas, monospace" font-size="13" fill="#182126">parity_fidelity</text>
-<rect x="180" y="258" width="900" height="92" fill="#e5ddd0" rx="6" ry="6"/>
-<text x="188" y="324.2" font-family="Menlo, Consolas, monospace" font-size="12" fill="#7b6f63">n/a</text>
+<text x="168" y="86.0" text-anchor="end" font-family="Menlo, Consolas, monospace" font-size="13" fill="#182126">static_baseline</text>
+<rect x="180" y="50" width="900" height="50" fill="#e5ddd0" rx="6" ry="6"/>
+<rect x="180" y="50" width="880.8" height="50" fill="#1f8f6b" rx="6" ry="6"/>
+<text x="1068.8" y="86.0" font-family="Menlo, Consolas, monospace" font-size="12" fill="#182126">97.21</text>
+<text x="168" y="148.0" text-anchor="end" font-family="Menlo, Consolas, monospace" font-size="13" fill="#182126">dense_resident_2m</text>
+<rect x="180" y="112" width="900" height="50" fill="#e5ddd0" rx="6" ry="6"/>
+<rect x="180" y="112" width="217.4" height="50" fill="#1f8f6b" rx="6" ry="6"/>
+<text x="405.4" y="148.0" font-family="Menlo, Consolas, monospace" font-size="12" fill="#182126">23.99</text>
+<text x="168" y="210.0" text-anchor="end" font-family="Menlo, Consolas, monospace" font-size="13" fill="#182126">city_flyover</text>
+<rect x="180" y="174" width="900" height="50" fill="#e5ddd0" rx="6" ry="6"/>
+<rect x="180" y="174" width="900.0" height="50" fill="#1f8f6b" rx="6" ry="6"/>
+<text x="1088.0" y="210.0" font-family="Menlo, Consolas, monospace" font-size="12" fill="#182126">99.33</text>
+<text x="168" y="272.0" text-anchor="end" font-family="Menlo, Consolas, monospace" font-size="13" fill="#182126">instance_storm</text>
+<rect x="180" y="236" width="900" height="50" fill="#e5ddd0" rx="6" ry="6"/>
+<rect x="180" y="236" width="446.3" height="50" fill="#1f8f6b" rx="6" ry="6"/>
+<text x="634.3" y="272.0" font-family="Menlo, Consolas, monospace" font-size="12" fill="#182126">49.26</text>
+<text x="168" y="334.0" text-anchor="end" font-family="Menlo, Consolas, monospace" font-size="13" fill="#182126">lighting_stress</text>
+<rect x="180" y="298" width="900" height="50" fill="#e5ddd0" rx="6" ry="6"/>
+<rect x="180" y="298" width="818.9" height="50" fill="#1f8f6b" rx="6" ry="6"/>
+<text x="1006.9" y="334.0" font-family="Menlo, Consolas, monospace" font-size="12" fill="#182126">90.38</text>
 </svg>
