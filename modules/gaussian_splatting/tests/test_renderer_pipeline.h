@@ -2285,7 +2285,7 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Missing renderer data publishes an e
     renderer.unref();
 }
 
-TEST_CASE("[GaussianSplatting][RequiresGPU] Streaming-requested failure hard-fails without bouncing to resident render") {
+TEST_CASE("[GaussianSplatting][RendererPipeline][SceneTree][RequiresGPU] Streaming-requested failure hard-fails without bouncing to resident render") {
     // When route_policy is STREAMING and the streaming system is unavailable,
     // render_scene_instance must publish a typed COMMON.SKIP.STREAMING_NOT_READY.*
     // route and must not silently fall through to INSTANCE.RESIDENT. This is the
@@ -3522,7 +3522,29 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Production metrics validation marks 
     renderer.unref();
 }
 
-TEST_CASE("[GaussianSplatting][RequiresGPU] Stage results report cull/sort skipped when GPU culler unavailable") {
+TEST_CASE("[GaussianSplatting][RendererPipeline][SceneTree][RequiresGPU] Cull route publishes GPU-culler-unavailable when the culler is missing") {
+    // SCOPE (#694). This case previously claimed to pin "stage results report cull/sort
+    // skipped when the GPU culler is unavailable". That contract is NOT constructible:
+    //
+    //   * Driving it through render_scene_instance cannot work. The resident route builds a
+    //     frame context first, and RenderFrameContext::FrameDeps::validate()
+    //     (gaussian_splat_renderer.h) hard-requires a non-null gpu_culler, tripping
+    //     DEV_ASSERT in RenderPipelineStages::prepare_frame_context. No frame context is
+    //     built, so no stage results are published at all.
+    //   * Driving it through cull_for_view reaches the real unavailable branch
+    //     (render_quality_orchestrator.cpp) and publishes the ROUTE, but that entry point
+    //     does not populate stage metrics: measured on an RTX 3090, stage_metrics_valid is
+    //     false and every stage_* key reads "unknown"/empty.
+    //
+    // Consequence: the `if (!gpu_culler)` branch in RenderPipelineStages' cull stage is dead
+    // with respect to stage-result publication -- defensive code for a state validate()
+    // forbids. Asserting stage_cull_status/stage_sort_status here would therefore either
+    // fail forever or have to be watered down into something vacuous.
+    //
+    // So this case now pins exactly what IS reachable and real: the cull ROUTE contract
+    // published by the culler-unavailable branch. The stage-cascade half of #351's claimed
+    // coverage for this condition does not exist and is reported as such rather than
+    // simulated. Renamed to match what it verifies.
     RenderingServer *rs = RenderingServer::get_singleton();
     if (rs == nullptr) {
         MESSAGE("Skipping test - Rendering server unavailable");
@@ -3578,37 +3600,32 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Stage results report cull/sort skipp
     render_data.scene_data = &scene_data;
     render_data.render_buffers = Ref<RenderSceneBuffersRD>();
 
-    renderer->render_scene_instance(&render_data);
+    // Drive the cull stage through the entry point that actually reaches the
+    // culler-unavailable branch. Before #694 this hook left dangling raw GPUCuller pointers
+    // cached in the orchestrators, so this call dereferenced freed memory (0xC0000005)
+    // instead of taking the branch; reaching the branch at all is part of what is pinned.
+    const GaussianSplatRenderer::CullStageOutput output = renderer->cull_for_view(
+            scene_data.cam_transform.affine_inverse(), scene_data.cam_projection, Size2i(256, 256));
+
+    CHECK_MESSAGE(output.visible_count == 0,
+            vformat("Expected no visible splats without a GPU culler, got %d", int(output.visible_count)));
 
     Dictionary stats = renderer->get_render_stats();
-    CHECK_MESSAGE(stats.get("stage_metrics_valid", false), "Expected stage metrics to be valid");
     CHECK_MESSAGE(stats.get("cull_route_uid", String()) == String(RenderRouteUID::COMMON_SKIP_GPU_CULLER_UNAVAILABLE),
-            "Expected cull route UID to report the GPU-culler-disabled bypass");
+            vformat("Expected cull route UID to report the GPU-culler-unavailable bypass, got '%s'",
+                    String(stats.get("cull_route_uid", String()))));
     CHECK_MESSAGE(stats.get("cull_route_reason", String()) == String("gpu_culler_unavailable"),
-            "Expected cull route reason to report the missing GPU culler");
-    CHECK_MESSAGE(stats.get("route_uid", String()) == stats.get("cull_route_uid", String()),
-            "Cull-stage failure should publish the same top-level and cull route UID");
-    CHECK_MESSAGE(!bool(stats.get("route_uid_missing", true)),
-            "Expected route UID to be present for GPU-culler-unavailable cascade");
+            vformat("Expected cull route reason to report the missing GPU culler, got '%s'",
+                    String(stats.get("cull_route_reason", String()))));
     CHECK_MESSAGE(!bool(stats.get("cull_route_uid_missing", true)),
-            "Expected cull route UID to be present for GPU-culler-unavailable cascade");
-    const String cull_status = stats.get("stage_cull_status", String());
-    CHECK_MESSAGE(cull_status == String("skipped"),
-            vformat("Expected cull stage skipped, got '%s'", cull_status));
-    const String cull_reason = stats.get("stage_cull_reason", String());
-    CHECK_MESSAGE(cull_reason.find("GPU culler unavailable") != -1,
-            vformat("Expected cull reason to mention GPU culler unavailable, got '%s'", cull_reason));
-    const String sort_status = stats.get("stage_sort_status", String());
-    CHECK_MESSAGE(sort_status == String("skipped"),
-            vformat("Expected sort stage skipped, got '%s'", sort_status));
-    const String sort_reason = stats.get("stage_sort_reason", String());
-    CHECK_MESSAGE(sort_reason.find("GPU culler unavailable") != -1,
-            vformat("Expected sort reason to mention GPU culler unavailable, got '%s'", sort_reason));
+            "Expected cull route UID to be present for the GPU-culler-unavailable route");
+    CHECK_MESSAGE(int64_t(stats.get("visible_after_culling", int64_t(-1))) == 0,
+            "Expected zero visible-after-culling for the GPU-culler-unavailable route");
 
     renderer.unref();
 }
 
-TEST_CASE("[GaussianSplatting][RequiresGPU] Stage results report raster failure when rasterizer missing") {
+TEST_CASE("[GaussianSplatting][RendererPipeline][SceneTree][RequiresGPU] Stage results report raster failure when rasterizer missing") {
     RenderingServer *rs = RenderingServer::get_singleton();
     if (rs == nullptr) {
         MESSAGE("Skipping test - Rendering server unavailable");
@@ -3654,8 +3671,6 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Stage results report raster failure 
         return;
     }
 
-    renderer->test_disable_rasterizer();
-
     RenderSceneDataRD scene_data;
     scene_data.cam_transform = Transform3D(Basis(), Vector3(0.0f, 0.0f, 5.0f));
     scene_data.cam_projection.set_perspective(70.0f, 1.0f, 0.1f, 100.0f);
@@ -3664,6 +3679,36 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Stage results report raster failure 
     render_data.scene_data = &scene_data;
     render_data.render_buffers = Ref<RenderSceneBuffersRD>();
 
+    // Bootstrap the resident route into a state where the raster stage ACTUALLY RUNS before
+    // injecting the failure. Two things stand in the way on a cold renderer:
+    //   1. GPUCuller publishes the instance visible-chunk count from an async readback that
+    //      lands one frame late, so frame 1 sees zero visible splats and raster is skipped
+    //      ("Raster skipped: no visible splats").
+    //   2. Once a frame has been drawn, an identical follow-up frame is served from the
+    //      cached render ("Raster skipped: reused cached render"), which also bypasses raster.
+    // So: pump frames, invalidating the cached render each time, until the stage metrics
+    // report raster actually succeeding. Only then is the injected failure below meaningful.
+    // Note get_visible_splat_count() is NOT a usable precondition here -- it stays 0 on this
+    // path even when raster runs -- so the stage status itself is the signal.
+    bool raster_ran = false;
+    for (int i = 0; i < 8 && !raster_ran; i++) {
+        renderer->invalidate_cached_render();
+        renderer->render_scene_instance(&render_data);
+        const Dictionary bootstrap_stats = renderer->get_render_stats();
+        raster_ran = String(bootstrap_stats.get("stage_raster_status", String())) == String("success");
+    }
+    // Fail closed: if raster never ran, the cascade this case exists to pin is not being
+    // exercised at all. Say so instead of asserting against a skipped stage -- and never let
+    // this case go quietly hollow again (#694).
+    if (!raster_ran) {
+        FAIL("Raster stage never ran during bootstrap; the raster-failure cascade is not "
+             "being exercised");
+        return;
+    }
+
+    renderer->test_disable_rasterizer();
+
+    renderer->invalidate_cached_render();
     renderer->render_scene_instance(&render_data);
 
     Dictionary stats = renderer->get_render_stats();
@@ -3678,7 +3723,7 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Stage results report raster failure 
     CHECK_MESSAGE(composite_status == String("skipped"),
             vformat("Expected composite stage skipped, got '%s'", composite_status));
     const String composite_reason = stats.get("stage_composite_reason", String());
-    CHECK_MESSAGE(composite_reason.find("raster failed") != -1,
+    CHECK_MESSAGE(composite_reason.find("raster stage failed") != -1,
             vformat("Expected composite reason to mention raster failure, got '%s'", composite_reason));
 
     renderer.unref();
@@ -3758,7 +3803,7 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Stage results report streaming not-r
 
 }
 
-TEST_CASE("[GaussianSplatting][RequiresGPU] Serial instancing failure injection reports first failed instance and cascades skips") {
+TEST_CASE("[GaussianSplatting][RendererPipeline][SceneTree][RequiresGPU] Serial instancing failure injection reports first failed instance and cascades skips") {
     // Closes #351 evidence gate E2: failure-injection coverage of the SERIAL
     // instancing path (RenderInstancingOrchestrator::render_instanced). The
     // resident (3255/3341) and streaming (3417) siblings drive
@@ -3836,10 +3881,19 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Serial instancing failure injection 
     // transform through render_instanced; the serial multi-instance aggregation
     // exercised below is what remains uncovered.
     renderer->render_scene_instance(&render_data);
+    // Fail closed rather than skip. This is a REQUIRED batch: a mid-test `MESSAGE(...);
+    // return;` leaves the case reported as PASSED having verified nothing, which is the
+    // exact hollow-coverage failure mode #694 is repairing. On a device that got this far
+    // (renderer constructed, data uploaded) an absent resident contract is a real defect.
     if (!renderer->has_instance_pipeline_buffers()) {
-        MESSAGE("Skipping test - resident instance pipeline contract unavailable on this device");
+        FAIL("Resident instance pipeline contract unavailable after a bootstrap frame");
         return;
     }
+    // NOTE: deliberately NOT gated on get_visible_splat_count() here. That counter stays 0
+    // on this path even when cull/sort/raster run normally (it is not the resident route's
+    // liveness signal), so gating on it would fail a healthy run. The raster/composite
+    // status assertions below are what discriminate: if cull/sort had admitted nothing,
+    // raster would report "skipped: no visible splats" rather than the injected failure.
 
     // Inject the per-instance raster failure using the same hook the resident
     // raster-failure sibling uses (test_disable_rasterizer).
@@ -3869,7 +3923,10 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Serial instancing failure injection 
     CHECK_MESSAGE(composite_status == String("skipped"),
             vformat("Expected serial-path composite stage skipped, got '%s'", composite_status));
     const String composite_reason = stats.get("stage_composite_reason", String());
-    CHECK_MESSAGE(composite_reason.find("raster failed") != -1,
+    // The orchestrator publishes "Composite skipped: raster stage failed". The previous
+    // expectation ("raster failed") never matched that string -- a test-side typo, not a
+    // product defect. Matching the full phrase is strictly narrower than the old one. (#694)
+    CHECK_MESSAGE(composite_reason.find("raster stage failed") != -1,
             vformat("Expected composite skip reason to cite raster failure, got '%s'", composite_reason));
 
     // The orchestrator aggregates the FIRST instance whose stage metrics carry a

@@ -62,6 +62,15 @@ public:
 	GaussianSplatRenderer::PerformanceSettings &get_performance_settings() { return performance_settings; }
 	const GaussianSplatRenderer::PerformanceSettings &get_performance_settings() const { return performance_settings; }
 
+	// Test-only: drop the cached GPUCuller pointer. This orchestrator caches a RAW
+	// pointer captured at construction from the renderer's owning Ref. When a test
+	// releases that Ref (GaussianSplatRenderer::test_disable_gpu_culler) the object is
+	// destroyed and this pointer dangles -- and because it stays non-null, the
+	// `if (!gpu_culler)` unavailable-cascade branch is skipped and the freed object is
+	// dereferenced instead (0xC0000005). Clearing it here is what actually makes the
+	// "GPU culler unavailable" contract reachable. (#694)
+	void test_clear_gpu_culler() { gpu_culler = nullptr; }
+
 private:
 	GaussianSplatRenderer::PerformanceSettings performance_settings;
 	GaussianSplatRenderer *renderer = nullptr;

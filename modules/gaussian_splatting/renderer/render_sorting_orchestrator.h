@@ -54,6 +54,10 @@ public:
 	const GaussianRenderState::SortingState &get_sorting_state() const { return sorting_state; }
 	GaussianRenderState::SortingState &access_sorting_state_mutable() { return sorting_state; }
 
+	// Test-only: drop the cached (raw) GPUCuller pointer. See
+	// RenderQualityOrchestrator::test_clear_gpu_culler. (#694)
+	void test_clear_gpu_culler() { gpu_culler = nullptr; }
+
 private:
 	// Instance sort cache (merged from RenderSortCacheOrchestrator)
 	struct InstanceSortCache {

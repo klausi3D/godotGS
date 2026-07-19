@@ -40,6 +40,10 @@ public:
 	bool test_copy_final_output(RID p_source, RID p_destination, const Size2i &p_viewport_size);
 #endif
 
+	// Test-only: drop the cached (raw) GPUCuller pointer. See
+	// RenderQualityOrchestrator::test_clear_gpu_culler. (#694)
+	void test_clear_gpu_culler() { gpu_culler = nullptr; }
+
 private:
 	GaussianSplatRenderer *renderer = nullptr;
 	OutputCompositor *output_compositor = nullptr;
