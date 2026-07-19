@@ -255,6 +255,108 @@ TEST_CASE("[GaussianSplatting][SceneDirector][Lifetime] DeferredRendererWork dis
 	}
 }
 
+// #611 PR B1 — register_instance's `world->renderer->initialize()` was a FIFTH
+// blocking dispatch under world_mutex, on a route neither instrumented boundary
+// could see (so PR A's counter was a lower bound). It is now deferred like the
+// applies.
+//
+// Same limitation as everything above: this pins the *bookkeeping*, not a stall.
+// What makes the initialize case different from the applies is that it carries a
+// guard -- `!gpu_resources_initialized && !gpu_initialization_pending` -- which
+// was atomic with the call while both sat under the lock. Deferring separates
+// them, so the guard has to be re-evaluated at dispatch time. Both halves of
+// that (the re-check, and the front-insertion that keeps initialize ahead of an
+// already-queued apply) are asserted here.
+TEST_CASE("[GaussianSplatting][SceneDirector][Lifetime] DeferredRendererWork defers initialize ahead of queued applies") {
+	Ref<GaussianSplatRenderer> renderer(memnew(GaussianSplatRenderer(nullptr)));
+	if (renderer.is_null()) {
+		FAIL("could not construct a device-less GaussianSplatRenderer; the deferred "
+			 "initialize path cannot be exercised without one");
+		return;
+	}
+	// A device-less renderer must start un-initialized, or the guard re-check
+	// below would skip and the test would assert nothing.
+	if (renderer->get_resource_state().gpu_resources_initialized ||
+			renderer->get_resource_state().gpu_initialization_pending) {
+		FAIL("a freshly constructed device-less renderer already reports initialized/pending; "
+			 "the guard re-check cannot be discriminated");
+		return;
+	}
+
+	{
+		// ORDERING. This is the trap PR A hit in a different shape: a naively
+		// appended entry runs after work queued earlier. register_instance's
+		// initialize ran inline under the lock, i.e. BEFORE the apply that
+		// _get_or_create_world_for_scenario queues when it lazily creates the same
+		// renderer. Appending would invert that and apply a contract to a renderer
+		// whose GPU resources are not up.
+		//
+		// No side effect can distinguish the two orders headless (a device-less
+		// initialize() and apply() converge on the same resource state), so this
+		// asserts dispatch order directly.
+		GaussianSplatSceneDirector::DeferredRendererWork work;
+		work.queue_apply(renderer, GaussianSplatRenderer::WorldSubmissionContract());
+		work.queue_initialize(renderer);
+		CHECK(work.size() == 2u);
+		CHECK(work.get_entry_kind(0) == GaussianSplatSceneDirector::DeferredRendererWork::Kind::INITIALIZE);
+		CHECK(work.get_entry_kind(1) == GaussianSplatSceneDirector::DeferredRendererWork::Kind::APPLY);
+		work.cancel();
+	}
+
+	{
+		// A null renderer must not queue a dangling initialize, matching
+		// queue_apply / queue_restore.
+		GaussianSplatSceneDirector::DeferredRendererWork work;
+		work.queue_initialize(Ref<GaussianSplatRenderer>());
+		CHECK(work.is_empty());
+	}
+
+	{
+		GaussianSplatSceneDirector::DeferredRendererWork work;
+		work.queue_initialize(renderer);
+		CHECK(work.size() == 1u);
+		// One Ref per entry, as with the other kinds: this is what keeps the
+		// renderer alive across the unlock if its world is pruned in the gap.
+		CHECK(renderer->get_reference_count() == 2);
+
+		work.cancel();
+		CHECK(work.is_empty());
+		CHECK(renderer->get_reference_count() == 1);
+		work.flush();
+		// Cancelled initialize does not run -- so a cancel cannot silently drop
+		// GPU bring-up while claiming it happened.
+		CHECK(work.get_dispatched_entry_count() == 0u);
+	}
+
+	{
+		GaussianSplatSceneDirector::DeferredRendererWork work;
+		work.queue_initialize(renderer);
+		work.flush();
+		CHECK(work.is_empty());
+		// The deferral must not lose the initialization it moved out of the
+		// critical section.
+		CHECK(work.get_dispatched_entry_count() == 1u);
+		CHECK(renderer->get_reference_count() == 1);
+	}
+
+	// The device-less initialize above ran `_create_gpu_resources_safe()`, which
+	// sets gpu_initialization_pending before it discovers there is no
+	// RenderingDevice (renderer/render_resource_orchestrator.cpp). That is what
+	// makes the guard re-check observable headless at all.
+	CHECK(renderer->get_resource_state().gpu_initialization_pending);
+
+	{
+		// GUARD RE-CHECK. The renderer is now pending, so a queued initialize must
+		// be skipped at flush time rather than re-running -- and a skip must not be
+		// counted as dispatched, or this assertion could not tell the two apart.
+		GaussianSplatSceneDirector::DeferredRendererWork work;
+		work.queue_initialize(renderer);
+		CHECK(work.size() == 1u);
+		work.flush();
+		CHECK(work.get_dispatched_entry_count() == 0u);
+	}
+}
+
 } // namespace TestSceneDirectorRendererContractLock
 
 #endif // TEST_SCENE_DIRECTOR_RENDERER_CONTRACT_LOCK_H

@@ -288,8 +288,9 @@ public:
     // which lazily creates the entry on a miss.
     bool has_shared_world_for_scenario(const RID &p_scenario) const;
     // #611: how many times a renderer-contract entry point
-    // (_apply_world_submission_to_renderer / _restore_world_submission_renderer)
-    // reached a live renderer while the calling thread already held world_mutex.
+    // (_apply_world_submission_to_renderer / _restore_world_submission_renderer /
+    // _initialize_world_renderer) reached a live renderer while the calling
+    // thread already held world_mutex.
     //
     // READ THIS AS: "an ordering violation occurred", NOT "a stall occurred".
     //   * The count says the lock was held across the renderer-contract boundary.
@@ -297,12 +298,18 @@ public:
     //     under `--headless` RenderThreadDispatcher short-circuits and returns
     //     immediately (render_thread_dispatcher.cpp:17-22 and :116-122), so a
     //     headless run can increment this without anything stalling.
-    //   * It is also a LOWER BOUND on the inversion surface, not a total. Only
-    //     these two functions are instrumented; other code reaches a blocking
-    //     dispatch under world_mutex without passing through them — notably
-    //     register_instance, which calls GaussianSplatRenderer::initialize()
-    //     (blocking dispatch at gaussian_splat_renderer.cpp:1613-1618) while
-    //     holding the lock. That path is pre-existing and untouched here.
+    //   * SCOPE. Every route from this class to a blocking render-thread dispatch
+    //     now passes through one of the three instrumented functions above:
+    //     `apply_world_submission_contract` and
+    //     `restore_world_submission_runtime_state` via the first two,
+    //     `GaussianSplatRenderer::initialize` via the third. PR A's revision of
+    //     this comment called the counter a LOWER BOUND because
+    //     register_instance called `initialize()` directly, bypassing it; that
+    //     call now goes through `_initialize_world_renderer`, so the gap is
+    //     closed. This is a *structural* claim about the current call graph, not
+    //     a guarantee: a new direct `renderer->` call that dispatches would be
+    //     invisible again. The static guard in
+    //     tests/ci/check_renderer_contract_boundary.py is what keeps it true.
     //
     // No lane in this repo can reproduce the stall behaviourally (every doctest
     // process runs `--headless --test`, tests/ci/run_module_tests.py:350), so an
@@ -449,8 +456,8 @@ private:
     // #611: renderer-contract work captured while `world_mutex` is held and
     // executed only after it has been released.
     //
-    // `apply_world_submission_contract()` and
-    // `restore_world_submission_runtime_state()` both reach a *blocking*
+    // `apply_world_submission_contract()`, `restore_world_submission_runtime_state()`
+    // and `GaussianSplatRenderer::initialize()` all reach a *blocking*
     // render-thread dispatch. Building the contract, by contrast, is pure
     // bookkeeping. So the split is: decide under the lock, dispatch outside it.
     //
@@ -469,16 +476,29 @@ private:
     // mechanism, not part of the node-facing API.
 public:
     class DeferredRendererWork {
+    public:
+        enum class Kind : uint8_t {
+            APPLY,
+            RESTORE,
+            INITIALIZE,
+        };
+
+    private:
         struct Entry {
             Ref<GaussianSplatRenderer> renderer;
             GaussianSplatRenderer::WorldSubmissionContract contract;
             GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot restore_state;
-            bool is_restore = false;
+            Kind kind = Kind::APPLY;
         };
         LocalVector<Entry> entries;
         // Lifetime total of entries this queue actually dispatched. The only
         // observable that separates "flush ran the work" from "cancel dropped
         // it" without a live RenderingDevice, which no headless lane has.
+        //
+        // An INITIALIZE entry whose guard re-check finds the renderer already
+        // initialized does NOT count: it was queued but not dispatched, and
+        // conflating the two would make this counter unable to show that the
+        // re-check fires.
         uint32_t dispatched_entry_count = 0;
 
     public:
@@ -486,6 +506,25 @@ public:
                 const GaussianSplatRenderer::WorldSubmissionContract &p_contract);
         void queue_restore(const Ref<GaussianSplatRenderer> &p_renderer,
                 const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_snapshot);
+        // #611 PR B1: defer `GaussianSplatRenderer::initialize()`.
+        //
+        // ORDERING — this inserts at the FRONT of the queue, and that is
+        // load-bearing. The one caller (`_initialize_world_renderer`, from
+        // `register_instance`) decides to initialize *after*
+        // `_get_or_create_world_for_scenario` may already have queued an apply
+        // for the same lazily-created renderer, but the code this replaces ran
+        // `initialize()` inline under the lock — i.e. BEFORE that queued apply
+        // dispatched. Appending would invert that order and run the apply
+        // against a renderer whose GPU resources are not up yet.
+        //
+        // The guard (`!gpu_resources_initialized && !gpu_initialization_pending`)
+        // is re-evaluated at flush time, not captured here. Under the lock the
+        // check and the call were atomic; deferring separates them, so the check
+        // has to move with the call. It is never weaker than the inline form: the
+        // only way the re-check can skip is if the renderer became initialized or
+        // had an initialization queued in the gap, which is exactly what the
+        // guard exists to detect.
+        void queue_initialize(const Ref<GaussianSplatRenderer> &p_renderer);
         // Drop queued work that a later decision has superseded. Used where the
         // caller re-applies a newer contract to the same renderer before
         // returning; running the stale entry afterwards would clobber it.
@@ -493,6 +532,12 @@ public:
         bool is_empty() const { return entries.is_empty(); }
         uint32_t size() const { return entries.size(); }
         uint32_t get_dispatched_entry_count() const { return dispatched_entry_count; }
+        // Dispatch-order inspection. Exists so the front-insertion rule above is
+        // pinned by an assertion rather than by a comment: no headless lane can
+        // observe entry order through side effects, because a device-less
+        // renderer's initialize() and apply() converge on the same resource
+        // state either way.
+        Kind get_entry_kind(uint32_t p_index) const;
         // Runs and clears the queue. Must not be called while world_mutex is held.
         void flush();
         ~DeferredRendererWork() { flush(); }
@@ -561,30 +606,31 @@ private:
 	static GaussianSplatRenderer::WorldSubmissionContract _build_world_submission_contract(
 			const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_renderer_state,
 			const SharedWorld::WorldSubmissionRecord &p_record);
-	// #611: THE RENDERER-CONTRACT BOUNDARY (instrumented, but NOT the whole
-	// surface — see the caveat below).
+	// #611: THE RENDERER-CONTRACT BOUNDARY (instrumented).
 	//
-	// Both of these reach a blocking render-thread dispatch
+	// All three of these reach a blocking render-thread dispatch
 	// (`GaussianSplatRenderer::initialize`, `set_max_splats`, `set_gaussian_data`,
 	// `set_file_backed_payload_source`). The render thread can simultaneously be
 	// blocked acquiring `world_mutex` inside a `*_for_renderer` builder, so
-	// entering either of these with `world_mutex` held is a lock-order inversion:
+	// entering any of these with `world_mutex` held is a lock-order inversion:
 	// the dispatch stalls for its full timeout and the operation is then either
 	// silently dropped (`set_max_splats`) or rolled back and rejected
 	// (`set_gaussian_data` returns ERR_BUSY).
 	//
-	// This used to be prose only. It is now checked: both entry points consult
-	// `world_mutex.is_held_by_current_thread()` and count a violation. Prefer
+	// This used to be prose only. It is now checked: every entry point consults
+	// `world_mutex.is_held_by_current_thread()` and counts a violation. Prefer
 	// `DeferredRendererWork` over calling these under the lock.
 	//
-	// CAVEAT — these are not the only routes to a blocking dispatch under the
-	// lock. `register_instance` calls `world->renderer->initialize()` directly
-	// while holding `world_mutex`, and `initialize()` opens with
-	// `_dispatch_call_on_render_thread_blocking`
-	// (renderer/gaussian_splat_renderer.cpp:1613-1618). That call bypasses both
-	// functions below, so it is invisible to the counter. It is pre-existing and
-	// deliberately untouched here; closing #611 requires fixing it too, not just
-	// `submit_world_submission`'s apply.
+	// COMPLETENESS — PR A shipped only the first two, and `register_instance`
+	// reached `GaussianSplatRenderer::initialize()` directly (blocking dispatch at
+	// renderer/gaussian_splat_renderer.cpp:1613-1618), bypassing both and making
+	// the counter a lower bound. `_initialize_world_renderer` closes that route:
+	// it is now the only way this class calls `initialize()`. Every remaining
+	// `renderer->` call in the .cpp that can dispatch is either inside one of
+	// these three functions, inside `DeferredRendererWork::flush()` (which runs
+	// with the lock released, by construction), or in `teardown_world_for_scenario`
+	// after an explicit unlock. `tests/ci/check_renderer_contract_boundary.py`
+	// fails the build if a new one appears anywhere else.
 	//
 	// They are non-static precisely so they can reach `world_mutex`; do not make
 	// them static again without moving the check somewhere it can still run.
@@ -592,6 +638,14 @@ private:
 			const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_snapshot);
 	bool _apply_world_submission_to_renderer(SharedWorld &p_world, const SharedWorld::WorldSubmissionRecord &p_record,
 			const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_renderer_state);
+	// #611 PR B1: the single route from this class to
+	// `GaussianSplatRenderer::initialize()`. Applies the
+	// not-initialized-and-not-pending guard, then either queues the call on
+	// `r_deferred_work` (the correct path — dispatch happens after the caller
+	// releases `world_mutex`) or, when no queue is supplied, reports the boundary
+	// violation and runs it inline, preserving historical behaviour for any
+	// caller that has not been threaded yet.
+	void _initialize_world_renderer(SharedWorld &p_world, DeferredRendererWork *r_deferred_work);
 	void _report_renderer_contract_lock_violation(const char *p_site) const;
 	bool _should_prune_world(const SharedWorld &p_world) const;
 	// #611: prune an empty SharedWorld without releasing its

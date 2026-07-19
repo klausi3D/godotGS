@@ -38,6 +38,7 @@ REQUIRE_NULL_DEREF_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_require_nul
 TEST_LANE_COVERAGE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_test_lane_coverage.py"
 TEST_LANE_COVERAGE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_test_lane_coverage.py"
 RENDERER_RELEASE_GATE_SCRIPT = ROOT / "tests" / "ci" / "check_renderer_release_gates.py"
+RENDERER_CONTRACT_BOUNDARY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_renderer_contract_boundary.py"
 RENDERER_RELEASE_GATE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_renderer_release_gates.py"
 BASELINE_QA_REQUIRE_FLAG_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_baseline_qa_require_flag.py"
 HISTORY_ARTIFACT_AUDIT_SCRIPT = ROOT / "scripts" / "repo" / "history_artifact_audit.py"
@@ -741,6 +742,35 @@ def _run_require_null_deref_guard() -> tuple[bool, list[str]]:
         if not script.is_file():
             return False, [f"Missing {label} script: {script.relative_to(ROOT)}"]
         code, out, err = _run_command([sys.executable, str(script)])
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if code != 0:
+            if not output_lines:
+                output_lines = [f"{label} failed with exit code {code}."]
+            return False, output_lines
+    return True, output_lines
+
+
+def _run_renderer_contract_boundary_guard() -> tuple[bool, list[str]]:
+    """#611: every blocking render-thread dispatch stays behind an instrumented boundary.
+
+    The lock-order inversion this guards has no behavioural lane (every doctest
+    process is `--headless --test` and the dispatcher short-circuits), so the
+    violation counter is the evidence — and the counter is only complete while no
+    new direct `renderer->` dispatch appears in the scene director. Runs the
+    guard's own discrimination cases first, mirroring the metric-reset and
+    REQUIRE null-deref guards.
+    """
+    for label, args in (
+        ("Renderer-contract boundary guard self-test", ["--self-test"]),
+        ("Renderer-contract boundary guard", []),
+    ):
+        if not RENDERER_CONTRACT_BOUNDARY_GUARD_SCRIPT.is_file():
+            return False, [
+                f"Missing {label} script: {RENDERER_CONTRACT_BOUNDARY_GUARD_SCRIPT.relative_to(ROOT)}"
+            ]
+        code, out, err = _run_command(
+            [sys.executable, str(RENDERER_CONTRACT_BOUNDARY_GUARD_SCRIPT), *args]
+        )
         output_lines = [line for line in (out + err).splitlines() if line.strip()]
         if code != 0:
             if not output_lines:
@@ -1702,6 +1732,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_test_lane_coverage_guard,
             "Test lane coverage guard failed.",
             "Test lane coverage guard passed.",
+        ),
+        (
+            True,
+            _run_renderer_contract_boundary_guard,
+            "Renderer-contract boundary guard failed.",
+            "Renderer-contract boundary guard passed.",
         ),
         (
             True,
