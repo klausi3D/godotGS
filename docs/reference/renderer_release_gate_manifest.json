@@ -121,7 +121,8 @@
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
     "test_count": 132,
-    "sha256": "9c742697e66162d3e636783f77a0746f9d8a0aba3dc6129711602cf55b1273f6",
+    "sha256": "47853b85af576f1c6a2f56bc9b894fa21a35048f8a3d41b10108ba967400f285",
+    "sha256_last_changed_by": "#690: retagging '[GaussianSplatting][RequiresGPU] World-backed RenderSceneInstance drives GPU streaming + sorting' to '[GaussianSplatting][SceneTree][RequiresGPU] ...' changed the case NAME, which is part of the digest payload (path\\0name), while leaving test_count at 132. Set membership changed; cardinality did not. This is exactly the drift a count-only check cannot see, and why the digest exists. Verified as a pure rename: recomputing the corpus at base 190ceffa2c8 reproduces the PREVIOUS sha256 (9c742697...) exactly, and the base-vs-head name-set diff is one removal and one addition naming the same case - not two offsetting changes.",
     "deferred_tags_any": [
       "Importer"
     ],
