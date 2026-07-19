@@ -34,11 +34,32 @@ env_gaussian_splatting.Append(CPPDEFINES=[
     "GS_NATIVE_ARCH_ENABLED=1" if native_arch else "GS_NATIVE_ARCH_ENABLED=0",
 ])
 
+
+def _env_is_msvc(p_env):
+    """True when this environment compiles with MSVC (cl.exe).
+
+    Godot exposes this as a SCons *attribute* (`env.msvc`, set at SConstruct:123
+    and re-set at platform/windows/detect.py:921), NOT as a construction
+    variable. `p_env.get("is_msvc")` — the idiom this module used until #651 —
+    reads a key nothing in the tree ever writes, so it silently returned False
+    on every MSVC build and sent cl.exe down the GNU flag path.
+    """
+    return bool(getattr(p_env, "msvc", False))
+
+
 # Optional: AVX2 SIMD acceleration for x86 builds.
 # Usage: scons gs_avx2=yes/no/auto ...
-#   yes  - Force AVX2 (will crash on CPUs without AVX2 support)
+#   yes  - Opt in to AVX2, subject to the toolchain accepting the flag. Raises
+#          the module's minimum CPU requirement: the resulting binary requires
+#          an AVX2-capable CPU (Intel Haswell 2013+ / AMD Excavator 2015+) and
+#          dies with an illegal-instruction fault on anything older. Only pass
+#          this for builds whose audience you control.
 #   no   - Disable AVX2 (SSE2 baseline only, safe for all x86_64)
-#   auto - Detect at build time via a test compile (default)
+#   auto - SSE2 baseline (default). Never enables AVX2 on any target; see the
+#          policy block below for why no target predicate is trustworthy here.
+#
+# The flag only ever reaches a compile line under optimize=speed; every other
+# optimization level leaves the module on the SSE2 baseline regardless.
 gs_avx2_value = str(env.get("gs_avx2", ARGUMENTS.get("gs_avx2", "auto"))).lower()
 if gs_avx2_value in ("1", "yes", "true", "on"):
     gs_avx2 = "yes"
@@ -48,12 +69,30 @@ else:
     gs_avx2 = "auto"
 
 
-def _detect_avx2_support(p_env):
-    """Try-compile a small AVX2 snippet to see if the toolchain supports it."""
-    import tempfile
-    import os
-    import subprocess
+def _probe_avx2_flag(p_env, p_is_msvc):
+    """Try-compile a small AVX2 snippet to see if the toolchain accepts the flag.
 
+    Returns `(accepted, detail)`, where `detail` is a human-readable string
+    naming *which* outcome occurred. The distinction matters: until #651 this
+    function was `except Exception: return False`, so a missing cl.exe, a
+    timeout, a permissions error and a genuine compiler rejection all printed
+    the same "AVX2 not supported by toolchain" line. That is precisely how the
+    real defect (cl.exe receiving GNU flags, plus a PATH lookup that `env=`
+    does not affect) stayed invisible in build logs for so long: the log said
+    "your toolchain can't do AVX2" when the truth was "this probe is broken".
+    A build log must let the reader tell those apart.
+
+    NOTE: this probes the *toolchain*, not the host CPU — the test binary is
+    compiled but never executed. Every current x86 toolchain accepts the flag,
+    so acceptance says nothing about what the build host, let alone the end
+    user's machine, can actually run. Callers must not phrase the result as CPU
+    capability detection.
+    """
+    # NB: os/shutil/subprocess/tempfile are imported at module scope. Do not
+    # re-import them here — a function-local `import shutil` (which this used to
+    # carry in the finally block) rebinds the name as local for the *whole*
+    # function, turning the shutil.which() call below into an UnboundLocalError
+    # that the except clause silently downgrades to "AVX2 unsupported".
     test_src = r"""
 #include <immintrin.h>
 int main() {
@@ -63,8 +102,7 @@ int main() {
     return 0;
 }
 """
-    is_msvc = p_env.get("is_msvc", False)
-    flag = "/arch:AVX2" if is_msvc else "-mavx2"
+    flag = "/arch:AVX2" if p_is_msvc else "-mavx2"
 
     tmp_dir = tempfile.mkdtemp(prefix="gs_avx2_check_")
     src_file = os.path.join(tmp_dir, "avx2_check.cpp")
@@ -74,40 +112,149 @@ int main() {
         with open(src_file, "w") as f:
             f.write(test_src)
 
-        compiler = p_env.subst("$CXX") if p_env.get("CXX") else ("cl" if is_msvc else "c++")
-        if is_msvc:
-            cmd = [compiler, flag, "/Fe:" + out_file + ".exe", src_file]
-        else:
-            cmd = [compiler, flag, "-o", out_file, src_file]
+        compiler = p_env.subst("$CXX") if p_env.get("CXX") else ("cl" if p_is_msvc else "c++")
 
-        result = subprocess.run(cmd, capture_output=True, timeout=30)
-        return result.returncode == 0
-    except Exception:
-        return False
+        # The compiler usually is NOT on the ambient PATH: SCons discovers the
+        # MSVC toolchain itself and records it in the construction environment's
+        # ENV. Overlay that onto os.environ so the child gets both the toolchain
+        # paths and the OS essentials (SystemRoot, TEMP) it needs to run.
+        probe_env = dict(os.environ)
+        for key, value in p_env.get("ENV", {}).items():
+            if isinstance(value, str):
+                probe_env[key] = value
+
+        # Resolve the compiler to an absolute path *ourselves*. Passing env= does
+        # NOT change how the executable is looked up: on Windows CreateProcess
+        # resolves the image against the parent's PATH, and POSIX execvp behaves
+        # the same way, so a compiler that exists only in probe_env["PATH"]
+        # still raises FileNotFoundError — which `except Exception` below would
+        # then quietly report as "toolchain does not support AVX2".
+        resolved = shutil.which(compiler, path=probe_env.get("PATH"))
+        if resolved is None:
+            return False, f'probe could not run: compiler "{compiler}" not found on the build PATH'
+
+        if p_is_msvc:
+            cmd = [resolved, "/nologo", flag, "/Fe:" + out_file + ".exe", src_file]
+        else:
+            cmd = [resolved, flag, "-o", out_file, src_file]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, timeout=30, cwd=tmp_dir, env=probe_env)
+        except subprocess.TimeoutExpired:
+            return False, f"probe could not run: {os.path.basename(resolved)} did not finish within 30s"
+        except OSError as exc:
+            return False, f"probe could not run: failed to launch {resolved} ({exc.__class__.__name__}: {exc})"
+
+        if result.returncode == 0:
+            return True, f"{os.path.basename(resolved)} accepts {flag}"
+
+        diagnostic = (result.stderr or result.stdout or b"").decode("utf-8", "replace").strip()
+        first_line = diagnostic.splitlines()[0] if diagnostic else "(no diagnostic output)"
+        return False, (
+            f"{os.path.basename(resolved)} rejected {flag} "
+            f"(exit {result.returncode}): {first_line}"
+        )
+    except Exception as exc:
+        # Catch-all so a broken probe can never fail the build — but it must
+        # still name itself. The exception class is what distinguishes "the
+        # probe is broken" from "the compiler said no"; reporting a bare
+        # False here is the bug this rewrite exists to remove.
+        return False, f"probe could not run: unexpected {exc.__class__.__name__}: {exc}"
     finally:
-        import shutil
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+# `auto` policy (#651): the probe answers "can this compiler emit AVX2?", which
+# is always yes on a modern x86 toolchain. Treating that as licence to bake
+# /arch:AVX2 (or -mavx2) into the module would make the *shipped* binary refuse
+# to start on pre-2013 CPUs — a silent hardware-floor raise decided by whichever
+# machine happened to run the build. Nothing in the module dispatches on AVX2 at
+# runtime (GS_AVX2_ENABLED has no C++ readers), so there is no fallback path.
+#
+# `auto` therefore never enables AVX2. An earlier revision of this block keyed
+# the refusal on `target in (template_release, template_debug)`, which was a
+# hole rather than a guard:
+#
+#   * No workflow in this repo builds either of those targets — a repo-wide
+#     grep over .github/workflows/ finds them only in prose. The guarded set is
+#     never exercised, so it could rot without anyone noticing.
+#   * What this repo actually ships is `target=editor`
+#     (release_builds.yml:212 for Linux, :424 for Windows, both uploaded).
+#     Those lanes were safe only by the unrelated coincidence that `editor`
+#     resolves optimize=auto -> speed_trace (SConstruct:497-504) and so never
+#     reaches the flag-append block at all. Adding `optimize=speed` to a
+#     release editor lane would have baked AVX2 into a shipped artifact with
+#     the target-keyed guard sitting right there appearing to prevent it —
+#     and release_builds.yml:340 already builds `target=editor optimize=speed`
+#     (the #590 fast-math guard lane; not uploaded today, but one added
+#     upload step away from being a shipped AVX2-requiring binary).
+#   * `dev_build` is no safer a proxy: the non-stable release channel uploads
+#     `dev_build=yes` artifacts (release_builds.yml:214 and :431).
+#
+# There is no target/flavour predicate that separates "distributable" from
+# "local" here, so the honest policy is that `auto` declines everywhere and
+# raising the CPU floor is always an explicit, recorded `gs_avx2=yes`.
+#
+# The probe is still used — but for the job it can actually do: validating an
+# explicit opt-in, so `gs_avx2=yes` on a toolchain that rejects the flag fails
+# loudly instead of spraying D9002 over every compile line.
+
+# GS_AVX2_ENABLED must describe the compile lines that were actually produced,
+# not an intention. The flag is appended in exactly one place — the
+# `optimize == "speed"` block near the bottom of this file — so the define is
+# computed from the same predicate and emitted after it. Anything else makes
+# the macro lie to whoever eventually implements runtime dispatch: before this,
+# a Windows `optimize=speed_trace` build got GS_AVX2_ENABLED=1 with no
+# /arch:AVX2 on any compile line.
+_arch_is_x86 = env.get("arch") in ("x86_64", "x86_32")
+_optimize_appends_flags = env["optimize"] == "speed"
+# On GCC/Clang, -march=native wins the elif below and no -mavx2 is emitted; on
+# MSVC there is no equivalent, so native_arch does not displace /arch:AVX2.
+# (Under -march=native the emitted ISA is host-dependent and unknowable here,
+# so GS_AVX2_ENABLED stays 0 — the conservative answer for a dispatch reader.)
+_native_arch_supersedes = native_arch and not _env_is_msvc(env)
+
 gs_avx2_enabled = False
-if gs_avx2 == "yes":
-    gs_avx2_enabled = True
+if not (_arch_is_x86 and _optimize_appends_flags and not _native_arch_supersedes):
+    gs_avx2_enabled = False
+    # Say so when the user explicitly asked for AVX2 and this build cannot
+    # deliver it. Silently ignoring gs_avx2=yes would be the same class of
+    # defect as the old "not supported by toolchain" message: a build that
+    # quietly did something other than what the command line said.
+    if gs_avx2 == "yes":
+        if not _arch_is_x86:
+            reason = f'arch "{env.get("arch")}" is not x86'
+        elif not _optimize_appends_flags:
+            reason = (
+                f'optimize="{env["optimize"]}" never reaches the module\'s ISA flag '
+                "block (only optimize=speed does)"
+            )
+        else:
+            reason = "gs_native_arch=yes already selects the ISA via -march=native"
+        print(f"GaussianSplatting: gs_avx2=yes has no effect on this build - {reason}.")
 elif gs_avx2 == "no":
     gs_avx2_enabled = False
-else:
-    # auto-detect
-    if env.get("arch") in ("x86_64", "x86_32"):
-        gs_avx2_enabled = _detect_avx2_support(env_gaussian_splatting)
-        if gs_avx2_enabled:
-            print("GaussianSplatting: AVX2 support detected, enabling.")
-        else:
-            print("GaussianSplatting: AVX2 not supported by toolchain, using SSE2 baseline.")
+elif gs_avx2 == "yes":
+    accepted, detail = _probe_avx2_flag(env_gaussian_splatting, _env_is_msvc(env))
+    gs_avx2_enabled = accepted
+    if accepted:
+        print(
+            f"GaussianSplatting: gs_avx2=yes - {detail}. Building the module for AVX2; "
+            "the resulting binary requires an AVX2-capable CPU (Intel Haswell 2013+ / "
+            "AMD Excavator 2015+) and there is no runtime fallback."
+        )
     else:
-        gs_avx2_enabled = False
-
-env_gaussian_splatting.Append(CPPDEFINES=[
-    "GS_AVX2_ENABLED=1" if gs_avx2_enabled else "GS_AVX2_ENABLED=0",
-])
+        print(
+            f"GaussianSplatting: gs_avx2=yes requested but NOT applied - {detail}. "
+            "Falling back to the SSE2 baseline."
+        )
+else:
+    print(
+        "GaussianSplatting: gs_avx2=auto does not enable AVX2 for any target "
+        "(the probe compiles but never runs its test binary, so it cannot know "
+        "what CPU the artifact will run on). Using the SSE2 baseline; pass "
+        "gs_avx2=yes to opt in and raise the module's CPU floor."
+    )
 
 
 def _is_truthy(value):
@@ -245,17 +392,40 @@ if gs_validate_shaders:
     env_gaussian_splatting.AlwaysBuild(shader_validation)
     env_gaussian_splatting.Depends(module_sources, shader_validation)
 
+# Set by whichever branch below actually appends an AVX2 ISA flag. This is the
+# ground truth GS_AVX2_ENABLED is derived from.
+gs_avx2_flag_applied = False
+
 # Optimization flags for high performance configurations
 if env["optimize"] == "speed":
-    if env_gaussian_splatting.get("is_msvc", False):
-        msvc_flags = ["/fp:fast"]
-        if gs_avx2_enabled and env.get("arch") in ("x86_64", "x86_32"):
-            msvc_flags.append("/arch:AVX2")
-        env_gaussian_splatting.Append(CCFLAGS=msvc_flags)
+    if _env_is_msvc(env):
+        # Codegen/ISA selection only. /fp:fast is deliberately NOT enabled here.
+        #
+        # Until #651 this branch was dead (it tested the never-written
+        # "is_msvc" key), so MSVC silently got the GNU flag list, cl.exe
+        # discarded it with D9002, and the module built with default /fp:precise.
+        # Repairing the conditional would therefore have *newly* switched
+        # Windows to fast floating point — re-arming exactly the finite-math
+        # hazard that #612 and #616 exist to close, on the one platform where
+        # those Math::is_finite() guards are currently proven to hold.
+        #
+        # /fp:fast lets MSVC assume no NaN/Inf, which folds the module's
+        # finiteness checks (GaussianData payload validation, PLY/SPZ import
+        # checks, streaming transform checks) to constants — the same failure
+        # mode the GNU branch below spends -fno-finite-math-only to prevent.
+        # Enabling it needs its own change with the animation-safety lane as
+        # evidence; it is not a free rider on an ISA fix. See #612/#616/#590.
+        #
+        # gs_avx2_enabled already folds in arch, optimize and the gs_avx2
+        # tri-state; see the policy block above. Keep it the sole condition so
+        # the GS_AVX2_ENABLED define below cannot drift from the compile line.
+        if gs_avx2_enabled:
+            env_gaussian_splatting.Append(CCFLAGS=["/arch:AVX2"])
+            gs_avx2_flag_applied = True
     else:
-        # This branch is what GCC/Clang actually take (their env has no truthy
-        # is_msvc). -ffast-math implies -ffinite-math-only there, which lets the
-        # compiler assume no NaN/Inf ever occurs and folds std::isfinite/isnan/
+        # This branch is what GCC/Clang actually take. -ffast-math implies
+        # -ffinite-math-only there, which lets the compiler assume no NaN/Inf
+        # ever occurs and folds std::isfinite/isnan/
         # isinf to constants. That silently disables the module's finiteness
         # guards (GaussianData payload validation, the PLY/SPZ import checks,
         # streaming transform checks — all built on Math::is_finite, an
@@ -263,15 +433,32 @@ if env["optimize"] == "speed":
         # splats would pass validation on shipping GCC/Clang template_release
         # builds. -fno-finite-math-only, placed AFTER -ffast-math so it wins,
         # keeps the rest of fast-math's speed while restoring correct NaN/Inf
-        # semantics. See issue #590. (MSVC ignores these GNU-style flags with a
-        # D9002 warning, so this addition is a no-op for cl.exe; the sibling
-        # /fp:fast branch does not imply finite-math-only and needs no change.)
+        # semantics. See issue #590. (Before #651 cl.exe also landed here and
+        # discarded every one of these flags with D9002; MSVC now takes the
+        # branch above and never sees GNU-style flags.)
         ccflags = ["-O3", "-ffast-math", "-fno-finite-math-only"]
         if native_arch:
             ccflags.append("-march=native")
-        elif gs_avx2_enabled and env.get("arch") in ("x86_64", "x86_32"):
+        elif gs_avx2_enabled:
             ccflags.extend(["-mavx2", "-mfma"])
+            gs_avx2_flag_applied = True
         env_gaussian_splatting.Append(CCFLAGS=ccflags)
+
+# GS_AVX2_ENABLED is emitted here, after the flag decision, so it can only ever
+# mean "an AVX2 ISA flag is on this module's compile lines". Fail the build if
+# the policy decision and the append ever disagree: a future edit that adds a
+# condition to one branch and not to the other would otherwise hand runtime
+# dispatch a macro that is silently wrong, which is unfixable at runtime.
+if gs_avx2_flag_applied != gs_avx2_enabled:
+    raise StopError(
+        "GaussianSplatting: internal SCsub inconsistency - gs_avx2_enabled="
+        f"{gs_avx2_enabled} but the AVX2 flag append was {gs_avx2_flag_applied}. "
+        "GS_AVX2_ENABLED must match the compile line; reconcile the policy block "
+        "with the optimize=='speed' block."
+    )
+env_gaussian_splatting.Append(CPPDEFINES=[
+    "GS_AVX2_ENABLED=1" if gs_avx2_flag_applied else "GS_AVX2_ENABLED=0",
+])
 
 # Enable gaussian splatting compile-time guard
 env_gaussian_splatting.Append(CPPDEFINES=["GAUSSIAN_SPLATTING_ENABLED"])
