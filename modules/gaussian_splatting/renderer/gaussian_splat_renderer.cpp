@@ -1299,9 +1299,11 @@ void GaussianSplatRenderer::_teardown_resources() {
         shadow_output_compositor.unref();
     }
     shadow_output_device_id = 0;
-    if (get_device_state().rd) {
-        shadow_blit_state.clear(get_device_state().rd);
-    }
+    // Unconditional: the shadow-blit shader/sampler are created on
+    // RenderingDevice::get_singleton() (see _blit_shadow_depth), independently of
+    // device_state.rd. Skipping teardown when device_state.rd is null would strand
+    // them even though clear() can free each through its recorded owner.
+    shadow_blit_state.clear(get_device_state().rd);
     // Phase 8: frustum cull resources now managed by GPUCuller interface
 
     if (streaming_state_ref.registered_gaussian_buffer.is_valid()) {
@@ -1716,12 +1718,17 @@ void GaussianRenderFacadeState::ShadowBlitState::clear(RenderingDevice *p_device
     sampler_owner.clear();
 
     if (shader.is_valid()) {
-        RenderingDevice *owner = p_device ? p_device : sampler_owner.device;
+        // Free through the device that compiled the shader. p_device is only a
+        // last resort for state recorded before shader_owner existed; it is not
+        // preferred over the recorded owner, because a non-owning device silently
+        // fails to release and the handle is nulled below regardless.
+        RenderingDevice *owner = shader_owner.device ? shader_owner.device : p_device;
         if (owner) {
             owner->free(shader);
         }
     }
     shader = RID();
+    shader_owner.clear();
     pipeline_cache.clear();
     device_id = 0;
 }
@@ -1755,7 +1762,9 @@ bool GaussianSplatRenderer::_ensure_shadow_blit_resources(RenderingDevice *p_dev
 
     uint64_t device_id = p_device->get_device_instance_id();
     if (shadow_blit_state.device_id != 0 && shadow_blit_state.device_id != device_id) {
-        shadow_blit_state.clear(shadow_blit_state.sampler_owner.device ? shadow_blit_state.sampler_owner.device : p_device);
+        // clear() resolves each resource's recorded owner itself; no need for the
+        // caller to guess which device to hand it.
+        shadow_blit_state.clear(p_device);
     }
     shadow_blit_state.device_id = device_id;
 
@@ -1791,6 +1800,7 @@ bool GaussianSplatRenderer::_ensure_shadow_blit_resources(RenderingDevice *p_dev
             GS_LOG_ERROR_DEFAULT(vformat("[GS Shadow] Failed to compile shadow blit shader: %s", compile_error));
             return false;
         }
+        shadow_blit_state.shader_owner.set(p_device);
 
         RD::PipelineRasterizationState raster_state;
         raster_state.cull_mode = RD::POLYGON_CULL_DISABLED;

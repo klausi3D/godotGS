@@ -159,6 +159,11 @@ struct ShadowBlitState {
 	uint64_t device_id = 0;
 	std::unique_ptr<GsShadowBlitShaderRD> shader_source;
 	RID shader;
+	// Device the shader was compiled on. Recorded at compile time so teardown can
+	// free the shader through its actual owner instead of a caller-supplied device
+	// that may not own it (freeing a RID through a non-owning RenderingDevice does
+	// not error -- it silently fails to release).
+	GaussianSplatting::BufferOwnership shader_owner;
 	PipelineCacheRD pipeline_cache;
 	RID sampler;
 	GaussianSplatting::BufferOwnership sampler_owner;
