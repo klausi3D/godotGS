@@ -5,14 +5,26 @@
 
 ## Canonical Command
 
-Use this as the single benchmark entrypoint:
+Use this as the single benchmark entrypoint. Build the binary **optimized** first — a
+`dev_build=yes` binary is compiled at `-O0` and its numbers are not performance evidence:
 
 ```bash
+# Optimized build. Note there is no `.dev.` in the resulting binary name.
+scons platform=<platform> target=editor dev_build=no optimize=speed debug_symbols=no tests=yes
+
 python3 tests/runtime/run_benchmark.py \
-  --godot-binary ./bin/godot.linuxbsd.editor.dev.x86_64 \
+  --godot-binary ./bin/godot.linuxbsd.editor.x86_64 \
   --project-path ./tests/examples/godot/test_project \
   --profile performance
 ```
+
+!!! danger "Do not benchmark a `.dev.` binary"
+    `dev_build=yes` produces `godot.<platform>.editor.dev.<arch>` — the `.dev.` infix is the
+    tell. Passing such a binary to `--godot-binary` produces numbers inflated by roughly an order
+    of magnitude on the CPU side, and it is how the meaningless row published here before
+    2026-07-19 was produced. The optimized binary has no `.dev.` infix
+    (`godot.linuxbsd.editor.x86_64`, `godot.windows.editor.x86_64.exe`). Check the filename you
+    pass before trusting any result.
 
 For ad hoc local exploration, `--profile` still defaults to `everything`. For benchmark evidence
 and Tier 2 closeout, `--profile performance` is the canonical lane set.

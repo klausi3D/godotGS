@@ -50,7 +50,14 @@ Note that the lane's name and its manifest metadata ("2M visible splats", "81 x 
 
 ### Where the GPU time goes
 
-Per-pass GPU timestamps resolve on all five lanes and sum to the reported frame total. Values are the mean of three runs.
+Per-pass GPU timestamps resolve on all five lanes and sum to the reported frame total. Values are the **arithmetic mean of three runs**, and all three runs are committed at [`assets/data/benchmark_runs.json`](../assets/data/benchmark_runs.json) so every cell below can be recomputed:
+
+```python
+import json, statistics
+lanes = json.load(open("docs/assets/data/benchmark_runs.json"))["lanes"]
+runs = lanes["dense_resident_2m"]["runs"].values()
+statistics.mean(r["gpu_pass_ms"]["sort_ms"] for r in runs)   # -> 33.458
+```
 
 | Lane | Overlap count | Prefix | Overlap emit | Sort | Raster | Resolve | Total | Sort share |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -72,7 +79,9 @@ Be precise about what was sampled and what was computed:
 
 ### Run-to-run variance
 
-Each lane was run three times. Spread in `Avg FPS` (max−min as a share of the mean) was: `static_baseline` 2.6%, `city_flyover` 0.7%, `lighting_stress` 0.4%, `instance_storm` 0.2%, `dense_resident_2m` 0.5%. These lanes are stable enough that a single run is representative. The committed row set is run 2 of 3.
+Each lane was run three times. Spread in `Avg FPS` (max−min as a share of the mean) was: `static_baseline` 2.6%, `city_flyover` 0.7%, `lighting_stress` 0.4%, `instance_storm` 0.2%, `dense_resident_2m` 0.5%. These lanes are stable enough that a single run is representative. The committed row set is run 2 of 3 (`committed_run` in the per-run dataset).
+
+All three runs are committed at [`assets/data/benchmark_runs.json`](../assets/data/benchmark_runs.json), so these spreads are recomputable from `steady_avg_fps` rather than asserted.
 
 The one metric that moves more is `city_flyover` GPU frame time (~16% spread), because the lane's camera path crosses regions of very different visible density.
 
@@ -124,7 +133,15 @@ python tests/runtime/run_benchmark.py \
 
 ### Raw data
 
-The full suite report backing this table, including per-lane telemetry, is committed at [`assets/data/benchmark_suite_report.json`](../assets/data/benchmark_suite_report.json). Host-specific paths in it are normalized to repo-relative form; nothing else is edited. The chart dataset [`assets/data/benchmark_latest.json`](../assets/data/benchmark_latest.json) is generated from it by `scripts/export_benchmark_vegalite.py` and carries only the metric fields the charts consume.
+Three files back this page, and between them every number above is recomputable:
+
+| File | What it is |
+| --- | --- |
+| [`assets/data/benchmark_suite_report.json`](../assets/data/benchmark_suite_report.json) | Full suite report for the committed run (run 2), including per-lane telemetry. Host-specific paths are normalized to repo-relative form; no metric value is edited. |
+| [`assets/data/benchmark_runs.json`](../assets/data/benchmark_runs.json) | Per-run telemetry for **all three** runs — steady-state frame metrics and the six GPU pass timings per lane. This is what the per-pass means and the variance figures are computed from. |
+| [`assets/data/benchmark_latest.json`](../assets/data/benchmark_latest.json) | Chart dataset, generated from the suite report by `scripts/export_benchmark_vegalite.py`. Carries only the metric fields the charts consume. |
+
+No figure on this page is derived from data that is not in the repo. If a number here cannot be recomputed from those files, treat it as a bug and report it.
 
 ## Coverage Map
 
