@@ -1935,7 +1935,22 @@ and its teardown destroyed the <code>RenderingDevice</code> before module uninit
 freed renderer GPU resources through it.</p>
 <p>Individual cases that are genuinely broken are deferred <strong>by name</strong>
 (<code>deferred_test_names_any</code>) rather than by tag, so a whole family is never
-re-deferred to hide a handful of failures. Public-alpha signoff and closure of</p>
+re-deferred to hide a handful of failures.</p>
+<p>Two of the three <code>WorldSceneTree</code> waivers cleared in #685. Both were blocked by
+the same product defect: <code>gs_device_utils::safe_submit</code> left a local
+<code>RenderingDevice</code> between <code>submit()</code> and <code>sync()</code>, a state in which every
+subsequent device call on that frame — a second submit, a synchronous
+<code>buffer_get_data()</code>, or any further command recording — runs against an ended
+command buffer and draw graph. That produced the recorded
+<code>_capture_instance_count_sync</code> crash <em>and</em> the <code>VK_ERROR_DEVICE_LOST</code> the third
+waiver was attributed to. <code>gs_device_utils</code> now completes local-device
+submissions and settles before blocking readbacks, and
+<code>tests/ci/check_device_submission_contract.py</code> (headless, in the <code>--guard-only</code>
+lane) fails on any raw <code>submit</code>/<code>sync</code>/<code>buffer_get_data</code>/<code>texture_get_data</code> in
+module production code. Note that no shipping configuration reached any of this:
+<code>GaussianSplatManager::get_primary_rendering_device()</code> returns the MAIN device,
+for which the helpers are no-ops — the guard exists because that protection lives
+in one function's return value, not in the render path itself. Public-alpha signoff and closure of</p>
 <h1 id="350360-require-either-zero-deferred-tests-or-explicit-waivers-in-the-manifest">350/#360 require either zero deferred tests or explicit waivers in the manifest<a class="headerlink" href="#350360-require-either-zero-deferred-tests-or-explicit-waivers-in-the-manifest" title="Permanent link">¶</a></h1>
 <p>with owner, date, issue URL, product risk, mitigation, and a known-limitations
 docs path.</p>
@@ -2143,7 +2158,7 @@ live network access for the deterministic contract check.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 19, 2026 15:58:55 UTC">July 19, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 19, 2026 17:24:43 UTC">July 19, 2026</span>
   </span>
 
     
