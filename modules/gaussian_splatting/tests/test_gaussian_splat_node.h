@@ -1095,6 +1095,13 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer ins
     GaussianSplatNode3D *node_b = memnew(GaussianSplatNode3D);
     node_a->set_splat_asset(make_single_splat_asset(node_a_x));
     node_b->set_splat_asset(make_single_splat_asset(node_b_x));
+    // The instance row's translation_scale[0] is the NODE transform origin
+    // (gaussian_splat_scene_director.cpp:1705), NOT the splat offset baked into
+    // the asset. Without these set_position calls both nodes sit at x=0, every
+    // find_instance_index_by_translation_x() below returns -1, and this test
+    // silently early-returns past all of its opacity assertions.
+    node_a->set_position(Vector3(node_a_x, 0.0f, 0.0f));
+    node_b->set_position(Vector3(node_b_x, 0.0f, 0.0f));
 
     root->add_child(node_a);
     root->add_child(node_b);
@@ -1127,6 +1134,12 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer ins
     int node_a_index = find_instance_index_by_translation_x(instance_buffer, node_a_x);
     int node_b_index = find_instance_index_by_translation_x(instance_buffer, node_b_x);
     if (node_a_index < 0 || node_b_index < 0) {
+        // Not a skip condition: both nodes are attached and visible here, so a
+        // missing instance row is a real failure. Silently returning made this
+        // test green while asserting nothing. FAIL does not abort in this build
+        // (DOCTEST_CONFIG_NO_EXCEPTIONS, #656), so return explicitly before the
+        // index dereferences below.
+        FAIL("instance rows missing for node_a/node_b (a=", node_a_index, " b=", node_b_index, ")");
         root->remove_child(node_b);
         root->remove_child(node_a);
         memdelete(node_b);
@@ -1148,6 +1161,12 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer ins
     node_a_index = find_instance_index_by_translation_x(instance_buffer, node_a_x);
     node_b_index = find_instance_index_by_translation_x(instance_buffer, node_b_x);
     if (node_a_index < 0 || node_b_index < 0) {
+        // Not a skip condition: both nodes are attached and visible here, so a
+        // missing instance row is a real failure. Silently returning made this
+        // test green while asserting nothing. FAIL does not abort in this build
+        // (DOCTEST_CONFIG_NO_EXCEPTIONS, #656), so return explicitly before the
+        // index dereferences below.
+        FAIL("instance rows missing for node_a/node_b (a=", node_a_index, " b=", node_b_index, ")");
         root->remove_child(node_b);
         root->remove_child(node_a);
         memdelete(node_b);
@@ -1167,6 +1186,12 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer ins
     node_a_index = find_instance_index_by_translation_x(instance_buffer, node_a_x);
     node_b_index = find_instance_index_by_translation_x(instance_buffer, node_b_x);
     if (node_a_index < 0 || node_b_index < 0) {
+        // Not a skip condition: both nodes are attached and visible here, so a
+        // missing instance row is a real failure. Silently returning made this
+        // test green while asserting nothing. FAIL does not abort in this build
+        // (DOCTEST_CONFIG_NO_EXCEPTIONS, #656), so return explicitly before the
+        // index dereferences below.
+        FAIL("instance rows missing for node_a/node_b (a=", node_a_index, " b=", node_b_index, ")");
         root->remove_child(node_b);
         root->remove_child(node_a);
         memdelete(node_b);
@@ -1212,6 +1237,18 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Scene sphere effect
 
     node_a->set_splat_asset(make_single_splat_asset(node_a_x));
     node_b->set_splat_asset(make_single_splat_asset(node_b_x));
+    // find_instance_index_by_translation_x matches the NODE transform origin
+    // (gaussian_splat_scene_director.cpp:1705), not the asset-baked splat
+    // offset. Without these both nodes sit at x=0 and the lookups below return
+    // -1 -- which is the actual cause of this case's crash (the failed REQUIRE
+    // does not abort in this build, so -1 was used as an index).
+    //
+    // Safe for the mask assertions: effector selection is scope/layer-based
+    // only (scene_director_sphere_effectors.cpp:231-275 and
+    // gaussian_splat_scene_director.cpp:534-576 apply no distance test), so
+    // moving the nodes does not change which effector matches which node.
+    node_a->set_position(Vector3(node_a_x, 0.0f, 0.0f));
+    node_b->set_position(Vector3(node_b_x, 0.0f, 0.0f));
 
     effector_a->set_enabled(true);
     effector_a->set_radius(8.0f);
@@ -1254,8 +1291,16 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Scene sphere effect
     director->build_instance_buffer_for_renderer(renderer.ptr(), instance_buffer);
     const int node_a_index = find_instance_index_by_translation_x(instance_buffer, node_a_x);
     const int node_b_index = find_instance_index_by_translation_x(instance_buffer, node_b_x);
-    REQUIRE(node_a_index >= 0);
-    REQUIRE(node_b_index >= 0);
+    // #656: REQUIRE does not abort in this build, so a bare REQUIRE followed by
+    // instance_buffer[-1] takes down the entire batch process. Guard explicitly.
+    if (node_a_index < 0 || node_b_index < 0) {
+        FAIL("instance rows missing for node_a/node_b (a=", node_a_index, " b=", node_b_index, ")");
+        root->remove_child(group_b);
+        root->remove_child(group_a);
+        memdelete(group_b);
+        memdelete(group_a);
+        return;
+    }
     CHECK(decode_scene_effector_mask(instance_buffer[node_a_index]) == 0x1u);
     CHECK(decode_scene_effector_mask(instance_buffer[node_b_index]) == 0x2u);
     CHECK(instance_buffer[node_a_index].effect_params[3] == doctest::Approx(2.0f));
@@ -1290,7 +1335,16 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Scene sphere effect
     tree->process(0.0);
     director->build_instance_buffer_for_renderer(renderer.ptr(), instance_buffer);
     const int node_b_disabled_index = find_instance_index_by_translation_x(instance_buffer, node_b_x);
-    REQUIRE(node_b_disabled_index >= 0);
+    // #656: same guard -- disabling scene effectors must not drop the instance
+    // row, and if it ever does we must fail rather than index with -1.
+    if (node_b_disabled_index < 0) {
+        FAIL("instance row missing for node_b after disabling scene effectors");
+        root->remove_child(group_b);
+        root->remove_child(group_a);
+        memdelete(group_b);
+        memdelete(group_a);
+        return;
+    }
     CHECK(decode_scene_effector_mask(instance_buffer[node_b_disabled_index]) == 0u);
     CHECK(node_b->get_last_matched_scene_effector_count() == 0u);
     CHECK_FALSE(node_b->is_scene_effector_position_active());
@@ -1488,6 +1542,13 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer ins
     GaussianSplatNode3D *node_b = memnew(GaussianSplatNode3D);
     node_a->set_splat_asset(make_single_splat_asset(node_a_x));
     node_b->set_splat_asset(make_single_splat_asset(node_b_x));
+    // count_instances_by_translation_x matches the NODE transform origin
+    // (gaussian_splat_scene_director.cpp:1705), not the asset-baked splat
+    // offset. Without these the nodes both sit at x=0, the first CHECK_EQ gets
+    // 0 instead of 1, and the hidden-node assertion below passes vacuously as
+    // 0 == 0 -- i.e. it would stay green even if visibility were ignored.
+    node_a->set_position(Vector3(node_a_x, 0.0f, 0.0f));
+    node_b->set_position(Vector3(node_b_x, 0.0f, 0.0f));
 
     root->add_child(node_a);
     root->add_child(node_b);
@@ -2521,29 +2582,49 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer ful
         renderer->set_importance_cull_threshold(0.35f);
         renderer->set_tiny_splat_screen_radius(2.5f);
         renderer->set_opacity_aware_culling(true);
-        renderer->set_visibility_threshold(0.2f);
+        // 0.05f, not 0.2f: set_visibility_threshold CLAMPS to [0.0001, 0.1]
+        // (render_quality_orchestrator.cpp:242, matching the exported property
+        // hint range "0.0001,0.1"). The original 0.2f could never be read back,
+        // so the matching CHECK below was unsatisfiable no matter what the
+        // full-fidelity override did -- an independent third defect in this
+        // case, masked while it was quarantined.
+        renderer->set_visibility_threshold(0.05f);
         renderer->set_distance_cull_enabled(true);
         renderer->set_distance_cull_start(25.0f);
         renderer->set_distance_cull_max_rate(0.4f);
     };
 
+    // The active asset must stay LIMITED in both blocks so that director
+    // registration is the only variable. _renderer_requests_conservative_full_
+    // fidelity_runtime (gaussian_splat_renderer.cpp:136-139) short-circuits to
+    // true on the active asset alone, before it ever consults the director --
+    // so setting a full-fidelity asset active here (as this test used to do)
+    // makes both blocks identical to the predicate and tests nothing. Deleting
+    // that active-asset clause to "fix" it would be a regression: a renderer
+    // rendering a full-fidelity asset should preserve it.
+    //
+    // unattached_full_asset stays deliberately attached to NO node, which is
+    // exactly the discriminator this case is named for.
     reset_culling_controls();
-    renderer->set_gaussian_asset(unattached_full_asset);
+    renderer->set_gaussian_asset(limited_asset_a);
     renderer->test_cull_visible_count(camera_transform, projection, viewport_size);
 
     CHECK(renderer->get_lod_enabled());
     CHECK(renderer->get_importance_cull_threshold() == doctest::Approx(0.35f));
     CHECK(renderer->get_tiny_splat_screen_radius() == doctest::Approx(2.5f));
     CHECK(renderer->is_opacity_aware_culling());
-    CHECK(renderer->get_visibility_threshold() == doctest::Approx(0.2f));
+    CHECK(renderer->get_visibility_threshold() == doctest::Approx(0.05f));
     CHECK(renderer->is_distance_cull_enabled());
     CHECK(renderer->get_distance_cull_start() == doctest::Approx(25.0f));
     CHECK(renderer->get_distance_cull_max_rate() == doctest::Approx(0.4f));
 
+    // Attach the full-fidelity asset to a node in this shared world. Active
+    // asset is held at limited_asset_a, so the ONLY thing that changed is that
+    // a full-fidelity asset is now registered with the director.
     node_b->set_splat_asset(attached_full_asset);
     tree->process(0.0);
     reset_culling_controls();
-    renderer->set_gaussian_asset(attached_full_asset);
+    renderer->set_gaussian_asset(limited_asset_a);
     renderer->test_cull_visible_count(camera_transform, projection, viewport_size);
 
     CHECK_FALSE(renderer->get_lod_enabled());
@@ -2561,7 +2642,16 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer ful
     memdelete(node_a);
 }
 
-TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer ignores hidden full-fidelity assets") {
+// Renamed from "Shared renderer ignores hidden full-fidelity assets", which
+// asserted the OPPOSITE of the documented contract and was therefore quarantined
+// (#329) as a product failure. It is not one:
+// collect_registered_assets_for_renderer (gaussian_splat_scene_director.cpp:2828)
+// iterates world->asset_records -- a per-ASSET structure with no visibility
+// concept at all -- and the omission of a visibility filter is deliberate and
+// documented at gaussian_splat_renderer.cpp:150-153: the full-fidelity decision
+// "should not flicker as nodes pass in/out of the frustum". This case now pins
+// that stability contract instead of contradicting it.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer full-fidelity collection ignores node visibility") {
     SceneTree *tree = SceneTree::get_singleton();
     REQUIRE_MESSAGE(tree != nullptr, "SceneTree singleton required");
 
@@ -2622,12 +2712,21 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer ign
         renderer->set_importance_cull_threshold(0.35f);
         renderer->set_tiny_splat_screen_radius(2.5f);
         renderer->set_opacity_aware_culling(true);
-        renderer->set_visibility_threshold(0.2f);
+        // 0.05f, not 0.2f: set_visibility_threshold CLAMPS to [0.0001, 0.1]
+        // (render_quality_orchestrator.cpp:242, matching the exported property
+        // hint range "0.0001,0.1"). The original 0.2f could never be read back,
+        // so the matching CHECK below was unsatisfiable no matter what the
+        // full-fidelity override did -- an independent third defect in this
+        // case, masked while it was quarantined.
+        renderer->set_visibility_threshold(0.05f);
         renderer->set_distance_cull_enabled(true);
         renderer->set_distance_cull_start(25.0f);
         renderer->set_distance_cull_max_rate(0.4f);
     };
 
+    // A HIDDEN node still holds a registered full-fidelity asset, so the
+    // conservative override must engage. This is the documented no-flicker
+    // contract, not a leak.
     node_b->set_splat_asset(hidden_full_asset);
     node_b->set_visible(false);
     tree->process(0.0);
@@ -2636,15 +2735,17 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer ign
     renderer->set_gaussian_asset(limited_asset_a);
     renderer->test_cull_visible_count(camera_transform, projection, viewport_size);
 
-    CHECK(renderer->get_lod_enabled());
-    CHECK(renderer->get_importance_cull_threshold() == doctest::Approx(0.35f));
-    CHECK(renderer->get_tiny_splat_screen_radius() == doctest::Approx(2.5f));
-    CHECK(renderer->is_opacity_aware_culling());
-    CHECK(renderer->get_visibility_threshold() == doctest::Approx(0.2f));
-    CHECK(renderer->is_distance_cull_enabled());
-    CHECK(renderer->get_distance_cull_start() == doctest::Approx(25.0f));
-    CHECK(renderer->get_distance_cull_max_rate() == doctest::Approx(0.4f));
+    CHECK_FALSE(renderer->get_lod_enabled());
+    CHECK(renderer->get_importance_cull_threshold() == doctest::Approx(0.0f));
+    CHECK(renderer->get_tiny_splat_screen_radius() == doctest::Approx(0.0f));
+    CHECK_FALSE(renderer->is_opacity_aware_culling());
+    CHECK(renderer->get_visibility_threshold() == doctest::Approx(0.0f));
+    CHECK_FALSE(renderer->is_distance_cull_enabled());
+    CHECK(renderer->get_distance_cull_start() == doctest::Approx(0.0f));
+    CHECK(renderer->get_distance_cull_max_rate() == doctest::Approx(0.0f));
 
+    // Showing the same node must NOT change the decision -- that is the whole
+    // point of the stable-superset collection.
     node_b->set_visible(true);
     tree->process(0.0);
 
@@ -2660,6 +2761,26 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer ign
     CHECK_FALSE(renderer->is_distance_cull_enabled());
     CHECK(renderer->get_distance_cull_start() == doctest::Approx(0.0f));
     CHECK(renderer->get_distance_cull_max_rate() == doctest::Approx(0.0f));
+
+    // CONTROL: the two blocks above assert the same end state, so on their own
+    // they would also pass if the override were unconditionally on. Detaching
+    // the full-fidelity asset entirely must lift it again -- this is what makes
+    // the case discriminate rather than merely agree with itself.
+    node_b->set_splat_asset(limited_asset_b);
+    tree->process(0.0);
+
+    reset_culling_controls();
+    renderer->set_gaussian_asset(limited_asset_a);
+    renderer->test_cull_visible_count(camera_transform, projection, viewport_size);
+
+    CHECK(renderer->get_lod_enabled());
+    CHECK(renderer->get_importance_cull_threshold() == doctest::Approx(0.35f));
+    CHECK(renderer->get_tiny_splat_screen_radius() == doctest::Approx(2.5f));
+    CHECK(renderer->is_opacity_aware_culling());
+    CHECK(renderer->get_visibility_threshold() == doctest::Approx(0.05f));
+    CHECK(renderer->is_distance_cull_enabled());
+    CHECK(renderer->get_distance_cull_start() == doctest::Approx(25.0f));
+    CHECK(renderer->get_distance_cull_max_rate() == doctest::Approx(0.4f));
 
     root->remove_child(node_b);
     root->remove_child(node_a);

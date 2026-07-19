@@ -516,10 +516,22 @@ class GpuHarnessBatchTimeoutBudgetTests(unittest.TestCase):
 
     This pins the override so a future edit cannot drop it back to the default and
     re-hide half the batch.
+
+    RE-MEASURED after the #329 waiver-reduction pass un-quarantined the last four
+    NodeSceneTree cases: the batch is now 22 executing cases / 285 assertions and
+    measured 127.7 s, 133.8 s and 153.3 s wall across three consecutive runs on an
+    RTX 3090 (run-to-run variance is large here -- device bring-up dominates).
+    The constant tracks the SLOWEST observed run, not the mean, because the failure
+    mode being guarded is truncation on a runner slower than this box.
+
+    The 82 s constant was left stale by the growth from 18 to 22 cases, which is
+    the same silent-drift failure #329 was filed about. Against 153 s the previous
+    180 s budget was only 1.17x -- below this guard's own 1.5x floor -- so the
+    budget was raised with the measurement rather than the floor being lowered.
     """
 
     def test_node_scenetree_has_headroom_over_measured_wall_time(self):
-        MEASURED_WALL_SECONDS = 82
+        MEASURED_WALL_SECONDS = 153
         batches = {b.name: b for b in _batches()}
         spec = batches.get("NodeSceneTree")
         if spec is None:
