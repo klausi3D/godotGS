@@ -391,7 +391,7 @@ static Vector<uint8_t> _read_buffer_data_slice(RenderingDevice *p_device, RID p_
 	if (!p_device) {
 		return Vector<uint8_t>();
 	}
-	return p_device->buffer_get_data(p_buffer, p_offset, p_size);
+	return gs_device_utils::safe_buffer_get_data(p_device, p_buffer, p_offset, p_size);
 }
 
 static bool _resolve_effective_sort_count(const SortOperationParams &p_params,
@@ -1005,8 +1005,16 @@ bool GPUSortingPipeline::_capture_instance_count_sync(RenderingDevice *p_device,
         return false;
     }
 
-    Vector<uint8_t> count_data =
-            p_device->buffer_get_data(p_buffer, 0, sizeof(GaussianSplatting::IndirectDispatchLayout));
+    // Never read back with buffer_get_data directly here. This runs after
+    // _sort_instance_pipeline's same-device submit and after the sorter's own
+    // submits; on a local RenderingDevice a submission left in flight would put the
+    // device in a state where this stall (_flush_and_stall_for_all_frames() ->
+    // _end_frame()) re-ends an already-ended command buffer and draw graph, which is
+    // the crash this function was waived for. safe_buffer_get_data settles the
+    // device first, so the guarantee holds even if a submit site regresses.
+    // See sync_policy.h and #685.
+    Vector<uint8_t> count_data = gs_device_utils::safe_buffer_get_data(
+            p_device, p_buffer, 0, sizeof(GaussianSplatting::IndirectDispatchLayout));
     if (count_data.size() < static_cast<int>(sizeof(GaussianSplatting::IndirectDispatchLayout))) {
         return false;
     }
@@ -1042,9 +1050,7 @@ Error GPUSortingPipeline::_enqueue_instance_count_readback(
         return count_err;
     }
 
-    if (!p_device->is_main_rendering_device()) {
-        p_device->submit();
-    }
+    gs_device_utils::safe_submit(p_device);
     return OK;
 }
 
@@ -2034,7 +2040,7 @@ bool GPUSortingPipeline::populate_gpu_positions(RID p_buffer, uint32_t p_total_g
             if (GaussianSplatManager *manager = GaussianSplatManager::get_singleton()) {
                 buffer_device = manager->acquire_submission_device(buffer_device, buffer_lock);
             }
-            Vector<uint8_t> gpu_bytes = buffer_device ? buffer_device->buffer_get_data(p_buffer, byte_offset, byte_size) : Vector<uint8_t>();
+            Vector<uint8_t> gpu_bytes = gs_device_utils::safe_buffer_get_data(buffer_device, p_buffer, byte_offset, byte_size);
             if ((uint64_t)gpu_bytes.size() != byte_size) {
                 if (p_inputs.gpu_gaussian_cache_valid) {
                     *p_inputs.gpu_gaussian_cache_valid = false;
@@ -2122,7 +2128,7 @@ bool GPUSortingPipeline::populate_gpu_positions(RID p_buffer, uint32_t p_total_g
             if (GaussianSplatManager *manager = GaussianSplatManager::get_singleton()) {
                 buffer_device = manager->acquire_submission_device(buffer_device, buffer_lock);
             }
-            Vector<uint8_t> gpu_bytes = buffer_device ? buffer_device->buffer_get_data(p_buffer, byte_offset, byte_size) : Vector<uint8_t>();
+            Vector<uint8_t> gpu_bytes = gs_device_utils::safe_buffer_get_data(buffer_device, p_buffer, byte_offset, byte_size);
             if ((uint64_t)gpu_bytes.size() != byte_size) {
                 return false;
             }

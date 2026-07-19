@@ -62,7 +62,7 @@ static bool _readback_typed_buffer(RenderingDevice *p_device, RID p_buffer, uint
 	if (!p_device) {
 		return false;
 	}
-	r_bytes = p_device->buffer_get_data(p_buffer, p_offset, sizeof(T));
+	r_bytes = gs_device_utils::safe_buffer_get_data(p_device, p_buffer, p_offset, sizeof(T));
 	if ((size_t)r_bytes.size() < sizeof(T)) {
 		return false;
 	}
@@ -227,7 +227,7 @@ bool TileRenderer::TilePrefixScanStage::run_cpu_prefix_fallback(RenderingDevice 
     }
 
     const uint64_t counts_bytes = uint64_t(p_params.total_tiles) * sizeof(uint32_t);
-    Vector<uint8_t> counts_data = p_device->buffer_get_data(owner.global_sort_resources.get_tile_counts_buffer(), 0, counts_bytes);
+    Vector<uint8_t> counts_data = gs_device_utils::safe_buffer_get_data(p_device, owner.global_sort_resources.get_tile_counts_buffer(), 0, counts_bytes);
     if (uint64_t(counts_data.size()) != counts_bytes) {
         GS_LOG_ERROR_DEFAULT(vformat("[TileRenderer] CPU prefix fallback failed to read tile counts (expected=%s bytes, got=%d)",
                 String::num_uint64(counts_bytes), counts_data.size()));
@@ -564,7 +564,7 @@ bool TileRenderer::TilePrefixScanStage::update_global_tile_ranges(const RID &p_g
 		uint32_t center_tile = owner.grid_state.total_tiles / 2;
 		uint32_t sample_count = MIN(owner.grid_state.total_tiles - center_tile, 4u);
 		uint64_t offset = uint64_t(center_tile) * sizeof(uint32_t) * 2u;
-		Vector<uint8_t> sample_bytes = device->buffer_get_data(owner.global_sort_resources.tile_ranges_buffer, offset,
+		Vector<uint8_t> sample_bytes = gs_device_utils::safe_buffer_get_data(device, owner.global_sort_resources.tile_ranges_buffer, offset,
 				sample_count * sizeof(uint32_t) * 2u);
 		if (sample_bytes.size() >= int(sample_count * sizeof(uint32_t) * 2u)) {
 			const uint32_t *ranges = reinterpret_cast<const uint32_t *>(sample_bytes.ptr());
@@ -585,7 +585,7 @@ bool TileRenderer::TilePrefixScanStage::update_global_tile_ranges(const RID &p_g
 		prefix_validated = true;
 		// Read first few ranges to verify prefix[i] == prefix[i-1] + count[i-1]
 		uint32_t check_count = MIN(owner.grid_state.total_tiles, 16u);
-		Vector<uint8_t> check_bytes = device->buffer_get_data(owner.global_sort_resources.tile_ranges_buffer, 0,
+		Vector<uint8_t> check_bytes = gs_device_utils::safe_buffer_get_data(device, owner.global_sort_resources.tile_ranges_buffer, 0,
 				check_count * sizeof(uint32_t) * 2u);
 		if (check_bytes.size() >= int(check_count * sizeof(uint32_t) * 2u)) {
 			const uint32_t *ranges = reinterpret_cast<const uint32_t *>(check_bytes.ptr());
@@ -609,7 +609,7 @@ bool TileRenderer::TilePrefixScanStage::update_global_tile_ranges(const RID &p_g
 #ifdef DEBUG_ENABLED
 	if (g_gpu_sorting_config.debug_validate_prefix) {
 		const uint64_t counts_bytes = uint64_t(owner.grid_state.total_tiles) * sizeof(uint32_t);
-		Vector<uint8_t> counts_data = device->buffer_get_data(owner.global_sort_resources.get_tile_counts_buffer(), 0, counts_bytes);
+		Vector<uint8_t> counts_data = gs_device_utils::safe_buffer_get_data(device, owner.global_sort_resources.get_tile_counts_buffer(), 0, counts_bytes);
 		if ((uint64_t)counts_data.size() == counts_bytes) {
 			const uint32_t *counts = reinterpret_cast<const uint32_t *>(counts_data.ptr());
 			uint64_t cpu_total64 = 0;
