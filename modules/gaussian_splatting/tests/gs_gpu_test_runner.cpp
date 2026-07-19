@@ -238,6 +238,19 @@ struct GsGpuRidLeakListener : public doctest::IReporter {
 		}
 #if defined(RD_ENABLED)
 		if (RenderingDevice *rd = RenderingDevice::get_singleton()) {
+			// #662: settle the device before taking the baseline, exactly as
+			// test_case_end does before taking the end sample. Without a drained
+			// baseline the two endpoints are not comparable: anything still
+			// queued for free here would be released during the case and make
+			// the delta negative (silently suppressed), masking a real leak of
+			// similar size. test_case_end already drains, so this is normally a
+			// no-op -- it matters for the first case after bootstrap, and it
+			// keeps the measurement symmetric if a case is ever entered without
+			// a preceding drained end.
+			const uint32_t drain_cycles = MAX(1u, rd->get_frame_delay()) * 2u;
+			for (uint32_t i = 0; i < drain_cycles; i++) {
+				rd->swap_buffers(false);
+			}
 			// #352: measure GS-OWNED bytes (buffers + textures), NOT MEMORY_TOTAL.
 			// MEMORY_TOTAL is the VMA grand total and includes process-lifetime
 			// driver-internal allocations (compute pipelines, descriptor pools, VMA
@@ -290,6 +303,50 @@ struct GsGpuRidLeakListener : public doctest::IReporter {
 		// follow-up to switch to a release-build-friendly handle-count signal.
 		constexpr uint64_t LEAK_BYTES_THRESHOLD = 4ull << 20;
 		if (RenderingDevice *rd = RenderingDevice::get_singleton()) {
+			// #662: DRAIN DEFERRED FREES BEFORE SAMPLING.
+			//
+			// `MEMORY_BUFFERS`/`MEMORY_TEXTURES` are exact live-object counters
+			// (`RenderingDevice::buffer_memory` / `texture_memory`,
+			// servers/rendering/rendering_device.h:1580-1581): `+= size` on
+			// create, `-= size` on free. They are NOT VMA pool/high-water bytes
+			// -- that is `MEMORY_TOTAL`, which this listener deliberately does
+			// not use (see test_case_start).
+			//
+			// But `rd->free()` is DEFERRED: `_free_internal` only queues onto
+			// `frames[frame].{buffers,textures}_to_dispose_of`
+			// (rendering_device.cpp:6097-6156), and the counters are decremented
+			// in `_free_pending_resources()` (6401/6411), which runs ONLY from
+			// `_begin_frame()` (6469). On this harness's device nothing ever
+			// advances a frame -- there is no swapchain and no main loop -- so a
+			// case that correctly frees every RID it created still reads its
+			// full allocation as "leaked" at test_case_end.
+			//
+			// That, not allocator pool growth, is what produced the
+			// order-dependent figures in #662: the first case to allocate pays
+			// for everything still queued, and a later case reads a baseline
+			// that is already inflated, so its own delta goes negative and is
+			// suppressed by the `end_memory > case_start_memory` guard below.
+			// Excluding the top reporter just moved the same bytes onto the next
+			// case (the whack-a-mole #660 observed).
+			//
+			// `swap_buffers(false)` is the only drain available on a main
+			// instance (`submit`/`sync` are local-device only,
+			// rendering_device.cpp:6322/6332). It presents nothing; it advances
+			// the frame so the pending-free queues are actually processed. Two
+			// full cycles over `get_frame_delay()` frames guarantee every queue
+			// is drained regardless of frame count.
+			//
+			// Draining does NOT weaken the gate: a genuinely leaked RID is never
+			// queued for free in the first place, so it survives any number of
+			// drains and still trips the threshold. This was verified by
+			// reintroducing a real leak and confirming the gate still fires --
+			// and it is what exposed the real one this change ships a fix for
+			// (tile_render_resolve.cpp: external resolved textures freed through
+			// the wrong device).
+			const uint32_t drain_cycles = MAX(1u, rd->get_frame_delay()) * 2u;
+			for (uint32_t i = 0; i < drain_cycles; i++) {
+				rd->swap_buffers(false);
+			}
 			const uint64_t end_memory = rd->get_memory_usage(RenderingDevice::MEMORY_BUFFERS) + rd->get_memory_usage(RenderingDevice::MEMORY_TEXTURES);
 			if (end_memory > case_start_memory) {
 				const uint64_t delta = end_memory - case_start_memory;

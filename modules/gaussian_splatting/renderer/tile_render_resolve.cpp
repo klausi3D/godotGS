@@ -141,6 +141,12 @@ void TileRenderer::TileResolveStage::destroy_resolve_textures() {
         p_rid = RID();
     };
 
+    // Capture the local RIDs BEFORE freeing them: when sharing with the main
+    // device did not happen, `*_external` aliases the local texture, and the
+    // external teardown below must recognise that alias to avoid double-freeing.
+    const RID local_resolved_color = owner.render_targets.resolved_texture;
+    const RID local_resolved_depth = owner.render_targets.resolved_depth_texture;
+
     if (resource_device) {
         safe_texture_free(resource_device, owner.render_targets.resolved_texture);
         safe_texture_free(resource_device, owner.render_targets.resolved_depth_texture);
@@ -148,20 +154,60 @@ void TileRenderer::TileResolveStage::destroy_resolve_textures() {
     owner.render_targets.resolved_texture = RID();
     owner.render_targets.resolved_depth_texture = RID();
 
-    // Only free external resolved textures if we own them (not shared from compositor/viewport)
-    // The main device textures are managed by the viewport/compositor lifecycle
-    if (owner.render_targets.resolved_texture_external.is_valid() &&
-            owner.render_targets.resolved_texture_owner.matches(resource_device)) {
-        safe_texture_free(resource_device, owner.render_targets.resolved_texture_external);
-    } else {
-        owner.render_targets.resolved_texture_external = RID();
-    }
-    if (owner.render_targets.resolved_depth_texture_external.is_valid() &&
-            owner.render_targets.resolved_depth_texture_owner.matches(resource_device)) {
-        safe_texture_free(resource_device, owner.render_targets.resolved_depth_texture_external);
-    } else {
-        owner.render_targets.resolved_depth_texture_external = RID();
-    }
+    // #662: free each external resolved texture through its RECORDED owner, not
+    // through `resource_device`.
+    //
+    // `ensure_resolve_resources()` creates these on the MAIN device via
+    // `share_texture_with_main()` (main_device->texture_create, below), and
+    // records that device in `resolved_*_texture_owner`. The previous code
+    // freed them through `resource_device` (the LOCAL device) and, when the
+    // owner did not match, simply dropped the handle. Both paths orphan the
+    // texture: `safe_texture_free` no-ops when `texture_is_valid()` is false,
+    // which it always is for a RID the local device does not own. Measured
+    // leak before this fix, on the `[TileRenderer][RequiresGPU] Shader
+    // compilation on local device` case: 2 main-device textures /
+    // 17,694,720 B (1920x1080 color + depth) per resolving TileRenderer,
+    // independently confirmed by the engine's own
+    // `2 RIDs of type "Texture" were leaked` report at device finalize.
+    //
+    // The comment this replaces ("main device textures are managed by the
+    // viewport/compositor lifecycle") is false for textures this module
+    // created itself -- nothing else ever frees them. This mirrors
+    // `TileRenderTargets::destroy_output_textures()`, which already frees its
+    // externals through `output_texture_owner.device`.
+    auto free_external_resolved = [&](RID &r_external, RID p_local_alias, auto &r_owner, const char *p_label) {
+        if (!r_external.is_valid()) {
+            r_external = RID();
+            return;
+        }
+        // Not shared: `*_external` aliases the local texture already freed above.
+        if (r_external == p_local_alias) {
+            r_external = RID();
+            return;
+        }
+        // Validate the recorded owner against the LIVE singleton, not against
+        // `r_owner.device` itself. `ensure_resolve_resources()` takes its
+        // `main_device` from `RenderingDevice::get_singleton()` (below) and
+        // records exactly that in `r_owner`, so the singleton is the right
+        // reference point. Passing `r_owner.device` into `matches()` would make
+        // the pointer half a tautology and the id half would dereference the very
+        // pointer a staleness check is supposed to avoid touching. Against the
+        // live singleton both halves do real work: the pointer half rejects an
+        // owner that is not the current device, and the id half rejects a
+        // destroyed-and-recreated one.
+        RenderingDevice *live_main_device = RenderingDevice::get_singleton();
+        if (live_main_device != nullptr && r_owner.matches(live_main_device)) {
+            safe_texture_free(live_main_device, r_external);
+        } else {
+            GS_LOG_WARN_DEFAULT(vformat("[TileRenderer] Recorded owner for %s is not the live main device during teardown; texture orphaned", String(p_label)));
+            r_external = RID();
+        }
+    };
+
+    free_external_resolved(owner.render_targets.resolved_texture_external, local_resolved_color,
+            owner.render_targets.resolved_texture_owner, "resolved_texture_external");
+    free_external_resolved(owner.render_targets.resolved_depth_texture_external, local_resolved_depth,
+            owner.render_targets.resolved_depth_texture_owner, "resolved_depth_texture_external");
     owner.render_targets.resolved_texture_owner.clear();
     owner.render_targets.resolved_texture_local_owner = nullptr;
     owner.render_targets.resolved_depth_texture_owner.clear();
