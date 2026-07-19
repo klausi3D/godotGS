@@ -185,14 +185,21 @@ void TileRenderer::TileResolveStage::destroy_resolve_textures() {
             r_external = RID();
             return;
         }
-        RenderingDevice *external_owner = r_owner.device;
-        // `matches()` re-checks the device instance id, so a stale pointer left
-        // behind by a destroyed-and-recreated device does not get dereferenced
-        // as if it still owned the texture.
-        if (external_owner != nullptr && r_owner.matches(external_owner)) {
-            safe_texture_free(external_owner, r_external);
+        // Validate the recorded owner against the LIVE singleton, not against
+        // `r_owner.device` itself. `ensure_resolve_resources()` takes its
+        // `main_device` from `RenderingDevice::get_singleton()` (below) and
+        // records exactly that in `r_owner`, so the singleton is the right
+        // reference point. Passing `r_owner.device` into `matches()` would make
+        // the pointer half a tautology and the id half would dereference the very
+        // pointer a staleness check is supposed to avoid touching. Against the
+        // live singleton both halves do real work: the pointer half rejects an
+        // owner that is not the current device, and the id half rejects a
+        // destroyed-and-recreated one.
+        RenderingDevice *live_main_device = RenderingDevice::get_singleton();
+        if (live_main_device != nullptr && r_owner.matches(live_main_device)) {
+            safe_texture_free(live_main_device, r_external);
         } else {
-            GS_LOG_WARN_DEFAULT(vformat("[TileRenderer] Missing owner for %s during teardown; texture orphaned", String(p_label)));
+            GS_LOG_WARN_DEFAULT(vformat("[TileRenderer] Recorded owner for %s is not the live main device during teardown; texture orphaned", String(p_label)));
             r_external = RID();
         }
     };
