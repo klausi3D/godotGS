@@ -153,7 +153,7 @@ void GaussianSplatSceneDirector::_build_sorted_sphere_effector_payload(const Sha
 
 void GaussianSplatSceneDirector::build_sphere_effector_payload_for_renderer(const GaussianSplatRenderer *p_renderer,
 		LocalVector<SphereEffectorSelection> &out, uint32_t *r_total_scene_effectors) const {
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	out.clear();
 	if (r_total_scene_effectors) {
 		*r_total_scene_effectors = 0u;
@@ -188,7 +188,7 @@ Dictionary GaussianSplatSceneDirector::get_scene_effector_debug_state_for_instan
 	state["matched_position_active"] = false;
 	state["matched_opacity_active"] = false;
 
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	const SharedWorld *world = nullptr;
 	for (const KeyValue<RID, SharedWorld> &E : worlds) {
 		if (E.value.instance_lookup.has(p_node_id)) {
@@ -335,13 +335,13 @@ Dictionary GaussianSplatSceneDirector::get_scene_effector_debug_state_for_instan
 }
 
 uint32_t GaussianSplatSceneDirector::get_sphere_effector_count_for_renderer(const GaussianSplatRenderer *p_renderer) const {
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	const SharedWorld *world = _find_world_for_renderer(p_renderer);
 	return world ? world->sphere_effectors.size() : 0u;
 }
 
 uint64_t GaussianSplatSceneDirector::get_sphere_effector_generation_for_renderer(const GaussianSplatRenderer *p_renderer) const {
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	const SharedWorld *world = _find_world_for_renderer(p_renderer);
 	return world ? world->sphere_effector_generation : 0ull;
 }
