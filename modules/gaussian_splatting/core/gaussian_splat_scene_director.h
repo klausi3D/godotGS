@@ -190,6 +190,18 @@ public:
 	uint64_t compute_color_grading_signature_for_renderer(const GaussianSplatRenderer *p_renderer,
 			bool p_shadow_casters_only = false) const;
 	uint32_t get_instance_count_for_renderer(const GaussianSplatRenderer *p_renderer) const;
+	// Node IDs of every instance currently registered against `p_renderer`.
+	//
+	// #329: the P2 "renderer is shared" gate is a function of this set, so a node
+	// that joins or leaves has to be able to tell its PEERS to re-evaluate — the
+	// peer's own state is stale the instant the set changes and nothing else on a
+	// non-per-frame path re-reads it. Returns IDs (not pointers) so the caller
+	// resolves through ObjectDB and cannot act on a freed node.
+	//
+	// Takes world_mutex, so it must NOT be called while the caller already holds
+	// it (i.e. never from inside another director method under the lock).
+	void collect_instance_node_ids_for_renderer(const GaussianSplatRenderer *p_renderer,
+			LocalVector<ObjectID> &r_node_ids) const;
 	uint64_t get_instance_generation_for_renderer(const GaussianSplatRenderer *p_renderer) const;
     uint64_t get_instance_asset_generation_for_renderer(const GaussianSplatRenderer *p_renderer) const;
     void register_sphere_effector(ObjectID p_effector_id, const Transform3D &p_transform,

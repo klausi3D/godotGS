@@ -1674,16 +1674,7 @@ void GaussianSplatNode3D::process_gaussian_render() {
         return;
     }
 
-    if (renderer.is_valid()) {
-        const bool shared_renderer_multi_instance = _is_renderer_shared_with_other_content(renderer);
-        if (shared_renderer_multi_instance_state != shared_renderer_multi_instance) {
-            shared_renderer_multi_instance_state = shared_renderer_multi_instance;
-            _apply_renderer_settings();
-            notify_property_list_changed();
-        }
-    } else {
-        shared_renderer_multi_instance_state = false;
-    }
+    _converge_shared_renderer_state();
 
     bool should_update = false;
     switch (update_mode) {
@@ -2527,6 +2518,69 @@ void GaussianSplatNode3D::_update_instance_params_in_director() {
     }
 }
 
+// #329: re-evaluate the P2 "renderer is shared" gate for THIS node and re-apply
+// settings when it flipped.
+//
+// Edge-triggered on purpose. `shared_renderer_multi_instance_state` caches the
+// last observed value, so calling this from a lifecycle path that fires more
+// than once (or from the per-frame path, which is where it used to live
+// exclusively) costs one predicate evaluation and nothing else. Only a genuine
+// change re-applies.
+void GaussianSplatNode3D::_converge_shared_renderer_state() {
+    if (!renderer.is_valid()) {
+        shared_renderer_multi_instance_state = false;
+        return;
+    }
+    const bool shared_renderer_multi_instance = _is_renderer_shared_with_other_content(renderer);
+    if (shared_renderer_multi_instance_state == shared_renderer_multi_instance) {
+        return;
+    }
+    // Update the cached state BEFORE re-applying: _apply_renderer_settings can
+    // re-enter this node through the director, and the updated cache makes that
+    // re-entry a no-op instead of unbounded recursion.
+    shared_renderer_multi_instance_state = shared_renderer_multi_instance;
+    _apply_renderer_settings();
+    notify_property_list_changed();
+}
+
+// #329: tell every OTHER node bound to this node's renderer to re-run the
+// convergence check.
+//
+// The forced-false P2 writes in apply_renderer_debug_settings() / the painterly
+// block of apply_renderer_settings() sit behind the P1 settings-owner lease, so
+// a node that is not the lease holder never reaches them. When the peer set
+// changes it is therefore the OTHER nodes — not the joining/leaving one — that
+// hold stale renderer-wide state: the node that was alone wrote its node-local
+// debug overlay / painterly flag legally, and nothing re-evaluates that write
+// once a peer appears.
+//
+// Must run OUTSIDE any director lock: collect_instance_node_ids_for_renderer
+// takes world_mutex, and the re-apply it drives takes it again through
+// update_instance_color_grading. Both call sites below run after the director
+// call they follow has already returned and released the lock.
+void GaussianSplatNode3D::_notify_renderer_peers_shared_state_changed(const Ref<GaussianSplatRenderer> &p_renderer) {
+    if (!p_renderer.is_valid()) {
+        return;
+    }
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    if (!director) {
+        return;
+    }
+    LocalVector<ObjectID> peer_ids;
+    director->collect_instance_node_ids_for_renderer(p_renderer.ptr(), peer_ids);
+    const ObjectID self_id = get_instance_id();
+    for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        if (peer_ids[i] == self_id) {
+            continue;
+        }
+        GaussianSplatNode3D *peer = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(peer_ids[i]));
+        if (!peer) {
+            continue;
+        }
+        peer->_converge_shared_renderer_state();
+    }
+}
+
 void GaussianSplatNode3D::_register_shared_renderer() {
     const bool debug_logs_enabled = GaussianSplatting::is_debug_frame_logging_enabled();
     if (debug_logs_enabled) {
@@ -2543,10 +2597,23 @@ void GaussianSplatNode3D::_register_shared_renderer() {
         return;
     }
     _register_instance_in_director();
+    // The instance set for this renderer may have just grown past 1. Converge
+    // self first (cheap, edge-triggered), then the peers whose forced-false P2
+    // writes are now owed.
+    _converge_shared_renderer_state();
+    _notify_renderer_peers_shared_state_changed(renderer);
 }
 
 void GaussianSplatNode3D::_unregister_shared_renderer() {
+    // Capture the renderer before unregistering: this node keeps its own `renderer`
+    // reference across a detach, but reading it after the fact would still be
+    // correct only by accident. The peers we must notify are the ones bound to the
+    // renderer this node is leaving.
+    const Ref<GaussianSplatRenderer> departing_renderer = renderer;
     _unregister_instance_in_director();
+    // The set just shrank; a remaining node may now be alone again and is owed
+    // the restore of its node-local debug / painterly state.
+    _notify_renderer_peers_shared_state_changed(departing_renderer);
 }
 
 void GaussianSplatNode3D::_update_shared_transform() {

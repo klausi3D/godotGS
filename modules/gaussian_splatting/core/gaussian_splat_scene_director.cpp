@@ -2031,6 +2031,24 @@ uint64_t GaussianSplatSceneDirector::compute_color_grading_signature_for_rendere
 	return seed;
 }
 
+void GaussianSplatSceneDirector::collect_instance_node_ids_for_renderer(const GaussianSplatRenderer *p_renderer,
+		LocalVector<ObjectID> &r_node_ids) const {
+	r_node_ids.clear();
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+	const SharedWorld *world = _find_world_for_renderer(p_renderer);
+	if (!world) {
+		return;
+	}
+	r_node_ids.reserve(world->instances.size());
+	for (uint32_t i = 0; i < world->instances.size(); i++) {
+		const ObjectID node_id = world->instances[i].node_id;
+		if (node_id == ObjectID()) {
+			continue;
+		}
+		r_node_ids.push_back(node_id);
+	}
+}
+
 uint64_t GaussianSplatSceneDirector::get_instance_generation_for_renderer(const GaussianSplatRenderer *p_renderer) const {
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	const SharedWorld *world = _find_world_for_renderer(p_renderer);

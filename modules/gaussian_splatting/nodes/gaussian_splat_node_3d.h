@@ -332,6 +332,12 @@ private:
     void _mark_render_state_dirty();
     void _register_shared_renderer();
     void _unregister_shared_renderer();
+    // #329: P2 shared-renderer convergence. `_converge_shared_renderer_state` is
+    // edge-triggered on this node; `_notify_renderer_peers_shared_state_changed`
+    // fans it out to the other nodes sharing `p_renderer`, which is the direction
+    // the P1 lease blocks.
+    void _converge_shared_renderer_state();
+    void _notify_renderer_peers_shared_state_changed(const Ref<GaussianSplatRenderer> &p_renderer);
     void _update_shared_transform();
     bool _resolve_is_2d_mode() const;
     uint32_t _get_instance_flags() const;

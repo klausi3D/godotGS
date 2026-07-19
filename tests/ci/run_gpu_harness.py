@@ -151,17 +151,26 @@ BATCHES: tuple[BatchSpec, ...] = (
     # so a newly added [SceneTree] GPU case joins the right batch automatically
     # instead of silently landing nowhere — the failure mode this issue is about.
     #
-    # NOT in REQUIRED_BATCHES yet: 9 of the 28 cases are genuinely broken and are
+    # NOT in REQUIRED_BATCHES yet: some cases are still genuinely broken and are
     # excluded below, each with a waiver in the release-gate manifest. Promote
     # these to required once the waiver list is empty (see #329 follow-ups).
+    #
+    # No count is written here on purpose — that is exactly the "26 that had
+    # silently become 28" drift this file already warns about below. Ask the
+    # source instead:
+    #   python tests/ci/test_gpu_harness_deferred_contract.py --print-summary
     BatchSpec("NodeSceneTree", ("*[Node][SceneTree][RequiresGPU]*",), excludes=(
             # Real behaviour failures, first ever observed (never executed before).
-            # Renderer keeps debug_show_density_heatmap set after the settings
-            # owner exits the tree.
-            "*Shared renderer hides node-local debug settings*",
+            #
+            # "Shared renderer hides node-local debug settings" and "Shared renderer
+            # preserves local painterly and color grading state" used to be excluded
+            # here. Both were genuine PRODUCT bugs (P2 shared-renderer gating), fixed
+            # by the peer-set convergence hook in GaussianSplatNode3D and the painterly
+            # P2 gate in GaussianSplatNodeRendererHelper::apply_renderer_settings.
+            # They now execute in this batch.
+            #
             # Hidden nodes still occupy instance-buffer rows.
             "*Shared renderer instance buffer drops hidden nodes*",
-            "*Shared renderer preserves local painterly and color grading state*",
             "*Shared renderer full-fidelity override only follows attached assets*",
             "*Shared renderer ignores hidden full-fidelity assets*",
             # Hard crash: REQUIRE(node_a_index >= 0) fails, and because this build
