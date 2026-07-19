@@ -313,6 +313,95 @@ GaussianSplatRenderer::WorldSubmissionContract GaussianSplatSceneDirector::_buil
 
 GaussianSplatSceneDirector *GaussianSplatSceneDirector::singleton = nullptr;
 
+// #611: see the declaration in the header for what a non-zero value means.
+SafeNumeric<uint64_t> GaussianSplatSceneDirector::renderer_contract_lock_violations{ 0 };
+
+uint64_t GaussianSplatSceneDirector::get_renderer_contract_lock_violation_count() {
+	return renderer_contract_lock_violations.get();
+}
+
+void GaussianSplatSceneDirector::reset_renderer_contract_lock_violation_count() {
+	renderer_contract_lock_violations.set(0);
+}
+
+void GaussianSplatSceneDirector::_report_renderer_contract_lock_violation(const char *p_site) const {
+	if (!GaussianSplatting::report_lock_held_at_boundary(world_mutex, renderer_contract_lock_violations)) {
+		return;
+	}
+	// Reported, not aborted: the one remaining known violation is
+	// submit_world_submission's apply, whose result gates a commit/reject
+	// decision that a fail-fast return would silently turn into a rejection on
+	// every live-render-thread submission. See #611 (PR B).
+	ERR_PRINT_ONCE(vformat(
+			"[GaussianSplatSceneDirector] #611: %s entered while this thread holds world_mutex. "
+			"The blocking render-thread dispatch it performs can stall for the full dispatch "
+			"timeout because the render thread may be waiting for world_mutex. Queue the work "
+			"on DeferredRendererWork instead.",
+			String(p_site)));
+}
+
+void GaussianSplatSceneDirector::DeferredRendererWork::queue_apply(const Ref<GaussianSplatRenderer> &p_renderer,
+		const GaussianSplatRenderer::WorldSubmissionContract &p_contract) {
+	if (p_renderer.is_null()) {
+		return;
+	}
+	Entry entry;
+	entry.renderer = p_renderer;
+	entry.contract = p_contract;
+	entry.is_restore = false;
+	entries.push_back(entry);
+}
+
+void GaussianSplatSceneDirector::DeferredRendererWork::queue_restore(const Ref<GaussianSplatRenderer> &p_renderer,
+		const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_snapshot) {
+	if (p_renderer.is_null()) {
+		return;
+	}
+	Entry entry;
+	entry.renderer = p_renderer;
+	entry.restore_state = p_snapshot;
+	entry.is_restore = true;
+	entries.push_back(entry);
+}
+
+void GaussianSplatSceneDirector::DeferredRendererWork::cancel() {
+	entries.clear();
+}
+
+void GaussianSplatSceneDirector::DeferredRendererWork::flush() {
+	if (entries.is_empty()) {
+		return;
+	}
+	// Move first: an entry's own destructor (dropping the last renderer Ref) must
+	// not run against a queue that is still being iterated.
+	LocalVector<Entry> pending = std::move(entries);
+	entries.clear();
+	for (Entry &entry : pending) {
+		GaussianSplatRenderer *renderer = entry.renderer.ptr();
+		if (!renderer) {
+			continue;
+		}
+		if (entry.is_restore) {
+			// Mirrors _restore_world_submission_renderer exactly.
+			if (!entry.restore_state.valid) {
+				renderer->clear_world_submission_contract();
+				continue;
+			}
+			const Error err = renderer->restore_world_submission_runtime_state(entry.restore_state);
+			if (err != OK) {
+				GS_LOG_RENDERER_ERROR(vformat("[GaussianSplatSceneDirector] Failed to restore world submission renderer state (err=%d).", err));
+			}
+			continue;
+		}
+		// Mirrors _apply_world_submission_to_renderer's error path exactly; the
+		// callers this queue replaces all discarded the boolean result.
+		const Error err = renderer->apply_world_submission_contract(entry.contract);
+		if (err != OK) {
+			GS_LOG_RENDERER_ERROR(vformat("[GaussianSplatSceneDirector] Failed to apply world submission contract (err=%d).", err));
+		}
+	}
+}
+
 GaussianSplatSceneDirector *GaussianSplatSceneDirector::get_singleton() {
     return singleton;
 }
@@ -337,7 +426,8 @@ GaussianSplatSceneDirector::~GaussianSplatSceneDirector() {
 void GaussianSplatSceneDirector::_bind_methods() {
 }
 
-GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_get_or_create_world_for_scenario(const RID &p_scenario, bool p_require_renderer) {
+GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_get_or_create_world_for_scenario(const RID &p_scenario, bool p_require_renderer,
+		DeferredRendererWork *r_deferred_work) {
 	if (!p_scenario.is_valid()) {
 		return nullptr;
 	}
@@ -375,20 +465,37 @@ GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_get_or_cre
 			if (!entry->world_submission.renderer_restore_state.valid) {
 				entry->world_submission.renderer_restore_state = renderer_state;
 			}
-			_apply_world_submission_to_renderer(*entry, entry->world_submission,
-					entry->world_submission.renderer_restore_state);
+			// #611: every caller of this function holds world_mutex, and the apply
+			// below reaches a blocking render-thread dispatch. Its result was always
+			// discarded here, so it can be split: build the contract now (pure
+			// bookkeeping, needs the map entry) and dispatch it after the lock is
+			// released. The queued entry holds its own renderer Ref, so it survives a
+			// prune of this world in the meantime.
+			if (r_deferred_work) {
+				r_deferred_work->queue_apply(entry->renderer,
+						_build_world_submission_contract(entry->world_submission.renderer_restore_state,
+								entry->world_submission));
+			} else {
+				// No queue supplied: keep the historical inline behaviour rather than
+				// silently skipping the apply. The boundary check inside will report
+				// the inversion.
+				_apply_world_submission_to_renderer(*entry, entry->world_submission,
+						entry->world_submission.renderer_restore_state);
+			}
 		}
 	}
 
 	return entry;
 }
 
-GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_get_or_create_world(World3D *p_world, bool p_require_renderer) {
+GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_get_or_create_world(World3D *p_world, bool p_require_renderer,
+		DeferredRendererWork *r_deferred_work) {
 	ERR_FAIL_NULL_V(p_world, nullptr);
-	return _get_or_create_world_for_scenario(p_world->get_scenario(), p_require_renderer);
+	return _get_or_create_world_for_scenario(p_world->get_scenario(), p_require_renderer, r_deferred_work);
 }
 
-GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_get_world_for_instance(ObjectID p_node_id) {
+GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_get_world_for_instance(ObjectID p_node_id,
+		DeferredRendererWork *r_deferred_work) {
 	Object *obj = ObjectDB::get_instance(p_node_id);
 	Node3D *node = Object::cast_to<Node3D>(obj);
 	if (!node) {
@@ -401,7 +508,7 @@ GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_get_world_
 	if (!world) {
 		return nullptr;
 	}
-	return _get_or_create_world(world);
+	return _get_or_create_world(world, true, r_deferred_work);
 }
 
 GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_find_world_for_instance(ObjectID p_node_id) {
@@ -689,6 +796,7 @@ void GaussianSplatSceneDirector::_copy_world_submission_record(const SharedWorld
 
 void GaussianSplatSceneDirector::_restore_world_submission_renderer(SharedWorld &p_world,
 		const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_snapshot) {
+	_report_renderer_contract_lock_violation("_restore_world_submission_renderer");
 	if (!p_world.renderer.is_valid()) {
 		return;
 	}
@@ -709,6 +817,7 @@ void GaussianSplatSceneDirector::_restore_world_submission_renderer(SharedWorld 
 bool GaussianSplatSceneDirector::_apply_world_submission_to_renderer(SharedWorld &p_world,
 		const SharedWorld::WorldSubmissionRecord &p_record,
 		const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_renderer_state) {
+	_report_renderer_contract_lock_violation("_apply_world_submission_to_renderer");
 	if (!p_record.active || !p_world.renderer.is_valid()) {
 		return true;
 	}
@@ -772,8 +881,13 @@ void GaussianSplatSceneDirector::register_instance(ObjectID p_node_id, const Ref
         float p_wind_intensity, uint32_t p_wind_mode, const Vector3 &p_wind_direction, float p_wind_frequency,
         bool p_visible, bool p_has_desired_residency_hint, int32_t p_desired_residency_hint,
         float p_effect_position_scale, float p_effect_opacity_scale) {
-	MutexLock lock(world_mutex);
-	SharedWorld *world = _get_world_for_instance(p_node_id);
+	// #611: declared before the lock so the apply that
+	// _get_or_create_world_for_scenario may queue (when it lazily creates this
+	// world's renderer) dispatches to the render thread only after world_mutex is
+	// released. See DeferredRendererWork in the header for the ordering rules.
+	DeferredRendererWork deferred_renderer_work;
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+	SharedWorld *world = _get_world_for_instance(p_node_id, &deferred_renderer_work);
 	if (!world) {
 		GaussianSplatting::debug_trace_record_event("instance_reg", "FAIL: world=NULL", true);
 		return;
@@ -964,8 +1078,13 @@ void GaussianSplatSceneDirector::register_instance(ObjectID p_node_id, const Ref
 }
 
 void GaussianSplatSceneDirector::update_instance_transform(ObjectID p_node_id, const Transform3D &p_transform) {
-	MutexLock lock(world_mutex);
-	SharedWorld *world = _get_world_for_instance(p_node_id);
+	// #611: declared before the lock so the apply that
+	// _get_or_create_world_for_scenario may queue (when it lazily creates this
+	// world's renderer) dispatches to the render thread only after world_mutex is
+	// released. See DeferredRendererWork in the header for the ordering rules.
+	DeferredRendererWork deferred_renderer_work;
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+	SharedWorld *world = _get_world_for_instance(p_node_id, &deferred_renderer_work);
 	if (!world) {
 		world = _find_world_for_instance(p_node_id);
 	}
@@ -990,8 +1109,13 @@ void GaussianSplatSceneDirector::update_instance_transform(ObjectID p_node_id, c
 void GaussianSplatSceneDirector::update_instance_scene_effector_filter(ObjectID p_node_id, bool p_enabled,
 		uint32_t p_layer_mask, bool p_scope_filter_present, bool p_scope_filter_valid,
 		ObjectID p_scope_root_id, const LocalVector<ObjectID> &p_scene_tree_ancestor_ids) {
-	MutexLock lock(world_mutex);
-	SharedWorld *world = _get_world_for_instance(p_node_id);
+	// #611: declared before the lock so the apply that
+	// _get_or_create_world_for_scenario may queue (when it lazily creates this
+	// world's renderer) dispatches to the render thread only after world_mutex is
+	// released. See DeferredRendererWork in the header for the ordering rules.
+	DeferredRendererWork deferred_renderer_work;
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+	SharedWorld *world = _get_world_for_instance(p_node_id, &deferred_renderer_work);
 	if (!world) {
 		world = _find_world_for_instance(p_node_id);
 	}
@@ -1036,8 +1160,13 @@ void GaussianSplatSceneDirector::update_instance_params(ObjectID p_node_id, floa
 		const Vector3 &p_wind_direction, float p_wind_frequency, bool p_visible,
 		bool p_has_desired_residency_hint, int32_t p_desired_residency_hint,
 		float p_effect_position_scale, float p_effect_opacity_scale) {
-	MutexLock lock(world_mutex);
-	SharedWorld *world = _get_world_for_instance(p_node_id);
+	// #611: declared before the lock so the apply that
+	// _get_or_create_world_for_scenario may queue (when it lazily creates this
+	// world's renderer) dispatches to the render thread only after world_mutex is
+	// released. See DeferredRendererWork in the header for the ordering rules.
+	DeferredRendererWork deferred_renderer_work;
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+	SharedWorld *world = _get_world_for_instance(p_node_id, &deferred_renderer_work);
 	if (!world) {
 		world = _find_world_for_instance(p_node_id);
 	}
@@ -1125,8 +1254,13 @@ void GaussianSplatSceneDirector::unregister_instance(ObjectID p_node_id) {
 	// #611: declared before the lock so any renderer freed by the prune below drops
 	// its blocking teardown AFTER world_mutex is released.
 	LocalVector<Ref<GaussianSplatRenderer>> deferred_renderer_release;
-	MutexLock lock(world_mutex);
-	SharedWorld *world = _get_world_for_instance(p_node_id);
+	// #611: declared before the lock so the apply that
+	// _get_or_create_world_for_scenario may queue (when it lazily creates this
+	// world's renderer) dispatches to the render thread only after world_mutex is
+	// released. See DeferredRendererWork in the header for the ordering rules.
+	DeferredRendererWork deferred_renderer_work;
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+	SharedWorld *world = _get_world_for_instance(p_node_id, &deferred_renderer_work);
 	if (!world) {
 		world = _find_world_for_instance(p_node_id);
 	}
@@ -1188,7 +1322,7 @@ void GaussianSplatSceneDirector::unregister_instance_submission(ObjectID p_node_
 bool GaussianSplatSceneDirector::get_instance_submission(ObjectID p_node_id, InstanceSubmission *r_submission) const {
 	ERR_FAIL_NULL_V(r_submission, false);
 
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	for (const KeyValue<RID, SharedWorld> &E : worlds) {
 		const SharedWorld &world = E.value;
 		const uint32_t *index_ptr = world.instance_lookup.getptr(p_node_id);
@@ -1226,7 +1360,7 @@ bool GaussianSplatSceneDirector::get_instance_submission(ObjectID p_node_id, Ins
 
 void GaussianSplatSceneDirector::update_instance_lods_for_renderer(const GaussianSplatRenderer *p_renderer,
 		const Vector3 &p_camera_pos, const LODConfig &p_lod_config, float p_hysteresis_zone) {
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	SharedWorld *world = _find_world_for_renderer(p_renderer);
 	if (!world || world->instances.is_empty()) {
 		return;
@@ -1320,7 +1454,7 @@ void GaussianSplatSceneDirector::update_instance_lods_for_renderer(const Gaussia
 }
 
 void GaussianSplatSceneDirector::build_instance_buffer(LocalVector<InstanceDataGPU> &out) const {
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	out.clear();
 
 	uint32_t total_instances = 0;
@@ -1411,7 +1545,7 @@ void GaussianSplatSceneDirector::build_instance_buffer(LocalVector<InstanceDataG
 void GaussianSplatSceneDirector::build_instance_buffer_for_renderer(const GaussianSplatRenderer *p_renderer,
 		LocalVector<InstanceDataGPU> &out, bool p_shadow_casters_only,
 		LocalVector<uint64_t> *r_submission_asset_ids) const {
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	out.clear();
 	if (r_submission_asset_ids) {
 		r_submission_asset_ids->clear();
@@ -1632,7 +1766,7 @@ void GaussianSplatSceneDirector::fill_instance_grading_entry(const Ref<ColorGrad
 
 void GaussianSplatSceneDirector::build_instance_grading_buffer_for_renderer(const GaussianSplatRenderer *p_renderer,
 		LocalVector<InstanceGradingGPU> &out, bool p_shadow_casters_only) const {
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	out.clear();
 
 	const SharedWorld *world = _find_world_for_renderer(p_renderer);
@@ -1686,7 +1820,7 @@ void GaussianSplatSceneDirector::build_instance_grading_buffer_for_renderer(cons
 
 bool GaussianSplatSceneDirector::update_instance_color_grading(ObjectID p_node_id,
 		const Ref<ColorGradingResource> &p_grading, bool p_force_refresh) {
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	SharedWorld *world = _find_world_for_instance(p_node_id);
 	if (!world) {
 		return false;
@@ -1714,7 +1848,7 @@ bool GaussianSplatSceneDirector::update_instance_color_grading(ObjectID p_node_i
 }
 
 Ref<ColorGradingResource> GaussianSplatSceneDirector::get_instance_color_grading(ObjectID p_node_id) const {
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	const SharedWorld *world = const_cast<GaussianSplatSceneDirector *>(this)->_find_world_for_instance(p_node_id);
 	if (!world) {
 		return Ref<ColorGradingResource>();
@@ -1741,7 +1875,7 @@ void GaussianSplatSceneDirector::invalidate_grading_for_renderer(const GaussianS
 				->get_resource_state().instance_grading_defaults_generation
 				.fetch_add(1, std::memory_order_relaxed);
 	}
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	SharedWorld *world = const_cast<SharedWorld *>(_find_world_for_renderer(p_renderer));
 	if (!world) {
 		return;
@@ -1758,7 +1892,7 @@ uint64_t GaussianSplatSceneDirector::compute_color_grading_signature_for_rendere
 	// FNV-1a-esque rolling hash over every per-instance grading tied to the renderer,
 	// including the renderer-wide default used as the fallback. The sort/raster cache
 	// invalidation path hashes this in, so any node grading edit busts the cache.
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	uint64_t seed = 1469598103934665603ull;
 	auto mix_u64 = [&](uint64_t v) {
 		seed ^= v;
@@ -1825,7 +1959,7 @@ uint64_t GaussianSplatSceneDirector::compute_color_grading_signature_for_rendere
 }
 
 uint64_t GaussianSplatSceneDirector::get_instance_generation_for_renderer(const GaussianSplatRenderer *p_renderer) const {
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	const SharedWorld *world = _find_world_for_renderer(p_renderer);
 	if (!world) {
 		return 0;
@@ -1834,7 +1968,7 @@ uint64_t GaussianSplatSceneDirector::get_instance_generation_for_renderer(const 
 }
 
 uint64_t GaussianSplatSceneDirector::get_instance_asset_generation_for_renderer(const GaussianSplatRenderer *p_renderer) const {
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	const SharedWorld *world = _find_world_for_renderer(p_renderer);
 	if (!world) {
 		return 0;
@@ -1843,7 +1977,7 @@ uint64_t GaussianSplatSceneDirector::get_instance_asset_generation_for_renderer(
 }
 
 uint32_t GaussianSplatSceneDirector::get_instance_count_for_renderer(const GaussianSplatRenderer *p_renderer) const {
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	const SharedWorld *world = _find_world_for_renderer(p_renderer);
 	if (!world) {
 		return 0;
@@ -1871,7 +2005,7 @@ void GaussianSplatSceneDirector::update_sphere_effector(ObjectID p_effector_id, 
 	// #611: declared before the lock so any renderer freed by the prune below drops
 	// its blocking teardown AFTER world_mutex is released.
 	LocalVector<Ref<GaussianSplatRenderer>> deferred_renderer_release;
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	SharedWorld *target_world = _get_world_for_effector(p_effector_id);
 	SharedWorld *existing_world = _find_world_for_effector(p_effector_id);
 	if (!target_world) {
@@ -2030,7 +2164,7 @@ void GaussianSplatSceneDirector::unregister_sphere_effector(ObjectID p_effector_
 	// #611: declared before the lock so any renderer freed by the prune below drops
 	// its blocking teardown AFTER world_mutex is released.
 	LocalVector<Ref<GaussianSplatRenderer>> deferred_renderer_release;
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	SharedWorld *world = _find_world_for_effector(p_effector_id);
 	if (!world) {
 		return;
@@ -2059,8 +2193,13 @@ bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &
 	}
 
 	// Runtime world path: renderer mutation, ownership arbitration, and rollback stay centralized here.
-	MutexLock lock(world_mutex);
-	SharedWorld *world = _get_or_create_world_for_scenario(p_submission.scenario);
+	// #611: declared before the lock so the apply that
+	// _get_or_create_world_for_scenario may queue (when it lazily creates this
+	// world's renderer) dispatches to the render thread only after world_mutex is
+	// released. See DeferredRendererWork in the header for the ordering rules.
+	DeferredRendererWork deferred_renderer_work;
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+	SharedWorld *world = _get_or_create_world_for_scenario(p_submission.scenario, true, &deferred_renderer_work);
 	if (!world) {
 		return false;
 	}
@@ -2096,6 +2235,20 @@ bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &
 	}
 
 	world->world_submission = candidate_record;
+	// #611: if _get_or_create_world_for_scenario lazily created this world's
+	// renderer above, it queued an apply of the PREVIOUS record. The commit just
+	// made supersedes it, and the queue flushes after world_mutex is released, so
+	// leaving it in place would re-apply the old contract on top of the new one.
+	// On the two failure exits above the previous record is still the live one,
+	// so their queued apply is correct and is deliberately left alone.
+	//
+	// Scope note (#611 PR A): the apply at the top of this function and the
+	// restores on its failure paths are NOT deferred. Their results gate the
+	// commit/reject decision, which no destructor can feed a value back into;
+	// restructuring that needs the three-phase apply-serialization design tracked
+	// as PR B. The boundary check inside them counts and reports the remaining
+	// violation — see get_renderer_contract_lock_violation_count().
+	deferred_renderer_work.cancel();
 	return true;
 }
 
@@ -2103,15 +2256,32 @@ void GaussianSplatSceneDirector::release_world_submission(ObjectID p_owner_id) {
 	// #611: declared before the lock so any renderer freed by the prune below drops
 	// its blocking teardown AFTER world_mutex is released.
 	LocalVector<Ref<GaussianSplatRenderer>> deferred_renderer_release;
-	MutexLock lock(world_mutex);
+	// #611: declared AFTER deferred_renderer_release, so it is destroyed BEFORE
+	// it — the restore runs, and only then does the renderer Ref drop. That is the
+	// order the inline code had (restore, then prune/free).
+	DeferredRendererWork deferred_renderer_work;
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	SharedWorld *world = _find_world_for_world_submission(p_owner_id);
 	if (!world) {
 		return;
 	}
 	const RID scenario = world->scenario;
-	_restore_world_submission_renderer(*world, world->world_submission.renderer_restore_state);
+	const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot restore_state =
+			world->world_submission.renderer_restore_state;
 	world->world_submission = SharedWorld::WorldSubmissionRecord();
+	const uint32_t released_before = deferred_renderer_release.size();
 	_prune_world_if_unused(scenario, deferred_renderer_release);
+	// #611: capture the renderer for the deferred restore only AFTER the prune
+	// decision. Holding a Ref across _should_prune_world would push the renderer's
+	// reference count past its `<= 1` threshold and silently stop pruning — the
+	// deferral would then leak a SharedWorld per release.
+	if (deferred_renderer_release.size() > released_before) {
+		// Pruned: the world entry is gone and its last renderer Ref now lives in
+		// deferred_renderer_release. Restore it before that Ref drops.
+		deferred_renderer_work.queue_restore(deferred_renderer_release[released_before], restore_state);
+	} else if (SharedWorld *surviving = worlds.getptr(scenario)) {
+		deferred_renderer_work.queue_restore(surviving->renderer, restore_state);
+	}
 }
 
 void GaussianSplatSceneDirector::try_prune_world_if_unused(const RID &p_scenario) {
@@ -2121,7 +2291,7 @@ void GaussianSplatSceneDirector::try_prune_world_if_unused(const RID &p_scenario
 	// #611: declared before the lock so any renderer freed by the prune below drops
 	// its blocking teardown AFTER world_mutex is released.
 	LocalVector<Ref<GaussianSplatRenderer>> deferred_renderer_release;
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	_prune_world_if_unused(p_scenario, deferred_renderer_release);
 }
 
@@ -2129,13 +2299,13 @@ bool GaussianSplatSceneDirector::has_shared_world_for_scenario(const RID &p_scen
 	if (!p_scenario.is_valid()) {
 		return false;
 	}
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	return worlds.getptr(p_scenario) != nullptr;
 }
 
 #if defined(TESTS_ENABLED) || defined(TOOLS_ENABLED)
 uint32_t GaussianSplatSceneDirector::test_asset_record_count_for_scenario(const RID &p_scenario) const {
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	const SharedWorld *world = worlds.getptr(p_scenario);
 	if (!world) {
 		return 0;
@@ -2144,7 +2314,7 @@ uint32_t GaussianSplatSceneDirector::test_asset_record_count_for_scenario(const 
 }
 
 bool GaussianSplatSceneDirector::test_has_asset_record_for_scenario(const RID &p_scenario, ObjectID p_asset_object_id) const {
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	const SharedWorld *world = worlds.getptr(p_scenario);
 	if (!world) {
 		return false;
@@ -2171,7 +2341,7 @@ void GaussianSplatSceneDirector::teardown_world_for_scenario(const RID &p_scenar
 	// lock. Declared before the lock so it drops after the MutexLock scope ends.
 	Ref<GaussianSplatRenderer> deferred_renderer_release;
 	{
-		MutexLock lock(world_mutex);
+		GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 		SharedWorld *entry = worlds.getptr(p_scenario);
 		if (!entry) {
 			// Already torn down (e.g. another peer on the same scenario beat us to
@@ -2223,7 +2393,7 @@ void GaussianSplatSceneDirector::release_all_worlds() {
 	// lock-order inversion against the render thread).
 	LocalVector<RID> scenarios;
 	{
-		MutexLock lock(world_mutex);
+		GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 		scenarios.reserve(worlds.size());
 		for (const KeyValue<RID, SharedWorld> &E : worlds) {
 			scenarios.push_back(E.key);
@@ -2238,7 +2408,7 @@ void GaussianSplatSceneDirector::release_all_worlds() {
 bool GaussianSplatSceneDirector::get_world_submission(ObjectID p_owner_id, WorldSubmission *r_submission) const {
 	ERR_FAIL_NULL_V(r_submission, false);
 
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	const SharedWorld *world = _find_world_for_world_submission(p_owner_id);
 	if (!world || !world->world_submission.active) {
 		return false;
@@ -2251,7 +2421,7 @@ bool GaussianSplatSceneDirector::get_world_submission(ObjectID p_owner_id, World
 bool GaussianSplatSceneDirector::get_world_submission_for_scenario(const RID &p_scenario, WorldSubmission *r_submission) const {
 	ERR_FAIL_NULL_V(r_submission, false);
 
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	const SharedWorld *world = worlds.getptr(p_scenario);
 	if (!world || !world->world_submission.active) {
 		return false;
@@ -2262,7 +2432,7 @@ bool GaussianSplatSceneDirector::get_world_submission_for_scenario(const RID &p_
 }
 
 bool GaussianSplatSceneDirector::has_world_submission_for_renderer(const GaussianSplatRenderer *p_renderer) const {
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	const SharedWorld *world = _find_world_for_renderer(p_renderer);
 	if (!world || !world->world_submission.active) {
 		return false;
@@ -2275,7 +2445,7 @@ bool GaussianSplatSceneDirector::get_submission_residency_hint_for_renderer(cons
 		int32_t *r_hint, String *r_source) const {
 	ERR_FAIL_NULL_V(r_hint, false);
 
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	if (const SharedWorld *world = _find_world_for_renderer(p_renderer)) {
 		const bool world_submission_has_renderable_data =
 				_world_submission_record_has_renderable_payload(world->world_submission);
@@ -2322,7 +2492,7 @@ bool GaussianSplatSceneDirector::get_submission_residency_hint_for_renderer(cons
 }
 
 GaussianSplatSceneDirector::SubmissionCounts GaussianSplatSceneDirector::get_submission_counts() const {
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 
 	SubmissionCounts counts;
 	for (const KeyValue<RID, SharedWorld> &E : worlds) {
@@ -2372,7 +2542,7 @@ static bool _asset_requests_full_fidelity_runtime(const Ref<GaussianSplatAsset> 
 
 void GaussianSplatSceneDirector::collect_instance_assets_for_renderer(const GaussianSplatRenderer *p_renderer,
 		LocalVector<InstanceAssetRegistration> &out, bool p_shadow_casters_only) const {
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	out.clear();
 
 	const SharedWorld *world = _find_world_for_renderer(p_renderer);
@@ -2414,7 +2584,7 @@ void GaussianSplatSceneDirector::collect_instance_assets_for_renderer(const Gaus
 
 void GaussianSplatSceneDirector::collect_registered_assets_for_renderer(const GaussianSplatRenderer *p_renderer,
 		LocalVector<InstanceAssetRegistration> &out) const {
-	MutexLock lock(world_mutex);
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	out.clear();
 
 	const SharedWorld *world = _find_world_for_renderer(p_renderer);
@@ -2441,8 +2611,13 @@ void GaussianSplatSceneDirector::collect_registered_assets_for_renderer(const Ga
 
 
 Ref<GaussianSplatRenderer> GaussianSplatSceneDirector::get_shared_renderer(World3D *p_world) {
-	MutexLock lock(world_mutex);
-	SharedWorld *world = _get_or_create_world(p_world);
+	// #611: declared before the lock so the apply that
+	// _get_or_create_world_for_scenario may queue (when it lazily creates this
+	// world's renderer) dispatches to the render thread only after world_mutex is
+	// released. See DeferredRendererWork in the header for the ordering rules.
+	DeferredRendererWork deferred_renderer_work;
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+	SharedWorld *world = _get_or_create_world(p_world, true, &deferred_renderer_work);
 	if (!world) {
 		return Ref<GaussianSplatRenderer>();
 	}
