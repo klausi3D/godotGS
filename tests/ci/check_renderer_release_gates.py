@@ -1178,17 +1178,92 @@ def _candidate_gpu_batch_policy_failures(
     required: dict[str, Any],
 ) -> list[str]:
     failures: list[str] = []
+    # `test_cases.skipped` is STRUCTURALLY validated but deliberately NOT gated
+    # on (#695).
+    #
+    # It is doctest's `numTestCases - numTestCasesPassingFilters`
+    # (thirdparty/doctest/doctest.h:6307): the entire registered corpus minus the
+    # cases this batch's `--test-case=` filter selected. Every batch selects a
+    # handful out of ~2008, so on a perfectly clean RTX 3090 run it measures
+    # 2007 / 2004 / 2004 for CompositorHazard / RendererPipeline / Lifetime.
+    #
+    # Gating `allow_skips` on it (as this function did until #695) therefore
+    # rejected EVERY real harness report on ALL THREE required batches,
+    # unconditionally, for a reason that is pure filter arithmetic. The check
+    # only ever passed against fixtures that set `"skipped": 0` -- a value the
+    # producer cannot emit for a filtered batch -- which is why the defect
+    # survived: `--mode candidate` had never met a real report.
+    #
+    # `allow_skips` now means what the manifest always intended, gated on the
+    # audit below. The three things doctest's summary conflates are separated as:
+    #   * case never started (filter miss)      -> benign, not a signal;
+    #   * case has a `doctest::skip()` decorator -> lowers the batch's reported
+    #     `total`, so `minimum_test_cases` already rejects it;
+    #   * case STARTED and asserted nothing      -> a runtime skip, reported
+    #     per-case by the listener as `zero_assertion_cases`. THAT is the signal.
     skipped = cases.get("skipped", 0)
     if not _is_json_number(skipped):
         failures.append(f"candidate GPU batch {name} test_cases.skipped must be numeric")
-    elif not required.get("allow_skips", False) and skipped:
-        failures.append(f"candidate GPU batch {name} skipped tests")
+    failures.extend(_candidate_gpu_batch_hollow_case_failures(name, batch, required))
     rid_leak_bytes = batch.get("rid_leak_bytes", 0)
     if not _is_json_number(rid_leak_bytes):
         failures.append(f"candidate GPU batch {name} rid_leak_bytes must be numeric")
     elif not required.get("allow_rid_leaks", False) and rid_leak_bytes:
         failures.append(f"candidate GPU batch {name} reported RID leaks")
     failures.extend(_candidate_gpu_batch_lifetime_failures(name, batch, required))
+    return failures
+
+
+def _candidate_gpu_batch_hollow_case_failures(
+    name: Any,
+    batch: dict[str, Any],
+    required: dict[str, Any],
+) -> list[str]:
+    """Reject a candidate GPU batch containing a case that ran and asserted nothing.
+
+    This is what ``allow_skips: false`` is actually asking for. run_gpu_harness.py
+    scrapes the harness listener's ``[GS-GPU][NO-ASSERTS] test=<name>`` lines into
+    ``zero_assertion_cases``: cases doctest STARTED, counted PASSED, and which
+    evaluated zero assertions -- an early return past every check. doctest's own
+    ``test_cases.skipped`` column cannot express this (see the commentary in
+    ``_candidate_gpu_batch_policy_failures``), and the report-level
+    ``zero_assertion_required_batches`` (#692) only fires when the WHOLE batch
+    asserted nothing, so a four-case batch with three hollow cases and one real
+    one passes it. This is the per-case refinement.
+
+    ``case_assert_audit_ok`` must be present and true. The hollow-case signal is
+    carried by the ABSENCE of NO-ASSERTS lines, and absence is equally what a
+    binary built without the listener produces -- so an empty list is only
+    evidence when the producer affirmatively recorded that it looked. Same
+    fail-closed reasoning as requiring ``supervisor_exit`` to be present.
+    """
+    if required.get("allow_skips", False):
+        return []
+    failures: list[str] = []
+    if batch.get("case_assert_audit_ok") is not True:
+        failures.append(
+            f"candidate GPU batch {name} is missing the per-case assertion audit "
+            "(case_assert_audit_ok is not true): the report cannot show whether its "
+            "cases verified anything, so an empty zero_assertion_cases means "
+            "'nobody looked', not 'nothing hollow' (#695)"
+        )
+    raw = batch.get("zero_assertion_cases")
+    if raw is None:
+        failures.append(
+            f"candidate GPU batch {name} is missing zero_assertion_cases: a report "
+            "without the per-case assertion audit cannot be release evidence (#695)"
+        )
+        return failures
+    if not isinstance(raw, list):
+        return failures + [
+            f"candidate GPU batch {name} zero_assertion_cases must be a list"
+        ]
+    hollow = [str(entry) for entry in raw if str(entry).strip()]
+    if hollow:
+        failures.append(
+            f"candidate GPU batch {name} ran case(s) that evaluated ZERO assertions: "
+            f"{hollow}. doctest counted them PASSED; they verified nothing (#695)"
+        )
     return failures
 
 
@@ -1272,6 +1347,16 @@ _GPU_REPORT_SIGNAL_FIELDS: tuple[tuple[str, str], ...] = (
         "zero_assertion_required_batches",
         "required batch(es) ran test cases but evaluated ZERO assertions -- the "
         "run verified nothing (#692)",
+    ),
+    (
+        "hollow_required_cases",
+        "required batch case(s) ran but evaluated ZERO assertions -- they "
+        "early-returned past their checks and doctest counted them PASSED (#695)",
+    ),
+    (
+        "case_audit_missing_batches",
+        "required batch(es) finished without emitting the per-case assertion "
+        "audit -- the harness binary predates it or the listener is gone (#695)",
     ),
     ("empty_required_batches", "required batch(es) matched zero test cases"),
     ("summary_parse_failures", "batch(es) whose doctest summary could not be parsed"),

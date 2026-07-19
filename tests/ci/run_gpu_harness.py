@@ -374,6 +374,32 @@ assert REQUIRED_BATCHES <= {spec.name for spec in BATCHES}, (
 # and fold into the gate decision.
 RID_LEAK_RE = re.compile(r"\[GS-GPU\]\[RID-LEAK\?\] bytes=(\d+)")
 
+# #695: per-case execution audit emitted by the same listener.
+#
+#   `[GS-GPU][NO-ASSERTS] test=<case name>`   -- one per case that ran and
+#                                                evaluated ZERO assertions
+#   `[GS-GPU][CASE-ASSERT-AUDIT] started=N zero_assert=M`  -- once per process
+#
+# WHY this exists instead of reading doctest's "N skipped" column: that column
+# is `numTestCases - numTestCasesPassingFilters` (thirdparty/doctest/doctest.h
+# :6307), i.e. the whole registered corpus minus the cases this batch's
+# `--test-case=` filter selected. Every batch selects a handful out of ~2008, so
+# it reads ~2004 on every green run and can never be zero. It measures FILTER
+# REACH, not runtime skipping. A case that started and asserted nothing --
+# an early return past its checks, which doctest counts as PASSED -- is
+# invisible there and is exactly the hollow-coverage signal the release gate
+# needs (#690, #692).
+#
+# The AUDIT line is a fail-closed presence marker: the NO-ASSERTS signal is
+# carried by the absence of lines, and absence is also what a deleted listener
+# or an older binary produces. Requiring the marker means the producer must
+# affirmatively say "I looked", closing the same laundering-by-deletion path
+# `supervisor_exit` closes in check_renderer_release_gates.py.
+NO_ASSERTS_RE = re.compile(r"\[GS-GPU\]\[NO-ASSERTS\] test=(.+?)\s*$", re.MULTILINE)
+CASE_ASSERT_AUDIT_RE = re.compile(
+    r"\[GS-GPU\]\[CASE-ASSERT-AUDIT\] started=(\d+) zero_assert=(\d+)"
+)
+
 # Matches the per-scenario lifetime line emitted by the lifetime-proof fixture
 # (modules/gaussian_splatting/tests/test_renderer_lifetime_proof.h):
 #   `[GS-LIFETIME] {"scenario":"renderer_instance","passed":true,...}`
@@ -434,6 +460,14 @@ class BatchResult:
     # skipped lifetime scenario can't satisfy the gate without exercising its
     # path (Codex PR #419 Finding 2).
     lifetime_failed_scenarios: list[str] = field(default_factory=list)
+    # #695: names of cases that STARTED and evaluated zero assertions -- runtime
+    # skips, as distinct from doctest's `test_cases.skipped` (filter reach).
+    zero_assertion_cases: list[str] = field(default_factory=list)
+    # True when the listener's `[GS-GPU][CASE-ASSERT-AUDIT]` marker was seen, so
+    # an empty `zero_assertion_cases` means "checked, none" rather than "nobody
+    # looked". `cases_started` is the listener's own count of started cases.
+    case_assert_audit_ok: bool = False
+    cases_started: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -460,6 +494,9 @@ class BatchResult:
             "rid_leak_bytes": self.rid_leak_bytes,
             "summary_parse_ok": self.summary_parse_ok,
             "lifetime_failed_scenarios": list(self.lifetime_failed_scenarios),
+            "zero_assertion_cases": list(self.zero_assertion_cases),
+            "case_assert_audit_ok": self.case_assert_audit_ok,
+            "cases_started": self.cases_started,
         }
 
 
@@ -499,6 +536,17 @@ def _parse_summary(stdout: str, result: BatchResult) -> None:
         except ValueError:
             pass
     result.rid_leak_bytes = total_leak
+
+    # #695: scrape the per-case assertion audit. `zero_assertion_cases` names
+    # every case that ran but verified nothing; the AUDIT marker proves the
+    # listener was present and looked at all of them. Both are recorded here;
+    # main() escalates them for REQUIRED batches only.
+    for nm in NO_ASSERTS_RE.finditer(stdout):
+        result.zero_assertion_cases.append(nm.group(1).strip())
+    audit_match = CASE_ASSERT_AUDIT_RE.search(stdout)
+    if audit_match:
+        result.case_assert_audit_ok = True
+        result.cases_started = int(audit_match.group(1))
 
     # Scrape [GS-LIFETIME] scenario lines. A skip (mark_skipped) or a
     # scope-exited-without-finalize both emit passed=false while doctest still
@@ -871,6 +919,11 @@ def main() -> int:
     # totals at 0 and is reported by `summary_parse_failures`. Each failure
     # therefore surfaces under exactly one reason rather than three.
     zero_assertion_required_batches: list[str] = []
+    # #695: individual cases inside REQUIRED batches that ran and asserted
+    # nothing ("Batch/case name"), and required batches whose report carries no
+    # per-case audit marker at all. See the escalation comments below.
+    hollow_required_cases: list[str] = []
+    case_audit_missing_batches: list[str] = []
     if selected_required := REQUIRED_BATCHES.intersection({spec.name for spec in selected}):
         for r in results:
             if (
@@ -898,6 +951,60 @@ def main() -> int:
                     f"(filters={list(r.filters)}). The visual gate must not pass while the "
                     "canonical regression test is silently skipped — fix the filter or remove "
                     "this batch from REQUIRED_BATCHES.",
+                    flush=True,
+                )
+            # #695: a REQUIRED batch where SOME case ran and asserted nothing.
+            #
+            # The batch-level check above only fires when the WHOLE batch
+            # evaluated zero assertions. A batch of four cases where three
+            # early-return and one asserts reports `asserts=8/8` and sails
+            # through it, having verified a quarter of what it claims. doctest's
+            # own `skipped` column cannot see this either -- it counts the
+            # ~2004 corpus cases this batch's filter did not select, so it is
+            # non-zero on every run and means nothing about runtime skipping
+            # (that is the #695 defect this replaces).
+            #
+            # Scoped to REQUIRED_BATCHES for the same reason as the batch-level
+            # rule: advisory batches are allowed to be catalogued-but-hollow.
+            if r.name in selected_required and r.zero_assertion_cases:
+                for case in r.zero_assertion_cases:
+                    hollow_required_cases.append(f"{r.name}/{case}")
+                    print(
+                        f"[run_gpu_harness] FATAL: required batch '{r.name}' case "
+                        f"'{case}' ran but evaluated 0 assertions. It early-returned "
+                        "past its checks (a missing RenderingServer, an unmet "
+                        "precondition) and doctest counted it PASSED. Fix the case so "
+                        "it asserts, or stop counting it as required coverage. Do NOT "
+                        "silence this by relaxing the audit (#695).",
+                        flush=True,
+                    )
+            # #695: the audit MARKER is missing from a required batch that
+            # otherwise produced a parseable doctest summary. The batch ran to
+            # completion, so the listener should have printed its per-batch
+            # marker; its absence means the binary predates the audit, was built
+            # without gs_gpu_test_runner.cpp, or the listener was removed. In
+            # any of those cases an empty `zero_assertion_cases` means "nobody
+            # looked", not "nothing hollow" -- fail closed rather than read the
+            # silence as a pass.
+            #
+            # Gated on `summary_parse_ok` to keep reasons disjoint: a batch that
+            # crashed or timed out before doctest's summary is already reported
+            # by `summary_parse_failures` / `timed_out_batches` with a more
+            # precise diagnosis, and would trivially also be missing this marker.
+            if (
+                r.name in selected_required
+                and r.summary_parse_ok
+                and not r.case_assert_audit_ok
+            ):
+                case_audit_missing_batches.append(r.name)
+                print(
+                    f"[run_gpu_harness] FATAL: required batch '{r.name}' finished and "
+                    "printed a doctest summary but emitted no "
+                    "[GS-GPU][CASE-ASSERT-AUDIT] marker. The per-case assertion audit "
+                    "did not run, so this report cannot show whether its cases verified "
+                    "anything. Rebuild the harness binary from a tree that contains the "
+                    "listener in modules/gaussian_splatting/tests/gs_gpu_test_runner.cpp "
+                    "(#695).",
                     flush=True,
                 )
             if r.name in selected_required and r.lifetime_failed_scenarios:
@@ -1012,6 +1119,8 @@ def main() -> int:
         or (total_rid_leak_bytes > 0)
         or bool(required_lifetime_failures)
         or bool(timed_out_batches)
+        or bool(hollow_required_cases)
+        or bool(case_audit_missing_batches)
     )
     # Preserve the worst batch's exit code as the supervisor exit when a batch
     # itself failed (the module header promises "returns max(batch_rc)"). The
@@ -1041,6 +1150,8 @@ def main() -> int:
         "parsed_failures": parsed_failures,
         "empty_required_batches": empty_required_batches,
         "zero_assertion_required_batches": zero_assertion_required_batches,
+        "hollow_required_cases": hollow_required_cases,
+        "case_audit_missing_batches": case_audit_missing_batches,
         "summary_parse_failures": summary_parse_failures,
         "required_lifetime_failures": required_lifetime_failures,
         "timed_out_batches": timed_out_batches,
@@ -1117,7 +1228,11 @@ def main() -> int:
         extra_suffix_parts.append(f"summary_parse_failures={summary_parse_failures}")
     if required_lifetime_failures:
         extra_suffix_parts.append(f"required_lifetime_failures={required_lifetime_failures}")
-    extra_suffix = (" " + " ".join(extra_suffix_parts)) if extra_suffix_parts else ""
+    if hollow_required_cases:
+        extra_suffix_parts.append(f"hollow_required_cases={hollow_required_cases}")
+    if case_audit_missing_batches:
+        extra_suffix_parts.append(f"case_audit_missing={case_audit_missing_batches}")
+    extra_suffix =(" " + " ".join(extra_suffix_parts)) if extra_suffix_parts else ""
     print(
         f"[run_gpu_harness] DONE max_rc={max_rc} cases={totals['test_cases_passed']}/{totals['test_cases_total']} "
         f"asserts={totals['assertions_passed']}/{totals['assertions_total']} failures={parsed_failures}"

@@ -531,7 +531,15 @@ class GpuHarnessZeroAssertionRequiredBatchTests(unittest.TestCase):
     GPU and no subprocess -- it runs in the headless guard lane.
     """
 
-    def _run_main(self, tmpdir: Path, batch_name: str, cases: int, asserts: int):
+    def _run_main(
+        self,
+        tmpdir: Path,
+        batch_name: str,
+        cases: int,
+        asserts: int,
+        zero_assertion_cases: list[str] | None = None,
+        case_assert_audit_ok: bool = True,
+    ):
         import contextlib
         import io
 
@@ -544,12 +552,22 @@ class GpuHarnessZeroAssertionRequiredBatchTests(unittest.TestCase):
             r.status = "SUCCESS"
             r.test_cases_total = cases
             r.test_cases_passed = cases
+            # #695: doctest's `skipped` column is the whole registered corpus
+            # minus this batch's filter reach, so a real batch ALWAYS reports a
+            # four-digit value here. Modelling it as 0 is what let the release
+            # gate's skip check look correct while rejecting every real report.
+            r.test_cases_skipped = 2008 - cases
             r.assertions_total = asserts
             r.assertions_passed = asserts
             # summary_parse_ok=True is the crux: doctest printed a perfectly
             # well-formed summary. Nothing is malformed here -- the run is simply
             # hollow, which is why no pre-existing check caught it.
             r.summary_parse_ok = True
+            # #695: the listener's per-case audit. Default is "the audit ran and
+            # found nothing hollow", the shape of a healthy batch.
+            r.case_assert_audit_ok = case_assert_audit_ok
+            r.cases_started = cases
+            r.zero_assertion_cases = list(zero_assertion_cases or [])
             return r
 
         harness._run_batch = _fake_run_batch
@@ -645,6 +663,100 @@ class GpuHarnessZeroAssertionRequiredBatchTests(unittest.TestCase):
             "An advisory batch asserting nothing must not fail the gate.",
         )
         self.assertEqual(report["zero_assertion_required_batches"], [])
+
+    # ---- #695: per-case audit escalation --------------------------------
+
+    def test_required_batch_with_one_hollow_case_fails_gate_and_is_named(self):
+        """The per-case refinement of the rule above.
+
+        `zero_assertion_required_batches` only fires when the WHOLE batch
+        evaluated zero assertions. A batch of four cases where three early-return
+        and one asserts reports `asserts=17/17` and passes it, having verified a
+        quarter of what it claims. doctest cannot report this either: its
+        `skipped` column counts the ~2004 corpus cases the filter did not select
+        and reads the same on a healthy batch (that is the #695 defect). Only the
+        listener's per-case audit can see it.
+        """
+        import tempfile
+
+        batch_name = self._a_required_batch()
+        with tempfile.TemporaryDirectory() as td:
+            rc, stdout, report = self._run_main(
+                Path(td),
+                batch_name,
+                cases=4,
+                asserts=17,
+                zero_assertion_cases=["Stage results report raster failure"],
+            )
+
+        self.assertNotEqual(rc, 0, "A hollow case in a required batch must fail the gate.")
+        self.assertEqual(
+            report["hollow_required_cases"],
+            [f"{batch_name}/Stage results report raster failure"],
+        )
+        # Disjoint from the batch-level reason: this batch DID assert.
+        self.assertEqual(report["zero_assertion_required_batches"], [])
+        self.assertEqual(report["empty_required_batches"], [])
+        self.assertIn("Stage results report raster failure", stdout)
+        # The four-digit filter-miss count is present and is NOT the reason.
+        self.assertEqual(report["batches"][0]["test_cases"]["skipped"], 2004)
+
+    def test_required_batch_without_case_audit_marker_fails_gate(self):
+        """Fail closed when the producer never affirmed that it looked.
+
+        The hollow-case signal is carried by the ABSENCE of NO-ASSERTS lines, and
+        absence is equally what a binary built without the listener emits. A
+        perfectly green batch must therefore be refused when the audit marker is
+        missing, or removing the producer silently greens the gate.
+        """
+        import tempfile
+
+        batch_name = self._a_required_batch()
+        with tempfile.TemporaryDirectory() as td:
+            rc, stdout, report = self._run_main(
+                Path(td), batch_name, cases=4, asserts=17, case_assert_audit_ok=False
+            )
+
+        self.assertNotEqual(rc, 0, "A missing per-case audit must fail the gate.")
+        self.assertEqual(report["case_audit_missing_batches"], [batch_name])
+        self.assertIn("CASE-ASSERT-AUDIT", stdout)
+
+    def test_advisory_batch_with_hollow_case_still_passes(self):
+        """Scope check, mirroring the batch-level asymmetry above.
+
+        Without this the two rejections could pass vacuously via a rule that
+        simply always fires.
+        """
+        import tempfile
+
+        batch_name = self._an_advisory_batch()
+        with tempfile.TemporaryDirectory() as td:
+            rc, _stdout, report = self._run_main(
+                Path(td),
+                batch_name,
+                cases=2,
+                asserts=3,
+                zero_assertion_cases=["some advisory case"],
+                case_assert_audit_ok=False,
+            )
+
+        self.assertEqual(rc, 0, "Advisory batches keep their documented leniency.")
+        self.assertEqual(report["hollow_required_cases"], [])
+        self.assertEqual(report["case_audit_missing_batches"], [])
+
+    def test_clean_required_batch_with_audit_passes(self):
+        """Discrimination: audit ran, nothing hollow, four-digit skip count -> pass."""
+        import tempfile
+
+        batch_name = self._a_required_batch()
+        with tempfile.TemporaryDirectory() as td:
+            rc, _stdout, report = self._run_main(Path(td), batch_name, cases=4, asserts=17)
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(report["hollow_required_cases"], [])
+        self.assertEqual(report["case_audit_missing_batches"], [])
+        self.assertEqual(report["batches"][0]["test_cases"]["skipped"], 2004)
+        self.assertIs(report["batches"][0]["case_assert_audit_ok"], True)
 
 
 class GpuHarnessBatchTimeoutBudgetTests(unittest.TestCase):
