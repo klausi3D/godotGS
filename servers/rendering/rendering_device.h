@@ -1665,6 +1665,14 @@ public:
 
         uint64_t get_device_instance_id() const { return device_instance_id; }
         bool is_main_rendering_device() const { return is_main_instance; }
+        // True on a local device between submit() and sync(). In that window the
+        // frame's command buffer and draw graph are already ended, so any call that
+        // re-enters the frame lifecycle -- submit() again, or a synchronous
+        // buffer_get_data()/texture_get_data(), which stalls via
+        // _flush_and_stall_for_all_frames() -> _end_frame() -- operates on ended
+        // state and faults inside the driver. Callers that must do either need to
+        // sync() first; this accessor is how they can tell. (GS #685)
+        bool is_local_device_submission_pending() const { return local_device_processing; }
 
 	String get_driver_and_device_memory_report() const;
 

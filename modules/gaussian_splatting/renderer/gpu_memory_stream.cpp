@@ -446,10 +446,7 @@ Error GaussianMemoryStream::_stream_internal(const LocalVector<Gaussian> &gaussi
         }
         rd->buffer_update(buffer.gpu_buffer, dst_offset, data_size, packed_gaussians.ptr());
         // submit() and sync() only work on local (non-main) RenderingDevices
-        if (!rd->is_main_rendering_device()) {
-            rd->submit();
-            rd->sync();
-        }
+        gs_device_utils::safe_submit_and_sync(rd);
         buffer.used = data_size;
         buffer.upload_fence = 0;
         buffer.upload_submit_frame = 0;

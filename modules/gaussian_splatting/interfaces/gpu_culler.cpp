@@ -14,6 +14,7 @@
 #include "../renderer/gaussian_gpu_layout.h"
 #include "../renderer/gpu_debug_utils.h"
 #include "../interfaces/overflow_auto_tuner.h"
+#include "../interfaces/sync_policy.h"
 #include "../compute/frustum_cull.glsl.gen.h"
 #include "../logger/gs_logger.h"
 #include "../logger/gs_debug_trace.h"
@@ -1364,10 +1365,11 @@ CullResult GPUCuller::cull(const CullParams &p_params, const CullInputBuffers &p
         GS_LOG_WARN_DEFAULT("[GPUCuller] Async readback size exceeds RD limits");
     }
 
-    // Submit if not main device to flush async readbacks.
-    if (!dispatch_device->is_main_rendering_device()) {
-        dispatch_device->submit();
-    }
+    // Submit if not main device to flush async readbacks. Routed through
+    // gs_device_utils so the device is left in a recording state: the caller keeps
+    // issuing device work after this returns, and a submission left in flight would
+    // send all of it into an ended command buffer. (#685)
+    gs_device_utils::safe_submit(dispatch_device);
 
     if (async_readback_state.last_result_valid) {
         result = async_readback_state.last_result;
@@ -1519,9 +1521,7 @@ bool GPUCuller::_gpu_frustum_cull_instance(const CullParams &p_params, const Ins
             GS_LOG_WARN_DEFAULT(vformat("[GPUCuller] Instance counter async readback enqueue failed (%d)", int(readback_err)));
         }
     }
-    if (!p_inputs.device->is_main_rendering_device()) {
-        p_inputs.device->submit();
-    }
+    gs_device_utils::safe_submit(p_inputs.device);
 
     last_instance_visible_chunk_count = visible_chunk_count;
 

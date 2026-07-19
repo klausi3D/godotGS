@@ -173,6 +173,15 @@ Declaration for the above.
 - Added `buffer_is_valid()` for checking RID validity across all buffer pools
 - Added `device_instance_counter` / `device_instance_id` / `get_device_instance_id()`
   for multi-device tracking
+- Added `is_local_device_submission_pending()` — a const accessor for the existing
+  private `local_device_processing` flag (GS #685). Purely additive and inert for
+  upstream: it exposes the one bit that distinguishes a local device in a legal
+  recording state from one between `submit()` and `sync()`, where a second
+  `submit()`, a synchronous `buffer_get_data()`/`texture_get_data()`, or any
+  further command recording is illegal. `gs_device_utils` (module
+  `interfaces/sync_policy.h`) reads it to keep that state unobservable; the CI
+  guard `tests/ci/check_device_submission_contract.py` fails if the accessor is
+  removed.
 - Enhanced invalid-free error diagnostics with sampling
 
 ### `servers/rendering/rendering_device.cpp` (+45 / −~10)

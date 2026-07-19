@@ -172,7 +172,23 @@ freed renderer GPU resources through it.
 
 Individual cases that are genuinely broken are deferred **by name**
 (`deferred_test_names_any`) rather than by tag, so a whole family is never
-re-deferred to hide a handful of failures. Public-alpha signoff and closure of
+re-deferred to hide a handful of failures.
+
+Two of the three `WorldSceneTree` waivers cleared in #685. Both were blocked by
+the same product defect: `gs_device_utils::safe_submit` left a local
+`RenderingDevice` between `submit()` and `sync()`, a state in which every
+subsequent device call on that frame — a second submit, a synchronous
+`buffer_get_data()`, or any further command recording — runs against an ended
+command buffer and draw graph. That produced the recorded
+`_capture_instance_count_sync` crash *and* the `VK_ERROR_DEVICE_LOST` the third
+waiver was attributed to. `gs_device_utils` now completes local-device
+submissions and settles before blocking readbacks, and
+`tests/ci/check_device_submission_contract.py` (headless, in the `--guard-only`
+lane) fails on any raw `submit`/`sync`/`buffer_get_data`/`texture_get_data` in
+module production code. Note that no shipping configuration reached any of this:
+`GaussianSplatManager::get_primary_rendering_device()` returns the MAIN device,
+for which the helpers are no-ops — the guard exists because that protection lives
+in one function's return value, not in the render path itself. Public-alpha signoff and closure of
 #350/#360 require either zero deferred tests or explicit waivers in the manifest
 with owner, date, issue URL, product risk, mitigation, and a known-limitations
 docs path.

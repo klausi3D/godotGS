@@ -237,7 +237,8 @@ void BatchedAsyncReadback::wait_for_completion() {
 	// The callback should have been called by now
 	if (batch_state == BATCH_PENDING) {
 		// Fallback: manually retrieve data
-		Vector<uint8_t> data = rd->buffer_get_data(staging_buffer, 0, staging_offset > 0 ? staging_offset : staging_buffer_size);
+		Vector<uint8_t> data = gs_device_utils::safe_buffer_get_data(rd, staging_buffer, 0,
+				staging_offset > 0 ? staging_offset : staging_buffer_size);
 		_on_batch_readback(data);
 	}
 }

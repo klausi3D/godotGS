@@ -11,6 +11,7 @@
 #include "core/io/json.h"
 #include "../logger/gs_debug_trace.h"
 #include "../interfaces/debug_overlay_system.h"
+#include "../interfaces/sync_policy.h"
 #include "../interfaces/output_compositor.h"
 
 namespace {
@@ -141,7 +142,7 @@ static Error _save_texture_snapshot(RenderingDevice *p_device, const RID &p_text
 			return ERR_UNAVAILABLE;
 	}
 
-	Vector<uint8_t> data = p_device->texture_get_data(p_texture, 0);
+	Vector<uint8_t> data = gs_device_utils::safe_texture_get_data(p_device, p_texture, 0);
 	if (data.is_empty()) {
 		return ERR_CANT_ACQUIRE_RESOURCE;
 	}

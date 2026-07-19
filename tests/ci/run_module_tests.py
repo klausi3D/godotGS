@@ -39,6 +39,7 @@ TEST_LANE_COVERAGE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_test_lane_cover
 TEST_LANE_COVERAGE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_test_lane_coverage.py"
 RENDERER_RELEASE_GATE_SCRIPT = ROOT / "tests" / "ci" / "check_renderer_release_gates.py"
 RENDERER_CONTRACT_BOUNDARY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_renderer_contract_boundary.py"
+DEVICE_SUBMISSION_CONTRACT_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_device_submission_contract.py"
 RENDERER_RELEASE_GATE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_renderer_release_gates.py"
 BASELINE_QA_REQUIRE_FLAG_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_baseline_qa_require_flag.py"
 HISTORY_ARTIFACT_AUDIT_SCRIPT = ROOT / "scripts" / "repo" / "history_artifact_audit.py"
@@ -800,6 +801,37 @@ def _run_renderer_contract_boundary_guard() -> tuple[bool, list[str]]:
             ]
         code, out, err = _run_command(
             [sys.executable, str(RENDERER_CONTRACT_BOUNDARY_GUARD_SCRIPT), *args]
+        )
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if code != 0:
+            if not output_lines:
+                output_lines = [f"{label} failed with exit code {code}."]
+            return False, output_lines
+    return True, output_lines
+
+
+def _run_device_submission_contract_guard() -> tuple[bool, list[str]]:
+    """#685: every local-device submit/blocking readback stays behind gs_device_utils.
+
+    A local RenderingDevice between submit() and sync() has an ended command
+    buffer and draw graph; a second submit() is rejected outright and a
+    synchronous buffer_get_data()/texture_get_data() faults in the driver
+    replaying the graph. Shipping builds are spared only because
+    get_primary_rendering_device() returns the MAIN device, on which safe_submit
+    is a no-op -- a property of that one function, not of the sort path, and so
+    not something the sort path can rely on. The guard keeps the rule true by
+    construction. Runs its own discrimination cases first, like its siblings.
+    """
+    for label, args in (
+        ("Device-submission contract guard self-test", ["--self-test"]),
+        ("Device-submission contract guard", []),
+    ):
+        if not DEVICE_SUBMISSION_CONTRACT_GUARD_SCRIPT.is_file():
+            return False, [
+                f"Missing {label} script: {DEVICE_SUBMISSION_CONTRACT_GUARD_SCRIPT.relative_to(ROOT)}"
+            ]
+        code, out, err = _run_command(
+            [sys.executable, str(DEVICE_SUBMISSION_CONTRACT_GUARD_SCRIPT), *args]
         )
         output_lines = [line for line in (out + err).splitlines() if line.strip()]
         if code != 0:
@@ -1790,6 +1822,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_renderer_contract_boundary_guard,
             "Renderer-contract boundary guard failed.",
             "Renderer-contract boundary guard passed.",
+        ),
+        (
+            True,
+            _run_device_submission_contract_guard,
+            "Device-submission contract guard failed.",
+            "Device-submission contract guard passed.",
         ),
         (
             True,

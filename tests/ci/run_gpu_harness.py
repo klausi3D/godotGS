@@ -212,14 +212,21 @@ BATCHES: tuple[BatchSpec, ...] = (
     # hang: every one of the 22 cases completes and the batch reports 22/22.
     BatchSpec("NodeSceneTree", ("*[Node][SceneTree][RequiresGPU]*",), timeout_seconds=300),
     BatchSpec("WorldSceneTree", ("*[World][SceneTree][RequiresGPU]*",), excludes=(
-            # GPU sort sync-contract violation: "device already submitted, call
-            # sync to wait until done", then a fault inside
-            # GPUSortingPipeline::_capture_instance_count_sync -> buffer_get_data
-            # -> _flush_and_stall_for_all_frames.
-            "*World submission renders through the resident instanced route*",
-            "*Resident rejection preserves resident diagnostics*",
-            # VK_ERROR_DEVICE_LOST — RenderingDeviceDriverVulkan::on_device_lost
-            # during device finalize. A real GPU fault, not a harness artifact.
+            # Behaviour failure (NOT a crash since #685): runs to completion and
+            # fails 2 of 15 assertions -- has_rendered_content() == false and
+            # get_visible_splat_count() == 0 on the resident quantization-rejection
+            # path. The VK_ERROR_DEVICE_LOST this was originally waived for was the
+            # local-device submission-balance defect, not a quantization fault; see
+            # the waiver's RE-TRIAGE note in
+            # docs/reference/renderer_release_gate_manifest.json.
+            #
+            # The two resident-route cases that used to sit here were excluded for
+            # the same root cause ("device already submitted", then a fault inside
+            # _capture_instance_count_sync -> buffer_get_data ->
+            # _flush_and_stall_for_all_frames). Fixed in #685: gs_device_utils
+            # never leaves a local device submitted, and every blocking readback
+            # settles first (interfaces/sync_policy.h), enforced by
+            # tests/ci/check_device_submission_contract.py.
             "*Explicit resident quantization rejection falls back*",
     )),
     # Two filters, not one, because doctest treats "[" and "]" literally: a case

@@ -24,12 +24,21 @@ Ref<GaussianData> stage1a_make_submission_test_data(int p_count, float p_x_offse
 	data.instantiate();
 	data->resize(p_count);
 	for (int i = 0; i < p_count; i++) {
-		Gaussian g;
+		// Value-initialised: Gaussian leaves area / normal / stroke_age /
+		// brush_axes / painterly_meta without default initialisers
+		// (core/gaussian_data.h), and _validate_gpu_payload_locked rejects the
+		// indeterminate values that `Gaussian g;` would leave there. Before #685
+		// this helper hit exactly that -- every GPU-tagged case built on it logged
+		// "Gaussian[0] has invalid stroke age" and create_gpu_buffer returned a
+		// null RID, so the resident-route cases below rendered with no gaussian
+		// buffer at all.
+		Gaussian g = {};
 		g.position = Vector3(p_x_offset + float(i), 0.0f, 0.0f);
 		g.scale = Vector3(1.0f, 1.0f, 1.0f);
 		g.rotation = Quaternion(0.0f, 0.0f, 0.0f, 1.0f);
 		g.opacity = 1.0f;
 		g.sh_dc = Color(1.0f, 1.0f, 1.0f, 1.0f);
+		g.normal = Vector3(0.0f, 0.0f, 1.0f);
 		data->set_gaussian(i, g);
 	}
 	return data;
@@ -95,6 +104,44 @@ StaticChunk stage1a_make_submission_test_chunk(uint32_t p_index) {
 	chunk.radius = 1.0f;
 	chunk.indices.push_back(p_index);
 	return chunk;
+}
+
+// Re-publish the submission a GaussianSplatWorld3D just applied, with the
+// residency hint flipped to RESIDENT and everything else byte-identical.
+//
+// GaussianSplatWorld3D derives its hint solely from
+// `rendering/gaussian_splatting/streaming/route_policy`
+// (nodes/gaussian_splat_world_3d.cpp:511-514), so a STREAMING project cannot
+// publish a resident-hinted world submission through the node API. That
+// combination -- project asks for streaming, the world submission asks for
+// resident, resident wins -- is exactly what
+// GaussianSplatRenderer::should_prefer_resident_backend's
+// `submission_hint_resident:%s` branch exists to express
+// (renderer/gaussian_splat_renderer.cpp:2810-2823), and it is only reachable by
+// submitting to the director directly. Re-submitting under the SAME owner_id
+// replaces the record rather than being arbitrated away
+// (`same_owner`, core/gaussian_splat_scene_director.cpp:2303).
+//
+// Reading the live record back and flipping one field (rather than hand-building
+// a submission) keeps the renderer's data, chunks and overrides exactly what
+// apply_world() produced, so only the hint varies. (#685)
+bool stage1a_repin_world_submission_as_resident(GaussianSplatSceneDirector *p_director, Node *p_owner) {
+	if (p_director == nullptr || p_owner == nullptr) {
+		return false;
+	}
+	GaussianSplatSceneDirector::WorldSubmission submission;
+	if (!p_director->get_world_submission(p_owner->get_instance_id(), &submission)) {
+		return false;
+	}
+	if (!submission.has_desired_residency_hint ||
+			submission.desired_residency_hint != GaussianSplatSceneDirector::SUBMISSION_RESIDENCY_HINT_STREAMING) {
+		// The precondition this helper exists to invert is gone: the node already
+		// published a resident hint, so the test would no longer be exercising
+		// hint-beats-policy. Fail rather than silently pass a weaker case.
+		return false;
+	}
+	submission.desired_residency_hint = GaussianSplatSceneDirector::SUBMISSION_RESIDENCY_HINT_RESIDENT;
+	return p_director->submit_world_submission(submission);
 }
 
 } // namespace
@@ -889,6 +936,33 @@ TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] World submission r
 		return;
 	}
 
+	// The route policy above says STREAMING. GaussianSplatWorld3D mirrors that into
+	// its residency hint, so as written this case could never reach the resident
+	// backend its name and its assertions describe -- should_prefer_resident_backend
+	// would return false with `submission_hint_streaming:world_submission`. Re-pin
+	// the submission's hint to RESIDENT so the case tests what it claims: a world
+	// submission whose hint overrides a streaming project policy.
+	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+	if (director == nullptr) {
+		FAIL("SceneDirector singleton required to re-pin the world submission's residency hint.");
+		root->remove_child(node);
+		memdelete(node);
+		tree->process(0.0);
+		return;
+	}
+	if (!stage1a_repin_world_submission_as_resident(director, node)) {
+		FAIL("Failed to re-publish the world submission with a RESIDENT residency hint.");
+		root->remove_child(node);
+		memdelete(node);
+		tree->process(0.0);
+		return;
+	}
+	{
+		String backend_reason;
+		CHECK(renderer->should_prefer_resident_backend(gs::settings::GS_ROUTE_STREAMING, &backend_reason));
+		CHECK(backend_reason == String("submission_hint_resident:world_submission"));
+	}
+
 	renderer->get_debug_state().show_performance_hud = true;
 	renderer->test_release_current_streaming_system();
 	CHECK_FALSE(renderer->test_has_current_streaming_system());
@@ -972,6 +1046,35 @@ TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Resident rejection
 		tree->process(0.0);
 		g_quantization_config = saved_quantization_config;
 		return;
+	}
+
+	// Same correction as the resident-instanced-route case above: the STREAMING
+	// route policy this test sets makes GaussianSplatWorld3D publish a STREAMING
+	// residency hint, which should_prefer_resident_backend can only answer with
+	// `submission_hint_streaming:world_submission`. Re-pin the submission's hint so
+	// the resident backend is actually selected and the resident-diagnostics
+	// assertions below have a resident decision to observe. (#685)
+	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+	if (director == nullptr) {
+		FAIL("SceneDirector singleton required to re-pin the world submission's residency hint.");
+		root->remove_child(node);
+		memdelete(node);
+		tree->process(0.0);
+		g_quantization_config = saved_quantization_config;
+		return;
+	}
+	if (!stage1a_repin_world_submission_as_resident(director, node)) {
+		FAIL("Failed to re-publish the world submission with a RESIDENT residency hint.");
+		root->remove_child(node);
+		memdelete(node);
+		tree->process(0.0);
+		g_quantization_config = saved_quantization_config;
+		return;
+	}
+	{
+		String backend_reason;
+		CHECK(renderer->should_prefer_resident_backend(gs::settings::GS_ROUTE_STREAMING, &backend_reason));
+		CHECK(backend_reason == String("submission_hint_resident:world_submission"));
 	}
 
 	renderer->get_debug_state().show_performance_hud = true;
