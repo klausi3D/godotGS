@@ -396,6 +396,149 @@ class GpuHarnessDeferredContractTests(unittest.TestCase):
         )
 
 
+class GpuHarnessTimeoutReportingTests(unittest.TestCase):
+    """Guard: a TIMED-OUT batch is reported as a non-result, by name (#677).
+
+    A batch that hits its wall-clock timeout never prints a doctest summary, so
+    its `test_cases_*` parse as 0 and its `rid_leak_bytes` holds only whatever the
+    listener emitted before the kill. Those partial zeros are then summed into the
+    run totals. The gate itself does fail (rc=124 flips `max_rc`), but that alone
+    is not enough: before #677 the run-level `DONE` line and the JSON report named
+    no batch, so `total_rid_leak_bytes=0` sat next to a half-executed batch reading
+    like a clean measurement.
+
+    This test drives `main()` with `_run_batch` stubbed to report a timeout, so it
+    is deterministic, needs no GPU, and no real subprocess -- it runs in the
+    headless guard lane alongside the rest of this file.
+    """
+
+    def _run_main_with_timed_out_batch(self, tmpdir: Path) -> tuple[int, str, dict]:
+        import contextlib
+        import io
+
+        harness = _load("gs_harness_timeout", HARNESS_PATH)
+        batch_name = harness.BATCHES[0].name
+        report_path = tmpdir / "report.json"
+
+        def _fake_run_batch(godot, name, filters, excludes, timeout_sec, extra_args):
+            r = harness.BatchResult(name=name, filters=filters, excludes=excludes)
+            r.rc = harness.SUPERVISOR_EXIT_TIMEOUT
+            r.timed_out = True
+            r.status = "TIMEOUT"
+            r.wall_seconds = float(timeout_sec)
+            # Deliberately leave every count at 0 and report NO leak bytes: this is
+            # exactly the shape that reads like a clean pass if it is not named.
+            return r
+
+        harness._run_batch = _fake_run_batch
+        # `_resolve_godot` only checks is_file(), so any real file stands in for
+        # the binary -- the stub above means it is never executed.
+        argv = [
+            "run_gpu_harness.py",
+            "--godot", str(HARNESS_PATH),
+            "--batch", batch_name,
+            "--report", str(report_path),
+        ]
+        buf = io.StringIO()
+        old_argv = sys.argv
+        sys.argv = argv
+        try:
+            with contextlib.redirect_stdout(buf):
+                rc = harness.main()
+        finally:
+            sys.argv = old_argv
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        return rc, buf.getvalue(), report
+
+    def test_timed_out_batch_fails_gate_and_is_named(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            rc, stdout, report = self._run_main_with_timed_out_batch(Path(td))
+
+        batch_name = report["batches"][0]["name"]
+
+        # 1. The gate must FAIL. A timed-out batch is never a pass.
+        self.assertNotEqual(
+            rc, 0,
+            "A timed-out batch must fail the gate. It executed an unknown fraction of "
+            "its cases and printed no doctest summary.",
+        )
+        self.assertEqual(
+            rc, 124,
+            "A timeout must surface as exit 124 so callers can distinguish it from an "
+            "assertion failure (1) or a signal kill.",
+        )
+
+        # 2. The batch must be NAMED. This is the part that was missing: without a
+        #    name, a reader sees only `max_rc=124` beside a 0-byte leak total.
+        self.assertIn(
+            batch_name, stdout,
+            "The timed-out batch must be named in the supervisor's output, not left "
+            "implicit behind a bare max_rc=124.",
+        )
+        self.assertIn(
+            "FATAL", stdout,
+            "A timed-out batch must be announced as a FATAL non-result.",
+        )
+
+        # 3. The report must carry it structurally, so downstream consumers
+        #    (baseline_qa.yml's step summary, cross-run leak comparisons) can see
+        #    the totals are incomplete without scraping prose.
+        self.assertEqual(
+            report["timed_out_batches"], [batch_name],
+            "report.timed_out_batches must list every batch that timed out.",
+        )
+        self.assertFalse(
+            report["totals_authoritative"],
+            "totals_authoritative must be False when any batch timed out -- the "
+            "totals and total_rid_leak_bytes exclude whatever that batch never reached.",
+        )
+
+        # 4. The trap this issue is really about: a 0-byte leak total sitting next
+        #    to an unrun batch must NOT be presentable as a clean result.
+        self.assertEqual(report["total_rid_leak_bytes"], 0)
+        self.assertEqual(report["totals"]["test_cases_total"], 0)
+        self.assertNotEqual(
+            report["supervisor_exit"], 0,
+            "A report whose totals are all zero because a batch never ran must not "
+            "carry a success exit code.",
+        )
+
+
+class GpuHarnessBatchTimeoutBudgetTests(unittest.TestCase):
+    """Guard: NodeSceneTree keeps a timeout budget large enough to finish (#677).
+
+    Measured on ccbef8cc482 / RTX 3090: 18 executing cases at ~2.4-2.9 s each plus
+    ~35 s of RenderingDevice bring-up and teardown = ~82 s wall. Under the 60 s
+    default the batch was cut off at exactly 9 of 18 cases, so half the corpus that
+    #329/#660 landed silently stopped executing while the batch reported 0/0.
+
+    This pins the override so a future edit cannot drop it back to the default and
+    re-hide half the batch.
+    """
+
+    def test_node_scenetree_has_headroom_over_measured_wall_time(self):
+        MEASURED_WALL_SECONDS = 82
+        batches = {b.name: b for b in _batches()}
+        spec = batches.get("NodeSceneTree")
+        if spec is None:
+            self.fail("NodeSceneTree batch is missing from run_gpu_harness.py BATCHES.")
+
+        if spec.timeout_seconds is None:
+            self.fail(
+                "NodeSceneTree must set an explicit BatchSpec.timeout_seconds. It measured "
+                f"~{MEASURED_WALL_SECONDS}s wall and does not fit the 60s default -- without "
+                "an override it is cut off at ~9 of 18 cases and reports 0/0 (#677)."
+            )
+        self.assertGreaterEqual(
+            spec.timeout_seconds, int(MEASURED_WALL_SECONDS * 1.5),
+            f"NodeSceneTree's timeout must keep real headroom over its measured "
+            f"~{MEASURED_WALL_SECONDS}s wall time; a loaded CI runner is slower than a "
+            "quiet developer box. Lowering this re-creates the #677 silent truncation.",
+        )
+
+
 def _print_summary() -> int:
     tests, batches, manifest = _corpus(), _batches(), _manifest()
     runs, excluded = _batch_membership(tests, batches)
