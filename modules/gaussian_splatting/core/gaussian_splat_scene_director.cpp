@@ -348,7 +348,7 @@ void GaussianSplatSceneDirector::DeferredRendererWork::queue_apply(const Ref<Gau
 	Entry entry;
 	entry.renderer = p_renderer;
 	entry.contract = p_contract;
-	entry.is_restore = false;
+	entry.kind = Kind::APPLY;
 	entries.push_back(entry);
 }
 
@@ -360,12 +360,61 @@ void GaussianSplatSceneDirector::DeferredRendererWork::queue_restore(const Ref<G
 	Entry entry;
 	entry.renderer = p_renderer;
 	entry.restore_state = p_snapshot;
-	entry.is_restore = true;
+	entry.kind = Kind::RESTORE;
 	entries.push_back(entry);
+}
+
+void GaussianSplatSceneDirector::DeferredRendererWork::queue_initialize(const Ref<GaussianSplatRenderer> &p_renderer) {
+	if (p_renderer.is_null()) {
+		return;
+	}
+	Entry entry;
+	entry.renderer = p_renderer;
+	entry.kind = Kind::INITIALIZE;
+	// Front-insert, not push_back: see queue_initialize's contract in the header.
+	// The inline call this replaces ran under the lock, i.e. ahead of any apply
+	// _get_or_create_world_for_scenario had already queued for the same renderer.
+	// LocalVector has no insert-at-front, and the queue is at most a couple of
+	// entries deep, so rebuild it.
+	LocalVector<Entry> reordered;
+	reordered.push_back(entry);
+	for (Entry &existing : entries) {
+		reordered.push_back(existing);
+	}
+	entries = std::move(reordered);
+}
+
+GaussianSplatSceneDirector::DeferredRendererWork::Kind
+GaussianSplatSceneDirector::DeferredRendererWork::get_entry_kind(uint32_t p_index) const {
+	ERR_FAIL_COND_V(p_index >= entries.size(), Kind::APPLY);
+	return entries[p_index].kind;
 }
 
 void GaussianSplatSceneDirector::DeferredRendererWork::cancel() {
 	entries.clear();
+}
+
+void GaussianSplatSceneDirector::_initialize_world_renderer(SharedWorld &p_world, DeferredRendererWork *r_deferred_work) {
+	if (p_world.renderer.is_null()) {
+		return;
+	}
+	// Guard first, boundary check second: when the renderer is already up (or an
+	// initialization is already queued on the render thread) there is no dispatch
+	// to invert, so reporting a violation here would be noise. This mirrors where
+	// PR A placed the check in the other two boundary functions.
+	const auto &resource_state = p_world.renderer->get_resource_state();
+	if (resource_state.gpu_resources_initialized || resource_state.gpu_initialization_pending) {
+		return;
+	}
+	if (r_deferred_work) {
+		r_deferred_work->queue_initialize(p_world.renderer);
+		return;
+	}
+	// No queue supplied: keep the historical inline behaviour rather than
+	// silently skipping the initialization, and report the inversion so the
+	// counter sees this route instead of under-reporting it.
+	_report_renderer_contract_lock_violation("GaussianSplatSceneDirector::_initialize_world_renderer");
+	p_world.renderer->initialize();
 }
 
 void GaussianSplatSceneDirector::DeferredRendererWork::flush() {
@@ -381,8 +430,22 @@ void GaussianSplatSceneDirector::DeferredRendererWork::flush() {
 		if (!renderer) {
 			continue;
 		}
+		if (entry.kind == Kind::INITIALIZE) {
+			// Re-evaluate the guard here rather than trusting the decision made
+			// under the lock: the check and the call were atomic inline, and
+			// deferring split them apart. Skipping is the correct outcome when
+			// something initialized this renderer in the gap -- that is what the
+			// guard is for -- so a skip is deliberately NOT counted as dispatched.
+			const auto &resource_state = renderer->get_resource_state();
+			if (resource_state.gpu_resources_initialized || resource_state.gpu_initialization_pending) {
+				continue;
+			}
+			dispatched_entry_count++;
+			renderer->initialize();
+			continue;
+		}
 		dispatched_entry_count++;
-		if (entry.is_restore) {
+		if (entry.kind == Kind::RESTORE) {
 			// Mirrors _restore_world_submission_renderer exactly.
 			if (!entry.restore_state.valid) {
 				renderer->clear_world_submission_contract();
@@ -929,12 +992,16 @@ void GaussianSplatSceneDirector::register_instance(ObjectID p_node_id, const Ref
 		}
 		break; // an instance can only live in one SharedWorld at a time
 	}
-	if (world->renderer.is_valid()) {
-		const auto &resource_state = world->renderer->get_resource_state();
-		if (!resource_state.gpu_resources_initialized && !resource_state.gpu_initialization_pending) {
-			world->renderer->initialize();
-		}
-	}
+	// #611 PR B1: this used to call world->renderer->initialize() inline, which
+	// opens with a blocking render-thread dispatch
+	// (renderer/gaussian_splat_renderer.cpp:1613-1618) -- issued while this thread
+	// holds world_mutex, which the render thread itself needs inside the
+	// *_for_renderer builders. The call is deferred to the flush below (after the
+	// lock is released) instead. Nothing between here and the end of this function
+	// touches the renderer or GPU state -- the remainder is instance/asset record
+	// bookkeeping -- and the flush still happens before register_instance returns,
+	// so no caller can observe the difference.
+	_initialize_world_renderer(*world, &deferred_renderer_work);
 	if (p_asset.is_null()) {
 		GaussianSplatting::debug_trace_record_event("instance_reg", "FAIL: asset=null", true);
 		return;
