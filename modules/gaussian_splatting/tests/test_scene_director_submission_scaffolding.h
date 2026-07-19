@@ -2408,10 +2408,16 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] teardown_world_for_scen
 //   2. a restore is queued for the previous world's renderer — headless that
 //      renderer is always null and `queue_restore` early-outs, so nothing is
 //      enqueued and nothing observable happens. This test does NOT pin it, and no
-//      headless test can; that half still needs a live device.
+//      headless test can; that half needs a live device.
 //
 // So a reviewer should read this as covering the eviction's *record* half only.
-// The cancel()-ordering bug lives entirely in half 2 and remains unpinned.
+//
+// #675: half 2 — and with it the cancel()-ordering bug — is now pinned by the
+// [RequiresGPU] twin of this case at the bottom of this file, which runs in
+// run_gpu_harness.py's SceneDirectorSceneTree batch. Mutation-checked: moving
+// `cancel()` after the queued restore fails that case on 5 renderer-side
+// assertions while THIS case still passes, which is exactly the split described
+// above.
 TEST_CASE("[GaussianSplatting][SceneDirector][WorldSubmission][SceneTree] Re-submitting one owner to a second scenario evicts its previous world's record") {
 	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
 	const bool owns_director = (director == nullptr);
@@ -2518,6 +2524,334 @@ TEST_CASE("[GaussianSplatting][SceneDirector][WorldSubmission][SceneTree] Re-sub
 
 	root->remove_child(owner);
 	memdelete(owner);
+	if (owns_director) {
+		memdelete(director);
+	}
+}
+
+// #675 — the RESTORE half of previous-world eviction, on a live RenderingDevice.
+//
+// WHAT THE HEADLESS TWIN ABOVE CANNOT REACH. The `[SceneTree]` test directly
+// above pins the eviction's *record* half (`previous_world->world_submission` is
+// cleared) — pure bookkeeping that needs no device. Its other half is
+// `queue_restore(previous_world->renderer, ...)`, and headless
+// `previous_world->renderer` is always null, so `queue_restore` early-outs, the
+// queue stays empty, and nothing observable happens. That is the half three
+// ordering defects in #611 PR B2 lived in, and it is the half this case covers.
+//
+// This is the same fixture with `[RequiresGPU]` and renderer-side assertions
+// added, so it lands in run_gpu_harness.py's `SceneDirectorSceneTree` batch
+// (filter `*[SceneDirector][WorldSubmission][SceneTree][RequiresGPU]*`) where a
+// real device exists and both worlds get real renderers.
+//
+// THE ASSERTION SHAPE IS THE POINT. Every one of #611 PR B2's three ordering
+// defects was invisible to assertions that checked only one side: the director's
+// record and the renderer's installed contract must be checked TOGETHER, because
+// each defect left exactly one of them right and the other wrong.
+//
+// MUTATION-CHECKED against the `cancel()` ordering in
+// gaussian_splat_scene_director.cpp's commit branch. `cancel()` clears the ENTIRE
+// queue, so moving it after the `queue_restore` below drops the restore: the
+// evicted world's renderer keeps a contract nobody owns while the director's
+// record for it is gone. With that mutation applied this case FAILS on
+// `evicted_renderer_state.has_active_world_submission` (and on the gaussian_data
+// check); the headless twin above still passes, which is precisely the gap.
+TEST_CASE("[GaussianSplatting][SceneDirector][WorldSubmission][SceneTree][RequiresGPU] Cross-scenario eviction restores the evicted world's renderer and clears its record") {
+	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+	const bool owns_director = (director == nullptr);
+	if (!director) {
+		director = memnew(GaussianSplatSceneDirector);
+	}
+	if (!director) {
+		FAIL("GaussianSplatSceneDirector unavailable");
+		return;
+	}
+
+	SceneTree *tree = SceneTree::get_singleton();
+	if (!tree) {
+		FAIL("SceneTree singleton required");
+		return;
+	}
+	Window *root = tree->get_root();
+	if (!root) {
+		FAIL("SceneTree root window required");
+		return;
+	}
+
+	Ref<World3D> world_a = root->get_world_3d();
+	if (world_a.is_null()) {
+		FAIL("root World3D required");
+		return;
+	}
+	// The second scenario. Without two DISTINCT scenarios `previous_world != world`
+	// cannot hold and every assertion below would pass vacuously against the very
+	// mutations this test exists to catch.
+	Ref<World3D> world_b;
+	world_b.instantiate();
+	if (world_b.is_null()) {
+		FAIL("could not instantiate a second World3D");
+		return;
+	}
+	const RID scenario_a = world_a->get_scenario();
+	const RID scenario_b = world_b->get_scenario();
+	if (!scenario_a.is_valid() || !scenario_b.is_valid() || scenario_a == scenario_b) {
+		FAIL("two distinct valid scenarios are required to reach the eviction branch");
+		return;
+	}
+
+	// Renderer A up-front, so the pre-submission baseline the eviction must restore
+	// TO is captured rather than assumed. World B is deliberately left alone: its
+	// renderer is lazily created by submit_world_submission's phase 1, which is the
+	// lazy-creation path #675 names.
+	Ref<GaussianSplatRenderer> renderer_a = director->get_shared_renderer(world_a.ptr());
+	if (renderer_a.is_null()) {
+		FAIL("Shared renderer unavailable for scenario A. This case is [RequiresGPU] and "
+			 "runs only under the --gs-gpu-test harness, which brings up a real "
+			 "RenderingDevice. A null renderer here is a harness/product failure, not a "
+			 "reason to skip -- the eviction's restore half cannot be observed without it.");
+		return;
+	}
+	const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot baseline_a =
+			renderer_a->snapshot_world_submission_runtime_state();
+	CHECK(baseline_a.valid);
+	// If a prior case in this batch left a contract installed on the shared root
+	// renderer, the post-eviction comparison below would be against the wrong
+	// baseline, so assert the starting point rather than trusting it.
+	CHECK_FALSE(baseline_a.has_active_world_submission);
+
+	Node *owner = memnew(Node);
+	if (!owner) {
+		FAIL("could not allocate the submission owner");
+		return;
+	}
+	root->add_child(owner);
+	tree->process(0.0);
+	const ObjectID owner_id = owner->get_instance_id();
+
+	// SAME owner, DIFFERENT scenarios -- the pairing that makes
+	// _find_world_for_world_submission return world A while the commit targets B.
+	GaussianSplatSceneDirector::WorldSubmission submission_a;
+	submission_a.owner_id = owner_id;
+	submission_a.scenario = scenario_a;
+	submission_a.gaussian_data = stage1a_make_submission_test_data(3, 0.0f);
+	submission_a.static_chunks.push_back(stage1a_make_submission_test_chunk(0));
+
+	GaussianSplatSceneDirector::WorldSubmission submission_b;
+	submission_b.owner_id = owner_id;
+	submission_b.scenario = scenario_b;
+	submission_b.gaussian_data = stage1a_make_submission_test_data(2, 20.0f);
+	submission_b.static_chunks.push_back(stage1a_make_submission_test_chunk(1));
+
+	CHECK(director->submit_world_submission(submission_a));
+
+	// Both sides after the first commit, so the eviction below is known to start
+	// from a state where the renderer and the record actually agree.
+	GaussianSplatSceneDirector::WorldSubmission queried;
+	CHECK(director->get_world_submission_for_scenario(scenario_a, &queried));
+	CHECK(queried.owner_id == owner_id);
+	const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot installed_a =
+			renderer_a->snapshot_world_submission_runtime_state();
+	CHECK(installed_a.has_active_world_submission);
+	CHECK(installed_a.gaussian_data == submission_a.gaussian_data);
+
+	// THE EVICTION. Phase 1 lazily creates world B's renderer; phase 3 commits B,
+	// clears A's record, and queues the restore of A's renderer.
+	CHECK(director->submit_world_submission(submission_b));
+
+	Ref<GaussianSplatRenderer> renderer_b = director->get_shared_renderer(world_b.ptr());
+	if (renderer_b.is_null()) {
+		FAIL("Shared renderer unavailable for scenario B; the lazily-created-renderer path "
+			 "under test did not produce a renderer.");
+		root->remove_child(owner);
+		memdelete(owner);
+		if (owns_director) {
+			memdelete(director);
+		}
+		return;
+	}
+	// Distinct renderers, or "the evicted world's renderer" and "the committing
+	// world's renderer" would be the same object and the restore assertions below
+	// would be asserting against the wrong renderer.
+	CHECK(renderer_a.ptr() != renderer_b.ptr());
+
+	// ---- LOAD-BEARING: the renderer side of the eviction. ----
+	// This is what no headless lane can observe. A's renderer must be back at its
+	// pre-submission baseline; if the queued restore was dropped it still holds A's
+	// contract while A's record is gone.
+	const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot evicted_renderer_state =
+			renderer_a->snapshot_world_submission_runtime_state();
+	CHECK(evicted_renderer_state.valid);
+	CHECK_FALSE(evicted_renderer_state.has_active_world_submission);
+	CHECK(evicted_renderer_state.gaussian_data.is_null());
+	CHECK(evicted_renderer_state.gaussian_data == baseline_a.gaussian_data);
+	CHECK(evicted_renderer_state.has_active_world_submission == baseline_a.has_active_world_submission);
+	CHECK(evicted_renderer_state.has_desired_residency_hint == baseline_a.has_desired_residency_hint);
+	CHECK(evicted_renderer_state.max_splats == baseline_a.max_splats);
+
+	// ---- and the director side, which must agree with it. ----
+	CHECK_FALSE(director->get_world_submission_for_scenario(scenario_a, &queried));
+
+	// The committing world: record AND renderer both hold B.
+	CHECK(director->get_world_submission_for_scenario(scenario_b, &queried));
+	CHECK(queried.owner_id == owner_id);
+	CHECK(queried.gaussian_data == submission_b.gaussian_data);
+	const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot installed_b =
+			renderer_b->snapshot_world_submission_runtime_state();
+	CHECK(installed_b.has_active_world_submission);
+	CHECK(installed_b.gaussian_data == submission_b.gaussian_data);
+
+	// And the owner resolves to B, not to a stale A.
+	CHECK(director->get_world_submission(owner_id, &queried));
+	CHECK(queried.scenario == scenario_b);
+
+	director->release_world_submission(owner_id);
+	CHECK_FALSE(director->get_world_submission(owner_id, &queried));
+
+	// Drop our renderer Refs BEFORE pruning, or _should_prune_world's
+	// `get_reference_count() <= 1` test sees an inflated count and skips, leaving a
+	// SharedWorld behind for the rest of the batch.
+	renderer_a.unref();
+	renderer_b.unref();
+	// Scenario B's RID dies with the local `world_b` Ref, so its SharedWorld must go
+	// first or the director keeps an entry keyed by a freed RID.
+	director->teardown_world_for_scenario(scenario_b);
+	director->try_prune_world_if_unused(scenario_a);
+
+	root->remove_child(owner);
+	memdelete(owner);
+	tree->process(0.0);
+	if (owns_director) {
+		memdelete(director);
+	}
+}
+
+// #675 — the REJECTION path's both-sides end state, on a live RenderingDevice.
+//
+// The reachable rejection is phase 1's arbitration reject: a DIFFERENT, still-live
+// owner submitting to a scenario whose record is already held. It returns false
+// before any renderer mutation, and its contract is that BOTH sides are left
+// exactly as they were -- the incumbent's record stays active and the renderer
+// keeps the incumbent's contract.
+//
+// That pairing is the point. A rejection that cleared the renderer while leaving
+// the record active is the exact shape of #611 PR B2's third defect (found by
+// review, not by any lane); headless it is invisible, because a device-less
+// renderer has no contract to keep or lose.
+//
+// SCOPE, HONESTLY. Phase 3's rollback (`queue_restore_first`) is NOT exercised
+// here and is not reachable from this or any other single-threaded test -- see the
+// note in test_scene_director_renderer_contract_lock.h, which pins that ordering at
+// the DeferredRendererWork level instead.
+TEST_CASE("[GaussianSplatting][SceneDirector][WorldSubmission][SceneTree][RequiresGPU] Arbitration rejection leaves the incumbent's record and renderer contract intact") {
+	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+	const bool owns_director = (director == nullptr);
+	if (!director) {
+		director = memnew(GaussianSplatSceneDirector);
+	}
+	if (!director) {
+		FAIL("GaussianSplatSceneDirector unavailable");
+		return;
+	}
+
+	SceneTree *tree = SceneTree::get_singleton();
+	if (!tree) {
+		FAIL("SceneTree singleton required");
+		return;
+	}
+	Window *root = tree->get_root();
+	if (!root) {
+		FAIL("SceneTree root window required");
+		return;
+	}
+	Ref<World3D> world = root->get_world_3d();
+	if (world.is_null()) {
+		FAIL("root World3D required");
+		return;
+	}
+	const RID scenario = world->get_scenario();
+	if (!scenario.is_valid()) {
+		FAIL("valid scenario required");
+		return;
+	}
+
+	Ref<GaussianSplatRenderer> renderer = director->get_shared_renderer(world.ptr());
+	if (renderer.is_null()) {
+		FAIL("Shared renderer unavailable. This case is [RequiresGPU] and runs only under "
+			 "the --gs-gpu-test harness, which brings up a real RenderingDevice. Without a "
+			 "renderer the 'renderer contract survives the rejection' half asserts nothing.");
+		return;
+	}
+	const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot baseline =
+			renderer->snapshot_world_submission_runtime_state();
+	CHECK(baseline.valid);
+	CHECK_FALSE(baseline.has_active_world_submission);
+
+	// Both owners stay in the tree, so _is_world_submission_owner_live() reports the
+	// incumbent as live -- which is what makes phase 1 reject rather than evict.
+	Node *incumbent = memnew(Node);
+	Node *challenger = memnew(Node);
+	if (!incumbent || !challenger) {
+		FAIL("could not allocate the submission owners");
+		if (incumbent) {
+			memdelete(incumbent);
+		}
+		if (challenger) {
+			memdelete(challenger);
+		}
+		return;
+	}
+	root->add_child(incumbent);
+	root->add_child(challenger);
+	tree->process(0.0);
+
+	GaussianSplatSceneDirector::WorldSubmission incumbent_submission;
+	incumbent_submission.owner_id = incumbent->get_instance_id();
+	incumbent_submission.scenario = scenario;
+	incumbent_submission.gaussian_data = stage1a_make_submission_test_data(4, 0.0f);
+	incumbent_submission.static_chunks.push_back(stage1a_make_submission_test_chunk(0));
+
+	GaussianSplatSceneDirector::WorldSubmission challenger_submission;
+	challenger_submission.owner_id = challenger->get_instance_id();
+	challenger_submission.scenario = scenario;
+	challenger_submission.gaussian_data = stage1a_make_submission_test_data(2, 40.0f);
+	challenger_submission.static_chunks.push_back(stage1a_make_submission_test_chunk(1));
+
+	CHECK(director->submit_world_submission(incumbent_submission));
+	const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot installed =
+			renderer->snapshot_world_submission_runtime_state();
+	CHECK(installed.has_active_world_submission);
+	CHECK(installed.gaussian_data == incumbent_submission.gaussian_data);
+
+	// THE REJECTION.
+	CHECK_FALSE(director->submit_world_submission(challenger_submission));
+
+	// ---- Renderer side: still the incumbent's contract, untouched. ----
+	const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot after_reject =
+			renderer->snapshot_world_submission_runtime_state();
+	CHECK(after_reject.valid);
+	CHECK(after_reject.has_active_world_submission);
+	CHECK(after_reject.gaussian_data == incumbent_submission.gaussian_data);
+	// Specifically NOT the challenger's data: a rejection that applied first and
+	// failed to roll back would show this.
+	CHECK(after_reject.gaussian_data != challenger_submission.gaussian_data);
+	CHECK(after_reject.max_splats == installed.max_splats);
+
+	// ---- Director side: still the incumbent's record, and only one of them. ----
+	GaussianSplatSceneDirector::WorldSubmission queried;
+	CHECK(director->get_world_submission_for_scenario(scenario, &queried));
+	CHECK(queried.owner_id == incumbent->get_instance_id());
+	CHECK(queried.gaussian_data == incumbent_submission.gaussian_data);
+	CHECK_FALSE(director->get_world_submission(challenger->get_instance_id(), &queried));
+
+	director->release_world_submission(incumbent->get_instance_id());
+	renderer.unref();
+	director->try_prune_world_if_unused(scenario);
+
+	root->remove_child(incumbent);
+	root->remove_child(challenger);
+	memdelete(incumbent);
+	memdelete(challenger);
+	tree->process(0.0);
 	if (owns_director) {
 		memdelete(director);
 	}
