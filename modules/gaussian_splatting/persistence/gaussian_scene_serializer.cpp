@@ -1044,6 +1044,16 @@ Error GaussianSceneSerializer::_read_scene_body(const Ref<FileAccess> &file, con
                 }
                 break;
             case ChunkType::END_OF_FILE:
+                // #700: the terminator carries no payload. The writer always
+                // emits it with size 0 (_write_chunk_header(..., END_OF_FILE, 0)),
+                // so a non-zero size is a file the writer cannot have produced.
+                // Accepting it let a crafted header hide bytes behind the
+                // terminator: the loop stops here, so the declared payload was
+                // never read and never counted, and `header.total_chunks` still
+                // matched because the EOF header is not checksummed.
+                ERR_FAIL_COND_V_MSG(chunk.size != 0, ERR_FILE_CORRUPT,
+                        vformat("GSF END_OF_FILE chunk declares a %d-byte payload; the terminator must be empty: %s",
+                                (int64_t)chunk.size, file_path));
                 r_staging.saw_eof_chunk = true;
                 done = true;
                 break;
@@ -1062,6 +1072,16 @@ Error GaussianSceneSerializer::_read_scene_body(const Ref<FileAccess> &file, con
                     ERR_FAIL_COND_V_MSG(unk.payload.size() != (int)chunk.size,
                             ERR_FILE_CORRUPT,
                             "Failed to read unknown chunk payload.");
+                    // #700: verify under the SAME policy as every known chunk
+                    // (_verify_checksum is the single read-path policy). Not
+                    // verifying here did not merely tolerate corruption, it
+                    // LAUNDERED it: the re-save path writes `unk.checksum` back
+                    // over the possibly-tampered payload, so a later save would
+                    // hand out a file whose checksum certifies the wrong bytes.
+                    ERR_FAIL_COND_V_MSG(!_verify_checksum(unk.payload, chunk.checksum),
+                            ERR_FILE_CORRUPT,
+                            vformat("GSF unknown chunk 0x%08X failed checksum verification in '%s'.",
+                                    (uint32_t)chunk.type, file_path));
                 }
                 r_staging.unknown_chunks.push_back(unk);
                 err = OK;
@@ -1080,6 +1100,15 @@ Error GaussianSceneSerializer::_read_scene_body(const Ref<FileAccess> &file, con
     // silently loading as OK.
     ERR_FAIL_COND_V_MSG(!r_staging.saw_eof_chunk, ERR_FILE_CORRUPT,
             "GSF file is missing its END_OF_FILE chunk (truncated or incomplete): " + file_path);
+    // #700: and the terminator must actually terminate. Without this, bytes
+    // appended after the EOF chunk load as OK -- the loop stops at the
+    // terminator, so appended data is never parsed, never counted against
+    // `header.total_chunks`, and never checksummed. The writer leaves the
+    // stream exactly at end-of-file after emitting the terminator, so any
+    // remainder is content the writer did not produce.
+    ERR_FAIL_COND_V_MSG(file->get_position() != file_length, ERR_FILE_CORRUPT,
+            vformat("GSF file has %d byte(s) after its END_OF_FILE chunk: %s",
+                    (int64_t)(file_length - file->get_position()), file_path));
     const uint64_t chunks_seen = uint64_t(r_staging.chunks_parsed) + 1; // + the HEADER chunk read before the body.
     ERR_FAIL_COND_V_MSG(chunks_seen != uint64_t(header.total_chunks), ERR_FILE_CORRUPT,
             vformat("GSF chunk count mismatch in '%s': header declares %d, parsed %d.",

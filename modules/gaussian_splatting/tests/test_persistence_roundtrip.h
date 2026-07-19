@@ -151,6 +151,82 @@ bool _truncate_fixture_tail(const String &p_path, uint64_t p_drop_bytes) {
     return true;
 }
 
+// #700: rewrites the END_OF_FILE chunk header's declared size in place, without
+// appending anything. Models a hand-crafted terminator that claims a payload the
+// writer never emits.
+bool _set_eof_chunk_declared_size(const String &p_path, uint32_t p_declared_size) {
+    Ref<FileAccess> file = _open_persistence_fixture(p_path, FileAccess::READ_WRITE);
+    if (file.is_null()) {
+        return false;
+    }
+    const uint64_t file_length = file->get_length();
+    file->seek(0);
+    while (file->get_position() + uint64_t(sizeof(GaussianSplatting::ChunkHeader)) <= file_length) {
+        const uint64_t chunk_start = file->get_position();
+        const uint32_t chunk_type = file->get_32();
+        const uint32_t chunk_size = file->get_32();
+        file->get_32(); // checksum
+        file->get_32(); // flags
+        const uint64_t payload_offset = file->get_position();
+        if (payload_offset > file_length || uint64_t(chunk_size) > file_length - payload_offset) {
+            return false;
+        }
+        if (chunk_type == uint32_t(GaussianSplatting::ChunkType::END_OF_FILE)) {
+            file->seek(chunk_start + sizeof(uint32_t)); // past the type field
+            file->store_32(p_declared_size);
+            return true;
+        }
+        file->seek(payload_offset + uint64_t(chunk_size));
+    }
+    return false;
+}
+
+// #700: appends bytes after a complete, valid file. The chunk loop stops at the
+// terminator, so nothing here is parsed or counted -- which is exactly why it
+// used to load as OK.
+bool _append_fixture_tail(const String &p_path, const PackedByteArray &p_bytes) {
+    Ref<FileAccess> file = _open_persistence_fixture(p_path, FileAccess::READ_WRITE);
+    if (file.is_null()) {
+        return false;
+    }
+    file->seek_end();
+    file->store_buffer(p_bytes);
+    return true;
+}
+
+// #700: flips one byte inside the FIRST chunk payload of the given type, leaving
+// the chunk header (and therefore its recorded checksum) untouched.
+bool _tamper_chunk_payload_byte(const String &p_path, uint32_t p_chunk_type) {
+    Ref<FileAccess> file = _open_persistence_fixture(p_path, FileAccess::READ_WRITE);
+    if (file.is_null()) {
+        return false;
+    }
+    const uint64_t file_length = file->get_length();
+    file->seek(0);
+    while (file->get_position() + uint64_t(sizeof(GaussianSplatting::ChunkHeader)) <= file_length) {
+        const uint32_t chunk_type = file->get_32();
+        const uint32_t chunk_size = file->get_32();
+        file->get_32(); // checksum
+        file->get_32(); // flags
+        const uint64_t payload_offset = file->get_position();
+        if (payload_offset > file_length || uint64_t(chunk_size) > file_length - payload_offset) {
+            return false;
+        }
+        if (chunk_type == p_chunk_type && chunk_size > 0) {
+            file->seek(payload_offset);
+            const uint8_t original = file->get_8();
+            file->seek(payload_offset);
+            file->store_8(uint8_t(original ^ 0xFFu));
+            return true;
+        }
+        if (chunk_type == uint32_t(GaussianSplatting::ChunkType::END_OF_FILE)) {
+            break;
+        }
+        file->seek(payload_offset + uint64_t(chunk_size));
+    }
+    return false;
+}
+
 // Writes a checksum-disabled HEAD chunk (16-byte chunk header + 60-byte payload)
 // mirroring GaussianSceneSerializer::_pack_scene_header, so a test can hand-build
 // a structurally valid chunked GSF prefix.
@@ -680,6 +756,184 @@ TEST_CASE("[GaussianSplatting][Persistence] unknown chunks round-trip across loa
 
     _remove_persistence_fixture(path);
     _remove_persistence_fixture(resaved_path);
+}
+
+// #700 -- structural acceptance gaps that let a file the writer cannot produce
+// validate and load as OK.
+//
+// All three cases assert on BOTH validate_file() and load_scene(). #618 made
+// those two agree by construction, and a rejection that only one of them makes
+// is the exact asymmetry that was fixed there; asserting one would not notice
+// it coming back.
+TEST_CASE("[GaussianSplatting][Persistence] EOF chunk declaring a payload is rejected") {
+    const String path = _make_persistence_fixture_path("test_eof_declares_payload");
+    if (!_ensure_persistence_fixture_dir(path)) {
+        FAIL("persistence fixture directory unavailable; nothing can be written to tamper with");
+        return;
+    }
+
+    Ref<GaussianSplatWorld> world = create_test_world();
+    Ref<GaussianData> data = world->get_gaussian_data();
+    if (data.is_null()) {
+        FAIL("test world produced no gaussian data; the fixture would be empty");
+        return;
+    }
+
+    GaussianSplatting::GaussianSceneSerializer serializer;
+    if (serializer.save_scene(path, data.ptr(), nullptr, Dictionary()) != OK) {
+        _remove_persistence_fixture(path);
+        FAIL("GSF save failed; there is no valid fixture to tamper with");
+        return;
+    }
+
+    // Sanity: the untampered fixture must load, or a later rejection would
+    // prove nothing about the tamper.
+    Ref<GaussianData> baseline_data;
+    baseline_data.instantiate();
+    CHECK_MESSAGE(serializer.load_scene(path, baseline_data.ptr(), nullptr, nullptr) == OK,
+            "the untampered fixture must load, or the rejection below is not attributable to the tamper");
+
+    // Append the 8 bytes the terminator will claim, so the payload FITS inside
+    // the file. Without them the pre-existing bounds check at the top of the
+    // chunk loop ("payload extends past end of file") rejects the fixture and
+    // this case would pass without ever reaching the rule it is meant to pin.
+    PackedByteArray declared_payload;
+    declared_payload.resize(8);
+    for (int i = 0; i < declared_payload.size(); i++) {
+        declared_payload.set(i, uint8_t(0x5Au));
+    }
+    const bool payload_appended = _append_fixture_tail(path, declared_payload);
+    CHECK_MESSAGE(payload_appended, "fixture should be appendable");
+    const bool patched = payload_appended && _set_eof_chunk_declared_size(path, 8);
+    CHECK_MESSAGE(patched, "fixture should contain an END_OF_FILE chunk to patch");
+    if (!patched) {
+        _remove_persistence_fixture(path);
+        return;
+    }
+
+    Ref<GaussianData> loaded_data;
+    loaded_data.instantiate();
+    CHECK_MESSAGE(serializer.load_scene(path, loaded_data.ptr(), nullptr, nullptr) == ERR_FILE_CORRUPT,
+            "an END_OF_FILE chunk declaring a payload is not writer-producible and must be rejected");
+    CHECK_MESSAGE(serializer.validate_file(path) == ERR_FILE_CORRUPT,
+            "validate_file must reject what load_scene rejects (it returns Error, not bool -- "
+            "`!validate_file(...)` would assert the OPPOSITE and pass on a broken tree)");
+
+    _remove_persistence_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][Persistence] Bytes appended after the EOF chunk are rejected") {
+    const String path = _make_persistence_fixture_path("test_trailing_bytes_after_eof");
+    if (!_ensure_persistence_fixture_dir(path)) {
+        FAIL("persistence fixture directory unavailable; nothing can be written to tamper with");
+        return;
+    }
+
+    Ref<GaussianSplatWorld> world = create_test_world();
+    Ref<GaussianData> data = world->get_gaussian_data();
+    if (data.is_null()) {
+        FAIL("test world produced no gaussian data; the fixture would be empty");
+        return;
+    }
+
+    GaussianSplatting::GaussianSceneSerializer serializer;
+    if (serializer.save_scene(path, data.ptr(), nullptr, Dictionary()) != OK) {
+        _remove_persistence_fixture(path);
+        FAIL("GSF save failed; there is no valid fixture to tamper with");
+        return;
+    }
+
+    Ref<GaussianData> baseline_data;
+    baseline_data.instantiate();
+    CHECK_MESSAGE(serializer.load_scene(path, baseline_data.ptr(), nullptr, nullptr) == OK,
+            "the untampered fixture must load, or the rejection below is not attributable to the appended bytes");
+
+    PackedByteArray tail;
+    tail.resize(16);
+    for (int i = 0; i < tail.size(); i++) {
+        tail.set(i, uint8_t(0xA5));
+    }
+    const bool appended = _append_fixture_tail(path, tail);
+    CHECK_MESSAGE(appended, "fixture should be appendable");
+    if (!appended) {
+        _remove_persistence_fixture(path);
+        return;
+    }
+
+    Ref<GaussianData> loaded_data;
+    loaded_data.instantiate();
+    CHECK_MESSAGE(serializer.load_scene(path, loaded_data.ptr(), nullptr, nullptr) == ERR_FILE_CORRUPT,
+            "the chunk loop stops at the terminator, so appended bytes are never parsed, never counted "
+            "against header.total_chunks and never checksummed -- the reader must reject them outright");
+    CHECK_MESSAGE(serializer.validate_file(path) == ERR_FILE_CORRUPT,
+            "validate_file must reject what load_scene rejects (it returns Error, not bool -- "
+            "`!validate_file(...)` would assert the OPPOSITE and pass on a broken tree)");
+
+    _remove_persistence_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][Persistence] Tampered unknown-chunk payload fails checksum verification") {
+    const String path = _make_persistence_fixture_path("test_unknown_chunk_tamper");
+    if (!_ensure_persistence_fixture_dir(path)) {
+        FAIL("persistence fixture directory unavailable; nothing can be written to tamper with");
+        return;
+    }
+
+    Ref<GaussianSplatWorld> world = create_test_world();
+    Ref<GaussianData> data = world->get_gaussian_data();
+    if (data.is_null()) {
+        FAIL("test world produced no gaussian data; the fixture would be empty");
+        return;
+    }
+
+    Dictionary metadata;
+    metadata[StringName("tamper_probe")] = true;
+
+    // Checksums ON: this case is about the verification step, so the file must
+    // claim protection. (_verify_checksum's policy is that a checksum-disabled
+    // reader still verifies a file that claims protection -- #618.)
+    GaussianSplatting::GaussianSceneSerializer serializer;
+    serializer.set_enable_checksum(true);
+    if (serializer.save_scene(path, data.ptr(), nullptr, metadata) != OK) {
+        _remove_persistence_fixture(path);
+        FAIL("GSF save failed; there is no valid fixture to tamper with");
+        return;
+    }
+
+    const uint32_t unknown_chunk_type = 0x554E4B4Eu; // "UNKN"
+    const bool retagged = _retag_first_metadata_chunk_as_unknown(path, unknown_chunk_type);
+    CHECK_MESSAGE(retagged, "fixture should contain a metadata chunk to retag as unknown");
+    if (!retagged) {
+        _remove_persistence_fixture(path);
+        return;
+    }
+
+    // A retagged-but-untampered unknown chunk must still load: forward
+    // compatibility is the point of the branch, and without this the rejection
+    // below could be the retag rather than the tamper.
+    Ref<GaussianData> preserved_data;
+    preserved_data.instantiate();
+    CHECK_MESSAGE(serializer.load_scene(path, preserved_data.ptr(), nullptr, nullptr) == OK,
+            "an intact unknown chunk must still round-trip; the new check must not reject forward-compatible data");
+
+    const bool tampered = _tamper_chunk_payload_byte(path, unknown_chunk_type);
+    CHECK_MESSAGE(tampered, "unknown chunk should carry a payload byte to flip");
+    if (!tampered) {
+        _remove_persistence_fixture(path);
+        return;
+    }
+
+    Ref<GaussianData> loaded_data;
+    loaded_data.instantiate();
+    CHECK_MESSAGE(serializer.load_scene(path, loaded_data.ptr(), nullptr, nullptr) == ERR_FILE_CORRUPT,
+            "a tampered unknown-chunk payload must fail the same checksum policy every known chunk uses; "
+            "accepting it also LAUNDERS the corruption, because re-save writes the original checksum back "
+            "over the tampered bytes");
+    CHECK_MESSAGE(serializer.validate_file(path) == ERR_FILE_CORRUPT,
+            "validate_file must reject what load_scene rejects (it returns Error, not bool -- "
+            "`!validate_file(...)` would assert the OPPOSITE and pass on a broken tree)");
+
+    _remove_persistence_fixture(path);
 }
 
 TEST_CASE("[GaussianSplatting][Persistence] Validation helpers accept chunked GSF without checksums") {
