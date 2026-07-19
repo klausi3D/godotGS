@@ -761,21 +761,34 @@ def main() -> int:
     #     batches. Fixed in gs_gpu_test_runner.cpp (release_all_worlds() before
     #     sampling, listener demoted to priority 0 so it samples last).
     #
-    #   * ALLOCATOR HIGH-WATER GROWTH (not fixed, pre-existing): the residual is
-    #     one-time pool warmup billed to whichever case touches it FIRST. Proven
-    #     order-dependent: running "Shared renderer instance buffer tracks
-    #     per-node opacity" alone reports 12,000,256 B, but with any earlier
-    #     renderer-building case in the same process it reports 0 -- and
-    #     excluding the top reporters simply moves the same 12 MB onto the next
-    #     case (whack-a-mole). It is not a per-case leak, so cases are NOT
-    #     excluded for it and the threshold is NOT raised.
+    #   * DEFERRED-FREE LAG (fixed in #662, was misdiagnosed as "allocator
+    #     high-water growth"): the residual was NOT allocator pool warmup.
+    #     MEMORY_BUFFERS/MEMORY_TEXTURES are exact live-object counters
+    #     (rendering_device.h:1580-1581), but `rd->free()` only QUEUES the
+    #     release; the counters drop in `_free_pending_resources()`, which runs
+    #     solely from `_begin_frame()` (rendering_device.cpp:6469). This
+    #     harness's device has no swapchain and no main loop, so nothing ever
+    #     advanced a frame and correctly-freed resources still read as leaked.
+    #     That produced the order-dependence (first allocating case pays for
+    #     everything queued; later cases read an inflated baseline, go negative,
+    #     and are suppressed) and the whack-a-mole on exclusion. The listener now
+    #     drains via swap_buffers(false) before sampling both endpoints.
     #
-    # This metric already fails on master for the same reason: the untouched
-    # TileRenderer batch reports 35,389,440 B on base 9161d92f349, so
-    # `total_rid_leak_bytes > 0` is red before this PR. Making the signal able to
-    # distinguish a real leak from pool growth is #335's documented follow-up
-    # (switch to a handle-count signal); do not "fix" it by retuning the
-    # threshold here.
+    # Measured on base 8914756deca: the whole-harness total was 179,390,524 B.
+    # After the deferred-free drain AND the real leak fix below it is 0.
+    # Of the untouched TileRenderer batch's 35,389,440 B, exactly half
+    # (17,694,720 B) was deferred-free lag and half was a GENUINE leak:
+    # `TileRenderer::TileResolveStage::destroy_resolve_textures()` freed its
+    # main-device external resolved textures through the LOCAL device, which
+    # silently no-ops, orphaning 2 textures per resolving TileRenderer. The
+    # engine's own `2 RIDs of type "Texture" were leaked` report at device
+    # finalize confirmed it independently. Fixed in tile_render_resolve.cpp.
+    #
+    # The gate is verified to still DISCRIMINATE: a deliberately leaked
+    # 2048x1024 RGBA8 texture on the main device is reported as exactly
+    # 8,388,608 B and fails the gate, because a genuinely leaked RID is never
+    # queued for free and therefore survives any number of drains.
+    # Do not "fix" a future non-zero value by retuning the threshold.
     total_rid_leak_bytes = sum(r.rid_leak_bytes for r in results)
 
     # Batches where the doctest summary regex failed to match. Locale shifts,
