@@ -2,11 +2,23 @@
 
 - **Task:** GS-PERF-PRUNE
 - **Risk class:** R3 (importer + on-disk/cache format version bump)
-- **Status:** Design accepted — the four open questions were resolved by the maintainer on
-  2026-07-10 (see **Decisions**). Implementation may proceed; the implementation PR still requires
-  CODEOWNER + independent review and the validation evidence below (R3 gate).
-- **Date:** 2026-07-04 (design), 2026-07-10 (decisions resolved)
-- **Baseline:** `eda1c261457`
+- **Status:** **Implemented and merged.** The design was accepted on 2026-07-10 (see
+  **Decisions**); the implementation subsequently shipped as **#456** and is live on
+  `origin/master`. This document is therefore a **record of a shipped design**, not a gate on
+  pending work — read the ordering and metric sections below as descriptions of current
+  behavior, and keep them true to the code rather than to the original plan.
+  Verified on `b15c6ddda46`: `asset->prune_by_importance(prune_ratio,
+  prune_importance_threshold)` is called at `io/resource_importer_ply.cpp:470` and
+  `io/resource_importer_spz.cpp:433`; the implementation lives at
+  `core/gaussian_splat_asset.cpp:1894`.
+- **Date:** 2026-07-04 (design), 2026-07-10 (decisions resolved), implemented in #456
+- **Baseline:** `eda1c261457` (design). **Current-code claims below re-verified against
+  `b15c6ddda46`.**
+- **Format versions — the ADR's prediction is superseded.** This document predicted a PLY
+  bump of `v8 → v9`. The shipped versions are **PLY `get_format_version() == 10`**
+  (`io/resource_importer_ply.h:95`) and **SPZ `== 7`** (`io/resource_importer_spz.h:56`),
+  because intervening importer changes consumed the numbers in between. Do not re-derive a
+  bump from the prediction; read the current values.
 
 ## Decisions (resolved 2026-07-10)
 
@@ -62,9 +74,24 @@ metric and top-k selection (moved to a shared header without changing the runtim
 Insertion point (requires a small refactor): today density selection and SH propagation happen in
 the **same materialization loop** (`resource_importer_ply.cpp` bake site), not as separable stages.
 Pruning is therefore implemented as a **post-materialization compaction pass** — after the
-density-subsampled parallel arrays (positions, SH bands, scales, …) are fully built and **before**
-`bake_streaming_chunks_for_asset()` — so it compacts a complete, consistent array set and the chunk
-bake runs on the pruned result. It does not interleave into the density loop.
+density-subsampled parallel arrays (positions, SH bands, scales, …) are fully written into the
+asset, and **before every derived output computed from the asset**, not merely before the chunk
+bake. Naming only the bake would be too weak: the thumbnail and the count/memory metadata are
+produced *before* the bake call, so a pass inserted "just before `bake_streaming_chunks_for_asset()`"
+would persist an unpruned thumbnail and unpruned `splat_count`/memory statistics alongside pruned
+chunk records. The required order, as shipped (`resource_importer_ply.cpp`; SPZ is identical):
+
+| # | Stage | Site |
+| --- | --- | --- |
+| 1 | **importance prune** | `:470` (`asset->prune_by_importance(...)`) |
+| 2 | thumbnail generation | `:474-481` |
+| 3 | `splat_count` / `pre_prune_splat_count` metadata | `:519-521` |
+| 4 | memory estimate | `:547-552` |
+| 5 | bounds AABB | `:568-570` |
+| 6 | streaming-chunk bake | `:575` (`bake_streaming_chunks_for_asset(...)`) |
+
+Every derived artifact must describe the **post-prune** asset. The in-code comment at
+`:463-469` states this contract explicitly. It does not interleave into the density loop.
 
 ### Options (new)
 
@@ -82,15 +109,38 @@ whose ratio is set from the A/B evidence. **Preset index 0 remains Ultra** (loss
 
 The importer's two existing count reducers are **not** two independent sequential stages
 today: `_compute_final_splat_count(original, max_splats, density)` folds the `max_splats`
-cap **into** the density-target count (it returns `min(density_target, max_splats)`), and the
-`merge_density` stride then subsamples the source uniformly to reach that final count in a
-single materialization loop (`resource_importer_ply.cpp:_compute_final_splat_count` and the
-bake loop). So "density then max_splats" is one count computation, not an orderable pipeline.
+cap **into** the density-target count — it returns `min(original, max_splats, round(original ×
+density))`, clamped to ≥1 (`resource_importer_ply.cpp:95-102`).
+
+**How that count is *reached* depends on `density_multiplier`, and the two cases differ.** The
+`merge_density` stride is gated on `density_multiplier < 0.999`
+(`resource_importer_ply.cpp:338`):
+
+```cpp
+338	const bool merge_density = density_multiplier < 0.999 && final_count < original_count;
+339	const double merge_stride = merge_density ? double(original_count) / double(final_count) : 1.0;
+...
+390		int start = merge_density ? int(Math::floor(double(i) * merge_stride)) : i;
+```
+
+So with density at `1.0` and only `max_splats` set, `merge_density` is **false**, `start = i`,
+and the loop simply keeps the **first `N` entries of the index array** — source order, or
+opacity-descending order when `processing/sort_by_opacity` is on (`:348-352`). Only when
+density < 0.999 does the stride actually subsample uniformly and merge ranges via
+`_merge_gaussian_range`. SPZ is identical (`resource_importer_spz.cpp:297-299`, `:353-359`).
+
+"Density then max_splats" is therefore one count computation with **two different
+materialization behaviors**, not an orderable pipeline — and describing step 1 as a uniform
+stride would make pruning rank a different candidate set than the importer actually produces
+for `max_splats`-only imports, breaking the default/back-compat invariant.
 
 Importance pruning is inserted as a **distinct, explicit stage** with this normative order:
 
 1. **count computation (existing):** `_compute_final_splat_count` yields the density/`max_splats`
-   target `N_density` and the uniform stride that reaches it.
+   target `N_density`, reached **either** by the uniform stride (`density_multiplier < 0.999`)
+   **or** by head-truncation of the index array (`density_multiplier ≥ 0.999`, i.e. the
+   `max_splats`-only case) — see the two cases above. Pruning operates on whichever set that
+   produces.
 2. **importance prune (this ADR):** on the density-subsampled set, keep the
    `prune_ratio ∩ prune_importance_threshold` subset by importance → `N_pruned ≤ N_density`.
 3. **final cap:** `max_splats` is already enforced by step 1 as a hard ceiling on the count. If a
@@ -122,9 +172,21 @@ with a `WARN_PRINT` when the clamp engages).
 ### Metric
 
 Reuse `gaussian_importance(g) = clamp(opacity,0,1) * (max(|scale.x|,|scale.y|,|scale.z|) +
-1e-4)`, floored to `1e-4` for non-finite inputs (matches #420 exactly). Top-k selection is
+1e-4)`, with an **unconditional `1e-4` floor** — `return MAX(0.0001f, importance);` at
+`core/gaussian_importance.h:44`, applied to **every finite** value, in addition to the same
+`1e-4` returned for non-finite results at `:41-43` (matches #420 exactly). Top-k selection is
 `select_top_k_indices()` — `std::nth_element` + sort, **tie-break by ascending source
 index** for determinism.
+
+> **Consequence for `prune_importance_threshold` — the lower half of the knob is inert.**
+> Because no splat can score below `1e-4`, a fully transparent *finite* splat (`opacity == 0`)
+> scores `1e-4`, **not** `0`. The keep test is inclusive — `if (importance[idx] >=
+> p_importance_threshold)` at `core/gaussian_splat_asset.cpp:1943` — so **any threshold ≤ 1e-4
+> is a strict no-op**, and only values strictly greater than `1e-4` prune anything. In
+> particular, a user setting a "small positive" threshold expecting to drop zero-opacity splats
+> gets nothing unless that value exceeds `1e-4`. Threshold values must be chosen above the
+> floor; this is a property of the shared runtime metric, which is deliberately reused
+> unmodified.
 
 ### Known metric bias (explicitly accepted for v1)
 
