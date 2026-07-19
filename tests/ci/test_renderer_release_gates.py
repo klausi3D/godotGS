@@ -250,6 +250,19 @@ def _valid_candidate_evidence(root: Path) -> dict[str, Any]:
         root / "gpu_report.json",
         json.dumps(
             {
+                # Top-level run verdict. The release gate consumes these by name
+                # rather than re-deriving them from the batch rows (#692), so a
+                # valid candidate report must carry a clean verdict.
+                "supervisor_exit": 0,
+                "max_batch_rc": 0,
+                "parsed_failures": 0,
+                "total_rid_leak_bytes": 0,
+                "totals_authoritative": True,
+                "zero_assertion_required_batches": [],
+                "empty_required_batches": [],
+                "summary_parse_failures": [],
+                "required_lifetime_failures": [],
+                "timed_out_batches": [],
                 "batches": [
                     {
                         "name": "CompositorHazard",
@@ -260,7 +273,7 @@ def _valid_candidate_evidence(root: Path) -> dict[str, Any]:
                         "assertions": {"failed": 0},
                         "rid_leak_bytes": 0,
                     }
-                ]
+                ],
             }
         ),
     )
@@ -656,6 +669,167 @@ class RendererReleaseGateTests(unittest.TestCase):
             self.assertTrue(any("timed out" in item for item in failures))
             self.assertTrue(any("null/missing commit_sha" in item for item in failures))
             self.assertTrue(any("has no visual captures" in item for item in failures))
+
+    def _gpu_report_with(self, root: Path, **overrides: Any) -> dict[str, Any]:
+        """Write a candidate gpu_report.json that is clean except for overrides.
+
+        The baseline here is a report the gate ACCEPTS, so any failure a test
+        observes is attributable to the override under test and not to fixture
+        noise.
+        """
+        report: dict[str, Any] = {
+            "supervisor_exit": 0,
+            "max_batch_rc": 0,
+            "parsed_failures": 0,
+            "total_rid_leak_bytes": 0,
+            "totals_authoritative": True,
+            "zero_assertion_required_batches": [],
+            "empty_required_batches": [],
+            "summary_parse_failures": [],
+            "required_lifetime_failures": [],
+            "timed_out_batches": [],
+            "batches": [
+                {
+                    "name": "CompositorHazard",
+                    "timed_out": False,
+                    "summary_parse_ok": True,
+                    "rc": 0,
+                    "test_cases": {"total": 1, "failed": 0, "skipped": 0},
+                    "assertions": {"failed": 0},
+                    "rid_leak_bytes": 0,
+                }
+            ],
+        }
+        report.update(overrides)
+        _write(root / "gpu_report.json", json.dumps(report))
+        return report
+
+    def test_candidate_gpu_report_rejects_zero_assertion_required_batches(self) -> None:
+        """#692 follow-up: the release gate must consume the zero-assertion signal.
+
+        The harness detects a required batch that asserted nothing and fails the
+        run. Before this, `check_renderer_release_gates.py` validated only
+        minimum test-case count, rc/failed counters and summary parse -- so that
+        same report could be supplied as release-candidate evidence and PASS.
+        That is a laundering path, and it is the same defect shape as #692
+        itself: a signal that is produced and not consumed where it matters.
+
+        Note the batch rows here are entirely clean. Nothing is re-derivable
+        from them -- the only evidence of the problem is the top-level field,
+        which is exactly why it has to be read.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _base_manifest(root)
+            evidence = _valid_candidate_evidence(root)
+            self._gpu_report_with(
+                root, zero_assertion_required_batches=["RendererPipeline"]
+            )
+            failures = checker._validate_candidate_gpu_report(root, manifest, evidence)
+
+            self.assertTrue(
+                failures,
+                "A report carrying zero_assertion_required_batches must be rejected.",
+            )
+            self.assertTrue(
+                any("zero_assertion_required_batches" in item for item in failures),
+                f"The failure must name the field. Got: {failures}",
+            )
+            self.assertTrue(
+                any("RendererPipeline" in item for item in failures),
+                f"The failure must name the offending batch. Got: {failures}",
+            )
+
+    def test_candidate_gpu_report_accepts_clean_verdict(self) -> None:
+        """Discriminates: the same fixture without the signal must PASS.
+
+        Without this, the rejection test above could pass for any reason at all
+        (a malformed fixture, an unrelated failure) and still look like proof.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _base_manifest(root)
+            evidence = _valid_candidate_evidence(root)
+            self._gpu_report_with(root)
+            failures = checker._validate_candidate_gpu_report(root, manifest, evidence)
+            self.assertEqual(
+                [], failures,
+                "A report with a clean run verdict must be accepted; otherwise the "
+                "rejection test above proves nothing.",
+            )
+
+    def test_candidate_gpu_report_requires_supervisor_exit(self) -> None:
+        """Fail-closed: deleting the verdict must not launder the report.
+
+        Consuming named signal fields is only as strong as their presence. If a
+        stripped report were treated as clean, the laundering path would reopen
+        by deletion. `supervisor_exit` is the harness's own overall verdict, so
+        requiring it also covers gate reasons added after this code was written.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _base_manifest(root)
+            evidence = _valid_candidate_evidence(root)
+            report = self._gpu_report_with(root)
+            del report["supervisor_exit"]
+            del report["zero_assertion_required_batches"]
+            _write(root / "gpu_report.json", json.dumps(report))
+            failures = checker._validate_candidate_gpu_report(root, manifest, evidence)
+            self.assertTrue(
+                any("supervisor_exit" in item for item in failures),
+                f"A report with no run verdict must be refused. Got: {failures}",
+            )
+
+    def test_candidate_gpu_report_rejects_nonzero_supervisor_exit(self) -> None:
+        """A run the harness itself failed can never be release evidence."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _base_manifest(root)
+            evidence = _valid_candidate_evidence(root)
+            self._gpu_report_with(root, supervisor_exit=1)
+            failures = checker._validate_candidate_gpu_report(root, manifest, evidence)
+            self.assertTrue(
+                any("FAILED by the harness itself" in item for item in failures),
+                f"Got: {failures}",
+            )
+
+    def test_candidate_gpu_report_rejects_sibling_unconsumed_signals(self) -> None:
+        """The siblings #692 exposed were unconsumed too -- pin every one.
+
+        `zero_assertion_required_batches` was the field Codex caught, but the
+        release gate ignored EVERY top-level verdict the supervisor writes. Each
+        of these is a gate-failure reason in `run_gpu_harness.main()` and each
+        must now be refused here. Table-driven so a newly added signal that is
+        wired into the harness but not into this validator is a visible gap.
+        """
+        cases: list[tuple[str, Any, str]] = [
+            ("empty_required_batches", ["CompositorHazard"], "CompositorHazard"),
+            ("summary_parse_failures", ["Lifetime"], "Lifetime"),
+            ("required_lifetime_failures", ["Lifetime/renderer_instance: skipped"], "Lifetime"),
+            ("timed_out_batches", ["NodeSceneTree"], "NodeSceneTree"),
+            ("max_batch_rc", 3221225477, "max_batch_rc"),
+            ("parsed_failures", 2, "parsed_failures"),
+            ("total_rid_leak_bytes", 4194304, "total_rid_leak_bytes"),
+            ("totals_authoritative", False, "totals_authoritative"),
+        ]
+        for field, value, expected_text in cases:
+            with self.subTest(field=field):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    manifest = _base_manifest(root)
+                    evidence = _valid_candidate_evidence(root)
+                    self._gpu_report_with(root, **{field: value})
+                    failures = checker._validate_candidate_gpu_report(
+                        root, manifest, evidence
+                    )
+                    self.assertTrue(
+                        failures,
+                        f"{field}={value!r} must be rejected as release evidence.",
+                    )
+                    self.assertTrue(
+                        any(expected_text in item for item in failures),
+                        f"{field} failure must name {expected_text!r}. Got: {failures}",
+                    )
 
     def test_candidate_missing_gpu_report_is_structured_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

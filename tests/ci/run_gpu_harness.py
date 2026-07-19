@@ -94,15 +94,39 @@ BATCHES: tuple[BatchSpec, ...] = (
     # fnmatch (where "[RequiresGPU]" would be a character class), while doctest treats
     # brackets literally, so only a bracket-free phrase matches identically in both.
     #
-    # Counts only the cascade tests that ACTUALLY execute their assertions under the GPU
-    # harness (no SceneTree): the resident cull/sort-skip case, the resident raster-failure
-    # case, the streaming-requested hard-fail case, and the serial failure-injection case —
-    # genuine resident + streaming + serial route/stage coverage as #351 requires. The
-    # streaming leg is the "Streaming-requested failure hard-fails" case: it forces
-    # route_policy=STREAMING with the streaming system released and asserts a typed
-    # COMMON.SKIP.STREAMING_NOT_READY.* route that does not bounce to resident. It gates only
-    # on RenderingServer/ProjectSettings/GaussianSplatManager/RenderingDevice (all present
-    # under the harness), so it runs its assertions rather than early-returning.
+    # !! HOLLOW TODAY (#692). Measured on an RTX 3090 at ac36a783a13: this batch reports
+    # `cases=4/4 asserts=0/0 status=SUCCESS`. All four cases open with
+    #   `RenderingServer *rs = RenderingServer::get_singleton(); if (rs == nullptr) { return; }`
+    # and they are tagged [GaussianSplatting][RequiresGPU] WITHOUT [SceneTree]. The test
+    # listener creates a RenderingServer only for names containing "[SceneTree]" or
+    # "[Editor]" (tests/test_main.cpp:333), so rs is ALWAYS null here and all four
+    # early-return before their first CHECK. doctest counts an early return as PASSED.
+    #
+    # The claim this comment used to make — that these cases gate only on
+    # "RenderingServer/ProjectSettings/GaussianSplatManager/RenderingDevice (all present
+    # under the harness), so it runs its assertions rather than early-returning" — was
+    # false from the day the batch was introduced (#418). RenderingServer is NOT present
+    # under this harness without [SceneTree]. Ironically the paragraph below diagnosed
+    # exactly this mechanism for the case it chose to EXCLUDE, and did not apply it to the
+    # four it kept. So #351's route/stage cascade coverage has never executed here, and
+    # this batch has never been evidence of anything.
+    #
+    # The zero-assertion gate in main() now FAILS on this rather than passing silently.
+    # That is intended: the batch is red until the cases are repaired, and a red required
+    # batch is the honest state. Do NOT silence it by dropping the batch from
+    # REQUIRED_BATCHES or by relaxing the assertion check.
+    #
+    # Repair is NOT simply retagging to [SceneTree][RequiresGPU]. Measured with that retag
+    # applied (same commit, RTX 3090), giving all four a real RenderingServer:
+    #   - "Stage results report cull/sort skipped"   -> CRASHES, 0xC0000005 access violation
+    #   - "Stage results report raster failure"      -> RUNS, 3 of 7 assertions FAIL
+    #   - "Serial instancing failure injection"      -> RUNS, 5 of 10 assertions FAIL
+    #   - "Streaming-requested failure hard-fails"   -> RUNS and PASSES, 8/8 assertions
+    # The two assertion failures share the signature #691 left unresolved: the resident
+    # route reports "no visible splats", so the raster stage never runs and there is no
+    # raster failure to report. Retagging also pulls all four into RendererSceneTree's
+    # filter, whose comment documents a deliberately single-case blast radius. Repairing
+    # this is renderer (R3) work and needs its own task.
     #
     # The separate "Stage results report streaming not-ready" case stays EXCLUDED: it depends
     # on a SceneTree (via ScopedWorldStreamingRenderer) but is not [SceneTree]-tagged, so the
@@ -822,8 +846,51 @@ def main() -> int:
     # required lifetime scenario silently ceasing to exercise its path
     # (hollow coverage; Codex PR #419 Finding 2). Format: "Batch/scenario: reason".
     required_lifetime_failures: list[str] = []
+    # Required batches that ran test cases but executed ZERO assertions (#692).
+    #
+    # The empty-batch check below catches a required batch whose filter stopped
+    # matching. It does NOT catch the case where the filter matches fine, the
+    # cases run, doctest reports them all PASSED — and not one assertion was
+    # evaluated. That is what RendererPipeline did from the day it was made
+    # required (#418): all four cases early-return on
+    # `RenderingServer::get_singleton() == nullptr` (they are [RequiresGPU]
+    # without [SceneTree], so the harness never creates a RenderingServer), and
+    # doctest counts an early return as a PASS, not a skip. The batch reported
+    # `cases=4/4 asserts=0/0 status=SUCCESS` and the gate went green on it.
+    #
+    # `0 tests matched` is deliberately success for ADVISORY batches (see the
+    # BATCHES comment at the top of this file) — catalogued-but-not-yet-running
+    # batches are the whole point of that leniency. It is not defensible for a
+    # required one: a batch is in REQUIRED_BATCHES precisely because the gate
+    # treats its success as evidence, and a run that evaluated no assertion is
+    # evidence of nothing. So this rule is scoped to REQUIRED_BATCHES only.
+    #
+    # Only flagged when the batch actually matched test cases: a batch that
+    # matched none is reported by `empty_required_batches` with a more precise
+    # diagnosis, and a batch whose summary could not be parsed leaves both
+    # totals at 0 and is reported by `summary_parse_failures`. Each failure
+    # therefore surfaces under exactly one reason rather than three.
+    zero_assertion_required_batches: list[str] = []
     if selected_required := REQUIRED_BATCHES.intersection({spec.name for spec in selected}):
         for r in results:
+            if (
+                r.name in selected_required
+                and r.test_cases_total > 0
+                and r.assertions_total <= 0
+            ):
+                zero_assertion_required_batches.append(r.name)
+                print(
+                    f"[run_gpu_harness] FATAL: required batch '{r.name}' ran "
+                    f"{r.test_cases_total} test case(s) but evaluated 0 assertions "
+                    f"(assertions: {r.assertions_passed}/{r.assertions_total}, "
+                    f"filters={list(r.filters)}). A required batch that asserts nothing "
+                    "is hollow coverage: doctest counts an early return (a missing "
+                    "RenderingServer, an unmet precondition) as PASSED, so the gate "
+                    "would go green having verified nothing. Fix the cases so they "
+                    "execute their assertions, or remove this batch from "
+                    "REQUIRED_BATCHES. Do NOT relax this check (#692).",
+                    flush=True,
+                )
             if r.name in selected_required and r.test_cases_total <= 0:
                 empty_required_batches.append(r.name)
                 print(
@@ -940,6 +1007,7 @@ def main() -> int:
         (max_rc != 0)
         or (parsed_failures > 0)
         or bool(empty_required_batches)
+        or bool(zero_assertion_required_batches)
         or bool(summary_parse_failures)
         or (total_rid_leak_bytes > 0)
         or bool(required_lifetime_failures)
@@ -972,6 +1040,7 @@ def main() -> int:
         "max_batch_rc": max_rc,
         "parsed_failures": parsed_failures,
         "empty_required_batches": empty_required_batches,
+        "zero_assertion_required_batches": zero_assertion_required_batches,
         "summary_parse_failures": summary_parse_failures,
         "required_lifetime_failures": required_lifetime_failures,
         "timed_out_batches": timed_out_batches,
@@ -1038,6 +1107,10 @@ def main() -> int:
         )
     if empty_required_batches:
         extra_suffix_parts.append(f"empty_required={empty_required_batches}")
+    if zero_assertion_required_batches:
+        extra_suffix_parts.append(
+            f"zero_assertion_required={zero_assertion_required_batches}"
+        )
     if total_rid_leak_bytes > 0:
         extra_suffix_parts.append(f"rid_leak_bytes={total_rid_leak_bytes}")
     if summary_parse_failures:

@@ -1254,6 +1254,123 @@ def _validate_candidate_gpu_batch(
     return failures
 
 
+# Top-level RUN-VERDICT fields the supervisor writes into every report, each of
+# which is a gate-failure reason in run_gpu_harness.main(). Consumed here by
+# NAME and by the value the report actually carries -- never re-derived from the
+# batch rows (#692 follow-up).
+#
+# Re-deriving would be strictly worse: this validator consumes a report produced
+# by a different process on a different machine, so recomputing the verdict lets
+# a stale or hand-edited report disagree with itself in silence, and the
+# validator would "confirm" a conclusion the harness never reached. The report's
+# own verdict is the evidence; our job is to refuse it when it says failure.
+#
+# Each entry is (field, human-readable reason). A non-empty list under any of
+# these names means the harness FAILED the run for that reason.
+_GPU_REPORT_SIGNAL_FIELDS: tuple[tuple[str, str], ...] = (
+    (
+        "zero_assertion_required_batches",
+        "required batch(es) ran test cases but evaluated ZERO assertions -- the "
+        "run verified nothing (#692)",
+    ),
+    ("empty_required_batches", "required batch(es) matched zero test cases"),
+    ("summary_parse_failures", "batch(es) whose doctest summary could not be parsed"),
+    (
+        "required_lifetime_failures",
+        "required batch lifetime scenario(s) reported passed=false (skipped, failed, "
+        "or exited without finalize)",
+    ),
+    ("timed_out_batches", "batch(es) hit their wall-clock timeout and never finished"),
+)
+
+# Scalar run-verdict fields: any non-zero value is a gate failure.
+_GPU_REPORT_SCALAR_FIELDS: tuple[tuple[str, str], ...] = (
+    ("max_batch_rc", "a batch returned a non-zero exit code"),
+    ("parsed_failures", "the run recorded failed test cases or assertions"),
+    ("total_rid_leak_bytes", "the run recorded leaked RID bytes"),
+)
+
+
+def _candidate_gpu_report_verdict_failures(
+    report: dict[str, Any],
+    gpu_report_path: Any,
+) -> list[str]:
+    """Reject a candidate GPU report whose own top-level verdict says FAILURE.
+
+    Before this, `_validate_candidate_gpu_report` walked ONLY `report["batches"]`
+    and re-checked per-batch counters for the required batches. Every top-level
+    verdict the supervisor computes was ignored, so a report the harness had
+    already failed could be handed to the release gate and pass. #692's
+    `zero_assertion_required_batches` was the instance Codex caught, but it was
+    not alone: `supervisor_exit`, `totals_authoritative`, `max_batch_rc`,
+    `parsed_failures`, `total_rid_leak_bytes`, `summary_parse_failures`,
+    `required_lifetime_failures` and `timed_out_batches` were all
+    produced-but-unconsumed. That is the same defect shape as #692 itself -- a
+    signal that exists and is not checked where it matters.
+
+    `supervisor_exit` is REQUIRED to be present. It is the harness's own overall
+    verdict, so requiring it (a) closes the laundering path where a field is
+    simply deleted from the JSON to make the condition vanish, and (b) covers
+    future gate reasons by construction, including ones added after this code is
+    written. A report with no verdict is not evidence and is refused as such.
+
+    Note this is value-level validation of a supplied artifact, not artifact
+    integrity: binding the report to the run that produced it is the job of the
+    `--artifact-sha` digest binding. These two layers are complementary.
+    """
+    failures: list[str] = []
+    prefix = f"candidate GPU report {gpu_report_path}"
+
+    if "supervisor_exit" not in report:
+        failures.append(
+            f"{prefix} is missing 'supervisor_exit'. The harness writes its own "
+            "run verdict into every report; a report without one either predates "
+            "the current schema or was stripped, and cannot be accepted as "
+            "release evidence."
+        )
+    else:
+        supervisor_exit = report.get("supervisor_exit")
+        if not _is_json_number(supervisor_exit):
+            failures.append(f"{prefix} supervisor_exit must be numeric")
+        elif supervisor_exit != 0:
+            failures.append(
+                f"{prefix} was FAILED by the harness itself "
+                f"(supervisor_exit={supervisor_exit}). A run the harness rejected "
+                "cannot be release evidence."
+            )
+
+    for field, reason in _GPU_REPORT_SIGNAL_FIELDS:
+        value = report.get(field)
+        if value is None:
+            continue
+        if not isinstance(value, list):
+            failures.append(f"{prefix} {field} must be a list")
+            continue
+        if value:
+            failures.append(f"{prefix} reports {field}={value}: {reason}")
+
+    for field, reason in _GPU_REPORT_SCALAR_FIELDS:
+        value = report.get(field)
+        if value is None:
+            continue
+        if not _is_json_number(value):
+            failures.append(f"{prefix} {field} must be numeric")
+        elif value != 0:
+            failures.append(f"{prefix} reports {field}={value}: {reason}")
+
+    # totals_authoritative=False means at least one batch timed out, so `totals`
+    # sums only the batches that finished and UNDERSTATES both coverage and
+    # leaks (#677). Those partial numbers must never back a release claim.
+    totals_authoritative = report.get("totals_authoritative")
+    if totals_authoritative is not None and totals_authoritative is not True:
+        failures.append(
+            f"{prefix} reports totals_authoritative={totals_authoritative}: the run "
+            "totals are incomplete and understate both coverage and leaks."
+        )
+
+    return failures
+
+
 def _validate_candidate_gpu_report(root: Path, manifest: dict[str, Any], evidence: dict[str, Any]) -> list[str]:
     gpu_report_path = evidence.get("gpu_harness_report")
     report, load_failures = _load_candidate_json(root, gpu_report_path, "gpu_harness_report")
@@ -1263,6 +1380,10 @@ def _validate_candidate_gpu_report(root: Path, manifest: dict[str, Any], evidenc
         return [f"candidate gpu_harness_report must be a JSON object: {gpu_report_path}"]
 
     failures: list[str] = []
+    # Consume the report's own run verdict BEFORE walking batch rows: if the
+    # harness already failed this run, no amount of per-batch counter agreement
+    # makes it acceptable evidence (#692 follow-up).
+    failures.extend(_candidate_gpu_report_verdict_failures(report, gpu_report_path))
     batch_rows = report.get("batches", [])
     if not isinstance(batch_rows, list):
         failures.append(f"candidate GPU report batches must be a list: {gpu_report_path}")
