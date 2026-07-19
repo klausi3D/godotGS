@@ -2632,17 +2632,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingrenderertile_render_resolvecpp" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/renderer/tile_render_resolve.cpp
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingrenderergpu_buffer_managercpp" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3153,6 +3142,17 @@
     <span class="md-ellipsis">
       
         tests/examples/godot/test_project/scenes/benchmark_suite/benchmark_suite_lane.gd
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingrenderertile_render_resolvecpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/renderer/tile_render_resolve.cpp
       
     </span>
   </a>
@@ -5514,17 +5514,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingtestsgs_gpu_test_runnercpp" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/tests/gs_gpu_test_runner.cpp
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingcoregaussian_splat_scene_directorh" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5573,6 +5562,17 @@
     <span class="md-ellipsis">
       
         modules/gaussian_splatting/tests/test_renderer_lifetime_proof.h
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingtestsgs_gpu_test_runnercpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/tests/gs_gpu_test_runner.cpp
       
     </span>
   </a>
@@ -7164,24 +7164,6 @@
 <li>line 659: bool RenderDeviceManager::_is_main_rendering_device(Renderin...</li>
 <li>line 691: void RenderDeviceManager::synchronize_tile_submission(Render...</li>
 </ul>
-<h2 id="modulesgaussian_splattingrenderertile_render_resolvecpp">modules/gaussian_splatting/renderer/tile_render_resolve.cpp<a class="headerlink" href="#modulesgaussian_splattingrenderertile_render_resolvecpp" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 62: static RD::DataFormat _resolve_storage_format(RD::DataFormat...</li>
-<li>line 92: static void <em>log_resolve_format_fallback_once(const char *p</em>...</li>
-<li>line 97: static bool _is_resolve_contract_fallback_accepted(RD::DataF...</li>
-<li>line 111: static void <em>warn_lighting_binding_fallback_once(uint32_t p</em>...</li>
-<li>line 120: static void <em>append_lighting_uniform(Vector<rd::uniform> &amp;r</rd::uniform></em>...</li>
-<li>line 130: void TileRenderer::TileResolveStage::destroy_resolve_texture...</li>
-<li>line 172: void TileRenderer::TileResolveStage::ensure_resolve_resource...</li>
-<li>line 360: void TileRenderer::TileResolveStage::ensure_resolve_pipeline...</li>
-<li>line 447: bool TileRenderer::TileResolveStage::ensure_resolve_sampler(...</li>
-<li>line 471: bool TileRenderer::TileResolveStage::ensure_shadow_sampler(R...</li>
-<li>line 496: RID TileRenderer::TileResolveStage::create_resolve_uniform_s...</li>
-<li>line 551: RID TileRenderer::TileResolveStage::create_resolve_param_uni...</li>
-<li>line 569: void TileRenderer::TileResolveStage::free_fallback_lighting_...</li>
-<li>line 608: bool TileRenderer::TileResolveStage::ensure_fallback_lightin...</li>
-<li>line 788: RID TileRenderer::TileResolveStage::create_lighting_uniform_...</li>
-</ul>
 <h2 id="modulesgaussian_splattingrenderergpu_buffer_managercpp">modules/gaussian_splatting/renderer/gpu_buffer_manager.cpp<a class="headerlink" href="#modulesgaussian_splattingrenderergpu_buffer_managercpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 21: uint32_t _get_frame_fence_delay(RenderingDevice *p_device) {...</li>
@@ -8010,6 +7992,24 @@
 <li>line 1764: func _resolved_capture_tag() -&gt; String:...</li>
 <li>line 1772: func _resolve_reference_path(capture_id: String) -&gt; String:...</li>
 <li>line 1783: func _build_visual_summary() -&gt; Dictionary:...</li>
+</ul>
+<h2 id="modulesgaussian_splattingrenderertile_render_resolvecpp">modules/gaussian_splatting/renderer/tile_render_resolve.cpp<a class="headerlink" href="#modulesgaussian_splattingrenderertile_render_resolvecpp" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 62: static RD::DataFormat _resolve_storage_format(RD::DataFormat...</li>
+<li>line 92: static void <em>log_resolve_format_fallback_once(const char *p</em>...</li>
+<li>line 97: static bool _is_resolve_contract_fallback_accepted(RD::DataF...</li>
+<li>line 111: static void <em>warn_lighting_binding_fallback_once(uint32_t p</em>...</li>
+<li>line 120: static void <em>append_lighting_uniform(Vector<rd::uniform> &amp;r</rd::uniform></em>...</li>
+<li>line 130: void TileRenderer::TileResolveStage::destroy_resolve_texture...</li>
+<li>line 218: void TileRenderer::TileResolveStage::ensure_resolve_resource...</li>
+<li>line 406: void TileRenderer::TileResolveStage::ensure_resolve_pipeline...</li>
+<li>line 493: bool TileRenderer::TileResolveStage::ensure_resolve_sampler(...</li>
+<li>line 517: bool TileRenderer::TileResolveStage::ensure_shadow_sampler(R...</li>
+<li>line 542: RID TileRenderer::TileResolveStage::create_resolve_uniform_s...</li>
+<li>line 597: RID TileRenderer::TileResolveStage::create_resolve_param_uni...</li>
+<li>line 615: void TileRenderer::TileResolveStage::free_fallback_lighting_...</li>
+<li>line 654: bool TileRenderer::TileResolveStage::ensure_fallback_lightin...</li>
+<li>line 834: RID TileRenderer::TileResolveStage::create_lighting_uniform_...</li>
 </ul>
 <h2 id="modulesgaussian_splattinginterfacespainterly_renderercpp">modules/gaussian_splatting/interfaces/painterly_renderer.cpp<a class="headerlink" href="#modulesgaussian_splattinginterfacespainterly_renderercpp" title="Permanent link">¶</a></h2>
 <ul>
@@ -11514,15 +11514,6 @@
 <li>line 643: float get_wind_frequency() const { return wind_frequency; }...</li>
 <li>line 647: Ref<class colorgradingresource=""> get_color_grading() const { ...</class></li>
 </ul>
-<h2 id="modulesgaussian_splattingtestsgs_gpu_test_runnercpp">modules/gaussian_splatting/tests/gs_gpu_test_runner.cpp<a class="headerlink" href="#modulesgaussian_splattingtestsgs_gpu_test_runnercpp" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 57: GsGpuTestOptions _parse_options(int argc, char *argv[]) {...</li>
-<li>line 75: int _bootstrap_rd(const GsGpuTestOptions &amp;opt) {...</li>
-<li>line 123: void _teardown_rd() {...</li>
-<li>line 135: int _run_doctest(int argc, char *argv[], const GsGpuTestOpti...</li>
-<li>line 225: explicit GsGpuRidLeakListener(const doctest::ContextOptions ...</li>
-<li>line 346: int gs_gpu_test_main(int argc, char *argv[]) {...</li>
-</ul>
 <h2 id="modulesgaussian_splattingcoregaussian_splat_scene_directorh">modules/gaussian_splatting/core/gaussian_splat_scene_director.h<a class="headerlink" href="#modulesgaussian_splattingcoregaussian_splat_scene_directorh" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 338: static uint64_t test_asset_records_key(ObjectID p_asset_obje...</li>
@@ -11562,6 +11553,15 @@
 <li>line 489: void record_rdm_shutdown_counts(uint32_t p_owned, uint32_t p...</li>
 <li>line 517: void test_inject_after_rd_bytes(uint64_t p_synthetic_after_b...</li>
 <li>line 526: inline Ref&lt;::GaussianData&gt; _make_lifetime_test_data(int p_co...</li>
+</ul>
+<h2 id="modulesgaussian_splattingtestsgs_gpu_test_runnercpp">modules/gaussian_splatting/tests/gs_gpu_test_runner.cpp<a class="headerlink" href="#modulesgaussian_splattingtestsgs_gpu_test_runnercpp" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 57: GsGpuTestOptions _parse_options(int argc, char *argv[]) {...</li>
+<li>line 75: int _bootstrap_rd(const GsGpuTestOptions &amp;opt) {...</li>
+<li>line 123: void _teardown_rd() {...</li>
+<li>line 135: int _run_doctest(int argc, char *argv[], const GsGpuTestOpti...</li>
+<li>line 225: explicit GsGpuRidLeakListener(const doctest::ContextOptions ...</li>
+<li>line 403: int gs_gpu_test_main(int argc, char *argv[]) {...</li>
 </ul>
 <h2 id="modulesgaussian_splattingrenderergpu_sorting_constantsh">modules/gaussian_splatting/renderer/gpu_sorting_constants.h<a class="headerlink" href="#modulesgaussian_splattingrenderergpu_sorting_constantsh" title="Permanent link">¶</a></h2>
 <ul>
@@ -11640,7 +11640,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 19, 2026 10:45:12 UTC">July 19, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 19, 2026 11:57:35 UTC">July 19, 2026</span>
   </span>
 
     
