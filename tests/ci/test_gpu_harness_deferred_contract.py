@@ -510,6 +510,143 @@ class GpuHarnessTimeoutReportingTests(unittest.TestCase):
         )
 
 
+class GpuHarnessZeroAssertionRequiredBatchTests(unittest.TestCase):
+    """Guard: a REQUIRED batch that evaluates zero assertions fails the gate (#692).
+
+    The empty-batch check catches a required batch whose filter stopped matching.
+    It does not catch the shape found in #692: the filter matches, the cases run,
+    doctest reports every one of them PASSED -- and not a single assertion was
+    evaluated. RendererPipeline did exactly that from the day it became required
+    (#418), reporting `cases=4/4 asserts=0/0 status=SUCCESS` while all four cases
+    early-returned on a null RenderingServer. doctest scores an early return as a
+    pass, so the gate treated "verified nothing" as evidence.
+
+    This is scoped to REQUIRED_BATCHES on purpose. "0 tests matched" is documented
+    success for advisory batches (catalogued-but-not-yet-running batches are the
+    point of that leniency), and these tests pin BOTH halves of that asymmetry so
+    a later refactor cannot quietly extend the strict rule to advisory batches or
+    quietly drop it from required ones.
+
+    Drives `main()` with `_run_batch` stubbed, so it is deterministic, needs no
+    GPU and no subprocess -- it runs in the headless guard lane.
+    """
+
+    def _run_main(self, tmpdir: Path, batch_name: str, cases: int, asserts: int):
+        import contextlib
+        import io
+
+        harness = _load("gs_harness_zero_assert", HARNESS_PATH)
+        report_path = tmpdir / "report.json"
+
+        def _fake_run_batch(godot, name, filters, excludes, timeout_sec, extra_args):
+            r = harness.BatchResult(name=name, filters=filters, excludes=excludes)
+            r.rc = 0
+            r.status = "SUCCESS"
+            r.test_cases_total = cases
+            r.test_cases_passed = cases
+            r.assertions_total = asserts
+            r.assertions_passed = asserts
+            # summary_parse_ok=True is the crux: doctest printed a perfectly
+            # well-formed summary. Nothing is malformed here -- the run is simply
+            # hollow, which is why no pre-existing check caught it.
+            r.summary_parse_ok = True
+            return r
+
+        harness._run_batch = _fake_run_batch
+        argv = [
+            "run_gpu_harness.py",
+            "--godot", str(HARNESS_PATH),
+            "--batch", batch_name,
+            "--report", str(report_path),
+        ]
+        buf = io.StringIO()
+        old_argv = sys.argv
+        sys.argv = argv
+        try:
+            with contextlib.redirect_stdout(buf):
+                rc = harness.main()
+        finally:
+            sys.argv = old_argv
+        return rc, buf.getvalue(), json.loads(report_path.read_text(encoding="utf-8"))
+
+    def _a_required_batch(self) -> str:
+        harness = _load("gs_harness_zero_assert_names", HARNESS_PATH)
+        # Sorted for determinism: REQUIRED_BATCHES is a frozenset.
+        return sorted(harness.REQUIRED_BATCHES)[0]
+
+    def _an_advisory_batch(self) -> str:
+        harness = _load("gs_harness_zero_assert_names2", HARNESS_PATH)
+        advisory = [
+            s.name for s in harness.BATCHES if s.name not in harness.REQUIRED_BATCHES
+        ]
+        self.assertTrue(advisory, "expected at least one advisory batch")
+        return sorted(advisory)[0]
+
+    def test_required_batch_with_zero_assertions_fails_gate_and_is_named(self):
+        import tempfile
+
+        batch_name = self._a_required_batch()
+        with tempfile.TemporaryDirectory() as td:
+            rc, stdout, report = self._run_main(Path(td), batch_name, cases=4, asserts=0)
+
+        self.assertNotEqual(
+            rc, 0,
+            "A required batch that ran test cases but evaluated 0 assertions must "
+            "fail the gate. Passing here is the #692 defect itself.",
+        )
+        self.assertEqual(
+            report["zero_assertion_required_batches"], [batch_name],
+            "The report must name the offending batch so CI triage does not have to "
+            "diff per-batch assertion counts by hand.",
+        )
+        # It matched cases, so it is NOT the empty-batch failure -- the two reasons
+        # must stay disjoint or the diagnosis printed to CI is misleading.
+        self.assertEqual(report["empty_required_batches"], [])
+        self.assertIn(
+            batch_name, stdout,
+            "The FATAL line must name the batch.",
+        )
+        self.assertIn(
+            "0 assertions", stdout,
+            "The FATAL line must state the zero assertion count, which is the "
+            "evidence a reader needs to act.",
+        )
+
+    def test_required_batch_with_assertions_passes(self):
+        """The rule must discriminate: same batch, assertions > 0, gate passes."""
+        import tempfile
+
+        batch_name = self._a_required_batch()
+        with tempfile.TemporaryDirectory() as td:
+            rc, _stdout, report = self._run_main(Path(td), batch_name, cases=4, asserts=17)
+
+        self.assertEqual(
+            rc, 0,
+            "A required batch that evaluated assertions and reported no failures "
+            "must still pass. Without this the check above could pass vacuously.",
+        )
+        self.assertEqual(report["zero_assertion_required_batches"], [])
+
+    def test_advisory_batch_with_zero_assertions_still_passes(self):
+        """Scope check: the strict rule applies to REQUIRED batches only.
+
+        Advisory batches are explicitly allowed to match nothing and assert
+        nothing (see the BATCHES comment in the harness). If this test ever
+        starts failing, the zero-assertion rule has leaked out of its scope.
+        """
+        import tempfile
+
+        batch_name = self._an_advisory_batch()
+        with tempfile.TemporaryDirectory() as td:
+            rc, _stdout, report = self._run_main(Path(td), batch_name, cases=0, asserts=0)
+
+        self.assertEqual(
+            rc, 0,
+            "An advisory batch asserting nothing must not fail the gate.",
+        )
+        self.assertEqual(report["zero_assertion_required_batches"], [])
+
+
 class GpuHarnessBatchTimeoutBudgetTests(unittest.TestCase):
     """Guard: NodeSceneTree keeps a timeout budget large enough to finish (#677).
 
