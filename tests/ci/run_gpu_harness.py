@@ -211,15 +211,21 @@ BATCHES: tuple[BatchSpec, ...] = (
     # flattening the test names keeps [WorldSubmission] usable as a tag.
     #
     # timeout_seconds=180. This batch grew from 2 executing cases (17 assertions,
-    # 12.6 s wall) to 12 (166 assertions, 73.3 s wall measured on 7c350507f51 +
-    # this change, RTX 3090) when ten renderer-dependent cases were retagged out
-    # of the strict [SceneTree] lane, where they had been early-returning past
-    # every assertion. Under the 60 s default the batch was cut off with rc=124
-    # and no doctest summary, so its parsed totals read 0/0. Verified a BUDGET
-    # problem, not a hang: given no timeout the same filter completes cleanly
-    # (12/12 passed, 166/166 assertions, Status: SUCCESS). 180 s leaves ~2.5x
-    # headroom for a loaded CI runner. Do NOT raise this to paper over a genuine
-    # hang -- a hang must be diagnosed, not budgeted.
+    # 12.6 s wall) to 12 (166 assertions, 73.3 s wall measured on 7c350507f51,
+    # RTX 3090) when ten renderer-dependent cases were retagged out of the strict
+    # [SceneTree] lane, where they had been early-returning past every assertion.
+    # Under the 60 s default the batch was cut off with rc=124 and no doctest
+    # summary, so its parsed totals read 0/0. Verified a BUDGET problem, not a
+    # hang: given no timeout the same filter completes cleanly. Do NOT raise this
+    # to paper over a genuine hang -- a hang must be diagnosed, not budgeted.
+    #
+    # #675 added two device-backed world-submission cases (cross-scenario eviction
+    # restore, arbitration-rejection end state). Re-measured on 91a03b83efe + that
+    # change, RTX 3090: 14/14 cases, 206/206 assertions, 76.9-100.9 s wall across
+    # runs (run-to-run variance on this batch is large -- device bring-up
+    # dominates). Against the slowest observed 100.9 s, 180 s is ~1.78x, still
+    # clear of the >=1.5x headroom the NodeSceneTree budget guard in
+    # test_gpu_harness_deferred_contract.py encodes as the minimum.
     BatchSpec("SceneDirectorSceneTree", (
             "*[SceneDirector][SceneTree][RequiresGPU]*",
             "*[SceneDirector][WorldSubmission][SceneTree][RequiresGPU]*",
