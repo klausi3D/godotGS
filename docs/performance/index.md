@@ -114,7 +114,9 @@ scons platform=windows target=editor dev_build=no optimize=speed debug_symbols=n
 # 2. Generate the benchmark fixtures. Passing --godot-binary is REQUIRED:
 #    without it the script falls back to lightweight Python generators and
 #    test_splats.ply is written with 1024 splats instead of 10000, which
-#    changes every lane that depends on it.
+#    changes every lane that depends on it. Since #669 this is enforced:
+#    the suite refuses to run (exit 2) on a missing or undersized fixture
+#    rather than reporting a number from the wrong workload.
 python tests/runtime/prepare_synthetic_assets.py \
   --godot-binary ./bin/godot.windows.editor.x86_64.console.exe
 

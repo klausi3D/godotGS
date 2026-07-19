@@ -1,4 +1,15 @@
 {
+  "asset_min_splat_counts": {
+    "res://tests/fixtures/synthetic_cloud.ply": 4096,
+    "res://tests/fixtures/synthetic_cube.ply": 2048,
+    "res://tests/fixtures/synthetic_flower_field.ply": 30000,
+    "res://tests/fixtures/synthetic_mandelbulb.ply": 4096,
+    "res://tests/fixtures/synthetic_plane.ply": 2048,
+    "res://tests/fixtures/synthetic_sphere.ply": 2048,
+    "res://tests/fixtures/synthetic_spiral.ply": 25000,
+    "res://tests/fixtures/synthetic_torus.ply": 3072,
+    "res://tests/fixtures/test_splats.ply": 10000
+  },
   "chunked_asset_ladder": {
     "open_world_boundary_50m": {
       "asset_classification": "chunked_open_world_candidate",
@@ -358,5 +369,5 @@
     "synthetic_spiral": "res://tests/fixtures/synthetic_spiral.ply",
     "synthetic_torus": "res://tests/fixtures/synthetic_torus.ply"
   },
-  "version": "2.3.0"
+  "version": "2.4.0"
 }

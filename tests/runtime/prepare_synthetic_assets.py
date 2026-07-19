@@ -327,14 +327,49 @@ LANE_METADATA: dict[str, dict[str, object]] = {
 }
 
 
+# Minimum splat counts a benchmark lane requires from each fixture (issue #669).
+#
+# These are CONTRACT floors, not a description of whatever the last generator run
+# happened to write. A lane that loads a fixture below its floor fails instead of
+# publishing a number produced by a different workload.
+#
+# The floors are NOT uniformly sourced, deliberately:
+#
+#   * test_splats.ply is gitignored and never committed, and the only producer that
+#     yields the published benchmark workload is the C++ [GeneratePLY] generator in
+#     modules/gaussian_splatting/tests/generate_synthetic_ply_fixtures.h (10000
+#     splats). The lightweight Python fallback below writes 1024 — a 10x-smaller
+#     workload — so the floor is set to the C++ count and the fallback fixture fails
+#     loudly rather than silently standing in for it.
+#
+#   * The synthetic_*.ply fixtures ARE committed, at the Python-fallback sizes. Their
+#     floors match those committed sizes, so a clean checkout passes. (The C++
+#     generator writes far larger versions of these — 50000-100000 — so sourcing
+#     these floors from C++ would fail every clean checkout.)
+ASSET_MIN_SPLAT_COUNTS: dict[str, int] = {
+    # Floor from the C++ generator; the committed tree has no copy of this file.
+    "res://tests/fixtures/test_splats.ply": 10000,
+    # Floors from the committed fixture sizes (see CANONICAL_SPECS below).
+    "res://tests/fixtures/synthetic_sphere.ply": 2048,
+    "res://tests/fixtures/synthetic_cube.ply": 2048,
+    "res://tests/fixtures/synthetic_plane.ply": 2048,
+    "res://tests/fixtures/synthetic_torus.ply": 3072,
+    "res://tests/fixtures/synthetic_mandelbulb.ply": 4096,
+    "res://tests/fixtures/synthetic_cloud.ply": 4096,
+    "res://tests/fixtures/synthetic_spiral.ply": 25000,
+    "res://tests/fixtures/synthetic_flower_field.ply": 30000,
+}
+
+
 def _benchmark_asset_manifest() -> dict[str, object]:
     return {
         "chunked_asset_ladder": build_chunked_asset_ladder(),
-        "version": "2.3.0",
+        "version": "2.4.0",
         "default_asset": "res://tests/fixtures/test_splats.ply",
         "scene_defaults": dict(SCENE_DEFAULT_ASSETS),
         "lane_defaults": dict(LANE_DEFAULT_ASSETS),
         "lane_metadata": dict(LANE_METADATA),
+        "asset_min_splat_counts": dict(ASSET_MIN_SPLAT_COUNTS),
     }
 
 
