@@ -23,14 +23,12 @@ namespace GaussianSplatting {
 // to get the ordering right independently. This type makes the rule *queryable*
 // at runtime, so the boundary itself can check it instead of being trusted.
 //
-// Ownership tracking is deliberately conservative: `Thread::get_caller_id()`
-// returns `Thread::UNASSIGNED_ID` on threads that Godot's `Thread` never
-// registered, and two such threads are indistinguishable from each other. When
-// the caller cannot be identified, `is_held_by_current_thread()` reports
-// *false* — it would rather miss a violation than invent one, because a false
-// positive here would be indistinguishable from the real defect. Both threads
-// this guard exists for (the main thread and the RenderingServer render thread)
-// are registered `Thread`s and are therefore always identifiable.
+// Every thread is identifiable, including ones Godot's `Thread` never started:
+// `caller_id` is a `thread_local` initialised from `id_counter.increment()`
+// (`core/os/thread.cpp:41`), so the first `get_caller_id()` on any thread mints a
+// unique non-zero id. `Thread::UNASSIGNED_ID` is therefore never *returned*; the
+// check against it below exists only so an unowned mutex — whose `owner_id` is
+// reset to that sentinel — can never spuriously match a caller.
 class ThreadOwnedMutex {
 	mutable Mutex mutex; // Recursive, matching the `Mutex` this replaces.
 	mutable SafeNumeric<uint64_t> owner_id{ Thread::UNASSIGNED_ID };
@@ -103,6 +101,10 @@ public:
 // critical section the render thread itself needs. The violation is counted in
 // `r_violation_count` so a caller (or a test) can observe it without parsing
 // logs.
+//
+// A count is evidence of the *ordering* violation, never of a stall: whether the
+// dispatch actually blocks depends on the run (under `--headless` the dispatcher
+// short-circuits and returns immediately).
 //
 // This *reports*; it does not abort. Aborting would change behaviour on the one
 // call path that is still knowingly in violation (`submit_world_submission`'s

@@ -381,6 +381,7 @@ void GaussianSplatSceneDirector::DeferredRendererWork::flush() {
 		if (!renderer) {
 			continue;
 		}
+		dispatched_entry_count++;
 		if (entry.is_restore) {
 			// Mirrors _restore_world_submission_renderer exactly.
 			if (!entry.restore_state.valid) {
@@ -796,10 +797,13 @@ void GaussianSplatSceneDirector::_copy_world_submission_record(const SharedWorld
 
 void GaussianSplatSceneDirector::_restore_world_submission_renderer(SharedWorld &p_world,
 		const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_snapshot) {
-	_report_renderer_contract_lock_violation("_restore_world_submission_renderer");
 	if (!p_world.renderer.is_valid()) {
 		return;
 	}
+	// #611: checked AFTER the early-out. With no renderer this function performs
+	// no dispatch at all, so counting it would make the violation counter fire on
+	// every headless run and stop meaning anything.
+	_report_renderer_contract_lock_violation("_restore_world_submission_renderer");
 	GaussianSplatRenderer *renderer = p_world.renderer.ptr();
 	ERR_FAIL_NULL(renderer);
 
@@ -817,10 +821,12 @@ void GaussianSplatSceneDirector::_restore_world_submission_renderer(SharedWorld 
 bool GaussianSplatSceneDirector::_apply_world_submission_to_renderer(SharedWorld &p_world,
 		const SharedWorld::WorldSubmissionRecord &p_record,
 		const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_renderer_state) {
-	_report_renderer_contract_lock_violation("_apply_world_submission_to_renderer");
 	if (!p_record.active || !p_world.renderer.is_valid()) {
 		return true;
 	}
+	// #611: checked AFTER the early-out — see the note in
+	// _restore_world_submission_renderer.
+	_report_renderer_contract_lock_violation("_apply_world_submission_to_renderer");
 
 	GaussianSplatRenderer *renderer = p_world.renderer.ptr();
 	ERR_FAIL_NULL_V(renderer, false);
@@ -2241,6 +2247,18 @@ bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &
 	// leaving it in place would re-apply the old contract on top of the new one.
 	// On the two failure exits above the previous record is still the live one,
 	// so their queued apply is correct and is deliberately left alone.
+	//
+	// LOAD-BEARING INVARIANT for the reject exit: deferring the queued apply
+	// means `target_previous_renderer_state` is now snapshotted from a renderer
+	// that has NOT yet had the previous record applied. That divergence cannot
+	// reach the committed record only because
+	// `snapshot_world_submission_runtime_state()` hardcodes `snapshot.valid =
+	// true` (renderer/render_data_orchestrator.cpp:662). `valid` being
+	// unconditionally true is what makes `candidate_record.renderer_restore_state`
+	// resolve to `target_previous_record.renderer_restore_state` — captured before
+	// any of this — and therefore byte-identical to the pre-change value. If
+	// `valid` ever becomes conditional, re-derive this; the reject path would
+	// otherwise silently start restoring to a different state.
 	//
 	// Scope note (#611 PR A): the apply at the top of this function and the
 	// restores on its failure paths are NOT deferred. Their results gate the
