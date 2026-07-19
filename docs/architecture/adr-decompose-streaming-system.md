@@ -587,8 +587,8 @@ director-side uses. So the original "zero references outside the director `.cpp`
 red on the base and would have been weakened rather than obeyed.)
 
 *What is **not** true:* the streaming path **does** acquire `world_mutex`, indirectly, through
-the director's `*_for_renderer` API. `RenderStreamingOrchestrator` calls six such methods, and
-**all six lock it**:
+the director's `*_for_renderer` API. `RenderStreamingOrchestrator` calls **seven** such methods, and
+**all seven lock it**:
 
 | Director method called from `render_streaming_orchestrator.cpp` | Locks `world_mutex` at |
 | --- | --- |
@@ -597,13 +597,14 @@ the director's `*_for_renderer` API. `RenderStreamingOrchestrator` calls six suc
 | `get_instance_generation_for_renderer` | `:2021` |
 | `get_instance_asset_generation_for_renderer` | `:2030` |
 | `collect_instance_assets_for_renderer` | `:2787` |
+| `build_instance_grading_buffer_for_renderer` | `gaussian_splat_scene_director.cpp:1810` |
 | `get_sphere_effector_generation_for_renderer` | `scene_director_sphere_effectors.cpp:344` |
 
 A textual-grep guard over streaming TUs stays **green** through every one of these, so scoping
 I9 that way would have produced a guard that cannot detect the condition it exists to detect —
 the precise failure this ADR twice warns about elsewhere. I9 is therefore restated below
 against what is actually enforceable: **no *new* and no *direct* acquisition, plus a frozen
-allow-list for the six existing indirect ones.** This is the clause that protects against the
+allow-list for the seven existing indirect ones.** This is the clause that protects against the
 lock-order inversion the sibling ADR (`adr-decompose-scene-director`) is fighting, and the
 allow-list is what makes it checkable.
 
@@ -712,7 +713,7 @@ a slice that cannot show the evidence in §7 for the invariants it touches is "n
 | **I6** | Every public entry point carries exactly one §3b class tag in its header doc, and the set of `[SERIALIZED]` methods equals the set that mutates render-facing state. | Review checklist + a doc/code parity guard in S6 (tag present for every public method). |
 | **I7** | **No `[SERIALIZED]` entry point asserts thread identity.** The headless `tick_streaming_only` main-thread path, the `ClassDB`-bound script path, and the doctest callers all remain valid. | Module test suite passes unchanged with `DEV_ENABLED`; headless run of the `tick_streaming_only` path produces no new errors. This invariant exists specifically to prevent re-introducing the rejected blanket assert. |
 | **I8** | No pack worker reads owner state. `build_pending_upload_from_pack_job` and every worker entry take only value snapshots; after S2 no worker signature takes `GaussianStreamingSystem &`. | Signature review + grep: zero `&system` parameters on worker-thread functions. |
-| **I9** | **No slice adds a NEW lock over render-facing state** (`chunks`, budget/ledger, `atlas_allocator`, `persistent_buffer`, `asset_registry`). The two existing streaming locks stay at two, each keeping its current scope. **No streaming TU acquires `world_mutex` directly**, and the set of director methods through which the streaming path acquires it **indirectly** does not grow beyond the six inventoried in §3e. *(Note the honest form: "no streaming path acquires `world_mutex`" is **false on the base** — see §3e. The enforceable invariant is no-new-and-no-direct, not none.)* | Three-part guard, all three of which bite: (1) `Mutex`/`RWLock` declarations in the streaming TUs stay at exactly the two named below; (2) `world_mutex` has zero **textual** references in `core/gaussian_streaming.*`, `core/streaming_*.{h,cpp}`, `renderer/render_streaming_orchestrator.cpp` — currently zero, catches a *direct* acquisition; (3) **the allow-list check that actually matters** — enumerate the `p_director->*` calls made from the streaming TUs, intersect with the director methods that lock `world_mutex`, and fail if that set differs from the six in §3e. Part (3) is required because parts (1)–(2) are green through all six existing indirect acquisitions. |
+| **I9** | **No slice adds a NEW lock over render-facing state** (`chunks`, budget/ledger, `atlas_allocator`, `persistent_buffer`, `asset_registry`). The two existing streaming locks stay at two, each keeping its current scope. **No streaming TU acquires `world_mutex` directly**, and the set of director methods through which the streaming path acquires it **indirectly** does not grow beyond the seven inventoried in §3e. *(Note the honest form: "no streaming path acquires `world_mutex`" is **false on the base** — see §3e. The enforceable invariant is no-new-and-no-direct, not none.)* | Three-part guard, all three of which bite: (1) `Mutex`/`RWLock` declarations in the streaming TUs stay at exactly the two named below; (2) `world_mutex` has zero **textual** references in `core/gaussian_streaming.*`, `core/streaming_*.{h,cpp}`, `renderer/render_streaming_orchestrator.cpp` — currently zero, catches a *direct* acquisition; (3) **the allow-list check that actually matters** — enumerate the director calls made from the streaming TUs, intersect with the director methods that lock `world_mutex`, and fail if that set differs from the seven in §3e. **Match on the callee name, not on a receiver spelling** — an earlier revision of this list was derived with `p_director->\w+_for_renderer` and consequently missed `build_instance_grading_buffer_for_renderer`, which is called through a bare `director->` receiver. Any receiver-anchored pattern will under-report and silently shrink the frozen set. Part (3) is required because parts (1)–(2) are green through all seven existing indirect acquisitions. |
 | **I10** | Friendship strictly decreases. No slice adds a `friend` grant; S5 removes the six named grants (`gaussian_streaming.h:31-34`, `streaming_visibility_controller.h:54`, `streaming_global_atlas_registry.h:23`). | Grep guard on `friend class` count in the streaming headers; monotonically non-increasing, zero after S5. |
 | **I11** | No GPU payload layout changes in S1–S6; the atlas stride guard and the layout-sync guard are untouched. | `run_module_tests.py --guard-only` green; guard files unmodified in the diff. |
 | **I12** | External behavior is preserved: same chunks resident, same eviction order, same visible count for a fixed camera path. | Byte-identical `get_streaming_analytics` / `get_vram_debug_stats` on a fixed scene before and after. |
