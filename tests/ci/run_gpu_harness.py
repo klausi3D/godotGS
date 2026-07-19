@@ -170,26 +170,47 @@ BATCHES: tuple[BatchSpec, ...] = (
     # batch completes cleanly (18/18 passed, 175/175 assertions, Status: SUCCESS).
     # 180 s leaves ~2.2x headroom for a loaded CI runner. Do NOT raise this to
     # paper over a genuine hang — a hang must be diagnosed, not budgeted.
-    BatchSpec("NodeSceneTree", ("*[Node][SceneTree][RequiresGPU]*",), timeout_seconds=180, excludes=(
-            # Real behaviour failures, first ever observed (never executed before).
-            #
-            # "Shared renderer hides node-local debug settings" and "Shared renderer
-            # preserves local painterly and color grading state" used to be excluded
-            # here. Both were genuine PRODUCT bugs (P2 shared-renderer gating), fixed
-            # by the peer-set convergence hook in GaussianSplatNode3D and the painterly
-            # P2 gate in GaussianSplatNodeRendererHelper::apply_renderer_settings.
-            # They now execute in this batch.
-            #
-            # Hidden nodes still occupy instance-buffer rows.
-            "*Shared renderer instance buffer drops hidden nodes*",
-            "*Shared renderer full-fidelity override only follows attached assets*",
-            "*Shared renderer ignores hidden full-fidelity assets*",
-            # Hard crash: REQUIRE(node_a_index >= 0) fails, and because this build
-            # is DOCTEST_CONFIG_NO_EXCEPTIONS (disable_exceptions=True, #656)
-            # REQUIRE does not abort — the -1 is then used as an index and takes
-            # down the whole run ("Index p_index = 4294967295 is out of bounds").
-            "*Scene sphere effectors build per-instance selection masks*",
-    )),
+    # No excludes: the whole [Node][SceneTree][RequiresGPU] corpus executes.
+    #
+    # "Shared renderer hides node-local debug settings" and "Shared renderer
+    # preserves local painterly and color grading state" were excluded here until
+    # they were fixed as genuine PRODUCT bugs (P2 shared-renderer gating): the
+    # peer-set convergence hook in GaussianSplatNode3D and the painterly P2 gate
+    # in GaussianSplatNodeRendererHelper::apply_renderer_settings.
+    #
+    # The last four exclusions were removed in the #329 waiver-reduction pass.
+    # All four were TEST defects, not product defects:
+    #   * "instance buffer drops hidden nodes", "Scene sphere effectors build
+    #     per-instance selection masks" and "instance buffer tracks per-node
+    #     opacity" all matched instance rows by translation_x, which is the NODE
+    #     transform origin (gaussian_splat_scene_director.cpp:1705), while
+    #     offsetting the splat inside the asset and never calling set_position.
+    #     Every lookup therefore missed: one case asserted 0 == 0 vacuously, one
+    #     crashed the batch by indexing with -1 (#656), and one silently
+    #     early-returned past all of its assertions while reported green.
+    #   * "full-fidelity override only follows attached assets" set a
+    #     full-fidelity asset ACTIVE in both halves, which short-circuits
+    #     _renderer_requests_conservative_full_fidelity_runtime
+    #     (gaussian_splat_renderer.cpp:136-139) before the director is consulted,
+    #     so the two halves were indistinguishable to the predicate.
+    #   * "ignores hidden full-fidelity assets" asserted the OPPOSITE of the
+    #     documented no-flicker contract (gaussian_splat_renderer.cpp:150-153)
+    #     and is now "full-fidelity collection ignores node visibility".
+    # A third, independent defect was found in the two full-fidelity cases: they
+    # set visibility_threshold to 0.2f, which set_visibility_threshold clamps to
+    # 0.1f (render_quality_orchestrator.cpp:242), so the read-back assertion was
+    # unsatisfiable regardless of the override.
+    # Each fix was mutation-checked: reverting the pinned behaviour fails the case.
+    #
+    # timeout_seconds raised 180 -> 300 with this change. The batch grew from 18
+    # to 22 executing cases (175 -> 285 assertions) and measured 127.7 s, 133.8 s
+    # and 153.3 s wall across three consecutive runs on an RTX 3090. Against the
+    # slowest observed run, 180 s was only 1.17x -- under the 1.5x floor the
+    # NodeSceneTree budget guard in test_gpu_harness_deferred_contract.py encodes,
+    # and squarely in #677 silent-truncation territory on a loaded runner. 300 s
+    # is ~1.96x. This is a re-budget for genuinely more work, NOT headroom for a
+    # hang: every one of the 22 cases completes and the batch reports 22/22.
+    BatchSpec("NodeSceneTree", ("*[Node][SceneTree][RequiresGPU]*",), timeout_seconds=300),
     BatchSpec("WorldSceneTree", ("*[World][SceneTree][RequiresGPU]*",), excludes=(
             # GPU sort sync-contract violation: "device already submitted, call
             # sync to wait until done", then a fault inside

@@ -121,18 +121,14 @@
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
     "test_count": 132,
-    "sha256": "03a340aab51cabb9b24756423432dee361090abb3d90ee4a18ee5282dbdbcf19",
+    "sha256": "9c742697e66162d3e636783f77a0746f9d8a0aba3dc6129711602cf55b1273f6",
     "deferred_tags_any": [
       "Importer"
     ],
-    "deferred_count": 8,
+    "deferred_count": 4,
     "new_or_missing_test_policy": "fail-contract-check",
     "closure_policy": "deferred RequiresGPU coverage blocks #350/#360 closure unless each remaining test has an explicit waiver below",
     "deferred_test_names_any": [
-      "[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer instance buffer drops hidden nodes",
-      "[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer full-fidelity override only follows attached assets",
-      "[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer ignores hidden full-fidelity assets",
-      "[GaussianSplatting][Node][SceneTree][RequiresGPU] Scene sphere effectors build per-instance selection masks",
       "[GaussianSplatting][World][SceneTree][RequiresGPU] World submission renders through the resident instanced route without a streaming system",
       "[GaussianSplatting][World][SceneTree][RequiresGPU] Resident rejection preserves resident diagnostics and skips streaming pivot",
       "[GaussianSplatting][World][SceneTree][RequiresGPU] Explicit resident quantization rejection falls back to the legacy resident path"
@@ -141,67 +137,11 @@
   },
   "deferred_requires_gpu_waivers": [
     {
-      "test_name": "[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer instance buffer drops hidden nodes",
-      "batch": "NodeSceneTree",
-      "exclude_pattern": "*Shared renderer instance buffer drops hidden nodes*",
-      "source_path": "modules/gaussian_splatting/tests/test_gaussian_splat_node.h",
-      "reason": "Executed for the first time and FAILS: hidden nodes are not dropped from the shared renderer instance buffer.",
-      "risk": "medium",
-      "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
-      "owner": "klausi3D",
-      "expires_utc": "2026-10-31T00:00:00Z",
-      "mitigation": "Excluded from its GPU batch via BatchSpec.excludes; the other cases in the same batch still execute. tests/ci/test_gpu_harness_deferred_contract.py fails if this waiver is removed while the exclude remains (or vice versa).",
-      "docs_path": "docs/reference/renderer-release-gates.md",
-      "base_sha_proven_failing": "9161d92f349326e2004088638a5ab43eb4773123"
-    },
-    {
-      "test_name": "[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer full-fidelity override only follows attached assets",
-      "batch": "NodeSceneTree",
-      "exclude_pattern": "*Shared renderer full-fidelity override only follows attached assets*",
-      "source_path": "modules/gaussian_splatting/tests/test_gaussian_splat_node.h",
-      "reason": "Executed for the first time and FAILS: the full-fidelity override follows unattached assets.",
-      "risk": "medium",
-      "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
-      "owner": "klausi3D",
-      "expires_utc": "2026-10-31T00:00:00Z",
-      "mitigation": "Excluded from its GPU batch via BatchSpec.excludes; the other cases in the same batch still execute. tests/ci/test_gpu_harness_deferred_contract.py fails if this waiver is removed while the exclude remains (or vice versa).",
-      "docs_path": "docs/reference/renderer-release-gates.md",
-      "base_sha_proven_failing": "9161d92f349326e2004088638a5ab43eb4773123"
-    },
-    {
-      "test_name": "[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer ignores hidden full-fidelity assets",
-      "batch": "NodeSceneTree",
-      "exclude_pattern": "*Shared renderer ignores hidden full-fidelity assets*",
-      "source_path": "modules/gaussian_splatting/tests/test_gaussian_splat_node.h",
-      "reason": "Executed for the first time and FAILS: hidden full-fidelity assets are not ignored.",
-      "risk": "medium",
-      "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
-      "owner": "klausi3D",
-      "expires_utc": "2026-10-31T00:00:00Z",
-      "mitigation": "Excluded from its GPU batch via BatchSpec.excludes; the other cases in the same batch still execute. tests/ci/test_gpu_harness_deferred_contract.py fails if this waiver is removed while the exclude remains (or vice versa).",
-      "docs_path": "docs/reference/renderer-release-gates.md",
-      "base_sha_proven_failing": "9161d92f349326e2004088638a5ab43eb4773123"
-    },
-    {
-      "test_name": "[GaussianSplatting][Node][SceneTree][RequiresGPU] Scene sphere effectors build per-instance selection masks",
-      "batch": "NodeSceneTree",
-      "exclude_pattern": "*Scene sphere effectors build per-instance selection masks*",
-      "source_path": "modules/gaussian_splatting/tests/test_gaussian_splat_node.h",
-      "reason": "CRASHES the whole batch process. REQUIRE(node_a_index >= 0) fails with -1, but this build is DOCTEST_CONFIG_NO_EXCEPTIONS (disable_exceptions=True, #656) so REQUIRE does not abort; the -1 is then used as an index -> 'FATAL: Index p_index = 4294967295 is out of bounds (count = 2)' and STATUS_STACK_BUFFER_OVERRUN (rc=0xC0000409). Must stay excluded until the index lookup is fixed, because one crash takes down every other case in the batch.",
-      "risk": "high",
-      "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
-      "owner": "klausi3D",
-      "expires_utc": "2026-10-31T00:00:00Z",
-      "mitigation": "Excluded from its GPU batch via BatchSpec.excludes; the other cases in the same batch still execute. tests/ci/test_gpu_harness_deferred_contract.py fails if this waiver is removed while the exclude remains (or vice versa).",
-      "docs_path": "docs/reference/renderer-release-gates.md",
-      "base_sha_proven_failing": "9161d92f349326e2004088638a5ab43eb4773123"
-    },
-    {
       "test_name": "[GaussianSplatting][World][SceneTree][RequiresGPU] World submission renders through the resident instanced route without a streaming system",
       "batch": "WorldSceneTree",
       "exclude_pattern": "*World submission renders through the resident instanced route*",
       "source_path": "modules/gaussian_splatting/tests/test_scene_director_submission_scaffolding.h",
-      "reason": "CRASHES: GPU sort sync-contract violation. 'device already submitted, call sync to wait until done', then a fault in GPUSortingPipeline::_capture_instance_count_sync -> RenderingDevice::buffer_get_data -> _flush_and_stall_for_all_frames -> RenderingDeviceDriverVulkan::command_timestamp_write.",
+      "reason": "CRASHES: GPU sort sync-contract violation. 'device already submitted, call sync to wait until done', then a fault in GPUSortingPipeline::_capture_instance_count_sync -> RenderingDevice::buffer_get_data -> _flush_and_stall_for_all_frames -> RenderingDeviceDriverVulkan::command_timestamp_write. || TRIAGE 2026-07-19 (#329): TWO independent defects, both confirmed at file:line; the crash reason above is accurate but incomplete. (1) PRODUCT BUG, user-reachable: GPUSortingPipeline::_capture_instance_count_sync (interfaces/gpu_sorting_pipeline.cpp:1002-1023) calls RenderingDevice::buffer_get_data with no guard on submission state, while _sort_instance_pipeline's same-device branch (:2753-2754) issues gs_device_utils::safe_submit WITHOUT a matching sync and _enqueue_instance_count_readback (:1045-1046) then submits again. buffer_get_data stalls via _flush_and_stall_for_all_frames (servers/rendering/rendering_device.cpp:671), and the second submit trips the ERR_FAIL_COND_MSG at rendering_device.cpp:6323 ('device already submitted'). The path is production-only in reach -- sort_gaussians_gpu (:2922) is called from render_sorting_orchestrator.cpp:891 and :1264 with no test-only hook -- and the module runs on a LOCAL rendering device in production (gaussian_splat_manager.cpp:575), which is exactly the device class for which safe_submit actually submits. The sync-bootstrap branch is on by default (interfaces/sync_policy.h:111-119). Production appears protected only by frame timing, not by contract. (2) TEST BUG: this case sets route_policy=GS_ROUTE_STREAMING (:863-864) and drives GaussianSplatWorld3D, which HONOURS route policy (nodes/gaussian_splat_world_3d.cpp:511-514), so should_prefer_resident_backend (renderer/gaussian_splat_renderer.cpp:2798-2831) must return false with reason 'submission_hint_streaming:world_submission' -- yet :915-916 assert 'resident' and 'submission_hint_resident:world_submission'. A sibling case at :498-499 asserts the contract-correct value for the same policy. The expectations read as written against GaussianSplatNode3D, which hard-pins SUBMISSION_RESIDENCY_HINT_RESIDENT (nodes/gaussian_splat_node_3d.cpp:2457 and :2503, deliberate per the comment at :2445-2450). Un-waiving requires BOTH the submit/sync fix (R3 renderer hot path) and corrected route-policy expectations; fixing only the crash leaves this red.",
       "risk": "high",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
       "owner": "klausi3D",
@@ -215,7 +155,7 @@
       "batch": "WorldSceneTree",
       "exclude_pattern": "*Resident rejection preserves resident diagnostics*",
       "source_path": "modules/gaussian_splatting/tests/test_scene_director_submission_scaffolding.h",
-      "reason": "CRASHES with the same GPU sort sync-contract signature as the resident-instanced-route case above (shared resident submission path).",
+      "reason": "CRASHES with the same GPU sort sync-contract signature as the resident-instanced-route case above (shared resident submission path). || TRIAGE 2026-07-19 (#329): same two defects as the resident-instanced-route case above -- the unguarded submit/sync imbalance around _capture_instance_count_sync (PRODUCT BUG, user-reachable), plus a route-policy expectation error: it sets GS_ROUTE_STREAMING (:940-941) on a GaussianSplatWorld3D yet asserts instance_backend_policy == 'resident' (:998), which should_prefer_resident_backend cannot produce for a streaming hint (renderer/gaussian_splat_renderer.cpp:2798-2831). Needs both fixes.",
       "risk": "high",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
       "owner": "klausi3D",
@@ -229,7 +169,7 @@
       "batch": "WorldSceneTree",
       "exclude_pattern": "*Explicit resident quantization rejection falls back*",
       "source_path": "modules/gaussian_splatting/tests/test_scene_director_submission_scaffolding.h",
-      "reason": "CRASHES with VK_ERROR_DEVICE_LOST: RenderingDeviceDriverVulkan::on_device_lost via print_lost_device_info during command_queue_execute_and_present, surfacing at device finalize. A real GPU fault on the resident quantization-rejection path.",
+      "reason": "CRASHES with VK_ERROR_DEVICE_LOST: RenderingDeviceDriverVulkan::on_device_lost via print_lost_device_info during command_queue_execute_and_present, surfacing at device finalize. A real GPU fault on the resident quantization-rejection path. || TRIAGE 2026-07-19 (#329): the test itself is INTERNALLY COHERENT -- it sets GS_ROUTE_RESIDENT (:1027-1028), which takes the early return in should_prefer_resident_backend (renderer/gaussian_splat_renderer.cpp:2803-2807) returning true with reason 'requested_resident_policy', exactly what :1090 asserts. Its assertions match the documented contract, so this is NOT a test bug. The remaining blocker is the GPU fault recorded above (VK_ERROR_DEVICE_LOST during device finalize), which is a real product-side GPU fault, not a harness artifact. Verdict: PRODUCT BUG, deferred -- R3 renderer territory, larger than the waiver-reduction pass.",
       "risk": "high",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
       "owner": "klausi3D",
@@ -482,8 +422,8 @@
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
       "requires_gpu_total": 132,
-      "running_in_a_named_batch": 54,
-      "deferred_with_waiver": 8,
+      "running_in_a_named_batch": 58,
+      "deferred_with_waiver": 4,
       "unbatched_backlog": 70
     },
     "by_source_file": {
