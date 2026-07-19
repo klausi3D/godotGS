@@ -17,6 +17,37 @@
   mechanically re-verified and updated against `384c2c6ad8d`** — most `.cpp` anchors shifted by
   +8 to +67 lines and every `.h` anchor by +8. See the §1g correction: reading this ADR against
   the old base, or with the old anchors, will overstate what is still broken.
+- **⚠ Baseline status (review round 3) — this ADR is stale again, and in the same direction.**
+  Five more commits have landed on `modules/gaussian_splatting/core/gaussian_splat_scene_director.*`
+  between `384c2c6ad8d` and current master `b15c6ddda46`:
+  `fdd11268391` (#665, **#611 PR A**), `db65f28ee43` (#666, **#611 PR B1**),
+  `ab847aeabf3` (#667), `8914756deca` (#674, **#611 PR B2**), `d6def0641aa` (#680).
+  Consequences, in order of severity:
+  - **§1g's "Still live — the timeout-guarded stall paths" is now FALSE.** The remaining half
+    of the lock-order inversion has been fixed. `register_instance` no longer calls
+    `initialize()` under the lock — the call is deferred past the unlock, documented in-code at
+    `gaussian_splat_scene_director.cpp:963-970` (*"#611 PR B1: this used to call
+    world->renderer->initialize() inline, which opens with a blocking render-thread dispatch …
+    The call is deferred to the flush below (after the lock is released) instead"*). And
+    `submit_world_submission` has been restructured into the explicit three-phase
+    arbitrate / apply-unlocked / re-validate-and-commit form (`:2249-2275`), serialized by
+    `world_submission_apply_mutex`, which the render thread never acquires. **So Step 3's D6
+    deliverable is largely already done**, exactly as #628 made §1f/D11 stale in round 2. Do
+    not re-implement it; re-grading merged work as new work is the failure mode this ADR
+    already warns about twice.
+  - **#680 closed §1h's "Step 3-pre"** — it deleted the two dead scene-effector helpers and
+    corrected the stale `teardown_world_for_scenario` header docs. That work is done.
+  - **Every `.cpp` anchor has drifted hard** — far more than round 2's +8/+67. Spot checks:
+    `update_sphere_effector` `:1863` → **`:2056`**; `_should_prune_world` `:728` → **`:874`**;
+    `submit_world_submission` `:2056` → **`:2249`**; `teardown_world_for_scenario` `:2156` →
+    **`:2569`**. Note that `:2056` is now *two different things* depending on base, which is
+    exactly how a slice ends up graded against the wrong code.
+    `scene_director_sphere_effectors.cpp` anchors did **not** drift.
+
+  **This ADR needs a round-4 re-anchor onto `b15c6ddda46` before any step is authored against
+  it.** The threads addressed in round 3 are fixed against the *current* text and their
+  substance is unaffected by the drift, but §1g, Step 3, D6 and the issue-closure map all now
+  describe work that is partly merged.
 - **Informs issues:** #356 (decompose orchestration around owned state boundaries —
   the tracked umbrella), #545 (consolidate the four asset-identity schemes behind
   typed IDs), #551 (encode the PREDELETE/EXIT_TREE/prune ordering structurally),
@@ -32,10 +63,12 @@ renderer. `ARCHITECTURE.md:20` labels it "Multi-instance coordination and regist
 and puts it at the head of the data flow — nodes register data/instances *through* it,
 and it feeds the streaming system → renderer → pipeline stages (`ARCHITECTURE.md:52-58`).
 `renderer-lifetime-ownership.md` records the authoritative role: it owns
-`worlds: HashMap<RID, SharedWorld>` where each `SharedWorld` holds the **only strong
-`Ref<GaussianSplatRenderer>`** — releasing it is the sole path that frees the renderer's
-whole GPU graph — guarded by one `mutable Mutex world_mutex` that must never nest with
-the manager's L1–L4 lock hierarchy.
+`worlds: HashMap<RID, SharedWorld>` where each `SharedWorld` holds the only **retained /
+owning** `Ref<GaussianSplatRenderer>` — releasing it is the sole path that frees the
+renderer's whole GPU graph — guarded by one `mutable Mutex world_mutex` that must never nest
+with the manager's L1–L4 lock hierarchy. (It is *not* the only strong `Ref` in existence:
+`GaussianSplatNode3D` and `GaussianSplatWorld3D` hold transient ones while in-tree, and the
+`<= 1` prune threshold is measured **against** them — see invariant D9.)
 
 It is a god-class: **2,450 LOC** in
 `modules/gaussian_splatting/core/gaussian_splat_scene_director.cpp` (recounted at base
@@ -410,10 +443,32 @@ from exactly these places, all on the main thread, all in the director facade:
 
 | # | Trigger | Fires from | Rationale |
 |---|---|---|---|
-| **T1** | **Every effector mutation** — `update_sphere_effector` / `register_sphere_effector` / `unregister_sphere_effector` | `gaussian_splat_scene_director.cpp:1863`, `:1854`, `:2025` | The store is already locked and already bumping the generation; revalidating here is free. Also cleans up the latch-reset gap: today `update_sphere_effector` (`:1988-1989`) can re-point `scope_root_id` at a new node while `scope_root_valid` keeps the *previous* root's latch value, and never resets it to the declared `true` default. `revalidate_scope_roots()` must re-derive the latch from the new ID. **Cosmetic, not a correctness fix** — the stale latch self-heals on the next payload build at a cost of one spurious generation bump (see the invariant-D5 demotion note). |
+| **T1** | **Every effector mutation** — `update_sphere_effector` / `register_sphere_effector` / `unregister_sphere_effector` | `gaussian_splat_scene_director.cpp:1863`, `:1854`, `:2025` | Effector mutation is the natural edge for re-deriving the latch. **The revalidation itself must NOT run inside the store's critical section** — see the resolution protocol below; the earlier "the store is already locked, so revalidating here is free" rationale was wrong and contradicted D7. Also cleans up the latch-reset gap: today `update_sphere_effector` (`:1988-1989`) can re-point `scope_root_id` at a new node while `scope_root_valid` keeps the *previous* root's latch value, and never resets it to the declared `true` default. `revalidate_scope_roots()` must re-derive the latch from the new ID. **Cosmetic, not a correctness fix** — the stale latch self-heals on the next payload build at a cost of one spurious generation bump (see the invariant-D5 demotion note). |
 | **T2** | **Every instance-side scene-effector filter update** — `update_instance_scene_effector_filter` | `gaussian_splat_scene_director.cpp:990-1032`, called from `gaussian_splat_node_3d.cpp:2480` and `:2522` | This is the existing main-thread scene-topology-changed signal (ENTER_TREE, ENTER_WORLD, the effector setters, visibility flips). Scope roots are scene-topology state; they revalidate on the same edge. |
 | **T3** | **World teardown / prune** — `teardown_world_for_scenario`, `_prune_world_if_unused` | `:2156`, `:749` | Bulk node destruction is exactly when scope roots die en masse. |
 | **T4** | **A bounded main-thread sweep**, once per `WorldContext` per N frames (N configurable, default 1 — i.e. every main-thread director tick), scanning only effectors with `scope_mode != SPHERE_EFFECTOR_SCOPE_WORLD`. | The manager's existing main-thread tick, `gaussian_splat_manager.cpp:660` (`_process_active_nodes_main_thread`) | **This is the trigger that replaces the render-path check.** T1–T3 are all *mutation-driven*; none of them fires when a scope-root node is freed while nothing else changes — which is precisely the case the render-path check was added to catch. Without T4 the decomposition regresses behavior. |
+
+**Resolution protocol (normative — required by D7).** `revalidate_scope_roots()` resolves
+`ObjectID`s through `ObjectDB`/`Node` (the cost note below budgets one
+`ObjectDB::get_instance` per non-WORLD-scoped effector), so it **never runs under the store
+lock**. Doing it "because the store is already locked" would reproduce the exact
+callout-under-lock pattern §1c catalogues and would trip **D7**'s own grep guard, which
+requires the four §1c sites to be gone. It is a three-phase operation:
+
+1. **Collect under the lock** — copy `{effector_id, scope_root_id, scope_root_valid,
+   registration_serial}` for non-WORLD-scoped effectors into a caller-owned buffer.
+2. **Resolve unlocked** — `ObjectDB::get_instance` + `Object::cast_to<Node>` per entry,
+   producing a liveness verdict list. No store state is touched here.
+3. **Reacquire to apply** — re-take the lock, re-validate each entry's
+   `registration_serial`/generation (entries whose effector was re-pointed or unregistered
+   during the gap are **discarded**, not applied), then write the latch and issue **one**
+   `_bump_instance_generation`.
+
+This mirrors #628's deferred-release discipline — move the state out under the lock, perform
+the expensive/foreign callout outside it — and it is what makes D7's guard satisfiable rather
+than merely aspirational. **T3 makes this mandatory rather than stylistic:** its trigger sites
+`teardown_world_for_scenario` and `_prune_world_if_unused` are themselves reached from locked
+scopes, so a revalidation that locks internally would nest.
 
 **T4 is mandatory *if the T1–T4 option is chosen*** — it is not separable from it. T1–T3 are
 all mutation-driven, so without T4 the liveness check has been moved off the render path and
@@ -538,8 +593,13 @@ asset-record-count tests pass unchanged; the 64-bit key path is now type-enforce
 
 **Step 2 — `SphereEffectorStore` + remove the `const_cast` render-thread mutation (R1).**
 Move effector state and methods (`update_sphere_effector` `:1863`, `unregister_sphere_effector`,
-`_build_sorted_sphere_effector_payload`) into `SphereEffectorStore`. Add
-`revalidate_scope_roots()` **wired to all four triggers T1–T4 in the same PR** (§2a); the
+`_build_sorted_sphere_effector_payload`) into `SphereEffectorStore`. **If Decision D5 selects
+the T1–T4 option:** add `revalidate_scope_roots()` **wired to all four triggers T1–T4 in the
+same PR** (§2a), observing the collect/resolve/reapply protocol in §2a (never under the store
+lock). **If D5 selects the fallback or "do nothing":** this clause and invariant D3 narrow to
+*"the payload builder performs no writes; the latch/generation edge is recorded into a
+main-thread-drained queue"*, and the trigger-gap regression test below narrows with them —
+see the closing note of Decision D5. The
 render-path builder becomes a pure function over an immutable snapshot (§1d,
 §3-invariant-2). Route the two raw `++` bumps (`:108`, `:115`) through
 `_bump_instance_generation` so the wrap-skips-0 guard applies uniformly. Delete the two dead
@@ -674,13 +734,13 @@ the end-state; this is the per-step contract.
 | --- | --- | --- |
 | **D1** | **No `const` method mutates state or a generation counter.** Zero `const_cast` on `SharedWorld`/`WorldContext` or any record in the render path. | Grep guard: zero `const_cast<SharedWorld` / `const_cast<SphereEffectorRecord` in the director TUs. Unit test asserting the payload builder performs no writes. |
 | **D2** | **Every generation counter has exactly one writing owner**, and every bump goes through the wrap-guarded helper (`_bump_instance_generation`, `:24-29`). No raw `++`. | Grep guard: zero raw `sphere_effector_generation++` / `instance_generation++` outside the helper. |
-| **D3** | **`revalidate_scope_roots()` is reachable from all four triggers T1–T4 (§2a).** A dead scope root stops matching within one main-thread tick **without** any effector or instance property changing. | The Step 2 regression test described above. This is the specific defect the review caught; the test is the guard. |
+| **D3** *(conditional on Decision D5)* | **Under the T1–T4 option:** `revalidate_scope_roots()` is reachable from all four triggers (§2a) — a dead scope root stops matching within one main-thread tick **without** any effector or instance property changing — and the revalidation never runs under the store lock (§2a resolution protocol, D7). **Under the fallback / do-nothing option:** narrows to "the payload builder performs no writes; the latch/generation edge is recorded into a main-thread-drained queue", and today's drop behavior is preserved exactly. | Under T1–T4: the Step 2 trigger-gap regression test described above (free a scope-root node, touch nothing else). Under the fallback: a no-writes-on-the-read-path assertion plus the unchanged dead-scope payload test. This is the specific defect the review caught; the applicable test is the guard. |
 | **D4** | **Dead-scope behavior is preserved exactly**: a SUBTREE/EXPLICIT_ROOT effector whose scope root no longer resolves is excluded from the payload, and the exclusion invalidates dependent caches exactly once per edge (not per frame). | Byte-identical payload for a fixed frame + a bump-count assertion across N frames (expect 1, not N). |
 | **D5** *(invariant; distinct from decision **D5** below — see the naming note)* | **`scope_root_valid` is re-derived on re-point.** `update_sphere_effector` changing `scope_root_id` cannot leave the previous root's latch value in place. **Severity: cosmetic — this removes a spurious cache invalidation, it does NOT fix a live bug** (see the demotion note below). | Unit test: point at root A (dead), re-point at root B (alive), assert the effector matches and the latch is correct, and assert the generation bumped **once**, not twice. |
 | **D6** | **No blocking renderer call happens while the registry lock is held** — not `initialize()`, not `apply/restore_world_submission_*`, not `renderer.unref()`/dtor. **Split by status:** the `renderer.unref()`/dtor clause is **already true** (#628) and is a *regression guard* — any step that re-introduces a renderer `Ref` drop inside a `world_mutex` scope re-opens an indefinite hang and is rejected outright. The `initialize()` and world-submission apply/restore/clear clauses are **still open** and are Step 3's actual deliverable (§1g). | Step 3 review + a lock-order assertion in debug builds; `GS_LOCK_ORDER_GUARD` coverage on the new registry lock. For the already-true clause: confirm no `Ref<GaussianSplatRenderer>` destructor can run inside a lock scope in the Step 3 diff. |
 | **D7** | **No store calls into `Node` / `ObjectDB` while holding a lock.** Node→world resolution happens on the caller thread and passes a resolved `RID` in. | Grep guard on `ObjectDB::get_instance` inside locked scopes in the director TUs; the four §1c sites must be gone. |
 | **D8** | **The `world_mutex` ↔ manager L1–L4 non-nesting invariant is preserved** throughout; no step introduces a process-global lock. | `GS_LOCK_ORDER_GUARD` levels unchanged; lock-declaration count guard. |
-| **D9** | **The renderer `Ref` in `WorldContext` remains the only strong reference.** No step duplicates it. | Grep + the RID-count lifetime tests. |
+| **D9** | **`WorldContext::renderer` remains the sole *retained/owning* strong reference** — the only one whose release frees the renderer's GPU graph. It is **not** the only strong `Ref` in existence, and must not be stated as such: `GaussianSplatNode3D` (`nodes/gaussian_splat_node_3d.h:237`) and `GaussianSplatWorld3D` (`nodes/gaussian_splat_world_3d.h:15`) each hold a *transient* strong `Ref` for the duration of their tree membership, and **the prune policy is defined in terms of them** — `_should_prune_world` prunes only at `get_reference_count() <= 1` (`gaussian_splat_scene_director.cpp:891`), i.e. once every node-held Ref has dropped. No step may (a) add a new **long-lived** strong Ref, (b) hold a Ref across a `_should_prune_world` decision (see the director's own note at `:2481-2490`), or (c) change the `<= 1` threshold without updating the node PREDELETE unref-then-prune ordering (`gaussian_splat_node_3d.cpp:479-498`). | Grep for new **stored** `Ref<GaussianSplatRenderer>` members + the RID-count lifetime tests + `test_renderer_lifetime_proof` scenario_c. |
 | **D10** | **The unref+prune ordering cannot be expressed wrong** at the node/world call sites after Step 3 — the two operations are not separately callable there. | Compile-time proof + `test_renderer_lifetime_proof` scenario_c (F6 reload) green. |
 | **D11** | ~~Module teardown is director-before-manager after Step 3.~~ **STALE — satisfied before this ADR's base.** #628 already reversed `register_types.cpp:256-270`, so this is a **standing regression guard, not a step deliverable**: no step may re-invert the order, and a retained renderer at shutdown must not observe a null manager singleton. | Assert the existing ordering still holds in the Step 3 diff. No step "earns" D11 — it starts satisfied. |
 | **D12** | **`AssetId` is a strong type** after Step 1; a 64→32-bit truncation of an asset identity **fails to compile**. | A negative compile test (or a `static_assert` on the conversion) plus the existing `test_asset_records_key` collision regression. |
