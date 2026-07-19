@@ -367,7 +367,9 @@ with the four house fields (owned state / locking / canonical-vs-derived / wirin
   already-corrected director-before-manager teardown order rather than establishing it (#589
   was closed by #628). Destruction is idempotent, matching the renderer teardown guard
   precedent.
-  *Canonical/derived:* the renderer `Ref` is canonical (still the only strong ref).
+  *Canonical/derived:* the renderer `Ref` is canonical (still the only **retained/owning**
+  ref — node-held `Ref`s are transient and the `<= 1` prune threshold is measured against
+  them; see invariant D9).
 - **`InstanceStore`** (Kind B/C).
   *Owns:* `instances` + `instance_lookup` + `instance_generation`; register/update/unregister
   and world-switch migration.
@@ -536,7 +538,7 @@ graph TD
   IS -->|snapshot| LOD
   LOD -->|last_lod writeback| IS
   SUB --> RLO
-  RLO -->|owns only strong Ref| RENDERER["GaussianSplatRenderer"]
+  RLO -->|owns the retained Ref| RENDERER["GaussianSplatRenderer"]
   RSO -.->|immutable frame snapshot| WC
   RICP -.->|immutable frame snapshot| WC
 ```
@@ -554,7 +556,7 @@ keeps that protocol but gives each counter a single writing owner.
 | `asset_records` (data + refcount) | Canonical | `AssetRetentionTable` | refcount → 0 erases (`:637`) |
 | `sphere_effectors`, `sphere_effector_lookup` | Canonical | `SphereEffectorStore` | n/a |
 | `world_submission` record | Canonical | `SubmissionStore` | active flag + renderer restore snapshot |
-| `renderer` `Ref` (only strong ref) | Canonical | `RendererLifecycleOwner` | refcount prune policy (`_should_prune_world`, `:728`) |
+| `renderer` `Ref` (retained/owning ref; nodes hold transient ones — D9) | Canonical | `RendererLifecycleOwner` | refcount prune policy (`_should_prune_world`, `:728`) |
 | `instance_generation` / `instance_asset_generation` / `sphere_effector_generation` | Derived (invalidation tokens) | resp. store | monotonic bump on mutation (`_bump_instance_generation`, `:24`); wrap-skips-0 |
 | `lod_walk_*` cache | Derived (memoization) | `LODCacheOwner` | early-out when `(generation, camera_pos, LODConfig, hysteresis)` unchanged (`:1241-1247`); re-captured *after* the walk's own bump (`:1315-1319`) |
 | color-grading signature | Derived (recomputed) | facade query over `InstanceStore` | FNV-1a hash over the exact filtered grading set (`:1756-1824`); feeds the renderer sort/raster cache |
@@ -606,12 +608,16 @@ render-path builder becomes a pure function over an immutable snapshot (§1d,
 node-reading helpers (`:181`, `:224`, §1h) in the same PR.
 *Behavior-preservation proof:* the sphere-effector suite (payload ordering, scope filtering,
 multi-match warnings) and `get_scene_effector_debug_state_for_instance` output are byte-identical
-for a fixed frame; a new unit asserts the payload builder performs no writes; **and a new
-regression test covers the trigger gap directly** — register a SUBTREE/EXPLICIT_ROOT effector,
-free its scope-root node **without touching any effector or instance property**, tick the main
-thread, and assert the effector stops matching within one frame and the generation bumped
-exactly once. That test must **fail** if `revalidate_scope_roots()` is present but unwired
-(the defect this correction exists to prevent).
+for a fixed frame; a new unit asserts the payload builder performs no writes. **Under
+Decision D5's T1–T4 option only**, a new regression test covers the trigger gap directly —
+register a SUBTREE/EXPLICIT_ROOT effector, free its scope-root node **without touching any
+effector or instance property**, tick the main thread, and assert the effector stops matching
+within one frame and the generation bumped exactly once; that test must **fail** if
+`revalidate_scope_roots()` is present but unwired (the defect this correction exists to
+prevent). **Under the fallback or do-nothing option there is deliberately no T4 sweep**, so
+this trigger-gap test does not apply and must not be required: the render-path `scope_alive`
+check continues to drop dead-scoped effectors on the next payload build, and the applicable
+proof is the no-writes-on-the-read-path unit plus the unchanged dead-scope payload test.
 *Closes:* the hidden-mutable-state slice of #356.
 
 **Step 3 — `WorldRegistry` reverse indexes + `RendererLifecycleOwner` + `PruneAfterUnref` guard (R2).**
@@ -790,11 +796,14 @@ Every step states which invariants it touches and attaches:
    instance-registration/world-switch, LOD-hysteresis, world-submission
    ownership-arbitration/rollback, and the lifetime suites. Modifying an existing assertion
    is a review blocker absent a written reason.
-3. **Step 2 specifically (D3, D4, D5):** the trigger-gap regression test, plus a
-   bump-count-across-N-frames measurement showing edge-triggered (1) rather than
-   per-frame (N) invalidation. A `revalidate_scope_roots()` that exists but is unwired must
-   make this test fail — demonstrate that by running it against a deliberately-unwired build
-   once, and attach the failure.
+3. **Step 2 specifically (D3, D4, D5) — *the required evidence depends on the D5 choice*:**
+   in all cases, the bump-count-across-N-frames measurement showing edge-triggered (1) rather
+   than per-frame (N) invalidation, and the assertion that the payload builder performs no
+   writes. **Additionally, under the T1–T4 option only:** the trigger-gap regression test, and
+   a demonstration that a `revalidate_scope_roots()` which exists but is unwired makes it fail
+   — run it once against a deliberately-unwired build and attach the failure. **Under the
+   fallback / do-nothing option, the trigger-gap test is not required and must not be
+   demanded**, since no revalidation trigger is being introduced.
 4. **Step 3 (D6, D10, D11) — R2, renderer lifetime:** `test_renderer_lifetime_proof` (F6
    reload / scenario-close no-leak) and RID-count lifetime tests green, plus the
    teardown-idempotence test #628 added
