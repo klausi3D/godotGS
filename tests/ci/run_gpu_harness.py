@@ -159,7 +159,18 @@ BATCHES: tuple[BatchSpec, ...] = (
     # silently become 28" drift this file already warns about below. Ask the
     # source instead:
     #   python tests/ci/test_gpu_harness_deferred_contract.py --print-summary
-    BatchSpec("NodeSceneTree", ("*[Node][SceneTree][RequiresGPU]*",), excludes=(
+    #
+    # timeout_seconds=180 (#677). This batch is the largest in the harness: 18
+    # executing cases at ~2.4-2.9 s each is ~45 s of case time, and the runner's
+    # RenderingDevice bring-up/teardown adds ~35 s, for ~82 s wall measured on
+    # ccbef8cc482 (RTX 3090). Under the 60 s default it was cut off mid-run at
+    # exactly 9 of 18 cases with rc=124 and no doctest summary line — so half the
+    # corpus #329/#660 landed was still not executing, and the batch's parsed
+    # totals read 0/0. It is a BUDGET problem, not a hang: given enough time the
+    # batch completes cleanly (18/18 passed, 175/175 assertions, Status: SUCCESS).
+    # 180 s leaves ~2.2x headroom for a loaded CI runner. Do NOT raise this to
+    # paper over a genuine hang — a hang must be diagnosed, not budgeted.
+    BatchSpec("NodeSceneTree", ("*[Node][SceneTree][RequiresGPU]*",), timeout_seconds=180, excludes=(
             # Real behaviour failures, first ever observed (never executed before).
             #
             # "Shared renderer hides node-local debug settings" and "Shared renderer
@@ -791,6 +802,36 @@ def main() -> int:
     # Do not "fix" a future non-zero value by retuning the threshold.
     total_rid_leak_bytes = sum(r.rid_leak_bytes for r in results)
 
+    # Batches that hit their wall-clock timeout (#677). A timed-out batch is a
+    # NON-RESULT, not a pass: doctest never printed its summary line, so this
+    # batch's `test_cases_*` parse as 0 and its `rid_leak_bytes` reflects only
+    # whatever the listener managed to emit before the kill. Those partial zeros
+    # are then summed into `totals` and `total_rid_leak_bytes` below exactly as
+    # if they were complete measurements.
+    #
+    # The gate already fails in this situation, because `_run_batch` sets
+    # rc=SUPERVISOR_EXIT_TIMEOUT and `max_rc != 0` flips `gate_failed` — that part
+    # was never broken. What WAS missing is attribution: the run-level `DONE` line
+    # and the JSON report's top-level fields said only `max_rc=124`, naming no
+    # batch, while `total_rid_leak_bytes=0` sat next to it reading like a clean
+    # result. That is how a timed-out batch's non-measurement gets quoted as a
+    # measurement (#677, and the reading that produced #662's corrected claim).
+    #
+    # So: name the batch loudly here, carry it in the report, and mark the
+    # aggregates non-authoritative so no downstream consumer can quote a total
+    # that silently excludes a batch which never finished.
+    timed_out_batches = [r.name for r in results if r.timed_out]
+    for name in timed_out_batches:
+        print(
+            f"[run_gpu_harness] FATAL: batch '{name}' TIMED OUT - it produced no doctest "
+            "summary, so its test-case counts parsed as 0 and its leak bytes are partial. "
+            "This is an absence of measurement, NOT a clean batch: the run totals and "
+            "total_rid_leak_bytes below EXCLUDE whatever it did not reach. Do not quote "
+            "them as complete. Raise this batch's BatchSpec.timeout_seconds if it is merely "
+            "slow, or diagnose the hang - do not leave it timing out.",
+            flush=True,
+        )
+
     # Batches where the doctest summary regex failed to match. Locale shifts,
     # ANSI-color piping, or a doctest version change can break parsing —
     # without this, parsed_failures stays 0 for batches where the harness
@@ -803,6 +844,11 @@ def main() -> int:
         if not r.timed_out and r.rc == 0 and not r.summary_parse_ok
     ]
 
+    # `timed_out_batches` is listed explicitly even though `max_rc` already covers
+    # it today. The rc path is incidental — it holds only because
+    # SUPERVISOR_EXIT_TIMEOUT happens to be non-zero. Stating the condition
+    # directly means a future refactor of the rc bookkeeping cannot silently make
+    # an unrun batch gate-clean (#677).
     gate_failed = (
         (max_rc != 0)
         or (parsed_failures > 0)
@@ -810,6 +856,7 @@ def main() -> int:
         or bool(summary_parse_failures)
         or (total_rid_leak_bytes > 0)
         or bool(required_lifetime_failures)
+        or bool(timed_out_batches)
     )
     # Preserve the worst batch's exit code as the supervisor exit when a batch
     # itself failed (the module header promises "returns max(batch_rc)"). The
@@ -840,6 +887,13 @@ def main() -> int:
         "empty_required_batches": empty_required_batches,
         "summary_parse_failures": summary_parse_failures,
         "required_lifetime_failures": required_lifetime_failures,
+        "timed_out_batches": timed_out_batches,
+        # False when any batch timed out: `totals` and `total_rid_leak_bytes` then
+        # sum only the batches that finished, so they UNDERSTATE both coverage and
+        # leaks. Downstream consumers (the baseline_qa.yml step summary, any leak
+        # comparison across two runs) must not present them as complete figures
+        # while this is False (#677).
+        "totals_authoritative": not timed_out_batches,
         "total_rid_leak_bytes": total_rid_leak_bytes,
         "supervisor_exit": supervisor_exit,
         "totals": totals,
@@ -890,6 +944,11 @@ def main() -> int:
     print(f"[run_gpu_harness] wrote {report_path}", flush=True)
 
     extra_suffix_parts: list[str] = []
+    if timed_out_batches:
+        # Named first: it qualifies every other number on the DONE line (#677).
+        extra_suffix_parts.append(
+            f"TIMED_OUT={timed_out_batches} (totals below are INCOMPLETE)"
+        )
     if empty_required_batches:
         extra_suffix_parts.append(f"empty_required={empty_required_batches}")
     if total_rid_leak_bytes > 0:

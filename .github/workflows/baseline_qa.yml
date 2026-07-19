@@ -650,6 +650,26 @@ jobs:
               | Out-File -Append -FilePath $summaryFile -Encoding utf8
             "| Wall seconds | $($r.wall_seconds) |" | Out-File -Append -FilePath $summaryFile -Encoding utf8
             "| Supervisor exit | $($r.supervisor_exit) |" | Out-File -Append -FilePath $summaryFile -Encoding utf8
+            # A timed-out batch produces no doctest summary, so its counts parse as 0
+            # and its leak bytes are partial — yet both get summed into the totals
+            # above. Flag that loudly here, next to the numbers themselves, so the
+            # table is never read as a complete result (#677). `totals_authoritative`
+            # is emitted by tests/ci/run_gpu_harness.py.
+            # @(...) forces an array even when ConvertFrom-Json hands back a bare
+            # scalar for a single-element list, so .Count is always meaningful.
+            $timedOut = @($r.timed_out_batches)
+            if ($timedOut.Count -gt 0) {
+              $tob = $timedOut -join ", "
+              Write-Host "::warning::GPU harness batches timed out: $tob - totals are incomplete"
+              "" | Out-File -Append -FilePath $summaryFile -Encoding utf8
+              "> **:warning: Timed-out batches: $tob**" | Out-File -Append -FilePath $summaryFile -Encoding utf8
+              "> These batches produced no doctest summary. The Test cases / Assertions" `
+                | Out-File -Append -FilePath $summaryFile -Encoding utf8
+              "> totals above EXCLUDE them and must not be quoted as complete coverage," `
+                | Out-File -Append -FilePath $summaryFile -Encoding utf8
+              "> and any leak figure from this run is a lower bound, not a clean result." `
+                | Out-File -Append -FilePath $summaryFile -Encoding utf8
+            }
             "" | Out-File -Append -FilePath $summaryFile -Encoding utf8
             "### Per-batch breakdown" | Out-File -Append -FilePath $summaryFile -Encoding utf8
             "| Batch | RC | Cases | Asserts | Status | Wall (s) |" | Out-File -Append -FilePath $summaryFile -Encoding utf8
