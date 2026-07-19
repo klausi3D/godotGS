@@ -1873,7 +1873,7 @@
 <tr>
 <td>Build a test-enabled Godot binary</td>
 <td><code>scons platform=&lt;platform&gt; target=editor dev_build=yes tests=yes -j&lt;jobs&gt;</code></td>
-<td><a href="https://github.com/klausi3D/godotGS/blob/ccbef8cc482c5a856bb4e85a31f802d21fa32a97/README.md">Repository README</a>, <a href="https://github.com/klausi3D/godotGS/blob/ccbef8cc482c5a856bb4e85a31f802d21fa32a97/BUILDING.md">root build notes</a>, <code>modules/gaussian_splatting/SCsub:69</code></td>
+<td><a href="https://github.com/klausi3D/godotGS/blob/7c350507f516309d7d1cb21ec2b155dea2194ab4/README.md">Repository README</a>, <a href="https://github.com/klausi3D/godotGS/blob/7c350507f516309d7d1cb21ec2b155dea2194ab4/BUILDING.md">root build notes</a>, <code>modules/gaussian_splatting/SCsub:69</code></td>
 </tr>
 <tr>
 <td>Set default Godot binary for Python runners</td>
@@ -2159,6 +2159,12 @@ python3<span class="w"> </span>tests/ci/run_gpu_harness.py<span class="w"> </spa
 <td><code>tests/ci/run_gpu_harness.py</code></td>
 </tr>
 <tr>
+<td><code>FATAL: batch '&lt;name&gt;' TIMED OUT</code> / batch <code>rc=124</code>, <code>status=TIMEOUT</code>, <code>cases=0/0</code></td>
+<td>The batch exceeded its wall-clock budget, so doctest never printed a summary: its case counts parse as <code>0</code> and its leak bytes are partial. This is an absence of measurement, not a clean batch — <code>totals_authoritative</code> in the report goes <code>false</code> and the run totals exclude whatever it never reached.</td>
+<td>First establish budget vs hang by re-running that batch alone with a large <code>--timeout</code>. If it completes, raise that batch's <code>BatchSpec.timeout_seconds</code> (this is why <code>NodeSceneTree</code> sets <code>180</code>; it measures ~82 s and was being cut off at 9 of 18 cases). If it never completes, it is a hang — diagnose it, do not budget around it.</td>
+<td><code>tests/ci/run_gpu_harness.py</code></td>
+</tr>
+<tr>
 <td><code>[GS-GPU][RID-LEAK?] bytes=N test=advisory</code> fails the gate</td>
 <td>A test left more than 4 MiB resident; the supervisor folds non-zero advisories into a failure.</td>
 <td>Audit the offending test's RID lifetimes; ensure <code>REQUIRE_GPU_DEVICE()</code> cleanup runs.</td>
@@ -2186,7 +2192,7 @@ python3<span class="w"> </span>tests/ci/run_gpu_harness.py<span class="w"> </spa
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 19, 2026 11:57:36 UTC">July 19, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 19, 2026 12:25:17 UTC">July 19, 2026</span>
   </span>
 
     
