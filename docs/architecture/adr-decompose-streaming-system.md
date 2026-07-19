@@ -273,7 +273,7 @@ and the registry consume `ChunkRef` / a read cursor; they no longer take `&syste
 | --- | --- |
 | `StreamingEvictionController` | `EvictionPlan plan(const EvictionContext&)` → core applies the plan via `ChunkResidencyLedger`. No `&system`; no slot release inside the controller. |
 | `StreamingVisibilityController` | Takes `ChunkResidencyStore` read cursor + camera; returns a `VisibilityResult`. Drop the bidirectional `friend`. |
-| `StreamingUploadPipeline` | Keeps ownership of pack threads and queues; its interface to residency becomes `UploadCompletion` events consumed by the ledger on the render thread (§3), replacing the 8 direct `system.atlas_allocator.release_slot` sites with ledger calls. |
+| `StreamingUploadPipeline` | Keeps ownership of pack threads and queues; its interface to residency becomes `UploadCompletion` events consumed by the ledger **on the serialized caller's thread** (§3) — *not* "on the render thread": completions are drained inside `update_streaming`, which §3a documents as running on the **main** thread via `tick_streaming_only` in headless. S2 must not dispatch or assert this consumption onto the render thread, or exported headless/runtime-gate frames will skip completions — the same thread-identity breakage §3a rejects. Replaces the 8 direct `system.atlas_allocator.release_slot` sites with ledger calls. |
 | `StreamingGlobalAtlasRegistry` | `build/sync` take a `ChunkResidencyStore` read view instead of `friend`. |
 
 Each conversion is a mechanical "replace member access `system.X` with a passed value or a
@@ -559,10 +559,16 @@ and never touches `chunks`, `budget`, `atlas_allocator`, or `persistent_buffer`.
 
 The invariant worth holding is therefore the one now stated as **I9**: *no **new** lock over
 render-facing state, and no streaming path acquires the director's `world_mutex`.* The second
-clause is currently true — `world_mutex` appears **only** in
-`core/gaussian_splat_scene_director.cpp` and in no streaming TU or the streaming orchestrator —
-and it is the clause that actually protects against the lock-order inversion the sibling ADR
-(`adr-decompose-scene-director`) is fighting.
+clause is currently true **in the sense that matters**: `world_mutex` appears in **no streaming
+TU and not in the streaming orchestrator** (verified: zero hits in `core/gaussian_streaming.cpp`,
+`core/streaming_*.cpp`, and `renderer/render_streaming_orchestrator.cpp`). It is *not* confined
+to `core/gaussian_splat_scene_director.cpp` — it is also declared at
+`core/gaussian_splat_scene_director.h:615` and locked at
+`core/scene_director_sphere_effectors.cpp:156`, `:191`, `:338`, `:344`, all of which are
+legitimate director-side uses. The guard must be scoped accordingly (see I9); a naive
+"zero references outside the director `.cpp`" check fails on the base and would pressure the
+first slice to weaken it rather than fix anything. It is the clause that actually protects
+against the lock-order inversion the sibling ADR (`adr-decompose-scene-director`) is fighting.
 
 ## 4. Staged migration (CI green at every step)
 
@@ -669,7 +675,7 @@ a slice that cannot show the evidence in §7 for the invariants it touches is "n
 | **I6** | Every public entry point carries exactly one §3b class tag in its header doc, and the set of `[SERIALIZED]` methods equals the set that mutates render-facing state. | Review checklist + a doc/code parity guard in S6 (tag present for every public method). |
 | **I7** | **No `[SERIALIZED]` entry point asserts thread identity.** The headless `tick_streaming_only` main-thread path, the `ClassDB`-bound script path, and the doctest callers all remain valid. | Module test suite passes unchanged with `DEV_ENABLED`; headless run of the `tick_streaming_only` path produces no new errors. This invariant exists specifically to prevent re-introducing the rejected blanket assert. |
 | **I8** | No pack worker reads owner state. `build_pending_upload_from_pack_job` and every worker entry take only value snapshots; after S2 no worker signature takes `GaussianStreamingSystem &`. | Signature review + grep: zero `&system` parameters on worker-thread functions. |
-| **I9** | **No slice adds a NEW lock over render-facing state** (`chunks`, budget/ledger, `atlas_allocator`, `persistent_buffer`, `asset_registry`), and **no streaming path acquires the director's `world_mutex`**. The two existing streaming locks stay at two, each keeping its current scope. | Grep guard: `Mutex`/`RWLock` declarations in the streaming TUs stay at exactly the two named below, and `world_mutex` has zero references outside `core/gaussian_splat_scene_director.cpp`. |
+| **I9** | **No slice adds a NEW lock over render-facing state** (`chunks`, budget/ledger, `atlas_allocator`, `persistent_buffer`, `asset_registry`), and **no streaming path acquires the director's `world_mutex`**. The two existing streaming locks stay at two, each keeping its current scope. | Grep guard: `Mutex`/`RWLock` declarations in the streaming TUs stay at exactly the two named below, and **`world_mutex` has zero references in the streaming TUs** — `core/gaussian_streaming.*`, `core/streaming_*.{h,cpp}`, and `renderer/render_streaming_orchestrator.cpp` (currently zero, so the guard bites on regression). **Not** "zero references outside `core/gaussian_splat_scene_director.cpp`": that formulation fails on the base, because the declaration lives at `core/gaussian_splat_scene_director.h:615` and legitimate director-side locks sit at `core/scene_director_sphere_effectors.cpp:156`, `:191`, `:338`, `:344`. A guard that is red before any streaming change is made gets weakened, not obeyed. |
 | **I10** | Friendship strictly decreases. No slice adds a `friend` grant; S5 removes the six named grants (`gaussian_streaming.h:31-34`, `streaming_visibility_controller.h:54`, `streaming_global_atlas_registry.h:23`). | Grep guard on `friend class` count in the streaming headers; monotonically non-increasing, zero after S5. |
 | **I11** | No GPU payload layout changes in S1–S6; the atlas stride guard and the layout-sync guard are untouched. | `run_module_tests.py --guard-only` green; guard files unmodified in the diff. |
 | **I12** | External behavior is preserved: same chunks resident, same eviction order, same visible count for a fixed camera path. | Byte-identical `get_streaming_analytics` / `get_vram_debug_stats` on a fixed scene before and after. |
