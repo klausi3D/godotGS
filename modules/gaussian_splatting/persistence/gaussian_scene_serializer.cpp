@@ -964,13 +964,27 @@ Error GaussianSceneSerializer::_write_scene_to_file(const Ref<FileAccess> &file,
         }
     }
 
-    // Round-trip any unknown chunks that were preserved during load.
+    // Round-trip any unknown chunks that were preserved during load. Checksum
+    // them under the SAME writer policy every known chunk uses
+    // (`enable_checksum ? _calculate_checksum(payload) : 0`) instead of writing
+    // the value carried over from load. A file loaded with checksums disabled
+    // preserves each unknown chunk's stored checksum verbatim -- 0 for an
+    // unprotected source -- so re-emitting it when this save ENABLES checksums
+    // would stamp the now-protected file with a checksum that certifies the
+    // wrong bytes. The read path (#700/#718) verifies unknown chunks like every
+    // other chunk, so it would then reject this serializer's OWN output as
+    // corrupt, making checksum-mode migration of forward-compatible files lossy
+    // (Codex PR #718). Recomputing from `unk.payload` keeps the write path in
+    // lockstep with the read path under every checksum policy; it does not
+    // weaken #700/#718's read-side verification, which still rejects a genuinely
+    // corrupt unknown chunk before it is ever preserved for re-save.
     for (int i = 0; i < unknown_chunks.size(); i++) {
         const UnknownChunk &unk = unknown_chunks[i];
-        pending_chunk_checksum = unk.checksum;
+        const uint32_t unk_checksum = enable_checksum ? _calculate_checksum(unk.payload) : 0;
+        pending_chunk_checksum = unk_checksum;
         file->store_32(unk.type_raw);
         file->store_32(unk.payload.size());
-        file->store_32(unk.checksum);
+        file->store_32(unk_checksum);
         file->store_32(unk.flags);
         if (!unk.payload.is_empty()) {
             file->store_buffer(unk.payload);

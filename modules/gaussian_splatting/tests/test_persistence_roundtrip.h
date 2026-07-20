@@ -1095,6 +1095,128 @@ TEST_CASE("[GaussianSplatting][Persistence] Zero-size unknown chunk with a bad c
     _remove_persistence_fixture(path);
 }
 
+TEST_CASE("[GaussianSplatting][Persistence] Checksum-mode migration re-checksums preserved unknown chunks") {
+    // Second-order regression from Codex PR #718. #700/#718 taught the READ path
+    // to verify unknown chunks under the same checksum policy as every known
+    // chunk. But the WRITE path re-emitted each preserved unknown chunk's
+    // checksum VERBATIM. Load a forward-compatible file with checksums OFF and
+    // the preserved unknown chunk keeps checksum 0 (an unprotected source stores
+    // 0 over its payload); re-save with checksums ON and the known chunks get
+    // real checksums while the unknown chunk still carries 0 over a NON-EMPTY
+    // payload. The now-protected file then fails the very verification #718
+    // added -- the serializer rejects its OWN output, so checksum-mode migration
+    // of forward-compatible files was lossy. The fix recomputes the unknown
+    // chunk's checksum on write, exactly as known chunks are handled.
+    const String path = _make_persistence_fixture_path("test_unknown_chunk_migrate_src");
+    const String resaved_path = _make_persistence_fixture_path("test_unknown_chunk_migrate_dst");
+    const bool fixture_dir_ready =
+            _ensure_persistence_fixture_dir(path) && _ensure_persistence_fixture_dir(resaved_path);
+    CHECK_MESSAGE(fixture_dir_ready, "Persistence fixture directory should be available");
+    if (!fixture_dir_ready) {
+        return;
+    }
+
+    Ref<GaussianSplatWorld> world = create_test_world();
+    Ref<GaussianData> data = world->get_gaussian_data();
+    if (data.is_null()) {
+        FAIL("test world produced no gaussian data; the fixture would be empty");
+        return;
+    }
+
+    Dictionary metadata;
+    metadata[StringName("migrate_probe")] = true;
+
+    // Source written WITHOUT checksums: it claims no protection, so its metadata
+    // chunk -- and therefore the unknown chunk we retag it into -- stores
+    // checksum 0 over a NON-EMPTY payload, the exact shape a verbatim re-emit
+    // gets wrong once the file is marked protected.
+    GaussianSplatting::GaussianSceneSerializer serializer;
+    serializer.set_enable_checksum(false);
+    if (serializer.save_scene(path, data.ptr(), nullptr, metadata) != OK) {
+        _remove_persistence_fixture(path);
+        _remove_persistence_fixture(resaved_path);
+        FAIL("checksum-disabled GSF save failed; there is no valid fixture to migrate");
+        return;
+    }
+
+    const uint32_t unknown_chunk_type = 0x4D494752u; // "MIGR"
+    const bool retagged = _retag_first_metadata_chunk_as_unknown(path, unknown_chunk_type);
+    CHECK_MESSAGE(retagged, "fixture should contain a metadata chunk to retag as unknown");
+    if (!retagged) {
+        _remove_persistence_fixture(path);
+        _remove_persistence_fixture(resaved_path);
+        return;
+    }
+
+    // Load with checksums OFF: forward-compatible, unprotected. The preserved
+    // unknown chunk keeps checksum 0.
+    Ref<GaussianData> loaded_data;
+    loaded_data.instantiate();
+    const Error load_err = serializer.load_scene(path, loaded_data.ptr(), nullptr, nullptr);
+    CHECK_MESSAGE(load_err == OK, "checksum-disabled load of a forward-compatible file must succeed");
+    CHECK_MESSAGE(serializer.get_unknown_chunk_count() == 1,
+            "exactly one unknown chunk must be preserved for the migration to be meaningful");
+    if (load_err != OK || serializer.get_unknown_chunk_count() != 1) {
+        _remove_persistence_fixture(path);
+        _remove_persistence_fixture(resaved_path);
+        return;
+    }
+
+    // Migrate: re-save the SAME instance (it carries the preserved unknown chunk)
+    // with checksums ON. The re-saved file is produced by the serializer itself,
+    // so it is structurally valid by construction -- #601/#700's chunk-count and
+    // terminator-position checks cannot fire -- and the ONLY thing that can make
+    // validation reject it is the unknown chunk's checksum, precisely the path
+    // under test (green-for-the-wrong-reason is ruled out by construction).
+    serializer.set_enable_checksum(true);
+    const Error resave_err = serializer.save_scene(resaved_path, loaded_data.ptr(), nullptr, Dictionary());
+    CHECK_MESSAGE(resave_err == OK, "re-save with checksums enabled must succeed");
+    if (resave_err != OK) {
+        _remove_persistence_fixture(path);
+        _remove_persistence_fixture(resaved_path);
+        return;
+    }
+    CHECK_MESSAGE(_file_contains_chunk_type(resaved_path, unknown_chunk_type),
+            "the preserved unknown chunk must survive into the migrated file, or validation below is vacuous");
+
+    // Decisive assertion (FAILS on the pre-fix #718 tree): the serializer must
+    // accept the file it just produced. validate_file() returns Error, not bool,
+    // so this is compared to OK explicitly -- `!validate_file(...)` would assert
+    // the opposite and pass on the broken tree.
+    GaussianSplatting::GaussianSceneSerializer verifier; // default: checksums ON.
+    CHECK_MESSAGE(verifier.validate_file(resaved_path) == OK,
+            "checksum-mode migration must produce a file the serializer accepts; the unknown chunk's "
+            "checksum must be recomputed on write, not re-emitted from a checksum-disabled load");
+
+    // ...and a full reload with checksums on must round-trip the unknown chunk.
+    Ref<GaussianData> reloaded_data;
+    reloaded_data.instantiate();
+    CHECK_MESSAGE(verifier.load_scene(resaved_path, reloaded_data.ptr(), nullptr, nullptr) == OK,
+            "the migrated file must fully reload with checksums enabled");
+    CHECK_MESSAGE(verifier.get_unknown_chunk_count() == 1,
+            "the unknown chunk must survive the checksum-mode migration round-trip");
+
+    // Control -- proves the write-side fix did NOT disable #700/#718's read-side
+    // verification: flip a payload byte of the migrated (now correctly
+    // checksummed) unknown chunk WITHOUT updating its checksum. Loading and
+    // validating with checksums on must still reject it as corrupt.
+    const bool tampered = _tamper_chunk_payload_byte(resaved_path, unknown_chunk_type);
+    CHECK_MESSAGE(tampered, "migrated unknown chunk should carry a payload byte to flip for the control");
+    if (tampered) {
+        Ref<GaussianData> corrupt_data;
+        corrupt_data.instantiate();
+        CHECK_MESSAGE(verifier.load_scene(resaved_path, corrupt_data.ptr(), nullptr, nullptr) == ERR_FILE_CORRUPT,
+                "a tampered unknown-chunk payload must still be rejected -- the write-side fix must not "
+                "weaken the #700/#718 read-side verification");
+        CHECK_MESSAGE(verifier.validate_file(resaved_path) == ERR_FILE_CORRUPT,
+                "validate_file must reject what load_scene rejects (it returns Error, not bool -- "
+                "`!validate_file(...)` would assert the OPPOSITE and pass on a broken tree)");
+    }
+
+    _remove_persistence_fixture(path);
+    _remove_persistence_fixture(resaved_path);
+}
+
 TEST_CASE("[GaussianSplatting][Persistence] Validation helpers accept chunked GSF without checksums") {
     const String path = _make_persistence_fixture_path("test_validate_no_checksum");
     const bool fixture_dir_ready = _ensure_persistence_fixture_dir(path);
