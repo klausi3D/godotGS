@@ -230,12 +230,39 @@ struct GsGpuRidLeakListener : public doctest::IReporter {
 	// untriageable -- you knew the batch leaked but not which case.
 	String case_name;
 
+	// #695: per-case execution accounting. doctest's SUMMARY cannot express what
+	// the release gate needs to know.
+	//
+	// The summary's "N skipped" column is `numTestCases - numTestCasesPassingFilters`
+	// (doctest.h:6307) -- the whole registered corpus minus the cases this batch's
+	// `--test-case=` filter selected. Every batch filters a handful of cases out of
+	// ~2008, so that column reads ~2004 by construction on every green run. It says
+	// nothing about whether the selected cases actually did anything.
+	//
+	// What it cannot distinguish, and what a listener can:
+	//   * a case that never STARTED -> filtered out (benign, ~2004 per batch);
+	//   * a case that STARTED and evaluated ZERO assertions -> a runtime skip:
+	//     it early-returned past its checks (a missing RenderingServer, an unmet
+	//     precondition) and doctest counted it PASSED.
+	// The second is the signal #690/#692 were about, and it is invisible in the
+	// summary. `test_case_end` receives `CurrentTestCaseStats::numAssertsCurrentTest`
+	// (doctest.h:2024), reset before `test_case_start` and accumulated across every
+	// subcase re-entry (doctest.h:7008-7066), so it is exactly the per-case total.
+	//
+	// The third category -- a `doctest::skip()` DECORATOR on a case inside the
+	// batch's filter -- needs no new signal: decorated cases are excluded from
+	// `numTestCasesPassingFilters` too, so they lower the batch's reported `total`
+	// and the manifest's existing `minimum_test_cases` floor rejects the batch.
+	uint32_t cases_started = 0;
+	uint32_t cases_zero_assert = 0;
+
 	void test_case_start(const doctest::TestCaseData &p_data) override {
 		case_start_memory = 0;
 		case_name = String(p_data.m_name);
 		if (!g_in_gs_gpu_mode) {
 			return;
 		}
+		cases_started++;
 #if defined(RD_ENABLED)
 		if (RenderingDevice *rd = RenderingDevice::get_singleton()) {
 			// #662: settle the device before taking the baseline, exactly as
@@ -264,9 +291,18 @@ struct GsGpuRidLeakListener : public doctest::IReporter {
 #endif
 	}
 
-	void test_case_end(const doctest::CurrentTestCaseStats &) override {
+	void test_case_end(const doctest::CurrentTestCaseStats &p_stats) override {
 		if (!g_in_gs_gpu_mode) {
 			return;
+		}
+		// #695: a case that ran but evaluated no assertion verified nothing.
+		// Format: `[GS-GPU][NO-ASSERTS] test=<name>` -- scraped by
+		// tests/ci/run_gpu_harness.py, which escalates it for REQUIRED batches.
+		// Listener reporters cannot call CHECK_MESSAGE, so the signal goes out
+		// over stdout exactly like the [RID-LEAK?] advisory below.
+		if (p_stats.numAssertsCurrentTest <= 0) {
+			cases_zero_assert++;
+			print_line(vformat("[GS-GPU][NO-ASSERTS] test=%s", case_name));
 		}
 		// #329 (Codex review): drop the SceneDirector's retained SharedWorld
 		// renderers BEFORE sampling, or their GPU memory is attributed to
@@ -367,7 +403,26 @@ struct GsGpuRidLeakListener : public doctest::IReporter {
 
 	void report_query(const doctest::QueryData &) override {}
 	void test_run_start() override {}
-	void test_run_end(const doctest::TestRunStats &) override {}
+
+	// #695: fail-closed sentinel for the per-case audit above.
+	//
+	// The gate consumes `[GS-GPU][NO-ASSERTS]`, i.e. the ABSENCE of lines is what
+	// says "every case asserted something". Absence is also what a deleted
+	// listener, a binary built without this file, or a renamed prefix produce --
+	// so without a positive marker, removing the producer would silently turn the
+	// gate green. That is the same laundering-by-deletion path #692 closed by
+	// requiring `supervisor_exit` to be PRESENT.
+	//
+	// This line is emitted once per batch process, after every case has ended.
+	// run_gpu_harness.py records its presence per batch and FAILS a required
+	// batch that parsed a doctest summary but carries no audit line.
+	void test_run_end(const doctest::TestRunStats &) override {
+		if (!g_in_gs_gpu_mode) {
+			return;
+		}
+		print_line(vformat("[GS-GPU][CASE-ASSERT-AUDIT] started=%d zero_assert=%d",
+				int(cases_started), int(cases_zero_assert)));
+	}
 	void test_case_reenter(const doctest::TestCaseData &) override {}
 	void test_case_exception(const doctest::TestCaseException &) override {}
 	void subcase_start(const doctest::SubcaseSignature &) override {}
