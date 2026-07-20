@@ -1545,16 +1545,29 @@ bool GPUCuller::_gpu_frustum_cull_instance(const CullParams &p_params, const Ins
     // `current_frame_chunk_limit` a few lines up -- and it keeps the invariant
     // stated at the top of this block true for every path out of here.
     //
-    // On the MAIN RenderingDevice `safe_submit` is a no-op, so the latch cannot
-    // have changed and this re-read reproduces the previous value exactly: the
-    // shipping render path is bit-identical.
+    // On the MAIN RenderingDevice this re-read reproduces the previous value
+    // exactly, so the shipping render path is bit-identical -- but NOT simply
+    // because `safe_submit` no-ops there. `buffer_get_data_async` a few lines up
+    // CAN drain queued download callbacks on the main device
+    // (rendering_device.cpp:719 -> _staging_buffer_execute_required_action ->
+    // _flush_and_stall_for_all_frames -> _stall_for_frame), so "nothing between
+    // the write-back and here can run a callback" is false. Do not rely on it.
+    //
+    // The actual invariant is twofold: that enqueue only happens under
+    // `!instance_readback_state.pending`, so no live instance-counter request is
+    // outstanding to deliver; and any stale one is rejected by the generation /
+    // request-id guards in _on_instance_counter_readback before it can touch the
+    // latch. The request enqueued above registers only AFTER the staging stall,
+    // so it cannot fire here either. Preserve those guards if you touch this.
     visible_chunk_count = MIN(last_instance_visible_chunk_count, current_frame_chunk_limit);
 
     r_summary.visible_after_culling = visible_chunk_count;
     uint64_t candidate_count = uint64_t(instance_count) * uint64_t(chunk_dispatch);
     r_summary.culling_candidate_count = candidate_count > UINT32_MAX ? UINT32_MAX : static_cast<uint32_t>(candidate_count);
-    // M0: surface the instance-path frustum-cull count (1-frame-late async latch; 0 until the
-    // first readback lands). CHUNK granularity — see last_instance_frustum_culled_count.
+    // M0: surface the instance-path frustum-cull count (async latch; 0 until the first readback
+    // lands). It is 1-frame-late on the MAIN device, where the callback arrives during Godot's
+    // frame; on a LOCAL device it is same-frame, because safe_submit above syncs and drains the
+    // readback before this point (#702). CHUNK granularity — see last_instance_frustum_culled_count.
     // Clamped to this frame's candidate domain: when the instance contract shrinks WITHOUT
     // a clear (set_instance_pipeline_inputs repopulates in place), the latch may still hold
     // a count from an older, larger dispatch until the next readback lands — it must never
