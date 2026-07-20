@@ -1072,17 +1072,31 @@ Error GaussianSceneSerializer::_read_scene_body(const Ref<FileAccess> &file, con
                     ERR_FAIL_COND_V_MSG(unk.payload.size() != (int)chunk.size,
                             ERR_FILE_CORRUPT,
                             "Failed to read unknown chunk payload.");
-                    // #700: verify under the SAME policy as every known chunk
-                    // (_verify_checksum is the single read-path policy). Not
-                    // verifying here did not merely tolerate corruption, it
-                    // LAUNDERED it: the re-save path writes `unk.checksum` back
-                    // over the possibly-tampered payload, so a later save would
-                    // hand out a file whose checksum certifies the wrong bytes.
-                    ERR_FAIL_COND_V_MSG(!_verify_checksum(unk.payload, chunk.checksum),
-                            ERR_FILE_CORRUPT,
-                            vformat("GSF unknown chunk 0x%08X failed checksum verification in '%s'.",
-                                    (uint32_t)chunk.type, file_path));
                 }
+                // #700: verify under the SAME policy as every known chunk
+                // (_verify_checksum is the single read-path policy). Not
+                // verifying here did not merely tolerate corruption, it
+                // LAUNDERED it: the re-save path writes `unk.checksum` back
+                // over the possibly-tampered payload, so a later save would
+                // hand out a file whose checksum certifies the wrong bytes.
+                //
+                // Deliberately OUTSIDE the payload-size branch (Codex PR #718).
+                // While it sat inside, a zero-size unknown chunk was never
+                // verified at all, so one carrying a non-zero checksum loaded
+                // clean and was then preserved and re-emitted with that
+                // checksum -- the same laundering the check exists to stop,
+                // reachable by simply declaring size 0. Every KNOWN chunk
+                // already verifies its empty payload this way: their readers
+                // call _verify_checksum unconditionally on a buffer that is
+                // empty when size is 0, and _calculate_checksum defines the
+                // checksum of empty data as 0. `unk.payload` is empty here for
+                // exactly that case, so this call makes the unknown path agree
+                // with the known path by construction rather than by a
+                // second, parallel rule.
+                ERR_FAIL_COND_V_MSG(!_verify_checksum(unk.payload, chunk.checksum),
+                        ERR_FILE_CORRUPT,
+                        vformat("GSF unknown chunk 0x%08X failed checksum verification in '%s'.",
+                                (uint32_t)chunk.type, file_path));
                 r_staging.unknown_chunks.push_back(unk);
                 err = OK;
             } break;
