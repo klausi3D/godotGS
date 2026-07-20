@@ -160,11 +160,6 @@
       "state.hierarchical_structure|!= nullptr|a4f1872113",
       "state.hierarchical_structure|!= nullptr|f354f42a24"
     ],
-    "test_gpu_sorting_pipeline_readback.h": [
-      "pipeline|is_valid()|e16b45b43a",
-      "pipeline|is_valid()|ed1824935e",
-      "pipeline|is_valid()|ed1824935e"
-    ],
     "test_gpu_streaming.cpp": [
       "asset|!= nullptr|93f8d97265",
       "asset|!= nullptr|d7b1cbbb61",

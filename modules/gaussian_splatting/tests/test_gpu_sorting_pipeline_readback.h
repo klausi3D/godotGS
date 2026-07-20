@@ -47,7 +47,10 @@ static Vector<uint8_t> _make_sort_indices_payload(const Vector<uint32_t> &p_indi
 TEST_CASE("[GaussianSplatting][GPU Sort Pipeline] Stale sort readbacks are ignored after generation advances") {
 	Ref<GPUSortingPipeline> pipeline;
 	pipeline.instantiate();
-	REQUIRE(pipeline.is_valid());
+	if (!pipeline.is_valid()) {
+		FAIL("GPUSortingPipeline failed to instantiate");
+		return;
+	}
 
 	auto &sort_state = pipeline->_test_sort_readback_state();
 	sort_state.pending = true;
@@ -91,7 +94,10 @@ TEST_CASE("[GaussianSplatting][GPU Sort Pipeline] Stale sort readbacks are ignor
 TEST_CASE("[GaussianSplatting][GPU Sort Pipeline] Instance-count readbacks reject stale generations and accept the current one") {
 	Ref<GPUSortingPipeline> pipeline;
 	pipeline.instantiate();
-	REQUIRE(pipeline.is_valid());
+	if (!pipeline.is_valid()) {
+		FAIL("GPUSortingPipeline failed to instantiate");
+		return;
+	}
 
 	auto &count_state = pipeline->_test_instance_count_readback_state();
 	count_state.pending = true;
@@ -127,7 +133,10 @@ TEST_CASE("[GaussianSplatting][GPU Sort Pipeline] Instance-count overflow_flag r
 	// contract; on-GPU provocation of a real clamp is the GPU-harness lane's job.
 	Ref<GPUSortingPipeline> pipeline;
 	pipeline.instantiate();
-	REQUIRE(pipeline.is_valid());
+	if (!pipeline.is_valid()) {
+		FAIL("GPUSortingPipeline failed to instantiate");
+		return;
+	}
 	CHECK(pipeline->get_instance_count_overflow_events() == 0u);
 
 	auto &count_state = pipeline->_test_instance_count_readback_state();
@@ -165,7 +174,10 @@ TEST_CASE("[GaussianSplatting][GPU Sort Pipeline] A single production frame coun
 	// without the frame-keyed de-dup this would count 2.
 	Ref<GPUSortingPipeline> pipeline;
 	pipeline.instantiate();
-	REQUIRE(pipeline.is_valid());
+	if (!pipeline.is_valid()) {
+		FAIL("GPUSortingPipeline failed to instantiate");
+		return;
+	}
 	CHECK(pipeline->get_instance_count_overflow_events() == 0u);
 
 	auto &count_state = pipeline->_test_instance_count_readback_state();
@@ -197,7 +209,10 @@ TEST_CASE("[GaussianSplatting][GPU Sort Pipeline] A single production frame coun
 TEST_CASE("[GaussianSplatting][GPU Sort Pipeline] Clearing instance pipeline inputs resets readback ownership state") {
 	Ref<GPUSortingPipeline> pipeline;
 	pipeline.instantiate();
-	REQUIRE(pipeline.is_valid());
+	if (!pipeline.is_valid()) {
+		FAIL("GPUSortingPipeline failed to instantiate");
+		return;
+	}
 
 	auto &count_state = pipeline->_test_instance_count_readback_state();
 	count_state.pending = true;
