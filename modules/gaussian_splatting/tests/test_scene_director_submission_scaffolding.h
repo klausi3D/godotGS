@@ -1204,6 +1204,116 @@ TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Explicit resident 
 	g_quantization_config = saved_quantization_config;
 }
 
+// #702 -- the local-device instance cull must publish THIS frame's counter
+// readback, not the pre-submit snapshot.
+//
+// WHY THIS IS A [RequiresGPU] CASE AND NOT A UNIT TEST. The defect only exists
+// on a device where `gs_device_utils::safe_submit` actually submits and syncs,
+// i.e. a LOCAL RenderingDevice (`gs_device_utils.h`; a no-op on the main
+// device). `RenderingDevice::sync()` -> `_begin_frame()` -> `_stall_for_frame()`
+// is what drains `buffer_get_data_async` callbacks
+// (servers/rendering/rendering_device.cpp), so the fresh count lands *inside*
+// the `safe_submit()` call and the old post-submit write-back overwrote it.
+// Nothing short of a real device reproduces that ordering.
+//
+// WHAT IT ASSERTS, AND WHAT IT DELIBERATELY DOES NOT. It asserts the cull
+// publishes a visible chunk count on the FIRST frame and that the sort stage
+// therefore runs. It does NOT assert that the resident route produces rendered
+// output: it does not, for a SEPARATE reason downstream of this fix (the
+// instance contract publishes `max_chunk_splats=1` and the sort's own
+// instance-count buffer resolves to 0), which is why the resident-quantization
+// waiver above still stands. Asserting rendered output here would fail for a
+// cause this fix does not address and make the case unable to discriminate.
+//
+// PRE-FIX / POST-FIX, measured on an RTX 3090 (dev build, Vulkan):
+//   pre-fix   visible_after_culling=0  sort_route_uid=COMMON.UNSET.SORT_ROUTE  stage_sort_status=skipped
+//   post-fix  visible_after_culling=1  sort_route_uid=INSTANCE.SORT.GPU        stage_sort_status=success
+TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Local-device instance cull publishes the current frame's visible count and unblocks the sort stage") {
+	RenderingServer *rs = RenderingServer::get_singleton();
+	if (rs == nullptr) {
+		MESSAGE("Skipping test - Rendering server unavailable");
+		return;
+	}
+
+	SceneTree *tree = SceneTree::get_singleton();
+	if (tree == nullptr) {
+		FAIL("SceneTree singleton required; the world node below cannot be entered into a tree");
+		return;
+	}
+	Window *root = tree->get_root();
+	if (root == nullptr) {
+		FAIL("SceneTree root window required; the world node below cannot be entered into a tree");
+		return;
+	}
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	if (project_settings == nullptr) {
+		FAIL("ProjectSettings singleton required to select the resident instance route");
+		return;
+	}
+
+	ProjectSettingGuard route_guard(project_settings, "rendering/gaussian_splatting/streaming/route_policy");
+	ProjectSettingGuard instance_guard(project_settings, "rendering/gaussian_splatting/instance_pipeline/enabled");
+	project_settings->set_setting("rendering/gaussian_splatting/streaming/route_policy",
+			int64_t(gs::settings::GS_ROUTE_RESIDENT));
+	project_settings->set_setting("rendering/gaussian_splatting/instance_pipeline/enabled", true);
+	project_settings->emit_signal("settings_changed");
+
+	Ref<GaussianSplatWorld> world_resource;
+	world_resource.instantiate();
+	world_resource->set_gaussian_data(stage1a_make_submission_test_data(32, 20.0f));
+	Vector<GaussianSplatRenderer::StaticChunk> chunks;
+	chunks.push_back(stage1a_make_submission_test_chunk(0));
+	world_resource->set_static_chunks(chunks);
+
+	GaussianSplatWorld3D *node = memnew(GaussianSplatWorld3D);
+	if (node == nullptr) {
+		FAIL("could not allocate a GaussianSplatWorld3D");
+		return;
+	}
+	node->set_auto_apply_on_ready(false);
+	node->set_world(world_resource);
+	root->add_child(node);
+	tree->process(0.0);
+	node->apply_world();
+
+	Ref<GaussianSplatRenderer> renderer = node->get_renderer();
+	if (renderer.is_null()) {
+		root->remove_child(node);
+		memdelete(node);
+		tree->process(0.0);
+		FAIL("renderer unavailable; the instance cull path under test never runs");
+		return;
+	}
+
+	RenderSceneDataRD scene_data;
+	scene_data.cam_transform = Transform3D(Basis(), Vector3(0.0f, 0.0f, 5.0f));
+	scene_data.cam_projection.set_perspective(70.0f, 1.0f, 0.1f, 100.0f);
+	RenderDataRD render_data;
+	render_data.scene_data = &scene_data;
+	render_data.render_buffers = Ref<RenderSceneBuffersRD>();
+
+	// ONE frame, deliberately. The whole point is that the counter readback is
+	// consumed on the frame that issued it; a warm-up loop would let a later
+	// frame's snapshot mask the defect.
+	renderer->render_scene_instance(&render_data);
+
+	const Dictionary stats = renderer->get_render_stats();
+	CHECK_MESSAGE(int64_t(stats.get("visible_after_culling", int64_t(0))) > 0,
+			"the instance cull must publish the counter value read back during its own submit, "
+			"not the pre-submit snapshot (which is 0 on the first frame)");
+	CHECK_MESSAGE(String(stats.get("cull_route_uid", String())) == String("INSTANCE.CULL.GPU"),
+			"this case must exercise the GPU instance-cull path, or it cannot discriminate");
+	CHECK_MESSAGE(String(stats.get("sort_route_uid", String())) == String("INSTANCE.SORT.GPU"),
+			"a visible cull count must let the sort stage run; an unset sort route means the "
+			"cull published 0 and render_instancing_orchestrator took the no-visible-splats skip");
+	CHECK_MESSAGE(String(stats.get("stage_sort_status", String())) == String("success"),
+			"the sort stage must report success once the cull publishes visible chunks");
+
+	root->remove_child(node);
+	memdelete(node);
+	tree->process(0.0);
+}
+
 TEST_CASE("[GaussianSplatting][World][SceneTree] World node preserves prior renderer streaming overrides when tier budgets are disabled") {
 	SceneTree *tree = SceneTree::get_singleton();
 	REQUIRE_MESSAGE(tree != nullptr, "SceneTree singleton required");
