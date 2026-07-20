@@ -14,7 +14,8 @@
     "renderer": "Vulkan 1.4.325 Forward+"
   },
   "committed_run": "run_2",
-  "window": "steady-state; first 3 s of warmup excluded",
+  "window": "steady-state; first 5 s of warmup excluded",
+  "window_correction": "This field read '3 s' from the commit that first published these runs (92c357d7e91). That was a hand-authored label and it was wrong on the day it was written -- no measurement changed. The runs were captured with --profile performance, and run_benchmark.py's PROFILE_WARMUP_SECONDS maps 'performance' to 5.0 s; the harness's own machine-generated output for this same capture session records warmup_duration_s: 5.0 on all five lanes in benchmark_suite_report.json. PROFILE_WARMUP_SECONDS has never held any other value for 'performance' (introduced at 5.0 in 0d249ec5b97), so no harness change is involved. The '3 s' most likely came from one of the two unrelated 3.0 fallbacks in the codebase (run_benchmark.py's unknown-profile default and benchmark_suite_lane.gd's DEFAULT_BENCHMARK_WARMUP), neither of which applies when --profile performance supplies --benchmark-warmup explicitly. Corrected on PR #709.",
   "notes": {
     "measured": "per-frame wall-clock delta; per-pass GPU timestamp ranges",
     "derived": "steady_avg_fps is the harmonic mean frame_count/total_time",

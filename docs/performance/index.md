@@ -149,6 +149,23 @@ With the single documented exception of `GPU mem delta (MiB)`, no figure on this
 from data that is not in the repo. If any other number here cannot be recomputed from those files,
 treat it as a bug and report it.
 
+!!! note "Corrected: the warmup window in `benchmark_runs.json` said 3 s"
+    The `window` field in `benchmark_runs.json` read `steady-state; first 3 s of warmup excluded`,
+    contradicting the 5 s stated in the table at the top of this page. **The 5 s is correct and the
+    label was wrong**, so the label was corrected rather than the prose relaxed to match it. No
+    measurement value was touched.
+
+    The evidence is the harness's own output, not this page: these runs were captured with
+    `--profile performance`, `run_benchmark.py`'s `PROFILE_WARMUP_SECONDS` maps `performance` to
+    `5.0`, and `benchmark_suite_report.json` — machine-generated during this same capture session —
+    records `warmup_duration_s: 5.0` on all five lanes. `PROFILE_WARMUP_SECONDS["performance"]` has
+    been `5.0` since the constant was introduced, so no harness change is involved: the label was a
+    hand-authored mistake in the commit that first published the runs, most likely copied from one
+    of the two unrelated `3.0` *fallbacks* in the tree (`run_benchmark.py`'s unknown-profile default
+    and `benchmark_suite_lane.gd`'s `DEFAULT_BENCHMARK_WARMUP`), neither of which applies when the
+    profile supplies `--benchmark-warmup` explicitly. The correction and its reasoning are recorded
+    in the file itself under `window_correction`.
+
 The memory column is a known provenance gap, tracked in
 [#697](https://github.com/klausi3D/godotGS/issues/697): the benchmark harness does not sample GPU
 memory into its report, so those values cannot currently be audited or regenerated from the
