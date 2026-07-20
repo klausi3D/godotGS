@@ -1867,21 +1867,21 @@ For example, Windows produces <code>bin/godot.windows.editor.dev.x86_64.exe</cod
 <li><code>python3 tests/ci/run_gpu_harness.py --batch CompositorHazard --godot &lt;module-built-binary&gt;</code></li>
 <li>Direct doctest invocation: <code>&lt;module-built-binary&gt; --gs-gpu-test --test-case="*HazardRepro*"</code></li>
 </ul>
-<p>For module-only build commands and SCons targets, see <a href="https://github.com/klausi3D/godotGS/blob/2e7959a48be4b6a50c2511277ad2a261bf5cde20/modules/gaussian_splatting/docs/BUILD_AND_TEST.md">Gaussian Splatting Build and Test Guide</a>. For test-runner overviews, see <a href="https://github.com/klausi3D/godotGS/blob/2e7959a48be4b6a50c2511277ad2a261bf5cde20/tests/README.md">Tests Overview</a>.</p>
+<p>For module-only build commands and SCons targets, see <a href="https://github.com/klausi3D/godotGS/blob/e3b08a33b4b23b3a572b425d2b6edc146357fa99/modules/gaussian_splatting/docs/BUILD_AND_TEST.md">Gaussian Splatting Build and Test Guide</a>. For test-runner overviews, see <a href="https://github.com/klausi3D/godotGS/blob/e3b08a33b4b23b3a572b425d2b6edc146357fa99/tests/README.md">Tests Overview</a>.</p>
 <h2 id="gpu-test-harness-and-visual-gate">GPU Test Harness and Visual Gate<a class="headerlink" href="#gpu-test-harness-and-visual-gate" title="Permanent link">¶</a></h2>
 <p>The <code>--gs-gpu-test</code> entrypoint in <code>main/main.cpp</code> is a second doctest runner that boots <code>RenderingDevice</code> offscreen (no window) for tests tagged <code>[RequiresGPU]</code>. <code>tests/ci/run_gpu_harness.py</code> is the Python supervisor that drives it in per-batch subprocesses so a driver hang or GPU OOM in one batch can't corrupt the next.</p>
 <p>Since #329 the harness also registers the mock <code>DisplayServer</code> driver, so <code>[SceneTree]</code>-tagged <code>[RequiresGPU]</code> cases <strong>do</strong> get a full <code>SceneTree</code> — they run in the <code>NodeSceneTree</code> / <code>WorldSceneTree</code> / <code>SceneDirectorSceneTree</code> batches, which pass explicit <code>--test-case=</code> filters. (A bare <code>--gs-gpu-test</code> with no filter still excludes <code>*[SceneTree]*</code> as a conservative convenience default, which is why the harness can look <code>SceneTree</code>-less when invoked by hand.) This page previously said the harness has "no <code>SceneTree</code>"; that has not been true since #329, and the stale line was cited as evidence that a device-plus-<code>SceneTree</code> lane still had to be built (#675).</p>
 <ul>
 <li>Canonical detail (per-batch table, contracts, troubleshooting): <a href="../../testing/setup-guide/#gpu-test-harness-gs-gpu-test">Testing Setup Guide — GPU Test Harness</a>.</li>
-<li>Per-batch filter table and listener semantics: <a href="https://github.com/klausi3D/godotGS/blob/2e7959a48be4b6a50c2511277ad2a261bf5cde20/modules/gaussian_splatting/tests/README.md"><code>modules/gaussian_splatting/tests/README.md</code></a>.</li>
-<li>Seeded golden captures and recapture workflow: <a href="https://github.com/klausi3D/godotGS/blob/2e7959a48be4b6a50c2511277ad2a261bf5cde20/tests/visual_baselines/README.md"><code>tests/visual_baselines/README.md</code></a>.</li>
+<li>Per-batch filter table and listener semantics: <a href="https://github.com/klausi3D/godotGS/blob/e3b08a33b4b23b3a572b425d2b6edc146357fa99/modules/gaussian_splatting/tests/README.md"><code>modules/gaussian_splatting/tests/README.md</code></a>.</li>
+<li>Seeded golden captures and recapture workflow: <a href="https://github.com/klausi3D/godotGS/blob/e3b08a33b4b23b3a572b425d2b6edc146357fa99/tests/visual_baselines/README.md"><code>tests/visual_baselines/README.md</code></a>.</li>
 </ul>
 <p>Required-batch contract: <code>REQUIRED_BATCHES = {"CompositorHazard", "RendererPipeline", "Lifetime"}</code> is asserted at import in <code>tests/ci/run_gpu_harness.py</code>. A required batch whose doctest filter matches zero test cases fails the gate — this prevents a silently-green CI when a rename empties the canonical <code>#256</code> regression batch, <code>#351</code>'s route/stage cascade coverage, or <code>#352</code>'s GPU-resource lifetime proof.</p>
 <h2 id="ci-source-of-truth">CI Source of Truth<a class="headerlink" href="#ci-source-of-truth" title="Permanent link">¶</a></h2>
 <ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/2e7959a48be4b6a50c2511277ad2a261bf5cde20/.github/workflows/README.md">Workflow overview</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/2e7959a48be4b6a50c2511277ad2a261bf5cde20/.github/workflows/gaussian_production_gates.yml">Production gate workflow</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/2e7959a48be4b6a50c2511277ad2a261bf5cde20/.github/workflows/baseline_qa.yml">Baseline QA workflow (gpu-tests + gpu-harness visual gate)</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/e3b08a33b4b23b3a572b425d2b6edc146357fa99/.github/workflows/README.md">Workflow overview</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/e3b08a33b4b23b3a572b425d2b6edc146357fa99/.github/workflows/gaussian_production_gates.yml">Production gate workflow</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/e3b08a33b4b23b3a572b425d2b6edc146357fa99/.github/workflows/baseline_qa.yml">Baseline QA workflow (gpu-tests + gpu-harness visual gate)</a></li>
 <li><a href="../renderer-release-gates/">Renderer release gate contract</a></li>
 </ul>
 <p>Fork-PR safety gate: the <code>gpu-tests</code> and <code>gpu-harness</code> jobs in <code>baseline_qa.yml</code> both guard on <code>github.event.pull_request.head.repo.full_name == github.repository</code>, so untrusted fork-PR code never executes on the self-hosted Windows GPU runner. Same-repo branch PRs and the merge queue still exercise the visual gate.</p>
@@ -1920,7 +1920,7 @@ is changed to require it.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 20, 2026 12:18:27 UTC">July 20, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 20, 2026 21:29:05 UTC">July 20, 2026</span>
   </span>
 
     
