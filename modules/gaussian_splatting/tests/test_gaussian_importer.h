@@ -2941,4 +2941,62 @@ TEST_CASE("[GaussianSplatting][Editor] Re-resolving a node ObjectID observes a f
 	CHECK(GaussianEditorPlugin::_internal_resolve_splat_node(ObjectID()) == nullptr);
 }
 
+// #698, container half. The scalar re-resolve above was only one instance of
+// the bug. `_process_hot_reload_for_watch()` captured the watched nodes into a
+// `Vector<GaussianSplatNode3D *>` BEFORE `_import_from_path()` — which reaches
+// the same synchronous reimport — and then dereferenced those entries after it,
+// via `_apply_hot_reload_asset_to_nodes()`. A container does not extend the
+// lifetime of the `T *` it stores, so this was the identical use-after-free
+// with an index in front of it, and `watched_nodes.is_empty()` read as a
+// liveness check while answering a question about the state before the reimport.
+//
+// The fix re-collects the live set from the ObjectIDs after the barrier. This
+// case pins the mechanism that re-collection depends on — that a freed node is
+// actually DROPPED, not carried forward — which is the part a static guard
+// cannot see. That no raw container survives the barrier at all is enforced by
+// tests/ci/check_editor_node_pointer_lifetime.py, which reports 3 container
+// violations on the pre-fix tree (:837, :838, :843) and 0 after.
+TEST_CASE("[GaussianSplatting][Editor] Re-collecting watched hot-reload nodes drops one freed mid-flight") {
+	const String source_path = "user://hot_reload_freed_node_fixture.ply";
+
+	GaussianEditorPlugin *plugin = memnew(GaussianEditorPlugin);
+	GaussianSplatNode3D *survivor = memnew(GaussianSplatNode3D);
+	GaussianSplatNode3D *doomed = memnew(GaussianSplatNode3D);
+	if (plugin == nullptr || survivor == nullptr || doomed == nullptr) {
+		FAIL("could not allocate the plugin/node fixture; the re-collect contract cannot be exercised");
+		return;
+	}
+
+	Ref<GaussianSplatAsset> survivor_asset = _make_editor_test_asset(source_path, 1, Dictionary());
+	Ref<GaussianSplatAsset> doomed_asset = _make_editor_test_asset(source_path, 1, Dictionary());
+	Ref<GaussianSplatAsset> refreshed_asset = _make_editor_test_asset(source_path, 2, Dictionary());
+
+	survivor->set_splat_asset(survivor_asset);
+	doomed->set_splat_asset(doomed_asset);
+
+	plugin->_test_track_hot_reload_source(source_path, Dictionary(), survivor->get_instance_id());
+	plugin->_test_track_hot_reload_source(source_path, Dictionary(), doomed->get_instance_id());
+
+	// Both are watched, so a later count of 1 cannot be an artefact of the
+	// second registration never having taken.
+	CHECK_MESSAGE(plugin->_test_hot_reload_node_id_count(source_path) == 2,
+			"both nodes must be watched before the free, or the drop below proves nothing");
+
+	// This is what a `resources_reimported` handler closing the scene does to a
+	// node the hot-reload path already captured into its Vector.
+	memdelete(doomed);
+
+	CHECK(plugin->_test_process_hot_reload_path_now(source_path, refreshed_asset));
+
+	CHECK_MESSAGE(plugin->_test_hot_reload_node_id_count(source_path) == 1,
+			"re-collecting must drop the freed node's id; if it survived, the Vector would still "
+			"hand a dangling GaussianSplatNode3D * to _apply_hot_reload_asset_to_nodes()");
+	CHECK_MESSAGE(survivor->get_splat_asset() == refreshed_asset,
+			"the surviving watched node must still receive the refreshed asset — dropping the freed "
+			"entry must not cost the live ones their hot reload");
+
+	memdelete(survivor);
+	memdelete(plugin);
+}
+
 #endif // TOOLS_ENABLED

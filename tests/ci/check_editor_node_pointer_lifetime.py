@@ -39,7 +39,16 @@ For each function body in `modules/gaussian_splatting/editor/*.cpp`:
 * Collect locals declared as a raw pointer to a node-ish type — `T *name = ...`
   where `T` ends in `Node3D`, or is `Node`, `Control` or `Window`. `Ref<T>` and
   value locals are not tracked: they are not raw non-owning pointers.
-* Find the first line containing a **re-entrant call** (`REENTRANT_CALLS`).
+* Collect locals declared as a **container of** such pointers —
+  `Vector<T *> name`, `LocalVector<T *> name`, and the other
+  `CONTAINER_TEMPLATES`. A container holds `T *` by value, so the elements are
+  raw non-owning pointers with exactly the lifetime of the scalar case; putting
+  them in a `Vector` does not make them survive the free, it only hides the
+  same use-after-free behind an index. `Vector<Ref<T>>` is deliberately NOT
+  tracked — that owns a reference.
+* Find the first line containing a **re-entrant call** (`REENTRANT_CALLS`),
+  ignoring the function's own signature so that naming a barrier function does
+  not blind the guard inside that function's body.
 * Any appearance of a tracked local's identifier at or after that line is a
   violation — including a bare `if (x)` null test, which is itself a read of a
   possibly-freed pointer and, worse, reads as a safety check while providing
@@ -74,14 +83,45 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 EDITOR_DIR = REPO_ROOT / "modules" / "gaussian_splatting" / "editor"
 
 # Calls that synchronously re-enter editor code that may free nodes.
+#
+# `_import_from_path` is a MODULE-LOCAL barrier, not an engine API: it calls
+# `reimport_file_with_custom_parameters()` itself
+# (gaussian_editor_plugin.cpp), so every one of its callers inherits the same
+# re-entrancy. It is listed because the hot-reload path reaches the reimport
+# only through it, and a guard anchored solely on the engine call is blind to
+# every caller one frame up the stack.
 REENTRANT_CALLS = (
     "reimport_file_with_custom_parameters",
     "reimport_files",
+    "_import_from_path",
 )
 
 # `GaussianSplatNode3D *current_node = _get_current_node();`
 POINTER_DECL_RE = re.compile(
     r"^\s*(?:const\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\*\s*([A-Za-z_][A-Za-z0-9_]*)\s*=",
+)
+
+# Containers that hold their elements by value — so a `T *` element is a raw
+# non-owning pointer with exactly the lifetime of the scalar case, and putting
+# it in a container does not extend it. `Ref<T>`/`Vector<Ref<T>>` are absent by
+# design: those own a reference and are not the failure mode.
+CONTAINER_TEMPLATES = (
+    "Vector",
+    "LocalVector",
+    "TightLocalVector",
+    "PagedArray",
+    "List",
+    "HashSet",
+    "RBSet",
+)
+
+# `Vector<GaussianSplatNode3D *> watched_nodes = _collect_live_hot_reload_nodes(...);`
+# Also matches a bare `Vector<GaussianSplatNode3D *> live_nodes;` declaration,
+# which can be populated later and is the same hazard.
+CONTAINER_DECL_RE = re.compile(
+    r"^\s*(?:const\s+)?(?:" + "|".join(CONTAINER_TEMPLATES) + r")\s*<\s*"
+    r"(?:const\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\*\s*>\s*"
+    r"([A-Za-z_][A-Za-z0-9_]*)\s*[=;]",
 )
 
 FUNC_START_RE = re.compile(
@@ -133,34 +173,70 @@ def _split_functions(lines: list[str]) -> list[tuple[str, int, int]]:
     return functions
 
 
+def _signature_offset(body: list[str]) -> int:
+    """Offset of the line holding the body's opening brace."""
+    for offset, line in enumerate(body):
+        if "{" in _strip_comment(line):
+            return offset
+    return 0
+
+
+def _body_code(body: list[str], offset: int, sig_offset: int) -> str:
+    """Code on `offset`, excluding the function's own signature text.
+
+    A barrier name occurring in the signature is the function's own NAME, not a
+    call it makes. Counting it would set the barrier at offset 0, leaving no
+    lines before it to declare anything — so the function would silently scan
+    clean. That is how `_import_from_path` would blind the guard to the very
+    bug it was written for; `_barrier_does_not_shadow_own_body` pins it.
+    """
+    stripped = _strip_comment(body[offset])
+    if offset > sig_offset:
+        return stripped
+    if offset < sig_offset:
+        return ""
+    brace = stripped.find("{")
+    return stripped[brace + 1:] if brace >= 0 else ""
+
+
 def scan_source(path_label: str, text: str) -> list[str]:
     violations: list[str] = []
     lines = text.splitlines()
     for func_name, start, end in _split_functions(lines):
         body = lines[start:end]
+        sig_offset = _signature_offset(body)
+
         reentrant_line = None
-        for offset, line in enumerate(body):
-            stripped = _strip_comment(line)
-            if any(call in stripped for call in REENTRANT_CALLS):
+        for offset in range(len(body)):
+            code = _body_code(body, offset, sig_offset)
+            if any(call in code for call in REENTRANT_CALLS):
                 reentrant_line = offset
                 break
         if reentrant_line is None:
             continue
 
-        tracked: dict[str, int] = {}
-        for offset, line in enumerate(body[:reentrant_line]):
-            decl = POINTER_DECL_RE.match(_strip_comment(line))
+        # name -> (declaration offset, human-readable kind)
+        tracked: dict[str, tuple[int, str]] = {}
+        for offset in range(sig_offset + 1, reentrant_line):
+            stripped = _strip_comment(body[offset])
+            decl = POINTER_DECL_RE.match(stripped)
             if decl and _is_node_type(decl.group(1)):
-                tracked[decl.group(2)] = offset
+                tracked[decl.group(2)] = (offset, "raw node pointer")
+                continue
+            # A container of raw node pointers is the same hazard: the elements
+            # are non-owning `T *` and the container does not keep them alive.
+            container = CONTAINER_DECL_RE.match(stripped)
+            if container and _is_node_type(container.group(1)):
+                tracked[container.group(2)] = (offset, "container of raw node pointers")
 
-        for name in tracked:
+        for name, (decl_offset, kind) in tracked.items():
             ident_re = re.compile(rf"\b{re.escape(name)}\b")
             for offset in range(reentrant_line, len(body)):
                 stripped = _strip_comment(body[offset])
                 if ident_re.search(stripped):
                     violations.append(
-                        f"{path_label}:{start + offset + 1}: raw node pointer "
-                        f"`{name}` (declared at line {start + tracked[name] + 1}) is used after a "
+                        f"{path_label}:{start + offset + 1}: {kind} "
+                        f"`{name}` (declared at line {start + decl_offset + 1}) is used after a "
                         f"re-entrant editor call in {func_name}(); re-resolve it through "
                         f"ObjectDB::get_instance(ObjectID) instead"
                     )
@@ -261,6 +337,79 @@ Error GaussianEditorPlugin::_import_from_path(const String &p_path) {
 
 _SECOND_FUNCTION_UNAFFECTED = _POST_FIX + _NO_REENTRANT_CALL
 
+# --- container-shaped captures (the half the scalar-only matcher missed) ---
+
+_CONTAINER_PRE_FIX = """
+void GaussianEditorPlugin::_process_hot_reload_for_watch(const String &p_path, HotReloadWatch &p_watch) {
+    Vector<GaussianSplatNode3D *> watched_nodes = _collect_live_hot_reload_nodes(p_watch.node_ids);
+    const Error import_err = _import_from_path(p_path, options);
+    _apply_hot_reload_asset_to_nodes(p_path, watched_nodes, refreshed_asset);
+    if (watched_nodes.is_empty()) {
+        return;
+    }
+}
+"""
+
+_CONTAINER_POST_FIX = """
+void GaussianEditorPlugin::_process_hot_reload_for_watch(const String &p_path, HotReloadWatch &p_watch) {
+    Vector<GaussianSplatNode3D *> watched_nodes = _collect_live_hot_reload_nodes(p_watch.node_ids);
+    const Error import_err = _import_from_path(p_path, options);
+    Vector<GaussianSplatNode3D *> live_nodes = _collect_live_hot_reload_nodes(p_watch.node_ids);
+    _apply_hot_reload_asset_to_nodes(p_path, live_nodes, refreshed_asset);
+    if (live_nodes.is_empty()) {
+        return;
+    }
+}
+"""
+
+_CONTAINER_LOCALVECTOR = """
+void GaussianEditorPlugin::_other(const String &p_path) {
+    LocalVector<Node3D *> nodes;
+    fs->reimport_file_with_custom_parameters(p_path, importer_name, options);
+    nodes[0]->force_update();
+}
+"""
+
+# A container whose elements are NOT node pointers must not be tracked, or the
+# rule degenerates into "no local may be named after a reimport".
+_CONTAINER_NON_NODE = """
+void GaussianEditorPlugin::_other(const String &p_path) {
+    Vector<GaussianSplatAsset *> assets = _collect();
+    fs->reimport_file_with_custom_parameters(p_path, importer_name, options);
+    assets.clear();
+}
+"""
+
+# `Vector<Ref<T>>` owns its elements; it is not the failure mode.
+_CONTAINER_OF_REF_NOT_TRACKED = """
+void GaussianEditorPlugin::_other(const String &p_path) {
+    Vector<Ref<GaussianSplatNode3D>> nodes = _collect();
+    fs->reimport_file_with_custom_parameters(p_path, importer_name, options);
+    nodes.clear();
+}
+"""
+
+# `_import_from_path` is itself a barrier, so its CALLERS are scanned...
+_IMPORT_FROM_PATH_IS_A_BARRIER = """
+void GaussianEditorPlugin::_caller(const String &p_path) {
+    GaussianSplatNode3D *node = _get_current_node();
+    const Error err = _import_from_path(p_path, options);
+    node->force_update();
+}
+"""
+
+# ...but naming it must NOT blind the guard inside its own definition, where the
+# barrier is the engine call on a later line. Without the signature exclusion
+# this returns 0 and the original #698 bug stops being caught.
+_BARRIER_DOES_NOT_SHADOW_OWN_BODY = """
+Error GaussianEditorPlugin::_import_from_path(const String &p_path, const Dictionary &p_options) {
+    GaussianSplatNode3D *current_node = _get_current_node();
+    fs->reimport_file_with_custom_parameters(p_path, importer_name, options);
+    current_node->set_splat_asset(asset);
+    return OK;
+}
+"""
+
 SELF_TESTS = (
     ("pre-fix pattern is flagged", _PRE_FIX, lambda n: n > 0),
     ("post-fix re-resolve pattern is clean", _POST_FIX, lambda n: n == 0),
@@ -269,6 +418,13 @@ SELF_TESTS = (
     ("a bare null test on a stale pointer is still flagged", _NULL_TEST_ONLY, lambda n: n > 0),
     ("a pointer declared after the call is not flagged", _DECLARED_AFTER_CALL, lambda n: n == 0),
     ("a clean neighbour function does not mask the rule", _SECOND_FUNCTION_UNAFFECTED, lambda n: n == 0),
+    ("a Vector<T *> captured across the call is flagged", _CONTAINER_PRE_FIX, lambda n: n > 0),
+    ("re-collecting the container after the call is clean", _CONTAINER_POST_FIX, lambda n: n == 0),
+    ("LocalVector<T *> is tracked too", _CONTAINER_LOCALVECTOR, lambda n: n > 0),
+    ("a container of non-node pointers is not tracked", _CONTAINER_NON_NODE, lambda n: n == 0),
+    ("Vector<Ref<T>> is not tracked", _CONTAINER_OF_REF_NOT_TRACKED, lambda n: n == 0),
+    ("_import_from_path is a barrier for its callers", _IMPORT_FROM_PATH_IS_A_BARRIER, lambda n: n > 0),
+    ("naming a barrier does not blind its own body", _BARRIER_DOES_NOT_SHADOW_OWN_BODY, lambda n: n > 0),
 )
 
 

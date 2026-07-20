@@ -151,6 +151,15 @@ public:
         _track_hot_reload_source(p_path, p_options, p_node_id);
     }
     bool _test_process_hot_reload_path_now(const String &p_path, const Ref<GaussianSplatAsset> &p_refreshed_asset = Ref<GaussianSplatAsset>());
+    // #698 (container half): lets a test observe that re-collecting the live
+    // set actually DROPS a freed node, rather than carrying a dangling pointer
+    // forward in the `Vector<GaussianSplatNode3D *>`. Returns -1 when the path
+    // is not watched, which a count alone could not distinguish from "watched,
+    // but empty".
+    int _test_hot_reload_node_id_count(const String &p_path) const {
+        const HotReloadWatch *watch = hot_reload_watches.getptr(p_path);
+        return watch ? watch->node_ids.size() : -1;
+    }
 };
 
 #endif // TOOLS_ENABLED
