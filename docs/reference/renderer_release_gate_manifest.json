@@ -408,7 +408,7 @@
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
       "requires_gpu_total": 133,
-      "running_in_a_named_batch": 62,
+      "running_in_a_named_batch": 61,
       "deferred_with_waiver": 3,
       "unbatched_backlog": 69
     },
