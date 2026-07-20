@@ -3680,12 +3680,16 @@ TEST_CASE("[GaussianSplatting][RendererPipeline][SceneTree][RequiresGPU] Stage r
     render_data.render_buffers = Ref<RenderSceneBuffersRD>();
 
     // Bootstrap the resident route into a state where the raster stage ACTUALLY RUNS before
-    // injecting the failure. Two things stand in the way on a cold renderer:
-    //   1. GPUCuller publishes the instance visible-chunk count from an async readback that
-    //      lands one frame late, so frame 1 sees zero visible splats and raster is skipped
-    //      ("Raster skipped: no visible splats").
+    // injecting the failure. Two things can stand in the way on a cold renderer:
+    //   1. When GPUCuller publishes its instance visible-chunk count one frame late, frame 1
+    //      sees zero visible splats and raster is skipped ("Raster skipped: no visible
+    //      splats"). Since #702/#716 the count is published on the frame the readback lands,
+    //      so this no longer costs a frame -- but do NOT collapse the loop to a single frame
+    //      on that basis: the loop converging in one iteration is a consequence of the cull
+    //      publication schedule, not a contract this case is entitled to assume.
     //   2. Once a frame has been drawn, an identical follow-up frame is served from the
     //      cached render ("Raster skipped: reused cached render"), which also bypasses raster.
+    //      This one is timing-independent and always applies.
     // So: pump frames, invalidating the cached render each time, until the stage metrics
     // report raster actually succeeding. Only then is the injected failure below meaningful.
     // Note get_visible_splat_count() is NOT a usable precondition here -- it stays 0 on this
@@ -3876,17 +3880,37 @@ TEST_CASE("[GaussianSplatting][RendererPipeline][SceneTree][RequiresGPU] Serial 
     render_data.render_buffers = Ref<RenderSceneBuffersRD>();
 
     // Bootstrap the resident instance pipeline contract (real atlas/cull/sort/
-    // raster buffers) and publish the authoritative resident route decision by
-    // running one normal frame. render_scene_instance pushes a single instance
-    // transform through render_instanced; the serial multi-instance aggregation
-    // exercised below is what remains uncovered.
-    renderer->render_scene_instance(&render_data);
+    // raster buffers) and publish the authoritative resident route decision.
+    // render_scene_instance pushes a single instance transform through
+    // render_instanced; the serial multi-instance aggregation exercised below is
+    // what remains uncovered.
+    //
+    // Pump until the raster stage actually SUCCEEDS rather than assuming one frame
+    // suffices, mirroring the raster-failure sibling above. How many frames this
+    // takes is a property of when GPUCuller publishes its instance visible-chunk
+    // count: with the count published on the frame the readback lands (#702/#716)
+    // the very first frame rasters; with a one-frame-late publication the first
+    // frame is blind and raster is skipped ("no visible splats"). Converging on the
+    // observed stage status instead of a fixed frame count keeps this case correct
+    // under both, and fail-closed if neither holds.
+    bool bootstrap_rastered = false;
+    for (int i = 0; i < 8 && !bootstrap_rastered; i++) {
+        renderer->invalidate_cached_render();
+        renderer->render_scene_instance(&render_data);
+        const Dictionary bootstrap_stats = renderer->get_render_stats();
+        bootstrap_rastered = String(bootstrap_stats.get("stage_raster_status", String())) == String("success");
+    }
     // Fail closed rather than skip. This is a REQUIRED batch: a mid-test `MESSAGE(...);
     // return;` leaves the case reported as PASSED having verified nothing, which is the
     // exact hollow-coverage failure mode #694 is repairing. On a device that got this far
     // (renderer constructed, data uploaded) an absent resident contract is a real defect.
     if (!renderer->has_instance_pipeline_buffers()) {
         FAIL("Resident instance pipeline contract unavailable after a bootstrap frame");
+        return;
+    }
+    if (!bootstrap_rastered) {
+        FAIL("Raster stage never ran during bootstrap; the serial failure cascade would be "
+             "measured against a pipeline that was never live");
         return;
     }
     // NOTE: deliberately NOT gated on get_visible_splat_count() here. That counter stays 0
@@ -3898,6 +3922,20 @@ TEST_CASE("[GaussianSplatting][RendererPipeline][SceneTree][RequiresGPU] Serial 
     // Inject the per-instance raster failure using the same hook the resident
     // raster-failure sibling uses (test_disable_rasterizer).
     renderer->test_disable_rasterizer();
+
+    // Drop the bootstrap frame's cached render before driving the serial loop.
+    // REQUIRED for the aggregation below to mean anything: instance 0's transform is
+    // identity, so its world-to-camera matrix is byte-identical to the bootstrap
+    // frame's, and OutputCompositor::can_reuse_cached_render keys on exactly that.
+    // A live bootstrap render therefore makes instance 0 hit the cache and report
+    // "Raster skipped: reused cached render" -- a skip that sets neither
+    // first_failure_stage nor skip_cause_stage -- so instance 0 would drop out of the
+    // aggregation entirely and the injected failure would first be attributed to
+    // instance 1. That index says nothing about the aggregation contract; it only
+    // records which frame the cull happened to publish a count on. Instances 1 and 2
+    // are translated and miss the cache regardless, which is precisely why the shift
+    // was silent. Invalidating here forces every instance to reach raster.
+    renderer->invalidate_cached_render();
 
     // Drive the SERIAL path directly with multiple instances. Mirror the
     // camera/view derivation render_scene_instance performs (view = camera
@@ -3930,17 +3968,31 @@ TEST_CASE("[GaussianSplatting][RendererPipeline][SceneTree][RequiresGPU] Serial 
             vformat("Expected composite skip reason to cite raster failure, got '%s'", composite_reason));
 
     // The orchestrator aggregates the FIRST instance whose stage metrics carry a
-    // failure / downstream-skip across the serial loop. With the rasterizer
-    // disabled every instance fails at raster, so the first failed/skipped
-    // instance is index 0; the <0 guards in render_instanced keep only the
-    // first. These two keys are unique to the serial path (resident/streaming
-    // single-instance frames leave them at -1).
+    // failure / downstream-skip across the serial loop; the <0 guards in
+    // render_instanced keep only the first. These two keys are unique to the serial
+    // path (resident/streaming single-instance frames leave them at -1).
+    //
+    // test_disable_rasterizer() is a GLOBAL injection -- it disables the rasterizer
+    // for every instance in the loop, not a chosen one -- and the cache invalidation
+    // above guarantees every instance actually reaches the raster stage. The contract
+    // is therefore "the aggregation reports the FIRST instance the serial loop
+    // visits", which is index 0 of the submitted transform list by construction.
+    // Anchoring to the submitted list rather than writing a bare 0 keeps this tied to
+    // the injection: if the aggregation ever reported the LAST failing instance, or
+    // an instance that merely reused a cached render, this fails.
+    const int64_t injected_first_failing_instance = 0; // == first entry of instance_transforms
+    CHECK_MESSAGE(int64_t(instance_transforms.size()) > injected_first_failing_instance,
+            "Serial loop must submit the instance the aggregation contract is anchored to");
     const int64_t first_failure_instance = int64_t(stats.get("stage_first_failure_instance_index", int64_t(-99)));
-    CHECK_MESSAGE(first_failure_instance == 0,
-            vformat("Expected first failed instance index 0, got %d", int(first_failure_instance)));
+    CHECK_MESSAGE(first_failure_instance == injected_first_failing_instance,
+            vformat("Expected first failed instance index %d (the first instance submitted, with the "
+                    "rasterizer globally disabled), got %d",
+                    int(injected_first_failing_instance), int(first_failure_instance)));
     const int64_t first_skipped_instance = int64_t(stats.get("stage_first_skipped_instance_index", int64_t(-99)));
-    CHECK_MESSAGE(first_skipped_instance == 0,
-            vformat("Expected first skipped instance index 0, got %d", int(first_skipped_instance)));
+    CHECK_MESSAGE(first_skipped_instance == injected_first_failing_instance,
+            vformat("Expected first skipped instance index %d (composite cascades from the same "
+                    "instance's raster failure), got %d",
+                    int(injected_first_failing_instance), int(first_skipped_instance)));
     const String stage_first_failure = stats.get("stage_first_failure", String());
     CHECK_MESSAGE(stage_first_failure == String("raster"),
             vformat("Expected aggregated first-failure stage 'raster', got '%s'", stage_first_failure));
