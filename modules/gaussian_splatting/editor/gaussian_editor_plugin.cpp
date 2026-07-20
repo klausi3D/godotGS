@@ -192,6 +192,13 @@ GaussianSplatNode3D *GaussianEditorPlugin::_get_current_node() const {
     return Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(current_node_id));
 }
 
+GaussianSplatNode3D *GaussianEditorPlugin::_resolve_splat_node(ObjectID p_node_id) {
+    if (p_node_id.is_null()) {
+        return nullptr;
+    }
+    return Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(p_node_id));
+}
+
 void GaussianEditorPlugin::_bind_methods() {
     // Bind methods if needed for signals
 }
@@ -362,7 +369,19 @@ Error GaussianEditorPlugin::_import_from_path(const String &p_path, const Dictio
     // Resolve the selection once, fresh, at the top of this call — this
     // method runs from both direct UI callbacks and the hot-reload timer
     // path, so current_node must not be a stale raw pointer (#515).
+    //
+    // #698: resolving fresh here is necessary but NOT sufficient. The reimport
+    // below emits `resources_reimporting` / `resources_reimported` synchronously
+    // (editor/file_system/editor_file_system.cpp), and a handler can close the
+    // scene and free this node. So the raw pointer is only valid until that
+    // call: everything after it goes through `node_id` and
+    // `_resolve_splat_node()`, which returns null for a freed instance. A null
+    // TEST on the raw pointer would not do — freed memory can still test
+    // non-null, so `if (current_node)` after the reimport reads as a safety
+    // check while providing none. tests/ci/check_editor_node_pointer_lifetime.py
+    // enforces that no raw node pointer is used past that call.
     GaussianSplatNode3D *current_node = _get_current_node();
+    const ObjectID node_id = current_node ? current_node->get_instance_id() : ObjectID();
 
     // Select importer based on file extension.
     String extension = p_path.get_extension().to_lower();
@@ -409,18 +428,23 @@ Error GaussianEditorPlugin::_import_from_path(const String &p_path, const Dictio
         active_asset->set_source_path(p_path);
     }
 
-    ObjectID node_id = current_node ? current_node->get_instance_id() : ObjectID();
     _track_hot_reload_source(p_path, effective_options, node_id);
     if (active_asset.is_valid() && !active_asset->get_path().is_empty()) {
         _track_hot_reload_source(active_asset->get_path(), Dictionary(), node_id);
     }
 
-    if (current_node) {
-        current_node->set_splat_asset(asset);
+    // #698: re-resolve before EACH dereference, not once for the group.
+    // `set_splat_asset()` runs node setters that can notify the editor, so even
+    // the gap between these two statements is a window the first re-resolve
+    // cannot vouch for.
+    if (GaussianSplatNode3D *reimported_node = _resolve_splat_node(node_id)) {
+        reimported_node->set_splat_asset(asset);
     }
 
-    if (!current_renderer.is_valid() && current_node) {
-        current_renderer = current_node->get_renderer();
+    if (!current_renderer.is_valid()) {
+        if (GaussianSplatNode3D *reimported_node = _resolve_splat_node(node_id)) {
+            current_renderer = reimported_node->get_renderer();
+        }
     }
 
     last_import_options = effective_options;
@@ -810,13 +834,30 @@ void GaussianEditorPlugin::_process_hot_reload_for_watch(const String &p_path, H
 		}
 	}
 
-	_apply_hot_reload_asset_to_nodes(p_path, watched_nodes, refreshed_asset);
-    if (watched_nodes.is_empty()) {
+    // #698 (container half): `watched_nodes` was captured BEFORE the reimport
+    // above. `_import_from_path()` reaches
+    // `EditorFileSystem::reimport_file_with_custom_parameters()`, which emits
+    // `resources_reimporting` / `resources_reimported` synchronously, and a
+    // handler can close the scene and free any of those nodes. Holding the raw
+    // pointers in a Vector does not make them outlive the free — it only hides
+    // the same use-after-free behind a container, and `watched_nodes.is_empty()`
+    // reads as a liveness check while answering a question about the state
+    // BEFORE the reimport.
+    //
+    // So the live set is re-collected here, from the ObjectIDs, after the
+    // barrier. `_collect_live_hot_reload_nodes()` re-resolves every id through
+    // ObjectDB and drops the ones that no longer resolve, which is the only
+    // construct that actually observes the free. Semantics are preserved: the
+    // hot reload still applies to exactly the watched nodes that survived.
+    Vector<GaussianSplatNode3D *> live_nodes = _collect_live_hot_reload_nodes(p_watch.node_ids);
+
+    _apply_hot_reload_asset_to_nodes(p_path, live_nodes, refreshed_asset);
+    if (live_nodes.is_empty()) {
         if (GaussianSplatNode3D *current_node = _get_current_node()) {
             current_node->force_update();
         }
     }
-    if (!watched_nodes.is_empty() && (current_source_path == p_path ||
+    if (!live_nodes.is_empty() && (current_source_path == p_path ||
             (active_asset.is_valid() && active_asset->get_path() == p_path))) {
         _refresh_active_asset_metadata(true);
     }
