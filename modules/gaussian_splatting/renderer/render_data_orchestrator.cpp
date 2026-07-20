@@ -460,6 +460,12 @@ void RenderDataOrchestrator::set_static_chunks(const Vector<StaticChunk> &p_chun
 	GaussianSplatRenderer::IFrameMutationAccess &state_mut = state_provider;
 	GaussianSplatRenderer::SubsystemState &subsystem_state = state_mut.get_subsystem_state_mut();
 	invalidate_static_chunk_caches(true);
+	// The invalidate above is guarded internally, but the deref below is a
+	// separate use of the same pointer -- guarding only the call site where a
+	// crash was observed would leave this line one step past the guard (#694).
+	if (subsystem_state.gpu_culler.is_null()) {
+		return;
+	}
 	auto &cull_state = subsystem_state.gpu_culler->get_state();
 	cull_state.static_chunks = p_chunks;
 	cull_state.static_chunks_revision++;
@@ -474,6 +480,11 @@ void RenderDataOrchestrator::clear_static_chunks() {
 	GaussianSplatRenderer::IFrameMutationAccess &state_mut = state_provider;
 	GaussianSplatRenderer::SubsystemState &subsystem_state = state_mut.get_subsystem_state_mut();
 	invalidate_static_chunk_caches(true);
+	// Same reasoning as set_static_chunks above: the guard belongs at the deref,
+	// not only at the call site where the crash happened to surface (#694).
+	if (subsystem_state.gpu_culler.is_null()) {
+		return;
+	}
 	auto &cull_state = subsystem_state.gpu_culler->get_state();
 	cull_state.static_chunks.clear();
 	cull_state.static_chunks_revision++;
