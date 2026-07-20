@@ -120,9 +120,9 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 132,
-    "sha256": "47853b85af576f1c6a2f56bc9b894fa21a35048f8a3d41b10108ba967400f285",
-    "sha256_last_changed_by": "#690: retagging '[GaussianSplatting][RequiresGPU] World-backed RenderSceneInstance drives GPU streaming + sorting' to '[GaussianSplatting][SceneTree][RequiresGPU] ...' changed the case NAME, which is part of the digest payload (path\\0name), while leaving test_count at 132. Set membership changed; cardinality did not. This is exactly the drift a count-only check cannot see, and why the digest exists. Verified as a pure rename: recomputing the corpus at base 190ceffa2c8 reproduces the PREVIOUS sha256 (9c742697...) exactly, and the base-vs-head name-set diff is one removal and one addition naming the same case - not two offsetting changes.",
+    "test_count": 133,
+    "sha256": "f1827d644972589bdccc295c53c041cff911619563eae3c3731010a7ec176d4b",
+    "sha256_last_changed_by": "#702: added one new RequiresGPU case, '[GaussianSplatting][World][SceneTree][RequiresGPU] Local-device instance cull publishes the current frame's visible count and unblocks the sort stage' (modules/gaussian_splatting/tests/test_scene_director_submission_scaffolding.h). This is a pure ADDITION: test_count 132 -> 133 and the digest moves because one (path\u0000name) pair joined the payload. No existing case was renamed, retagged or removed -- verified by diffing the corpus name set against base b15c6ddda46, which reports exactly one addition and zero removals. The case runs in the WorldSceneTree batch and is NOT deferred, so deferred_count stays 2.",
     "deferred_tags_any": [
       "Importer"
     ],
@@ -392,8 +392,8 @@
     "note": "[RequiresGPU] test cases that match NO named batch in tests/ci/run_gpu_harness.py and therefore execute nowhere. These are NOT waivers: unlike deferred_requires_gpu_waivers (each proven failing, with an owner and an expiry) these cases have simply never been run, so nothing is known about them. Discovered while landing #329, which addressed only the 28 [SceneTree] cases; measuring the whole corpus with correct doctest semantics showed the gap is larger. Recorded explicitly so it is counted and cannot grow silently: tests/ci/test_gpu_harness_deferred_contract.py fails on any orphan NOT listed here, so this list is a ratchet that may only shrink.",
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
-      "requires_gpu_total": 132,
-      "running_in_a_named_batch": 61,
+      "requires_gpu_total": 133,
+      "running_in_a_named_batch": 62,
       "deferred_with_waiver": 2,
       "unbatched_backlog": 69
     },
