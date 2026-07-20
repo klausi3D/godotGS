@@ -1264,7 +1264,56 @@ def _candidate_gpu_batch_hollow_case_failures(
             f"candidate GPU batch {name} ran case(s) that evaluated ZERO assertions: "
             f"{hollow}. doctest counted them PASSED; they verified nothing (#695)"
         )
+    failures.extend(_candidate_gpu_batch_audit_count_failures(name, batch, len(hollow)))
     return failures
+
+
+def _candidate_gpu_batch_audit_count_failures(
+    name: Any,
+    batch: dict[str, Any],
+    named_count: int,
+) -> list[str]:
+    """Reconcile the audit marker's own hollow-case COUNT against the named cases.
+
+    ``case_assert_audit_ok`` above proves only that the listener spoke. The line
+    it prints is ``[GS-GPU][CASE-ASSERT-AUDIT] started=N zero_assert=M``, and M
+    is recorded here as ``zero_assert_reported``. The listener increments M in
+    the same branch that prints each ``NO-ASSERTS`` line, so on intact evidence
+    ``M == len(zero_assertion_cases)`` by construction.
+
+    They can diverge, and the divergence is exactly the failure mode the gate
+    must not swallow: run_gpu_harness.py streams each batch's stdout through a
+    bounded 64 KiB TAIL ring buffer, so a batch that prints enough after its
+    hollow cases loses their per-case lines while keeping the audit line emitted
+    at run end. The result is ``case_assert_audit_ok: true`` with an EMPTY
+    ``zero_assertion_cases`` and a report that silently drops M hollow cases --
+    a green gate over a batch its own listener said verified nothing.
+
+    Requiring the field (not merely checking it when present) closes the
+    delete-the-field laundering path, the same reasoning that makes
+    ``supervisor_exit`` and ``case_assert_audit_ok`` mandatory. A mismatch in
+    either direction is refused: more named lines than counted means the marker
+    or the lines are malformed, which is equally disqualifying as evidence.
+    (Codex PR #696.)
+    """
+    reported = batch.get("zero_assert_reported")
+    if reported is None:
+        return [
+            f"candidate GPU batch {name} is missing zero_assert_reported: without the "
+            "audit marker's own hollow-case count there is nothing to reconcile "
+            "zero_assertion_cases against, so trimmed or malformed per-case lines "
+            "read as 'nothing hollow' (Codex PR #696)"
+        ]
+    if not _is_json_number(reported):
+        return [f"candidate GPU batch {name} zero_assert_reported must be numeric"]
+    if reported != named_count:
+        return [
+            f"candidate GPU batch {name} audit marker reports zero_assert={reported} "
+            f"but names {named_count} zero-assertion case(s): the per-case lines were "
+            "trimmed off the harness's bounded stdout buffer or are malformed, so this "
+            "report cannot show which cases verified nothing (Codex PR #696)"
+        ]
+    return []
 
 
 def _candidate_gpu_batch_lifetime_failures(
@@ -1357,6 +1406,13 @@ _GPU_REPORT_SIGNAL_FIELDS: tuple[tuple[str, str], ...] = (
         "case_audit_missing_batches",
         "required batch(es) finished without emitting the per-case assertion "
         "audit -- the harness binary predates it or the listener is gone (#695)",
+    ),
+    (
+        "case_audit_mismatch_batches",
+        "required batch(es) whose audit marker counted MORE (or fewer) hollow "
+        "cases than the per-case NO-ASSERTS lines captured -- the names were "
+        "trimmed off the harness's bounded stdout buffer or are malformed, so "
+        "the report cannot show which cases verified nothing (Codex PR #696)",
     ),
     ("empty_required_batches", "required batch(es) matched zero test cases"),
     ("summary_parse_failures", "batch(es) whose doctest summary could not be parsed"),

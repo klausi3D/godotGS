@@ -275,12 +275,28 @@ reads `CurrentTestCaseStats::numAssertsCurrentTest` in `test_case_end` and print
 `[GS-GPU][NO-ASSERTS] test=<name>` per offending case, plus one
 `[GS-GPU][CASE-ASSERT-AUDIT]` marker per batch. `run_gpu_harness.py` records both
 per batch and escalates them for required batches as `hollow_required_cases` /
-`case_audit_missing_batches`.
+`case_audit_missing_batches` / `case_audit_mismatch_batches`.
 
 The audit marker is required to be **present**: the hollow-case signal is carried
 by the absence of `NO-ASSERTS` lines, and absence is equally what a binary built
 without the listener produces. A required batch that finished and printed a
 doctest summary but carries no marker fails closed.
+
+Presence alone is not enough — the marker's **content** is reconciled too. The
+line reads `[GS-GPU][CASE-ASSERT-AUDIT] started=N zero_assert=M`, and the
+listener increments `M` in the same branch that prints each `NO-ASSERTS` line,
+so `M == len(zero_assertion_cases)` holds on intact evidence. `run_gpu_harness.py`
+streams each batch's stdout through a bounded 64 KiB **tail** ring buffer, so a
+batch that prints enough after its hollow cases loses their per-case lines while
+keeping the audit line emitted at run end — leaving the marker present, the case
+list empty, and the gate green over a batch its own listener counted as hollow.
+Any disagreement between `M` and the number of named cases is therefore a
+trimmed-or-malformed condition and fails closed, named as
+`case_audit_mismatch_batches` (harness) and as a per-batch
+`zero_assert_reported` mismatch (release gate). The reconciliation is the guard,
+not the buffer size: growing the buffer moves the threshold without closing the
+hole, and the supervisor must stay bounded so a test printing in a tight loop
+cannot OOM it.
 
 This is strictly finer than the report-level `zero_assertion_required_batches`
 (#692), which fires only when a whole batch asserted nothing. A four-case batch

@@ -261,6 +261,7 @@ def _valid_candidate_evidence(root: Path) -> dict[str, Any]:
                 "zero_assertion_required_batches": [],
                 "hollow_required_cases": [],
                 "case_audit_missing_batches": [],
+                "case_audit_mismatch_batches": [],
                 "empty_required_batches": [],
                 "summary_parse_failures": [],
                 "required_lifetime_failures": [],
@@ -282,6 +283,10 @@ def _valid_candidate_evidence(root: Path) -> dict[str, Any]:
                         "zero_assertion_cases": [],
                         "case_assert_audit_ok": True,
                         "cases_started": 1,
+                        # Codex PR #696: the audit marker's own hollow-case
+                        # count, reconciled against zero_assertion_cases. An
+                        # intact report has them agreeing.
+                        "zero_assert_reported": 0,
                     }
                 ],
             }
@@ -704,6 +709,7 @@ class RendererReleaseGateTests(unittest.TestCase):
             "zero_assertion_required_batches": [],
             "hollow_required_cases": [],
             "case_audit_missing_batches": [],
+            "case_audit_mismatch_batches": [],
             "empty_required_batches": [],
             "summary_parse_failures": [],
             "required_lifetime_failures": [],
@@ -720,6 +726,7 @@ class RendererReleaseGateTests(unittest.TestCase):
                     "zero_assertion_cases": [],
                     "case_assert_audit_ok": True,
                     "cases_started": 1,
+                    "zero_assert_reported": 0,
                 }
             ],
         }
@@ -829,6 +836,11 @@ class RendererReleaseGateTests(unittest.TestCase):
             ("empty_required_batches", ["CompositorHazard"], "CompositorHazard"),
             ("hollow_required_cases", ["RendererPipeline/Stage results report cull"], "RendererPipeline"),
             ("case_audit_missing_batches", ["Lifetime"], "Lifetime"),
+            (
+                "case_audit_mismatch_batches",
+                ["RendererPipeline: zero_assert=2 named=0"],
+                "RendererPipeline",
+            ),
             ("summary_parse_failures", ["Lifetime"], "Lifetime"),
             ("required_lifetime_failures", ["Lifetime/renderer_instance: skipped"], "Lifetime"),
             ("timed_out_batches", ["NodeSceneTree"], "NodeSceneTree"),
@@ -910,7 +922,11 @@ class RendererReleaseGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             failures = self._gpu_batch_with(
-                root, zero_assertion_cases=["Stage results report cull/sort skipped"]
+                root,
+                zero_assertion_cases=["Stage results report cull/sort skipped"],
+                # Agrees with the named case, so this test isolates the
+                # hollow-case rule from the #696 count reconciliation.
+                zero_assert_reported=1,
             )
             self.assertTrue(failures, "A hollow case must be rejected.")
             self.assertTrue(
@@ -938,6 +954,7 @@ class RendererReleaseGateTests(unittest.TestCase):
                 test_cases={"total": 4, "failed": 0, "skipped": 2004},
                 cases_started=4,
                 zero_assertion_cases=["case b", "case c", "case d"],
+                zero_assert_reported=3,
             )
             self.assertTrue(
                 any("case b" in item for item in failures),
@@ -980,9 +997,93 @@ class RendererReleaseGateTests(unittest.TestCase):
     def test_candidate_gpu_batch_zero_assertion_cases_must_be_a_list(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            failures = self._gpu_batch_with(root, zero_assertion_cases="case b")
+            failures = self._gpu_batch_with(
+                root, zero_assertion_cases="case b", zero_assert_reported=1
+            )
             self.assertTrue(
                 any("zero_assertion_cases must be a list" in item for item in failures),
+                f"Got: {failures}",
+            )
+
+    def test_candidate_gpu_batch_rejects_audit_count_that_outruns_named_cases(self) -> None:
+        """Codex PR #696: the marker's COUNT must reconcile, not just its presence.
+
+        `case_assert_audit_ok` proves the listener spoke. It does not prove the
+        per-case names reached the report. run_gpu_harness.py streams stdout
+        through a bounded TAIL ring buffer, so a chatty batch loses its
+        `[GS-GPU][NO-ASSERTS]` lines (printed as each case ends) while keeping
+        the audit marker (printed at run end). The result is a batch row that is
+        byte-for-byte the shape of a healthy one -- audit true, case list empty --
+        for a batch whose own listener counted two hollow cases.
+
+        Every pre-#696 check passes on this row, which is the point: the marker
+        was designed as a fail-closed "I looked" sentinel, and reading only its
+        presence turned it back into a rubber stamp.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            failures = self._gpu_batch_with(
+                root,
+                case_assert_audit_ok=True,
+                zero_assertion_cases=[],
+                zero_assert_reported=2,
+            )
+            self.assertTrue(
+                any("zero_assert=2" in item for item in failures),
+                f"A marker counting hollow cases with no names must be refused. "
+                f"Got: {failures}",
+            )
+            self.assertTrue(
+                any("trimmed" in item for item in failures),
+                f"Failure must name the trimmed-or-malformed condition. Got: {failures}",
+            )
+            # Disjointness: no pre-existing rule fires on this row. Without the
+            # reconciliation the list would be empty and the gate green.
+            self.assertFalse(
+                any("ZERO assertions" in item for item in failures),
+                f"The hollow-case rule cannot see this row -- that is the defect. "
+                f"Got: {failures}",
+            )
+            self.assertFalse(
+                any("per-case assertion audit" in item for item in failures),
+                f"The missing-marker rule cannot see this row either. Got: {failures}",
+            )
+
+    def test_candidate_gpu_batch_rejects_audit_count_below_named_cases(self) -> None:
+        """The other direction is malformed evidence and is equally refused."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            failures = self._gpu_batch_with(
+                root,
+                zero_assertion_cases=["case b", "case c"],
+                zero_assert_reported=1,
+            )
+            self.assertTrue(
+                any("zero_assert=1" in item and "names 2" in item for item in failures),
+                f"Got: {failures}",
+            )
+
+    def test_candidate_gpu_batch_rejects_deleted_zero_assert_reported_field(self) -> None:
+        """Deleting the count must not delete the reconciliation (Codex PR #696)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _base_manifest(root)
+            evidence = _valid_candidate_evidence(root)
+            report = self._gpu_report_with(root)
+            del report["batches"][0]["zero_assert_reported"]
+            _write(root / "gpu_report.json", json.dumps(report))
+            failures = checker._validate_candidate_gpu_report(root, manifest, evidence)
+            self.assertTrue(
+                any("missing zero_assert_reported" in item for item in failures),
+                f"A report that omits the count must be refused. Got: {failures}",
+            )
+
+    def test_candidate_gpu_batch_zero_assert_reported_must_be_numeric(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            failures = self._gpu_batch_with(root, zero_assert_reported="two")
+            self.assertTrue(
+                any("zero_assert_reported must be numeric" in item for item in failures),
                 f"Got: {failures}",
             )
 
@@ -1000,6 +1101,7 @@ class RendererReleaseGateTests(unittest.TestCase):
             report = self._gpu_report_with(root)
             report["batches"][0]["zero_assertion_cases"] = ["case b"]
             report["batches"][0]["case_assert_audit_ok"] = False
+            report["batches"][0]["zero_assert_reported"] = 1
             _write(root / "gpu_report.json", json.dumps(report))
             failures = checker._validate_candidate_gpu_report(root, manifest, evidence)
             self.assertEqual([], failures, f"allow_skips=true must tolerate this. Got: {failures}")
@@ -3128,10 +3230,81 @@ class GpuHarnessCaseAssertAuditTests(unittest.TestCase):
         result.zero_assertion_cases = ["case b"]
         result.case_assert_audit_ok = True
         result.cases_started = 4
+        result.zero_assert_reported = 1
         row = result.to_dict()
         self.assertEqual(row["zero_assertion_cases"], ["case b"])
         self.assertIs(row["case_assert_audit_ok"], True)
         self.assertEqual(row["cases_started"], 4)
+        self.assertEqual(row["zero_assert_reported"], 1)
+
+    def test_trimmed_stdout_loses_the_named_cases_but_keeps_the_marker(self) -> None:
+        """Codex PR #696: the marker survives a trim that eats its per-case lines.
+
+        `_run_batch` streams stdout through a bounded TAIL ring buffer, so the
+        OLDEST bytes are dropped first. The `[GS-GPU][NO-ASSERTS]` lines are
+        printed as each case ends; the `[GS-GPU][CASE-ASSERT-AUDIT]` marker is
+        printed once at run end. A chatty batch therefore loses the names and
+        keeps the marker -- leaving `zero_assertion_cases` empty with
+        `case_assert_audit_ok` true, which is byte-for-byte the shape of a
+        healthy batch. That is the path this test pins.
+
+        The post-trim string is not hand-written: the fixture is the stdout a
+        real chatty hollow batch emits, put through the harness's own
+        `BUFFER_BYTES_MAX` rule. If the buffer or the emission order ever changes
+        so the lines survive, the preconditions below fail loudly rather than
+        letting this test quietly stop reproducing anything.
+        """
+        chatty = "\n".join(f"[gs] frame {i} submitted" for i in range(6000))
+        full = "\n".join(
+            [
+                "[GS-GPU][NO-ASSERTS] test=Stage results report cull/sort skipped",
+                "[GS-GPU][NO-ASSERTS] test=Serial instancing failure injection",
+                chatty,
+                "[GS-GPU][CASE-ASSERT-AUDIT] started=4 zero_assert=2",
+                "[doctest] test cases:  4 |  4 passed |  0 failed |  2004 skipped",
+                "[doctest] assertions: 8 |  8 passed |  0 failed |",
+                "[doctest] Status: SUCCESS!",
+            ]
+        )
+        encoded = full.encode("utf-8")
+        self.assertGreater(
+            len(encoded),
+            self.harness.BUFFER_BYTES_MAX,
+            "fixture must overflow the ring buffer or it reproduces nothing",
+        )
+        trimmed = encoded[-self.harness.BUFFER_BYTES_MAX :].decode(
+            "utf-8", errors="replace"
+        )
+        self.assertNotIn("[GS-GPU][NO-ASSERTS]", trimmed)
+        self.assertIn("[GS-GPU][CASE-ASSERT-AUDIT]", trimmed)
+
+        result = self._parse(trimmed)
+        # Everything the pre-fix parser looked at says "healthy batch".
+        self.assertEqual(result.zero_assertion_cases, [])
+        self.assertTrue(result.case_assert_audit_ok)
+        self.assertTrue(result.summary_parse_ok)
+        self.assertEqual(result.test_cases_failed, 0)
+        # The retained count is what makes the loss detectable.
+        self.assertEqual(result.zero_assert_reported, 2)
+        self.assertNotEqual(
+            result.zero_assert_reported, len(result.zero_assertion_cases)
+        )
+
+    def test_marker_count_is_retained_alongside_the_named_cases(self) -> None:
+        """Intact evidence: `zero_assert=M` agrees with the lines, so no mismatch."""
+        stdout = "\n".join(
+            [
+                "[GS-GPU][NO-ASSERTS] test=Stage results report cull/sort skipped",
+                "[GS-GPU][NO-ASSERTS] test=Serial instancing failure injection",
+                "[GS-GPU][CASE-ASSERT-AUDIT] started=4 zero_assert=2",
+                "[doctest] test cases:  4 |  4 passed |  0 failed |  2004 skipped",
+                "[doctest] assertions: 8 |  8 passed |  0 failed |",
+                "[doctest] Status: SUCCESS!",
+            ]
+        )
+        result = self._parse(stdout)
+        self.assertEqual(result.zero_assert_reported, 2)
+        self.assertEqual(result.zero_assert_reported, len(result.zero_assertion_cases))
 
 
 if __name__ == "__main__":

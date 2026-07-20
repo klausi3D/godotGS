@@ -32,6 +32,19 @@ DEFAULT_REPORT_PATH = ROOT / "tests" / "ci" / "gpu_harness_report.json"
 DEFAULT_TIMEOUT_SECONDS = 60
 REPORT_SCHEMA_VERSION = 1
 
+# Per-stream cap on the stdout/stderr ring buffers in `_run_batch`. Module-level
+# rather than a local so the audit-reconciliation tests can reproduce the real
+# trim instead of hardcoding a number that could drift from this one.
+#
+# This is a TAIL buffer: when it overflows, the OLDEST bytes are dropped. That
+# is why the per-case `[GS-GPU][NO-ASSERTS]` lines (printed as each case ends)
+# can be lost while the `[GS-GPU][CASE-ASSERT-AUDIT]` marker (printed once, at
+# run end) survives. Do NOT raise this to "fix" a lost-lines report: growing the
+# buffer only moves the threshold, and the supervisor must stay bounded or a
+# test printing in a tight loop can OOM it. The count reconciliation in `main()`
+# is what makes that loss fail closed (Codex PR #696).
+BUFFER_BYTES_MAX = 64 * 1024
+
 # Each batch maps a name to one or more doctest --test-case patterns.
 # The CompositorHazard batch is the only one that has an actually-running
 # test today (test_output_compositor_composite_hazard.h). The rest are
@@ -468,6 +481,17 @@ class BatchResult:
     # looked". `cases_started` is the listener's own count of started cases.
     case_assert_audit_ok: bool = False
     cases_started: int = 0
+    # The listener's OWN count of hollow cases (`zero_assert=M` on the audit
+    # line), kept separate from `len(zero_assertion_cases)` so the two can be
+    # reconciled. The per-case NO-ASSERTS lines and this counter are emitted by
+    # the same branch in the listener (gs_gpu_test_runner.cpp test_case_end), so
+    # a disagreement means the named lines were lost or malformed on the way
+    # here -- most plausibly trimmed off the front of the 64 KiB stdout ring
+    # buffer in `_run_batch`, which keeps only the TAIL and would therefore
+    # discard early NO-ASSERTS lines while preserving the audit line printed
+    # last. Without this field the gate reads that as "the audit ran and found
+    # nothing hollow" (Codex PR #696).
+    zero_assert_reported: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -497,6 +521,7 @@ class BatchResult:
             "zero_assertion_cases": list(self.zero_assertion_cases),
             "case_assert_audit_ok": self.case_assert_audit_ok,
             "cases_started": self.cases_started,
+            "zero_assert_reported": self.zero_assert_reported,
         }
 
 
@@ -543,10 +568,19 @@ def _parse_summary(stdout: str, result: BatchResult) -> None:
     # main() escalates them for REQUIRED batches only.
     for nm in NO_ASSERTS_RE.finditer(stdout):
         result.zero_assertion_cases.append(nm.group(1).strip())
+    # The marker carries COUNTS, not just presence. Record `zero_assert=M`
+    # verbatim; main() reconciles it against the number of NO-ASSERTS lines we
+    # actually scraped. Treating the marker as proof the audit ran while
+    # ignoring its payload is the hole Codex found on PR #696: `_run_batch`
+    # keeps only the last 64 KiB of stdout, so a chatty batch can lose its early
+    # NO-ASSERTS lines and still deliver the audit line (printed at run end)
+    # intact -- leaving `zero_assertion_cases` empty and the gate green for a
+    # batch the listener explicitly reported as hollow.
     audit_match = CASE_ASSERT_AUDIT_RE.search(stdout)
     if audit_match:
         result.case_assert_audit_ok = True
         result.cases_started = int(audit_match.group(1))
+        result.zero_assert_reported = int(audit_match.group(2))
 
     # Scrape [GS-LIFETIME] scenario lines. A skip (mark_skipped) or a
     # scope-exited-without-finalize both emit passed=false while doctest still
@@ -623,7 +657,6 @@ def _run_batch(
     # dedicated reader thread per pipe is the portable approach.
     import threading
 
-    BUFFER_BYTES_MAX = 64 * 1024
     stdout_buf = bytearray()
     stderr_buf = bytearray()
     buf_lock = threading.Lock()
@@ -924,6 +957,7 @@ def main() -> int:
     # per-case audit marker at all. See the escalation comments below.
     hollow_required_cases: list[str] = []
     case_audit_missing_batches: list[str] = []
+    case_audit_mismatch_batches: list[str] = []
     if selected_required := REQUIRED_BATCHES.intersection({spec.name for spec in selected}):
         for r in results:
             if (
@@ -1005,6 +1039,48 @@ def main() -> int:
                     "anything. Rebuild the harness binary from a tree that contains the "
                     "listener in modules/gaussian_splatting/tests/gs_gpu_test_runner.cpp "
                     "(#695).",
+                    flush=True,
+                )
+            # The audit marker is PRESENT but its `zero_assert=M` count does not
+            # match the number of NO-ASSERTS lines we scraped. The listener
+            # increments that counter in the same branch that prints each line
+            # (gs_gpu_test_runner.cpp test_case_end), so on an intact stdout the
+            # two are equal by construction. A disagreement means the evidence
+            # is incomplete, and there is a concrete way to get there: stdout is
+            # streamed through a 64 KiB TAIL ring buffer, so a batch that prints
+            # enough after its hollow cases loses their NO-ASSERTS lines while
+            # keeping the audit line emitted at run end. The presence check
+            # above then reads "the audit ran" and `zero_assertion_cases` is
+            # empty, so `hollow_required_cases` stays empty and the gate goes
+            # green for a batch whose own listener counted M hollow cases.
+            #
+            # Fail closed and NAME the discrepancy rather than fall through. We
+            # deliberately do not "fix" this by growing the buffer: a larger
+            # buffer moves the threshold, it does not close the hole, and the
+            # supervisor must stay bounded (a test printing in a tight loop
+            # would OOM it). The reconciliation is the guard; the buffer size is
+            # a tuning knob. Mismatch in EITHER direction is a defect -- more
+            # lines than counted means the marker or the lines are malformed.
+            # (Codex PR #696.)
+            if (
+                r.name in selected_required
+                and r.case_assert_audit_ok
+                and r.zero_assert_reported != len(r.zero_assertion_cases)
+            ):
+                case_audit_mismatch_batches.append(
+                    f"{r.name}: zero_assert={r.zero_assert_reported} "
+                    f"named={len(r.zero_assertion_cases)}"
+                )
+                print(
+                    f"[run_gpu_harness] FATAL: required batch '{r.name}' audit marker "
+                    f"reports zero_assert={r.zero_assert_reported} but only "
+                    f"{len(r.zero_assertion_cases)} [GS-GPU][NO-ASSERTS] line(s) were "
+                    f"captured ({r.zero_assertion_cases}). The per-case names were "
+                    f"trimmed off the {BUFFER_BYTES_MAX // 1024} KiB stdout ring "
+                    "buffer or are malformed, so "
+                    "this report CANNOT show which cases verified nothing. Reduce the "
+                    "batch's stdout volume or fix the listener output. Do NOT silence "
+                    "this by relaxing the audit (#695, Codex PR #696).",
                     flush=True,
                 )
             if r.name in selected_required and r.lifetime_failed_scenarios:
@@ -1121,6 +1197,7 @@ def main() -> int:
         or bool(timed_out_batches)
         or bool(hollow_required_cases)
         or bool(case_audit_missing_batches)
+        or bool(case_audit_mismatch_batches)
     )
     # Preserve the worst batch's exit code as the supervisor exit when a batch
     # itself failed (the module header promises "returns max(batch_rc)"). The
@@ -1152,6 +1229,7 @@ def main() -> int:
         "zero_assertion_required_batches": zero_assertion_required_batches,
         "hollow_required_cases": hollow_required_cases,
         "case_audit_missing_batches": case_audit_missing_batches,
+        "case_audit_mismatch_batches": case_audit_mismatch_batches,
         "summary_parse_failures": summary_parse_failures,
         "required_lifetime_failures": required_lifetime_failures,
         "timed_out_batches": timed_out_batches,
@@ -1232,6 +1310,8 @@ def main() -> int:
         extra_suffix_parts.append(f"hollow_required_cases={hollow_required_cases}")
     if case_audit_missing_batches:
         extra_suffix_parts.append(f"case_audit_missing={case_audit_missing_batches}")
+    if case_audit_mismatch_batches:
+        extra_suffix_parts.append(f"case_audit_mismatch={case_audit_mismatch_batches}")
     extra_suffix =(" " + " ".join(extra_suffix_parts)) if extra_suffix_parts else ""
     print(
         f"[run_gpu_harness] DONE max_rc={max_rc} cases={totals['test_cases_passed']}/{totals['test_cases_total']} "
