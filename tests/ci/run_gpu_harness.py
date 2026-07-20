@@ -111,22 +111,43 @@ BATCHES: tuple[BatchSpec, ...] = (
     # four it kept. So #351's route/stage cascade coverage has never executed here, and
     # this batch has never been evidence of anything.
     #
-    # The zero-assertion gate in main() now FAILS on this rather than passing silently.
-    # That is intended: the batch is red until the cases are repaired, and a red required
-    # batch is the honest state. Do NOT silence it by dropping the batch from
-    # REQUIRED_BATCHES or by relaxing the assertion check.
+    # The zero-assertion gate in main() FAILS on this rather than passing silently, and that
+    # gate stays. Do NOT silence it by dropping the batch from REQUIRED_BATCHES or by
+    # relaxing the assertion check.
     #
-    # Repair is NOT simply retagging to [SceneTree][RequiresGPU]. Measured with that retag
-    # applied (same commit, RTX 3090), giving all four a real RenderingServer:
-    #   - "Stage results report cull/sort skipped"   -> CRASHES, 0xC0000005 access violation
-    #   - "Stage results report raster failure"      -> RUNS, 3 of 7 assertions FAIL
-    #   - "Serial instancing failure injection"      -> RUNS, 5 of 10 assertions FAIL
-    #   - "Streaming-requested failure hard-fails"   -> RUNS and PASSES, 8/8 assertions
-    # The two assertion failures share the signature #691 left unresolved: the resident
-    # route reports "no visible splats", so the raster stage never runs and there is no
-    # raster failure to report. Retagging also pulls all four into RendererSceneTree's
-    # filter, whose comment documents a deliberately single-case blast radius. Repairing
-    # this is renderer (R3) work and needs its own task.
+    # REPAIRED in #694. Retagging alone was not enough -- it surfaced three real defects,
+    # all fixed in the module rather than worked around here:
+    #   1. GPUCuller pinned its visible-chunk latch at 0 on LOCAL devices forever. It
+    #      assigned the pre-readback sample AFTER gs_device_utils::safe_submit(), and on a
+    #      local device safe_submit() runs submit()+sync(), which dispatches the pending
+    #      buffer_get_data_async callback SYNCHRONOUSLY -- so the fresh count was overwritten
+    #      by the stale one every frame. The resident route could never report a visible
+    #      splat, which is why raster "never ran". (The main device was unaffected, which is
+    #      how it survived.) This was the "no visible splats" signature #691 left open.
+    #   2. test_disable_gpu_culler() released the owning Ref while four orchestrators kept
+    #      RAW pointers into the destroyed culler, so every `if (!gpu_culler)` guard saw a
+    #      non-null dangling pointer and dereferenced freed memory -- the 0xC0000005.
+    #   3. get_static_chunks() dereferenced the culler with no null check, crashing the
+    #      resident publish path once the culler was genuinely absent.
+    # The two raster cases additionally needed to bootstrap (the visible-chunk latch is
+    # published a frame late, and an identical repeat frame is served from the cached
+    # render) before injecting their failure, and one expected-substring typo was corrected
+    # ("raster failed" never matched "raster stage failed").
+    #
+    # The cull case was RENAMED and narrowed: "stage results report cull/sort skipped when
+    # the GPU culler is unavailable" is not constructible. FrameDeps::validate() hard-requires
+    # a non-null gpu_culler (DEV_ASSERT), so no frame context -- and therefore no stage
+    # result -- is ever produced for that condition, and the cull_for_view entry point that
+    # does reach the unavailable branch leaves stage_metrics_valid false. The case now pins
+    # the cull ROUTE contract, which is real and reachable; the stage-cascade half of #351's
+    # claimed coverage for this specific condition does not exist and is reported as absent
+    # rather than simulated. See the SCOPE note on the case itself.
+    #
+    # All four cases carry [RendererPipeline] in their tag list specifically so they do NOT
+    # match RendererSceneTree's "*[GaussianSplatting][SceneTree][RequiresGPU]*" filter, whose
+    # comment documents a deliberately single-case blast radius. doctest matches brackets
+    # literally, so the extra tag keeps these out of that batch while [SceneTree] still gets
+    # them a RenderingServer from the test listener.
     #
     # The separate "Stage results report streaming not-ready" case stays EXCLUDED: it depends
     # on a SceneTree (via ScopedWorldStreamingRenderer) but is not [SceneTree]-tagged, so the
@@ -135,11 +156,11 @@ BATCHES: tuple[BatchSpec, ...] = (
     # satisfied without exercising the streaming cascade (Codex #418). Its stage-status
     # assertions remain host/contract coverage until it is given a SceneTree-free fixture.
     BatchSpec("RendererPipeline", (
-            "*Stage results report cull*",
+            "*Cull route publishes GPU-culler-unavailable*",
             "*Stage results report raster*",
             "*Streaming-requested failure hard-fails*",
             "*Serial instancing failure injection*",
-    )),
+    ), timeout_seconds=180),
     # Lifetime batch: the renderer/RID leak + shutdown-lifetime proof scenarios that
     # carry #352's "zero rid_leak_bytes" evidence. Re-enabled now that the --gs-gpu-test
     # runner starts WorkerThreadPool (issue #392 fix in gs_gpu_test_runner.cpp), so the

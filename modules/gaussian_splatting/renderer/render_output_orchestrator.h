@@ -40,6 +40,20 @@ public:
 	bool test_copy_final_output(RID p_source, RID p_destination, const Size2i &p_viewport_size);
 #endif
 
+	// Test-only: drop the cached (raw) GPUCuller pointer. See
+	// RenderQualityOrchestrator::test_clear_gpu_culler. (#694)
+	//
+	// NOTE: unlike the quality and sorting orchestrators, this one does NOT
+	// currently need the hook to make the culler-unavailable contract reachable.
+	// The member is only read in the ctor init list and the ERR_FAIL_NULL in
+	// initialize(), both of which run long before any test hook; the live path
+	// re-resolves through state_view.get_gpu_culler() into local_gpu_culler and
+	// null-checks that independently. Kept for symmetry with its two siblings and
+	// so the member cannot become a stale dangling pointer if a future change
+	// starts reading it -- but do not cite this call as evidence that the
+	// unavailable path is exercised here.
+	void test_clear_gpu_culler() { gpu_culler = nullptr; }
+
 private:
 	GaussianSplatRenderer *renderer = nullptr;
 	OutputCompositor *output_compositor = nullptr;

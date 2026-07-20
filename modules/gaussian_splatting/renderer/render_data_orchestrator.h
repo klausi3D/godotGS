@@ -58,6 +58,11 @@ public:
 	GaussianRenderState::StreamingState &access_streaming_state_mutable() { return streaming_state; }
 	const GaussianStreamingSystem::ConfigOverrides &get_streaming_config_overrides() const { return streaming_config_overrides; }
 
+	// Test-only: drop the cached CullingConfig pointer. It is captured at construction as
+	// `&gpu_culler->get_config()` -- a reference INTO the culler object -- so releasing the
+	// owning Ref leaves it dangling exactly like the raw GPUCuller pointers. (#694)
+	void test_clear_culling_config() { culling_config = nullptr; }
+
 private:
 	GaussianSplatRenderer *renderer = nullptr;
 	const GaussianRenderDebug::DebugConfig *debug_config = nullptr;

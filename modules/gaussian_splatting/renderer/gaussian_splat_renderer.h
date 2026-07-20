@@ -1749,8 +1749,23 @@ public:
     /** @brief Clears all static chunk definitions. */
     void clear_static_chunks();
 
-    /** @brief Returns the current static chunk definitions. */
-    const Vector<StaticChunk> &get_static_chunks() const { return subsystem_state.gpu_culler->get_state().static_chunks; }
+    /** @brief Returns the current static chunk definitions.
+     *
+     * The static-chunk list lives inside the GPUCuller's CullingState, so an unavailable
+     * culler means there are no static chunks to report. Returning an empty list keeps that
+     * the caller's business instead of dereferencing null: every consumer already treats an
+     * empty list as "nothing resident to publish", whereas the unguarded deref crashed the
+     * resident publish path outright (0xC0000005 in
+     * ResidentInstanceContractPublisher::publish_resident_direct_data_contract) the moment
+     * the GPU-culler-unavailable cascade this accessor sits on actually engaged. (#694)
+     */
+    const Vector<StaticChunk> &get_static_chunks() const {
+        static const Vector<StaticChunk> empty_static_chunks;
+        if (!subsystem_state.gpu_culler.is_valid()) {
+            return empty_static_chunks;
+        }
+        return subsystem_state.gpu_culler->get_state().static_chunks;
+    }
 
 // Test helper methods (always available to avoid header guard issues with Godot's test framework)
     void test_override_rendering_device(RenderingDevice *p_device);

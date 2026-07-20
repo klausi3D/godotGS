@@ -1414,7 +1414,12 @@ void RenderSortingOrchestrator::set_static_sort_cache_enabled(bool p_enabled) {
 void RenderSortingOrchestrator::invalidate_static_chunk_caches(bool p_free_rids) {
 	instance_sort_cache.valid = false;
 
-	if (p_free_rids) {
+	// The visible-static-chunk list lives in the culler's CullingState, so an absent culler
+	// means there is nothing to free. Guarding is required, not defensive dressing: this runs
+	// from _teardown_resources, which is reached AFTER the culler has been released -- an
+	// unguarded deref crashed teardown outright once the culler-unavailable state became
+	// genuinely constructible. (#694)
+	if (p_free_rids && gpu_culler != nullptr) {
 		gpu_culler->get_state().visible_static_chunk_indices.clear();
 	}
 }

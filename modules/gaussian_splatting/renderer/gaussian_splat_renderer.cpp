@@ -3258,6 +3258,25 @@ GaussianSplatRenderer::SortStageSummary GaussianSplatRenderer::test_sort_for_vie
 }
 
 void GaussianSplatRenderer::test_disable_gpu_culler() {
+    // Releasing the owning Ref destroys the GPUCuller, but four orchestrators cached RAW
+    // pointers into it at construction time (see initialize(): quality/sorting/output
+    // .gpu_culler and data .culling_config = &gpu_culler->get_config()). Left alone those
+    // dangle while staying non-null, so every `if (!gpu_culler)` unavailable-cascade guard
+    // is bypassed and the freed object is dereferenced instead -- the 0xC0000005 this hook
+    // produced under a real RenderingServer. Clear the caches FIRST, then drop the Ref, so
+    // the hook models a genuinely unavailable culler. (#694)
+    if (quality_orchestrator) {
+        quality_orchestrator->test_clear_gpu_culler();
+    }
+    if (sorting_orchestrator) {
+        sorting_orchestrator->test_clear_gpu_culler();
+    }
+    if (output_orchestrator) {
+        output_orchestrator->test_clear_gpu_culler();
+    }
+    if (data_orchestrator) {
+        data_orchestrator->test_clear_culling_config();
+    }
     subsystem_state.gpu_culler.unref();
 }
 
