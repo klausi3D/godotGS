@@ -643,7 +643,6 @@ private:
     // from inside the critical section the render thread itself needs.
     static SafeNumeric<uint64_t> renderer_contract_lock_violations;
     HashMap<RID, SharedWorld> worlds;
-    mutable HashSet<ObjectID> scene_effector_multi_match_warned_nodes;
 
     SharedWorld *_get_or_create_world_for_scenario(const RID &p_scenario, bool p_require_renderer = true,
             DeferredRendererWork *r_deferred_work = nullptr);
