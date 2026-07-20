@@ -2009,8 +2009,8 @@ batches appeared to match 0 tests while really matching 2, 3 and 3.
 evidence:</p>
 <ul>
 <li>required GPU batches must match at least one test, parse doctest summaries,
-  avoid timeouts, avoid skips unless explicitly allowed, and report zero RID
-  leak bytes;</li>
+  avoid timeouts, avoid runtime skips unless explicitly allowed, and report zero
+  RID leak bytes;</li>
 <li>blocking visual lanes need committed reference PNGs, nonzero captures, all
   expected references matched, and non-null SSIM/PSNR fields;</li>
 <li>benchmark rows used for public alpha need hardware, driver, OS, binary,
@@ -2020,6 +2020,71 @@ evidence:</p>
   and provenance proves the source. Otherwise the row must explicitly mark GPU
   timing as unavailable and use CPU-observed labels.</li>
 </ul>
+<h3 id="what-allow_skips-false-means-695">What <code>allow_skips: false</code> Means (#695)<a class="headerlink" href="#what-allow_skips-false-means-695" title="Permanent link">¶</a></h3>
+<p>It does <strong>not</strong> refer to doctest's <code>N skipped</code> summary column. That column is
+<code>numTestCases - numTestCasesPassingFilters</code>: the entire registered test corpus
+minus the cases the batch's <code>--test-case=</code> filter selected. Every batch selects a
+handful of cases out of ~2008, so on a perfectly clean RTX 3090 run the three
+required batches report <strong>2007 / 2004 / 2004</strong>. It measures filter reach and is
+non-zero by construction.</p>
+<p>Gating on it — which the release-candidate validator did until #695 — rejected
+every real harness report on every required batch, unconditionally. The check
+passed only against fixtures that set <code>"skipped": 0</code>, a value the harness cannot
+emit for a filtered batch, so <code>--mode candidate</code> had never met a real report.</p>
+<p>The three things doctest's summary conflates are now separated:</p>
+<table>
+<thead>
+<tr>
+<th>Situation</th>
+<th>Detected by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Case never started — filter did not select it</td>
+<td>benign, not a signal</td>
+</tr>
+<tr>
+<td>Case carries a <code>doctest::skip()</code> decorator</td>
+<td>lowers the batch's reported <code>total</code>, so <code>minimum_test_cases</code> rejects it</td>
+</tr>
+<tr>
+<td>Case <strong>started and evaluated zero assertions</strong></td>
+<td><code>zero_assertion_cases</code>, from the harness listener</td>
+</tr>
+</tbody>
+</table>
+<p>The third is the real runtime skip: the case early-returned past its checks (a
+missing <code>RenderingServer</code>, an unmet precondition) and doctest scored it PASSED.
+<code>GsGpuRidLeakListener</code> in <code>modules/gaussian_splatting/tests/gs_gpu_test_runner.cpp</code>
+reads <code>CurrentTestCaseStats::numAssertsCurrentTest</code> in <code>test_case_end</code> and prints
+<code>[GS-GPU][NO-ASSERTS] test=&lt;name&gt;</code> per offending case, plus one
+<code>[GS-GPU][CASE-ASSERT-AUDIT]</code> marker per batch. <code>run_gpu_harness.py</code> records both
+per batch and escalates them for required batches as <code>hollow_required_cases</code> /
+<code>case_audit_missing_batches</code> / <code>case_audit_mismatch_batches</code>.</p>
+<p>The audit marker is required to be <strong>present</strong>: the hollow-case signal is carried
+by the absence of <code>NO-ASSERTS</code> lines, and absence is equally what a binary built
+without the listener produces. A required batch that finished and printed a
+doctest summary but carries no marker fails closed.</p>
+<p>Presence alone is not enough — the marker's <strong>content</strong> is reconciled too. The
+line reads <code>[GS-GPU][CASE-ASSERT-AUDIT] started=N zero_assert=M</code>, and the
+listener increments <code>M</code> in the same branch that prints each <code>NO-ASSERTS</code> line,
+so <code>M == len(zero_assertion_cases)</code> holds on intact evidence. <code>run_gpu_harness.py</code>
+streams each batch's stdout through a bounded 64 KiB <strong>tail</strong> ring buffer, so a
+batch that prints enough after its hollow cases loses their per-case lines while
+keeping the audit line emitted at run end — leaving the marker present, the case
+list empty, and the gate green over a batch its own listener counted as hollow.
+Any disagreement between <code>M</code> and the number of named cases is therefore a
+trimmed-or-malformed condition and fails closed, named as
+<code>case_audit_mismatch_batches</code> (harness) and as a per-batch
+<code>zero_assert_reported</code> mismatch (release gate). The reconciliation is the guard,
+not the buffer size: growing the buffer moves the threshold without closing the
+hole, and the supervisor must stay bounded so a test printing in a tight loop
+cannot OOM it.</p>
+<p>This is strictly finer than the report-level <code>zero_assertion_required_batches</code>
+(#692), which fires only when a whole batch asserted nothing. A four-case batch
+where three cases early-return and one asserts passes that check and fails this
+one.</p>
 <p>The current public performance dashboard remains a non-authoritative snapshot
 until a complete candidate evidence bundle exists.</p>
 <h2 id="lifetime-accounting-proof">Lifetime Accounting Proof<a class="headerlink" href="#lifetime-accounting-proof" title="Permanent link">¶</a></h2>
@@ -2158,7 +2223,7 @@ live network access for the deterministic contract check.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 20, 2026 21:29:05 UTC">July 20, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 20, 2026 21:31:45 UTC">July 20, 2026</span>
   </span>
 
     
