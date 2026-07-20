@@ -24,7 +24,7 @@ Every number on this page comes from one machine, one build, and one commit. Rea
 | OS | Windows 11 Pro, build 26200 |
 | Renderer | Vulkan 1.4.325, Forward+ |
 | Profile | `run_benchmark.py --profile performance` |
-| Window | Steady-state only (first 3 s of warmup excluded) |
+| Window | Steady-state only (first 5 s of warmup excluded) |
 
 !!! warning "Optimized builds only"
     A `dev_build=yes` binary compiles at `-O0` and inflates CPU-side frame cost by roughly an order of magnitude on this hardware. Numbers from such a build are not performance evidence. The previously published row on this page (`static_baseline`, 74.0 avg FPS) was captured on 2026-03-19 from a `bin/godot.linuxbsd.editor.dev.x86_64` binary under the `quick` profile, on different hardware, with a different fixture size. **It has been replaced rather than compared against** — the two rows do not measure the same thing.
@@ -92,7 +92,7 @@ This snapshot was measured at `9161d92f349`, which was 8 commits behind `master`
 | Change | Reaches the measured window? | Assessment |
 | --- | --- | --- |
 | [#657](https://github.com/klausi3D/godotGS/pull/657) — MSVC `/arch:AVX2` policy | No | Both trees compile the module at the **SSE2 baseline**. The pre-`#657` `auto` probe fails on this toolchain (verified: it prints `AVX2 not supported by toolchain, using SSE2 baseline`), and post-`#657` `auto` never enables AVX2 by design. Identical codegen. |
-| [#666](https://github.com/klausi3D/godotGS/pull/666) — defer `register_instance`'s `initialize()` | No | `register_instance` runs at node enter-tree, i.e. during the 3 s warmup that these results exclude. |
+| [#666](https://github.com/klausi3D/godotGS/pull/666) — defer `register_instance`'s `initialize()` | No | `register_instance` runs at node enter-tree, i.e. during the 5 s warmup that these results exclude. |
 | [#667](https://github.com/klausi3D/godotGS/pull/667) — P2 shared-renderer gating convergence | Marginally | The per-frame cost is unchanged: the gate is still one predicate evaluation per node per frame, now edge-triggered. The added convergence work fires on **peer-set change**, which in these lanes happens only during setup — no lane adds or removes nodes mid-capture. |
 | [#665](https://github.com/klausi3D/godotGS/pull/665) — `world_mutex` deferrals + `ThreadOwnedMutex` | Marginally | `world_mutex` *is* taken on per-frame render paths, so the new owner bookkeeping (one atomic store on lock; a compare and store on unlock) does reach steady state. It is on the order of tens of nanoseconds per acquisition. Reaching even the 0.5% run-to-run spread already observed on `dense_resident_2m` (~0.4 ms of an 81 ms frame) would require on the order of 10⁴ additional lock acquisitions per frame. The same change also moves apply work *out* of the lock, which if anything reduces contention. |
 
@@ -135,7 +135,9 @@ python tests/runtime/run_benchmark.py \
 
 ### Raw data
 
-Three files back this page, and between them every number above is recomputable:
+Three files back this page, and between them every number above is recomputable **except the
+`GPU mem delta (MiB)` column**, which is an external `nvidia-smi` measurement (see
+[Measured vs derived](#measured-vs-derived)) and is not recorded in any committed file:
 
 | File | What it is |
 | --- | --- |
@@ -143,7 +145,32 @@ Three files back this page, and between them every number above is recomputable:
 | [`assets/data/benchmark_runs.json`](../assets/data/benchmark_runs.json) | Per-run telemetry for **all three** runs — steady-state frame metrics and the six GPU pass timings per lane. This is what the per-pass means and the variance figures are computed from. |
 | [`assets/data/benchmark_latest.json`](../assets/data/benchmark_latest.json) | Chart dataset, generated from the suite report by `scripts/export_benchmark_vegalite.py`. Carries only the metric fields the charts consume. |
 
-No figure on this page is derived from data that is not in the repo. If a number here cannot be recomputed from those files, treat it as a bug and report it.
+With the single documented exception of `GPU mem delta (MiB)`, no figure on this page is derived
+from data that is not in the repo. If any other number here cannot be recomputed from those files,
+treat it as a bug and report it.
+
+!!! note "Corrected: the warmup window in `benchmark_runs.json` said 3 s"
+    The `window` field in `benchmark_runs.json` read `steady-state; first 3 s of warmup excluded`,
+    contradicting the 5 s stated in the table at the top of this page. **The 5 s is correct and the
+    label was wrong**, so the label was corrected rather than the prose relaxed to match it. No
+    measurement value was touched.
+
+    The evidence is the harness's own output, not this page: these runs were captured with
+    `--profile performance`, `run_benchmark.py`'s `PROFILE_WARMUP_SECONDS` maps `performance` to
+    `5.0`, and `benchmark_suite_report.json` — machine-generated during this same capture session —
+    records `warmup_duration_s: 5.0` on all five lanes. `PROFILE_WARMUP_SECONDS["performance"]` has
+    been `5.0` since the constant was introduced, so no harness change is involved: the label was a
+    hand-authored mistake in the commit that first published the runs, most likely copied from one
+    of the two unrelated `3.0` *fallbacks* in the tree (`run_benchmark.py`'s unknown-profile default
+    and `benchmark_suite_lane.gd`'s `DEFAULT_BENCHMARK_WARMUP`), neither of which applies when the
+    profile supplies `--benchmark-warmup` explicitly. The correction and its reasoning are recorded
+    in the file itself under `window_correction`.
+
+The memory column is a known provenance gap, tracked in
+[#697](https://github.com/klausi3D/godotGS/issues/697): the benchmark harness does not sample GPU
+memory into its report, so those values cannot currently be audited or regenerated from the
+committed data. They are published with their measurement method disclosed rather than dropped,
+and should be read as order-of-magnitude only.
 
 ## Coverage Map
 
