@@ -4337,17 +4337,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingteststest_persistence_roundtriph" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/tests/test_persistence_roundtrip.h
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingteststest_gaussian_splat_world_ioh" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4418,6 +4407,17 @@
     <span class="md-ellipsis">
       
         modules/gaussian_splatting/tests/test_phase1_integration.h
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingteststest_persistence_roundtriph" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/tests/test_persistence_roundtrip.h
       
     </span>
   </a>
@@ -4821,17 +4821,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingpersistencegaussian_scene_serializercpp" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/persistence/gaussian_scene_serializer.cpp
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingtestssynthetic_spz_writercpp" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5023,6 +5012,17 @@
     <span class="md-ellipsis">
       
         modules/gaussian_splatting/renderer/render_output_orchestrator.h
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingpersistencegaussian_scene_serializercpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/persistence/gaussian_scene_serializer.cpp
       
     </span>
   </a>
@@ -10458,19 +10458,6 @@
 <li>line 100: StaticChunk stage1a_make_submission_test_chunk(uint32_t p_in...</li>
 <li>line 128: bool stage1a_repin_world_submission_as_resident(GaussianSpla...</li>
 </ul>
-<h2 id="modulesgaussian_splattingteststest_persistence_roundtriph">modules/gaussian_splatting/tests/test_persistence_roundtrip.h<a class="headerlink" href="#modulesgaussian_splattingteststest_persistence_roundtriph" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 15: String _make_persistence_fixture_path(const String &amp;p_prefix...</li>
-<li>line 22: bool _ensure_persistence_fixture_dir(const String &amp;p_path) {...</li>
-<li>line 27: Ref<fileaccess> _open_persistence_fixture(const String &amp;p_pa...</fileaccess></li>
-<li>line 34: void _remove_persistence_fixture(const String &amp;p_path) {...</li>
-<li>line 38: bool _overwrite_scene_header_versions(const String &amp;p_path, ...</li>
-<li>line 58: bool <em>retag_first_metadata_chunk_as_unknown(const String &amp;p</em>...</li>
-<li>line 95: bool <em>file_contains_chunk_type(const String &amp;p_path, uint32</em>...</li>
-<li>line 131: bool _truncate_fixture_tail(const String &amp;p_path, uint64_t p...</li>
-<li>line 157: void _write_gsf_header_chunk(Ref<fileaccess> file, uint32_t ...</fileaccess></li>
-<li>line 181: Ref<gaussiansplatworld> create_test_world() {...</gaussiansplatworld></li>
-</ul>
 <h2 id="modulesgaussian_splattingteststest_gaussian_splat_world_ioh">modules/gaussian_splatting/tests/test_gaussian_splat_world_io.h<a class="headerlink" href="#modulesgaussian_splattingteststest_gaussian_splat_world_ioh" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 21: Gaussian make_gaussian(const Vector3 &amp;p_position, const Colo...</li>
@@ -10559,6 +10546,22 @@
 <ul>
 <li>line 37: static LocalVector<gaussian> generate_uniform_splats(uint32_...</gaussian></li>
 <li>line 83: static LocalVector<gaussian> generate_clustered_splats(uint3...</gaussian></li>
+</ul>
+<h2 id="modulesgaussian_splattingteststest_persistence_roundtriph">modules/gaussian_splatting/tests/test_persistence_roundtrip.h<a class="headerlink" href="#modulesgaussian_splattingteststest_persistence_roundtriph" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 15: String _make_persistence_fixture_path(const String &amp;p_prefix...</li>
+<li>line 22: bool _ensure_persistence_fixture_dir(const String &amp;p_path) {...</li>
+<li>line 27: Ref<fileaccess> _open_persistence_fixture(const String &amp;p_pa...</fileaccess></li>
+<li>line 34: void _remove_persistence_fixture(const String &amp;p_path) {...</li>
+<li>line 38: bool _overwrite_scene_header_versions(const String &amp;p_path, ...</li>
+<li>line 58: bool <em>retag_first_metadata_chunk_as_unknown(const String &amp;p</em>...</li>
+<li>line 167: bool <em>file_contains_chunk_type(const String &amp;p_path, uint32</em>...</li>
+<li>line 203: bool _truncate_fixture_tail(const String &amp;p_path, uint64_t p...</li>
+<li>line 229: bool _set_eof_chunk_declared_size(const String &amp;p_path, uint...</li>
+<li>line 259: bool _append_fixture_tail(const String &amp;p_path, const Packed...</li>
+<li>line 271: bool _tamper_chunk_payload_byte(const String &amp;p_path, uint32...</li>
+<li>line 305: void _write_gsf_header_chunk(Ref<fileaccess> file, uint32_t ...</fileaccess></li>
+<li>line 329: Ref<gaussiansplatworld> create_test_world() {...</gaussiansplatworld></li>
 </ul>
 <h2 id="modulesgaussian_splattingrendererrender_frame_context_managercpp">modules/gaussian_splatting/renderer/render_frame_context_manager.cpp<a class="headerlink" href="#modulesgaussian_splattingrendererrender_frame_context_managercpp" title="Permanent link">¶</a></h2>
 <ul>
@@ -10926,56 +10929,6 @@
 <li>line 49: void OverflowAutoTuner::set_baselines(float p_importance_bas...</li>
 <li>line 62: void OverflowAutoTuner::reset_to_baselines() {...</li>
 </ul>
-<h2 id="modulesgaussian_splattingpersistencegaussian_scene_serializercpp">modules/gaussian_splatting/persistence/gaussian_scene_serializer.cpp<a class="headerlink" href="#modulesgaussian_splattingpersistencegaussian_scene_serializercpp" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 92: Compression::Mode _to_compression_mode(CompressionType type)...</li>
-<li>line 103: uint32_t _fnv1a(const uint8_t *data, int64_t length) {...</li>
-<li>line 118: PackedByteArray _pack_scene_header(const SceneHeader &amp;header...</li>
-<li>line 139: SceneHeader _unpack_scene_header(const PackedByteArray &amp;byte...</li>
-<li>line 182: Error _resolve_chunk_compression(uint32_t chunk_flags, bool ...</li>
-<li>line 204: Error _ensure_file_write_ok(const Ref<fileaccess> &amp;file, con...</fileaccess></li>
-<li>line 221: void GaussianSceneSerializer::_bind_methods() {...</li>
-<li>line 249: void GaussianSceneSerializer::set_compression_type_bind(int ...</li>
-<li>line 256: int GaussianSceneSerializer::get_compression_type_bind() con...</li>
-<li>line 260: Error GaussianSceneSerializer::_write_chunk_header(Ref&lt;FileA...</li>
-<li>line 270: Error GaussianSceneSerializer::_write_scene_header(Ref&lt;FileA...</li>
-<li>line 281: PackedByteArray GaussianSceneSerializer::_compress_data(cons...</li>
-<li>line 305: uint64_t GaussianSceneSerializer::max_codec_expansion_bytes(...</li>
-<li>line 325: uint64_t GaussianSceneSerializer::get_load_allocation_budget...</li>
-<li>line 349: void GaussianSceneSerializer::set_load_allocation_budget_ove...</li>
-<li>line 469: uint32_t GaussianSceneSerializer::_calculate_checksum(const ...</li>
-<li>line 476: bool GaussianSceneSerializer::_verify_checksum(const PackedB...</li>
-<li>line 498: Error GaussianSceneSerializer::_write_gaussian_data_chunk(Re...</li>
-<li>line 533: Error GaussianSceneSerializer::_write_animation_data_chunk(R...</li>
-<li>line 572: Error GaussianSceneSerializer::_write_metadata_chunk(Ref&lt;Fil...</li>
-<li>line 594: Error GaussianSceneSerializer::_write_asset_refs_chunk(Ref&lt;F...</li>
-<li>line 634: Error GaussianSceneSerializer::_read_chunk_header(Ref&lt;FileAc...</li>
-<li>line 663: Error GaussianSceneSerializer::_read_scene_header(Ref&lt;FileAc...</li>
-<li>line 754: Error GaussianSceneSerializer::_read_animation_data_chunk(Re...</li>
-<li>line 785: Error GaussianSceneSerializer::_read_metadata_chunk(Ref&lt;File...</li>
-<li>line 802: Error GaussianSceneSerializer::_read_asset_refs_chunk(Ref&lt;Fi...</li>
-<li>line 833: void GaussianSceneSerializer::_track_asset(const String &amp;pat...</li>
-<li>line 854: bool GaussianSceneSerializer::_is_asset_modified(const Asset...</li>
-<li>line 863: Error GaussianSceneSerializer::save_scene(const String &amp;file...</li>
-<li>line 873: Error GaussianSceneSerializer::_write_scene_to_file(const Re...</li>
-<li>line 993: Error GaussianSceneSerializer::_read_scene_body(const Ref&lt;Fi...</li>
-<li>line 1093: Error GaussianSceneSerializer::_read_scene_into_staging(cons...</li>
-<li>line 1136: Error GaussianSceneSerializer::load_scene(const String &amp;file...</li>
-<li>line 1184: Error GaussianSceneSerializer::save_incremental(const String...</li>
-<li>line 1209: Error GaussianSceneSerializer::load_incremental(const String...</li>
-<li>line 1277: void GaussianSceneSerializer::add_asset_reference(const Stri...</li>
-<li>line 1281: void GaussianSceneSerializer::remove_asset_reference(const S...</li>
-<li>line 1293: bool GaussianSceneSerializer::has_asset_reference(const Stri...</li>
-<li>line 1297: Array GaussianSceneSerializer::get_asset_references() const ...</li>
-<li>line 1312: bool GaussianSceneSerializer::validate_assets() const {...</li>
-<li>line 1321: bool GaussianSceneSerializer::_file_claims_checksum_protecti...</li>
-<li>line 1372: Error GaussianSceneSerializer::validate_file(const String &amp;f...</li>
-<li>line 1398: Dictionary GaussianSceneSerializer::get_file_info(const Stri...</li>
-<li>line 1423: uint64_t GaussianSceneSerializer::get_file_size_estimate(con...</li>
-<li>line 1433: bool GaussianSceneSerializer::is_gaussian_scene_file(const S...</li>
-<li>line 1441: Array GaussianSceneSerializer::get_supported_compression_typ...</li>
-<li>line 1449: PackedByteArray GaussianSceneSerializer::_migrate_chunk_v1_t...</li>
-</ul>
 <h2 id="modulesgaussian_splattingtestssynthetic_spz_writercpp">modules/gaussian_splatting/tests/synthetic_spz_writer.cpp<a class="headerlink" href="#modulesgaussian_splattingtestssynthetic_spz_writercpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 21: static void _append_u24_le_signed(LocalVector<uint8_t> &amp;r_by...</uint8_t></li>
@@ -11161,6 +11114,56 @@
 <h2 id="modulesgaussian_splattingrendererrender_output_orchestratorh">modules/gaussian_splatting/renderer/render_output_orchestrator.h<a class="headerlink" href="#modulesgaussian_splattingrendererrender_output_orchestratorh" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 55: void test_clear_gpu_culler() { gpu_culler = nullptr; }...</li>
+</ul>
+<h2 id="modulesgaussian_splattingpersistencegaussian_scene_serializercpp">modules/gaussian_splatting/persistence/gaussian_scene_serializer.cpp<a class="headerlink" href="#modulesgaussian_splattingpersistencegaussian_scene_serializercpp" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 92: Compression::Mode _to_compression_mode(CompressionType type)...</li>
+<li>line 103: uint32_t _fnv1a(const uint8_t *data, int64_t length) {...</li>
+<li>line 118: PackedByteArray _pack_scene_header(const SceneHeader &amp;header...</li>
+<li>line 139: SceneHeader _unpack_scene_header(const PackedByteArray &amp;byte...</li>
+<li>line 182: Error _resolve_chunk_compression(uint32_t chunk_flags, bool ...</li>
+<li>line 204: Error _ensure_file_write_ok(const Ref<fileaccess> &amp;file, con...</fileaccess></li>
+<li>line 221: void GaussianSceneSerializer::_bind_methods() {...</li>
+<li>line 249: void GaussianSceneSerializer::set_compression_type_bind(int ...</li>
+<li>line 256: int GaussianSceneSerializer::get_compression_type_bind() con...</li>
+<li>line 260: Error GaussianSceneSerializer::_write_chunk_header(Ref&lt;FileA...</li>
+<li>line 270: Error GaussianSceneSerializer::_write_scene_header(Ref&lt;FileA...</li>
+<li>line 281: PackedByteArray GaussianSceneSerializer::_compress_data(cons...</li>
+<li>line 305: uint64_t GaussianSceneSerializer::max_codec_expansion_bytes(...</li>
+<li>line 325: uint64_t GaussianSceneSerializer::get_load_allocation_budget...</li>
+<li>line 349: void GaussianSceneSerializer::set_load_allocation_budget_ove...</li>
+<li>line 469: uint32_t GaussianSceneSerializer::_calculate_checksum(const ...</li>
+<li>line 476: bool GaussianSceneSerializer::_verify_checksum(const PackedB...</li>
+<li>line 498: Error GaussianSceneSerializer::_write_gaussian_data_chunk(Re...</li>
+<li>line 533: Error GaussianSceneSerializer::_write_animation_data_chunk(R...</li>
+<li>line 572: Error GaussianSceneSerializer::_write_metadata_chunk(Ref&lt;Fil...</li>
+<li>line 594: Error GaussianSceneSerializer::_write_asset_refs_chunk(Ref&lt;F...</li>
+<li>line 634: Error GaussianSceneSerializer::_read_chunk_header(Ref&lt;FileAc...</li>
+<li>line 663: Error GaussianSceneSerializer::_read_scene_header(Ref&lt;FileAc...</li>
+<li>line 754: Error GaussianSceneSerializer::_read_animation_data_chunk(Re...</li>
+<li>line 785: Error GaussianSceneSerializer::_read_metadata_chunk(Ref&lt;File...</li>
+<li>line 802: Error GaussianSceneSerializer::_read_asset_refs_chunk(Ref&lt;Fi...</li>
+<li>line 833: void GaussianSceneSerializer::_track_asset(const String &amp;pat...</li>
+<li>line 854: bool GaussianSceneSerializer::_is_asset_modified(const Asset...</li>
+<li>line 863: Error GaussianSceneSerializer::save_scene(const String &amp;file...</li>
+<li>line 873: Error GaussianSceneSerializer::_write_scene_to_file(const Re...</li>
+<li>line 1007: Error GaussianSceneSerializer::_read_scene_body(const Ref&lt;Fi...</li>
+<li>line 1150: Error GaussianSceneSerializer::_read_scene_into_staging(cons...</li>
+<li>line 1193: Error GaussianSceneSerializer::load_scene(const String &amp;file...</li>
+<li>line 1241: Error GaussianSceneSerializer::save_incremental(const String...</li>
+<li>line 1266: Error GaussianSceneSerializer::load_incremental(const String...</li>
+<li>line 1334: void GaussianSceneSerializer::add_asset_reference(const Stri...</li>
+<li>line 1338: void GaussianSceneSerializer::remove_asset_reference(const S...</li>
+<li>line 1350: bool GaussianSceneSerializer::has_asset_reference(const Stri...</li>
+<li>line 1354: Array GaussianSceneSerializer::get_asset_references() const ...</li>
+<li>line 1369: bool GaussianSceneSerializer::validate_assets() const {...</li>
+<li>line 1378: bool GaussianSceneSerializer::_file_claims_checksum_protecti...</li>
+<li>line 1429: Error GaussianSceneSerializer::validate_file(const String &amp;f...</li>
+<li>line 1455: Dictionary GaussianSceneSerializer::get_file_info(const Stri...</li>
+<li>line 1480: uint64_t GaussianSceneSerializer::get_file_size_estimate(con...</li>
+<li>line 1490: bool GaussianSceneSerializer::is_gaussian_scene_file(const S...</li>
+<li>line 1498: Array GaussianSceneSerializer::get_supported_compression_typ...</li>
+<li>line 1506: PackedByteArray GaussianSceneSerializer::_migrate_chunk_v1_t...</li>
 </ul>
 <h2 id="modulesgaussian_splattingcorescene_director_sphere_effectorscpp">modules/gaussian_splatting/core/scene_director_sphere_effectors.cpp<a class="headerlink" href="#modulesgaussian_splattingcorescene_director_sphere_effectorscpp" title="Permanent link">¶</a></h2>
 <ul>
@@ -11704,7 +11707,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 20, 2026 21:36:38 UTC">July 20, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 20, 2026 21:53:16 UTC">July 20, 2026</span>
   </span>
 
     
