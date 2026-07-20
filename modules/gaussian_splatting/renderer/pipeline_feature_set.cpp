@@ -114,12 +114,28 @@ void PipelineFeatureSet::load_from_project_settings() {
     //      project.godot (source == "project_override") WINS over the tier for
     //      that key; a WARN is logged when the tier value would have differed.
     //
-    // Implication: an explicit pipeline/enable_* entry always takes effect, even
-    // when a tier preset is active (the tier only fills keys left at their code
-    // default). This mirrors the sentinel/explicit-wins model already used for
-    // the streaming budgets and sh/quantization "Auto" settings. The keys are
-    // marked PROPERTY_USAGE_NO_EDITOR so they stay hidden from the default editor
-    // inspector tree but remain readable/writable via ProjectSettings.
+    // Implication: an explicit pipeline/enable_* entry takes effect even when a
+    // tier preset is active (the tier only fills keys left at their code default).
+    // This mirrors the sentinel/explicit-wins model already used for the streaming
+    // budgets and sh/quantization "Auto" settings.
+    //
+    // EXCEPTION -- do not read step 3 as absolute: "explicit" is detected by the
+    // effective value differing from the registered default (see
+    // _describe_project_setting_source above), so a value explicitly set EQUAL to
+    // the code default is indistinguishable from unset and the tier still wins.
+    // All four pipeline bools default to false and every tier sets
+    // enable_tighter_bounds/enable_sh_amortization true, so this bites exactly the
+    // opt-out direction (`tier_preset=low` + `enable_tighter_bounds=false` still
+    // resolves to true, reported as source `tier_preset`). That behaviour is pinned
+    // by tests/test_renderer_pipeline.h and tracked in #710.
+    //
+    // NOTE: these keys are registered with PROPERTY_USAGE_NO_EDITOR, but that flag
+    // is INERT here and they are editor-VISIBLE. ProjectSettings does not honor a
+    // custom usage: _get_property_list() overwrites it with base.flags
+    // (PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_STORAGE for non-internal settings) at
+    // core/config/project_settings.cpp:486-489. set_as_internal() would be required
+    // to truly hide them (tracked in #491), the same as the sorting/profiling levers
+    // in gpu_sorting_config.cpp. See #173.
     ProjectSettings *ps = ProjectSettings::get_singleton();
     if (!ps) {
         return;

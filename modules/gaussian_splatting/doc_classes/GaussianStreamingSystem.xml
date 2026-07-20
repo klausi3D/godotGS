@@ -41,7 +41,7 @@
 			</description>
 		</method>
 		<method name="request_chunk_residency">
-			<return type="Error" />
+			<return type="int" enum="Error" />
 			<param index="0" name="asset_id" type="int" />
 			<param index="1" name="chunk_id" type="int" />
 			<param index="2" name="lod_level" type="int" />
@@ -50,7 +50,7 @@
 			</description>
 		</method>
 		<method name="request_asset_residency">
-			<return type="Error" />
+			<return type="int" enum="Error" />
 			<param index="0" name="asset_id" type="int" />
 			<param index="1" name="lod_level" type="int" />
 			<description>

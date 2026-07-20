@@ -93,6 +93,23 @@ def _case_failure_block(case: str) -> str:
     )
 
 
+def _scenario_failure_block(scenario_name: str) -> str:
+    # doctest prints a BDD SCENARIO's name WITHOUT the "TEST CASE:  " prefix
+    # (thirdparty/doctest/doctest.h:6069-6071), because SCENARIO(x) expands to
+    # TEST_CASE("  Scenario: " x) and logTestStart() suppresses the prefix for
+    # names starting with "  Scenario:". Everything else in the block is
+    # identical to a normal test case.
+    return (
+        "===============================================================================\n"
+        "modules/gaussian_splatting/tests/test_animation.h(80):\n"
+        f"  Scenario: {scenario_name}\n"
+        "\n"
+        "modules/gaussian_splatting/tests/test_animation.h(88): ERROR: CHECK( c == d ) is NOT correct!\n"
+        "  values: CHECK( 3 == 4 )\n"
+        "\n"
+    )
+
+
 def _fail_output(case: str = FAILING_CASE, total_cases: int = 3) -> str:
     # A realistic doctest failing run: one failing case block + the summary.
     return (
@@ -591,6 +608,45 @@ class DoctestCaseParsingTests(unittest.TestCase):
         self.assertEqual(
             harness._parse_failing_doctest_cases(_failing_summary_no_case_output()), []
         )
+
+    def test_bdd_scenario_failure_is_named_not_inherited(self) -> None:
+        # REGRESSION: a BDD SCENARIO prints its name without the "TEST CASE:  "
+        # prefix, so before the separator-anchored parse the scenario's ERROR
+        # line inherited the PRECEDING case's name. In a quarantined lane that
+        # made a brand-new scenario regression look like the approved failure.
+        output = (
+            _case_failure_block(FAILING_CASE)
+            + _scenario_failure_block("a brand new unrelated regression")
+            + "[doctest] test cases: 4 | 2 passed | 2 failed\n"
+            "[doctest] assertions: 10 | 8 passed | 2 failed\n"
+            "[doctest] Status: FAILURE!\n"
+        )
+        self.assertEqual(
+            harness._parse_failing_doctest_cases(output),
+            [FAILING_CASE, "  Scenario: a brand new unrelated regression"],
+        )
+
+    def test_scenario_only_failure_is_named(self) -> None:
+        output = (
+            _scenario_failure_block("standalone scenario")
+            + "[doctest] test cases: 2 | 1 passed | 1 failed\n"
+            "[doctest] Status: FAILURE!\n"
+        )
+        self.assertEqual(
+            harness._parse_failing_doctest_cases(output),
+            ["  Scenario: standalone scenario"],
+        )
+
+    def test_separator_clears_attribution_for_unnamed_failures(self) -> None:
+        # A failure block whose name line never arrives must not be attributed
+        # to the previous case; it stays unparseable so callers fail closed.
+        output = (
+            _case_failure_block(FAILING_CASE)
+            + "===============================================================================\n"
+            "modules/gaussian_splatting/tests/test_animation.h(99): ERROR: unnamed failure\n"
+            "[doctest] Status: FAILURE!\n"
+        )
+        self.assertEqual(harness._parse_failing_doctest_cases(output), [FAILING_CASE])
 
 
 class DoctestCaseMatchingTests(unittest.TestCase):

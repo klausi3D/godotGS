@@ -33,11 +33,20 @@ This lane turns those one-off fixes into a single, blocking, growing gate.
   the blocking `module-validation` job
   (`.github/workflows/gaussian_production_gates.yml`). A hostile-input or
   crash-atomicity regression hard-fails CI.
-- **"All savers atomic" is locked in statically.** Three `STATIC_FORMAT_GUARDS`
-  (`atomic_saver_world_io` / `_scene_serializer` / `_incremental`) assert each
-  final-output writer routes through `gs_atomic_file_write`. The `[AtomicWrite]`
-  doctest lane proves the helper is crash-atomic; the guards prove each saver
-  *uses* it (the PLY cache writer delegates to the world saver → covered).
+- **The three custom savers are locked in statically.** Three `STATIC_FORMAT_GUARDS`
+  (`atomic_saver_world_io` / `_scene_serializer` / `_incremental`) assert that
+  *those* final-output writers route through `gs_atomic_file_write`. The
+  `[AtomicWrite]` doctest lane proves the helper is crash-atomic; the guards prove
+  each of the three *uses* it (the PLY cache writer delegates to the world saver →
+  covered).
+
+  **Scope limit — this is not "every writer in the module".**
+  `ResourceImporterGSplatWorld::_copy_binary_file`
+  (`modules/gaussian_splatting/io/resource_importer_gsplatworld.cpp:186-198`) opens
+  its destination with `FileAccess::WRITE` and streams bytes straight into the
+  final `.gsplatworld` output. It is neither one of the three guarded savers nor
+  routed through the atomic helper, so a crash or write error mid-copy can damage
+  an existing generated output while these guards stay green. Tracked in #714.
 
 ### Regression-guard only (the abort reality)
 
@@ -62,9 +71,17 @@ Never add an un-hardened case — it would abort the lane.
 ## Coverage
 
 The **authoritative** coverage is the set of `[MalformedCorpus]`-tagged tests
-themselves (43 cases at time of writing). This section summarizes them per read
-path — each item corresponds to a tagged case, so it cannot silently drift from a
-non-existent CI check.
+themselves — **60 cases**, distributed `[Persistence]` 20, `[Importer]` 12,
+`[PLY]` 11, `[WorldIO]` 10, `[SPZ]` 7. This section summarizes them per read path;
+each item corresponds to a tagged case, so it cannot point at a non-existent CI
+check.
+
+Do not trust the per-path counts below over the tags — hand-maintained counts
+drift (they read 43 total until this was regenerated). Recount from source with:
+
+```
+grep -rhoE 'TEST_CASE\("[^"]*\[MalformedCorpus\][^"]*"' modules/gaussian_splatting/tests | wc -l
+```
 
 - **WorldIO loader** (`ResourceFormatLoaderGaussianSplatWorld::load`, `[WorldIO]`,
   8): bad magic, wrong version, truncated file, metadata range overflow
@@ -107,6 +124,8 @@ non-existent CI check.
 - No **`.gsplatcache` corrupt-cache fallback** test — cache reads reuse the
   world-format guards but are not fed a malformed cache directly.
 - No **compressed gzip-bomb within** the `INT32_MAX` cap.
+- The **gsplatworld importer's final-output copy** is not crash-atomic — see the
+  scope limit under "All savers atomic" above (#714).
 
 ## Optional follow-ons (not required for G2)
 

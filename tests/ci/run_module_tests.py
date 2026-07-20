@@ -29,6 +29,7 @@ SHADER_DEPENDENCY_GUARD_SCRIPT = MODULE_SOURCE_DIR / "tests" / "check_shader_dep
 PROJECT_SETTINGS_MANIFEST_GUARD_SCRIPT = MODULE_SOURCE_DIR / "tests" / "check_project_settings_manifest.py"
 GAUSSIAN_LAYOUT_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_gaussian_layout_sync.py"
 CULL_SIGNATURE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_cull_signature_parity.py"
+CULL_SIGNATURE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_cull_signature_parity.py"
 METRIC_RESET_PARITY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_metric_reset_parity.py"
 METRIC_RESET_PARITY_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_metric_reset_parity.py"
 DOC_CLASSES_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_doc_classes_complete.py"
@@ -864,18 +865,32 @@ def _run_test_lane_coverage_guard() -> tuple[bool, list[str]]:
 
 
 def _run_cull_signature_parity_guard() -> tuple[bool, list[str]]:
-    if not CULL_SIGNATURE_GUARD_SCRIPT.is_file():
-        return False, [
-            f"Missing cull-signature parity guard script: {CULL_SIGNATURE_GUARD_SCRIPT.relative_to(ROOT)}"
-        ]
+    # Mirrors _run_metric_reset_parity_guard: run the guard against the committed
+    # sources, then the guard's own unit test. The guard passing only proves the
+    # tree is clean today; the unit test pins the extractor's rules (notably that
+    # a LOSSY fold such as `_hash_bool(config.knob > 0, seed)` does NOT count as
+    # hashed) against synthetic fixtures, so a future parser change that re-opens
+    # a fail-open hole is caught even when the real sources do not exercise it.
+    missing = [
+        path.relative_to(ROOT)
+        for path in (CULL_SIGNATURE_GUARD_SCRIPT, CULL_SIGNATURE_TEST_SCRIPT)
+        if not path.is_file()
+    ]
+    if missing:
+        return False, [f"Missing cull-signature parity guard file: {path}" for path in missing]
 
-    code, out, err = _run_command([sys.executable, str(CULL_SIGNATURE_GUARD_SCRIPT)])
-    output_lines = [line for line in (out + err).splitlines() if line.strip()]
-
-    if code != 0:
-        if not output_lines:
-            output_lines = [f"Cull-signature parity guard failed with exit code {code}."]
-        return False, output_lines
+    output_lines: list[str] = []
+    commands = (
+        [sys.executable, str(CULL_SIGNATURE_GUARD_SCRIPT)],
+        [sys.executable, str(CULL_SIGNATURE_TEST_SCRIPT)],
+    )
+    for args in commands:
+        code, out, err = _run_command(args)
+        output_lines.extend(line for line in (out + err).splitlines() if line.strip())
+        if code != 0:
+            if not output_lines:
+                output_lines = [f"Cull-signature parity guard failed with exit code {code}."]
+            return False, output_lines
 
     return True, output_lines
 
@@ -1395,25 +1410,72 @@ def _parse_doctest_results(output: str) -> tuple[int, int, int, int, int, bool]:
 DOCTEST_TEST_CASE_NAME_RE = re.compile(r"^TEST CASE:\s+(?P<name>.+?)\s*$")
 DOCTEST_FAILURE_LINE_RE = re.compile(r"(?:^|\s)(?:FATAL\s+)?ERROR:\s")
 
+# doctest's logTestStart() emits, in this exact order, for EVERY test case:
+#   separator_to_stream()   -> a run of '=' (thirdparty/doctest/doctest.h:6011-6015)
+#   file_line_to_stream()   -> "<file>(<line>):"                        (:6052-6057)
+#   optional "DESCRIPTION: " / "TEST SUITE: " lines                     (:6065-6068)
+#   the name line                                                       (:6069-6071)
+#
+# The name line carries the "TEST CASE:  " prefix ONLY when the name does not
+# start with "  Scenario:" -- i.e. BDD SCENARIO() cases print their name bare
+# (doctest.h:6069-6071; SCENARIO expands to TEST_CASE("  Scenario: " name) at
+# :2926). Anchoring on the separator + file/line header lets us capture that
+# bare name too, so a scenario failure is attributed to the scenario instead of
+# inheriting the previously named test case.
+DOCTEST_SEPARATOR_RE = re.compile(r"^={20,}\s*$")
+DOCTEST_FILE_LINE_HEADER_RE = re.compile(r"^\S.*\(\d+\):\s*$")
+DOCTEST_TEST_START_META_RE = re.compile(r"^(?:DESCRIPTION|TEST SUITE):\s")
+
 
 def _parse_failing_doctest_cases(output: str) -> list[str]:
     """Return the ordered, de-duplicated names of doctest test cases that emitted
     a failure (ERROR / FATAL ERROR).
 
-    Attribution is stateful: the current case is taken from the most recent
-    "TEST CASE:  <name>" header, and a following ERROR line marks that case as
-    failing. WARNING:/MESSAGE: lines are ignored (not failures). BDD SCENARIO
-    cases (whose name doctest prints without the "TEST CASE:" prefix) are not
-    captured here; a failure in one is treated as unparseable, which fails
-    closed rather than being silently tolerated.
+    Attribution is stateful: the current case is taken from the most recent test
+    start header, and a following ERROR line marks that case as failing.
+    WARNING:/MESSAGE: lines are ignored (not failures).
+
+    BDD SCENARIO cases print their name WITHOUT the "TEST CASE:  " prefix, so
+    they are recognised positionally (separator -> "<file>(<line>):" -> name)
+    rather than by that prefix. Before this was handled, a scenario failure that
+    followed any prefixed failure in the same run silently inherited the earlier
+    case's name: for a quarantined lane that meant a brand-new BDD regression was
+    attributed to the approved case and the lane was tolerated. The separator
+    also clears attribution, so a failure that still cannot be named leaves the
+    result unparseable, which the callers fail closed on.
     """
     failing: list[str] = []
     seen: set[str] = set()
     current: str | None = None
+    awaiting_file_line = False
+    awaiting_name = False
     for line in output.splitlines():
+        if DOCTEST_SEPARATOR_RE.match(line):
+            # A new test is starting: drop the previous attribution so nothing
+            # can be misfiled against it.
+            current = None
+            awaiting_file_line = True
+            awaiting_name = False
+            continue
+        if awaiting_file_line and DOCTEST_FILE_LINE_HEADER_RE.match(line):
+            awaiting_file_line = False
+            awaiting_name = True
+            continue
         name_match = DOCTEST_TEST_CASE_NAME_RE.match(line)
         if name_match:
             current = name_match.group("name")
+            awaiting_file_line = False
+            awaiting_name = False
+            continue
+        if awaiting_name:
+            if DOCTEST_TEST_START_META_RE.match(line):
+                continue
+            if not line.strip():
+                continue
+            # Unprefixed name line: a BDD scenario. Keep it verbatim (minus
+            # trailing whitespace) so manifest 'test_case' globs can match it.
+            current = line.rstrip()
+            awaiting_name = False
             continue
         if current is not None and DOCTEST_FAILURE_LINE_RE.search(line):
             if current not in seen:
