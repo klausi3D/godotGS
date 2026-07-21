@@ -26,7 +26,7 @@
 void GaussianSplatSceneDirector::_build_sorted_sphere_effector_payload(const SharedWorld &p_world,
 		LocalVector<SphereEffectorSelection> &r_out) {
 	r_out.clear();
-	if (p_world.sphere_effectors.is_empty()) {
+	if (p_world.sphere_effector_store.is_empty()) {
 		return;
 	}
 
@@ -56,8 +56,8 @@ void GaussianSplatSceneDirector::_build_sorted_sphere_effector_payload(const Sha
 	};
 
 	LocalVector<Candidate> candidates;
-	candidates.reserve(p_world.sphere_effectors.size());
-	for (const SphereEffectorRecord &record : p_world.sphere_effectors) {
+	candidates.reserve(p_world.sphere_effector_store.count());
+	for (const SphereEffectorRecord &record : p_world.sphere_effector_store.records()) {
 		// Filter ineligible records BEFORE the slot cap so ineligible
 		// effectors can't consume a top-N slot and push a valid effector out.
 		//
@@ -97,22 +97,40 @@ void GaussianSplatSceneDirector::_build_sorted_sphere_effector_payload(const Sha
 		// thread-safe, and we mutate the cached `scope_root_valid` flag
 		// under `world_mutex` (via const_cast — the world is actually
 		// addressable through the non-const caller that holds the mutex)
-		// plus bump `sphere_effector_generation` so cached instance
-		// bitmasks invalidate and rebuild without the dropped effector.
+		// plus bump the store's generation so cached instance bitmasks
+		// invalidate and rebuild without the dropped effector. #610 S4 leaves
+		// this write-through-const behavior verbatim (D5 remains open); only
+		// the generation bump is now routed through the owned store method.
+		//
+		// #610 S4 (D2) — INTENTIONAL behavior change, not a verbatim move:
+		// pre-S4 these two render-thread sites used a RAW
+		// `sphere_effector_generation++`, which on `uint64_t` overflow wraps to
+		// 0; the four main-thread register/update/remove paths already bumped
+		// through the saturating helper (`++; if (== 0) = 1`). Routing all six
+		// through SphereEffectorStore::bump_generation() makes these two wrap
+		// to 1 instead of 0. That is deliberate: 0 is a reserved sentinel —
+		// get_sphere_effector_generation_for_renderer() returns 0 for "no
+		// world", and consumers remap a live 0 back to 1 (see
+		// render_streaming_orchestrator.cpp `remap.generation = p_generation
+		// == 0 ? 1u` and gaussian_splat_renderer.cpp `published_generation`).
+		// Emitting a raw 0 for a LIVE world was a latent spurious-0-on-overflow
+		// hazard; unifying on the saturating bump closes it and makes these two
+		// sites consistent with the other four. The divergence is unreachable
+		// in practice (2^64 bumps), so it cannot be exercised by a test.
 		if (record.scope_mode != SPHERE_EFFECTOR_SCOPE_WORLD) {
 			const bool scope_alive = record.scope_root_id != ObjectID() &&
 					Object::cast_to<Node>(ObjectDB::get_instance(record.scope_root_id)) != nullptr;
 			if (!scope_alive) {
 				if (record.scope_root_valid) {
 					const_cast<SphereEffectorRecord &>(record).scope_root_valid = false;
-					const_cast<SharedWorld &>(p_world).sphere_effector_generation++;
+					const_cast<SharedWorld &>(p_world).sphere_effector_store.bump_generation();
 				}
 				continue;
 			}
 			if (!record.scope_root_valid) {
 				// Flipped back to alive (rare — node re-registered at the same ID).
 				const_cast<SphereEffectorRecord &>(record).scope_root_valid = true;
-				const_cast<SharedWorld &>(p_world).sphere_effector_generation++;
+				const_cast<SharedWorld &>(p_world).sphere_effector_store.bump_generation();
 			}
 		}
 
@@ -168,7 +186,7 @@ void GaussianSplatSceneDirector::build_sphere_effector_payload_for_renderer(cons
 	if (r_total_scene_effectors) {
 		// Raw count under the same lock as the payload build — main-thread
 		// mutations between the two reads cannot create a skew now.
-		*r_total_scene_effectors = world->sphere_effectors.size();
+		*r_total_scene_effectors = world->sphere_effector_store.count();
 	}
 }
 
@@ -230,7 +248,7 @@ Dictionary GaussianSplatSceneDirector::get_scene_effector_debug_state_for_instan
 	uint32_t matched_count = 0u;
 	bool matched_position_active = false;
 	bool matched_opacity_active = false;
-	for (const SphereEffectorRecord &effector : world->sphere_effectors) {
+	for (const SphereEffectorRecord &effector : world->sphere_effector_store.records()) {
 		if (!effector.enabled || (!effector.affect_position && !effector.affect_opacity)) {
 			continue;
 		}
@@ -336,11 +354,11 @@ Dictionary GaussianSplatSceneDirector::get_scene_effector_debug_state_for_instan
 uint32_t GaussianSplatSceneDirector::get_sphere_effector_count_for_renderer(const GaussianSplatRenderer *p_renderer) const {
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	const SharedWorld *world = _find_world_for_renderer(p_renderer);
-	return world ? world->sphere_effectors.size() : 0u;
+	return world ? world->sphere_effector_store.count() : 0u;
 }
 
 uint64_t GaussianSplatSceneDirector::get_sphere_effector_generation_for_renderer(const GaussianSplatRenderer *p_renderer) const {
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	const SharedWorld *world = _find_world_for_renderer(p_renderer);
-	return world ? world->sphere_effector_generation : 0ull;
+	return world ? world->sphere_effector_store.generation() : 0ull;
 }
