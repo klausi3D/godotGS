@@ -121,8 +121,8 @@ The Python supervisor drives `--gs-gpu-test` in **per-batch subprocesses** so a 
 
 | Batch | Filter | Status |
 | --- | --- | --- |
-| `CompositorHazard` | `*HazardRepro*` | Active (canonical regression) |
-| `OutputCompositor` | `*OutputCompositor*][RequiresGPU]*` | Catalogued, empty |
+| `CompositorHazard` | `*HazardRepro*` | Active, **required** (canonical regression) |
+| `OutputCompositor` | `*OutputCompositor*][RequiresGPU]*` | Active, **required** (promoted #724) |
 | `ComputeInfrastructure` | `*ComputeInfra*][RequiresGPU]*` | Catalogued, empty |
 | `TileRenderer` | `*TileRenderer*][RequiresGPU]*` | Active (3 cases, #641) |
 | `GpuSorting` | `*Sort*][RequiresGPU]*` | Catalogued, empty |
