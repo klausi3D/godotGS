@@ -627,10 +627,15 @@ private:
         // that get_sphere_effector_generation_for_renderer returns for a
         // missing world). Defined in the .cpp so it reuses the file-local
         // saturating-increment helper. #610 S4 (D2): the register/update/remove
-        // paths previously bumped through that saturating helper while the
-        // render-thread D5 revalidation used a raw `++`; both now route through
-        // this one method 1:1. Firing conditions and order are unchanged; the
-        // D2 inconsistency is noted, not otherwise resolved here.
+        // paths previously bumped through that saturating helper while the two
+        // render-thread D5 revalidation sites used a raw `++` (wrap-to-0 on
+        // uint64 overflow). All six now route through this one saturating
+        // method, so the two D5 sites wrap to 1 instead of 0. Because 0 is the
+        // reserved sentinel above, that is a deliberate consistency fix that
+        // closes a spurious-0-on-overflow hazard on those two sites -- NOT a
+        // 1:1 move -- and it is unreachable in practice (2^64 bumps). Firing
+        // conditions and order are otherwise unchanged. See the D2 note at the
+        // two sites in scene_director_sphere_effectors.cpp.
         void bump_generation();
 
         // Drop every effector and lookup slot. Used by

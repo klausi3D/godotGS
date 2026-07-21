@@ -101,6 +101,22 @@ void GaussianSplatSceneDirector::_build_sorted_sphere_effector_payload(const Sha
 		// invalidate and rebuild without the dropped effector. #610 S4 leaves
 		// this write-through-const behavior verbatim (D5 remains open); only
 		// the generation bump is now routed through the owned store method.
+		//
+		// #610 S4 (D2) — INTENTIONAL behavior change, not a verbatim move:
+		// pre-S4 these two render-thread sites used a RAW
+		// `sphere_effector_generation++`, which on `uint64_t` overflow wraps to
+		// 0; the four main-thread register/update/remove paths already bumped
+		// through the saturating helper (`++; if (== 0) = 1`). Routing all six
+		// through SphereEffectorStore::bump_generation() makes these two wrap
+		// to 1 instead of 0. That is deliberate: 0 is a reserved sentinel —
+		// get_sphere_effector_generation_for_renderer() returns 0 for "no
+		// world", and consumers remap a live 0 back to 1 (see
+		// render_streaming_orchestrator.cpp `remap.generation = p_generation
+		// == 0 ? 1u` and gaussian_splat_renderer.cpp `published_generation`).
+		// Emitting a raw 0 for a LIVE world was a latent spurious-0-on-overflow
+		// hazard; unifying on the saturating bump closes it and makes these two
+		// sites consistent with the other four. The divergence is unreachable
+		// in practice (2^64 bumps), so it cannot be exercised by a test.
 		if (record.scope_mode != SPHERE_EFFECTOR_SCOPE_WORLD) {
 			const bool scope_alive = record.scope_root_id != ObjectID() &&
 					Object::cast_to<Node>(ObjectDB::get_instance(record.scope_root_id)) != nullptr;
