@@ -7,6 +7,7 @@
 #include "servers/rendering/rendering_device.h"
 
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <functional>
 #include <utility>
@@ -1702,4 +1703,91 @@ TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] Overflow-record drop r
         MESSAGE(result.error_message.utf8().get_data());
     }
     CHECK(result.passed);
+}
+
+// C4b / exit criterion G4 ("no silent degradation"), Channel A OVER-COUNT de-dup (PR #508 review,
+// tile_render_debug_stats.cpp:181). The overlap-record drop signal is STICKY (the binning EMIT pass
+// raises it with atomicMax; clear_counters leaves it intact on normal frames), so once a readback
+// has COUNTED it, the SSBO flag STILL reads 1 until the next frame-start clear_counters re-arms it.
+// The pre-fix poll gate was `!pending` only, so in that awaiting-re-arm window poll re-enqueued a
+// readback of the SAME already-counted 1, and on_overflow_signal_readback counted the ORIGINAL drop
+// a SECOND time (over-count). This drives the REAL state machine end-to-end -- poll -> async
+// readback -> callback -> count -> clear_counters re-arm -> new drop -- on a real device and asserts
+// that one sticky drop is counted EXACTLY once across a pre-re-arm re-poll, while a genuinely new
+// post-re-arm drop is counted again.
+//
+// Two discriminating checks isolate the fix without relying on async-completion timing:
+//   1. The poll ENQUEUE decision: after the drop is counted (needs_clear set) and BEFORE the re-arm,
+//      a re-poll of the still-sticky signal must NOT enqueue (overflow_signal_readback.pending stays
+//      false). Pre-fix it enqueues (pending true) -- the readback that then double-counts.
+//   2. The drop-event counter: exactly base+1 after the re-poll (pre-fix base+2), and base+2 only
+//      after a real re-arm + new drop.
+//
+// [RequiresGPU] + REQUIRE_RENDERING_DEVICE_SINGLETON(): constructing TileRenderer dereferences the
+// RD singleton (ShaderRD ctor), which only the --gs-gpu-test harness (tests/ci/run_gpu_harness.py)
+// bootstraps; it matches the harness TileRenderer batch (`*TileRenderer*][RequiresGPU]*`).
+TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] Sticky overflow drop is counted exactly once across a pre-re-arm re-poll (C4b/G4 over-count fix)") {
+    REQUIRE_RENDERING_DEVICE_SINGLETON();
+    RenderingDevice *rd = RenderingDevice::get_singleton();
+
+    TileRenderer renderer;
+    auto &ds = renderer._test_debug_stats();
+    ds.create_buffers(rd);
+    if (!ds.overflow_statistics_buffer.is_valid()) {
+        FAIL("Failed to create overflow statistics buffer for the C4b over-count reproduction");
+        return;
+    }
+
+    const uint32_t signal_offset = (uint32_t)offsetof(TileRenderer::OverflowStatsSnapshot, overflow_drop_signal);
+
+    auto write_signal = [&](uint32_t v) {
+        rd->buffer_update(ds.overflow_statistics_buffer, signal_offset, sizeof(uint32_t), &v);
+    };
+    // Fire any pending async overflow-signal readback. A synchronous buffer_get_data stalls all
+    // frames (RenderingDevice::_flush_and_stall_for_all_frames -> _stall_for_previous_frames), which
+    // flushes the recorded async download callbacks. Two reads guarantee the frame carrying the
+    // async copy has been both submitted and stalled, regardless of the frame-ring depth.
+    auto flush = [&]() {
+        for (int i = 0; i < 2; ++i) {
+            rd->buffer_get_data(ds.overflow_statistics_buffer, signal_offset, sizeof(uint32_t));
+        }
+    };
+
+    // A drop set the sticky signal on an earlier frame; it persists in the SSBO.
+    write_signal(1u);
+    flush();
+    const uint32_t base = renderer.get_overflow_drop_events();
+
+    // "Frame 10": poll enqueues the readback; its callback counts the drop exactly once and requests
+    // the re-arm (overflow_signal_needs_clear).
+    ds.poll_overflow_drop_signal(rd, 10);
+    CHECK(ds.overflow_signal_readback.pending); // a readback is in flight
+    flush();
+    CHECK(renderer.get_overflow_drop_events() == base + 1u);
+    CHECK(ds.overflow_signal_needs_clear);
+    CHECK_FALSE(ds.overflow_signal_readback.pending);
+
+    // "Frame 11": the re-arm (frame-start clear_counters) has NOT run yet, so the SSBO signal is
+    // STILL 1. Pre-fix, poll re-enqueues a readback of that same already-counted 1; post-fix it is
+    // gated on overflow_signal_needs_clear.
+    ds.poll_overflow_drop_signal(rd, 11);
+    CHECK_FALSE(ds.overflow_signal_readback.pending); // DISCRIMINATOR 1: pre-fix true (re-enqueued)
+    flush(); // pre-fix: drains the stale re-read, whose callback double-counts
+    CHECK(renderer.get_overflow_drop_events() == base + 1u); // DISCRIMINATOR 2: pre-fix base+2
+
+    // Re-arm: clear_counters consumes needs_clear and full-clears the SSBO (signal -> 0). A drop
+    // AFTER re-arm is a NEW interval and must count again -- proving the gate does not wedge the
+    // counter (no over-suppression / missed re-arm).
+    ds.clear_counters(rd);
+    flush();
+    CHECK_FALSE(ds.overflow_signal_needs_clear);
+
+    write_signal(1u); // genuinely new drop, after re-arm
+    flush();
+    ds.poll_overflow_drop_signal(rd, 12);
+    CHECK(ds.overflow_signal_readback.pending);
+    flush();
+    CHECK(renderer.get_overflow_drop_events() == base + 2u);
+
+    ds.free_buffers(rd);
 }

@@ -66,7 +66,10 @@
         // C4b (G4): set true once a readback has COUNTED a sticky drop; the next FRAME-START
         // clear_counters (which runs before that frame's EMIT writer) full-clears the buffer to
         // re-arm the signal and consumes this flag. Re-arming before EMIT (not at end-of-frame)
-        // is what lets the re-arm frame's own drop still be captured.
+        // is what lets the re-arm frame's own drop still be captured. While set, it ALSO gates
+        // poll_overflow_drop_signal from enqueuing another readback of the same still-sticky (1)
+        // flag before the re-arm, which would otherwise count the original drop twice (PR #508
+        // review, Channel A over-count fix).
         mutable bool overflow_signal_needs_clear = false;
     };
 

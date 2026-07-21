@@ -243,6 +243,11 @@ public:
     // names are private nested types of TileRenderer; callers use `auto &` to
     // bind without naming the inaccessible identifier.
     auto &_test_async_readback() { return async_readback; }
+    // C4b (G4), Channel A (PR #508 review): reach the always-on overflow_drop_signal state
+    // machine (poll_overflow_drop_signal / on_overflow_signal_readback / clear_counters and the
+    // overflow_signal_readback.pending + overflow_signal_needs_clear flags) so the over-count
+    // de-dup can be driven deterministically. Returns the private nested TileRendererDebugStats.
+    auto &_test_debug_stats() { return debug_stats; }
     auto &_test_global_sort_resources() { return global_sort_resources; }
     auto &_test_grid_state() { return grid_state; }
     auto &_test_timing_state() { return timing_state; }
