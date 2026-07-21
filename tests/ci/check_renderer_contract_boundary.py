@@ -354,7 +354,20 @@ _RENDERER_REF_DECL_RE = re.compile(
 # `renderer_config` / `renderer_count` etc.
 _RENDERER_AUTO_DECL_RE = re.compile(
     r"(?:const\s+)?auto\s+([A-Za-z_]\w*)\s*=\s*"
-    r"[^;]*(?:(?:->|\.)\s*renderer\b|\bget_shared_renderer\s*\()"
+    r"(?:"
+    # Terminal `.renderer` / `->renderer` -- the Ref member ITSELF. The negative
+    # lookahead rejects any CHAINED use (#733 review): `world->renderer->foo()`
+    # yields foo()'s result and `world->renderer.ptr()` yields a raw pointer --
+    # neither local owns a Ref, so neither is a scope-exit hazard.
+    r"[^;]*(?:->|\.)\s*renderer\b(?!\s*(?:->|\.|\(|\[|<))"
+    r"|"
+    # `get_shared_renderer(...)` as the terminal value (ends the statement). A
+    # chained `get_shared_renderer(w)->initialize()` is excluded by requiring the
+    # close paren be followed by `;`/end. Args are matched without nested parens
+    # (get_shared_renderer takes a single World3D*); a nested-paren arg would miss
+    # conservatively (no false positive), not over-match.
+    r"[^;]*\bget_shared_renderer\s*\([^;)]*\)\s*(?:;|$)"
+    r")"
 )
 
 _DEFINITION_RE = re.compile(
@@ -797,6 +810,23 @@ def run_self_test() -> int:
         "an auto& reference to a renderer Ref must NOT be flagged",
         not check_renderer_ref_released_under_lock(auto_ref_reference_ok),
     )
+    # #733: chained access through the renderer member yields a non-owning local
+    # (a count / a raw pointer / a call result) -- must NOT be flagged.
+    for chained in (
+        "\tauto count = world->renderer->get_reference_count();\n",
+        "\tauto ptr = world->renderer.ptr();\n",
+        "\tauto handle = get_shared_renderer(p_world)->initialize();\n",
+    ):
+        chained_ok = (
+            "void GaussianSplatSceneDirector::clear_world_for_scenario(const RID &p_scenario) {\n"
+            "\tGaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);\n"
+            + chained +
+            "}\n"
+        )
+        expect(
+            f"chained non-owning renderer access must NOT be flagged: {chained.strip()}",
+            not check_renderer_ref_released_under_lock(chained_ok),
+        )
 
     # The compliant shape -- declared BEFORE the lock -- must NOT be flagged.
     ref_before_lock = (
