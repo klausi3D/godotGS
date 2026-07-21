@@ -871,25 +871,38 @@ bool GaussianSplatSceneDirector::_apply_world_submission_contract_unlocked(
 	return true;
 }
 
-bool GaussianSplatSceneDirector::_should_prune_world(const SharedWorld &p_world) const {
-	if (!p_world.instances.is_empty()) {
-		return false;
-	}
-	if (!p_world.sphere_effectors.is_empty()) {
-		return false;
-	}
-	if (p_world.world_submission.active) {
-		return false;
-	}
-	if (p_world.renderer.is_null()) {
-		return true;
-	}
+bool GaussianSplatSceneDirector::_world_has_no_instances(const SharedWorld &p_world) const {
+	return p_world.instances.is_empty();
+}
 
-	// Preserve the SharedWorld while some external owner (for example a node that
-	// temporarily left the tree, an active world node, or editor tooling) still
-	// holds the shared renderer Ref. Otherwise re-registration can desynchronize
-	// the director from that retained renderer.
-	return p_world.renderer->get_reference_count() <= 1;
+bool GaussianSplatSceneDirector::_world_has_no_sphere_effectors(const SharedWorld &p_world) const {
+	return p_world.sphere_effectors.is_empty();
+}
+
+bool GaussianSplatSceneDirector::_world_submission_idle(const SharedWorld &p_world) const {
+	return !p_world.world_submission.active;
+}
+
+bool GaussianSplatSceneDirector::_world_renderer_unshared(const SharedWorld &p_world) const {
+	// A null renderer is trivially unshared (prune). Otherwise preserve the
+	// SharedWorld while some external owner (for example a node that temporarily
+	// left the tree, an active world node, or editor tooling) still holds the
+	// shared renderer Ref -- re-registration can otherwise desynchronize the
+	// director from that retained renderer. The `is_null()` short-circuit guards
+	// the deref, so this is safe to evaluate in any order.
+	return p_world.renderer.is_null() || p_world.renderer->get_reference_count() <= 1;
+}
+
+bool GaussianSplatSceneDirector::_should_prune_world(const SharedWorld &p_world) const {
+	// #610 S2: prune iff every per-concern predicate agrees. `&&` preserves the
+	// original short-circuit exactly -- the renderer predicate (the only one that
+	// dereferences) is reached only after the first three pass, and it internally
+	// short-circuits the null case, so behavior is byte-identical to the prior
+	// sequential early-returns.
+	return _world_has_no_instances(p_world) &&
+			_world_has_no_sphere_effectors(p_world) &&
+			_world_submission_idle(p_world) &&
+			_world_renderer_unshared(p_world);
 }
 
 void GaussianSplatSceneDirector::_prune_world_if_unused(const RID &p_scenario,

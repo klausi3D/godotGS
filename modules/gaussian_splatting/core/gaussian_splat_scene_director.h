@@ -743,6 +743,15 @@ private:
 	// caller that has not been threaded yet.
 	void _initialize_world_renderer(SharedWorld &p_world, DeferredRendererWork *r_deferred_work);
 	void _report_renderer_contract_lock_violation(const char *p_site) const;
+	// #610 S2: `_should_prune_world` is the conjunction of four independent
+	// per-concern predicates, one per state group a later decomposition slice
+	// will own (instances, sphere effectors, world submission, renderer Ref).
+	// Naming them decouples the prune policy from those stores so each store can
+	// be extracted without the prune logic reaching into its internals.
+	bool _world_has_no_instances(const SharedWorld &p_world) const;
+	bool _world_has_no_sphere_effectors(const SharedWorld &p_world) const;
+	bool _world_submission_idle(const SharedWorld &p_world) const;
+	bool _world_renderer_unshared(const SharedWorld &p_world) const;
 	bool _should_prune_world(const SharedWorld &p_world) const;
 	// #611: prune an empty SharedWorld without releasing its
 	// Ref<GaussianSplatRenderer> under world_mutex. The renderer's teardown blocks
