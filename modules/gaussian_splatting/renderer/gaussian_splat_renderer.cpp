@@ -894,11 +894,15 @@ GaussianSplatRenderer::GaussianSplatRenderer(RenderingDevice *p_device) {
     // #722: a null gpu_culler is an INVARIANT VIOLATION, not a supported runtime
     // state -- FrameDeps::validate() rejects it in release (ERR_FAIL_NULL_V_MSG),
     // and ~120 derefs across the renderer/orchestrators assume it is present. Fail
-    // construction here if instantiation ever fails, rather than surfacing a null
-    // deref at the first use below. (instantiate() is memnew, which aborts on OOM
-    // rather than returning null, so this normally never fires; it codifies the
-    // invariant and localizes any future breakage to construction.)
-    ERR_FAIL_COND_MSG(subsystem_state.gpu_culler.is_null(),
+    // ABORT here if instantiation ever fails, rather than surfacing a null deref at
+    // the first use below (:897 get_config()). ERR_FAIL_COND would only log and
+    // return, leaving a partially-constructed renderer with every subsequent
+    // subsystem uninitialized -- a zombie that crashes confusingly on first use.
+    // Since a null culler is an INVARIANT VIOLATION (not a recoverable runtime
+    // state), fail loud and immediate. instantiate() is memnew, which already
+    // aborts on OOM before reaching here, so this only ever fires on a genuine
+    // future contract break, where a clean abort beats a deferred null deref.
+    CRASH_COND_MSG(subsystem_state.gpu_culler.is_null(),
             "GaussianSplatRenderer: GPUCuller instantiation failed; the renderer cannot operate without a culler (#722).");
     // Respect project setting for LOD - don't hardcode to true
     bool lod_enabled_setting = gs::settings::get_bool(ProjectSettings::get_singleton(),
