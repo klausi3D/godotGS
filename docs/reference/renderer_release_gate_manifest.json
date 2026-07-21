@@ -120,9 +120,9 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 136,
-    "sha256": "f92c90447e50d53f834cfb89bb47588dcb2372886b1526448f40690e618a95bd",
-    "sha256_last_changed_by": "PR #508 (C4b / G4 overflow-drop telemetry) review follow-up: the Channel A over-count fix (drop-signal readback de-dup / re-arm gate, tile_render_debug_stats.cpp:181) adds exactly one RequiresGPU case, '[GaussianSplatting][TileRenderer][RequiresGPU] Sticky overflow drop is counted exactly once across a pre-re-arm re-poll (C4b/G4 over-count fix)' (modules/gaussian_splatting/tests/tile_renderer_regression_test.cpp). Pure ADDITION on top of the prior snapshot: test_count 135 -> 136 and the digest moves because one (path, name) pair joined the payload -- verified by the working-tree diff adding exactly one TEST_CASE and removing zero. No existing case was renamed, retagged or removed. The new case carries neither a deferred TAG (Importer) nor a deferred NAME, so it is NOT deferred and deferred_count stays 3. It matches the TileRenderer batch ('*TileRenderer*][RequiresGPU]*') in tests/ci/run_gpu_harness.py, so running_in_a_named_batch 63 -> 64 and unbatched_backlog stays 69. The sha256 was RECOMPUTED via tests/ci/check_renderer_release_gates.py _requires_gpu_snapshot().",
+    "test_count": 137,
+    "sha256": "41c0b8be448b578e0f03ec3f360346c80d1d876ef352fcaef815eb71e3338461",
+    "sha256_last_changed_by": "#722 slice 2 (post-teardown terminal-state contract for the culler-backed inline getters) adds exactly one RequiresGPU case, '[GaussianSplatting][RendererPipeline][SceneTree][RequiresGPU] Post-teardown culler accessors return terminal-state defaults instead of dereferencing null' (modules/gaussian_splatting/tests/test_renderer_pipeline.h). Pure ADDITION on top of the prior snapshot: test_count 136 -> 137 and the digest moves because one (path, name) pair joined the payload -- verified by a name-set diff against origin/master adding exactly one TEST_CASE and removing zero. No existing case was renamed, retagged or removed. The new case carries neither a deferred TAG (Importer) nor a deferred NAME, so it is NOT deferred and deferred_count stays 3. It matches the RendererPipeline batch (new filter '*Post-teardown culler accessors return terminal-state defaults*') in tests/ci/run_gpu_harness.py, so running_in_a_named_batch 64 -> 65 and unbatched_backlog stays 69. The sha256 was RECOMPUTED via tests/ci/check_renderer_release_gates.py _requires_gpu_snapshot().",
     "deferred_tags_any": [
       "Importer"
     ],
@@ -407,8 +407,8 @@
     "note": "[RequiresGPU] test cases that match NO named batch in tests/ci/run_gpu_harness.py and therefore execute nowhere. These are NOT waivers: unlike deferred_requires_gpu_waivers (each proven failing, with an owner and an expiry) these cases have simply never been run, so nothing is known about them. Discovered while landing #329, which addressed only the 28 [SceneTree] cases; measuring the whole corpus with correct doctest semantics showed the gap is larger. Recorded explicitly so it is counted and cannot grow silently: tests/ci/test_gpu_harness_deferred_contract.py fails on any orphan NOT listed here, so this list is a ratchet that may only shrink.",
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
-      "requires_gpu_total": 136,
-      "running_in_a_named_batch": 64,
+      "requires_gpu_total": 137,
+      "running_in_a_named_batch": 65,
       "deferred_with_waiver": 3,
       "unbatched_backlog": 69
     },
