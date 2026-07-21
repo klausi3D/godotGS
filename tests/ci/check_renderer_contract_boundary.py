@@ -361,19 +361,15 @@ _RENDERER_AUTO_DECL_RE = re.compile(
     # neither local owns a Ref, so neither is a scope-exit hazard.
     r"[^;]*(?:->|\.)\s*renderer\b(?!\s*(?:->|\.|\(|\[|<))"
     r"|"
-    # `get_shared_renderer(...)` as the terminal value (ends the statement). A
-    # chained `get_shared_renderer(w)->initialize()` is excluded by requiring the
-    # close paren be followed by `;`/end. Args are matched without nested parens
-    # (get_shared_renderer takes a single World3D*); a nested-paren arg would miss
-    # conservatively (no false positive), not over-match.
-    # get_shared_renderer(...) as the value. Args may themselves contain
-    # parenthesized calls (e.g. get_shared_renderer(get_world())), which a
-    # no-nested-paren pattern would MISS -- and a miss here is a hazard
-    # (an unflagged #628 owning Ref), not a dismissible false positive, so
-    # match permissively on the call token. A chained get_shared_renderer(x)
-    # ->foo() would also match (rare; dismissible) -- erring toward flagging
-    # is correct for this direction (#733 review).
-    r"[^;]*\bget_shared_renderer\s*\("
+    # `get_shared_renderer(...)` as the TERMINAL value (ends the statement). Two
+    # #733-review constraints must both hold: (a) a chained
+    # `get_shared_renderer(w)->initialize()` yields a non-owning result and must
+    # NOT be flagged; (b) a nested-paren argument `get_shared_renderer(get_world())`
+    # is an owning Ref and MUST be caught (a miss is an unflagged #628 hazard).
+    # The arg is matched as a balanced group allowing ONE level of nesting
+    # (`(?:[^()]|\([^()]*\))*`), then the close paren must be followed by `;`/end --
+    # so nested args are caught while a trailing `->`/`.` chain is excluded.
+    r"[^;]*\bget_shared_renderer\s*\((?:[^()]|\([^()]*\))*\)\s*(?:;|$)"
     r")"
 )
 
