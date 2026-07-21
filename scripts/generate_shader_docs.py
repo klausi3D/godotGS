@@ -361,11 +361,9 @@ def build_reference(*, include_undocumented: bool) -> tuple[str, CoverageStats]:
         if not rendered_functions and not rendered_blocks:
             continue
 
-        sections.append("## Shader")
+        sections.append(f"## {shader.name}")
         sections.append("")
-        sections.append("```")
-        sections.append(shader.relative_to(ROOT).as_posix())
-        sections.append("```")
+        sections.append(f"`{shader.relative_to(ROOT).as_posix()}`")
         sections.append("")
         if rendered_functions:
             sections.append("### Functions")
@@ -376,14 +374,10 @@ def build_reference(*, include_undocumented: bool) -> tuple[str, CoverageStats]:
             sections.append("### Uniform Blocks")
             sections.append("")
             for block_name, instance_name, fields in rendered_blocks:
-                sections.append("#### Block")
-                sections.append("")
-                sections.append("```")
                 if instance_name:
-                    sections.append(f"{block_name} ({instance_name})")
+                    sections.append(f"#### {block_name} ({instance_name})")
                 else:
-                    sections.append(block_name)
-                sections.append("```")
+                    sections.append(f"#### {block_name}")
                 sections.append("")
                 sections.extend(_render_uniform_table(fields))
                 sections.append("")

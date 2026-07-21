@@ -1,16 +1,14 @@
 # Shader Reference
 
-Last generated: 2026-03-20
+Last generated: 2026-07-21
 
-Coverage summary: `193` documented functions, `2` undocumented functions, `68` documented uniform fields, `123` undocumented uniform fields.
+Coverage summary: `193` documented functions, `13` undocumented functions, `69` documented uniform fields, `120` undocumented uniform fields.
 
 Undocumented entries are omitted by default. Use `--include-undocumented` to list them.
 
-## Shader
+## brush_accumulate.glsl
 
-```
-modules/gaussian_splatting/shaders/brush_accumulate.glsl
-```
+`modules/gaussian_splatting/shaders/brush_accumulate.glsl`
 
 ### Functions
 
@@ -34,11 +32,9 @@ modules/gaussian_splatting/shaders/brush_accumulate.glsl
 </table>
 
 
-## Shader
+## gaussian_splat.frag.glsl
 
-```
-modules/gaussian_splatting/shaders/gaussian_splat.frag.glsl
-```
+`modules/gaussian_splatting/shaders/gaussian_splat.frag.glsl`
 
 ### Functions
 
@@ -58,11 +54,9 @@ modules/gaussian_splatting/shaders/gaussian_splat.frag.glsl
 </table>
 
 
-## Shader
+## gaussian_splat.glsl
 
-```
-modules/gaussian_splatting/shaders/gaussian_splat.glsl
-```
+`modules/gaussian_splatting/shaders/gaussian_splat.glsl`
 
 ### Functions
 
@@ -86,11 +80,9 @@ modules/gaussian_splatting/shaders/gaussian_splat.glsl
 </table>
 
 
-## Shader
+## gaussian_splat.vert.glsl
 
-```
-modules/gaussian_splatting/shaders/gaussian_splat.vert.glsl
-```
+`modules/gaussian_splatting/shaders/gaussian_splat.vert.glsl`
 
 ### Functions
 
@@ -110,11 +102,9 @@ modules/gaussian_splatting/shaders/gaussian_splat.vert.glsl
 </table>
 
 
-## Shader
+## gs_shadow_blit.glsl
 
-```
-modules/gaussian_splatting/shaders/gs_shadow_blit.glsl
-```
+`modules/gaussian_splatting/shaders/gs_shadow_blit.glsl`
 
 ### Functions
 
@@ -139,11 +129,7 @@ modules/gaussian_splatting/shaders/gs_shadow_blit.glsl
 
 ### Uniform Blocks
 
-#### Block
-
-```
-Params (params)
-```
+#### Params (params)
 
 <table>
   <thead>
@@ -167,11 +153,7 @@ Params (params)
   </tbody>
 </table>
 
-#### Block
-
-```
-Params (params)
-```
+#### Params (params)
 
 <table>
   <thead>
@@ -196,11 +178,9 @@ Params (params)
 </table>
 
 
-## Shader
+## color_grading_binning.glsl
 
-```
-modules/gaussian_splatting/shaders/includes/color_grading_binning.glsl
-```
+`modules/gaussian_splatting/shaders/includes/color_grading_binning.glsl`
 
 ### Functions
 
@@ -221,18 +201,16 @@ modules/gaussian_splatting/shaders/includes/color_grading_binning.glsl
       <td>HSV to RGB (copy from tonemap.glsl)</td>
     </tr>
     <tr>
-      <td><pre><code>apply_color_grading_binning(vec3 color)</code></pre></td>
-      <td>Apply color grading to splat color (binning stage) Operates in linear color space, before R11G11B10 packing</td>
+      <td><pre><code>apply_color_grading_binning(vec3 color, uint instance_id)</code></pre></td>
+      <td>Apply color grading to splat color (binning stage) Operates in linear color space, before R11G11B10 packing. The grading parameters are fetched per-instance from instance_grading_buffer, which the binning shader binds alongside instance_buffer at binding 20.</td>
     </tr>
   </tbody>
 </table>
 
 
-## Shader
+## gaussian_splat_common_inc.glsl
 
-```
-modules/gaussian_splatting/shaders/includes/gaussian_splat_common_inc.glsl
-```
+`modules/gaussian_splatting/shaders/includes/gaussian_splat_common_inc.glsl`
 
 ### Functions
 
@@ -325,11 +303,7 @@ modules/gaussian_splatting/shaders/includes/gaussian_splat_common_inc.glsl
 
 ### Uniform Blocks
 
-#### Block
-
-```
-SceneData (scene_data)
-```
+#### SceneData (scene_data)
 
 <table>
   <thead>
@@ -359,11 +333,9 @@ SceneData (scene_data)
 </table>
 
 
-## Shader
+## gs_culling_utils.glsl
 
-```
-modules/gaussian_splatting/shaders/includes/gs_culling_utils.glsl
-```
+`modules/gaussian_splatting/shaders/includes/gs_culling_utils.glsl`
 
 ### Functions
 
@@ -391,11 +363,9 @@ modules/gaussian_splatting/shaders/includes/gs_culling_utils.glsl
 </table>
 
 
-## Shader
+## gs_deformation.glsl
 
-```
-modules/gaussian_splatting/shaders/includes/gs_deformation.glsl
-```
+`modules/gaussian_splatting/shaders/includes/gs_deformation.glsl`
 
 ### Functions
 
@@ -419,19 +389,13 @@ modules/gaussian_splatting/shaders/includes/gs_deformation.glsl
       <td><pre><code>gs_is_wind_enabled_for_instance(float encoded_mode, vec4 wind_time_config)</code></pre></td>
       <td>Check whether wind deformation is enabled for the current instance.</td>
     </tr>
-    <tr>
-      <td><pre><code>gs_apply_sphere_effector(vec3 world_position, vec4 effector_sphere, vec4 effector_config, float time_seconds, uint stable_seed)</code></pre></td>
-      <td>Sphere effector: animates splats within a spherical region effector_sphere: xyz = center, w = radius effector_config: x = enabled, y = strength, z = falloff, w = animation frequency (Hz)</td>
-    </tr>
   </tbody>
 </table>
 
 
-## Shader
+## gs_directional_shadow.glsl
 
-```
-modules/gaussian_splatting/shaders/includes/gs_directional_shadow.glsl
-```
+`modules/gaussian_splatting/shaders/includes/gs_directional_shadow.glsl`
 
 ### Functions
 
@@ -459,11 +423,9 @@ modules/gaussian_splatting/shaders/includes/gs_directional_shadow.glsl
 </table>
 
 
-## Shader
+## gs_eigen_binning.glsl
 
-```
-modules/gaussian_splatting/shaders/includes/gs_eigen_binning.glsl
-```
+`modules/gaussian_splatting/shaders/includes/gs_eigen_binning.glsl`
 
 ### Functions
 
@@ -487,11 +449,9 @@ modules/gaussian_splatting/shaders/includes/gs_eigen_binning.glsl
 </table>
 
 
-## Shader
+## gs_lighting_bridge.glsl
 
-```
-modules/gaussian_splatting/shaders/includes/gs_lighting_bridge.glsl
-```
+`modules/gaussian_splatting/shaders/includes/gs_lighting_bridge.glsl`
 
 ### Functions
 
@@ -517,19 +477,7 @@ modules/gaussian_splatting/shaders/includes/gs_lighting_bridge.glsl
     </tr>
     <tr>
       <td><pre><code>sc_soft_shadow_samples()</code></pre></td>
-      <td>Compute-shader fallback: soft shadow sampling is disabled.</td>
-    </tr>
-    <tr>
-      <td><pre><code>sc_penumbra_shadow_samples()</code></pre></td>
-      <td>Compute-shader fallback: penumbra sampling is disabled.</td>
-    </tr>
-    <tr>
-      <td><pre><code>sc_directional_soft_shadow_samples()</code></pre></td>
-      <td>Compute-shader fallback: directional soft shadow sampling is disabled.</td>
-    </tr>
-    <tr>
-      <td><pre><code>sc_directional_penumbra_shadow_samples()</code></pre></td>
-      <td>Compute-shader fallback: directional penumbra sampling is disabled.</td>
+      <td>Match Godot's SHADOW_QUALITY_SOFT_LOW default (4 taps) so gaussian splat shadows have comparable quality to mesh shadows. Without PCF, each pixel gets a binary 0/1 shadow from a single compare, producing harsh per-pixel outlines.</td>
     </tr>
     <tr>
       <td><pre><code>sc_luminance_multiplier()</code></pre></td>
@@ -539,11 +487,9 @@ modules/gaussian_splatting/shaders/includes/gs_lighting_bridge.glsl
 </table>
 
 
-## Shader
+## gs_lighting_common.glsl
 
-```
-modules/gaussian_splatting/shaders/includes/gs_lighting_common.glsl
-```
+`modules/gaussian_splatting/shaders/includes/gs_lighting_common.glsl`
 
 ### Functions
 
@@ -567,15 +513,17 @@ modules/gaussian_splatting/shaders/includes/gs_lighting_common.glsl
       <td><pre><code>gs_use_clustered_lights()</code></pre></td>
       <td>Return whether clustered lights are active for this frame.</td>
     </tr>
+    <tr>
+      <td><pre><code>gs_compute_receiver_bias(float representative_radius)</code></pre></td>
+      <td>Computes the canonical receiver bias for shadow sampling. Per the contract documented in gs_render_params.glsl:77-80 and gaussian_gpu_layout.h:456-459: shadow_bias_config.x is the scale-by-radius multiplier, .y is the minimum bias, .z is the optional maximum clamp (>0.0 enables it). Pass representative_radius = max(g.scale.x, g.scale.y, g.scale.z) from the per-splat path. Pass 0.0 from paths without a radius source — the result collapses to the .y minimum, clamped by .z.</td>
+    </tr>
   </tbody>
 </table>
 
 
-## Shader
+## gs_quat_utils.glsl
 
-```
-modules/gaussian_splatting/shaders/includes/gs_quat_utils.glsl
-```
+`modules/gaussian_splatting/shaders/includes/gs_quat_utils.glsl`
 
 ### Functions
 
@@ -603,11 +551,9 @@ modules/gaussian_splatting/shaders/includes/gs_quat_utils.glsl
 </table>
 
 
-## Shader
+## gs_render_params.glsl
 
-```
-modules/gaussian_splatting/shaders/includes/gs_render_params.glsl
-```
+`modules/gaussian_splatting/shaders/includes/gs_render_params.glsl`
 
 ### Functions
 
@@ -640,16 +586,16 @@ modules/gaussian_splatting/shaders/includes/gs_render_params.glsl
       <td>Return whether SH amortization should force an update this frame.</td>
     </tr>
     <tr>
-      <td><pre><code>gs_is_dc_logit_enabled()</code></pre></td>
-      <td>Return whether DC logit decoding is enabled.</td>
-    </tr>
-    <tr>
       <td><pre><code>gs_is_opacity_aware_culling_enabled()</code></pre></td>
       <td>Helper to check if opacity-aware culling is enabled</td>
     </tr>
     <tr>
       <td><pre><code>gs_get_visibility_threshold()</code></pre></td>
       <td>Helper to get visibility threshold (tau)</td>
+    </tr>
+    <tr>
+      <td><pre><code>gs_get_alpha_clip()</code></pre></td>
+      <td>Optional per-splat hard cull threshold. Splats with opacity <= this value are dropped before any projection or binning work. 0.0 disables the cull. CPU-side is clamped to [0, 0.99].</td>
     </tr>
     <tr>
       <td><pre><code>gs_get_lod_blend_factor()</code></pre></td>
@@ -668,19 +614,31 @@ modules/gaussian_splatting/shaders/includes/gs_render_params.glsl
       <td>Return whether wind deformation is enabled.</td>
     </tr>
     <tr>
+      <td><pre><code>gs_get_sphere_effector_count()</code></pre></td>
+      <td>Active sphere effector count for this pass.</td>
+    </tr>
+    <tr>
       <td><pre><code>gs_is_sphere_effector_enabled()</code></pre></td>
       <td>Return whether the sphere effector is enabled.</td>
+    </tr>
+    <tr>
+      <td><pre><code>gs_get_hotspot_pressure_threshold()</code></pre></td>
+      <td>Hotspot-aware pre-raster cull accessors. Absolute previous-frame tile count above which the prune fires. 0 disables.</td>
+    </tr>
+    <tr>
+      <td><pre><code>gs_get_hotspot_min_radius_px()</code></pre></td>
+      <td>Raw minor-axis screen radius threshold for pruning splats from hot tiles.</td>
+    </tr>
+    <tr>
+      <td><pre><code>gs_is_hotspot_cull_enabled()</code></pre></td>
+      <td>Whether the hotspot-pressure cull is enabled for this frame.</td>
     </tr>
   </tbody>
 </table>
 
 ### Uniform Blocks
 
-#### Block
-
-```
-RenderParams (params)
-```
+#### RenderParams (params)
 
 <table>
   <thead>
@@ -829,12 +787,12 @@ RenderParams (params)
     <tr>
       <td><pre><code>sh_decode_config</code></pre></td>
       <td><pre><code>vec4</code></pre></td>
-      <td>SH decode configuration: x=dc_logit (1.0=decode DC with sigmoid), yzw=reserved</td>
+      <td>SH decode configuration (reserved for legacy/debug; runtime decode now comes from per-gaussian metadata).</td>
     </tr>
     <tr>
       <td><pre><code>opacity_culling_config</code></pre></td>
       <td><pre><code>vec4</code></pre></td>
-      <td>Opacity-aware culling (FlashGS optimization): x=enabled (1.0=true), y=visibility_threshold (tau), z=reserved, w=reserved When enabled, splat radii are calculated as: r = sqrt(2 * ln(alpha/tau) * lambda_max) This reduces tile-Gaussian pairs by ~94% for low-opacity splats</td>
+      <td>Opacity-aware culling (FlashGS optimization): x=enabled (1.0=true), y=visibility_threshold (tau), z=alpha_clip (optional per-splat hard cull at projection), w=reserved When enabled, splat radii are calculated as: r = sqrt(2 * ln(alpha/tau) * lambda_max) This reduces tile-Gaussian pairs by ~94% for low-opacity splats</td>
     </tr>
     <tr>
       <td><pre><code>lod_blend_config</code></pre></td>
@@ -874,7 +832,7 @@ RenderParams (params)
     <tr>
       <td><pre><code>lighting_mode</code></pre></td>
       <td><pre><code>uvec4</code></pre></td>
-      <td>Lighting mode: x=direct_lighting_mode (0=resolve, 1=per-splat, 2=both), yzw=reserved</td>
+      <td>Lighting mode: x=direct_lighting_mode (0=resolve adds direct, 1=per-splat binning bakes direct), yzw=reserved. The two passes own DISJOINT modes; there is no "both" mode.</td>
     </tr>
     <tr>
       <td><pre><code>light_counts</code></pre></td>
@@ -902,19 +860,27 @@ RenderParams (params)
       <td>wind_time_config: x = time_seconds, y = temporal_frequency, z = spatial_frequency, w = enabled (0/1)</td>
     </tr>
     <tr>
-      <td><pre><code>effector_sphere</code></pre></td>
+      <td><pre><code>effector_meta</code></pre></td>
       <td><pre><code>vec4</code></pre></td>
-      <td>Legacy ProjectSettings fallback sphere effector uniform: <code>effector_sphere</code> packs center xyz in world space and radius in w. This documents the single-global fallback path only; scene-authored <code>SphereEffector3D</code> bindings use a separate capped binding path with per-instance selection and truncation.</td>
+      <td>Bounded sphere effector payload: effector_meta: x = active_count, y = max_supported_count, z = requested_count, w = scene_binding_present</td>
+    </tr>
+    <tr>
+      <td><pre><code>hotspot_cull_config</code></pre></td>
+      <td><pre><code>vec4</code></pre></td>
+      <td>Hotspot-aware pre-raster cull (deterministic, shared by COUNT and EMIT): x = hotspot_pressure_threshold (absolute previous-frame tile count; 0 disables) y = hotspot_min_radius_px (raw minor-axis radius threshold for pruning) z,w = reserved</td>
+    </tr>
+    <tr>
+      <td><pre><code>scene_depth_clip_config</code></pre></td>
+      <td><pre><code>vec4</code></pre></td>
+      <td>Per-splat scene-depth clip (mesh<->splat mid-cloud interleave, compositing slice D): scene_depth_clip_config:  x = enabled (0/1), y = eps_norm (composite depth epsilon normalized into the GS linear-depth space), z/w = the scene projection's depth_linearize mul/add (perspective). scene_depth_clip_config2: x = scene z_near, y = scene z_far (ortho linearize pair), z = is_orthogonal (0/1), w = reserved (explicit pad — this block is byte-hashed on the CPU; never leave it uninitialized).</td>
     </tr>
   </tbody>
 </table>
 
 
-## Shader
+## gs_sh_binning.glsl
 
-```
-modules/gaussian_splatting/shaders/includes/gs_sh_binning.glsl
-```
+`modules/gaussian_splatting/shaders/includes/gs_sh_binning.glsl`
 
 ### Functions
 
@@ -966,11 +932,9 @@ modules/gaussian_splatting/shaders/includes/gs_sh_binning.glsl
 </table>
 
 
-## Shader
+## gs_sort_key.glsl
 
-```
-modules/gaussian_splatting/shaders/includes/gs_sort_key.glsl
-```
+`modules/gaussian_splatting/shaders/includes/gs_sort_key.glsl`
 
 ### Functions
 
@@ -994,11 +958,9 @@ modules/gaussian_splatting/shaders/includes/gs_sort_key.glsl
 </table>
 
 
-## Shader
+## painterly_common.glsl
 
-```
-modules/gaussian_splatting/shaders/includes/painterly_common.glsl
-```
+`modules/gaussian_splatting/shaders/includes/painterly_common.glsl`
 
 ### Functions
 
@@ -1058,11 +1020,9 @@ modules/gaussian_splatting/shaders/includes/painterly_common.glsl
 </table>
 
 
-## Shader
+## painterly_features.glsl
 
-```
-modules/gaussian_splatting/shaders/includes/painterly_features.glsl
-```
+`modules/gaussian_splatting/shaders/includes/painterly_features.glsl`
 
 ### Functions
 
@@ -1096,7 +1056,7 @@ modules/gaussian_splatting/shaders/includes/painterly_features.glsl
     </tr>
     <tr>
       <td><pre><code>rim_light(vec3 color, vec3 normal, vec3 view_dir, float power)</code></pre></td>
-      <td>Add a view-dependent rim response using the supplied tint.</td>
+      <td>Compute a view-dependent rim factor scaled by the power exponent.</td>
     </tr>
     <tr>
       <td><pre><code>gooch_shade_with_dir(vec3 cool_color, vec3 warm_color, vec3 normal, vec3 light_dir)</code></pre></td>
@@ -1119,11 +1079,7 @@ modules/gaussian_splatting/shaders/includes/painterly_features.glsl
 
 ### Uniform Blocks
 
-#### Block
-
-```
-PainterlyPalette (painterly_palette)
-```
+#### PainterlyPalette (painterly_palette)
 
 <table>
   <thead>
@@ -1142,11 +1098,7 @@ PainterlyPalette (painterly_palette)
   </tbody>
 </table>
 
-#### Block
-
-```
-PainterlyBrush (painterly_brush)
-```
+#### PainterlyBrush (painterly_brush)
 
 <table>
   <thead>
@@ -1170,11 +1122,7 @@ PainterlyBrush (painterly_brush)
   </tbody>
 </table>
 
-#### Block
-
-```
-PainterlyLighting (painterly_lighting)
-```
+#### PainterlyLighting (painterly_lighting)
 
 <table>
   <thead>
@@ -1229,11 +1177,9 @@ PainterlyLighting (painterly_lighting)
 </table>
 
 
-## Shader
+## platform_compat.glsl
 
-```
-modules/gaussian_splatting/shaders/includes/platform_compat.glsl
-```
+`modules/gaussian_splatting/shaders/includes/platform_compat.glsl`
 
 ### Functions
 
@@ -1253,11 +1199,9 @@ modules/gaussian_splatting/shaders/includes/platform_compat.glsl
 </table>
 
 
-## Shader
+## quantization_dequant.glsl
 
-```
-modules/gaussian_splatting/shaders/includes/quantization_dequant.glsl
-```
+`modules/gaussian_splatting/shaders/includes/quantization_dequant.glsl`
 
 ### Functions
 
@@ -1337,11 +1281,9 @@ modules/gaussian_splatting/shaders/includes/quantization_dequant.glsl
 </table>
 
 
-## Shader
+## tile_projection_common.glsl
 
-```
-modules/gaussian_splatting/shaders/includes/tile_projection_common.glsl
-```
+`modules/gaussian_splatting/shaders/includes/tile_projection_common.glsl`
 
 ### Functions
 
@@ -1358,8 +1300,8 @@ modules/gaussian_splatting/shaders/includes/tile_projection_common.glsl
       <td>Pack screen-space position into two half-floats.</td>
     </tr>
     <tr>
-      <td><pre><code>gs_pack_depth_opacity_flags(float depth, float opacity, uint flags)</code></pre></td>
-      <td>Pack depth, opacity, and 8 bits of flags into one 32-bit word.</td>
+      <td><pre><code>gs_pack_normal_z_opacity_flags(vec3 normal, float opacity, uint flags)</code></pre></td>
+      <td>Pack the Z normal component (low 16 bits, half) plus opacity (unorm8) and 8 bits of flags (high 16 bits) into one 32-bit word. Replaces the separate gs_pack_normal_zw + depth-word opacity: the high half of the normal-z word was unused, and reclaiming it frees data[1] to carry raw fp32 depth (see header comment).</td>
     </tr>
     <tr>
       <td><pre><code>gs_pack_color_r11g11b10(vec3 color)</code></pre></td>
@@ -1370,20 +1312,16 @@ modules/gaussian_splatting/shaders/includes/tile_projection_common.glsl
       <td>Pack the X/Y normal components into one 32-bit word.</td>
     </tr>
     <tr>
-      <td><pre><code>gs_pack_normal_zw(vec3 normal)</code></pre></td>
-      <td>Pack the Z normal component into the second normal word.</td>
-    </tr>
-    <tr>
       <td><pre><code>gs_pack_conic_y_and_index(float conic_y, uint global_idx)</code></pre></td>
-      <td>Legacy function kept for API compatibility</td>
+      <td>Legacy function kept for API compatibility. IMPORTANT: this packs `global_idx` into the high 16 bits and the rasterizer (tile_raster_common.glsl, `if (stored_global_idx != sorted_idx) continue;`) will silently reject any visible splat whose actual global_idx exceeds UINT16_MAX = 65535. Callers must ensure `enable_packed_stage_data` is only used when the packed-stage payload count is <= 65535. Runtime enforcement is the TileRenderer disable gate (renderer/tile_renderer.cpp ~ line 415), which has the scene payload count; PipelineFeatureSet only carries the shared PACKED_STAGE_MAX_TOTAL_SPLATS = 65535 capability constant. The GS_PACKED_STAGE_DATA define is emitted only after the TileRenderer gate. Do not relax these without redesigning the packed payload to carry a full 32-bit global_idx.</td>
     </tr>
     <tr>
       <td><pre><code>gs_unpack_screen_xy(uint packed)</code></pre></td>
       <td>Unpack the packed screen-space position.</td>
     </tr>
     <tr>
-      <td><pre><code>gs_unpack_depth_opacity_flags(uint packed, out float depth, out float opacity, out uint flags)</code></pre></td>
-      <td>Unpack depth, opacity, and flags from the packed payload word.</td>
+      <td><pre><code>gs_unpack_opacity_flags(uint packed, out float opacity, out uint flags)</code></pre></td>
+      <td>Unpack opacity and flags from the high 16 bits of the normal-z word.</td>
     </tr>
     <tr>
       <td><pre><code>gs_unpack_color_r11g11b10(uint packed)</code></pre></td>
@@ -1405,11 +1343,9 @@ modules/gaussian_splatting/shaders/includes/tile_projection_common.glsl
 </table>
 
 
-## Shader
+## tile_raster_common.glsl
 
-```
-modules/gaussian_splatting/shaders/includes/tile_raster_common.glsl
-```
+`modules/gaussian_splatting/shaders/includes/tile_raster_common.glsl`
 
 ### Functions
 
@@ -1421,6 +1357,10 @@ modules/gaussian_splatting/shaders/includes/tile_raster_common.glsl
     </tr>
   </thead>
   <tbody>
+    <tr>
+      <td><pre><code>gs_scene_clip_limit(vec2 pixel_center)</code></pre></td>
+      <td>Once-per-pixel scene-depth clip limit in the payload's normalized linear-depth space. A splat whose fp32 payload linear_depth exceeds this limit is behind the opaque scene geometry at this pixel and must contribute nothing. Conversion chain (one fetch, NEAREST, size-mapped like the Slice-A composite fix): raw NDC scene depth -> positive view-space z via the SCENE projection's linearize mul/add (perspective) or near/far (ortho) — the exact formulas the composite uses in viewport_blit.glsl — then normalized with the GS raster's near/far pair (params.near_plane/far_plane), because THAT pair defined the payload linear_depth at binning time (tile_binning.glsl). eps_norm is the composite's view-space depth-epsilon contract pre-divided by (far - near). Background bypass: a raw depth equal to the far-plane clear value (0.0 or 1.0 depending on reversed-Z, matching is_scene_background_depth's raw check in the composite) means "no mesh here" -> no clip. This is exact regardless of any near/far mismatch between the GS and scene projections.</td>
+    </tr>
     <tr>
       <td><pre><code>gs_dither_noise(vec2 frag_coord)</code></pre></td>
       <td>Simple hash-based noise for dithering (spatially varying) Uses fragment position to generate pseudo-random value in [-0.5, 0.5]</td>
@@ -1435,7 +1375,7 @@ modules/gaussian_splatting/shaders/includes/tile_raster_common.glsl
     </tr>
     <tr>
       <td><pre><code>gs_read_sorted_value(uint local_index, uint range_start)</code></pre></td>
-      <td>Read a sorted spline index from shared memory or the backing buffer.</td>
+      <td>Read a sorted splat index from shared memory or the backing buffer.</td>
     </tr>
     <tr>
       <td><pre><code>gs_read_projected_gaussian(uint local_index, uint sorted_idx)</code></pre></td>
@@ -1445,15 +1385,21 @@ modules/gaussian_splatting/shaders/includes/tile_raster_common.glsl
       <td><pre><code>gs_get_visible_gaussian_count()</code></pre></td>
       <td>Return the number of visible Gaussians in the current dispatch.</td>
     </tr>
+    <tr>
+      <td><pre><code>gs_get_sorted_value_capacity()</code></pre></td>
+      <td>Return the actual capacity of the sorted overlap-value buffer bound for this raster dispatch. This is the final safety boundary before values[] reads.</td>
+    </tr>
+    <tr>
+      <td><pre><code>gs_get_clamped_overlap_record_count()</code></pre></td>
+      <td>The prefix scan should already clamp indirect_dispatch.element_count to the overlap buffer capacity, but the rasterizer must not trust a GPU-produced count blindly. Clamp again at the consumer so corrupt or stale indirect payloads cannot drive out-of-bounds reads from sorted_values.values[].</td>
+    </tr>
   </tbody>
 </table>
 
 
-## Shader
+## painterly_composite.frag.glsl
 
-```
-modules/gaussian_splatting/shaders/painterly_composite.frag.glsl
-```
+`modules/gaussian_splatting/shaders/painterly_composite.frag.glsl`
 
 ### Functions
 
@@ -1485,11 +1431,9 @@ modules/gaussian_splatting/shaders/painterly_composite.frag.glsl
 </table>
 
 
-## Shader
+## painterly_composite.glsl
 
-```
-modules/gaussian_splatting/shaders/painterly_composite.glsl
-```
+`modules/gaussian_splatting/shaders/painterly_composite.glsl`
 
 ### Functions
 
@@ -1503,7 +1447,7 @@ modules/gaussian_splatting/shaders/painterly_composite.glsl
   <tbody>
     <tr>
       <td><pre><code>main()</code></pre></td>
-      <td>Entry point for the fullscreen composite shader stage.</td>
+      <td>Vertex entry point for the fullscreen composite triangle.</td>
     </tr>
     <tr>
       <td><pre><code>linearize_scene_depth(float raw_depth)</code></pre></td>
@@ -1519,17 +1463,15 @@ modules/gaussian_splatting/shaders/painterly_composite.glsl
     </tr>
     <tr>
       <td><pre><code>main()</code></pre></td>
-      <td>Entry point for the fullscreen composite shader stage.</td>
+      <td>Fragment entry point for the fullscreen composite pass.</td>
     </tr>
   </tbody>
 </table>
 
 
-## Shader
+## painterly_composite.vert.glsl
 
-```
-modules/gaussian_splatting/shaders/painterly_composite.vert.glsl
-```
+`modules/gaussian_splatting/shaders/painterly_composite.vert.glsl`
 
 ### Functions
 
@@ -1549,11 +1491,9 @@ modules/gaussian_splatting/shaders/painterly_composite.vert.glsl
 </table>
 
 
-## Shader
+## painterly_resolve.glsl
 
-```
-modules/gaussian_splatting/shaders/painterly_resolve.glsl
-```
+`modules/gaussian_splatting/shaders/painterly_resolve.glsl`
 
 ### Functions
 
@@ -1593,11 +1533,9 @@ modules/gaussian_splatting/shaders/painterly_resolve.glsl
 </table>
 
 
-## Shader
+## sobel_outline.glsl
 
-```
-modules/gaussian_splatting/shaders/sobel_outline.glsl
-```
+`modules/gaussian_splatting/shaders/sobel_outline.glsl`
 
 ### Functions
 
@@ -1621,11 +1559,9 @@ modules/gaussian_splatting/shaders/sobel_outline.glsl
 </table>
 
 
-## Shader
+## tile_binning.glsl
 
-```
-modules/gaussian_splatting/shaders/tile_binning.glsl
-```
+`modules/gaussian_splatting/shaders/tile_binning.glsl`
 
 ### Functions
 
@@ -1642,20 +1578,16 @@ modules/gaussian_splatting/shaders/tile_binning.glsl
       <td>Return the number of visible Gaussians scheduled for this dispatch.</td>
     </tr>
     <tr>
-      <td><pre><code>gs_pack_sort_key(uint tile_idx, float linear_depth)</code></pre></td>
-      <td>Pack tile index and depth into a global sort key.</td>
+      <td><pre><code>gs_tile_intersects_projected_ellipse(vec2 center, vec3 conic, float sigma2, int tx, int ty)</code></pre></td>
+      <td>Exact convex-quadratic minimum test against a tile rectangle. Returns true if the projected ellipse intersects the tile.</td>
     </tr>
     <tr>
-      <td><pre><code>gs_pack_sort_key(uint tile_idx, float linear_depth)</code></pre></td>
-      <td>Pack tile index and depth into a global sort key.</td>
-    </tr>
-    <tr>
-      <td><pre><code>gs_build_quantized_sh_metadata(uint encoded_total)</code></pre></td>
+      <td><pre><code>gs_build_quantized_sh_metadata(uint encoded_total, bool dc_linear_rgb)</code></pre></td>
       <td>Pack quantized spherical-harmonic metadata for the renderer.</td>
     </tr>
     <tr>
-      <td><pre><code>project_gaussian_2d(Gaussian g, out vec2 screen_pos, out mat2 cov2d, out float linear_depth, out float raw_min_radius)</code></pre></td>
-      <td>Project a Gaussian into screen space and derive its 2D covariance.</td>
+      <td><pre><code>project_gaussian_2d(Gaussian g, out vec2 screen_pos, out mat2 cov2d, out float linear_depth, out float raw_min_radius, out float alpha_rescale)</code></pre></td>
+      <td>Project a Gaussian into screen space and derive its 2D covariance. `alpha_rescale` is the Mip-Splatting α-rescale companion (Yu et al. 2024 §3.3). The additive low-pass term inflates the projected splat; without rescaling alpha by sqrt(det(Σ_raw) / det(Σ_filtered)) the dilation becomes pure fattening, producing a uniform soft halo (matched the symptom on commit adc75e5ca8). Defaults to 1.0 on early-return paths so non-rendering splats are unaffected.</td>
     </tr>
     <tr>
       <td><pre><code>main()</code></pre></td>
@@ -1665,11 +1597,9 @@ modules/gaussian_splatting/shaders/tile_binning.glsl
 </table>
 
 
-## Shader
+## tile_prefix_scan.glsl
 
-```
-modules/gaussian_splatting/shaders/tile_prefix_scan.glsl
-```
+`modules/gaussian_splatting/shaders/tile_prefix_scan.glsl`
 
 ### Functions
 
@@ -1706,11 +1636,7 @@ modules/gaussian_splatting/shaders/tile_prefix_scan.glsl
 
 ### Uniform Blocks
 
-#### Block
-
-```
-PrefixParams (params)
-```
+#### PrefixParams (params)
 
 <table>
   <thead>
@@ -1730,11 +1656,9 @@ PrefixParams (params)
 </table>
 
 
-## Shader
+## tile_rasterizer.glsl
 
-```
-modules/gaussian_splatting/shaders/tile_rasterizer.glsl
-```
+`modules/gaussian_splatting/shaders/tile_rasterizer.glsl`
 
 ### Functions
 
@@ -1758,11 +1682,9 @@ modules/gaussian_splatting/shaders/tile_rasterizer.glsl
 </table>
 
 
-## Shader
+## tile_rasterizer_compute.glsl
 
-```
-modules/gaussian_splatting/shaders/tile_rasterizer_compute.glsl
-```
+`modules/gaussian_splatting/shaders/tile_rasterizer_compute.glsl`
 
 ### Functions
 
@@ -1782,11 +1704,9 @@ modules/gaussian_splatting/shaders/tile_rasterizer_compute.glsl
 </table>
 
 
-## Shader
+## tile_resolve.glsl
 
-```
-modules/gaussian_splatting/shaders/tile_resolve.glsl
-```
+`modules/gaussian_splatting/shaders/tile_resolve.glsl`
 
 ### Functions
 
@@ -1834,11 +1754,9 @@ modules/gaussian_splatting/shaders/tile_resolve.glsl
 </table>
 
 
-## Shader
+## viewport_blit.glsl
 
-```
-modules/gaussian_splatting/shaders/viewport_blit.glsl
-```
+`modules/gaussian_splatting/shaders/viewport_blit.glsl`
 
 ### Functions
 
@@ -1878,11 +1796,9 @@ modules/gaussian_splatting/shaders/viewport_blit.glsl
 </table>
 
 
-## Shader
+## depth_compute.glsl
 
-```
-modules/gaussian_splatting/compute/depth_compute.glsl
-```
+`modules/gaussian_splatting/compute/depth_compute.glsl`
 
 ### Functions
 
@@ -1915,11 +1831,7 @@ modules/gaussian_splatting/compute/depth_compute.glsl
 
 ### Uniform Blocks
 
-#### Block
-
-```
-Params (params)
-```
+#### Params (params)
 
 <table>
   <thead>
@@ -1949,11 +1861,9 @@ Params (params)
 </table>
 
 
-## Shader
+## frustum_cull.glsl
 
-```
-modules/gaussian_splatting/compute/frustum_cull.glsl
-```
+`modules/gaussian_splatting/compute/frustum_cull.glsl`
 
 ### Functions
 
@@ -1981,11 +1891,9 @@ modules/gaussian_splatting/compute/frustum_cull.glsl
 </table>
 
 
-## Shader
+## instance_chunk_dispatch.glsl
 
-```
-modules/gaussian_splatting/compute/instance_chunk_dispatch.glsl
-```
+`modules/gaussian_splatting/compute/instance_chunk_dispatch.glsl`
 
 ### Functions
 
@@ -2006,11 +1914,7 @@ modules/gaussian_splatting/compute/instance_chunk_dispatch.glsl
 
 ### Uniform Blocks
 
-#### Block
-
-```
-Params (params)
-```
+#### Params (params)
 
 <table>
   <thead>
@@ -2035,11 +1939,9 @@ Params (params)
 </table>
 
 
-## Shader
+## instance_count_clamp.glsl
 
-```
-modules/gaussian_splatting/compute/instance_count_clamp.glsl
-```
+`modules/gaussian_splatting/compute/instance_count_clamp.glsl`
 
 ### Functions
 

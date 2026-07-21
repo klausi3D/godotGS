@@ -1,0 +1,201 @@
+/* ==========================================================================
+   godotGS — marketing.css
+   The bespoke home landing (overrides/home.html). Ported from the design
+   system's ui_kits/site/site.css, scoped under .gs-marketing so none of these
+   generic class names leak into documentation pages. Uses the --gs-* tokens
+   from brand.css (adapts to light/dark); the editor product-shot stays dark in
+   both themes, like a real editor screenshot.
+   ========================================================================== */
+
+.gs-landing-main {
+  flex-grow: 1;
+  display: block;
+}
+.gs-marketing {
+  width: 100%;
+  color: var(--gs-text);
+  font-family: var(--gs-font-text);
+  line-height: 1.5;
+  --accent: var(--gs-accent);
+  --accent-hi: var(--gs-accent-hi);
+  --accent-ink: var(--gs-accent-ink);
+  --text: var(--gs-text);
+  --muted: var(--gs-muted);
+  --faint: var(--gs-faint);
+  --line: var(--gs-line);
+  --line2: var(--gs-line-2);
+  --surface: var(--gs-surface);
+  --bg2: var(--gs-bg-alt);
+  --green: var(--gs-success);
+  --amber: var(--gs-amber);
+  --r: 10px;
+  --rlg: 16px;
+}
+.gs-marketing * { box-sizing: border-box; }
+.gs-marketing svg { display: block; }
+.gs-marketing a { color: inherit; text-decoration: none; }
+.gs-marketing .mono { font-family: var(--gs-font-code); color: var(--muted); }
+.gs-marketing .gsm-wrap { max-width: 1200px; margin: 0 auto; padding: 0 28px; }
+
+/* Headlines ride Hanken */
+.gs-marketing h1,
+.gs-marketing h2,
+.gs-marketing h3,
+.gs-marketing h4 { font-family: var(--gs-font-display); margin: 0; }
+
+/* Eyebrow */
+.gs-marketing .gsm-eyebrow {
+  font-family: var(--gs-font-code);
+  font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--accent); display: inline-flex; align-items: center; gap: 9px;
+}
+.gs-marketing .gsm-eyebrow::before { content: ""; width: 16px; height: 1px; background: var(--accent); }
+
+/* Buttons */
+.gs-marketing .gsm-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--gs-font-text); font-weight: 600; font-size: 15px;
+  padding: 11px 18px; border-radius: var(--r); border: 1px solid transparent;
+  cursor: pointer; transition: all 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.gs-marketing .gsm-btn-primary { background: var(--accent); color: var(--accent-ink); }
+.gs-marketing .gsm-btn-primary:hover { background: var(--accent-hi); transform: translateY(-1px); }
+.gs-marketing .gsm-btn-ghost { background: transparent; color: var(--text); border-color: var(--line); }
+.gs-marketing .gsm-btn-ghost:hover { border-color: var(--gs-line-strong); background: color-mix(in srgb, var(--text) 4%, transparent); }
+
+/* ---- HERO ---- */
+.gs-marketing .gsm-hero { position: relative; padding: 72px 0 0; text-align: center; overflow: hidden; }
+.gs-marketing .gsm-hero h1 {
+  font-size: clamp(38px, 5vw, 64px); line-height: 1.04; letter-spacing: -0.03em;
+  font-weight: 700; margin: 22px auto 0; max-width: 16ch;
+}
+.gs-marketing .gsm-hero h1 .g { color: var(--accent); }
+.gs-marketing .gsm-sub { font-size: clamp(16px, 1.5vw, 19px); color: var(--muted); max-width: 56ch; margin: 20px auto 0; line-height: 1.6; }
+.gs-marketing .gsm-cmd {
+  display: inline-flex; align-items: center; gap: 12px; margin: 30px auto 0;
+  padding: 10px 16px; border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--surface); font-family: var(--gs-font-code); font-size: 13.5px; color: var(--text);
+}
+.gs-marketing .gsm-cmd .dollar { color: var(--faint); }
+.gs-marketing .gsm-cta { display: flex; gap: 12px; justify-content: center; margin-top: 26px; flex-wrap: wrap; }
+
+/* ---- EDITOR PRODUCT SHOT (always dark) ---- */
+.gs-marketing .gsm-stage { position: relative; margin-top: 56px; padding-bottom: 72px; }
+.gs-marketing .gsm-glow {
+  position: absolute; left: 50%; top: 20px; transform: translateX(-50%);
+  width: 900px; max-width: 96%; height: 420px;
+  background: radial-gradient(ellipse at center, rgba(84, 169, 236, 0.18), transparent 68%);
+  filter: blur(20px); pointer-events: none;
+}
+.gs-marketing .gsm-editor {
+  position: relative; max-width: 1120px; margin: 0 auto; border: 1px solid var(--line);
+  border-radius: 14px; overflow: hidden; background: #0f1319;
+  box-shadow: 0 40px 100px -30px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.02);
+  text-align: left;
+}
+.gs-marketing .gsm-titlebar { display: flex; align-items: center; gap: 12px; height: 42px; padding: 0 14px; background: #0c1016; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
+.gs-marketing .gsm-tabs { display: flex; gap: 2px; margin-left: 6px; }
+.gs-marketing .gsm-tab { padding: 5px 12px; border-radius: 6px 6px 0 0; font-size: 12px; color: var(--muted); }
+.gs-marketing .gsm-tab.on { background: #151b24; color: var(--text); }
+.gs-marketing .gsm-transport { margin-left: auto; display: flex; gap: 6px; align-items: center; color: var(--faint); }
+.gs-marketing .gsm-rd { margin-left: 14px; font-family: var(--gs-font-code); font-size: 11px; color: var(--faint); border: 1px solid var(--line); border-radius: 5px; padding: 3px 8px; }
+.gs-marketing .gsm-ebody { display: grid; grid-template-columns: 190px 1fr 214px; height: 452px; }
+.gs-marketing .gsm-dock { background: #151b24; font-size: 12px; overflow: hidden; }
+.gs-marketing .gsm-dock.left { border-right: 1px solid var(--line); }
+.gs-marketing .gsm-dock.right { border-left: 1px solid var(--line); }
+.gs-marketing .gsm-dock-h { font-family: var(--gs-font-code); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); padding: 10px 12px 7px; }
+.gs-marketing .gsm-tree { padding: 0 6px; }
+.gs-marketing .gsm-node { display: flex; align-items: center; gap: 7px; padding: 4px 8px; border-radius: 6px; color: var(--muted); white-space: nowrap; }
+.gs-marketing .gsm-node .ic { color: var(--faint); }
+.gs-marketing .gsm-node.sel { background: rgba(84, 169, 236, 0.16); color: var(--text); }
+.gs-marketing .gsm-node.sel .ic { color: var(--accent); }
+.gs-marketing .gsm-node.ind { margin-left: 16px; }
+.gs-marketing .gsm-node.ind2 { margin-left: 32px; }
+.gs-marketing .gsm-viewport { position: relative; background: radial-gradient(120% 120% at 60% 30%, #0f141c 0%, #080a0e 70%); }
+.gs-marketing .gsm-vp-toolbar { position: absolute; top: 10px; left: 10px; display: flex; gap: 5px; z-index: 3; }
+.gs-marketing .gsm-vp-tool { width: 28px; height: 28px; border-radius: 7px; background: rgba(20, 26, 34, 0.8); border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; color: var(--muted); }
+.gs-marketing .gsm-vp-tool.on { color: var(--accent); border-color: rgba(84, 169, 236, 0.4); }
+.gs-marketing .gsm-vp-stats { position: absolute; top: 12px; right: 12px; z-index: 3; font-family: var(--gs-font-code); font-size: 11px; color: var(--muted); text-align: right; line-height: 1.7; background: rgba(8, 10, 14, 0.5); padding: 6px 9px; border-radius: 7px; border: 1px solid var(--line2); }
+.gs-marketing .gsm-vp-stats b { color: var(--green); }
+.gs-marketing .gsm-gizmo { position: absolute; bottom: 14px; left: 14px; z-index: 3; }
+.gs-marketing .gsm-prop { padding: 7px 12px; border-bottom: 1px solid var(--line2); }
+.gs-marketing .gsm-prop .k { color: var(--faint); font-size: 10.5px; font-family: var(--gs-font-code); letter-spacing: 0.03em; }
+.gs-marketing .gsm-prop .v { color: var(--text); font-size: 12.5px; display: flex; justify-content: space-between; align-items: center; margin-top: 3px; }
+.gs-marketing .gsm-prop .v .num { font-family: var(--gs-font-code); color: var(--accent); }
+.gs-marketing .gsm-slider { height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.08); margin-top: 7px; position: relative; }
+.gs-marketing .gsm-slider::after { content: ""; position: absolute; left: 0; top: 0; height: 100%; border-radius: 2px; background: var(--accent); }
+.gs-marketing .gsm-slider.sw62::after { width: 62%; }
+.gs-marketing .gsm-slider.sw40::after { width: 40%; }
+.gs-marketing .gsm-slider.sw78::after { width: 78%; }
+.gs-marketing .gsm-statusbar { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 14px; background: #0c1016; border-top: 1px solid var(--line); font-family: var(--gs-font-code); font-size: 11px; color: var(--faint); }
+.gs-marketing .gsm-statusbar .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+
+/* ---- TRUST STRIP ---- */
+.gs-marketing .gsm-trust { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--bg2); }
+.gs-marketing .gsm-trust-in { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; justify-content: center; padding: 22px 0; }
+.gs-marketing .gsm-trust .lbl { font-family: var(--gs-font-code); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); margin-right: 8px; }
+.gs-marketing .gsm-chip { font-family: var(--gs-font-code); font-size: 12.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 5px 13px; }
+
+/* ---- FEATURES ---- */
+.gs-marketing .gsm-feat { padding: 96px 28px; }
+.gs-marketing .gsm-sec-head { max-width: 640px; }
+.gs-marketing .gsm-sec-head h2 { font-size: clamp(28px, 3.2vw, 40px); letter-spacing: -0.03em; font-weight: 700; line-height: 1.08; margin: 16px 0 0; }
+.gs-marketing .gsm-sec-head p { color: var(--muted); font-size: 17px; margin: 14px 0 0; line-height: 1.6; }
+.gs-marketing .gsm-frow { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 48px; }
+.gs-marketing .gsm-fcard { border: 1px solid var(--line); border-radius: var(--rlg); background: var(--surface); padding: 26px; transition: border-color 0.2s, transform 0.2s; }
+.gs-marketing .gsm-fcard:hover { border-color: var(--gs-line-strong); transform: translateY(-2px); }
+.gs-marketing .gsm-fcard .ic { width: 40px; height: 40px; border-radius: 10px; background: rgba(84, 169, 236, 0.12); display: flex; align-items: center; justify-content: center; color: var(--accent); }
+.gs-marketing .gsm-fcard h3 { font-size: 19px; font-weight: 700; letter-spacing: -0.01em; margin: 16px 0 0; }
+.gs-marketing .gsm-fcard p { color: var(--muted); font-size: 14.5px; margin: 8px 0 0; line-height: 1.6; }
+.gs-marketing .gsm-fcard .meta { font-family: var(--gs-font-code); font-size: 11.5px; color: var(--faint); margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line2); }
+
+/* ---- BENCH ---- */
+.gs-marketing .gsm-bench { background: var(--bg2); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 72px 0; }
+.gs-marketing .gsm-stats { display: flex; flex-wrap: wrap; gap: 56px; margin-top: 30px; }
+.gs-marketing .gsm-stat .n { font-family: var(--gs-font-code); font-size: 52px; font-weight: 500; letter-spacing: -0.02em; line-height: 1; color: var(--text); }
+.gs-marketing .gsm-stat .n .u { font-size: 22px; color: var(--muted); }
+.gs-marketing .gsm-stat .l { font-family: var(--gs-font-code); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); margin-top: 10px; }
+.gs-marketing .gsm-cap { color: var(--faint); font-size: 13px; margin-top: 30px; max-width: 70ch; line-height: 1.6; }
+
+/* ---- QUICKSTART ---- */
+.gs-marketing .gsm-qs { display: grid; grid-template-columns: 1fr 1.15fr; gap: 48px; align-items: center; }
+.gs-marketing .gsm-term { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #080a0e; }
+.gs-marketing .gsm-term-h { display: flex; align-items: center; gap: 7px; padding: 11px 14px; border-bottom: 1px solid var(--line); }
+.gs-marketing .gsm-term-h .d { width: 11px; height: 11px; border-radius: 50%; }
+.gs-marketing .gsm-term-b { padding: 18px; font-family: var(--gs-font-code); font-size: 13px; line-height: 1.9; color: #c6d2e2; overflow-x: auto; }
+.gs-marketing .gsm-term-b .c { color: var(--faint); }
+.gs-marketing .gsm-term-b .p { color: var(--accent); }
+.gs-marketing .gsm-term-b .g { color: var(--green); }
+
+/* ---- CTA ---- */
+.gs-marketing .gsm-ctaband { text-align: center; padding: 100px 0; position: relative; overflow: hidden; }
+.gs-marketing .gsm-ctaband h2 { font-size: clamp(30px, 4vw, 48px); letter-spacing: -0.03em; font-weight: 700; margin: 0 auto; max-width: 18ch; }
+.gs-marketing .gsm-ctaband p { color: var(--muted); font-size: 17px; margin: 16px auto 30px; max-width: 50ch; }
+
+/* ---- FOOTER ---- */
+.gs-marketing .gsm-footer { border-top: 1px solid var(--line); background: var(--bg2); padding: 48px 0 36px; }
+.gs-marketing .gsm-foot-grid { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: 32px; }
+.gs-marketing .gsm-brand { font-family: var(--gs-font-display); font-weight: 700; font-size: 20px; letter-spacing: -0.02em; }
+.gs-marketing .gsm-brand span { color: var(--accent); }
+.gs-marketing .gsm-foot-about { color: var(--faint); font-size: 13.5px; margin: 14px 0 0; max-width: 34ch; line-height: 1.6; }
+.gs-marketing .gsm-foot h4 { font-family: var(--gs-font-code); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); margin: 0 0 14px; }
+.gs-marketing .gsm-foot a { display: block; color: var(--muted); font-size: 14px; margin-bottom: 9px; }
+.gs-marketing .gsm-foot a:hover { color: var(--text); }
+.gs-marketing .gsm-foot-bottom { display: flex; justify-content: space-between; margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--faint); font-size: 12.5px; flex-wrap: wrap; gap: 10px; }
+
+/* ---- RESPONSIVE ---- */
+@media screen and (max-width: 900px) {
+  .gs-marketing .gsm-ebody { grid-template-columns: 1fr; height: auto; }
+  .gs-marketing .gsm-dock { display: none; }
+  .gs-marketing .gsm-viewport { height: 320px; }
+  .gs-marketing .gsm-frow { grid-template-columns: 1fr; }
+  .gs-marketing .gsm-qs { grid-template-columns: 1fr; gap: 28px; }
+  .gs-marketing .gsm-feat { padding: 64px 24px; }
+  .gs-marketing .gsm-stats { gap: 32px 40px; }
+  .gs-marketing .gsm-foot-grid { grid-template-columns: 1fr 1fr; gap: 28px; }
+}
+@media screen and (max-width: 560px) {
+  .gs-marketing .gsm-foot-grid { grid-template-columns: 1fr; }
+  .gs-marketing .gsm-stat .n { font-size: 40px; }
+  .gs-marketing .gsm-cmd { font-size: 12px; max-width: 100%; overflow-x: auto; }
+}
