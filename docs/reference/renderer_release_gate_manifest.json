@@ -193,6 +193,38 @@
         "allow_timeout": false,
         "allow_rid_leaks": false,
         "reference_artifacts": []
+      },
+      {
+        "name": "OutputCompositor",
+        "minimum_test_cases": 3,
+        "allow_skips": false,
+        "allow_timeout": false,
+        "allow_rid_leaks": false,
+        "reference_artifacts": []
+      },
+      {
+        "name": "RendererSceneTree",
+        "minimum_test_cases": 1,
+        "allow_skips": false,
+        "allow_timeout": false,
+        "allow_rid_leaks": false,
+        "reference_artifacts": []
+      },
+      {
+        "name": "WorldSceneTree",
+        "minimum_test_cases": 4,
+        "allow_skips": false,
+        "allow_timeout": false,
+        "allow_rid_leaks": false,
+        "reference_artifacts": []
+      },
+      {
+        "name": "SceneDirectorSceneTree",
+        "minimum_test_cases": 14,
+        "allow_skips": false,
+        "allow_timeout": false,
+        "allow_rid_leaks": false,
+        "reference_artifacts": []
       }
     ],
     "follow_up_hooks": [
