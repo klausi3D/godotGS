@@ -81,7 +81,7 @@ layout(set = 0, binding = 9, std140) uniform Params {
     uint visible_chunk_count;
     uint max_visible_splats;
     uint pad0;
-    uint pad1;
+    uint consume_overflow_flag; // Uses InstanceDepthParamsGPU slot; unused here (see instance_count_clamp.glsl).
     vec4 wind_dir_strength;
     vec4 wind_time_config;
     vec4 effector_meta;

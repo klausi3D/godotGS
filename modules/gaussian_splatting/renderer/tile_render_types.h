@@ -140,7 +140,19 @@ struct TileOverflowStatsSnapshot {
 	uint32_t raster_reject_quadratic = 0;
 	uint32_t raster_reject_lod_opacity = 0;
 	uint32_t raster_reject_blend_alpha = 0;
+	// C4b (G4, "no silent degradation"): resident overlap-record drop flag. Trailing
+	// field, so no existing offset shifts. Mirrors the trailing `uint overflow_drop_signal`
+	// of the OverflowStats SSBO in tile_binning.glsl (binding 3) byte-for-byte. Set to 1 by
+	// the binning EMIT pass on any overlap-record drop; read back every production frame to
+	// raise a one-shot WARN + bump TileDiagnosticsState::overflow_drop_events.
+	uint32_t overflow_drop_signal = 0;
 };
+
+// C4b: anchor the host mirror size so tests/ci/check_gaussian_layout_sync.py can validate
+// this struct against the OverflowStats / OverflowStatisticsBuffer SSBO (binding 3) declared
+// in tile_binning.glsl + the two tile_rasterizer shaders. 22 uint32_t fields, std430-tight.
+static_assert(sizeof(TileOverflowStatsSnapshot) == 88,
+		"TileOverflowStatsSnapshot must match the 88-byte binding-3 OverflowStats SSBO layout");
 
 struct TileSplatAuditSnapshot {
 	bool valid = false;
@@ -330,6 +342,15 @@ struct TileDiagnosticsState {
 	// actually engages (see TileRenderer::_get_effective_sort_key_config). mutable
 	// because that config getter is const, mirroring last_render_stats above.
 	mutable bool sort_key_32bit_engaged = false;
+	// C4b (G4, "no silent degradation"): count of CPU read-INTERVALS in which the tile-binning
+	// EMIT pass dropped at least one overlap record (per-tile capacity or global overlap budget
+	// exhausted). Fed by the always-on STICKY overflow_drop_signal readback
+	// (TileRendererDebugStats::on_overflow_signal_readback); surfaced in the binning debug dict.
+	// Because the signal is sticky (persists until read), this is reliably non-zero whenever any
+	// drop happens -- it is NOT a per-frame count (a read-interval may span several frames); the
+	// WARN_ONCE is the primary signal. mutable because the readback callback fires from a
+	// const-context frame path.
+	mutable uint32_t overflow_drop_events = 0;
 	bool runtime_statistics_enabled = false;
 	Vector<uint32_t> tile_density_snapshot;
 	bool capture_tile_density_snapshot = false;

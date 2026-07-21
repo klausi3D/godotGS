@@ -71,6 +71,10 @@ public:
     void set_instance_pipeline_inputs(const InstancePipelineInputs &p_inputs);
     void clear_instance_pipeline_inputs();
     uint32_t get_last_instance_visible_splat_count() const { return last_instance_visible_splat_count; }
+    // C4b (exit criterion G4, "no silent degradation"): running count of frames in which the
+    // instance-count clamp shader raised its overflow_flag (the visible splat count exceeded
+    // the sort/dispatch capacity and was clamped). Surfaced in the binning debug dict.
+    uint32_t get_instance_count_overflow_events() const { return instance_count_overflow_events; }
     void test_set_last_instance_visible_splat_count(uint32_t p_count, uint32_t p_frame_counter = 0) {
         instance_count_readback_state.pending = false;
         instance_count_readback_state.generation++;
@@ -221,6 +225,24 @@ private:
     uint32_t last_instance_visible_splat_count = 0;
     bool last_instance_visible_splat_count_valid = false;
     uint32_t last_instance_visible_splat_count_frame = 0;
+    // C4b (G4): persistent count of frames whose instance-count clamp raised overflow_flag.
+    // Bumped (once per frame) from both the async readback and the sync bootstrap/recovery path.
+    uint32_t instance_count_overflow_events = 0;
+    // C4b (G4): frame-keyed de-dup for the counter above. A single production frame can be
+    // sampled by BOTH the sync path (which sets last_instance_visible_splat_count_frame) AND
+    // the async callback (accepted at request_frame == that same frame); both funnel their
+    // frame counter through _note_instance_count_overflow(), which counts/WARNs at most once
+    // per distinct frame. `_valid` distinguishes "never counted" from "counted frame 0".
+    uint32_t last_instance_overflow_frame = 0;
+    bool instance_overflow_frame_valid = false;
+    // C4b (G4), Channel B: drives instance_count_clamp.glsl's consume_overflow_flag. The
+    // clamp shader accumulates a STICKY overflow_flag (atomicMax) so a clamp on a frame whose
+    // async readback is skipped (gated on !pending) survives until a reader samples it. This
+    // flag requests the shader to RESET that accumulation on the next run, and is set true
+    // whenever the CPU consumes the sticky flag (a successful async enqueue OR a sync capture),
+    // so each readback interval reports at most once. Starts true so the first clamp overwrites
+    // (never accumulates onto an uninitialized buffer).
+    bool instance_overflow_reset_pending = true;
     String last_compute_error;
 
     // BUF-3 optimization: Store reference to culler instead of copying data.
@@ -259,6 +281,9 @@ private:
     void ensure_remap_resources(RenderingDevice *p_device);
     void ensure_gather_resources(RenderingDevice *p_device);
     bool _publish_sorted_results(const Vector<uint8_t> &p_sorted_index_bytes);
+    // C4b (G4): count + WARN an instance-count overflow at most once per production frame,
+    // regardless of whether the sample came from the sync path or the async callback.
+    void _note_instance_count_overflow(uint32_t p_frame_counter);
 #ifdef TESTS_ENABLED
 public:
 #endif

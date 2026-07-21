@@ -639,7 +639,13 @@ struct alignas(16) InstanceDepthParamsGPU {
     uint32_t visible_chunk_count;
     uint32_t max_visible_splats;
     uint32_t pad0; // Used as dispatch_group_x for instance chunk indirect dispatch.
-    uint32_t pad1;
+    // C4b (G4), Channel B: consume signal for the instance-count clamp's STICKY
+    // overflow_flag. 1 => the CPU sampled the sticky flag on the previous instance
+    // pipeline run, so the clamp shader resets the accumulation this frame; 0 => the
+    // clamp shader accumulates (atomicMax) so a clamp on a frame whose async readback
+    // is skipped (gated on !pending) is not lost. Read only by instance_count_clamp.glsl;
+    // the depth/chunk-dispatch shaders that share this UBO ignore it.
+    uint32_t consume_overflow_flag;
     float wind_dir_strength[4];
     float wind_time_config[4];
     float effector_meta[4];
@@ -659,7 +665,7 @@ static_assert(offsetof(InstanceDepthParamsGPU, view_matrix) == 0, "InstanceDepth
 static_assert(offsetof(InstanceDepthParamsGPU, visible_chunk_count) == 64, "InstanceDepthParamsGPU.visible_chunk_count offset mismatch");
 static_assert(offsetof(InstanceDepthParamsGPU, max_visible_splats) == 68, "InstanceDepthParamsGPU.max_visible_splats offset mismatch");
 static_assert(offsetof(InstanceDepthParamsGPU, pad0) == 72, "InstanceDepthParamsGPU.pad0 offset mismatch");
-static_assert(offsetof(InstanceDepthParamsGPU, pad1) == 76, "InstanceDepthParamsGPU.pad1 offset mismatch");
+static_assert(offsetof(InstanceDepthParamsGPU, consume_overflow_flag) == 76, "InstanceDepthParamsGPU.consume_overflow_flag offset mismatch");
 static_assert(offsetof(InstanceDepthParamsGPU, wind_dir_strength) == 80, "InstanceDepthParamsGPU.wind_dir_strength offset mismatch");
 static_assert(offsetof(InstanceDepthParamsGPU, wind_time_config) == 96, "InstanceDepthParamsGPU.wind_time_config offset mismatch");
 static_assert(offsetof(InstanceDepthParamsGPU, effector_meta) == 112, "InstanceDepthParamsGPU.effector_meta offset mismatch");

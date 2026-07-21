@@ -90,6 +90,8 @@ layout(set = 0, binding = 3, std430) buffer OverflowStatisticsBuffer {
     uint raster_reject_quadratic;     // quadratic > GS_RASTER_ALPHA_REJECT_Q (spatial extent)
     uint raster_reject_lod_opacity;   // base_opacity * lod_blend <= GS_RASTER_ALPHA_THRESHOLD
     uint raster_reject_blend_alpha;   // blend_alpha <= 0 after remaining-alpha multiply
+    uint overflow_drop_signal;        // C4b (G4): trailing drop flag; layout-parity with the
+                                      // 88-byte host mirror + tile_binning.glsl. Not written here.
 } overflow_stats;
 
 layout(set = 0, binding = 4, std430) readonly buffer ProjectionBuffer {
