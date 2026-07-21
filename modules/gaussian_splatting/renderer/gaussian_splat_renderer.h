@@ -1767,7 +1767,16 @@ public:
         return subsystem_state.gpu_culler->get_state().static_chunks;
     }
 
-// Test helper methods (always available to avoid header guard issues with Godot's test framework)
+// Test helper methods. Gated behind TESTS_ENABLED so they are absent from
+// release/shipping builds (#725). The matching definitions already live behind
+// the same guard (see gaussian_splat_renderer.cpp's #ifdef TESTS_ENABLED block
+// and render_output_orchestrator.cpp for test_copy_final_output), and every
+// caller is a tests/ translation unit that is compiled only under `tests=yes`
+// — which is precisely what defines TESTS_ENABLED (modules/gaussian_splatting/SCsub).
+// The former "always available to avoid header guard issues" note was stale:
+// those already-guarded definitions prove the module builds cleanly with these
+// declarations behind the same guard.
+#ifdef TESTS_ENABLED
     void test_override_rendering_device(RenderingDevice *p_device);
     void test_disable_gpu_culler();
     void test_disable_rasterizer();
@@ -1775,6 +1784,7 @@ public:
     void test_force_disable_streaming();
     void test_release_current_streaming_system();
     bool test_has_current_streaming_system() const;
+#endif // TESTS_ENABLED
     bool test_has_output_compositor() const;
     RID test_get_cached_render_depth() const;
     uint32_t test_get_output_blit_variant_count() const;
