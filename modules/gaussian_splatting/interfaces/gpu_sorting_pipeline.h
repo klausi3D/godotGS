@@ -235,6 +235,14 @@ private:
     // per distinct frame. `_valid` distinguishes "never counted" from "counted frame 0".
     uint32_t last_instance_overflow_frame = 0;
     bool instance_overflow_frame_valid = false;
+    // C4b (G4), Channel B: drives instance_count_clamp.glsl's consume_overflow_flag. The
+    // clamp shader accumulates a STICKY overflow_flag (atomicMax) so a clamp on a frame whose
+    // async readback is skipped (gated on !pending) survives until a reader samples it. This
+    // flag requests the shader to RESET that accumulation on the next run, and is set true
+    // whenever the CPU consumes the sticky flag (a successful async enqueue OR a sync capture),
+    // so each readback interval reports at most once. Starts true so the first clamp overwrites
+    // (never accumulates onto an uninitialized buffer).
+    bool instance_overflow_reset_pending = true;
     String last_compute_error;
 
     // BUF-3 optimization: Store reference to culler instead of copying data.

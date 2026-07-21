@@ -1016,6 +1016,10 @@ void GPUSortingPipeline::_reset_instance_count_readback_state(bool p_reset_boots
     instance_count_readback_state.pending = false;
     instance_count_readback_state.generation++;
     instance_count_readback_state.pending_frame_counter = 0;
+    // C4b (G4): a reset implies the sticky overflow_flag's buffer is being (re)created or the
+    // async cadence is being re-armed, so the next clamp must RESET the sticky accumulation
+    // rather than accumulate onto a stale/uninitialized value.
+    instance_overflow_reset_pending = true;
     if (p_reset_bootstrap_attempted) {
         instance_count_readback_state.bootstrap_sync_attempted = false;
     }
@@ -1049,6 +1053,10 @@ bool GPUSortingPipeline::_capture_instance_count_sync(RenderingDevice *p_device,
     if (indirect->overflow_flag != 0u) {
         _note_instance_count_overflow(p_frame_counter);
     }
+    // C4b (G4): this sync read consumed the sticky overflow_flag, so the next clamp must reset
+    // its accumulation (mirrors the async enqueue below). Prevents a later async readback from
+    // re-reporting the same sticky episode.
+    instance_overflow_reset_pending = true;
     if (r_resolved_visible) {
         *r_resolved_visible = MIN(indirect->element_count, p_safe_visible_max);
     }
@@ -1075,6 +1083,11 @@ Error GPUSortingPipeline::_enqueue_instance_count_readback(
         return count_err;
     }
 
+    // C4b (G4): the copy above samples the sticky overflow_flag for this frame's clamp output.
+    // The copy is GPU-ordered before the next frame's clamp, so requesting a reset now (applied
+    // by the next clamp) clears only the value this copy captured -- a clamp on any intervening
+    // skipped frame accumulates into the flag and is caught by the following enqueue.
+    instance_overflow_reset_pending = true;
     gs_device_utils::safe_submit(p_device);
     return OK;
 }
@@ -2424,7 +2437,10 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
     params.visible_chunk_count = MIN(inputs.visible_chunk_count, inputs.max_visible_chunks);
     params.max_visible_splats = max_visible_splats;
     params.pad0 = group_x;
-    params.pad1 = 0u;
+    // C4b (G4), Channel B: request the clamp shader to reset its sticky overflow_flag when the
+    // CPU consumed the prior value (see instance_overflow_reset_pending). Cleared right after the
+    // clamp dispatch below; re-armed by the async enqueue / sync capture that consumes the flag.
+    params.consume_overflow_flag = instance_overflow_reset_pending ? 1u : 0u;
     params.wind_dir_strength[0] = 1.0f;
     params.wind_dir_strength[1] = 0.0f;
     params.wind_dir_strength[2] = 0.0f;
@@ -2761,6 +2777,10 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
     compute_rd->compute_list_dispatch(compute_list, 1, 1, 1);
     compute_rd->compute_list_add_barrier(compute_list);
     compute_rd->compute_list_end();
+    // C4b (G4): the clamp above consumed this frame's consume_overflow_flag request. Clear it so
+    // a subsequent frame accumulates the sticky flag unless it, too, samples the buffer (which
+    // re-arms the reset via the async enqueue / sync capture below).
+    instance_overflow_reset_pending = false;
 
     constexpr uint32_t kInstanceCountAsyncMaxAgeFrames = 8u;
     constexpr uint32_t kInstanceCountAsyncResetAgeFrames = 45u;

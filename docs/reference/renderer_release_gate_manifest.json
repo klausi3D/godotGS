@@ -120,9 +120,9 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 134,
-    "sha256": "0754f641a9f6b1d42d254b7621cb1e4ef8047ef9b134642f1bc79f137a6e5f9b",
-    "sha256_last_changed_by": "#508 rebased onto origin/master (608de4027b0): PR #508 (C4b / G4 overflow-drop telemetry) adds exactly one RequiresGPU case, '[GaussianSplatting][TileRenderer][RequiresGPU] Overflow-record drop raises the C4b telemetry counter' (modules/gaussian_splatting/tests/tile_renderer_regression_test.cpp). This is a pure ADDITION on top of master: test_count 133 -> 134 and the digest moves because one (path\u0000name) pair joined the payload. No existing case was renamed, retagged or removed -- verified by diffing the rebased corpus name set against origin/master, which reports exactly one addition and zero removals. The new case carries neither a deferred TAG (Importer) nor a deferred NAME, so it is NOT deferred and deferred_count stays 3. The pre-rebase branch snapshot (test_count 112, sha256 db114babadcaaba0361a4ea2e8fbc92dafe5acea4623a9d10cc65671a45a9c3a) was computed against the OLD 111-case base and is NOT valid for the rebased union; master's own 133-case digest (03cbe859d0424eac7008bcdc0c203415f929e0cf1782f145a3723bd6eac99c5d) is likewise invalid once the C4b case is added. The sha256 here was RECOMPUTED on the rebased tree via tests/ci/check_renderer_release_gates.py _requires_gpu_snapshot().",
+    "test_count": 135,
+    "sha256": "242450d9e1d6599c16f9b513ebf686bb6ed7322fa91644f2279c8a6ed7732718",
+    "sha256_last_changed_by": "PR #508 (C4b / G4 overflow-drop telemetry) review follow-up: the instance-count overflow_flag stickiness fix adds exactly one RequiresGPU case, '[GaussianSplatting][GPUSortPipeline][RequiresGPU] Instance-count overflow_flag is sticky across a skipped async readback (C4b/G4 miss-fix)' (modules/gaussian_splatting/tests/test_gpu_sorting.h). Pure ADDITION on top of the prior snapshot: test_count 134 -> 135 and the digest moves because one (path, name) pair joined the payload. No existing case was renamed, retagged or removed. The new case carries neither a deferred TAG (Importer) nor a deferred NAME, so it is NOT deferred and deferred_count stays 3. It matches the GpuSorting batch ('*Sort*][RequiresGPU]*') in tests/ci/run_gpu_harness.py, so running_in_a_named_batch 62 -> 63 and unbatched_backlog stays 69. The sha256 was RECOMPUTED via tests/ci/check_renderer_release_gates.py _requires_gpu_snapshot().",
     "deferred_tags_any": [
       "Importer"
     ],
@@ -407,8 +407,8 @@
     "note": "[RequiresGPU] test cases that match NO named batch in tests/ci/run_gpu_harness.py and therefore execute nowhere. These are NOT waivers: unlike deferred_requires_gpu_waivers (each proven failing, with an owner and an expiry) these cases have simply never been run, so nothing is known about them. Discovered while landing #329, which addressed only the 28 [SceneTree] cases; measuring the whole corpus with correct doctest semantics showed the gap is larger. Recorded explicitly so it is counted and cannot grow silently: tests/ci/test_gpu_harness_deferred_contract.py fails on any orphan NOT listed here, so this list is a ratchet that may only shrink.",
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
-      "requires_gpu_total": 134,
-      "running_in_a_named_batch": 62,
+      "requires_gpu_total": 135,
+      "running_in_a_named_batch": 63,
       "deferred_with_waiver": 3,
       "unbatched_backlog": 69
     },

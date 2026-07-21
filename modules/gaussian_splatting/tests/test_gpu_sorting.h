@@ -19,6 +19,15 @@
 #include "tests/test_macros.h"
 #include <algorithm>
 
+// C4b (G4), Channel B miss-fix (PR #508 review): exercise the REAL instance_count_clamp.glsl
+// shader to prove overflow_flag is STICKY across a skipped async readback.
+#include "../compute/compute_infrastructure.h"
+#include "../compute/instance_count_clamp.glsl.gen.h"
+#include "../interfaces/gpu_sorting_pipeline.h"
+#include "../renderer/gaussian_gpu_layout.h"
+#include "../renderer/pipeline_io_contracts.h"
+#include <cstring>
+
 namespace TestGaussianSplatting {
 
 // Helper to create storage buffer from typed data
@@ -551,6 +560,229 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Radix sort 8-bit is correct at all w
 		MESSAGE("Skipping 8-bit radix verification: no workgroup size is supported on this GPU");
 	}
 
+	if (owns_local_device) {
+		memdelete(rd);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// C4b (G4), Channel B: instance-count overflow_flag stickiness (PR #508 review).
+//
+// The async instance-count readback is gated on !pending, so a clamp on a frame whose readback
+// is skipped would be lost if instance_count.overflow_flag were overwritten per-frame: a later
+// sample reads 0 and the clamp is silent. instance_count_clamp.glsl now ACCUMULATES the flag
+// (atomicMax) until the CPU consumes it (consume_overflow_flag). This test drives the REAL
+// shader over the N / N+1 / N+2 sequence from the review and asserts the N+1 overflow is still
+// visible at N+2 -- pre-fix this readback returned 0 (missed); post-fix it returns 1 (caught).
+// ---------------------------------------------------------------------------
+static inline RID gs_compile_instance_count_clamp_shader(RenderingDevice *p_rd) {
+	InstanceCountClampShaderRD clamp_shader_source;
+	Vector<String> versions;
+	versions.push_back("");
+	clamp_shader_source.initialize(versions);
+
+	RID version = clamp_shader_source.version_create();
+	if (!version.is_valid()) {
+		return RID();
+	}
+	RS::ShaderNativeSourceCode native = clamp_shader_source.version_get_native_source_code(version);
+	clamp_shader_source.version_free(version);
+	if (native.versions.is_empty() || native.versions[0].stages.is_empty()) {
+		return RID();
+	}
+	String compute_source;
+	for (int i = 0; i < native.versions[0].stages.size(); i++) {
+		if (native.versions[0].stages[i].name == "compute") {
+			compute_source = native.versions[0].stages[i].code;
+			break;
+		}
+	}
+	if (compute_source.is_empty()) {
+		return RID();
+	}
+	RID shader;
+	GaussianSplatting::ComputeInfrastructure::StageResult result =
+			GaussianSplatting::ComputeInfrastructure::compile_compute_shader_from_source(
+					p_rd, "Test.InstanceCountClamp", compute_source, "TestInstanceCountClamp", shader);
+	if (!result.ok()) {
+		return RID();
+	}
+	return shader;
+}
+
+TEST_CASE("[GaussianSplatting][GPUSortPipeline][RequiresGPU] Instance-count overflow_flag is sticky across a skipped async readback (C4b/G4 miss-fix)") {
+	// Prefer the harness/global device (the --gs-gpu-test runner initializes one and exposes it
+	// via RenderingDevice::get_singleton() with no RenderingServer); fall back to a local device.
+	RenderingDevice *rd = RenderingDevice::get_singleton();
+	bool owns_local_device = false;
+	if (rd == nullptr) {
+		if (RenderingServer *rs = RenderingServer::get_singleton()) {
+			rd = rs->create_local_rendering_device();
+			owns_local_device = true;
+		}
+	}
+	if (rd == nullptr) {
+		MESSAGE("Skipping C4b sticky overflow test - no RenderingDevice available");
+		return;
+	}
+
+	RID shader = gs_compile_instance_count_clamp_shader(rd);
+	if (!shader.is_valid()) {
+		if (owns_local_device) {
+			memdelete(rd);
+		}
+		FAIL("Failed to compile instance_count_clamp shader");
+		return;
+	}
+	RID pipeline = rd->compute_pipeline_create(shader);
+	if (!pipeline.is_valid()) {
+		rd->free(shader);
+		if (owns_local_device) {
+			memdelete(rd);
+		}
+		FAIL("Failed to create instance_count_clamp pipeline");
+		return;
+	}
+
+	// binding 0: CounterBuffer { visible_splat_count, overflowed_splats }
+	Vector<uint8_t> counter_init;
+	counter_init.resize(2 * sizeof(uint32_t));
+	counter_init.fill(0);
+	RID counter_buffer = rd->storage_buffer_create(counter_init.size(), counter_init);
+
+	// bindings 1 (indirect) and 3 (instance_count): IndirectDispatchLayout, zero-initialized to
+	// mirror the production zero-init (so the sticky accumulate never reads uninitialized memory).
+	Vector<uint8_t> layout_init;
+	layout_init.resize(sizeof(GaussianSplatting::IndirectDispatchLayout));
+	layout_init.fill(0);
+	RID indirect_buffer = rd->storage_buffer_create(layout_init.size(), layout_init);
+	RID instance_count_buffer = rd->storage_buffer_create(layout_init.size(), layout_init);
+
+	// binding 2: Params UBO (full InstanceDepthParamsGPU, as bound in production).
+	Vector<uint8_t> params_init;
+	params_init.resize(sizeof(InstanceDepthParamsGPU));
+	params_init.fill(0);
+	RID params_buffer = rd->uniform_buffer_create(params_init.size(), params_init);
+
+	Vector<RD::Uniform> uniforms;
+	{
+		RD::Uniform u;
+		u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+		u.binding = 0;
+		u.append_id(counter_buffer);
+		uniforms.push_back(u);
+	}
+	{
+		RD::Uniform u;
+		u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+		u.binding = 1;
+		u.append_id(indirect_buffer);
+		uniforms.push_back(u);
+	}
+	{
+		RD::Uniform u;
+		u.uniform_type = RD::UNIFORM_TYPE_UNIFORM_BUFFER;
+		u.binding = 2;
+		u.append_id(params_buffer);
+		uniforms.push_back(u);
+	}
+	{
+		RD::Uniform u;
+		u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+		u.binding = 3;
+		u.append_id(instance_count_buffer);
+		uniforms.push_back(u);
+	}
+	RID uniform_set = rd->uniform_set_create(uniforms, shader, 0);
+	if (!uniform_set.is_valid()) {
+		rd->free(params_buffer);
+		rd->free(instance_count_buffer);
+		rd->free(indirect_buffer);
+		rd->free(counter_buffer);
+		rd->free(pipeline);
+		rd->free(shader);
+		if (owns_local_device) {
+			memdelete(rd);
+		}
+		FAIL("Failed to create instance_count_clamp uniform set");
+		return;
+	}
+
+	const uint32_t kMaxVisible = 64u;
+
+	// Runs one clamp "frame": sets the visible count and consume signal, dispatches the real
+	// shader, and reads back the sticky instance_count.overflow_flag.
+	auto run_clamp_frame = [&](uint32_t p_raw_count, uint32_t p_consume) -> uint32_t {
+		uint32_t counter_vals[2] = { p_raw_count, 0u };
+		rd->buffer_update(counter_buffer, 0, sizeof(counter_vals), counter_vals);
+		rd->buffer_update(params_buffer,
+				(uint32_t)offsetof(InstanceDepthParamsGPU, max_visible_splats),
+				sizeof(uint32_t), &kMaxVisible);
+		rd->buffer_update(params_buffer,
+				(uint32_t)offsetof(InstanceDepthParamsGPU, consume_overflow_flag),
+				sizeof(uint32_t), &p_consume);
+
+		int64_t compute_list = rd->compute_list_begin();
+		rd->compute_list_bind_compute_pipeline(compute_list, pipeline);
+		rd->compute_list_bind_uniform_set(compute_list, uniform_set, 0);
+		rd->compute_list_dispatch(compute_list, 1, 1, 1);
+		rd->compute_list_end();
+		// buffer_get_data() below calls _flush_and_stall_for_all_frames(), which submits and
+		// waits for the recorded buffer_update + dispatch, so no explicit submit()/sync() is
+		// needed (and none is safe on the harness's primary device).
+		Vector<uint8_t> data = rd->buffer_get_data(instance_count_buffer,
+				(uint32_t)offsetof(GaussianSplatting::IndirectDispatchLayout, overflow_flag),
+				sizeof(uint32_t));
+		uint32_t flag = 0u;
+		if (data.size() >= (int)sizeof(uint32_t)) {
+			std::memcpy(&flag, data.ptr(), sizeof(uint32_t));
+		}
+		return flag;
+	};
+
+	// Frame N: an async readback is ENQUEUED this frame (so the next frame's clamp gets
+	// consume=1). No overflow (raw 32 <= max 64). The sticky flag reads 0.
+	uint32_t flag_N = run_clamp_frame(32u, 1u);
+	CHECK(flag_N == 0u);
+
+	// Frame N+1: the ONLY frame that clamps (raw 4096 > max 64). consume=1 because frame N was
+	// enqueued. The readback for this frame is SKIPPED (a prior readback is still pending), so
+	// nothing consumes the flag afterwards. The clamp raises the flag to 1.
+	uint32_t flag_Np1 = run_clamp_frame(4096u, 1u);
+	CHECK(flag_Np1 == 1u);
+
+	// Frame N+2: no overflow (raw 32 <= max 64). consume=0 because frame N+1 was NOT enqueued,
+	// so the shader ACCUMULATES rather than resets. The N+2 async readback samples the buffer:
+	//   * post-fix (sticky atomicMax): the flag is STILL 1 -> the N+1 clamp is CAUGHT.
+	//   * pre-fix (per-frame overwrite): the flag would be 0 -> the N+1 clamp is MISSED.
+	uint32_t flag_Np2 = run_clamp_frame(32u, 0u);
+	CHECK(flag_Np2 == 1u); // discriminating assertion: 1 post-fix, 0 pre-fix.
+
+	// End-to-end: feed the N+2 sample into the production CPU readback path and confirm it bumps
+	// the persistent overflow-event counter (0 -> 1). Pre-fix the payload carries 0 and the
+	// counter stays 0 (the silent miss the review flagged).
+	Ref<GPUSortingPipeline> cpu_pipeline;
+	cpu_pipeline.instantiate();
+	if (cpu_pipeline.is_valid()) {
+		CHECK(cpu_pipeline->get_instance_count_overflow_events() == 0u);
+		auto &count_state = cpu_pipeline->_test_instance_count_readback_state();
+		count_state.pending = true;
+		count_state.generation = 3;
+		count_state.pending_frame_counter = 202;
+		cpu_pipeline->_test_set_last_instance_visible_splat_count_state(0, false, 0);
+		Vector<uint8_t> full_sample = rd->buffer_get_data(instance_count_buffer, 0,
+				sizeof(GaussianSplatting::IndirectDispatchLayout));
+		cpu_pipeline->_on_instance_count_readback(full_sample, 3);
+		CHECK(cpu_pipeline->get_instance_count_overflow_events() == 1u);
+	}
+
+	rd->free(uniform_set);
+	rd->free(params_buffer);
+	rd->free(instance_count_buffer);
+	rd->free(indirect_buffer);
+	rd->free(counter_buffer);
+	rd->free(pipeline);
+	rd->free(shader);
 	if (owns_local_device) {
 		memdelete(rd);
 	}

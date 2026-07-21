@@ -18,7 +18,7 @@ layout(set = 0, binding = 2, std140) uniform Params {
     uint max_visible_chunks; // Uses InstanceDepthParamsGPU.visible_chunk_count slot.
     uint max_visible_splats;
     uint dispatch_group_x; // Uses InstanceDepthParamsGPU.pad0 slot.
-    uint pad1;
+    uint consume_overflow_flag; // Uses InstanceDepthParamsGPU slot; unused here (see instance_count_clamp.glsl).
 } params;
 
 // Build indirect dispatch counts for chunk-level processing.

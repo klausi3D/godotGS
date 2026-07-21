@@ -912,8 +912,14 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 	buffers.indirect_count_buffer = resource_state.instance_indirect_count_buffer;
 
 	if (!resource_state.instance_count_buffer.is_valid()) {
+		// Zero-init: the instance-count clamp accumulates a STICKY overflow_flag
+		// (C4b/G4, Channel B), so the buffer must start clean and never accumulate
+		// onto uninitialized memory.
+		Vector<uint8_t> instance_count_init;
+		instance_count_init.resize(sizeof(GaussianSplatting::IndirectDispatchLayout));
+		instance_count_init.fill(0);
 		resource_state.instance_count_buffer = rd->storage_buffer_create(
-				sizeof(GaussianSplatting::IndirectDispatchLayout));
+				instance_count_init.size(), instance_count_init);
 		if (!resource_state.instance_count_buffer.is_valid()) {
 			if (r_reason) {
 				*r_reason = "resident_instance_count_buffer_failed";

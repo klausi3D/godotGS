@@ -1898,8 +1898,14 @@ bool RenderStreamingOrchestrator::render_streaming_frame(RenderDataRD *p_render_
 		}
 		if (rd) {
 			if (!resource_state_mut.instance_count_buffer.is_valid()) {
+				// Zero-init: the instance-count clamp accumulates a STICKY overflow_flag
+				// (C4b/G4, Channel B), so the buffer must start clean and never accumulate
+				// onto uninitialized memory.
+				Vector<uint8_t> instance_count_init;
+				instance_count_init.resize(sizeof(GaussianSplatting::IndirectDispatchLayout));
+				instance_count_init.fill(0);
 				resource_state_mut.instance_count_buffer =
-						rd->storage_buffer_create(sizeof(GaussianSplatting::IndirectDispatchLayout));
+						rd->storage_buffer_create(instance_count_init.size(), instance_count_init);
 				if (resource_state_mut.instance_count_buffer.is_valid()) {
 					rd->set_resource_name(resource_state_mut.instance_count_buffer, "GS_InstanceCount");
 					renderer->track_resource_owner(resource_state_mut.instance_count_buffer, rd);
