@@ -809,14 +809,10 @@ def run_self_test() -> int:
     # #733: a nested-paren argument (get_shared_renderer(get_world())) must not be
     # missed -- a miss is an unflagged #628 owning Ref, not a benign false positive.
     auto_ref_nested_call = (
-        "void GaussianSplatSceneDirector::clear_world_for_scenario(const RID &p_scenario) {
-"
-        "	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
-"
-        "	auto shared = get_shared_renderer(get_world_for(p_scenario));
-"
-        "}
-"
+        "void GaussianSplatSceneDirector::clear_world_for_scenario(const RID &p_scenario) {\n"
+        "\tGaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);\n"
+        "\tauto shared = get_shared_renderer(get_world_for(p_scenario));\n"
+        "}\n"
     )
     expect(
         "a get_shared_renderer() call with a nested-paren argument must be caught",
