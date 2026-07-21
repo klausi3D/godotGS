@@ -148,9 +148,9 @@ static float _encode_u32_as_float_bits(uint32_t p_value) {
 	return encoded;
 }
 
-GaussianSplatRenderer::WorldSubmissionContract GaussianSplatSceneDirector::_build_world_submission_contract(
+GaussianSplatRenderer::WorldSubmissionContract GaussianSplatSceneDirector::SubmissionStore::build_contract(
 		const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_renderer_state,
-		const SharedWorld::WorldSubmissionRecord &p_record) {
+		const WorldSubmissionRecord &p_record) {
 	GaussianSplatRenderer::WorldSubmissionContract contract;
 	contract.gaussian_data = p_record.gaussian_data;
 	contract.payload_source = p_record.payload_source;
@@ -448,11 +448,11 @@ GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_get_or_cre
 		if (_is_scene_director_log_enabled()) {
 			GS_LOG_RENDERER_DEBUG("[SceneDirector] Created shared renderer (deferred initialization)");
 		}
-		if (entry->world_submission.active) {
+		if (entry->submission_store.is_active()) {
 			const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot renderer_state =
 					entry->renderer->snapshot_world_submission_runtime_state();
-			if (!entry->world_submission.renderer_restore_state.valid) {
-				entry->world_submission.renderer_restore_state = renderer_state;
+			if (!entry->submission_store.get_record().renderer_restore_state.valid) {
+				entry->submission_store.mutable_record().renderer_restore_state = renderer_state;
 			}
 			// #611: every caller of this function holds world_mutex, and the apply
 			// below reaches a blocking render-thread dispatch. Its result was always
@@ -462,14 +462,14 @@ GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_get_or_cre
 			// prune of this world in the meantime.
 			if (r_deferred_work) {
 				r_deferred_work->queue_apply(entry->renderer,
-						_build_world_submission_contract(entry->world_submission.renderer_restore_state,
-								entry->world_submission));
+						SubmissionStore::build_contract(entry->submission_store.get_record().renderer_restore_state,
+								entry->submission_store.get_record()));
 			} else {
 				// No queue supplied: keep the historical inline behaviour rather than
 				// silently skipping the apply. The boundary check inside will report
 				// the inversion.
-				_apply_world_submission_to_renderer(*entry, entry->world_submission,
-						entry->world_submission.renderer_restore_state);
+				_apply_world_submission_to_renderer(*entry, entry->submission_store.get_record(),
+						entry->submission_store.get_record().renderer_restore_state);
 			}
 		}
 	}
@@ -617,7 +617,7 @@ GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_find_world
 		return nullptr;
 	}
 	for (KeyValue<RID, SharedWorld> &E : worlds) {
-		if (E.value.world_submission.active && E.value.world_submission.owner_id == p_owner_id) {
+		if (E.value.submission_store.is_active() && E.value.submission_store.owner_id() == p_owner_id) {
 			return &E.value;
 		}
 	}
@@ -629,7 +629,7 @@ const GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_find
 		return nullptr;
 	}
 	for (const KeyValue<RID, SharedWorld> &E : worlds) {
-		if (E.value.world_submission.active && E.value.world_submission.owner_id == p_owner_id) {
+		if (E.value.submission_store.is_active() && E.value.submission_store.owner_id() == p_owner_id) {
 			return &E.value;
 		}
 	}
@@ -754,7 +754,7 @@ bool GaussianSplatSceneDirector::_is_world_submission_owner_live(ObjectID p_owne
 	return ObjectDB::get_instance(p_owner_id) != nullptr;
 }
 
-void GaussianSplatSceneDirector::_store_world_submission_record(SharedWorld::WorldSubmissionRecord &r_record,
+void GaussianSplatSceneDirector::SubmissionStore::store_submission(WorldSubmissionRecord &r_record,
 		const WorldSubmission &p_submission) {
 	r_record.owner_id = p_submission.owner_id;
 	r_record.gaussian_data = p_submission.gaussian_data;
@@ -769,8 +769,8 @@ void GaussianSplatSceneDirector::_store_world_submission_record(SharedWorld::Wor
 	r_record.active = true;
 }
 
-bool GaussianSplatSceneDirector::_world_submission_record_has_renderable_payload(
-		const SharedWorld::WorldSubmissionRecord &p_record) {
+bool GaussianSplatSceneDirector::SubmissionStore::record_has_renderable_payload(
+		const WorldSubmissionRecord &p_record) {
 	const bool has_resident_data = p_record.gaussian_data.is_valid() &&
 			p_record.gaussian_data->get_count() > 0;
 	const bool has_file_backed_payload = p_record.payload_source.is_valid() &&
@@ -780,7 +780,7 @@ bool GaussianSplatSceneDirector::_world_submission_record_has_renderable_payload
 }
 
 void GaussianSplatSceneDirector::_copy_world_submission_record(const SharedWorld &p_world,
-		const SharedWorld::WorldSubmissionRecord &p_record, WorldSubmission *r_submission) {
+		const SubmissionStore::WorldSubmissionRecord &p_record, WorldSubmission *r_submission) {
 	ERR_FAIL_NULL(r_submission);
 
 	r_submission->owner_id = p_record.owner_id;
@@ -819,7 +819,7 @@ void GaussianSplatSceneDirector::_restore_world_submission_renderer(SharedWorld 
 }
 
 bool GaussianSplatSceneDirector::_apply_world_submission_to_renderer(SharedWorld &p_world,
-		const SharedWorld::WorldSubmissionRecord &p_record,
+		const SubmissionStore::WorldSubmissionRecord &p_record,
 		const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_renderer_state) {
 	if (!p_record.active || !p_world.renderer.is_valid()) {
 		return true;
@@ -831,7 +831,7 @@ bool GaussianSplatSceneDirector::_apply_world_submission_to_renderer(SharedWorld
 	GaussianSplatRenderer *renderer = p_world.renderer.ptr();
 	ERR_FAIL_NULL_V(renderer, false);
 	const GaussianSplatRenderer::WorldSubmissionContract contract =
-			_build_world_submission_contract(p_renderer_state, p_record);
+			SubmissionStore::build_contract(p_renderer_state, p_record);
 	const Error err = renderer->apply_world_submission_contract(contract);
 	if (err != OK) {
 		GS_LOG_RENDERER_ERROR(vformat("[GaussianSplatSceneDirector] Failed to apply world submission contract (err=%d).", err));
@@ -892,7 +892,7 @@ bool GaussianSplatSceneDirector::_world_has_no_sphere_effectors(const SharedWorl
 }
 
 bool GaussianSplatSceneDirector::_world_submission_idle(const SharedWorld &p_world) const {
-	return !p_world.world_submission.active;
+	return !p_world.submission_store.is_active();
 }
 
 bool GaussianSplatSceneDirector::_world_renderer_unshared(const SharedWorld &p_world) const {
@@ -1614,8 +1614,8 @@ void GaussianSplatSceneDirector::build_instance_buffer_for_renderer(const Gaussi
 	// instance referencing the primary asset (id=0).  This replaces the synthetic
 	// fallback shim that render_streaming_orchestrator previously injected.
 	if (world->instance_store.is_empty()) {
-		if (world->world_submission.active &&
-				_world_submission_record_has_renderable_payload(world->world_submission)) {
+		if (world->submission_store.is_active() &&
+				SubmissionStore::record_has_renderable_payload(world->submission_store.get_record())) {
 			InstanceDataGPU entry = {};
 			entry.rotation[3] = 1.0f;
 			entry.inv_rotation[3] = 1.0f;
@@ -1833,8 +1833,8 @@ void GaussianSplatSceneDirector::build_instance_grading_buffer_for_renderer(cons
 	// build_instance_buffer_for_renderer so the shader always has a 1-row
 	// grading buffer indexable at splat_ref.instance_id == 0.
 	if (world->instance_store.is_empty()) {
-		if (world->world_submission.active &&
-				_world_submission_record_has_renderable_payload(world->world_submission)) {
+		if (world->submission_store.is_active() &&
+				SubmissionStore::record_has_renderable_payload(world->submission_store.get_record())) {
 			InstanceGradingGPU entry = {};
 			GaussianSplatSceneDirector::fill_instance_grading_entry(renderer_default, entry);
 			out.push_back(entry);
@@ -2273,7 +2273,7 @@ bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &
 	// into `worlds` survives the unlocked gap (the world may be pruned, and an
 	// insert may rehash the map), which is why phase 3 re-looks-up by scenario RID.
 	Ref<GaussianSplatRenderer> target_renderer;
-	SharedWorld::WorldSubmissionRecord candidate_record;
+	SubmissionStore::WorldSubmissionRecord candidate_record;
 	GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot target_previous_renderer_state;
 	GaussianSplatRenderer::WorldSubmissionContract contract;
 	bool needs_apply = false;
@@ -2286,10 +2286,10 @@ bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &
 			return false;
 		}
 
-		const SharedWorld::WorldSubmissionRecord target_previous_record = world->world_submission;
+		const SubmissionStore::WorldSubmissionRecord target_previous_record = world->submission_store.get_record();
 		const bool same_owner = target_previous_record.active && target_previous_record.owner_id == p_submission.owner_id;
 		if (target_previous_record.active && !same_owner) {
-			if (_is_world_submission_owner_live(world->world_submission.owner_id)) {
+			if (_is_world_submission_owner_live(world->submission_store.owner_id())) {
 				// Arbitration reject. No renderer mutation has happened, so there is
 				// nothing to roll back — and the apply that
 				// _get_or_create_world_for_scenario may have queued is still the
@@ -2302,7 +2302,7 @@ bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &
 		target_previous_renderer_state = world->renderer.is_valid()
 				? world->renderer->snapshot_world_submission_runtime_state()
 				: GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot();
-		_store_world_submission_record(candidate_record, p_submission);
+		SubmissionStore::store_submission(candidate_record, p_submission);
 		candidate_record.renderer_restore_state = target_previous_record.active
 				? (target_previous_record.renderer_restore_state.valid
 						? target_previous_record.renderer_restore_state
@@ -2316,7 +2316,7 @@ bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &
 			// world is pruned in the gap. See the prune retry at the end of this
 			// function for the reference-count consequence of holding it.
 			target_renderer = world->renderer;
-			contract = _build_world_submission_contract(candidate_record.renderer_restore_state, candidate_record);
+			contract = SubmissionStore::build_contract(candidate_record.renderer_restore_state, candidate_record);
 			needs_apply = true;
 		}
 	}
@@ -2365,7 +2365,7 @@ bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &
 		//
 		// SCOPED TO `needs_apply` DELIBERATELY. When phase 2 dispatched nothing
 		// (the world had no renderer, the only way needs_apply is false — see
-		// _store_world_submission_record, which always sets active = true), there is
+		// SubmissionStore::store_submission, which always sets active = true), there is
 		// no mutation for a renderer swap to invalidate, and the commit is pure
 		// bookkeeping. Checking identity anyway would reject whenever a renderer
 		// merely *appeared* in the gap, and a rejection is not a retry: it reads to
@@ -2382,7 +2382,7 @@ bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &
 		bool slot_still_available = false;
 		if (world_still_valid) {
 			// R3: re-run phase 1's arbitration predicate against the CURRENT record.
-			const SharedWorld::WorldSubmissionRecord &current = world->world_submission;
+			const SubmissionStore::WorldSubmissionRecord &current = world->submission_store.get_record();
 			const bool same_owner = current.active && current.owner_id == p_submission.owner_id;
 			slot_still_available = !current.active || same_owner ||
 					!_is_world_submission_owner_live(current.owner_id);
@@ -2411,11 +2411,11 @@ bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &
 				// Result-discarded restore, so it fits the deferral pattern exactly and
 				// goes on the queue instead of dispatching under the lock.
 				deferred_renderer_work.queue_restore(previous_world->renderer,
-						previous_world->world_submission.renderer_restore_state);
-				previous_world->world_submission = SharedWorld::WorldSubmissionRecord();
+						previous_world->submission_store.get_record().renderer_restore_state);
+				previous_world->submission_store.reset();
 			}
 
-			world->world_submission = candidate_record;
+			world->submission_store.mutable_record() = candidate_record;
 			committed = true;
 		} else {
 			// Rollback + reject. Queued rather than dispatched inline, because a
@@ -2497,8 +2497,8 @@ void GaussianSplatSceneDirector::release_world_submission(ObjectID p_owner_id) {
 	}
 	const RID scenario = world->scenario;
 	const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot restore_state =
-			world->world_submission.renderer_restore_state;
-	world->world_submission = SharedWorld::WorldSubmissionRecord();
+			world->submission_store.get_record().renderer_restore_state;
+	world->submission_store.reset();
 	const uint32_t released_before = deferred_renderer_release.size();
 	_prune_world_if_unused(scenario, deferred_renderer_release);
 	// #611: capture the renderer for the deferred restore only AFTER the prune
@@ -2584,7 +2584,7 @@ void GaussianSplatSceneDirector::teardown_world_for_scenario(const RID &p_scenar
 		// last owner and is released only after world_mutex is dropped, below.
 		entry->instance_store.clear();
 		entry->sphere_effector_store.clear();
-		entry->world_submission = SharedWorld::WorldSubmissionRecord();
+		entry->submission_store.reset();
 		deferred_renderer_release = std::move(entry->renderer);
 
 		// Erase the map entry -- last reference holder for everything above.
@@ -2637,11 +2637,11 @@ bool GaussianSplatSceneDirector::get_world_submission(ObjectID p_owner_id, World
 
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	const SharedWorld *world = _find_world_for_world_submission(p_owner_id);
-	if (!world || !world->world_submission.active) {
+	if (!world || !world->submission_store.is_active()) {
 		return false;
 	}
 
-	_copy_world_submission_record(*world, world->world_submission, r_submission);
+	_copy_world_submission_record(*world, world->submission_store.get_record(), r_submission);
 	return true;
 }
 
@@ -2650,22 +2650,22 @@ bool GaussianSplatSceneDirector::get_world_submission_for_scenario(const RID &p_
 
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	const SharedWorld *world = worlds.getptr(p_scenario);
-	if (!world || !world->world_submission.active) {
+	if (!world || !world->submission_store.is_active()) {
 		return false;
 	}
 
-	_copy_world_submission_record(*world, world->world_submission, r_submission);
+	_copy_world_submission_record(*world, world->submission_store.get_record(), r_submission);
 	return true;
 }
 
 bool GaussianSplatSceneDirector::has_world_submission_for_renderer(const GaussianSplatRenderer *p_renderer) const {
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	const SharedWorld *world = _find_world_for_renderer(p_renderer);
-	if (!world || !world->world_submission.active) {
+	if (!world || !world->submission_store.is_active()) {
 		return false;
 	}
 
-	return _world_submission_record_has_renderable_payload(world->world_submission);
+	return SubmissionStore::record_has_renderable_payload(world->submission_store.get_record());
 }
 
 bool GaussianSplatSceneDirector::get_submission_residency_hint_for_renderer(const GaussianSplatRenderer *p_renderer,
@@ -2675,10 +2675,10 @@ bool GaussianSplatSceneDirector::get_submission_residency_hint_for_renderer(cons
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	if (const SharedWorld *world = _find_world_for_renderer(p_renderer)) {
 		const bool world_submission_has_renderable_data =
-				_world_submission_record_has_renderable_payload(world->world_submission);
-		if (world->world_submission.active && world_submission_has_renderable_data &&
-				world->world_submission.has_desired_residency_hint) {
-			*r_hint = world->world_submission.desired_residency_hint;
+				SubmissionStore::record_has_renderable_payload(world->submission_store.get_record());
+		if (world->submission_store.is_active() && world_submission_has_renderable_data &&
+				world->submission_store.get_record().has_desired_residency_hint) {
+			*r_hint = world->submission_store.get_record().desired_residency_hint;
 			if (r_source) {
 				*r_source = "world_submission";
 			}
@@ -2724,7 +2724,7 @@ GaussianSplatSceneDirector::SubmissionCounts GaussianSplatSceneDirector::get_sub
 	SubmissionCounts counts;
 	for (const KeyValue<RID, SharedWorld> &E : worlds) {
 		counts.instance_submissions += E.value.instance_store.instance_count();
-		if (E.value.world_submission.active) {
+		if (E.value.submission_store.is_active()) {
 			counts.world_submissions++;
 		}
 	}

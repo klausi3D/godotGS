@@ -654,25 +654,80 @@ private:
         uint64_t sphere_effector_registration_serial = 0;
     };
 
+    // #610 S5: SubmissionStore owns the world-submission record — the active
+    // contract data a GaussianSplatWorld3D installs on a SharedWorld — together
+    // with the PURE functions that build a contract from it. It is DATA + pure
+    // construction ONLY.
+    //
+    // The three-phase submit protocol STAYS in the director: submit_world_submission
+    // arbitrates under world_mutex, applies the blocking render-thread dispatch with
+    // the lock RELEASED, then commits/re-validates under world_mutex, the whole
+    // sequence serialized by world_submission_apply_mutex. That protocol, its
+    // rollback ordering (queue_restore_first), its R1–R4 re-validation and the prune
+    // retry are orchestration, not record state, so they are deliberately NOT here —
+    // the store never dispatches, never locks and never decides.
+    //
+    // Like S3's InstanceStore it takes NO lock of its own: every access happens under
+    // the director's single world_mutex, preserving the one ThreadOwnedMutex
+    // ownership record the renderer-contract-boundary guard depends on.
+    //
+    // build_contract() is the pure contract construction: (renderer-state snapshot,
+    // record) -> WorldSubmissionContract, with zero side effects. It is defined in
+    // the .cpp so it keeps reaching the file-local dictionary/override helpers.
+    class SubmissionStore {
+    public:
+        struct WorldSubmissionRecord {
+            ObjectID owner_id;
+            Ref<GaussianData> gaussian_data;
+            Ref<ChunkPayloadSource> payload_source;
+            Vector<GaussianSplatRenderer::StaticChunk> static_chunks;
+            AABB bounds;
+            Dictionary metadata;
+            bool has_desired_residency_hint = false;
+            int32_t desired_residency_hint = SUBMISSION_RESIDENCY_HINT_RESIDENT;
+            Dictionary desired_renderer_overrides;
+            GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot renderer_restore_state;
+            bool active = false;
+        };
+
+        // --- record queries ---
+        bool is_active() const { return record.active; }
+        ObjectID owner_id() const { return record.owner_id; }
+
+        // Read-only view for the protocol's re-validation / getter reads and for the
+        // pure helpers below. mutable_record() is for the protocol's in-place field
+        // writes (renderer_restore_state) and the wholesale commit assignment; the
+        // active-flag transitions those produce are byte-identical to the pre-S5
+        // direct-field writes.
+        const WorldSubmissionRecord &get_record() const { return record; }
+        WorldSubmissionRecord &mutable_record() { return record; }
+
+        // Clear the record back to the inactive default. Matches the prior
+        // `world_submission = SharedWorld::WorldSubmissionRecord()` idiom used by
+        // release, cross-scenario eviction and teardown.
+        void reset() { record = WorldSubmissionRecord(); }
+
+        // --- pure construction (no side effects, no dispatch, no lock) ---
+        // Populate r_record from a submission DTO (owner/data/payload/overrides…),
+        // resetting renderer_restore_state and marking the record active.
+        static void store_submission(WorldSubmissionRecord &r_record, const WorldSubmission &p_submission);
+        // True when the record carries resident or file-backed splats to draw.
+        static bool record_has_renderable_payload(const WorldSubmissionRecord &p_record);
+        // Build the renderer contract from a runtime-state baseline and the record.
+        static GaussianSplatRenderer::WorldSubmissionContract build_contract(
+                const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_renderer_state,
+                const WorldSubmissionRecord &p_record);
+
+    private:
+        WorldSubmissionRecord record;
+    };
+
     struct SharedWorld {
         RID scenario;
         Ref<GaussianSplatRenderer> renderer;
         InstanceStore instance_store;
         SphereEffectorStore sphere_effector_store;
-	        struct WorldSubmissionRecord {
-	            ObjectID owner_id;
-	            Ref<GaussianData> gaussian_data;
-	            Ref<ChunkPayloadSource> payload_source;
-	            Vector<GaussianSplatRenderer::StaticChunk> static_chunks;
-	            AABB bounds;
-	            Dictionary metadata;
-	            bool has_desired_residency_hint = false;
-	            int32_t desired_residency_hint = SUBMISSION_RESIDENCY_HINT_RESIDENT;
-	            Dictionary desired_renderer_overrides;
-	            GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot renderer_restore_state;
-	            bool active = false;
-	        };
-        WorldSubmissionRecord world_submission;
+        SubmissionStore submission_store;
 
         // --- Per-instance LOD-walk memoization (host-side, zero visual effect) ---
         // update_instance_lods_for_renderer() is an O(instances) walk called every
@@ -885,13 +940,12 @@ private:
 	}
 
 	static bool _is_world_submission_owner_live(ObjectID p_owner_id);
-	static void _store_world_submission_record(SharedWorld::WorldSubmissionRecord &r_record, const WorldSubmission &p_submission);
-	static bool _world_submission_record_has_renderable_payload(const SharedWorld::WorldSubmissionRecord &p_record);
-	static void _copy_world_submission_record(const SharedWorld &p_world, const SharedWorld::WorldSubmissionRecord &p_record,
+	// Straddles SharedWorld (reads p_world.scenario) and the record, so it stays a
+	// director-level projection rather than moving into SubmissionStore. The pure
+	// record-only builders (store_submission / record_has_renderable_payload /
+	// build_contract) live on the store; see #610 S5.
+	static void _copy_world_submission_record(const SharedWorld &p_world, const SubmissionStore::WorldSubmissionRecord &p_record,
 			WorldSubmission *r_submission);
-	static GaussianSplatRenderer::WorldSubmissionContract _build_world_submission_contract(
-			const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_renderer_state,
-			const SharedWorld::WorldSubmissionRecord &p_record);
 	// #611: THE RENDERER-CONTRACT BOUNDARY (instrumented).
 	//
 	// All three of these reach a blocking render-thread dispatch
@@ -922,7 +976,7 @@ private:
 	// them static again without moving the check somewhere it can still run.
 	void _restore_world_submission_renderer(SharedWorld &p_world,
 			const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_snapshot);
-	bool _apply_world_submission_to_renderer(SharedWorld &p_world, const SharedWorld::WorldSubmissionRecord &p_record,
+	bool _apply_world_submission_to_renderer(SharedWorld &p_world, const SubmissionStore::WorldSubmissionRecord &p_record,
 			const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_renderer_state);
 	// #611 PR B2: the apply for `submit_world_submission`, whose result gates the
 	// commit/reject decision and therefore CANNOT be deferred — a destructor has
