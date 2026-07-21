@@ -328,8 +328,16 @@ _FORBIDDEN_CALL_RE = re.compile(r"\b(" + "|".join(FORBIDDEN_UNDER_LOCK) + r")\s*
 # name`, but NOT a reference parameter (`> &name`) or a constructor temporary
 # (`Ref<GaussianSplatRenderer>(...)`), whose scope-exit destruction is not this
 # function's concern.
+#
+# The optional cv-qualifier groups matter: `const Ref<GaussianSplatRenderer>
+# renderer = world->renderer;` (or `const LocalVector<Ref<...>>`) owns the last
+# reference exactly like the non-const form and runs `~GaussianSplatRenderer` at
+# the same scope exit -- a `const`-blind pattern would let it drop the renderer
+# under world_mutex and pass the guard anyway (Codex #726 review).
 _RENDERER_REF_DECL_RE = re.compile(
-    r"(?:LocalVector\s*<\s*)?Ref\s*<\s*" + RENDERER_CLASS + r"\s*>\s*(?:>\s*)?([A-Za-z_]\w*)\s*[;={(]"
+    r"(?:(?:const|volatile)\s+)*"
+    r"(?:LocalVector\s*<\s*(?:(?:const|volatile)\s+)*)?"
+    r"Ref\s*<\s*" + RENDERER_CLASS + r"\s*>\s*(?:>\s*)?([A-Za-z_]\w*)\s*[;={(]"
 )
 
 _DEFINITION_RE = re.compile(
@@ -724,6 +732,19 @@ def run_self_test() -> int:
     expect(
         "a bare renderer Ref declared after the lock must be caught",
         len(check_renderer_ref_released_under_lock(bare_ref_after_lock)) == 1,
+    )
+
+    # A cv-qualified owning local (`const Ref<...>`) has the identical scope-exit
+    # destructor hazard and must not slip past a const-blind matcher (#726 review).
+    const_ref_after_lock = (
+        "void GaussianSplatSceneDirector::clear_world_for_scenario(const RID &p_scenario) {\n"
+        "\tGaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);\n"
+        "\tconst Ref<GaussianSplatRenderer> renderer = _shared_renderer_for(p_scenario);\n"
+        "}\n"
+    )
+    expect(
+        "a const renderer Ref declared after the lock must be caught",
+        len(check_renderer_ref_released_under_lock(const_ref_after_lock)) == 1,
     )
 
     # The compliant shape -- declared BEFORE the lock -- must NOT be flagged.
