@@ -1768,9 +1768,11 @@ public:
     }
 
 // Test helper methods. Gated behind TESTS_ENABLED so they are absent from
-// release/shipping builds (#725). The matching definitions already live behind
-// the same guard (see gaussian_splat_renderer.cpp's #ifdef TESTS_ENABLED block
-// and render_output_orchestrator.cpp for test_copy_final_output), and every
+// release/shipping builds (#725 gated the first seven; this block now covers
+// every test-only hook whose definition already lives behind the guard). The
+// matching definitions already live behind the same guard (see
+// gaussian_splat_renderer.cpp's #ifdef TESTS_ENABLED block and
+// render_output_orchestrator.cpp for test_copy_final_output), and every
 // caller is a tests/ translation unit that is compiled only under `tests=yes`
 // — which is precisely what defines TESTS_ENABLED (modules/gaussian_splatting/SCsub).
 // The former "always available to avoid header guard issues" note was stale:
@@ -1784,7 +1786,6 @@ public:
     void test_force_disable_streaming();
     void test_release_current_streaming_system();
     bool test_has_current_streaming_system() const;
-#endif // TESTS_ENABLED
     bool test_has_output_compositor() const;
     RID test_get_cached_render_depth() const;
     uint32_t test_get_output_blit_variant_count() const;
@@ -1816,7 +1817,19 @@ public:
     void test_notify_render_thread_dispatch_completed(uint64_t p_request_id);
     uint64_t test_get_render_thread_dispatch_completed_request_id() const;
     bool test_shadow_pass_guard_restores_after_scope();
+#endif // TESTS_ENABLED
 
+    // NOTE: the four test_*_last_teardown_rdm_counts() statics below are
+    // intentionally NOT wrapped in the TESTS_ENABLED guard above. Unlike every
+    // hook in that block — whose definitions live under
+    // gaussian_splat_renderer.cpp's #ifdef TESTS_ENABLED — these four are
+    // defined UNCONDITIONALLY (gaussian_splat_renderer.cpp ~1256-1276, along
+    // with their backing process-static storage). Gating only the declarations
+    // would leave those out-of-line definitions with no matching in-class
+    // declaration in a release build and fail to compile. Moving them behind
+    // the guard is a separate change that must relocate the definitions and
+    // storage under TESTS_ENABLED too.
+    //
     // #392 / Codex PR #419 Finding 1: surface the per-instance
     // RenderDeviceManager's last-shutdown owned/tracked RID counts AFTER the
     // renderer has been destroyed. The renderer owns its RDM
