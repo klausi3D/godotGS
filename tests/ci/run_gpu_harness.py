@@ -286,7 +286,7 @@ BATCHES: tuple[BatchSpec, ...] = (
     # is ~1.96x. This is a re-budget for genuinely more work, NOT headroom for a
     # hang: every one of the 22 cases completes and the batch reports 22/22.
     BatchSpec("NodeSceneTree", ("*[Node][SceneTree][RequiresGPU]*",), timeout_seconds=300),
-    # #719: the "Explicit resident quantization rejection falls back" case is no longer
+    # #719/#745: the "Explicit resident quantization rejection falls back" case is no longer
     # excluded. Its two render-output assertions (has_rendered_content() == true and
     # get_visible_splat_count() > 0) now PASS on a real device (RTX 3090, Vulkan). The
     # published resident quantized contract was always correct (measured: atlas holds 1 splat,
@@ -298,7 +298,19 @@ BATCHES: tuple[BatchSpec, ...] = (
     # resident quantized path render -- the module's first has_rendered_content() == true proof
     # under --gs-gpu-test. Mutation-verified: reverting the splat off-screen re-fails exactly the
     # two render-output assertions.
-    BatchSpec("WorldSceneTree", ("*[World][SceneTree][RequiresGPU]*",)),
+    #
+    # timeout_seconds=180 added when WorldSceneTree was PROMOTED to REQUIRED (#724). It
+    # previously carried no per-batch override and fell back to the 60 s global default. Its
+    # worst observed CI wall was 38.2 s (green master run 29818964659; 19.1 s on the quieter
+    # 29806293610), which under 60 s is only 1.57x -- below the 1.5x floor the NodeSceneTree
+    # budget guard encodes, and in #677 silent-truncation territory on a loaded runner. A
+    # REQUIRED batch that times out FAILS the gate, so promoting it on the 60 s default would
+    # have manufactured exactly the CI noise #724 warns against. 180 s matches its sibling
+    # [SceneTree] batches (RendererSceneTree, SceneDirectorSceneTree) and gives ~4.7x over that
+    # 38.2 s. This RAISES a budget for a genuinely-sized batch; it lowers no threshold. After
+    # #745 un-excluded the resident case above, the batch runs one additional case (5 total);
+    # 180 s remains conservative headroom.
+    BatchSpec("WorldSceneTree", ("*[World][SceneTree][RequiresGPU]*",), timeout_seconds=180),
     # Two filters, not one, because doctest treats "[" and "]" literally: a case
     # tagged [SceneDirector][WorldSubmission][SceneTree][RequiresGPU] does NOT match
     # "*[SceneDirector][SceneTree][RequiresGPU]*". The world-submission cases in
@@ -372,7 +384,45 @@ BATCHES: tuple[BatchSpec, ...] = (
 # rename/removal of the scenarios — fails the gate loudly: this batch IS the
 # "candidate GPU harness report includes zero rid_leak_bytes for required batches"
 # evidence #352 demands. Runnable now that the runner starts WorkerThreadPool (#392).
-REQUIRED_BATCHES: frozenset[str] = frozenset({"CompositorHazard", "RendererPipeline", "Lifetime"})
+# #724: OutputCompositor, RendererSceneTree, WorldSceneTree and SceneDirectorSceneTree
+# were promoted from advisory. Each ran >0 cases with >0 assertions and — decisively —
+# ZERO hollow (0-assertion) cases on green master run 29818964659 (real RTX 3090 binary,
+# commit 3631a162ff7): case_assert_audit_ok=true and zero_assertion_cases=[] for all four.
+# A batch with a hollow case is itself vacuous, so that check gated the promotion.
+#
+# Wall-time headroom recorded AT PROMOTION (worst observed green-master wall vs budget),
+# so a future timeout bump is visibly a budget decision rather than an erosion of a guard:
+#   OutputCompositor         6.2 s / 60 s  (default)  = 9.7x   (3 cases,  140 asserts)
+#   RendererSceneTree       20.3 s / 180 s (override) = 8.9x   (1 case,    16 asserts)
+#   WorldSceneTree          38.2 s / 180 s (override) = 4.7x   (4 cases,   40 asserts)
+#                           (timeout_seconds raised 60->180 with this promotion; the
+#                            60 s default gave only 1.57x — see the BatchSpec comment)
+#   SceneDirectorSceneTree 102.2 s / 180 s (override) = 1.76x  (14 cases, 206 asserts)
+# This makes ~402 previously-advisory GPU assertions blocking, and — via the #695/#696
+# per-case audit in main() — subjects every one of their cases to the hollow-required-case
+# gate too, so a regression that silently emptied a case would fail loudly.
+#
+# NodeSceneTree is DELIBERATELY NOT promoted (#724). It is the largest batch (22 cases /
+# 285 assertions) and its wall time swings hard on this shared, self-hosted runner:
+# 76.5 s (quiet, run 29806293610), 134.8 s (run 29818964659), and 189.2 s in the run
+# #724 cites — the last is only 1.59x under the 300 s budget, right at the 1.5x floor,
+# and #630 has PROVEN ~2x timing swings on this box under concurrent builds. Promoting a
+# batch one contended run from its timeout turns a real regression signal into CI noise
+# (#630), and noisy required gates get waived — which is how coverage is lost permanently.
+# It stays advisory until its wall time is consistently well under budget across several
+# quiet green master runs, or #630 removes the contention variance. This is a deliberate
+# non-promotion, not an oversight. (ComputeInfrastructure/GpuSorting/MemoryStream/Streaming
+# are also NOT promoted: a required batch that matches ~0 cases fails by design via
+# empty_required — that is #520 territory, out of scope here.)
+REQUIRED_BATCHES: frozenset[str] = frozenset({
+    "CompositorHazard",
+    "RendererPipeline",
+    "Lifetime",
+    "OutputCompositor",
+    "RendererSceneTree",
+    "WorldSceneTree",
+    "SceneDirectorSceneTree",
+})
 
 # #329: the deferred-case count is DERIVED, never hardcoded.
 #
