@@ -366,7 +366,14 @@ _RENDERER_AUTO_DECL_RE = re.compile(
     # close paren be followed by `;`/end. Args are matched without nested parens
     # (get_shared_renderer takes a single World3D*); a nested-paren arg would miss
     # conservatively (no false positive), not over-match.
-    r"[^;]*\bget_shared_renderer\s*\([^;)]*\)\s*(?:;|$)"
+    # get_shared_renderer(...) as the value. Args may themselves contain
+    # parenthesized calls (e.g. get_shared_renderer(get_world())), which a
+    # no-nested-paren pattern would MISS -- and a miss here is a hazard
+    # (an unflagged #628 owning Ref), not a dismissible false positive, so
+    # match permissively on the call token. A chained get_shared_renderer(x)
+    # ->foo() would also match (rare; dismissible) -- erring toward flagging
+    # is correct for this direction (#733 review).
+    r"[^;]*\bget_shared_renderer\s*\("
     r")"
 )
 
@@ -798,6 +805,22 @@ def run_self_test() -> int:
     expect(
         "a const auto local from get_shared_renderer() must be caught",
         len(check_renderer_ref_released_under_lock(auto_ref_after_lock_call)) == 1,
+    )
+    # #733: a nested-paren argument (get_shared_renderer(get_world())) must not be
+    # missed -- a miss is an unflagged #628 owning Ref, not a benign false positive.
+    auto_ref_nested_call = (
+        "void GaussianSplatSceneDirector::clear_world_for_scenario(const RID &p_scenario) {
+"
+        "	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+"
+        "	auto shared = get_shared_renderer(get_world_for(p_scenario));
+"
+        "}
+"
+    )
+    expect(
+        "a get_shared_renderer() call with a nested-paren argument must be caught",
+        len(check_renderer_ref_released_under_lock(auto_ref_nested_call)) == 1,
     )
     # An `auto&` reference is NON-owning -- it drops no reference -- and must NOT be flagged.
     auto_ref_reference_ok = (
