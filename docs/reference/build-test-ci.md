@@ -46,7 +46,7 @@ Since #329 the harness also registers the mock `DisplayServer` driver, so `[Scen
 - Per-batch filter table and listener semantics: [`modules/gaussian_splatting/tests/README.md`](../../modules/gaussian_splatting/tests/README.md).
 - Seeded golden captures and recapture workflow: [`tests/visual_baselines/README.md`](../../tests/visual_baselines/README.md).
 
-Required-batch contract: `REQUIRED_BATCHES = {"CompositorHazard", "RendererPipeline", "Lifetime"}` is asserted at import in `tests/ci/run_gpu_harness.py`. A required batch whose doctest filter matches zero test cases fails the gate — this prevents a silently-green CI when a rename empties the canonical `#256` regression batch, `#351`'s route/stage cascade coverage, or `#352`'s GPU-resource lifetime proof.
+Required-batch contract: `REQUIRED_BATCHES = {"CompositorHazard", "RendererPipeline", "Lifetime", "OutputCompositor", "RendererSceneTree", "WorldSceneTree", "SceneDirectorSceneTree"}` is asserted at import in `tests/ci/run_gpu_harness.py`. A required batch whose doctest filter matches zero test cases fails the gate — this prevents a silently-green CI when a rename empties the canonical `#256` regression batch, `#351`'s route/stage cascade coverage, `#352`'s GPU-resource lifetime proof, or the SceneTree/OutputCompositor coverage promoted in #724. `NodeSceneTree` is deliberately NOT required — its wall time is only ~1.6× under budget on the shared self-hosted runner and #630's contention variance would make it a flaky gate; it stays advisory until #630 is resolved.
 
 ## CI Source of Truth
 
