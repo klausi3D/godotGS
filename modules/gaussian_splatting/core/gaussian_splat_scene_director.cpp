@@ -502,7 +502,7 @@ GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_get_world_
 
 GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_find_world_for_instance(ObjectID p_node_id) {
 	for (KeyValue<RID, SharedWorld> &E : worlds) {
-		if (E.value.instance_lookup.has(p_node_id)) {
+		if (E.value.instance_store.has_instance(p_node_id)) {
 			return &E.value;
 		}
 	}
@@ -636,7 +636,7 @@ const GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_find
 	return nullptr;
 }
 
-bool GaussianSplatSceneDirector::_populate_gaussian_data_from_asset(const Ref<GaussianSplatAsset> &p_asset, Ref<GaussianData> &r_data) {
+bool GaussianSplatSceneDirector::InstanceStore::_populate_gaussian_data_from_asset(const Ref<GaussianSplatAsset> &p_asset, Ref<GaussianData> &r_data) {
 	if (p_asset.is_null()) {
 		return false;
 	}
@@ -653,7 +653,15 @@ bool GaussianSplatSceneDirector::_populate_gaussian_data_from_asset(const Ref<Ga
 	return true;
 }
 
-bool GaussianSplatSceneDirector::_retain_asset_record(SharedWorld &p_world, const Ref<GaussianSplatAsset> &p_asset, uint64_t p_asset_id) {
+void GaussianSplatSceneDirector::InstanceStore::bump_generation() {
+	_bump_instance_generation(instance_generation);
+}
+
+void GaussianSplatSceneDirector::InstanceStore::bump_asset_generation() {
+	_bump_instance_asset_generation(instance_asset_generation);
+}
+
+bool GaussianSplatSceneDirector::InstanceStore::retain_asset(const Ref<GaussianSplatAsset> &p_asset, uint64_t p_asset_id) {
 	if (p_asset.is_null()) {
 		return false;
 	}
@@ -661,9 +669,9 @@ bool GaussianSplatSceneDirector::_retain_asset_record(SharedWorld &p_world, cons
 #ifdef TOOLS_ENABLED
 	edited_version = p_asset->get_edited_version();
 #endif
-	SharedWorld::AssetRecord *record = p_world.asset_records.getptr(p_asset_id);
+	AssetRecord *record = asset_records.getptr(p_asset_id);
 	if (!record) {
-		SharedWorld::AssetRecord new_record;
+		AssetRecord new_record;
 		new_record.asset = p_asset;
 		if (!_populate_gaussian_data_from_asset(p_asset, new_record.data)) {
 			GS_LOG_WARN_DEFAULT("[GaussianSplatSceneDirector] Failed to build GaussianData from asset.");
@@ -671,9 +679,9 @@ bool GaussianSplatSceneDirector::_retain_asset_record(SharedWorld &p_world, cons
 		}
 		new_record.edited_version = edited_version;
 		new_record.refcount = 1;
-		p_world.asset_records.insert(p_asset_id, new_record);
-		_bump_instance_generation(p_world.instance_generation);
-		_bump_instance_asset_generation(p_world.instance_asset_generation);
+		asset_records.insert(p_asset_id, new_record);
+		_bump_instance_generation(instance_generation);
+		_bump_instance_asset_generation(instance_asset_generation);
 		return true;
 	}
 
@@ -686,18 +694,18 @@ bool GaussianSplatSceneDirector::_retain_asset_record(SharedWorld &p_world, cons
 		}
 		record->data = refreshed_data;
 		record->edited_version = edited_version;
-		_bump_instance_generation(p_world.instance_generation);
-		_bump_instance_asset_generation(p_world.instance_asset_generation);
+		_bump_instance_generation(instance_generation);
+		_bump_instance_asset_generation(instance_asset_generation);
 	}
 	record->refcount++;
 	return true;
 }
 
-bool GaussianSplatSceneDirector::_refresh_asset_record(SharedWorld &p_world, const Ref<GaussianSplatAsset> &p_asset, uint64_t p_asset_id) {
+bool GaussianSplatSceneDirector::InstanceStore::refresh_asset(const Ref<GaussianSplatAsset> &p_asset, uint64_t p_asset_id) {
 	if (p_asset.is_null()) {
 		return false;
 	}
-	SharedWorld::AssetRecord *record = p_world.asset_records.getptr(p_asset_id);
+	AssetRecord *record = asset_records.getptr(p_asset_id);
 	if (!record) {
 		return false;
 	}
@@ -716,13 +724,13 @@ bool GaussianSplatSceneDirector::_refresh_asset_record(SharedWorld &p_world, con
 	record->asset = p_asset;
 	record->data = refreshed_data;
 	record->edited_version = edited_version;
-	_bump_instance_generation(p_world.instance_generation);
-	_bump_instance_asset_generation(p_world.instance_asset_generation);
+	_bump_instance_generation(instance_generation);
+	_bump_instance_asset_generation(instance_asset_generation);
 	return true;
 }
 
-void GaussianSplatSceneDirector::_release_asset_record(SharedWorld &p_world, uint64_t p_asset_id) {
-	SharedWorld::AssetRecord *record = p_world.asset_records.getptr(p_asset_id);
+void GaussianSplatSceneDirector::InstanceStore::release_asset(uint64_t p_asset_id) {
+	AssetRecord *record = asset_records.getptr(p_asset_id);
 	if (!record) {
 		return;
 	}
@@ -730,8 +738,8 @@ void GaussianSplatSceneDirector::_release_asset_record(SharedWorld &p_world, uin
 		record->refcount--;
 	}
 	if (record->refcount == 0) {
-		p_world.asset_records.erase(p_asset_id);
-		_bump_instance_asset_generation(p_world.instance_asset_generation);
+		asset_records.erase(p_asset_id);
+		_bump_instance_asset_generation(instance_asset_generation);
 	}
 }
 
@@ -872,7 +880,7 @@ bool GaussianSplatSceneDirector::_apply_world_submission_contract_unlocked(
 }
 
 bool GaussianSplatSceneDirector::_world_has_no_instances(const SharedWorld &p_world) const {
-	return p_world.instances.is_empty();
+	return p_world.instance_store.is_empty();
 }
 
 bool GaussianSplatSceneDirector::_world_has_no_sphere_effectors(const SharedWorld &p_world) const {
@@ -953,23 +961,14 @@ void GaussianSplatSceneDirector::register_instance(ObjectID p_node_id, const Ref
 		if (&other == world) {
 			continue;
 		}
-		uint32_t *stale_index = other.instance_lookup.getptr(p_node_id);
-		if (!stale_index || *stale_index >= other.instances.size()) {
+		uint64_t stale_asset_id = 0;
+		if (!other.instance_store.remove(p_node_id, stale_asset_id)) {
 			continue;
 		}
-		const uint32_t idx = *stale_index;
-		const uint64_t stale_asset_id = other.instances[idx].asset_id;
-		const uint32_t last_index = other.instances.size() - 1;
-		if (idx != last_index) {
-			other.instances[idx] = other.instances[last_index];
-			other.instance_lookup[other.instances[idx].node_id] = idx;
-		}
-		other.instances.remove_at(last_index);
-		other.instance_lookup.erase(p_node_id);
-		_bump_instance_generation(other.instance_generation);
-		_bump_instance_asset_generation(other.instance_asset_generation);
+		other.instance_store.bump_generation();
+		other.instance_store.bump_asset_generation();
 		if (stale_asset_id != 0) {
-			_release_asset_record(other, stale_asset_id);
+			other.instance_store.release_asset(stale_asset_id);
 		}
 		break; // an instance can only live in one SharedWorld at a time
 	}
@@ -1001,12 +1000,12 @@ void GaussianSplatSceneDirector::register_instance(ObjectID p_node_id, const Ref
 		return;
 	}
 	GaussianSplatting::debug_trace_record_event("instance_reg",
-			vformat("OK: asset_id=%s instances_before=%d", String::num_uint64(asset_id), world->instances.size()),
+			vformat("OK: asset_id=%s instances_before=%d", String::num_uint64(asset_id), world->instance_store.instance_count()),
 			false);
 
-	uint32_t *index_ptr = world->instance_lookup.getptr(p_node_id);
-	if (index_ptr && *index_ptr < world->instances.size()) {
-		InstanceRecord &record = world->instances[*index_ptr];
+	InstanceRecord *existing_record = world->instance_store.find_mutable(p_node_id);
+	if (existing_record) {
+		InstanceRecord &record = *existing_record;
 		bool dirty = false;
 		bool asset_selection_dirty = false;
 		if (!record.transform.is_equal_approx(p_transform)) {
@@ -1068,21 +1067,21 @@ void GaussianSplatSceneDirector::register_instance(ObjectID p_node_id, const Ref
 			dirty = true;
 		}
 		if (record.asset_id == asset_id) {
-			if (world->asset_records.has(asset_id)) {
-				if (!_refresh_asset_record(*world, p_asset, asset_id)) {
+			if (world->instance_store.has_asset(asset_id)) {
+				if (!world->instance_store.refresh_asset(p_asset, asset_id)) {
 					return;
 				}
 			} else {
-				if (!_retain_asset_record(*world, p_asset, asset_id)) {
+				if (!world->instance_store.retain_asset(p_asset, asset_id)) {
 					return;
 				}
 			}
 		}
 		if (record.asset_id != asset_id) {
-			if (!_retain_asset_record(*world, p_asset, asset_id)) {
+			if (!world->instance_store.retain_asset(p_asset, asset_id)) {
 				return;
 			}
-			_release_asset_record(*world, record.asset_id);
+			world->instance_store.release_asset(record.asset_id);
 			record.asset_id = asset_id;
 			record.last_lod = 0;
 			dirty = true;
@@ -1090,15 +1089,15 @@ void GaussianSplatSceneDirector::register_instance(ObjectID p_node_id, const Ref
 		}
 		record.dirty = record.dirty || dirty;
 		if (dirty) {
-			_bump_instance_generation(world->instance_generation);
+			world->instance_store.bump_generation();
 		}
 		if (asset_selection_dirty) {
-			_bump_instance_asset_generation(world->instance_asset_generation);
+			world->instance_store.bump_asset_generation();
 		}
 		return;
 	}
 
-	if (!_retain_asset_record(*world, p_asset, asset_id)) {
+	if (!world->instance_store.retain_asset(p_asset, asset_id)) {
 		return;
 	}
 
@@ -1122,12 +1121,11 @@ void GaussianSplatSceneDirector::register_instance(ObjectID p_node_id, const Ref
 	record.desired_residency_hint = p_desired_residency_hint;
 	record.dirty = true;
 
-	world->instance_lookup[p_node_id] = world->instances.size();
-	world->instances.push_back(record);
-	_bump_instance_generation(world->instance_generation);
-	_bump_instance_asset_generation(world->instance_asset_generation);
+	world->instance_store.append(record);
+	world->instance_store.bump_generation();
+	world->instance_store.bump_asset_generation();
 	GaussianSplatting::debug_trace_record_event("instance_reg",
-			vformat("ADDED: instances_after=%d", world->instances.size()),
+			vformat("ADDED: instances_after=%d", world->instance_store.instance_count()),
 			false);
 }
 
@@ -1146,18 +1144,18 @@ void GaussianSplatSceneDirector::update_instance_transform(ObjectID p_node_id, c
 		return;
 	}
 
-	uint32_t *index_ptr = world->instance_lookup.getptr(p_node_id);
-	if (!index_ptr || *index_ptr >= world->instances.size()) {
+	InstanceRecord *record_ptr = world->instance_store.find_mutable(p_node_id);
+	if (!record_ptr) {
 		return;
 	}
 
-	InstanceRecord &record = world->instances[*index_ptr];
+	InstanceRecord &record = *record_ptr;
 	if (record.transform.is_equal_approx(p_transform)) {
 		return;
 	}
 	record.transform = p_transform;
 	record.dirty = true;
-	_bump_instance_generation(world->instance_generation);
+	world->instance_store.bump_generation();
 }
 
 void GaussianSplatSceneDirector::update_instance_scene_effector_filter(ObjectID p_node_id, bool p_enabled,
@@ -1176,11 +1174,11 @@ void GaussianSplatSceneDirector::update_instance_scene_effector_filter(ObjectID 
 	if (!world) {
 		return;
 	}
-	uint32_t *index_ptr = world->instance_lookup.getptr(p_node_id);
-	if (!index_ptr || *index_ptr >= world->instances.size()) {
+	InstanceRecord *record_ptr = world->instance_store.find_mutable(p_node_id);
+	if (!record_ptr) {
 		return;
 	}
-	InstanceRecord &record = world->instances[*index_ptr];
+	InstanceRecord &record = *record_ptr;
 	bool ancestors_changed = record.scene_tree_ancestor_ids.size() != p_scene_tree_ancestor_ids.size();
 	if (!ancestors_changed) {
 		for (uint32_t i = 0; i < p_scene_tree_ancestor_ids.size(); ++i) {
@@ -1206,7 +1204,7 @@ void GaussianSplatSceneDirector::update_instance_scene_effector_filter(ObjectID 
 	record.scene_effector_scope_root_id = p_scope_root_id;
 	record.scene_tree_ancestor_ids = p_scene_tree_ancestor_ids;
 	record.dirty = true;
-	_bump_instance_generation(world->instance_generation);
+	world->instance_store.bump_generation();
 }
 
 void GaussianSplatSceneDirector::update_instance_params(ObjectID p_node_id, float p_opacity, float p_lod_bias,
@@ -1228,12 +1226,12 @@ void GaussianSplatSceneDirector::update_instance_params(ObjectID p_node_id, floa
 		return;
 	}
 
-	uint32_t *index_ptr = world->instance_lookup.getptr(p_node_id);
-	if (!index_ptr || *index_ptr >= world->instances.size()) {
+	InstanceRecord *record_ptr = world->instance_store.find_mutable(p_node_id);
+	if (!record_ptr) {
 		return;
 	}
 
-	InstanceRecord &record = world->instances[*index_ptr];
+	InstanceRecord &record = *record_ptr;
 	const float wind_intensity = MAX(0.0f, p_wind_intensity);
 	const uint32_t wind_mode = MIN(p_wind_mode, (uint32_t)INSTANCE_WIND_FORCE_ENABLED);
 	const float wind_frequency = MAX(0.0f, p_wind_frequency);
@@ -1297,10 +1295,10 @@ void GaussianSplatSceneDirector::update_instance_params(ObjectID p_node_id, floa
 	}
 	record.dirty = record.dirty || dirty;
 	if (dirty) {
-		_bump_instance_generation(world->instance_generation);
+		world->instance_store.bump_generation();
 	}
 	if (asset_selection_dirty) {
-		_bump_instance_asset_generation(world->instance_asset_generation);
+		world->instance_store.bump_asset_generation();
 	}
 }
 
@@ -1322,23 +1320,13 @@ void GaussianSplatSceneDirector::unregister_instance(ObjectID p_node_id) {
 		return;
 	}
 
-	uint32_t *index_ptr = world->instance_lookup.getptr(p_node_id);
-	if (!index_ptr || *index_ptr >= world->instances.size()) {
+	uint64_t asset_id = 0;
+	if (!world->instance_store.remove(p_node_id, asset_id)) {
 		return;
 	}
-
-	uint32_t index = *index_ptr;
-	const uint64_t asset_id = world->instances[index].asset_id;
-	uint32_t last_index = world->instances.size() - 1;
-	if (index != last_index) {
-		world->instances[index] = world->instances[last_index];
-		world->instance_lookup[world->instances[index].node_id] = index;
-	}
-	world->instances.remove_at(last_index);
-	world->instance_lookup.erase(p_node_id);
-	_release_asset_record(*world, asset_id);
-	_bump_instance_generation(world->instance_generation);
-	_bump_instance_asset_generation(world->instance_asset_generation);
+	world->instance_store.release_asset(asset_id);
+	world->instance_store.bump_generation();
+	world->instance_store.bump_asset_generation();
 
 	_prune_world_if_unused(world->scenario, deferred_renderer_release);
 }
@@ -1379,13 +1367,13 @@ bool GaussianSplatSceneDirector::get_instance_submission(ObjectID p_node_id, Ins
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	for (const KeyValue<RID, SharedWorld> &E : worlds) {
 		const SharedWorld &world = E.value;
-		const uint32_t *index_ptr = world.instance_lookup.getptr(p_node_id);
-		if (!index_ptr || *index_ptr >= world.instances.size()) {
+		const InstanceRecord *record_ptr = world.instance_store.find(p_node_id);
+		if (!record_ptr) {
 			continue;
 		}
 
-		const InstanceRecord &record = world.instances[*index_ptr];
-		const SharedWorld::AssetRecord *asset_record = world.asset_records.getptr(record.asset_id);
+		const InstanceRecord &record = *record_ptr;
+		const AssetRecord *asset_record = world.instance_store.find_asset(record.asset_id);
 
 		r_submission->node_id = record.node_id;
 		r_submission->scenario = world.scenario;
@@ -1416,7 +1404,7 @@ void GaussianSplatSceneDirector::update_instance_lods_for_renderer(const Gaussia
 		const Vector3 &p_camera_pos, const LODConfig &p_lod_config, float p_hysteresis_zone) {
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	SharedWorld *world = _find_world_for_renderer(p_renderer);
-	if (!world || world->instances.is_empty()) {
+	if (!world || world->instance_store.is_empty()) {
 		return;
 	}
 
@@ -1427,7 +1415,7 @@ void GaussianSplatSceneDirector::update_instance_lods_for_renderer(const Gaussia
 	// directly. Exact (non-epsilon) comparison is intentional: any real change
 	// must re-walk, and an epsilon could let a slow camera drift stall LOD.
 	if (world->lod_walk_cache_valid &&
-			world->lod_walk_last_generation == world->instance_generation &&
+			world->lod_walk_last_generation == world->instance_store.generation() &&
 			world->lod_walk_last_camera_pos == p_camera_pos &&
 			world->lod_walk_last_hysteresis == p_hysteresis_zone &&
 			world->lod_walk_last_config == p_lod_config) {
@@ -1439,8 +1427,9 @@ void GaussianSplatSceneDirector::update_instance_lods_for_renderer(const Gaussia
 	const bool log_enabled = _is_scene_director_log_enabled();
 	bool any_changed = false;
 
-	for (uint32_t i = 0; i < world->instances.size(); i++) {
-		InstanceRecord &record = world->instances[i];
+	LocalVector<InstanceRecord> &instance_records = world->instance_store.mutable_records();
+	for (uint32_t i = 0; i < instance_records.size(); i++) {
+		InstanceRecord &record = instance_records[i];
 		const float distance = p_camera_pos.distance_to(record.transform.origin);
 		const float bias = MAX(record.lod_bias, 0.0001f);
 		const float effective_distance = distance * bias;
@@ -1494,7 +1483,7 @@ void GaussianSplatSceneDirector::update_instance_lods_for_renderer(const Gaussia
 		}
 	}
 	if (any_changed) {
-		_bump_instance_generation(world->instance_generation);
+		world->instance_store.bump_generation();
 	}
 
 	// Memoize the inputs for next frame's early-out. Capture the generation AFTER
@@ -1502,7 +1491,7 @@ void GaussianSplatSceneDirector::update_instance_lods_for_renderer(const Gaussia
 	// re-walk next frame.
 	world->lod_walk_cache_valid = true;
 	world->lod_walk_last_camera_pos = p_camera_pos;
-	world->lod_walk_last_generation = world->instance_generation;
+	world->lod_walk_last_generation = world->instance_store.generation();
 	world->lod_walk_last_hysteresis = p_hysteresis_zone;
 	world->lod_walk_last_config = p_lod_config;
 }
@@ -1513,7 +1502,7 @@ void GaussianSplatSceneDirector::build_instance_buffer(LocalVector<InstanceDataG
 
 	uint32_t total_instances = 0;
 	for (const KeyValue<RID, SharedWorld> &E : worlds) {
-		total_instances += E.value.instances.size();
+		total_instances += E.value.instance_store.instance_count();
 	}
 	if (total_instances == 0) {
 		return;
@@ -1524,11 +1513,11 @@ void GaussianSplatSceneDirector::build_instance_buffer(LocalVector<InstanceDataG
 		const SharedWorld &world_const_ref = E.value;
 		LocalVector<SphereEffectorSelection> scene_payload;
 		_build_sorted_sphere_effector_payload(world_const_ref, scene_payload);
-		for (const InstanceRecord &record : world_const_ref.instances) {
+		for (const InstanceRecord &record : world_const_ref.instance_store.records()) {
 			if (!record.visible) {
 				continue;
 			}
-			const SharedWorld::AssetRecord *asset_record = world_const_ref.asset_records.getptr(record.asset_id);
+			const AssetRecord *asset_record = world_const_ref.instance_store.find_asset(record.asset_id);
 			if (!asset_record || asset_record->data.is_null()) {
 				continue;
 			}
@@ -1620,7 +1609,7 @@ void GaussianSplatSceneDirector::build_instance_buffer_for_renderer(const Gaussi
 	// renderable data and no normal instances, produce a proper identity-transform
 	// instance referencing the primary asset (id=0).  This replaces the synthetic
 	// fallback shim that render_streaming_orchestrator previously injected.
-	if (world->instances.is_empty()) {
+	if (world->instance_store.is_empty()) {
 		if (world->world_submission.active &&
 				_world_submission_record_has_renderable_payload(world->world_submission)) {
 			InstanceDataGPU entry = {};
@@ -1668,21 +1657,21 @@ void GaussianSplatSceneDirector::build_instance_buffer_for_renderer(const Gaussi
 
 	const bool log_enabled = _is_scene_director_log_enabled();
 	const bool trace_enabled = GaussianSplatting::debug_trace_is_enabled();
-	out.reserve(world->instances.size());
+	out.reserve(world->instance_store.instance_count());
 	uint32_t skipped_instances = 0;
 	uint32_t traced_total = 0;
 	uint32_t traced_rotation_identity = 0;
 	uint32_t traced_scale_identity = 0;
 	uint32_t traced_translation_zero = 0;
 	uint32_t traced_fully_identity = 0;
-	for (const InstanceRecord &record : world->instances) {
+	for (const InstanceRecord &record : world->instance_store.records()) {
 		if (!record.visible) {
 			continue;
 		}
 		if (p_shadow_casters_only && !record.casts_shadow) {
 			continue;
 		}
-		const SharedWorld::AssetRecord *asset_record = world->asset_records.getptr(record.asset_id);
+		const AssetRecord *asset_record = world->instance_store.find_asset(record.asset_id);
 		if (!asset_record || asset_record->data.is_null()) {
 			if (log_enabled) {
 				GS_LOG_RENDERER_DEBUG(vformat("[InstanceBuffer] SKIP asset_id=%s record=%s data=%s",
@@ -1777,17 +1766,17 @@ void GaussianSplatSceneDirector::build_instance_buffer_for_renderer(const Gaussi
 
 	if (log_enabled) {
 		GS_LOG_RENDERER_DEBUG(vformat("[InstanceBuffer] total_instances=%d (world=%d)",
-				out.size(), world->instances.size()));
+				out.size(), world->instance_store.instance_count()));
 	}
 
 	if (trace_enabled) {
-		GaussianSplatting::debug_trace_record_instance_buffer(out.size(), world->instances.size(), skipped_instances);
+		GaussianSplatting::debug_trace_record_instance_buffer(out.size(), world->instance_store.instance_count(), skipped_instances);
 		GaussianSplatting::debug_trace_record_instance_flags(traced_total, traced_rotation_identity, traced_scale_identity,
 				traced_translation_zero, traced_fully_identity);
-		if (skipped_instances > 0 || out.size() != world->instances.size()) {
+		if (skipped_instances > 0 || out.size() != world->instance_store.instance_count()) {
 			GaussianSplatting::debug_trace_record_event("instance_buffer",
 					vformat("build out=%d world=%d skipped=%d",
-							out.size(), world->instances.size(), skipped_instances),
+							out.size(), world->instance_store.instance_count(), skipped_instances),
 					skipped_instances > 0);
 		}
 	}
@@ -1839,7 +1828,7 @@ void GaussianSplatSceneDirector::build_instance_grading_buffer_for_renderer(cons
 	// World-submission single-instance shim: mirrors the same path in
 	// build_instance_buffer_for_renderer so the shader always has a 1-row
 	// grading buffer indexable at splat_ref.instance_id == 0.
-	if (world->instances.is_empty()) {
+	if (world->instance_store.is_empty()) {
 		if (world->world_submission.active &&
 				_world_submission_record_has_renderable_payload(world->world_submission)) {
 			InstanceGradingGPU entry = {};
@@ -1849,15 +1838,15 @@ void GaussianSplatSceneDirector::build_instance_grading_buffer_for_renderer(cons
 		return;
 	}
 
-	out.reserve(world->instances.size());
-	for (const InstanceRecord &record : world->instances) {
+	out.reserve(world->instance_store.instance_count());
+	for (const InstanceRecord &record : world->instance_store.records()) {
 		if (!record.visible) {
 			continue;
 		}
 		if (p_shadow_casters_only && !record.casts_shadow) {
 			continue;
 		}
-		const SharedWorld::AssetRecord *asset_record = world->asset_records.getptr(record.asset_id);
+		const AssetRecord *asset_record = world->instance_store.find_asset(record.asset_id);
 		if (!asset_record || asset_record->data.is_null()) {
 			// Must match build_instance_buffer_for_renderer's skip logic exactly
 			// so rows stay 1:1 with instance_id.
@@ -1879,11 +1868,11 @@ bool GaussianSplatSceneDirector::update_instance_color_grading(ObjectID p_node_i
 	if (!world) {
 		return false;
 	}
-	const uint32_t *pidx = world->instance_lookup.getptr(p_node_id);
-	if (!pidx) {
+	InstanceRecord *record_ptr = world->instance_store.find_mutable(p_node_id);
+	if (!record_ptr) {
 		return false;
 	}
-	InstanceRecord &record = world->instances[*pidx];
+	InstanceRecord &record = *record_ptr;
 	const bool ref_changed = record.color_grading != p_grading;
 	if (!ref_changed && !p_force_refresh) {
 		// Per-frame apply / repeat-push path on an unchanged ref. Skip the
@@ -1897,7 +1886,7 @@ bool GaussianSplatSceneDirector::update_instance_color_grading(ObjectID p_node_i
 	// change. Fires when the ref actually changes, or when the caller explicitly
 	// asserts "values behind this ref just mutated" via p_force_refresh=true
 	// (used by the ColorGradingResource `changed` signal handler for slider edits).
-	_bump_instance_generation(world->instance_generation);
+	world->instance_store.bump_generation();
 	return true;
 }
 
@@ -1907,11 +1896,11 @@ Ref<ColorGradingResource> GaussianSplatSceneDirector::get_instance_color_grading
 	if (!world) {
 		return Ref<ColorGradingResource>();
 	}
-	const uint32_t *pidx = world->instance_lookup.getptr(p_node_id);
-	if (!pidx) {
+	const InstanceRecord *record_ptr = world->instance_store.find(p_node_id);
+	if (!record_ptr) {
 		return Ref<ColorGradingResource>();
 	}
-	return world->instances[*pidx].color_grading;
+	return record_ptr->color_grading;
 }
 
 void GaussianSplatSceneDirector::invalidate_grading_for_renderer(const GaussianSplatRenderer *p_renderer) {
@@ -1938,7 +1927,7 @@ void GaussianSplatSceneDirector::invalidate_grading_for_renderer(const GaussianS
 	// re-runs next frame. Records without per-instance grading fall back to the
 	// renderer-wide default at build time, so those rows need to re-upload when
 	// the default changes even though no per-instance ref mutated.
-	_bump_instance_generation(world->instance_generation);
+	world->instance_store.bump_generation();
 }
 
 uint64_t GaussianSplatSceneDirector::compute_color_grading_signature_for_renderer(
@@ -1986,12 +1975,12 @@ uint64_t GaussianSplatSceneDirector::compute_color_grading_signature_for_rendere
 		return seed;
 	}
 
-	if (world->instances.is_empty()) {
+	if (world->instance_store.is_empty()) {
 		// World-submission shim uses the renderer default; already mixed.
 		return seed;
 	}
 
-	for (const InstanceRecord &record : world->instances) {
+	for (const InstanceRecord &record : world->instance_store.records()) {
 		// Mirror the visibility/shadow/asset filters from
 		// build_instance_grading_buffer_for_renderer so signature reflects the exact
 		// set of gradings the shader will actually see. Without the shadow filter,
@@ -2003,7 +1992,7 @@ uint64_t GaussianSplatSceneDirector::compute_color_grading_signature_for_rendere
 		if (p_shadow_casters_only && !record.casts_shadow) {
 			continue;
 		}
-		const SharedWorld::AssetRecord *asset_record = world->asset_records.getptr(record.asset_id);
+		const AssetRecord *asset_record = world->instance_store.find_asset(record.asset_id);
 		if (!asset_record || asset_record->data.is_null()) {
 			continue;
 		}
@@ -2020,9 +2009,10 @@ void GaussianSplatSceneDirector::collect_instance_node_ids_for_renderer(const Ga
 	if (!world) {
 		return;
 	}
-	r_node_ids.reserve(world->instances.size());
-	for (uint32_t i = 0; i < world->instances.size(); i++) {
-		const ObjectID node_id = world->instances[i].node_id;
+	const LocalVector<InstanceRecord> &instance_records = world->instance_store.records();
+	r_node_ids.reserve(instance_records.size());
+	for (uint32_t i = 0; i < instance_records.size(); i++) {
+		const ObjectID node_id = instance_records[i].node_id;
 		if (node_id == ObjectID()) {
 			continue;
 		}
@@ -2036,7 +2026,7 @@ uint64_t GaussianSplatSceneDirector::get_instance_generation_for_renderer(const 
 	if (!world) {
 		return 0;
 	}
-	return world->instance_generation;
+	return world->instance_store.generation();
 }
 
 uint64_t GaussianSplatSceneDirector::get_instance_asset_generation_for_renderer(const GaussianSplatRenderer *p_renderer) const {
@@ -2045,7 +2035,7 @@ uint64_t GaussianSplatSceneDirector::get_instance_asset_generation_for_renderer(
 	if (!world) {
 		return 0;
 	}
-	return world->instance_asset_generation;
+	return world->instance_store.asset_generation();
 }
 
 uint32_t GaussianSplatSceneDirector::get_instance_count_for_renderer(const GaussianSplatRenderer *p_renderer) const {
@@ -2054,7 +2044,7 @@ uint32_t GaussianSplatSceneDirector::get_instance_count_for_renderer(const Gauss
 	if (!world) {
 		return 0;
 	}
-	return world->instances.size();
+	return world->instance_store.instance_count();
 }
 
 void GaussianSplatSceneDirector::register_sphere_effector(ObjectID p_effector_id, const Transform3D &p_transform,
@@ -2566,7 +2556,7 @@ uint32_t GaussianSplatSceneDirector::test_asset_record_count_for_scenario(const 
 	if (!world) {
 		return 0;
 	}
-	return world->asset_records.size();
+	return world->instance_store.asset_count();
 }
 
 bool GaussianSplatSceneDirector::test_has_asset_record_for_scenario(const RID &p_scenario, ObjectID p_asset_object_id) const {
@@ -2575,7 +2565,7 @@ bool GaussianSplatSceneDirector::test_has_asset_record_for_scenario(const RID &p
 	if (!world) {
 		return false;
 	}
-	return world->asset_records.has(_asset_records_key(p_asset_object_id));
+	return world->instance_store.has_asset(_asset_records_key(p_asset_object_id));
 }
 #endif
 
@@ -2608,11 +2598,9 @@ void GaussianSplatSceneDirector::teardown_world_for_scenario(const RID &p_scenar
 		// Clear every Ref-holding field on the SharedWorld and move the renderer
 		// Ref out so the map entry is no longer the owner. The moved-out Ref is the
 		// last owner and is released only after world_mutex is dropped, below.
-		entry->instances.clear();
-		entry->instance_lookup.clear();
+		entry->instance_store.clear();
 		entry->sphere_effectors.clear();
 		entry->sphere_effector_lookup.clear();
-		entry->asset_records.clear();
 		entry->world_submission = SharedWorld::WorldSubmissionRecord();
 		deferred_renderer_release = std::move(entry->renderer);
 
@@ -2716,7 +2704,7 @@ bool GaussianSplatSceneDirector::get_submission_residency_hint_for_renderer(cons
 
 		bool found_instance_hint = false;
 		int32_t instance_hint = SUBMISSION_RESIDENCY_HINT_RESIDENT;
-		for (const InstanceRecord &record : world->instances) {
+		for (const InstanceRecord &record : world->instance_store.records()) {
 			if (!record.has_desired_residency_hint) {
 				continue;
 			}
@@ -2752,7 +2740,7 @@ GaussianSplatSceneDirector::SubmissionCounts GaussianSplatSceneDirector::get_sub
 
 	SubmissionCounts counts;
 	for (const KeyValue<RID, SharedWorld> &E : worlds) {
-		counts.instance_submissions += E.value.instances.size();
+		counts.instance_submissions += E.value.instance_store.instance_count();
 		if (E.value.world_submission.active) {
 			counts.world_submissions++;
 		}
@@ -2802,13 +2790,13 @@ void GaussianSplatSceneDirector::collect_instance_assets_for_renderer(const Gaus
 	out.clear();
 
 	const SharedWorld *world = _find_world_for_renderer(p_renderer);
-	if (!world || world->asset_records.is_empty()) {
+	if (!world || world->instance_store.assets_empty()) {
 		return;
 	}
 
 	HashSet<uint64_t> selected_asset_ids;
-	selected_asset_ids.reserve(world->asset_records.size());
-	for (const InstanceRecord &record : world->instances) {
+	selected_asset_ids.reserve(world->instance_store.asset_count());
+	for (const InstanceRecord &record : world->instance_store.records()) {
 		if (!record.visible) {
 			continue;
 		}
@@ -2822,7 +2810,7 @@ void GaussianSplatSceneDirector::collect_instance_assets_for_renderer(const Gaus
 
 	out.reserve(selected_asset_ids.size());
 	for (const uint64_t &asset_id : selected_asset_ids) {
-		const SharedWorld::AssetRecord *record = world->asset_records.getptr(asset_id);
+		const AssetRecord *record = world->instance_store.find_asset(asset_id);
 		if (!record || record->data.is_null()) {
 			continue;
 		}
@@ -2844,12 +2832,12 @@ void GaussianSplatSceneDirector::collect_registered_assets_for_renderer(const Ga
 	out.clear();
 
 	const SharedWorld *world = _find_world_for_renderer(p_renderer);
-	if (!world || world->asset_records.is_empty()) {
+	if (!world || world->instance_store.assets_empty()) {
 		return;
 	}
 
-	out.reserve(world->asset_records.size());
-	for (const KeyValue<uint64_t, SharedWorld::AssetRecord> &E : world->asset_records) {
+	out.reserve(world->instance_store.asset_count());
+	for (const KeyValue<uint64_t, AssetRecord> &E : world->instance_store.assets()) {
 		if (E.key == 0 || E.value.data.is_null()) {
 			continue;
 		}
