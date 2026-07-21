@@ -190,9 +190,12 @@ Dictionary GaussianSplatSceneDirector::get_scene_effector_debug_state_for_instan
 
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	const SharedWorld *world = nullptr;
+	const InstanceRecord *record_ptr = nullptr;
 	for (const KeyValue<RID, SharedWorld> &E : worlds) {
-		if (E.value.instance_lookup.has(p_node_id)) {
+		const InstanceRecord *found = E.value.instance_store.find(p_node_id);
+		if (found) {
 			world = &E.value;
+			record_ptr = found;
 			break;
 		}
 	}
@@ -200,11 +203,7 @@ Dictionary GaussianSplatSceneDirector::get_scene_effector_debug_state_for_instan
 		return state;
 	}
 
-	const uint32_t *index_ptr = world->instance_lookup.getptr(p_node_id);
-	if (!index_ptr || *index_ptr >= world->instances.size()) {
-		return state;
-	}
-	const InstanceRecord &record = world->instances[*index_ptr];
+	const InstanceRecord &record = *record_ptr;
 	state["effective_layer_mask"] = int64_t(record.scene_effector_layer_mask);
 	state["scope_filter_present"] = record.scene_effector_scope_filter_present;
 	state["scope_filter_valid"] = record.scene_effector_scope_filter_valid;
