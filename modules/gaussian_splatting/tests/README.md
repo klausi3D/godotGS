@@ -130,7 +130,7 @@ The Python supervisor drives `--gs-gpu-test` in **per-batch subprocesses** so a 
 | `Streaming` | `*Streaming*][RequiresGPU]*` | Catalogued, empty |
 | `Integration` | `*Integration*][RequiresGPU]*` | Active (1 of 2 cases, #641) |
 
-`REQUIRED_BATCHES = {"CompositorHazard"}`. The set is asserted at import time and an empty filter on a required batch fails the gate.
+`REQUIRED_BATCHES = {"CompositorHazard", "RendererPipeline", "Lifetime", "OutputCompositor", "RendererSceneTree", "WorldSceneTree", "SceneDirectorSceneTree"}` (the last four promoted in #724). The set is asserted at import time; an empty filter on a required batch fails the gate, and any hollow (zero-assertion) case in a required batch fails it per-case (#696). `NodeSceneTree` is deliberately advisory — its wall time is only ~1.6× under budget on the shared runner and would be a flaky required gate until #630's contention variance is resolved.
 
 Invocation:
 
