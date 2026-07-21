@@ -4546,17 +4546,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingcoregaussian_splat_scene_directorcpp" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/core/gaussian_splat_scene_director.cpp
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingtestssynthetic_ply_writercpp" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4572,6 +4561,17 @@
     <span class="md-ellipsis">
       
         modules/gaussian_splatting/renderer/render_config_orchestrator.cpp
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingcoregaussian_splat_scene_directorcpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/core/gaussian_splat_scene_director.cpp
       
     </span>
   </a>
@@ -5558,10 +5558,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingrenderergpu_sorting_configh" class="md-nav__link">
+  <a href="#modulesgaussian_splattingcoregaussian_splat_scene_directorh" class="md-nav__link">
     <span class="md-ellipsis">
       
-        modules/gaussian_splatting/renderer/gpu_sorting_config.h
+        modules/gaussian_splatting/core/gaussian_splat_scene_director.h
       
     </span>
   </a>
@@ -5569,10 +5569,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingcoregaussian_splat_scene_directorh" class="md-nav__link">
+  <a href="#modulesgaussian_splattingrenderergpu_sorting_configh" class="md-nav__link">
     <span class="md-ellipsis">
       
-        modules/gaussian_splatting/core/gaussian_splat_scene_director.h
+        modules/gaussian_splatting/renderer/gpu_sorting_config.h
       
     </span>
   </a>
@@ -10661,68 +10661,6 @@
 <li>line 45: static Vector<uint8_t> _build_source_premultiplied_circle_25...</uint8_t></li>
 <li>line 96: void track(RID p_texture) { textures.push_back(p_texture); }...</li>
 </ul>
-<h2 id="modulesgaussian_splattingcoregaussian_splat_scene_directorcpp">modules/gaussian_splatting/core/gaussian_splat_scene_director.cpp<a class="headerlink" href="#modulesgaussian_splattingcoregaussian_splat_scene_directorcpp" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 19: static bool _is_scene_director_log_enabled() {...</li>
-<li>line 24: static void _bump_instance_generation(uint64_t &amp;r_generation...</li>
-<li>line 31: static void _bump_instance_asset_generation(uint64_t &amp;r_gene...</li>
-<li>line 38: static bool _dict_get_bool(const Dictionary &amp;p_dict, const S...</li>
-<li>line 52: static int _dict_get_int(const Dictionary &amp;p_dict, const Str...</li>
-<li>line 63: static float _dict_get_float(const Dictionary &amp;p_dict, const...</li>
-<li>line 74: static String _dict_get_string(const Dictionary &amp;p_dict, con...</li>
-<li>line 81: static Dictionary _dict_get_dictionary(const Dictionary &amp;p_d...</li>
-<li>line 118: static float _sanitize_finite_float(float p_value, float p_d...</li>
-<li>line 126: static float _sanitize_non_negative_float(float p_value, flo...</li>
-<li>line 135: static float _sanitize_min_float(float p_value, float p_defa...</li>
-<li>line 144: static float _encode_u32_as_float_bits(uint32_t p_value) {...</li>
-<li>line 222: uint64_t GaussianSplatSceneDirector::get_renderer_contract_l...</li>
-<li>line 226: void GaussianSplatSceneDirector::reset_renderer_contract_loc...</li>
-<li>line 230: void GaussianSplatSceneDirector::_report_renderer_contract_l...</li>
-<li>line 292: void GaussianSplatSceneDirector::DeferredRendererWork::queue...</li>
-<li>line 318: void GaussianSplatSceneDirector::DeferredRendererWork::cance...</li>
-<li>line 322: void GaussianSplatSceneDirector::_initialize_world_renderer(...</li>
-<li>line 345: void GaussianSplatSceneDirector::DeferredRendererWork::flush...</li>
-<li>line 415: void GaussianSplatSceneDirector::_bind_methods() {...</li>
-<li>line 639: bool GaussianSplatSceneDirector::_populate_gaussian_data_fro...</li>
-<li>line 656: bool GaussianSplatSceneDirector::_retain_asset_record(Shared...</li>
-<li>line 696: bool GaussianSplatSceneDirector::_refresh_asset_record(Share...</li>
-<li>line 724: void GaussianSplatSceneDirector::_release_asset_record(Share...</li>
-<li>line 738: bool GaussianSplatSceneDirector::<em>is_world_submission_owner</em>...</li>
-<li>line 874: bool GaussianSplatSceneDirector::_world_has_no_instances(con...</li>
-<li>line 878: bool GaussianSplatSceneDirector::_world_has_no_sphere_effect...</li>
-<li>line 882: bool GaussianSplatSceneDirector::_world_submission_idle(cons...</li>
-<li>line 886: bool GaussianSplatSceneDirector::_world_renderer_unshared(co...</li>
-<li>line 896: bool GaussianSplatSceneDirector::_should_prune_world(const S...</li>
-<li>line 1134: void GaussianSplatSceneDirector::update_instance_transform(O...</li>
-<li>line 1307: void GaussianSplatSceneDirector::unregister_instance(ObjectI...</li>
-<li>line 1357: void GaussianSplatSceneDirector::update_instance_submission_...</li>
-<li>line 1372: void GaussianSplatSceneDirector::unregister_instance_submiss...</li>
-<li>line 1376: bool GaussianSplatSceneDirector::get_instance_submission(Obj...</li>
-<li>line 1510: void GaussianSplatSceneDirector::build_instance_buffer(Local...</li>
-<li>line 1799: void GaussianSplatSceneDirector::fill_instance_grading_entry...</li>
-<li>line 1904: Ref<colorgradingresource> GaussianSplatSceneDirector::get_in...</colorgradingresource></li>
-<li>line 1917: void GaussianSplatSceneDirector::invalidate_grading_for_rend...</li>
-<li>line 2033: uint64_t GaussianSplatSceneDirector::get_instance_generation...</li>
-<li>line 2042: uint64_t GaussianSplatSceneDirector::get_instance_asset_gene...</li>
-<li>line 2051: uint32_t GaussianSplatSceneDirector::get_instance_count_for_...</li>
-<li>line 2231: void GaussianSplatSceneDirector::unregister_sphere_effector(...</li>
-<li>line 2262: bool GaussianSplatSceneDirector::submit_world_submission(con...</li>
-<li>line 2511: void GaussianSplatSceneDirector::release_world_submission(Ob...</li>
-<li>line 2543: void GaussianSplatSceneDirector::try_prune_world_if_unused(c...</li>
-<li>line 2554: bool GaussianSplatSceneDirector::has_shared_world_for_scenar...</li>
-<li>line 2563: uint32_t GaussianSplatSceneDirector::test_asset_record_count...</li>
-<li>line 2572: bool GaussianSplatSceneDirector::test_has_asset_record_for_s...</li>
-<li>line 2582: void GaussianSplatSceneDirector::teardown_world_for_scenario...</li>
-<li>line 2633: void GaussianSplatSceneDirector::release_all_worlds() {...</li>
-<li>line 2664: bool GaussianSplatSceneDirector::get_world_submission(Object...</li>
-<li>line 2677: bool GaussianSplatSceneDirector::get_world_submission_for_sc...</li>
-<li>line 2690: bool GaussianSplatSceneDirector::has_world_submission_for_re...</li>
-<li>line 2750: GaussianSplatSceneDirector::SubmissionCounts GaussianSplatSc...</li>
-<li>line 2765: static int _metadata_int(const Dictionary &amp;p_metadata, const...</li>
-<li>line 2776: static double _metadata_double(const Dictionary &amp;p_metadata,...</li>
-<li>line 2787: static bool _asset_requests_full_fidelity_runtime(const Ref&lt;...</li>
-<li>line 2869: Ref<gaussiansplatrenderer> GaussianSplatSceneDirector::get_s...</gaussiansplatrenderer></li>
-</ul>
 <h2 id="modulesgaussian_splattingtestssynthetic_ply_writercpp">modules/gaussian_splatting/tests/synthetic_ply_writer.cpp<a class="headerlink" href="#modulesgaussian_splattingtestssynthetic_ply_writercpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 13: static float _logit(float p_x) {...</li>
@@ -10762,6 +10700,70 @@
 <li>line 243: void GaussianSplatRenderer::set_painterly_stroke_opacity(flo...</li>
 <li>line 247: void GaussianSplatRenderer::set_painterly_gamma(float p_gamm...</li>
 <li>line 251: void GaussianSplatRenderer::set_gaussian_asset(const Ref&lt;Gau...</li>
+</ul>
+<h2 id="modulesgaussian_splattingcoregaussian_splat_scene_directorcpp">modules/gaussian_splatting/core/gaussian_splat_scene_director.cpp<a class="headerlink" href="#modulesgaussian_splattingcoregaussian_splat_scene_directorcpp" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 19: static bool _is_scene_director_log_enabled() {...</li>
+<li>line 24: static void _bump_instance_generation(uint64_t &amp;r_generation...</li>
+<li>line 31: static void _bump_instance_asset_generation(uint64_t &amp;r_gene...</li>
+<li>line 38: static bool _dict_get_bool(const Dictionary &amp;p_dict, const S...</li>
+<li>line 52: static int _dict_get_int(const Dictionary &amp;p_dict, const Str...</li>
+<li>line 63: static float _dict_get_float(const Dictionary &amp;p_dict, const...</li>
+<li>line 74: static String _dict_get_string(const Dictionary &amp;p_dict, con...</li>
+<li>line 81: static Dictionary _dict_get_dictionary(const Dictionary &amp;p_d...</li>
+<li>line 118: static float _sanitize_finite_float(float p_value, float p_d...</li>
+<li>line 126: static float _sanitize_non_negative_float(float p_value, flo...</li>
+<li>line 135: static float _sanitize_min_float(float p_value, float p_defa...</li>
+<li>line 144: static float _encode_u32_as_float_bits(uint32_t p_value) {...</li>
+<li>line 222: uint64_t GaussianSplatSceneDirector::get_renderer_contract_l...</li>
+<li>line 226: void GaussianSplatSceneDirector::reset_renderer_contract_loc...</li>
+<li>line 230: void GaussianSplatSceneDirector::_report_renderer_contract_l...</li>
+<li>line 292: void GaussianSplatSceneDirector::DeferredRendererWork::queue...</li>
+<li>line 318: void GaussianSplatSceneDirector::DeferredRendererWork::cance...</li>
+<li>line 322: void GaussianSplatSceneDirector::_initialize_world_renderer(...</li>
+<li>line 345: void GaussianSplatSceneDirector::DeferredRendererWork::flush...</li>
+<li>line 415: void GaussianSplatSceneDirector::_bind_methods() {...</li>
+<li>line 639: bool GaussianSplatSceneDirector::InstanceStore::_populate_ga...</li>
+<li>line 656: void GaussianSplatSceneDirector::InstanceStore::bump_generat...</li>
+<li>line 660: void GaussianSplatSceneDirector::InstanceStore::bump_asset_g...</li>
+<li>line 664: bool GaussianSplatSceneDirector::InstanceStore::retain_asset...</li>
+<li>line 704: bool GaussianSplatSceneDirector::InstanceStore::refresh_asse...</li>
+<li>line 732: void GaussianSplatSceneDirector::InstanceStore::release_asse...</li>
+<li>line 746: bool GaussianSplatSceneDirector::<em>is_world_submission_owner</em>...</li>
+<li>line 882: bool GaussianSplatSceneDirector::_world_has_no_instances(con...</li>
+<li>line 886: bool GaussianSplatSceneDirector::_world_has_no_sphere_effect...</li>
+<li>line 890: bool GaussianSplatSceneDirector::_world_submission_idle(cons...</li>
+<li>line 894: bool GaussianSplatSceneDirector::_world_renderer_unshared(co...</li>
+<li>line 904: bool GaussianSplatSceneDirector::_should_prune_world(const S...</li>
+<li>line 1132: void GaussianSplatSceneDirector::update_instance_transform(O...</li>
+<li>line 1305: void GaussianSplatSceneDirector::unregister_instance(ObjectI...</li>
+<li>line 1345: void GaussianSplatSceneDirector::update_instance_submission_...</li>
+<li>line 1360: void GaussianSplatSceneDirector::unregister_instance_submiss...</li>
+<li>line 1364: bool GaussianSplatSceneDirector::get_instance_submission(Obj...</li>
+<li>line 1499: void GaussianSplatSceneDirector::build_instance_buffer(Local...</li>
+<li>line 1788: void GaussianSplatSceneDirector::fill_instance_grading_entry...</li>
+<li>line 1893: Ref<colorgradingresource> GaussianSplatSceneDirector::get_in...</colorgradingresource></li>
+<li>line 1906: void GaussianSplatSceneDirector::invalidate_grading_for_rend...</li>
+<li>line 2023: uint64_t GaussianSplatSceneDirector::get_instance_generation...</li>
+<li>line 2032: uint64_t GaussianSplatSceneDirector::get_instance_asset_gene...</li>
+<li>line 2041: uint32_t GaussianSplatSceneDirector::get_instance_count_for_...</li>
+<li>line 2221: void GaussianSplatSceneDirector::unregister_sphere_effector(...</li>
+<li>line 2252: bool GaussianSplatSceneDirector::submit_world_submission(con...</li>
+<li>line 2501: void GaussianSplatSceneDirector::release_world_submission(Ob...</li>
+<li>line 2533: void GaussianSplatSceneDirector::try_prune_world_if_unused(c...</li>
+<li>line 2544: bool GaussianSplatSceneDirector::has_shared_world_for_scenar...</li>
+<li>line 2553: uint32_t GaussianSplatSceneDirector::test_asset_record_count...</li>
+<li>line 2562: bool GaussianSplatSceneDirector::test_has_asset_record_for_s...</li>
+<li>line 2572: void GaussianSplatSceneDirector::teardown_world_for_scenario...</li>
+<li>line 2621: void GaussianSplatSceneDirector::release_all_worlds() {...</li>
+<li>line 2652: bool GaussianSplatSceneDirector::get_world_submission(Object...</li>
+<li>line 2665: bool GaussianSplatSceneDirector::get_world_submission_for_sc...</li>
+<li>line 2678: bool GaussianSplatSceneDirector::has_world_submission_for_re...</li>
+<li>line 2738: GaussianSplatSceneDirector::SubmissionCounts GaussianSplatSc...</li>
+<li>line 2753: static int _metadata_int(const Dictionary &amp;p_metadata, const...</li>
+<li>line 2764: static double _metadata_double(const Dictionary &amp;p_metadata,...</li>
+<li>line 2775: static bool _asset_requests_full_fidelity_runtime(const Ref&lt;...</li>
+<li>line 2857: Ref<gaussiansplatrenderer> GaussianSplatSceneDirector::get_s...</gaussiansplatrenderer></li>
 </ul>
 <h2 id="modulesgaussian_splattingtestsvisual_compareh">modules/gaussian_splatting/tests/visual_compare.h<a class="headerlink" href="#modulesgaussian_splattingtestsvisual_compareh" title="Permanent link">¶</a></h2>
 <ul>
@@ -11166,8 +11168,8 @@
 <h2 id="modulesgaussian_splattingcorescene_director_sphere_effectorscpp">modules/gaussian_splatting/core/scene_director_sphere_effectors.cpp<a class="headerlink" href="#modulesgaussian_splattingcorescene_director_sphere_effectorscpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 175: Dictionary GaussianSplatSceneDirector::get_scene_effector_de...</li>
-<li>line 337: uint32_t GaussianSplatSceneDirector::get_sphere_effector_cou...</li>
-<li>line 343: uint64_t GaussianSplatSceneDirector::get_sphere_effector_gen...</li>
+<li>line 336: uint32_t GaussianSplatSceneDirector::get_sphere_effector_cou...</li>
+<li>line 342: uint64_t GaussianSplatSceneDirector::get_sphere_effector_gen...</li>
 </ul>
 <h2 id="modulesgaussian_splattinginterfacesgpu_sorting_pipelineh">modules/gaussian_splatting/interfaces/gpu_sorting_pipeline.h<a class="headerlink" href="#modulesgaussian_splattinginterfacesgpu_sorting_pipelineh" title="Permanent link">¶</a></h2>
 <ul>
@@ -11597,18 +11599,29 @@
 <li>line 644: float get_wind_frequency() const { return wind_frequency; }...</li>
 <li>line 648: Ref<class colorgradingresource=""> get_color_grading() const { ...</class></li>
 </ul>
+<h2 id="modulesgaussian_splattingcoregaussian_splat_scene_directorh">modules/gaussian_splatting/core/gaussian_splat_scene_director.h<a class="headerlink" href="#modulesgaussian_splattingcoregaussian_splat_scene_directorh" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 350: static uint64_t test_asset_records_key(ObjectID p_asset_obje...</li>
+<li>line 438: bool is_empty() const { return instances.is_empty(); }...</li>
+<li>line 439: uint32_t instance_count() const { return instances.size(); }...</li>
+<li>line 440: bool has_instance(ObjectID p_node_id) const { return instanc...</li>
+<li>line 441: uint64_t generation() const { return instance_generation; }...</li>
+<li>line 442: uint64_t asset_generation() const { return instance_asset_ge...</li>
+<li>line 467: void append(const InstanceRecord &amp;p_record) {...</li>
+<li>line 475: bool remove(ObjectID p_node_id, uint64_t &amp;r_asset_id) {...</li>
+<li>line 505: bool has_asset(uint64_t p_asset_id) const { return asset_rec...</li>
+<li>line 506: uint32_t asset_count() const { return asset_records.size(); ...</li>
+<li>line 507: bool assets_empty() const { return asset_records.is_empty();...</li>
+<li>line 514: void clear() {...</li>
+<li>line 699: bool is_empty() const { return entries.is_empty(); }...</li>
+<li>line 700: uint32_t size() const { return entries.size(); }...</li>
+<li>line 701: uint32_t get_dispatched_entry_count() const { return dispatc...</li>
+<li>line 783: static uint64_t _asset_records_key(ObjectID p_asset_object_i...</li>
+</ul>
 <h2 id="modulesgaussian_splattingrenderergpu_sorting_configh">modules/gaussian_splatting/renderer/gpu_sorting_config.h<a class="headerlink" href="#modulesgaussian_splattingrenderergpu_sorting_configh" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 95: uint32_t get_overlap_records_hard_cap() const { return max_o...</li>
 <li>line 96: uint32_t get_overlap_records_adaptive_min() const {...</li>
-</ul>
-<h2 id="modulesgaussian_splattingcoregaussian_splat_scene_directorh">modules/gaussian_splatting/core/gaussian_splat_scene_director.h<a class="headerlink" href="#modulesgaussian_splattingcoregaussian_splat_scene_directorh" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 350: static uint64_t test_asset_records_key(ObjectID p_asset_obje...</li>
-<li>line 588: bool is_empty() const { return entries.is_empty(); }...</li>
-<li>line 589: uint32_t size() const { return entries.size(); }...</li>
-<li>line 590: uint32_t get_dispatched_entry_count() const { return dispatc...</li>
-<li>line 672: static uint64_t _asset_records_key(ObjectID p_asset_object_i...</li>
 </ul>
 <h2 id="modulesgaussian_splattingnodesgaussian_splat_dynamic_instance_3dh">modules/gaussian_splatting/nodes/gaussian_splat_dynamic_instance_3d.h<a class="headerlink" href="#modulesgaussian_splattingnodesgaussian_splat_dynamic_instance_3dh" title="Permanent link">¶</a></h2>
 <ul>
@@ -11723,7 +11736,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 21, 2026 21:47:46 UTC">July 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 21, 2026 21:53:05 UTC">July 21, 2026</span>
   </span>
 
     
