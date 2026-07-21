@@ -340,6 +340,23 @@ _RENDERER_REF_DECL_RE = re.compile(
     r"Ref\s*<\s*" + RENDERER_CLASS + r"\s*>\s*(?:>\s*)?([A-Za-z_]\w*)\s*[;={(]"
 )
 
+# #730 -- an `auto`-deduced OWNING local that resolves to Ref<GaussianSplatRenderer>
+# hides the type from _RENDERER_REF_DECL_RE but has the identical scope-exit
+# destructor hazard. The right-hand sources that yield a renderer Ref are DERIVED,
+# not guessed: the only Ref<GaussianSplatRenderer> value sources reachable in the
+# director are the `renderer` member of the SharedWorld-family structs
+# (`Ref<GaussianSplatRenderer> renderer;`, 3 sites) accessed via `.`/`->`, and
+# `get_shared_renderer(...)`, which returns one. `auto&` / `const auto&` are
+# NON-owning references (their destruction drops no reference) and are excluded by
+# requiring a name -- not `&` -- immediately after `auto`. Conservative by design
+# (#730): a dismissible false positive on this guard is far cheaper than a missed
+# indefinite-hang (#628); a bare `renderer\b` word boundary still excludes
+# `renderer_config` / `renderer_count` etc.
+_RENDERER_AUTO_DECL_RE = re.compile(
+    r"(?:const\s+)?auto\s+([A-Za-z_]\w*)\s*=\s*"
+    r"[^;]*(?:(?:->|\.)\s*renderer\b|\bget_shared_renderer\s*\()"
+)
+
 _DEFINITION_RE = re.compile(
     r"^[A-Za-z_][\w:<>*&,\s]*?\b(GaussianSplatSceneDirector(?:::\w+)+)\s*\("
 )
@@ -473,7 +490,7 @@ def check_renderer_ref_released_under_lock(source_text: str) -> list[str]:
                 continue
             if offset == begin:
                 continue
-            decl = _RENDERER_REF_DECL_RE.search(lines[offset])
+            decl = _RENDERER_REF_DECL_RE.search(lines[offset]) or _RENDERER_AUTO_DECL_RE.search(lines[offset])
             if not decl:
                 continue
             errors.append(
@@ -745,6 +762,40 @@ def run_self_test() -> int:
     expect(
         "a const renderer Ref declared after the lock must be caught",
         len(check_renderer_ref_released_under_lock(const_ref_after_lock)) == 1,
+    )
+
+    # #730: an `auto`-deduced owning local (from a renderer-Ref source) hides the
+    # type but has the identical scope-exit destructor hazard and must be caught.
+    auto_ref_after_lock_member = (
+        "void GaussianSplatSceneDirector::clear_world_for_scenario(const RID &p_scenario) {\n"
+        "\tGaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);\n"
+        "\tauto renderer = world->renderer;\n"
+        "}\n"
+    )
+    expect(
+        "an auto local deduced from a renderer-Ref member must be caught",
+        len(check_renderer_ref_released_under_lock(auto_ref_after_lock_member)) == 1,
+    )
+    auto_ref_after_lock_call = (
+        "void GaussianSplatSceneDirector::clear_world_for_scenario(const RID &p_scenario) {\n"
+        "\tGaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);\n"
+        "\tconst auto shared = get_shared_renderer(p_world);\n"
+        "}\n"
+    )
+    expect(
+        "a const auto local from get_shared_renderer() must be caught",
+        len(check_renderer_ref_released_under_lock(auto_ref_after_lock_call)) == 1,
+    )
+    # An `auto&` reference is NON-owning -- it drops no reference -- and must NOT be flagged.
+    auto_ref_reference_ok = (
+        "void GaussianSplatSceneDirector::clear_world_for_scenario(const RID &p_scenario) {\n"
+        "\tGaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);\n"
+        "\tconst auto &renderer = world->renderer;\n"
+        "}\n"
+    )
+    expect(
+        "an auto& reference to a renderer Ref must NOT be flagged",
+        not check_renderer_ref_released_under_lock(auto_ref_reference_ok),
     )
 
     # The compliant shape -- declared BEFORE the lock -- must NOT be flagged.
