@@ -524,7 +524,7 @@ GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_get_world_
 
 GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_find_world_for_effector(ObjectID p_effector_id) {
 	for (KeyValue<RID, SharedWorld> &E : worlds) {
-		if (E.value.sphere_effector_lookup.has(p_effector_id)) {
+		if (E.value.sphere_effector_store.has_effector(p_effector_id)) {
 			return &E.value;
 		}
 	}
@@ -659,6 +659,10 @@ void GaussianSplatSceneDirector::InstanceStore::bump_generation() {
 
 void GaussianSplatSceneDirector::InstanceStore::bump_asset_generation() {
 	_bump_instance_asset_generation(instance_asset_generation);
+}
+
+void GaussianSplatSceneDirector::SphereEffectorStore::bump_generation() {
+	_bump_instance_generation(sphere_effector_generation);
 }
 
 bool GaussianSplatSceneDirector::InstanceStore::retain_asset(const Ref<GaussianSplatAsset> &p_asset, uint64_t p_asset_id) {
@@ -884,7 +888,7 @@ bool GaussianSplatSceneDirector::_world_has_no_instances(const SharedWorld &p_wo
 }
 
 bool GaussianSplatSceneDirector::_world_has_no_sphere_effectors(const SharedWorld &p_world) const {
-	return p_world.sphere_effectors.is_empty();
+	return p_world.sphere_effector_store.is_empty();
 }
 
 bool GaussianSplatSceneDirector::_world_submission_idle(const SharedWorld &p_world) const {
@@ -2081,19 +2085,10 @@ void GaussianSplatSceneDirector::update_sphere_effector(ObjectID p_effector_id, 
 		if (!p_world) {
 			return;
 		}
-		uint32_t *lookup = p_world->sphere_effector_lookup.getptr(p_effector_id);
-		if (!lookup || *lookup >= p_world->sphere_effectors.size()) {
+		if (!p_world->sphere_effector_store.remove(p_effector_id)) {
 			return;
 		}
-		const uint32_t index = *lookup;
-		const uint32_t last_index = p_world->sphere_effectors.size() - 1;
-		if (index != last_index) {
-			p_world->sphere_effectors[index] = p_world->sphere_effectors[last_index];
-			p_world->sphere_effector_lookup[p_world->sphere_effectors[index].effector_id] = index;
-		}
-		p_world->sphere_effectors.remove_at(last_index);
-		p_world->sphere_effector_lookup.erase(p_effector_id);
-		_bump_instance_generation(p_world->sphere_effector_generation);
+		p_world->sphere_effector_store.bump_generation();
 		_prune_world_if_unused(p_world->scenario, deferred_renderer_release);
 	};
 
@@ -2129,9 +2124,8 @@ void GaussianSplatSceneDirector::update_sphere_effector(ObjectID p_effector_id, 
 				effector_context));
 	}
 
-	uint32_t *lookup = target_world->sphere_effector_lookup.getptr(p_effector_id);
-	if (lookup && *lookup < target_world->sphere_effectors.size()) {
-		SphereEffectorRecord &record = target_world->sphere_effectors[*lookup];
+	if (SphereEffectorRecord *record_ptr = target_world->sphere_effector_store.find_mutable(p_effector_id)) {
+		SphereEffectorRecord &record = *record_ptr;
 		bool dirty = false;
 		if (!record.transform.is_equal_approx(p_transform)) {
 			record.transform = p_transform;
@@ -2190,7 +2184,7 @@ void GaussianSplatSceneDirector::update_sphere_effector(ObjectID p_effector_id, 
 			dirty = true;
 		}
 		if (dirty) {
-			_bump_instance_generation(target_world->sphere_effector_generation);
+			target_world->sphere_effector_store.bump_generation();
 		}
 		return;
 	}
@@ -2208,14 +2202,14 @@ void GaussianSplatSceneDirector::update_sphere_effector(ObjectID p_effector_id, 
 	record.scope_mode = scope_mode;
 	record.scope_root_id = p_scope_root_id;
 	record.priority = p_priority;
-	record.registration_serial = ++target_world->sphere_effector_registration_serial;
 	record.enabled = p_enabled;
 	record.affect_position = p_affect_position;
 	record.affect_opacity = p_affect_opacity;
 
-	target_world->sphere_effector_lookup[p_effector_id] = target_world->sphere_effectors.size();
-	target_world->sphere_effectors.push_back(record);
-	_bump_instance_generation(target_world->sphere_effector_generation);
+	// append() stamps registration_serial (from the store-owned counter) and the
+	// lookup slot before storing the copy, matching the prior inline order.
+	target_world->sphere_effector_store.append(record);
+	target_world->sphere_effector_store.bump_generation();
 }
 
 void GaussianSplatSceneDirector::unregister_sphere_effector(ObjectID p_effector_id) {
@@ -2232,20 +2226,10 @@ void GaussianSplatSceneDirector::unregister_sphere_effector(ObjectID p_effector_
 		return;
 	}
 
-	uint32_t *lookup = world->sphere_effector_lookup.getptr(p_effector_id);
-	if (!lookup || *lookup >= world->sphere_effectors.size()) {
+	if (!world->sphere_effector_store.remove(p_effector_id)) {
 		return;
 	}
-
-	const uint32_t index = *lookup;
-	const uint32_t last_index = world->sphere_effectors.size() - 1;
-	if (index != last_index) {
-		world->sphere_effectors[index] = world->sphere_effectors[last_index];
-		world->sphere_effector_lookup[world->sphere_effectors[index].effector_id] = index;
-	}
-	world->sphere_effectors.remove_at(last_index);
-	world->sphere_effector_lookup.erase(p_effector_id);
-	_bump_instance_generation(world->sphere_effector_generation);
+	world->sphere_effector_store.bump_generation();
 	_prune_world_if_unused(world->scenario, deferred_renderer_release);
 }
 
@@ -2599,8 +2583,7 @@ void GaussianSplatSceneDirector::teardown_world_for_scenario(const RID &p_scenar
 		// Ref out so the map entry is no longer the owner. The moved-out Ref is the
 		// last owner and is released only after world_mutex is dropped, below.
 		entry->instance_store.clear();
-		entry->sphere_effectors.clear();
-		entry->sphere_effector_lookup.clear();
+		entry->sphere_effector_store.clear();
 		entry->world_submission = SharedWorld::WorldSubmissionRecord();
 		deferred_renderer_release = std::move(entry->renderer);
 
