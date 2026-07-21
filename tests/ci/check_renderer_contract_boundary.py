@@ -355,11 +355,14 @@ _RENDERER_REF_DECL_RE = re.compile(
 _RENDERER_AUTO_DECL_RE = re.compile(
     r"(?:const\s+)?auto\s+([A-Za-z_]\w*)\s*=\s*"
     r"(?:"
-    # Terminal `.renderer` / `->renderer` -- the Ref member ITSELF. The negative
-    # lookahead rejects any CHAINED use (#733 review): `world->renderer->foo()`
-    # yields foo()'s result and `world->renderer.ptr()` yields a raw pointer --
-    # neither local owns a Ref, so neither is a scope-exit hazard.
-    r"[^;]*(?:->|\.)\s*renderer\b(?!\s*(?:->|\.|\(|\[|<))"
+    # Terminal `.renderer` / `->renderer` -- the Ref member ITSELF, as the WHOLE
+    # rvalue. The pre-`renderer` text is restricted to member-access syntax
+    # (`[^;=!<>&|?]` excludes comparison/logical operators), so a boolean like
+    # `auto b = a == world->renderer;` is NOT matched -- b owns no Ref (#733
+    # review). The trailing negative lookahead likewise rejects a CHAINED use
+    # (`world->renderer->foo()` / `.ptr()`) and a comparison on the right
+    # (`world->renderer == x`): only `;`/end after `renderer` is an owning local.
+    r"[^;=!<>&|?]*(?:->|\.)\s*renderer\b(?!\s*(?:->|\.|\(|\[|<|>|=|!|&|\||\?|,))"
     r"|"
     # `get_shared_renderer(...)` as the TERMINAL value (ends the statement). Two
     # #733-review constraints must both hold: (a) a chained
@@ -826,11 +829,14 @@ def run_self_test() -> int:
         not check_renderer_ref_released_under_lock(auto_ref_reference_ok),
     )
     # #733: chained access through the renderer member yields a non-owning local
-    # (a count / a raw pointer / a call result) -- must NOT be flagged.
+    # (a count / a raw pointer / a call result), and a comparison yields a bool --
+    # none own a Ref, so none must be flagged (both operand positions).
     for chained in (
         "\tauto count = world->renderer->get_reference_count();\n",
         "\tauto ptr = world->renderer.ptr();\n",
         "\tauto handle = get_shared_renderer(p_world)->initialize();\n",
+        "\tauto ok = world->renderer == other;\n",
+        "\tauto also = other == world->renderer;\n",
     ):
         chained_ok = (
             "void GaussianSplatSceneDirector::clear_world_for_scenario(const RID &p_scenario) {\n"
