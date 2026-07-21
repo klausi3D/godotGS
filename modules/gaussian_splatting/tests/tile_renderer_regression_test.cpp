@@ -13,6 +13,8 @@
 
 #include "../renderer/tile_renderer.h"
 #include "../renderer/gpu_sorting_config.h"
+#include "../renderer/gaussian_gpu_layout.h"
+#include "../renderer/pipeline_io_contracts.h"
 #include "../core/gaussian_data.h"
 #include "gs_test_setting_guard.h"
 
@@ -33,6 +35,118 @@ static TileRenderer::RenderParams make_render_params(RID p_gaussian_buffer, RID 
     params.tile_size = p_tile_size;
     params.debug_show_performance_hud = true; // Enables async tile stats collection in test mode.
     return params;
+}
+
+// Instance-pipeline input buffers that the post-instance-routing TileRenderer::render()
+// requires. On current master, render() routes unconditionally through the instance
+// pipeline: _validate_and_configure_settings() runs first_tile_runtime_violation(), which
+// hard-fails (reason=tile_instance_buffer_missing / _grading_ / _splat_ref_ / _indirect_*)
+// unless instance_buffer / instance_grading_buffer / splat_ref_buffer /
+// instance_indirect_count_buffer / instance_indirect_dispatch_buffer are all valid. The
+// tile_binning shader then binds splat_ref/instance/grading at set=0 bindings 12/13/20 and
+// derives the visible count from the indirect buffers' element_count, so the pre-instance
+// direct path (gaussian_buffer + sorted_indices only) can no longer drive real binning. A
+// GPU test that provokes a genuine binning overlap-record drop must therefore build these.
+//
+// Layout: a single identity instance (no rotation, unit uniform scale, no translation, full
+// opacity) so each splat's world position equals its gaussian's local position; splat_refs
+// map visible splat i -> atlas gaussian i on that instance; both indirect buffers carry the
+// shared IndirectDispatchLayout with element_count == p_splat_count and dispatch_xyz sized to
+// cover all p_splat_count threads in BINNING_GROUP_SIZE-wide workgroups.
+struct InstancePipelineTestInputs {
+    RID splat_ref_buffer;
+    RID instance_buffer;
+    RID instance_grading_buffer;
+    RID indirect_count_buffer;
+    RID indirect_dispatch_buffer;
+
+    bool is_valid() const {
+        return splat_ref_buffer.is_valid() && instance_buffer.is_valid() &&
+                instance_grading_buffer.is_valid() && indirect_count_buffer.is_valid() &&
+                indirect_dispatch_buffer.is_valid();
+    }
+
+    void free(RenderingDevice *p_rd) {
+        if (p_rd == nullptr) {
+            return;
+        }
+        RID *rids[] = { &splat_ref_buffer, &instance_buffer, &instance_grading_buffer,
+                &indirect_count_buffer, &indirect_dispatch_buffer };
+        for (RID *rid : rids) {
+            if (rid->is_valid()) {
+                p_rd->free(*rid);
+                *rid = RID();
+            }
+        }
+    }
+};
+
+static InstancePipelineTestInputs create_instance_pipeline_test_inputs(RenderingDevice *p_rd, uint32_t p_splat_count) {
+    InstancePipelineTestInputs inputs;
+    if (p_rd == nullptr || p_splat_count == 0) {
+        return inputs;
+    }
+
+    // splat_ref_buffer (binding 12): one row per visible splat -> atlas gaussian i, instance 0.
+    Vector<uint8_t> splat_ref_data;
+    splat_ref_data.resize(int64_t(p_splat_count) * int64_t(sizeof(SplatRefGPU)));
+    {
+        SplatRefGPU *refs = reinterpret_cast<SplatRefGPU *>(splat_ref_data.ptrw());
+        for (uint32_t i = 0; i < p_splat_count; i++) {
+            refs[i].instance_id = 0u;
+            refs[i].atlas_index = i;
+        }
+    }
+    inputs.splat_ref_buffer = p_rd->storage_buffer_create(splat_ref_data.size(), splat_ref_data);
+
+    // instance_buffer (binding 13): a single identity instance.
+    InstanceDataGPU instance = {};
+    instance.rotation[3] = 1.0f;           // identity quaternion (0,0,0,1)
+    instance.inv_rotation[3] = 1.0f;
+    instance.translation_scale[3] = 1.0f;  // w = uniform_scale = 1
+    instance.params[0] = 1.0f;             // x = opacity
+    Vector<uint8_t> instance_data;
+    instance_data.resize(sizeof(InstanceDataGPU));
+    memcpy(instance_data.ptrw(), &instance, sizeof(InstanceDataGPU));
+    inputs.instance_buffer = p_rd->storage_buffer_create(instance_data.size(), instance_data);
+
+    // instance_grading_buffer (binding 20): neutral grading (primary.x == 0 -> disabled).
+    InstanceGradingGPU grading = {};
+    Vector<uint8_t> grading_data;
+    grading_data.resize(sizeof(InstanceGradingGPU));
+    memcpy(grading_data.ptrw(), &grading, sizeof(InstanceGradingGPU));
+    inputs.instance_grading_buffer = p_rd->storage_buffer_create(grading_data.size(), grading_data);
+
+    // Indirect buffers: element_count feeds gs_get_visible_gaussian_count() (binding 15, from
+    // indirect_count_buffer) and dispatch_xyz feeds compute_list_dispatch_indirect (from
+    // indirect_dispatch_buffer). Both carry the full IndirectDispatchLayout so either read is
+    // satisfied; the dispatch buffer additionally needs the DISPATCH_INDIRECT usage bit.
+    GaussianSplatting::IndirectDispatchLayout dispatch = {};
+    dispatch.dispatch_x = (p_splat_count + TileRenderer::BINNING_GROUP_SIZE - 1u) / TileRenderer::BINNING_GROUP_SIZE;
+    dispatch.dispatch_y = 1u;
+    dispatch.dispatch_z = 1u;
+    dispatch.element_count = p_splat_count;
+    Vector<uint8_t> dispatch_data;
+    dispatch_data.resize(sizeof(GaussianSplatting::IndirectDispatchLayout));
+    memcpy(dispatch_data.ptrw(), &dispatch, sizeof(GaussianSplatting::IndirectDispatchLayout));
+    inputs.indirect_count_buffer = p_rd->storage_buffer_create(dispatch_data.size(), dispatch_data,
+            RenderingDevice::STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT);
+    inputs.indirect_dispatch_buffer = p_rd->storage_buffer_create(dispatch_data.size(), dispatch_data,
+            RenderingDevice::STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT);
+
+    return inputs;
+}
+
+static void bind_instance_pipeline_inputs(TileRenderer::RenderParams &p_params,
+        const InstancePipelineTestInputs &p_inputs, uint32_t p_splat_count) {
+    p_params.instance_buffer = p_inputs.instance_buffer;
+    p_params.instance_grading_buffer = p_inputs.instance_grading_buffer;
+    p_params.splat_ref_buffer = p_inputs.splat_ref_buffer;
+    p_params.instance_indirect_count_buffer = p_inputs.indirect_count_buffer;
+    p_params.instance_indirect_dispatch_buffer = p_inputs.indirect_dispatch_buffer;
+    // GPU-indirect visible count can exceed the (stale) CPU splat_count; size the per-splat
+    // projection/visibility buffers for the full instance-pipeline count.
+    p_params.max_visible_splats = p_splat_count;
 }
 
 static bool read_texture_pixels(RenderingDevice *p_rd, RID p_texture, Vector<uint8_t> &r_pixels) {
@@ -1383,14 +1497,24 @@ bool TileRendererRegressionTest::generate_reference_captures(RenderingDevice *p_
 
 TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_overflow_drop_telemetry(RenderingDevice *p_rd) {
     // C4b / exit criterion G4 ("no silent degradation"), Channel A: on-GPU proof that a real
-    // binning overlap-record drop makes the always-on resident-signal telemetry fire. Force
-    // max_overlap_records to its minimum valid value (100000) so a dense 100K-splat cloud at
-    // 512x512 (each splat covering several tiles) exhausts the GLOBAL overlap-record budget ->
-    // the EMIT-pass drop sites set overflow_drop_signal, which the always-on async readback
-    // surfaces as a non-zero get_overflow_drop_events(). The signal is sticky (not cleared per
-    // frame), so the drop cannot be lost to async-readback timing -- this genuinely exercises
-    // the sticky path. Runs on the self-hosted GPU harness lane (needs a real device); it cannot
-    // execute on the agent's rasterless environment.
+    // binning overlap-record drop makes the always-on resident-signal telemetry fire, and that
+    // it does NOT fire without one. This drives TileRenderer::render() through the actual
+    // instance pipeline (build_instance_pipeline_test_inputs supplies the splat_ref / instance /
+    // grading / indirect buffers the post-instance-routing render() now requires), so the
+    // tile_binning EMIT pass runs for real.
+    //
+    // Two phases, control first so the sticky drop signal cannot leak across them:
+    //   1. Control: a small 512-splat scene whose overlap records stay far under the forced-low
+    //      budget. It renders cleanly and overflow_drop_events MUST stay put -- this is what
+    //      makes the test discriminate (a drop counter that ticked here would be broken).
+    //   2. Overflow: force max_overlap_records to its minimum valid value (100000) so a dense
+    //      100K-splat cloud at 512x512 (each splat covering several tiles) exhausts the global
+    //      overlap-record budget -> the EMIT-pass drop sites set overflow_drop_signal, which the
+    //      always-on async readback surfaces as a non-zero get_overflow_drop_events(). The signal
+    //      is sticky (not cleared per frame), so the drop cannot be lost to async-readback timing.
+    //
+    // Runs on the self-hosted GPU harness lane (needs a real device); it cannot execute on the
+    // agent's rasterless environment (REQUIRE_LOCAL_GPU_DEVICE skips there).
     TestResult result;
 
     ProjectSettings *ps = ProjectSettings::get_singleton();
@@ -1412,52 +1536,83 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_overflow
             }
             tile_renderer->set_debug_binning_counters_enabled(true);
 
-            const uint32_t baseline_drop_events = tile_renderer->get_overflow_drop_events();
+            // Build the full instance-pipeline input set for a given splat count, wire it into
+            // params, and render it p_frames times. On failure r_error is set and false returned.
+            auto render_scene = [&](uint32_t p_splat_count, int p_frames, uint32_t &r_max_clamped,
+                    String &r_error) -> bool {
+                r_max_clamped = 0;
+                Vector<Gaussian> gaussians = generate_test_gaussians(p_splat_count);
+                RID gaussian_buffer = create_test_gaussian_buffer(p_rd, gaussians);
+                RID sorted_indices = create_test_sorted_indices(p_rd, p_splat_count);
+                InstancePipelineTestInputs instance_inputs = create_instance_pipeline_test_inputs(p_rd, p_splat_count);
+                auto free_scene = [&]() {
+                    if (gaussian_buffer.is_valid()) {
+                        p_rd->free(gaussian_buffer);
+                    }
+                    if (sorted_indices.is_valid()) {
+                        p_rd->free(sorted_indices);
+                    }
+                    instance_inputs.free(p_rd);
+                };
+                if (!gaussian_buffer.is_valid() || !sorted_indices.is_valid() || !instance_inputs.is_valid()) {
+                    free_scene();
+                    r_error = "Failed to create overflow-drop telemetry scene buffers";
+                    return false;
+                }
 
-            Vector<Gaussian> gaussians = generate_test_gaussians(OVERFLOW_TEST_SPLAT_COUNT);
-            RID gaussian_buffer = create_test_gaussian_buffer(p_rd, gaussians);
-            RID sorted_indices = create_test_sorted_indices(p_rd, OVERFLOW_TEST_SPLAT_COUNT);
-            auto free_buffers = [&]() {
-                if (gaussian_buffer.is_valid()) {
-                    p_rd->free(gaussian_buffer);
+                TileRenderer::RenderParams params = make_render_params(gaussian_buffer, sorted_indices,
+                        p_splat_count, TEST_VIEWPORT_WIDTH, TEST_VIEWPORT_HEIGHT, TEST_TILE_SIZE);
+                bind_instance_pipeline_inputs(params, instance_inputs, p_splat_count);
+
+                const uint32_t drop_events_before = tile_renderer->get_overflow_drop_events();
+                for (int frame = 0; frame < p_frames; frame++) {
+                    RID output = tile_renderer->render(p_rd, params);
+                    if (!output.is_valid()) {
+                        free_scene();
+                        r_error = "Render failed under overflow-drop telemetry workload";
+                        return false;
+                    }
+                    r_max_clamped = MAX<uint32_t>(r_max_clamped, tile_renderer->get_overflow_stats().overflow_splats_clamped);
+                    // Early out once the drop counter has moved (overflow phase only benefits).
+                    if (tile_renderer->get_overflow_drop_events() > drop_events_before) {
+                        break;
+                    }
                 }
-                if (sorted_indices.is_valid()) {
-                    p_rd->free(sorted_indices);
-                }
+                free_scene();
+                return true;
             };
-            if (!gaussian_buffer.is_valid() || !sorted_indices.is_valid()) {
-                free_buffers();
-                r.error_message = "Failed to create overflow-drop telemetry test buffers";
+
+            // --- Phase 1: control. A small, non-overflowing scene must leave the counter at 0. ---
+            const uint32_t control_baseline = tile_renderer->get_overflow_drop_events();
+            uint32_t control_clamped = 0;
+            String control_error;
+            if (!render_scene(512u, 8, control_clamped, control_error)) {
+                r.error_message = control_error;
+                return r;
+            }
+            const uint32_t control_after = tile_renderer->get_overflow_drop_events();
+            if (control_after != control_baseline) {
+                r.error_message = vformat(
+                        "Control (no-overflow) scene raised overflow_drop_events %d->%d (overflow_splats_clamped "
+                        "observed=%d). The Channel A drop counter fired without any binning overlap-record drop; "
+                        "the telemetry does not discriminate.",
+                        control_baseline, control_after, control_clamped);
                 return r;
             }
 
-            TileRenderer::RenderParams params = make_render_params(gaussian_buffer, sorted_indices,
-                    OVERFLOW_TEST_SPLAT_COUNT, TEST_VIEWPORT_WIDTH, TEST_VIEWPORT_HEIGHT, TEST_TILE_SIZE);
-
-            // Render enough frames to (a) sustain drops and (b) let the ~2-frame async
-            // resident-signal readback complete and increment overflow_drop_events.
-            uint32_t drop_events = baseline_drop_events;
+            // --- Phase 2: overflow. The dense workload must drive the counter above baseline. ---
+            const uint32_t baseline_drop_events = tile_renderer->get_overflow_drop_events();
             uint32_t clamped_seen = 0;
-            for (int frame = 0; frame < 24; frame++) {
-                RID output = tile_renderer->render(p_rd, params);
-                if (!output.is_valid()) {
-                    free_buffers();
-                    r.error_message = "Render failed under overflow-drop telemetry workload";
-                    return r;
-                }
-                clamped_seen = MAX<uint32_t>(clamped_seen, tile_renderer->get_overflow_stats().overflow_splats_clamped);
-                drop_events = tile_renderer->get_overflow_drop_events();
-                if (drop_events > baseline_drop_events) {
-                    break;
-                }
+            String overflow_error;
+            if (!render_scene(OVERFLOW_TEST_SPLAT_COUNT, 24, clamped_seen, overflow_error)) {
+                r.error_message = overflow_error;
+                return r;
             }
-
-            free_buffers();
-
+            const uint32_t drop_events = tile_renderer->get_overflow_drop_events();
             if (drop_events <= baseline_drop_events) {
                 r.error_message = vformat(
                         "overflow_drop_events did not increment after 24 frames of a dense overflow workload "
-                        "(baseline=%u final=%u; overflow_splats_clamped observed=%u). clamped==0 => the workload "
+                        "(baseline=%d final=%d; overflow_splats_clamped observed=%d). clamped==0 => the workload "
                         "did not provoke a binning overlap-record drop; clamped>0 => the Channel A resident-signal "
                         "telemetry did not fire.",
                         baseline_drop_events, drop_events, clamped_seen);
@@ -1516,34 +1671,32 @@ extern "C" int tile_renderer_regression_test_cpp_force_link() {
 
 // C4b / exit criterion G4 ("no silent degradation"), Channel A on-GPU evidence. Tagged
 // [RequiresGPU] so the self-hosted "GPU Harness + Visual Gate" lane runs it (the gs-gpu-test
-// runner filters `*[RequiresGPU]*`). It provokes a real binning overlap-record drop and asserts
-// the always-on resident-signal telemetry counter (overflow_drop_events) goes non-zero. Cannot
-// run in the agent's rasterless environment; skips cleanly when no rendering device is available.
+// runner's TileRenderer batch filters `*TileRenderer*][RequiresGPU]*`). It drives
+// TileRenderer::render() through the real instance pipeline, provokes a genuine binning
+// overlap-record drop, and asserts the always-on resident-signal telemetry counter
+// (overflow_drop_events) goes non-zero -- plus a control scene showing it stays 0 without a drop.
+//
+// Device acquisition uses REQUIRE_LOCAL_GPU_DEVICE() rather than
+// RenderingServer::get_singleton(): under --gs-gpu-test there is NO RenderingServer (the test
+// listener builds one only for [SceneTree] cases, tests/test_main.cpp), so the old
+// RenderingServer gate early-returned with ZERO assertions on the harness -- a vacuous pass
+// (#727). REQUIRE_LOCAL_GPU_DEVICE() creates a local device from the harness-bootstrapped
+// RenderingDevice::get_singleton() instead, so the case actually runs its assertions there and
+// only skips in the agent's rasterless environment where no device bootstrap exists.
 TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] Overflow-record drop raises the C4b telemetry counter") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    if (!rs) {
-        MESSAGE("[TileRenderer] RenderingServer not available, skipping overflow-drop telemetry test");
-        return;
-    }
-
-    RenderingDevice *rd = rs->create_local_rendering_device();
-    if (!rd) {
-        MESSAGE("[TileRenderer] Could not create local rendering device, skipping overflow-drop telemetry test");
-        return;
-    }
+    REQUIRE_LOCAL_GPU_DEVICE();
 
     Ref<TileRendererRegressionTest> regression_test;
     regression_test.instantiate();
 
-    TileRendererRegressionTest::TestResult result = regression_test->test_overflow_drop_telemetry(rd);
+    TileRendererRegressionTest::TestResult result = regression_test->test_overflow_drop_telemetry(local_device);
 
-    // Release the regression test (its ~TileRenderer runs cleanup() on the device) BEFORE
-    // deleting the local device, matching the other [RequiresGPU] teardown idiom (e.g.
-    // bm.unref() in test_gpu_buffer_manager_lifetime.h). Running the destructor after
-    // memdelete(rd) would dereference a freed device (use-after-free at teardown).
+    // Release the regression test (its ~TileRenderer runs cleanup() on the device) BEFORE the
+    // ScopedLocalRD guard frees local_device at scope exit -- the guard is declared first by the
+    // macro, so it destructs last. Matches the other [RequiresGPU] teardown idiom (e.g. bm.unref()
+    // in test_gpu_buffer_manager_lifetime.h); running ~TileRenderer after the device is freed
+    // would dereference a freed device (use-after-free at teardown).
     regression_test.unref();
-
-    memdelete(rd);
 
     if (!result.passed) {
         MESSAGE(result.error_message.utf8().get_data());
