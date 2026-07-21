@@ -3369,17 +3369,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingteststest_renderer_pipelineh" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/tests/test_renderer_pipeline.h
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#modulesgaussian_splattinginterfacesrender_thread_dispatchercpp" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3439,6 +3428,17 @@
     <span class="md-ellipsis">
       
         tests/runtime/test_runtime_modifications.cpp
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingteststest_renderer_pipelineh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/tests/test_renderer_pipeline.h
       
     </span>
   </a>
@@ -5404,6 +5404,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingrenderergaussian_splat_rendererh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/renderer/gaussian_splat_renderer.h
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingteststest_node_surface_cleanuph" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5430,17 +5441,6 @@
     <span class="md-ellipsis">
       
         modules/gaussian_splatting/shaders/includes/gs_lighting_bridge.glsl
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingrenderergaussian_splat_rendererh" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/renderer/gaussian_splat_renderer.h
       
     </span>
   </a>
@@ -8664,19 +8664,6 @@
 <li>line 246: int ResourceImporterGSplatWorld::get_preset_count() const {...</li>
 <li>line 250: String ResourceImporterGSplatWorld::get_preset_name(int p_id...</li>
 </ul>
-<h2 id="modulesgaussian_splattingteststest_renderer_pipelineh">modules/gaussian_splatting/tests/test_renderer_pipeline.h<a class="headerlink" href="#modulesgaussian_splattingteststest_renderer_pipelineh" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 492: static void gs_free_test_render_target(RID &amp;r_render_target)...</li>
-<li>line 503: static void fill_gaussians(LocalVector<gaussian> &amp;p_gaussian...</gaussian></li>
-<li>line 521: static Vector<gaussiansplatrenderer::staticchunk> make_singl...</gaussiansplatrenderer::staticchunk></li>
-<li>line 587: static Vector<gaussiansplatrenderer::staticchunk> make_overl...</gaussiansplatrenderer::staticchunk></li>
-<li>line 611: static Vector<uint32_t> read_renderer_sort_indices(const Ref...</uint32_t></li>
-<li>line 771: static bool gs_binning_bakes_direct(uint32_t p_lighting_mode...</li>
-<li>line 774: static bool gs_resolve_adds_direct(uint32_t p_lighting_mode)...</li>
-<li>line 806: static GaussianRenderPipeline::InstancePipelineBuffers make_...</li>
-<li>line 840: static bool hud_lines_contain(const Array &amp;p_lines, const St...</li>
-<li>line 4003: static RID create_test_texture(RenderingDevice *p_rd, const ...</li>
-</ul>
 <h2 id="modulesgaussian_splattinginterfacesrender_thread_dispatchercpp">modules/gaussian_splatting/interfaces/render_thread_dispatcher.cpp<a class="headerlink" href="#modulesgaussian_splattinginterfacesrender_thread_dispatchercpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 109: bool RenderThreadDispatcher::is_render_thread_dispatch_path_...</li>
@@ -8723,6 +8710,19 @@
 <li>line 109: void test_state_management() {...</li>
 <li>line 135: void test_memory_overhead() {...</li>
 <li>line 163: int main() {...</li>
+</ul>
+<h2 id="modulesgaussian_splattingteststest_renderer_pipelineh">modules/gaussian_splatting/tests/test_renderer_pipeline.h<a class="headerlink" href="#modulesgaussian_splattingteststest_renderer_pipelineh" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 492: static void gs_free_test_render_target(RID &amp;r_render_target)...</li>
+<li>line 503: static void fill_gaussians(LocalVector<gaussian> &amp;p_gaussian...</gaussian></li>
+<li>line 521: static Vector<gaussiansplatrenderer::staticchunk> make_singl...</gaussiansplatrenderer::staticchunk></li>
+<li>line 587: static Vector<gaussiansplatrenderer::staticchunk> make_overl...</gaussiansplatrenderer::staticchunk></li>
+<li>line 611: static Vector<uint32_t> read_renderer_sort_indices(const Ref...</uint32_t></li>
+<li>line 771: static bool gs_binning_bakes_direct(uint32_t p_lighting_mode...</li>
+<li>line 774: static bool gs_resolve_adds_direct(uint32_t p_lighting_mode)...</li>
+<li>line 806: static GaussianRenderPipeline::InstancePipelineBuffers make_...</li>
+<li>line 840: static bool hud_lines_contain(const Array &amp;p_lines, const St...</li>
+<li>line 4105: static RID create_test_texture(RenderingDevice *p_rd, const ...</li>
 </ul>
 <h2 id="modulesgaussian_splattingrendererrender_streaming_orchestratorcpp">modules/gaussian_splatting/renderer/render_streaming_orchestrator.cpp<a class="headerlink" href="#modulesgaussian_splattingrendererrender_streaming_orchestratorcpp" title="Permanent link">¶</a></h2>
 <ul>
@@ -11461,30 +11461,6 @@
 <ul>
 <li>line 32: inline float gaussian_importance(const Gaussian &amp;p_g) {...</li>
 </ul>
-<h2 id="modulesgaussian_splattingteststest_node_surface_cleanuph">modules/gaussian_splatting/tests/test_node_surface_cleanup.h<a class="headerlink" href="#modulesgaussian_splattingteststest_node_surface_cleanuph" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 32: Error _write_node_surface_legacy_ply(const String &amp;p_path) {...</li>
-</ul>
-<h2 id="modulesgaussian_splattingpersistencegaussian_scene_serializerh">modules/gaussian_splatting/persistence/gaussian_scene_serializer.h<a class="headerlink" href="#modulesgaussian_splattingpersistencegaussian_scene_serializerh" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 259: void set_compression_type(CompressionType type) { compressio...</li>
-<li>line 260: CompressionType get_compression_type() const { return compre...</li>
-<li>line 262: void set_compression_level(int level) { compression_level = ...</li>
-<li>line 263: int get_compression_level() const { return compression_level...</li>
-<li>line 265: void set_enable_checksum(bool enable) { enable_checksum = en...</li>
-<li>line 266: bool get_enable_checksum() const { return enable_checksum; }...</li>
-<li>line 268: void set_incremental_mode(bool enable) { incremental_mode = ...</li>
-<li>line 269: bool get_incremental_mode() const { return incremental_mode;...</li>
-<li>line 278: int get_unknown_chunk_count() const { return unknown_chunks....</li>
-<li>line 279: void clear_unknown_chunks() { unknown_chunks.clear(); }...</li>
-<li>line 287: static String get_file_extension() { return "gsf"; } // Gaus...</li>
-</ul>
-<h2 id="modulesgaussian_splattingshadersincludesgs_lighting_bridgeglsl">modules/gaussian_splatting/shaders/includes/gs_lighting_bridge.glsl<a class="headerlink" href="#modulesgaussian_splattingshadersincludesgs_lighting_bridgeglsl" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 93: uint sc_penumbra_shadow_samples() {...</li>
-<li>line 97: uint sc_directional_soft_shadow_samples() {...</li>
-<li>line 101: uint sc_directional_penumbra_shadow_samples() {...</li>
-</ul>
 <h2 id="modulesgaussian_splattingrenderergaussian_splat_rendererh">modules/gaussian_splatting/renderer/gaussian_splat_renderer.h<a class="headerlink" href="#modulesgaussian_splattingrenderergaussian_splat_rendererh" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 827: uint64_t get_instance_pipeline_content_generation() const { ...</li>
@@ -11512,16 +11488,40 @@
 <li>line 949: CullStageOutput cull_for_view(const Transform3D &amp;p_world_to_...</li>
 <li>line 952: void reset_legacy_streaming_data_path_state() { _reset_legac...</li>
 <li>line 1040: Ref<class colorgradingresource=""> get_color_grading() const { ...</class></li>
-<li>line 1097: float get_lod_min_screen_size() const { return subsystem_sta...</li>
-<li>line 1152: float get_cull_far_tolerance() const { return subsystem_stat...</li>
-<li>line 1424: bool is_solid_coverage_enabled() const { return get_culling_...</li>
-<li>line 1426: float get_solid_coverage_alpha_floor() const { return get_cu...</li>
-<li>line 1436: bool get_jacobian_bypass_radius_depth_floor() const { return...</li>
-<li>line 1438: bool get_jacobian_bypass_j_col2_clamp() const { return jacob...</li>
-<li>line 1440: bool get_jacobian_invert_j_col2_sign() const { return jacobi...</li>
-<li>line 1442: float get_max_conic_aspect() const { return jacobian_debug.m...</li>
-<li>line 1697: bool is_debug_show_device_boundaries() const { return get_de...</li>
-<li>line 1699: bool is_debug_show_texture_states() const { return get_debug...</li>
+<li>line 1123: float get_lod_min_screen_size() const {...</li>
+<li>line 1208: float get_cull_far_tolerance() const {...</li>
+<li>line 1525: bool is_solid_coverage_enabled() const { return get_culling_...</li>
+<li>line 1527: float get_solid_coverage_alpha_floor() const { return get_cu...</li>
+<li>line 1537: bool get_jacobian_bypass_radius_depth_floor() const { return...</li>
+<li>line 1539: bool get_jacobian_bypass_j_col2_clamp() const { return jacob...</li>
+<li>line 1541: bool get_jacobian_invert_j_col2_sign() const { return jacobi...</li>
+<li>line 1543: float get_max_conic_aspect() const { return jacobian_debug.m...</li>
+<li>line 1798: bool is_debug_show_device_boundaries() const { return get_de...</li>
+<li>line 1800: bool is_debug_show_texture_states() const { return get_debug...</li>
+</ul>
+<h2 id="modulesgaussian_splattingteststest_node_surface_cleanuph">modules/gaussian_splatting/tests/test_node_surface_cleanup.h<a class="headerlink" href="#modulesgaussian_splattingteststest_node_surface_cleanuph" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 32: Error _write_node_surface_legacy_ply(const String &amp;p_path) {...</li>
+</ul>
+<h2 id="modulesgaussian_splattingpersistencegaussian_scene_serializerh">modules/gaussian_splatting/persistence/gaussian_scene_serializer.h<a class="headerlink" href="#modulesgaussian_splattingpersistencegaussian_scene_serializerh" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 259: void set_compression_type(CompressionType type) { compressio...</li>
+<li>line 260: CompressionType get_compression_type() const { return compre...</li>
+<li>line 262: void set_compression_level(int level) { compression_level = ...</li>
+<li>line 263: int get_compression_level() const { return compression_level...</li>
+<li>line 265: void set_enable_checksum(bool enable) { enable_checksum = en...</li>
+<li>line 266: bool get_enable_checksum() const { return enable_checksum; }...</li>
+<li>line 268: void set_incremental_mode(bool enable) { incremental_mode = ...</li>
+<li>line 269: bool get_incremental_mode() const { return incremental_mode;...</li>
+<li>line 278: int get_unknown_chunk_count() const { return unknown_chunks....</li>
+<li>line 279: void clear_unknown_chunks() { unknown_chunks.clear(); }...</li>
+<li>line 287: static String get_file_extension() { return "gsf"; } // Gaus...</li>
+</ul>
+<h2 id="modulesgaussian_splattingshadersincludesgs_lighting_bridgeglsl">modules/gaussian_splatting/shaders/includes/gs_lighting_bridge.glsl<a class="headerlink" href="#modulesgaussian_splattingshadersincludesgs_lighting_bridgeglsl" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 93: uint sc_penumbra_shadow_samples() {...</li>
+<li>line 97: uint sc_directional_soft_shadow_samples() {...</li>
+<li>line 101: uint sc_directional_penumbra_shadow_samples() {...</li>
 </ul>
 <h2 id="modulesgaussian_splattingcorescene_director_internalh">modules/gaussian_splatting/core/scene_director_internal.h<a class="headerlink" href="#modulesgaussian_splattingcorescene_director_internalh" title="Permanent link">¶</a></h2>
 <ul>
@@ -11736,7 +11736,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 21, 2026 21:53:05 UTC">July 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 21, 2026 22:36:48 UTC">July 21, 2026</span>
   </span>
 
     
