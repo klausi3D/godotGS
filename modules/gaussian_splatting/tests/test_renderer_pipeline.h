@@ -3625,6 +3625,108 @@ TEST_CASE("[GaussianSplatting][RendererPipeline][SceneTree][RequiresGPU] Cull ro
     renderer.unref();
 }
 
+TEST_CASE("[GaussianSplatting][RendererPipeline][SceneTree][RequiresGPU] Post-teardown culler accessors return terminal-state defaults instead of dereferencing null") {
+    // #722 (slice 2). After _teardown_resources() unref's the GPU culler, ~18 public inline
+    // getters on GaussianSplatRenderer still exist and, before this fix, dereferenced the
+    // now-null culler (an access violation). test_disable_gpu_culler() models that exact
+    // terminal state: it clears the orchestrators' cached raw culler pointers, then drops
+    // the owning Ref. This case drives every one of those getters after teardown and asserts
+    // each returns its documented "feature inactive" default (false / 0.0f) instead of
+    // crashing -- the supported terminal state, mirroring get_static_chunks()'s empty-list
+    // contract.
+    //
+    // Discrimination: on the PRE-fix header the first culler-backed getter below
+    // (is_static_sort_cache_enabled) dereferences the null culler and takes down the whole
+    // batch; on the fixed header all getters return their defaults and the
+    // [GS-GPU][CASE-ASSERT-AUDIT] marker records real assertions here (not zero_assert).
+    RenderingServer *rs = RenderingServer::get_singleton();
+    if (rs == nullptr) {
+        MESSAGE("Skipping test - Rendering server unavailable");
+        return;
+    }
+
+    ScopedGaussianManagerPipeline manager_scope;
+    GaussianSplatManager *manager = manager_scope.get();
+    if (manager == nullptr) {
+        MESSAGE("Skipping test - GaussianSplatManager unavailable");
+        return;
+    }
+
+    RenderingDevice *primary_rd = manager->get_primary_rendering_device();
+    if (!primary_rd) {
+        primary_rd = rs->create_local_rendering_device();
+    }
+    if (primary_rd == nullptr) {
+        MESSAGE("Skipping test - Rendering device unavailable");
+        return;
+    }
+
+    Ref<GaussianSplatRenderer> renderer;
+    renderer.instantiate(primary_rd);
+    CHECK(renderer.is_valid());
+    if (!renderer.is_valid()) {
+        return;
+    }
+    renderer->initialize();
+
+    // Sanity: with a live culler these accessors read real config, proving the getter path
+    // is genuinely exercised rather than short-circuited. Values may be seeded from project
+    // settings, so they are recorded rather than asserted against exact live defaults.
+    MESSAGE(vformat("Pre-teardown culler-backed sample: lod_enabled=%s frustum_culling=%s",
+            renderer->get_lod_enabled() ? "true" : "false",
+            renderer->get_frustum_culling() ? "true" : "false"));
+
+    // Enter the terminal state: unref the culler exactly as _teardown_resources() does.
+    renderer->test_disable_gpu_culler();
+
+    // Sentinel: the already-guarded accessor confirms the culler really is gone, so the 18
+    // assertions below genuinely exercise the null-culler branch instead of a live culler.
+    CHECK_MESSAGE(renderer->get_static_chunks().is_empty(),
+            "Expected no static chunks once the GPU culler is torn down");
+
+    // Every culler-backed inline getter must now return its documented terminal-state
+    // default instead of dereferencing the null culler. On the PRE-fix header the first
+    // line here is the null deref.
+    CHECK_MESSAGE(renderer->is_static_sort_cache_enabled() == false,
+            "is_static_sort_cache_enabled() must report false after teardown");
+    CHECK_MESSAGE(renderer->get_lod_enabled() == false,
+            "get_lod_enabled() must report false after teardown");
+    CHECK_MESSAGE(renderer->get_lod_bias() == doctest::Approx(0.0),
+            "get_lod_bias() must report 0 after teardown");
+    CHECK_MESSAGE(renderer->get_lod_min_screen_size() == doctest::Approx(0.0),
+            "get_lod_min_screen_size() must report 0 after teardown");
+    CHECK_MESSAGE(renderer->get_lod_max_distance() == doctest::Approx(0.0),
+            "get_lod_max_distance() must report 0 after teardown");
+    CHECK_MESSAGE(renderer->get_importance_cull_threshold() == doctest::Approx(0.0),
+            "get_importance_cull_threshold() must report 0 after teardown");
+    CHECK_MESSAGE(renderer->get_cull_radius_multiplier() == doctest::Approx(0.0),
+            "get_cull_radius_multiplier() must report 0 after teardown");
+    CHECK_MESSAGE(renderer->get_cull_frustum_plane_slack() == doctest::Approx(0.0),
+            "get_cull_frustum_plane_slack() must report 0 after teardown");
+    CHECK_MESSAGE(renderer->get_cull_near_tolerance() == doctest::Approx(0.0),
+            "get_cull_near_tolerance() must report 0 after teardown");
+    CHECK_MESSAGE(renderer->get_cull_far_tolerance() == doctest::Approx(0.0),
+            "get_cull_far_tolerance() must report 0 after teardown");
+    CHECK_MESSAGE(renderer->get_tiny_splat_screen_radius() == doctest::Approx(0.0),
+            "get_tiny_splat_screen_radius() must report 0 after teardown");
+    CHECK_MESSAGE(renderer->is_opacity_aware_culling() == false,
+            "is_opacity_aware_culling() must report false after teardown");
+    CHECK_MESSAGE(renderer->get_visibility_threshold() == doctest::Approx(0.0),
+            "get_visibility_threshold() must report 0 after teardown");
+    CHECK_MESSAGE(renderer->is_distance_cull_enabled() == false,
+            "is_distance_cull_enabled() must report false after teardown");
+    CHECK_MESSAGE(renderer->get_distance_cull_start() == doctest::Approx(0.0),
+            "get_distance_cull_start() must report 0 after teardown");
+    CHECK_MESSAGE(renderer->get_distance_cull_max_rate() == doctest::Approx(0.0),
+            "get_distance_cull_max_rate() must report 0 after teardown");
+    CHECK_MESSAGE(renderer->is_overflow_autotune_enabled() == false,
+            "is_overflow_autotune_enabled() must report false after teardown");
+    CHECK_MESSAGE(renderer->get_frustum_culling() == false,
+            "get_frustum_culling() must report false after teardown");
+
+    renderer.unref();
+}
+
 TEST_CASE("[GaussianSplatting][RendererPipeline][SceneTree][RequiresGPU] Stage results report raster failure when rasterizer missing") {
     RenderingServer *rs = RenderingServer::get_singleton();
     if (rs == nullptr) {

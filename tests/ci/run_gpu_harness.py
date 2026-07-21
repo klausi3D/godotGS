@@ -187,6 +187,9 @@ BATCHES: tuple[BatchSpec, ...] = (
             "*Stage results report raster*",
             "*Streaming-requested failure hard-fails*",
             "*Serial instancing failure injection*",
+            # #722 slice 2: the post-teardown terminal-state contract for the culler-backed
+            # inline getters. Bracket-free phrase so fnmatch and doctest agree (see note above).
+            "*Post-teardown culler accessors return terminal-state defaults*",
     ), timeout_seconds=180),
     # Lifetime batch: the renderer/RID leak + shutdown-lifetime proof scenarios that
     # carry #352's "zero rid_leak_bytes" evidence. Re-enabled now that the --gs-gpu-test

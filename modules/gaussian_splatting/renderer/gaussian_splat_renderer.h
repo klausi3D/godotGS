@@ -1050,8 +1050,24 @@ public:
      */
     void set_static_sort_cache_enabled(bool p_enabled);
 
+    // Terminal-state contract for the culler-backed inline accessors below (#722).
+    //
+    // `subsystem_state.gpu_culler` is a Ref that _teardown_resources() unref's during
+    // shutdown (and test_disable_gpu_culler() drops for tests). These public getters
+    // outlive that teardown, so a caller still polling a torn-down renderer would
+    // otherwise dereference the now-null culler. Each returns a documented
+    // "feature inactive" default (false / 0.0f) when the culler is gone -- the supported
+    // terminal state -- exactly as get_static_chunks() returns an empty list. This is NOT
+    // a degraded-render mode: the frame/mutation/orchestrator paths stay
+    // invariant-protected (FrameDeps::validate() rejects a null culler in release), and
+    // guarding those is deliberately out of scope for this contract.
     /** @brief Returns true if static sort caching is enabled. */
-    bool is_static_sort_cache_enabled() const { return subsystem_state.gpu_culler->get_state().static_sort_cache_enabled; }
+    bool is_static_sort_cache_enabled() const {
+        if (subsystem_state.gpu_culler.is_null()) {
+            return false; // #722 terminal-state default
+        }
+        return subsystem_state.gpu_culler->get_state().static_sort_cache_enabled;
+    }
 
     /** @brief Enables or disables cached render reuse in the output compositor. */
     void set_cached_render_reuse_enabled(bool p_enabled);
@@ -1086,19 +1102,39 @@ public:
     void set_lod_enabled(bool p_enabled) override;
 
     /** @brief Returns true if LOD culling is enabled. */
-    bool get_lod_enabled() const override { return subsystem_state.gpu_culler->get_config().lod_enabled; }
+    bool get_lod_enabled() const override {
+        if (subsystem_state.gpu_culler.is_null()) {
+            return false; // #722 terminal-state default
+        }
+        return subsystem_state.gpu_culler->get_config().lod_enabled;
+    }
 
     /** @brief Sets LOD bias (higher values keep more detail at distance). */
     void set_lod_bias(float p_bias) override;
-    float get_lod_bias() const override { return subsystem_state.gpu_culler->get_config().lod_bias; }
+    float get_lod_bias() const override {
+        if (subsystem_state.gpu_culler.is_null()) {
+            return 0.0f; // #722 terminal-state default
+        }
+        return subsystem_state.gpu_culler->get_config().lod_bias;
+    }
 
     /** @brief Sets minimum screen-space size in pixels before a splat is culled. */
     void set_lod_min_screen_size(float p_pixels);
-    float get_lod_min_screen_size() const { return subsystem_state.gpu_culler->get_config().lod_min_screen_size; }
+    float get_lod_min_screen_size() const {
+        if (subsystem_state.gpu_culler.is_null()) {
+            return 0.0f; // #722 terminal-state default
+        }
+        return subsystem_state.gpu_culler->get_config().lod_min_screen_size;
+    }
 
     /** @brief Sets maximum render distance for splats. */
     void set_lod_max_distance(float p_distance) override;
-    float get_lod_max_distance() const override { return subsystem_state.gpu_culler->get_config().lod_max_distance; }
+    float get_lod_max_distance() const override {
+        if (subsystem_state.gpu_culler.is_null()) {
+            return 0.0f; // #722 terminal-state default
+        }
+        return subsystem_state.gpu_culler->get_config().lod_max_distance;
+    }
 
     /**
      * @brief Sets the importance threshold for splat culling.
@@ -1107,7 +1143,12 @@ public:
     void set_importance_cull_threshold(float p_threshold);
 
     /** @brief Returns the importance cull threshold. */
-    float get_importance_cull_threshold() const { return subsystem_state.gpu_culler->get_config().importance_cull_threshold; }
+    float get_importance_cull_threshold() const {
+        if (subsystem_state.gpu_culler.is_null()) {
+            return 0.0f; // #722 terminal-state default
+        }
+        return subsystem_state.gpu_culler->get_config().importance_cull_threshold;
+    }
 
     /**
      * @brief Sets the radius multiplier for frustum culling bounds.
@@ -1116,7 +1157,12 @@ public:
     void set_cull_radius_multiplier(float p_multiplier);
 
     /** @brief Returns the cull radius multiplier. */
-    float get_cull_radius_multiplier() const { return subsystem_state.gpu_culler->get_config().cull_radius_multiplier; }
+    float get_cull_radius_multiplier() const {
+        if (subsystem_state.gpu_culler.is_null()) {
+            return 0.0f; // #722 terminal-state default
+        }
+        return subsystem_state.gpu_culler->get_config().cull_radius_multiplier;
+    }
 
     /**
      * @brief Sets extra slack distance for frustum plane culling.
@@ -1125,7 +1171,12 @@ public:
     void set_cull_frustum_plane_slack(float p_slack);
 
     /** @brief Returns the frustum plane slack distance. */
-    float get_cull_frustum_plane_slack() const { return subsystem_state.gpu_culler->get_config().cull_frustum_plane_slack; }
+    float get_cull_frustum_plane_slack() const {
+        if (subsystem_state.gpu_culler.is_null()) {
+            return 0.0f; // #722 terminal-state default
+        }
+        return subsystem_state.gpu_culler->get_config().cull_frustum_plane_slack;
+    }
 
     /**
      * @brief Sets the near plane tolerance for depth culling.
@@ -1134,7 +1185,12 @@ public:
     void set_cull_near_tolerance(float p_tolerance);
 
     /** @brief Returns the near plane tolerance. */
-    float get_cull_near_tolerance() const { return subsystem_state.gpu_culler->get_config().cull_near_tolerance; }
+    float get_cull_near_tolerance() const {
+        if (subsystem_state.gpu_culler.is_null()) {
+            return 0.0f; // #722 terminal-state default
+        }
+        return subsystem_state.gpu_culler->get_config().cull_near_tolerance;
+    }
 
     /**
      * @brief Sets the far plane tolerance for depth culling.
@@ -1149,7 +1205,12 @@ public:
      * @note Called automatically by the engine's scene renderer.
      */
     void update_depth_range(float p_near, float p_far);
-    float get_cull_far_tolerance() const { return subsystem_state.gpu_culler->get_config().cull_far_tolerance; }
+    float get_cull_far_tolerance() const {
+        if (subsystem_state.gpu_culler.is_null()) {
+            return 0.0f; // #722 terminal-state default
+        }
+        return subsystem_state.gpu_culler->get_config().cull_far_tolerance;
+    }
 
     /**
      * @brief Sets the minimum screen-space radius for tiny splat culling.
@@ -1158,7 +1219,12 @@ public:
     void set_tiny_splat_screen_radius(float p_pixels);
 
     /** @brief Returns the tiny splat screen radius threshold. */
-    float get_tiny_splat_screen_radius() const { return subsystem_state.gpu_culler->get_state().tiny_splat_screen_radius_px; }
+    float get_tiny_splat_screen_radius() const {
+        if (subsystem_state.gpu_culler.is_null()) {
+            return 0.0f; // #722 terminal-state default
+        }
+        return subsystem_state.gpu_culler->get_state().tiny_splat_screen_radius_px;
+    }
 
     /**
      * @brief Enables or disables opacity-aware bounding (FlashGS optimization).
@@ -1167,7 +1233,12 @@ public:
     void set_opacity_aware_culling(bool p_enabled);
 
     /** @brief Returns true if opacity-aware culling is enabled. */
-    bool is_opacity_aware_culling() const { return subsystem_state.gpu_culler->get_config().opacity_aware_culling; }
+    bool is_opacity_aware_culling() const {
+        if (subsystem_state.gpu_culler.is_null()) {
+            return false; // #722 terminal-state default
+        }
+        return subsystem_state.gpu_culler->get_config().opacity_aware_culling;
+    }
 
     /**
      * @brief Sets the visibility threshold (tau) for opacity-aware culling.
@@ -1176,7 +1247,12 @@ public:
     void set_visibility_threshold(float p_threshold);
 
     /** @brief Returns the visibility threshold for opacity-aware culling. */
-    float get_visibility_threshold() const { return subsystem_state.gpu_culler->get_config().visibility_threshold; }
+    float get_visibility_threshold() const {
+        if (subsystem_state.gpu_culler.is_null()) {
+            return 0.0f; // #722 terminal-state default
+        }
+        return subsystem_state.gpu_culler->get_config().visibility_threshold;
+    }
 
     /**
      * @brief Enables or disables distance-based probabilistic culling during tile binning.
@@ -1185,7 +1261,12 @@ public:
     void set_distance_cull_enabled(bool p_enabled);
 
     /** @brief Returns true if distance-based culling is enabled. */
-    bool is_distance_cull_enabled() const { return subsystem_state.gpu_culler->get_config().distance_cull_enabled; }
+    bool is_distance_cull_enabled() const {
+        if (subsystem_state.gpu_culler.is_null()) {
+            return false; // #722 terminal-state default
+        }
+        return subsystem_state.gpu_culler->get_config().distance_cull_enabled;
+    }
 
     /**
      * @brief Sets the distance (world units) where distance-based culling starts ramping.
@@ -1194,7 +1275,12 @@ public:
     void set_distance_cull_start(float p_distance);
 
     /** @brief Returns the distance where distance-based culling starts. */
-    float get_distance_cull_start() const { return subsystem_state.gpu_culler->get_config().distance_cull_start; }
+    float get_distance_cull_start() const {
+        if (subsystem_state.gpu_culler.is_null()) {
+            return 0.0f; // #722 terminal-state default
+        }
+        return subsystem_state.gpu_culler->get_config().distance_cull_start;
+    }
 
     /**
      * @brief Sets the maximum cull probability at far distances (0-1).
@@ -1203,7 +1289,12 @@ public:
     void set_distance_cull_max_rate(float p_rate);
 
     /** @brief Returns the maximum distance-based cull rate. */
-    float get_distance_cull_max_rate() const { return subsystem_state.gpu_culler->get_config().distance_cull_max_rate; }
+    float get_distance_cull_max_rate() const {
+        if (subsystem_state.gpu_culler.is_null()) {
+            return 0.0f; // #722 terminal-state default
+        }
+        return subsystem_state.gpu_culler->get_config().distance_cull_max_rate;
+    }
 
     /**
      * @brief Enables or disables automatic overflow tuning.
@@ -1212,7 +1303,12 @@ public:
     void set_overflow_autotune_enabled(bool p_enabled);
 
     /** @brief Returns true if overflow auto-tuning is enabled. */
-    bool is_overflow_autotune_enabled() const { return subsystem_state.gpu_culler->get_state().overflow_autotune_enabled; }
+    bool is_overflow_autotune_enabled() const {
+        if (subsystem_state.gpu_culler.is_null()) {
+            return false; // #722 terminal-state default
+        }
+        return subsystem_state.gpu_culler->get_state().overflow_autotune_enabled;
+    }
 
     /**
      * @brief Sets the maximum number of splats to render per frame.
@@ -1228,7 +1324,12 @@ public:
     void set_frustum_culling(bool p_enabled) override;
 
     /** @brief Returns true if frustum culling is enabled. */
-    bool get_frustum_culling() const override { return subsystem_state.gpu_culler->get_config().frustum_culling; }
+    bool get_frustum_culling() const override {
+        if (subsystem_state.gpu_culler.is_null()) {
+            return false; // #722 terminal-state default
+        }
+        return subsystem_state.gpu_culler->get_config().frustum_culling;
+    }
 
     /**
      * @brief Enables or disables async GPU uploads for streaming.
