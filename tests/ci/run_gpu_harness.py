@@ -102,6 +102,21 @@ BATCHES: tuple[BatchSpec, ...] = (
         ("*TileRenderer*][RequiresGPU]*",),
         excludes=("*Output format coercion keeps deterministic defaults*",),
     ),
+    # #744: PROMOTED to REQUIRED_BATCHES (below). The `*Sort*][RequiresGPU]*` filter
+    # matches EXACTLY ONE linked case -- the #508 [GPUSortPipeline][RequiresGPU]
+    # "Instance-count overflow_flag is sticky across a skipped async readback" test in
+    # test_gpu_sorting.h (measured on an RTX 3090: 1 case / 5 assertions / 4.4 s wall,
+    # CASE-ASSERT-AUDIT zero_assert=0, i.e. non-hollow). 4.4 s under the 60 s default is
+    # ~13.6x headroom -- far above the 1.5x floor -- so no per-batch timeout override is
+    # needed. Promoting it gates that real, asserting case so a future rename or hollow
+    # early-return of it fails the required gate instead of silently passing.
+    #
+    # HONEST SCOPE (do not overread the batch NAME): this gates the sort-pipeline
+    # OVERFLOW-stickiness case, NOT sort-ORDER correctness. The Bitonic/Radix sort-order
+    # tests live in test_gpu_sorting.CPP, which is linker-dropped (KNOWN_UNLINKED, tracked
+    # by #622) AND is tagged [GaussianSplatting][RequiresGPU] with "sort" only in the
+    # description -- so it would NOT match `*Sort*][RequiresGPU]*` even once linked.
+    # Closing the sort-order coverage gap is #622's job, not this promotion's.
     BatchSpec("GpuSorting", ("*Sort*][RequiresGPU]*",)),
     BatchSpec("MemoryStream", ("*MemoryStream*][RequiresGPU]*",)),
     BatchSpec("Streaming", ("*Streaming*][RequiresGPU]*",)),
@@ -425,6 +440,7 @@ REQUIRED_BATCHES: frozenset[str] = frozenset({
     "RendererSceneTree",
     "WorldSceneTree",
     "SceneDirectorSceneTree",
+    "GpuSorting",  # #744: gates the #508 [GPUSortPipeline] overflow-sticky case (see BatchSpec note)
 })
 
 # #329: the deferred-case count is DERIVED, never hardcoded.
