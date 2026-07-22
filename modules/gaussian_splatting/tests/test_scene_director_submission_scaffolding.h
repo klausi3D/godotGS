@@ -1140,7 +1140,16 @@ TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Explicit resident 
 
 	Ref<GaussianSplatWorld> world_resource;
 	world_resource.instantiate();
-	Ref<GaussianData> data = stage1a_make_submission_test_data(32, 20.0f);
+	// #719: the static chunk below indexes splat 0, whose chunk bounds are the origin AABB
+	// (stage1a_make_submission_test_chunk). The camera sits at (0,0,5) looking down -Z, so the
+	// atlas splat must be inside that frustum to produce rendered output. The previous 20.0f
+	// x-offset placed splat 0 at x=20 -- consistent with the origin chunk bounds for coarse cull,
+	// but far outside the camera frustum, so depth_compute per-splat-culled it and the resident
+	// quantized atlas rendered nothing (element_count=0). That was the sole reason
+	// has_rendered_content() and get_visible_splat_count() > 0 failed here (measured on an
+	// RTX 3090); the published contract itself is correct. Offset 0.0f keeps splat 0 at the origin,
+	// consistent with the chunk bounds and in-frustum, so the resident quantized path renders.
+	Ref<GaussianData> data = stage1a_make_submission_test_data(32, 0.0f);
 	world_resource->set_gaussian_data(data);
 	Vector<GaussianSplatRenderer::StaticChunk> chunks;
 	chunks.push_back(stage1a_make_submission_test_chunk(0));

@@ -286,34 +286,19 @@ BATCHES: tuple[BatchSpec, ...] = (
     # is ~1.96x. This is a re-budget for genuinely more work, NOT headroom for a
     # hang: every one of the 22 cases completes and the batch reports 22/22.
     BatchSpec("NodeSceneTree", ("*[Node][SceneTree][RequiresGPU]*",), timeout_seconds=300),
-    BatchSpec("WorldSceneTree", ("*[World][SceneTree][RequiresGPU]*",), excludes=(
-            # Behaviour failure (NOT a crash since #685): runs to completion and
-            # fails 2 of 15 assertions -- has_rendered_content() == false and
-            # get_visible_splat_count() == 0. The VK_ERROR_DEVICE_LOST this was
-            # originally waived for was the local-device submission-balance defect,
-            # not a quantization fault.
-            #
-            # Triaged 2026-07-19 on f232f68c630: this is a TEST BUG, not a
-            # quantization defect. The case renders into an empty render target
-            # (render_data.render_buffers = Ref<RenderSceneBuffersRD>()), so the
-            # output compositor never publishes a final texture and
-            # has_rendered_content() cannot be true for ANY configuration --
-            # verified by six instrumented variants (quantization on/off, splats
-            # in/out of frustum, 1 vs 16 frames), all of which report visible=0.
-            # The other 13 assertions -- the ones that actually cover the quantized
-            # resident publish contract -- pass. Full evidence and the recommended
-            # disposition are in the waiver entry in
-            # docs/reference/renderer_release_gate_manifest.json.
-            #
-            # The two resident-route cases that used to sit here were excluded for
-            # the same root cause ("device already submitted", then a fault inside
-            # _capture_instance_count_sync -> buffer_get_data ->
-            # _flush_and_stall_for_all_frames). Fixed in #685: gs_device_utils
-            # never leaves a local device submitted, and every blocking readback
-            # settles first (interfaces/sync_policy.h), enforced by
-            # tests/ci/check_device_submission_contract.py.
-            "*Explicit resident quantization rejection falls back*",
-    )),
+    # #719: the "Explicit resident quantization rejection falls back" case is no longer
+    # excluded. Its two render-output assertions (has_rendered_content() == true and
+    # get_visible_splat_count() > 0) now PASS on a real device (RTX 3090, Vulkan). The
+    # published resident quantized contract was always correct (measured: atlas holds 1 splat,
+    # asset_meta/chunk_meta/instance all consistent, max_chunk_splats=1 is the honest atlas
+    # state). Post-#716 the cull latch resolves on the local-device route, so the sole remaining
+    # blocker was a TEST FIXTURE bug: the fixture placed its single atlas splat at x=20, outside
+    # the camera frustum (camera at (0,0,5) looking down -Z), so depth_compute per-splat-culled
+    # it and the atlas rendered nothing. Placing the splat in-frustum (offset 0.0f) makes the
+    # resident quantized path render -- the module's first has_rendered_content() == true proof
+    # under --gs-gpu-test. Mutation-verified: reverting the splat off-screen re-fails exactly the
+    # two render-output assertions.
+    BatchSpec("WorldSceneTree", ("*[World][SceneTree][RequiresGPU]*",)),
     # Two filters, not one, because doctest treats "[" and "]" literally: a case
     # tagged [SceneDirector][WorldSubmission][SceneTree][RequiresGPU] does NOT match
     # "*[SceneDirector][SceneTree][RequiresGPU]*". The world-submission cases in
