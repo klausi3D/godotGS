@@ -212,7 +212,7 @@
       },
       {
         "name": "WorldSceneTree",
-        "minimum_test_cases": 4,
+        "minimum_test_cases": 5,
         "allow_skips": false,
         "allow_timeout": false,
         "allow_rid_leaks": false,
