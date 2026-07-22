@@ -1,75 +1,142 @@
-.gs-hero {
-  display: grid;
-  gap: 1rem;
-  margin: 0 0 1rem;
-}
+/* ==========================================================================
+   godotGS — landing.css
+   The documentation home. Generous rhythm, a monospace accent-tick eyebrow, a
+   large Hanken wordmark headline, honest status copy. Depends on brand.css
+   tokens + components.css.
+   ========================================================================== */
 
 .gs-home-intro {
-  margin: 0 0 1.15rem;
+  margin: 0.6rem 0 1.4rem;
 }
 
-.gs-hero__content,
-.gs-hero__aside {
-  padding: 0;
-}
-
-.gs-hero__content > .md-button {
-  margin-top: 0.9rem;
-  margin-right: 0.45rem;
-}
-
-.gs-hero__aside {
-  align-self: start;
-}
-
-.gs-wordmark {
-  display: block;
-  width: min(100%, 25rem);
-  margin-bottom: 0.4rem;
-}
-
-.gs-eyebrow {
-  margin: 0 0 0.45rem;
-  color: var(--gs-muted);
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.03em;
+/* Eyebrow — uppercase mono kicker with a leading accent tick (DS signature) */
+.md-typeset .gs-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0 0 0.85rem;
+  color: var(--gs-accent);
+  font-family: var(--gs-font-code);
+  font-size: 0.7rem;
+  font-weight: var(--gs-weight-medium);
+  letter-spacing: var(--gs-tracking-eyebrow);
   text-transform: uppercase;
+}
+.gs-eyebrow::before {
+  content: "";
+  width: 18px;
+  height: 1px;
+  background: var(--gs-accent);
+}
+
+/* Home headline — large Hanken wordmark */
+.md-typeset .gs-home-intro h1 {
+  font-size: clamp(2.6rem, 1.9rem + 3vw, 4rem);
+  line-height: 1.02;
+  letter-spacing: var(--gs-tracking-hero);
+  margin: 0 0 0.7rem;
+}
+.gs-home-intro h1 .gs-accent {
+  color: var(--gs-accent);
+}
+
+/* Intro lead paragraph (exclude the eyebrow, which is also a direct <p> child) */
+.md-typeset .gs-home-intro > p:not(.gs-eyebrow) {
+  max-width: 60ch;
+  font-size: 0.94rem;
+  line-height: 1.62;
+  color: var(--gs-muted);
 }
 
 .gs-home-intro .md-button {
-  margin-top: 0.85rem;
-  margin-right: 0.45rem;
+  margin-top: 1.1rem;
+  margin-right: 0.5rem;
 }
 
+/* --------------------------------------------------------------------------
+   Status strip — honest "current reality" block
+   -------------------------------------------------------------------------- */
+.gs-status-strip {
+  padding: 1.15rem 1.25rem;
+  border: 1px solid var(--gs-line);
+  border-radius: var(--gs-radius-lg);
+  background: var(--gs-surface);
+  box-shadow: var(--gs-shadow-sm);
+}
+.md-typeset .gs-status-strip > h3 {
+  margin: 0 0 0.7rem;
+  font-family: var(--gs-font-code);
+  font-size: 0.68rem;
+  font-weight: var(--gs-weight-semibold);
+  letter-spacing: var(--gs-tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--gs-faint);
+}
 .gs-status-strip ul {
   margin: 0;
+  list-style: none;
+  padding: 0;
 }
-
+.gs-status-strip li {
+  position: relative;
+  padding: 0.35rem 0 0.35rem 1rem;
+  color: var(--gs-prose);
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
 .gs-status-strip li + li {
-  margin-top: 0.15rem;
+  border-top: 1px solid var(--gs-line-2);
+}
+.gs-status-strip li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.72rem;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--gs-accent);
 }
 
-.gs-hero__aside h3 {
-  margin-top: 0;
-  margin-bottom: 0.8rem;
-}
-
-.gs-hero__aside ul {
-  margin: 0;
-}
-
+/* --------------------------------------------------------------------------
+   Section shells + their cards
+   -------------------------------------------------------------------------- */
 .gs-landing-header p:last-child,
 .gs-section-shell p:last-child {
   margin-bottom: 0;
 }
-
 .md-typeset .gs-section-shell .grid.cards {
-  margin-top: 0.7rem;
+  margin-top: 0.9rem;
+}
+.md-typeset .gs-section-shell ul {
+  margin-top: 0.6rem;
 }
 
-.md-typeset .gs-section-shell ul {
-  margin-top: 0.55rem;
+/* --------------------------------------------------------------------------
+   Optional two-column hero (used when a hero aside is present)
+   -------------------------------------------------------------------------- */
+.gs-hero {
+  display: grid;
+  gap: 1.2rem;
+  margin: 0 0 1rem;
+}
+.gs-hero__content,
+.gs-hero__aside {
+  padding: 0;
+}
+.gs-hero__content > .md-button {
+  margin-top: 1rem;
+  margin-right: 0.5rem;
+}
+.gs-hero__aside {
+  align-self: start;
+}
+.gs-hero__aside h3 {
+  margin-top: 0;
+  margin-bottom: 0.8rem;
+}
+.gs-hero__aside ul {
+  margin: 0;
 }
 
 @media screen and (min-width: 76.25em) {

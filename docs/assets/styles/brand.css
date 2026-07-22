@@ -1,68 +1,240 @@
+/* ==========================================================================
+   godotGS — brand.css
+   Applies the godotGS Design System (editor-grade, dark-first) to the MkDocs
+   Material theme.
+
+   Identity, in one line: a deep cool-graphite canvas with ONE Godot-lineage
+   blue accent (#54a9ec). No gradients, elevation by hairline + soft ambient
+   shadow (never glow). Warm photographic color lives only inside splat
+   viewports — never as UI chrome. Type: Hanken Grotesk (headlines, 700, tight
+   tracking — never a flat 800), Geist (body/UI), Geist Mono (code + all
+   numbers, labels, eyebrows).
+
+   This file owns: webfont loading, the design tokens, both color schemes mapped
+   onto Material's CSS variables, base typography, header/wordmark, nav, links,
+   buttons and search. Component surfaces live in components.css; the landing
+   page lives in landing.css.
+   ========================================================================== */
+
+/* Webfonts — must be the first statement in the file.
+   Hanken Grotesk (display) · Geist (sans/UI) · Geist Mono (code + data). */
+@import url("https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@500;600;700;800&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap");
+
+/* --------------------------------------------------------------------------
+   Design tokens — mode-independent (fonts, scale, radius, elevation, motion)
+   Values copied from the design system's tokens/*.css.
+   -------------------------------------------------------------------------- */
 :root {
-  --gs-font-text: "Segoe UI Variable Text", "SF Pro Text", "Helvetica Neue", "Noto Sans", "Liberation Sans", sans-serif;
-  --gs-font-display: "Segoe UI Variable Display", "SF Pro Display", "Helvetica Neue", "Noto Sans", "Liberation Sans", sans-serif;
-  --gs-font-code: "Cascadia Code", "SF Mono", "JetBrains Mono", "Fira Code", "Consolas", monospace;
-  --gs-radius-sm: 0.2rem;
-  --gs-radius-md: 0.35rem;
-  --gs-radius-lg: 0.45rem;
+  /* Type families */
+  --gs-font-display: "Hanken Grotesk", "SF Pro Display", system-ui, sans-serif;
+  --gs-font-text: "Geist", "SF Pro Text", system-ui, sans-serif;
+  --gs-font-code: "Geist Mono", "SF Mono", ui-monospace, "Cascadia Code", monospace;
+
+  /* Weights */
+  --gs-weight-medium: 500;
+  --gs-weight-semibold: 600;
+  --gs-weight-bold: 700;
+  --gs-weight-display: 700; /* headline weight — NOT 800 (avoids the flat, blocky look) */
+
+  /* Letter-spacing — Hanken headlines sit best slightly tight */
+  --gs-tracking-hero: -0.03em;
+  --gs-tracking-tight: -0.025em;
+  --gs-tracking-snug: -0.015em;
+  --gs-tracking-eyebrow: 0.14em;
+
+  /* Radius — modern, precise (not bubbly) */
+  --gs-radius-xs: 4px;
+  --gs-radius-sm: 6px;
+  --gs-radius-md: 10px;  /* buttons, inputs, code, callouts */
+  --gs-radius-lg: 16px;  /* cards, panels */
+  --gs-radius-xl: 20px;  /* hero visuals */
+  --gs-radius-pill: 999px;
+
+  /* Motion — subtle, quick, smooth ease-out */
+  --gs-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --gs-dur-fast: 120ms;
+  --gs-dur: 180ms;
+  --gs-dur-slow: 360ms;
+
+  /* Layout */
+  --gs-container: 1220px;
+
+  /* Material overrides that apply to both schemes */
+  --md-text-font: var(--gs-font-text);
+  --md-code-font: var(--gs-font-code);
 }
 
-[data-md-color-scheme="default"] {
-  --gs-bg: #f5f7fa;
-  --gs-surface: #ffffff;
-  --gs-surface-raised: #f3f4f6;
-  --gs-surface-strong: #e5e7eb;
-  --gs-border: rgba(15, 23, 42, 0.12);
-  --gs-border-strong: rgba(15, 23, 42, 0.2);
-  --gs-text: #0f172a;
-  --gs-muted: #526072;
-  --gs-primary: #1f4ea7;
-  --gs-primary-strong: #173d82;
-  --gs-accent: #1f4ea7;
-  --gs-accent-soft: rgba(31, 78, 167, 0.06);
-  --gs-code-bg: #f8fafc;
-  --md-default-bg-color: var(--gs-bg);
-  --md-default-fg-color: var(--gs-text);
-  --md-default-fg-color--light: #475569;
-  --md-default-fg-color--lighter: #64748b;
-  --md-default-fg-color--lightest: rgba(71, 85, 105, 0.12);
-  --md-primary-fg-color: #ffffff;
-  --md-primary-fg-color--light: #ffffff;
-  --md-primary-fg-color--dark: #e2e8f0;
-  --md-accent-fg-color: var(--gs-accent);
-  --md-accent-fg-color--transparent: rgba(37, 99, 235, 0.12);
-  --md-typeset-a-color: var(--gs-primary);
-  --md-code-bg-color: var(--gs-code-bg);
-}
-
+/* --------------------------------------------------------------------------
+   DARK scheme (default look — the product is a dark 3D editor)
+   -------------------------------------------------------------------------- */
 [data-md-color-scheme="slate"] {
-  --gs-bg: #0f172a;
-  --gs-surface: #111827;
-  --gs-surface-raised: #172033;
-  --gs-surface-strong: #1e293b;
-  --gs-border: rgba(148, 163, 184, 0.16);
-  --gs-border-strong: rgba(148, 163, 184, 0.26);
-  --gs-text: #e5edf8;
-  --gs-muted: #94a3b8;
-  --gs-primary: #9cbcf3;
-  --gs-primary-strong: #d8e6ff;
-  --gs-accent: #9cbcf3;
-  --gs-accent-soft: rgba(156, 188, 243, 0.08);
-  --gs-code-bg: #0b1220;
+  color-scheme: dark;
+
+  /* Surfaces — cool graphite */
+  --gs-bg: #0c0f14;
+  --gs-bg-alt: #0e1218;
+  --gs-surface: #141a22;
+  --gs-surface-raised: #1a212b;
+  --gs-chrome: #0f1319;
+  --gs-panel: #151b24;
+  --gs-viewport: #080a0e;
+  --gs-code-bg: #080a0e;
+
+  /* Borders — hairline, cool */
+  --gs-line: rgba(255, 255, 255, 0.08);
+  --gs-line-2: rgba(255, 255, 255, 0.05);
+  --gs-line-strong: rgba(255, 255, 255, 0.16);
+
+  /* Text */
+  --gs-text: #e8eef5;
+  --gs-muted: #98a5b6;
+  --gs-faint: #5c6a7c;
+  --gs-prose: #cdd6e1;
+
+  /* Primary — Godot-lineage blue */
+  --gs-accent: #54a9ec;
+  --gs-accent-hi: #82c4f7;
+  --gs-accent-ink: #07131f;
+  --gs-accent-soft: rgba(84, 169, 236, 0.12);
+  --gs-accent-line: rgba(84, 169, 236, 0.35);
+
+  /* Warm secondary + spatial axis / semantic */
+  --gs-amber: #e6a24d;
+  --gs-success: #6bd18f;
+  --gs-warning: #e6a24d;
+  --gs-danger: #ec5c6b;
+  --gs-info: #54a9ec;
+
+  /* Elevation (deep, soft ambient — floats surfaces off the canvas) */
+  --gs-shadow-sm: 0 1px 2px rgba(4, 8, 16, 0.4);
+  --gs-shadow-md: 0 20px 50px -24px rgba(0, 0, 0, 0.7);
+  --gs-shadow-lg: 0 40px 100px -30px rgba(0, 0, 0, 0.85);
+  --gs-header-bg: rgba(12, 15, 20, 0.72);
+
+  /* ---- Material variable mapping ---- */
   --md-default-bg-color: var(--gs-bg);
   --md-default-fg-color: var(--gs-text);
-  --md-default-fg-color--light: #c6d3e3;
-  --md-default-fg-color--lighter: #94a3b8;
-  --md-default-fg-color--lightest: rgba(148, 163, 184, 0.12);
-  --md-primary-fg-color: #0f172a;
-  --md-primary-fg-color--light: #0f172a;
-  --md-primary-fg-color--dark: #0b1220;
-  --md-accent-fg-color: var(--gs-primary);
-  --md-accent-fg-color--transparent: rgba(147, 197, 253, 0.12);
-  --md-typeset-a-color: var(--gs-primary);
+  --md-default-fg-color--light: var(--gs-prose);
+  --md-default-fg-color--lighter: var(--gs-muted);
+  --md-default-fg-color--lightest: rgba(152, 165, 182, 0.12);
+
+  --md-primary-fg-color: var(--gs-chrome);
+  --md-primary-fg-color--light: var(--gs-surface);
+  --md-primary-fg-color--dark: var(--gs-bg);
+  --md-primary-bg-color: var(--gs-text);
+  --md-primary-bg-color--light: var(--gs-muted);
+
+  --md-accent-fg-color: var(--gs-accent-hi);
+  --md-accent-fg-color--transparent: var(--gs-accent-soft);
+  --md-accent-bg-color: var(--gs-accent-ink);
+
+  --md-typeset-color: var(--gs-prose);
+  --md-typeset-a-color: var(--gs-accent);
+  --md-typeset-mark-color: rgba(84, 169, 236, 0.2);
+
   --md-code-bg-color: var(--gs-code-bg);
+  --md-code-fg-color: #c6d2e2;
+
+  --md-footer-bg-color: var(--gs-bg-alt);
+  --md-footer-bg-color--dark: var(--gs-bg);
+  --md-footer-fg-color: var(--gs-muted);
+  --md-footer-fg-color--light: var(--gs-faint);
+  --md-footer-fg-color--lighter: var(--gs-faint);
 }
 
+/* --------------------------------------------------------------------------
+   LIGHT scheme (derived to stay on-brand: cool near-white canvas, cool-graphite
+   text, the same Godot-blue hue darkened for AA contrast on white). Code
+   surfaces intentionally stay dark in both modes — the DS CodeBlock is an
+   editor-style dark surface.
+   -------------------------------------------------------------------------- */
+[data-md-color-scheme="default"] {
+  color-scheme: light;
+
+  --gs-bg: #f4f6f9;
+  --gs-bg-alt: #eef1f6;
+  --gs-surface: #ffffff;
+  --gs-surface-raised: #f4f6f9;
+  --gs-chrome: #ffffff;
+  --gs-code-bg: #0b0e13; /* dark editor code surface, even in light mode */
+
+  --gs-line: rgba(13, 20, 32, 0.10);
+  --gs-line-2: rgba(13, 20, 32, 0.06);
+  --gs-line-strong: rgba(13, 20, 32, 0.18);
+
+  --gs-text: #0d1420;
+  --gs-muted: #55606e;
+  --gs-faint: #7a8695;
+  --gs-prose: #26303d;
+
+  /* Godot blue, darkened so links/buttons meet AA on white */
+  --gs-accent: #1668b8;
+  --gs-accent-hi: #0f5aa0;
+  --gs-accent-ink: #ffffff;
+  --gs-accent-soft: rgba(22, 104, 184, 0.08);
+  --gs-accent-line: rgba(22, 104, 184, 0.35);
+
+  --gs-amber: #b6771a;
+  --gs-success: #2f8f57;
+  --gs-warning: #b6771a;
+  --gs-danger: #c73b49;
+  --gs-info: #1668b8;
+
+  --gs-shadow-sm: 0 1px 2px rgba(13, 20, 32, 0.06);
+  --gs-shadow-md: 0 18px 42px -26px rgba(13, 20, 32, 0.35);
+  --gs-shadow-lg: 0 30px 70px -34px rgba(13, 20, 32, 0.4);
+  --gs-header-bg: rgba(255, 255, 255, 0.78);
+
+  --md-default-bg-color: var(--gs-bg);
+  --md-default-fg-color: var(--gs-text);
+  --md-default-fg-color--light: var(--gs-prose);
+  --md-default-fg-color--lighter: var(--gs-muted);
+  --md-default-fg-color--lightest: rgba(13, 20, 32, 0.08);
+
+  --md-primary-fg-color: var(--gs-chrome);
+  --md-primary-fg-color--light: var(--gs-surface);
+  --md-primary-fg-color--dark: var(--gs-bg-alt);
+  --md-primary-bg-color: var(--gs-text);
+  --md-primary-bg-color--light: var(--gs-muted);
+
+  --md-accent-fg-color: var(--gs-accent-hi);
+  --md-accent-fg-color--transparent: var(--gs-accent-soft);
+  --md-accent-bg-color: #ffffff;
+
+  --md-typeset-color: var(--gs-prose);
+  --md-typeset-a-color: var(--gs-accent);
+  --md-typeset-mark-color: rgba(22, 104, 184, 0.18);
+
+  --md-code-bg-color: var(--gs-code-bg);
+  --md-code-fg-color: #c6d2e2;
+
+  /* Code surface is dark in light mode too, so force the bright syntax-highlight
+     palette (Material's light-scheme token colors would be dark-on-dark). */
+  --md-code-hl-color: #54a9ec;
+  --md-code-hl-color--light: rgba(84, 169, 236, 0.12);
+  --md-code-hl-number-color: #e6695b;
+  --md-code-hl-special-color: #f06090;
+  --md-code-hl-function-color: #c973d9;
+  --md-code-hl-constant-color: #9383e2;
+  --md-code-hl-keyword-color: #6791e0;
+  --md-code-hl-string-color: #4fc48a;
+  --md-code-hl-name-color: #c6d2e2;
+  --md-code-hl-operator-color: #98a5b6;
+  --md-code-hl-punctuation-color: #98a5b6;
+  --md-code-hl-comment-color: #6c7a8c;
+  --md-code-hl-generic-color: #98a5b6;
+  --md-code-hl-variable-color: #c6d2e2;
+
+  --md-footer-bg-color: var(--gs-bg-alt);
+  --md-footer-bg-color--dark: var(--gs-bg);
+  --md-footer-fg-color: var(--gs-muted);
+  --md-footer-fg-color--light: var(--gs-faint);
+  --md-footer-fg-color--lighter: var(--gs-faint);
+}
+
+/* --------------------------------------------------------------------------
+   Base document
+   -------------------------------------------------------------------------- */
 html,
 body {
   background: var(--gs-bg);
@@ -74,6 +246,12 @@ button {
   font-family: var(--gs-font-text);
 }
 
+.md-typeset {
+  font-size: 0.78rem;
+  line-height: 1.65;
+  color: var(--gs-prose);
+}
+
 .md-typeset,
 .md-nav,
 .md-header__title,
@@ -81,187 +259,344 @@ button {
   font-family: var(--gs-font-text);
 }
 
+/* Headlines ride the display face — Hanken Grotesk, 700, tight tracking */
 .md-typeset h1,
 .md-typeset h2,
 .md-typeset h3,
-.md-typeset h4,
-.md-header__title,
-.md-tabs__link {
+.md-typeset h4 {
   font-family: var(--gs-font-display);
-}
-
-.md-typeset code,
-.md-typeset pre,
-.highlight code {
-  font-family: var(--gs-font-code);
-}
-
-.md-header {
-  background: var(--gs-surface);
-  border-bottom: 1px solid var(--gs-border);
-  box-shadow: none;
-}
-
-.md-tabs {
-  background: var(--gs-surface);
-  border-bottom: 1px solid var(--gs-border);
-}
-
-.md-header .md-header__title,
-.md-header .md-header__topic,
-.md-header .md-header__button,
-.md-header .md-header__option,
-.md-header .md-header__source,
-.md-header .md-tabs__link,
-.md-tabs .md-tabs__link,
-.md-tabs .md-tabs__item,
-.md-search__icon,
-.md-search__input,
-.md-search__input::placeholder {
-  color: var(--gs-text) !important;
-}
-
-.md-header .md-header__button:hover,
-.md-header .md-header__source:hover,
-.md-tabs .md-tabs__link:hover {
-  color: var(--gs-primary-strong) !important;
-}
-
-.md-header__title {
-  font-weight: 650;
-}
-
-.md-tabs__link {
-  font-size: 0.76rem;
-  font-weight: 500;
-  letter-spacing: 0;
-  opacity: 0.82;
-}
-
-.md-tabs__link--active,
-.md-tabs__link:hover {
   color: var(--gs-text);
-  opacity: 1;
-}
-
-[data-md-color-scheme="slate"] .md-tabs__link--active,
-[data-md-color-scheme="slate"] .md-tabs__link:hover {
-  color: var(--gs-text);
-}
-
-.md-tabs__link--active {
-  box-shadow: inset 0 -1px 0 var(--gs-primary);
-}
-
-.md-path {
-  color: var(--gs-muted);
-}
-
-.md-path__link:hover {
-  color: var(--gs-primary);
-}
-
-.md-main__inner {
-  margin-top: 0.75rem;
-}
-
-.md-content__inner {
-  padding-bottom: 4rem;
 }
 
 .md-typeset h1 {
   margin-bottom: 0.6rem;
-  color: var(--gs-text);
-  font-size: clamp(1.85rem, 1.55rem + 0.8vw, 2.35rem);
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-size: clamp(1.9rem, 1.5rem + 1vw, 2.375rem);
+  font-weight: var(--gs-weight-display);
+  letter-spacing: var(--gs-tracking-tight);
+  line-height: 1.08;
 }
 
 .md-typeset h2 {
-  margin-top: 2.2rem;
-  font-size: 1.22rem;
-  letter-spacing: -0.01em;
-  font-weight: 650;
-  color: var(--gs-text);
+  margin-top: 2.6rem;
+  padding-top: 1.6rem;
+  border-top: 1px solid var(--gs-line);
+  font-size: 1.4375rem;
+  font-weight: var(--gs-weight-display);
+  letter-spacing: var(--gs-tracking-snug);
+  line-height: 1.2;
+}
+/* First section heading (right under the page H1) needs no divider */
+.md-typeset h1 + h2,
+.md-typeset h1 + .highlight + h2 {
+  margin-top: 1.8rem;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .md-typeset h3 {
-  font-size: 1rem;
+  margin-top: 1.6rem;
+  font-size: 1.0625rem;
+  font-weight: var(--gs-weight-bold);
+  letter-spacing: -0.01em;
+}
+
+.md-typeset h4 {
+  font-size: 0.9rem;
+  font-weight: var(--gs-weight-semibold);
+}
+
+/* Permalink anchors adopt the accent */
+.md-typeset .headerlink {
+  color: var(--gs-line-strong);
+}
+.md-typeset .headerlink:hover,
+.md-typeset :target > .headerlink {
+  color: var(--gs-accent);
 }
 
 .md-typeset p,
 .md-typeset li {
-  color: var(--gs-text);
+  color: var(--gs-prose);
 }
 
-.md-typeset .md-button {
-  border-radius: var(--gs-radius-md);
-  border: 1px solid var(--gs-border-strong);
-  color: var(--gs-primary-strong);
-  background: transparent;
-  font-weight: 600;
-  padding: 0.65em 1em;
-  box-shadow: none;
+/* Body links — quiet by default, accent underline on hover */
+.md-typeset a {
+  color: var(--md-typeset-a-color);
+  transition: color var(--gs-dur-fast) var(--gs-ease);
+}
+.md-typeset a:hover {
+  color: var(--gs-accent-hi);
 }
 
-.md-typeset .md-button:hover {
-  border-color: var(--gs-primary);
-  color: var(--gs-primary-strong);
-  background: var(--gs-accent-soft);
+/* Lead paragraph directly under the H1 */
+.md-typeset h1 + p {
+  font-size: 0.9rem;
+  color: var(--gs-muted);
+  line-height: 1.6;
 }
 
-.md-typeset .md-button--primary {
-  border-color: var(--gs-primary);
-  color: #ffffff;
-  background: var(--gs-primary);
-}
-
-.md-typeset .md-button--primary:hover {
-  border-color: var(--gs-primary-strong);
-  color: #ffffff;
-  background: var(--gs-primary-strong);
-}
-
-[data-md-color-scheme="slate"] .md-typeset .md-button {
-  border-color: var(--gs-border);
-  color: var(--gs-primary);
-}
-
-[data-md-color-scheme="slate"] .md-typeset .md-button--primary {
-  border-color: var(--gs-primary);
-  color: #0b1220;
-  background: var(--gs-primary);
-}
-
-[data-md-color-scheme="slate"] .md-typeset .md-button--primary:hover {
-  border-color: var(--gs-primary-strong);
-  background: var(--gs-primary-strong);
-}
-
-.md-search__form {
-  border-radius: var(--gs-radius-md);
-}
-
-.md-search__input {
-  border-radius: var(--gs-radius-md);
+/* Code — Geist Mono everywhere */
+.md-typeset code,
+.md-typeset pre,
+.md-typeset kbd,
+.highlight code {
+  font-family: var(--gs-font-code);
 }
 
 .md-typeset code:not(pre code) {
-  padding: 0.14rem 0.32rem;
-  border-radius: 0.18rem;
-  border: 1px solid var(--gs-border);
-  background: var(--gs-code-bg);
+  padding: 0.12rem 0.34rem;
+  border-radius: var(--gs-radius-xs);
+  border: 1px solid var(--gs-line);
+  background: color-mix(in srgb, var(--gs-accent-soft) 40%, transparent);
+  color: var(--gs-accent);
+  font-size: 0.82em;
+}
+[data-md-color-scheme="default"] .md-typeset code:not(pre code) {
+  color: var(--gs-accent-hi);
 }
 
+.md-typeset .md-content__inner {
+  padding-bottom: 4rem;
+}
+
+.md-main__inner {
+  margin-top: 0.9rem;
+}
+
+/* --------------------------------------------------------------------------
+   Header + the wordmark identity
+   The design system has no separate symbol: the wordmark IS the mark. We hide
+   the generic Material image mark and render "godot" + accent "GS" in Hanken
+   via two pseudo-elements on the homepage link.
+   -------------------------------------------------------------------------- */
+.md-header {
+  background: var(--gs-header-bg);
+  color: var(--gs-text);
+  border-bottom: 1px solid var(--gs-line);
+  box-shadow: none;
+  -webkit-backdrop-filter: saturate(140%) blur(14px);
+  backdrop-filter: saturate(140%) blur(14px);
+}
+
+.md-tabs {
+  background: transparent;
+  border-bottom: 1px solid var(--gs-line);
+}
+
+/* Wordmark */
+.md-header__button.md-logo {
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  height: auto;
+  margin: 0 0.2rem 0 0;
+  padding: 0.2rem 0.3rem;
+}
+.md-header__button.md-logo img,
+.md-header__button.md-logo svg {
+  display: none;
+}
+.md-header__button.md-logo::before,
+.md-header__button.md-logo::after {
+  font-family: var(--gs-font-display);
+  font-weight: var(--gs-weight-display);
+  font-size: 1.16rem;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.md-header__button.md-logo::before {
+  content: "godot";
+  color: var(--gs-text);
+}
+.md-header__button.md-logo::after {
+  content: "GS";
+  color: var(--gs-accent);
+}
+
+/* Site name text next to the wordmark is redundant with it — hide the built-in
+   title topic and let the wordmark + tabs + breadcrumb carry context. */
+.md-header__title {
+  display: none;
+}
+
+/* Header controls inherit the graphite-on-glass treatment */
+.md-header__button,
+.md-header__option,
+.md-header__source,
+.md-search__icon,
+.md-search__input,
+.md-search__input::placeholder {
+  color: var(--gs-text);
+}
+.md-header__button:hover,
+.md-header__source:hover {
+  color: var(--gs-accent);
+  opacity: 1;
+}
+.md-header__source {
+  color: var(--gs-muted);
+}
+
+/* --------------------------------------------------------------------------
+   Section tabs
+   -------------------------------------------------------------------------- */
+.md-tabs__link {
+  margin-top: 0.55rem;
+  font-size: 0.72rem;
+  font-weight: var(--gs-weight-medium);
+  letter-spacing: 0;
+  color: var(--gs-muted);
+  opacity: 1;
+  transition: color var(--gs-dur-fast) var(--gs-ease);
+}
+.md-tabs__link:hover,
+.md-tabs__link--active {
+  color: var(--gs-text);
+}
+.md-tabs__link--active {
+  box-shadow: inset 0 -2px 0 var(--gs-accent);
+  font-weight: var(--gs-weight-semibold);
+}
+
+/* Breadcrumb path */
+.md-path {
+  color: var(--gs-faint);
+  font-family: var(--gs-font-code);
+  font-size: 0.66rem;
+}
+.md-path__link {
+  color: var(--gs-faint);
+}
+.md-path__link:hover {
+  color: var(--gs-accent);
+}
+
+/* --------------------------------------------------------------------------
+   Sidebar navigation + table of contents
+   -------------------------------------------------------------------------- */
+.md-nav {
+  font-size: 0.72rem;
+}
+.md-nav__title {
+  font-family: var(--gs-font-code);
+  font-size: 0.62rem;
+  letter-spacing: var(--gs-tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--gs-faint);
+  font-weight: var(--gs-weight-medium);
+}
+.md-nav__link {
+  color: var(--gs-muted);
+  transition: color var(--gs-dur-fast) var(--gs-ease);
+}
+.md-nav__link:hover {
+  color: var(--gs-text);
+}
+.md-nav__link--active,
+.md-nav__item .md-nav__link--active {
+  color: var(--gs-accent);
+  font-weight: var(--gs-weight-semibold);
+}
+.md-nav__link .md-ellipsis {
+  line-height: 1.6;
+}
+
+/* Left rail gets a hairline accent on the active leaf (primary sidebar) */
+@media screen and (min-width: 76.25em) {
+  .md-sidebar--primary .md-nav__link--active {
+    box-shadow: inset 2px 0 0 var(--gs-accent);
+    padding-left: 0.6rem;
+    margin-left: -0.6rem;
+    background: var(--gs-accent-soft);
+    border-radius: 0 var(--gs-radius-xs) var(--gs-radius-xs) 0;
+  }
+}
+
+/* TOC (right rail) */
+.md-nav--secondary .md-nav__title {
+  color: var(--gs-faint);
+}
+.md-nav--secondary .md-nav__link--active {
+  color: var(--gs-accent);
+}
+
+/* --------------------------------------------------------------------------
+   Buttons
+   -------------------------------------------------------------------------- */
+.md-typeset .md-button {
+  border-radius: var(--gs-radius-md);
+  border: 1px solid var(--gs-line-strong);
+  color: var(--gs-text);
+  background: transparent;
+  font-family: var(--gs-font-text);
+  font-weight: var(--gs-weight-semibold);
+  font-size: 0.76rem;
+  padding: 0.6em 1.1em;
+  box-shadow: none;
+  transition: transform var(--gs-dur) var(--gs-ease),
+    border-color var(--gs-dur) var(--gs-ease),
+    background-color var(--gs-dur) var(--gs-ease),
+    color var(--gs-dur) var(--gs-ease);
+}
+.md-typeset .md-button:hover {
+  border-color: var(--gs-line-strong);
+  color: var(--gs-text);
+  background: color-mix(in srgb, var(--gs-text) 5%, transparent);
+  transform: translateY(-1px);
+}
+.md-typeset .md-button--primary {
+  border-color: transparent;
+  color: var(--gs-accent-ink);
+  background: var(--gs-accent);
+}
+.md-typeset .md-button--primary:hover {
+  border-color: transparent;
+  color: var(--gs-accent-ink);
+  background: var(--gs-accent-hi);
+  transform: translateY(-1px);
+}
+
+/* --------------------------------------------------------------------------
+   Search
+   -------------------------------------------------------------------------- */
+.md-search__form {
+  border-radius: var(--gs-radius-md);
+  background: color-mix(in srgb, var(--gs-text) 6%, transparent);
+  box-shadow: none;
+  border: 1px solid var(--gs-line);
+}
+[data-md-toggle="search"]:checked ~ .md-header .md-search__form {
+  background: var(--gs-surface);
+}
+.md-search__input {
+  border-radius: var(--gs-radius-md);
+}
+.md-search__input::placeholder {
+  color: var(--gs-faint);
+}
+.md-search__output {
+  border-radius: var(--gs-radius-md);
+}
+.md-search-result__meta {
+  font-family: var(--gs-font-code);
+  color: var(--gs-faint);
+}
+
+/* --------------------------------------------------------------------------
+   Selection + scrollbars
+   -------------------------------------------------------------------------- */
+::selection {
+  background: var(--gs-accent-soft);
+}
+
+/* Content wide-mode when there is no primary nav (kept from prior layout) */
 @media screen and (min-width: 76.25em) {
   .md-main__inner:has(.md-sidebar--primary .md-nav__list:not(:has(.md-nav__item))) {
     grid-template-columns: minmax(0, 1fr) minmax(14rem, 17rem);
   }
-
   .md-main__inner:has(.md-sidebar--primary .md-nav__list:not(:has(.md-nav__item))) .md-sidebar--primary {
     display: none;
   }
-
   .md-main__inner:has(.md-sidebar--primary .md-nav__list:not(:has(.md-nav__item))) .md-content {
     max-width: none;
   }
