@@ -362,17 +362,19 @@ _RENDERER_AUTO_DECL_RE = re.compile(
     # review). The trailing negative lookahead likewise rejects a CHAINED use
     # (`world->renderer->foo()` / `.ptr()`) and a comparison on the right
     # (`world->renderer == x`): only `;`/end after `renderer` is an owning local.
-    r"[^;=!<>&|?]*(?:->|\.)\s*renderer\b(?!\s*(?:->|\.|\(|\[|<|>|=|!|&|\||\?|,))"
+    # The trailing lookahead also rejects a `)` (a parenthesized-then-chained
+    # access `(world->renderer)->foo()`) -- at the cost of missing the exotic,
+    # non-existent owning form `auto x = (world->renderer);`. That trade is
+    # deliberate: a false POSITIVE fails CI on safe code, while the missed form
+    # does not exist in the director and would only be a latent gap (#733 review).
+    r"[^;=!<>&|?]*(?:->|\.)\s*renderer\b(?!\s*(?:->|\.|\(|\)|\[|<|>|=|!|&|\||\?|,))"
     r"|"
-    # `get_shared_renderer(...)` as the TERMINAL value (ends the statement). Two
-    # #733-review constraints must both hold: (a) a chained
-    # `get_shared_renderer(w)->initialize()` yields a non-owning result and must
-    # NOT be flagged; (b) a nested-paren argument `get_shared_renderer(get_world())`
-    # is an owning Ref and MUST be caught (a miss is an unflagged #628 hazard).
-    # The arg is matched as a balanced group allowing ONE level of nesting
-    # (`(?:[^()]|\([^()]*\))*`), then the close paren must be followed by `;`/end --
-    # so nested args are caught while a trailing `->`/`.` chain is excluded.
-    r"[^;]*\bget_shared_renderer\s*\((?:[^()]|\([^()]*\))*\)\s*(?:;|$)"
+    # `get_shared_renderer(...)` as the TERMINAL value. Nested args resolve one
+    # level (`(?:[^()]|\([^()]*\))*`); the close paren must be followed by `;`/end
+    # (so a chained `get_shared_renderer(w)->foo()` is excluded); and the pre-call
+    # text excludes comparison/logical operators (`[^;=!<>&|?]`) so a boolean like
+    # `auto b = other == get_shared_renderer(w);` is NOT flagged (#733 review).
+    r"[^;=!<>&|?]*\bget_shared_renderer\s*\((?:[^()]|\([^()]*\))*\)\s*(?:;|$)"
     r")"
 )
 
@@ -837,6 +839,8 @@ def run_self_test() -> int:
         "\tauto handle = get_shared_renderer(p_world)->initialize();\n",
         "\tauto ok = world->renderer == other;\n",
         "\tauto also = other == world->renderer;\n",
+        "\tauto b2 = other == get_shared_renderer(w);\n",
+        "\tauto px = (world->renderer)->foo();\n",
     ):
         chained_ok = (
             "void GaussianSplatSceneDirector::clear_world_for_scenario(const RID &p_scenario) {\n"
