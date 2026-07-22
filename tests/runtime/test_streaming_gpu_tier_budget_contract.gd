@@ -91,6 +91,206 @@ func _run_case(test_case: Dictionary) -> void:
 		})
 
 
+## Explicit, self-contained config so the scaling cases pin an exact boundary
+## independent of the (deliberately generous, calibration-deferred) module
+## backstop constants. threshold = baseline * (1 + tolerance) = 150 ms/Msplat.
+func _scaling_config() -> Dictionary:
+	return {
+		"scale_sanity_min_ratio": 1.5,
+		"marginal_baseline_ms_per_msplat": 100.0,
+		"marginal_tolerance": 0.5
+	}
+
+
+func _run_scaling_case(test_case: Dictionary) -> void:
+	var samples: Array = test_case.get("samples", [])
+	var config: Dictionary = test_case.get("config", _scaling_config())
+	var evaluation := StreamingGpuTierBudget.evaluate_scaling_regression(samples, config)
+
+	var expected_verdict := String(test_case.get("expect_verdict", ""))
+	var actual_verdict := String(evaluation.get("verdict", ""))
+	if actual_verdict != expected_verdict:
+		_record_failure("Scaling contract verdict mismatch", {
+			"case": test_case.get("name", "<unnamed>"),
+			"expected": expected_verdict,
+			"actual": actual_verdict,
+			"evaluation": evaluation
+		})
+
+	var expected_blocking := bool(test_case.get("expect_blocking", false))
+	var actual_blocking := bool(evaluation.get("blocking", false))
+	if actual_blocking != expected_blocking:
+		_record_failure("Scaling contract blocking mismatch", {
+			"case": test_case.get("name", "<unnamed>"),
+			"expected": expected_blocking,
+			"actual": actual_blocking,
+			"evaluation": evaluation
+		})
+
+	if test_case.has("expect_marginal"):
+		var expected_marginal := float(test_case["expect_marginal"])
+		var actual_marginal := float(evaluation.get("marginal_ms_per_msplat", 0.0))
+		if not is_equal_approx(expected_marginal, actual_marginal):
+			_record_failure("Scaling contract marginal mismatch", {
+				"case": test_case.get("name", "<unnamed>"),
+				"expected": expected_marginal,
+				"actual": actual_marginal,
+				"evaluation": evaluation
+			})
+
+
+## The #630 determinism property, stated loudly: two runs of the SAME workload
+## that differ only by a constant common-mode offset added to every tier (the
+## exact effect of shared-runner load that made the old absolute-p95 gate swing
+## ~1.94x) must yield the IDENTICAL marginal cost and the IDENTICAL verdict. An
+## absolute-threshold gate fails this; the differential gate does not.
+func _run_offset_invariance_check() -> void:
+	var config := _scaling_config()
+	var clean := [
+		{"name": "tier_250k", "size": 250000, "frame_p95_ms": 100.0},
+		{"name": "tier_1m", "size": 1000000, "frame_p95_ms": 160.0},
+		{"name": "tier_2_5m", "size": 2500000, "frame_p95_ms": 280.0}
+	]
+	var offset := 120.0
+	var contended: Array = []
+	for entry in clean:
+		contended.append({
+			"name": entry["name"],
+			"size": entry["size"],
+			"frame_p95_ms": float(entry["frame_p95_ms"]) + offset
+		})
+
+	var clean_eval := StreamingGpuTierBudget.evaluate_scaling_regression(clean, config)
+	var contended_eval := StreamingGpuTierBudget.evaluate_scaling_regression(contended, config)
+
+	if String(clean_eval.get("verdict", "")) != String(contended_eval.get("verdict", "")):
+		_record_failure("Offset-invariance verdict drift", {
+			"clean": clean_eval,
+			"contended": contended_eval
+		})
+	if not is_equal_approx(
+		float(clean_eval.get("marginal_ms_per_msplat", -1.0)),
+		float(contended_eval.get("marginal_ms_per_msplat", -2.0))
+	):
+		_record_failure("Offset-invariance marginal drift", {
+			"clean_marginal": clean_eval.get("marginal_ms_per_msplat"),
+			"contended_marginal": contended_eval.get("marginal_ms_per_msplat")
+		})
+
+
+func _make_ramp_samples(count: int) -> Array:
+	var samples: Array = []
+	for i in range(count):
+		samples.append(float(i))
+	return samples
+
+
+func _run_trim_warmup_checks() -> void:
+	# Long window: trims exactly WARMUP_DISCARD_SAMPLES from the front.
+	var long_window := _make_ramp_samples(120)
+	var trimmed := StreamingGpuTierBudget.trim_warmup(long_window)
+	var discard := StreamingGpuTierBudget.WARMUP_DISCARD_SAMPLES
+	if trimmed.size() != 120 - discard:
+		_record_failure("trim_warmup long-window size", {"expected": 120 - discard, "actual": trimmed.size()})
+	elif not is_equal_approx(float(trimmed[0]), float(discard)):
+		_record_failure("trim_warmup long-window offset", {"expected": float(discard), "actual": trimmed[0]})
+	if long_window.size() != 120:
+		_record_failure("trim_warmup mutated input", {"actual": long_window.size()})
+
+	# Short window: fewer than WARMUP_MIN_RETAINED_SAMPLES would remain, so the
+	# full capture is kept rather than emptied.
+	var short_window := _make_ramp_samples(20)
+	var short_trimmed := StreamingGpuTierBudget.trim_warmup(short_window)
+	if short_trimmed.size() != 20:
+		_record_failure("trim_warmup short-window keeps all", {"expected": 20, "actual": short_trimmed.size()})
+
+	# discard <= 0 is a no-op copy.
+	var zero_trimmed := StreamingGpuTierBudget.trim_warmup(_make_ramp_samples(50), 0)
+	if zero_trimmed.size() != 50:
+		_record_failure("trim_warmup zero discard", {"expected": 50, "actual": zero_trimmed.size()})
+
+
+func _run_scaling_cases() -> Array:
+	var scaling_cases := [
+		{
+			# Clean, well-separated tiers: marginal 80 ms/Msplat < 150 threshold.
+			"name": "healthy_pass",
+			"samples": [
+				{"name": "tier_250k", "size": 250000, "frame_p95_ms": 100.0},
+				{"name": "tier_1m", "size": 1000000, "frame_p95_ms": 160.0},
+				{"name": "tier_2_5m", "size": 2500000, "frame_p95_ms": 280.0}
+			],
+			"expect_verdict": "pass",
+			"expect_blocking": false,
+			"expect_marginal": 80.0
+		},
+		{
+			# Same workload + constant +120 ms common-mode offset (contended
+			# re-run of identical code): marginal is UNCHANGED at 80, still a pass.
+			# The old absolute-p95 gate would flip (400 ms tips a wall the 280 ms
+			# clean run cleared).
+			"name": "contention_offset_invariant",
+			"samples": [
+				{"name": "tier_250k", "size": 250000, "frame_p95_ms": 220.0},
+				{"name": "tier_1m", "size": 1000000, "frame_p95_ms": 280.0},
+				{"name": "tier_2_5m", "size": 2500000, "frame_p95_ms": 400.0}
+			],
+			"expect_verdict": "pass",
+			"expect_blocking": false,
+			"expect_marginal": 80.0
+		},
+		{
+			# Genuine per-splat regression: marginal doubles to 160 ms/Msplat > 150
+			# with healthy separation -> blocking regression.
+			"name": "injected_regression",
+			"samples": [
+				{"name": "tier_250k", "size": 250000, "frame_p95_ms": 100.0},
+				{"name": "tier_1m", "size": 1000000, "frame_p95_ms": 220.0},
+				{"name": "tier_2_5m", "size": 2500000, "frame_p95_ms": 460.0}
+			],
+			"expect_verdict": "regression",
+			"expect_blocking": true,
+			"expect_marginal": 160.0
+		},
+		{
+			# Contended flat run (#630 bimodal ~355-362): ratio 1.02 < 1.5 floor ->
+			# invalid measurement, re-queue. Not a silent pass, not a hard fail.
+			"name": "contended_inconclusive_flat",
+			"samples": [
+				{"name": "tier_250k", "size": 250000, "frame_p95_ms": 355.0},
+				{"name": "tier_1m", "size": 1000000, "frame_p95_ms": 360.0},
+				{"name": "tier_2_5m", "size": 2500000, "frame_p95_ms": 362.0}
+			],
+			"expect_verdict": "inconclusive",
+			"expect_blocking": false
+		},
+		{
+			# Noise inverted the ordering (larger tier measured faster): invalid.
+			"name": "inverted_inconclusive",
+			"samples": [
+				{"name": "tier_250k", "size": 250000, "frame_p95_ms": 200.0},
+				{"name": "tier_2_5m", "size": 2500000, "frame_p95_ms": 150.0}
+			],
+			"expect_verdict": "inconclusive",
+			"expect_blocking": false
+		},
+		{
+			# Only one usable tier: cannot form a differential.
+			"name": "insufficient_single_tier",
+			"samples": [
+				{"name": "tier_1m", "size": 1000000, "frame_p95_ms": 190.0}
+			],
+			"expect_verdict": "insufficient_data",
+			"expect_blocking": false
+		}
+	]
+	for scaling_case in scaling_cases:
+		_run_scaling_case(scaling_case)
+	_run_offset_invariance_check()
+	_run_trim_warmup_checks()
+	return scaling_cases
+
+
 func _run() -> void:
 	var cases := [
 		{
@@ -160,11 +360,17 @@ func _run() -> void:
 	for test_case in cases:
 		_run_case(test_case)
 
+	var scaling_cases := _run_scaling_cases()
+
 	var summary := {
 		"status": "passed" if failures.is_empty() else "failed",
 		"cases": cases.size(),
+		"scaling_cases": scaling_cases.size(),
 		"failures": failures,
 		"tier_1m_max_frame_p95_ms": float(StreamingGpuTierBudget.tier_1m_budget().get("max_frame_p95_ms", 0.0)),
+		"scale_sanity_min_ratio": float(StreamingGpuTierBudget.SCALE_SANITY_MIN_RATIO),
+		"marginal_backstop_ms_per_msplat": float(StreamingGpuTierBudget.MARGINAL_COST_BASELINE_MS_PER_MSPLAT),
+		"warmup_discard_samples": int(StreamingGpuTierBudget.WARMUP_DISCARD_SAMPLES),
 		"sort_evidence_contract": "covered_by_gpu_streaming_stress_validate_sort_metrics"
 	}
 	print("%s %s" % [METRICS_MARKER, JSON.stringify(summary)])
