@@ -5129,6 +5129,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingteststest_scene_director_generation_bumph" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/tests/test_scene_director_generation_bump.h
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingshaderstile_binningglsl" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5613,10 +5624,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingcoregaussian_splat_scene_directorh" class="md-nav__link">
+  <a href="#modulesgaussian_splattingrendererquantization_configh" class="md-nav__link">
     <span class="md-ellipsis">
       
-        modules/gaussian_splatting/core/gaussian_splat_scene_director.h
+        modules/gaussian_splatting/renderer/quantization_config.h
       
     </span>
   </a>
@@ -5624,10 +5635,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingrendererquantization_configh" class="md-nav__link">
+  <a href="#modulesgaussian_splattingcoregaussian_splat_scene_directorh" class="md-nav__link">
     <span class="md-ellipsis">
       
-        modules/gaussian_splatting/renderer/quantization_config.h
+        modules/gaussian_splatting/core/gaussian_splat_scene_director.h
       
     </span>
   </a>
@@ -10848,16 +10859,18 @@
 <li>line 2566: bool GaussianSplatSceneDirector::has_shared_world_for_scenar...</li>
 <li>line 2575: uint32_t GaussianSplatSceneDirector::test_asset_record_count...</li>
 <li>line 2584: bool GaussianSplatSceneDirector::test_has_asset_record_for_s...</li>
-<li>line 2594: void GaussianSplatSceneDirector::teardown_world_for_scenario...</li>
-<li>line 2642: void GaussianSplatSceneDirector::release_all_worlds() {...</li>
-<li>line 2673: bool GaussianSplatSceneDirector::get_world_submission(Object...</li>
-<li>line 2686: bool GaussianSplatSceneDirector::get_world_submission_for_sc...</li>
-<li>line 2699: bool GaussianSplatSceneDirector::has_world_submission_for_re...</li>
-<li>line 2759: GaussianSplatSceneDirector::SubmissionCounts GaussianSplatSc...</li>
-<li>line 2774: static int _metadata_int(const Dictionary &amp;p_metadata, const...</li>
-<li>line 2785: static double _metadata_double(const Dictionary &amp;p_metadata,...</li>
-<li>line 2796: static bool _asset_requests_full_fidelity_runtime(const Ref&lt;...</li>
-<li>line 2878: Ref<gaussiansplatrenderer> GaussianSplatSceneDirector::get_s...</gaussiansplatrenderer></li>
+<li>line 2593: uint64_t GaussianSplatSceneDirector::test_instance_generatio...</li>
+<li>line 2602: uint64_t GaussianSplatSceneDirector::test_instance_asset_gen...</li>
+<li>line 2612: void GaussianSplatSceneDirector::teardown_world_for_scenario...</li>
+<li>line 2660: void GaussianSplatSceneDirector::release_all_worlds() {...</li>
+<li>line 2691: bool GaussianSplatSceneDirector::get_world_submission(Object...</li>
+<li>line 2704: bool GaussianSplatSceneDirector::get_world_submission_for_sc...</li>
+<li>line 2717: bool GaussianSplatSceneDirector::has_world_submission_for_re...</li>
+<li>line 2777: GaussianSplatSceneDirector::SubmissionCounts GaussianSplatSc...</li>
+<li>line 2792: static int _metadata_int(const Dictionary &amp;p_metadata, const...</li>
+<li>line 2803: static double _metadata_double(const Dictionary &amp;p_metadata,...</li>
+<li>line 2814: static bool _asset_requests_full_fidelity_runtime(const Ref&lt;...</li>
+<li>line 2896: Ref<gaussiansplatrenderer> GaussianSplatSceneDirector::get_s...</gaussiansplatrenderer></li>
 </ul>
 <h2 id="modulesgaussian_splattingteststest_gaussian_datah">modules/gaussian_splatting/tests/test_gaussian_data.h<a class="headerlink" href="#modulesgaussian_splattingteststest_gaussian_datah" title="Permanent link">¶</a></h2>
 <ul>
@@ -11257,6 +11270,10 @@
 <li>line 150: bool is_budget_warning_active() const { return stats.budget_...</li>
 <li>line 151: bool is_config_override_active() const { return config_overr...</li>
 </ul>
+<h2 id="modulesgaussian_splattingteststest_scene_director_generation_bumph">modules/gaussian_splatting/tests/test_scene_director_generation_bump.h<a class="headerlink" href="#modulesgaussian_splattingteststest_scene_director_generation_bumph" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 41: Ref<gaussiansplatasset> <em>make_generation_test_asset(float p</em>...</gaussiansplatasset></li>
+</ul>
 <h2 id="modulesgaussian_splattingshaderstile_binningglsl">modules/gaussian_splatting/shaders/tile_binning.glsl<a class="headerlink" href="#modulesgaussian_splattingshaderstile_binningglsl" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 303: uint gs_pack_sort_key(uint tile_idx, float linear_depth, uin...</li>
@@ -11638,56 +11655,56 @@
 <ul>
 <li>line 75: inline bool is_supported_radix_bits(uint32_t p_radix_bits) {...</li>
 </ul>
-<h2 id="modulesgaussian_splattingcoregaussian_splat_scene_directorh">modules/gaussian_splatting/core/gaussian_splat_scene_director.h<a class="headerlink" href="#modulesgaussian_splattingcoregaussian_splat_scene_directorh" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 351: static uint64_t test_asset_records_key(ObjectID p_asset_obje...</li>
-<li>line 439: bool is_empty() const { return instances.is_empty(); }...</li>
-<li>line 440: uint32_t instance_count() const { return instances.size(); }...</li>
-<li>line 441: bool has_instance(ObjectID p_node_id) const { return instanc...</li>
-<li>line 442: uint64_t generation() const { return instance_generation; }...</li>
-<li>line 443: uint64_t asset_generation() const { return instance_asset_ge...</li>
-<li>line 468: void append(const InstanceRecord &amp;p_record) {...</li>
-<li>line 476: bool remove(ObjectID p_node_id, uint64_t &amp;r_asset_id) {...</li>
-<li>line 506: bool has_asset(uint64_t p_asset_id) const { return asset_rec...</li>
-<li>line 507: uint32_t asset_count() const { return asset_records.size(); ...</li>
-<li>line 508: bool assets_empty() const { return asset_records.is_empty();...</li>
-<li>line 515: void clear() {...</li>
-<li>line 577: bool is_empty() const { return sphere_effectors.is_empty(); ...</li>
-<li>line 578: uint32_t count() const { return sphere_effectors.size(); }...</li>
-<li>line 579: bool has_effector(ObjectID p_effector_id) const { return sph...</li>
-<li>line 580: uint64_t generation() const { return sphere_effector_generat...</li>
-<li>line 603: void append(SphereEffectorRecord &amp;p_record) {...</li>
-<li>line 611: bool remove(ObjectID p_effector_id) {...</li>
-<li>line 646: void clear() {...</li>
-<li>line 695: bool is_active() const { return record.active; }...</li>
-<li>line 696: ObjectID owner_id() const { return record.owner_id; }...</li>
-<li>line 709: void reset() { record = WorldSubmissionRecord(); }...</li>
-<li>line 765: bool is_valid() const { return renderer.is_valid(); }...</li>
-<li>line 766: bool is_null() const { return renderer.is_null(); }...</li>
-<li>line 778: int reference_count() const { return renderer.is_null() ? 0 ...</li>
-<li>line 827: bool cache_valid() const { return lod_walk_cache_valid; }...</li>
-<li>line 828: uint64_t last_generation() const { return lod_walk_last_gene...</li>
-<li>line 970: bool is_empty() const { return entries.is_empty(); }...</li>
-<li>line 971: uint32_t size() const { return entries.size(); }...</li>
-<li>line 972: uint32_t get_dispatched_entry_count() const { return dispatc...</li>
-<li>line 1033: void queue_initialize(const Ref<gaussiansplatrenderer> &amp;p_re...</gaussiansplatrenderer></li>
-<li>line 1036: void cancel() { work.cancel(); }...</li>
-<li>line 1040: void flush() { work.flush(); }...</li>
-<li>line 1125: bool is_empty() const { return worlds.is_empty(); }...</li>
-<li>line 1126: uint32_t size() const { return worlds.size(); }...</li>
-<li>line 1127: bool has(const RID &amp;p_scenario) const { return worlds.has(p_...</li>
-<li>line 1146: void erase(const RID &amp;p_scenario) { worlds.erase(p_scenario)...</li>
-<li>line 1150: void clear() { worlds.clear(); }...</li>
-<li>line 1155: HashMap<rid, sharedworld="">::Iterator begin() { return worlds....</rid,></li>
-<li>line 1156: HashMap<rid, sharedworld="">::Iterator end() { return worlds.en...</rid,></li>
-<li>line 1157: HashMap<rid, sharedworld="">::ConstIterator begin() const { ret...</rid,></li>
-<li>line 1158: HashMap<rid, sharedworld="">::ConstIterator end() const { retur...</rid,></li>
-<li>line 1191: static uint64_t _asset_records_key(ObjectID p_asset_object_i...</li>
-</ul>
 <h2 id="modulesgaussian_splattingrendererquantization_configh">modules/gaussian_splatting/renderer/quantization_config.h<a class="headerlink" href="#modulesgaussian_splattingrendererquantization_configh" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 64: uint32_t get_position_levels() const { return (1u &lt;&lt; positio...</li>
 <li>line 67: uint32_t get_scale_levels() const { return (1u &lt;&lt; scale_bits...</li>
+</ul>
+<h2 id="modulesgaussian_splattingcoregaussian_splat_scene_directorh">modules/gaussian_splatting/core/gaussian_splat_scene_director.h<a class="headerlink" href="#modulesgaussian_splattingcoregaussian_splat_scene_directorh" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 351: static uint64_t test_asset_records_key(ObjectID p_asset_obje...</li>
+<li>line 449: bool is_empty() const { return instances.is_empty(); }...</li>
+<li>line 450: uint32_t instance_count() const { return instances.size(); }...</li>
+<li>line 451: bool has_instance(ObjectID p_node_id) const { return instanc...</li>
+<li>line 452: uint64_t generation() const { return instance_generation; }...</li>
+<li>line 453: uint64_t asset_generation() const { return instance_asset_ge...</li>
+<li>line 478: void append(const InstanceRecord &amp;p_record) {...</li>
+<li>line 486: bool remove(ObjectID p_node_id, uint64_t &amp;r_asset_id) {...</li>
+<li>line 516: bool has_asset(uint64_t p_asset_id) const { return asset_rec...</li>
+<li>line 517: uint32_t asset_count() const { return asset_records.size(); ...</li>
+<li>line 518: bool assets_empty() const { return asset_records.is_empty();...</li>
+<li>line 525: void clear() {...</li>
+<li>line 587: bool is_empty() const { return sphere_effectors.is_empty(); ...</li>
+<li>line 588: uint32_t count() const { return sphere_effectors.size(); }...</li>
+<li>line 589: bool has_effector(ObjectID p_effector_id) const { return sph...</li>
+<li>line 590: uint64_t generation() const { return sphere_effector_generat...</li>
+<li>line 613: void append(SphereEffectorRecord &amp;p_record) {...</li>
+<li>line 621: bool remove(ObjectID p_effector_id) {...</li>
+<li>line 656: void clear() {...</li>
+<li>line 705: bool is_active() const { return record.active; }...</li>
+<li>line 706: ObjectID owner_id() const { return record.owner_id; }...</li>
+<li>line 719: void reset() { record = WorldSubmissionRecord(); }...</li>
+<li>line 775: bool is_valid() const { return renderer.is_valid(); }...</li>
+<li>line 776: bool is_null() const { return renderer.is_null(); }...</li>
+<li>line 788: int reference_count() const { return renderer.is_null() ? 0 ...</li>
+<li>line 837: bool cache_valid() const { return lod_walk_cache_valid; }...</li>
+<li>line 838: uint64_t last_generation() const { return lod_walk_last_gene...</li>
+<li>line 980: bool is_empty() const { return entries.is_empty(); }...</li>
+<li>line 981: uint32_t size() const { return entries.size(); }...</li>
+<li>line 982: uint32_t get_dispatched_entry_count() const { return dispatc...</li>
+<li>line 1043: void queue_initialize(const Ref<gaussiansplatrenderer> &amp;p_re...</gaussiansplatrenderer></li>
+<li>line 1046: void cancel() { work.cancel(); }...</li>
+<li>line 1050: void flush() { work.flush(); }...</li>
+<li>line 1135: bool is_empty() const { return worlds.is_empty(); }...</li>
+<li>line 1136: uint32_t size() const { return worlds.size(); }...</li>
+<li>line 1137: bool has(const RID &amp;p_scenario) const { return worlds.has(p_...</li>
+<li>line 1156: void erase(const RID &amp;p_scenario) { worlds.erase(p_scenario)...</li>
+<li>line 1160: void clear() { worlds.clear(); }...</li>
+<li>line 1165: HashMap<rid, sharedworld="">::Iterator begin() { return worlds....</rid,></li>
+<li>line 1166: HashMap<rid, sharedworld="">::Iterator end() { return worlds.en...</rid,></li>
+<li>line 1167: HashMap<rid, sharedworld="">::ConstIterator begin() const { ret...</rid,></li>
+<li>line 1168: HashMap<rid, sharedworld="">::ConstIterator end() const { retur...</rid,></li>
+<li>line 1201: static uint64_t _asset_records_key(ObjectID p_asset_object_i...</li>
 </ul>
 <h2 id="modulesgaussian_splattingtestsgs_gpu_test_runnercpp">modules/gaussian_splatting/tests/gs_gpu_test_runner.cpp<a class="headerlink" href="#modulesgaussian_splattingtestsgs_gpu_test_runnercpp" title="Permanent link">¶</a></h2>
 <ul>
@@ -11766,7 +11783,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 22, 2026 12:34:58 UTC">July 22, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 22, 2026 13:44:47 UTC">July 22, 2026</span>
   </span>
 
     
