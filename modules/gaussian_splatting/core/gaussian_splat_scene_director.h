@@ -357,6 +357,16 @@ public:
     // Test/diagnostics-only: true iff the SharedWorld for the scenario holds an
     // asset record under the full 64-bit ObjectID key.
     bool test_has_asset_record_for_scenario(const RID &p_scenario, ObjectID p_asset_object_id) const;
+    // Test/diagnostics-only: the InstanceStore instance / asset generation
+    // counters for the SharedWorld bound to the given scenario (0 if no world
+    // exists). These read the EXACT same InstanceStore::generation() /
+    // asset_generation() values that get_instance_generation_for_renderer() /
+    // get_instance_asset_generation_for_renderer() return once a renderer is
+    // attached -- the only difference is the world is located by scenario rather
+    // than by renderer pointer. Exposed so the cache-invalidation bump can be
+    // exercised in a headless [SceneDirector] doctest without a RenderingDevice.
+    uint64_t test_instance_generation_for_scenario(const RID &p_scenario) const;
+    uint64_t test_instance_asset_generation_for_scenario(const RID &p_scenario) const;
 #endif
     bool get_world_submission(ObjectID p_owner_id, WorldSubmission *r_submission) const;
     bool get_world_submission_for_scenario(const RID &p_scenario, WorldSubmission *r_submission) const;
