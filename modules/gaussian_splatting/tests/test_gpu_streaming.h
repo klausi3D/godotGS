@@ -46,6 +46,35 @@ static Ref<::GaussianData> _create_registered_streaming_test_gaussian_data(uint3
 	return data;
 }
 
+// #513: builds an asset whose gaussians carry MIXED DC encodings, so
+// _data_has_uniform_dc_encoding() reports false and registering it flips the
+// effective per-chunk quantization state (and therefore the atlas byte stride).
+static Ref<::GaussianData> _create_mixed_dc_streaming_test_gaussian_data(uint32_t p_count) {
+	Ref<::GaussianData> data;
+	data.instantiate();
+
+	LocalVector<Gaussian> gaussians;
+	gaussians.resize(MAX(2u, p_count));
+	for (uint32_t i = 0; i < gaussians.size(); i++) {
+		Gaussian &g = gaussians[i];
+		g.position = Vector3(i * 0.1f, i * 0.2f, i * 0.3f);
+		g.scale = Vector3(0.5f, 0.5f, 0.5f);
+		g.rotation = Quaternion();
+		g.opacity = 0.9f;
+		g.sh_dc = Color(1.0f, 0.5f, 0.2f, 0.9f);
+		g.normal = Vector3(0.0f, 1.0f, 0.0f);
+		g.area = 0.25f;
+		// Alternate the DC encoding bit so the asset is NOT DC-uniform.
+		const GaussianDCEncoding encoding = (i % 2u == 0u)
+				? GAUSSIAN_DC_ENCODING_LEGACY_BIAS
+				: GAUSSIAN_DC_ENCODING_LINEAR_RGB;
+		g.render_meta = gaussian_set_dc_encoding(g.render_meta, encoding);
+	}
+
+	data->set_gaussians(gaussians);
+	return data;
+}
+
 struct ConcurrentStreamingAssertionsContext {
 	Ref<GaussianMemoryStream> stream;
 	uint32_t uploads_per_thread = 0;
@@ -566,6 +595,54 @@ TEST_CASE("[GaussianSplatting] Atlas byte stride tracks the EFFECTIVE quantizati
 	CHECK(sys->_test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussian)));
 	sys->_test_set_quantization_state(false, false);
 	CHECK(sys->_test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussian)));
+}
+
+TEST_CASE("[GaussianSplatting][Streaming] Registering a mixed-DC asset evicts chunks resident at the old stride (#513)") {
+	// #513 stride-flip hazard: with per-chunk quantization enabled the atlas packs an 80 B
+	// stride. Registering a mixed-DC asset flips the EFFECTIVE quantization state off inside
+	// _refresh_quantization_dc_compatibility(), so _atlas_gaussian_stride_bytes() jumps to
+	// 144 B. Any chunk already resident was packed/accounted at 80 B: leaving it resident makes
+	// the renderer reinterpret its 80 B payload at 144 B (GPU corruption) and skews
+	// budget.vram_usage when it is decremented at the new 144 B stride. The fail-closed guard
+	// must evict every resident chunk under the OLD stride before committing the flip.
+	//
+	// Discrimination vs. origin/master: on base the flip leaves the resident chunk loaded and
+	// the payload accounting inflated, so get_loaded_chunks() == 1 and get_vram_usage() stays
+	// at the loaded value -> both CHECKs below are RED. With the guard the chunk is evicted at
+	// the old stride, so loaded == 0 and vram returns exactly to its pre-load baseline.
+	Ref<GaussianStreamingSystem> system;
+	system.instantiate();
+	if (!system.is_valid()) {
+		FAIL("streaming system failed to instantiate");
+		return;
+	}
+
+	// Enable per-chunk quantization (effective 80 B stride) before anything is resident.
+	system->_test_set_quantization_state(true, true);
+	CHECK(system->_test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussianQuantized)));
+
+	// A DC-uniform asset keeps the effective quantized stride; register it and make one chunk
+	// resident at 80 B.
+	const uint32_t asset_uniform = 5130;
+	system->register_asset(asset_uniform, _create_registered_streaming_test_gaussian_data(1024));
+	system->_test_reset_atlas_allocator(4);
+
+	const uint64_t vram_baseline = system->get_vram_usage();
+	system->_test_mark_chunk_loaded_for_eviction(asset_uniform, 0, true, 1, 1, 1.0f);
+	CHECK(system->_test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussianQuantized)));
+	CHECK(system->get_loaded_chunks() == 1);
+	const uint64_t vram_loaded = system->get_vram_usage();
+	CHECK(vram_loaded > vram_baseline); // the resident 80 B chunk added payload bytes
+
+	// Registering a MIXED-DC asset flips the effective quantization state off -> stride 144 B.
+	const uint32_t asset_mixed = 5131;
+	system->register_asset(asset_mixed, _create_mixed_dc_streaming_test_gaussian_data(64));
+	CHECK(system->_test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussian)));
+
+	// Fail closed: no chunk may remain resident across the stride flip, and the payload
+	// accounting must return to its pre-load baseline (no skew).
+	CHECK(system->get_loaded_chunks() == 0);
+	CHECK(system->get_vram_usage() == vram_baseline);
 }
 
 } // namespace TestGaussianSplatting

@@ -437,6 +437,9 @@ private:
     void _refresh_primary_chunk_layout_metrics();
     void _register_primary_asset();
     void _refresh_quantization_dc_compatibility();
+    // #513 fail-closed guard: evict every resident chunk before an effective
+    // quantization-stride flip so nothing is ever read/accounted at a mismatched stride.
+    void _evict_all_resident_chunks_for_stride_change();
     uint32_t _advance_asset_generation(uint32_t asset_id);
     uint32_t _alloc_dense_id(uint32_t asset_id);
     void _release_dense_id(uint32_t dense_id);
