@@ -89,13 +89,25 @@ Ref<GaussianSplatAsset> _make_generation_test_asset(float p_x_offset) {
 // assertions below (that is the #740 mutation-proof).
 TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] instance_generation strictly advances on every instance mutation") {
 	SceneTree *tree = SceneTree::get_singleton();
-	REQUIRE_MESSAGE(tree != nullptr, "SceneTree must exist (provided by [SceneTree] tag)");
+	// #656: REQUIRE does not abort under DOCTEST_CONFIG_NO_EXCEPTIONS, so a null-ish
+	// REQUIRE followed by a dereference would crash the whole binary on failure.
+	// Guard with an explicit early return before every deref.
+	if (tree == nullptr) {
+		FAIL("SceneTree must exist (provided by [SceneTree] tag)");
+		return;
+	}
 
 	Window *root = tree->get_root();
-	REQUIRE_MESSAGE(root != nullptr, "SceneTree root window must exist");
+	if (root == nullptr) {
+		FAIL("SceneTree root window must exist");
+		return;
+	}
 
 	Ref<World3D> world = root->get_world_3d();
-	REQUIRE(world.is_valid());
+	if (!world.is_valid()) {
+		FAIL("SceneTree root must have a valid World3D");
+		return;
+	}
 	const RID scenario = world->get_scenario();
 	REQUIRE(scenario.is_valid());
 
@@ -104,7 +116,10 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] instance_generation str
 	if (!director) {
 		director = memnew(GaussianSplatSceneDirector);
 	}
-	REQUIRE(director != nullptr);
+	if (director == nullptr) {
+		FAIL("GaussianSplatSceneDirector must be available");
+		return;
+	}
 
 	Node3D *node_a = memnew(Node3D);
 	Node3D *node_b = memnew(Node3D);
@@ -169,13 +184,25 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] instance_generation str
 // asset-path mutation-proof for #740.
 TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] instance_asset_generation strictly advances on asset bind and selection change") {
 	SceneTree *tree = SceneTree::get_singleton();
-	REQUIRE_MESSAGE(tree != nullptr, "SceneTree must exist (provided by [SceneTree] tag)");
+	// #656: REQUIRE does not abort under DOCTEST_CONFIG_NO_EXCEPTIONS, so a null-ish
+	// REQUIRE followed by a dereference would crash the whole binary on failure.
+	// Guard with an explicit early return before every deref.
+	if (tree == nullptr) {
+		FAIL("SceneTree must exist (provided by [SceneTree] tag)");
+		return;
+	}
 
 	Window *root = tree->get_root();
-	REQUIRE_MESSAGE(root != nullptr, "SceneTree root window must exist");
+	if (root == nullptr) {
+		FAIL("SceneTree root window must exist");
+		return;
+	}
 
 	Ref<World3D> world = root->get_world_3d();
-	REQUIRE(world.is_valid());
+	if (!world.is_valid()) {
+		FAIL("SceneTree root must have a valid World3D");
+		return;
+	}
 	const RID scenario = world->get_scenario();
 	REQUIRE(scenario.is_valid());
 
@@ -184,7 +211,10 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] instance_asset_generati
 	if (!director) {
 		director = memnew(GaussianSplatSceneDirector);
 	}
-	REQUIRE(director != nullptr);
+	if (director == nullptr) {
+		FAIL("GaussianSplatSceneDirector must be available");
+		return;
+	}
 
 	Node3D *node_a = memnew(Node3D);
 	Node3D *node_b = memnew(Node3D);
@@ -194,8 +224,10 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] instance_asset_generati
 
 	Ref<GaussianSplatAsset> asset_a = _make_generation_test_asset(0.0f);
 	Ref<GaussianSplatAsset> asset_b = _make_generation_test_asset(10.0f);
-	REQUIRE(asset_a.is_valid());
-	REQUIRE(asset_b.is_valid());
+	if (!asset_a.is_valid() || !asset_b.is_valid()) {
+		FAIL("both test assets must be valid");
+		return;
+	}
 	REQUIRE(asset_a->get_instance_id() != asset_b->get_instance_id());
 
 	// Binding the first asset creates the world and its asset record.
