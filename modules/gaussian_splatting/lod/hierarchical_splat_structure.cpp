@@ -47,6 +47,7 @@ void HierarchicalSplatStructure::build_hierarchy(
     // Clear existing hierarchy
     root.reset();
     splat_data.clear();
+    source_to_reordered.clear();
     total_splats = 0;
     nodes_created = 0;
     build_time_us = 0;
@@ -94,6 +95,16 @@ void HierarchicalSplatStructure::build_hierarchy(
     // same path, so it was removed rather than advertise a capability that does not
     // exist (#605). Follow-up for real parallelism tracked separately.
     build_node_recursive(root.get(), splat_data, 0, total_splats, 0, params);
+
+    // build_node_recursive has now permuted splat_data into octree order. Record
+    // the inverse permutation source-index -> reordered-slot so the capped-query
+    // distance sort can recover a splat's true position from the SOURCE index it
+    // emits (#645). SplatInfo::index values are exactly [0, total_splats), so this
+    // map is total and bijective.
+    source_to_reordered.resize(total_splats);
+    for (uint32_t slot = 0; slot < total_splats; slot++) {
+        source_to_reordered[splat_data[slot].index] = slot;
+    }
 
     // Compute statistics for all nodes
     compute_node_statistics(root.get(), splat_data);
@@ -302,9 +313,18 @@ HierarchicalSplatStructure::QueryResult HierarchicalSplatStructure::query_visibl
         distance_pairs.resize(result.visible_indices.size());
 
         for (uint32_t i = 0; i < result.visible_indices.size(); i++) {
-            uint32_t splat_idx = result.visible_indices[i];
-            float dist = (splat_data[splat_idx].position - camera_pos).length();
-            distance_pairs[i] = {dist, splat_idx};
+            uint32_t source_idx = result.visible_indices[i];
+            // #645: visible_indices holds SOURCE indices, but splat_data was
+            // reordered into octree order by build_node_recursive. Subscripting
+            // splat_data with a source index reads a DIFFERENT splat's position,
+            // so the partial_sort below selected the wrong subset with wrong LOD
+            // weights. Map source -> reordered slot before reading the position.
+            uint32_t slot = source_idx;
+            if (source_idx < source_to_reordered.size()) {
+                slot = source_to_reordered[source_idx];
+            }
+            float dist = (splat_data[slot].position - camera_pos).length();
+            distance_pairs[i] = {dist, source_idx};
         }
 
         // Partial sort to get closest max_splats

@@ -7,6 +7,7 @@
 #include "core/os/os.h"
 #include "core/math/random_number_generator.h"
 #include "core/math/projection.h"
+#include "core/templates/hash_set.h"
 #include "scene/3d/camera_3d.h"
 #include "scene/main/scene_tree.h"
 #include "scene/main/window.h"
@@ -754,6 +755,119 @@ TEST_CASE("[GaussianSplatting][SceneTree] Hierarchical capped query is determini
     for (uint32_t i = 0; i < first.visible_indices.size(); i++) {
         CHECK(first.visible_indices[i] == second.visible_indices[i]);
         CHECK(first.lod_weights[i] == doctest::Approx(second.lod_weights[i]));
+    }
+
+    GaussianSplatting::Tests::LODSystemTest::destroy_test_camera(camera);
+}
+
+TEST_CASE("[GaussianSplatting][SceneTree] Hierarchical capped query returns the geometrically nearest splats") {
+    // #645: the capped path is supposed to keep the `max_splats` candidates
+    // NEAREST the camera. On origin/master it sorts by distance but subscripts the
+    // REORDERED `splat_data` array with SOURCE indices, so it measures the wrong
+    // splats' positions and returns a wrong subset carrying wrong LOD weights. The
+    // sibling cases assert only cardinality and repeatability -- properties this
+    // bug preserves -- which is why it slipped. This case pins the geometric
+    // contract via the K-nearest-neighbour optimality invariant: the farthest
+    // RETURNED splat must be no farther than the nearest candidate that was NOT
+    // returned.
+    GaussianSplatting::Tests::LODSystemTest fixture;
+    Vector<GaussianSplatting::GaussianData> splats = fixture.generate_test_splats(4096, 40.0f);
+
+    GaussianSplatting::HierarchicalSplatStructure structure;
+    GaussianSplatting::HierarchicalSplatStructure::BuildParams params;
+    params.max_depth = 7;
+    params.min_splats_per_node = 8;
+    structure.build_hierarchy(splats, params);
+
+    // The bug only manifests when splat_data is actually reordered, i.e. when the
+    // octree subdivides. A single-leaf tree leaves source index == slot, which
+    // would make the wrong subscript coincidentally correct and the test vacuous.
+    // Require a subdivided tree so the source and slot index spaces truly differ.
+    const GaussianSplatting::HierarchicalSplatStructure::OctreeNode *root = structure.get_root();
+    if (root == nullptr || root->is_leaf()) {
+        FAIL("Octree did not subdivide; the reorder the bug depends on never happened.");
+        return;
+    }
+
+    Camera3D *camera = fixture.create_test_camera(Vector3(0.0f, 0.0f, 280.0f));
+    if (camera == nullptr) {
+        FAIL("create_test_camera returned null; cannot build a real frustum.");
+        return;
+    }
+
+    const GaussianSplatting::Frustum frustum = camera->get_frustum();
+    const Vector3 camera_pos = camera->get_global_transform().origin;
+
+    // A large LOD bias forces full detail, so every in-frustum splat becomes a
+    // candidate exactly once and the candidate set is large and stable. Both
+    // queries use the same bias, so they collect the identical candidate set
+    // (cull_hierarchical ignores max_splats); only the cap differs.
+    const float lod_bias = 1000.0f;
+    const uint32_t cap = 256;
+
+    const GaussianSplatting::HierarchicalSplatStructure::QueryResult uncapped =
+            structure.query_visible_splats(frustum, camera_pos, lod_bias, splats.size());
+
+    // The distance-sort path only runs when the candidate set exceeds the cap;
+    // if it does not, the test would prove nothing about the sort.
+    CHECK(uncapped.visible_indices.size() > cap);
+    if (uncapped.visible_indices.size() <= cap) {
+        FAIL("Candidate set did not exceed the cap; the distance-sort path never ran.");
+        GaussianSplatting::Tests::LODSystemTest::destroy_test_camera(camera);
+        return;
+    }
+
+    const GaussianSplatting::HierarchicalSplatStructure::QueryResult capped =
+            structure.query_visible_splats(frustum, camera_pos, lod_bias, cap);
+
+    CHECK(capped.visible_indices.size() == cap);
+    CHECK(capped.visible_indices.size() == capped.lod_weights.size());
+
+    // Source indices the capped query chose to keep.
+    HashSet<uint32_t> selected;
+    for (uint32_t i = 0; i < capped.visible_indices.size(); i++) {
+        selected.insert(capped.visible_indices[i]);
+    }
+
+    // K-NN optimality, measured against the SOURCE positions (the ground truth the
+    // query is meant to honour). Walk the full candidate set once and split it into
+    // the returned and not-returned partitions.
+    bool have_selected = false;
+    bool have_unselected = false;
+    float max_selected_dist = 0.0f;
+    float min_unselected_dist = 0.0f;
+    uint32_t unselected_count = 0;
+    for (uint32_t i = 0; i < uncapped.visible_indices.size(); i++) {
+        const uint32_t idx = uncapped.visible_indices[i];
+        CHECK(idx < (uint32_t)splats.size());
+        const float dist = (splats[idx].position - camera_pos).length();
+        if (selected.has(idx)) {
+            if (!have_selected || dist > max_selected_dist) {
+                max_selected_dist = dist;
+            }
+            have_selected = true;
+        } else {
+            if (!have_unselected || dist < min_unselected_dist) {
+                min_unselected_dist = dist;
+            }
+            have_unselected = true;
+            unselected_count++;
+        }
+    }
+
+    CHECK(have_selected);
+    CHECK(have_unselected);
+    CHECK(unselected_count > 0);
+
+    // The load-bearing assertion. On origin/master the kept set is chosen by
+    // sorting wrong-splat distances, so it holds far splats while nearer
+    // candidates are dropped: max_selected_dist > min_unselected_dist -> RED. With
+    // the index space fixed the kept set is exactly the nearest `cap` candidates,
+    // so max_selected_dist <= min_unselected_dist -> GREEN. Positions used by the
+    // fixed query and by this oracle are the same copied Vector3, so the boundary
+    // comparison is exact and tie-safe (<=).
+    if (have_selected && have_unselected) {
+        CHECK(max_selected_dist <= min_unselected_dist);
     }
 
     GaussianSplatting::Tests::LODSystemTest::destroy_test_camera(camera);
