@@ -479,6 +479,22 @@ public:
     Gaussian get_gaussian(int p_index) const;
 
     /**
+     * @brief Full-payload finiteness sweep of the render-critical fields.
+     *
+     * Scans EVERY splat's position, scale, rotation, and opacity for NaN/Inf.
+     * Import validation historically sampled only splat 0, so a corrupt value
+     * anywhere past index 0 passed the gate and reached the GPU (#518). This is
+     * the shared validator both PLY and SPZ importers route through so no bad
+     * splat can slip in behind a clean splat 0.
+     *
+     * @param r_first_bad_index Optional out-param: set to the first non-finite
+     *        splat index on failure, or -1 when the whole payload is finite
+     *        (including the empty payload, which is vacuously finite).
+     * @return true when every splat's render fields are finite, false otherwise.
+     */
+    bool all_render_fields_finite(int *r_first_bad_index = nullptr) const;
+
+    /**
      * @brief Returns a pointer to the raw Gaussian array.
      * @return Pointer to contiguous Gaussian storage, or nullptr if empty.
      *

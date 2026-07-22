@@ -540,6 +540,31 @@ Gaussian GaussianData::get_gaussian(int p_index) const {
     return gaussians[p_index];
 }
 
+bool GaussianData::all_render_fields_finite(int *r_first_bad_index) const {
+    RWLockRead lock(data_rwlock);
+    const uint32_t count = gaussians.size();
+    for (uint32_t i = 0; i < count; i++) {
+        const Gaussian &g = gaussians[i];
+        // Every field the rasterizer consumes directly. A single NaN/Inf here
+        // poisons covariance/projection math and, before #518, only splat 0 was
+        // ever checked — so the sweep must visit all of them.
+        if (!Math::is_finite(g.position.x) || !Math::is_finite(g.position.y) || !Math::is_finite(g.position.z) ||
+                !Math::is_finite(g.scale.x) || !Math::is_finite(g.scale.y) || !Math::is_finite(g.scale.z) ||
+                !Math::is_finite(g.rotation.x) || !Math::is_finite(g.rotation.y) ||
+                !Math::is_finite(g.rotation.z) || !Math::is_finite(g.rotation.w) ||
+                !Math::is_finite(g.opacity)) {
+            if (r_first_bad_index) {
+                *r_first_bad_index = (int)i;
+            }
+            return false;
+        }
+    }
+    if (r_first_bad_index) {
+        *r_first_bad_index = -1;
+    }
+    return true;
+}
+
 const Vector3 *GaussianData::get_sh_high_order_coefficients_ptr() const {
     return sh_high_order_coefficients.is_empty() ? nullptr : sh_high_order_coefficients.ptr();
 }

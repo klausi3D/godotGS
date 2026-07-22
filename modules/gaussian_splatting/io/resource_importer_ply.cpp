@@ -660,6 +660,17 @@ Error ResourceImporterPLY::validate_ply_properties(const Ref<PLYLoader> &p_loade
         return ERR_FILE_CORRUPT;
     }
 
+    // The splat-0 heuristics above (scale > 0, quaternion normalization, opacity
+    // range) are representative-sample checks. Finiteness, however, must cover
+    // the WHOLE asset: a NaN/Inf anywhere past index 0 was previously accepted
+    // and shipped to the GPU (#518). Sweep every splat's render-critical fields.
+    int bad_index = -1;
+    if (!data->all_render_fields_finite(&bad_index)) {
+        GS_LOG_ERROR_DEFAULT(vformat(
+                "PLY validation failed: Non-finite (NaN/Inf) position/scale/rotation/opacity at splat %d", bad_index));
+        return ERR_FILE_CORRUPT;
+    }
+
     return OK;
 }
 
