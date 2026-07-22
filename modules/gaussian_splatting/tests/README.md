@@ -121,16 +121,22 @@ The Python supervisor drives `--gs-gpu-test` in **per-batch subprocesses** so a 
 
 | Batch | Filter | Status |
 | --- | --- | --- |
-| `CompositorHazard` | `*HazardRepro*` | Active (canonical regression) |
-| `OutputCompositor` | `*OutputCompositor*][RequiresGPU]*` | Catalogued, empty |
+| `CompositorHazard` | `*HazardRepro*` | Active, **required** (canonical regression) |
+| `OutputCompositor` | `*OutputCompositor*][RequiresGPU]*` | Active, **required** (promoted #724) |
 | `ComputeInfrastructure` | `*ComputeInfra*][RequiresGPU]*` | Catalogued, empty |
 | `TileRenderer` | `*TileRenderer*][RequiresGPU]*` | Active (3 cases, #641) |
-| `GpuSorting` | `*Sort*][RequiresGPU]*` | Catalogued, empty |
+| `GpuSorting` | `*Sort*][RequiresGPU]*` | Active (the #508 `[GPUSortPipeline]` sticky-overflow test), advisory — promotion tracked #744 |
 | `MemoryStream` | `*MemoryStream*][RequiresGPU]*` | Catalogued, empty |
 | `Streaming` | `*Streaming*][RequiresGPU]*` | Catalogued, empty |
 | `Integration` | `*Integration*][RequiresGPU]*` | Active (1 of 2 cases, #641) |
+| `RendererPipeline` | *(named cases)* | Active, **required** |
+| `Lifetime` | *(named cases)* | Active, **required** |
+| `NodeSceneTree` | `*[Node][SceneTree][RequiresGPU]*` | Active (advisory — flaky under contention, #630) |
+| `WorldSceneTree` | `*[World][SceneTree][RequiresGPU]*` | Active, **required** (promoted #724) |
+| `SceneDirectorSceneTree` | `*[SceneDirector][SceneTree][RequiresGPU]*` | Active, **required** (promoted #724) |
+| `RendererSceneTree` | `*[GaussianSplatting][SceneTree][RequiresGPU]*` | Active, **required** (promoted #724) |
 
-`REQUIRED_BATCHES = {"CompositorHazard"}`. The set is asserted at import time and an empty filter on a required batch fails the gate.
+`REQUIRED_BATCHES = {"CompositorHazard", "RendererPipeline", "Lifetime", "OutputCompositor", "RendererSceneTree", "WorldSceneTree", "SceneDirectorSceneTree"}` (the last four promoted in #724). The set is asserted at import time; an empty filter on a required batch fails the gate, and any hollow (zero-assertion) case in a required batch fails it per-case (#696). `NodeSceneTree` is deliberately advisory — its wall time is only ~1.6× under budget on the shared runner and would be a flaky required gate until #630's contention variance is resolved.
 
 Invocation:
 
