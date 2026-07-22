@@ -319,7 +319,7 @@ void GaussianSplatSceneDirector::DeferredRendererWork::cancel() {
 	entries.clear();
 }
 
-void GaussianSplatSceneDirector::_initialize_world_renderer(SharedWorld &p_world, DeferredRendererWork *r_deferred_work) {
+void GaussianSplatSceneDirector::_initialize_world_renderer(SharedWorld &p_world, RendererContractWorkQueue *r_deferred_work) {
 	if (p_world.renderer.is_null()) {
 		return;
 	}
@@ -416,7 +416,7 @@ void GaussianSplatSceneDirector::_bind_methods() {
 }
 
 GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_get_or_create_world_for_scenario(const RID &p_scenario, bool p_require_renderer,
-		DeferredRendererWork *r_deferred_work) {
+		RendererContractWorkQueue *r_deferred_work) {
 	if (!p_scenario.is_valid()) {
 		return nullptr;
 	}
@@ -478,13 +478,13 @@ GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_get_or_cre
 }
 
 GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_get_or_create_world(World3D *p_world, bool p_require_renderer,
-		DeferredRendererWork *r_deferred_work) {
+		RendererContractWorkQueue *r_deferred_work) {
 	ERR_FAIL_NULL_V(p_world, nullptr);
 	return _get_or_create_world_for_scenario(p_world->get_scenario(), p_require_renderer, r_deferred_work);
 }
 
 GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_get_world_for_instance(ObjectID p_node_id,
-		DeferredRendererWork *r_deferred_work) {
+		RendererContractWorkQueue *r_deferred_work) {
 	Object *obj = ObjectDB::get_instance(p_node_id);
 	Node3D *node = Object::cast_to<Node3D>(obj);
 	if (!node) {
@@ -946,8 +946,8 @@ void GaussianSplatSceneDirector::register_instance(ObjectID p_node_id, const Ref
 	// #611: declared before the lock so the apply that
 	// _get_or_create_world_for_scenario may queue (when it lazily creates this
 	// world's renderer) dispatches to the render thread only after world_mutex is
-	// released. See DeferredRendererWork in the header for the ordering rules.
-	DeferredRendererWork deferred_renderer_work;
+	// released. See RendererContractWorkQueue in the header for the ordering rules.
+	RendererContractWorkQueue deferred_renderer_work;
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	SharedWorld *world = _get_world_for_instance(p_node_id, &deferred_renderer_work);
 	if (!world) {
@@ -1137,8 +1137,8 @@ void GaussianSplatSceneDirector::update_instance_transform(ObjectID p_node_id, c
 	// #611: declared before the lock so the apply that
 	// _get_or_create_world_for_scenario may queue (when it lazily creates this
 	// world's renderer) dispatches to the render thread only after world_mutex is
-	// released. See DeferredRendererWork in the header for the ordering rules.
-	DeferredRendererWork deferred_renderer_work;
+	// released. See RendererContractWorkQueue in the header for the ordering rules.
+	RendererContractWorkQueue deferred_renderer_work;
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	SharedWorld *world = _get_world_for_instance(p_node_id, &deferred_renderer_work);
 	if (!world) {
@@ -1168,8 +1168,8 @@ void GaussianSplatSceneDirector::update_instance_scene_effector_filter(ObjectID 
 	// #611: declared before the lock so the apply that
 	// _get_or_create_world_for_scenario may queue (when it lazily creates this
 	// world's renderer) dispatches to the render thread only after world_mutex is
-	// released. See DeferredRendererWork in the header for the ordering rules.
-	DeferredRendererWork deferred_renderer_work;
+	// released. See RendererContractWorkQueue in the header for the ordering rules.
+	RendererContractWorkQueue deferred_renderer_work;
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	SharedWorld *world = _get_world_for_instance(p_node_id, &deferred_renderer_work);
 	if (!world) {
@@ -1219,8 +1219,8 @@ void GaussianSplatSceneDirector::update_instance_params(ObjectID p_node_id, floa
 	// #611: declared before the lock so the apply that
 	// _get_or_create_world_for_scenario may queue (when it lazily creates this
 	// world's renderer) dispatches to the render thread only after world_mutex is
-	// released. See DeferredRendererWork in the header for the ordering rules.
-	DeferredRendererWork deferred_renderer_work;
+	// released. See RendererContractWorkQueue in the header for the ordering rules.
+	RendererContractWorkQueue deferred_renderer_work;
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	SharedWorld *world = _get_world_for_instance(p_node_id, &deferred_renderer_work);
 	if (!world) {
@@ -1307,14 +1307,13 @@ void GaussianSplatSceneDirector::update_instance_params(ObjectID p_node_id, floa
 }
 
 void GaussianSplatSceneDirector::unregister_instance(ObjectID p_node_id) {
-	// #611: declared before the lock so any renderer freed by the prune below drops
-	// its blocking teardown AFTER world_mutex is released.
-	LocalVector<Ref<GaussianSplatRenderer>> deferred_renderer_release;
-	// #611: declared before the lock so the apply that
+	// #611/#628: declared before the lock so both the apply that
 	// _get_or_create_world_for_scenario may queue (when it lazily creates this
-	// world's renderer) dispatches to the render thread only after world_mutex is
-	// released. See DeferredRendererWork in the header for the ordering rules.
-	DeferredRendererWork deferred_renderer_work;
+	// world's renderer) and the blocking teardown of any renderer the prune below
+	// frees dispatch/run only after world_mutex is released. The single
+	// RendererContractWorkQueue owns both the deferred work and the release vector
+	// and fixes their relative teardown order internally; see the header.
+	RendererContractWorkQueue deferred_renderer_work;
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	SharedWorld *world = _get_world_for_instance(p_node_id, &deferred_renderer_work);
 	if (!world) {
@@ -1332,7 +1331,7 @@ void GaussianSplatSceneDirector::unregister_instance(ObjectID p_node_id) {
 	world->instance_store.bump_generation();
 	world->instance_store.bump_asset_generation();
 
-	_prune_world_if_unused(world->scenario, deferred_renderer_release);
+	_prune_world_if_unused(world->scenario, deferred_renderer_work.release_vector());
 }
 
 void GaussianSplatSceneDirector::register_instance_submission(ObjectID p_node_id, const Ref<GaussianSplatAsset> &p_asset,
@@ -2068,9 +2067,10 @@ void GaussianSplatSceneDirector::update_sphere_effector(ObjectID p_effector_id, 
 		return;
 	}
 
-	// #611: declared before the lock so any renderer freed by the prune below drops
-	// its blocking teardown AFTER world_mutex is released.
-	LocalVector<Ref<GaussianSplatRenderer>> deferred_renderer_release;
+	// #611/#628: declared before the lock so the blocking teardown of any renderer
+	// the prune below frees runs only after world_mutex is released. The
+	// RendererContractWorkQueue owns the release vector the prune fills; see the header.
+	RendererContractWorkQueue deferred_renderer_work;
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	SharedWorld *target_world = _get_world_for_effector(p_effector_id);
 	SharedWorld *existing_world = _find_world_for_effector(p_effector_id);
@@ -2089,7 +2089,7 @@ void GaussianSplatSceneDirector::update_sphere_effector(ObjectID p_effector_id, 
 			return;
 		}
 		p_world->sphere_effector_store.bump_generation();
-		_prune_world_if_unused(p_world->scenario, deferred_renderer_release);
+		_prune_world_if_unused(p_world->scenario, deferred_renderer_work.release_vector());
 	};
 
 	if (existing_world && existing_world != target_world) {
@@ -2217,9 +2217,10 @@ void GaussianSplatSceneDirector::unregister_sphere_effector(ObjectID p_effector_
 		return;
 	}
 
-	// #611: declared before the lock so any renderer freed by the prune below drops
-	// its blocking teardown AFTER world_mutex is released.
-	LocalVector<Ref<GaussianSplatRenderer>> deferred_renderer_release;
+	// #611/#628: declared before the lock so the blocking teardown of any renderer
+	// the prune below frees runs only after world_mutex is released. The
+	// RendererContractWorkQueue owns the release vector the prune fills; see the header.
+	RendererContractWorkQueue deferred_renderer_work;
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	SharedWorld *world = _find_world_for_effector(p_effector_id);
 	if (!world) {
@@ -2230,7 +2231,7 @@ void GaussianSplatSceneDirector::unregister_sphere_effector(ObjectID p_effector_
 		return;
 	}
 	world->sphere_effector_store.bump_generation();
-	_prune_world_if_unused(world->scenario, deferred_renderer_release);
+	_prune_world_if_unused(world->scenario, deferred_renderer_work.release_vector());
 }
 
 bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &p_submission) {
@@ -2265,8 +2266,8 @@ bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &
 	// _get_or_create_world_for_scenario may queue (when it lazily creates this
 	// world's renderer), and the rollback queued on the reject paths, dispatch to
 	// the render thread only after world_mutex is released. See
-	// DeferredRendererWork in the header for the ordering rules.
-	DeferredRendererWork deferred_renderer_work;
+	// RendererContractWorkQueue in the header for the ordering rules.
+	RendererContractWorkQueue deferred_renderer_work;
 
 	const RID scenario = p_submission.scenario;
 	// Carried across the phases. Deliberately NOT a `SharedWorld *`: no pointer
@@ -2483,13 +2484,14 @@ bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &
 }
 
 void GaussianSplatSceneDirector::release_world_submission(ObjectID p_owner_id) {
-	// #611: declared before the lock so any renderer freed by the prune below drops
-	// its blocking teardown AFTER world_mutex is released.
-	LocalVector<Ref<GaussianSplatRenderer>> deferred_renderer_release;
-	// #611: declared AFTER deferred_renderer_release, so it is destroyed BEFORE
-	// it — the restore runs, and only then does the renderer Ref drop. That is the
-	// order the inline code had (restore, then prune/free).
-	DeferredRendererWork deferred_renderer_work;
+	// #611/#628: declared before the lock so both the queued restore and the
+	// blocking teardown of any renderer the prune below frees dispatch/run only
+	// after world_mutex is released. The single RendererContractWorkQueue owns the
+	// deferred work AND the release vector, and destroys them in the load-bearing
+	// order (the queued restore flushes first, THEN the released Ref drops) — the
+	// order the pre-deferral inline code had (restore, then prune/free). See the
+	// header.
+	RendererContractWorkQueue deferred_renderer_work;
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	SharedWorld *world = _find_world_for_world_submission(p_owner_id);
 	if (!world) {
@@ -2499,6 +2501,11 @@ void GaussianSplatSceneDirector::release_world_submission(ObjectID p_owner_id) {
 	const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot restore_state =
 			world->submission_store.get_record().renderer_restore_state;
 	world->submission_store.reset();
+	// Alias the queue's owned release vector so the delicate capture-after-prune
+	// logic below reads exactly as the reviewed pre-S6 code did. This is a
+	// reference, not an owning local: it runs no ~GaussianSplatRenderer at scope
+	// exit (the queue does, in the load-bearing order documented on its declaration).
+	LocalVector<Ref<GaussianSplatRenderer>> &deferred_renderer_release = deferred_renderer_work.release_vector();
 	const uint32_t released_before = deferred_renderer_release.size();
 	_prune_world_if_unused(scenario, deferred_renderer_release);
 	// #611: capture the renderer for the deferred restore only AFTER the prune
@@ -2507,7 +2514,8 @@ void GaussianSplatSceneDirector::release_world_submission(ObjectID p_owner_id) {
 	// deferral would then leak a SharedWorld per release.
 	if (deferred_renderer_release.size() > released_before) {
 		// Pruned: the world entry is gone and its last renderer Ref now lives in
-		// deferred_renderer_release. Restore it before that Ref drops.
+		// the queue's release vector. Restore it before that Ref drops (the queue
+		// flushes the restore before its release vector destructs).
 		deferred_renderer_work.queue_restore(deferred_renderer_release[released_before], restore_state);
 	} else if (SharedWorld *surviving = worlds.getptr(scenario)) {
 		deferred_renderer_work.queue_restore(surviving->renderer, restore_state);
@@ -2518,11 +2526,12 @@ void GaussianSplatSceneDirector::try_prune_world_if_unused(const RID &p_scenario
 	if (!p_scenario.is_valid()) {
 		return;
 	}
-	// #611: declared before the lock so any renderer freed by the prune below drops
-	// its blocking teardown AFTER world_mutex is released.
-	LocalVector<Ref<GaussianSplatRenderer>> deferred_renderer_release;
+	// #611/#628: declared before the lock so the blocking teardown of any renderer
+	// the prune below frees runs only after world_mutex is released. The
+	// RendererContractWorkQueue owns the release vector the prune fills; see the header.
+	RendererContractWorkQueue deferred_renderer_work;
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
-	_prune_world_if_unused(p_scenario, deferred_renderer_release);
+	_prune_world_if_unused(p_scenario, deferred_renderer_work.release_vector());
 }
 
 bool GaussianSplatSceneDirector::has_shared_world_for_scenario(const RID &p_scenario) const {
@@ -2841,8 +2850,8 @@ Ref<GaussianSplatRenderer> GaussianSplatSceneDirector::get_shared_renderer(World
 	// #611: declared before the lock so the apply that
 	// _get_or_create_world_for_scenario may queue (when it lazily creates this
 	// world's renderer) dispatches to the render thread only after world_mutex is
-	// released. See DeferredRendererWork in the header for the ordering rules.
-	DeferredRendererWork deferred_renderer_work;
+	// released. See RendererContractWorkQueue in the header for the ordering rules.
+	RendererContractWorkQueue deferred_renderer_work;
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	SharedWorld *world = _get_or_create_world(p_world, true, &deferred_renderer_work);
 	if (!world) {

@@ -756,10 +756,17 @@ private:
     // between; it does *not* reference the `SharedWorld`, which may be gone.
     //
     // Declare this BEFORE the `ThreadOwnedMutexLock` in every caller: locals are
-    // destroyed in reverse order, so the lock must be released first. Where a
-    // caller also carries a `deferred_renderer_release` vector (the #628 pattern),
-    // declare this AFTER it, so the queued work runs BEFORE the renderer Refs are
-    // dropped — matching the order the inline code had.
+    // destroyed in reverse order, so the lock must be released first.
+    //
+    // #610 S6: every world_mutex critical section in the director's .cpp now
+    // carries the enclosing `RendererContractWorkQueue` (below) rather than a bare
+    // DeferredRendererWork, because most also needed the `#628` deferred-release
+    // vector and the two had a fragile relative destruction order. That wrapper
+    // owns this queue plus the release vector and fixes the order internally, so
+    // callers declare one local instead of two ordered ones. This class stays a
+    // standalone primitive — used directly by
+    // tests/test_scene_director_renderer_contract_lock.h — and its own
+    // declare-before-the-lock contract is unchanged.
     //
     // Public only so its bookkeeping can be tested directly (see
     // tests/test_scene_director_renderer_contract_lock.h). It is an internal
@@ -869,6 +876,78 @@ public:
         DeferredRendererWork &operator=(const DeferredRendererWork &) = delete;
     };
 
+    // #610 S6: RendererContractWorkQueue bundles the two deferred-renderer
+    // mechanisms every world_mutex critical section in this director must carry
+    // into ONE owned local, so the fragile relative destruction order they require
+    // stops being a per-call-site convention — a `deferred_renderer_release`
+    // vector hand-declared before a DeferredRendererWork, before the lock — and
+    // becomes an invariant of this type:
+    //
+    //   * a DeferredRendererWork queue — apply/restore/initialize work whose
+    //     blocking render-thread dispatch must run AFTER world_mutex is released
+    //     (#611); and
+    //   * the deferred-RELEASE vector — renderer Refs a prune
+    //     (_prune_world_if_unused) moved out of the `worlds` map under the lock,
+    //     whose ~GaussianSplatRenderer must likewise run unlocked or it is the
+    //     #628 indefinite editor hang.
+    //
+    // ORDER — LOAD-BEARING. The queued work must flush BEFORE the released
+    // renderer Refs drop: that is the order the pre-S6 inline code had (restore,
+    // then free), and release_world_submission still depends on it — it queues a
+    // restore against the very Ref the prune moved into release_vector(). Members
+    // are destroyed in reverse declaration order, so `deferred_release` is declared
+    // FIRST (destroyed LAST) and `work` LAST (destroyed FIRST, running flush() in
+    // ~DeferredRendererWork). No explicit destructor is needed: ~DeferredRendererWork
+    // flushes, then the vector drops.
+    //
+    // Declare a RendererContractWorkQueue local BEFORE the
+    // `ThreadOwnedMutexLock lock(world_mutex)` in every caller, exactly as its two
+    // constituents required individually; the whole object is then destroyed after
+    // the lock is released, so both the flush and the release happen unlocked.
+    // tests/ci/check_renderer_contract_boundary.py enforces this declaration order
+    // for RendererContractWorkQueue just as it does for a bare release vector.
+    class RendererContractWorkQueue {
+    public:
+        // --- deferred contract-work primitives (forwarded to the queue) ---
+        void queue_apply(const Ref<GaussianSplatRenderer> &p_renderer,
+                const GaussianSplatRenderer::WorldSubmissionContract &p_contract) {
+            work.queue_apply(p_renderer, p_contract);
+        }
+        void queue_restore(const Ref<GaussianSplatRenderer> &p_renderer,
+                const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_snapshot) {
+            work.queue_restore(p_renderer, p_snapshot);
+        }
+        void queue_restore_first(const Ref<GaussianSplatRenderer> &p_renderer,
+                const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_snapshot) {
+            work.queue_restore_first(p_renderer, p_snapshot);
+        }
+        void queue_initialize(const Ref<GaussianSplatRenderer> &p_renderer) {
+            work.queue_initialize(p_renderer);
+        }
+        void cancel() { work.cancel(); }
+        // Runs and clears the queued contract work. Must not be called while
+        // world_mutex is held (it dispatches). The deferred-release Refs are NOT
+        // touched here; they drop with this object, after this flush.
+        void flush() { work.flush(); }
+
+        // --- deferred renderer-RELEASE vector (the #628 prune pattern) ---
+        // The vector _prune_world_if_unused moves freed renderer Refs into under
+        // world_mutex; they drop only when this object is destroyed — after the
+        // lock is released and after the queued work above has flushed.
+        LocalVector<Ref<GaussianSplatRenderer>> &release_vector() { return deferred_release; }
+
+        RendererContractWorkQueue() = default;
+        RendererContractWorkQueue(const RendererContractWorkQueue &) = delete;
+        RendererContractWorkQueue &operator=(const RendererContractWorkQueue &) = delete;
+
+    private:
+        // Declared FIRST → destroyed LAST: the freed renderer Refs drop only after
+        // `work` (below) has flushed in its own destructor. See ORDER above.
+        LocalVector<Ref<GaussianSplatRenderer>> deferred_release;
+        // Declared LAST → destroyed FIRST: ~DeferredRendererWork runs flush().
+        DeferredRendererWork work;
+    };
+
 private:
     static GaussianSplatSceneDirector *singleton;
 
@@ -911,10 +990,10 @@ private:
     HashMap<RID, SharedWorld> worlds;
 
     SharedWorld *_get_or_create_world_for_scenario(const RID &p_scenario, bool p_require_renderer = true,
-            DeferredRendererWork *r_deferred_work = nullptr);
+            RendererContractWorkQueue *r_deferred_work = nullptr);
     SharedWorld *_get_or_create_world(World3D *p_world, bool p_require_renderer = true,
-            DeferredRendererWork *r_deferred_work = nullptr);
-    SharedWorld *_get_world_for_instance(ObjectID p_node_id, DeferredRendererWork *r_deferred_work = nullptr);
+            RendererContractWorkQueue *r_deferred_work = nullptr);
+    SharedWorld *_get_world_for_instance(ObjectID p_node_id, RendererContractWorkQueue *r_deferred_work = nullptr);
     SharedWorld *_find_world_for_instance(ObjectID p_node_id);
     SharedWorld *_get_world_for_effector(ObjectID p_effector_id);
     SharedWorld *_find_world_for_effector(ObjectID p_effector_id);
@@ -1002,7 +1081,7 @@ private:
 	// releases `world_mutex`) or, when no queue is supplied, reports the boundary
 	// violation and runs it inline, preserving historical behaviour for any
 	// caller that has not been threaded yet.
-	void _initialize_world_renderer(SharedWorld &p_world, DeferredRendererWork *r_deferred_work);
+	void _initialize_world_renderer(SharedWorld &p_world, RendererContractWorkQueue *r_deferred_work);
 	void _report_renderer_contract_lock_violation(const char *p_site) const;
 	// #610 S2: `_should_prune_world` is the conjunction of four independent
 	// per-concern predicates, one per state group a later decomposition slice
