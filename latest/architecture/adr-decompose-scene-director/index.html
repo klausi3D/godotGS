@@ -1,0 +1,3042 @@
+<!DOCTYPE html><html lang="en" class="no-js"><head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Versioned documentation for the Godot Gaussian Splatting module.">
+      
+      
+      
+        <link rel="canonical" href="https://klausi3d.github.io/godotGS/latest/architecture/adr-decompose-scene-director/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/branding/godotgs-mark.png">
+      <meta name="generator" content="mkdocs-ProperDocs 1.6.7, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>ADR: Decompose the GaussianSplatSceneDirector god-class around owned-state boundaries - Godot Gaussian Splatting Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/styles/brand.css">
+    
+      <link rel="stylesheet" href="../../assets/styles/components.css">
+    
+      <link rel="stylesheet" href="../../assets/styles/landing.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  <link href="../../assets/stylesheets/glightbox.min.css" rel="stylesheet"><script src="../../assets/javascripts/glightbox.min.js"></script><style id="glightbox-style">
+            html.glightbox-open { overflow: initial; height: 100%; }
+            .gslide-title { margin-top: 0px; user-select: text; }
+            .gslide-desc { color: #666; user-select: text; }
+            .gslide-image img { background: white; }
+            .gscrollbar-fixer { padding-right: 15px; }
+            .gdesc-inner { font-size: 0.75rem; }
+            body[data-md-color-scheme="slate"] .gdesc-inner { background: var(--md-default-bg-color); }
+            body[data-md-color-scheme="slate"] .gslide-title { color: var(--md-default-fg-color); }
+            body[data-md-color-scheme="slate"] .gslide-desc { color: var(--md-default-fg-color); }
+        </style></head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#adr-decompose-the-gaussiansplatscenedirector-god-class-around-owned-state-boundaries" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden="">
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Godot Gaussian Splatting Docs" class="md-header__button md-logo" aria-label="Godot Gaussian Splatting Docs" data-md-component="logo">
+      
+  <img src="../../assets/branding/godotgs-mark.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"></path></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Godot Gaussian Splatting Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              ADR: Decompose the GaussianSplatSceneDirector god-class around owned-state boundaries
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom" aria-label="Switch to dark mode" type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden="">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"></path></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom" aria-label="Switch to light mode" type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden="">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"></path></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required="">
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix="">
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/klausi3D/godotGS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Start Here
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../user/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../contributor/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Contribute
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Godot Gaussian Splatting Docs" class="md-nav__button md-logo" aria-label="Godot Gaussian Splatting Docs" data-md-component="logo">
+      
+  <img src="../../assets/branding/godotgs-mark.png" alt="logo">
+
+    </a>
+    Godot Gaussian Splatting Docs
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/klausi3D/godotGS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix="">
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../getting-started/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start Here
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start Here
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/downloads/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Downloads
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/try-in-5-minutes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Try in 5 Minutes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Public Evaluator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/recurring-issues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recurring Issues
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../user/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Artist Workflow Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Manual: Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../workflows/importing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gaussian Splat Asset Import Workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/workflows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow Details
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/runtime-behavior/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Manual: Runtime Behavior
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/lighting-behavior/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Manual: Lighting Behavior
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/performance-presets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Presets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/faq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FAQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/project-settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Settings Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/compatibility-matrix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compatibility Matrix
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gaussian_splat_node3d/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GaussianSplatNode3D API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gdscript_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GDScript API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/shader_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Shader Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/color-grading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Color Grading Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migration Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../contributor/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contribute
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contribute
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributor/reviewer-fast-path/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reviewer Fast Path
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributor/onboarding/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributor Onboarding
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../BUILDING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/build-test-ci/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build / Test / CI Command Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../testing/setup-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing Setup Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../testing/benchmark-suite/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmark Runner
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../governance/contribution-standards/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contribution Standards
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/docs-site/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Versioned Docs Site
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../style/documentation-style-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation Style Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+      
+        <li class="md-nav__item">
+  <a href="#context-problem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context / problem
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-current-state-map-contention-reentrancy-and-mutation-under-lock-hazards" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Current-state map: contention, reentrancy, and mutation-under-lock hazards
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Current-state map: contention, reentrancy, and mutation-under-lock hazards">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1a-coarse-lock-cross-thread-contention-the-central-defect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1a. Coarse-lock cross-thread contention (the central defect)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1b-expensive-gpu-work-performed-under-the-global-lock" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1b. Expensive / GPU work performed under the global lock
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1c-reentrancy-calling-out-of-the-subsystem-while-holding-the-lock" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1c. Reentrancy / calling out of the subsystem while holding the lock
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1d-hidden-mutation-inside-a-const-render-thread-query" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1d. Hidden mutation inside a const render-thread query
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1e-oworlds-linear-scans-under-the-lock" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1e. O(worlds) linear scans under the lock
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1f-lifetimeteardown-ordering-encoded-in-prose-not-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1f. Lifetime/teardown ordering encoded in prose (not types)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1g-render-thread-blocking-renderer-calls-made-under-the-lock-the-headline-hazard-now-half-fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1g. Render-thread-blocking renderer calls made under the lock (the headline hazard — now half fixed)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1g. Render-thread-blocking renderer calls made under the lock (the headline hazard — now half fixed)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixed-by-628-the-indefinite-hang-paths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed by #628 — the indefinite-hang paths
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#still-live-the-timeout-guarded-stall-paths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Still live — the timeout-guarded stall paths
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="adr-decompose-the-gaussiansplatscenedirector-god-class-around-owned-state-boundaries">ADR: Decompose the <code>GaussianSplatSceneDirector</code> god-class around owned-state boundaries<a class="headerlink" href="#adr-decompose-the-gaussiansplatscenedirector-god-class-around-owned-state-boundaries" title="Permanent link">¶</a></h1>
+<ul>
+<li><strong>Status:</strong> Proposed — design-only. This PR adds <strong>no production code</strong>; each
+  migration step below lands as its own PR referencing this ADR.</li>
+<li><strong>Risk class:</strong> R2 for the ADR and the early host-side extraction steps
+  (module-local, guarded by existing tests). Steps that reorder renderer/GPU teardown
+  or move renderer construction/<code>initialize()</code> out from under the lock are R2
+  (renderer lifetime / GPU resource ownership) and take GPU/perf review; the
+  render-thread snapshot step (Step 6) is R2/R3 and needs runtime/GPU evidence plus a
+  second review. Per the agentic-engineering risk classes this design note is the
+  R2/R3 <em>design-before-implementation</em> artifact.</li>
+<li><strong>Date:</strong> 2026-07-18 (revised 2026-07-19, review round 2)</li>
+<li><strong>Baseline:</strong> <code>384c2c6ad8d</code> (origin/master). <strong>Re-anchored in review round 2</strong> from
+  <code>237a4b1cc3965fdbd6f12dec825c0e2077b2e9ce</code>: <strong>PR #628 landed in between and fixed part of
+  this ADR's headline hazard</strong>. #628 rewrote ~98 lines of
+  <code>gaussian_splat_scene_director.cpp</code>, so <strong>every <code>file:line</code> anchor in this document has been
+  mechanically re-verified and updated against <code>384c2c6ad8d</code></strong> — most <code>.cpp</code> anchors shifted by
+  +8 to +67 lines and every <code>.h</code> anchor by +8. See the §1g correction: reading this ADR against
+  the old base, or with the old anchors, will overstate what is still broken.</li>
+<li><strong>⚠ Baseline status (review round 3) — this ADR is stale again, and in the same direction.</strong>
+  Five more commits have landed on <code>modules/gaussian_splatting/core/gaussian_splat_scene_director.*</code>
+  between <code>384c2c6ad8d</code> and current master <code>b15c6ddda46</code>:
+  <code>fdd11268391</code> (#665, <strong>#611 PR A</strong>), <code>db65f28ee43</code> (#666, <strong>#611 PR B1</strong>),
+  <code>ab847aeabf3</code> (#667), <code>8914756deca</code> (#674, <strong>#611 PR B2</strong>), <code>d6def0641aa</code> (#680).
+  Consequences, in order of severity:</li>
+<li><strong>§1g's "Still live — the timeout-guarded stall paths" is now FALSE.</strong> The remaining half
+    of the lock-order inversion has been fixed. <code>register_instance</code> no longer calls
+    <code>initialize()</code> under the lock — the call is deferred past the unlock, documented in-code at
+    <code>gaussian_splat_scene_director.cpp:963-970</code> (<em>"#611 PR B1: this used to call
+    world-&gt;renderer-&gt;initialize() inline, which opens with a blocking render-thread dispatch …
+    The call is deferred to the flush below (after the lock is released) instead"</em>). And
+    <code>submit_world_submission</code> has been restructured into the explicit three-phase
+    arbitrate / apply-unlocked / re-validate-and-commit form (<code>:2249-2275</code>), serialized by
+    <code>world_submission_apply_mutex</code>, which the render thread never acquires. <strong>So Step 3's D6
+    deliverable is largely already done</strong>, exactly as #628 made §1f/D11 stale in round 2. Do
+    not re-implement it; re-grading merged work as new work is the failure mode this ADR
+    already warns about twice.</li>
+<li><strong>#680 closed §1h's "Step 3-pre"</strong> — it deleted the two dead scene-effector helpers and
+    corrected the stale <code>teardown_world_for_scenario</code> header docs. That work is done.</li>
+<li><strong>Every <code>.cpp</code> anchor has drifted hard</strong> — far more than round 2's +8/+67. Spot checks:
+    <code>update_sphere_effector</code> <code>:1863</code> → <strong><code>:2056</code></strong>; <code>_should_prune_world</code> <code>:728</code> → <strong><code>:874</code></strong>;
+    <code>submit_world_submission</code> <code>:2056</code> → <strong><code>:2249</code></strong>; <code>teardown_world_for_scenario</code> <code>:2156</code> →
+    <strong><code>:2569</code></strong>. Note that <code>:2056</code> is now <em>two different things</em> depending on base, which is
+    exactly how a slice ends up graded against the wrong code.
+    <code>scene_director_sphere_effectors.cpp</code> anchors did <strong>not</strong> drift.</li>
+</ul>
+<p><strong>This ADR needs a round-4 re-anchor onto <code>b15c6ddda46</code> before any step is authored against
+  it.</strong> The threads addressed in round 3 are fixed against the <em>current</em> text and their
+  substance is unaffected by the drift, but §1g, Step 3, D6 and the issue-closure map all now
+  describe work that is partly merged.
+- <strong>Informs issues:</strong> #356 (decompose orchestration around owned state boundaries —
+  the tracked umbrella), #545 (consolidate the four asset-identity schemes behind
+  typed IDs), #551 (encode the PREDELETE/EXIT_TREE/prune ordering structurally),
+  <strong>#611 (lock-order inversion — <em>partially fixed</em> by #628; this ADR owns the residue, §1g)</strong>,
+  #606 (raw <code>GaussianData</code> storage consumers bypass the RWLock/snapshot contract —
+  adjacent; this ADR removes one class of unsynchronized reader).</p>
+<h2 id="context-problem">Context / problem<a class="headerlink" href="#context-problem" title="Permanent link">¶</a></h2>
+<p><code>GaussianSplatSceneDirector</code> is the singleton between the scene-tree nodes
+(<code>GaussianSplatNode3D</code>, <code>GaussianSplatWorld3D</code>, the sphere-effector node) and the
+renderer. <code>ARCHITECTURE.md:20</code> labels it "Multi-instance coordination and registry"
+and puts it at the head of the data flow — nodes register data/instances <em>through</em> it,
+and it feeds the streaming system → renderer → pipeline stages (<code>ARCHITECTURE.md:52-58</code>).
+<code>renderer-lifetime-ownership.md</code> records the authoritative role: it owns
+<code>worlds: HashMap&lt;RID, SharedWorld&gt;</code> where each <code>SharedWorld</code> holds the only <strong>retained /
+owning</strong> <code>Ref&lt;GaussianSplatRenderer&gt;</code> — releasing it is the sole path that frees the
+renderer's whole GPU graph — guarded by one <code>mutable Mutex world_mutex</code> that must never nest
+with the manager's L1–L4 lock hierarchy. (It is <em>not</em> the only strong <code>Ref</code> in existence:
+<code>GaussianSplatNode3D</code> and <code>GaussianSplatWorld3D</code> hold transient ones while in-tree, and the
+<code>&lt;= 1</code> prune threshold is measured <strong>against</strong> them — see invariant D9.)</p>
+<p>It is a god-class: <strong>2,450 LOC</strong> in
+<code>modules/gaussian_splatting/core/gaussian_splat_scene_director.cpp</code> (recounted at base
+<code>384c2c6ad8d</code>; the round-1 figure of ~2,383 predates #628), plus the 347-LOC
+partial-class TU <code>scene_director_sphere_effectors.cpp</code> and <code>scene_director_internal.h</code>,
+all operating on one nested state blob, <code>SharedWorld</code>
+(<code>gaussian_splat_scene_director.h:376-421</code>), behind a <strong>single coarse mutex</strong>
+(<code>gaussian_splat_scene_director.h:425</code>). <code>SharedWorld</code> fuses at least seven
+independent responsibilities under that one lock:</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Responsibility</th>
+<th>Canonical state (<code>.h</code>)</th>
+<th>Representative methods (<code>.cpp</code>)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>Renderer lifecycle &amp; ownership</strong></td>
+<td><code>SharedWorld::renderer</code> (<code>h:378</code>)</td>
+<td><code>_get_or_create_world_for_scenario</code> → <code>memnew(GaussianSplatRenderer)</code> (<code>:368</code>); <code>get_shared_renderer</code> (<code>:2443</code>); <code>teardown_world_for_scenario</code> (<code>:2156</code>); <code>_should_prune_world</code>/<code>_prune_world_if_unused</code> (<code>:728</code>,<code>:749</code>)</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>Instance registry</strong></td>
+<td><code>instances</code>, <code>instance_lookup</code>, <code>instance_generation</code> (<code>h:379-381</code>)</td>
+<td><code>register_instance</code> (<code>:770</code>), <code>update_instance_transform</code>/<code>_params</code> (<code>:966</code>,<code>:1034</code>), <code>unregister_instance</code> (<code>:1124</code>)</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>Asset retention table</strong></td>
+<td><code>asset_records: HashMap&lt;uint64_t, AssetRecord&gt;</code>, <code>instance_asset_generation</code> (<code>h:401-407</code>,<code>h:382</code>)</td>
+<td><code>_retain_asset_record</code>/<code>_refresh_asset_record</code>/<code>_release_asset_record</code> (<code>:560</code>,<code>:600</code>,<code>:628</code>)</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>Sphere-effector registry</strong></td>
+<td><code>sphere_effectors</code>, <code>sphere_effector_lookup</code>, <code>sphere_effector_generation</code>, <code>registration_serial</code> (<code>h:383-386</code>)</td>
+<td><code>update_sphere_effector</code> (<code>:1863</code>), <code>unregister_sphere_effector</code> (<code>:2025</code>), <code>_build_sorted_sphere_effector_payload</code> (<code>scene_director_sphere_effectors.cpp:26</code>)</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>World-submission store + renderer state restore/rollback</strong></td>
+<td><code>world_submission: WorldSubmissionRecord</code> (<code>h:387-400</code>)</td>
+<td><code>submit_world_submission</code> (<code>:2056</code>), <code>release_world_submission</code> (<code>:2102</code>), <code>_apply_world_submission_to_renderer</code>/<code>_restore_world_submission_renderer</code> (<code>:709</code>,<code>:690</code>)</td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>LOD walk + memoization</strong></td>
+<td><code>InstanceRecord::last_lod</code> (<code>h:334</code>); <code>lod_walk_*</code> cache (<code>h:416-420</code>)</td>
+<td><code>update_instance_lods_for_renderer</code> (<code>:1227</code>)</td>
+</tr>
+<tr>
+<td>7</td>
+<td><strong>GPU row/payload building (render thread)</strong></td>
+<td>reads all of the above</td>
+<td><code>build_instance_buffer_for_renderer</code> (<code>:1411</code>), <code>build_instance_grading_buffer_for_renderer</code> (<code>:1633</code>), <code>build_sphere_effector_payload_for_renderer</code> (<code>scene_director_sphere_effectors.cpp:154</code>), <code>collect_*_assets_for_renderer</code> (<code>:2373</code>,<code>:2415</code>)</td>
+</tr>
+</tbody>
+</table>
+<p><code>modules/gaussian_splatting/docs/CODEBASE_ASSESSMENT_REPORT.md:55</code> also records the
+<strong>circular dependency</strong> <code>gaussian_splat_scene_director.h:20</code> → renderer while the
+renderer depends back on core — a layering inversion this decomposition must not deepen.</p>
+<h2 id="1-current-state-map-contention-reentrancy-and-mutation-under-lock-hazards">1. Current-state map: contention, reentrancy, and mutation-under-lock hazards<a class="headerlink" href="#1-current-state-map-contention-reentrancy-and-mutation-under-lock-hazards" title="Permanent link">¶</a></h2>
+<p>There are <strong>39 <code>MutexLock lock(world_mutex)</code> acquisitions</strong> across the two TUs (35 in
+<code>gaussian_splat_scene_director.cpp</code> + 4 in <code>scene_director_sphere_effectors.cpp</code>, recounted at
+base <code>384c2c6ad8d</code>; round 1 said 38). The lock
+is one global mutex over <em>all</em> scenarios, so every producer serializes against every
+consumer across unrelated worlds. <code>world_mutex</code> is the <strong>sole hand-off between two
+threads</strong>: the <strong>main / scene-tree thread</strong> (node notifications and property setters —
+node processing runs on the main thread via <code>GaussianSplatManager</code>'s
+<code>call_deferred(_process_active_nodes_main_thread)</code>, <code>gaussian_splat_manager.cpp:610-624,660</code>)
+and the <strong>RenderingServer render thread</strong> (<code>RendererSceneRenderRD::render_scene</code> →
+<code>render_scene_instance</code>, <code>gaussian_splat_renderer.cpp:2240</code>), from which every
+<code>*_for_renderer</code> builder/query executes and which further hops GPU sub-steps onto the RD
+command thread via <code>_dispatch_call_on_render_thread_blocking</code>.</p>
+<h3 id="1a-coarse-lock-cross-thread-contention-the-central-defect">1a. Coarse-lock cross-thread contention (the central defect)<a class="headerlink" href="#1a-coarse-lock-cross-thread-contention-the-central-defect" title="Permanent link">¶</a></h3>
+<p>The <strong>render/submit-path</strong> buffer builders and the <strong>main/scene-tree-thread</strong> node
+setters take the <em>same</em> global lock:</p>
+<ul>
+<li>Render/submit path (called every frame from the renderer —
+  <code>render_pipeline_stages.cpp:314</code>, <code>render_streaming_orchestrator.cpp:791,804</code>,
+  <code>resident_instance_contract_publisher.cpp:350</code>):
+  <code>build_instance_buffer_for_renderer</code> (<code>:1414</code>), <code>build_instance_grading_buffer_for_renderer</code>
+  (<code>:1635</code>), <code>build_sphere_effector_payload_for_renderer</code> (<code>scene_director_sphere_effectors.cpp:156</code>),
+  <code>update_instance_lods_for_renderer</code> (<code>:1229</code>), <code>compute_color_grading_signature_for_renderer</code>
+  (<code>:1761</code>), <code>collect_instance_assets_for_renderer</code>/<code>collect_registered_assets_for_renderer</code>
+  (<code>:2375</code>,<code>:2417</code>).</li>
+<li>Main thread (node setters): <code>register_instance</code> (<code>:775</code>), <code>update_instance_transform</code>
+  (<code>:967</code>), <code>update_instance_params</code> (<code>:1039</code>), <code>update_instance_scene_effector_filter</code>
+  (<code>:993</code>), <code>update_sphere_effector</code> (<code>:1874</code>), <code>update_instance_color_grading</code> (<code>:1689</code>).</li>
+</ul>
+<p>Because the lock is global, a single node moving one splat
+(<code>update_instance_transform</code>) blocks the render thread's buffer build <strong>for every other
+world</strong>, and vice-versa. This is the contention the audit (#356) calls out as hidden
+mutable state raising review cost and coupling unrelated features.</p>
+<h3 id="1b-expensive-gpu-work-performed-under-the-global-lock">1b. Expensive / GPU work performed under the global lock<a class="headerlink" href="#1b-expensive-gpu-work-performed-under-the-global-lock" title="Permanent link">¶</a></h3>
+<ul>
+<li><strong>Renderer construction under the lock:</strong> <code>_get_or_create_world_for_scenario</code> acquires
+  the primary <code>RenderingDevice</code> and runs <code>memnew(GaussianSplatRenderer(device))</code> while a
+  caller holds <code>world_mutex</code> (<code>:340-368</code>); <code>get_shared_renderer</code> calls it under the lock
+  (<code>:2444-2445</code>).</li>
+<li><strong>GPU initialization under the lock:</strong> <code>register_instance</code> calls
+  <code>world-&gt;renderer-&gt;initialize()</code> (GPU resource creation) inside its critical section
+  (<code>:815</code>, under the lock taken at <code>:775</code>).</li>
+<li><strong>Renderer contract mutation + restore under the lock:</strong> <code>submit_world_submission</code>
+  (<code>:2062</code>) calls <code>renderer-&gt;apply_world_submission_contract</code> (<code>:720</code>) and, on rollback,
+  <code>renderer-&gt;restore_world_submission_runtime_state</code> (<code>:703</code>) — all while holding the
+  global lock, stalling every other world's node updates during a world swap.</li>
+</ul>
+<h3 id="1c-reentrancy-calling-out-of-the-subsystem-while-holding-the-lock">1c. Reentrancy / calling out of the subsystem while holding the lock<a class="headerlink" href="#1c-reentrancy-calling-out-of-the-subsystem-while-holding-the-lock" title="Permanent link">¶</a></h3>
+<p>The director repeatedly calls <strong>into engine <code>Node</code>/<code>ObjectDB</code> state</strong> while holding
+<code>world_mutex</code>, lengthening the critical section and creating a lock-ordering hazard if
+any callout ever re-enters the director:</p>
+<ul>
+<li><code>_get_world_for_instance</code> (<code>:391-404</code>) and <code>_get_world_for_effector</code> (<code>:416-427</code>) call
+  <code>ObjectDB::get_instance</code>, <code>node-&gt;is_inside_world()</code>, <code>node-&gt;get_world_3d()</code> under the lock.</li>
+<li><code>_build_sorted_sphere_effector_payload</code> calls <code>ObjectDB::get_instance</code> +
+  <code>Object::cast_to&lt;Node&gt;</code> per effector under the lock
+  (<code>scene_director_sphere_effectors.cpp:102-104</code>).</li>
+<li><code>get_scene_effector_debug_state_for_instance</code> calls <code>ObjectDB::get_instance</code> and reads
+  <code>effector_node-&gt;get_name()</code> under the lock (<code>scene_director_sphere_effectors.cpp:228</code>,<code>:301-304</code>).</li>
+<li>Both grading paths read renderer state — <code>p_renderer-&gt;get_color_grading()</code> — under the
+  lock (<code>:1644</code>, <code>:1792</code>).</li>
+</ul>
+<p>This violates the house rule that sub-owners rely on caller synchronization / render-thread
+dispatch ordering and never nest <code>world_mutex</code> with other locks
+(<code>renderer-lifetime-ownership.md</code>, lock hierarchy L1–L4).</p>
+<h3 id="1d-hidden-mutation-inside-a-const-render-thread-query">1d. Hidden mutation inside a <code>const</code> render-thread query<a class="headerlink" href="#1d-hidden-mutation-inside-a-const-render-thread-query" title="Permanent link">¶</a></h3>
+<p><code>_build_sorted_sphere_effector_payload</code> is invoked from <code>const</code> render-path methods, yet
+it <strong>mutates canonical state and a generation counter through <code>const_cast</code></strong>: when an
+effector's scope-root <code>ObjectID</code> no longer resolves it flips <code>scope_root_valid</code> and bumps
+<code>sphere_effector_generation</code> via <code>const_cast&lt;SharedWorld &amp;&gt;</code> on the render thread
+(<code>scene_director_sphere_effectors.cpp:106-116</code>). A write side-effect buried in a <code>const</code>
+render-thread query means a <em>read</em> can invalidate a <em>cache</em> mid-frame — exactly the
+"never hand out mutation from a const query" anti-pattern the renderer refactor split into
+<code>IFrameStateView</code> vs <code>IFrameMutationAccess</code> (<code>gaussian-renderer-refactor-memory.md</code>).</p>
+<p>Two precisions that matter for the fix (see §2a): the <strong>liveness test itself is not stale</strong> —
+<code>scope_alive</code> is recomputed fresh at <code>:103-104</code> on every build, so the drop decision is always
+current; only the <code>scope_root_valid</code> latch and its paired generation bump are stateful. And
+the bump the render path issues is read by the render path itself
+(<code>render_streaming_orchestrator.cpp:794</code>, <code>:1682</code>) to decide whether to rebuild — self-invalidation
+with no defined ordering. Removing the write therefore requires a replacement trigger, not just
+a deletion; §2a defines it.</p>
+<h3 id="1e-oworlds-linear-scans-under-the-lock">1e. O(worlds) linear scans under the lock<a class="headerlink" href="#1e-oworlds-linear-scans-under-the-lock" title="Permanent link">¶</a></h3>
+<p>Reverse lookups are unindexed linear scans of every world:
+<code>_find_world_for_instance</code> (<code>:407-414</code>), <code>_find_world_for_effector</code> (<code>:429-436</code>),
+<code>_find_world_for_renderer</code> (<code>:482-517</code>), <code>_find_world_for_world_submission</code> (<code>:519-541</code>);
+<code>register_instance</code> additionally scans every world for the world-switch eviction
+(<code>:787-811</code>), and <code>get_instance_submission</code> scans all worlds (<code>:1188-1218</code>) — each inside
+the global critical section.</p>
+<h3 id="1f-lifetimeteardown-ordering-encoded-in-prose-not-types">1f. Lifetime/teardown ordering encoded in prose (not types)<a class="headerlink" href="#1f-lifetimeteardown-ordering-encoded-in-prose-not-types" title="Permanent link">¶</a></h3>
+<ul>
+<li><strong>Teardown order (#589): ~~open~~ → FIXED by #628, before this ADR's new base.</strong> The round-1
+  text described <code>register_types.cpp:247-260</code> (the pre-#628 anchor) deleting
+  <code>GaussianSplatManager</code> <em>before</em> the director, repeating init order instead of reversing it.
+  <strong>#628 reversed it</strong>, and the block now lives at <code>register_types.cpp:256-270</code>: the
+  director destruction block now runs first, so each renderer teardown observes a live manager
+  and the correct owning device. The StringName-orphan ordering after both singletons are gone
+  was preserved. <strong>This is no longer work for Step 3, and #589 is not an issue this ADR
+  closes</strong> — see the Step 3 and D11 corrections. Retained here only so a reader comparing
+  against the round-1 revision or the #589 issue text is not misled.</li>
+<li><strong>Prune-after-unref dance (#551):</strong> ~54-line mirrored comment blocks encode the "unref
+  the renderer <code>Ref</code> first, <em>then</em> re-run the prune so refcount actually falls" ordering
+  across node ↔ world ↔ director (<code>nodes/gaussian_splat_world_3d.cpp:133-186</code>,
+  <code>nodes/gaussian_splat_node_3d.cpp:460-500</code>). Correctness depends on prose; any reorder
+  silently reintroduces the F6-reload leak.</li>
+</ul>
+<h3 id="1g-render-thread-blocking-renderer-calls-made-under-the-lock-the-headline-hazard-now-half-fixed">1g. Render-thread-<strong>blocking</strong> renderer calls made under the lock (the headline hazard — now <strong>half fixed</strong>)<a class="headerlink" href="#1g-render-thread-blocking-renderer-calls-made-under-the-lock-the-headline-hazard-now-half-fixed" title="Permanent link">¶</a></h3>
+<blockquote>
+<p><strong>Correction (review round 2).</strong> The round-1 revision of this section described the hazard as
+entirely open. <strong>It is not: PR #628 (merged, <code>b7d39df29e4</code>) fixed the permanent-hang half</strong>,
+which was filed as #611. The remaining half is confirmed live but has a <strong>strictly milder
+failure mode</strong>, and the two must not be conflated — the fixed half could hang the editor
+forever; the remaining half cannot.</p>
+</blockquote>
+<h4 id="fixed-by-628-the-indefinite-hang-paths">Fixed by #628 — the indefinite-hang paths<a class="headerlink" href="#fixed-by-628-the-indefinite-hang-paths" title="Permanent link">¶</a></h4>
+<p>Both sites that dropped a renderer <code>Ref</code> under <code>world_mutex</code> now move the <code>Ref</code> out of the map
+under the lock and release it only after the lock is dropped, so <code>~GaussianSplatRenderer</code> (whose
+dispatch passes <code>p_allow_timeout = false</code>, i.e. <strong>no escape</strong>) runs outside the critical section:</p>
+<ul>
+<li><code>_prune_world_if_unused</code> takes a caller-owned <code>LocalVector&lt;Ref&lt;GaussianSplatRenderer&gt;&gt;</code>
+  declared <em>before</em> the <code>MutexLock</code>, threaded through all five callers.</li>
+<li><code>teardown_world_for_scenario</code> erases under an inner lock scope and drops the renderer after
+  unlocking (<code>gaussian_splat_scene_director.cpp:2197-2205</code>).</li>
+</ul>
+<p><strong>Consequences for this ADR:</strong> the §1f/#589 teardown-order item and the corresponding parts of
+Step 3 and invariant <strong>D11</strong> are <strong>stale work — already done</strong>. See the §1f and Step 3
+corrections below. Do not re-implement them; re-grading a merged fix as new work is how a slice
+ends up with no reviewable content.</p>
+<h4 id="still-live-the-timeout-guarded-stall-paths">Still live — the timeout-guarded stall paths<a class="headerlink" href="#still-live-the-timeout-guarded-stall-paths" title="Permanent link">¶</a></h4>
+<p>The lock-order inversion itself still exists on the world-submission and <code>initialize()</code> paths.
+Verified against base <code>384c2c6ad8d</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Hop</th>
+<th>Site</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>submit_world_submission</code> takes <code>MutexLock lock(world_mutex)</code></td>
+<td><code>gaussian_splat_scene_director.cpp:2062</code></td>
+</tr>
+<tr>
+<td>…still holding it, calls <code>_apply_world_submission_to_renderer</code></td>
+<td><code>:2088</code></td>
+</tr>
+<tr>
+<td>→ <code>renderer-&gt;apply_world_submission_contract(contract)</code></td>
+<td><code>:720</code></td>
+</tr>
+<tr>
+<td>→ <code>set_max_splats(...)</code></td>
+<td><code>render_data_orchestrator.cpp:764</code></td>
+</tr>
+<tr>
+<td>→ <code>initialize()</code> (when GPU resources are not yet up)</td>
+<td><code>:776</code>, <code>:781</code></td>
+</tr>
+<tr>
+<td>→ <code>set_gaussian_data(...)</code> / <code>set_file_backed_payload_source(...)</code></td>
+<td><code>:789-792</code></td>
+</tr>
+<tr>
+<td>→ <strong><code>_dispatch_call_on_render_thread_blocking</code></strong></td>
+<td><code>render_quality_orchestrator.cpp:507</code>; <code>render_data_orchestrator.cpp:509</code>, <code>:557</code></td>
+</tr>
+</tbody>
+</table>
+<p>Meanwhile the render thread needs the <em>same</em> mutex in the <code>*_for_renderer</code> readers:
+<code>build_instance_buffer_for_renderer</code> (<code>MutexLock</code> at <code>:1414</code>),
+<code>has_world_submission_for_renderer</code> (<code>:2265</code>), and
+<code>get_submission_residency_hint_for_renderer</code> (<code>:2278</code>). <code>register_instance</code> →
+<code>renderer-&gt;initialize()</code> (<code>:805</code>, under the lock at <code>:765</code>) is the same shape.</p>
+<p><strong>Severity — state it precisely.</strong> These dispatches pass <code>p_allow_timeout = true</code>
+(<code>DEFAULT_TIMEOUT_USEC = 15000000</code>, i.e. 15 s, <code>interfaces/render_thread_dispatcher.cpp:35</code>).
+So the failure mode is <strong>not</strong> a permanent hang. It is:</p>
+<ol>
+<li>the main thread stalls for up to 15 s while the render thread is parked on <code>world_mutex</code>;</li>
+<li>the dispatcher <code>ERR_PRINT</code>s a timeout and escapes the wait;</li>
+<li>the renderer mutation is then <strong>not applied locally</strong> — the code deliberately skips the
+   "unsafe local fallback" — and what happens next differs per setter:</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>Setter</th>
+<th>On timeout</th>
+<th>Net effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>set_max_splats</code></td>
+<td><code>GS_LOG_RENDERER_WARN(… "skipping unsafe local fallback")</code>, returns <code>void</code> (<code>render_quality_orchestrator.cpp:513-515</code>)</td>
+<td><strong>Silently dropped.</strong> The renderer keeps its previous <code>max_splats</code>; nothing upstream can observe the loss.</td>
+</tr>
+<tr>
+<td><code>set_gaussian_data</code> / <code>set_file_backed_payload_source</code></td>
+<td>returns <code>ERR_BUSY</code> (<code>render_data_orchestrator.cpp:520-528</code>, <code>:568-576</code>)</td>
+<td><strong>Not</strong> silently dropped: <code>_apply_world_submission_to_renderer</code> sees <code>err != OK</code>, logs <code>GS_LOG_RENDERER_ERROR</code>, returns <code>false</code> (<code>:721-725</code>); <code>submit_world_submission</code> then calls <code>_restore_world_submission_renderer</code> and returns <code>false</code> (<code>:2088-2091</code>) — the submission is <em>rejected and rolled back</em>.</td>
+</tr>
+</tbody>
+</table>
+<p>So the honest statement is: <strong>a multi-second render-thread stall, after which <code>max_splats</code> is
+silently lost and the world submission is rejected with a logged error.</strong> That is a real defect
+worth fixing — a user-visible stall plus a partially-applied contract — but it is recoverable,
+and #611's original "high severity / deadlock" framing applies only to the half #628 already
+closed. Any slice claiming to fix this must not describe it as removing a hang.</p>
+<p>The one place that already does it right is <code>invalidate_grading_for_renderer</code>, which bumps
+the renderer's atomic <strong>before</strong> taking <code>world_mutex</code> (<code>:1740</code> vs <code>:1744</code>). Generalizing
+that rule — <em>never call a blocking renderer method while holding the registry lock</em> — is a
+primary goal of the <code>RendererLifecycleOwner</code> boundary (§2) and the snapshot step (§4 Step 6).</p>
+<h1 id="628s-own-pr-text-defers-exactly-this-residue-to-this-adrs-step-3-because-moving-it">628's own PR text defers exactly this residue to <strong>this ADR's Step 3</strong>, because moving it<a class="headerlink" href="#628s-own-pr-text-defers-exactly-this-residue-to-this-adrs-step-3-because-moving-it" title="Permanent link">¶</a></h1>
+<p>safely means restructuring the apply→on-fail-restore rollback whose result feeds back into the
+critical section.</p>
+<h3 id="1h-stalelatent-decomposition-traps">1h. Stale/latent decomposition traps<a class="headerlink" href="#1h-stalelatent-decomposition-traps" title="Permanent link">¶</a></h3>
+<ul>
+<li><strong>The <code>teardown_world_for_scenario</code> header doc is stale and actively wrong.</strong> Its doc block
+  at <code>gaussian_splat_scene_director.h:253-265</code> still states (at <code>:256-257</code>) that it is <em>"Called
+  by GaussianSplatWorld3D and GaussianSplatNode3D from NOTIFICATION_PREDELETE."</em> <strong>Neither node
+  calls it, and both say so explicitly in their own comments.</strong> Both PREDELETE handlers use the
+  ownership-aware <code>release_world_submission</code> + <code>try_prune_world_if_unused</code> instead, and each
+  carries a comment beginning <em>"It intentionally does NOT call teardown_world_for_scenario()"</em>
+  with the reason (a scenario-wide teardown would wipe the <code>SharedWorld</code> shared by sibling
+  nodes / a still-live peer world node) — <code>gaussian_splat_node_3d.cpp:460-500</code>,
+  <code>gaussian_splat_world_3d.cpp:133-186</code>. The header therefore contradicts two in-tree comments
+  and would lead a reader to preserve a call graph that does not exist. <strong>Correcting it is
+  mandatory (D14), and it should be corrected now rather than carried to Step 3</strong> — it is a
+  comment-only change with no behavioral surface.</li>
+</ul>
+<p>A second, smaller stale claim of the same shape sits at
+  <code>nodes/gaussian_splat_node_3d.cpp:2443-2446</code>: <em>"Cache the scenario so NOTIFICATION_PREDELETE
+  can call teardown_world_for_scenario()"</em> — in the same file whose PREDELETE handler at <code>:462</code>
+  says it deliberately does not. Fix both together.</p>
+<blockquote>
+<p><strong>Correction (review round 2) — the "no production caller" half of the round-1 claim is now
+stale.</strong> <code>teardown_world_for_scenario</code> <strong>is</strong> called from non-test code:
+<code>release_all_worlds()</code> (<code>gaussian_splat_scene_director.cpp:2207</code>, added by #329) iterates
+every scenario and calls it at <code>:2234</code>, explicitly reusing it <em>"because that path already
+implements the #611 deferred renderer-release discipline."</em> <code>release_all_worlds()</code> is in
+turn driven by the GPU test runner (<code>tests/gs_gpu_test_runner.cpp:276</code>, <code>:442</code>) and pinned
+by a CI contract check (<code>tests/ci/test_gpu_harness_deferred_contract.py:368-380</code>). So it
+remains harness-only in <em>reach</em>, but it is no longer "only one test file calls it", and
+<strong><code>release_all_worlds</code> is now a second consumer whose contract Step 3 must preserve</strong> when
+<code>RendererLifecycleOwner</code> takes over teardown.
+- <strong>Dead node-reading helpers</strong> <code>_get_node_scene_effector_filter_state</code> (<code>:181</code>, reads the
+  live node via <code>p_node-&gt;get(...)</code>) and <code>_node_matches_scene_effector_selection</code> (<code>:224</code>,
+  uses <code>ObjectDB::get_instance</code> + <code>Node::is_ancestor_of</code>) have <strong>no callers</strong> — they embody
+  the pre-refactor "read the live Node from the effector query" pattern the cached-ancestor
+  design replaced, and should be deleted during Step 2 rather than carried forward.</p>
+</blockquote>
+<h2 id="2-target-decomposition-into-owned-state-boundaries">2. Target decomposition into owned-state boundaries<a class="headerlink" href="#2-target-decomposition-into-owned-state-boundaries" title="Permanent link">¶</a></h2>
+<p>This ADR applies the module's existing decomposition idiom, which comes in three kinds:</p>
+<ul>
+<li><strong>Kind A — pure/static controllers</strong> that own no state and take caller state by ref
+  (e.g. <code>ResidencyBudgetController</code>, <code>residency_budget_controller.h</code>;
+  <code>StreamingQueuePressureController</code>).</li>
+<li><strong>Kind B — stateful <code>friend</code> controllers</strong> owned by value on the coordinator, holding
+  one state slice, reaching shared state through <code>System &amp;</code> (e.g.
+  <code>StreamingEvictionController</code>, <code>streaming_eviction_controller.h:9-64</code>).</li>
+<li><strong>Kind C — POD state buckets</strong> with <code>reset()</code>/getters only (<code>streaming_runtime_state.h</code>),
+  plus the renderer's <code>std::unique_ptr</code> orchestrators built from an injected
+  <code>Dependencies</code>/<code>RuntimePorts</code> seam (<code>gaussian_splat_renderer.h:633-643</code>).</li>
+</ul>
+<p>The governing rules are those in <code>stage-first-ownership-inventory.md</code> ("Ownership Rules"):
+one subsystem owns each mutable bucket; workers produce payloads but never mutate
+owner state; render-thread dispatch/readback/resource tracking has a single authoritative
+owner; hidden process-global caches are debt unless assigned an owner; existing seams are
+contracts. The composition root owns each unit and keeps the god-class as the public
+<strong>facade</strong> while peeling behind it (<code>gaussian-renderer-refactor-memory.md</code>).</p>
+<p><code>SharedWorld</code> is renamed <strong><code>WorldContext</code></strong> and holds one instance of each sub-store by
+value; the director becomes a thin <strong>facade + <code>WorldRegistry</code></strong> that resolves a scenario
+to its <code>WorldContext</code> and routes calls to the owning store. Proposed units, each described
+with the four house fields (owned state / locking / canonical-vs-derived / wiring):</p>
+<ul>
+<li><strong><code>WorldRegistry</code></strong> (Kind B).
+  <em>Owns:</em> <code>HashMap&lt;RID, WorldContext&gt;</code> <strong>and</strong> the reverse-index maps
+  (<code>node_id→RID</code>, <code>effector_id→RID</code>, <code>renderer*→RID</code>, <code>submission_owner→RID</code>) that replace
+  the four O(worlds) scans (§1e).
+  <em>Locking:</em> owns the top-level registry mutex; critical sections are short (locate /
+  create-empty / erase). It never calls into <code>Node</code>/<code>ObjectDB</code> under the lock — node→world
+  resolution runs on the caller (main) thread and passes an already-resolved <code>RID</code> in (fixes §1c).
+  <em>Canonical/derived:</em> map is canonical; reverse indexes are derived, maintained on every insert/erase.
+  <em>Wiring:</em> the sole owner of the <code>worlds</code> map; the facade delegates all resolution here.</li>
+<li><strong><code>RendererLifecycleOwner</code></strong> (Kind B).
+  <em>Owns:</em> <code>WorldContext::renderer</code>, its creation, <code>initialize()</code>, world-submission
+  apply/restore handoff, teardown, and the <code>_should_prune_world</code> refcount policy (<code>:727</code>).
+  <em>Locking:</em> enforces the rule <em>never call a blocking renderer method while holding the
+  registry lock</em> — renderer construction, GPU <code>initialize()</code>, world-submission apply/restore,
+  and the <code>renderer.unref()</code>/dtor teardown all run <strong>outside</strong> the registry lock
+  (deferred-creation token; §1b, §1g), generalizing the one correct precedent
+  (<code>invalidate_grading_for_renderer</code> bumps the renderer atomic before locking, <code>:1727</code>/<code>:1731</code>).
+  Owns a <code>PruneAfterUnref</code> scoped guard that performs unref+prune atomically so the §1f
+  ordering cannot be expressed wrong (closes #551) <strong>while preserving #628's deferred
+  renderer-release discipline</strong> (the <code>Ref</code> outlives the lock scope). It <strong>inherits</strong> the
+  already-corrected director-before-manager teardown order rather than establishing it (#589
+  was closed by #628). Destruction is idempotent, matching the renderer teardown guard
+  precedent.
+  <em>Canonical/derived:</em> the renderer <code>Ref</code> is canonical (still the only <strong>retained/owning</strong>
+  ref — node-held <code>Ref</code>s are transient and the <code>&lt;= 1</code> prune threshold is measured against
+  them; see invariant D9).</li>
+<li><strong><code>InstanceStore</code></strong> (Kind B/C).
+  <em>Owns:</em> <code>instances</code> + <code>instance_lookup</code> + <code>instance_generation</code>; register/update/unregister
+  and world-switch migration.
+  <em>Locking:</em> mutated only under the owning <code>WorldContext</code> write path; exposes a read-only
+  snapshot for readers (§3).
+  <em>Canonical/derived:</em> records canonical; <code>instance_generation</code> is the derived invalidation token.</li>
+<li><strong><code>AssetRetentionTable</code></strong> (Kind B).
+  <em>Owns:</em> <code>asset_records</code> + refcounts + <code>instance_asset_generation</code>, and is the <strong>single owner
+  of the asset-identity key contract</strong>. Introduces a strong typedef <code>AssetId</code> (64-bit ObjectID)
+  so the "never truncate to 32 bits" rule (<code>gaussian_splat_scene_director.h:452</code>) is enforced by
+  the type, not comments — the first concrete step of #545.</li>
+<li><strong><code>SphereEffectorStore</code></strong> (Kind B).
+  <em>Owns:</em> <code>sphere_effectors</code> + <code>sphere_effector_lookup</code> + <code>sphere_effector_generation</code> +
+  <code>registration_serial</code>. The sorted-payload builder becomes a <strong>pure function over an immutable
+  snapshot</strong> (Kind A helper); the <code>scope_root_valid</code> / generation <strong>write</strong> moves to an
+  explicit main-thread <code>revalidate_scope_roots()</code> with the concrete triggers defined in
+  §2a, removing the <code>const_cast</code> render-thread mutation (§1d).</li>
+<li><strong><code>SubmissionStore</code></strong> (Kind B).
+  <em>Owns:</em> <code>world_submission</code> + the renderer restore-state snapshot; drives apply/rollback through
+  a <code>RendererLifecycleOwner</code> handle. Isolates ownership-arbitration and rollback (<code>:2049-2080</code>)
+  from instance/effector churn.</li>
+<li><strong><code>LODCacheOwner</code></strong> (Kind B).
+  <em>Owns:</em> the <code>lod_walk_*</code> memoization; performs the LOD walk over an <code>InstanceStore</code> snapshot and
+  writes <code>last_lod</code> deltas back through <code>InstanceStore</code> — separating the derived LOD value from the
+  canonical instance record (§3).</li>
+</ul>
+<p>The per-instance <strong>scene-effector filter cache</strong> (<code>scene_tree_ancestor_ids</code>, layer mask, scope
+root — <code>gaussian_splat_scene_director.h:342-349</code>) stays on the instance record but is written only
+through the main-thread <code>update_instance_scene_effector_filter</code> path (<code>:990</code>); documented as
+<code>InstanceStore</code>-owned derived state. No unit introduces a process-global lock, per the house rule.</p>
+<h3 id="2a-scope-root-revalidation-the-concrete-trigger-was-undefined">2a. Scope-root revalidation — the concrete trigger (was undefined)<a class="headerlink" href="#2a-scope-root-revalidation-the-concrete-trigger-was-undefined" title="Permanent link">¶</a></h3>
+<blockquote>
+<p><strong>Corrected in review round 1.</strong> The previous revision said scope-root revalidation
+"moves to an explicit main-thread <code>revalidate_scope_roots()</code>" but never said <strong>what fires
+it</strong>. A revalidation step with no trigger is a revalidation step that never runs, and here
+that is not a cosmetic gap — it would be a <strong>behavior regression</strong>, for the reason in
+"why the check exists" below.</p>
+</blockquote>
+<p><strong>What the code actually does today</strong> (<code>scene_director_sphere_effectors.cpp:102-117</code>) — the
+distinction the previous revision blurred:</p>
+<ul>
+<li><strong>Liveness is <em>not</em> cached and <em>not</em> stale.</strong> <code>scope_alive</code> is recomputed from scratch on
+  every payload build (<code>:103-104</code>, <code>ObjectDB::get_instance(record.scope_root_id)</code> +
+  <code>cast_to&lt;Node&gt;</code>), and the keep/drop decision at <code>:105</code> uses that fresh value. A dead scope
+  root stops matching immediately, on the next frame, always.</li>
+<li><strong>Only the <em>latch and the invalidation</em> are stateful.</strong> <code>scope_root_valid</code> (<code>gaussian_splat_scene_director.h:370</code>) is
+  written <strong>only</strong> at <code>:107</code> and <code>:114</code>, and is <strong>read only at <code>:106</code>/<code>:112</code></strong> — never by any
+  eligibility, mask, payload, or debug path. Its sole purpose is to fire the paired
+  <code>sphere_effector_generation++</code> (<code>:108</code>/<code>:115</code>) <strong>once, on the edge</strong>, instead of every
+  frame.</li>
+</ul>
+<p>So the defect is narrower and sharper than "revalidation happens on the render thread": a
+<strong>render-thread read path bumps the very generation counter the render path uses to decide
+whether to rebuild</strong> (<code>render_streaming_orchestrator.cpp:794</code>, <code>:1682</code>;
+<code>resident_instance_contract_publisher.cpp:291</code>) — self-invalidation with no defined
+ordering — and it does so with a raw <code>++</code> (<code>:108</code>, <code>:115</code>) that bypasses the wrap-guarded
+<code>_bump_instance_generation</code> helper (<code>gaussian_splat_scene_director.cpp:24-29</code>) every other
+bump site uses.</p>
+<p><strong>Why the check exists at all — and why it cannot simply be deleted.</strong> On the effector side,
+the scope root is re-resolved only on <code>NOTIFICATION_ENTER_TREE</code>
+(<code>nodes/sphere_effector_3d.cpp:101</code>), <code>NOTIFICATION_ENTER_WORLD</code> (<code>:111</code>),
+<code>NOTIFICATION_TRANSFORM_CHANGED</code> (<code>:124</code>), and <code>set_scope_root()</code> (<code>:303-309</code>) — all routing
+through <code>_sync_with_director()</code> (<code>:136-174</code>). <strong>A static effector whose scope-root node is
+freed receives none of these events.</strong> There is no timer, no per-frame sweep, and no
+<code>ObjectDB</code> death notification anywhere in the module (verified: zero <code>revalidate*</code> /
+<code>refresh_scope*</code> mechanisms exist). The render-path check is currently the <em>only</em> thing that
+notices. Moving it to a main-thread method without a trigger would mean nothing notices.</p>
+<p><strong>Decision — the trigger set.</strong> <code>SphereEffectorStore::revalidate_scope_roots()</code> is invoked
+from exactly these places, all on the main thread, all in the director facade:</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Trigger</th>
+<th>Fires from</th>
+<th>Rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>T1</strong></td>
+<td><strong>Every effector mutation</strong> — <code>update_sphere_effector</code> / <code>register_sphere_effector</code> / <code>unregister_sphere_effector</code></td>
+<td><code>gaussian_splat_scene_director.cpp:1863</code>, <code>:1854</code>, <code>:2025</code></td>
+<td>Effector mutation is the natural edge for re-deriving the latch. <strong>The revalidation itself must NOT run inside the store's critical section</strong> — see the resolution protocol below; the earlier "the store is already locked, so revalidating here is free" rationale was wrong and contradicted D7. Also cleans up the latch-reset gap: today <code>update_sphere_effector</code> (<code>:1988-1989</code>) can re-point <code>scope_root_id</code> at a new node while <code>scope_root_valid</code> keeps the <em>previous</em> root's latch value, and never resets it to the declared <code>true</code> default. <code>revalidate_scope_roots()</code> must re-derive the latch from the new ID. <strong>Cosmetic, not a correctness fix</strong> — the stale latch self-heals on the next payload build at a cost of one spurious generation bump (see the invariant-D5 demotion note).</td>
+</tr>
+<tr>
+<td><strong>T2</strong></td>
+<td><strong>Every instance-side scene-effector filter update</strong> — <code>update_instance_scene_effector_filter</code></td>
+<td><code>gaussian_splat_scene_director.cpp:990-1032</code>, called from <code>gaussian_splat_node_3d.cpp:2480</code> and <code>:2522</code></td>
+<td>This is the existing main-thread scene-topology-changed signal (ENTER_TREE, ENTER_WORLD, the effector setters, visibility flips). Scope roots are scene-topology state; they revalidate on the same edge.</td>
+</tr>
+<tr>
+<td><strong>T3</strong></td>
+<td><strong>World teardown / prune</strong> — <code>teardown_world_for_scenario</code>, <code>_prune_world_if_unused</code></td>
+<td><code>:2156</code>, <code>:749</code></td>
+<td>Bulk node destruction is exactly when scope roots die en masse.</td>
+</tr>
+<tr>
+<td><strong>T4</strong></td>
+<td><strong>A bounded main-thread sweep</strong>, once per <code>WorldContext</code> per N frames (N configurable, default 1 — i.e. every main-thread director tick), scanning only effectors with <code>scope_mode != SPHERE_EFFECTOR_SCOPE_WORLD</code>.</td>
+<td>The manager's existing main-thread tick, <code>gaussian_splat_manager.cpp:660</code> (<code>_process_active_nodes_main_thread</code>)</td>
+<td><strong>This is the trigger that replaces the render-path check.</strong> T1–T3 are all <em>mutation-driven</em>; none of them fires when a scope-root node is freed while nothing else changes — which is precisely the case the render-path check was added to catch. Without T4 the decomposition regresses behavior.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Resolution protocol (normative — required by D7).</strong> <code>revalidate_scope_roots()</code> resolves
+<code>ObjectID</code>s through <code>ObjectDB</code>/<code>Node</code> (the cost note below budgets one
+<code>ObjectDB::get_instance</code> per non-WORLD-scoped effector), so it <strong>never runs under the store
+lock</strong>. Doing it "because the store is already locked" would reproduce the exact
+callout-under-lock pattern §1c catalogues and would trip <strong>D7</strong>'s own grep guard, which
+requires the four §1c sites to be gone. It is a three-phase operation:</p>
+<ol>
+<li><strong>Collect under the lock</strong> — copy <code>{effector_id, scope_root_id, scope_root_valid,
+   registration_serial}</code> for non-WORLD-scoped effectors into a caller-owned buffer.</li>
+<li><strong>Resolve unlocked</strong> — <code>ObjectDB::get_instance</code> + <code>Object::cast_to&lt;Node&gt;</code> per entry,
+   producing a liveness verdict list. No store state is touched here.</li>
+<li><strong>Reacquire to apply</strong> — re-take the lock, re-validate each entry's
+   <code>registration_serial</code>/generation (entries whose effector was re-pointed or unregistered
+   during the gap are <strong>discarded</strong>, not applied), then write the latch and issue <strong>one</strong>
+   <code>_bump_instance_generation</code>.</li>
+</ol>
+<p>This mirrors #628's deferred-release discipline — move the state out under the lock, perform
+the expensive/foreign callout outside it — and it is what makes D7's guard satisfiable rather
+than merely aspirational. <strong>T3 makes this mandatory rather than stylistic:</strong> its trigger sites
+<code>teardown_world_for_scenario</code> and <code>_prune_world_if_unused</code> are themselves reached from locked
+scopes, so a revalidation that locks internally would nest.</p>
+<p><strong>T4 is mandatory <em>if the T1–T4 option is chosen</em></strong> — it is not separable from it. T1–T3 are
+all mutation-driven, so without T4 the liveness check has been moved off the render path and
+onto nothing, and dead-scoped effectors keep matching indefinitely. "T1–T3 only" is therefore
+not an option; it is the regression.</p>
+<p>The alternative is the <strong>fallback</strong>: keep the liveness check on the read path and move only the
+<em>write</em> off it — the payload builder continues to compute <code>scope_alive</code> fresh and drop
+dead-scoped effectors (preserving today's behavior exactly), but records the edge into a
+main-thread-drained queue instead of mutating under <code>const_cast</code>.</p>
+<blockquote>
+<p><strong>Corrected in review round 2.</strong> Round 1 stated that rejecting both options "is not
+available." That was wrong — it rested on the same overstatement as invariant D5. Because
+<code>scope_alive</code> is recomputed fresh on every pass and the latch feeds nothing but its own
+edge-triggered generation bump, <strong>the fallback preserves today's behavior exactly, and so does
+doing nothing.</strong> All three options are costed in <strong>Decision D5</strong> below; the owner picks. What
+is genuinely not available is only the incoherent middle: moving the <em>check</em> to a main-thread
+method that nothing calls.</p>
+</blockquote>
+<p><strong>Cost note.</strong> T4 scans only non-WORLD-scoped effectors and performs one
+<code>ObjectDB::get_instance</code> each — the same work the render path does today, moved to the main
+thread and done once per frame instead of once per renderer per frame. For any realistic
+effector count this is strictly cheaper than the status quo.</p>
+<p><strong>Ordering requirement.</strong> <code>revalidate_scope_roots()</code> must run <strong>before</strong> the frame's snapshot
+is published (§4 Step 6), so the render path observes a stable generation for the whole
+frame. Combined with §3-invariant-2, this is what makes the render snapshot genuinely
+read-only.</p>
+<pre class="mermaid"><code>graph TD
+  subgraph MainThread["Main / scene-tree thread (writers)"]
+    N3D["GaussianSplatNode3D"]
+    W3D["GaussianSplatWorld3D"]
+    SEN["SphereEffector node"]
+  end
+  subgraph RenderPath["Renderer frame / submit path (readers)"]
+    RPS["render_pipeline_stages"]
+    RSO["render_streaming_orchestrator"]
+    RICP["resident_instance_contract_publisher"]
+  end
+
+  Facade["GaussianSplatSceneDirector (facade)"]
+  Reg["WorldRegistry\n(registry lock + reverse indexes)"]
+
+  N3D --&gt; Facade
+  W3D --&gt; Facade
+  SEN --&gt; Facade
+  RPS --&gt; Facade
+  RSO --&gt; Facade
+  RICP --&gt; Facade
+  Facade --&gt; Reg
+
+  subgraph WC["WorldContext (per scenario)"]
+    IS["InstanceStore"]
+    ART["AssetRetentionTable (AssetId)"]
+    SES["SphereEffectorStore"]
+    SUB["SubmissionStore"]
+    LOD["LODCacheOwner"]
+    RLO["RendererLifecycleOwner"]
+  end
+
+  Reg --&gt; WC
+  ART --&gt;|data refs| IS
+  IS --&gt;|snapshot| LOD
+  LOD --&gt;|last_lod writeback| IS
+  SUB --&gt; RLO
+  RLO --&gt;|owns the retained Ref| RENDERER["GaussianSplatRenderer"]
+  RSO -.-&gt;|immutable frame snapshot| WC
+  RICP -.-&gt;|immutable frame snapshot| WC</code></pre>
+<h2 id="3-canonical-vs-derivedcached-state-and-invalidation-protocols">3. Canonical vs derived/cached state and invalidation protocols<a class="headerlink" href="#3-canonical-vs-derivedcached-state-and-invalidation-protocols" title="Permanent link">¶</a></h2>
+<p>The module uses three standard invalidation mechanisms — <strong>generation counters</strong>,
+<strong>signatures / remembered-config comparisons</strong>, and <strong>dirty flags + dirty-index lists</strong>.
+The director today uses only generation counters plus one memoization signature; the target
+keeps that protocol but gives each counter a single writing owner.</p>
+<table>
+<thead>
+<tr>
+<th>State</th>
+<th>Kind</th>
+<th>Owner (target)</th>
+<th>Invalidation protocol</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>instances</code>, <code>instance_lookup</code></td>
+<td>Canonical</td>
+<td><code>InstanceStore</code></td>
+<td>n/a (source of truth)</td>
+</tr>
+<tr>
+<td><code>asset_records</code> (data + refcount)</td>
+<td>Canonical</td>
+<td><code>AssetRetentionTable</code></td>
+<td>refcount → 0 erases (<code>:637</code>)</td>
+</tr>
+<tr>
+<td><code>sphere_effectors</code>, <code>sphere_effector_lookup</code></td>
+<td>Canonical</td>
+<td><code>SphereEffectorStore</code></td>
+<td>n/a</td>
+</tr>
+<tr>
+<td><code>world_submission</code> record</td>
+<td>Canonical</td>
+<td><code>SubmissionStore</code></td>
+<td>active flag + renderer restore snapshot</td>
+</tr>
+<tr>
+<td><code>renderer</code> <code>Ref</code> (retained/owning ref; nodes hold transient ones — D9)</td>
+<td>Canonical</td>
+<td><code>RendererLifecycleOwner</code></td>
+<td>refcount prune policy (<code>_should_prune_world</code>, <code>:728</code>)</td>
+</tr>
+<tr>
+<td><code>instance_generation</code> / <code>instance_asset_generation</code> / <code>sphere_effector_generation</code></td>
+<td>Derived (invalidation tokens)</td>
+<td>resp. store</td>
+<td>monotonic bump on mutation (<code>_bump_instance_generation</code>, <code>:24</code>); wrap-skips-0</td>
+</tr>
+<tr>
+<td><code>lod_walk_*</code> cache</td>
+<td>Derived (memoization)</td>
+<td><code>LODCacheOwner</code></td>
+<td>early-out when <code>(generation, camera_pos, LODConfig, hysteresis)</code> unchanged (<code>:1241-1247</code>); re-captured <em>after</em> the walk's own bump (<code>:1315-1319</code>)</td>
+</tr>
+<tr>
+<td>color-grading signature</td>
+<td>Derived (recomputed)</td>
+<td>facade query over <code>InstanceStore</code></td>
+<td>FNV-1a hash over the exact filtered grading set (<code>:1756-1824</code>); feeds the renderer sort/raster cache</td>
+</tr>
+<tr>
+<td>GPU row/payload buffers</td>
+<td>Derived (rebuilt per frame)</td>
+<td>render-path consumers</td>
+<td>rebuilt from the generation counters each frame</td>
+</tr>
+<tr>
+<td><code>InstanceRecord::last_lod</code></td>
+<td><strong>Derived stored on canonical record</strong></td>
+<td><code>InstanceStore</code> (written by <code>LODCacheOwner</code>)</td>
+<td>today mutated on the render thread (<code>:1299</code>) — routed through the owner in the target</td>
+</tr>
+<tr>
+<td>per-instance scene-effector filter</td>
+<td>Derived</td>
+<td><code>InstanceStore</code></td>
+<td>refreshed on the main thread via <code>update_instance_scene_effector_filter</code> (<code>:990</code>)</td>
+</tr>
+</tbody>
+</table>
+<p>Two invariants the decomposition makes explicit:</p>
+<ol>
+<li><strong>Generation counters are the sole cross-store invalidation currency</strong>, each with a single
+   writing owner, so a reader can no longer bump another store's counter mid-frame (§1d).</li>
+<li><strong>Derived state must not be mutated by a <code>const</code> reader.</strong> <code>last_lod</code> and <code>scope_root_valid</code>
+   are the two derived values currently written from render-thread read paths; the target routes
+   <code>last_lod</code> through <code>LODCacheOwner</code>→<code>InstanceStore</code> and moves <code>scope_root_valid</code> revalidation to
+   a main-thread step, so the render snapshot is genuinely read-only
+   (<code>IFrameStateView</code>-style read/mutate split).</li>
+</ol>
+<h2 id="4-staged-mergeable-migration-path">4. Staged, mergeable migration path<a class="headerlink" href="#4-staged-mergeable-migration-path" title="Permanent link">¶</a></h2>
+<p>Every step is one PR, keeps CI green (module guards + targeted tests + the existing
+lifetime/effector/asset-identity suites), preserves behavior, and is anchored to its base SHA.
+No big-bang. The mechanical model is the already-merged <code>scene_director_sphere_effectors.cpp</code>
+partial-class extraction (<code>scene_director_sphere_effectors.cpp:1-16</code>) — verbatim move, no
+declaration changes, then tighten ownership. Migrate <strong>query paths before mutating paths</strong>, in
+small reversible slices with named rollback points (<code>gaussian-renderer-refactor-memory.md</code>).</p>
+<p><strong>Step 1 — <code>AssetRetentionTable</code> + typed <code>AssetId</code> (R1).</strong>
+Move <code>asset_records</code>, refcount, <code>instance_asset_generation</code>, and the four <code>_*_asset_record</code>
+helpers (<code>:560-640</code>) into an owned <code>AssetRetentionTable</code> held by <code>WorldContext</code>; introduce a
+strong-typedef <code>AssetId</code> and route <code>_asset_records_key</code> (<code>gaussian_splat_scene_director.h:452</code>) and
+<code>InstanceRecord::asset_id</code> through it.
+<em>Behavior-preservation proof:</em> the collision regression (<code>test_asset_records_key</code> /
+<code>test_has_asset_record_for_scenario</code>, <code>gaussian_splat_scene_director.h:289-301</code>) and the
+asset-record-count tests pass unchanged; the 64-bit key path is now type-enforced.
+<em>Closes:</em> first concrete slice of #545; a subsystem-reviewable slice of #356.</p>
+<p><strong>Step 2 — <code>SphereEffectorStore</code> + remove the <code>const_cast</code> render-thread mutation (R1).</strong>
+Move effector state and methods (<code>update_sphere_effector</code> <code>:1863</code>, <code>unregister_sphere_effector</code>,
+<code>_build_sorted_sphere_effector_payload</code>) into <code>SphereEffectorStore</code>. <strong>If Decision D5 selects
+the T1–T4 option:</strong> add <code>revalidate_scope_roots()</code> <strong>wired to all four triggers T1–T4 in the
+same PR</strong> (§2a), observing the collect/resolve/reapply protocol in §2a (never under the store
+lock). <strong>If D5 selects the fallback:</strong> this clause and invariant D3 narrow to <em>"the payload builder
+performs no writes; the latch/generation edge is recorded into a main-thread-drained queue"</em>,
+and the trigger-gap regression test below narrows with them — see the closing note of
+Decision D5. <strong>Additionally, the fallback must still honour D7</strong>: today's builder reaches
+<code>ObjectDB::get_instance</code> (<code>scene_director_sphere_effectors.cpp:103-104</code>) from inside
+<code>build_sphere_effector_payload_for_renderer</code>, which holds <code>world_mutex</code> from <code>:156</code>. Keeping
+the liveness check on the read path therefore keeps an <code>ObjectDB</code> call <strong>under the lock</strong>,
+which D7 forbids. The fallback must collect candidates under the lock, resolve liveness
+unlocked, and re-enter only to emit — the same three-phase shape §2a requires of
+<code>revalidate_scope_roots()</code> — <strong>or</strong> D7 must be explicitly deferred for this option. That is
+part of the fallback's cost and should be weighed in D5.</p>
+<p><strong>If D5 selects "do nothing":</strong> <em>Step 2 makes no sphere-effector behavior change at all.</em> The
+<code>const_cast</code> writes at <code>:107</code>/<code>:108</code> and <code>:114</code>/<code>:115</code> stay exactly as they are, Step 2
+reduces to the mechanical <code>SphereEffectorStore</code> move plus the two dead-helper deletions, and
+<strong>invariant D3 and the no-writes contract do not apply</strong>. Do-nothing is <em>not</em> a quieter
+fallback — it is the option that keeps the render-path mutation, so grouping it with the
+fallback's "no writes" requirement would hand an implementer two mutually exclusive
+instructions. Under this option the render-path write is a <strong>documented accepted state</strong>, and
+§1d's "hidden mutable state" framing is correspondingly withdrawn for the effector path.</p>
+<p><strong>The builder's end state is also D5-conditional, and this was previously stated
+unconditionally.</strong> Under <strong>T1–T4</strong>, the render-path builder becomes a pure function over an
+immutable snapshot (§1d, §3-invariant-2) — liveness has moved to the main thread, so the
+builder neither reads <code>ObjectDB</code> nor writes anything. Under the <strong>fallback</strong>, it is
+deliberately <strong>not</strong> a pure snapshot consumer: it keeps recomputing <code>scope_alive</code> on the read
+path (<code>scene_director_sphere_effectors.cpp:103-104</code>), which is exactly what preserves today's
+drop behavior; what it stops doing is <em>writing</em> — the latch/generation edge goes to a
+main-thread-drained queue instead of the two <code>const_cast</code> mutations. The fallback's contract
+is therefore <strong>"no writes on the read path"</strong>, not "pure function over a snapshot". Requiring
+the latter under the fallback would force the T1–T4 machinery back in through the evidence
+section. Route the two raw <code>++</code> bumps (<code>:108</code>, <code>:115</code>) through
+<code>_bump_instance_generation</code> so the wrap-skips-0 guard applies uniformly. Delete the two dead
+node-reading helpers (<code>:181</code>, <code>:224</code>, §1h) in the same PR.
+<em>Behavior-preservation proof:</em> the sphere-effector suite (payload ordering, scope filtering,
+multi-match warnings) and <code>get_scene_effector_debug_state_for_instance</code> output are byte-identical
+for a fixed frame; a new unit asserts the payload builder performs no writes. <strong>Under
+Decision D5's T1–T4 option only</strong>, a new regression test covers the trigger gap directly —
+register a SUBTREE/EXPLICIT_ROOT effector, free its scope-root node <strong>without touching any
+effector or instance property</strong>, tick the main thread, and assert the effector stops matching
+within one frame and the generation bumped exactly once; that test must <strong>fail</strong> if
+<code>revalidate_scope_roots()</code> is present but unwired (the defect this correction exists to
+prevent). <strong>Under the fallback or do-nothing option there is deliberately no T4 sweep</strong>, so
+this trigger-gap test does not apply and must not be required: the render-path <code>scope_alive</code>
+check continues to drop dead-scoped effectors on the next payload build, and the applicable
+proof is the no-writes-on-the-read-path unit plus the unchanged dead-scope payload test.
+<em>Closes:</em> the hidden-mutable-state slice of #356.</p>
+<p><strong>Step 3 — <code>WorldRegistry</code> reverse indexes + <code>RendererLifecycleOwner</code> + <code>PruneAfterUnref</code> guard (R2).</strong></p>
+<blockquote>
+<p><strong>Rescoped in review round 2.</strong> Two items the round-1 text assigned to this step were
+<strong>completed by #628</strong> and must be struck, or the step will be graded against work that is
+already merged: (a) <em>"reverse the module teardown to director-before-manager
+(<code>register_types.cpp:256-270</code>)"</em> — done; (b) <em>"move <code>renderer.unref()</code>/dtor out of the
+registry lock"</em> — done for both drop sites (<code>_prune_world_if_unused</code> and
+<code>teardown_world_for_scenario</code>). What remains is listed below.</p>
+</blockquote>
+<p>Replace the four O(worlds) scans (§1e) with maintained reverse-index maps; move renderer ownership,
+<code>_should_prune_world</code>/prune, and teardown into <code>RendererLifecycleOwner</code>; express the node/world
+unref+prune dance as a single <code>PruneAfterUnref</code> scoped guard (replacing the prose in
+<code>gaussian_splat_world_3d.cpp:133-186</code> and <code>gaussian_splat_node_3d.cpp:460-500</code>), **preserving</p>
+<h1 id="628s-deferred-release-discipline-the-guard-must-keep-the-renderer-ref-alive-past-the">628's deferred-release discipline** — the guard must keep the renderer <code>Ref</code> alive past the<a class="headerlink" href="#628s-deferred-release-discipline-the-guard-must-keep-the-renderer-ref-alive-past-the" title="Permanent link">¶</a></h1>
+<p>lock release, not merely tidy the call sites. Move the <strong>remaining</strong> blocking renderer calls out
+of the registry lock (§1g "still live"): <code>initialize()</code> and world-submission
+apply/restore/clear, which requires restructuring the apply→on-fail-restore rollback whose
+result currently feeds back into the critical section. Preserve the <code>release_all_worlds()</code>
+(<code>:2207</code>) contract pinned by <code>tests/ci/test_gpu_harness_deferred_contract.py</code>.
+<em>Behavior-preservation proof:</em> <code>test_renderer_lifetime_proof</code> (F6 reload / scenario-close no-leak),
+the RID-count lifetime tests, and the <code>[SceneDirector][SceneTree]</code> teardown-idempotence test #628
+added (<code>test_scene_director_submission_scaffolding.h:2324</code>) all pass unmodified.
+<em>Closes:</em> #551; the renderer-lifetime slice of #356. <strong>Not #589 and not #611 — both were closed
+by #628</strong>; the #611 residue Step 3 removes is the timeout-stall half, whose severity is stated
+precisely in §1g.</p>
+<p><strong>Step 3-pre (R0, do now — no reason to wait).</strong> Correct the stale
+<code>teardown_world_for_scenario</code> header doc (<code>gaussian_splat_scene_director.h:256-257</code>) and the
+matching stale comment at <code>gaussian_splat_node_3d.cpp:2443-2446</code> (§1h). Comment-only, no
+behavioral surface, and leaving a doc that contradicts two in-tree comments for the length of a
+six-step migration is itself a hazard.</p>
+<p><strong>Step 4 — <code>InstanceStore</code> extraction (R1).</strong> Move <code>instances</code>, <code>instance_lookup</code>,
+<code>instance_generation</code>, and register/update/unregister/world-switch logic (<code>:770-1153</code>) behind
+<code>InstanceStore</code>, exposing a read-only snapshot accessor; facade methods delegate.
+<em>Proof:</em> instance-registration and world-switch migration tests unchanged.</p>
+<p><strong>Step 5 — <code>LODCacheOwner</code> + <code>SubmissionStore</code> extraction (R2).</strong> Move the LOD walk and <code>lod_walk_*</code>
+cache (<code>:1227-1320</code>) into <code>LODCacheOwner</code>, routing <code>last_lod</code> writes back through <code>InstanceStore</code>;
+move world-submission apply/rollback (<code>:2056-2112</code>) into <code>SubmissionStore</code> driving
+<code>RendererLifecycleOwner</code>.
+<em>Proof:</em> LOD-hysteresis and world-submission ownership-arbitration/rollback tests unchanged;
+visual gate on Grandma's House (renderer-facing).</p>
+<p><strong>Step 6 — render-thread frame snapshot; retire the coarse lock (R2/R3).</strong> With each store owning
+its slice and readers already snapshot-based (Steps 2–5), publish an immutable per-<code>WorldContext</code>
+frame snapshot (copy-on-publish / double-buffer, or a <code>thread_local</code> snapshot keyed by a compact
+signature per the refactor-memory precedent) that the render-path builders consume <strong>without</strong>
+taking the writers' lock, eliminating §1a contention and moving renderer construction/<code>initialize()</code>
+fully out of any registry critical section (§1b).
+<em>Proof:</em> GPU/runtime evidence that per-frame buffers are byte-identical to the pre-change path on a
+captured scene, plus a contention/latency measurement; second review. Explicitly gated — does not
+merge until Steps 1–5 have de-risked the boundaries.</p>
+<h2 id="5-risks-rejected-alternatives-and-issue-closure-mapping">5. Risks, rejected alternatives, and issue-closure mapping<a class="headerlink" href="#5-risks-rejected-alternatives-and-issue-closure-mapping" title="Permanent link">¶</a></h2>
+<h3 id="risks">Risks<a class="headerlink" href="#risks" title="Permanent link">¶</a></h3>
+<ul>
+<li><strong>Behavior drift in render output.</strong> Mitigation: every step is byte-identical for a fixed frame;
+  renderer-facing steps (5, 6) additionally require the visual gate on real-scan content and GPU
+  evidence, per R2.</li>
+<li><strong>Lock-granularity regressions / new deadlocks.</strong> The pre-existing inversion is the
+  render-thread-blocking renderer call made under the lock (§1g). Its indefinite-hang half is
+  already closed by #628; Step 3 removes the remaining timeout-stall half by moving the last
+  blocking renderer calls (<code>initialize()</code>, world-submission apply/restore/clear) out of the
+  registry critical section <em>before</em> any locking is loosened. <strong>Step 3 must also not regress
+  what #628 fixed</strong> — see the D6 note.
+  Steps 1–5 otherwise keep the <em>single</em> lock and only relocate state; finer locking arrives only at
+  Step 6 behind snapshot publication, and no store calls into <code>Node</code>/<code>ObjectDB</code> while holding a lock
+  (§1c). The <code>world_mutex</code>↔manager-L1–L4 non-nesting invariant is preserved throughout.</li>
+<li><strong>Identity-scheme churn.</strong> <code>AssetId</code> is introduced first and in isolation (Step 1); the streaming
+  <code>uint32</code> slot and dense/resident id schemes (#545) are documented here but converted in their own
+  follow-ups so this ADR's steps stay small.</li>
+<li><strong>Circular core→renderer dependency</strong> (<code>CODEBASE_ASSESSMENT_REPORT.md:55</code>). <code>RendererLifecycleOwner</code>
+  is the natural seam to later invert via an interface, but this ADR does <strong>not</strong> attempt the
+  inversion — it must not deepen the coupling.</li>
+</ul>
+<h3 id="rejected-alternatives">Rejected alternatives<a class="headerlink" href="#rejected-alternatives" title="Permanent link">¶</a></h3>
+<ul>
+<li><strong>Big-bang rewrite into separate classes in one PR.</strong> Rejected: unreviewable, cannot prove
+  behavior preservation step-by-step, and violates the small-reversible-slice house rule.</li>
+<li><strong>Per-<code>WorldContext</code> mutex instead of snapshots (finer locking, same model).</strong> Rejected as the
+  <em>first</em> move: it keeps render-thread readers contending with writers (just per-world) and does not
+  remove GPU-work-under-lock; the snapshot approach (Step 6) removes both. A per-world lock may still
+  be adopted for the <em>write</em> side under Step 6.</li>
+<li><strong>Splitting only by translation unit (more <code>scene_director_*.cpp</code> files, shared <code>SharedWorld</code>).</strong>
+  Rejected: that is what <code>scene_director_sphere_effectors.cpp</code> already did; it shrinks the file but
+  leaves the single lock, the shared blob, and the hidden mutation intact. The goal is owned-state
+  boundaries, not just file count.</li>
+</ul>
+<h3 id="issue-closure-mapping">Issue-closure mapping<a class="headerlink" href="#issue-closure-mapping" title="Permanent link">¶</a></h3>
+<table>
+<thead>
+<tr>
+<th>Step</th>
+<th>Primarily closes / advances</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>#545 (typed <code>AssetId</code>), #356</td>
+</tr>
+<tr>
+<td>2</td>
+<td>#356 (hidden mutable state / <code>const_cast</code> write)</td>
+</tr>
+<tr>
+<td>3</td>
+<td>#551, #356 (renderer lifetime + the #611 timeout-stall residue). <strong>#589 and the #611 hang half were closed by #628 — not by this step.</strong></td>
+</tr>
+<tr>
+<td>4</td>
+<td>#356</td>
+</tr>
+<tr>
+<td>5</td>
+<td>#356 (LOD + submission ownership)</td>
+</tr>
+<tr>
+<td>6</td>
+<td>#356 (coarse-lock contention); unblocks perf work; adjacent relief for #606 (fewer unsynchronized readers)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="exit-check">Exit check<a class="headerlink" href="#exit-check" title="Permanent link">¶</a></h2>
+<p>The decomposition is complete when: (1) <code>SharedWorld</code>/<code>WorldContext</code> no longer exposes a raw mutable
+blob — each field is owned by exactly one store; (2) no <code>const</code> method mutates state or a generation
+counter; (3) the render-path builders take no lock the main-thread setters take; (4) renderer
+construction, <code>initialize()</code>, and teardown never run inside a registry critical section; (5) the
+node/world/director unref+prune ordering (#551) and the (already-corrected) module teardown order
+are expressed in types, not comments; and (6) <code>AssetId</code> is a type, so an asset-identity mis-pick
+fails to compile (#545).</p>
+<h2 id="invariant-list-what-every-step-is-graded-against">Invariant list — what every step is graded against<a class="headerlink" href="#invariant-list-what-every-step-is-graded-against" title="Permanent link">¶</a></h2>
+<p>Checkable. A step that violates one is rejected even with green CI. "Exit check" above is
+the end-state; this is the per-step contract.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Invariant</th>
+<th>How it is checked</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>D1</strong></td>
+<td><strong>No <code>const</code> method mutates state or a generation counter.</strong> Zero <code>const_cast</code> on <code>SharedWorld</code>/<code>WorldContext</code> or any record in the render path.</td>
+<td>Grep guard: zero <code>const_cast&lt;SharedWorld</code> / <code>const_cast&lt;SphereEffectorRecord</code> in the director TUs. Unit test asserting the payload builder performs no writes.</td>
+</tr>
+<tr>
+<td><strong>D2</strong></td>
+<td><strong>Every generation counter has exactly one writing owner</strong>, and every bump goes through the wrap-guarded helper (<code>_bump_instance_generation</code>, <code>:24-29</code>). No raw <code>++</code>. <strong>This covers every counter in the canonical-state table, not just the two named below</strong> — including <code>instance_asset_generation</code>, which a future <code>AssetRetentionTable</code> extraction (Step 1) would otherwise be free to bump directly.</td>
+<td>Grep guard, written <strong>generically</strong>: zero raw <code>++</code> / <code>+= 1</code> on any identifier matching <code>*_generation</code> outside <code>_bump_instance_generation</code>. An allow-list of two counter names would pass a raw <code>instance_asset_generation++</code> and silently lose the wrap-skips-0 contract for asset remaps.</td>
+</tr>
+<tr>
+<td><strong>D3</strong> <em>(conditional on Decision D5; </em><em>does not apply at all under "do nothing"</em><em>, which keeps the render-path <code>const_cast</code> by design)</em></td>
+<td><strong>Under the T1–T4 option:</strong> <code>revalidate_scope_roots()</code> is reachable from all four triggers (§2a) — a dead scope root stops matching within one main-thread tick <strong>without</strong> any effector or instance property changing — and the revalidation never runs under the store lock (§2a resolution protocol, D7). <strong>Under the fallback:</strong> narrows to "the payload builder performs no writes; the latch/generation edge is recorded into a main-thread-drained queue, and the <code>ObjectDB</code> liveness resolution moves out of the <code>world_mutex</code> scope per D7", and today's drop behavior is preserved exactly. <strong>Under "do nothing":</strong> not applicable — Step 2 makes no behavior change to the effector path.</td>
+<td>Under T1–T4: the Step 2 trigger-gap regression test described above (free a scope-root node, touch nothing else). Under the fallback: a no-writes-on-the-read-path assertion plus the unchanged dead-scope payload test. This is the specific defect the review caught; the applicable test is the guard.</td>
+</tr>
+<tr>
+<td><strong>D4</strong></td>
+<td><strong>Dead-scope behavior is preserved exactly</strong>: a SUBTREE/EXPLICIT_ROOT effector whose scope root no longer resolves is excluded from the payload, and the exclusion invalidates dependent caches exactly once per edge (not per frame).</td>
+<td>Byte-identical payload for a fixed frame + a bump-count assertion across N frames (expect 1, not N).</td>
+</tr>
+<tr>
+<td><strong>D5</strong> <em>(invariant; distinct from decision </em><em>D5</em><em> below — see the naming note)</em></td>
+<td><strong><code>scope_root_valid</code> is re-derived on re-point.</strong> <code>update_sphere_effector</code> changing <code>scope_root_id</code> cannot leave the previous root's latch value in place. <strong>Severity: cosmetic — this removes a spurious cache invalidation, it does NOT fix a live bug</strong> (see the demotion note below).</td>
+<td>Unit test: point at root A (dead), re-point at root B (alive), assert the effector matches and the latch is correct, and assert the generation bumped <strong>once</strong>, not twice.</td>
+</tr>
+<tr>
+<td><strong>D6</strong></td>
+<td><strong>No blocking renderer call happens while the registry lock is held</strong> — not <code>initialize()</code>, not <code>apply/restore_world_submission_*</code>, not <code>renderer.unref()</code>/dtor. <strong>Split by status:</strong> the <code>renderer.unref()</code>/dtor clause is <strong>already true</strong> (#628) and is a <em>regression guard</em> — any step that re-introduces a renderer <code>Ref</code> drop inside a <code>world_mutex</code> scope re-opens an indefinite hang and is rejected outright. The <code>initialize()</code> and world-submission apply/restore/clear clauses are <strong>still open</strong> and are Step 3's actual deliverable (§1g).</td>
+<td>Step 3 review + a lock-order assertion in debug builds; <code>GS_LOCK_ORDER_GUARD</code> coverage on the new registry lock. For the already-true clause: confirm no <code>Ref&lt;GaussianSplatRenderer&gt;</code> destructor can run inside a lock scope in the Step 3 diff.</td>
+</tr>
+<tr>
+<td><strong>D7</strong></td>
+<td><strong>No store calls into <code>Node</code> / <code>ObjectDB</code> while holding a lock.</strong> Node→world resolution happens on the caller thread and passes a resolved <code>RID</code> in.</td>
+<td>Grep guard on <code>ObjectDB::get_instance</code> inside locked scopes in the director TUs; the four §1c sites must be gone.</td>
+</tr>
+<tr>
+<td><strong>D8</strong></td>
+<td><strong>The <code>world_mutex</code> ↔ manager L1–L4 non-nesting invariant is preserved</strong> throughout; no step introduces a process-global lock.</td>
+<td><code>GS_LOCK_ORDER_GUARD</code> levels unchanged; lock-declaration count guard.</td>
+</tr>
+<tr>
+<td><strong>D9</strong></td>
+<td><strong><code>WorldContext::renderer</code> remains the sole <em>retained/owning</em> strong reference</strong> — the only one whose release frees the renderer's GPU graph. It is <strong>not</strong> the only strong <code>Ref</code> in existence, and must not be stated as such: <code>GaussianSplatNode3D</code> (<code>nodes/gaussian_splat_node_3d.h:237</code>) and <code>GaussianSplatWorld3D</code> (<code>nodes/gaussian_splat_world_3d.h:15</code>) each hold a <em>transient</em> strong <code>Ref</code> for the duration of their tree membership, and <strong>the prune policy is defined in terms of them</strong> — <code>_should_prune_world</code> prunes only at <code>get_reference_count() &lt;= 1</code> (<code>gaussian_splat_scene_director.cpp:891</code>), i.e. once every node-held Ref has dropped. No step may (a) add a new <strong>long-lived</strong> strong Ref, (b) hold a Ref across a <code>_should_prune_world</code> decision (see the director's own note at <code>:2481-2490</code>), or (c) change the <code>&lt;= 1</code> threshold without updating the node PREDELETE unref-then-prune ordering (<code>gaussian_splat_node_3d.cpp:479-498</code>).</td>
+<td>Grep for new <strong>stored</strong> <code>Ref&lt;GaussianSplatRenderer&gt;</code> members + the RID-count lifetime tests + <code>test_renderer_lifetime_proof</code> scenario_c.</td>
+</tr>
+<tr>
+<td><strong>D10</strong></td>
+<td><strong>The unref+prune ordering cannot be expressed wrong</strong> at the node/world call sites after Step 3 — the two operations are not separately callable there.</td>
+<td>Compile-time proof + <code>test_renderer_lifetime_proof</code> scenario_c (F6 reload) green.</td>
+</tr>
+<tr>
+<td><strong>D11</strong></td>
+<td>~~Module teardown is director-before-manager after Step 3.~~ <strong>STALE — satisfied before this ADR's base.</strong> #628 already reversed <code>register_types.cpp:256-270</code>, so this is a <strong>standing regression guard, not a step deliverable</strong>: no step may re-invert the order, and a retained renderer at shutdown must not observe a null manager singleton.</td>
+<td>Assert the existing ordering still holds in the Step 3 diff. No step "earns" D11 — it starts satisfied.</td>
+</tr>
+<tr>
+<td><strong>D12</strong></td>
+<td><strong><code>AssetId</code> is a strong type</strong> after Step 1; a 64→32-bit truncation of an asset identity <strong>fails to compile</strong>.</td>
+<td>A negative compile test (or a <code>static_assert</code> on the conversion) plus the existing <code>test_asset_records_key</code> collision regression.</td>
+</tr>
+<tr>
+<td><strong>D13</strong></td>
+<td><strong>Per-frame GPU buffers are byte-identical</strong> to the pre-change path for a fixed captured scene, at every step.</td>
+<td>Buffer capture + diff on a fixed scene; visual gate on real-scan content for Steps 5–6.</td>
+</tr>
+<tr>
+<td><strong>D14</strong></td>
+<td><strong>Both stale <code>teardown_world_for_scenario</code> claims (§1h) are corrected, not carried forward</strong> — the header doc at <code>gaussian_splat_scene_director.h:256-257</code> <em>and</em> the comment at <code>gaussian_splat_node_3d.cpp:2443-2446</code>, each of which asserts a PREDELETE call that neither node makes. The two dead node-reading helpers are deleted.</td>
+<td>Diff review in Step 3-pre (docs) and Steps 2/3 (helpers). Grep: zero remaining claims that a node's PREDELETE calls <code>teardown_world_for_scenario</code>.</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Naming note.</strong> This table's rows and the "Decisions the owner needs to make" list below both
+use <code>D</code> prefixes, so <strong>invariant D5</strong> (the <code>scope_root_valid</code> re-point latch) and <strong>decision D5</strong>
+(the scope-root revalidation trigger set) are different things that happen to collide. They are
+corrected separately below. Treat the invariant rows as <code>D1–D14</code> and the decision items as
+<code>Decision D1–D5</code>.</p>
+<p><strong>Correction (review round 2) — invariant D5 is demoted; it does not fix a live bug.</strong>
+The round-1 text called the <code>update_sphere_effector</code> latch-reset gap (<code>:1972-1975</code>) a live bug.
+Verified against base <code>384c2c6ad8d</code>, it is not. <code>scope_root_valid</code> has an extremely narrow
+footprint — the <strong>complete</strong> set of references in the module is:</p>
+<table>
+<thead>
+<tr>
+<th>Reference</th>
+<th>Site</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>declaration (<code>= true</code>)</td>
+<td><code>gaussian_splat_scene_director.h:370</code></td>
+</tr>
+<tr>
+<td><strong>read</strong></td>
+<td><code>scene_director_sphere_effectors.cpp:106</code>, <code>:112</code></td>
+</tr>
+<tr>
+<td><strong>write</strong></td>
+<td><code>scene_director_sphere_effectors.cpp:107</code>, <code>:114</code></td>
+</tr>
+</tbody>
+</table>
+<p>All four live inside <code>_build_sorted_sphere_effector_payload</code>, and <strong>nothing else in the module
+reads the latch</strong> — not eligibility, not the layer mask, not payload construction, not the debug
+surface. The keep/drop decision at <code>:105-111</code> is made from <code>scope_alive</code>, which is recomputed
+from scratch every pass (<code>:103-104</code>, <code>ObjectDB::get_instance</code> + <code>cast_to&lt;Node&gt;</code>).</p>
+<p>Therefore a stale latch <strong>self-heals on the next payload build</strong>, in both directions:
+stale-<code>true</code> on a dead root takes the <code>:106</code> branch (set <code>false</code>, one bump, effector dropped —
+the correct outcome); stale-<code>false</code> on a live root takes the <code>:112</code> branch (set <code>true</code>, one
+bump, effector kept — also correct). The entire cost of the bug is <strong>at most one spurious
+<code>sphere_effector_generation</code> bump</strong>, i.e. one redundant downstream cache rebuild. No effector
+is ever wrongly included or wrongly excluded because of it.</p>
+<p><strong>Consequence for grading:</strong> a Step 2 slice may not claim D5 as a correctness fix, and D5 alone
+does not justify the step's risk budget. It is real cleanup — it makes the latch mean what it
+says — but it is graded as "removes a spurious invalidation."</p>
+</blockquote>
+<h2 id="evidence-a-step-must-produce">Evidence a step must produce<a class="headerlink" href="#evidence-a-step-must-produce" title="Permanent link">¶</a></h2>
+<p>Every step states which invariants it touches and attaches:</p>
+<ol>
+<li><strong>Guard lane:</strong> <code>run_module_tests.py --guard-only</code> green, plus the D1/D2/D7/D8 grep
+   guards, which land with the step that makes them true.</li>
+<li><strong>Targeted suites green without modification:</strong> sphere-effector, asset-identity,
+   instance-registration/world-switch, LOD-hysteresis, world-submission
+   ownership-arbitration/rollback, and the lifetime suites. Modifying an existing assertion
+   is a review blocker absent a written reason.</li>
+<li><strong>Step 2 specifically (D3, D4, D5) — <em>the required evidence depends on the D5 choice</em>:</strong>
+   in all cases, the bump-count-across-N-frames measurement showing edge-triggered (1) rather
+   than per-frame (N) invalidation, and the assertion that the payload builder performs no
+   writes. <strong>Additionally, under the T1–T4 option only:</strong> the trigger-gap regression test, and
+   a demonstration that a <code>revalidate_scope_roots()</code> which exists but is unwired makes it fail
+   — run it once against a deliberately-unwired build and attach the failure. <strong>Under the
+   fallback / do-nothing option, the trigger-gap test is not required and must not be
+   demanded</strong>, since no revalidation trigger is being introduced.</li>
+<li><strong>Step 3 (D6, D10, D11) — R2, renderer lifetime:</strong> <code>test_renderer_lifetime_proof</code> (F6
+   reload / scenario-close no-leak) and RID-count lifetime tests green, plus the
+   teardown-idempotence test #628 added
+   (<code>test_scene_director_submission_scaffolding.h:2324</code>) green <strong>unmodified</strong>, plus the
+   compile-time ordering proof. D11 is asserted as <em>still satisfied</em>, not newly achieved.
+   Evidence must additionally show that the deferred renderer-release discipline #628
+   introduced survives the <code>RendererLifecycleOwner</code> move — a <code>PruneAfterUnref</code> guard that
+   drops the <code>Ref</code> inside the lock scope would silently re-open the indefinite hang. GPU/perf
+   review.</li>
+<li><strong>Steps 5–6 (D13) — R2/R3:</strong> per-frame buffer byte-comparison on a captured scene, a
+   contention/latency measurement for Step 6, and a <strong>visual gate on real-scan content
+   (GrandmasHouse)</strong>. Agents cannot raster locally; absent GPU-runner output this reports
+   "not run", never "passed". Step 6 additionally requires a second independent review and
+   does not merge until Steps 1–5 have landed.</li>
+<li><strong>Base anchoring:</strong> base SHA recorded; <code>file:line</code> anchors re-verified against it before
+   implementing (they drift).</li>
+</ol>
+<p>No step weakens a guard, baseline, or threshold. A behavior change discovered to be
+necessary is lifted into its own PR with its own sign-off.</p>
+<h2 id="decisions-the-owner-needs-to-make">Decisions the owner needs to make<a class="headerlink" href="#decisions-the-owner-needs-to-make" title="Permanent link">¶</a></h2>
+<ul>
+<li><strong>D1 — Scope of this ADR's follow-ups.</strong> Approve Steps 1–5 (host-side ownership, R1/R2) as the
+  committed sequence, with Step 6 (snapshot / coarse-lock retirement, R2/R3) re-approved separately
+  once Steps 1–5 land?</li>
+<li><strong>D2 — Snapshot mechanism (Step 6).</strong> Copy-on-publish double-buffer per <code>WorldContext</code> vs a
+  <code>thread_local</code> signature-keyed snapshot (refactor-memory precedent)? Decide before Step 6, not now.</li>
+<li><strong>D3 — Identity consolidation depth.</strong> Does #545 close at "<code>AssetId</code> typed" (Step 1), or must the
+  streaming <code>uint32</code> slot + dense/resident id schemes also be typed in follow-ups tracked here?</li>
+<li><strong>D4 — Core→renderer dependency inversion.</strong> Out of scope for these steps (D-confirm), or should a
+  later step introduce a renderer interface at the <code>RendererLifecycleOwner</code> seam?</li>
+<li><strong>Decision D5 — Scope-root revalidation trigger (§2a).</strong></li>
+</ul>
+<blockquote>
+<p><strong>Corrected in review round 2.</strong> Round 1 closed this decision by asserting <em>"rejecting both
+is not available."</em> <strong>That framing is wrong</strong>, and it was wrong for the same reason
+invariant D5 was overstated: it assumed the <code>scope_root_valid</code> latch drives the drop
+decision. It does not (see the invariant-D5 demotion note above) — <code>scope_alive</code> is
+recomputed fresh every pass, so <strong>the fallback option preserves today's dead-scope behavior
+exactly</strong>, and the "dead-scoped effectors keep matching indefinitely" consequence applies
+only to a <em>third</em> option nobody is proposing (deleting the read-path liveness check
+outright). With that corrected, this is a genuine three-way choice.</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>What it does</th>
+<th>Preserves today's drop behavior?</th>
+<th>Cost / tradeoff</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>T1–T4</strong> (round-1 recommendation)</td>
+<td>Move both the liveness check and the latch write to a main-thread <code>revalidate_scope_roots()</code>, wired to all four triggers</td>
+<td><strong>Yes</strong>, provided T4 (the bounded per-tick sweep) is wired — T1–T3 are mutation-driven and none fires when a scope root is freed with nothing else changing</td>
+<td>Cleanest end state: the render path becomes a genuinely read-only pure function over a snapshot (§3-invariant-2). Costs one <code>ObjectDB::get_instance</code> per non-WORLD-scoped effector per main-thread tick — the same work the render path does today, moved and done once per frame instead of once per renderer per frame. Adds a sweep that must not be silently dropped later.</td>
+</tr>
+<tr>
+<td><strong>Fallback: keep the check, move only the write</strong></td>
+<td>The payload builder still computes <code>scope_alive</code> fresh and still drops dead-scoped effectors; only the latch/generation <strong>write</strong> is recorded into a main-thread-drained queue instead of a <code>const_cast</code></td>
+<td><strong>Yes, exactly</strong> — the drop decision is untouched, so behavior is bit-for-bit today's</td>
+<td>Removes the <code>const_cast</code> and the render-thread self-invalidation (the actual defect) with far less machinery and no new sweep. Leaves an <code>ObjectDB</code> call on the render read path, so the render path is not yet a pure snapshot consumer and §1c is only partly addressed. Defers, not blocks, Step 6.</td>
+</tr>
+<tr>
+<td><strong>Do nothing (keep the <code>const_cast</code>)</strong></td>
+<td>No change</td>
+<td>Yes</td>
+<td>Zero cost now; leaves a render-thread write to a counter the render thread reads to decide whether to rebuild — the §1d anti-pattern — and blocks the Step 6 read-only-snapshot goal. Viable only if Step 6 is abandoned.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>What the decision actually turns on:</strong> whether the owner wants the render path to become a
+  pure snapshot consumer <em>in Step 2</em> (→ T1–T4) or is content to remove only the illegal write
+  now and revisit the read-side <code>ObjectDB</code> call when Step 6 is scheduled (→ fallback). Both are
+  behavior-preserving; the round-1 claim that one of them regresses behavior was incorrect.
+  <strong>Owner call — this ADR does not decide it.</strong> Note that Step 2's scope, its regression test
+  (D3), and invariant D3 are all written for T1–T4 and must be narrowed if the fallback is
+  chosen.</p>
+<h2 id="non-goals">Non-goals<a class="headerlink" href="#non-goals" title="Permanent link">¶</a></h2>
+<ul>
+<li>No renderer-side split (that is #356's renderer half — separate ADRs/PRs).</li>
+<li>No on-disk format, public API, or GDScript-surface change.</li>
+<li>No dependency inversion of the core→renderer edge in these steps (see D4).</li>
+</ul>
+
+
+
+
+
+
+
+  
+    
+  
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 22, 2026 15:46:11 UTC">July 22, 2026</span>
+  </span>
+
+    
+    
+    
+    
+  </aside>
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden="">
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"></path></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.indexes", "navigation.path", "navigation.top", "navigation.footer", "content.code.copy", "content.code.annotate", "search.highlight", "search.suggest"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../../js/mkdocs-charts-plugin.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/vega-lite@5"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
+      
+    
+  
+<script id="init-glightbox">const lightbox = GLightbox({"touchNavigation": true, "loop": false, "zoomable": true, "draggable": true, "openEffect": "zoom", "closeEffect": "zoom", "slideEffect": "slide"});
+document$.subscribe(()=>{ lightbox.reload(); });
+</script></body></html>
