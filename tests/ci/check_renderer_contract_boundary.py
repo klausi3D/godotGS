@@ -340,6 +340,44 @@ _RENDERER_REF_DECL_RE = re.compile(
     r"Ref\s*<\s*" + RENDERER_CLASS + r"\s*>\s*(?:>\s*)?([A-Za-z_]\w*)\s*[;={(]"
 )
 
+# #730 -- an `auto`-deduced OWNING local that resolves to Ref<GaussianSplatRenderer>
+# hides the type from _RENDERER_REF_DECL_RE but has the identical scope-exit
+# destructor hazard. The right-hand sources that yield a renderer Ref are DERIVED,
+# not guessed: the only Ref<GaussianSplatRenderer> value sources reachable in the
+# director are the `renderer` member of the SharedWorld-family structs
+# (`Ref<GaussianSplatRenderer> renderer;`, 3 sites) accessed via `.`/`->`, and
+# `get_shared_renderer(...)`, which returns one. `auto&` / `const auto&` are
+# NON-owning references (their destruction drops no reference) and are excluded by
+# requiring a name -- not `&` -- immediately after `auto`. Conservative by design
+# (#730): a dismissible false positive on this guard is far cheaper than a missed
+# indefinite-hang (#628); a bare `renderer\b` word boundary still excludes
+# `renderer_config` / `renderer_count` etc.
+_RENDERER_AUTO_DECL_RE = re.compile(
+    r"(?:const\s+)?auto\s+([A-Za-z_]\w*)\s*=\s*"
+    r"(?:"
+    # Terminal `.renderer` / `->renderer` -- the Ref member ITSELF, as the WHOLE
+    # rvalue. The pre-`renderer` text is restricted to member-access syntax
+    # (`[^;=!<>&|?]` excludes comparison/logical operators), so a boolean like
+    # `auto b = a == world->renderer;` is NOT matched -- b owns no Ref (#733
+    # review). The trailing negative lookahead likewise rejects a CHAINED use
+    # (`world->renderer->foo()` / `.ptr()`) and a comparison on the right
+    # (`world->renderer == x`): only `;`/end after `renderer` is an owning local.
+    # The trailing lookahead also rejects a `)` (a parenthesized-then-chained
+    # access `(world->renderer)->foo()`) -- at the cost of missing the exotic,
+    # non-existent owning form `auto x = (world->renderer);`. That trade is
+    # deliberate: a false POSITIVE fails CI on safe code, while the missed form
+    # does not exist in the director and would only be a latent gap (#733 review).
+    r"[^;=!<>&|?]*(?:->|\.)\s*renderer\b(?!\s*(?:->|\.|\(|\)|\[|<|>|=|!|&|\||\?|,))"
+    r"|"
+    # `get_shared_renderer(...)` as the TERMINAL value. Nested args resolve one
+    # level (`(?:[^()]|\([^()]*\))*`); the close paren must be followed by `;`/end
+    # (so a chained `get_shared_renderer(w)->foo()` is excluded); and the pre-call
+    # text excludes comparison/logical operators (`[^;=!<>&|?]`) so a boolean like
+    # `auto b = other == get_shared_renderer(w);` is NOT flagged (#733 review).
+    r"[^;=!<>&|?]*\bget_shared_renderer\s*\((?:[^()]|\([^()]*\))*\)\s*(?:;|$)"
+    r")"
+)
+
 _DEFINITION_RE = re.compile(
     r"^[A-Za-z_][\w:<>*&,\s]*?\b(GaussianSplatSceneDirector(?:::\w+)+)\s*\("
 )
@@ -473,7 +511,7 @@ def check_renderer_ref_released_under_lock(source_text: str) -> list[str]:
                 continue
             if offset == begin:
                 continue
-            decl = _RENDERER_REF_DECL_RE.search(lines[offset])
+            decl = _RENDERER_REF_DECL_RE.search(lines[offset]) or _RENDERER_AUTO_DECL_RE.search(lines[offset])
             if not decl:
                 continue
             errors.append(
@@ -746,6 +784,74 @@ def run_self_test() -> int:
         "a const renderer Ref declared after the lock must be caught",
         len(check_renderer_ref_released_under_lock(const_ref_after_lock)) == 1,
     )
+
+    # #730: an `auto`-deduced owning local (from a renderer-Ref source) hides the
+    # type but has the identical scope-exit destructor hazard and must be caught.
+    auto_ref_after_lock_member = (
+        "void GaussianSplatSceneDirector::clear_world_for_scenario(const RID &p_scenario) {\n"
+        "\tGaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);\n"
+        "\tauto renderer = world->renderer;\n"
+        "}\n"
+    )
+    expect(
+        "an auto local deduced from a renderer-Ref member must be caught",
+        len(check_renderer_ref_released_under_lock(auto_ref_after_lock_member)) == 1,
+    )
+    auto_ref_after_lock_call = (
+        "void GaussianSplatSceneDirector::clear_world_for_scenario(const RID &p_scenario) {\n"
+        "\tGaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);\n"
+        "\tconst auto shared = get_shared_renderer(p_world);\n"
+        "}\n"
+    )
+    expect(
+        "a const auto local from get_shared_renderer() must be caught",
+        len(check_renderer_ref_released_under_lock(auto_ref_after_lock_call)) == 1,
+    )
+    # #733: a nested-paren argument (get_shared_renderer(get_world())) must not be
+    # missed -- a miss is an unflagged #628 owning Ref, not a benign false positive.
+    auto_ref_nested_call = (
+        "void GaussianSplatSceneDirector::clear_world_for_scenario(const RID &p_scenario) {\n"
+        "\tGaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);\n"
+        "\tauto shared = get_shared_renderer(get_world_for(p_scenario));\n"
+        "}\n"
+    )
+    expect(
+        "a get_shared_renderer() call with a nested-paren argument must be caught",
+        len(check_renderer_ref_released_under_lock(auto_ref_nested_call)) == 1,
+    )
+    # An `auto&` reference is NON-owning -- it drops no reference -- and must NOT be flagged.
+    auto_ref_reference_ok = (
+        "void GaussianSplatSceneDirector::clear_world_for_scenario(const RID &p_scenario) {\n"
+        "\tGaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);\n"
+        "\tconst auto &renderer = world->renderer;\n"
+        "}\n"
+    )
+    expect(
+        "an auto& reference to a renderer Ref must NOT be flagged",
+        not check_renderer_ref_released_under_lock(auto_ref_reference_ok),
+    )
+    # #733: chained access through the renderer member yields a non-owning local
+    # (a count / a raw pointer / a call result), and a comparison yields a bool --
+    # none own a Ref, so none must be flagged (both operand positions).
+    for chained in (
+        "\tauto count = world->renderer->get_reference_count();\n",
+        "\tauto ptr = world->renderer.ptr();\n",
+        "\tauto handle = get_shared_renderer(p_world)->initialize();\n",
+        "\tauto ok = world->renderer == other;\n",
+        "\tauto also = other == world->renderer;\n",
+        "\tauto b2 = other == get_shared_renderer(w);\n",
+        "\tauto px = (world->renderer)->foo();\n",
+    ):
+        chained_ok = (
+            "void GaussianSplatSceneDirector::clear_world_for_scenario(const RID &p_scenario) {\n"
+            "\tGaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);\n"
+            + chained +
+            "}\n"
+        )
+        expect(
+            f"chained non-owning renderer access must NOT be flagged: {chained.strip()}",
+            not check_renderer_ref_released_under_lock(chained_ok),
+        )
 
     # The compliant shape -- declared BEFORE the lock -- must NOT be flagged.
     ref_before_lock = (
