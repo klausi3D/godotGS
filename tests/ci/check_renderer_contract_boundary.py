@@ -401,6 +401,27 @@ _RENDERER_AUTO_DECL_RE = re.compile(
     r")"
 )
 
+# KNOWN, DELIBERATE gaps in _RENDERER_AUTO_DECL_RE (Codex #748 review). This is a
+# line-oriented, `=`-anchored regex, NOT a C++ parser -- the repo lesson "regex
+# cannot parse C++ robustly" (#733, 10 review rounds) applies. The following exotic
+# `auto` forms are NOT matched, and this is an accepted trade rather than a bug:
+#   * direct- / braced-init: `auto x(SOURCE);` / `auto x{SOURCE};` -- only `auto x =`
+#     is matched. The EXPLICITLY-TYPED _RENDERER_REF_DECL_RE *does* catch these
+#     (`[;={(]`), so an owning Ref written the ordinary way is still guarded; only
+#     the type-hidden `auto` direct-init slips, which no director site uses.
+#   * multi-declarator: `auto a = SOURCE, b = SOURCE;` -- the terminal `;`/end anchor
+#     stops at the first comma, so a second owning initializer is not seen.
+#   * multi-LINE decl: `auto x =\n    SOURCE;` -- the scan is per physical line, so a
+#     declaration split across lines matches on neither line alone.
+# And one accepted FALSE POSITIVE (the guard's chosen safe direction -- "a dismissible
+# false positive is far cheaper than a missed #628 hang"):
+#   * `auto p = *world->renderer_owner.ref();` -- `Ref::operator*()` yields a raw
+#     pointer (owns nothing), yet the permissive pre-text accepts the leading `*` and
+#     flags it. Failing CI on a safe line is dismissible; missing an owning Ref is not.
+# All four forms are ABSENT from the director today (verified at #748). Catching them
+# needs a real C++ frontend (libclang), tracked as the eventual replacement for this
+# heuristic guard -- not more per-form regex branches, which is the #733 anti-pattern.
+
 # #610 S6 -- the owning wrapper types that carry renderer Refs across a
 # world_mutex critical section: RendererContractWorkQueue (which owns BOTH the
 # #628 deferred-release vector AND a DeferredRendererWork whose destructor runs
