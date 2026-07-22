@@ -406,7 +406,7 @@ GaussianSplatSceneDirector::~GaussianSplatSceneDirector() {
     // instances are unreferenced, allowing GPU resources (compute/shader
     // RIDs, buffers) to be freed.  Without this, each F6 runtime cycle
     // leaks an entire renderer's worth of GPU allocations.
-    worlds.clear();
+    world_registry.clear();
     if (singleton == this) {
         singleton = nullptr;
     }
@@ -421,12 +421,11 @@ GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_get_or_cre
 		return nullptr;
 	}
 
-	SharedWorld *entry = worlds.getptr(p_scenario);
+	SharedWorld *entry = world_registry.find(p_scenario);
 	if (!entry) {
 		SharedWorld world;
 		world.scenario = p_scenario;
-		worlds.insert(p_scenario, world);
-		entry = worlds.getptr(p_scenario);
+		entry = world_registry.insert(p_scenario, world);
 	}
 
 	if (entry && p_require_renderer && !entry->renderer_owner.is_valid()) {
@@ -501,7 +500,7 @@ GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_get_world_
 }
 
 GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_find_world_for_instance(ObjectID p_node_id) {
-	for (KeyValue<RID, SharedWorld> &E : worlds) {
+	for (KeyValue<RID, SharedWorld> &E : world_registry) {
 		if (E.value.instance_store.has_instance(p_node_id)) {
 			return &E.value;
 		}
@@ -523,7 +522,7 @@ GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_get_world_
 }
 
 GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_find_world_for_effector(ObjectID p_effector_id) {
-	for (KeyValue<RID, SharedWorld> &E : worlds) {
+	for (KeyValue<RID, SharedWorld> &E : world_registry) {
 		if (E.value.sphere_effector_store.has_effector(p_effector_id)) {
 			return &E.value;
 		}
@@ -579,7 +578,7 @@ GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_find_world
 	if (!p_renderer) {
 		return nullptr;
 	}
-	for (KeyValue<RID, SharedWorld> &E : worlds) {
+	for (KeyValue<RID, SharedWorld> &E : world_registry) {
 		if (E.value.renderer_owner.ptr() == p_renderer) {
 			return &E.value;
 		}
@@ -587,7 +586,7 @@ GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_find_world
 	if (GaussianSplatting::debug_trace_is_enabled()) {
 		GaussianSplatting::debug_trace_record_event("world_lookup",
 				vformat("renderer=%d not found (worlds=%d)",
-						(int64_t)(uintptr_t)p_renderer, (int)worlds.size()),
+						(int64_t)(uintptr_t)p_renderer, (int)world_registry.size()),
 				true);
 	}
 	return nullptr;
@@ -598,7 +597,7 @@ const GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_find
 		GaussianSplatting::debug_trace_record_event("world_lookup", "renderer=NULL", true);
 		return nullptr;
 	}
-	for (const KeyValue<RID, SharedWorld> &E : worlds) {
+	for (const KeyValue<RID, SharedWorld> &E : world_registry) {
 		if (E.value.renderer_owner.ptr() == p_renderer) {
 			return &E.value;
 		}
@@ -606,7 +605,7 @@ const GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_find
 	if (GaussianSplatting::debug_trace_is_enabled()) {
 		GaussianSplatting::debug_trace_record_event("world_lookup",
 				vformat("renderer=%d not found (worlds=%d)",
-						(int64_t)(uintptr_t)p_renderer, (int)worlds.size()),
+						(int64_t)(uintptr_t)p_renderer, (int)world_registry.size()),
 				true);
 	}
 	return nullptr;
@@ -616,7 +615,7 @@ GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_find_world
 	if (p_owner_id == ObjectID()) {
 		return nullptr;
 	}
-	for (KeyValue<RID, SharedWorld> &E : worlds) {
+	for (KeyValue<RID, SharedWorld> &E : world_registry) {
 		if (E.value.submission_store.is_active() && E.value.submission_store.owner_id() == p_owner_id) {
 			return &E.value;
 		}
@@ -628,7 +627,7 @@ const GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_find
 	if (p_owner_id == ObjectID()) {
 		return nullptr;
 	}
-	for (const KeyValue<RID, SharedWorld> &E : worlds) {
+	for (const KeyValue<RID, SharedWorld> &E : world_registry) {
 		if (E.value.submission_store.is_active() && E.value.submission_store.owner_id() == p_owner_id) {
 			return &E.value;
 		}
@@ -937,7 +936,7 @@ bool GaussianSplatSceneDirector::_should_prune_world(const SharedWorld &p_world)
 
 void GaussianSplatSceneDirector::_prune_world_if_unused(const RID &p_scenario,
 		LocalVector<Ref<GaussianSplatRenderer>> &r_deferred_release) {
-	SharedWorld *world = worlds.getptr(p_scenario);
+	SharedWorld *world = world_registry.find(p_scenario);
 	if (!world) {
 		return;
 	}
@@ -952,7 +951,7 @@ void GaussianSplatSceneDirector::_prune_world_if_unused(const RID &p_scenario,
 	if (world->renderer_owner.is_valid()) {
 		r_deferred_release.push_back(world->renderer_owner.release());
 	}
-	worlds.erase(p_scenario);
+	world_registry.erase(p_scenario);
 }
 
 
@@ -978,7 +977,7 @@ void GaussianSplatSceneDirector::register_instance(ObjectID p_node_id, const Ref
 	// the node's new world leaves the record pinned in both worlds — stale
 	// renderer state, duplicate instances, and effector matching against the
 	// wrong world's ancestor chain.
-	for (KeyValue<RID, SharedWorld> &E : worlds) {
+	for (KeyValue<RID, SharedWorld> &E : world_registry) {
 		SharedWorld &other = E.value;
 		if (&other == world) {
 			continue;
@@ -1386,7 +1385,7 @@ bool GaussianSplatSceneDirector::get_instance_submission(ObjectID p_node_id, Ins
 	ERR_FAIL_NULL_V(r_submission, false);
 
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
-	for (const KeyValue<RID, SharedWorld> &E : worlds) {
+	for (const KeyValue<RID, SharedWorld> &E : world_registry) {
 		const SharedWorld &world = E.value;
 		const InstanceRecord *record_ptr = world.instance_store.find(p_node_id);
 		if (!record_ptr) {
@@ -1522,7 +1521,7 @@ void GaussianSplatSceneDirector::build_instance_buffer(LocalVector<InstanceDataG
 	out.clear();
 
 	uint32_t total_instances = 0;
-	for (const KeyValue<RID, SharedWorld> &E : worlds) {
+	for (const KeyValue<RID, SharedWorld> &E : world_registry) {
 		total_instances += E.value.instance_store.instance_count();
 	}
 	if (total_instances == 0) {
@@ -1530,7 +1529,7 @@ void GaussianSplatSceneDirector::build_instance_buffer(LocalVector<InstanceDataG
 	}
 	out.reserve(total_instances);
 
-	for (const KeyValue<RID, SharedWorld> &E : worlds) {
+	for (const KeyValue<RID, SharedWorld> &E : world_registry) {
 		const SharedWorld &world_const_ref = E.value;
 		LocalVector<SphereEffectorSelection> scene_payload;
 		_build_sorted_sphere_effector_payload(world_const_ref, scene_payload);
@@ -2377,7 +2376,7 @@ bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &
 	bool committed = false;
 	{
 		GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
-		SharedWorld *world = worlds.getptr(scenario); // R1
+		SharedWorld *world = world_registry.find(scenario); // R1
 		const bool world_still_valid = world != nullptr;
 		// R2: pointer identity, not Ref equality — we care whether this is the very
 		// object phase 2 dispatched against.
@@ -2535,7 +2534,7 @@ void GaussianSplatSceneDirector::release_world_submission(ObjectID p_owner_id) {
 		// the queue's release vector. Restore it before that Ref drops (the queue
 		// flushes the restore before its release vector destructs).
 		deferred_renderer_work.queue_restore(deferred_renderer_release[released_before], restore_state);
-	} else if (SharedWorld *surviving = worlds.getptr(scenario)) {
+	} else if (SharedWorld *surviving = world_registry.find(scenario)) {
 		deferred_renderer_work.queue_restore(surviving->renderer_owner.ref(), restore_state);
 	}
 }
@@ -2557,13 +2556,13 @@ bool GaussianSplatSceneDirector::has_shared_world_for_scenario(const RID &p_scen
 		return false;
 	}
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
-	return worlds.getptr(p_scenario) != nullptr;
+	return world_registry.has(p_scenario);
 }
 
 #if defined(TESTS_ENABLED) || defined(TOOLS_ENABLED)
 uint32_t GaussianSplatSceneDirector::test_asset_record_count_for_scenario(const RID &p_scenario) const {
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
-	const SharedWorld *world = worlds.getptr(p_scenario);
+	const SharedWorld *world = world_registry.find(p_scenario);
 	if (!world) {
 		return 0;
 	}
@@ -2572,7 +2571,7 @@ uint32_t GaussianSplatSceneDirector::test_asset_record_count_for_scenario(const 
 
 bool GaussianSplatSceneDirector::test_has_asset_record_for_scenario(const RID &p_scenario, ObjectID p_asset_object_id) const {
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
-	const SharedWorld *world = worlds.getptr(p_scenario);
+	const SharedWorld *world = world_registry.find(p_scenario);
 	if (!world) {
 		return false;
 	}
@@ -2599,7 +2598,7 @@ void GaussianSplatSceneDirector::teardown_world_for_scenario(const RID &p_scenar
 	Ref<GaussianSplatRenderer> deferred_renderer_release;
 	{
 		GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
-		SharedWorld *entry = worlds.getptr(p_scenario);
+		SharedWorld *entry = world_registry.find(p_scenario);
 		if (!entry) {
 			// Already torn down (e.g. another peer on the same scenario beat us to
 			// the punch) or never existed -- both are no-ops.
@@ -2615,7 +2614,7 @@ void GaussianSplatSceneDirector::teardown_world_for_scenario(const RID &p_scenar
 		deferred_renderer_release = entry->renderer_owner.release();
 
 		// Erase the map entry -- last reference holder for everything above.
-		worlds.erase(p_scenario);
+		world_registry.erase(p_scenario);
 	}
 
 	// world_mutex is released. Drop the renderer's world-submission contract (so it
@@ -2629,7 +2628,7 @@ void GaussianSplatSceneDirector::teardown_world_for_scenario(const RID &p_scenar
 }
 
 void GaussianSplatSceneDirector::release_all_worlds() {
-	// #329: same teardown `~GaussianSplatSceneDirector` performs via worlds.clear(),
+	// #329: same teardown `~GaussianSplatSceneDirector` performs via world_registry.clear(),
 	// but callable while the surrounding engine is still fully alive.
 	//
 	// The --gs-gpu-test harness owns the RenderingDevice it created, and that device
@@ -2648,8 +2647,8 @@ void GaussianSplatSceneDirector::release_all_worlds() {
 	LocalVector<RID> scenarios;
 	{
 		GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
-		scenarios.reserve(worlds.size());
-		for (const KeyValue<RID, SharedWorld> &E : worlds) {
+		scenarios.reserve(world_registry.size());
+		for (const KeyValue<RID, SharedWorld> &E : world_registry) {
 			scenarios.push_back(E.key);
 		}
 	}
@@ -2676,7 +2675,7 @@ bool GaussianSplatSceneDirector::get_world_submission_for_scenario(const RID &p_
 	ERR_FAIL_NULL_V(r_submission, false);
 
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
-	const SharedWorld *world = worlds.getptr(p_scenario);
+	const SharedWorld *world = world_registry.find(p_scenario);
 	if (!world || !world->submission_store.is_active()) {
 		return false;
 	}
@@ -2749,7 +2748,7 @@ GaussianSplatSceneDirector::SubmissionCounts GaussianSplatSceneDirector::get_sub
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 
 	SubmissionCounts counts;
-	for (const KeyValue<RID, SharedWorld> &E : worlds) {
+	for (const KeyValue<RID, SharedWorld> &E : world_registry) {
 		counts.instance_submissions += E.value.instance_store.instance_count();
 		if (E.value.submission_store.is_active()) {
 			counts.world_submissions++;
