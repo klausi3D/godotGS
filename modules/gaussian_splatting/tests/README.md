@@ -125,7 +125,7 @@ The Python supervisor drives `--gs-gpu-test` in **per-batch subprocesses** so a 
 | `OutputCompositor` | `*OutputCompositor*][RequiresGPU]*` | Active, **required** (promoted #724) |
 | `ComputeInfrastructure` | `*ComputeInfra*][RequiresGPU]*` | Catalogued, empty |
 | `TileRenderer` | `*TileRenderer*][RequiresGPU]*` | Active (3 cases, #641) |
-| `GpuSorting` | `*Sort*][RequiresGPU]*` | Catalogued, empty |
+| `GpuSorting` | `*Sort*][RequiresGPU]*` | Active (the #508 `[GPUSortPipeline]` sticky-overflow test), advisory — promotion tracked #744 |
 | `MemoryStream` | `*MemoryStream*][RequiresGPU]*` | Catalogued, empty |
 | `Streaming` | `*Streaming*][RequiresGPU]*` | Catalogued, empty |
 | `Integration` | `*Integration*][RequiresGPU]*` | Active (1 of 2 cases, #641) |
