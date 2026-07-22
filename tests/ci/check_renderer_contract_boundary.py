@@ -378,6 +378,22 @@ _RENDERER_AUTO_DECL_RE = re.compile(
     r")"
 )
 
+# #610 S6 -- the owning wrapper types that carry renderer Refs across a
+# world_mutex critical section: RendererContractWorkQueue (which owns BOTH the
+# #628 deferred-release vector AND a DeferredRendererWork whose destructor runs
+# flush(), a blocking dispatch) and the DeferredRendererWork it composes. A local
+# of either type has the SAME scope-exit hazard as a bare release vector -- if it
+# is declared AFTER the lock, reverse destruction order runs its flush() and
+# drops its renderer Refs while world_mutex is still held (the #628 indefinite
+# hang / the #611 dispatch-under-lock inversion). So both MUST be declared BEFORE
+# the lock, exactly as the bare release vector must. A reference (`&name`) or
+# pointer (`*name`) parameter is excluded -- it owns nothing and destructs nothing
+# here -- for the same reason the bare-Ref pattern excludes them.
+_RENDERER_WORK_QUEUE_DECL_RE = re.compile(
+    r"(?:(?:const|volatile)\s+)*"
+    r"\b(?:RendererContractWorkQueue|DeferredRendererWork)\s+([A-Za-z_]\w*)\s*[;={]"
+)
+
 _DEFINITION_RE = re.compile(
     r"^[A-Za-z_][\w:<>*&,\s]*?\b(GaussianSplatSceneDirector(?:::\w+)+)\s*\("
 )
@@ -512,21 +528,40 @@ def check_renderer_ref_released_under_lock(source_text: str) -> list[str]:
             if offset == begin:
                 continue
             decl = _RENDERER_REF_DECL_RE.search(lines[offset]) or _RENDERER_AUTO_DECL_RE.search(lines[offset])
-            if not decl:
+            if decl:
+                errors.append(
+                    f"{DIRECTOR_SOURCE.name}:{offset + 1}: `{name}` declares renderer Ref "
+                    f"`{decl.group(1)}` AFTER acquiring world_mutex (line {lock_line + 1}). "
+                    f"By reverse destruction order it drops while the lock is still held.\n"
+                    f"    #628: dropping a possibly-last Ref<GaussianSplatRenderer> under "
+                    f"world_mutex runs ~GaussianSplatRenderer, whose teardown blocks on a "
+                    f"render-thread dispatch with p_allow_timeout=false -- the render thread "
+                    f"can itself be blocked acquiring world_mutex inside a *_for_renderer "
+                    f"builder, so this is an INDEFINITE hang, not a bounded stall.\n"
+                    f"    Fix: declare the release vector (or the Ref) BEFORE the "
+                    f"`ThreadOwnedMutexLock lock(world_mutex)`, as the header requires and "
+                    f"as try_prune_world_if_unused / teardown_world_for_scenario do, so the "
+                    f"Ref is destroyed only after the lock is released."
+                )
+                continue
+            queue_decl = _RENDERER_WORK_QUEUE_DECL_RE.search(lines[offset])
+            if not queue_decl:
                 continue
             errors.append(
-                f"{DIRECTOR_SOURCE.name}:{offset + 1}: `{name}` declares renderer Ref "
-                f"`{decl.group(1)}` AFTER acquiring world_mutex (line {lock_line + 1}). "
-                f"By reverse destruction order it drops while the lock is still held.\n"
-                f"    #628: dropping a possibly-last Ref<GaussianSplatRenderer> under "
-                f"world_mutex runs ~GaussianSplatRenderer, whose teardown blocks on a "
-                f"render-thread dispatch with p_allow_timeout=false -- the render thread "
-                f"can itself be blocked acquiring world_mutex inside a *_for_renderer "
-                f"builder, so this is an INDEFINITE hang, not a bounded stall.\n"
-                f"    Fix: declare the release vector (or the Ref) BEFORE the "
-                f"`ThreadOwnedMutexLock lock(world_mutex)`, as the header requires and "
-                f"as try_prune_world_if_unused / teardown_world_for_scenario do, so the "
-                f"Ref is destroyed only after the lock is released."
+                f"{DIRECTOR_SOURCE.name}:{offset + 1}: `{name}` declares renderer-work "
+                f"queue `{queue_decl.group(1)}` AFTER acquiring world_mutex (line "
+                f"{lock_line + 1}). By reverse destruction order it is torn down while the "
+                f"lock is still held.\n"
+                f"    #610 S6/#628: a RendererContractWorkQueue (and the DeferredRendererWork "
+                f"it composes) owns renderer Refs -- its deferred-release vector and its "
+                f"queued entries -- AND runs flush() in its destructor. Destroyed under "
+                f"world_mutex it either drops a possibly-last Ref<GaussianSplatRenderer> "
+                f"(running the p_allow_timeout=false teardown, the #628 INDEFINITE hang) or "
+                f"dispatches queued contract work while the render thread needs that mutex "
+                f"(the #611 inversion).\n"
+                f"    Fix: declare the RendererContractWorkQueue BEFORE the "
+                f"`ThreadOwnedMutexLock lock(world_mutex)`, as the header requires, so it is "
+                f"destroyed only after the lock is released."
             )
     return errors
 
@@ -900,6 +935,64 @@ def run_self_test() -> int:
     expect(
         "a renderer Ref in a lock-free function must not be flagged",
         not check_renderer_ref_released_under_lock(ref_no_lock),
+    )
+
+    # --- #610 S6: the same declaration-order rule for the RendererContractWorkQueue
+    # wrapper (and the DeferredRendererWork it composes). The migrated call sites no
+    # longer hold a bare release vector -- they hold this wrapper -- so the rule has
+    # to recognise it or the enforcement silently lapses. ---
+
+    # A RendererContractWorkQueue declared AFTER the lock is the #628/#611 hazard
+    # (its destructor flushes and drops renderer Refs under the lock).
+    work_queue_after_lock = (
+        "void GaussianSplatSceneDirector::release_world_submission(ObjectID p_owner_id) {\n"
+        "\tGaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);\n"
+        "\tRendererContractWorkQueue deferred_renderer_work;\n"
+        "}\n"
+    )
+    expect(
+        "a RendererContractWorkQueue declared after the lock must be caught",
+        len(check_renderer_ref_released_under_lock(work_queue_after_lock)) == 1,
+    )
+
+    # The bare DeferredRendererWork it composes is equally hazardous after the lock;
+    # catching it closes the latent gap the pre-S6 rule (bare-Ref only) had.
+    deferred_work_after_lock = (
+        "void GaussianSplatSceneDirector::register_instance(ObjectID p_node_id) {\n"
+        "\tGaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);\n"
+        "\tDeferredRendererWork deferred_renderer_work;\n"
+        "}\n"
+    )
+    expect(
+        "a DeferredRendererWork declared after the lock must be caught",
+        len(check_renderer_ref_released_under_lock(deferred_work_after_lock)) == 1,
+    )
+
+    # The compliant shape -- declared BEFORE the lock -- must NOT be flagged, or the
+    # rule would forbid the very pattern S6 migrated every call site to.
+    work_queue_before_lock = (
+        "void GaussianSplatSceneDirector::release_world_submission(ObjectID p_owner_id) {\n"
+        "\tRendererContractWorkQueue deferred_renderer_work;\n"
+        "\tGaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);\n"
+        "\t_prune_world_if_unused(scenario, deferred_renderer_work.release_vector());\n"
+        "}\n"
+    )
+    expect(
+        "a RendererContractWorkQueue declared before the lock must not be flagged",
+        not check_renderer_ref_released_under_lock(work_queue_before_lock),
+    )
+
+    # A RendererContractWorkQueue POINTER parameter is not a local that destructs
+    # here -- not flagged (this is the `_get_or_create_world_for_scenario` shape).
+    work_queue_ptr_param = (
+        "GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_get_or_create_world_for_scenario("
+        "const RID &p_scenario, bool p_require_renderer, RendererContractWorkQueue *r_deferred_work) {\n"
+        "\treturn nullptr;\n"
+        "}\n"
+    )
+    expect(
+        "a RendererContractWorkQueue pointer-parameter must not be flagged",
+        not check_renderer_ref_released_under_lock(work_queue_ptr_param),
     )
 
     if failures:
