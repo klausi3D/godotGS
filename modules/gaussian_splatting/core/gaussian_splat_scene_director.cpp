@@ -320,26 +320,26 @@ void GaussianSplatSceneDirector::DeferredRendererWork::cancel() {
 }
 
 void GaussianSplatSceneDirector::_initialize_world_renderer(SharedWorld &p_world, RendererContractWorkQueue *r_deferred_work) {
-	if (p_world.renderer.is_null()) {
+	if (p_world.renderer_owner.is_null()) {
 		return;
 	}
 	// Guard first, boundary check second: when the renderer is already up (or an
 	// initialization is already queued on the render thread) there is no dispatch
 	// to invert, so reporting a violation here would be noise. This mirrors where
 	// PR A placed the check in the other two boundary functions.
-	const auto &resource_state = p_world.renderer->get_resource_state();
+	const auto &resource_state = p_world.renderer_owner.ref()->get_resource_state();
 	if (resource_state.gpu_resources_initialized || resource_state.gpu_initialization_pending) {
 		return;
 	}
 	if (r_deferred_work) {
-		r_deferred_work->queue_initialize(p_world.renderer);
+		r_deferred_work->queue_initialize(p_world.renderer_owner.ref());
 		return;
 	}
 	// No queue supplied: keep the historical inline behaviour rather than
 	// silently skipping the initialization, and report the inversion so the
 	// counter sees this route instead of under-reporting it.
 	_report_renderer_contract_lock_violation("GaussianSplatSceneDirector::_initialize_world_renderer");
-	p_world.renderer->initialize();
+	p_world.renderer_owner.ref()->initialize();
 }
 
 void GaussianSplatSceneDirector::DeferredRendererWork::flush() {
@@ -429,7 +429,7 @@ GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_get_or_cre
 		entry = worlds.getptr(p_scenario);
 	}
 
-	if (entry && p_require_renderer && !entry->renderer.is_valid()) {
+	if (entry && p_require_renderer && !entry->renderer_owner.is_valid()) {
 		GaussianSplatManager *manager = GaussianSplatManager::get_singleton();
 		RenderingDevice *device = manager ? manager->get_primary_rendering_device() : nullptr;
 		if (!device) {
@@ -444,13 +444,13 @@ GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_get_or_cre
 			return entry;
 		}
 
-		entry->renderer = Ref<GaussianSplatRenderer>(memnew(GaussianSplatRenderer(device)));
+		entry->renderer_owner.create(device);
 		if (_is_scene_director_log_enabled()) {
 			GS_LOG_RENDERER_DEBUG("[SceneDirector] Created shared renderer (deferred initialization)");
 		}
 		if (entry->submission_store.is_active()) {
 			const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot renderer_state =
-					entry->renderer->snapshot_world_submission_runtime_state();
+					entry->renderer_owner.ref()->snapshot_world_submission_runtime_state();
 			if (!entry->submission_store.get_record().renderer_restore_state.valid) {
 				entry->submission_store.mutable_record().renderer_restore_state = renderer_state;
 			}
@@ -461,7 +461,7 @@ GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_get_or_cre
 			// released. The queued entry holds its own renderer Ref, so it survives a
 			// prune of this world in the meantime.
 			if (r_deferred_work) {
-				r_deferred_work->queue_apply(entry->renderer,
+				r_deferred_work->queue_apply(entry->renderer_owner.ref(),
 						SubmissionStore::build_contract(entry->submission_store.get_record().renderer_restore_state,
 								entry->submission_store.get_record()));
 			} else {
@@ -580,7 +580,7 @@ GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_find_world
 		return nullptr;
 	}
 	for (KeyValue<RID, SharedWorld> &E : worlds) {
-		if (E.value.renderer.ptr() == p_renderer) {
+		if (E.value.renderer_owner.ptr() == p_renderer) {
 			return &E.value;
 		}
 	}
@@ -599,7 +599,7 @@ const GaussianSplatSceneDirector::SharedWorld *GaussianSplatSceneDirector::_find
 		return nullptr;
 	}
 	for (const KeyValue<RID, SharedWorld> &E : worlds) {
-		if (E.value.renderer.ptr() == p_renderer) {
+		if (E.value.renderer_owner.ptr() == p_renderer) {
 			return &E.value;
 		}
 	}
@@ -663,6 +663,24 @@ void GaussianSplatSceneDirector::InstanceStore::bump_asset_generation() {
 
 void GaussianSplatSceneDirector::SphereEffectorStore::bump_generation() {
 	_bump_instance_generation(sphere_effector_generation);
+}
+
+// #610 S7: the two renderer-Ref lifecycle mutations. Defined out-of-line (rather
+// than inline in the header) so the header stays free of the memnew / <utility>
+// dependencies, mirroring where the sibling stores keep their non-trivial bodies.
+void GaussianSplatSceneDirector::RendererLifecycleOwner::create(RenderingDevice *p_device) {
+	// A pure move of the former inline creation in _get_or_create_world_for_scenario;
+	// the caller still owns the "renderer is absent" precondition and the device
+	// acquisition. No GPU work happens here -- initialize() stays on the director's
+	// instrumented _initialize_world_renderer.
+	renderer = Ref<GaussianSplatRenderer>(memnew(GaussianSplatRenderer(p_device)));
+}
+
+Ref<GaussianSplatRenderer> GaussianSplatSceneDirector::RendererLifecycleOwner::release() {
+	// Hand the strong Ref to the caller by move, leaving the owner empty. Mirrors
+	// `std::move(world->renderer)`; the caller is responsible for dropping it only
+	// after world_mutex is released (#628).
+	return std::move(renderer);
 }
 
 bool GaussianSplatSceneDirector::InstanceStore::retain_asset(const Ref<GaussianSplatAsset> &p_asset, uint64_t p_asset_id) {
@@ -797,14 +815,14 @@ void GaussianSplatSceneDirector::_copy_world_submission_record(const SharedWorld
 
 void GaussianSplatSceneDirector::_restore_world_submission_renderer(SharedWorld &p_world,
 		const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_snapshot) {
-	if (!p_world.renderer.is_valid()) {
+	if (!p_world.renderer_owner.is_valid()) {
 		return;
 	}
 	// #611: checked AFTER the early-out. With no renderer this function performs
 	// no dispatch at all, so counting it would make the violation counter fire on
 	// every headless run and stop meaning anything.
 	_report_renderer_contract_lock_violation("_restore_world_submission_renderer");
-	GaussianSplatRenderer *renderer = p_world.renderer.ptr();
+	GaussianSplatRenderer *renderer = p_world.renderer_owner.ptr();
 	ERR_FAIL_NULL(renderer);
 
 	if (!p_snapshot.valid) {
@@ -821,14 +839,14 @@ void GaussianSplatSceneDirector::_restore_world_submission_renderer(SharedWorld 
 bool GaussianSplatSceneDirector::_apply_world_submission_to_renderer(SharedWorld &p_world,
 		const SubmissionStore::WorldSubmissionRecord &p_record,
 		const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_renderer_state) {
-	if (!p_record.active || !p_world.renderer.is_valid()) {
+	if (!p_record.active || !p_world.renderer_owner.is_valid()) {
 		return true;
 	}
 	// #611: checked AFTER the early-out — see the note in
 	// _restore_world_submission_renderer.
 	_report_renderer_contract_lock_violation("_apply_world_submission_to_renderer");
 
-	GaussianSplatRenderer *renderer = p_world.renderer.ptr();
+	GaussianSplatRenderer *renderer = p_world.renderer_owner.ptr();
 	ERR_FAIL_NULL_V(renderer, false);
 	const GaussianSplatRenderer::WorldSubmissionContract contract =
 			SubmissionStore::build_contract(p_renderer_state, p_record);
@@ -902,7 +920,7 @@ bool GaussianSplatSceneDirector::_world_renderer_unshared(const SharedWorld &p_w
 	// shared renderer Ref -- re-registration can otherwise desynchronize the
 	// director from that retained renderer. The `is_null()` short-circuit guards
 	// the deref, so this is safe to evaluate in any order.
-	return p_world.renderer.is_null() || p_world.renderer->get_reference_count() <= 1;
+	return p_world.renderer_owner.is_null() || p_world.renderer_owner.reference_count() <= 1;
 }
 
 bool GaussianSplatSceneDirector::_should_prune_world(const SharedWorld &p_world) const {
@@ -931,8 +949,8 @@ void GaussianSplatSceneDirector::_prune_world_if_unused(const RID &p_scenario,
 	// run while world_mutex is held. r_deferred_release is owned by the caller and
 	// destroyed only after world_mutex is released, so the actual teardown happens
 	// outside the critical section.
-	if (world->renderer.is_valid()) {
-		r_deferred_release.push_back(std::move(world->renderer));
+	if (world->renderer_owner.is_valid()) {
+		r_deferred_release.push_back(world->renderer_owner.release());
 	}
 	worlds.erase(p_scenario);
 }
@@ -1380,7 +1398,7 @@ bool GaussianSplatSceneDirector::get_instance_submission(ObjectID p_node_id, Ins
 
 		r_submission->node_id = record.node_id;
 		r_submission->scenario = world.scenario;
-		r_submission->renderer = world.renderer;
+		r_submission->renderer = world.renderer_owner.ref();
 		r_submission->asset = asset_record ? asset_record->asset : Ref<GaussianSplatAsset>();
 		r_submission->transform = record.transform;
 		r_submission->opacity = record.opacity;
@@ -2300,8 +2318,8 @@ bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &
 			}
 		}
 
-		target_previous_renderer_state = world->renderer.is_valid()
-				? world->renderer->snapshot_world_submission_runtime_state()
+		target_previous_renderer_state = world->renderer_owner.is_valid()
+				? world->renderer_owner.ref()->snapshot_world_submission_runtime_state()
 				: GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot();
 		SubmissionStore::store_submission(candidate_record, p_submission);
 		candidate_record.renderer_restore_state = target_previous_record.active
@@ -2312,11 +2330,11 @@ bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &
 
 		// Mirrors _apply_world_submission_to_renderer's early-out: an inactive
 		// record or a renderer-less world applies nothing and is not a failure.
-		if (candidate_record.active && world->renderer.is_valid()) {
+		if (candidate_record.active && world->renderer_owner.is_valid()) {
 			// A strong Ref, so the renderer cannot be freed under phase 2 if this
 			// world is pruned in the gap. See the prune retry at the end of this
 			// function for the reference-count consequence of holding it.
-			target_renderer = world->renderer;
+			target_renderer = world->renderer_owner.ref();
 			contract = SubmissionStore::build_contract(candidate_record.renderer_restore_state, candidate_record);
 			needs_apply = true;
 		}
@@ -2379,7 +2397,7 @@ bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &
 		// behaviour: with no RenderingDevice no world ever has a renderer, so
 		// needs_apply is always false and this check never runs.
 		const bool renderer_unchanged = !needs_apply ||
-				(world_still_valid && world->renderer.ptr() == target_renderer.ptr());
+				(world_still_valid && world->renderer_owner.ptr() == target_renderer.ptr());
 		bool slot_still_available = false;
 		if (world_still_valid) {
 			// R3: re-run phase 1's arbitration predicate against the CURRENT record.
@@ -2411,7 +2429,7 @@ bool GaussianSplatSceneDirector::submit_world_submission(const WorldSubmission &
 				// Read the restore state BEFORE clearing the record it lives in.
 				// Result-discarded restore, so it fits the deferral pattern exactly and
 				// goes on the queue instead of dispatching under the lock.
-				deferred_renderer_work.queue_restore(previous_world->renderer,
+				deferred_renderer_work.queue_restore(previous_world->renderer_owner.ref(),
 						previous_world->submission_store.get_record().renderer_restore_state);
 				previous_world->submission_store.reset();
 			}
@@ -2518,7 +2536,7 @@ void GaussianSplatSceneDirector::release_world_submission(ObjectID p_owner_id) {
 		// flushes the restore before its release vector destructs).
 		deferred_renderer_work.queue_restore(deferred_renderer_release[released_before], restore_state);
 	} else if (SharedWorld *surviving = worlds.getptr(scenario)) {
-		deferred_renderer_work.queue_restore(surviving->renderer, restore_state);
+		deferred_renderer_work.queue_restore(surviving->renderer_owner.ref(), restore_state);
 	}
 }
 
@@ -2594,7 +2612,7 @@ void GaussianSplatSceneDirector::teardown_world_for_scenario(const RID &p_scenar
 		entry->instance_store.clear();
 		entry->sphere_effector_store.clear();
 		entry->submission_store.reset();
-		deferred_renderer_release = std::move(entry->renderer);
+		deferred_renderer_release = entry->renderer_owner.release();
 
 		// Erase the map entry -- last reference holder for everything above.
 		worlds.erase(p_scenario);
@@ -2857,5 +2875,5 @@ Ref<GaussianSplatRenderer> GaussianSplatSceneDirector::get_shared_renderer(World
 	if (!world) {
 		return Ref<GaussianSplatRenderer>();
 	}
-	return world->renderer;
+	return world->renderer_owner.ref();
 }
