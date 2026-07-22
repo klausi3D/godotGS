@@ -209,7 +209,7 @@ Dictionary GaussianSplatSceneDirector::get_scene_effector_debug_state_for_instan
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	const SharedWorld *world = nullptr;
 	const InstanceRecord *record_ptr = nullptr;
-	for (const KeyValue<RID, SharedWorld> &E : worlds) {
+	for (const KeyValue<RID, SharedWorld> &E : world_registry) {
 		const InstanceRecord *found = E.value.instance_store.find(p_node_id);
 		if (found) {
 			world = &E.value;

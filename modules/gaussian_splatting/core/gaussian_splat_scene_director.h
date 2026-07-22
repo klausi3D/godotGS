@@ -290,7 +290,7 @@ public:
     // PREDELETE. After teardown the next register_* call rebuilds the SharedWorld lazily.
     void teardown_world_for_scenario(const RID &p_scenario);
     // Idempotent teardown of EVERY SharedWorld, equivalent to what
-    // `~GaussianSplatSceneDirector` does via worlds.clear() but callable while the
+    // `~GaussianSplatSceneDirector` does via world_registry.clear() but callable while the
     // engine is still fully alive. Added for the --gs-gpu-test harness (#329), which
     // must free renderer-owned GPU resources before it destroys the RenderingDevice
     // it owns, and destroy that device before Main::test_cleanup() deletes Engine.
@@ -1059,7 +1059,72 @@ private:
     // world_mutex. Non-zero means a blocking render-thread dispatch was issued
     // from inside the critical section the render thread itself needs.
     static SafeNumeric<uint64_t> renderer_contract_lock_violations;
-    HashMap<RID, SharedWorld> worlds;
+
+    // #610 S8: WorldRegistry owns the cross-scenario `worlds` map -- the
+    // HashMap<RID, SharedWorld> keyed by World3D scenario RID -- together with the
+    // lookup / registration / removal / iteration operations the director's
+    // world-management code performs on it. It is the boundary the register /
+    // world-switch / prune / teardown paths see: callers touch only these public
+    // methods, never the map, mirroring S3's InstanceStore / S4's
+    // SphereEffectorStore / S5's SubmissionStore / S7's RendererLifecycleOwner.
+    //
+    // It takes NO lock of its own: every method is called under the director's
+    // single world_mutex, preserving the one ThreadOwnedMutex ownership record the
+    // renderer-contract-boundary guard depends on. It holds no back-pointer to the
+    // director and reaches into no SharedWorld's store internals -- it owns only the
+    // map of SharedWorlds; each world owns its own instance / sphere-effector /
+    // submission / renderer components (S3-S7).
+    //
+    // #628 PRESERVED: the registry only vends a map entry (find) and erases it
+    // (erase). The prune's deferred renderer-Ref release -- moving the last
+    // Ref<GaussianSplatRenderer> OUT of the entry into a caller-owned release vector
+    // BEFORE erase() so ~GaussianSplatRenderer runs after world_mutex is dropped --
+    // stays verbatim in _prune_world_if_unused / teardown_world_for_scenario. The
+    // registry never releases a renderer Ref itself; erase() only drops an entry
+    // whose renderer was already moved out.
+    class WorldRegistry {
+    public:
+        // --- queries ---
+        bool is_empty() const { return worlds.is_empty(); }
+        uint32_t size() const { return worlds.size(); }
+        bool has(const RID &p_scenario) const { return worlds.has(p_scenario); }
+
+        // Mutable / const lookup by scenario RID. Mirrors HashMap::getptr:
+        // returns nullptr when no world is registered for the scenario.
+        SharedWorld *find(const RID &p_scenario) { return worlds.getptr(p_scenario); }
+        const SharedWorld *find(const RID &p_scenario) const { return worlds.getptr(p_scenario); }
+
+        // --- registration / removal ---
+        // Insert a fresh SharedWorld for p_scenario and return a pointer to the
+        // stored entry. Mirrors the inline `worlds.insert(scenario, world);
+        // worlds.getptr(scenario)` idiom verbatim -- re-fetch through the map rather
+        // than trusting the insert return, so the pointer is into the stored slot.
+        SharedWorld *insert(const RID &p_scenario, const SharedWorld &p_world) {
+            worlds.insert(p_scenario, p_world);
+            return worlds.getptr(p_scenario);
+        }
+        // Drop the entry for p_scenario. The caller MUST already have moved any
+        // renderer Ref out of the entry into a deferred-release vector (see #628
+        // above); this only removes the map slot.
+        void erase(const RID &p_scenario) { worlds.erase(p_scenario); }
+        // Drop every entry. Used by ~GaussianSplatSceneDirector; see
+        // release_all_worlds() for the lock-safe, deferred-release equivalent used
+        // while the surrounding engine is still live.
+        void clear() { worlds.clear(); }
+
+        // --- iteration (range-for over KeyValue<RID, SharedWorld>) ---
+        // Forwarded so `for (KeyValue<RID, SharedWorld> &E : world_registry)` and
+        // its const form read exactly as the former `... : worlds` loops.
+        HashMap<RID, SharedWorld>::Iterator begin() { return worlds.begin(); }
+        HashMap<RID, SharedWorld>::Iterator end() { return worlds.end(); }
+        HashMap<RID, SharedWorld>::ConstIterator begin() const { return worlds.begin(); }
+        HashMap<RID, SharedWorld>::ConstIterator end() const { return worlds.end(); }
+
+    private:
+        HashMap<RID, SharedWorld> worlds;
+    };
+
+    WorldRegistry world_registry;
 
     SharedWorld *_get_or_create_world_for_scenario(const RID &p_scenario, bool p_require_renderer = true,
             RendererContractWorkQueue *r_deferred_work = nullptr);
