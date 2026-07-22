@@ -69,7 +69,23 @@
          <lastmod>2026-07-22</lastmod>
     </url>
     <url>
+         <loc>https://klausi3d.github.io/godotGS/latest/architecture/adr-decompose-node3d/</loc>
+         <lastmod>2026-07-22</lastmod>
+    </url>
+    <url>
+         <loc>https://klausi3d.github.io/godotGS/latest/architecture/adr-decompose-renderer-facade/</loc>
+         <lastmod>2026-07-22</lastmod>
+    </url>
+    <url>
          <loc>https://klausi3d.github.io/godotGS/latest/architecture/adr-decompose-scene-director/</loc>
+         <lastmod>2026-07-22</lastmod>
+    </url>
+    <url>
+         <loc>https://klausi3d.github.io/godotGS/latest/architecture/adr-decompose-streaming-system/</loc>
+         <lastmod>2026-07-22</lastmod>
+    </url>
+    <url>
+         <loc>https://klausi3d.github.io/godotGS/latest/architecture/adr-import-importance-pruning/</loc>
          <lastmod>2026-07-22</lastmod>
     </url>
     <url>

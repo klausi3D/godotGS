@@ -1,0 +1,2882 @@
+<!DOCTYPE html><html lang="en" class="no-js"><head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Versioned documentation for the Godot Gaussian Splatting module.">
+      
+      
+      
+        <link rel="canonical" href="https://klausi3d.github.io/godotGS/latest/architecture/adr-decompose-streaming-system/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/branding/godotgs-mark.png">
+      <meta name="generator" content="mkdocs-ProperDocs 1.6.7, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>ADR: Decompose GaussianStreamingSystem into owned components - Godot Gaussian Splatting Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/styles/brand.css">
+    
+      <link rel="stylesheet" href="../../assets/styles/components.css">
+    
+      <link rel="stylesheet" href="../../assets/styles/landing.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  <link href="../../assets/stylesheets/glightbox.min.css" rel="stylesheet"><script src="../../assets/javascripts/glightbox.min.js"></script><style id="glightbox-style">
+            html.glightbox-open { overflow: initial; height: 100%; }
+            .gslide-title { margin-top: 0px; user-select: text; }
+            .gslide-desc { color: #666; user-select: text; }
+            .gslide-image img { background: white; }
+            .gscrollbar-fixer { padding-right: 15px; }
+            .gdesc-inner { font-size: 0.75rem; }
+            body[data-md-color-scheme="slate"] .gdesc-inner { background: var(--md-default-bg-color); }
+            body[data-md-color-scheme="slate"] .gslide-title { color: var(--md-default-fg-color); }
+            body[data-md-color-scheme="slate"] .gslide-desc { color: var(--md-default-fg-color); }
+        </style></head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#adr-decompose-gaussianstreamingsystem-into-owned-components" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden="">
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Godot Gaussian Splatting Docs" class="md-header__button md-logo" aria-label="Godot Gaussian Splatting Docs" data-md-component="logo">
+      
+  <img src="../../assets/branding/godotgs-mark.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"></path></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Godot Gaussian Splatting Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              ADR: Decompose GaussianStreamingSystem into owned components
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom" aria-label="Switch to dark mode" type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden="">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"></path></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom" aria-label="Switch to light mode" type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden="">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"></path></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required="">
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix="">
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/klausi3D/godotGS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Start Here
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../user/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../contributor/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Contribute
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Godot Gaussian Splatting Docs" class="md-nav__button md-logo" aria-label="Godot Gaussian Splatting Docs" data-md-component="logo">
+      
+  <img src="../../assets/branding/godotgs-mark.png" alt="logo">
+
+    </a>
+    Godot Gaussian Splatting Docs
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/klausi3D/godotGS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix="">
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../getting-started/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start Here
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start Here
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/downloads/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Downloads
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/try-in-5-minutes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Try in 5 Minutes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Public Evaluator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/recurring-issues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recurring Issues
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../user/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Artist Workflow Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Manual: Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../workflows/importing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gaussian Splat Asset Import Workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/workflows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow Details
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/runtime-behavior/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Manual: Runtime Behavior
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/lighting-behavior/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Manual: Lighting Behavior
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/performance-presets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Presets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/faq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FAQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/project-settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Settings Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/compatibility-matrix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compatibility Matrix
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gaussian_splat_node3d/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GaussianSplatNode3D API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gdscript_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GDScript API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/shader_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Shader Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/color-grading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Color Grading Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migration Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../contributor/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contribute
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contribute
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributor/reviewer-fast-path/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reviewer Fast Path
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributor/onboarding/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributor Onboarding
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../BUILDING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/build-test-ci/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build / Test / CI Command Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../testing/setup-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing Setup Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../testing/benchmark-suite/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmark Runner
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../governance/contribution-standards/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contribution Standards
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/docs-site/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Versioned Docs Site
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../style/documentation-style-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation Style Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+      
+        <li class="md-nav__item">
+  <a href="#context-problem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context / problem
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-current-friend-coupling-map-the-shared-mutable-substrate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Current friend-coupling map (the shared mutable substrate)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Current friend-coupling map (the shared mutable substrate)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1a-budgetstate-budget-the-central-shared-field" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1a. BudgetState budget — the central shared field
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1b-the-duplicated-slot-release-budget-decrement-loop-the-591-adjacent-dup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1b. The duplicated slot-release + budget-decrement loop (the #591-adjacent dup)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="adr-decompose-gaussianstreamingsystem-into-owned-components">ADR: Decompose <code>GaussianStreamingSystem</code> into owned components<a class="headerlink" href="#adr-decompose-gaussianstreamingsystem-into-owned-components" title="Permanent link">¶</a></h1>
+<ul>
+<li><strong>Status:</strong> Proposed (design note only — no production code changes in this PR).
+  Adoption of any migration slice below requires separate, individually reviewed PRs.</li>
+<li><strong>Risk class:</strong> the ADR itself is R0 (docs). The migration it proposes is <strong>R2–R3</strong>:
+  the streaming runtime is persistence-adjacent VRAM-budget machinery, the pack path is
+  multi-threaded, and the atlas stride is a GPU-payload contract (<code>.agentic/policy.json</code>
+  classifies <code>core/gaussian_streaming.*</code> and the renderer atlas layout as elevated risk).
+  Each slice needs runtime/GPU evidence and independent review before merge.</li>
+<li><strong>Base:</strong> <code>origin/master</code> @ <code>384c2c6ad8d</code> (re-anchored in review round 2; the round-1
+  base was <code>237a4b1cc3965fdbd6f12dec825c0e2077b2e9ce</code>. Every streaming file cited below is
+  byte-identical between the two bases — only <code>nodes/gaussian_splat_world_3d.cpp</code> anchors
+  moved, and they are re-cited against the new base).</li>
+<li><strong>Related issues:</strong> #222 (init dedup), #513 (stride-flip hazard), #543 (peak-memory),
+  #563 (MEMORY_SUBSYSTEM.md drift), #582 (SH-capture heap overflow), #591 (duplicate
+  sizing/clamp helpers), #606 (raw-storage snapshot contract). <strong>Sibling ADR:</strong>
+  <code>gs/adr-decompose-scene-director</code> (same decomposition series).</li>
+<li><strong>Anchoring note:</strong> every <code>file:line</code> below is against the base SHA above. Lines drift;
+  re-anchor before implementing.</li>
+</ul>
+<h2 id="context-problem">Context / problem<a class="headerlink" href="#context-problem" title="Permanent link">¶</a></h2>
+<blockquote>
+<p><strong>Correction (review round 2) — the class was undercounted by ~32%.</strong> An earlier revision
+sized <code>GaussianStreamingSystem</code> as "138 methods in one TU." It is <strong>166 out-of-line method
+definitions spread across five translation units</strong>, so every "one big file" intuition about
+the migration cost is wrong by a third:</p>
+<table>
+<thead>
+<tr>
+<th>TU</th>
+<th style="text-align: right;"><code>GaussianStreamingSystem::</code> definitions</th>
+<th style="text-align: right;">LOC</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>core/gaussian_streaming.cpp</code></td>
+<td style="text-align: right;"><strong>140</strong> (138 + ctor <code>:272</code> + dtor <code>:300</code>)</td>
+<td style="text-align: right;">4,647</td>
+</tr>
+<tr>
+<td><code>core/streaming_lod_policy.cpp</code></td>
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">204</td>
+</tr>
+<tr>
+<td><code>core/streaming_diagnostics_surface.cpp</code></td>
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">897</td>
+</tr>
+<tr>
+<td><code>core/streaming_quantization.cpp</code></td>
+<td style="text-align: right;">7</td>
+<td style="text-align: right;">444</td>
+</tr>
+<tr>
+<td><code>core/streaming_atlas.cpp</code></td>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">214</td>
+</tr>
+<tr>
+<td><strong>Total</strong></td>
+<td style="text-align: right;"><strong>166</strong></td>
+<td style="text-align: right;"><strong>6,406</strong> (+ 591 in <code>gaussian_streaming.h</code> = <strong>6,997</strong>)</td>
+</tr>
+</tbody>
+</table>
+<p>The two counts an earlier note gave — "138 in one TU" and "165 across 6" — are both wrong;
+the second is off by one on each axis. Recount before sizing any slice: the class surface
+is what S4/S5 must move, and four of the five TUs are already <em>satellite</em> TUs that reach
+into the same private state (§1c), so the ownership move is wider than the LOC suggests.</p>
+</blockquote>
+<p><code>core/gaussian_streaming.cpp</code> is the largest single TU of the module's largest god-class
+(4,647 LOC; <code>gaussian_streaming.h</code> is 591 LOC). An earlier split (ISSUE-006, see the include block at
+<code>gaussian_streaming.h:15-26</code>) moved code into per-concern translation units and introduced
+seven "controller" types:</p>
+<table>
+<thead>
+<tr>
+<th>Unit</th>
+<th>Header</th>
+<th>Shape today</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>StreamingVisibilityController</code></td>
+<td><code>streaming_visibility_controller.h</code></td>
+<td>member <code>visibility</code>; <strong>bidirectional <code>friend</code></strong></td>
+</tr>
+<tr>
+<td><code>StreamingEvictionController</code></td>
+<td><code>streaming_eviction_controller.h</code></td>
+<td>member <code>eviction_controller</code></td>
+</tr>
+<tr>
+<td><code>StreamingUploadPipeline</code></td>
+<td><code>streaming_upload_pipeline.h</code></td>
+<td>member <code>upload_pipeline</code>; owns pack threads</td>
+</tr>
+<tr>
+<td><code>StreamingGlobalAtlasRegistry</code></td>
+<td><code>streaming_global_atlas_registry.h</code></td>
+<td>member <code>global_atlas_registry</code>; <strong><code>friend</code></strong></td>
+</tr>
+<tr>
+<td><code>StreamingVRAMRegulator</code> / <code>VRAMBudgetRegulator</code></td>
+<td><code>streaming_vram_regulator.h</code></td>
+<td>referenced from <code>BudgetState</code></td>
+</tr>
+<tr>
+<td><code>StreamingQuantization</code></td>
+<td><code>streaming_quantization.h</code></td>
+<td>helpers</td>
+</tr>
+<tr>
+<td><code>ResidencyBudgetController</code></td>
+<td><code>residency_budget_controller.h</code></td>
+<td><strong>pure static, typed I/O — the good pattern</strong></td>
+</tr>
+</tbody>
+</table>
+<p>The audit's finding is that <strong>decomposition moved code to TUs, not ownership</strong>. Four of the
+seven controllers reach back into <code>GaussianStreamingSystem</code>'s <em>private</em> state — either by
+taking <code>GaussianStreamingSystem &amp;system</code> and touching its members through friendship, or by
+being declared <code>friend</code> so <code>GaussianStreamingSystem</code> reaches into <em>them</em>. The private surface
+that used to be one class's internals is now a shared mutable substrate aliased by five TUs.
+The header even lists four <code>friend class</code> grants at <code>gaussian_streaming.h:31-34</code> plus two more
+via the controllers' own <code>friend class GaussianStreamingSystem</code> (<code>streaming_visibility_controller.h:54</code>,
+<code>streaming_global_atlas_registry.h:23</code>). Coupling <strong>widened</strong>: a field like <code>budget.vram_usage</code>
+can now be mutated from any of those TUs, and the compiler enforces nothing.</p>
+<p><code>ResidencyBudgetController</code> (<code>residency_budget_controller.h:6-57</code>) is the counter-example and
+the model for this ADR: it is a <strong>stateless pure-static policy</strong> — <code>AdmissionContext</code> in,
+<code>AdmissionGate</code> out (<code>compute_admission_gate</code>, <code>decide_admission</code>). It touches no
+<code>GaussianStreamingSystem</code> state at all; the caller reads state, builds a typed value, and
+applies the returned decision. That is "owns nothing, borrows via a value type." The other
+controllers should converge toward "owns its state, communicates via typed messages/returns."</p>
+<h2 id="1-current-friend-coupling-map-the-shared-mutable-substrate">1. Current friend-coupling map (the shared mutable substrate)<a class="headerlink" href="#1-current-friend-coupling-map-the-shared-mutable-substrate" title="Permanent link">¶</a></h2>
+<h3 id="1a-budgetstate-budget-the-central-shared-field">1a. <code>BudgetState budget</code> — the central shared field<a class="headerlink" href="#1a-budgetstate-budget-the-central-shared-field" title="Permanent link">¶</a></h3>
+<p><code>BudgetState</code> (<code>streaming_runtime_state.h:18-34</code>) is a plain struct member of
+<code>GaussianStreamingSystem</code> (<code>gaussian_streaming.h:76</code>). Its ten mutable counters
+(<code>loaded_chunks_count</code>, <code>vram_usage</code>, <code>evicted_bytes_total</code>, <code>chunks_loaded_this_frame</code>,
+<code>pending_upload_bytes</code>, <code>pending_upload_slots</code>, <code>retired_upload_bytes_this_frame</code>,
+<code>retired_upload_slots_this_frame</code>, <code>failed_upload_retirements</code>, <code>vram_chunk_cap_hit_this_frame</code>)
+are written from <strong>three different TUs and four+ distinct code shapes</strong>:</p>
+<ul>
+<li><strong><code>gaussian_streaming.cpp</code> free functions</strong> (file-scope, take <code>BudgetState &amp;r_budget</code> by
+  reference): <code>_subtract_pending_upload_bytes</code> (<code>:139</code>), <code>_release_pending_upload_slot</code>
+  (<code>:145</code>), <code>_release_failed_upload_retirement</code> (<code>:152</code>), <code>_release_cancelled_upload_retirement</code>
+  (<code>:165</code>), <code>_record_successful_upload_retirement</code> (<code>:198</code>). These are a <em>partial</em> move toward
+  the target — they operate on the value — but they are free functions, not methods of an
+  owner, so nothing prevents a fifth caller from open-coding the same mutation.</li>
+<li><strong><code>gaussian_streaming.cpp</code> methods</strong>, open-coded: the load-side delta at
+  <code>_complete_chunk_load_common</code> (<code>:3811-3812</code>), the per-frame resets at <code>:567-571</code>, <code>:812-816</code>,
+  <code>:2759-2762</code>, <code>:637</code>/<code>:863</code>, and the eviction/unload decrements (next section).</li>
+<li><strong><code>streaming_visibility_controller.cpp:250</code></strong> reads <code>system.budget.loaded_chunks_count</code>
+  directly to gate zero-visible recovery.</li>
+</ul>
+<p>There is no single method that "loads N bytes into the budget" or "releases a chunk from the
+budget." The invariant <em>"<code>vram_usage</code> == Σ resident chunk bytes and <code>loaded_chunks_count</code> ==
+count of <code>is_loaded</code> chunks"</em> is maintained by convention across every call site.</p>
+<h3 id="1b-the-duplicated-slot-release-budget-decrement-loop-the-591-adjacent-dup">1b. The duplicated slot-release + budget-decrement loop (the #591-adjacent dup)<a class="headerlink" href="#1b-the-duplicated-slot-release-budget-decrement-loop-the-591-adjacent-dup" title="Permanent link">¶</a></h3>
+<p>The same "release the atlas slot, decrement <code>loaded_chunks_count</code>, subtract <code>vram_usage</code>,
+accumulate <code>evicted_bytes_total</code>" idiom is <strong>open-coded four times</strong>, near-identically:</p>
+<table>
+<thead>
+<tr>
+<th>Site</th>
+<th>Function</th>
+<th>Guarded <code>--</code>?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>gaussian_streaming.cpp:964-982</code></td>
+<td><code>update_primary_asset_data</code></td>
+<td>yes (<code>if (&gt;0)</code>)</td>
+</tr>
+<tr>
+<td><code>gaussian_streaming.cpp:1421-1438</code></td>
+<td><code>register_asset</code> (rebuild path)</td>
+<td>yes</td>
+</tr>
+<tr>
+<td><code>gaussian_streaming.cpp:1480-1498</code></td>
+<td><code>unregister_asset</code></td>
+<td>yes</td>
+</tr>
+<tr>
+<td><code>gaussian_streaming.cpp:3853-3877</code></td>
+<td><code>_unload_chunk</code></td>
+<td><strong>no — bare <code>budget.loaded_chunks_count--</code> at <code>:3873</code></strong></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Correction (review round 2) — this is a style divergence, not a latent bug.</strong> An earlier
+revision called the unguarded <code>:3873</code> decrement "a concrete divergence the duplication
+already hides" and made fixing it a headline benefit of S1. That overstates it.
+<code>_unload_chunk</code> early-returns unless the chunk is actually loaded:</p>
+<div class="highlight"><pre><span></span><code>// gaussian_streaming.cpp:3849-3851
+if (chunk_idx &gt;= asset_chunks.size() || !asset_chunks[chunk_idx].is_loaded) {
+    return;
+}
+</code></pre></div>
+<p>The other three sites carry their <code>if (&gt; 0)</code> guard because they decrement inside a loop
+under <code>if (chunk.is_loaded)</code> — the <em>same</em> precondition, expressed defensively. Under <strong>I1</strong>
+(<code>loaded_chunks_count</code> == count of <code>is_loaded</code> chunks) the counter is provably ≥ 1 whenever
+<code>:3873</code> runs, so all four sites are <strong>behaviorally identical today</strong>. Unifying them is
+worth doing — it removes a reader's obligation to re-derive that argument at each site, and
+it is free once <code>on_chunk_released</code> exists — but it is a <strong>style/robustness unification, not
+a bug fix</strong>, and S1 must not be justified or graded as if it fixes live underflow. The real</p>
+<h1 id="513-exposure-is-the-stride-used-for-the-vram_usage-decrement-i4-not-the-counter">513 exposure is the <em>stride</em> used for the <code>vram_usage</code> decrement (I4), not the counter.<a class="headerlink" href="#513-exposure-is-the-stride-used-for-the-vram_usage-decrement-i4-not-the-counter" title="Permanent link">¶</a></h1>
+</blockquote>
+<p>The load side is duplicated too: <code>:3811-3812</code> (production) and <code>:2436-2437</code> (test helper).</p>
+<p>Separately, <code>StreamingUploadPipeline</code> reaches directly into <code>system.atlas_allocator</code> to
+release slots from <strong>eight</strong> sites — <code>streaming_upload_pipeline.cpp:710, 858, 1575, 1583,
+1670, 1680, 1778, 1786</code> — plus <code>system.persistent_buffer</code>, <code>system.persistent_buffer_size</code>,
+<code>system.budget.vram_regulator</code> (<code>:555, 558, 562, 568, 611, 655, 797, 815-825, 1011-1033</code>).
+The allocator and the budget counters are logically one resource (a slot <em>is</em> chunk bytes),
+but their mutations live in two TUs with no shared authority, so a release in the pipeline and
+a decrement in the core can drift.</p>
+<p>This is the #591 pattern (duplicate sizing/clamp helpers across the resident and streaming
+routes) at the intra-class scale: <strong>no shared helper, so a future layout change can land on
+one copy only.</strong></p>
+<h3 id="1c-controllers-that-mutate-gaussianstreamingsystem-private-state">1c. Controllers that mutate <code>GaussianStreamingSystem</code> private state<a class="headerlink" href="#1c-controllers-that-mutate-gaussianstreamingsystem-private-state" title="Permanent link">¶</a></h3>
+<ul>
+<li><strong><code>StreamingUploadPipeline</code></strong> — nearly every method takes <code>GaussianStreamingSystem &amp;system</code>
+  (<code>streaming_upload_pipeline.h:276-285</code>) and mutates <code>system.atlas_allocator</code>,
+  <code>system.persistent_buffer</code>, <code>system.budget</code>, and calls back into private methods
+  (<code>system._rollback_pending_chunk</code> at <code>:492</code>, <code>system._assert_chunk_state_invariant</code> at <code>:494</code>,
+  <code>system._has_pending_upload_retirement</code> at <code>:1590</code>, <code>system._get_asset_state</code>/<code>_get_asset_chunks</code>
+  at <code>:480/:485</code>). It also <strong>owns the pack worker threads</strong> (§3).</li>
+<li><strong><code>StreamingVisibilityController</code></strong> — <code>friend class GaussianStreamingSystem</code>
+  (<code>streaming_visibility_controller.h:54</code>) <em>and</em> takes <code>GaussianStreamingSystem &amp;system</code> in
+  <code>handle_zero_visible_chunk_recovery</code>, <code>update_chunk_visibility</code>,
+  <code>update_chunk_lod_blend_factors</code>, <code>update_chunk_lod_parameters</code>,
+  <code>prefetch_chunks_at_predicted_position</code> (<code>:109-131</code>). Bidirectional friendship: each class
+  reaches into the other.</li>
+<li><strong><code>StreamingEvictionController</code></strong> — <code>evict_least_recently_used(system, …)</code>,
+  <code>evict_non_primary_lru(system)</code>, <code>ensure_resident_tracking(system)</code>
+  (<code>streaming_eviction_controller.h:39-48</code>) walk and mutate <code>system.chunks</code> / asset chunks and
+  drive slot release + budget decrement through the core.</li>
+<li><strong><code>StreamingGlobalAtlasRegistry</code></strong> — <code>friend class GaussianStreamingSystem</code>
+  (<code>streaming_global_atlas_registry.h:23</code>); <code>build_cpu_state(system)</code>,
+  <code>update_chunk_meta_entry(system, …)</code>, <code>mark_chunk_meta_dirty(system, …)</code>,
+  <code>sync_to_gpu(system, rd)</code> (<code>:44-48</code>) read <code>system</code> chunk/asset topology to rebuild GPU meta.</li>
+</ul>
+<h3 id="1d-why-friend-decomposition-failed-to-reduce-coupling">1d. Why "friend decomposition" failed to reduce coupling<a class="headerlink" href="#1d-why-friend-decomposition-failed-to-reduce-coupling" title="Permanent link">¶</a></h3>
+<ol>
+<li><strong>Friendship is all-or-nothing.</strong> A <code>friend</code> grant exposes <em>every</em> private member, so the
+   narrow interface the split intended (each controller sees only what it needs) is not
+   expressible. The header even documents working <em>around</em> this at
+   <code>gaussian_streaming.h:409-418</code>: test forwarders exist "because returning the registry by
+   reference would expose private fields the registry's friendship with this class doesn't
+   grant onward" — i.e. friendship is already too coarse to compose.</li>
+<li><strong><code>&amp;system</code> parameters are ambient authority.</strong> Passing <code>GaussianStreamingSystem &amp;system</code>
+   into a controller method is functionally identical to leaving the code in the god-class: the
+   callee can touch anything. The LOC moved TUs; the <em>reachability graph</em> did not shrink.</li>
+<li><strong>No ownership boundary means no invariant boundary.</strong> Because <code>budget</code>, <code>chunks</code>,
+   <code>atlas_allocator</code>, and <code>persistent_buffer</code> are all reachable from five TUs, no single TU can
+   assert "I am the only writer of this field," so the resident-bytes invariant is unenforced
+   and the four duplicated loops (1b) are the visible cost.</li>
+</ol>
+<h3 id="1e-live-path-reachability-most-default-scenes-execute-zero-streaming-code">1e. Live-path reachability — most default scenes execute <strong>zero</strong> streaming code<a class="headerlink" href="#1e-live-path-reachability-most-default-scenes-execute-zero-streaming-code" title="Permanent link">¶</a></h3>
+<blockquote>
+<p><strong>Added in review round 2. This reframes the whole ADR and every characterization-test plan
+built on it.</strong> The decomposition is still worth doing, but <em>how it can be validated</em> changes.</p>
+</blockquote>
+<p>Backend selection is <strong>world-scoped, and only one of the two node surfaces honours it</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Surface</th>
+<th>Residency hint published</th>
+<th>Honours <code>rendering/gaussian_splatting/streaming/route_policy</code>?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GaussianSplatWorld3D</code></td>
+<td>derived from the setting (<code>nodes/gaussian_splat_world_3d.cpp:506-514</code>)</td>
+<td><strong>yes</strong> — <code>GS_ROUTE_STREAMING</code> → <code>SUBMISSION_RESIDENCY_HINT_STREAMING</code>, else <code>…_RESIDENT</code></td>
+</tr>
+<tr>
+<td><code>GaussianSplatNode3D</code></td>
+<td><strong>hard-pinned <code>SUBMISSION_RESIDENCY_HINT_RESIDENT</code></strong> at <code>nodes/gaussian_splat_node_3d.cpp:2451-2464</code> (<code>_register_in_director</code>) <strong>and again</strong> at <code>:2508-2509</code> (<code>_update_instance_params_in_director</code>)</td>
+<td><strong>no</strong> — the in-code comment states route policy is <em>"deliberately ignored here to keep backend selection world-scoped"</em></td>
+</tr>
+</tbody>
+</table>
+<p>Consequences that this ADR's slices must respect:</p>
+<ol>
+<li><strong>A scene built from plain <code>GaussianSplatNode3D</code> nodes never enters the streaming system
+   at all</strong>, no matter what <code>route_policy</code> is set to. That is the default authoring shape for
+   single-asset content, so "most default node scenes execute zero streaming code" is the
+   normal case, not an edge case.</li>
+<li><strong>Any characterization harness fixtured on a <code>GaussianSplatNode3D</code> is vacuous by
+   construction.</strong> It will report green while asserting nothing about <code>chunks</code>, <code>budget</code>,
+   <code>atlas_allocator</code>, or <code>persistent_buffer</code>, because none of them is ever touched. This is
+   exactly the module's recurring "green test that executes nothing" failure mode, and it
+   would silently certify S1–S6 as behavior-preserving without exercising a single line they
+   move. <strong>Streaming fixtures must be built on <code>GaussianSplatWorld3D</code> with <code>route_policy</code>
+   pinned to <code>GS_ROUTE_STREAMING</code></strong>, and each suite must assert a non-zero streaming counter
+   (e.g. <code>get_vram_debug_stats().loaded_chunks_count &gt; 0</code>) <em>before</em> its behavioral assertions,
+   so an accidentally-resident fixture fails loudly instead of passing vacuously.</li>
+<li><strong>It bounds the blast radius, and therefore the risk class of the early slices.</strong> The
+   R2–R3 rating stands for S4/S5 (they move state the render thread reads on the world-backed
+   route), but the population actually exposed to a streaming regression is "scenes using
+   <code>GaussianSplatWorld3D</code> with <code>route_policy = 1</code>", not "all scenes". Slice risk arguments
+   should say so rather than implying module-wide exposure.</li>
+<li><strong>It is also the reason the §3a headless <code>tick_streaming_only</code> path matters so much</strong>: with
+   the direct-node route pinned resident, the headless main-thread path is a
+   disproportionately large share of the streaming code that actually runs under test.</li>
+</ol>
+<h2 id="2-target-components-with-explicit-ownership-narrow-interfaces">2. Target: components with explicit ownership + narrow interfaces<a class="headerlink" href="#2-target-components-with-explicit-ownership-narrow-interfaces" title="Permanent link">¶</a></h2>
+<p>Principle: <strong>each unit owns its state and exposes a narrow, typed interface; cross-unit
+communication is by value (typed context/result structs or return values), not by handing out
+<code>GaussianStreamingSystem &amp;</code> or <code>friend</code> access.</strong> <code>ResidencyBudgetController</code> is the reference.</p>
+<h3 id="2a-chunkresidencyledger-single-budget-mutation-authority">2a. <code>ChunkResidencyLedger</code> — single budget-mutation authority<a class="headerlink" href="#2a-chunkresidencyledger-single-budget-mutation-authority" title="Permanent link">¶</a></h3>
+<p>Introduce one owner of the resident-bytes accounting. It <strong>owns</strong> <code>BudgetState</code> (moved out of
+<code>GaussianStreamingSystem</code> as a private member of the ledger) and the <code>GaussianAtlasAllocator</code>,
+because a slot and its bytes are one resource. Its entire mutation surface is a handful of
+typed methods:</p>
+<div class="highlight"><pre><span></span><code>class ChunkResidencyLedger {                 // owns BudgetState + GaussianAtlasAllocator
+    // The ONLY code that increments/decrements loaded_chunks_count / vram_usage.
+    void on_chunk_loaded(uint32_t asset_id, uint32_t chunk_id,
+                         uint32_t buffer_slot, uint64_t chunk_bytes);
+    ReleaseResult on_chunk_released(uint64_t chunk_key, uint64_t chunk_bytes,
+                         bool was_loaded, bool release_slot);   // folds all four §1b loops
+    void on_upload_staged(uint64_t bytes);                       // += pending_*
+    void on_upload_retired(const RetirementTicket &amp;t);           // folds §1a free fns
+    void on_upload_failed(const RetirementTicket &amp;t);
+    void reset_per_frame_counters();
+    BudgetSnapshot snapshot() const;         // read-only view for diagnostics/visibility
+};
+</code></pre></div>
+<ul>
+<li>The four duplicated loops (1b) collapse to one <code>on_chunk_released</code> call each; the underflow
+  divergence at <code>:3873</code> is fixed once, structurally.</li>
+<li>The file-scope free functions (<code>_subtract_pending_upload_bytes</code>, <code>_release_*_retirement</code>,
+  <code>_record_successful_upload_retirement</code>) become ledger methods; the <code>BudgetState &amp;r_budget</code>
+  parameter disappears because the ledger <em>is</em> the budget.</li>
+<li>Read-only consumers (visibility's <code>system.budget.loaded_chunks_count</code> at
+  <code>visibility_controller.cpp:250</code>, all <code>get_vram_*</code> accessors) take a <code>BudgetSnapshot</code> value,
+  not the live struct. This closes MEMORY_SUBSYSTEM.md's stated goal — <em>"the only place that
+  regulates VRAM budgets"</em> (<code>MEMORY_SUBSYSTEM.md:34-36</code>) — which today is aspirational.</li>
+<li>The <code>VRAMBudgetRegulator</code> (policy) stays separate from the ledger (accounting), preserving
+  the <em>"budget policy vs buffer allocation"</em> separation MEMORY_SUBSYSTEM.md:123-124 demands.</li>
+</ul>
+<h3 id="2b-chunkresidencystore-owner-of-chunk-topology">2b. <code>ChunkResidencyStore</code> — owner of chunk topology<a class="headerlink" href="#2b-chunkresidencystore-owner-of-chunk-topology" title="Permanent link">¶</a></h3>
+<p>The <code>chunks</code> vector, <code>asset_registry</code>, and per-asset chunk lists (<code>gaussian_streaming.h:80-87</code>)
+become an owned store with typed lookups (<code>get_chunk(asset_id, chunk_id) -&gt; ChunkRef</code>,
+iteration callbacks) instead of raw <code>LocalVector&lt;StreamingChunk&gt; &amp;</code> handed to friends. Eviction
+and the registry consume <code>ChunkRef</code> / a read cursor; they no longer take <code>&amp;system</code>.</p>
+<h3 id="2c-convert-the-four-system-controllers-to-typed-collaborators">2c. Convert the four <code>&amp;system</code> controllers to typed collaborators<a class="headerlink" href="#2c-convert-the-four-system-controllers-to-typed-collaborators" title="Permanent link">¶</a></h3>
+<table>
+<thead>
+<tr>
+<th>Unit</th>
+<th>New interface (value in, value/effect out)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>StreamingEvictionController</code></td>
+<td><code>EvictionPlan plan(const EvictionContext&amp;)</code> → core applies the plan via <code>ChunkResidencyLedger</code>. No <code>&amp;system</code>; no slot release inside the controller.</td>
+</tr>
+<tr>
+<td><code>StreamingVisibilityController</code></td>
+<td>Takes <code>ChunkResidencyStore</code> read cursor + camera; returns a <code>VisibilityResult</code>. Drop the bidirectional <code>friend</code>.</td>
+</tr>
+<tr>
+<td><code>StreamingUploadPipeline</code></td>
+<td>Keeps ownership of pack threads and queues; its interface to residency becomes <code>UploadCompletion</code> events consumed by the ledger <strong>on the serialized caller's thread</strong> (§3) — <em>not</em> "on the render thread": completions are drained inside <code>update_streaming</code>, which §3a documents as running on the <strong>main</strong> thread via <code>tick_streaming_only</code> in headless. S2 must not dispatch or assert this consumption onto the render thread, or exported headless/runtime-gate frames will skip completions — the same thread-identity breakage §3a rejects. Replaces the 8 direct <code>system.atlas_allocator.release_slot</code> sites with ledger calls.</td>
+</tr>
+<tr>
+<td><code>StreamingGlobalAtlasRegistry</code></td>
+<td><code>build/sync</code> take a <code>ChunkResidencyStore</code> read view instead of <code>friend</code>.</td>
+</tr>
+</tbody>
+</table>
+<p>Each conversion is a mechanical "replace member access <code>system.X</code> with a passed value or a
+ledger call," which keeps diffs reviewable and behavior byte-identical when the extracted
+methods are pure moves.</p>
+<h3 id="2d-interaction-with-591-cross-route-sizing-helper-rejected">2d. Interaction with #591 — cross-route sizing helper <strong>REJECTED</strong><a class="headerlink" href="#2d-interaction-with-591-cross-route-sizing-helper-rejected" title="Permanent link">¶</a></h3>
+<blockquote>
+<p><strong>Reversed in review round 2 (owner call).</strong> The previous revision proposed that
+<code>ChunkResidencyLedger::snapshot()</code> + <code>get_buffer_capacity_splats()</code> "become the shared sizing
+source both routes can call." <strong>That is rejected.</strong> The resident and streaming routes are
+deliberately disjoint, and a shared sizing source re-couples them.</p>
+</blockquote>
+<p>The evidence for the rejection:</p>
+<ul>
+<li><strong>The two routes derive their splat budget from different, unrelated quantities.</strong> The
+  resident publisher sizes from <code>atlas_gaussian_count</code> plus a hard
+  <code>instance_count × dispatch_chunk_count × max_chunk_splats</code> floor taken with <code>MAX</code>
+  (<code>resident_instance_contract_publisher.cpp:800-814</code>). The streaming orchestrator sizes from
+  the regulator's working set, <code>MIN(get_effective_max_chunks(), dispatch_chunk_count)</code>
+  (<code>render_streaming_orchestrator.cpp:1765-1794</code>). One takes a maximum over a structural
+  requirement; the other takes a minimum against a live budget. They are not two spellings of
+  one policy.</li>
+<li><strong>The resident route holds no reference to the streaming system at all</strong> — <code>grep</code> for
+  <code>streaming_system</code> in <code>resident_instance_contract_publisher.cpp</code> returns only comments
+  explaining that <code>GaussianSplatNode3D</code> is <em>"resident-only by contract"</em>. Routing its sizing
+  through <code>ChunkResidencyLedger::snapshot()</code> / <code>get_buffer_capacity_splats()</code> would introduce a
+  <strong>new</strong> dependency from the resident route onto streaming-owned state — the precise coupling
+  this ADR exists to remove, added one layer out. Combined with §1e (the direct-node route is
+  hard-pinned resident and never boots the streaming system), the resident route would end up
+  depending on a subsystem it is guaranteed never to instantiate.</li>
+<li><strong>The duplication #591 names is genuinely small.</strong> What is actually identical is the ~4-line
+  <code>sort_cap</code> clamp (<code>max_sort_elements &gt; 0 ? … : UINT32_MAX</code>, then <code>MIN</code>). #591's own text
+  concedes <em>"sizing policies deliberately differ"</em> and rates itself <strong>low severity, no live
+  bug</strong>.</li>
+</ul>
+<p><strong>Therefore:</strong> this ADR takes <strong>no dependency on #591</strong>, and S6 no longer lists "#591 shared
+helper" as a by-product. #591 remains open and is <strong>decidable independently</strong> of this
+decomposition, on these terms:</p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>What it shares</th>
+<th>Cost</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>A — close #591 as won't-fix</strong></td>
+<td>nothing</td>
+<td>Two ~4-line clamps stay duplicated; a future <code>max_sort_elements</code> semantic change must be applied twice. Cheapest; preserves route disjointness completely.</td>
+</tr>
+<tr>
+<td><strong>B — extract only the clamp</strong> as a free function over scalars (<code>clamp_to_sort_cap(uint64_t, const GpuSortingConfig&amp;)</code>) in a header both routes already include</td>
+<td>the clamp expression, and nothing else — no ledger, no snapshot, no streaming state</td>
+<td>Small and route-neutral: it takes plain integers, so it creates no dependency in either direction. Does <strong>not</strong> address the buffer-population duplication, which is policy and must stay separate.</td>
+</tr>
+<tr>
+<td><strong>C — shared sizing source via the ledger</strong> (the previous revision's proposal)</td>
+<td>budget/capacity state</td>
+<td><strong>Rejected above.</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Recommendation for the owner: <strong>B if #591 is to be actioned at all, otherwise A.</strong> Either way
+it is out of scope for S1–S6.</p>
+<h2 id="3-threading-model-per-api-contracts-not-a-blanket-render-thread-assertion">3. Threading model — per-API contracts, not a blanket render-thread assertion<a class="headerlink" href="#3-threading-model-per-api-contracts-not-a-blanket-render-thread-assertion" title="Permanent link">¶</a></h2>
+<blockquote>
+<p><strong>Correction (review round 1).</strong> An earlier revision of this ADR asserted that
+"<code>update_streaming</code> has exactly one production caller" and proposed adding a
+<code>DEV_ENABLED</code> <strong>render-thread assert</strong> to <code>update_streaming</code>, <code>register_asset</code>,
+<code>unregister_asset</code>, and <code>begin/finalize_residency_requests</code>. <strong>Both halves were wrong</strong>,
+and implementing them as written would have converted currently-valid calls into
+crashes. The corrected analysis and the per-API contract table below replace that
+proposal. The evidence is recorded in §3a because the mistake is easy to repeat.</p>
+</blockquote>
+<h3 id="3a-why-a-blanket-render-thread-assert-is-wrong-verified-against-the-base-sha">3a. Why a blanket render-thread assert is wrong (verified against the base SHA)<a class="headerlink" href="#3a-why-a-blanket-render-thread-assert-is-wrong-verified-against-the-base-sha" title="Permanent link">¶</a></h3>
+<p>Three independent facts refute "render thread only":</p>
+<ol>
+<li>
+<p><strong>There are two production call paths, and one of them is the main thread.</strong>
+   Besides the render-thread path (<code>render_streaming_orchestrator.cpp:1675</code>, inside
+   <code>render_streaming_frame</code>, <code>:1463</code>), <code>update_streaming</code> is also reached at
+   <code>render_streaming_orchestrator.cpp:2406</code> via <code>tick_streaming_only</code>. That path is
+   entered from <code>GaussianSplatNode3D::_update_viewport_render_state</code>
+   (<code>nodes/gaussian_splat_node_3d.cpp:1604-1605</code>, guarded by
+   <code>OS::get_singleton()-&gt;has_feature("headless")</code>) ← <code>update_splats</code> (<code>:1453</code>) ←
+   <code>process_gaussian_render</code> (<code>:1633</code>) ← <code>GaussianSplatManager::_process_active_nodes_main_thread</code>
+   (<code>core/gaussian_splat_manager.cpp:660</code>), which is scheduled with
+   <code>callable_mp(...).call_deferred()</code> (<code>:623</code>) and therefore runs on the <strong>main thread</strong>.
+   <code>GaussianSplatRenderer::tick_streaming_only</code> (<code>renderer/gaussian_splat_renderer.cpp:2547-2563</code>)
+   performs <strong>no render-thread dispatch</strong> — it calls the orchestrator directly on the
+   caller's thread. The same path reaches <code>register_asset</code> / <code>unregister_asset</code>, because
+   <code>sync_instance_pipeline_assets</code> (<code>render_streaming_orchestrator.cpp:986</code>, calls at
+   <code>:1426</code>/<code>:1450</code>) is invoked from both <code>:1646</code> (render thread) and <code>:2376</code>
+   (<code>tick_streaming_only</code>, main thread).
+   In headless there is no render thread at all, so <code>RenderingServer::is_on_render_thread()</code>
+   returns false and the proposed assert would fire on <strong>every headless frame</strong> — including
+   the production-gates runtime harness and exported headless builds.</p>
+</li>
+<li>
+<p><strong>These entry points are public, <code>ClassDB</code>-bound script API.</strong>
+   <code>GaussianStreamingSystem</code> is <code>GDREGISTER_CLASS</code>'d (<code>register_types.cpp:96</code>) and binds
+   <code>initialize</code>, <code>update_streaming</code>, <code>begin_residency_requests</code>, <code>request_chunk_residency</code>,
+   <code>request_asset_residency</code>, <code>finalize_residency_requests</code>, <code>begin_frame</code>, <code>end_frame</code>
+   and the whole diagnostics surface (<code>core/gaussian_streaming.cpp:494-533</code>). A GDScript
+   caller runs on the main thread by default. Adding a render-thread assert to a bound
+   method is a <strong>breaking public-API change</strong>, not the documentation of an existing
+   invariant.</p>
+</li>
+<li>
+<p><strong>The module's own doctests call them from the doctest (main) thread</strong> —
+   e.g. <code>tests/test_gpu_streaming.cpp:1362-1600</code> and
+   <code>tests/test_gaussian_streaming_lifecycle.cpp:259-877</code> call <code>register_asset</code>,
+   <code>begin_residency_requests</code>, <code>finalize_residency_requests</code>, <code>unregister_asset</code> and
+   <code>update_streaming</code> directly. A <code>DEV_ENABLED</code> render-thread assert would fail the
+   module test suite, and "make the test pass" would then mean weakening the new assert —
+   which the working rules forbid.</p>
+</li>
+</ol>
+<p>The real invariant is <strong>not</strong> thread <em>identity</em>; it is <strong>serialization</strong>: the render-facing
+state has exactly one <em>active</em> caller at a time, whichever thread that caller is on. That is
+what the design must encode.</p>
+<h3 id="3b-per-api-thread-contracts">3b. Per-API thread contracts<a class="headerlink" href="#3b-per-api-thread-contracts" title="Permanent link">¶</a></h3>
+<p>Every public entry point is assigned exactly one of three classes. This table is the
+contract; §6's invariant list is what a slice is graded against.</p>
+<table>
+<thead>
+<tr>
+<th>Class</th>
+<th>Meaning</th>
+<th>Enforcement</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong><code>[SERIALIZED]</code></strong></td>
+<td>Mutates render-facing state (<code>chunks</code>, budget/ledger, <code>atlas_allocator</code>, <code>persistent_buffer</code>, <code>asset_registry</code>). Callable from any thread, but <strong>never concurrently with another <code>[SERIALIZED]</code> call on the same instance</strong>. The caller (orchestrator or script) provides the serialization.</td>
+<td>Debug <strong>single-active-caller token</strong> (§3c) — <em>not</em> a thread-identity assert.</td>
+</tr>
+<tr>
+<td><strong><code>[SNAPSHOT-SAFE]</code></strong></td>
+<td>Runs on a pack worker. Touches only a value snapshot handed to it; mutates no owner state.</td>
+<td>Existing <code>pack_mutex</code> queue boundary; reviewed as "takes no <code>system</code> reference".</td>
+</tr>
+<tr>
+<td><strong><code>[READ-ONLY]</code></strong></td>
+<td>Diagnostics/getters. Safe to call concurrently with other <code>[READ-ONLY]</code> calls. Raced against a <code>[SERIALIZED]</code> call the consequence <strong>differs by return type</strong> — see the two sub-classes below; this distinction is load-bearing and was previously collapsed into "may observe a torn view".</td>
+<td>Scalars: advisory, documented. <code>Dictionary</code> returns: <strong>unresolved — see D-READONLY.</strong></td>
+</tr>
+<tr>
+<td>&nbsp;&nbsp;↳ <strong>scalar counters</strong></td>
+<td><code>get_vram_usage</code> (bound <code>gaussian_streaming.cpp:509</code>) → <code>_get_total_vram_usage_bytes</code> (<code>:2703</code>) reads <code>persistent_buffer_size</code> (<code>:2718</code>) and <code>budget.vram_usage</code> (<code>:2719</code>); <code>get_vram_debug_stats</code> (bound <code>:524</code>). Both are plain non-atomic members (<code>streaming_runtime_state.h:21</code>, <code>gaussian_streaming.h:91</code>) written by <code>[SERIALIZED]</code> paths at <code>gaussian_streaming.cpp:3811-3812</code> and <code>:3873-3877</code>. Racing yields a <strong>stale or torn scalar</strong>.</td>
+<td>Advisory; acceptable. Returns a <code>BudgetSnapshot</code>/value copy once §2a lands.</td>
+</tr>
+<tr>
+<td>&nbsp;&nbsp;↳ <strong><code>analytics_snapshot</code> (<code>Dictionary</code>)</strong></td>
+<td><code>get_streaming_analytics</code> (bound <code>:514</code>) returns <code>analytics_snapshot</code> (<code>streaming_diagnostics_surface.cpp:829-831</code>; member at <code>gaussian_streaming.h:168</code>). <code>end_frame</code> <strong>reassigns that same <code>Dictionary</code></strong> (<code>streaming_diagnostics_surface.cpp:106+</code>). Copying a <code>Dictionary</code> refs a <code>SafeRefCount</code> through a <strong>non-atomic <code>_p</code> pointer</strong> (<code>core/variant/dictionary.cpp:43-44</code>, ref <code>:287</code>, unref/free <code>:345</code>) while the writer swaps it. That is <strong>potential use-after-free, not a stale read</strong> — and "return a value copy" does <em>not</em> fix it, because the copy is itself the racing operation.</td>
+<td><strong>Open — D-READONLY.</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Assignment of the current public surface:</p>
+<table>
+<thead>
+<tr>
+<th>Entry point</th>
+<th>Class</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>update_streaming</code> (<code>gaussian_streaming.h:214</code>)</td>
+<td><code>[SERIALIZED]</code></td>
+<td>Render thread via <code>render_streaming_frame</code>; <strong>main thread</strong> via <code>tick_streaming_only</code> in headless. Both are valid.</td>
+</tr>
+<tr>
+<td><code>register_asset</code> / <code>unregister_asset</code> (<code>:315-316</code>)</td>
+<td><code>[SERIALIZED]</code></td>
+<td>Same two paths via <code>sync_instance_pipeline_assets</code>.</td>
+</tr>
+<tr>
+<td><code>begin_residency_requests</code> / <code>finalize_residency_requests</code> (<code>:217</code>,<code>:220</code>)</td>
+<td><code>[SERIALIZED]</code></td>
+<td>Bracket a request generation; must not interleave with another bracket.</td>
+</tr>
+<tr>
+<td><code>request_chunk_residency</code> / <code>request_asset_residency</code> (<code>:218-219</code>)</td>
+<td><code>[SERIALIZED]</code></td>
+<td>Valid only <em>inside</em> an open begin/finalize bracket.</td>
+</tr>
+<tr>
+<td><code>initialize</code> / <code>initialize_empty</code> / <code>attach_memory_stream</code></td>
+<td><code>[SERIALIZED]</code></td>
+<td>Additionally: must not run concurrently with any other call on the instance.</td>
+</tr>
+<tr>
+<td><code>set_chunk_payload_source</code> / <code>detach_source_data</code></td>
+<td><code>[SERIALIZED]</code></td>
+<td>Mutates <code>asset_registry</code>.</td>
+</tr>
+<tr>
+<td><code>begin_frame</code> / <code>end_frame</code> (bound at <code>gaussian_streaming.cpp:507-508</code>)</td>
+<td><code>[SERIALIZED]</code></td>
+<td>Bound, and render-facing. <code>begin_frame</code> (<code>:3888-3899</code>) advances <code>current_frame_idx</code>, bumps <code>total_frame_count</code>, clears <code>frame.visible_chunks</code>, and calls <code>_reset_per_frame_counters()</code> (<code>:3893</code>) + <code>_process_upload_retirements()</code> (<code>:3895</code>). <code>end_frame</code> writes <code>analytics_snapshot</code> (<code>streaming_diagnostics_surface.cpp:102-106+</code>), reading <code>budget.vram_usage</code> (<code>:108</code>) and <code>persistent_buffer_size</code> (<code>:118</code>). Driven from <strong>both</strong> paths, exactly like <code>update_streaming</code>: render (<code>render_streaming_orchestrator.cpp:1612</code> begin / <code>:1587</code> end) and headless <code>tick_streaming_only</code> (<code>:2372</code> begin / <code>:2386</code>,<code>:2409</code> end).</td>
+</tr>
+<tr>
+<td><code>initialize_with_device</code>, <code>update_primary_asset_data</code>, <code>set_config_overrides</code>, <code>set_io_chunk_layout_hints</code>, <code>set_primary_chunk_layout</code> (<code>gaussian_streaming.h:201-208</code>)</td>
+<td><code>[SERIALIZED]</code></td>
+<td><strong>Public but <em>not</em> <code>ClassDB</code>-bound</strong> — reachable only from C++, but the renderer drives them: <code>render_streaming_orchestrator.cpp:929</code> (<code>set_config_overrides</code>), <code>:938</code> (<code>initialize_with_device</code>), <code>:1285</code>/<code>:1311</code> (<code>set_primary_chunk_layout</code>), <code>:1348</code> (<code>set_io_chunk_layout_hints</code>). They mutate the same <code>chunks</code>/budget/<code>atlas_allocator</code>/<code>asset_registry</code> state as the bound surface: <code>update_primary_asset_data</code> (<code>gaussian_streaming.cpp:964-982</code>) calls <code>atlas_allocator.release_slot(...)</code> (<code>:968</code>), decrements <code>budget.loaded_chunks_count</code> (<code>:973</code>), subtracts from <code>vram_usage</code> (<code>:977</code>) and adds to <code>evicted_bytes_total</code> (<code>:978</code>). It is reached transitively via <code>set_primary_chunk_layout</code> → <code>:1097</code>, not called directly by the orchestrator. Note it is one of §1b's four release loops, so under S1 it becomes an <code>on_chunk_released</code> caller — and therefore also a §3c re-entrancy site.</td>
+</tr>
+<tr>
+<td><code>pack_thread_func</code> / <code>build_pending_upload_from_pack_job</code> (<code>streaming_upload_pipeline.cpp:427</code>)</td>
+<td><code>[SNAPSHOT-SAFE]</code></td>
+<td>Consumes a self-contained <code>PackJob</code> (<code>streaming_upload_pipeline.h:35-47</code>); the <code>&amp;system</code> it is handed is nominal and must be removed by S2.</td>
+</tr>
+<tr>
+<td><strong>Config / visibility mutators</strong> — bound: <code>set_chunk_frustum_culling_enabled</code>, <code>set_chunk_frustum_padding</code> (<code>gaussian_streaming.cpp:517</code>, <code>:519</code>); unbound-but-public: <code>clear_config_overrides</code> (<code>gaussian_streaming.h:206</code>) and the inline LOD/SH setters <code>set_lod_blend_enabled</code>, <code>set_lod_blend_distance</code>, <code>set_global_sh_band_level</code> (<code>gaussian_streaming.h:281-290</code>)</td>
+<td><code>[SERIALIZED]</code></td>
+<td>These write <code>visibility.*</code> / config state (<code>visibility.lod_blend_config</code>, <code>visibility.global_sh_band_level</code>) that the streaming frame <strong>reads</strong> while running, so a script or C++ caller mutating them concurrently with <code>update_streaming</code> races the same substrate as the residency ledger. Cheap inline setters, but the token contract is about <em>when</em> they may run, not how expensive they are.</td>
+</tr>
+<tr>
+<td><code>get_vram_*</code>, <code>get_streaming_analytics</code>, <code>get_*_debug_stats</code>, <code>has_asset</code>, <code>get_visible_count</code></td>
+<td><code>[READ-ONLY]</code></td>
+<td>Bound to script; must stay callable from the main thread.</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>The table is a snapshot; S6 must not trust it as exhaustive.</strong> Three successive reviews
+have each found further unclassified mutators — <code>begin_frame</code>/<code>end_frame</code>, the five
+<code>gaussian_streaming.h:201-208</code> mutators, and the config/visibility setters above — which is
+strong evidence that hand-maintaining this list does not converge. <strong>S6 must therefore
+<em>derive</em> the classified set mechanically rather than transcribe it:</strong> enumerate every
+<code>ClassDB::bind_method</code> target in <code>_bind_methods</code> plus every public non-<code>const</code> member
+function of <code>GaussianStreamingSystem</code>, and fail the build (or the guard) on any name that
+carries no <code>[SERIALIZED]</code> / <code>[SNAPSHOT-SAFE]</code> / <code>[READ-ONLY]</code> tag. Invariant <strong>I6</strong> is then
+checkable by construction, and this table becomes documentation of the derivation rather
+than its source of truth. A <code>const</code>-correctness pass is the cheap approximation: a public
+method that mutates must be non-<code>const</code>, so the enumeration is mostly mechanical.</p>
+<p><strong>Entry-point tagging alone is not sufficient — a mutable collaborator can escape the
+scope.</strong> <code>_internal_get_upload_pipeline()</code> (<code>gaussian_streaming.h:425</code>) is a public
+non-<code>const</code> member returning <code>StreamingUploadPipeline &amp;</code>. A C++ caller or test holding that
+reference can call <code>process_upload_queue(system)</code> / <code>clear_pending_uploads(system)</code> — which
+mutate queues and streaming state — <strong>after</strong> the getter's RAII scope has ended, so the
+single-active-caller token never wraps the actual mutation. Tagging the getter is therefore
+worthless on its own. S6 must pick one of: (a) make the accessor test-only (<code>TESTS_ENABLED</code>)
+and route production callers through tagged <code>GaussianStreamingSystem</code> methods; (b) scope the
+token inside the collaborator's own mutating methods rather than at the getter; or (c) return
+a handle that carries the scope for its lifetime. <strong>(a) is the cheapest and matches the
+"not user-facing API" comment already on the accessor.</strong> The derived-tag guard must also flag
+any public method that <strong>hands out a usable handle to owned state</strong>, not just
+untagged methods — otherwise the derivation has the same hole. <strong><code>const</code>-ness of the getter is
+not a safe filter</strong>, because a <code>const</code> method can still return a mutable handle by value:
+<code>get_vram_regulator() const</code> (<code>gaussian_streaming.h:268</code>) returns <code>Ref&lt;VRAMBudgetRegulator&gt;</code>
+<strong>by value from a <code>const</code> method</strong>, and a caller holding that <code>Ref</code> can invoke
+<code>set_config_override()</code> / <code>update()</code> (<code>streaming_vram_regulator.h:123-131</code>) while
+<code>update_streaming</code> is concurrently reading the same regulator for admission and LOD
+decisions. So the rule must be: flag any public method whose return type is a non-<code>const</code>
+reference, a pointer, <strong>or a <code>Ref&lt;&gt;</code>/smart handle</strong>, to owned mutable state — regardless of
+the method's own <code>const</code> qualification.</p>
+</blockquote>
+<p><strong>No entry point is <code>[RENDER-THREAD-ONLY]</code>.</strong> If a future slice wants to introduce that
+class, it must first prove the headless <code>tick_streaming_only</code> path and the script bindings
+are gone — and that is a separate, breaking-change task, not part of this decomposition.</p>
+<h3 id="3c-what-to-assert-instead-a-single-active-caller-token">3c. What to assert instead — a single-active-caller token<a class="headerlink" href="#3c-what-to-assert-instead-a-single-active-caller-token" title="Permanent link">¶</a></h3>
+<p>Replace the rejected render-thread assert with a <code>DEV_ENABLED</code>-only <strong>re-entrancy /
+concurrency detector</strong> that encodes serialization without constraining identity:</p>
+<div class="highlight"><pre><span></span><code>// DEV_ENABLED only; zero cost in release.
+class SerializedAccessToken {          // member of ChunkResidencyLedger (§2a)
+    std::atomic&lt;uint64_t&gt; active_caller{0};   // Thread::get_caller_id() of the in-flight call
+    uint32_t depth = 0;                       // re-entrancy depth for the HOLDING thread only
+    // enter(): CAS 0 -&gt; caller_id. If the CAS succeeds, depth = 1.
+    //          If the CAS fails and the holder is a DIFFERENT thread
+    //                  -&gt; ERR: "concurrent [SERIALIZED] access".
+    //          If the CAS fails and the holder is the SAME thread
+    //                  -&gt; ++depth (legal nesting; see below). NOT an error.
+    // exit():  if (--depth == 0) store 0.
+};
+</code></pre></div>
+<p><strong>Same-thread nesting is legal and must not be reported.</strong> An earlier revision of this
+section made same-thread re-entry an error. That was wrong: composed with §3d's rule that
+<em>every mutating ledger method scopes the token</em>, it would fire on the <strong>normal</strong> path, not
+on a violation. One <code>update_streaming</code> call (<code>gaussian_streaming.cpp:2459</code>) reaches both
+ledger folds through <code>_run_streaming_frame_pipeline</code> (<code>:2539</code>):</p>
+<ul>
+<li><strong>release side</strong> — <code>_evict_for_vram_budget</code> (<code>:2586</code>) → <code>eviction_controller.evict_*</code> →
+  <code>system._unload_chunk</code> (<code>streaming_eviction_controller.cpp:197,211,314</code>) → the budget
+  decrements at <code>gaussian_streaming.cpp:3873-3877</code>, i.e. §2a's <code>on_chunk_released</code>.</li>
+<li><strong>load side</strong> — <code>_load_visible_chunks</code> / <code>_process_upload_queue</code> (<code>:2600</code>,<code>:2614</code>) →
+  <code>_complete_chunk_load_common</code> (<code>:3788</code>, <code>:3451</code>) → <code>budget.loaded_chunks_count++</code> /
+  <code>budget.vram_usage +=</code> at <code>:3811-3812</code>, i.e. §2a's <code>on_chunk_loaded</code>.</li>
+</ul>
+<p>So a DEV build would ERR on every eviction and every chunk load in a perfectly serialized
+frame. The depth counter above keeps the property that actually matters — <strong>at most one
+<em>thread</em> inside the ledger at a time</strong> — while permitting the entry-point → ledger-method
+nesting the design requires. (Equivalent alternative, if the owner prefers no counter:
+ledger methods <code>DEV_ASSERT</code> the token is <em>already held by the current thread</em> rather than
+acquiring it, making the entry-point scope the sole acquirer. That is stricter — it also
+catches a ledger mutation reached without going through a <code>[SERIALIZED]</code> entry point — but
+it forbids direct ledger use from tests, so it is recorded as an option, not the default.)</p>
+<ul>
+<li>Every <code>[SERIALIZED]</code> entry point takes an RAII <code>SerializedAccessScope</code> at the top.</li>
+<li>It catches the failure that actually threatens correctness (two threads mutating
+  <code>budget</code>/<code>chunks</code> at once, or re-entrancy through a callback) and is <strong>agnostic</strong> to
+  which thread is the caller — so the headless main-thread path, the render-thread path,
+  the script path, and the doctests all pass unchanged.</li>
+<li>It is a <strong>detector, not a lock</strong>: it never blocks and never serializes. It adds no lock over
+  render-facing state, per the module <code>AGENTS.md</code> rule, and leaves the existing two streaming
+  locks (§3e) untouched.</li>
+<li>Once §2a lands, the token lives on <code>ChunkResidencyLedger</code> and every mutating ledger method
+  scopes it — turning "single writer by convention" into "single writer, checked."</li>
+</ul>
+<p>The pack-worker boundary is <strong>unchanged</strong> by this ADR: it is already correct by snapshot,
+and §3d records why.</p>
+<h3 id="3d-the-pack-worker-boundary-unchanged-documented">3d. The pack-worker boundary (unchanged, documented)<a class="headerlink" href="#3d-the-pack-worker-boundary-unchanged-documented" title="Permanent link">¶</a></h3>
+<ul>
+<li><strong>The pack workers are the one true concurrency boundary, and it is already correct by
+  snapshot</strong>: <code>pack_thread_func</code> (<code>streaming_upload_pipeline.cpp:427</code>) dequeues a self-contained
+  <code>PackJob</code> (carries <code>Ref&lt;GaussianData&gt; data_ref</code> + copied <code>source_indices</code>,
+  <code>streaming_upload_pipeline.h:35-47</code>) under <code>pack_mutex</code>, calls
+  <code>build_pending_upload_from_pack_job(job, scratch)</code> — which takes <strong>only the job snapshot, no
+  <code>system</code></strong> — and enqueues the result under <code>pack_mutex</code>. The worker never mutates <code>chunks</code>,
+  <code>budget</code>, <code>atlas_allocator</code>, or <code>persistent_buffer</code>. The <code>&amp;system</code> it is handed
+  (<code>pack_thread_func(system, …)</code>) is <em>nominal</em> — the snapshot boundary is what keeps it safe.</li>
+<li><strong>All shared-state mutation (slot release, budget deltas, buffer_update) happens on the
+  serialized caller's thread</strong> inside <code>process_upload_queue</code> / <code>_begin_chunk_upload</code> /
+  eviction — i.e. inside the <code>update_streaming</code> call, on whichever thread made it (render
+  thread on the <code>render_streaming_frame</code> path, main thread on the headless
+  <code>tick_streaming_only</code> path). No pack worker ever performs these mutations.</li>
+</ul>
+<p><strong>Decision — document the per-API contract, detect violations, add no lock:</strong></p>
+<ol>
+<li>Document in <code>gaussian_streaming.h</code> (per method) and MEMORY_SUBSYSTEM.md: <em>"<code>GaussianStreamingSystem</code>
+   render-facing state (<code>chunks</code>, <code>budget</code>/ledger, <code>atlas_allocator</code>, <code>persistent_buffer</code>,
+   <code>asset_registry</code>) has exactly one active caller at a time. That caller is the render thread
+   on the <code>render_streaming_frame</code> path and the </em><em>main thread</em><em> on the headless
+   <code>tick_streaming_only</code> path; both are supported. The only cross-thread channel is the
+   <code>pack_mutex</code>-guarded pack/upload queue, which carries value snapshots only."</em>
+   Every public method carries its <code>[SERIALIZED]</code> / <code>[SNAPSHOT-SAFE]</code> / <code>[READ-ONLY]</code> tag
+   from the §3b table in its header doc comment.</li>
+<li>Add the <code>DEV_ENABLED</code> <code>SerializedAccessScope</code> (§3c) to every <code>[SERIALIZED]</code> entry point.
+   It is a <strong>detector, not a lock, and not a thread-identity assert</strong> — it must not reject
+   the headless main-thread path, the script-bound path, or the doctests.</li>
+<li>When residency mutation moves into <code>ChunkResidencyLedger</code> (§2a), the ledger owns the token:
+   every mutating ledger method scopes it, turning "single caller by convention" into
+   "single writer, checked." Because a <code>[SERIALIZED]</code> entry point reaches those ledger
+   methods <strong>within the same call</strong> (§3c), the scope must be re-entrant by depth for the
+   holding thread; a flat "same thread ⇒ error" token would fail on the normal path.</li>
+</ol>
+<p><strong>D-READONLY (open — owner decision).</strong> §3b classifies diagnostics getters as <code>[READ-ONLY]</code>
+and documents them as advisory: a caller racing a <code>[SERIALIZED]</code> call may read a stale or
+torn value. For the <strong>scalar</strong> counters that is a deliberate, defensible trade — the cost of
+synchronizing them is real and the consumers are HUDs and tests. It is recorded here so it
+is an accepted trade rather than an omission.</p>
+<p><code>analytics_snapshot</code> is <strong>not</strong> in that category, and this is the part that needs a decision
+rather than a disclosure. It is a <code>Dictionary</code>, so a racing read is a refcount race on a
+non-atomic pointer (<code>core/variant/dictionary.cpp:43-44</code>), i.e. undefined behavior, not a
+torn view. The three dispositions:</p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>What it means</th>
+<th>Cost</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>A — publish under a swap</strong></td>
+<td><code>end_frame</code> builds the new <code>Dictionary</code> locally and publishes it through an atomically-swapped shared pointer; readers take a ref off the published pointer.</td>
+<td>One indirection + a small allocation per frame; no new lock over render-facing state, so §3e is unaffected.</td>
+</tr>
+<tr>
+<td><strong>B — reclassify</strong></td>
+<td><code>get_streaming_analytics</code> becomes <code>[SERIALIZED]</code>-adjacent: documented as "must not be called concurrently with <code>end_frame</code>", enforced by the §3c token.</td>
+<td>Free, but it makes a <strong>bound script getter</strong> unsafe-by-contract, which is close to the public-API break §3a rejected.</td>
+</tr>
+<tr>
+<td><strong>C — accept</strong></td>
+<td>Document the race and move on.</td>
+<td>Free, and wrong: it is UB, and the current wording ("torn view") understates it. Listed for completeness only.</td>
+</tr>
+</tbody>
+</table>
+<p>This ADR does <strong>not</strong> pick one. Whichever is chosen must become an invariant so a slice can
+be graded on it; A is the only option that keeps the bound getter safe from script without a
+contract break.</p>
+<p>No lock is added over the serialized state (the module <code>AGENTS.md</code> forbids inventing a
+second lock over the same data). The streaming subsystem's existing lock inventory is
+unchanged — see §3e, which corrects the "sole lock" claim an earlier revision made.</p>
+<h3 id="3e-the-streaming-lock-inventory-there-are-two-locks-not-one">3e. The streaming lock inventory — there are <strong>two</strong> locks, not one<a class="headerlink" href="#3e-the-streaming-lock-inventory-there-are-two-locks-not-one" title="Permanent link">¶</a></h3>
+<blockquote>
+<p><strong>Correction (review round 2).</strong> Both an earlier revision of this ADR and its round-1
+invariant <strong>I9</strong> asserted <em>"<code>pack_mutex</code> remains the only lock in the streaming subsystem."</em>
+<strong>That was false on the day it was written</strong>, which is worse than having no invariant at all:
+a grep guard written to enforce "exactly one lock" would have failed immediately, and the
+likely reaction would have been to weaken the guard rather than to fix the statement.</p>
+</blockquote>
+<p>The streaming subsystem declares exactly two locks (plus one semaphore), verified by grep over
+<code>core/gaussian_streaming.*</code> and <code>core/streaming_*</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Lock</th>
+<th>Declared at</th>
+<th>Guards</th>
+<th>Cross-thread role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pack_mutex</code></td>
+<td><code>core/streaming_upload_pipeline.h:261</code></td>
+<td>the pack-job and pending-upload queues</td>
+<td>the pack-worker ↔ serialized-caller channel (§3d)</td>
+</tr>
+<tr>
+<td><code>file_mutex</code></td>
+<td><code>core/streaming_chunk_payload_source.h:97</code> (<code>mutable</code>)</td>
+<td>the per-thread <code>FileAccess</code> cache and the I/O byte counters in <code>ChunkPayloadSource</code></td>
+<td>serializes file I/O for payload reads; guards <strong>no</strong> render-facing state</td>
+</tr>
+</tbody>
+</table>
+<p>They are disjoint by design: <code>file_mutex</code> protects an I/O-side cache inside the payload source
+and never touches <code>chunks</code>, <code>budget</code>, <code>atlas_allocator</code>, or <code>persistent_buffer</code>. <code>pack_semaphore</code>
+(<code>streaming_upload_pipeline.h:262</code>) is a worker wake signal, not a mutex.</p>
+<p>The invariant worth holding is therefore the one now stated as <strong>I9</strong>: <em>no </em><em>new</em><em> lock over
+render-facing state, and no streaming path acquires the director's <code>world_mutex</code>.</em> The second
+clause, <strong>as originally worded, is false on the base — and an earlier revision of this section
+narrowed the guard in a way that hid that rather than fixing it.</strong> Both errors are corrected
+here.</p>
+<p><em>What is true:</em> no streaming TU <strong>textually references</strong> <code>world_mutex</code>. Verified zero hits in
+<code>core/gaussian_streaming.cpp</code>, <code>core/streaming_*.cpp</code> and
+<code>renderer/render_streaming_orchestrator.cpp</code>. (<code>world_mutex</code> is also not confined to
+<code>core/gaussian_splat_scene_director.cpp</code> — it is declared at
+<code>core/gaussian_splat_scene_director.h:615</code> and locked at
+<code>core/scene_director_sphere_effectors.cpp:156</code>, <code>:191</code>, <code>:338</code>, <code>:344</code>, all legitimate
+director-side uses. So the original "zero references outside the director <code>.cpp</code>" guard was
+red on the base and would have been weakened rather than obeyed.)</p>
+<p><em>What is </em><em>not</em><em> true:</em> the streaming path <strong>does</strong> acquire <code>world_mutex</code>, indirectly, through
+the director's <code>*_for_renderer</code> API. <code>RenderStreamingOrchestrator</code> calls <strong>seven</strong> such methods, and
+<strong>all seven lock it</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Director method called from <code>render_streaming_orchestrator.cpp</code></th>
+<th>Locks <code>world_mutex</code> at</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>update_instance_lods_for_renderer</code></td>
+<td><code>gaussian_splat_scene_director.cpp:1404</code></td>
+</tr>
+<tr>
+<td><code>build_instance_buffer_for_renderer</code></td>
+<td><code>:1589</code></td>
+</tr>
+<tr>
+<td><code>get_instance_generation_for_renderer</code></td>
+<td><code>:2021</code></td>
+</tr>
+<tr>
+<td><code>get_instance_asset_generation_for_renderer</code></td>
+<td><code>:2030</code></td>
+</tr>
+<tr>
+<td><code>collect_instance_assets_for_renderer</code></td>
+<td><code>:2787</code></td>
+</tr>
+<tr>
+<td><code>build_instance_grading_buffer_for_renderer</code></td>
+<td><code>gaussian_splat_scene_director.cpp:1810</code></td>
+</tr>
+<tr>
+<td><code>get_sphere_effector_generation_for_renderer</code></td>
+<td><code>scene_director_sphere_effectors.cpp:344</code></td>
+</tr>
+</tbody>
+</table>
+<p>A textual-grep guard over streaming TUs stays <strong>green</strong> through every one of these, so scoping
+I9 that way would have produced a guard that cannot detect the condition it exists to detect —
+the precise failure this ADR twice warns about elsewhere. I9 is therefore restated below
+against what is actually enforceable: <strong>no <em>new</em> and no <em>direct</em> acquisition, plus a frozen
+allow-list for the seven existing indirect ones.</strong> This is the clause that protects against the
+lock-order inversion the sibling ADR (<code>adr-decompose-scene-director</code>) is fighting, and the
+allow-list is what makes it checkable.</p>
+<h2 id="4-staged-migration-ci-green-at-every-step">4. Staged migration (CI green at every step)<a class="headerlink" href="#4-staged-migration-ci-green-at-every-step" title="Permanent link">¶</a></h2>
+<p>Each slice is an independently reviewable PR; none weakens a guard. Slices 1–3 are pure
+refactors provable byte-identical; 4–6 shift ownership behind the same external behavior.</p>
+<ol>
+<li><strong>S1 — extract <code>ChunkResidencyLedger</code> behind the current struct (no behavior change).</strong>
+   Wrap <code>BudgetState</code> in the ledger, route the five free functions (§1a) through it. Replace the
+   four duplicated loops (§1b) with <code>on_chunk_released</code>, unifying the <code>:3873</code> guard divergence
+   (a style unification — <strong>not</strong> a bug fix; see the §1b correction).
+   <em>Evidence:</em> <code>tests/runtime</code> streaming tests + <code>get_vram_debug_stats</code> parity;
+   <code>test_gpu_streaming.cpp</code> VRAM-accounting cases must be unchanged.</li>
+<li><strong>S2 — fold the pipeline's 8 direct <code>atlas_allocator.release_slot</code> sites</strong> into ledger
+   <code>on_chunk_released</code>/<code>on_upload_failed</code> calls so slot+bytes move as one. <em>Evidence:</em> invariant
+   counters (<code>invariant_slot_ownership_violations</code>, <code>streaming_runtime_state.h:118</code>) stay 0.</li>
+<li><strong>S3 — resolve #222 init dedup</strong> by extracting the shared <code>_reset_runtime_state()</code> from
+   <code>initialize</code> (<code>gaussian_streaming.cpp:535-773</code>) and <code>initialize_empty</code> (<code>:782-950</code>). Do this
+   <em>after</em> S1 so the ledger reset is a single call in the shared helper. Closes #222.</li>
+<li><strong>S4 — <code>ChunkResidencyStore</code>:</strong> move <code>chunks</code>/<code>asset_registry</code> behind typed accessors;
+   convert <code>StreamingEvictionController</code> to <code>plan(EvictionContext) -&gt; EvictionPlan</code> (drop
+   <code>&amp;system</code>).</li>
+<li><strong>S5 — convert <code>StreamingVisibilityController</code> and <code>StreamingGlobalAtlasRegistry</code> to read
+   views;</strong> delete the two <code>friend class GaussianStreamingSystem</code> grants and narrow the four in
+   <code>gaussian_streaming.h:31-34</code>. This is the step that actually <em>removes</em> friendship.</li>
+<li><strong>S6 — tag every public entry point with its §3b class, add the <code>SerializedAccessScope</code>
+   detector (§3c)</strong>, and rewrite the stale MEMORY_SUBSYSTEM.md layout/component sections
+   (#563) to match the new ownership map. Update <code>renderer-lifetime-ownership.md</code> cross-refs.
+   S6 <strong>no longer carries #591</strong> — the cross-route helper is rejected in §2d.
+   <em>Evidence:</em> the full module test suite passes <strong>unchanged</strong> with <code>DEV_ENABLED</code> on (proving
+   the detector does not reject the doctest main-thread callers), plus a headless
+   <code>tick_streaming_only</code> run (proving the main-thread production path is not rejected).
+   A slice that changes any test to accommodate the detector is rejected.</li>
+</ol>
+<p>Guards that must stay green throughout: <code>run_module_tests.py --guard-only</code> (layout-sync guard
+covers mirror structs incl. <code>ChunkQuantizationGPU</code>/<code>RenderParams</code>), the cull-signature parity
+guard, and the shader-permutation compile guard. Because no GPU payload layout changes in S1–S6,
+the atlas stride guard is untouched.</p>
+<h2 id="5-sequencing-with-582-sh-capture-and-513-stride-flip">5. Sequencing with #582 (SH capture) and #513 (stride-flip)<a class="headerlink" href="#5-sequencing-with-582-sh-capture-and-513-stride-flip" title="Permanent link">¶</a></h2>
+<p>Both pending fixes touch code this ADR reorganizes; <strong>land them first, then refactor onto the
+fixed baseline</strong> — refactoring under them would force a rebase of a security fix and a
+data-integrity fix through a large ownership move.</p>
+<h3 id="582-sh-capture-heap-overflow-payload-code-before-s1">#582 — SH-capture heap overflow (payload code) → <strong>before S1</strong><a class="headerlink" href="#582-sh-capture-heap-overflow-payload-code-before-s1" title="Permanent link">¶</a></h3>
+<h1 id="582-is-a-memory-safety-fix-on-the-untrusted-asset-boundary-in">582 is a memory-safety fix on the untrusted-asset boundary in<a class="headerlink" href="#582-is-a-memory-safety-fix-on-the-untrusted-asset-boundary-in" title="Permanent link">¶</a></h1>
+<p><code>streaming_chunk_payload_source.cpp</code> (64-bit <code>sh_byte_count</code> vs <code>uint32_t</code>-truncated <code>resize</code>,
+overrun in <code>_read_exact</code>). The pack path this ADR keeps intact consumes exactly that capture
+API: <code>_pack_chunk_data</code> calls <code>capture_indexed_chunk_snapshot</code> / <code>capture_chunk_snapshot</code>
+(<code>gaussian_streaming.cpp:3590-3616</code>), and the async worker builds its snapshot the same way
+(<code>build_pending_upload_from_pack_job</code>). <strong>Sequence:</strong> merge #582 first. Then, in S1's snapshot
+boundary documentation (§3), cite the now-hardened capture contract as the reason the worker is
+safe. This also dovetails with #606 (raw-storage snapshot contract): the ledger/store
+refactor should route <em>all</em> worker reads through <code>capture_*</code> snapshots, never raw storage — so
+S4/S5 are the natural place to also close #606's three raw-reference call sites if scheduled
+together (out of scope to fix here, but the store's read-view API should not expose raw
+<code>GaussianData</code> storage to any worker).</p>
+<h3 id="513-stride-flip-hazard-gpu-payload-contract-before-s1-or-fold-into-s1">#513 — stride-flip hazard (GPU payload contract) → <strong>before S1, or fold into S1</strong><a class="headerlink" href="#513-stride-flip-hazard-gpu-payload-contract-before-s1-or-fold-into-s1" title="Permanent link">¶</a></h3>
+<h1 id="513-is-the-latent-hazard-where-_refresh_quantization_dc_compatibility-flips-the-effective">513 is the latent hazard where <code>_refresh_quantization_dc_compatibility</code> flips the effective<a class="headerlink" href="#513-is-the-latent-hazard-where-_refresh_quantization_dc_compatibility-flips-the-effective" title="Permanent link">¶</a></h1>
+<p>stride 80B↔144B (<code>_atlas_gaussian_stride_bytes</code>, <code>gaussian_streaming.cpp:3554-3562</code>) while
+chunks are already resident, so the shader reinterprets 80B payloads at 144B stride <em>and</em> the
+budget decrements at <code>:1491</code>/<code>:3874</code> use the <em>current</em> stride, skewing <code>vram_usage</code>. This ADR's
+<code>ChunkResidencyLedger</code> is the correct home for #513's fix: because the ledger becomes the single
+writer of <code>vram_usage</code>, it can record the <strong>stride each chunk was loaded at</strong> and decrement with
+<em>that</em> stride, not the current one — structurally preventing the budget skew half of #513. The
+GPU-corruption half (force evict/repack on effective-stride change) is a separate behavioral fix
+that must land in <code>_refresh_quantization_dc_compatibility</code> <strong>before</strong> S4 moves chunk ownership,
+so the evict-all path has a stable <code>chunks</code> owner to walk. <strong>Sequence:</strong> fix #513's evict/repack
+in the current structure first; capture the load-time stride when S1 introduces
+<code>on_chunk_loaded(…, chunk_bytes)</code> (pass bytes, not a recomputed stride) so the ledger is
+immune to later flips by construction.</p>
+<p><strong>Net ordering:</strong> #582 → #513 (evict/repack) → <strong>S1</strong> (ledger, capturing load-time bytes,
+absorbing #513's budget half) → S2 → <strong>#222/S3</strong> → S4 (+ optionally #606) → S5 (delete friends)
+→ S6 (tags + detector + #563 doc rewrite). #591 is <strong>not</strong> in this chain (§2d).</p>
+<h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">¶</a></h2>
+<ul>
+<li><strong>Positive:</strong> one writer for resident-bytes accounting (kills the four duplicated loops and
+  unifies the <code>:3873</code> guard divergence), friendship deleted (S5), the per-API thread contract
+  documented and detected rather than assumed, and #222/#513-budget/#563 close as by-products
+  on the same spine. (#591 is explicitly <em>not</em> one of them — §2d.)</li>
+<li><strong>Negative / cost:</strong> six sequenced PRs gated behind two pre-req bug fixes; S4–S5 touch hot
+  render-thread paths (R2–R3) and need GPU/runtime evidence per slice. The ledger adds one
+  indirection on the load/evict path (negligible; these are not per-splat).</li>
+<li><strong>Explicitly out of scope here:</strong> merging the resident and streaming orchestrator <em>policies</em>
+  (#591 keeps distinct sizing), the #543 chunked-staging/evict-then-grow work (orthogonal peak
+  memory), and any GPU atlas layout change.</li>
+</ul>
+<h2 id="6-invariant-list-what-every-slice-is-graded-against">6. Invariant list — what every slice is graded against<a class="headerlink" href="#6-invariant-list-what-every-slice-is-graded-against" title="Permanent link">¶</a></h2>
+<p>These are checkable. A slice that violates one is rejected regardless of whether CI is green;
+a slice that cannot show the evidence in §7 for the invariants it touches is "not run", never
+"passed".</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Invariant</th>
+<th>How it is checked</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>I1</strong></td>
+<td><code>vram_usage</code> == Σ bytes of chunks currently marked resident, and <code>loaded_chunks_count</code> == count of <code>is_loaded</code> chunks, at every <code>update_streaming</code> exit.</td>
+<td><code>get_vram_debug_stats</code> parity assertion in the streaming tests; must hold before and after each slice.</td>
+</tr>
+<tr>
+<td><strong>I2</strong></td>
+<td>After S1, <code>ChunkResidencyLedger</code> is the <strong>only</strong> code that writes <code>loaded_chunks_count</code>, <code>vram_usage</code>, <code>evicted_bytes_total</code>, or any <code>pending_*</code>/<code>retired_*</code> counter.</td>
+<td>Grep guard: zero writes to those fields outside the ledger TU. Mechanically checkable; add it as a CI guard in S1.</td>
+</tr>
+<tr>
+<td><strong>I3</strong></td>
+<td>There is <strong>exactly one</strong> <code>loaded_chunks_count</code> decrement site (inside the ledger) and it clamps rather than wraps. <strong>Note:</strong> this is a <em>structural</em> invariant, not a bug fix — see the §1b correction: today's four sites are behaviorally identical because every one of them is reached only when the chunk is <code>is_loaded</code>, so under I1 the counter is provably ≥ 1. I3 is graded as "one site exists", not as "an underflow was fixed."</td>
+<td>Follows from I2 + a unit test that over-releasing clamps and reports, rather than wrapping.</td>
+</tr>
+<tr>
+<td><strong>I4</strong></td>
+<td><code>vram_usage</code> is decremented with the <strong>stride the chunk was loaded at</strong>, never a recomputed current stride.</td>
+<td>Unit test: load at stride A, flip effective stride to B, release, assert <code>vram_usage</code> returns to its pre-load value (#513's budget half).</td>
+</tr>
+<tr>
+<td><strong>I5</strong></td>
+<td>A slot release and its byte decrement are one operation — no code path releases an atlas slot without the paired ledger call, or vice versa.</td>
+<td><code>invariant_slot_ownership_violations</code> (<code>streaming_runtime_state.h:118</code>) stays 0 across all streaming tests.</td>
+</tr>
+<tr>
+<td><strong>I6</strong></td>
+<td>Every public entry point carries exactly one §3b class tag in its header doc, and the set of <code>[SERIALIZED]</code> methods equals the set that mutates render-facing state.</td>
+<td>Review checklist + a doc/code parity guard in S6 (tag present for every public method).</td>
+</tr>
+<tr>
+<td><strong>I7</strong></td>
+<td><strong>No <code>[SERIALIZED]</code> entry point asserts thread identity.</strong> The headless <code>tick_streaming_only</code> main-thread path, the <code>ClassDB</code>-bound script path, and the doctest callers all remain valid.</td>
+<td>Module test suite passes unchanged with <code>DEV_ENABLED</code>; headless run of the <code>tick_streaming_only</code> path produces no new errors. This invariant exists specifically to prevent re-introducing the rejected blanket assert.</td>
+</tr>
+<tr>
+<td><strong>I8</strong></td>
+<td>No pack worker reads owner state. <code>build_pending_upload_from_pack_job</code> and every worker entry take only value snapshots; after S2 no worker signature takes <code>GaussianStreamingSystem &amp;</code>.</td>
+<td>Signature review + grep: zero <code>&amp;system</code> parameters on worker-thread functions.</td>
+</tr>
+<tr>
+<td><strong>I9</strong></td>
+<td><strong>No slice adds a NEW lock over render-facing state</strong> (<code>chunks</code>, budget/ledger, <code>atlas_allocator</code>, <code>persistent_buffer</code>, <code>asset_registry</code>). The two existing streaming locks stay at two, each keeping its current scope. <strong>No streaming TU acquires <code>world_mutex</code> directly</strong>, and the set of director methods through which the streaming path acquires it <strong>indirectly</strong> does not grow beyond the seven inventoried in §3e. <em>(Note the honest form: "no streaming path acquires <code>world_mutex</code>" is </em><em>false on the base</em><em> — see §3e. The enforceable invariant is no-new-and-no-direct, not none.)</em></td>
+<td>Three-part guard, all three of which bite: (1) <code>Mutex</code>/<code>RWLock</code> declarations in the streaming TUs stay at exactly the two named below; (2) <code>world_mutex</code> has zero <strong>textual</strong> references in <code>core/gaussian_streaming.*</code>, <code>core/streaming_*.{h,cpp}</code>, <code>renderer/render_streaming_orchestrator.cpp</code> — currently zero, catches a <em>direct</em> acquisition; (3) <strong>the allow-list check that actually matters</strong> — enumerate the director calls made from the streaming TUs, intersect with the director methods that lock <code>world_mutex</code>, and fail if that set differs from the seven in §3e. <strong>Match on the callee name, not on a receiver spelling</strong> — an earlier revision of this list was derived with <code>p_director-&gt;\w+_for_renderer</code> and consequently missed <code>build_instance_grading_buffer_for_renderer</code>, which is called through a bare <code>director-&gt;</code> receiver. Any receiver-anchored pattern will under-report and silently shrink the frozen set. Part (3) is required because parts (1)–(2) are green through all seven existing indirect acquisitions.</td>
+</tr>
+<tr>
+<td><strong>I10</strong></td>
+<td>Friendship strictly decreases. No slice adds a <code>friend</code> grant; S5 removes the six named grants (<code>gaussian_streaming.h:31-34</code>, <code>streaming_visibility_controller.h:54</code>, <code>streaming_global_atlas_registry.h:23</code>).</td>
+<td>Grep guard on <code>friend class</code> count in the streaming headers; monotonically non-increasing, zero after S5.</td>
+</tr>
+<tr>
+<td><strong>I11</strong></td>
+<td>No GPU payload layout changes in S1–S6; the atlas stride guard and the layout-sync guard are untouched.</td>
+<td><code>run_module_tests.py --guard-only</code> green; guard files unmodified in the diff.</td>
+</tr>
+<tr>
+<td><strong>I12</strong></td>
+<td>External behavior is preserved: same chunks resident, same eviction order, same visible count for a fixed camera path.</td>
+<td>Byte-identical <strong>residency/budget key subset</strong> of <code>get_streaming_analytics</code> / <code>get_vram_debug_stats</code> on a fixed scene before and after — <strong>not</strong> the whole snapshot, which embeds run-varying timing telemetry (see evidence item 4).</td>
+</tr>
+</tbody>
+</table>
+<h2 id="7-evidence-a-slice-must-produce">7. Evidence a slice must produce<a class="headerlink" href="#7-evidence-a-slice-must-produce" title="Permanent link">¶</a></h2>
+<p>Every slice states which invariants it touches and attaches, at minimum:</p>
+<ol>
+<li><strong>Guard lane:</strong> <code>run_module_tests.py --guard-only</code> green, plus any new guard the slice adds
+   (I2, I6, I9, I10 are guard-shaped and should land <em>with</em> the slice that makes them true).</li>
+<li><strong>Targeted tests:</strong> the streaming suites (<code>test_gpu_streaming.cpp</code>,
+   <code>test_gaussian_streaming_lifecycle.cpp</code>) green <strong>without modification</strong>. Modifying an
+   existing test to accommodate a slice is a review blocker unless the diff shows the old
+   assertion encoded a bug being fixed, with a written reason.</li>
+<li><strong>Fixture non-vacuity (mandatory — see §1e):</strong> any scene-level or characterization fixture a
+   slice adds must be built on <strong><code>GaussianSplatWorld3D</code> with <code>route_policy</code> pinned to
+   <code>GS_ROUTE_STREAMING</code></strong>. A <code>GaussianSplatNode3D</code> fixture is hard-pinned resident
+   (<code>gaussian_splat_node_3d.cpp:2451-2464</code>, <code>:2508-2509</code>) and therefore exercises <strong>no</strong>
+   streaming code — such a fixture is vacuous and its green result is not evidence. Every
+   streaming fixture must additionally assert a <strong>non-zero</strong> streaming counter (e.g.
+   <code>get_vram_debug_stats().loaded_chunks_count &gt; 0</code>) before its behavioral assertions, so a
+   fixture that silently fell back to the resident route fails instead of passing empty.</li>
+<li><strong>Accounting parity (I1, I12):</strong> <code>get_vram_debug_stats</code> + <code>get_streaming_analytics</code> captured
+   on a fixed camera path on the immutable base and on the head, diffed and attached.
+   <strong>Compare the residency/accounting key subset only — not the whole snapshot.</strong> The analytics
+   Dictionary also carries live timing and contention telemetry that varies run-to-run on an
+   identical camera path: the <code>scheduler_*_cpu_ms</code>, <code>pack_queue_latency_*</code> and <code>pack_mutex_wait_*</code>
+   families, populated from <code>exchange_and_reset()</code> tick/atomic counters
+   (<code>streaming_diagnostics_surface.cpp:199-233</code>, <code>:323-348</code>). Requiring byte-identity over those
+   makes the lane fail on timing noise rather than semantic drift — which trains reviewers to
+   wave the diff through, defeating the parity check. The compared set is the residency and
+   budget keys (resident/loaded chunk counts, <code>vram_usage</code>, eviction and admission counters,
+   visible count); timing keys are reported for information and may carry tolerances, never
+   equality.</li>
+<li><strong>Runtime/GPU evidence (R2 slices — S1, S2, S4, S5):</strong> the streaming lanes of the runtime
+   harness on the GPU runner, with peak VRAM and overflow counters. Agents cannot raster
+   locally; a slice without runner output reports "not run", never "passed".</li>
+<li><strong>Threading evidence (S6 only):</strong> module tests with <code>DEV_ENABLED</code> on, plus a headless
+   <code>tick_streaming_only</code> run, demonstrating I7 — the detector fires on neither.</li>
+<li><strong>Base anchoring:</strong> the base SHA, and confirmation that the <code>file:line</code> anchors used were
+   re-verified against it (they drift; see the anchoring note in the header).</li>
+</ol>
+<p>No slice may weaken a guard, threshold, or baseline to pass. If a slice cannot hold an
+invariant, it is split or the invariant is renegotiated in a follow-up to this ADR — not
+silently dropped.</p>
+
+
+
+
+
+
+
+  
+    
+  
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 22, 2026 15:48:56 UTC">July 22, 2026</span>
+  </span>
+
+    
+    
+    
+    
+  </aside>
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden="">
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"></path></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.indexes", "navigation.path", "navigation.top", "navigation.footer", "content.code.copy", "content.code.annotate", "search.highlight", "search.suggest"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../../js/mkdocs-charts-plugin.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/vega-lite@5"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
+      
+    
+  
+<script id="init-glightbox">const lightbox = GLightbox({"touchNavigation": true, "loop": false, "zoomable": true, "draggable": true, "openEffect": "zoom", "closeEffect": "zoom", "slideEffect": "slide"});
+document$.subscribe(()=>{ lightbox.reload(); });
+</script></body></html>

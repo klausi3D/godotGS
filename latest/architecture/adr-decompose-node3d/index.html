@@ -1,0 +1,3042 @@
+<!DOCTYPE html><html lang="en" class="no-js"><head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Versioned documentation for the Godot Gaussian Splatting module.">
+      
+      
+      
+        <link rel="canonical" href="https://klausi3d.github.io/godotGS/latest/architecture/adr-decompose-node3d/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/branding/godotgs-mark.png">
+      <meta name="generator" content="mkdocs-ProperDocs 1.6.7, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>ADR: Decompose the GaussianSplatNode3D god-class by ownership, not friendship - Godot Gaussian Splatting Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/styles/brand.css">
+    
+      <link rel="stylesheet" href="../../assets/styles/components.css">
+    
+      <link rel="stylesheet" href="../../assets/styles/landing.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  <link href="../../assets/stylesheets/glightbox.min.css" rel="stylesheet"><script src="../../assets/javascripts/glightbox.min.js"></script><style id="glightbox-style">
+            html.glightbox-open { overflow: initial; height: 100%; }
+            .gslide-title { margin-top: 0px; user-select: text; }
+            .gslide-desc { color: #666; user-select: text; }
+            .gslide-image img { background: white; }
+            .gscrollbar-fixer { padding-right: 15px; }
+            .gdesc-inner { font-size: 0.75rem; }
+            body[data-md-color-scheme="slate"] .gdesc-inner { background: var(--md-default-bg-color); }
+            body[data-md-color-scheme="slate"] .gslide-title { color: var(--md-default-fg-color); }
+            body[data-md-color-scheme="slate"] .gslide-desc { color: var(--md-default-fg-color); }
+        </style></head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#adr-decompose-the-gaussiansplatnode3d-god-class-by-ownership-not-friendship" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden="">
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Godot Gaussian Splatting Docs" class="md-header__button md-logo" aria-label="Godot Gaussian Splatting Docs" data-md-component="logo">
+      
+  <img src="../../assets/branding/godotgs-mark.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"></path></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Godot Gaussian Splatting Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              ADR: Decompose the GaussianSplatNode3D god-class by ownership, not friendship
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom" aria-label="Switch to dark mode" type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden="">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"></path></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom" aria-label="Switch to light mode" type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden="">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"></path></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required="">
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix="">
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/klausi3D/godotGS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Start Here
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../user/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../contributor/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Contribute
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Godot Gaussian Splatting Docs" class="md-nav__button md-logo" aria-label="Godot Gaussian Splatting Docs" data-md-component="logo">
+      
+  <img src="../../assets/branding/godotgs-mark.png" alt="logo">
+
+    </a>
+    Godot Gaussian Splatting Docs
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/klausi3D/godotGS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix="">
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../getting-started/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start Here
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start Here
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/downloads/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Downloads
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/try-in-5-minutes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Try in 5 Minutes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Public Evaluator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/recurring-issues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recurring Issues
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../user/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Artist Workflow Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Manual: Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../workflows/importing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gaussian Splat Asset Import Workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/workflows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow Details
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/runtime-behavior/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Manual: Runtime Behavior
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/lighting-behavior/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Manual: Lighting Behavior
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/performance-presets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Presets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/faq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FAQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/project-settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Settings Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/compatibility-matrix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compatibility Matrix
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gaussian_splat_node3d/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GaussianSplatNode3D API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gdscript_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GDScript API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/shader_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Shader Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/color-grading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Color Grading Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migration Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../contributor/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contribute
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contribute
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributor/reviewer-fast-path/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reviewer Fast Path
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributor/onboarding/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributor Onboarding
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../BUILDING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/build-test-ci/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build / Test / CI Command Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../testing/setup-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing Setup Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../testing/benchmark-suite/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmark Runner
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../governance/contribution-standards/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contribution Standards
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/docs-site/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Versioned Docs Site
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../style/documentation-style-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation Style Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+      
+        <li class="md-nav__item">
+  <a href="#context-problem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context / problem
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Context / problem">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#current-responsibility-map-every-concern-the-node-owns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Current responsibility map — every concern the node owns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#load-bearing-comment-invariants-that-must-become-structural" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Load-bearing comment invariants that must become structural
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b1-the-gating-matrix-that-must-be-carried-forward-verbatim" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B1 — the gating matrix that must be carried forward verbatim
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Decision">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#target-collaborators-owned-members-no-friend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Target collaborators (owned members, no friend)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-1-is-a-functional-coreimperative-shell-split-not-a-policy-object" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1 is a functional-core/imperative-shell split, not a policy object
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#making-the-four-invariants-structural" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Making the four invariants structural
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#one-writer-per-frame-camera-publication-550" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One-writer-per-frame camera publication (#550)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#staged-migration-each-step-compiles-and-is-ci-green-on-its-own" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Staged migration (each step compiles and is CI-green on its own)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#issue-closure-mapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Issue-closure mapping
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#invariant-list-what-every-step-is-graded-against" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Invariant list — what every step is graded against
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evidence-a-step-must-produce" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evidence a step must produce
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decisions-the-owner-needs-to-make" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decisions the owner needs to make
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="adr-decompose-the-gaussiansplatnode3d-god-class-by-ownership-not-friendship">ADR: Decompose the <code>GaussianSplatNode3D</code> god-class by ownership, not friendship<a class="headerlink" href="#adr-decompose-the-gaussiansplatnode3d-god-class-by-ownership-not-friendship" title="Permanent link">¶</a></h1>
+<ul>
+<li><strong>Status:</strong> Proposed — awaiting owner sign-off. Design-note-before-implementation;
+  no production code changes in this PR. <strong>Revised twice under review</strong>; round-2 corrections
+  (false "pure <code>QualityPolicy</code>" premise, missing P4, field count 87, retracted vacuity claim,
+  risk labels) are marked inline.</li>
+<li><strong>Risk class:</strong> <strong>R0 for this document.</strong> It is docs-only (<code>docs/architecture/**</code>), and
+  per <code>docs/governance/agentic-engineering.md:83</code> R0 is <em>"Docs and agentic governance only."</em>
+  (Corrected in review round 2: the previous revision labelled this ADR <strong>R2</strong>, which per
+  <code>:85</code> is the <em>renderer/GPU</em> class and would demand runtime/GPU evidence this document
+  cannot produce.) The <em>implementation</em> it authorizes spans R1→R3; each step carries the
+  risk class of the files it edits, re-derived by CI from the diff. See the per-step labels
+  in §"Staged migration" — note in particular that <code>:86</code> makes <strong>public API/compat</strong> an
+  <strong>R3</strong> trigger, so <em>every</em> step that touches the 38 <code>ADD_PROPERTY</code> registrations, the 100
+  <code>ClassDB::bind_method</code> bindings, or the <code>_set</code>/<code>_get</code> compat shim
+  (<code>gaussian_splat_node_3d.cpp:576ff</code>) is <strong>R3</strong> — not only Step 3.</li>
+<li><strong>Base SHA:</strong> <code>237a4b1cc3965fdbd6f12dec825c0e2077b2e9ce</code> (<code>origin/master</code> at authoring time).</li>
+<li><strong>⚠ Anchor status (review round 3) — the round-2 "byte-identical" claim is now FALSE and
+  the §B1 matrix needs re-anchoring before Step 2 is authored.</strong> Round 2 stated that
+  <code>gaussian_splat_node_3d.{h,cpp}</code> and <code>gaussian_splat_node_helpers.cpp</code> were byte-identical
+  between the base and master, so every anchor held against both. That was true at
+  <code>9161d92f349</code>. It is <strong>not</strong> true at <code>b15c6ddda46</code>: two further commits have landed on
+  <code>modules/gaussian_splatting/nodes/</code> — <code>ab847aeabf3</code> (<em>"converge P2 shared-renderer gating
+  on peer-set change + gate painterly (#329) (#667)"</em>) and <code>d6def0641aa</code> (<em>"delete two dead
+  scene-effector helpers … (#680)"</em>) — for a combined <code>node_3d.cpp +96</code>, <code>node_3d.h +11</code>,
+  <code>helpers.cpp +30</code>.</li>
+</ul>
+<p>Material consequences, because they land <strong>on the frozen §B1 matrix itself</strong>:
+  - <strong>The two painterly rows below are superseded by #667.</strong> At the base, painterly renderer
+    writes were P1-only. At master they are <strong>P1 <em>and</em> P2</strong>, with <code>set_painterly_enabled</code>
+    <em>forced to <code>false</code></em> when the renderer is shared: <code>helpers.cpp:1415-1421</code> —
+    <code>const bool painterly_shared = _is_renderer_shared_with_other_content(owner);
+    owner.renderer-&gt;set_painterly_enabled(painterly_shared ? false : owner.enable_painterly);
+    if (!painterly_shared) { …edge_threshold/stroke_opacity/stroke_length/gamma… }</code>. Both
+    rows are annotated inline below.
+  - The colour-grading anchor moved <code>helpers.cpp:1403-1410</code> → <code>:1423-1429</code>.
+  - <code>node_3d.h</code> gained <code>_converge_shared_renderer_state()</code> /
+    <code>_notify_renderer_peers_shared_state_changed()</code> — a <strong>new P2 surface</strong> that the concern
+    map does not list.</p>
+<p>Anchors that <strong>did</strong> survive unchanged and remain valid against both SHAs: <code>node_3d.cpp:517-536</code>,
+  <code>:41-58</code>, <code>:1011-1089</code>, <code>helpers.cpp:1294-1325</code>, <code>:1368</code>, <code>:697/710/729</code>, <code>:699/712/731</code>,
+  <code>:781</code>, <code>:995</code>, <code>node_3d.h:123-128</code>.</p>
+<p><strong>This is a re-freeze, not a re-anchor.</strong> #667 deliberately <em>changed</em> P2 behavior, so §B1
+  cannot simply be re-pointed at new line numbers — the matrix must be re-derived against a
+  current base and D5 re-confirmed against the new behavior. Until that happens, a Step 2
+  matrix test written from the rows below would encode pre-#667 semantics and fail on head.
+  Only invariant A's <code>gaussian_splat_world_3d.cpp:112-166</code> anchor was previously flagged for
+  re-checking; that still stands, and is now the smaller of the two problems.
+- <strong>Primary issue:</strong> #552 (decompose the god-class). <strong>Also closes / advances:</strong> #551
+  (PREDELETE ordering → structural), #550 (per-frame camera writers → one writer).
+  <strong>Coordinates with:</strong> #578 / #516 / #517 (world-node lifecycle, in flight), #558
+  (script-instantiable internals), #357 &amp; #547 (settings ownership / config-loader dedup),
+  #299 (missing node integration coverage), #592 (editor preview worker — adjacent).</p>
+<blockquote>
+<p><strong>Issue-number note for reviewers.</strong> The task brief referred to the god-class as #548,
+the camera writes as #547, and "settings-ownership #544". The <em>actual</em> GitHub issues are
+<strong>#552</strong> (god-class), <strong>#550</strong> (camera writes), and <strong>#357/#547</strong> (settings). #548 is a
+<code>GaussianData</code> naming collision and #544 is the uint32 streaming-buffer cap — unrelated.
+This ADR uses the verified numbers.</p>
+</blockquote>
+<h2 id="context-problem">Context / problem<a class="headerlink" href="#context-problem" title="Permanent link">¶</a></h2>
+<p><code>nodes/gaussian_splat_node_3d.{h,cpp}</code> is 870 + 2,759 lines and delegates to a 1,499-line
+<code>gaussian_splat_node_helpers.cpp</code> holding <strong>six friend-helper objects</strong>. Issue #552's fix
+direction is precise: <em>"carve real ownership seams … as owned members, not friends. …
+friend-decomposition widens state aliasing instead of shrinking it."</em></p>
+<p>That is exactly what exists today. The helpers are declared <code>friend</code> and each holds a bare
+<code>GaussianSplatNode3D &amp;owner</code> (<code>gaussian_splat_node_helpers.h:11-111</code>), and the node header
+itself documents that they <em>"access 50+ private fields and methods"</em>
+(<code>gaussian_splat_node_3d.h:118-128</code>). The six helpers are instantiated as value members
+(<code>gaussian_splat_node_3d.h:258-263</code>) but every method reaches back into <code>owner.&lt;private&gt;</code>.
+The result is one shared mutable-state blob split across two files — the surface area is not
+reduced, only relocated. All <strong>87</strong> private fields (<code>gaussian_splat_node_3d.h:131-263</code>)
+remain co-owned by seven objects.</p>
+<blockquote>
+<p><strong>Field count corrected to 87 (review round 2).</strong> Earlier revisions said "~50" (inherited
+from the header's own stale <code>50+</code> comment) and an intermediate review said <strong>77</strong>. Both are
+undercounts. The verified figure is <strong>87</strong> member-variable declarations in the private
+block <code>h:131-263</code>, counted by stripping trailing <code>//</code> comments and treating a <code>(</code> that
+appears <em>after</em> the <code>=</code> as an initializer rather than a parameter list. The two ways to get
+77 are both methodology artifacts, reproduced exactly: truncating the region at <code>h:257</code> drops
+the <strong>6</strong> helper composites (<code>h:258-263</code>), and a comment-blind line filter drops the <strong>4</strong>
+declarations carrying trailing comments (<code>h:142</code>, <code>:143</code>, <code>:154</code>, <code>:163</code>); 87 − 6 − 4 = 77.
+A naive <code>(</code>-excluding filter additionally drops the 3 value-initialized fields <code>h:173</code>
+(<code>Vector3 wind_direction = Vector3();</code>), <code>h:225</code> (<code>ObjectID cached_viewport_id = ObjectID();</code>)
+and <code>h:231</code> (<code>Vector2i cached_viewport_size = Vector2i();</code>) while falsely counting the
+<code>};</code> at <code>h:223</code> that closes the <code>ViewportTextureState</code> enum. <strong>Use 87.</strong> The header's own
+<code>50+</code> comment at <code>h:120</code> is stale by 37 fields and should be corrected by whichever step
+first edits that block.</p>
+</blockquote>
+<h3 id="current-responsibility-map-every-concern-the-node-owns">Current responsibility map — every concern the node owns<a class="headerlink" href="#current-responsibility-map-every-concern-the-node-owns" title="Permanent link">¶</a></h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Concern</th>
+<th>State (h)</th>
+<th>Entry points</th>
+<th>Helper (friend)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>Asset binding</strong> — imported PLY/SPZ resource, connect/disconnect <code>changed</code>, reload with <code>CACHE_MODE_REPLACE</code> 3-failure handling, import-metadata flags, bounds recompute, <code>ply_file_path</code> legacy migration</td>
+<td><code>splat_asset</code>, <code>runtime_asset</code>, <code>asset_loading</code>, <code>asset_lod_enabled</code>, <code>asset_optimize_for_gpu</code> (<code>:131-143</code>)</td>
+<td><code>set_splat_asset</code> (<code>cpp:686</code>), <code>_load_asset</code> (<code>cpp:1792</code>), <code>_update_asset</code>, <code>_clear_asset</code>, <code>_on_asset_changed</code>, <code>_set</code> migration (<code>cpp:594</code>)</td>
+<td>AssetHelper (<code>helpers.cpp:136-272</code>)</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>Procedural / manual data</strong> — validate 11 arrays, build <code>GaussianData</code>, synthesize opacity/SH from colors, compute bounds, build runtime asset</td>
+<td><code>renderer_data</code> (<code>:237</code>)</td>
+<td><code>set_splat_data</code> + 8 <code>_…splat…</code> privates (<code>cpp:723-971</code>)</td>
+<td>— (on node)</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>Quality / LOD / streaming policy</strong> — 4 preset tables ×~28 keys, tier caps, clamps, effective-config snapshot + WARN-on-cap logging</td>
+<td><code>quality_preset</code>, <code>lod_bias</code>, <code>max_render_distance</code>, <code>max_splat_count</code>, <code>lod_config</code>, <code>streaming_config</code>, <code>effective_config_snapshot</code> (<code>:136-147</code>)</td>
+<td><code>set_quality_preset</code>/<code>set_lod_bias</code>/…</td>
+<td>QualityHelper (<code>helpers.cpp:760-1207</code>, ~450 lines — the largest concern)</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>Painterly</strong> — brush params + <code>PainterlyManager</code></td>
+<td><code>enable_painterly</code>, <code>edge_threshold</code>, <code>stroke_opacity</code>, <code>stroke_width</code>, <code>color_variation</code>, <code>temporal_blend</code>, <code>painterly_seed</code>, <code>painterly_manager</code> (<code>:150-157</code>)</td>
+<td><code>set_enable_painterly</code>/…, <code>_apply_painterly_settings</code> (<code>cpp:2077</code>)</td>
+<td>— (on node)</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>Renderer registration + settings ownership</strong> — shared <code>Ref&lt;GaussianSplatRenderer&gt;</code>, director instance register/params/transform, the <strong>global settings-owner lease</strong></td>
+<td><code>renderer</code>, <code>render_state_dirty</code>, <code>shared_renderer_multi_instance_state</code> (<code>:236-239</code>)</td>
+<td><code>_ensure_renderer</code>, <code>_apply_renderer_settings</code>, <code>_register_shared_renderer</code>, <code>_register_instance_in_director</code> (<code>cpp:2405</code>), <code>_update_instance_params_in_director</code> (<code>cpp:2499</code>)</td>
+<td>RendererHelper (<code>helpers.cpp:1294-1499</code>) + free-function owner map (<code>helpers.cpp:35-80</code>)</td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>GPU base storage</strong> — <code>gaussian_base</code> + <code>render_instance</code> RIDs against <code>GaussianSplatStorage</code> singleton</td>
+<td><code>render_instance</code>, <code>gaussian_base</code>, <code>last_known_scenario</code> (<code>:207-214</code>)</td>
+<td><code>_ensure_gaussian_base</code>/<code>_release_gaussian_base</code>/<code>_sync_gaussian_storage</code> (<code>cpp:2197-2252</code>), <code>_update_render_instance</code></td>
+<td>— (on node)</td>
+</tr>
+<tr>
+<td>7</td>
+<td><strong>Viewport bootstrap / render-target tracking</strong> — 3-state machine, observers, deferred bootstrap + first-frame render</td>
+<td><code>cached_viewport_*</code>, <code>observed_viewport</code>, <code>viewport_texture_state</code>, <code>*_deferred</code> (<code>:219-234</code>)</td>
+<td><code>_update_cached_render_target</code>, <code>_deferred_viewport_bootstrap</code>, <code>_on_viewport_*</code></td>
+<td>ViewportHelper (<code>helpers.cpp:274-597</code>, ~320 lines)</td>
+</tr>
+<tr>
+<td>8</td>
+<td><strong>Per-frame update + camera publication</strong> — update-mode gate, dirty upload, <strong><code>renderer-&gt;set_camera_transform/projection</code> every frame</strong></td>
+<td><code>render_state_dirty</code>, <code>shared_renderer_multi_instance_state</code></td>
+<td><code>process_gaussian_render</code> (<code>cpp:1633</code>), <code>update_splats</code> + 8 privates, <code>_update_viewport_render_state</code> (<strong>camera writes <code>cpp:1590-1591</code></strong>)</td>
+<td>— (on node)</td>
+</tr>
+<tr>
+<td>9</td>
+<td><strong>Visibility</strong> — CPU distance/frustum cull, parent-visibility tracking</td>
+<td><code>visible_in_viewport</code>, <code>parent_visible</code>, <code>parent_visibility_target</code>, <code>update_mode</code> (<code>:160,215-217</code>)</td>
+<td><code>_update_visibility</code> (<code>cpp:1974</code>)</td>
+<td>VisibilityHelper (<code>helpers.cpp:1209-1292</code>)</td>
+</tr>
+<tr>
+<td>10</td>
+<td><strong>Color grading</strong> — two-track replay state machine, per-instance director routing, bake/restore</td>
+<td><code>color_grading</code>, <code>grading_pushed_for_current_data</code>, <code>grading_explicit_pending</code> (<code>:177-192</code>)</td>
+<td><code>set_color_grading</code> (<code>cpp:2631</code>), <code>_push_color_grading_to_renderer</code>, <code>_replay_color_grading_if_pending</code> (<code>cpp:1914</code>)</td>
+<td>— (on node)</td>
+</tr>
+<tr>
+<td>11</td>
+<td><strong>Debug overlays / HUD</strong> — 13 flags, settings-manager persistence, child <code>CanvasLayer</code>+<code>Control</code></td>
+<td><code>show_*</code>, <code>debug_draw_mode</code>, <code>debug_overlay_opacity</code>, <code>debug_hud_*</code> (<code>:242-256</code>)</td>
+<td><code>set_show_*</code>, <code>_update_debug_hud_visibility</code> (<code>cpp:2141</code>)</td>
+<td>DebugHelper (<code>helpers.cpp:599-758</code>)</td>
+</tr>
+<tr>
+<td>12</td>
+<td><strong>Scene effectors / wind</strong> — layer mask, scope-root resolution, ancestor collection, per-instance wind override</td>
+<td><code>scene_effector_*</code>, <code>wind_*</code>, <code>effect_*_scale</code> (<code>:165-173</code>)</td>
+<td><code>_get_instance_wind_*</code> (<code>cpp:2361</code>), <code>_resolve_scene_effector_scope_root</code></td>
+<td>— (on node)</td>
+</tr>
+<tr>
+<td>13</td>
+<td><strong>Compat properties / serialization</strong> — <code>_set</code>/<code>_get</code>/<code>_get_property_list</code>/<code>_validate_property</code>, legacy fields, <code>stats/*</code> virtuals, inspector hiding</td>
+<td>—</td>
+<td><code>cpp:517-684</code></td>
+<td>— (on node)</td>
+</tr>
+<tr>
+<td>14</td>
+<td><strong>Stats / monitoring</strong></td>
+<td><code>visible_splat_count</code>, <code>total_splat_count</code>, <code>last_update_time_ms</code>, <code>gpu_memory_mb</code> (<code>:195-199</code>)</td>
+<td><code>get_statistics</code> (<code>cpp:1361</code>), <code>get_effective_config_snapshot</code></td>
+<td>— (on node)</td>
+</tr>
+<tr>
+<td>15</td>
+<td><strong>Lifecycle / notifications</strong> — ENTER/EXIT tree+world, PREDELETE prune dance, manager register</td>
+<td>—</td>
+<td><code>_notification</code> (<code>cpp:432-515</code>)</td>
+<td>— (on node)</td>
+</tr>
+<tr>
+<td>16</td>
+<td><strong>Editor drag-drop</strong></td>
+<td>—</td>
+<td><code>_can_drop_data_fw</code>/<code>_drop_data_fw</code> (<code>cpp:2715</code>)</td>
+<td>— (on node)</td>
+</tr>
+</tbody>
+</table>
+<p>The six friends cover concerns 1, 3, 5, 7, 9, 11; ten more concerns live directly on the
+node. No concern owns its state — every field is reachable by all seven objects.</p>
+<h3 id="load-bearing-comment-invariants-that-must-become-structural">Load-bearing comment invariants that must become structural<a class="headerlink" href="#load-bearing-comment-invariants-that-must-become-structural" title="Permanent link">¶</a></h3>
+<p>The audit (#551) calls out that correctness rests on prose. Four invariants are encoded only
+in comments and are silently breakable by a reorder:</p>
+<ul>
+<li>
+<p><strong>A — PREDELETE unref-then-prune (#551).</strong> Two ~40-line mirrored comment blocks
+  (<code>gaussian_splat_node_3d.cpp:460-500</code>, <code>gaussian_splat_world_3d.cpp:112-166</code>) explain that
+  <code>NOTIFICATION_EXIT_TREE</code> already ran <code>unregister → _prune_world_if_unused</code> but observed
+  <code>refcount&gt;1</code> (the node still holds its <code>renderer</code> <code>Ref</code>), so PREDELETE must (1) <code>renderer.unref()</code>
+  <strong>first</strong> (<code>node:494</code>, <code>world:160</code>), then (2) explicitly call <code>try_prune_world_if_unused</code>
+  (<code>node:496-498</code>, <code>world:162-164</code>). The intervening <code>_unregister_shared_renderer()</code> is a
+  no-op for pruning. Any reorder reintroduces the F6-reload renderer leak that motivated the
+  fix (Codex review comments #3294797692 / #3294797697 on PR #387; director contract at
+  <code>gaussian_splat_scene_director.h:266-276</code>). <strong>Correct today, prose-guarded.</strong></p>
+</li>
+<li>
+<p><strong>B — settings gating. NOT one invariant — three distinct predicates, plus a fourth
+  precondition (P4) on the grading path.</strong> (Corrected in review round 1; the earlier revision
+  described this as a single "settings single-owner" rule, which would have licensed a
+  decomposition that silently changed behavior. P4 and the director-registration ordering
+  guard were added in review round 2, when the claim that grading is "ungated" was refuted.
+  §B1 below is now the normative statement.)</p>
+</li>
+</ul>
+<p>A file-static, mutex-guarded map (<code>g_renderer_settings_owner_mutex</code> /
+  <code>g_renderer_settings_owner_lookup</code>, <code>helpers.cpp:35-36</code>, helpers at <code>:38-80</code>) elects one
+  node as the settings owner per renderer. But <strong>ownership is only one of three predicates
+  in force</strong>, and they are not equivalent:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Predicate</th>
+<th>Definition</th>
+<th>Semantics when it denies</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>P1</strong></td>
+<td><code>can_apply_renderer_settings()</code> — <code>helpers.cpp:1294-1325</code></td>
+<td>node holds the ownership lease for this renderer <strong>and</strong> is in tree/world <strong>and</strong> has local source data <strong>and</strong> the renderer's active scene data belongs to this node</td>
+<td>write <strong>dropped silently</strong></td>
+</tr>
+<tr>
+<td><strong>P2</strong></td>
+<td><code>_is_renderer_shared_with_other_content()</code> — <code>helpers.cpp:97-111</code> <em>and a duplicate</em> <code>cpp:41-58</code></td>
+<td>director reports <code>get_instance_count_for_renderer() &gt; 1</code> <strong>or</strong> <code>has_world_submission_for_renderer()</code></td>
+<td>write <strong>dropped, or the value forced to a safe default, for every node incl. the owner</strong></td>
+</tr>
+<tr>
+<td><strong>P3</strong></td>
+<td>splat-count mismatch heuristic — <code>helpers.cpp:1385</code></td>
+<td><code>renderer_splat_count &gt; 0 &amp;&amp; renderer_splat_count != local_splat_count</code></td>
+<td>write dropped + <code>WARN_PRINT_ONCE</code> (<code>:1387</code>)</td>
+</tr>
+<tr>
+<td><strong>P4</strong></td>
+<td><code>_can_push_color_grading_to_renderer()</code> — <code>gaussian_splat_node_3d.cpp:1880-1882</code></td>
+<td><code>renderer.is_valid() &amp;&amp; is_inside_tree() &amp;&amp; is_inside_world() &amp;&amp; _has_local_source_data()</code> — <strong>P1's precondition prefix without the lease</strong></td>
+<td>grading push returns <code>false</code>; replay flags left armed</td>
+</tr>
+</tbody>
+</table>
+<p><strong>P4 is not an independent fourth rule (added and scoped in review round 2).</strong> Compare it
+  against P1's opening at <code>gaussian_splat_node_helpers.cpp:1295-1304</code>: the two are the <em>same</em>
+  three checks in the same order (<code>renderer.is_valid()</code>, <code>is_inside_tree() &amp;&amp;
+  is_inside_world()</code>, <code>_has_local_source_data()</code>). P1 then adds two things P4 omits — the
+  active-scene-data-ownership test (<code>:1312-1322</code>) and the lease claim/release
+  (<code>:1319</code>/<code>:1324</code>). <strong>Record P4 as "P1's precondition prefix, minus the scene-data test and
+  minus the lease" — never as a separate predicate.</strong> Recording it as independent invites a
+  later "dedup" that either hands grading a lease it must not need or drags the scene-data
+  test onto the grading path; both are behavior changes.</p>
+<blockquote>
+<p><strong>Consequence for the ADR's own text.</strong> The claim elsewhere in earlier revisions that
+color grading is <em>"deliberately exempt from all three predicates / always applied
+per-instance"</em> is <strong>wrong as stated</strong>. Grading is exempt from the <strong>lease (P1)</strong>, from
+<strong>P2</strong> and from <strong>P3</strong> — it is <strong>not ungated</strong>. It is gated by P4, and there is a second,
+distinct <strong>director-registration ordering guard</strong> at <code>cpp:1897-1904</code>: the push is
+attempted against <code>GaussianSplatSceneDirector::update_instance_color_grading(...)</code>
+(<code>:1898</code>) and, if the director does not yet know this node, <code>:1900-1904</code> returns <code>false</code>
+<strong>without clearing</strong> <code>grading_pushed_for_current_data</code> / <code>grading_explicit_pending</code>, so a
+later replay retries once <code>register_instance_in_director</code> has landed. An implementer who
+reads "ungated" and deletes either guard reintroduces the peer-clobbering bug the code
+comment at <code>:1892-1895</code> describes. <strong>The frozen matrix is P1 / P2 / P3 / P4 + the
+director-registration ordering guard.</strong></p>
+</blockquote>
+<p>Three consequences the decomposition <strong>must</strong> preserve, none of which follows from a
+  single lease:</p>
+<ol>
+<li><strong>P2 is not P1.</strong> The four <code>show_*</code> debug flags are not merely dropped when the
+     renderer is shared — they are <strong>actively forced to <code>false</code> even for the lease-holding
+     owner</strong> (<code>helpers.cpp:608-611</code>, <code>shared_renderer ? false : owner.show_*</code>). A
+     lease-gated setter cannot express "forced off for the owner too."</li>
+<li><strong>The painterly setters gate on P2 alone, with no ownership check</strong>, and they
+     <code>return</code> <strong>before writing the node-local member</strong> (<code>cpp:1026-1029</code>, <code>1039-1042</code>,
+     <code>1051-1054</code>, <code>1068-1071</code>, <code>1081-1084</code>) — so the property value is discarded, not just
+     the renderer write. <code>set_enable_painterly</code> (<code>cpp:1011-1024</code>) is the asymmetric
+     exception: no P2 gate at all.</li>
+<li><strong><code>_validate_property</code> keys off P2 alone</strong> (<code>cpp:518-536</code>), never P1. So on a shared
+     renderer the <em>owner's</em> inspector rows are hidden too. Deriving hiding from
+     <code>holds_settings_lease()</code> — as an earlier revision of this ADR proposed — would make
+     the owner's rows <strong>reappear</strong>. That is a behavior change, not a refactor.</li>
+</ol>
+<p>Additionally, <strong>P1's "check" is itself a mutation</strong>: <code>can_apply_renderer_settings()</code> is
+  declared <code>const</code> but releases (<code>:1319</code>) and claims (<code>:1324</code>) entries in the global map on
+  every call. And color grading is deliberately <strong>exempt from P1/P2/P3</strong>
+  (<code>helpers.cpp:1403-1410</code>: <em>"No shared-renderer gate needed: peers no longer share a
+  single color_grading slot"</em>) — but it travels an <strong>independent push path</strong>
+  (<code>cpp:1884-1912</code>) that is <strong>gated by P4 and by the director-registration ordering guard</strong>,
+  as set out above. "Exempt from the three predicates" is accurate; "ungated" is not.</p>
+<p>The hiding/gating string lists are kept <strong>manually</strong> in sync — <code>_validate_property</code>'s own
+  comment points at <code>gaussian_splat_node_helpers.cpp:1284-1378</code>, which is already ~10 lines
+  off from the real <code>can_apply_renderer_settings()</code> range (<code>:1294-1325</code>). The drift is
+  measurable today, and §B1 records it rather than pretending the two lists agree.</p>
+<ul>
+<li>
+<p><strong>C — color-grading replay flags.</strong> <code>grading_pushed_for_current_data</code> and
+  <code>grading_explicit_pending</code> (<code>gaussian_splat_node_3d.h:184-192</code>) form a two-track replay
+  machine whose clear/set sites are prose-specified across five locations and <em>must not</em> be
+  reset on EXIT_TREE (<code>cpp:396-404</code>, <code>1914-1953</code>, <code>helpers.cpp:1347-1358</code>). A wrong
+  clear clobbers a peer's grading on a shared renderer.</p>
+</li>
+<li>
+<p><strong>D — <code>last_known_scenario</code> caching.</strong> Cached at register time
+  (<code>cpp:2443-2450</code>) precisely because <code>get_world_3d()</code> returns null by PREDELETE
+  (<code>gaussian_splat_node_3d.h:209-214</code>). The dependency is prose-only.</p>
+</li>
+</ul>
+<p>These are the invariants #551 wants encoded in <em>types</em>, not comments.</p>
+<h3 id="b1-the-gating-matrix-that-must-be-carried-forward-verbatim">B1 — the gating matrix that must be carried forward verbatim<a class="headerlink" href="#b1-the-gating-matrix-that-must-be-carried-forward-verbatim" title="Permanent link">¶</a></h3>
+<p>This table is <strong>normative</strong>. It is the current, verified behavior at the base SHA, and it is
+the acceptance criterion for every step that touches settings. A step may change <em>where</em> a
+predicate is evaluated; it may <strong>not</strong> change <em>which</em> predicate governs a property, or what
+denial does. Any intended change is a separate, owner-approved behavior PR — never a
+side effect of decomposition.</p>
+<table>
+<thead>
+<tr>
+<th>Property / write</th>
+<th>Gated by</th>
+<th>Denial effect</th>
+<th>Site</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>set_max_splats</code></td>
+<td>P1 <strong>then</strong> P3</td>
+<td>dropped + <code>WARN_PRINT_ONCE</code></td>
+<td><code>helpers.cpp:1385-1390</code></td>
+</tr>
+<tr>
+<td><code>set_lod_enabled</code>, <code>set_lod_bias</code>, <code>set_lod_max_distance</code>, <code>set_frustum_culling</code>, <code>set_async_upload_enabled</code></td>
+<td>P1</td>
+<td>dropped silently</td>
+<td><code>helpers.cpp:1392-1397</code></td>
+</tr>
+<tr>
+<td><code>set_painterly_enabled</code> (from <code>apply_renderer_settings</code>)</td>
+<td>P1 @base — <strong>P1 <em>and</em> P2 @master (#667)</strong></td>
+<td>@base: dropped silently. <strong>@master: forced to <code>false</code> when P2 holds</strong> (<code>painterly_shared ? false : owner.enable_painterly</code>), with node-local state deliberately <em>not</em> cleared so the peer-set convergence hook can re-apply it when the node is alone again.</td>
+<td><code>helpers.cpp:1398</code>@base / <strong><code>:1415-1416</code>@master</strong></td>
+</tr>
+<tr>
+<td><code>set_painterly_edge_threshold/stroke_opacity/stroke_length/gamma</code></td>
+<td>P1 @base — <strong>P1 <em>and</em> P2 @master (#667)</strong></td>
+<td>@base: dropped silently. <strong>@master: skipped entirely under <code>if (!painterly_shared)</code>.</strong></td>
+<td><code>helpers.cpp:1399-1402</code>@base / <strong><code>:1417-1421</code>@master</strong></td>
+</tr>
+<tr>
+<td><code>set_streaming_config_overrides</code></td>
+<td>P1</td>
+<td>dropped silently</td>
+<td><code>helpers.cpp:1454</code></td>
+</tr>
+<tr>
+<td><code>debug/overlay_opacity</code>, <code>debug/debug_draw_mode</code>, <code>debug/runtime_preview</code></td>
+<td>P1 <strong>only</strong></td>
+<td><strong>renderer write</strong> dropped silently — but the <strong>node-local member is assigned first and always persists</strong> (<code>helpers.cpp:697</code>, <code>:710</code>, <code>:729</code>, <em>before</em> the gates at <code>:699</code>, <code>:712</code>, <code>:731</code>), as does the trailing <code>update_gizmos()</code>. Not hidden in inspector.</td>
+<td>assigns <code>helpers.cpp:697</code>, <code>:710</code>, <code>:729</code>; gates <code>:699</code>, <code>:712</code>, <code>:731</code></td>
+</tr>
+<tr>
+<td><code>show_tile_grid</code>, <code>show_density_heatmap</code>, <code>show_performance_hud</code>, <code>show_residency_hud</code></td>
+<td>P1 <strong>and</strong> P2</td>
+<td>renderer write dropped; <strong>and forced to <code>false</code> for the owner too</strong> when P2 holds</td>
+<td>gates <code>helpers.cpp:631-632</code>, <code>646-647</code>, <code>661-662</code>, <code>752-753</code>; forcing <code>:608-611</code></td>
+</tr>
+<tr>
+<td>node-local <code>show_*</code> member + <code>GaussianSplatSettingsManager</code> persistence</td>
+<td><strong>ungated</strong> — written before the gate</td>
+<td>always applied</td>
+<td><code>helpers.cpp:627/629</code>, <code>642/644</code>, <code>657/659</code>, <code>748/750</code></td>
+</tr>
+<tr>
+<td><code>edge_threshold</code>, <code>stroke_opacity</code>, <code>stroke_width</code>, <code>temporal_blend</code>, <code>painterly_seed</code> (setters)</td>
+<td>P2 <strong>only</strong>, no ownership check</td>
+<td><strong>node-local member write also skipped</strong></td>
+<td><code>cpp:1026-1089</code></td>
+</tr>
+<tr>
+<td><code>enable_painterly</code> (setter)</td>
+<td><strong>ungated at the setter</strong> (asymmetric — deliberate today)</td>
+<td>—</td>
+<td><code>cpp:1011-1024</code></td>
+</tr>
+<tr>
+<td><code>color_variation</code></td>
+<td>no renderer control exists — explicit no-op</td>
+<td>—</td>
+<td><code>cpp:1063-1066</code></td>
+</tr>
+<tr>
+<td>color grading — <strong>write 1 of 3</strong>: the push inside <code>apply_renderer_settings</code></td>
+<td><strong>P1-gated</strong> (function-level early return), exempt from <strong>P2/P3</strong> only</td>
+<td>not reached at all when P1 denies</td>
+<td><code>helpers.cpp:1403-1410</code>@base / <code>:1423-1429</code>@master, inside <code>GaussianSplatNodeRendererHelper::apply_renderer_settings()</code> which opens at <code>:1364</code> and early-returns at <code>:1368</code> on <code>!can_apply_renderer_settings()</code></td>
+</tr>
+<tr>
+<td>color grading — <strong>write 2 of 3</strong>: the independent push path</td>
+<td><strong>P4</strong> + the ordering guard below; exempt from P1/P2/P3</td>
+<td>push returns <code>false</code>; replay flags stay armed so a later replay retries</td>
+<td>P4 <code>cpp:1880-1882</code> (<code>_can_push_color_grading_to_renderer()</code> at <code>cpp:1871-1873</code>); path <code>cpp:1884-1912</code></td>
+</tr>
+<tr>
+<td>color grading — <strong>write 3 of 3</strong>: the registration-time seed</td>
+<td>gated <strong>only</strong> on <code>in_tree &amp;&amp; in_world</code> (<code>cpp:2408-2410</code>) — not P1, not P4, not the ordering guard</td>
+<td>no push</td>
+<td><code>director-&gt;update_instance_color_grading(...)</code> at <code>cpp:2463</code>, inside <code>_register_instance_in_director()</code> (opens <code>:2396</code>)</td>
+</tr>
+<tr>
+<td>color grading — director registration not yet done</td>
+<td><strong>ordering guard</strong> (distinct from P4)</td>
+<td>push returns <code>false</code> <strong>without clearing</strong> <code>grading_pushed_for_current_data</code> / <code>grading_explicit_pending</code></td>
+<td><code>cpp:1897-1904</code> (rationale comment <code>:1900-1903</code>)</td>
+</tr>
+<tr>
+<td>camera transform / projection</td>
+<td><strong>ungated</strong>, every node, every frame</td>
+<td>—</td>
+<td><code>cpp:1590-1591</code> (this is #550, and Step 6 is the <em>only</em> step licensed to change it)</td>
+</tr>
+<tr>
+<td><code>_validate_property</code> inspector hiding</td>
+<td>P2 <strong>only</strong></td>
+<td>hides <code>painterly/*</code>, the four <code>debug/show_*</code>, <code>quality/lod_bias</code>, <code>quality/max_splat_count</code> — <strong>including for the owner</strong></td>
+<td><code>cpp:518-536</code></td>
+</tr>
+<tr>
+<td>sharing-status change detection</td>
+<td>per-frame poll, not an event</td>
+<td>re-runs <code>_apply_renderer_settings()</code> + <code>notify_property_list_changed()</code></td>
+<td><code>cpp:1677-1686</code> (<code>shared_renderer_multi_instance_state</code>, decl <code>h:239</code>)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Known pre-existing inconsistencies — preserve them, or fix them in a named separate PR.</strong>
+The decomposition must not silently "clean these up," because each is observable:</p>
+<ul>
+<li>Hidden but not P2-gated: <code>painterly/enabled</code>, <code>quality/lod_bias</code>, <code>quality/max_splat_count</code>
+  (their setters have no P2 gate, so a shared-renderer owner can still set them from GDScript
+  and the write lands).</li>
+<li>P1-gated but never hidden: <code>debug/overlay_opacity</code>, <code>debug/debug_draw_mode</code>,
+  <code>debug/runtime_preview</code>, <code>quality/max_render_distance</code>, <code>rendering/frustum_culling</code>.</li>
+<li><code>quality/preset</code> stays editable while the <code>lod_bias</code> / <code>max_splat_count</code> it drives are
+  hidden — a hidden knob remains indirectly movable.</li>
+<li><code>_is_renderer_shared_with_other_content</code> is <strong>duplicated</strong> with two signatures
+  (<code>helpers.cpp:97-111</code> taking <code>GaussianSplatNode3D &amp;</code>, <code>cpp:41-58</code> taking
+  <code>const Ref&lt;GaussianSplatRenderer&gt; &amp;</code>). Collapsing the duplicate to one function is in scope
+  for Step 2 and is behavior-preserving; changing its <em>predicate</em> is not.</li>
+<li>Only <strong>one</strong> drop in the entire surface warns (<code>helpers.cpp:1387</code>). Every other denial —
+  the whole <code>apply_renderer_settings</code> body, all eight debug setters, all five painterly
+  setters — is completely silent. Making denials observable is desirable but is a
+  <strong>behavior change</strong>: it belongs in its own PR with its own sign-off, not inside a
+  decomposition step.</li>
+</ul>
+<h2 id="decision">Decision<a class="headerlink" href="#decision" title="Permanent link">¶</a></h2>
+<p>Replace friend-decomposition with <strong>owned collaborators</strong>: small C++ objects that own their
+own state (private members), expose a <strong>narrow, explicit contract</strong>, and are <strong>not friends</strong>
+of the node. The node becomes a thin <code>Node3D</code> scene-facing shell that (a) registers the
+GDScript API, (b) routes property/notification plumbing, and (c) wires collaborators together
+by passing values across contracts — never by reaching into another object's privates.</p>
+<h3 id="target-collaborators-owned-members-no-friend">Target collaborators (owned members, no <code>friend</code>)<a class="headerlink" href="#target-collaborators-owned-members-no-friend" title="Permanent link">¶</a></h3>
+<table>
+<thead>
+<tr>
+<th>Collaborator</th>
+<th>Owns (moves off the node)</th>
+<th>Contract (illustrative)</th>
+<th>Closes concern(s)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong><code>AssetBinding</code></strong></td>
+<td><code>splat_asset</code>, <code>runtime_asset</code>, <code>renderer_data</code>, <code>asset_loading</code>, import flags, local AABB</td>
+<td><code>bind(asset)</code>, <code>set_procedural(arrays…)</code>, <code>reload()</code>, <code>clear()</code>; returns <code>PayloadView{ count, aabb, is_2d, origin_label }</code>; signals <code>data_ready</code> / <code>data_cleared</code> to the shell via a callback interface</td>
+<td>1, 2</td>
+</tr>
+<tr>
+<td><strong><code>resolve_quality()</code> (pure core) + quality shell</strong></td>
+<td><em>core owns no state</em>; the shell keeps <code>quality_preset</code>, <code>lod_bias</code>, <code>max_render_distance</code>, <code>max_splat_count</code>, <code>lod_config</code>, <code>streaming_config</code>, <code>effective_config_snapshot</code></td>
+<td><strong>functional core:</strong> <code>resolve(QualityInputs) -&gt; ResolvedQuality</code> — a free function over an explicit input struct. <strong>Imperative shell:</strong> ProjectSettings reads, field assignment, cap-event diffing, and the two tail calls stay put. See §"Step 1 is a functional-core/imperative-shell split"</td>
+<td>3 (painterly params enter the core as <strong>explicit inputs</strong>, and stay owned by concern 4)</td>
+</tr>
+<tr>
+<td><strong><code>RendererRegistration</code></strong></td>
+<td><code>renderer</code> <code>Ref</code>, <code>render_instance</code>, <code>gaussian_base</code>, <code>last_known_scenario</code>, director instance record, <strong>the settings lease</strong></td>
+<td><code>attach(world)</code>, <code>detach()</code>, <code>publish_instance_params(InstanceParams)</code>, <code>try_apply(const RendererSettings&amp;)</code> <strong>gated by a held <code>RendererSettingsLease</code></strong>, <code>release_and_prune()</code> (see LifecycleGuard)</td>
+<td>5, 6</td>
+</tr>
+<tr>
+<td><strong><code>ViewportRenderState</code></strong></td>
+<td><code>cached_viewport_*</code>, <code>observed_viewport</code>, <code>viewport_texture_state</code>, deferral flags, observers</td>
+<td><code>track(viewport)</code>, <code>untrack()</code>, <code>is_ready()</code>, <code>render_target()</code>, <code>size()</code>; signals <code>became_ready</code>. <strong>Camera publication removed</strong> (see #550)</td>
+<td>7</td>
+</tr>
+<tr>
+<td><strong><code>ColorGradingPolicy</code></strong></td>
+<td><code>color_grading</code> + the two replay flags as a typed <code>GradingReplayState</code></td>
+<td><code>set_grading(...)</code>, <code>on_resource_changed()</code>, <code>on_data_window_opened(director, id)</code>, <code>on_data_cleared()</code>, <code>on_renderer_ref_changed()</code> — named transitions replace prose (invariant C)</td>
+<td>10</td>
+</tr>
+<tr>
+<td><strong><code>DebugOverlayController</code></strong></td>
+<td>13 <code>show_*</code> flags, <code>debug_draw_mode</code>, HUD child nodes, settings-manager persistence</td>
+<td><code>set_show_*</code>, <code>sync_to_renderer(lease)</code>, <code>update_hud()</code></td>
+<td>11</td>
+</tr>
+</tbody>
+</table>
+<p>Concerns 9 (visibility), 12 (effectors/wind), 13 (property plumbing), 14 (stats), 15
+(lifecycle dispatch), 16 (drag-drop) stay on the shell — they are genuinely the node's
+scene-facing responsibility, and shrink to thin forwarders once 1/3/5/7/10/11 move out.</p>
+<h3 id="step-1-is-a-functional-coreimperative-shell-split-not-a-policy-object">Step 1 is a functional-core/imperative-shell split, not a policy object<a class="headerlink" href="#step-1-is-a-functional-coreimperative-shell-split-not-a-policy-object" title="Permanent link">¶</a></h3>
+<blockquote>
+<p><strong>Corrected in review round 2. The "pure <code>QualityPolicy</code>" premise was FALSE</strong>, and Step 1
+was the ADR's lowest-risk, highest-value step — the whole staging order rested on it. An
+implementation agent dispatched to build it correctly refused on a gate check. Two
+independent reviewers then confirmed the defect at every anchor. What follows replaces the
+premise; it does <strong>not</strong> abandon the seam, because a real seam is still there.</p>
+</blockquote>
+<p><strong>Why "pure" does not survive the code.</strong> <code>GaussianSplatNodeQualityHelper::update_quality_settings()</code>
+is not a computation — it terminates in renderer application and reads global config:</p>
+<table>
+<thead>
+<tr>
+<th>What Step 1 must <strong>not</strong> drag into a "pure" object</th>
+<th>Site</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>owner._apply_renderer_settings()</code> — the direct entry into the gated apply path</td>
+<td><code>gaussian_splat_node_helpers.cpp:994-996</code></td>
+</tr>
+<tr>
+<td>…which reaches <strong>P1</strong> <code>can_apply_renderer_settings()</code></td>
+<td><code>helpers.cpp:1368</code> → <code>:1294-1325</code></td>
+</tr>
+<tr>
+<td>…and <strong>P3</strong>, the splat-count heuristic + its lone <code>WARN_PRINT_ONCE</code></td>
+<td><code>helpers.cpp:1385-1387</code></td>
+</tr>
+<tr>
+<td>…and the debug tail <code>apply_renderer_debug_settings()</code>, which evaluates <strong>P1</strong> <em>and</em> <strong>P2</strong></td>
+<td><code>helpers.cpp:1456</code> → <code>:599</code> → P1 <code>:603</code>, P2 <code>:607</code></td>
+</tr>
+<tr>
+<td><code>owner._update_instance_params_in_director()</code> — publishes to the director</td>
+<td><code>helpers.cpp:781</code></td>
+</tr>
+<tr>
+<td><code>ProjectSettings</code> reads (tier preset + tier-budget opt-in) in <code>update_quality_settings</code></td>
+<td><code>helpers.cpp:837-839</code> (used through <code>:841</code>)</td>
+</tr>
+<tr>
+<td><code>ProjectSettings</code> reads again in <code>apply_quality_tier_limits</code></td>
+<td><code>helpers.cpp:1002</code>, <code>:1006-1007</code></td>
+</tr>
+<tr>
+<td>tree coupling — P1 reads <code>is_inside_tree()</code> / <code>is_inside_world()</code></td>
+<td><code>helpers.cpp:1298</code></td>
+</tr>
+</tbody>
+</table>
+<p>So the "pure" object would transitively evaluate <strong>all three</strong> predicates this ADR freezes,
+touch the tree, read <code>ProjectSettings</code>, and publish to the director. It is also not
+quality-owned: the LOD/streaming config builders read four <strong>painterly</strong> members
+(<code>enable_painterly</code>, <code>painterly_seed</code>, <code>temporal_blend</code>, <code>edge_threshold</code>) whose setters are
+<strong>P2-gated with the node-local member write skipped</strong> (invariant N4).</p>
+<p><strong>The seam that does exist.</strong> Split by <em>purity</em>, not by concern:</p>
+<ul>
+<li><strong>Pure core — <code>resolve(QualityInputs) -&gt; ResolvedQuality</code>, a free function.</strong> It receives
+  an explicit <code>QualityInputs</code> struct and returns a value. It contains: the four preset
+  tables, the <code>CLAMP</code> to <code>gs::GS_LOD_BIAS_MIN/MAX</code> and the <code>MAX(gs::GS_MIN_MAX_SPLAT_COUNT, …)</code>
+  floor (<code>helpers.cpp:777-778</code>), the tier-cap <code>MIN</code> folds, the LOD ladder, the
+  <code>GaussianSplatLODConfig</code> / <code>GaussianSplatStreamingConfig</code> struct construction, and the
+  effective-snapshot construction. <strong>The tier preset and tier-budget flag arrive as fields of
+  <code>QualityInputs</code>, already read</strong> — the core never calls <code>ProjectSettings</code>. <strong>The four
+  painterly values likewise arrive as explicit <code>QualityInputs</code> fields</strong> — the core never
+  reads a painterly member, so it cannot smuggle P2-gated state across the cut.</li>
+<li><strong>Imperative shell — stays on <code>GaussianSplatNodeQualityHelper</code>, at its current sites.</strong>
+  The <code>ProjectSettings</code> reads (<code>:837-839</code>, <code>:1002</code>, <code>:1006-1007</code>), assignment of the resolved
+  values onto the node's fields, the cap-event diffing / WARN-on-cap logging against
+  <code>previous_effective_snapshot</code>, and — <strong>explicitly left where they are</strong> — the two tail
+  calls <code>owner._update_instance_params_in_director()</code> (<code>:781</code>) and
+  <code>owner._apply_renderer_settings()</code> (<code>:995</code>).</li>
+</ul>
+<p><strong>This wording is load-bearing.</strong> "Extract <code>QualityPolicy</code>" would let a reviewer accept an
+extraction that quietly drags the renderer write along with it. The acceptance test for Step 1
+is therefore stated negatively as well as positively:</p>
+<ul>
+<li>The pure core's TU must not reference <code>GaussianSplatRenderer</code>, <code>GaussianSplatSceneDirector</code>,
+  <code>ProjectSettings</code>, <code>Node</code>/<code>Node3D</code>, or any of P1/P2/P3/P4. A grep guard over the new TU's
+  includes and symbols enforces this — that is what makes "pure" checkable rather than claimed.</li>
+<li><code>helpers.cpp:781</code> and <code>helpers.cpp:995</code> are <strong>unchanged by Step 1</strong>. Their disappearance or
+  relocation is a review blocker.</li>
+</ul>
+<p><strong>Risk reclassification.</strong> Because the shell edits stay inside the node/helpers TUs and the
+core is a new pure TU, Step 1 is <strong>R1</strong> — but <em>only</em> under this split. Under the withdrawn
+"policy object owns the concern" framing it would have been <strong>R2</strong>, because the seam then
+crosses renderer-settings application. If the owner rejects the functional-core framing in
+<strong>D6</strong>, Step 1 becomes R2 and the §B1 matrix test must be moved to gate Step 1 rather than
+Step 2.</p>
+<p><strong>Open sequencing problem this creates (for D3/D6).</strong> The N1 evidence requirement is
+circular for Step 1 as currently scheduled: the §B1 gating-matrix table test <strong>does not exist
+on master</strong> (there is no <code>test_quality*</code> and no gating-matrix test), and this ADR schedules it
+as the <strong>Step 2</strong> gate. Authoring it as a Step 1 prerequisite would mean an agent writing the
+normative executable encoding of the §B1 matrix — which <em>is</em> the artifact <strong>D5</strong> asks the
+owner to freeze. The test would become the de facto freeze, authored ahead of sign-off. The
+functional-core split is what makes this tractable: the pure core needs only a preset/clamp
+unit test, and the matrix test stays where it is. <strong>This only works if D6 answers "core/shell".</strong></p>
+<h3 id="making-the-four-invariants-structural">Making the four invariants structural<a class="headerlink" href="#making-the-four-invariants-structural" title="Permanent link">¶</a></h3>
+<ul>
+<li>
+<p><strong>Invariant A + D → <code>LifecycleGuard</code> / director atomic API (#551).</strong> Add
+  <code>GaussianSplatSceneDirector::release_renderer_and_prune(Ref&lt;GaussianSplatRenderer&gt; &amp;r, const RID &amp;scenario)</code>
+  that performs <code>r.unref()</code> <strong>then</strong> <code>_prune_world_if_unused(scenario)</code> as one indivisible
+  step, or an equivalent scoped <code>PruneAfterUnref</code> guard whose destructor enforces the order.
+  Both node and world PREDELETE collapse to a single call; the ordering <strong>cannot be expressed
+  wrong</strong> because the two operations are no longer separately callable at the site. <code>last_known_scenario</code>
+  becomes a private of <code>RendererRegistration</code>, refreshed on attach. The mirrored 40-line
+  comments shrink to a 3-line pointer at the guard.</p>
+</li>
+<li>
+<p><strong>Invariant B → <code>RendererSettingsLease</code> (P1) <em>plus</em> a preserved <code>SharingState</code> (P2) —
+  two seams, not one.</strong> (Corrected in review round 1. The earlier revision proposed a single
+  lease and derived <code>_validate_property</code> hiding from <code>holds_settings_lease()</code>; per §B1 that
+  would have unhidden the owner's inspector rows on a shared renderer and dropped the
+  "forced to <code>false</code> even for the owner" semantics of the four <code>show_*</code> flags. Both are
+  behavior changes and both are now forbidden.)</p>
+</li>
+<li>
+<p><strong>P1 becomes <code>RendererSettingsLease</code>,</strong> a typed token held by <code>RendererRegistration</code>,
+    replacing the file-static map. Dead-owner stealing (<code>_settings_owner_is_live</code>,
+    <code>helpers.cpp:38-44</code>) becomes <code>try_acquire</code>. Because today's <code>can_apply_renderer_settings()</code>
+    mutates the map from a <code>const</code> method (<code>:1319</code>/<code>:1324</code>), the lease API must make the
+    acquire/release <strong>explicit and non-<code>const</code></strong>, with a separate pure
+    <code>holds_lease()</code> query — this is the one place the refactor legitimately improves the
+    shape without changing the predicate.</p>
+</li>
+<li><strong>P2 stays a distinct, separately-evaluated predicate</strong> — a <code>SharingState</code> value
+    (<code>instance_count &gt; 1 || has_world_submission</code>) read from the director, exposed as
+    <code>registration.sharing_state()</code>. The two duplicated implementations
+    (<code>helpers.cpp:97-111</code>, <code>cpp:41-58</code>) collapse into this one function; the predicate is
+    unchanged.</li>
+<li><strong>P3 (the splat-count heuristic, <code>helpers.cpp:1385</code>) is carried forward verbatim</strong> as a
+    guard inside the <code>set_max_splats</code> path. It is <em>not</em> folded into the lease: it is a
+    different question ("does the renderer already carry someone else's splat count?") and
+    two peers with equal counts must continue not to trip it.</li>
+<li><strong><code>_validate_property</code> hiding continues to derive from P2 alone</strong> — from
+    <code>sharing_state()</code>, <strong>never</strong> from <code>holds_settings_lease()</code>. This keeps the owner's rows
+    hidden on a shared renderer, exactly as today. The win is that the hide set at
+    <code>cpp:526-532</code> becomes one named <code>constexpr</code> list (<code>kP2HiddenProperties</code>) instead of an
+    inline string sequence, so drift becomes impossible; the <em>predicate</em> is untouched.
+    <strong>It is not shared with the gating sites</strong> — see N8: the hide set and the P2-gated
+    setter set are deliberately different, and there is no duplicated list to collapse
+    (the gating sites are plain <code>if</code> guards in the setter bodies, not name lists).</li>
+<li><strong>The <code>show_*</code> "force to <code>false</code> when shared" semantics (<code>helpers.cpp:608-611</code>) is part
+    of the contract</strong>, not an implementation detail: <code>DebugOverlayController::sync_to_renderer</code>
+    takes both the lease <em>and</em> the <code>SharingState</code> and reproduces the forcing exactly.</li>
+<li>
+<p><strong>Color grading stays exempt from P1/P2/P3</strong>, and the per-instance push path
+    (<code>cpp:1884-1912</code>) is preserved as-is <strong>including both of its own guards</strong>: P4
+    (<code>cpp:1880-1882</code>) and the director-registration ordering guard (<code>cpp:1897-1904</code>).
+    <code>ColorGradingPolicy</code> must therefore receive P4 as an explicit precondition input — it
+    must <strong>not</strong> be given the lease, and it must <strong>not</strong> acquire the scene-data-ownership
+    test that distinguishes P1 from P4.</p>
+</li>
+<li>
+<p><strong>Invariant C → <code>GradingReplayState</code>.</strong> The two bools become a small enum-driven type with
+  named transitions (<code>ArmedExplicit</code>, <code>PushedForWindow</code>, <code>Idle</code>) inside <code>ColorGradingPolicy</code>;
+  the "do not reset on EXIT_TREE" rule is encoded by simply <em>not exposing</em> a reset there.</p>
+</li>
+</ul>
+<h3 id="one-writer-per-frame-camera-publication-550">One-writer-per-frame camera publication (#550)<a class="headerlink" href="#one-writer-per-frame-camera-publication-550" title="Permanent link">¶</a></h3>
+<p><code>_update_viewport_render_state</code> writes <code>renderer-&gt;set_camera_transform/projection</code> every
+frame (<code>cpp:1590-1591</code>); with N nodes on a shared renderer that is N redundant
+last-write-wins writes each frame — the same "renderer-wide state, per-node writer" ambiguity
+the settings lease exists to prevent. <strong>Move camera publication to a single writer</strong>: a
+<code>CameraPublisher</code> owned by <code>GaussianSplatManager</code> / <code>GaussianSplatSceneDirector</code> that reads
+the active camera once per renderer per frame and publishes it. Nodes stop writing camera
+state entirely; <code>ViewportRenderState</code> keeps only render-target tracking. This closes #550 and
+removes camera from the node's per-frame surface.</p>
+<h2 id="staged-migration-each-step-compiles-and-is-ci-green-on-its-own">Staged migration (each step compiles and is CI-green on its own)<a class="headerlink" href="#staged-migration-each-step-compiles-and-is-ci-green-on-its-own" title="Permanent link">¶</a></h2>
+<p>Ordered to extract zero-lifetime-risk policy first, encode the structural invariants next,
+and touch GPU/lifetime seams last. Every step keeps the public GDScript API and serialized
+property names byte-identical; behavior is preserved and proven per step.</p>
+<blockquote>
+<p><strong>Risk-label rule (corrected in review round 2).</strong> The per-step labels below are the
+<em>expected</em> class; CI re-derives the class from the diff and uses the <strong>higher</strong> of the two
+(<code>agentic-engineering.md:88-90</code>). Two triggers matter here and were previously applied
+only to Step 3:</p>
+<ul>
+<li><strong><code>agentic-engineering.md:86</code> makes "public API/compat" an R3 trigger.</strong> The node's
+  public surface is <strong>38</strong> <code>ADD_PROPERTY</code> registrations and <strong>100</strong> <code>ClassDB::bind_method</code>
+  bindings in <code>gaussian_splat_node_3d.cpp</code>, plus the <code>_set</code>/<code>_get</code> legacy-compat shim at
+  <code>cpp:576ff</code> (which still re-routes the unbound <code>painterly/color_variation</code>). <strong>Any step
+  whose diff touches those lines is R3</strong> — ADR-before-implementation, two reviews, and
+  CODEOWNER + human approval — regardless of the label printed below. N10 asserts these
+  stay byte-identical, so the intent is that <em>no</em> step trips this; a step that finds it
+  must trip it stops and re-declares rather than proceeding under an R1/R2 label.</li>
+<li><strong><code>:85</code> (R2) is the renderer/GPU/streaming/VRAM class.</strong> A step that only moves C++
+  state between node-local TUs, with no renderer or GPU edit, is <strong>R1</strong>, not R2.</li>
+</ul>
+</blockquote>
+<ul>
+<li><strong>Step 0 — this ADR + a nested <code>nodes/AGENTS.md</code></strong> capturing the ownership seams and the
+  four invariants, so new code does not re-widen the surface. <em>(R0, docs.)</em></li>
+<li><strong>Step 1 — extract the pure quality <em>resolver</em></strong> — <code>resolve(QualityInputs) -&gt; ResolvedQuality</code>
+  as a free function in a new TU, leaving the imperative shell (ProjectSettings reads, field
+  assignment, cap-event diffing, and <strong>both</strong> tail calls at <code>helpers.cpp:781</code> and <code>:995</code>) on
+  <code>GaussianSplatNodeQualityHelper</code> at its current sites. See §"Step 1 is a
+  functional-core/imperative-shell split" — the earlier "extract a pure <code>QualityPolicy</code> that
+  owns the concern" framing was refuted and is withdrawn. It befriends nothing; painterly and
+  tier inputs are injected explicitly. <strong>Gate:</strong> guard lane + new
+  <code>tests/…/test_quality_resolve.h</code> (preset tables, tier-cap <code>MIN</code> folds,
+  <code>GS_LOD_BIAS_MIN/MAX</code> clamps, <code>GS_MIN_MAX_SPLAT_COUNT</code> floor) + the purity grep guard over
+  the new TU's includes/symbols + a diff check that <code>helpers.cpp:781</code>/<code>:995</code> are untouched.
+  <em>(R1 </em><em>under this split only</em><em> — see D6; R2 if the owner restores the policy-object framing.)</em></li>
+<li><strong>Step 2 — <code>RendererSettingsLease</code> (P1) + <code>SharingState</code> (P2) + preserved P3</strong> (invariant B).
+  Replace the free-function owner map with the lease; collapse the two duplicate
+  <code>_is_renderer_shared_with_other_content</code> implementations into one <code>sharing_state()</code>;
+  keep <code>_validate_property</code> hiding derived from <strong>P2</strong>; keep the P3 splat-count heuristic on
+  the <code>set_max_splats</code> path; keep the <code>show_*</code> force-to-<code>false</code>-when-shared semantics.
+  Behavior-preserving in the strong sense of §B1.
+  <strong>Gate (blocking):</strong> a <strong>gating matrix table test</strong> that asserts the §B1 table cell-by-cell —
+  for each property, on each of {sole node, shared-renderer owner, shared-renderer non-owner,
+  dead-owner-stolen}, assert (a) whether the renderer write lands, (b) whether the node-local
+  member is written, (c) whether the inspector row is hidden. This test must be written
+  <strong>against Step 2's own base first and pass unmodified there</strong>, then still pass on the head —
+  that is what makes "behavior-preserving" checkable rather than asserted.</li>
+</ul>
+<blockquote>
+<p><strong>⚠ Step 2 is BLOCKED on the §B1 re-freeze (round 3).</strong> "Its own base" is deliberately
+<em>not</em> the SHA recorded at the top of this document. #667 changed P2 painterly gating after
+that SHA (see the anchor-status note), so a matrix test authored from the rows in §B1 as
+they stand would encode pre-#667 semantics, pass against the recorded base, and <strong>fail on
+head</strong> — an unsatisfiable acceptance criterion, and one that would pressure an agent to
+"fix" the test rather than the matrix. Step 2 therefore may not start until §B1 has been
+re-derived against a current base and Decision D5 re-confirmed against the new behavior.
+Once that re-freeze lands, the base referred to here is the re-freeze base. Plus the existing
+  lifetime tests and a lease unit test (acquire / steal-dead-owner / release / peer-denied).
+  <em>(R2.)</em></p>
+</blockquote>
+<p><strong>Fixture recommendation (robustness — explicitly NOT a fix for a vacuous test).</strong> Set
+  <code>enable_painterly = true</code> and <code>quality_preset = QUALITY_CUSTOM</code> in the fixture, assert those
+  preconditions in the test body, and assert <strong>both</strong> polarities per row (P2 false → visible,
+  P2 true → hidden).</p>
+<blockquote>
+<p><strong>Why this is a widening, not a repair (review round 2).</strong> An earlier review comment
+claimed a matrix test on default node state <em>"passes identically with the entire P2 branch
+deleted."</em> <strong>That claim was retracted and must not be propagated — it is false.</strong> On
+default state (<code>enable_painterly = false</code>, <code>h:150</code>; <code>quality_preset = QUALITY_BALANCED</code>,
+<code>h:136</code>), <strong>5 of the 7 clauses in the P2 branch still discriminate</strong>, so deleting the P2
+branch <em>would</em> fail a default-state matrix test:</p>
+<ul>
+<li><strong><code>painterly/enabled</code></strong> — the <code>!enable_painterly</code> rule at <code>cpp:539-543</code> explicitly
+  exempts it: <code>p_property.name.begins_with("painterly/") &amp;&amp; p_property.name != "painterly/enabled"</code>
+  (<code>cpp:540</code>). Hidden by the P2 branch <strong>alone</strong>.</li>
+<li><strong>The four <code>debug/show_*</code></strong> — the only other rule touching <code>debug/</code> is <code>cpp:569-573</code>,
+  wrapped in <code>#ifndef DEBUG_ENABLED</code>. CI builds <code>target=editor</code>, and <code>SConstruct:495</code>
+  sets <code>env.debug_features = env["target"] in ["editor", "template_debug"]</code>, which at
+  <code>SConstruct:511-513</code> appends <code>DEBUG_ENABLED</code>. So that rule is <strong>compiled out</strong> in the
+  test binary and these four are hidden by the P2 branch <strong>alone</strong>. <em>(Note: <code>DEBUG_ENABLED</code>
+  follows from <code>target=editor</code>, </em><em>not</em><em> from <code>dev_build=yes</code> — <code>dev_build</code> sets
+  <code>DEV_ENABLED</code> at <code>SConstruct:516-518</code>. The conclusion is unchanged; the attribution in
+  the retraction comment was itself imprecise.)</em></li>
+</ul>
+<p>Only <code>painterly/{edge_threshold, stroke_opacity, stroke_width, temporal_blend, seed}</code>
+(shadowed by <code>cpp:539-543</code>) and <code>quality/{lod_bias, max_splat_count}</code> (shadowed by
+<code>cpp:561-566</code>, since the default preset is not <code>QUALITY_CUSTOM</code>) are masked on defaults.</p>
+<p>The fixture is therefore worth adopting because it widens coverage from <strong>5</strong> discriminating
+clauses to all <strong>7</strong>, and guards against a future default-value change silently hollowing
+the test. It is <strong>not blocking</strong>, and it must not be described as fixing a test that proves
+nothing.
+- <strong>Step 3 — <code>release_renderer_and_prune</code> / <code>PruneAfterUnref</code></strong> (invariant A, <strong>#551</strong>).
+  Rewrite <strong>both</strong> node and world PREDELETE to the single atomic call; delete the mirrored
+  comments. <strong>Gate (blocking):</strong> <code>tests/…/test_renderer_lifetime_proof.h</code> scenario_c (F6
+  reload) stays green + a compile-time proof the two ops are not separately callable at the
+  site; runtime lifetime evidence attached. <strong>R3 — separate owner sign-off.</strong>
+- <strong>Step 4 — <code>ColorGradingPolicy</code> / <code>GradingReplayState</code></strong> (invariant C, 10). Behavior-preserving;
+  grading + shared-renderer peer tests. <em>(R2.)</em>
+- <strong>Step 5 — <code>ViewportRenderState</code> + <code>AssetBinding</code> as owned (non-friend) members</strong> (7, 1, 2).
+  Drop the <code>friend</code> declarations for the viewport/asset helpers. <strong>Gate:</strong> editor-preview
+  smoke + new node+<code>splat_asset</code> integration coverage (closes the #299 gap). <em>(R2.)</em>
+- <strong>Step 6 — one-writer camera publication</strong> (<strong>#550</strong>). Move <code>set_camera_transform/projection</code>
+  into the manager/director <code>CameraPublisher</code>. <strong>Gate:</strong> visual validation on GrandmasHouse
+  (shared renderer, multi-node) — rendering-math-adjacent, must validate on real-scan content.
+  <em>(R2.)</em>
+- <strong>Step 7 — <code>DebugOverlayController</code> + shrink the <code>friend</code> block</strong> (11). Remove the
+  <code>friend class …</code> grants (<code>gaussian_splat_node_3d.h:123-128</code>) for every helper that
+  preceding steps converted into an owned collaborator — Asset + Viewport (Step 5), Debug
+  (this step), Renderer (Step 2). <strong>The Quality shell and Visibility helper are <em>not</em>
+  converted by any scheduled step</strong> (Step 1/N14 pins the former at its current sites;
+  concern 9 keeps the latter on the shell), so how many grants remain after this step is
+  <strong>decision D7</strong>. Verify the header no longer exposes privates to the converted helpers.
+  Node header becomes a thin shell. <em>(R1.)</em></p>
+</blockquote>
+<h2 id="issue-closure-mapping">Issue-closure mapping<a class="headerlink" href="#issue-closure-mapping" title="Permanent link">¶</a></h2>
+<table>
+<thead>
+<tr>
+<th>Issue</th>
+<th>Disposition</th>
+<th>Closed by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>#552</strong> god-class decompose</td>
+<td><strong>Closed</strong> by the full sequence (Steps 1–7): friends → owned collaborators, real ownership seams</td>
+<td>Steps 1–7</td>
+</tr>
+<tr>
+<td><strong>#551</strong> PREDELETE ordering structural</td>
+<td><strong>Closed</strong> — the ordering becomes an atomic director API / scoped guard</td>
+<td>Step 3</td>
+</tr>
+<tr>
+<td><strong>#550</strong> N per-frame camera writers</td>
+<td><strong>Closed</strong> — one writer per renderer per frame</td>
+<td>Step 6</td>
+</tr>
+<tr>
+<td><strong>#558</strong> script-instantiable internals</td>
+<td><strong>Advanced, not regressed</strong> — every new collaborator is a plain internal C++ type (never <code>GDREGISTER</code>'d), so decomposition adds <strong>zero</strong> script surface; the heavy-internals <code>GDREGISTER_CLASS</code> audit (<code>register_types.cpp:116-120</code>) remains its own follow-up</td>
+<td>(non-regression note)</td>
+</tr>
+<tr>
+<td><strong>#516 / #517</strong> world-node lifecycle</td>
+<td><strong>Not closed here</strong> — owned by in-flight <strong>PR #578</strong>. Step 3's guard should be reused by the world node; sequence Step 3 to land before/after #578 so only one of them touches <code>gaussian_splat_world_3d.cpp:112-166</code></td>
+<td>coordination</td>
+</tr>
+<tr>
+<td><strong>#357 / #547</strong> settings ownership / loader dedup</td>
+<td><strong>Adjacent</strong> — Step 2's lease clarifies renderer-settings ownership; routing <code>QualityPolicy</code> (Step 1) through <code>gs::settings</code> helpers is the natural home for #547's dedup. Tracked separately</td>
+<td>follow-up</td>
+</tr>
+<tr>
+<td><strong>#299</strong> node+asset integration gap</td>
+<td><strong>Closed</strong> as the Step 5 gate</td>
+<td>Step 5</td>
+</tr>
+<tr>
+<td><strong>#592</strong> editor preview worker hang</td>
+<td><strong>Out of scope</strong> — different file (<code>editor/gaussian_resource_preview_generator.cpp</code>); noted for adjacency only</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">¶</a></h2>
+<ul>
+<li><strong>Benefit.</strong> State aliasing shrinks from 7 co-owners of <strong>87</strong> fields to one owner per seam
+  with a narrow contract. Three prose-guarded invariants (A/B/C) become types that cannot be
+  expressed wrong; the two mirrored 40-line comments are deleted. The quality <strong>resolver</strong>
+  becomes unit-testable without a tree, a renderer, <code>ProjectSettings</code> or a GPU — note this is
+  the pure core only; the gated application path deliberately stays on the shell. The node
+  header stops leaking 87 privates.</li>
+<li><strong>Cost / risk.</strong> Step 3 is R3 (GPU teardown ordering) and needs runtime lifetime evidence;
+  Step 6 needs GPU visual validation (agents cannot raster locally — must run on the GPU
+  runner). The refactor is behavior-preserving, so its value is velocity + correctness
+  durability, not user-visible change — reviewers should grade it on <em>seam quality</em>, not diff
+  size.</li>
+<li><strong>Coordination.</strong> Step 3 and PR #578 both touch the world node PREDELETE; whichever lands
+  second rebases onto the other. No step bundles unrelated work; each is independently
+  reversible.</li>
+</ul>
+<h2 id="invariant-list-what-every-step-is-graded-against">Invariant list — what every step is graded against<a class="headerlink" href="#invariant-list-what-every-step-is-graded-against" title="Permanent link">¶</a></h2>
+<p>Checkable. A step that violates one is rejected even with green CI.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Invariant</th>
+<th>How it is checked</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>N1</strong></td>
+<td>The §B1 gating matrix holds cell-for-cell. No property changes which predicate governs it; no denial changes its effect (dropped / forced-off / node-local-also-skipped). <strong>The matrix graded against is the re-frozen one</strong> — see the round-3 anchor-status note and the Step 2 block; the rows as currently written predate #667.</td>
+<td>The Step 2 gating matrix table test, written against <strong>Step 2's own (post-re-freeze) base</strong> and passing unmodified on head.</td>
+</tr>
+<tr>
+<td><strong>N2</strong></td>
+<td><code>_validate_property</code> hiding derives from <strong>P2 (<code>sharing_state()</code>) only</strong> — never from lease-holding. The owner's rows stay hidden on a shared renderer.</td>
+<td>Explicit case in the matrix test: shared-renderer <strong>owner</strong> → rows hidden.</td>
+</tr>
+<tr>
+<td><strong>N3</strong></td>
+<td>The <code>show_*</code> flags are forced to <code>false</code> when P2 holds, <strong>including for the lease holder</strong>; the node-local member and settings-manager persistence still receive the write.</td>
+<td>Matrix test rows (a)+(b) for the four <code>show_*</code> flags.</td>
+</tr>
+<tr>
+<td><strong>N4</strong></td>
+<td>The painterly setters gated on P2 continue to skip the <strong>node-local member write</strong>, not just the renderer write. <code>set_enable_painterly</code> remains ungated at the setter.</td>
+<td>Matrix test row (b) for the five setters + the asymmetry case.</td>
+</tr>
+<tr>
+<td><strong>N5</strong></td>
+<td>P3 (splat-count heuristic) remains a distinct guard: two peers with <strong>equal</strong> splat counts do not trip it.</td>
+<td>Unit test with two equal-count peers asserting the write lands and no WARN fires.</td>
+</tr>
+<tr>
+<td><strong>N6</strong></td>
+<td>Color grading has <strong>three</strong> write paths and they are not interchangeable (§B1). (i) The push inside <code>apply_renderer_settings</code> is <strong>P1-gated</strong> by that function's early return (<code>helpers.cpp:1368</code>) and exempt from <strong>P2/P3 only</strong> — it must stay behind that return. (ii) The independent push path is exempt from P1/P2/P3 and keeps <strong>both</strong> of its own guards: <strong>P4</strong> (<code>cpp:1880-1882</code>) and the director-registration ordering guard (<code>cpp:1897-1904</code>); P4 is never replaced by P1 and never acquires P1's lease or scene-data test. (iii) The registration-time seed (<code>cpp:2463</code>) is gated only on <code>in_tree &amp;&amp; in_world</code> and must not silently acquire or lose a gate. No step may collapse the three into one path.</td>
+<td>Shared-renderer peer grading test unchanged, <strong>plus</strong> (a) a case asserting a push attempted before <code>register_instance_in_director</code> returns <code>false</code> and leaves <code>grading_pushed_for_current_data</code> / <code>grading_explicit_pending</code> armed for replay, and (b) a P1-denial case asserting the <code>apply_renderer_settings</code> grading push does <strong>not</strong> fire while the registration seed and the independent path still behave as today.</td>
+</tr>
+<tr>
+<td><strong>N7</strong></td>
+<td>Exactly one definition of the P2 predicate exists after Step 2 (the duplicate is deleted, not forked).</td>
+<td>Grep guard: one <code>sharing_state()</code> definition; zero <code>_is_renderer_shared_with_other_content</code>.</td>
+</tr>
+<tr>
+<td><strong>N8</strong></td>
+<td><strong>Two</strong> canonical lists, each defined exactly once, and they are <strong>not</strong> required to be equal: <code>kP2HiddenProperties</code> — the <code>_validate_property</code> hide set (<code>cpp:526-532</code>: every <code>painterly/*</code>, the four <code>debug/show_*</code>, <code>quality/lod_bias</code>, <code>quality/max_splat_count</code>) — and <code>kP2GatedPainterlySetters</code> — the five setters that gate on P2 (<code>cpp:1027</code>, <code>:1040</code>, <code>:1052</code>, <code>:1069</code>, <code>:1082</code>). Their asymmetry (<code>painterly/enabled</code>, <code>quality/lod_bias</code>, <code>quality/max_splat_count</code> are hidden but <strong>not</strong> P2-gated; <code>set_enable_painterly</code> is ungated) is the pre-existing inconsistency frozen at §B1 and must survive verbatim. Requiring a single shared list would force one of those two behavior changes and is forbidden.</td>
+<td>Grep guard: each list literal appears exactly once, and a matrix-test case asserting a property that is hidden-but-ungated stays hidden <strong>and</strong> still writes through its setter.</td>
+</tr>
+<tr>
+<td><strong>N9</strong></td>
+<td>The PREDELETE unref-then-prune ordering (invariant A) cannot be expressed wrong at the call site — the two operations are not separately callable there.</td>
+<td>Step 3: compile-time proof (the separate ops are private/unavailable at the site) + <code>test_renderer_lifetime_proof.h</code> scenario_c green.</td>
+</tr>
+<tr>
+<td><strong>N10</strong></td>
+<td>The public GDScript API and every serialized property name are byte-identical across all seven steps.</td>
+<td>Property-list snapshot test; doc_classes completeness guard stays green.</td>
+</tr>
+<tr>
+<td><strong>N11</strong></td>
+<td>No new script surface: every collaborator is a plain internal C++ type, never <code>GDREGISTER</code>'d.</td>
+<td>Grep guard on <code>GDREGISTER_CLASS</code> count in <code>register_types.cpp</code> (unchanged).</td>
+</tr>
+<tr>
+<td><strong>N12</strong></td>
+<td>Friendship strictly decreases. <strong>The end-state count is open — see D7:</strong> Steps 1–7 as scheduled migrate four of the six grants at <code>gaussian_splat_node_3d.h:123-128</code>, and the Quality shell + Visibility helper are deliberately left on the shell by Step 1/N14 and concern 9 respectively. "Zero after Step 7" is therefore <strong>not</strong> satisfiable as staged and must not gate Step 7 until D7 resolves it.</td>
+<td>Grep guard, monotonically non-increasing (this half holds under either D7 option).</td>
+</tr>
+<tr>
+<td><strong>N13</strong></td>
+<td>Camera publication changes <strong>only</strong> in Step 6. No earlier step alters <code>cpp:1590-1591</code> semantics.</td>
+<td>Diff review per step.</td>
+</tr>
+<tr>
+<td><strong>N14</strong></td>
+<td>The Step 1 pure core stays pure: its TU references no <code>GaussianSplatRenderer</code>, <code>GaussianSplatSceneDirector</code>, <code>ProjectSettings</code>, <code>Node</code>/<code>Node3D</code>, and none of P1/P2/P3/P4. The two tail calls at <code>helpers.cpp:781</code> and <code>helpers.cpp:995</code> remain at their current sites.</td>
+<td>Grep guard over the new TU's includes/symbols + a per-step diff assertion that those two lines are unmodified.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="evidence-a-step-must-produce">Evidence a step must produce<a class="headerlink" href="#evidence-a-step-must-produce" title="Permanent link">¶</a></h2>
+<ol>
+<li><strong>Gating matrix evidence (N1–N6):</strong> the matrix test output from the base SHA and from the
+   head, attached and diffed. This is the single most important artifact in this ADR — the
+   defect it guards against (silently changing which predicate governs which property) is
+   invisible to every other check.</li>
+<li><strong>Guard lane:</strong> <code>run_module_tests.py --guard-only</code> green, plus the N7/N8/N11/N12 grep
+   guards, which land with the step that makes them true.</li>
+<li><strong>Targeted tests:</strong> existing node, lifetime, grading, and shared-renderer suites green
+   <strong>without modification</strong>. Modifying an existing assertion is a review blocker absent a
+   written reason. <strong>"Green" is not sufficient — report the executed case count.</strong> Many of the
+   node suites that cover exactly the shared-renderer / settings-owner / P2-hiding / grading
+   cases are tagged <code>[RequiresGPU]</code> and fall in the 26-case <code>[SceneTree]+[RequiresGPU]</code> set
+   deferred by <strong>#329</strong>. <code>tests/ci/run_gpu_harness.py:42-46</code> states it keeps
+   <em>"Intentionally no catch-all <code>*[RequiresGPU]*</code> batch"</em> and that tests outside a named batch
+   <em>"stay invisible until they're added explicitly"</em>; <code>:36-41</code> records that unmatched batches
+   <em>"report '0 tests matched' which the supervisor treats as success (advisory)"</em>. A suite
+   that executed <strong>zero</strong> cases therefore satisfies "green without modification" while proving
+   nothing. Every step citing this item must attach an executed-count &gt; 0, and
+   the sequencing question of whether #329's batch must land before Step 2 is an owner call
+   (see D3).</li>
+<li><strong>Step 3 (R3):</strong> runtime lifetime evidence — RID counts across an F6 reload cycle, with
+   <code>test_renderer_lifetime_proof.h</code> scenario_c green, plus the compile-time ordering proof.
+   Separate owner sign-off.</li>
+<li><strong>Step 6 (R2, rendering-adjacent):</strong> visual validation on real-scan content
+   (GrandmasHouse, shared renderer, multi-node) from the GPU runner. Agents cannot raster
+   locally; absent runner output this reports "not run", never "passed".</li>
+<li><strong>Step 5:</strong> editor-preview smoke + the new node+<code>splat_asset</code> integration coverage (#299).</li>
+<li><strong>Base anchoring:</strong> base SHA recorded; <code>file:line</code> anchors re-verified against it.</li>
+</ol>
+<p>No step weakens a guard, baseline, or threshold. A behavior change discovered to be
+<em>necessary</em> is lifted out into its own PR with its own sign-off — it never rides inside a
+decomposition step.</p>
+<h2 id="decisions-the-owner-needs-to-make">Decisions the owner needs to make<a class="headerlink" href="#decisions-the-owner-needs-to-make" title="Permanent link">¶</a></h2>
+<ul>
+<li><strong>D1 — Adopt "ownership seams, not friends" as the target</strong> (owned collaborators, no
+  <code>friend</code>), per #552's fix direction? (Y / N / amend.)</li>
+<li><strong>D2 — Approve the four invariants becoming structural</strong> (LifecycleGuard, RendererSettingsLease,
+  GradingReplayState, scenario-cache ownership)? In particular, <strong>prefer the director-side
+  atomic <code>release_renderer_and_prune</code> over a scoped <code>PruneAfterUnref</code> guard</strong>, or vice versa?</li>
+<li><strong>D3 — Confirm the staged order and that Step 3 is R3</strong> with its own sign-off + lifetime
+  evidence gate, and Step 6 requires GPU visual validation.</li>
+<li><strong>D4 — Sequence Step 3 against PR #578</strong> (which lands first for the shared world-node
+  PREDELETE edit)?</li>
+<li>
+<p><strong>D5 — Confirm the §B1 gating matrix is frozen for the decomposition.</strong> The predicates
+  (P1 lease / P2 sharing / P3 splat-count heuristic / <strong>P4 grading precondition</strong> + the
+  director-registration ordering guard) and the listed pre-existing inconsistencies are
+  carried forward <strong>verbatim</strong>, and every fix to them is a separate, separately-approved
+  behavior PR. In particular, confirm we do <strong>not</strong> take the tempting simplifications:
+  collapsing P2 into the lease, deriving inspector hiding from lease-holding, making the
+  silent denials warn, or <strong>"deduplicating" P4 into P1</strong> (they share a three-check prefix but
+  P4 must not gain the lease or the scene-data test). (Recommended: yes, freeze — each of
+  those is user-visible.)</p>
+</li>
+<li>
+<p><strong>D6 — Confirm Step 1 is a functional-core/imperative-shell split</strong> (pure
+  <code>resolve(QualityInputs) -&gt; ResolvedQuality</code>; ProjectSettings reads, field assignment,
+  cap-event diffing and <strong>both</strong> tail calls stay on the shell at <code>helpers.cpp:781</code> and
+  <code>:995</code>), rather than the withdrawn "<code>QualityPolicy</code> object owns the concern" framing?
+  This is the decision that determines Step 1's risk class and whether the §B1 matrix test
+  must move earlier:</p>
+</li>
+<li><strong>Core/shell (recommended).</strong> Step 1 stays <strong>R1</strong> and independently landable; its gate is
+    a preset/clamp unit test plus the N14 purity guard; the §B1 matrix test stays as the
+    Step 2 gate, so no agent has to author the normative matrix encoding ahead of the D5 freeze.
+    Cost: the quality concern is split across two artifacts rather than owned by one object,
+    so "one owner per seam" is achieved for <em>state</em> but not for the apply path.</li>
+<li><strong>Policy object (withdrawn but available).</strong> Step 1 becomes <strong>R2</strong>, the §B1 matrix test
+    must be authored to gate Step 1 instead of Step 2, and D5 must be answered <em>before</em> Step 1
+    starts — because the cut then lands directly on P2-gated painterly state and the matrix
+    test becomes the de facto freeze. Cost: the whole slice reworks if D1/D5 come back <code>amend</code>.</li>
+</ul>
+<p>Related: <strong>"zero friends" is a weak success metric for D1</strong> — it is satisfiable by widening
+  the public surface instead of by shrinking aliasing. Consider grading D1 on
+  <em>field-reachability</em> (fields × objects that can reach them) with one writer per moved field,
+  and keep N12's friend-count guard as a floor rather than the target.</p>
+<ul>
+<li><strong>D7 — N12 ("zero friends after Step 7") is not satisfiable by Steps 1–7 as scheduled.
+  Decide how to close the gap.</strong> There are six friend grants at
+  <code>gaussian_splat_node_3d.h:123-128</code>. The steps cover four of them: Asset + Viewport in
+  Step 5, Debug in Step 7, Renderer implicitly in Step 2. <strong>Two are never migrated, and in
+  both cases that is deliberate elsewhere in this document:</strong></li>
+<li><code>GaussianSplatNodeQualityHelper</code> — Step 1 explicitly keeps the imperative shell <em>"on
+    <code>GaussianSplatNodeQualityHelper</code>, at its current sites"</em>, and <strong>N14</strong> pins
+    <code>helpers.cpp:781</code> (<code>owner._update_instance_params_in_director();</code>) and <code>helpers.cpp:995</code>
+    (<code>owner._apply_renderer_settings();</code>, declared private at <code>gaussian_splat_node_3d.h:330</code>)
+    as unmodified. The shell also writes <code>owner.lod_bias</code> / <code>owner.max_splat_count</code>
+    (<code>helpers.cpp:777-778</code>) and <code>owner.effective_config_snapshot</code>. Friendship is <strong>required</strong>
+    by the Step 1 design that D6 recommends.</li>
+<li><code>GaussianSplatNodeVisibilityHelper</code> — concern 9 stays on the shell, and the helper
+    reaches privates at <code>helpers.cpp:1209-1224</code> (<code>owner.parent_visibility_target</code>,
+    <code>owner.parent_visible</code>, <code>callable_mp(&amp;owner, &amp;GaussianSplatNode3D::_on_parent_visibility_changed)</code>)
+    and <code>:1288</code> (<code>owner.update_mode</code>, <code>owner._update_visibility()</code>).</li>
+</ul>
+<p>So Step 7's precondition — <em>"once all six helpers are owned collaborators"</em> — is
+  established by no step, and an agent following the staging literally will either fail the
+  N12 gate or widen public accessors purely to delete two <code>friend</code> lines, which is the
+  failure mode the D6 note above already warns about. <strong>Options:</strong>
+  - <strong>(a) Add the migration work.</strong> A new step converts QualityHelper and VisibilityHelper
+    into non-friend owned collaborators. This must be reconciled with N14's pin on
+    <code>helpers.cpp:781</code>/<code>:995</code> — i.e. D6's core/shell split and a non-friend QualityHelper are
+    in direct tension, and choosing (a) means revisiting one of them.
+  - <strong>(b) Scope N12 to what the steps actually deliver.</strong> <em>"Friendship strictly decreases; at
+    most two grants (Quality shell, Visibility) remain after Step 7, tracked by a named
+    follow-up issue."</em> Correct Step 7's "all six helpers" wording accordingly. This is
+    consistent with the D6 note that friend-count is a floor, not the target — but it does
+    mean N12 stops being the clean gate it currently reads as.</p>
+<p>This ADR does <strong>not</strong> pick one: (a) changes the scope of the decomposition and collides
+  with D6/N14, (b) changes what N12 asserts. Both are owner calls. <strong>Until D7 is answered,
+  N12 must not be treated as a Step 7 blocker</strong>, because no scheduled step can satisfy it.</p>
+
+
+
+
+
+
+
+  
+    
+  
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 22, 2026 15:48:56 UTC">July 22, 2026</span>
+  </span>
+
+    
+    
+    
+    
+  </aside>
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden="">
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"></path></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.indexes", "navigation.path", "navigation.top", "navigation.footer", "content.code.copy", "content.code.annotate", "search.highlight", "search.suggest"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../../js/mkdocs-charts-plugin.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/vega-lite@5"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
+      
+    
+  
+<script id="init-glightbox">const lightbox = GLightbox({"touchNavigation": true, "loop": false, "zoomable": true, "draggable": true, "openEffect": "zoom", "closeEffect": "zoom", "slideEffect": "slide"});
+document$.subscribe(()=>{ lightbox.reload(); });
+</script></body></html>

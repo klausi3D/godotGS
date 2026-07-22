@@ -1,0 +1,3227 @@
+<!DOCTYPE html><html lang="en" class="no-js"><head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Versioned documentation for the Godot Gaussian Splatting module.">
+      
+      
+      
+        <link rel="canonical" href="https://klausi3d.github.io/godotGS/latest/architecture/adr-decompose-renderer-facade/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/branding/godotgs-mark.png">
+      <meta name="generator" content="mkdocs-ProperDocs 1.6.7, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>ADR: Decompose the GaussianSplatRenderer facade into owned sub-contexts - Godot Gaussian Splatting Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/styles/brand.css">
+    
+      <link rel="stylesheet" href="../../assets/styles/components.css">
+    
+      <link rel="stylesheet" href="../../assets/styles/landing.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  <link href="../../assets/stylesheets/glightbox.min.css" rel="stylesheet"><script src="../../assets/javascripts/glightbox.min.js"></script><style id="glightbox-style">
+            html.glightbox-open { overflow: initial; height: 100%; }
+            .gslide-title { margin-top: 0px; user-select: text; }
+            .gslide-desc { color: #666; user-select: text; }
+            .gslide-image img { background: white; }
+            .gscrollbar-fixer { padding-right: 15px; }
+            .gdesc-inner { font-size: 0.75rem; }
+            body[data-md-color-scheme="slate"] .gdesc-inner { background: var(--md-default-bg-color); }
+            body[data-md-color-scheme="slate"] .gslide-title { color: var(--md-default-fg-color); }
+            body[data-md-color-scheme="slate"] .gslide-desc { color: var(--md-default-fg-color); }
+        </style></head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#adr-decompose-the-gaussiansplatrenderer-facade-into-owned-sub-contexts" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden="">
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Godot Gaussian Splatting Docs" class="md-header__button md-logo" aria-label="Godot Gaussian Splatting Docs" data-md-component="logo">
+      
+  <img src="../../assets/branding/godotgs-mark.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"></path></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Godot Gaussian Splatting Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              ADR: Decompose the GaussianSplatRenderer facade into owned sub-contexts
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom" aria-label="Switch to dark mode" type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden="">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"></path></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom" aria-label="Switch to light mode" type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden="">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"></path></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required="">
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix="">
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/klausi3D/godotGS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Start Here
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../user/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../contributor/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Contribute
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Godot Gaussian Splatting Docs" class="md-nav__button md-logo" aria-label="Godot Gaussian Splatting Docs" data-md-component="logo">
+      
+  <img src="../../assets/branding/godotgs-mark.png" alt="logo">
+
+    </a>
+    Godot Gaussian Splatting Docs
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/klausi3D/godotGS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix="">
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../getting-started/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start Here
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start Here
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/downloads/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Downloads
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/try-in-5-minutes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Try in 5 Minutes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Public Evaluator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/recurring-issues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recurring Issues
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../user/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Artist Workflow Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Manual: Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../workflows/importing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gaussian Splat Asset Import Workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/workflows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow Details
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/runtime-behavior/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Manual: Runtime Behavior
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/lighting-behavior/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Manual: Lighting Behavior
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/performance-presets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Presets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/faq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FAQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/project-settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Settings Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/compatibility-matrix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compatibility Matrix
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gaussian_splat_node3d/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GaussianSplatNode3D API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gdscript_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GDScript API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/shader_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Shader Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/color-grading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Color Grading Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migration Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../contributor/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contribute
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contribute
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributor/reviewer-fast-path/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reviewer Fast Path
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributor/onboarding/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributor Onboarding
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../BUILDING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/build-test-ci/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build / Test / CI Command Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../testing/setup-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing Setup Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../testing/benchmark-suite/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmark Runner
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../governance/contribution-standards/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contribution Standards
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/docs-site/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Versioned Docs Site
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../style/documentation-style-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation Style Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+      
+        <li class="md-nav__item">
+  <a href="#1-current-state-the-shared-state-bundle-map" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Current state — the shared-state bundle map
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Current state — the shared-state bundle map">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-one-aliased-bundle-the-buckets-are-orchestrator-owned-and-facade-forwarded" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 One aliased bundle — the buckets are orchestrator-owned and facade-forwarded
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-hazard-a-the-static-fallback-objects-are-hidden-process-global-mutable-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 Hazard A — the static fallback objects are hidden process-global mutable state
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-hazard-b-frame_plan-borrow-is-a-designed-use-after-scope-trap-529" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3 Hazard B — frame_plan borrow is a designed use-after-scope trap (#529)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#14-hazard-c-hand-maintained-parallel-lists-with-no-parity-guard-528-570-591" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.4 Hazard C — hand-maintained parallel lists with no parity guard (#528, #570, #591)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#15-hazard-d-stageiovalidation_failed-is-diagnostic-only-587" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.5 Hazard D — StageIO.validation_failed is diagnostic-only (#587)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#16-the-gpu_sortercpp-sub-cluster-3500-loc-three-algorithms-embedded-glsl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.6 The gpu_sorter.cpp sub-cluster (~3,500 LOC): three algorithms + embedded GLSL
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#17-the-tile_renderercpp-sub-cluster-3579-loc-stages-already-split-orchestration-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.7 The tile_renderer.cpp sub-cluster (~3,579 LOC): stages already split, orchestration not
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-target-partition-the-bundle-into-owned-sub-contexts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Target — partition the bundle into owned sub-contexts
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Target — partition the bundle into owned sub-contexts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-unit-a-frameplan-gets-a-named-owner-outside-the-context-fixes-13-529" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 Unit A — FramePlan gets a named owner outside the context (fixes 1.3 / #529)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-unit-b-split-iframestateview-iframemutationaccess-into-per-stage-capability-views-fixes-11-12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 Unit B — split IFrameStateView / IFrameMutationAccess into per-stage capability views (fixes 1.1, 1.2)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-unit-c-single-source-metric-reset-stage-exit-helper-fixes-14-528-570-591" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 Unit C — single-source metric reset + stage-exit helper (fixes 1.4 / #528, #570, #591)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#24-unit-d-make-stageio-failures-fail-closed-fixes-15-587" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.4 Unit D — make StageIO failures fail-closed (fixes 1.5 / #587)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#25-facade-after-decomposition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.5 Facade after decomposition
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-gpu_sortercpp-split-shader-extraction-closes-525" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. gpu_sorter.cpp split + shader extraction (closes #525)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. gpu_sorter.cpp split + shader extraction (closes #525)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-extract-embedded-glsl-to-on-disk-files-in-the-c5-matrix-closes-525" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 Extract embedded GLSL to on-disk files in the C5 matrix (closes #525)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-split-the-three-algorithms-into-separate-tus" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Split the three algorithms into separate TUs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-staged-migration-ci-green-behavior-preservation-proof-per-step" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Staged migration — CI-green + behavior-preservation proof per step
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-issue-closure-mapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Issue-closure mapping
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#invariant-list-what-every-slice-is-graded-against" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Invariant list — what every slice is graded against
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evidence-a-slice-must-produce" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evidence a slice must produce
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decisions-the-owner-needs-to-make" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decisions the owner needs to make
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#anchor-re-verification-log-review-round-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Anchor re-verification log (review round 2)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-docs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related docs
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="adr-decompose-the-gaussiansplatrenderer-facade-into-owned-sub-contexts">ADR: Decompose the <code>GaussianSplatRenderer</code> facade into owned sub-contexts<a class="headerlink" href="#adr-decompose-the-gaussiansplatrenderer-facade-into-owned-sub-contexts" title="Permanent link">¶</a></h1>
+<ul>
+<li><strong>Status:</strong> Proposed (design-note-before-implementation). Owner sign-off required
+  before any code slice lands. This ADR is characterization + target + staged plan
+  only; it changes no production code and builds nothing.</li>
+<li><strong>Risk class:</strong> <strong>R0 for this document</strong> (<code>docs/**</code> — <code>.agentic/policy.json</code>
+  <code>path_globs: ["docs/**"]</code> → R0). The change it <em>designs</em> is <strong>R2</strong>
+  (<code>modules/gaussian_splatting/renderer/**</code>), <strong>escalating to R3</strong> for (a) the step that
+  edits <code>.github/workflows/gaussian_shader_validation.yml</code> (S5), (b) <strong>the step that
+  registers a new guard in the <code>--guard-only</code> lane (S1b), because
+  <code>tests/ci/run_module_tests.py</code> is explicitly R3 in <code>.agentic/policy.json</code> (<em>"CI
+  deterministic-check / release-gate machinery"</em>)</strong>, and (c) any step that touches a
+  serialized/format contract. Every implementation slice carries the risk class of the
+  <strong>files it edits</strong> — classification is path-based, not evidence-based, so "no render-path
+  source touched, therefore R1" is not a valid derivation — and needs the matching
+  runtime/GPU evidence and independent review (<code>docs/governance/review-policy.md</code>).</li>
+<li><strong>Tracked by:</strong> #356 (decompose renderer orchestration around owned state
+  boundaries). <strong>Closes / advances:</strong> #528, #529, #570, #591, #587 (facade/state
+  duplication + fail-closed) and #525 (embedded sorter GLSL outside the C5 compile
+  matrix). <strong>Related but distinct:</strong> #588 (destructor dispatch can block — a separate
+  lifetime bug, not addressed here; see "Issue-closure mapping").</li>
+<li><strong>Base:</strong> originally anchored at <code>origin/master</code>
+  <code>237a4b1cc3965fdbd6f12dec825c0e2077b2e9ce</code>. <strong>Re-anchored in review round 2 to
+  <code>9161d92f349</code></strong> (~30 commits later); every <code>file:line</code> below was re-verified against that
+  master by <code>grep -n</code>, and the drifted ones are corrected in place. The re-anchoring is
+  material, not cosmetic: PR #627 landed in that window and closed the metric-reset half of
+  #528 (§1.4). Anchors that moved are listed in
+  §"Anchor re-verification log" so a reviewer can tell correction from silent edit.
+  Builds on the W0 characterization in
+  <a href="../stage-first-ownership-inventory/"><code>stage-first-ownership-inventory.md</code></a> (issue
+  #356) — this ADR is the W1/W2 target and migration plan that inventory called for.</li>
+</ul>
+<hr>
+<h2 id="1-current-state-the-shared-state-bundle-map">1. Current state — the shared-state bundle map<a class="headerlink" href="#1-current-state-the-shared-state-bundle-map" title="Permanent link">¶</a></h2>
+<h3 id="11-one-aliased-bundle-the-buckets-are-orchestrator-owned-and-facade-forwarded">1.1 One <em>aliased</em> bundle — the buckets are orchestrator-owned and facade-forwarded<a class="headerlink" href="#11-one-aliased-bundle-the-buckets-are-orchestrator-owned-and-facade-forwarded" title="Permanent link">¶</a></h3>
+<blockquote>
+<p><strong>Correction (review round 1). The previous revision of this section asserted an
+ownership map that is the inverse of the code.</strong> It claimed <code>GaussianSplatRenderer</code>
+"holds every per-renderer bucket as a direct member/alias … at
+<code>gaussian_splat_renderer.h:201-334</code>" and that "the twelve orchestrators do <strong>not</strong> own
+any of these." Both claims are false, and <code>h:201-334</code> contains almost no member
+declarations at all — it is a block of <code>using</code> type aliases and nested <code>struct</code>
+<em>definitions</em>. The only actual member in that range is
+<code>RenderFrameContextManager frame_context_manager;</code> (<code>h:306</code>). Because every downstream
+slice inherits the ownership map, the corrected map below is normative and the migration
+plan in §4 is re-derived from it.</p>
+</blockquote>
+<p><strong>Verified ownership map</strong> (<code>GaussianSplatRenderer</code>, re-verified on master <code>9161d92f349</code> —
+every row below still holds, each owning declaration confirmed a <strong>by-value</strong> member):</p>
+<table>
+<thead>
+<tr>
+<th>Bucket</th>
+<th>Actual owner</th>
+<th>Owning declaration</th>
+<th>Facade forwarder</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SceneState</code></td>
+<td><code>RenderDataOrchestrator</code></td>
+<td><code>render_data_orchestrator.h:66</code></td>
+<td><code>gaussian_splat_renderer.cpp:2634-2644</code></td>
+</tr>
+<tr>
+<td><code>StreamingState</code></td>
+<td><code>RenderDataOrchestrator</code></td>
+<td><code>render_data_orchestrator.h:67</code></td>
+<td><code>:2742-2752</code></td>
+</tr>
+<tr>
+<td><code>SortingState</code></td>
+<td><code>RenderSortingOrchestrator</code></td>
+<td><code>render_sorting_orchestrator.h:80</code></td>
+<td><code>:2730-2740</code></td>
+</tr>
+<tr>
+<td><code>PipelineState</code></td>
+<td><code>RenderResourceOrchestrator</code></td>
+<td><code>render_resource_orchestrator.h:45</code></td>
+<td><code>:2670-2680</code></td>
+</tr>
+<tr>
+<td><code>ResourceState</code></td>
+<td><code>RenderResourceOrchestrator</code></td>
+<td><code>render_resource_orchestrator.h:46</code></td>
+<td><code>:2754-2764</code></td>
+</tr>
+<tr>
+<td><code>RenderConfig</code></td>
+<td><code>RenderConfigOrchestrator</code></td>
+<td><code>render_config_orchestrator.h:58</code></td>
+<td><code>:2646-2656</code></td>
+</tr>
+<tr>
+<td><code>InteractiveStateConfig</code></td>
+<td><code>RenderConfigOrchestrator</code></td>
+<td><code>render_config_orchestrator.h:59</code></td>
+<td><code>:2718-2728</code></td>
+</tr>
+<tr>
+<td><code>CullingConfig</code></td>
+<td><code>RenderConfigOrchestrator</code></td>
+<td><code>render_config_orchestrator.h:60</code></td>
+<td><code>:2694-2704</code></td>
+</tr>
+<tr>
+<td><code>PainterlyConfig</code></td>
+<td><code>RenderConfigOrchestrator</code></td>
+<td><code>render_config_orchestrator.h:61</code></td>
+<td><code>:2706-2716</code></td>
+</tr>
+<tr>
+<td><code>PipelineFeatureSet</code> (<code>pipeline_features_effective</code>)</td>
+<td><strong>facade, direct member</strong></td>
+<td><code>gaussian_splat_renderer.h:667</code></td>
+<td>provider getter <code>gaussian_splat_renderer.cpp:847-852</code> (returns <code>&amp;renderer_view-&gt;pipeline_features_effective</code>; <strong>no</strong> <code>static</code> fallback)</td>
+</tr>
+<tr>
+<td><code>JacobianDebugConfig</code> (<code>jacobian_debug</code>)</td>
+<td><strong>facade, direct member</strong></td>
+<td><code>gaussian_splat_renderer.h:670</code></td>
+<td>provider getter <code>gaussian_splat_renderer.cpp:722-728</code>, <strong>with</strong> its own <code>static JacobianDebugConfig fallback</code></td>
+</tr>
+<tr>
+<td><code>DeviceState</code></td>
+<td><code>RenderDeviceOrchestrator</code></td>
+<td><code>render_device_orchestrator.h</code> (<code>device_state</code>)</td>
+<td><code>:2658-2668</code></td>
+</tr>
+<tr>
+<td><code>DebugState</code></td>
+<td><code>RenderDebugStateOrchestrator</code></td>
+<td>via <code>get_state()</code></td>
+<td><code>:3061-3068</code></td>
+</tr>
+<tr>
+<td><code>PerformanceSettings</code></td>
+<td><code>RenderQualityOrchestrator</code></td>
+<td>via <code>get_performance_settings()</code></td>
+<td><code>:2682-2692</code></td>
+</tr>
+<tr>
+<td><code>FrameState</code>, <code>ViewState</code></td>
+<td><code>RenderFrameContextManager</code></td>
+<td><code>gaussian_splat_renderer.h:306</code></td>
+<td><code>frame_context_manager</code></td>
+</tr>
+<tr>
+<td><code>PerformanceState</code></td>
+<td><strong>facade, direct member</strong></td>
+<td><code>gaussian_splat_renderer.h:604</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>TestDataState</code></td>
+<td><strong>facade, direct member</strong></td>
+<td><code>h:605</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>TileRendererState</code></td>
+<td><strong>facade, direct member</strong></td>
+<td><code>h:610</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>SubsystemState</code></td>
+<td><strong>facade, direct member</strong></td>
+<td><code>h:619</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>ShadowBlitState</code></td>
+<td><strong>facade, direct member</strong></td>
+<td><code>h:765</code></td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p>So: <strong>twelve of the nineteen buckets are already owned by an orchestrator or by
+<code>frame_context_manager</code>, by value.</strong> Seven are direct facade members: the five at
+<code>h:604-765</code> (not <code>h:201-334</code>), plus <code>pipeline_features_effective</code> (<code>h:667</code>) and
+<code>jacobian_debug</code> (<code>h:670</code>), which reach <code>FrameDeps</code> through provider getters rather than
+through a facade bucket-accessor pair. <code>RenderConfigOrchestrator</code> in particular is <em>already</em> the
+clean pattern the ADR was proposing to build — it owns <strong>four</strong> buckets by value and is the
+<strong>only</strong> orchestrator header that declares <strong>no</strong> <code>GaussianSplatRenderer *renderer</code>
+back-pointer.</p>
+<blockquote>
+<p><strong>Count correction (review round 3).</strong> The round-1/round-2 revisions of this table listed
+only <code>RenderConfig</code> for <code>RenderConfigOrchestrator</code> and therefore said "nine of the
+fourteen". That undercounted: the orchestrator also owns <code>InteractiveStateConfig</code>,
+<code>CullingConfig</code> and <code>PainterlyConfig</code> as separate by-value members
+(<code>render_config_orchestrator.h:58-61</code>), each forwarded through its own facade accessor
+pair with its own <code>static … fallback</code> local. Because <strong>R1</strong> makes this table the
+normative input for the owner-map CI guard and <strong>S8</strong> derives its port split from it, the
+three missing buckets would have been authored out of the guard's expected set. They were
+already inside §1.2's count of 22 facade forwarding accessors (11 bucket pairs × 2) and
+the whole-file count of 40 <code>static … fallback;</code> locals — both of which still reproduce
+exactly — so that part is a gap in §1.1 only, not in the S8/R6 scope.</p>
+<p><strong>Extended again in the same round:</strong> two further <code>FrameDeps</code>-backed buckets were also
+absent — <code>pipeline_features</code>, pointing at the facade member <code>pipeline_features_effective</code>
+(<code>h:396</code>/<code>h:667</code>, provider getter <code>cpp:847-852</code>), and the optional <code>jacobian_debug</code>
+(<code>h:408</code>/<code>h:670</code>, provider getter <code>cpp:722-728</code> <strong>with</strong> its own <code>static
+JacobianDebugConfig fallback</code>). Both are now rows. Unlike the config sub-buckets these are
+reached through <strong>provider getters</strong>, not through the 11 facade bucket-accessor pairs, so
+they were <em>not</em> already inside §1.2's count of 22 — the <code>jacobian_debug</code> fallback is one of
+the provider block's 18. <strong>Consequence for R1:</strong> the owner-map guard must cover
+provider-getter-backed state as well as accessor-pair-backed state, or it will certify a
+map that omits exactly these two.</p>
+</blockquote>
+<p>Three further count corrections, all re-verified by grep on master <code>9161d92f349</code>:</p>
+<ul>
+<li>There are <strong>11</strong> <code>render_*_orchestrator.h</code> headers, not twelve. <strong>10</strong> declare the raw
+  back-pointer <code>GaussianSplatRenderer *renderer</code> — <code>render_config_orchestrator.h</code> does not.
+  The claim "verified 12/12" was wrong in both numerator and denominator.</li>
+<li><code>FrameStateProvider</code> is constructed <strong>78</strong> times, not 61 — and <strong>8 of those are outside
+  <code>renderer/</code></strong> (<code>interfaces/painterly_renderer.cpp</code> ×7, <code>interfaces/debug_overlay_system.cpp</code> ×1),
+  which the previous scope map missed entirely. Highest concentrations:
+  <code>render_pipeline_stages.cpp</code> (16), <code>render_diagnostics_orchestrator.cpp</code> (14),
+  <code>render_output_orchestrator.cpp</code> (7).</li>
+<li>There are <strong>40</strong> <code>static … fallback;</code> locals in <code>gaussian_splat_renderer.cpp</code>, not 18.
+  <strong>18</strong> are in the <code>FrameStateProvider</code> method bodies (<code>:678-838</code>) and <strong>22</strong> are in the
+  facade's own bucket accessors (<code>:2635-2761</code>). §1.2 previously addressed only the first 18.
+  <em>(Corrected in round 2: the 22 do </em><em>not</em><em> extend to <code>:3061-3068</code>. <code>get_debug_state</code>
+  (<code>:3061-3068</code>) is the one forwarder pair in the block that uses </em><em>no</em><em> <code>static … fallback;</code>,
+  so the ADR's uniform "every forwarder has its own static fallback" description is wrong for
+  that pair. S8's grep guard must still reach zero across the file.)</em></li>
+</ul>
+<p><strong>The actual defect, restated correctly.</strong> The problem is <em>not</em> that the facade owns
+everything and the orchestrators are namespaces. It is that ownership is real but
+<strong>unenforced and doubly aliased</strong>:</p>
+<ol>
+<li>Each orchestrator owns its bucket by value, but hands out <strong>mutable references</strong> to it
+   (<code>access_scene_state_mutable()</code>, <code>render_data_orchestrator.h:56</code>;
+   <code>access_sorting_state_mutable()</code>, <code>render_sorting_orchestrator.h:55</code>), so the owner
+   cannot assert it is the only writer.</li>
+<li>The facade <strong>re-exports</strong> those references through 22 forwarding accessors, each with its
+   own <code>static</code> fallback, so every consumer reaches an orchestrator's private state through
+   the facade without the orchestrator knowing.</li>
+<li><code>FrameStateProvider</code> then re-exports them a <strong>third</strong> time as <code>IFrameStateView</code> +
+   <code>IFrameMutationAccess</code> (<code>gaussian_splat_renderer.h:476-511</code>), and <code>FrameDeps</code> caches raw
+   pointers to the same objects (<code>h:386-435</code>, field list <code>:387-405</code>) as a <strong>fourth</strong> alias.</li>
+</ol>
+<p>So a single <code>SortingState</code> is reachable as: orchestrator member → facade accessor →
+provider getter → <code>deps.sorting_state</code> pointer. Four aliases, two of them with <code>static</code>
+fallbacks, none of them a partition. <strong>The decomposition's job is to collapse the alias
+chain and make the existing ownership enforceable — not to invent ownership that is
+already there.</strong></p>
+<p><code>FrameStateProvider</code> (<code>gaussian_splat_renderer.h:476-511</code>, impl
+<code>gaussian_splat_renderer.cpp:623-800+</code>) implements <strong>both</strong> <code>IFrameStateView</code> (read)
+and <code>IFrameMutationAccess</code> (write) and every accessor resolves to the <em>same</em> renderer
+bucket:</p>
+<div class="highlight"><pre><span></span><code><span class="k">const</span><span class="w"> </span><span class="n">StreamingState</span><span class="w"> </span><span class="o">&amp;</span><span class="nf">FrameStateProvider::get_streaming_state</span><span class="p">()</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">static</span><span class="w"> </span><span class="n">StreamingState</span><span class="w"> </span><span class="n">fallback</span><span class="p">;</span><span class="w">                       </span><span class="c1">// gaussian_splat_renderer.cpp:686-693</span>
+<span class="w">    </span><span class="n">ERR_FAIL_NULL_V</span><span class="p">(</span><span class="n">renderer_view</span><span class="p">,</span><span class="w"> </span><span class="n">fallback</span><span class="p">);</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">deps</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">deps</span><span class="o">-&gt;</span><span class="n">streaming_state</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="o">*</span><span class="n">deps</span><span class="o">-&gt;</span><span class="n">streaming_state</span><span class="p">;</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">renderer_view</span><span class="o">-&gt;</span><span class="n">get_streaming_state</span><span class="p">();</span><span class="w">          </span><span class="c1">// → the one shared member</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>This is exactly the audit finding: <strong>the orchestrators are namespaces over the
+facade's state, not ownership boundaries.</strong> A <code>FrameStateProvider</code> handed to any stage
+exposes 12 read buckets + 8 mutable buckets (<code>IFrameMutationAccess</code>,
+<code>gaussian_splat_renderer.h:462-474</code>) of the single renderer instance, so any stage can
+mutate any bucket. There is no compile-time partition of who-writes-what.</p>
+<h3 id="12-hazard-a-the-static-fallback-objects-are-hidden-process-global-mutable-state">1.2 Hazard A — the <code>static</code> fallback objects are hidden process-global mutable state<a class="headerlink" href="#12-hazard-a-the-static-fallback-objects-are-hidden-process-global-mutable-state" title="Permanent link">¶</a></h3>
+<p>There are <strong>40</strong> <code>static … fallback;</code> function-local statics in
+<code>gaussian_splat_renderer.cpp</code>, at <strong>two</strong> levels of the alias chain (§1.1):</p>
+<ul>
+<li><strong>18 in the <code>FrameStateProvider</code> block</strong> (before <code>:2600</code>) — one per bucket getter, e.g.
+  <code>static SortingState fallback;</code>. The mutable variants return a mutable reference to this
+  shared object (<code>get_sorting_state_mut()</code>, <code>:767-775</code>).</li>
+<li><strong>22 in the facade's own forwarding accessors</strong> (<code>:2635-2761</code>; note <code>get_debug_state</code> at <code>:3061-3068</code> has none) — e.g.
+  <code>GaussianSplatRenderer::get_scene_state()</code> at <code>:2634-2638</code>:
+  <div class="highlight"><pre><span></span><code><span class="k">static</span><span class="w"> </span><span class="n">SceneState</span><span class="w"> </span><span class="n">fallback</span><span class="p">;</span>
+<span class="n">ERR_FAIL_NULL_V</span><span class="p">(</span><span class="n">data_orchestrator</span><span class="p">,</span><span class="w"> </span><span class="n">fallback</span><span class="p">);</span>
+<span class="k">return</span><span class="w"> </span><span class="n">data_orchestrator</span><span class="o">-&gt;</span><span class="n">access_scene_state_mutable</span><span class="p">();</span>
+</code></pre></div></li>
+</ul>
+<p>Both sets are <strong>function-local statics shared across all renderer instances and threads</strong>.
+A null-orchestrator or null-renderer mutation path silently writes a process-global that
+every renderer in the process observes. The inventory already flags the provider half
+(<code>stage-first-ownership-inventory.md:168</code>, "FrameStateProvider fallback statics and broad
+mutable accessors … split into read-only snapshots plus small mutation sinks"); the facade
+half is the larger set and was previously unaccounted for. <strong>Any slice that removes only
+the provider's 18 leaves the majority of the hazard in place</strong> — see S8's corrected scope.</p>
+<h3 id="13-hazard-b-frame_plan-borrow-is-a-designed-use-after-scope-trap-529">1.3 Hazard B — <code>frame_plan</code> borrow is a designed use-after-scope trap (#529)<a class="headerlink" href="#13-hazard-b-frame_plan-borrow-is-a-designed-use-after-scope-trap-529" title="Permanent link">¶</a></h3>
+<p><code>RenderFramePlan</code> is built as a <strong>stack local</strong> and its address is stored into
+<code>frame_context.deps.frame_plan</code> at three sites (line anchors corrected):</p>
+<ul>
+<li><code>gaussian_splat_renderer.cpp:2595</code> (resident/main route)</li>
+<li><code>render_instancing_orchestrator.cpp:180</code> (instanced route)</li>
+<li><code>render_pipeline_stages.cpp:1173</code> (stage-runner build path; previously cited as <code>:1162</code>)</li>
+</ul>
+<p><code>RenderFrameContext::FrameDeps::validate()</code> validates 14 pointers but <strong>deliberately
+exempts <code>frame_plan</code></strong> (<code>gaussian_splat_renderer.h:428-431</code>), and the instancing site
+carries an in-code confession:</p>
+<div class="highlight"><pre><span></span><code><span class="c1">// render_instancing_orchestrator.cpp:176-179</span>
+<span class="c1">// Borrow invariant: `frame_plan` is a stack local ... Do not store, defer, or async-pass</span>
+<span class="c1">// ... RenderFrameDeps::validate() exempts `frame_plan` ... so a use-after-scope here will</span>
+<span class="c1">// not be caught by the validator.</span>
+</code></pre></div>
+<p>The codebase increasingly threads <code>RenderFrameContext</code> across stage boundaries; any
+future deferral/async of a stage turns this borrow into silent UB that no guard
+catches. It is duplicated at three sites, so the trap is not localized.</p>
+<p><strong>And <code>RenderFrameContext</code> is already copied by value</strong> — <code>render_pipeline_stages.cpp:1134</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="c1">// Copy frame context first, then build frame_plan and update deps.</span>
+<span class="c1">// The provider must be constructed AFTER this so it sees the updated deps.</span>
+<span class="n">RenderFrameContext</span><span class="w"> </span><span class="n">frame_context</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">p_frame_context</span><span class="p">;</span>
+</code></pre></div>
+<p>The codebase has already been bitten by this exact class of bug and works around it
+in-place (<code>render_pipeline_stages.cpp:1175-1177</code>; rebind at <code>:1178-1182</code>):</p>
+<div class="highlight"><pre><span></span><code><span class="c1">// This path copies RenderFrameContext before attaching frame_plan, so any incoming</span>
+<span class="c1">// provider-backed seams still point at the caller's deps object. Rebind both seams</span>
+<span class="c1">// to a local provider over the copied deps to avoid stale frame_plan/state pointers.</span>
+</code></pre></div>
+<p><code>RenderFrameContext</code> therefore already contains <strong>self-referential pointers that do not
+survive a copy</strong> — <code>state_view</code> and <code>mutation_access</code> (<code>h:383-384</code>) point at stack locals,
+and the copy at <code>:1134</code> is only safe because <code>:1178-1182</code> explicitly rebinds them. This is
+the precise reason §2.1's original proposal is unsafe, and it is why the corrected design
+below makes the context <strong>non-copyable</strong> rather than adding another self-reference to it.</p>
+<h3 id="14-hazard-c-hand-maintained-parallel-lists-with-no-parity-guard-528-570-591">1.4 Hazard C — hand-maintained parallel lists with no parity guard (#528, #570, #591)<a class="headerlink" href="#14-hazard-c-hand-maintained-parallel-lists-with-no-parity-guard-528-570-591" title="Permanent link">¶</a></h3>
+<blockquote>
+<p><strong>Superseded in part — review round 2. The metric-reset half of this hazard is FIXED on
+master.</strong> PR <strong>#627</strong> (merged 2026-07-18, closing <strong>#528</strong>) landed after this ADR's base and
+is not reflected in the text below. It also <strong>refuted this ADR's proposed mechanism</strong>. See
+the re-scoping note at the end of this subsection and the corrected <strong>S1</strong> row in §4 before
+planning any work here.</p>
+</blockquote>
+<p>The single shared <code>PerformanceMetrics</code> bundle was zeroed <strong>field-by-field</strong> at three
+independent sites, none generated from the struct:</p>
+<table>
+<thead>
+<tr>
+<th>Site</th>
+<th>Function</th>
+<th>Scope</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>render_pipeline_stages.cpp</code></td>
+<td><code>reset_render_state_for_frame</code></td>
+<td>frame-skip path: raster tile snapshot + <strong>full</strong> GPU pass timings + timeline</td>
+</tr>
+<tr>
+<td><code>render_pipeline_stages.cpp</code></td>
+<td><code>render_sorted_splats_with_context</code></td>
+<td>main path: <code>raster_path="unknown"</code> + raster tile snapshot + <strong>core</strong> GPU pass timings only</td>
+</tr>
+<tr>
+<td><code>render_resource_orchestrator.cpp</code></td>
+<td><code>update_gpu_pass_metrics_from_tile_renderer</code> (no-rasterizer branch)</td>
+<td><strong>all</strong> GPU timing groups + readback state; deliberately leaves the monotonic <code>raster_pipeline_reformats</code></td>
+</tr>
+</tbody>
+</table>
+<p>A new <code>PerformanceMetrics</code> field added to the struct but missed at any one site
+silently reports <strong>the previous route's value</strong> — a stale-telemetry bug class (#528).
+The same hand-list pattern (no parity guard) recurs in the ~100-key diagnostics
+Dictionaries built field-by-field in <code>render_diagnostics_orchestrator.cpp</code>
+(<code>_append_production_frame_metrics</code>) and the route-UID→label maps in
+<code>render_route_labels.cpp</code>.</p>
+<p><strong>What #627 landed, and what it refuted.</strong> Verified on master <code>9161d92f349</code>:</p>
+<ul>
+<li><strong>Landed:</strong> five named group helpers on <code>PerformanceMetrics</code> —
+  <code>reset_raster_frame_stats()</code>, <code>reset_gpu_core_pass_timings()</code>,
+  <code>reset_gpu_extended_pass_timings()</code>, <code>reset_gpu_timeline_metrics()</code>,
+  <code>reset_gpu_readback_state()</code> (<code>renderer/render_types/render_performance_types.h:165-174</code>),
+  each site composing the groups it needs. Plus a fail-closed field-coverage parity guard,
+  <code>tests/ci/check_metric_reset_parity.py</code>, wired into the <code>--guard-only</code> lane
+  (<code>tests/ci/run_module_tests.py:32-33</code>, <code>:741</code>, <code>:1605</code>), which requires every struct field
+  to be either reset-covered or in an explicit <code>NOT_RESET_FIELDS</code> allow-list with a reason
+  (93 fields accounted for: 53 covered, 40 explicitly not-per-frame-reset).</li>
+<li><strong>Refuted:</strong> this ADR's §2.3 proposal to <em>"give <code>PerformanceMetrics</code> a <code>reset()</code> (or
+  <code>*this = PerformanceMetrics{};</code> default-init semantics) and call it at all three sites."</em>
+  #627 checked the three sites field-by-field and found they reset <strong>intentionally different
+  subsets</strong> — they are partial resets, not three copies of one full reset. A blanket reset
+  would zero cumulative/lifetime counters (<code>total_frames_rendered</code>, the deliberately-monotonic
+  <code>raster_pipeline_reformats</code>), rolling aggregates, and per-stage outputs the sites preserve
+  on purpose. <strong>That is a behavior change, not a dedup</strong>, and the ADR's characterization of
+  the three sites as interchangeable ~30–40-field lists was the reason it looked safe.</li>
+<li><strong>NOT landed:</strong> the <strong>diagnostics-dict key-set guard</strong> and the <strong>route-label key-set
+  guard</strong>. #528's own body names both as the same class ("no parity guards either"), and
+  #627 touched neither <code>render_diagnostics_orchestrator.cpp</code> nor <code>render_route_labels.cpp</code>;
+  no file under <code>tests/ci/</code> references either. <strong>This ADR makes both an exit criterion in
+  R9</strong>, so R9 is currently unmet by the merged work and S1 is only <em>partially</em> discharged.</li>
+</ul>
+<p><strong>Stage-exit stamping duplication (#570):</strong> four near-identical ~40-line
+<code>StageResult</code>/<code>StageIO</code> skip/fail stamping blocks exist in
+<code>render_sorted_splats_with_context</code> alone (<code>render_pipeline_stages.cpp:3022, 3027, 3053,
+3058</code> — corrected in round 2 from <code>3005/3026/3083/3114</code>), and again in <code>render_instancing_orchestrator.cpp:196-225</code>. Each repeats
+<code>make_downstream_skip_result(...)</code> + <code>stamp_stage_result_contract(...)</code> + <code>_init_stage_io(...)</code>.
+The audit measures ~30–40% of frame-path LOC as this ritual.</p>
+<p><strong>Duplicate contract-publisher sizing (#591):</strong> the resident and streaming routes
+hand-roll the <em>same</em> <code>sort_cap</code> clamp and <code>InstancePipelineBuffers</code> population with no
+shared helper:</p>
+<p></p><div class="highlight"><pre><span></span><code><span class="c1">// resident_instance_contract_publisher.cpp:808-811</span>
+<span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">sort_cap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">g_gpu_sorting_config</span><span class="p">.</span><span class="n">max_sort_elements</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span>
+<span class="w">        </span><span class="o">?</span><span class="w"> </span><span class="kt">uint64_t</span><span class="p">(</span><span class="n">g_gpu_sorting_config</span><span class="p">.</span><span class="n">max_sort_elements</span><span class="p">)</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="kt">uint64_t</span><span class="p">(</span><span class="n">UINT32_MAX</span><span class="p">);</span>
+<span class="n">buffers</span><span class="p">.</span><span class="n">max_visible_splats</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">MIN</span><span class="o">&lt;</span><span class="kt">uint64_t</span><span class="o">&gt;</span><span class="p">(</span><span class="n">max_visible_splats_u64</span><span class="p">,</span><span class="w"> </span><span class="n">sort_cap</span><span class="p">));</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><span class="c1">// render_streaming_orchestrator.cpp:1781-1784  (identical clamp, different sizing input)</span>
+<span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">sort_cap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">g_gpu_sorting_config</span><span class="p">.</span><span class="n">max_sort_elements</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span>
+<span class="w">        </span><span class="o">?</span><span class="w"> </span><span class="kt">uint64_t</span><span class="p">(</span><span class="n">g_gpu_sorting_config</span><span class="p">.</span><span class="n">max_sort_elements</span><span class="p">)</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="kt">uint64_t</span><span class="p">(</span><span class="n">UINT32_MAX</span><span class="p">);</span>
+<span class="n">max_visible_splats_u64</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">MIN</span><span class="p">(</span><span class="n">max_visible_splats_u64</span><span class="p">,</span><span class="w"> </span><span class="n">sort_cap</span><span class="p">);</span>
+</code></pre></div><p></p>
+<p>The <em>sizing policy</em> legitimately differs (resident: atlas gaussian count + structural
+per-asset chunk max; streaming: regulator working-set), but the <strong>clamp + buffer-field
+population is copy-pasted</strong>, so a future <code>InstancePipelineBuffers</code> layout change can
+land in one route only.</p>
+<h3 id="15-hazard-d-stageiovalidation_failed-is-diagnostic-only-587">1.5 Hazard D — <code>StageIO.validation_failed</code> is diagnostic-only (#587)<a class="headerlink" href="#15-hazard-d-stageiovalidation_failed-is-diagnostic-only-587" title="Permanent link">¶</a></h3>
+<p><code>_finalize_stage_io</code> (<code>render_pipeline_stages.cpp:779-799</code>) sets
+<code>p_io.validation_failed</code> when a stage produced impossible counts
+(<code>output_count &gt; input_count</code>) or a missing output buffer, and records an event. But
+the <strong>only consumers</strong> of that flag are the debug overlay, a debug-dict serialization
+(<code>render_debug_state_orchestrator.cpp:168</code>), and the logger. At the cull site the
+frame proceeds regardless:</p>
+<div class="highlight"><pre><span></span><code><span class="c1">// render_pipeline_stages.cpp:1460-1469 (the _finalize_stage_io call is at :1467)</span>
+<span class="k">const</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="n">count_invalid</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">io</span><span class="p">.</span><span class="n">output_count</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">io</span><span class="p">.</span><span class="n">input_count</span><span class="p">;</span>
+<span class="k">const</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="n">buffer_missing</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cull_state</span><span class="p">.</span><span class="n">gpu_visible_indices_count</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="n">io</span><span class="p">.</span><span class="n">output_buffer</span><span class="p">.</span><span class="n">is_valid</span><span class="p">();</span>
+<span class="p">...</span><span class="w"> </span><span class="n">_finalize_stage_io</span><span class="p">(</span><span class="n">renderer</span><span class="p">,</span><span class="w"> </span><span class="s">"cull"</span><span class="p">,</span><span class="w"> </span><span class="n">io</span><span class="p">,</span><span class="w"> </span><span class="n">validation</span><span class="p">);</span>
+<span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">   </span><span class="c1">// &lt;-- poisoned StageIO does not fail the stage or the frame</span>
+</code></pre></div>
+<p>A structurally-invalid stage output cannot fail the stage — the StageIO contract is
+advisory, contradicting the "no silent unsafe fallback" rule in
+<code>renderer/AGENTS.md</code>.</p>
+<h3 id="16-the-gpu_sortercpp-sub-cluster-3500-loc-three-algorithms-embedded-glsl">1.6 The <code>gpu_sorter.cpp</code> sub-cluster (~3,500 LOC): three algorithms + embedded GLSL<a class="headerlink" href="#16-the-gpu_sortercpp-sub-cluster-3500-loc-three-algorithms-embedded-glsl" title="Permanent link">¶</a></h3>
+<p><code>gpu_sorter.cpp</code> is one TU holding three sort algorithms plus a factory, <strong>and</strong> the
+full GLSL source for each, embedded as runtime <code>vformat(R"(</code> … newline … <code>#version 450</code> … <code>)")</code> strings
+(the raw-string opener and the <code>#version</code> directive are always on <strong>separate lines</strong> — see R11):</p>
+<table>
+<thead>
+<tr>
+<th>Unit</th>
+<th>Approx lines</th>
+<th>Embedded GLSL (<code>vformat(R"(</code> + newline + <code>#version 450</code>)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>BitonicSort</code></td>
+<td><code>539-946</code></td>
+<td><code>596</code> (compare/swap kernel)</td>
+</tr>
+<tr>
+<td><code>GPUSorterFactory</code> / policy</td>
+<td><code>948-1178</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>RadixSort</code> (+ variants)</td>
+<td><code>1180-2013+</code></td>
+<td><code>1656</code> histogram, <code>1741</code> wg-prefix, <code>1809</code> bin-prefix, <code>1854</code> scatter, <code>2204</code> indirect-dispatch</td>
+</tr>
+<tr>
+<td>OneSweep variant kernels</td>
+<td><code>2731-3006+</code> (ctor <code>2731</code>, <code>_bind_methods</code> <code>2739</code>)</td>
+<td><code>2780, 2847, 2943, 3006</code></td>
+</tr>
+</tbody>
+</table>
+<p>These strings are compiled at runtime via <code>create_compute_shader_from_spirv</code>
+(<code>gpu_sorter.cpp:138</code>). The C5 shader-permutation CI
+(<code>.github/workflows/gaussian_shader_validation.yml</code> → <code>shaders/compile_shaders.py</code>)
+enumerates an explicit <strong>on-disk</strong> <code>RUNTIME_SHADER_MATRIX</code> of <code>SHADERS_DIR/*.glsl</code> +
+<code>COMPUTE_DIR/*.glsl</code> files (<code>compile_shaders.py:142-684</code>) and never references
+<code>gpu_sorter</code>. <strong>Result (#525): the sorter's radix/bitonic/onesweep GLSL is invisible
+to the compile matrix</strong> — a syntax or <code>layout()</code> break in a sorter kernel ships and
+only fails at runtime on the machine that selects that algorithm. (By contrast the
+tile pipeline's shaders are already external files in the matrix — see §1.7 — so the
+tile cluster does <strong>not</strong> share this defect.)</p>
+<h3 id="17-the-tile_renderercpp-sub-cluster-3579-loc-stages-already-split-orchestration-not">1.7 The <code>tile_renderer.cpp</code> sub-cluster (~3,579 LOC): stages already split, orchestration not<a class="headerlink" href="#17-the-tile_renderercpp-sub-cluster-3579-loc-stages-already-split-orchestration-not" title="Permanent link">¶</a></h3>
+<p>Unlike gpu_sorter, <code>tile_renderer.cpp</code> embeds <strong>no</strong> GLSL: it pulls shader source from
+generated headers (<code>tile_renderer.cpp:31-34</code>, <code>#include "../shaders/tile_binning.glsl.gen.h"</code>
+etc.), and those <code>.glsl</code> files are already in the C5 matrix — so the tile cluster has
+no #525 exposure. Its per-stage GPU work is <strong>already delegated</strong> to sibling TUs:
+<code>tile_render_binning.cpp</code>, <code>tile_render_prefix_scan.cpp</code>,
+<code>tile_render_rasterizer_stage.cpp</code>, <code>tile_render_resolve.cpp</code>, <code>tile_render_stages.cpp</code>
+(params), <code>tile_render_resources.cpp</code> (<code>TileResourceController</code> +
+<code>TileRenderTargets</code>/buffer lifecycles), and <code>tile_render_debug_stats.cpp</code>. The tile
+renderer keeps ~30 member-state clusters (<code>tile_renderer.h:391-481</code>), including the two
+the inventory flags as ex-globals now member-owned: <code>subgroup_support_cache</code>
+(<code>tile_renderer.h:450</code>) and <code>adaptive_overlap_budget_runtime_state</code>
+(<code>tile_renderer.h:463-464</code>). What is <strong>still monolithic</strong> inside <code>tile_renderer.cpp</code>:</p>
+<ul>
+<li><code>RenderFrameExecutor</code> — the per-frame pipeline state machine, <code>tile_renderer.cpp:271-1352</code> (~1,080 LOC, the single largest unit; owns validate→params→global-sort→raster→resolve→finalize).</li>
+<li><code>initialize</code>/<code>cleanup</code>/<code>_ensure_resources</code> lifetime (<code>1474-1727</code>, <code>1783-1878</code>).</li>
+<li>Shader-defines assembly + compilation orchestration + <code>_detect_subgroup_support</code> (<code>2023-2385</code>).</li>
+<li>GPU timestamp/timing subsystem (<code>2426-2757</code>).</li>
+<li><code>_evaluate_raster_path</code> compute-vs-fragment decision (<code>2778-2853</code>).</li>
+<li>Device/descriptor + instance-pipeline-binding cache (<code>2971-3225</code>); statistics/density aggregation (<code>3273-3458</code>).</li>
+<li>The adaptive-overlap-budget free-function subsystem in the anonymous namespace (the anon namespace spans <code>47-269</code>), which operates on the public runtime-state struct but is not part of <code>TileAdaptiveController</code>.</li>
+</ul>
+<p>Tile decomposition is therefore a <em>continuation</em> of an already-started split (extract
+<code>RenderFrameExecutor</code>, the timing subsystem, and shader-compile orchestration into
+owned services), not a from-scratch teardown. It is <strong>lower priority</strong> than the facade
+and sorter work and is sequenced last (see §4, optional S10).</p>
+<hr>
+<h2 id="2-target-partition-the-bundle-into-owned-sub-contexts">2. Target — partition the bundle into owned sub-contexts<a class="headerlink" href="#2-target-partition-the-bundle-into-owned-sub-contexts" title="Permanent link">¶</a></h2>
+<p><strong>Principle:</strong> replace <em>one mutable bundle + a broad view/mutation provider</em> with
+<strong>(a) a per-frame immutable plan produced once, (b) resource owners that outlive the
+frame, and (c) narrow result sinks a stage may write.</strong> A stage receives only the
+capabilities it needs, by type — not the whole renderer.</p>
+<h3 id="21-unit-a-frameplan-gets-a-named-owner-outside-the-context-fixes-13-529">2.1 Unit A — <code>FramePlan</code> gets a named owner outside the context (fixes 1.3 / #529)<a class="headerlink" href="#21-unit-a-frameplan-gets-a-named-owner-outside-the-context-fixes-13-529" title="Permanent link">¶</a></h3>
+<blockquote>
+<p><strong>Corrected in review round 1.</strong> The previous revision proposed making <code>RenderFramePlan</code>
+a <strong>value member of <code>RenderFrameContext</code></strong> while <code>FrameDeps</code> continued to expose it as a
+pointer "into the owning context." Given the by-value copy at
+<code>render_pipeline_stages.cpp:1134</code> (§1.3), that design is <strong>actively worse than the status
+quo</strong>: copying the context would produce an object whose <code>deps.frame_plan</code> points at the
+<em>source</em> context's plan member. The pointer is non-null, so <code>validate()</code> — which the same
+revision claimed "now covers frame_plan" — would <strong>pass</strong>, while the consumer silently
+reads another context's plan and dangles as soon as the source dies. A latent
+use-after-scope with a loud comment would have been traded for a silent aliasing bug with
+a green validator. The corrected design below removes the self-reference entirely.</p>
+</blockquote>
+<p><strong>Design: the plan is owned by a frame-scoped owner that the context borrows from, and the
+context is made non-copyable.</strong></p>
+<ul>
+<li>Introduce <code>FrameExecution</code> (name provisional) — a <strong>stack-scoped owner</strong> created once at
+  the single route-selection site per frame. It owns, by value: the <code>RenderFramePlan</code>, the
+  <code>FrameStateProvider</code>, and the <code>RenderFrameContext</code>. Nothing inside <code>RenderFrameContext</code>
+  points at anything inside <code>RenderFrameContext</code>.
+  <div class="highlight"><pre><span></span><code>class FrameExecution {              // stack-scoped, one per frame per route
+    RenderFramePlan  plan_;         // built exactly once, const thereafter
+    FrameStateProvider provider_;   // outlives every stage in this frame
+    RenderFrameContext ctx_;        // deps.frame_plan == &amp;plan_  (owner is OUTSIDE ctx_)
+public:
+    FrameExecution(const FrameExecution &amp;) = delete;   // non-copyable, non-movable
+    FrameExecution &amp;operator=(const FrameExecution &amp;) = delete;
+    const RenderFramePlan &amp;plan() const { return plan_; }
+    RenderFrameContext &amp;context() { return ctx_; }
+};
+</code></pre></div></li>
+<li><strong><code>RenderFrameContext</code> becomes non-copyable and non-movable</strong> (<code>= delete</code> on the copy and
+  move members). This is the load-bearing part: it makes the <code>:1134</code> copy a <strong>compile
+  error</strong>, forcing that path to be rewritten to take <code>RenderFrameContext &amp;</code> — which is what
+  the rebinding comment at <code>:1174-1177</code> is manually simulating today. Deleting the copy
+  also retires the existing <code>state_view</code> / <code>mutation_access</code> self-reference hazard, not just
+  the plan one.</li>
+<li><strong><code>validate()</code> stops exempting <code>frame_plan</code>.</strong> Once the plan's owner outlives the context
+  by construction and the context cannot be copied, a null <code>frame_plan</code> is a real error and
+  the exemption comment (<code>gaussian_splat_renderer.h:428-431</code>) is deleted rather than
+  reworded.</li>
+<li><strong>Lifetime statement (normative):</strong> <code>FramePlan</code> is created exactly once per frame per
+  route, at the route-selection site, by <code>build_frame_plan(...)</code>. It is <strong>immutable after
+  construction</strong> — expose it downstream only as <code>const RenderFramePlan &amp;</code>. Its lifetime is
+  exactly the enclosing <code>FrameExecution</code> scope. <strong>No stage may store, defer, or async-pass
+  it</strong>; a stage that needs plan data past its own scope copies the fields it needs into its
+  own result type. (<code>build_frame_plan</code> is already a pure function over explicit inputs —
+  <code>gaussian_splat_renderer.h:551-568</code> — so this is a lifetime/ownership change, not a logic
+  rewrite.)</li>
+<li><strong>If a future async/deferred stage is genuinely required</strong>, the plan moves to a pooled
+  allocation carrying a <strong>generation/scope token</strong> that <code>validate()</code> checks (the alternative
+  #529 proposes) — <em>not</em> to a context-embedded value. Deferral must not be added in the same
+  slice that changes ownership.</li>
+</ul>
+<p>Why not simply keep the borrow and document it harder: the three borrow sites plus the
+by-value copy mean the invariant is already stated in three comment blocks and still
+unenforceable. Deleting the copy constructor is the only step here that a compiler checks.</p>
+<h3 id="22-unit-b-split-iframestateview-iframemutationaccess-into-per-stage-capability-views-fixes-11-12">2.2 Unit B — split <code>IFrameStateView</code> / <code>IFrameMutationAccess</code> into per-stage capability views (fixes 1.1, 1.2)<a class="headerlink" href="#22-unit-b-split-iframestateview-iframemutationaccess-into-per-stage-capability-views-fixes-11-12" title="Permanent link">¶</a></h3>
+<p>Replace the god-provider with small, stage-scoped interfaces resolved from an owned
+snapshot, not from the live renderer:</p>
+<table>
+<thead>
+<tr>
+<th>Capability port</th>
+<th>Reads</th>
+<th>May mutate</th>
+<th>Consumed by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CullPort</code></td>
+<td>scene, streaming, resource, config, <code>gpu_culler</code></td>
+<td><code>cull_io</code> sink only</td>
+<td>Cull stage</td>
+</tr>
+<tr>
+<td><code>SortPort</code></td>
+<td>cull outputs, sorting_state (read), sorting_pipeline</td>
+<td><code>sort_io</code> + sorted-result sink</td>
+<td>Sort stage</td>
+</tr>
+<tr>
+<td><code>RasterPort</code></td>
+<td>FramePlan, resource, subsystem (rasterizer), config</td>
+<td><code>raster_io</code> + raster metrics sink</td>
+<td>Raster stage</td>
+</tr>
+<tr>
+<td><code>CompositePort</code></td>
+<td>raster output, output_compositor, render target</td>
+<td><code>composite_io</code> sink</td>
+<td>Composite stage</td>
+</tr>
+<tr>
+<td><code>ResourceOwner</code></td>
+<td>—</td>
+<td>owns/frees GPU RIDs (device generation guarded)</td>
+<td>resource orchestrator</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>Kill the <code>static</code> fallbacks (§1.2) — all 40, at both levels.</strong> Capability ports take
+  references to the <em>existing</em> orchestrator-owned buckets (resolved non-null once at frame
+  entry), so no accessor needs a reference-returning null fallback. Both the provider's 18
+  and the facade's 22 forwarding-accessor statics are deleted; a missing dependency becomes
+  a <strong>typed skip at frame entry</strong>, not a silent shared-global write. A slice that deletes
+  only one of the two sets does not close this hazard.</li>
+<li><strong>Narrow the owners' own mutable escapes.</strong> Because the buckets are already
+  orchestrator-owned (§1.1), the ports should be resolved from the owning orchestrator, and
+  the <code>access_*_mutable()</code> escapes (<code>render_data_orchestrator.h:56,58</code>,
+  <code>render_sorting_orchestrator.h:55</code>) shrink to exactly the ports that need them. This is the
+  step that converts <em>nominal</em> ownership into <em>enforced</em> ownership; it is the real content of
+  #356's "owned state boundaries," and it is smaller than the previous revision implied
+  because the by-value ownership already exists.</li>
+<li><code>FrameStateProvider</code> remains <strong>only as a temporary adapter</strong> implementing these
+  ports over the existing buckets during migration (the inventory's "temporary adapter
+  over smaller snapshots/sinks, not a renamed god object",
+  <code>stage-first-ownership-inventory.md:153</code>). It is deleted in the final cleanup slice.</li>
+</ul>
+<h3 id="23-unit-c-single-source-metric-reset-stage-exit-helper-fixes-14-528-570-591">2.3 Unit C — single-source metric reset + stage-exit helper (fixes 1.4 / #528, #570, #591)<a class="headerlink" href="#23-unit-c-single-source-metric-reset-stage-exit-helper-fixes-14-528-570-591" title="Permanent link">¶</a></h3>
+<ul>
+<li><strong>Reset — DONE on master, and the original proposal here was wrong.</strong> This ADR proposed
+  <em>"give <code>PerformanceMetrics</code> a <code>reset()</code> (or <code>*this = PerformanceMetrics{};</code>) and call it at
+  all three sites."</em> <strong>Do not implement that.</strong> Per §1.4, PR #627 established that the three
+  sites are intentional <em>partial</em> resets of different subsets, so a blanket reset would zero
+  cumulative counters and per-stage outputs — a behavior change. The shipped design is five
+  <strong>named group helpers</strong> composed per site
+  (<code>render_types/render_performance_types.h:165-174</code>) plus the fail-closed
+  <code>tests/ci/check_metric_reset_parity.py</code> coverage guard. That half of #528 is closed;
+  nothing remains to do here.</li>
+<li><strong>Diagnostics + route-label key sets — STILL OPEN.</strong> The same guard family was proposed
+  for the ~100-key diagnostics Dictionary (<code>render_diagnostics_orchestrator.cpp</code>,
+  <code>_append_production_frame_metrics</code>) and the route-UID→label map
+  (<code>render_route_labels.cpp</code>). <strong>Neither guard exists</strong>: no file under <code>tests/ci/</code> references
+  either symbol. This is the remaining content of S1 and the unmet part of <strong>R9</strong>. The
+  metric-reset guard is the model to copy — it parses the producing code and requires each
+  key to be either covered or explicitly allow-listed with a reason, failing closed on syntax
+  it does not recognize.</li>
+<li><strong>Stage-exit helper (#570):</strong> one <code>stamp_stage_exit(route_uid, reason, metrics_deltas,
+  io_fields)</code> consolidating the four+one duplicated ~40-line blocks (§1.4). Behavior is
+  a mechanical fold — the produced <code>StageResult</code>/<code>StageIO</code> must be byte-identical.</li>
+<li><strong>Sizing/clamp helper (#591):</strong> extract <code>clamp_visible_to_sort_cap(...)</code> +
+  <code>populate_instance_pipeline_buffers(...)</code> shared by both publishers; keep the two
+  distinct <em>sizing-input</em> computations (atlas vs regulator) at their call sites, since
+  those policies legitimately differ. A future layout change then lands in one helper.</li>
+</ul>
+<h3 id="24-unit-d-make-stageio-failures-fail-closed-fixes-15-587">2.4 Unit D — make <code>StageIO</code> failures fail-closed (fixes 1.5 / #587)<a class="headerlink" href="#24-unit-d-make-stageio-failures-fail-closed-fixes-15-587" title="Permanent link">¶</a></h3>
+<p><code>validation_failed</code> must <strong>force a failed <code>StageResult</code></strong> (a typed skip UID, e.g.
+<code>COMMON_FAIL_STAGE_IO_INVALID</code>) so a poisoned StageIO skips the frame explicitly and
+observably, instead of only feeding the overlay. <code>_finalize_stage_io</code> returns the
+verdict; the cull/sort/raster/composite sites branch on it (§1.5). Add a doctest that
+a poisoned StageIO (<code>output_count &gt; input_count</code>, or missing output buffer with
+nonzero count) <strong>fails the stage</strong>. If the owner decides diagnostic-only is
+intentional for a specific stage, that exemption is documented per-stage with a
+reason — fail-closed is the default.</p>
+<h3 id="25-facade-after-decomposition">2.5 Facade after decomposition<a class="headerlink" href="#25-facade-after-decomposition" title="Permanent link">¶</a></h3>
+<p><code>GaussianSplatRenderer</code> keeps only: Godot-facing API, frame entry/route selection
+(produce the one <code>RenderRouteDecision</code> + <code>FramePlan</code>), and lifetime of the owned
+sub-contexts. Facade methods become <strong>thin delegations</strong> to owned services with
+explicit input/output types — the #356 "done when" (facade methods delegate to small
+owned services with explicit contracts; new code reviewable by subsystem).</p>
+<blockquote>
+<p><strong>Reachability defect (review round 2): S1–S9 cannot deliver this criterion.</strong> Verified on
+master <code>9161d92f349</code>:</p>
+<div class="highlight"><pre><span></span><code>grep -rnE '^[A-Za-z_].*GaussianSplatRenderer::[A-Za-z_~]+\(' --include=*.cpp modules/ tests/
+</code></pre></div>
+<p>yields <strong>275</strong> <code>GaussianSplatRenderer::</code> method <strong>definitions</strong>, of which only <strong>124</strong> live
+in <code>gaussian_splat_renderer.cpp</code>. <strong>147 — a majority — are defined in
+<code>render_*_orchestrator.cpp</code> TUs</strong> (debug_state 40, quality 23, device 19, config 17, data 13,
+sorting 11, output 10, diagnostics 8, resource 5, instancing 1), with the remaining 4 in
+<code>interfaces/interactive_state_manager.cpp</code> (3) and <code>gaussian_splat_renderer_bindings.cpp</code> (1).</p>
+<p>These are facade methods <em>physically relocated into orchestrator TUs</em> while remaining members
+of <code>GaussianSplatRenderer</code> and calling facade privates. They are the inverse of the target
+shape: the orchestrator TU is a file-level split, not an ownership boundary, so the method
+still has full access to the facade's state and no explicit input/output contract. <strong>No slice
+in §4 touches them.</strong> S7/S8/S9 restructure the frame path, the provider and the state ports;
+none of them converts a <code>GaussianSplatRenderer::foo()</code> defined in
+<code>render_quality_orchestrator.cpp</code> into <code>RenderQualityOrchestrator::foo()</code> with a typed
+contract. So #356's first "done when" — <em>"Renderer facade methods delegate to small owned
+services with explicit input/output contracts"</em> — is <strong>not reachable by this ADR's current
+slices</strong>, and #356 must not be closed on their completion.</p>
+<p>This is the subject of <strong>D6</strong>. Two honest dispositions, both of which keep S1–S9 as written:</p>
+<ul>
+<li><strong>Amend the criterion for this ADR</strong>: this ADR closes the <em>state-ownership</em> half of #356
+  (owned sub-contexts, typed ports, no shared mutable god-bundle), and the 147-method
+  relocation is explicitly declared out of scope, with #356 staying open until a separate
+  work-stream lands it.</li>
+<li><strong>Add a slice S11</strong> (after S9) that migrates the 147 definitions to real orchestrator
+  member functions. This is large, mechanical, and carries the ODR/PMF hazard of R12 at scale;
+  it should be counted and staged per-orchestrator, not attempted in one diff.</li>
+</ul>
+<p>Either way the ADR must <strong>stop implying</strong> that finishing S9 satisfies #356's facade criterion.</p>
+</blockquote>
+<hr>
+<h2 id="3-gpu_sortercpp-split-shader-extraction-closes-525">3. <code>gpu_sorter.cpp</code> split + shader extraction (closes #525)<a class="headerlink" href="#3-gpu_sortercpp-split-shader-extraction-closes-525" title="Permanent link">¶</a></h2>
+<p>Two independent moves, sequenced so each is CI-green:</p>
+<h3 id="31-extract-embedded-glsl-to-on-disk-files-in-the-c5-matrix-closes-525">3.1 Extract embedded GLSL to on-disk files in the C5 matrix (closes #525)<a class="headerlink" href="#31-extract-embedded-glsl-to-on-disk-files-in-the-c5-matrix-closes-525" title="Permanent link">¶</a></h3>
+<ul>
+<li>Move each embedded sorter kernel (§1.6) to a <code>shaders/</code> (or a new <code>shaders/sort/</code>)
+  <code>.glsl</code> file: <code>sort_bitonic.glsl</code>, <code>sort_radix_histogram.glsl</code>,
+  <code>sort_radix_wg_prefix.glsl</code>, <code>sort_radix_bin_prefix.glsl</code>, <code>sort_radix_scatter.glsl</code>,
+  <code>sort_indirect_dispatch.glsl</code>, and the OneSweep kernels.</li>
+<li>Where a source is <code>vformat</code>-parameterized (e.g. <code>WORKGROUP_SIZE</code>, radix bits,
+  <code>local_size_x = %d</code>), convert the substitutions to <strong><code>#define</code>s supplied at compile</strong>
+  (the same mechanism the tile shaders already use), so the file is a standalone,
+  compilable unit.</li>
+<li>Add each new file (with its runtime-selectable define permutations: workgroup sizes,
+  radix-bit widths, 32/64-bit key layout, subgroup on/off) to
+  <code>compile_shaders.py:RUNTIME_SHADER_MATRIX</code> and the G4 exhaustive-branch set
+  (<code>compile_shaders.py:684+</code>). Add <code>renderer/gpu_sorter.cpp</code> (or the extracted TUs) to
+  the workflow <code>paths:</code> triggers so a sorter-shader edit runs the matrix. <strong>This is the
+  R3 step</strong> (edits <code>.github/workflows/gaussian_shader_validation.yml</code>).</li>
+<li>The C++ side loads these via the existing <code>shader_compilation_helper</code> /
+  <code>SPIRVDiskCache</code> path (like every other module shader) instead of
+  <code>create_compute_shader_from_spirv</code> on an inline string — gaining the SPIR-V disk
+  cache for sorter kernels as a side benefit.</li>
+</ul>
+<h3 id="32-split-the-three-algorithms-into-separate-tus">3.2 Split the three algorithms into separate TUs<a class="headerlink" href="#32-split-the-three-algorithms-into-separate-tus" title="Permanent link">¶</a></h3>
+<ul>
+<li><code>gpu_sorter_bitonic.cpp</code> (<code>BitonicSort</code>, §1.6 <code>539-946</code>),
+  <code>gpu_sorter_radix.cpp</code> (<code>RadixSort</code> + variants, <code>1180-2013+</code>),
+  <code>gpu_sorter_onesweep.cpp</code> (OneSweep kernels, from <code>2731</code>), with
+  <code>gpu_sorter_factory.cpp</code> retaining <code>GPUSorterFactory</code> + policy/probe
+  (<code>948-1178</code>, plus the <code>_probe_*</code>/<code>select_sort_algorithm</code> helpers). Shared
+  declarations stay in <code>gpu_sorter.h</code>.</li>
+<li><strong>ODR caution</strong> (memory: MSVC PMF/ODR trap, and the #434 extraction lesson):
+  when splitting a TU, enumerate <strong>every</strong> method definition of each class into
+  exactly one new TU — do not diff-grep. The <code>_bind_methods</code>/GDCLASS registrations
+  (<code>BitonicSort::_bind_methods</code> <code>:550</code>, <code>RadixSort::_bind_methods</code> <code>:1189</code>) must move
+  with their class. Add the new <code>.cpp</code>s to <code>SCsub</code>.</li>
+</ul>
+<hr>
+<h2 id="4-staged-migration-ci-green-behavior-preservation-proof-per-step">4. Staged migration — CI-green + behavior-preservation proof per step<a class="headerlink" href="#4-staged-migration-ci-green-behavior-preservation-proof-per-step" title="Permanent link">¶</a></h2>
+<p>Each slice is independently reviewable, keeps CI green, and carries a
+behavior-preservation proof appropriate to its risk. Ordering puts the
+lowest-risk/highest-safety folds first and the state-ownership cuts last, matching the
+inventory's W1→W2→W3 gate.</p>
+<table>
+<thead>
+<tr>
+<th>Slice</th>
+<th>Risk</th>
+<th>Change</th>
+<th>Behavior-preservation proof</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>S1a</strong> <em>(re-scoped — metric-reset half already merged)</em> — author the diagnostics-dict + route-label key-set parity guards</td>
+<td><strong>R1</strong> (new guard scripts + their tests under <code>tests/</code>; no render-path edit, no lane edit)</td>
+<td><strong>Not</strong> <code>PerformanceMetrics::reset()</code> — that half shipped in #627 and its blanket-reset form was refuted (§1.4, §2.3). Remaining: a fail-closed key-set parity guard for the ~100-key diagnostics Dictionary (<code>render_diagnostics_orchestrator.cpp</code>, <code>_append_production_frame_metrics</code>) and for the route-UID→label map (<code>render_route_labels.cpp</code>), modeled on <code>tests/ci/check_metric_reset_parity.py</code></td>
+<td>Guard fails-without proof, run <strong>standalone</strong> (inject an untracked key → guard exits non-zero; remove → passes), matching #627's evidence pattern; <strong>no render-path source edited</strong>, so no GPU evidence is required</td>
+</tr>
+<tr>
+<td><strong>S1b</strong> — register those guards in the <code>--guard-only</code> lane</td>
+<td><strong>R3</strong> (CI deterministic-check machinery)</td>
+<td>The one-file registration edit in <code>tests/ci/run_module_tests.py</code>. The lane is hard-coded there — <code>_run_ci_guard_steps()</code> (<code>:1898</code>) returns <code>_first_guard_failure((...))</code> over a literal tuple of callables, and #627's own guard is registered inside <code>_run_optional_message_guards()</code> at <code>:1792</code>. There is no manifest or plugin registry, so registration <em>is</em> an edit to that file.</td>
+<td>Guard fails-without proof <strong>through the lane</strong> (<code>run_module_tests.py --guard-only</code> red, then green); plus the R3 check set and review requirements below</td>
+</tr>
+<tr>
+<td><strong>S2</strong> — stage-exit helper (#570)</td>
+<td>R2</td>
+<td>Fold the 4+1 stamping blocks into <code>stamp_stage_exit(...)</code></td>
+<td><code>StageResult</code>/<code>StageIO</code> byte-identical on the skip/fail paths (unit test snapshots each route UID); runtime route-label telemetry unchanged</td>
+</tr>
+<tr>
+<td><strong>S3</strong> — publisher sizing/clamp helper (#591)</td>
+<td>R2</td>
+<td>Extract shared clamp + buffer-population; keep distinct sizing inputs</td>
+<td>Resident + streaming <code>InstancePipelineBuffers</code> fields identical before/after on a streamed and a resident scene; VRAM + sort-cap telemetry unchanged</td>
+</tr>
+<tr>
+<td><strong>S4</strong> — StageIO fail-closed (#587)</td>
+<td>R2</td>
+<td><code>validation_failed</code> → failed <code>StageResult</code>; per-stage branch; doctest</td>
+<td>New doctest: poisoned StageIO fails the stage; existing valid frames still render (visual gate on real-scan content); no new skips on GrandmasHouse</td>
+</tr>
+<tr>
+<td><strong>S5</strong> — extract sorter GLSL to files + C5 matrix (#525)</td>
+<td><strong>R3</strong> (workflow)</td>
+<td>Move embedded kernels to <code>.glsl</code>, wire into <code>compile_shaders.py</code> + workflow triggers</td>
+<td>Shader-validation matrix compiles every sorter permutation green; runtime A/B: bitonic/radix/onesweep each still sort correctly (sorted-key monotonicity + visual gate); SPIR-V byte-compare of extracted vs inline kernel where feasible</td>
+</tr>
+<tr>
+<td><strong>S6</strong> — split <code>gpu_sorter.cpp</code> into per-algorithm TUs</td>
+<td>R2</td>
+<td>Mechanical TU split + <code>SCsub</code> (§3.2)</td>
+<td>Link-clean (no ODR dup/missing symbol); binary behavior identical (same sorter selected + same output on a fixed scene); enumerate-all-method-defs check</td>
+</tr>
+<tr>
+<td><strong>S7</strong> — <code>FramePlan</code> gets a named owner; <code>RenderFrameContext</code> becomes non-copyable (#529)</td>
+<td>R2</td>
+<td>Introduce <code>FrameExecution</code> (§2.1); <code>= delete</code> copy/move on <code>RenderFrameContext</code>; rewrite the <code>:1134</code> copy to a reference; delete the 3 borrow comments + the validator exemption</td>
+<td>Copy-deletion is compile-enforced (the <code>:1134</code> copy must fail to compile before it is rewritten — show that build error as evidence); <code>validate()</code> now covers <code>frame_plan</code>; frame output identical on resident + instanced + stage-runner routes; ASan/UBSan clean over the frame path</td>
+</tr>
+<tr>
+<td><strong>S8</strong> — per-stage capability ports; delete <strong>all 40</strong> <code>static</code> fallbacks (§1.1, §1.2)</td>
+<td>R2</td>
+<td>Introduce <code>CullPort</code>/<code>SortPort</code>/<code>RasterPort</code>/<code>CompositePort</code> resolved from the owning orchestrators; narrow <code>access_*_mutable()</code>; <code>FrameStateProvider</code> becomes adapter over them</td>
+<td>Each stage reads/writes only its port (compile-enforced); <strong>zero</strong> <code>static … fallback;</code> remain in <code>gaussian_splat_renderer.cpp</code> (grep guard, both the 18 provider and 22 facade sets); full frame telemetry + visual gate unchanged across all routes</td>
+</tr>
+<tr>
+<td><strong>S9</strong> — cleanup: remove the <code>FrameStateProvider</code> adapter + shims</td>
+<td>R2</td>
+<td>Delete the transitional adapter once all call sites use ports</td>
+<td>Dependency-rule check; final visual + telemetry parity. <strong>"Facade methods are thin delegations" is NOT an S9 exit criterion</strong> — §2.5 records that 147 of the 275 <code>GaussianSplatRenderer::</code> definitions live in <code>render_*_orchestrator.cpp</code> as relocated facade members calling facade privates, and <strong>no S1–S9 slice converts them</strong>. That criterion belongs to whichever disposition <strong>D6</strong> selects (amend #356's exit criterion, or add S11); requiring it here would either be falsely declared complete or block S9 on unscheduled work.</td>
+</tr>
+<tr>
+<td><strong>S10</strong> — (optional) extract <code>RenderFrameExecutor</code> + timing + shader-compile from <code>tile_renderer.cpp</code> (§1.7)</td>
+<td>R2</td>
+<td>Move the ~1,080-LOC executor, GPU-timing subsystem, and shader-compile orchestration into owned services</td>
+<td>Tile frame output + timing telemetry identical on GrandmasHouse; stage delegation unchanged; ships after facade+sorter</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Cross-cutting evidence rule (renderer = R2/R3):</strong> every slice that touches the
+render path provides runtime/GPU evidence measured against the immutable base — the
+production-gates runtime harness, GPU harness, and a visual gate on real-scan content
+(GrandmasHouse), per <code>renderer/AGENTS.md</code> and the "visual validation gate" rule. No
+guard, baseline, or threshold is weakened to pass.</p>
+<p><strong>Sequencing rationale:</strong> S1–S4 are pure de-duplication/fail-closed folds that make
+the state contract <em>legible</em> without moving ownership (inventory W1 "make ownership
+explicit"). <strong>S1's metric-reset half is already done on master (#627); what remains of S1
+touches no render-path source, so it needs no GPU evidence and can land in parallel with
+S2–S4 rather than gating them. It is not, however, uniformly R1 — see the S1a/S1b split in
+the table above: risk class in <code>.agentic/policy.json</code> is assigned by <em>path</em>, and wiring a
+guard into the <code>--guard-only</code> lane means editing <code>tests/ci/run_module_tests.py</code>, which is
+explicitly R3.</strong> S5–S6 isolate the sorter (independent of the facade). S7–S9 perform the
+actual ownership cut (inventory W2/W3) only after the duplication is gone and tests
+pin the route/stage/StageIO contracts — so the risky state-partition lands on a
+characterized, guard-protected base. S10 (tile) is optional and last.</p>
+<hr>
+<h2 id="5-issue-closure-mapping">5. Issue-closure mapping<a class="headerlink" href="#5-issue-closure-mapping" title="Permanent link">¶</a></h2>
+<table>
+<thead>
+<tr>
+<th>Issue</th>
+<th>Title (short)</th>
+<th>Closed/advanced by</th>
+<th>Proof</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>#356</strong></td>
+<td>Decompose renderer around owned state</td>
+<td>S7–S9 close the <strong>state-ownership</strong> half only. The <strong>facade-delegation</strong> half is <strong>not reachable by S1–S9</strong> (§2.5): 147 of 275 <code>GaussianSplatRenderer::</code> method definitions live in <code>render_*_orchestrator.cpp</code> TUs as relocated facade members, and no slice converts them. <strong>Do not close #356 on S9.</strong></td>
+<td>Per-stage ports + no shared mutable god-bundle (deliverable). Facade-delegation criterion: pending <strong>D6</strong> — either amended out of this ADR's scope or given a dedicated slice/work-stream</td>
+</tr>
+<tr>
+<td><strong>#528</strong></td>
+<td>Hand-maintained ~40-field metric reset ×3, no parity guard</td>
+<td><strong>CLOSED by PR #627</strong> (merged 2026-07-18, after this ADR's original base) — <em>not</em> by this ADR</td>
+<td>Five composable <code>reset_*()</code> group helpers (<code>render_performance_types.h:165-174</code>) + fail-closed <code>tests/ci/check_metric_reset_parity.py</code> in the <code>--guard-only</code> lane. <strong>The blanket <code>reset()</code> this ADR proposed was rejected as a behavior change.</strong> The diagnostics-dict + route-label key-set guards named in #528's body did <strong>not</strong> land and remain as the re-scoped <strong>S1</strong></td>
+</tr>
+<tr>
+<td><strong>#529</strong></td>
+<td><code>frame_plan</code> borrow exempt from <code>validate()</code> — latent UAF</td>
+<td><strong>S7</strong></td>
+<td>Plan owned by a <code>FrameExecution</code> scope <em>outside</em> the context; <code>RenderFrameContext</code> non-copyable (compile-enforced), so the <code>:1134</code> copy hazard goes with it; validator exemption deleted; 3 stack-borrows retired</td>
+</tr>
+<tr>
+<td><strong>#570</strong></td>
+<td>Duplicated ~40-line stage-exit stamping</td>
+<td><strong>S2</strong></td>
+<td>One <code>stamp_stage_exit</code> helper; byte-identical results</td>
+</tr>
+<tr>
+<td><strong>#591</strong></td>
+<td>Dup <code>InstancePipelineBuffers</code>/<code>sort_cap</code> clamp resident vs streaming</td>
+<td><strong>S3</strong></td>
+<td>Shared clamp + population helper; distinct sizing kept</td>
+</tr>
+<tr>
+<td><strong>#587</strong></td>
+<td><code>StageIO.validation_failed</code> diagnostic-only</td>
+<td><strong>S4</strong></td>
+<td>Fail-closed StageResult + doctest</td>
+</tr>
+<tr>
+<td><strong>#525</strong></td>
+<td>Embedded sorter GLSL invisible to C5 compile matrix</td>
+<td><strong>S5</strong></td>
+<td>Kernels on-disk in <code>RUNTIME_SHADER_MATRIX</code>; permutations compiled in CI</td>
+</tr>
+<tr>
+<td><strong>#588</strong></td>
+<td>Destructor render-thread dispatch can block indefinitely</td>
+<td><strong>Not addressed</strong></td>
+<td>Separate lifetime bug (<code>gaussian_splat_renderer.cpp:1244-1247</code>); needs a bounded-timeout + synchronous-teardown fallback — recommend a standalone R2 PR, not folded into this decomposition. Noted so the mapping is honest.</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>Note on numbering: the task brief paired the gpu_sorter split with "#588 (embedded
+sorter GLSL outside compile CI)". The embedded-sorter-GLSL issue is actually <strong>#525</strong>
+("Embedded sorter GLSL (radix/bitonic/remap) is invisible to the C5 shader-permutation
+compile CI"); #588 is the unrelated destructor-dispatch bug. This ADR closes #525 and
+explicitly leaves #588 to a separate change.</p>
+</blockquote>
+<hr>
+<h2 id="invariant-list-what-every-slice-is-graded-against">Invariant list — what every slice is graded against<a class="headerlink" href="#invariant-list-what-every-slice-is-graded-against" title="Permanent link">¶</a></h2>
+<p>Checkable. A slice that violates one is rejected even with green CI.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Invariant</th>
+<th>How it is checked</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>R1</strong></td>
+<td>The §1.1 ownership map is accurate and stays accurate: each bucket has exactly one owning declaration, and the ADR's table matches the code.</td>
+<td>A CI guard that re-derives the owner of each bucket from the accessor bodies and diffs against the §1.1 table. This ADR was approved on a wrong map once; the guard is the fix.</td>
+</tr>
+<tr>
+<td><strong>R2</strong></td>
+<td>No new alias of a bucket is introduced. The alias chain (owner → facade accessor → provider → <code>deps</code> pointer) only ever shortens.</td>
+<td>Grep guard: count of facade forwarding accessors + provider getters is monotonically non-increasing.</td>
+</tr>
+<tr>
+<td><strong>R3</strong></td>
+<td><strong><code>RenderFrameContext</code> is non-copyable and non-movable</strong> after S7, and no self-referential pointer into it exists (<code>frame_plan</code>, <code>state_view</code>, <code>mutation_access</code> all point at objects that outlive it).</td>
+<td>Compile-enforced (<code>= delete</code>); a static-assert on <code>!std::is_copy_constructible_v&lt;RenderFrameContext&gt;</code>.</td>
+</tr>
+<tr>
+<td><strong>R4</strong></td>
+<td><code>FrameDeps::validate()</code> has <strong>no <em>undocumented</em> exemption</strong>. The <code>frame_plan</code> exemption is deleted and <code>frame_plan</code> is validated. The only permitted exemption is the two pointers that are <strong>optional by design</strong> — <code>painterly_renderer</code> and <code>jacobian_debug</code> (<code>gaussian_splat_renderer.h:406-408</code>, <em>"Optional: null disables the corresponding feature"</em>) — which must stay optional and stay documented as such in-code. Requiring all 16 declared pointers non-null would break every painterly-disabled and Jacobian-disabled configuration, or force dummy objects.</td>
+<td>Read the function; assert the <code>frame_plan</code> exemption comment is gone, a null-plan case fails, <strong>and</strong> a null-<code>painterly_renderer</code> / null-<code>jacobian_debug</code> case still passes.</td>
+</tr>
+<tr>
+<td><strong>R5</strong></td>
+<td><code>FramePlan</code> is built exactly once per frame per route, is <code>const</code> downstream, and is never stored, deferred, or async-passed.</td>
+<td>Grep guard: <code>build_frame_plan(</code> call sites == route-selection sites; downstream signatures take <code>const RenderFramePlan &amp;</code>.</td>
+</tr>
+<tr>
+<td><strong>R6</strong></td>
+<td>Zero <code>static … fallback;</code> locals remain in <code>gaussian_splat_renderer.cpp</code> after S8 — all 40, not just the provider's 18.</td>
+<td>Grep guard, count must reach 0.</td>
+</tr>
+<tr>
+<td><strong>R7</strong></td>
+<td>A missing dependency produces a <strong>typed skip with a route UID</strong>, never a write to a shared global and never a silently-continued frame.</td>
+<td>S4's fail-closed doctest + the S8 frame-entry skip test.</td>
+</tr>
+<tr>
+<td><strong>R8</strong></td>
+<td>After S4, a poisoned <code>StageIO</code> (<code>output_count &gt; input_count</code>, or missing output buffer with nonzero count) <strong>fails the stage</strong>. Per-stage exemptions exist only where documented with a written reason.</td>
+<td>New doctest per §2.4; the exemption list is enumerated in-code.</td>
+</tr>
+<tr>
+<td><strong>R9</strong></td>
+<td><code>PerformanceMetrics</code> reset is structural and covers every field <strong>(already satisfied on master by #627 — five composable <code>reset_*()</code> group helpers plus the fail-closed <code>tests/ci/check_metric_reset_parity.py</code>; note the invariant is <em>group-composable</em>, not a single blanket <code>reset()</code>, which was deliberately rejected)</strong>; the same must hold for the diagnostics key set and the route-label map — <strong>both still unguarded, and the remaining content of the re-scoped S1</strong>.</td>
+<td>Metric half: the merged parity guard + the <code>test_diagnostics.h</code> reset doctests. Diagnostics/route-label half: new key-set parity guards with a fails-without proof.</td>
+</tr>
+<tr>
+<td><strong>R10</strong></td>
+<td>Stage-exit stamping produces <strong>byte-identical</strong> <code>StageResult</code>/<code>StageIO</code> before and after the S2 fold, for every route UID.</td>
+<td>Snapshot unit test per route UID.</td>
+</tr>
+<tr>
+<td><strong>R11</strong></td>
+<td>Sorter GLSL: every runtime-selectable permutation compiles in CI after S5. No kernel remains invisible to the compile matrix.</td>
+<td><code>compile_shaders.py</code> matrix green with the new files + permutations; grep guard that <strong>no <code>#version</code> line remains in <code>renderer/gpu_sorter*.cpp</code></strong> (count must reach 0). <strong>Do not guard on the literal <code>R"(#version</code></strong> — the embedded kernels open with <code>vformat(R"(</code> and put <code>#version 450</code> on the <em>next</em> line (<code>gpu_sorter.cpp:596-597</code>, and identically at the nine other kernel sites), so that pattern matches <strong>zero</strong> lines in <code>modules/gaussian_splatting/</code> even before S5 extracts anything, and the guard would pass vacuously.</td>
+</tr>
+<tr>
+<td><strong>R12</strong></td>
+<td>The S6 TU split introduces no ODR violation: <strong>every</strong> method definition of each split class lands in exactly one TU (enumerated, not diff-grepped), and <code>_bind_methods</code> moves with its class.</td>
+<td>Link-clean build + the enumerate-all-method-defs check (per the #434 lesson).</td>
+</tr>
+<tr>
+<td><strong>R13</strong></td>
+<td>Frame output is unchanged: identical rendered result and identical telemetry on resident, instanced, and stage-runner routes, for a fixed scene and camera path.</td>
+<td>Telemetry diff + visual gate on real-scan content (GrandmasHouse), per slice.</td>
+</tr>
+<tr>
+<td><strong>R14</strong></td>
+<td>No guard, baseline, threshold, or coverage bar is lowered in any slice.</td>
+<td>Diff review; guard files unmodified except to strengthen.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="evidence-a-slice-must-produce">Evidence a slice must produce<a class="headerlink" href="#evidence-a-slice-must-produce" title="Permanent link">¶</a></h2>
+<p>Renderer work is <strong>R2, escalating to R3</strong> for S5 (workflow edit) and any serialized/format
+contract. Every slice states which invariants it touches and attaches:</p>
+<ol>
+<li><strong>Ownership-map evidence (R1, R2):</strong> for any slice that moves state, the re-derived
+   ownership table from the head, diffed against §1.1. This ADR's first revision shipped an
+   inverted map; no slice is approved without this diff.</li>
+<li><strong>Compile-enforcement evidence (R3, R12):</strong> for S7, the <strong>build error</strong> produced by the
+   <code>:1134</code> copy before it is rewritten — that error is the proof the copy is really gone,
+   not merely edited. For S6, the enumerated method-definition list and a clean link.</li>
+<li><strong>Guard lane:</strong> <code>run_module_tests.py --guard-only</code> green, plus the R5/R6/R11 grep guards,
+   landing with the slice that makes them true.</li>
+<li><strong>Behavior-preservation proof</strong> as specified per-slice in the §4 table — byte-identical
+   <code>StageResult</code>/<code>StageIO</code>, identical <code>InstancePipelineBuffers</code>, identical telemetry.</li>
+<li><strong>Runtime/GPU evidence (R13):</strong> the production-gates runtime harness, the GPU harness, and
+   a <strong>visual gate on real-scan content (GrandmasHouse)</strong> measured against the immutable base.
+   Agents cannot raster locally; a slice without GPU-runner output reports "not run", never
+   "passed".</li>
+<li><strong>S5 additionally (R3-class):</strong> the shader-validation matrix compiling every sorter
+   permutation, plus a runtime A/B showing bitonic/radix/onesweep each still sort correctly
+   (sorted-key monotonicity + visual gate), plus SPIR-V byte-compare of extracted vs inline
+   kernels where feasible. Maintainer/CODEOWNER review for the workflow edit.</li>
+<li><strong>Base anchoring:</strong> base SHA recorded, and confirmation that the <code>file:line</code> anchors used
+   were re-verified against it. This has now bitten twice — anchors drifted in revision 1
+   (e.g. <code>render_pipeline_stages.cpp:1162</code> → <code>:1173</code>) and again by revision 2, when the base
+   went ~30 commits stale and a merged PR (#627) silently invalidated <strong>S1</strong>. See the
+   §"Anchor re-verification log". <strong>Every slice must re-verify its own anchors against the
+   commit it branches from, and must re-check whether any merged PR has already discharged
+   part of its scope — a stale ADR slice is the failure mode this document has actually
+   experienced, not a hypothetical one.</strong></li>
+</ol>
+<h2 id="decisions-the-owner-needs-to-make">Decisions the owner needs to make<a class="headerlink" href="#decisions-the-owner-needs-to-make" title="Permanent link">¶</a></h2>
+<ul>
+<li><strong>D1 — Approve this ADR-first R0 design and the S1–S9(+S10) ordering?</strong> (Y/N / amend.)</li>
+<li><strong>D2 — <code>FramePlan</code> owner (§2.1):</strong> <code>FrameExecution</code> stack-scoped owner <strong>outside</strong> the
+  context + non-copyable <code>RenderFrameContext</code> (recommended — removes #529 and the existing
+  <code>state_view</code>/<code>mutation_access</code> copy hazard together) vs pooled allocation + generation
+  token? The previously-recommended "value member on <code>RenderFrameContext</code>" option is
+  <strong>withdrawn</strong>: §1.3 shows the context is copied at <code>render_pipeline_stages.cpp:1134</code>, which
+  would make that design a silent aliasing bug that <code>validate()</code> cannot catch.</li>
+<li><strong>D3 — StageIO fail-closed default (§2.4 / #587):</strong> adopt "poisoned StageIO fails the
+  stage" as the default, with per-stage documented exemptions only? (Recommended: yes.)</li>
+<li><strong>D4 — S5 is R3</strong> (edits <code>gaussian_shader_validation.yml</code>): confirm the shader-matrix
+  extension + workflow-trigger edit are in scope, or split the workflow edit into its
+  own maintainer-gated PR? (Recommended: keep together; it is the point of #525.)</li>
+<li><strong>D5 — #588 and tile S10</strong> stay separable: #588 gets its own PR; S10 (tile) is
+  optional and deferred until facade+sorter land? (Recommended: yes.)</li>
+<li><strong>D6 — #356's facade-delegation exit criterion (§2.5): amend it, or add a slice for it?</strong>
+  Evidence: <strong>147 of 275</strong> <code>GaussianSplatRenderer::</code> method definitions are defined in
+  <code>render_*_orchestrator.cpp</code> TUs while remaining facade members that call facade privates —
+  a file-level split, not an ownership boundary. <strong>No slice in §4 touches them</strong>, so
+  completing S1–S9 cannot satisfy #356's <em>"facade methods delegate to small owned services
+  with explicit input/output contracts."</em> The tradeoff:</li>
+<li><strong>Amend (recommended).</strong> Declare this ADR's scope to be the state-ownership half; state
+    plainly that the 147-method relocation is a <strong>separate work-stream</strong> and keep #356 open
+    past S9. Cost: #356 stays open longer and the remaining work is unowned until someone
+    files it. Benefit: no slice is graded against a criterion it structurally cannot meet,
+    and the S1–S9 sequence stays small and reviewable.</li>
+<li><strong>Add S11.</strong> A dedicated post-S9 slice migrating the 147 definitions to real orchestrator
+    member functions, staged per-orchestrator (debug_state 40, quality 23, device 19, config
+    17, data 13, sorting 11, output 10, diagnostics 8, resource 5, instancing 1). Cost: large
+    and mechanical, and it carries the <strong>R12</strong> ODR/PMF hazard at scale — every method
+    definition of each class must be enumerated into exactly one TU, per the #434 lesson.
+    Benefit: #356 closes on this ADR.</li>
+</ul>
+<p>Either answer is fine; what is not fine is leaving the current implication that S9 closes
+  #356. <strong>Also confirm the corrected denominator: 147 of 275, not "147 of 272."</strong></p>
+<h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">¶</a></h2>
+<ul>
+<li><strong>Positive:</strong> the single mutable bundle is replaced by owned sub-contexts a stage
+  can only touch through a typed port; the three duplication classes (metric reset,
+  stage-exit stamping, publisher sizing) collapse to single sources with parity guards;
+  the #529 UAF trap and the <code>static</code> fallback globals are deleted; StageIO becomes
+  fail-closed; the sorter's GLSL enters the compile matrix and gains the SPIR-V disk
+  cache. New renderer code becomes reviewable per-subsystem without reading the whole
+  facade (#356 exit).</li>
+<li><strong>Cost:</strong> S5/S7/S8/S10 need GPU-runner time for the visual + telemetry parity
+  evidence (agents cannot raster locally). S6/S8 carry the ODR/PMF hazard that the
+  memory notes flag — mitigated by enumerate-all-method-defs and link checks. The
+  migration is ~9–10 slices; it is deliberately incremental to keep each <code>base..head</code>
+  diff small and each behavior-preservation proof self-contained.</li>
+<li><strong>No gate weakened:</strong> every slice adds or preserves guards; none lowers a baseline,
+  threshold, or coverage bar.</li>
+</ul>
+<h2 id="anchor-re-verification-log-review-round-2">Anchor re-verification log (review round 2)<a class="headerlink" href="#anchor-re-verification-log-review-round-2" title="Permanent link">¶</a></h2>
+<p>Every <code>file:line</code> in this ADR was re-checked by <code>grep -n</code> against master <code>9161d92f349</code>. The
+ownership map (§1.1), all nine facade forwarders, the three <code>frame_plan</code> borrow sites, the
+<code>validate()</code> exemption, the <code>access_*_mutable()</code> escapes, the publisher clamp pair, the
+<code>_finalize_stage_io</code> definition, <code>compile_shaders.py:142</code>/<code>:684</code>, the destructor dispatch, and
+both <code>stage-first-ownership-inventory.md</code> quotes are <strong>unchanged</strong>. The counts (11 headers,
+10 back-pointers, 78 provider constructions, 40 static fallbacks) all reproduce. Corrected:</p>
+<table>
+<thead>
+<tr>
+<th>Item</th>
+<th>Was</th>
+<th>Now</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>FrameDeps</code> struct extent</td>
+<td><code>h:387-405</code></td>
+<td><code>h:386-435</code> (field list <code>:387-405</code>)</td>
+</tr>
+<tr>
+<td>Rebinding comment, stage runner</td>
+<td><code>render_pipeline_stages.cpp:1174-1177</code></td>
+<td><code>:1175-1177</code> (<code>:1174</code> is blank)</td>
+</tr>
+<tr>
+<td>2nd metric-reset site</td>
+<td><code>render_pipeline_stages.cpp:2943-2983</code></td>
+<td><code>:2909-2910</code> — and it is now a <code>reset_*()</code> group call, not a hand-list (§1.4)</td>
+</tr>
+<tr>
+<td>Stage-exit stamping sites</td>
+<td><code>:3005, 3026, 3083, 3114</code></td>
+<td><code>:3022, 3027, 3053, 3058</code></td>
+</tr>
+<tr>
+<td>Cull <code>_finalize_stage_io</code> call</td>
+<td>inside <code>:1460-1469</code></td>
+<td>the call itself is at <code>:1467</code></td>
+</tr>
+<tr>
+<td>RadixSort embedded GLSL</td>
+<td><code>1649, 1734, 1802, 1847, 2173</code></td>
+<td><code>1656, 1741, 1809, 1854, 2204</code> (uniform +7)</td>
+</tr>
+<tr>
+<td>OneSweep block + GLSL</td>
+<td><code>2749-2982</code>; <code>2749, 2816, 2912, 2975</code></td>
+<td>ctor <code>2731</code>, <code>_bind_methods</code> <code>2739</code>; GLSL <code>2780, 2847, 2943, 3006</code></td>
+</tr>
+<tr>
+<td><code>tile_renderer.cpp</code> shader includes</td>
+<td><code>:30-33</code></td>
+<td><code>:31-34</code> (<code>:30</code> is <code>performance_monitors.h</code>)</td>
+</tr>
+<tr>
+<td><code>RenderFrameExecutor</code></td>
+<td><code>:270-1352</code></td>
+<td><code>:271-1352</code></td>
+</tr>
+<tr>
+<td>Anonymous-namespace subsystem</td>
+<td><code>:129-266</code></td>
+<td>the anonymous namespace spans <code>:47-269</code></td>
+</tr>
+<tr>
+<td>Facade static fallbacks</td>
+<td><code>:2634-2764</code> + <code>:3061-3068</code></td>
+<td><code>:2635-2761</code> only; <code>get_debug_state</code> has none</td>
+</tr>
+<tr>
+<td><code>GaussianSplatRenderer::</code> definitions</td>
+<td>"147 of 272" (review comment)</td>
+<td><strong>147 of 275</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Stale anchors in the source itself</strong>, found during this pass and worth fixing independently
+of this ADR: <code>render_instancing_orchestrator.cpp:178</code> and <code>render_pipeline_stages.cpp:1171</code>
+both say <em>"<code>RenderFrameDeps::validate()</code> exempts <code>frame_plan</code> (see
+<code>gaussian_splat_renderer.h:387-389</code>)"</em>. The exemption actually lives at <strong><code>h:428-431</code></strong>;
+<code>h:387-389</code> is now the top of the <code>FrameDeps</code> field list. S7 deletes these comments anyway,
+but until then they misdirect.</p>
+<h2 id="related-docs">Related docs<a class="headerlink" href="#related-docs" title="Permanent link">¶</a></h2>
+<ul>
+<li><a href="../stage-first-ownership-inventory/">Stage-first ownership inventory</a> — the W0
+  characterization this ADR builds its target on (#356).</li>
+<li><a href="../render-pipeline/">Render pipeline architecture</a> — frame entry, route, stage
+  contracts, fallback semantics.</li>
+<li><a href="../renderer-lifetime-ownership/">Renderer lifetime ownership</a> — per-owner
+  create/destroy/idempotency/threading contracts at file:line precision.</li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/5c3913fba381e771b9ecd9a57fd3877e28ade807/modules/gaussian_splatting/ARCHITECTURE.md">Module architecture map</a>.</li>
+</ul>
+
+
+
+
+
+
+
+  
+    
+  
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 22, 2026 15:48:56 UTC">July 22, 2026</span>
+  </span>
+
+    
+    
+    
+    
+  </aside>
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden="">
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"></path></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.indexes", "navigation.path", "navigation.top", "navigation.footer", "content.code.copy", "content.code.annotate", "search.highlight", "search.suggest"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../../js/mkdocs-charts-plugin.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/vega-lite@5"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
+      
+    
+  
+<script id="init-glightbox">const lightbox = GLightbox({"touchNavigation": true, "loop": false, "zoomable": true, "draggable": true, "openEffect": "zoom", "closeEffect": "zoom", "slideEffect": "slide"});
+document$.subscribe(()=>{ lightbox.reload(); });
+</script></body></html>
