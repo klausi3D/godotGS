@@ -342,16 +342,27 @@ _RENDERER_REF_DECL_RE = re.compile(
 
 # #730 -- an `auto`-deduced OWNING local that resolves to Ref<GaussianSplatRenderer>
 # hides the type from _RENDERER_REF_DECL_RE but has the identical scope-exit
-# destructor hazard. The right-hand sources that yield a renderer Ref are DERIVED,
-# not guessed: the only Ref<GaussianSplatRenderer> value sources reachable in the
-# director are the `renderer` member of the SharedWorld-family structs
-# (`Ref<GaussianSplatRenderer> renderer;`, 3 sites) accessed via `.`/`->`, and
-# `get_shared_renderer(...)`, which returns one. `auto&` / `const auto&` are
-# NON-owning references (their destruction drops no reference) and are excluded by
-# requiring a name -- not `&` -- immediately after `auto`. Conservative by design
-# (#730): a dismissible false positive on this guard is far cheaper than a missed
-# indefinite-hang (#628); a bare `renderer\b` word boundary still excludes
-# `renderer_config` / `renderer_count` etc.
+# destructor hazard. The right-hand sources that yield a renderer Ref are DERIVED
+# from the director's actual API, not guessed. Post-S7 (RendererLifecycleOwner,
+# #746) the SharedWorld's renderer lives behind an owner, so the reachable
+# Ref<GaussianSplatRenderer> value sources are:
+#   1. `renderer_owner.ref()`     -- the owner's strong Ref accessor (returns a
+#      `const Ref&`; `auto x = ...ref()` COPIES it into an owning local, +1 refcount).
+#   2. `renderer_owner.release()` -- moves the owned Ref out by value.
+#   3. the `renderer` member of the remaining Ref-holding structs
+#      (`Ref<GaussianSplatRenderer> renderer;` -- the owner's own private field and
+#      the InstanceSubmission DTO at .h) accessed as a whole rvalue via `.`/`->`.
+#   4. `get_shared_renderer(...)`, which returns one (itself now `renderer_owner.ref()`).
+# The owner's IDENTITY accessors -- `ptr()` / `is_valid()` / `is_null()` /
+# `reference_count()` -- return a raw pointer / bool / int and own NOTHING, so an
+# `auto` bound to them is not flagged (only `ref`/`release` match; the required `(`
+# after the name means `ref` never prefix-matches `reference_count`). `auto&` /
+# `const auto&` are NON-owning references (ref() hands back a reference to the
+# owner's member, so the alias drops nothing) and are excluded by requiring a name
+# -- not `&` -- immediately after `auto`. Conservative by design (#730): a
+# dismissible false positive here is far cheaper than a missed indefinite-hang
+# (#628); the bare `renderer\b` word boundary still excludes `renderer_config` /
+# `renderer_count` / `renderer_owner` etc.
 _RENDERER_AUTO_DECL_RE = re.compile(
     r"(?:const\s+)?auto\s+([A-Za-z_]\w*)\s*=\s*"
     r"(?:"
@@ -369,6 +380,18 @@ _RENDERER_AUTO_DECL_RE = re.compile(
     # does not exist in the director and would only be a latent gap (#733 review).
     r"[^;=!<>&|?]*(?:->|\.)\s*renderer\b(?!\s*(?:->|\.|\(|\)|\[|<|>|=|!|&|\||\?|,))"
     r"|"
+    # #730 (S7): `renderer_owner.ref()` / `renderer_owner.release()` -- the primary
+    # owning-Ref sources after RendererLifecycleOwner (#746) moved the bare `renderer`
+    # member behind an owner. `ref()` returns a strong `const Ref&` (an `auto` copy
+    # owns +1); `release()` moves the Ref out by value. Terminal `;`/end required, so
+    # a chained `renderer_owner.ref()->snapshot()` -- a non-owning result -- is NOT
+    # matched. The empty `()` with `(?:ref|release)` keeps the identity accessors
+    # `.ptr()` / `.is_valid()` / `.is_null()` / `.reference_count()` out (the required
+    # `(` after `ref` means it never prefix-matches `reference_count`). Pre-text
+    # excludes comparison/logical operators, so `auto b = x == world->renderer_owner.ref();`
+    # is not flagged. Matches whether renderer_owner is reached via `->` or `.`.
+    r"[^;=!<>&|?]*(?:->|\.)\s*renderer_owner\s*(?:->|\.)\s*(?:ref|release)\s*\(\s*\)\s*(?:;|$)"
+    r"|"
     # `get_shared_renderer(...)` as the TERMINAL value. Nested args resolve one
     # level (`(?:[^()]|\([^()]*\))*`); the close paren must be followed by `;`/end
     # (so a chained `get_shared_renderer(w)->foo()` is excluded); and the pre-call
@@ -377,6 +400,27 @@ _RENDERER_AUTO_DECL_RE = re.compile(
     r"[^;=!<>&|?]*\bget_shared_renderer\s*\((?:[^()]|\([^()]*\))*\)\s*(?:;|$)"
     r")"
 )
+
+# KNOWN, DELIBERATE gaps in _RENDERER_AUTO_DECL_RE (Codex #748 review). This is a
+# line-oriented, `=`-anchored regex, NOT a C++ parser -- the repo lesson "regex
+# cannot parse C++ robustly" (#733, 10 review rounds) applies. The following exotic
+# `auto` forms are NOT matched, and this is an accepted trade rather than a bug:
+#   * direct- / braced-init: `auto x(SOURCE);` / `auto x{SOURCE};` -- only `auto x =`
+#     is matched. The EXPLICITLY-TYPED _RENDERER_REF_DECL_RE *does* catch these
+#     (`[;={(]`), so an owning Ref written the ordinary way is still guarded; only
+#     the type-hidden `auto` direct-init slips, which no director site uses.
+#   * multi-declarator: `auto a = SOURCE, b = SOURCE;` -- the terminal `;`/end anchor
+#     stops at the first comma, so a second owning initializer is not seen.
+#   * multi-LINE decl: `auto x =\n    SOURCE;` -- the scan is per physical line, so a
+#     declaration split across lines matches on neither line alone.
+# And one accepted FALSE POSITIVE (the guard's chosen safe direction -- "a dismissible
+# false positive is far cheaper than a missed #628 hang"):
+#   * `auto p = *world->renderer_owner.ref();` -- `Ref::operator*()` yields a raw
+#     pointer (owns nothing), yet the permissive pre-text accepts the leading `*` and
+#     flags it. Failing CI on a safe line is dismissible; missing an owning Ref is not.
+# All four forms are ABSENT from the director today (verified at #748). Catching them
+# needs a real C++ frontend (libclang), tracked as the eventual replacement for this
+# heuristic guard -- not more per-form regex branches, which is the #733 anti-pattern.
 
 # #610 S6 -- the owning wrapper types that carry renderer Refs across a
 # world_mutex critical section: RendererContractWorkQueue (which owns BOTH the
@@ -854,6 +898,48 @@ def run_self_test() -> int:
         "a get_shared_renderer() call with a nested-paren argument must be caught",
         len(check_renderer_ref_released_under_lock(auto_ref_nested_call)) == 1,
     )
+    # #730 (S7): `auto` bound to renderer_owner.ref() / .release() -- the primary
+    # post-RendererLifecycleOwner owning-Ref sources -- has the identical scope-exit
+    # hazard and must be caught (ref() reached via `->`, release() via `->`, and a
+    # const `auto` reaching renderer_owner via `.` all covered).
+    for owner_owning in (
+        "\tauto held = world->renderer_owner.ref();\n",
+        "\tauto held = entry->renderer_owner.release();\n",
+        "\tconst auto held = p_world.renderer_owner.ref();\n",
+    ):
+        owner_after_lock = (
+            "void GaussianSplatSceneDirector::clear_world_for_scenario(const RID &p_scenario) {\n"
+            "\tGaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);\n"
+            + owner_owning +
+            "}\n"
+        )
+        expect(
+            f"an auto local from renderer_owner.ref()/.release() must be caught: {owner_owning.strip()}",
+            len(check_renderer_ref_released_under_lock(owner_after_lock)) == 1,
+        )
+    # The owner's identity accessors return a raw pointer / bool / int and own
+    # NOTHING; a chained ref()->method() result and a comparison own nothing either;
+    # an `auto&` aliases the owner's member and drops nothing. None must be flagged.
+    # (`reference_count` also proves `ref` does not prefix-match it.)
+    for owner_non_owning in (
+        "\tauto ptr = world->renderer_owner.ptr();\n",
+        "\tauto ok = world->renderer_owner.is_valid();\n",
+        "\tauto gone = world->renderer_owner.is_null();\n",
+        "\tauto n = world->renderer_owner.reference_count();\n",
+        "\tauto s = world->renderer_owner.ref()->snapshot_world_submission_runtime_state();\n",
+        "\tconst auto &r = world->renderer_owner.ref();\n",
+        "\tauto b = other == world->renderer_owner.ref();\n",
+    ):
+        owner_ok = (
+            "void GaussianSplatSceneDirector::clear_world_for_scenario(const RID &p_scenario) {\n"
+            "\tGaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);\n"
+            + owner_non_owning +
+            "}\n"
+        )
+        expect(
+            f"non-owning renderer_owner access must NOT be flagged: {owner_non_owning.strip()}",
+            not check_renderer_ref_released_under_lock(owner_ok),
+        )
     # An `auto&` reference is NON-owning -- it drops no reference -- and must NOT be flagged.
     auto_ref_reference_ok = (
         "void GaussianSplatSceneDirector::clear_world_for_scenario(const RID &p_scenario) {\n"
