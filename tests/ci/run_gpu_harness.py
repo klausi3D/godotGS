@@ -411,9 +411,12 @@ BATCHES: tuple[BatchSpec, ...] = (
 # (#630), and noisy required gates get waived — which is how coverage is lost permanently.
 # It stays advisory until its wall time is consistently well under budget across several
 # quiet green master runs, or #630 removes the contention variance. This is a deliberate
-# non-promotion, not an oversight. (ComputeInfrastructure/GpuSorting/MemoryStream/Streaming
-# are also NOT promoted: a required batch that matches ~0 cases fails by design via
-# empty_required — that is #520 territory, out of scope here.)
+# non-promotion, not an oversight. (ComputeInfrastructure/MemoryStream/Streaming are also
+# NOT promoted: a required batch that matches ~0 cases fails by design via empty_required —
+# that is #520 territory, out of scope here. GpuSorting is NOT empty — its `*Sort*][RequiresGPU]*`
+# filter now matches the #508 `[GPUSortPipeline][RequiresGPU]` sticky-overflow test — so it
+# carries real, asserting GPU coverage that is currently advisory; promoting it is tracked as
+# a follow-up pending a stability/wall-time check, NOT the empty-batch rationale above.)
 REQUIRED_BATCHES: frozenset[str] = frozenset({
     "CompositorHazard",
     "RendererPipeline",
