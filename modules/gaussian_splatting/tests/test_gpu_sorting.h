@@ -39,7 +39,13 @@ static RID create_storage_buffer(RenderingDevice *rd, const LocalVector<T> &data
 	return rd->storage_buffer_create(bytes.size(), bytes);
 }
 
-TEST_CASE("[GaussianSplatting][RequiresGPU] GPU Bitonic Sorting") {
+// #622: carries the [GpuSort] tag so it is SELECTED by the required GpuSorting
+// harness batch (filter "*Sort*][RequiresGPU]*"). Without a Sort-bearing tag
+// BEFORE [RequiresGPU], the batch glob does not match (the "Sorting" in the
+// description sits AFTER "][RequiresGPU]"), and this sort-order oracle -- though
+// linked and registered -- runs in NO harness batch. The ascending-order CHECKs
+// below are what make a deliberately-wrong sort turn the batch RED.
+TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] GPU Bitonic Sorting") {
 	RenderingDevice *rd = RenderingDevice::get_singleton();
 	if (!rd) {
 		RenderingServer *rs = RenderingServer::get_singleton();
@@ -205,7 +211,10 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] GPU Bitonic Sorting") {
 	}
 }
 
-TEST_CASE("[GaussianSplatting][RequiresGPU] Radix sort factory honors 32-bit key layout") {
+// #622: [GpuSort] tag opts this radix sort-order oracle into the required
+// GpuSorting harness batch (see the note on "GPU Bitonic Sorting" above). The
+// exact expected_keys / expected_values CHECKs below discriminate a wrong sort.
+TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] Radix sort factory honors 32-bit key layout") {
 	struct GPUSortingConfigRestore {
 		GPUSortingConfig previous_config;
 		~GPUSortingConfigRestore() {
@@ -455,7 +464,11 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] GPU Sorting Performance") {
 // WORKGROUP_SIZE bins, silently corrupting the sort at workgroup_size 64/128. This test sorts keys
 // whose bytes span HIGH digit values (>= 128) so those high bins are exercised, and checks the GPU
 // output against a CPU reference at every allowed workgroup_size.
-TEST_CASE("[GaussianSplatting][RequiresGPU] Radix sort 8-bit is correct at all workgroup sizes") {
+// #622: [GpuSort] tag opts this 8-bit radix sort-order oracle into the required
+// GpuSorting harness batch (see the note on "GPU Bitonic Sorting" above). It
+// checks the GPU output against a CPU-sorted reference at every workgroup size,
+// so a wrong sort at any bin count turns the required batch RED.
+TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] Radix sort 8-bit is correct at all workgroup sizes") {
 	struct GPUSortingConfigRestore {
 		GPUSortingConfig previous_config;
 		~GPUSortingConfigRestore() { g_gpu_sorting_config = previous_config; }

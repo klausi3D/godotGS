@@ -102,21 +102,28 @@ BATCHES: tuple[BatchSpec, ...] = (
         ("*TileRenderer*][RequiresGPU]*",),
         excludes=("*Output format coercion keeps deterministic defaults*",),
     ),
-    # #744: PROMOTED to REQUIRED_BATCHES (below). The `*Sort*][RequiresGPU]*` filter
-    # matches EXACTLY ONE linked case -- the #508 [GPUSortPipeline][RequiresGPU]
-    # "Instance-count overflow_flag is sticky across a skipped async readback" test in
-    # test_gpu_sorting.h (measured on an RTX 3090: 1 case / 5 assertions / 4.4 s wall,
-    # CASE-ASSERT-AUDIT zero_assert=0, i.e. non-hollow). 4.4 s under the 60 s default is
-    # ~13.6x headroom -- far above the 1.5x floor -- so no per-batch timeout override is
-    # needed. Promoting it gates that real, asserting case so a future rename or hollow
-    # early-return of it fails the required gate instead of silently passing.
+    # #744: PROMOTED to REQUIRED_BATCHES (below). #622: the `*Sort*][RequiresGPU]*`
+    # filter now matches FOUR linked cases in test_gpu_sorting.h:
+    #   * the #508 [GPUSortPipeline][RequiresGPU] "Instance-count overflow_flag is sticky
+    #     across a skipped async readback" pipeline case (measured on an RTX 3090:
+    #     1 case / 5 assertions / 4.4 s wall, CASE-ASSERT-AUDIT zero_assert=0), and
+    #   * three sort-ORDER oracles retagged [GpuSort] by #622 -- "GPU Bitonic Sorting",
+    #     "Radix sort factory honors 32-bit key layout" and "Radix sort 8-bit is correct
+    #     at all workgroup sizes". Each asserts the GPU output against an ascending /
+    #     CPU-reference order, so a deliberately-wrong sort turns this required batch RED.
+    # A dedicated no-build guard, tests/ci/check_gpu_sorting_order_coverage.py, pins that
+    # these order oracles are SELECTED by this batch AND still carry order assertions, so
+    # neither a filter drift nor a hollowed-out oracle can silently reopen the gap.
     #
-    # HONEST SCOPE (do not overread the batch NAME): this gates the sort-pipeline
-    # OVERFLOW-stickiness case, NOT sort-ORDER correctness. The Bitonic/Radix sort-order
-    # tests live in test_gpu_sorting.CPP, which is linker-dropped (KNOWN_UNLINKED, tracked
-    # by #622) AND is tagged [GaussianSplatting][RequiresGPU] with "sort" only in the
-    # description -- so it would NOT match `*Sort*][RequiresGPU]*` even once linked.
-    # Closing the sort-order coverage gap is #622's job, not this promotion's.
+    # SCOPE: this batch does NOT gate the timing benchmark "GPU Sorting Performance"
+    # (flaky wall-clock assertions, still tag [GaussianSplatting][RequiresGPU]) nor the
+    # separate order tests in test_gpu_sorting.CPP, which remain linker-dropped
+    # (KNOWN_UNLINKED, tracked by #622/#631) -- those .cpp cases are a distinct linkage
+    # problem, not a filter problem.
+    #
+    # Wall-time: the three order oracles are small fixed-size sorts (<= 2048 elements,
+    # 5 keys, 10 keys) that add negligibly to the batch, so the 60 s default still holds
+    # ample headroom -- no per-batch timeout override is needed.
     BatchSpec("GpuSorting", ("*Sort*][RequiresGPU]*",)),
     BatchSpec("MemoryStream", ("*MemoryStream*][RequiresGPU]*",)),
     BatchSpec("Streaming", ("*Streaming*][RequiresGPU]*",)),
@@ -429,9 +436,9 @@ BATCHES: tuple[BatchSpec, ...] = (
 # non-promotion, not an oversight. (ComputeInfrastructure/MemoryStream/Streaming are also
 # NOT promoted: a required batch that matches ~0 cases fails by design via empty_required —
 # that is #520 territory, out of scope here. GpuSorting is NOT empty — its `*Sort*][RequiresGPU]*`
-# filter now matches the #508 `[GPUSortPipeline][RequiresGPU]` sticky-overflow test — so it
-# carries real, asserting GPU coverage that is currently advisory; promoting it is tracked as
-# a follow-up pending a stability/wall-time check, NOT the empty-batch rationale above.)
+# filter matches the #508 `[GPUSortPipeline][RequiresGPU]` sticky-overflow test AND, since #622,
+# the three [GpuSort] sort-ORDER oracles in test_gpu_sorting.h — so it carries real, asserting
+# GPU coverage of sort-order correctness. It is REQUIRED (added #744, see the set below).)
 REQUIRED_BATCHES: frozenset[str] = frozenset({
     "CompositorHazard",
     "RendererPipeline",

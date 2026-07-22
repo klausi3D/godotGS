@@ -121,8 +121,8 @@
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
     "test_count": 137,
-    "sha256": "41c0b8be448b578e0f03ec3f360346c80d1d876ef352fcaef815eb71e3338461",
-    "sha256_last_changed_by": "#722 slice 2 (post-teardown terminal-state contract for the culler-backed inline getters) adds exactly one RequiresGPU case, '[GaussianSplatting][RendererPipeline][SceneTree][RequiresGPU] Post-teardown culler accessors return terminal-state defaults instead of dereferencing null' (modules/gaussian_splatting/tests/test_renderer_pipeline.h). Pure ADDITION on top of the prior snapshot: test_count 136 -> 137 and the digest moves because one (path, name) pair joined the payload -- verified by a name-set diff against origin/master adding exactly one TEST_CASE and removing zero. No existing case was renamed, retagged or removed. The new case carries neither a deferred TAG (Importer) nor a deferred NAME, so it is NOT deferred and deferred_count stays 3. It matches the RendererPipeline batch (new filter '*Post-teardown culler accessors return terminal-state defaults*') in tests/ci/run_gpu_harness.py, so running_in_a_named_batch 64 -> 65 and unbatched_backlog stays 69. The sha256 was RECOMPUTED via tests/ci/check_renderer_release_gates.py _requires_gpu_snapshot().",
+    "sha256": "27d78a3b7d0ac7c58b19799b8afdfbc83dcce9cf1f769a1b4bcbeb8dbdab5d13",
+    "sha256_last_changed_by": "#622 RETAG (no add/remove): three sort-ORDER oracles in modules/gaussian_splatting/tests/test_gpu_sorting.h -- 'GPU Bitonic Sorting', 'Radix sort factory honors 32-bit key layout' and 'Radix sort 8-bit is correct at all workgroup sizes' -- gained a [GpuSort] tag ([GaussianSplatting][RequiresGPU] -> [GaussianSplatting][GpuSort][RequiresGPU]) so they are SELECTED by the required GpuSorting harness batch (filter '*Sort*][RequiresGPU]*'); previously the batch matched only the #508 [GPUSortPipeline] overflow-sticky case and NO sort-order oracle. test_count stays 137 (no case added or removed); the digest moves only because three (path, name) pairs changed name -- verified by a name-set diff against origin/master renaming exactly three TEST_CASEs and adding/removing zero. None of the three carries a deferred TAG (Importer) or a deferred NAME, and [GpuSort] is not a deferred tag, so deferred_count stays 2. All three now match GpuSorting, so running_in_a_named_batch 66 -> 69 and unbatched_backlog 69 -> 66 (the fourth test_gpu_sorting.h case, 'GPU Sorting Performance', is a timing benchmark and stays in the backlog). The sha256 was RECOMPUTED via tests/ci/check_renderer_release_gates.py _requires_gpu_snapshot().",
     "deferred_tags_any": [
       "Importer"
     ],
@@ -433,14 +433,14 @@
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
       "requires_gpu_total": 137,
-      "running_in_a_named_batch": 66,
+      "running_in_a_named_batch": 69,
       "deferred_with_waiver": 2,
-      "unbatched_backlog": 69
+      "unbatched_backlog": 66
     },
     "by_source_file": {
       "modules/gaussian_splatting/tests/test_gpu_buffer_manager_lifetime.h": 2,
       "modules/gaussian_splatting/tests/test_gpu_sorting.cpp": 8,
-      "modules/gaussian_splatting/tests/test_gpu_sorting.h": 4,
+      "modules/gaussian_splatting/tests/test_gpu_sorting.h": 1,
       "modules/gaussian_splatting/tests/test_gpu_streaming.h": 3,
       "modules/gaussian_splatting/tests/test_memory_leak_detection.h": 3,
       "modules/gaussian_splatting/tests/test_output_compositor_composite_hazard.h": 2,
@@ -464,7 +464,6 @@
       "[GaussianSplatting][RequiresGPU] Dynamic handle warmup publishes explicit streaming-not-ready skips",
       "[GaussianSplatting][RequiresGPU] Fallback reason telemetry",
       "[GaussianSplatting][RequiresGPU] Final output copies between targets",
-      "[GaussianSplatting][RequiresGPU] GPU Bitonic Sorting",
       "[GaussianSplatting][RequiresGPU] GPU Memory Streaming",
       "[GaussianSplatting][RequiresGPU] GPU Memory Streaming Performance",
       "[GaussianSplatting][RequiresGPU] GPU Sorting Performance",
@@ -488,8 +487,6 @@
       "[GaussianSplatting][RequiresGPU] Phase 1 Integration - Basic Components",
       "[GaussianSplatting][RequiresGPU] Production metrics contract and perf gate reporting",
       "[GaussianSplatting][RequiresGPU] Production metrics validation marks diagnostics-disabled mode",
-      "[GaussianSplatting][RequiresGPU] Radix sort 8-bit is correct at all workgroup sizes",
-      "[GaussianSplatting][RequiresGPU] Radix sort factory honors 32-bit key layout",
       "[GaussianSplatting][RequiresGPU] Raster path eligibility follows viewport output format",
       "[GaussianSplatting][RequiresGPU] Render-thread blocking dispatch only advances completion state on success",
       "[GaussianSplatting][RequiresGPU] Render-thread blocking dispatch preserves forward progress after timeout escape",
