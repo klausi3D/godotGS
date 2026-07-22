@@ -2589,6 +2589,24 @@ bool GaussianSplatSceneDirector::test_has_asset_record_for_scenario(const RID &p
 	}
 	return world->instance_store.has_asset(_asset_records_key(p_asset_object_id));
 }
+
+uint64_t GaussianSplatSceneDirector::test_instance_generation_for_scenario(const RID &p_scenario) const {
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+	const SharedWorld *world = world_registry.find(p_scenario);
+	if (!world) {
+		return 0;
+	}
+	return world->instance_store.generation();
+}
+
+uint64_t GaussianSplatSceneDirector::test_instance_asset_generation_for_scenario(const RID &p_scenario) const {
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+	const SharedWorld *world = world_registry.find(p_scenario);
+	if (!world) {
+		return 0;
+	}
+	return world->instance_store.asset_generation();
+}
 #endif
 
 void GaussianSplatSceneDirector::teardown_world_for_scenario(const RID &p_scenario) {
