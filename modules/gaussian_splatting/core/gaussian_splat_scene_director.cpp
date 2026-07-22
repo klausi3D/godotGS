@@ -1420,34 +1420,31 @@ bool GaussianSplatSceneDirector::get_instance_submission(ObjectID p_node_id, Ins
 	return false;
 }
 
-void GaussianSplatSceneDirector::update_instance_lods_for_renderer(const GaussianSplatRenderer *p_renderer,
+void GaussianSplatSceneDirector::LODCacheOwner::update(InstanceStore &p_store,
 		const Vector3 &p_camera_pos, const LODConfig &p_lod_config, float p_hysteresis_zone) {
-	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
-	SharedWorld *world = _find_world_for_renderer(p_renderer);
-	if (!world || world->instance_store.is_empty()) {
-		return;
-	}
-
 	// Skip the whole O(instances) walk when nothing that affects LOD moved since
-	// the last walk. instance_generation already bumps on every instance
+	// the last walk. The store's generation already bumps on every instance
 	// add/remove/transform/param(bias) change, so animating content can never be
 	// frozen here; camera position, LODConfig and the hysteresis zone are compared
 	// directly. Exact (non-epsilon) comparison is intentional: any real change
 	// must re-walk, and an epsilon could let a slow camera drift stall LOD.
-	if (world->lod_walk_cache_valid &&
-			world->lod_walk_last_generation == world->instance_store.generation() &&
-			world->lod_walk_last_camera_pos == p_camera_pos &&
-			world->lod_walk_last_hysteresis == p_hysteresis_zone &&
-			world->lod_walk_last_config == p_lod_config) {
+	if (lod_walk_cache_valid &&
+			lod_walk_last_generation == p_store.generation() &&
+			lod_walk_last_camera_pos == p_camera_pos &&
+			lod_walk_last_hysteresis == p_hysteresis_zone &&
+			lod_walk_last_config == p_lod_config) {
 		return;
 	}
 
 	const int max_lod = MAX(0, p_lod_config.num_levels - 1);
 	const bool use_fallback = p_hysteresis_zone <= 0.0f;
+	// Computed lazily AFTER the early-out (as before the S9 extraction) so the hot
+	// no-op path never pays for it; _is_scene_director_log_enabled() is a file-scope
+	// static in this TU, so the owner can call it directly.
 	const bool log_enabled = _is_scene_director_log_enabled();
 	bool any_changed = false;
 
-	LocalVector<InstanceRecord> &instance_records = world->instance_store.mutable_records();
+	LocalVector<InstanceRecord> &instance_records = p_store.mutable_records();
 	for (uint32_t i = 0; i < instance_records.size(); i++) {
 		InstanceRecord &record = instance_records[i];
 		const float distance = p_camera_pos.distance_to(record.transform.origin);
@@ -1503,17 +1500,32 @@ void GaussianSplatSceneDirector::update_instance_lods_for_renderer(const Gaussia
 		}
 	}
 	if (any_changed) {
-		world->instance_store.bump_generation();
+		p_store.bump_generation();
 	}
 
 	// Memoize the inputs for next frame's early-out. Capture the generation AFTER
 	// the potential bump above so the walk's own change doesn't force a redundant
 	// re-walk next frame.
-	world->lod_walk_cache_valid = true;
-	world->lod_walk_last_camera_pos = p_camera_pos;
-	world->lod_walk_last_generation = world->instance_store.generation();
-	world->lod_walk_last_hysteresis = p_hysteresis_zone;
-	world->lod_walk_last_config = p_lod_config;
+	lod_walk_cache_valid = true;
+	lod_walk_last_camera_pos = p_camera_pos;
+	lod_walk_last_generation = p_store.generation();
+	lod_walk_last_hysteresis = p_hysteresis_zone;
+	lod_walk_last_config = p_lod_config;
+}
+
+void GaussianSplatSceneDirector::update_instance_lods_for_renderer(const GaussianSplatRenderer *p_renderer,
+		const Vector3 &p_camera_pos, const LODConfig &p_lod_config, float p_hysteresis_zone) {
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+	SharedWorld *world = _find_world_for_renderer(p_renderer);
+	if (!world || world->instance_store.is_empty()) {
+		return;
+	}
+	// #610 S9: the memoized O(instances) LOD walk lives in LODCacheOwner; this
+	// wrapper owns only the lock, the renderer->world lookup and the empty guard.
+	// Called on the render thread; world_mutex serializes it against main-thread
+	// instance mutations, so the render-thread write-back inside update() is safe.
+	world->lod_cache_owner.update(world->instance_store, p_camera_pos, p_lod_config,
+			p_hysteresis_zone);
 }
 
 void GaussianSplatSceneDirector::build_instance_buffer(LocalVector<InstanceDataGPU> &out) const {
