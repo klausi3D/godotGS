@@ -8,6 +8,7 @@
 #include "core/io/resource_loader.h"
 #include "../core/gaussian_data.h"
 #include "../logger/gs_logger.h"
+#include "gs_atomic_file_writer.h"
 #include <cstdint>
 
 namespace {
@@ -190,32 +191,37 @@ static Error _copy_binary_file(const String &p_source_file, const String &p_dest
 		return read_err != OK ? read_err : ERR_CANT_OPEN;
 	}
 
-	Error write_err = OK;
-	Ref<FileAccess> dst = FileAccess::open(p_dest_file, FileAccess::WRITE, &write_err);
-	if (dst.is_null()) {
-		return write_err != OK ? write_err : ERR_CANT_OPEN;
-	}
+	// Route the destination write through the crash-atomic helper (temp sibling ->
+	// atomic replace-over-existing), exactly like every other final-output saver
+	// (gaussian_splat_world_io / gaussian_scene_serializer / incremental_saver).
+	// A plain FileAccess::WRITE truncates the destination the instant it is opened,
+	// so a crash or write error mid-copy would destroy any pre-existing generated
+	// output. gs_atomic_file_write streams the copy into a temp file and only moves
+	// it into place once the whole copy has succeeded and closed, so an interrupted
+	// copy leaves the prior good file byte-intact (see #714). The source stream is
+	// captured by reference; the writer never retains the destination Ref.
+	return gs_atomic_file_write(p_dest_file, [&src](const Ref<FileAccess> &dst) -> Error {
+		const uint64_t file_size = src->get_length();
+		constexpr uint64_t chunk_size = 1024 * 1024; // 1 MiB
+		PackedByteArray buffer;
+		buffer.resize(chunk_size);
+		uint8_t *buffer_ptr = buffer.ptrw();
 
-	const uint64_t file_size = src->get_length();
-	constexpr uint64_t chunk_size = 1024 * 1024; // 1 MiB
-	PackedByteArray buffer;
-	buffer.resize(chunk_size);
-	uint8_t *buffer_ptr = buffer.ptrw();
-
-	while (src->get_position() < file_size) {
-		const uint64_t remaining = file_size - src->get_position();
-		const uint64_t to_read = remaining < chunk_size ? remaining : chunk_size;
-		const uint64_t read = src->get_buffer(buffer_ptr, to_read);
-		if (read != to_read) {
-			return ERR_FILE_CORRUPT;
+		while (src->get_position() < file_size) {
+			const uint64_t remaining = file_size - src->get_position();
+			const uint64_t to_read = remaining < chunk_size ? remaining : chunk_size;
+			const uint64_t read = src->get_buffer(buffer_ptr, to_read);
+			if (read != to_read) {
+				return ERR_FILE_CORRUPT;
+			}
+			if (!dst->store_buffer(buffer_ptr, to_read)) {
+				const Error dst_err = dst->get_error();
+				return dst_err != OK ? dst_err : ERR_FILE_CANT_WRITE;
+			}
 		}
-		if (!dst->store_buffer(buffer_ptr, to_read)) {
-			const Error dst_err = dst->get_error();
-			return dst_err != OK ? dst_err : ERR_FILE_CANT_WRITE;
-		}
-	}
 
-	return OK;
+		return OK;
+	});
 }
 
 } // namespace

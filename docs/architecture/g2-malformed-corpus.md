@@ -33,20 +33,23 @@ This lane turns those one-off fixes into a single, blocking, growing gate.
   the blocking `module-validation` job
   (`.github/workflows/gaussian_production_gates.yml`). A hostile-input or
   crash-atomicity regression hard-fails CI.
-- **The three custom savers are locked in statically.** Three `STATIC_FORMAT_GUARDS`
-  (`atomic_saver_world_io` / `_scene_serializer` / `_incremental`) assert that
-  *those* final-output writers route through `gs_atomic_file_write`. The
-  `[AtomicWrite]` doctest lane proves the helper is crash-atomic; the guards prove
-  each of the three *uses* it (the PLY cache writer delegates to the world saver →
-  covered).
+- **The final-output writers are locked in statically.** Four `STATIC_FORMAT_GUARDS`
+  (`atomic_saver_world_io` / `_scene_serializer` / `_incremental` /
+  `_gsplatworld_importer`) assert that *those* final-output writers route through
+  `gs_atomic_file_write`. The `[AtomicWrite]` doctest lane proves the helper is
+  crash-atomic; the guards prove each writer *uses* it (the PLY cache writer
+  delegates to the world saver → covered).
 
-  **Scope limit — this is not "every writer in the module".**
+  **Scope limit — this is not "every writer in the module".** The guards cover the
+  named final-output writers, not arbitrary `FileAccess::WRITE` sites. A newly
+  added final-output writer must both route through `gs_atomic_file_write` and add
+  its own guard entry here. This gap was real once:
   `ResourceImporterGSplatWorld::_copy_binary_file`
-  (`modules/gaussian_splatting/io/resource_importer_gsplatworld.cpp:186-198`) opens
-  its destination with `FileAccess::WRITE` and streams bytes straight into the
-  final `.gsplatworld` output. It is neither one of the three guarded savers nor
-  routed through the atomic helper, so a crash or write error mid-copy can damage
-  an existing generated output while these guards stay green. Tracked in #714.
+  (`modules/gaussian_splatting/io/resource_importer_gsplatworld.cpp`) used to open
+  its destination with a plain truncating `FileAccess::WRITE`, so a crash or write
+  error mid-copy could damage an existing generated output while the other guards
+  stayed green (#714). It now routes through the atomic helper and carries the
+  `atomic_saver_gsplatworld_importer` guard.
 
 ### Regression-guard only (the abort reality)
 
@@ -111,8 +114,10 @@ grep -rhoE 'TEST_CASE\("[^"]*\[MalformedCorpus\][^"]*"' modules/gaussian_splatti
 - **Atomic savers** (`gs_atomic_file_write`): the "savers atomic" clause of G2,
   carried by `[AtomicWrite]` (not `[MalformedCorpus]`): a failed write leaves the
   prior file byte-intact, atomic replace with no temp/backup litter, relative-path
-  handling — plus three `STATIC_FORMAT_GUARDS` locking in that each saver routes
-  through the helper.
+  handling — plus four `STATIC_FORMAT_GUARDS` locking in that each final-output
+  writer (the three custom savers + the `.gsplatworld` importer copy, #714) routes
+  through the helper. The importer copy additionally has a behavioral crash-atomic
+  regression under `[Importer]` (an interrupted in-place copy preserves the file).
 
 ### Known gaps
 
