@@ -225,6 +225,14 @@
         "allow_timeout": false,
         "allow_rid_leaks": false,
         "reference_artifacts": []
+      },
+      {
+        "name": "GpuSorting",
+        "minimum_test_cases": 1,
+        "allow_skips": false,
+        "allow_timeout": false,
+        "allow_rid_leaks": false,
+        "reference_artifacts": []
       }
     ],
     "follow_up_hooks": [
