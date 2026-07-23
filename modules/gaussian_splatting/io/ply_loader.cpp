@@ -811,6 +811,61 @@ Error PLYLoader::parse_ascii_data(Ref<FileAccess> file) {
         return ERR_FILE_CORRUPT;
     }
 
+    // Issue #767: the byte lower bound above proves enough BYTES remain, but
+    // bytes are not rows. It is a proportionality guard, not a row-count proof: a
+    // hostile file can pack `available_bytes` onto a single long line (few or no
+    // newlines) — e.g. "0 0 0 ..." with no line breaks — and satisfy the check
+    // while declaring a far larger vertex_count. That still let
+    // resize(header.vertex_count) allocate and per-record initialize the full
+    // declared count before the row loop below discovered EOF, i.e. a bounded but
+    // real over-allocation on a byte-padded/row-deficient file (the residual
+    // #583/#755 explicitly left open; they closed the pre-vertex-element
+    // accounting hole, not this one).
+    //
+    // Prove the vertex ROWS exist before the large allocation. N newline-
+    // delimited rows carry at least N-1 line terminators (only the final row may
+    // omit a trailing newline), so require at least vertex_count-1 '\n' bytes in
+    // the vertex block. This is a strict lower bound that never over-rejects a
+    // real file — a genuine N-row body always has >= N-1 newlines, even when each
+    // row is as small as "0\n" — yet a single-line payload (0 newlines) can no
+    // longer gate a multi-record resize. Count with a cheap raw byte scan (no
+    // per-line String allocation), bounded to the vertex block, then rewind so
+    // the parse loop reads from vertex_block_start unchanged. This adds one extra
+    // sequential pass over the ASCII payload only; the fast binary path (row
+    // count == byte count / stride, already exact) is untouched.
+    {
+        const uint64_t required_newlines = uint64_t(header.vertex_count) - 1; // vertex_count >= 1 (validated in parse_header)
+        uint64_t newline_count = 0;
+        uint64_t remaining_to_scan = available_bytes;
+        uint8_t scan_buffer[4096];
+        while (newline_count < required_newlines && remaining_to_scan > 0) {
+            const uint64_t want = MIN<uint64_t>(sizeof(scan_buffer), remaining_to_scan);
+            const uint64_t read = file->get_buffer(scan_buffer, want);
+            if (read == 0) {
+                break; // short read: fewer bytes than the extent check promised
+            }
+            for (uint64_t b = 0; b < read; b++) {
+                if (scan_buffer[b] == '\n') {
+                    newline_count++;
+                }
+            }
+            remaining_to_scan -= read;
+        }
+        // Rewind to the vertex block start for the row parser below. seek() also
+        // clears any EOF indicator set by scanning to the end of the payload.
+        file->seek(vertex_block_start);
+        if (newline_count < required_newlines) {
+            GS_LOG_ERROR_DEFAULT(vformat(
+                    "[PLY ASCII] declared vertex_count %d needs at least %d newline-delimited rows but the "
+                    "vertex block holds only %d line terminators; refusing to allocate for a byte-padded/"
+                    "row-deficient file (issue #767)",
+                    header.vertex_count,
+                    static_cast<int64_t>(required_newlines),
+                    static_cast<int64_t>(newline_count)));
+            return ERR_FILE_CORRUPT;
+        }
+    }
+
     gaussian_data->resize(header.vertex_count);
 
     // Check if normal properties exist to determine 2D mode
