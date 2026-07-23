@@ -252,6 +252,18 @@ Error ResourceImporterSPZ::import(ResourceUID::ID p_source_id, const String &p_s
         return ERR_FILE_CORRUPT;
     }
 
+    // Full-asset finiteness sweep: reject NaN/Inf anywhere in the payload rather
+    // than letting corrupt splats reach the GPU. Shares the PLY importer's
+    // validator so neither format can smuggle a bad splat past a clean splat 0
+    // (#518).
+    int spz_bad_index = -1;
+    if (!gaussian_data->all_render_fields_finite(&spz_bad_index)) {
+        GS_LOG_ERROR_DEFAULT(vformat(
+                "SPZ validation failed: Non-finite (NaN/Inf) position/scale/rotation/opacity at splat %d in %s",
+                spz_bad_index, p_source_file));
+        return ERR_FILE_CORRUPT;
+    }
+
     const int original_count = gaussian_data->get_count();
 
     // Get import options

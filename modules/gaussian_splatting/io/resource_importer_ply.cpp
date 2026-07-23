@@ -292,6 +292,20 @@ Error ResourceImporterPLY::import(ResourceUID::ID p_source_id, const String &p_s
         return ERR_FILE_CORRUPT;
     }
 
+    // Finiteness is a corruption guard, NOT optional validation: run it
+    // unconditionally (even when validation/validate_required_properties is off),
+    // matching the SPZ importer and the raw asset/data load paths. A NaN/Inf past
+    // splat 0 must never be baked into the generated .res (#518, Codex #756).
+    {
+        int nonfinite_index = -1;
+        if (!gaussian_data->all_render_fields_finite(&nonfinite_index)) {
+            GS_LOG_ERROR_DEFAULT(vformat(
+                    "PLY import rejected: Non-finite (NaN/Inf) position/scale/rotation/opacity at splat %d in %s",
+                    nonfinite_index, p_source_file));
+            return ERR_FILE_CORRUPT;
+        }
+    }
+
     const int original_count = gaussian_data->get_count();
 
     String preset_name = _get_string_option(p_options, OPTION_PRESET,
@@ -659,6 +673,13 @@ Error ResourceImporterPLY::validate_ply_properties(const Ref<PLYLoader> &p_loade
         GS_LOG_ERROR_DEFAULT("PLY validation failed: Invalid opacity values detected");
         return ERR_FILE_CORRUPT;
     }
+
+    // Whole-asset finiteness is deliberately NOT checked here: it is a corruption
+    // guard that must run even when this optional required-property validation is
+    // disabled, so import() runs all_render_fields_finite() unconditionally on the
+    // decoded data (see there). Keeping it out of this optional block ensures a
+    // NaN/Inf past splat 0 is rejected regardless of validate_required_properties
+    // (#518, Codex #756).
 
     return OK;
 }
