@@ -677,17 +677,17 @@ TEST_CASE("[GaussianSplatting][Streaming] A stride flip drops a pending upload s
 	// Stage a pending upload for chunk 0 at the OLD (80 B) stride: allocate a slot, begin the
 	// upload, then stage a MAIN_RD frame-delay retirement ticket. The chunk stays upload_pending
 	// (is_loaded == false), which is precisely the state #513's resident-only eviction ignores.
-	GaussianStreamingSystem::AtlasAssetState *asset = system._test_get_asset_state(asset_uniform);
+	auto *asset = system._test_get_asset_state(asset_uniform);
 	if (!asset) {
 		FAIL("uniform asset state missing");
 		return;
 	}
-	LocalVector<GaussianStreamingSystem::StreamingChunk> &asset_chunks = system._test_get_asset_chunks(*asset);
+	auto &asset_chunks = system._test_get_asset_chunks(*asset);
 	if (asset_chunks.is_empty()) {
 		FAIL("uniform asset has no chunks");
 		return;
 	}
-	GaussianStreamingSystem::StreamingChunk &chunk = asset_chunks[0];
+	auto &chunk = asset_chunks[0];
 
 	const uint64_t old_stride = system._test_atlas_gaussian_stride_bytes();
 	CHECK(old_stride == uint64_t(sizeof(PackedGaussianQuantized)));
@@ -742,12 +742,12 @@ TEST_CASE("[GaussianSplatting][Streaming] A stride flip drops a pending upload s
 
 	// The pending chunk was rolled back to idle. Re-fetch state: the mixed registration may have
 	// rehashed atlas_assets, invalidating the earlier `asset`/`chunk` handles.
-	GaussianStreamingSystem::AtlasAssetState *asset_after = system._test_get_asset_state(asset_uniform);
+	auto *asset_after = system._test_get_asset_state(asset_uniform);
 	if (!asset_after) {
 		FAIL("uniform asset state missing after the flip");
 		return;
 	}
-	LocalVector<GaussianStreamingSystem::StreamingChunk> &chunks_after = system._test_get_asset_chunks(*asset_after);
+	auto &chunks_after = system._test_get_asset_chunks(*asset_after);
 	if (chunks_after.is_empty()) {
 		FAIL("uniform asset lost its chunks after the flip");
 		return;
