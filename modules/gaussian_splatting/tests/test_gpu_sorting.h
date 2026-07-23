@@ -243,11 +243,23 @@ TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] GPU Bitonic Sorting") {
 		// BitonicSort handles non-power-of-two internally
 		CHECK(sorter->supports_non_power_of_two());
 
-		// Create test data
+		// #622/#754: BitonicSort::sort() pads `count` up to next_power_of_two and
+		// the compute shader reads AND writes every index in [0, padded). The GPU
+		// buffers must therefore be sized to the padded capacity -- allocating
+		// only `count` floats let the sort race past the end of the buffer
+		// (undefined GPU behavior) and made this a broken oracle. get_max_elements()
+		// reports exactly that padded capacity (next_power_of_two(count)). Fill the
+		// tail with a large finite SENTINEL key so the padding sinks to the top
+		// under the ascending sort and the real data stays contiguous in [0, count).
+		const uint32_t padded = sorter->get_max_elements(); // next_power_of_two(count)
+		CHECK(padded >= count);
+		const float sentinel_key = 3.0e38f; // finite, > any test key; sorts to the tail
+
+		// Create test data, padded to the sort's power-of-two capacity.
 		LocalVector<float> depths;
 		LocalVector<uint32_t> indices;
-		depths.resize(count);
-		indices.resize(count);
+		depths.resize(padded);
+		indices.resize(padded);
 
 		RandomNumberGenerator rng;
 		rng.set_seed(42);
@@ -256,8 +268,12 @@ TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] GPU Bitonic Sorting") {
 			depths[i] = rng.randf_range(0.0f, 100.0f);
 			indices[i] = i;
 		}
+		for (uint32_t i = count; i < padded; i++) {
+			depths[i] = sentinel_key;
+			indices[i] = 0xFFFFFFFFu; // sentinel index; never inspected
+		}
 
-		// Create GPU buffers
+		// Create GPU buffers sized to the padded capacity.
 		RID keys_buffer = create_storage_buffer(rd, depths);
 		RID values_buffer = create_storage_buffer(rd, indices);
 
@@ -265,7 +281,9 @@ TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] GPU Bitonic Sorting") {
 		err = sorter->sort(keys_buffer, values_buffer, count);
 		CHECK(err == OK);
 
-		// Verify sorting
+		// Verify sorting. The real data occupies [0, count) after the ascending
+		// sort (the sentinel tail sorts into [count, padded)), so only check the
+		// real region.
 		Vector<uint8_t> sorted_depths = rd->buffer_get_data(keys_buffer);
 		const float *depth_ptr = (const float *)sorted_depths.ptr();
 
@@ -512,8 +530,26 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] GPU Sorting Performance") {
 			return;
 		}
 
-		RID keys_buffer = create_storage_buffer(rd, depths);
-		RID values_buffer = create_storage_buffer(rd, indices);
+		// #622/#754: same latent OOB as "Handle non-power-of-two sizes" -- count
+		// (10000) is not a power of two, so sort() dispatches over the padded
+		// capacity and the shader touches every index in [0, padded). Size the GPU
+		// buffers to that padded capacity. The CPU-reference vectors above stay at
+		// `count`; only these GPU copies grow, with a finite sentinel tail that
+		// sorts to the end. (get_max_elements() is valid here: it is only read
+		// after the err==OK guard above.)
+		const uint32_t padded = sorter->get_max_elements(); // next_power_of_two(count)
+		const float sentinel_key = 3.0e38f; // finite, > any test key; sorts to the tail
+		LocalVector<float> gpu_depths = depths;
+		LocalVector<uint32_t> gpu_indices = indices;
+		gpu_depths.resize(padded);
+		gpu_indices.resize(padded);
+		for (uint32_t i = count; i < padded; i++) {
+			gpu_depths[i] = sentinel_key;
+			gpu_indices[i] = 0xFFFFFFFFu; // sentinel index; never inspected
+		}
+
+		RID keys_buffer = create_storage_buffer(rd, gpu_depths);
+		RID values_buffer = create_storage_buffer(rd, gpu_indices);
 
 		uint64_t gpu_start = OS::get_singleton()->get_ticks_usec();
 
