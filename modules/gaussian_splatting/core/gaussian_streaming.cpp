@@ -569,6 +569,7 @@ void GaussianStreamingSystem::initialize(Ref<::GaussianData> p_data) {
     budget.retired_upload_bytes_this_frame = 0;
     budget.retired_upload_slots_this_frame = 0;
     budget.failed_upload_retirements = 0;
+    budget.stride_flip_dropped_upload_retirements = 0;
     pending_upload_retirements.clear();
     next_upload_ticket_id = 1;
     last_completed_upload_ticket_id = 0;
@@ -814,6 +815,7 @@ void GaussianStreamingSystem::initialize_empty(RenderingDevice *p_device) {
     budget.retired_upload_bytes_this_frame = 0;
     budget.retired_upload_slots_this_frame = 0;
     budget.failed_upload_retirements = 0;
+    budget.stride_flip_dropped_upload_retirements = 0;
     pending_upload_retirements.clear();
     next_upload_ticket_id = 1;
     last_completed_upload_ticket_id = 0;
