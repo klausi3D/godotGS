@@ -90,8 +90,14 @@ static RenderingDevice *_acquire_submission_device(RenderingDevice *candidate, G
     if (GaussianSplatManager *manager = GaussianSplatManager::get_singleton()) {
         return manager->acquire_submission_device(candidate, lock);
     }
-    WARN_PRINT_ONCE("[GPU Sort] GaussianSplatManager unavailable; cannot acquire submission device");
-    return nullptr;
+    // No manager (standalone GPU validation, e.g. run_gpu_validation.cpp, creates sorters directly
+    // from an rd). After #764 the sorter is pinned to the buffer-owner device, so `candidate` is
+    // the sorter's own local/resource device (== p_rd) and its key/value/count buffers live there.
+    // Run the submission on that same device instead of returning nullptr, which would leave an
+    // initialized-but-unusable sorter that fails at submit (Codex #771). No shared device exists
+    // without a manager, so no submission lock is needed -- command, resource, and buffers are all
+    // on the one device. Consistent with Option b.
+    return candidate;
 }
 
 static void _free_uniform_sets(RenderingDevice *p_owner, LocalVector<RID> &p_sets) {
