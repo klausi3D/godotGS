@@ -297,32 +297,28 @@ TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] GPU Bitonic Sorting") {
 	}
 }
 
-// #764: Regression anchor for the opt-in shared-submission split-device hazard.
+// #764: Default-config smoke check for the split-device sort fix (Option b).
 //
 // A sorter's resource device (owns its buffers/shaders/pipelines) and its command
 // device (records + submits the compute) MUST be the same RenderingDevice: a
-// compute list may only bind resources that were allocated on the device that
-// records it. gpu_sorter.cpp pins them equal at init -- Radix/OneSweep via the
-// shared _init_sorter_devices() helper, Bitonic inline -- and BOTH paths now carry
-// a fail-closed device-identity guard (ERR_FAIL_COND_V_MSG when the resource and
-// command device instance ids differ, returning ERR_CANT_CREATE).
+// compute list may only bind resources allocated on the device that records it.
+// The #764 fix pins the sorter to the BUFFER-OWNER device passed to
+// initialize()/create_sorter() -- Radix/OneSweep via the shared
+// _init_sorter_devices() helper, Bitonic inline -- rather than to
+// get_shared_submission_device(). The non-vacuous command/resource-coherency check
+// runs at SORT time (_sort_devices_coherent), not at init.
 //
-// This case proves that guard stays SILENT on the shipped DEFAULT single-device
-// config. ScopedGpuSortManagerDevice points the manager's primary device at `rd`,
+// This case proves initialize() succeeds on the shipped DEFAULT single-device
+// config: ScopedGpuSortManagerDevice points the manager's primary device at `rd`,
 // and rendering/gaussian_splatting/shared_submission_device_enabled defaults to
-// false, so get_shared_submission_device() returns that same `rd`. Both the
-// resource and command device therefore resolve to `rd` (equal instance ids),
-// initialize() returns OK, and the guard never trips. A genuine SPLIT would make
-// initialize() return ERR_CANT_CREATE, so an OK result here is exactly the
-// assertion "resource device id == command device id" on the default path. Radix
-// exercises the shared _init_sorter_devices() guard that OneSweep also runs;
-// Bitonic exercises its inline guard.
+// false, so get_shared_submission_device() == `rd` == the buffer owner. Radix
+// exercises the shared _init_sorter_devices() path OneSweep also runs; Bitonic
+// exercises its inline pinning.
 //
-// The FAIL side (a real split) cannot be driven headlessly here: it needs
-// shared_submission_device_enabled = true AND a second local device actually stood
-// up on the render thread (GaussianSplatManager::_create_local_device_on_render_thread),
-// which requires a live render thread + RenderingServer. See issue #764 for the
-// runtime config that exercises the split.
+// The GENUINE two-device split (buffer owner != shared submission device) is now
+// driven headlessly by the "stays on the buffer-owner device under a two-device
+// split (#764)" case below, which injects a distinct shared submission device via
+// GaussianSplatManager::set_shared_submission_device_for_testing().
 TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] Sorter resource/command device identity (#764)") {
 	// Restore whatever sorting config was in effect; reset to defaults so the
 	// primary radix variant is the supported 4-bit path (radix_bits == 4).
@@ -353,8 +349,9 @@ TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] Sorter resource/command dev
 	SUBCASE("Bitonic init keeps resource == command device (guard silent)") {
 		Ref<BitonicSort> sorter;
 		sorter.instantiate();
-		// OK proves the inline #764 guard did not trip: on a genuine resource !=
-		// command split, BitonicSort::initialize() returns ERR_CANT_CREATE.
+		// OK proves BitonicSort::initialize() pinned its resource + command device to
+		// `rd` (the buffer owner) and built successfully on the default single-device
+		// config.
 		const Error err = sorter->initialize(rd, 4096u);
 		CHECK(err == OK);
 	}
@@ -362,12 +359,157 @@ TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] Sorter resource/command dev
 	SUBCASE("Radix init keeps resource == command device (guard silent)") {
 		Ref<RadixSort> sorter;
 		sorter.instantiate();
-		// Radix runs the shared _init_sorter_devices() #764 guard -- the SAME code
-		// path OneSweep uses -- so OK here covers both Radix and OneSweep on the
+		// Radix runs the shared _init_sorter_devices() path -- the SAME code OneSweep
+		// uses -- so OK here covers both Radix and OneSweep pinning to `rd` on the
 		// default single-device path.
 		const Error err = sorter->initialize(rd, 4096u);
 		CHECK(err == OK);
 	}
+}
+
+// #764: Two-device mutation-proof test for the split-device sort hazard.
+//
+// This drives a GENUINE two-device split headlessly using
+// set_shared_submission_device_for_testing():
+//   * device A -- the buffer-owner device; the sorter is created with p_rd = A and
+//     the key/value buffers are allocated on A.
+//   * device B -- injected as the manager's shared submission device (the "command"
+//     device the pre-#764 code pinned the sorter's resources to).
+// A and B are distinct RenderingDevices, so this reproduces the exact divergence
+// that rendering/gaussian_splatting/shared_submission_device_enabled makes possible
+// in production -- but without a live render thread / RenderingServer, which
+// _create_local_device_on_render_thread() would otherwise need to populate the slot.
+//
+// With the #764 fix (_init_sorter_devices pins the sorter to p_rd = A) the whole
+// sort -- shaders, pipelines, temp/uniform buffers AND the recorded compute list --
+// lives on A, single-device, so the keys read back correctly ordered.
+//
+// EXACT MUTATION THAT FLIPS THIS RED: revert _init_sorter_devices() to pin
+// `r_local_rd = r_resource_rd = GaussianSplatManager::get_shared_submission_device()`
+// (and BitonicSort::initialize's local_rd likewise), discarding p_rd. The sorter
+// then allocates its resources and uniform sets on B while binding A-owned
+// key/value buffers into them ->
+// cross-device uniform_set_create / compute recording. Depending on the driver the
+// sort fails (err != OK / invalid uniform sets) or corrupts the output; either way
+// the ascending-order CHECK below stops holding. (Note: that FULL revert routes BOTH
+// command and resource to B, so the sort-time _sort_devices_coherent guard does NOT
+// fire -- it is the backstop for a PARTIAL re-split where only the command device is
+// re-routed off the buffer owner; the A-owned-buffers-on-B binding failure is what
+// this test catches.)
+TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] Sorter stays on the buffer-owner device under a two-device split (#764)") {
+	struct GPUSortingConfigRestore {
+		GPUSortingConfig previous_config;
+		~GPUSortingConfigRestore() { g_gpu_sorting_config = previous_config; }
+	} restore = { g_gpu_sorting_config };
+	g_gpu_sorting_config.reset_to_defaults();
+
+	RenderingServer *rs = RenderingServer::get_singleton();
+	if (!rs) {
+		MESSAGE("Skipping #764 two-device split test - no RenderingServer to create independent devices");
+		return;
+	}
+
+	// Two INDEPENDENT local devices. If the platform/driver can only stand up one,
+	// skip cleanly rather than assert.
+	RenderingDevice *device_a = rs->create_local_rendering_device();
+	RenderingDevice *device_b = rs->create_local_rendering_device();
+	if (!device_a || !device_b || device_a == device_b) {
+		MESSAGE("Skipping #764 two-device split test - two independent RenderingDevices unavailable");
+		if (device_a) {
+			memdelete(device_a);
+		}
+		if (device_b) {
+			memdelete(device_b);
+		}
+		return;
+	}
+
+	// Stand up (or reuse) the manager and inject the split: primary/buffer-owner = A,
+	// shared submission (command) device = B. Every slot + the enabled flag is
+	// restored before the manager is torn down so its destructor never frees the
+	// harness-owned A/B (see set_shared_submission_device_for_testing lifetime note).
+	GaussianSplatManager *manager = GaussianSplatManager::get_singleton();
+	bool owns_manager = false;
+	if (!manager) {
+		manager = memnew(GaussianSplatManager);
+		owns_manager = true;
+	}
+	const bool prev_enabled = manager->is_shared_submission_device_enabled();
+	RenderingDevice *prev_primary = manager->set_primary_rendering_device_for_testing(device_a);
+	RenderingDevice *prev_shared = manager->set_shared_submission_device_for_testing(device_b);
+
+	// The injection is observable through the production accessors, so a pre-#764
+	// sorter WOULD acquire B as its command/resource device.
+	CHECK(manager->get_shared_submission_device() == device_b);
+	CHECK(manager->is_shared_submission_device(device_b));
+	CHECK_FALSE(manager->is_shared_submission_device(device_a));
+
+	auto teardown = [&]() {
+		// Restore manager slots + flag BEFORE any manager destruction, then free the
+		// harness-owned devices ourselves.
+		manager->set_shared_submission_device_for_testing(prev_shared);
+		manager->set_shared_submission_device_enabled(prev_enabled);
+		manager->set_primary_rendering_device_for_testing(prev_primary);
+		if (owns_manager) {
+			memdelete(manager);
+		}
+		memdelete(device_b);
+		memdelete(device_a);
+	};
+
+	// Keys/values live on the BUFFER-OWNER device A.
+	const uint32_t count = 1024u;
+	LocalVector<uint32_t> keys;
+	LocalVector<uint32_t> values;
+	keys.resize(count);
+	values.resize(count);
+	RandomNumberGenerator rng;
+	rng.set_seed(1234);
+	for (uint32_t i = 0; i < count; i++) {
+		keys[i] = rng.randi(); // full 32-bit spread exercises every radix digit
+		values[i] = i;
+	}
+	LocalVector<uint32_t> expected_keys = keys;
+	expected_keys.sort(); // unsigned ascending reference
+
+	SortKeyConfig key_config;
+	key_config.key_bits = 32;
+	key_config.tile_bits = 16;
+	key_config.depth_bits = 16;
+	key_config.enable_tie_breaker = false;
+
+	// Radix exercises the shared _init_sorter_devices() path (also used by OneSweep).
+	Ref<IGPUSorter> sorter = GPUSorterFactory::create_sorter(
+			GPUSorterFactory::ALGORITHM_RADIX, device_a, count, key_config);
+	if (!sorter.is_valid()) {
+		MESSAGE("Skipping #764 two-device split test - radix sorter unavailable on device A");
+		teardown();
+		return;
+	}
+
+	RID keys_buffer = create_storage_buffer(device_a, keys);
+	RID values_buffer = create_storage_buffer(device_a, values);
+
+	Error err = sorter->sort(keys_buffer, values_buffer, count);
+	// With the fix the sort runs single-device on A and succeeds; the pre-#764
+	// revert binds A-owned buffers on B and this fails (or the order CHECK does).
+	CHECK(err == OK);
+	if (err == OK) {
+		Vector<uint8_t> keys_result = device_a->buffer_get_data(keys_buffer, 0, count * sizeof(uint32_t));
+		const uint32_t *sorted_keys = (const uint32_t *)keys_result.ptr();
+		for (uint32_t i = 0; i < count; i++) {
+			// Discriminating assertion: the A-owned keys come back in unsigned
+			// ascending order iff the sort actually executed on device A.
+			CHECK_MESSAGE(sorted_keys[i] == expected_keys[i],
+					vformat("#764 split sort pos %d: got 0x%08X expected 0x%08X", i, sorted_keys[i], expected_keys[i]));
+		}
+	}
+
+	device_a->free(keys_buffer);
+	device_a->free(values_buffer);
+	sorter->shutdown();
+	sorter.unref();
+	teardown();
 }
 
 // #622: [GpuSort] tag opts this radix sort-order oracle into the required

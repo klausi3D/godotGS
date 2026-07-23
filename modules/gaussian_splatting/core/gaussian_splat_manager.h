@@ -295,6 +295,39 @@ public:
     RenderingDevice *set_primary_rendering_device_for_testing(RenderingDevice *p_device) {
         return primary_local_device.exchange(p_device, std::memory_order_acq_rel);
     }
+
+    /**
+     * @brief Test-only: inject the RenderingDevice returned by
+     *        get_shared_submission_device() -- the "submission"/command device the
+     *        GPU sorter resolves at sort time when the opt-in shared-submission path
+     *        is active -- and enable that path so get_shared_submission_device(),
+     *        acquire_submission_device() and is_shared_submission_device() all
+     *        observe the injected device.
+     *
+     * Mirrors set_primary_rendering_device_for_testing(): it only swaps the atomic
+     * shared_submission_device slot (returning the previous slot value) and flips
+     * shared_submission_device_enabled to match (non-null -> enabled, so
+     * get_shared_submission_device() actually routes to the slot instead of falling
+     * back to the primary device). It never allocates or frees a device.
+     *
+     * This lets a headless GPU test stand up a genuine TWO-device split -- a
+     * buffer-owner device A (passed to the sorter as p_rd) and a DIFFERENT shared
+     * submission device B injected here -- without a live render thread /
+     * RenderingServer (which _create_local_device_on_render_thread() would otherwise
+     * need to populate the slot). Under the #764 fix the sorter stays pinned to A,
+     * so A and B being distinct proves the sort never crosses onto B.
+     *
+     * Lifetime contract (same as the primary hook): the caller MUST restore the
+     * returned slot value AND the previous shared_submission_device_enabled flag
+     * (see is_shared_submission_device_enabled()) before this manager is destroyed.
+     * ~GaussianSplatManager -> _destroy_local_devices() memdeletes whatever sits in
+     * the slot; the injected device is owned by the test harness, so leaving it set
+     * would double-free it.
+     */
+    RenderingDevice *set_shared_submission_device_for_testing(RenderingDevice *p_device) {
+        shared_submission_device_enabled = (p_device != nullptr);
+        return shared_submission_device.exchange(p_device, std::memory_order_acq_rel);
+    }
 #endif // TESTS_ENABLED
 
     /**
