@@ -60,6 +60,7 @@
 #include "gpu_sorting_config.h"
 #include "sorting_config.h"
 #include "pipeline_io_contracts.h"
+#include "sorting_contract.h" // #765: GaussianSplatting::kSortPadDepth shared sort-pad sentinel
 #include "gpu_debug_utils.h"
 #include "resource_owner_mismatch_contract.h"
 #include "core/error/error_macros.h"
@@ -806,7 +807,44 @@ Error BitonicSort::sort(RID keys_buffer, RID values_buffer, uint32_t count) {
 
     // Pad to power of 2 if needed
     uint32_t padded_count = next_power_of_two(count);
-    
+
+    // #765: Sentinel-pad the tail [count, padded_count) so sort() is SELF-CONTAINED.
+    // The shader processes every index in [0, padded_count); it does not know `count`.
+    // If the padding lanes hold stale/garbage keys, the ascending network sorts them
+    // INTO the valid [0, count) range and corrupts the result. Production is safe today
+    // only because the key-gen step happens to fill this tail with the same sentinel
+    // (kSortPadDepth via GS_SORT_PAD_DEPTH_VALUE / fill_sort_padding); this write removes
+    // that hidden dependency on the caller. Fill keys with the SHARED pad sentinel
+    // (GaussianSplatting::kSortPadDepth == FLT_MAX, so the padding sinks to the top under
+    // the ascending sort and real records stay contiguous in [0, count)) and the value
+    // lanes with a defined, in-bounds index (count - 1, mirroring fill_sort_padding()).
+    // Idempotent with the production key-gen path. buffer_update() must be recorded
+    // OUTSIDE a compute list, so it runs here, before compute_list_begin() below; the
+    // render graph orders the transfer ahead of the sort's first read. The keys/values
+    // buffers are, as a precondition, sized to padded_count (the same requirement the
+    // shader already imposes by indexing [0, padded_count)).
+    if (padded_count > count) {
+        const uint32_t pad_lanes = padded_count - count;
+        const uint32_t pad_value_index = count - 1; // count >= 1 (guarded above)
+
+        LocalVector<float> pad_keys;
+        pad_keys.resize(pad_lanes);
+        LocalVector<uint32_t> pad_values;
+        pad_values.resize(pad_lanes);
+        for (uint32_t i = 0; i < pad_lanes; ++i) {
+            pad_keys[i] = GaussianSplatting::kSortPadDepth;
+            pad_values[i] = pad_value_index;
+        }
+
+        // Keys are float, values are uint32_t in the bitonic buffers (see the shader's
+        // KeyBuffer/ValueBuffer layouts). Write the tail on the same device that records
+        // and submits the sort so the transfer is ordered before the reads below.
+        const uint32_t key_stride = uint32_t(sizeof(float));
+        const uint32_t value_stride = uint32_t(sizeof(uint32_t));
+        compute_rd->buffer_update(keys_buffer, count * key_stride, pad_lanes * key_stride, pad_keys.ptr());
+        compute_rd->buffer_update(values_buffer, count * value_stride, pad_lanes * value_stride, pad_values.ptr());
+    }
+
     // Create uniform set for buffers
     Vector<RD::Uniform> uniforms;
     
