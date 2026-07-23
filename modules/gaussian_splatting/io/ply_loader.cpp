@@ -498,9 +498,10 @@ Error PLYLoader::parse_binary_data(Ref<FileAccess> file) {
         return ERR_FILE_CORRUPT;
     }
 
-    gaussian_data->resize(header.vertex_count);
-
-    // Calculate total size per vertex
+    // Calculate total size per vertex FIRST — before any allocation. resize()
+    // both allocates AND per-record initializes header.vertex_count records, so
+    // it must not run until we have proven the file actually holds that many
+    // vertices.
     int vertex_size = 0;
     for (const PLYProperty &prop : header.properties) {
         vertex_size = MAX(vertex_size, prop.offset + prop.size);
@@ -509,6 +510,34 @@ Error PLYLoader::parse_binary_data(Ref<FileAccess> file) {
     if (vertex_size <= 0) {
         return ERR_FILE_CORRUPT;
     }
+
+    // Issue #583: prove the payload extent BEFORE the large allocation. A
+    // hostile or truncated PLY can declare a legal-under-cap vertex_count (up to
+    // the 2^30 header cap) whose data does not exist in the file. The vertex
+    // block occupies exactly vertex_size * vertex_count bytes starting at
+    // vertex_data_offset; if fewer bytes remain, the file is truncated/corrupt.
+    // Rejecting here turns what was a multi-GB resize() over-allocation plus a
+    // ~100M-iteration init loop (reached before the per-chunk short read is ever
+    // noticed) into a cheap, clean ERR_FILE_CORRUPT.
+    const uint64_t required_payload_bytes = uint64_t(vertex_size) * uint64_t(header.vertex_count);
+    const uint64_t file_length = file->get_length();
+    const uint64_t available_payload_bytes = (file_length > header.vertex_data_offset)
+            ? (file_length - header.vertex_data_offset)
+            : 0;
+    if (available_payload_bytes < required_payload_bytes) {
+        GS_LOG_ERROR_DEFAULT(vformat(
+                "[PLY] declared vertex_count %d needs %d payload bytes but only %d remain after the "
+                "header (vertex data offset %d, file length %d); refusing to allocate for a "
+                "truncated/hostile file",
+                header.vertex_count,
+                static_cast<int64_t>(required_payload_bytes),
+                static_cast<int64_t>(available_payload_bytes),
+                static_cast<int64_t>(header.vertex_data_offset),
+                static_cast<int64_t>(file_length)));
+        return ERR_FILE_CORRUPT;
+    }
+
+    gaussian_data->resize(header.vertex_count);
 
     // Precompute frequently used property indices (avoid per-vertex scans)
     const int x_idx = find_property_index("x");
@@ -739,6 +768,49 @@ Error PLYLoader::parse_binary_data(Ref<FileAccess> file) {
 }
 
 Error PLYLoader::parse_ascii_data(Ref<FileAccess> file) {
+    // Skip the data rows of any elements declared before `vertex` (issue #512)
+    // FIRST, so the payload-extent check below (issue #583) measures only the
+    // bytes actually available to the vertex block — not the preceding element's
+    // rows. parse_header rejects variable-length preceding elements, so each such
+    // element contributes exactly its declared row count of lines here. If the
+    // file runs out before those rows are consumed it is truncated; reject before
+    // allocating anything.
+    for (int64_t skip = 0; skip < header.pre_vertex_row_count; skip++) {
+        if (file->eof_reached()) {
+            return ERR_FILE_CORRUPT;
+        }
+        file->get_line();
+    }
+
+    // Issue #583: prove a plausible payload extent BEFORE resize() allocates and
+    // per-record initializes header.vertex_count records. ASCII rows are
+    // variable length, but every vertex row must carry at least one character
+    // per property (a single digit is the smallest possible token), so
+    // vertex_count rows need at least properties.size() * vertex_count bytes of
+    // payload from the start of the vertex block — a strict lower bound that
+    // never over-rejects a real file (a genuine row also needs separators and a
+    // newline). Measure from the CURRENT position, i.e. after the preceding
+    // elements' rows have been consumed above, so a hostile file cannot satisfy
+    // the count by padding a large fixed-size element declared before `vertex`
+    // (issue #583 follow-up): those bytes are no longer available to the vertex
+    // block. A file that declares a legal-under-cap count with a truncated vertex
+    // body has far fewer bytes remaining; reject before the large allocation
+    // instead of resizing to a count the file cannot possibly contain.
+    const int64_t min_bytes_per_vertex = MAX(header.properties.size(), 1);
+    const uint64_t required_min_bytes = uint64_t(min_bytes_per_vertex) * uint64_t(header.vertex_count);
+    const uint64_t file_length = file->get_length();
+    const uint64_t vertex_block_start = file->get_position();
+    const uint64_t available_bytes = (file_length > vertex_block_start) ? (file_length - vertex_block_start) : 0;
+    if (available_bytes < required_min_bytes) {
+        GS_LOG_ERROR_DEFAULT(vformat(
+                "[PLY ASCII] declared vertex_count %d needs at least %d vertex-body bytes but only %d remain "
+                "after the header and any preceding elements; refusing to allocate for a truncated/hostile file",
+                header.vertex_count,
+                static_cast<int64_t>(required_min_bytes),
+                static_cast<int64_t>(available_bytes)));
+        return ERR_FILE_CORRUPT;
+    }
+
     gaussian_data->resize(header.vertex_count);
 
     // Check if normal properties exist to determine 2D mode
@@ -769,16 +841,6 @@ Error PLYLoader::parse_ascii_data(Ref<FileAccess> file) {
         if (rest_property_exists[idx]) {
             has_rest_properties = true;
         }
-    }
-
-    // Skip the data rows of any elements declared before `vertex` (issue #512).
-    // parse_header rejects variable-length preceding elements, so each such
-    // element contributes exactly its declared row count of lines here.
-    for (int64_t skip = 0; skip < header.pre_vertex_row_count; skip++) {
-        if (file->eof_reached()) {
-            return ERR_FILE_CORRUPT;
-        }
-        file->get_line();
     }
 
     // ASCII parsing - simpler but slower

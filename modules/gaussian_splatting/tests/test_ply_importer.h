@@ -331,6 +331,178 @@ end_header
     _remove_ply_fixture(path);
 }
 
+TEST_CASE("[GaussianSplatting][PLY][MalformedCorpus] reject under-cap vertex_count with truncated payload before allocating (binary, issue #583)") {
+    // A hostile or truncated BINARY PLY can declare a vertex_count that is legal
+    // under the 2^30 header cap (so parse_header accepts it) but whose payload
+    // does not exist in the file. The pre-fix loader called
+    // gaussian_data->resize(vertex_count) as its FIRST action in
+    // parse_binary_data — allocating AND per-record initializing every declared
+    // vertex — and only noticed the file was short on the SUBSEQUENT read. That
+    // is an OOM/DoS: a tiny file forces a multi-GB allocation plus a ~100M-
+    // iteration init loop before any error is returned.
+    //
+    // Discriminator (why this is RED on unmodified origin/master): the declared
+    // count (100000) is far larger than the supplied payload (2 vertices). On the
+    // pre-fix code the resize runs first, so even after the short read is
+    // correctly detected and ERR_FILE_CORRUPT returned, get_splat_count() == 100000
+    // — direct proof the allocation happened. The fix proves payload extent
+    // BEFORE resize, so it rejects with the allocation never performed:
+    // get_splat_count() == 0. A test that only asserted the error code would be
+    // vacuous (base already returns ERR_FILE_CORRUPT here); the count assertion is
+    // what discriminates over-allocate-then-fail from reject-before-allocate.
+    const String path = _make_ply_fixture_path("undercap_truncated_binary");
+
+    const char *truncated_header = R"(ply
+format binary_little_endian 1.0
+element vertex 100000
+property float x
+property float y
+property float z
+end_header
+)";
+
+    Ref<FileAccess> f = FileAccess::open(path, FileAccess::WRITE);
+    if (f.is_null()) {
+        FAIL("Should create truncated-payload PLY fixture");
+        return;
+    }
+    f->store_string(truncated_header);
+    f->set_big_endian(false);
+    // Only 2 real vertices (24 bytes) behind a header that claims 100000 (1.2 MB).
+    for (int v = 0; v < 2; v++) {
+        f->store_float(float(v));
+        f->store_float(0.0f);
+        f->store_float(0.0f);
+    }
+    f.unref();
+
+    PLYLoader loader;
+    Error err = loader.load_file(path);
+    CHECK_MESSAGE(err == ERR_FILE_CORRUPT,
+            "Binary PLY declaring more vertices than the payload can hold must be rejected");
+    // Load-bearing regression assertion: the loader must NOT have resized
+    // GaussianData to the declared count before proving the payload exists.
+    CHECK_MESSAGE(loader.get_splat_count() == 0,
+            "Loader must not allocate/initialize vertex_count records before proving payload extent (issue #583)");
+
+    _remove_ply_fixture(path);
+    DirAccess::remove_absolute(path.get_basename() + ".gsplatcache");
+}
+
+TEST_CASE("[GaussianSplatting][PLY][MalformedCorpus] reject under-cap vertex_count with truncated body before allocating (ASCII, issue #583)") {
+    // ASCII companion to the binary extent test. parse_ascii_data also called
+    // gaussian_data->resize(vertex_count) before reading any row, so a header
+    // that declares a legal-under-cap count with only a couple of body rows
+    // forced the same over-allocation. Rows are variable length, but each of the
+    // vertex_count rows needs at least properties.size() bytes (one digit per
+    // property is the smallest possible token), so a tiny body cannot satisfy a
+    // huge declared count — reject before resize.
+    //
+    // Same discriminator as the binary case: base resizes to 100000 first, hits
+    // EOF at row 2, returns ERR_FILE_CORRUPT with get_splat_count() == 100000; the
+    // fix rejects before resize so get_splat_count() == 0.
+    const String path = _make_ply_fixture_path("undercap_truncated_ascii");
+
+    const char *truncated_ascii = R"(ply
+format ascii 1.0
+element vertex 100000
+property float x
+property float y
+property float z
+end_header
+0.0 0.0 0.0
+1.0 0.0 0.0
+)";
+
+    Ref<FileAccess> f = FileAccess::open(path, FileAccess::WRITE);
+    if (f.is_null()) {
+        FAIL("Should create truncated ASCII PLY fixture");
+        return;
+    }
+    f->store_string(truncated_ascii);
+    f.unref();
+
+    PLYLoader loader;
+    Error err = loader.load_file(path);
+    CHECK_MESSAGE(err == ERR_FILE_CORRUPT,
+            "ASCII PLY declaring more vertices than the body can hold must be rejected");
+    CHECK_MESSAGE(loader.get_splat_count() == 0,
+            "ASCII loader must not allocate/initialize vertex_count records before proving payload extent (issue #583)");
+
+    _remove_ply_fixture(path);
+    DirAccess::remove_absolute(path.get_basename() + ".gsplatcache");
+}
+
+TEST_CASE("[GaussianSplatting][PLY][MalformedCorpus] reject under-cap vertex_count padded by a preceding element (ASCII, issue #583)") {
+    // Follow-up to the ASCII extent test above. The pre-fix payload-extent check
+    // measured `file_length - header_size`, counting EVERY byte after the header
+    // toward the vertex requirement — including the data rows of a fixed-size
+    // element declared BEFORE `vertex` (the issue #512 support tracked via
+    // pre_vertex_row_count). So a hostile file could satisfy
+    // properties.size() * vertex_count using a large PRECEDING element while
+    // supplying almost no real vertex rows: the check passed, resize(vertex_count)
+    // ran, and the multi-GB over-allocation #583 was meant to prevent happened
+    // anyway (the short read was only noticed afterwards).
+    //
+    // Fixture: `element blob 6` whose six rows are heavily padded (their bytes
+    // alone far exceed the 600-byte lower bound the 200 declared vertices need),
+    // then `element vertex 200` with only ONE actual vertex row.
+    //
+    // Discriminator (why this is RED on the pre-fix code): the preceding bytes
+    // push `file_length - header_size` past the requirement, so the pre-fix check
+    // passes, resizes to 200, then hits EOF in the vertex loop and returns
+    // ERR_FILE_CORRUPT with get_splat_count() == 200 — direct proof the allocation
+    // happened. The fix consumes the six preceding rows FIRST and measures only
+    // the bytes left for the vertex block (one short row), so it rejects before
+    // resize: get_splat_count() == 0. Both paths return ERR_FILE_CORRUPT, so the
+    // error code alone is vacuous here; the count assertion is what discriminates
+    // preceding-element-padding-then-fail from reject-before-allocate.
+    const String path = _make_ply_fixture_path("undercap_padded_preceding_ascii");
+
+    const char *padded_header = R"(ply
+format ascii 1.0
+element blob 6
+property float a
+element vertex 200
+property float x
+property float y
+property float z
+end_header
+)";
+
+    Ref<FileAccess> f = FileAccess::open(path, FileAccess::WRITE);
+    if (f.is_null()) {
+        FAIL("Should create preceding-element-padded ASCII PLY fixture");
+        return;
+    }
+    f->store_string(padded_header);
+    // Six data rows for `blob`, each padded to 120 chars. Together (>= 720 bytes,
+    // ignoring newlines) they far exceed the 600-byte lower bound the 200 declared
+    // vertices require — so the pre-fix check, which counted every post-header
+    // byte, wrongly passed. These rows are consumed as preceding-element rows and
+    // contribute NOTHING to the vertex block.
+    const String padding = String("9").repeat(120);
+    for (int r = 0; r < 6; r++) {
+        f->store_line(padding);
+    }
+    // Exactly ONE real vertex row behind a header that claims 200.
+    f->store_line("0.0 0.0 0.0");
+    f.unref();
+
+    PLYLoader loader;
+    Error err = loader.load_file(path);
+    CHECK_MESSAGE(err == ERR_FILE_CORRUPT,
+            "ASCII PLY whose declared vertex count is only satisfiable via a preceding element's bytes must be rejected");
+    // Load-bearing discriminator: the preceding element's rows must NOT count
+    // toward the vertex-payload requirement, so the loader must reject before
+    // resizing GaussianData to the declared count.
+    CHECK_MESSAGE(loader.get_splat_count() == 0,
+            "Preceding-element bytes must not satisfy the vertex-count payload check (issue #583)");
+
+    _remove_ply_fixture(path);
+    DirAccess::remove_absolute(path.get_basename() + ".gsplatcache");
+}
+
 TEST_CASE("[GaussianSplatting][PLY][MalformedCorpus] reject header missing end_header sentinel") {
     const String path = _make_ply_fixture_path("missing_end_header");
 
