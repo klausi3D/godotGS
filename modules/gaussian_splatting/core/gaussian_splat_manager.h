@@ -270,6 +270,33 @@ public:
      */
     RenderingDevice *get_primary_rendering_device();
 
+#ifdef TESTS_ENABLED
+    /**
+     * @brief Test-only: inject the RenderingDevice returned by
+     *        get_primary_rendering_device() (and therefore the device the GPU
+     *        sorter acquires via get_shared_submission_device()).
+     *
+     * Headless `--gs-gpu-test` doctests own a RenderingDevice through
+     * RenderingDevice::get_singleton() but run with NO RenderingServer, so the
+     * production device-acquisition chain (get_submission_device() ->
+     * get_shared_submission_device() -> get_primary_rendering_device()) returns
+     * nullptr and the sorter fails to initialize before any sort executes. With
+     * no RenderingServer, get_primary_rendering_device() falls through to the
+     * primary_local_device slot, so storing the test device there routes the
+     * sorter onto the same device the test's buffers live on.
+     *
+     * Returns the previous slot value so the caller can restore it. The caller
+     * MUST restore before destroying this manager: ~GaussianSplatManager ->
+     * _destroy_local_devices() memdeletes primary_local_device, and the test
+     * device is owned by the harness (not the manager), so leaving it set would
+     * double-free it. This never allocates or frees a device; it only swaps the
+     * atomic slot pointer.
+     */
+    RenderingDevice *set_primary_rendering_device_for_testing(RenderingDevice *p_device) {
+        return primary_local_device.exchange(p_device, std::memory_order_acq_rel);
+    }
+#endif // TESTS_ENABLED
+
     /**
      * @brief Returns the shared submission device for multi-threaded work.
      * @return RenderingDevice pointer, or nullptr if shared device is disabled.
