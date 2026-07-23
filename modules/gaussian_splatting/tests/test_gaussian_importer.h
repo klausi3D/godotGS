@@ -1006,6 +1006,70 @@ TEST_CASE("[GaussianSplatting][Importer][MalformedCorpus] PLY import rejects NaN
     _remove_user_file(save_base_path + ".res");
 }
 
+// #518 RAW-path coverage gap (PR #756 follow-up). The importer-side sweep tested
+// above only guards ResourceImporterPLY. The node legacy-path migration, reload,
+// and drag-drop workflows reach the renderer through
+// GaussianSplatAsset::load_from_file() (gaussian_splat_node_3d.cpp:608/1839/2820)
+// -> PLYLoader, bypassing the importer entirely. Before this fix that raw path ran
+// NO finiteness sweep, so a NaN behind a clean splat 0 still shipped to the GPU.
+//
+// Discrimination: on the pre-fix branch load_from_file() has no full-asset sweep,
+// so this fixture (splat 0 finite, splat 1 NaN) loads successfully and returns OK
+// -- the ERR_FILE_CORRUPT CHECK below fails (RED). With the shared validator wired
+// into load_from_file() it returns ERR_FILE_CORRUPT and never populates the asset
+// (GREEN). Flip the fixture's splat-1 value from NaN back to finite and the case
+// stops discriminating (load succeeds on both branches) -- proving the assert is
+// pinned to the corruption, not vacuous.
+TEST_CASE("[GaussianSplatting][Importer][MalformedCorpus] RAW load_from_file rejects NaN past splat 0 (#518)") {
+    const String source_path = "user://gaussian_nan_past_index0_raw.ply";
+
+    Error write_err = _write_binary_ply_with_nan_past_index_0(source_path);
+    CHECK_MESSAGE(write_err == OK, "Failed to create binary NaN PLY test fixture.");
+    if (write_err != OK) {
+        return;
+    }
+
+    // Precondition: the loader parses BOTH splats, splat 0 is finite (so the
+    // pre-fix raw path accepts the file) and splat 1 really carries the NaN (so
+    // the full-asset sweep must reject it). This makes the fixture, not luck, the
+    // reason the case discriminates.
+    {
+        Ref<PLYLoader> loader;
+        loader.instantiate();
+        Error loader_err = loader->load_file(source_path);
+        CHECK(loader_err == OK);
+        Ref<::GaussianData> data = loader->get_gaussian_data();
+        if (data.is_null()) {
+            FAIL("PLY loader must produce GaussianData for the NaN fixture.");
+            _remove_user_file(source_path);
+            return;
+        }
+        CHECK(data->get_count() == 2);
+        CHECK_MESSAGE(Math::is_finite(data->get_gaussian(0).position.x),
+                "Splat 0 must be finite so the pre-fix raw path would accept the file.");
+        CHECK_MESSAGE(!Math::is_finite(data->get_gaussian(1).position.x),
+                "Splat 1 must carry the injected NaN (fixture precondition).");
+    }
+
+    // The RAW/runtime entry point that node migration, reload, and drag-drop all
+    // funnel through before handing the asset to the renderer.
+    Ref<GaussianSplatAsset> asset;
+    asset.instantiate();
+    const Error load_err = asset->load_from_file(source_path);
+    CHECK_MESSAGE(load_err == ERR_FILE_CORRUPT,
+            "GaussianSplatAsset::load_from_file must reject a PLY whose only NaN is at "
+            "index >= 1 (#518). On the pre-fix branch this returns OK because the raw "
+            "path ran no finiteness sweep, so the NaN reached the renderer.");
+
+    // Rejection happens before populate_from_gaussian_data(), so nothing is cached
+    // or handed to the renderer: the asset stays empty. (This also discriminates --
+    // the pre-fix branch would populate splat_count == 2.)
+    CHECK_MESSAGE(asset->get_splat_count() == 0,
+            "A rejected load must not populate the asset; no splat data reaches the renderer.");
+
+    _remove_user_file(source_path);
+}
+
 // Direct unit coverage for the shared validator itself: it must report the
 // FIRST offending index, treat the empty payload as vacuously finite, and pass
 // a fully clean payload.

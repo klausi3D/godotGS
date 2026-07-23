@@ -1412,6 +1412,23 @@ Error GaussianSplatAsset::load_from_file(const String &p_path) {
 		return ERR_FILE_CORRUPT;
 	}
 
+	// Full-asset finiteness sweep for the RAW/runtime load path. The
+	// ResourceImporterPLY/SPZ importers validate at import time, but node
+	// legacy-path migration, reload, and drag-drop reach the renderer through
+	// this method (GaussianSplatNode3D::_set / reload_asset / drag-drop, plus
+	// ResourceFormatLoaderGaussianSplat::load, all -> load_from_file) and never
+	// touch the importers (#518). A NaN/Inf anywhere past splat 0 otherwise
+	// poisons covariance/projection math on the GPU behind a clean splat 0.
+	// This is the single chokepoint for those paths; the importers do NOT route
+	// through load_from_file, so this shares the validator without double-running.
+	int nonfinite_splat_index = -1;
+	if (!gaussian_data->all_render_fields_finite(&nonfinite_splat_index)) {
+		GS_LOG_ERROR_DEFAULT(vformat(
+				"Gaussian splat load rejected: Non-finite (NaN/Inf) position/scale/rotation/opacity at splat %d in %s",
+				nonfinite_splat_index, p_path));
+		return ERR_FILE_CORRUPT;
+	}
+
 	const double source_stage_ms = _elapsed_msec(source_start_usec);
 
 	uint64_t materialize_start_usec = OS::get_singleton() ? OS::get_singleton()->get_ticks_usec() : source_start_usec;
