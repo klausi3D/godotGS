@@ -120,9 +120,9 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 137,
-    "sha256": "27d78a3b7d0ac7c58b19799b8afdfbc83dcce9cf1f769a1b4bcbeb8dbdab5d13",
-    "sha256_last_changed_by": "#622 RETAG (no add/remove): three sort-ORDER oracles in modules/gaussian_splatting/tests/test_gpu_sorting.h -- 'GPU Bitonic Sorting', 'Radix sort factory honors 32-bit key layout' and 'Radix sort 8-bit is correct at all workgroup sizes' -- gained a [GpuSort] tag ([GaussianSplatting][RequiresGPU] -> [GaussianSplatting][GpuSort][RequiresGPU]) so they are SELECTED by the required GpuSorting harness batch (filter '*Sort*][RequiresGPU]*'); previously the batch matched only the #508 [GPUSortPipeline] overflow-sticky case and NO sort-order oracle. test_count stays 137 (no case added or removed); the digest moves only because three (path, name) pairs changed name -- verified by a name-set diff against origin/master renaming exactly three TEST_CASEs and adding/removing zero. None of the three carries a deferred TAG (Importer) or a deferred NAME, and [GpuSort] is not a deferred tag, so deferred_count stays 2. All three now match GpuSorting, so running_in_a_named_batch 66 -> 69 and unbatched_backlog 69 -> 66 (the fourth test_gpu_sorting.h case, 'GPU Sorting Performance', is a timing benchmark and stays in the backlog). The sha256 was RECOMPUTED via tests/ci/check_renderer_release_gates.py _requires_gpu_snapshot().",
+    "test_count": 138,
+    "sha256": "54bbb8d4f7dd237051ce9a73be4a432e05d8a6c3bfc34079881d4d61b76d5513",
+    "sha256_last_changed_by": "#764 ADD (+1 case): new [GaussianSplatting][GpuSort][RequiresGPU] 'Sorter resource/command device identity (#764)' TEST_CASE in modules/gaussian_splatting/tests/test_gpu_sorting.h. It is the regression anchor for the opt-in shared-submission split-device hardening (gpu_sorter.cpp now pins the sorter resource device to the command/submission device and asserts resource id == command id at init for Bitonic + Radix/OneSweep). test_count 137 -> 138 (exactly one case added, zero renamed/removed -- verified by a name-set diff against origin/master). The case carries the [GpuSort] tag, so it MATCHES the required GpuSorting harness batch (filter '*Sort*][RequiresGPU]*'); it is NOT deferred (no Importer tag, not a deferred name), so deferred_count stays 2 and it is NOT added to the unbatched backlog. running_in_a_named_batch 69 -> 70, unbatched_backlog stays 66. The sha256 was RECOMPUTED via tests/ci/check_renderer_release_gates.py _requires_gpu_snapshot().",
     "deferred_tags_any": [
       "Importer"
     ],
@@ -432,8 +432,8 @@
     "note": "[RequiresGPU] test cases that match NO named batch in tests/ci/run_gpu_harness.py and therefore execute nowhere. These are NOT waivers: unlike deferred_requires_gpu_waivers (each proven failing, with an owner and an expiry) these cases have simply never been run, so nothing is known about them. Discovered while landing #329, which addressed only the 28 [SceneTree] cases; measuring the whole corpus with correct doctest semantics showed the gap is larger. Recorded explicitly so it is counted and cannot grow silently: tests/ci/test_gpu_harness_deferred_contract.py fails on any orphan NOT listed here, so this list is a ratchet that may only shrink.",
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
-      "requires_gpu_total": 137,
-      "running_in_a_named_batch": 69,
+      "requires_gpu_total": 138,
+      "running_in_a_named_batch": 70,
       "deferred_with_waiver": 2,
       "unbatched_backlog": 66
     },

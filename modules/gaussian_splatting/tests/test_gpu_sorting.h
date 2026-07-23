@@ -297,6 +297,79 @@ TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] GPU Bitonic Sorting") {
 	}
 }
 
+// #764: Regression anchor for the opt-in shared-submission split-device hazard.
+//
+// A sorter's resource device (owns its buffers/shaders/pipelines) and its command
+// device (records + submits the compute) MUST be the same RenderingDevice: a
+// compute list may only bind resources that were allocated on the device that
+// records it. gpu_sorter.cpp pins them equal at init -- Radix/OneSweep via the
+// shared _init_sorter_devices() helper, Bitonic inline -- and BOTH paths now carry
+// a fail-closed device-identity guard (ERR_FAIL_COND_V_MSG when the resource and
+// command device instance ids differ, returning ERR_CANT_CREATE).
+//
+// This case proves that guard stays SILENT on the shipped DEFAULT single-device
+// config. ScopedGpuSortManagerDevice points the manager's primary device at `rd`,
+// and rendering/gaussian_splatting/shared_submission_device_enabled defaults to
+// false, so get_shared_submission_device() returns that same `rd`. Both the
+// resource and command device therefore resolve to `rd` (equal instance ids),
+// initialize() returns OK, and the guard never trips. A genuine SPLIT would make
+// initialize() return ERR_CANT_CREATE, so an OK result here is exactly the
+// assertion "resource device id == command device id" on the default path. Radix
+// exercises the shared _init_sorter_devices() guard that OneSweep also runs;
+// Bitonic exercises its inline guard.
+//
+// The FAIL side (a real split) cannot be driven headlessly here: it needs
+// shared_submission_device_enabled = true AND a second local device actually stood
+// up on the render thread (GaussianSplatManager::_create_local_device_on_render_thread),
+// which requires a live render thread + RenderingServer. See issue #764 for the
+// runtime config that exercises the split.
+TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] Sorter resource/command device identity (#764)") {
+	// Restore whatever sorting config was in effect; reset to defaults so the
+	// primary radix variant is the supported 4-bit path (radix_bits == 4).
+	struct GPUSortingConfigRestore {
+		GPUSortingConfig previous_config;
+		~GPUSortingConfigRestore() {
+			g_gpu_sorting_config = previous_config;
+		}
+	} restore = { g_gpu_sorting_config };
+	g_gpu_sorting_config.reset_to_defaults();
+
+	RenderingDevice *rd = RenderingDevice::get_singleton();
+	if (!rd) {
+		RenderingServer *rs = RenderingServer::get_singleton();
+		if (rs) {
+			rd = rs->create_local_rendering_device();
+		}
+	}
+	if (!rd) {
+		MESSAGE("Skipping #764 device-identity test - no RenderingDevice available");
+		return;
+	}
+
+	// Single-device config: manager primary == rd, shared submission device == rd.
+	// The fixture never frees `rd` (the harness/singleton owns it).
+	ScopedGpuSortManagerDevice manager_device(rd);
+
+	SUBCASE("Bitonic init keeps resource == command device (guard silent)") {
+		Ref<BitonicSort> sorter;
+		sorter.instantiate();
+		// OK proves the inline #764 guard did not trip: on a genuine resource !=
+		// command split, BitonicSort::initialize() returns ERR_CANT_CREATE.
+		const Error err = sorter->initialize(rd, 4096u);
+		CHECK(err == OK);
+	}
+
+	SUBCASE("Radix init keeps resource == command device (guard silent)") {
+		Ref<RadixSort> sorter;
+		sorter.instantiate();
+		// Radix runs the shared _init_sorter_devices() #764 guard -- the SAME code
+		// path OneSweep uses -- so OK here covers both Radix and OneSweep on the
+		// default single-device path.
+		const Error err = sorter->initialize(rd, 4096u);
+		CHECK(err == OK);
+	}
+}
+
 // #622: [GpuSort] tag opts this radix sort-order oracle into the required
 // GpuSorting harness batch (see the note on "GPU Bitonic Sorting" above). The
 // exact expected_keys / expected_values CHECKs below discriminate a wrong sort.

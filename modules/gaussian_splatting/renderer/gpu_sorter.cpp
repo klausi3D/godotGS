@@ -162,15 +162,51 @@ static RenderingDevice *get_submission_device() {
     return nullptr;
 }
 
+// Resolve the (command, resource) RenderingDevice pair for a sorter at init.
+//
+// #764: the command device (r_local_rd) is the device that RECORDS + SUBMITS the
+// sort's compute work -- GaussianSplatManager::get_shared_submission_device(). The
+// resource device (r_resource_rd) is the device that OWNS the sorter's buffers,
+// shaders and pipelines. These two MUST be the same RenderingDevice: a compute
+// list recorded on one device may only bind resources allocated on that same
+// device; mixing them is cross-device use == undefined behavior.
+//
+// Previously this pinned r_resource_rd = p_rd (the primary/graphics device passed
+// to initialize()) while r_local_rd = get_submission_device(). In the shipped
+// DEFAULT config (rendering/gaussian_splatting/shared_submission_device_enabled =
+// false) get_shared_submission_device() returns get_primary_rendering_device(),
+// which IS p_rd, so the two collapsed to one device and nothing split. But with
+// the OPT-IN shared-submission device enabled AND a separate shared local device
+// actually created on the render thread
+// (GaussianSplatManager::_create_local_device_on_render_thread), p_rd (main) and
+// the submission device (the separate shared device) DIVERGE -- and Radix/OneSweep
+// would then allocate resources on p_rd but record their compute on the submission
+// device. BitonicSort already avoids this by pinning resource_device = command_rd
+// (BitonicSort::initialize, ~585-586); mirror that here so Radix/OneSweep stay on
+// a single device too. `p_rd` is intentionally no longer used for resource
+// allocation; it is kept in the signature only to document the historical
+// (pre-#764) source of the split. This is a no-op on the default path.
 static Error _init_sorter_devices(RenderingDevice *p_rd, RenderingDevice *&r_local_rd, RenderingDevice *&r_resource_rd) {
     r_local_rd = get_submission_device();
     if (!r_local_rd) {
         return ERR_CANT_CREATE;
     }
-    r_resource_rd = p_rd;
+    // Pin resources to the SAME device that records the compute (mirror Bitonic).
+    r_resource_rd = r_local_rd;
     if (!r_resource_rd) {
         return ERR_CANT_CREATE;
     }
+    // Fail-closed device-identity invariant (Radix/OneSweep). Trivially true now
+    // that both point at the submission device -- on the DEFAULT single-device
+    // path the ids are equal and this guard stays SILENT (returns OK) -- but it is
+    // asserted here so any FUTURE change re-splitting the resource/command device
+    // is caught deterministically at init (ERR_CANT_CREATE; the caller unrefs the
+    // sorter and degrades to unsorted/retry) instead of becoming silent GPU UB.
+    ERR_FAIL_COND_V_MSG(
+            r_resource_rd->get_device_instance_id() != r_local_rd->get_device_instance_id(),
+            ERR_CANT_CREATE,
+            "[GPU Sort] Sorter resource/command device split detected at init (#764); refusing to record compute on a different RenderingDevice than owns the resources.");
+    (void)p_rd; // See comment above: p_rd is deliberately not used for resources after #764.
     return OK;
 }
 
@@ -585,6 +621,18 @@ Error BitonicSort::initialize(RenderingDevice *p_rd, uint32_t p_max_elements) {
     pipeline_device = command_rd;
     resource_device = command_rd;
     resource_device_generation = command_rd->get_device_instance_id();
+
+    // #764: Fail-closed device-identity invariant, mirroring the one in
+    // _init_sorter_devices() (used by Radix/OneSweep). resource_device and the
+    // command device MUST be the same RenderingDevice. Bitonic already pins both
+    // to command_rd above, so their ids are always equal and this guard is SILENT
+    // on every path (including the default single-device config); it exists only
+    // so a future edit that re-splits them is caught deterministically at init
+    // instead of becoming silent cross-device GPU UB.
+    ERR_FAIL_COND_V_MSG(
+            resource_device->get_device_instance_id() != command_rd->get_device_instance_id(),
+            ERR_CANT_CREATE,
+            "[GPU Sort] BitonicSort resource/command device split detected at init (#764); refusing to record compute on a different RenderingDevice than owns the resources.");
 
     if (!device_supports_workgroup(command_rd, WORKGROUP_SIZE)) {
         GS_LOG_WARN_DEFAULT(vformat("[GPU Sort] BitonicSort requires %d-thread workgroups; falling back to CPU sorter",
