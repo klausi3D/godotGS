@@ -53,7 +53,12 @@ public:
     //       import() automatically. Because pruning is opt-in and Ultra stays
     //       byte-identical, no shipped asset silently changes on the bump. (SPZ
     //       has no raw-decode cache to worry about; it decompresses on each load.)
-    virtual int get_format_version() const override { return 7; }
+    //   v8: the importer now rejects SPZ assets with a non-finite (NaN/Inf)
+    //       position/scale/rotation/opacity in ANY splat (issue #518). An asset
+    //       imported by v4-v7 from such an SPZ holds poisoned splats in its .res;
+    //       bumping the format version makes Godot re-run import() automatically
+    //       so it fails loudly instead of shipping the NaN to the GPU.
+    virtual int get_format_version() const override { return 8; }
 
     ResourceImporterSPZ();
 };

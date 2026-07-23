@@ -92,7 +92,15 @@ public:
     //       matching PLY_CACHE_VERSION 2->3 bump so the raw decode cache is also
     //       invalidated. (SPZ has its own loader and does not share this parse
     //       chain, so ResourceImporterSPZ::get_format_version() is unchanged.)
-    virtual int get_format_version() const override { return 10; }
+    //   v11: the importer now rejects PLY assets with a non-finite (NaN/Inf)
+    //       position/scale/rotation/opacity in ANY splat (issue #518). An asset
+    //       imported by v1-v10 from such a PLY holds poisoned splats in its .res,
+    //       so bumping the format version makes Godot's scanner re-run import()
+    //       automatically, which now fails loudly instead of shipping the NaN to
+    //       the GPU. No PLY_CACHE_VERSION bump is needed: the raw/runtime path is
+    //       validated on every load via GaussianSplatAsset::load_from_file(),
+    //       independent of the decode cache.
+    virtual int get_format_version() const override { return 11; }
 
     // Validation helpers
     Error validate_ply_properties(const Ref<class PLYLoader> &p_loader) const;
