@@ -841,8 +841,22 @@ Error BitonicSort::sort(RID keys_buffer, RID values_buffer, uint32_t count) {
         // and submits the sort so the transfer is ordered before the reads below.
         const uint32_t key_stride = uint32_t(sizeof(float));
         const uint32_t value_stride = uint32_t(sizeof(uint32_t));
-        compute_rd->buffer_update(keys_buffer, count * key_stride, pad_lanes * key_stride, pad_keys.ptr());
-        compute_rd->buffer_update(values_buffer, count * value_stride, pad_lanes * value_stride, pad_values.ptr());
+        // #765/#769: propagate padding-upload failures. If either tail write fails --
+        // buffers smaller than padded_count (a caller contract violation), or a
+        // staging-allocation failure under memory pressure -- the tail is left unpadded;
+        // dispatching over padded_count would then sort stale/garbage lanes into
+        // [0, count) while sort() reports OK. Abort BEFORE compute_list_begin() records
+        // any work (mirrors the is_sorting reset on the compute-list-failure path below).
+        Error pad_err = compute_rd->buffer_update(keys_buffer, count * key_stride, pad_lanes * key_stride, pad_keys.ptr());
+        if (pad_err != OK) {
+            is_sorting = false;
+            ERR_FAIL_V_MSG(pad_err, "[BitonicSort] Failed to upload key padding tail; aborting sort to avoid sorting an unpadded tail into the valid [0, count) range.");
+        }
+        pad_err = compute_rd->buffer_update(values_buffer, count * value_stride, pad_lanes * value_stride, pad_values.ptr());
+        if (pad_err != OK) {
+            is_sorting = false;
+            ERR_FAIL_V_MSG(pad_err, "[BitonicSort] Failed to upload value padding tail; aborting sort to avoid sorting an unpadded tail into the valid [0, count) range.");
+        }
     }
 
     // Create uniform set for buffers

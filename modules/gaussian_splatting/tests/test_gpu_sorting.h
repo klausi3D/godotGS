@@ -413,6 +413,52 @@ TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] GPU Bitonic Sorting") {
 		rd->free(keys_buffer);
 		rd->free(values_buffer);
 	}
+
+	// #769: sort() must PROPAGATE a padding-upload failure instead of dispatching over
+	// padded_count and returning OK. Size the key/value buffers to exactly `count`,
+	// deliberately violating the padded_count precondition the self-pad relies on. The
+	// tail write [count, padded) is then out of bounds, and buffer_update rejects it at
+	// its CPU-side bounds check (ERR_INVALID_PARAMETER) BEFORE compute_list_begin() --
+	// so the discriminating assertion resolves at the CPU validation layer, without a
+	// GPU dispatch on the fix path. Pre-#769 both returns were ignored and sort() reported
+	// OK over an unpadded tail; the fix returns the propagated error.
+	SUBCASE("Propagates a padding-upload failure on undersized buffers (#769)") {
+		Ref<BitonicSort> sorter;
+		sorter.instantiate();
+
+		const uint32_t count = 1000; // Not a power of two -> a non-empty padding tail.
+		Error err = sorter->initialize(rd, count);
+		CHECK(err == OK);
+		if (err != OK) {
+			return;
+		}
+
+		const uint32_t padded = sorter->get_max_elements(); // next_power_of_two(1000) == 1024
+		CHECK(padded > count); // there really is a tail [count, padded) the self-pad would write
+
+		// Buffers sized to `count`, NOT `padded`: the self-pad's tail write [count, padded)
+		// is out of bounds by (padded - count) lanes.
+		LocalVector<float> depths;
+		LocalVector<uint32_t> indices;
+		depths.resize(count);
+		indices.resize(count);
+		for (uint32_t i = 0; i < count; i++) {
+			depths[i] = float(count - i); // arbitrary valid keys
+			indices[i] = i;
+		}
+		RID keys_buffer = create_storage_buffer(rd, depths);
+		RID values_buffer = create_storage_buffer(rd, indices);
+
+		err = sorter->sort(keys_buffer, values_buffer, count);
+		// Load-bearing discriminator: pre-#769 the failed tail write was ignored and sort()
+		// returned OK over an unpadded (garbage) tail. The fix aborts with the propagated
+		// buffer_update error before recording any compute work.
+		CHECK_MESSAGE(err != OK,
+				"sort() must not report OK when the padding tail write fails on undersized buffers (#769)");
+
+		rd->free(keys_buffer);
+		rd->free(values_buffer);
+	}
 }
 
 // #622: [GpuSort] tag opts this radix sort-order oracle into the required
