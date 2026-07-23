@@ -2392,17 +2392,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingcorestreaming_runtime_stateh" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/core/streaming_runtime_state.h
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingcorepainterly_managercpp" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3239,10 +3228,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingteststest_gpu_streamingh" class="md-nav__link">
+  <a href="#modulesgaussian_splattingrendererrender_pipeline_stagescpp" class="md-nav__link">
     <span class="md-ellipsis">
       
-        modules/gaussian_splatting/tests/test_gpu_streaming.h
+        modules/gaussian_splatting/renderer/render_pipeline_stages.cpp
       
     </span>
   </a>
@@ -3250,10 +3239,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingrendererrender_pipeline_stagescpp" class="md-nav__link">
+  <a href="#modulesgaussian_splattingcorestreaming_runtime_stateh" class="md-nav__link">
     <span class="md-ellipsis">
       
-        modules/gaussian_splatting/renderer/render_pipeline_stages.cpp
+        modules/gaussian_splatting/core/streaming_runtime_state.h
       
     </span>
   </a>
@@ -3331,17 +3320,6 @@
     <span class="md-ellipsis">
       
         modules/gaussian_splatting/core/performance_monitors.cpp
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingcoregaussian_streamingcpp" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/core/gaussian_streaming.cpp
       
     </span>
   </a>
@@ -3507,6 +3485,17 @@
     <span class="md-ellipsis">
       
         tests/examples/godot/test_project/scenes/perf_test_clean.gd
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingcoregaussian_streamingcpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/core/gaussian_streaming.cpp
       
     </span>
   </a>
@@ -4196,10 +4185,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingcoregaussian_streamingh" class="md-nav__link">
+  <a href="#modulesgaussian_splattingteststest_gpu_streamingh" class="md-nav__link">
     <span class="md-ellipsis">
       
-        modules/gaussian_splatting/core/gaussian_streaming.h
+        modules/gaussian_splatting/tests/test_gpu_streaming.h
       
     </span>
   </a>
@@ -4431,6 +4420,17 @@
     <span class="md-ellipsis">
       
         modules/gaussian_splatting/renderer/render_frame_context_manager.cpp
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingcoregaussian_streamingh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/core/gaussian_streaming.h
       
     </span>
   </a>
@@ -6725,10 +6725,6 @@
 <li>line 68: inline SortKey64 pack_sort_key_64(float depth, uint32_t tie_...</li>
 <li>line 75: inline void fill_sort_padding(float <em>keys, uint32_t </em>values,...</li>
 </ul>
-<h2 id="modulesgaussian_splattingcorestreaming_runtime_stateh">modules/gaussian_splatting/core/streaming_runtime_state.h<a class="headerlink" href="#modulesgaussian_splattingcorestreaming_runtime_stateh" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 146: void reset() {...</li>
-</ul>
 <h2 id="modulesgaussian_splattingcorepainterly_managercpp">modules/gaussian_splatting/core/painterly_manager.cpp<a class="headerlink" href="#modulesgaussian_splattingcorepainterly_managercpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 22: void PainterlyManager::configure(const Settings &amp;p_settings)...</li>
@@ -7291,10 +7287,10 @@
 <li>line 30: void GaussianStreamingSystem::_log_streaming_telemetry() {...</li>
 <li>line 72: void GaussianStreamingSystem::_log_streaming_frame_stats(uin...</li>
 <li>line 102: void GaussianStreamingSystem::end_frame() {...</li>
-<li>line 822: Dictionary GaussianStreamingSystem::get_task_debug_state() c...</li>
-<li>line 829: Dictionary GaussianStreamingSystem::get_streaming_analytics(...</li>
-<li>line 833: Dictionary GaussianStreamingSystem::get_chunk_culling_stats(...</li>
-<li>line 895: Dictionary GaussianStreamingSystem::get_vram_debug_stats() c...</li>
+<li>line 824: Dictionary GaussianStreamingSystem::get_task_debug_state() c...</li>
+<li>line 831: Dictionary GaussianStreamingSystem::get_streaming_analytics(...</li>
+<li>line 835: Dictionary GaussianStreamingSystem::get_chunk_culling_stats(...</li>
+<li>line 897: Dictionary GaussianStreamingSystem::get_vram_debug_stats() c...</li>
 </ul>
 <h2 id="modulesgaussian_splattingteststest_gaussian_splat_containerh">modules/gaussian_splatting/tests/test_gaussian_splat_container.h<a class="headerlink" href="#modulesgaussian_splattingteststest_gaussian_splat_containerh" title="Permanent link">¶</a></h2>
 <ul>
@@ -8201,11 +8197,6 @@
 <ul>
 <li>line 15: static Ref<gaussiansplatasset> _make_shadow_subset_test_asse...</gaussiansplatasset></li>
 </ul>
-<h2 id="modulesgaussian_splattingteststest_gpu_streamingh">modules/gaussian_splatting/tests/test_gpu_streaming.h<a class="headerlink" href="#modulesgaussian_splattingteststest_gpu_streamingh" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 28: static Ref&lt;::GaussianData&gt; _create_registered_streaming_test...</li>
-<li>line 59: static void <em>concurrent_streaming_assertions_worker(void *p</em>...</li>
-</ul>
 <h2 id="modulesgaussian_splattingrendererrender_pipeline_stagescpp">modules/gaussian_splatting/renderer/render_pipeline_stages.cpp<a class="headerlink" href="#modulesgaussian_splattingrendererrender_pipeline_stagescpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 53: static String _stage_status_label(GaussianSplatRenderer::Sta...</li>
@@ -8238,6 +8229,10 @@
 <li>line 2011: void RenderPipelineStages::finalize_frame_metrics(uint64_t p...</li>
 <li>line 2885: void RenderPipelineStages::render_sorted_splats_with_context...</li>
 <li>line 3140: void RenderPipelineStages::log_stage_result(const char *p_st...</li>
+</ul>
+<h2 id="modulesgaussian_splattingcorestreaming_runtime_stateh">modules/gaussian_splatting/core/streaming_runtime_state.h<a class="headerlink" href="#modulesgaussian_splattingcorestreaming_runtime_stateh" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 154: void reset() {...</li>
 </ul>
 <h2 id="modulesgaussian_splattingeditorgaussian_import_settings_dialogh">modules/gaussian_splatting/editor/gaussian_import_settings_dialog.h<a class="headerlink" href="#modulesgaussian_splattingeditorgaussian_import_settings_dialogh" title="Permanent link">¶</a></h2>
 <ul>
@@ -8519,134 +8514,6 @@
 <li>line 1627: float GaussianSplattingPerformanceMonitors::_get_sh_compress...</li>
 <li>line 1637: float GaussianSplattingPerformanceMonitors::_get_sh_compress...</li>
 </ul>
-<h2 id="modulesgaussian_splattingcoregaussian_streamingcpp">modules/gaussian_splatting/core/gaussian_streaming.cpp<a class="headerlink" href="#modulesgaussian_splattingcoregaussian_streamingcpp" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 45: static uint32_t _packed_gaussian_payload_checksum(const Vect...</li>
-<li>line 57: uint64_t _streaming_chunk_slot_bytes(uint64_t p_gaussian_str...</li>
-<li>line 61: uint32_t _streaming_addressable_chunk_limit(uint64_t p_gauss...</li>
-<li>line 69: uint32_t _streaming_upload_frame_delay(RenderingDevice *p_de...</li>
-<li>line 92: bool _data_has_uniform_dc_encoding(const Ref<gaussiandata> &amp;...</gaussiandata></li>
-<li>line 139: void _subtract_pending_upload_bytes(GaussianStreamingTypes::...</li>
-<li>line 145: void _release_pending_upload_slot(GaussianStreamingTypes::Bu...</li>
-<li>line 213: bool _is_finite_transform3d(const Transform3D &amp;p_transform) ...</li>
-<li>line 229: bool _is_finite_projection(const Projection &amp;p_projection) {...</li>
-<li>line 240: uint32_t _expand_morton_bits_10(uint32_t p_value) {...</li>
-<li>line 249: uint32_t _compute_morton_code_10(const Vector3 &amp;p_position, ...</li>
-<li>line 281: void GaussianStreamingSystem::_connect_project_settings() {...</li>
-<li>line 296: void GaussianStreamingSystem::_on_project_settings_changed()...</li>
-<li>line 317: void GaussianStreamingSystem::_release_persistent_buffer(Ren...</li>
-<li>line 340: bool GaussianStreamingSystem::_grow_persistent_buffer(uint32...</li>
-<li>line 493: void GaussianStreamingSystem::_bind_methods() {...</li>
-<li>line 535: void GaussianStreamingSystem::initialize(Ref&lt;::GaussianData&gt;...</li>
-<li>line 774: void GaussianStreamingSystem::initialize_with_device(Ref&lt;::G...</li>
-<li>line 782: void GaussianStreamingSystem::initialize_empty(RenderingDevi...</li>
-<li>line 952: void GaussianStreamingSystem::update_primary_asset_data(Ref&lt;...</li>
-<li>line 1021: void GaussianStreamingSystem::attach_memory_stream(const Ref...</li>
-<li>line 1026: void GaussianStreamingSystem::set_config_overrides(const Con...</li>
-<li>line 1033: void GaussianStreamingSystem::clear_config_overrides() {...</li>
-<li>line 1040: void GaussianStreamingSystem::set_io_chunk_layout_hints(cons...</li>
-<li>line 1053: void GaussianStreamingSystem::set_primary_chunk_layout(const...</li>
-<li>line 1117: void GaussianStreamingSystem::begin_residency_requests() {...</li>
-<li>line 1133: Error GaussianStreamingSystem::request_chunk_residency(uint3...</li>
-<li>line 1164: Error GaussianStreamingSystem::request_asset_residency(uint3...</li>
-<li>line 1190: void GaussianStreamingSystem::finalize_residency_requests() ...</li>
-<li>line 1194: Dictionary GaussianStreamingSystem::get_residency_request_st...</li>
-<li>line 1198: bool GaussianStreamingSystem::_is_requested_chunk_in_current...</li>
-<li>line 1231: StringName GaussianStreamingSystem::_residency_request_state...</li>
-<li>line 1249: StringName GaussianStreamingSystem::_residency_request_error...</li>
-<li>line 1268: bool GaussianStreamingSystem::_is_terminal_residency_request...</li>
-<li>line 1282: Dictionary GaussianStreamingSystem::_build_residency_request...</li>
-<li>line 1357: void GaussianStreamingSystem::register_asset(uint32_t asset_...</li>
-<li>line 1466: void GaussianStreamingSystem::unregister_asset(uint32_t asse...</li>
-<li>line 1521: void GaussianStreamingSystem::set_chunk_payload_source(uint3...</li>
-<li>line 1552: void GaussianStreamingSystem::detach_source_data(uint32_t as...</li>
-<li>line 1568: void GaussianStreamingSystem::_refresh_quantization_dc_compa...</li>
-<li>line 1590: uint32_t GaussianStreamingSystem::get_dense_asset_id(uint32_...</li>
-<li>line 1597: bool GaussianStreamingSystem::remap_instance_asset_ids(Local...</li>
-<li>line 1640: bool GaussianStreamingSystem::_create_chunks() {...</li>
-<li>line 1816: void GaussianStreamingSystem::_build_chunks_for_data(const R...</li>
-<li>line 1983: bool GaussianStreamingSystem::_populate_chunks_from_bake(con...</li>
-<li>line 2072: void GaussianStreamingSystem::_build_chunks_for_payload_sour...</li>
-<li>line 2259: void GaussianStreamingSystem::<em>refresh_primary_chunk_layout</em>...</li>
-<li>line 2316: void GaussianStreamingSystem::_register_primary_asset() {...</li>
-<li>line 2347: uint32_t GaussianStreamingSystem::_advance_asset_generation(...</li>
-<li>line 2359: uint32_t GaussianStreamingSystem::_alloc_dense_id(uint32_t a...</li>
-<li>line 2385: void GaussianStreamingSystem::_release_dense_id(uint32_t den...</li>
-<li>line 2396: uint32_t GaussianStreamingSystem::_get_dense_generation(uint...</li>
-<li>line 2419: uint64_t GaussianStreamingSystem::_make_chunk_key(uint32_t a...</li>
-<li>line 2452: void GaussianStreamingSystem::set_chunk_radius_multiplier(fl...</li>
-<li>line 2459: void GaussianStreamingSystem::update_streaming(const Transfo...</li>
-<li>line 2640: void GaussianStreamingSystem::_reload_config_if_dirty() {...</li>
-<li>line 2660: float GaussianStreamingSystem::_resolve_frame_delta_seconds(...</li>
-<li>line 2686: uint32_t GaussianStreamingSystem::_compute_runtime_chunk_cap...</li>
-<li>line 2698: uint64_t GaussianStreamingSystem::_get_auxiliary_vram_overhe...</li>
-<li>line 2703: uint64_t GaussianStreamingSystem::_get_total_vram_usage_byte...</li>
-<li>line 2723: uint64_t GaussianStreamingSystem::<em>get_evictable_vram_usage</em>...</li>
-<li>line 2738: uint32_t GaussianStreamingSystem::_get_reserved_chunk_count(...</li>
-<li>line 2742: uint64_t GaussianStreamingSystem::<em>get_pending_upload_bytes</em>...</li>
-<li>line 2746: void GaussianStreamingSystem::_load_zero_visible_recovery_co...</li>
-<li>line 2750: void GaussianStreamingSystem::_update_camera_tracking(const ...</li>
-<li>line 2754: void GaussianStreamingSystem::_handle_zero_visible_chunk_rec...</li>
-<li>line 2758: void GaussianStreamingSystem::_reset_per_frame_counters() {...</li>
-<li>line 2798: void GaussianStreamingSystem::<em>evict_for_vram_budget(uint32</em>...</li>
-<li>line 2876: void GaussianStreamingSystem::_load_visible_chunks(uint32_t ...</li>
-<li>line 3080: void GaussianStreamingSystem::_build_visible_chunk_list() {...</li>
-<li>line 3106: void GaussianStreamingSystem::_handle_predictive_prefetch(co...</li>
-<li>line 3200: void GaussianStreamingSystem::_update_vram_regulator() {...</li>
-<li>line 3216: void GaussianStreamingSystem::_update_chunk_visibility(const...</li>
-<li>line 3220: Error GaussianStreamingSystem::_load_chunk(uint32_t chunk_id...</li>
-<li>line 3344: bool GaussianStreamingSystem::_has_pending_upload_retirement...</li>
-<li>line 3406: void GaussianStreamingSystem::_process_upload_retirements() ...</li>
-<li>line 3459: Error GaussianStreamingSystem::_load_chunk(uint32_t asset_id...</li>
-<li>line 3527: upload_bytes, SHCompressionMetrics(), submission_rd)) {...</li>
-<li>line 3554: uint64_t GaussianStreamingSystem::_atlas_gaussian_stride_byt...</li>
-<li>line 3718: void GaussianStreamingSystem::_log_chunk_load_metrics(uint32...</li>
-<li>line 3795: void GaussianStreamingSystem::_complete_chunk_load_common(ui...</li>
-<li>line 3838: void GaussianStreamingSystem::_unload_chunk(uint32_t chunk_i...</li>
-<li>line 3842: void GaussianStreamingSystem::_unload_chunk(uint32_t asset_i...</li>
-<li>line 3880: GaussianStreamingSystem::EvictionResult GaussianStreamingSys...</li>
-<li>line 3884: GaussianStreamingSystem::EvictionResult GaussianStreamingSys...</li>
-<li>line 3888: void GaussianStreamingSystem::begin_frame() {...</li>
-<li>line 3901: RID GaussianStreamingSystem::get_frame_buffer() const {...</li>
-<li>line 3905: uint64_t GaussianStreamingSystem::get_vram_usage() const {...</li>
-<li>line 3909: uint32_t GaussianStreamingSystem::get_pending_pack_jobs() {...</li>
-<li>line 3913: uint32_t GaussianStreamingSystem::get_pending_upload_jobs() ...</li>
-<li>line 3917: uint32_t GaussianStreamingSystem::get_pending_upload_retirem...</li>
-<li>line 3921: uint64_t GaussianStreamingSystem::get_pending_upload_retirem...</li>
-<li>line 3925: uint32_t GaussianStreamingSystem::get_visible_count() const ...</li>
-<li>line 3937: LocalVector<gaussian> GaussianStreamingSystem::get_visible_g...</gaussian></li>
-<li>line 4012: LocalVector<uint32_t> GaussianStreamingSystem::get_visible_i...</uint32_t></li>
-<li>line 4040: bool GaussianStreamingSystem::is_runtime_capacity_zero() con...</li>
-<li>line 4050: bool GaussianStreamingSystem::is_persistent_buffer_invalid()...</li>
-<li>line 4054: bool GaussianStreamingSystem::is_runtime_ready(String *r_rea...</li>
-<li>line 4082: uint32_t GaussianStreamingSystem::get_registered_asset_count...</li>
-<li>line 4092: bool GaussianStreamingSystem::_is_chunk_in_frustum(const AAB...</li>
-<li>line 4096: void GaussianStreamingSystem::_update_culling_config_from_pr...</li>
-<li>line 4100: void GaussianStreamingSystem::<em>load_streaming_tuning_config</em>...</li>
-<li>line 4105: void GaussianStreamingSystem::_reload_debug_logging_config()...</li>
-<li>line 4119: void GaussianStreamingSystem::_start_pack_threads() {...</li>
-<li>line 4123: void GaussianStreamingSystem::_stop_pack_threads() {...</li>
-<li>line 4191: uint32_t GaussianStreamingSystem::_get_sync_fallback_queue_d...</li>
-<li>line 4197: void GaussianStreamingSystem::_compact_sync_fallback_queue()...</li>
-<li>line 4217: bool GaussianStreamingSystem::_enqueue_sync_fallback_chunk_l...</li>
-<li>line 4497: bool GaussianStreamingSystem::_queue_chunk_load(uint32_t chu...</li>
-<li>line 4501: bool GaussianStreamingSystem::_queue_chunk_load(uint32_t ass...</li>
-<li>line 4505: void GaussianStreamingSystem::_process_upload_queue() {...</li>
-<li>line 4509: void GaussianStreamingSystem::_clear_pending_uploads() {...</li>
-<li>line 4513: void GaussianStreamingSystem::_apply_config_overrides() {...</li>
-<li>line 4563: void GaussianStreamingSystem::_load_prefetch_config_from_pro...</li>
-<li>line 4572: bool GaussianStreamingSystem::is_vram_budget_warning_active(...</li>
-<li>line 4576: uint32_t GaussianStreamingSystem::get_effective_max_chunks()...</li>
-<li>line 4588: uint32_t GaussianStreamingSystem::get_regulated_max_chunks()...</li>
-<li>line 4592: Dictionary GaussianStreamingTypes::BudgetState::get_vram_deb...</li>
-<li>line 4599: bool GaussianStreamingTypes::BudgetState::is_vram_budget_war...</li>
-<li>line 4606: uint32_t GaussianStreamingTypes::BudgetState::get_effective_...</li>
-<li>line 4613: float GaussianStreamingSystem::get_visible_count_change_rati...</li>
-<li>line 4617: float GaussianStreamingSystem::get_visible_chunk_change_rati...</li>
-<li>line 4622: float GaussianStreamingSystem::get_effective_count_change_ra...</li>
-<li>line 4626: uint32_t GaussianStreamingSystem::get_buffer_capacity_splats...</li>
-<li>line 4630: bool GaussianStreamingSystem::map_buffer_index_to_source(uin...</li>
-</ul>
 <h2 id="modulesgaussian_splattingcorestreaming_quantizationcpp">modules/gaussian_splatting/core/streaming_quantization.cpp<a class="headerlink" href="#modulesgaussian_splattingcorestreaming_quantizationcpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 77: void ChunkQuantizationInfo::quantize_position(const Vector3 ...</li>
@@ -8901,6 +8768,135 @@
 <li>line 38: func _process(delta: float) -&gt; void:...</li>
 <li>line 84: func _get_avg_fps() -&gt; float:...</li>
 <li>line 92: func _input(event: InputEvent) -&gt; void:...</li>
+</ul>
+<h2 id="modulesgaussian_splattingcoregaussian_streamingcpp">modules/gaussian_splatting/core/gaussian_streaming.cpp<a class="headerlink" href="#modulesgaussian_splattingcoregaussian_streamingcpp" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 45: static uint32_t _packed_gaussian_payload_checksum(const Vect...</li>
+<li>line 57: uint64_t _streaming_chunk_slot_bytes(uint64_t p_gaussian_str...</li>
+<li>line 61: uint32_t _streaming_addressable_chunk_limit(uint64_t p_gauss...</li>
+<li>line 69: uint32_t _streaming_upload_frame_delay(RenderingDevice *p_de...</li>
+<li>line 92: bool _data_has_uniform_dc_encoding(const Ref<gaussiandata> &amp;...</gaussiandata></li>
+<li>line 139: void _subtract_pending_upload_bytes(GaussianStreamingTypes::...</li>
+<li>line 145: void _release_pending_upload_slot(GaussianStreamingTypes::Bu...</li>
+<li>line 213: bool _is_finite_transform3d(const Transform3D &amp;p_transform) ...</li>
+<li>line 229: bool _is_finite_projection(const Projection &amp;p_projection) {...</li>
+<li>line 240: uint32_t _expand_morton_bits_10(uint32_t p_value) {...</li>
+<li>line 249: uint32_t _compute_morton_code_10(const Vector3 &amp;p_position, ...</li>
+<li>line 281: void GaussianStreamingSystem::_connect_project_settings() {...</li>
+<li>line 296: void GaussianStreamingSystem::_on_project_settings_changed()...</li>
+<li>line 317: void GaussianStreamingSystem::_release_persistent_buffer(Ren...</li>
+<li>line 340: bool GaussianStreamingSystem::_grow_persistent_buffer(uint32...</li>
+<li>line 493: void GaussianStreamingSystem::_bind_methods() {...</li>
+<li>line 535: void GaussianStreamingSystem::initialize(Ref&lt;::GaussianData&gt;...</li>
+<li>line 775: void GaussianStreamingSystem::initialize_with_device(Ref&lt;::G...</li>
+<li>line 783: void GaussianStreamingSystem::initialize_empty(RenderingDevi...</li>
+<li>line 954: void GaussianStreamingSystem::update_primary_asset_data(Ref&lt;...</li>
+<li>line 1023: void GaussianStreamingSystem::attach_memory_stream(const Ref...</li>
+<li>line 1028: void GaussianStreamingSystem::set_config_overrides(const Con...</li>
+<li>line 1035: void GaussianStreamingSystem::clear_config_overrides() {...</li>
+<li>line 1042: void GaussianStreamingSystem::set_io_chunk_layout_hints(cons...</li>
+<li>line 1055: void GaussianStreamingSystem::set_primary_chunk_layout(const...</li>
+<li>line 1119: void GaussianStreamingSystem::begin_residency_requests() {...</li>
+<li>line 1135: Error GaussianStreamingSystem::request_chunk_residency(uint3...</li>
+<li>line 1166: Error GaussianStreamingSystem::request_asset_residency(uint3...</li>
+<li>line 1192: void GaussianStreamingSystem::finalize_residency_requests() ...</li>
+<li>line 1196: Dictionary GaussianStreamingSystem::get_residency_request_st...</li>
+<li>line 1200: bool GaussianStreamingSystem::_is_requested_chunk_in_current...</li>
+<li>line 1233: StringName GaussianStreamingSystem::_residency_request_state...</li>
+<li>line 1251: StringName GaussianStreamingSystem::_residency_request_error...</li>
+<li>line 1270: bool GaussianStreamingSystem::_is_terminal_residency_request...</li>
+<li>line 1284: Dictionary GaussianStreamingSystem::_build_residency_request...</li>
+<li>line 1359: void GaussianStreamingSystem::register_asset(uint32_t asset_...</li>
+<li>line 1468: void GaussianStreamingSystem::unregister_asset(uint32_t asse...</li>
+<li>line 1523: void GaussianStreamingSystem::set_chunk_payload_source(uint3...</li>
+<li>line 1554: void GaussianStreamingSystem::detach_source_data(uint32_t as...</li>
+<li>line 1570: void GaussianStreamingSystem::_refresh_quantization_dc_compa...</li>
+<li>line 1610: void GaussianStreamingSystem::_evict_all_resident_chunks_for...</li>
+<li>line 1633: uint32_t GaussianStreamingSystem::get_dense_asset_id(uint32_...</li>
+<li>line 1640: bool GaussianStreamingSystem::remap_instance_asset_ids(Local...</li>
+<li>line 1683: bool GaussianStreamingSystem::_create_chunks() {...</li>
+<li>line 1859: void GaussianStreamingSystem::_build_chunks_for_data(const R...</li>
+<li>line 2026: bool GaussianStreamingSystem::_populate_chunks_from_bake(con...</li>
+<li>line 2115: void GaussianStreamingSystem::_build_chunks_for_payload_sour...</li>
+<li>line 2302: void GaussianStreamingSystem::<em>refresh_primary_chunk_layout</em>...</li>
+<li>line 2359: void GaussianStreamingSystem::_register_primary_asset() {...</li>
+<li>line 2390: uint32_t GaussianStreamingSystem::_advance_asset_generation(...</li>
+<li>line 2402: uint32_t GaussianStreamingSystem::_alloc_dense_id(uint32_t a...</li>
+<li>line 2428: void GaussianStreamingSystem::_release_dense_id(uint32_t den...</li>
+<li>line 2439: uint32_t GaussianStreamingSystem::_get_dense_generation(uint...</li>
+<li>line 2462: uint64_t GaussianStreamingSystem::_make_chunk_key(uint32_t a...</li>
+<li>line 2495: void GaussianStreamingSystem::set_chunk_radius_multiplier(fl...</li>
+<li>line 2502: void GaussianStreamingSystem::update_streaming(const Transfo...</li>
+<li>line 2683: void GaussianStreamingSystem::_reload_config_if_dirty() {...</li>
+<li>line 2703: float GaussianStreamingSystem::_resolve_frame_delta_seconds(...</li>
+<li>line 2729: uint32_t GaussianStreamingSystem::_compute_runtime_chunk_cap...</li>
+<li>line 2741: uint64_t GaussianStreamingSystem::_get_auxiliary_vram_overhe...</li>
+<li>line 2746: uint64_t GaussianStreamingSystem::_get_total_vram_usage_byte...</li>
+<li>line 2766: uint64_t GaussianStreamingSystem::<em>get_evictable_vram_usage</em>...</li>
+<li>line 2781: uint32_t GaussianStreamingSystem::_get_reserved_chunk_count(...</li>
+<li>line 2785: uint64_t GaussianStreamingSystem::<em>get_pending_upload_bytes</em>...</li>
+<li>line 2789: void GaussianStreamingSystem::_load_zero_visible_recovery_co...</li>
+<li>line 2793: void GaussianStreamingSystem::_update_camera_tracking(const ...</li>
+<li>line 2797: void GaussianStreamingSystem::_handle_zero_visible_chunk_rec...</li>
+<li>line 2801: void GaussianStreamingSystem::_reset_per_frame_counters() {...</li>
+<li>line 2841: void GaussianStreamingSystem::<em>evict_for_vram_budget(uint32</em>...</li>
+<li>line 2919: void GaussianStreamingSystem::_load_visible_chunks(uint32_t ...</li>
+<li>line 3123: void GaussianStreamingSystem::_build_visible_chunk_list() {...</li>
+<li>line 3149: void GaussianStreamingSystem::_handle_predictive_prefetch(co...</li>
+<li>line 3243: void GaussianStreamingSystem::_update_vram_regulator() {...</li>
+<li>line 3259: void GaussianStreamingSystem::_update_chunk_visibility(const...</li>
+<li>line 3263: Error GaussianStreamingSystem::_load_chunk(uint32_t chunk_id...</li>
+<li>line 3394: bool GaussianStreamingSystem::_has_pending_upload_retirement...</li>
+<li>line 3456: void GaussianStreamingSystem::_process_upload_retirements() ...</li>
+<li>line 3528: Error GaussianStreamingSystem::_load_chunk(uint32_t asset_id...</li>
+<li>line 3596: upload_bytes, SHCompressionMetrics(), submission_rd)) {...</li>
+<li>line 3623: uint64_t GaussianStreamingSystem::_atlas_gaussian_stride_byt...</li>
+<li>line 3787: void GaussianStreamingSystem::_log_chunk_load_metrics(uint32...</li>
+<li>line 3864: void GaussianStreamingSystem::_complete_chunk_load_common(ui...</li>
+<li>line 3907: void GaussianStreamingSystem::_unload_chunk(uint32_t chunk_i...</li>
+<li>line 3911: void GaussianStreamingSystem::_unload_chunk(uint32_t asset_i...</li>
+<li>line 3949: GaussianStreamingSystem::EvictionResult GaussianStreamingSys...</li>
+<li>line 3953: GaussianStreamingSystem::EvictionResult GaussianStreamingSys...</li>
+<li>line 3957: void GaussianStreamingSystem::begin_frame() {...</li>
+<li>line 3970: RID GaussianStreamingSystem::get_frame_buffer() const {...</li>
+<li>line 3974: uint64_t GaussianStreamingSystem::get_vram_usage() const {...</li>
+<li>line 3978: uint32_t GaussianStreamingSystem::get_pending_pack_jobs() {...</li>
+<li>line 3982: uint32_t GaussianStreamingSystem::get_pending_upload_jobs() ...</li>
+<li>line 3986: uint32_t GaussianStreamingSystem::get_pending_upload_retirem...</li>
+<li>line 3990: uint64_t GaussianStreamingSystem::get_pending_upload_retirem...</li>
+<li>line 3994: uint32_t GaussianStreamingSystem::get_visible_count() const ...</li>
+<li>line 4006: LocalVector<gaussian> GaussianStreamingSystem::get_visible_g...</gaussian></li>
+<li>line 4081: LocalVector<uint32_t> GaussianStreamingSystem::get_visible_i...</uint32_t></li>
+<li>line 4109: bool GaussianStreamingSystem::is_runtime_capacity_zero() con...</li>
+<li>line 4119: bool GaussianStreamingSystem::is_persistent_buffer_invalid()...</li>
+<li>line 4123: bool GaussianStreamingSystem::is_runtime_ready(String *r_rea...</li>
+<li>line 4151: uint32_t GaussianStreamingSystem::get_registered_asset_count...</li>
+<li>line 4161: bool GaussianStreamingSystem::_is_chunk_in_frustum(const AAB...</li>
+<li>line 4165: void GaussianStreamingSystem::_update_culling_config_from_pr...</li>
+<li>line 4169: void GaussianStreamingSystem::<em>load_streaming_tuning_config</em>...</li>
+<li>line 4174: void GaussianStreamingSystem::_reload_debug_logging_config()...</li>
+<li>line 4188: void GaussianStreamingSystem::_start_pack_threads() {...</li>
+<li>line 4192: void GaussianStreamingSystem::_stop_pack_threads() {...</li>
+<li>line 4260: uint32_t GaussianStreamingSystem::_get_sync_fallback_queue_d...</li>
+<li>line 4266: void GaussianStreamingSystem::_compact_sync_fallback_queue()...</li>
+<li>line 4286: bool GaussianStreamingSystem::_enqueue_sync_fallback_chunk_l...</li>
+<li>line 4566: bool GaussianStreamingSystem::_queue_chunk_load(uint32_t chu...</li>
+<li>line 4570: bool GaussianStreamingSystem::_queue_chunk_load(uint32_t ass...</li>
+<li>line 4574: void GaussianStreamingSystem::_process_upload_queue() {...</li>
+<li>line 4578: void GaussianStreamingSystem::_clear_pending_uploads() {...</li>
+<li>line 4582: void GaussianStreamingSystem::_apply_config_overrides() {...</li>
+<li>line 4632: void GaussianStreamingSystem::_load_prefetch_config_from_pro...</li>
+<li>line 4641: bool GaussianStreamingSystem::is_vram_budget_warning_active(...</li>
+<li>line 4645: uint32_t GaussianStreamingSystem::get_effective_max_chunks()...</li>
+<li>line 4657: uint32_t GaussianStreamingSystem::get_regulated_max_chunks()...</li>
+<li>line 4661: Dictionary GaussianStreamingTypes::BudgetState::get_vram_deb...</li>
+<li>line 4668: bool GaussianStreamingTypes::BudgetState::is_vram_budget_war...</li>
+<li>line 4675: uint32_t GaussianStreamingTypes::BudgetState::get_effective_...</li>
+<li>line 4682: float GaussianStreamingSystem::get_visible_count_change_rati...</li>
+<li>line 4686: float GaussianStreamingSystem::get_visible_chunk_change_rati...</li>
+<li>line 4691: float GaussianStreamingSystem::get_effective_count_change_ra...</li>
+<li>line 4695: uint32_t GaussianStreamingSystem::get_buffer_capacity_splats...</li>
+<li>line 4699: bool GaussianStreamingSystem::map_buffer_index_to_source(uin...</li>
 </ul>
 <h2 id="modulesgaussian_splattingteststest_asset_dependency_managercpp">modules/gaussian_splatting/tests/test_asset_dependency_manager.cpp<a class="headerlink" href="#modulesgaussian_splattingteststest_asset_dependency_managercpp" title="Permanent link">¶</a></h2>
 <ul>
@@ -10179,79 +10175,11 @@
 <li>line 117: Dictionary SHConfig::get_effective_config_snapshot() const {...</li>
 <li>line 128: void initialize_sh_config() {...</li>
 </ul>
-<h2 id="modulesgaussian_splattingcoregaussian_streamingh">modules/gaussian_splatting/core/gaussian_streaming.h<a class="headerlink" href="#modulesgaussian_splattingcoregaussian_streamingh" title="Permanent link">¶</a></h2>
+<h2 id="modulesgaussian_splattingteststest_gpu_streamingh">modules/gaussian_splatting/tests/test_gpu_streaming.h<a class="headerlink" href="#modulesgaussian_splattingteststest_gpu_streamingh" title="Permanent link">¶</a></h2>
 <ul>
-<li>line 209: bool has_config_overrides() const { return config_overrides_...</li>
-<li>line 239: uint32_t get_loaded_chunks() const { return budget.loaded_ch...</li>
-<li>line 244: SHCompressionMetrics get_total_sh_metrics() const { return t...</li>
-<li>line 251: bool is_streaming_capable() const { return is_runtime_ready(...</li>
-<li>line 257: void set_chunk_frustum_culling_enabled(bool p_enabled) { vis...</li>
-<li>line 258: bool is_chunk_frustum_culling_enabled() const { return visib...</li>
-<li>line 259: void set_chunk_frustum_padding(float p_padding) { visibility...</li>
-<li>line 260: float get_chunk_frustum_padding() const { return visibility....</li>
-<li>line 262: float get_chunk_radius_multiplier() const { return visibilit...</li>
-<li>line 268: Ref<vrambudgetregulator> get_vram_regulator() const { return...</vrambudgetregulator></li>
-<li>line 277: uint32_t get_max_chunk_count_per_asset() const { return glob...</li>
-<li>line 278: uint32_t get_max_chunk_splats() const { return global_atlas_...</li>
-<li>line 280: float get_global_lod_blend_factor() const { return visibilit...</li>
-<li>line 281: void set_lod_blend_enabled(bool p_enabled) { visibility.lod_...</li>
-<li>line 282: bool is_lod_blend_enabled() const { return visibility.lod_bl...</li>
-<li>line 283: void set_lod_blend_distance(float p_distance) { visibility.l...</li>
-<li>line 284: float get_lod_blend_distance() const { return visibility.lod...</li>
-<li>line 285: float get_lod_hysteresis_zone() const { return visibility.lo...</li>
-<li>line 289: int get_global_sh_band_level() const { return visibility.glo...</li>
-<li>line 290: void set_global_sh_band_level(int p_level) { visibility.glob...</li>
-<li>line 294: uint32_t get_chunks_loaded_this_frame() const { return budge...</li>
-<li>line 295: uint32_t get_chunks_evicted_this_frame() const { return evic...</li>
-<li>line 296: uint32_t get_visible_chunks_evicted_this_frame() const { ret...</li>
-<li>line 304: bool is_asset_registered(uint32_t asset_id) const { return a...</li>
-<li>line 307: bool is_per_chunk_quantization_enabled() const { return per_...</li>
-<li>line 308: RID get_quantization_buffer() const { return quantization_bu...</li>
-<li>line 309: uint32_t get_quantization_position_bits() const { return qua...</li>
-<li>line 310: uint32_t get_quantization_scale_bits() const { return quanti...</li>
-<li>line 311: bool is_quantization_scales_enabled() const { return quantiz...</li>
-<li>line 319: bool has_asset(uint32_t asset_id) const { return asset_regis...</li>
-<li>line 325: RID get_atlas_gaussian_buffer() const { return global_atlas_...</li>
-<li>line 326: uint32_t get_atlas_gaussian_count() const { return global_at...</li>
-<li>line 327: RID get_asset_meta_buffer() const { return global_atlas_regi...</li>
-<li>line 328: RID get_chunk_meta_buffer() const { return global_atlas_regi...</li>
-<li>line 329: RID get_asset_chunk_index_buffer() const { return global_atl...</li>
-<li>line 330: RID get_atlas_quantization_buffer() const { return global_at...</li>
-<li>line 331: uint64_t get_atlas_generation() const { return global_atlas_...</li>
-<li>line 333: void _test_sync_global_atlas_state(RenderingDevice *p_rd) { ...</li>
-<li>line 334: void _test_build_global_atlas_cpu_state() { global_atlas_reg...</li>
-<li>line 335: StreamingGlobalAtlasRegistry::ChunkMetaUploadPlan _test_plan...</li>
-<li>line 338: StreamingGlobalAtlasRegistry::SyncDiagnostics _test_get_atla...</li>
-<li>line 341: void _test_clear_atlas_cpu_dirty_state() { global_atlas_regi...</li>
-<li>line 342: void _test_mark_chunk_meta_dirty(uint32_t asset_id, uint32_t...</li>
-<li>line 345: void _test_force_next_chunk_upload_failure() { test_force_ne...</li>
-<li>line 355: uint64_t _test_make_chunk_key(uint32_t p_asset_id, uint32_t ...</li>
-<li>line 359: bool _test_begin_chunk_upload(uint32_t p_asset_id, uint32_t ...</li>
-<li>line 362: uint32_t _test_get_reserved_chunk_count() const { return _ge...</li>
-<li>line 367: uint32_t _test_get_persistent_buffer_size() const { return p...</li>
-<li>line 370: uint64_t _test_atlas_gaussian_stride_bytes() const { return ...</li>
-<li>line 371: void <em>test_set_quantization_state(bool p_enabled, bool p_dc</em>...</li>
-<li>line 375: uint32_t _test_get_retired_upload_slots_this_frame() const {...</li>
-<li>line 376: uint64_t _test_get_retired_upload_bytes_this_frame() const {...</li>
-<li>line 377: uint64_t _test_get_failed_upload_retirements() const { retur...</li>
-<li>line 384: void _test_process_upload_retirements() { _process_upload_re...</li>
-<li>line 385: void _test_rollback_pending_chunk(uint32_t p_asset_id, uint3...</li>
-<li>line 388: bool _test_enqueue_sync_fallback_chunk_load(uint32_t p_asset...</li>
-<li>line 391: uint32_t _test_drain_sync_fallback_chunk_loads(uint32_t p_ef...</li>
-<li>line 394: void _test_evict_unrequested_chunks(uint32_t p_asset_id, Atl...</li>
-<li>line 397: void _test_register_primary_asset_for_chunks() { _register_p...</li>
-<li>line 400: void _test_reset_atlas_allocator(uint32_t p_capacity) { atla...</li>
-<li>line 401: EvictionResult <em>test_evict_least_recently_used(bool p_allow</em>...</li>
-<li>line 404: EvictionResult _test_evict_non_primary_lru() { return _evict...</li>
-<li>line 405: uint32_t _test_get_primary_eviction_scan_count() const { ret...</li>
-<li>line 406: uint32_t _test_get_primary_eviction_candidate_count() const ...</li>
-<li>line 407: uint32_t _test_get_non_primary_eviction_scan_count() const {...</li>
-<li>line 408: uint32_t _test_get_non_primary_eviction_candidate_count() co...</li>
-<li>line 413: bool <em>test_get_atlas_registry_dirty() const { return global</em>...</li>
-<li>line 414: bool <em>test_get_chunk_meta_dirty_all() const { return global</em>...</li>
-<li>line 416: RID _test_get_registry_asset_meta_buffer() const { return gl...</li>
-<li>line 417: RID _test_get_registry_chunk_meta_buffer() const { return gl...</li>
-<li>line 418: RID _test_get_registry_asset_chunk_index_buffer() const { re...</li>
+<li>line 28: static Ref&lt;::GaussianData&gt; _create_registered_streaming_test...</li>
+<li>line 52: static Ref&lt;::GaussianData&gt; _create_mixed_dc_streaming_test_g...</li>
+<li>line 88: static void <em>concurrent_streaming_assertions_worker(void *p</em>...</li>
 </ul>
 <h2 id="modulesgaussian_splattingasset_managementasset_dependency_managerh">modules/gaussian_splatting/asset_management/asset_dependency_manager.h<a class="headerlink" href="#modulesgaussian_splattingasset_managementasset_dependency_managerh" title="Permanent link">¶</a></h2>
 <ul>
@@ -10593,6 +10521,81 @@
 <li>line 19: double RenderFrameContextManager::sample_render_animation_ti...</li>
 <li>line 40: void RenderFrameContextManager::reset_view_state_defaults() ...</li>
 <li>line 50: void RenderFrameContextManager::reset() {...</li>
+</ul>
+<h2 id="modulesgaussian_splattingcoregaussian_streamingh">modules/gaussian_splatting/core/gaussian_streaming.h<a class="headerlink" href="#modulesgaussian_splattingcoregaussian_streamingh" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 218: bool has_config_overrides() const { return config_overrides_...</li>
+<li>line 248: uint32_t get_loaded_chunks() const { return budget.loaded_ch...</li>
+<li>line 253: SHCompressionMetrics get_total_sh_metrics() const { return t...</li>
+<li>line 260: bool is_streaming_capable() const { return is_runtime_ready(...</li>
+<li>line 266: void set_chunk_frustum_culling_enabled(bool p_enabled) { vis...</li>
+<li>line 267: bool is_chunk_frustum_culling_enabled() const { return visib...</li>
+<li>line 268: void set_chunk_frustum_padding(float p_padding) { visibility...</li>
+<li>line 269: float get_chunk_frustum_padding() const { return visibility....</li>
+<li>line 271: float get_chunk_radius_multiplier() const { return visibilit...</li>
+<li>line 277: Ref<vrambudgetregulator> get_vram_regulator() const { return...</vrambudgetregulator></li>
+<li>line 286: uint32_t get_max_chunk_count_per_asset() const { return glob...</li>
+<li>line 287: uint32_t get_max_chunk_splats() const { return global_atlas_...</li>
+<li>line 289: float get_global_lod_blend_factor() const { return visibilit...</li>
+<li>line 290: void set_lod_blend_enabled(bool p_enabled) { visibility.lod_...</li>
+<li>line 291: bool is_lod_blend_enabled() const { return visibility.lod_bl...</li>
+<li>line 292: void set_lod_blend_distance(float p_distance) { visibility.l...</li>
+<li>line 293: float get_lod_blend_distance() const { return visibility.lod...</li>
+<li>line 294: float get_lod_hysteresis_zone() const { return visibility.lo...</li>
+<li>line 298: int get_global_sh_band_level() const { return visibility.glo...</li>
+<li>line 299: void set_global_sh_band_level(int p_level) { visibility.glob...</li>
+<li>line 303: uint32_t get_chunks_loaded_this_frame() const { return budge...</li>
+<li>line 304: uint32_t get_chunks_evicted_this_frame() const { return evic...</li>
+<li>line 305: uint32_t get_visible_chunks_evicted_this_frame() const { ret...</li>
+<li>line 313: bool is_asset_registered(uint32_t asset_id) const { return a...</li>
+<li>line 316: bool is_per_chunk_quantization_enabled() const { return per_...</li>
+<li>line 317: RID get_quantization_buffer() const { return quantization_bu...</li>
+<li>line 318: uint32_t get_quantization_position_bits() const { return qua...</li>
+<li>line 319: uint32_t get_quantization_scale_bits() const { return quanti...</li>
+<li>line 320: bool is_quantization_scales_enabled() const { return quantiz...</li>
+<li>line 328: bool has_asset(uint32_t asset_id) const { return asset_regis...</li>
+<li>line 334: RID get_atlas_gaussian_buffer() const { return global_atlas_...</li>
+<li>line 335: uint32_t get_atlas_gaussian_count() const { return global_at...</li>
+<li>line 336: RID get_asset_meta_buffer() const { return global_atlas_regi...</li>
+<li>line 337: RID get_chunk_meta_buffer() const { return global_atlas_regi...</li>
+<li>line 338: RID get_asset_chunk_index_buffer() const { return global_atl...</li>
+<li>line 339: RID get_atlas_quantization_buffer() const { return global_at...</li>
+<li>line 340: uint64_t get_atlas_generation() const { return global_atlas_...</li>
+<li>line 342: void _test_sync_global_atlas_state(RenderingDevice *p_rd) { ...</li>
+<li>line 343: void _test_build_global_atlas_cpu_state() { global_atlas_reg...</li>
+<li>line 344: StreamingGlobalAtlasRegistry::ChunkMetaUploadPlan _test_plan...</li>
+<li>line 347: StreamingGlobalAtlasRegistry::SyncDiagnostics _test_get_atla...</li>
+<li>line 350: void _test_clear_atlas_cpu_dirty_state() { global_atlas_regi...</li>
+<li>line 351: void _test_mark_chunk_meta_dirty(uint32_t asset_id, uint32_t...</li>
+<li>line 354: void _test_force_next_chunk_upload_failure() { test_force_ne...</li>
+<li>line 364: uint64_t _test_make_chunk_key(uint32_t p_asset_id, uint32_t ...</li>
+<li>line 368: bool _test_begin_chunk_upload(uint32_t p_asset_id, uint32_t ...</li>
+<li>line 371: uint32_t _test_get_reserved_chunk_count() const { return _ge...</li>
+<li>line 376: uint32_t _test_get_persistent_buffer_size() const { return p...</li>
+<li>line 379: uint64_t _test_atlas_gaussian_stride_bytes() const { return ...</li>
+<li>line 380: void <em>test_set_quantization_state(bool p_enabled, bool p_dc</em>...</li>
+<li>line 384: uint32_t _test_get_retired_upload_slots_this_frame() const {...</li>
+<li>line 385: uint64_t _test_get_retired_upload_bytes_this_frame() const {...</li>
+<li>line 386: uint64_t _test_get_failed_upload_retirements() const { retur...</li>
+<li>line 389: uint64_t _test_get_stride_flip_dropped_upload_retirements() ...</li>
+<li>line 396: void _test_process_upload_retirements() { _process_upload_re...</li>
+<li>line 397: void _test_rollback_pending_chunk(uint32_t p_asset_id, uint3...</li>
+<li>line 400: bool _test_enqueue_sync_fallback_chunk_load(uint32_t p_asset...</li>
+<li>line 403: uint32_t _test_drain_sync_fallback_chunk_loads(uint32_t p_ef...</li>
+<li>line 406: void _test_evict_unrequested_chunks(uint32_t p_asset_id, Atl...</li>
+<li>line 409: void _test_register_primary_asset_for_chunks() { _register_p...</li>
+<li>line 412: void _test_reset_atlas_allocator(uint32_t p_capacity) { atla...</li>
+<li>line 413: EvictionResult <em>test_evict_least_recently_used(bool p_allow</em>...</li>
+<li>line 416: EvictionResult _test_evict_non_primary_lru() { return _evict...</li>
+<li>line 417: uint32_t _test_get_primary_eviction_scan_count() const { ret...</li>
+<li>line 418: uint32_t _test_get_primary_eviction_candidate_count() const ...</li>
+<li>line 419: uint32_t _test_get_non_primary_eviction_scan_count() const {...</li>
+<li>line 420: uint32_t _test_get_non_primary_eviction_candidate_count() co...</li>
+<li>line 425: bool <em>test_get_atlas_registry_dirty() const { return global</em>...</li>
+<li>line 426: bool <em>test_get_chunk_meta_dirty_all() const { return global</em>...</li>
+<li>line 428: RID _test_get_registry_asset_meta_buffer() const { return gl...</li>
+<li>line 429: RID _test_get_registry_chunk_meta_buffer() const { return gl...</li>
+<li>line 430: RID _test_get_registry_asset_chunk_index_buffer() const { re...</li>
 </ul>
 <h2 id="testsexamplesgodottest_projecttestscitest_ply_pipeline_cigd">tests/examples/godot/test_project/tests/ci/test_ply_pipeline_ci.gd<a class="headerlink" href="#testsexamplesgodottest_projecttestscitest_ply_pipeline_cigd" title="Permanent link">¶</a></h2>
 <ul>
@@ -11785,7 +11788,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 23, 2026 14:52:47 UTC">July 23, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 23, 2026 14:58:10 UTC">July 23, 2026</span>
   </span>
 
     
