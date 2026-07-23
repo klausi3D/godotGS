@@ -3366,6 +3366,13 @@ bool GaussianStreamingSystem::_stage_chunk_upload_retirement(uint32_t asset_id, 
     ticket.submit_frame = total_frame_count;
     ticket.retire_frame = total_frame_count + retire_after_frames;
     ticket.bytes = bytes;
+    // #757: snapshot the effective atlas stride the chunk was just packed/uploaded at. The GPU
+    // payload was written at this stride; if it no longer matches at retirement time (a mixed-DC
+    // registration flipped per_chunk_quantization_dc_compatible in the interim),
+    // _process_upload_retirements() drops the ticket instead of completing the load at a
+    // mismatched stride. Captured here (not derived from `bytes`) so the guard stays exact even
+    // if chunk.count were to change under the ticket.
+    ticket.packed_stride_bytes = _atlas_gaussian_stride_bytes();
     ticket.completion_mode = completion_mode;
     ticket.metrics = metrics;
     pending_upload_retirements.push_back(ticket);
@@ -3484,6 +3491,25 @@ void GaussianStreamingSystem::_process_upload_retirements() {
                 _release_chunk_slot_if_matches(atlas_allocator,
                         _make_chunk_key(ticket.asset_id, ticket.chunk_idx), ticket.buffer_slot);
             }
+            last_completed_upload_ticket_id = ticket.ticket_id;
+            continue;
+        }
+
+        // #757 (extends #513): fail-closed atlas-stride guard for the frame-delay upload window.
+        // This ticket's chunk was packed and written to the atlas at ticket.packed_stride_bytes,
+        // but the EFFECTIVE per-chunk quantization stride (_atlas_gaussian_stride_bytes(): 80 B
+        // quantized vs 144 B raw) can flip while the ticket waits here -- e.g. registering a
+        // mixed-DC asset toggles per_chunk_quantization_dc_compatible in
+        // _refresh_quantization_dc_compatibility(). #513's guard evicts only *resident* chunks;
+        // an upload_pending chunk (is_loaded == false) is invisible to it and survives the flip.
+        // Completing the load now would call _complete_chunk_load_common(), marking the OLD-stride
+        // payload resident and accounting/rendering it at the NEW stride -> silent GPU corruption
+        // and a skewed budget.vram_usage. Drop the ticket (roll the chunk back to idle and release
+        // its slot) instead; the scheduler re-requests and re-packs it at the current stride on a
+        // later frame -- the same recovery #513 relies on for the chunks it evicts.
+        if (ticket.packed_stride_bytes != _atlas_gaussian_stride_bytes()) {
+            _rollback_pending_chunk(ticket.asset_id, ticket.chunk_idx, chunk, true);
+            budget.stride_flip_dropped_upload_retirements++;
             last_completed_upload_ticket_id = ticket.ticket_id;
             continue;
         }
