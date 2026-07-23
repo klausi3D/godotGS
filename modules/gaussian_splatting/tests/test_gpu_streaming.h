@@ -757,4 +757,157 @@ TEST_CASE("[GaussianSplatting][Streaming] A stride flip drops a pending upload s
 	CHECK(chunks_after[0].buffer_slot == UINT32_MAX);
 }
 
+TEST_CASE("[GaussianSplatting][Streaming] A stride flip drops an ASYNC-packed pending upload carrying its pack-time stride (#766 / #757 / #513)") {
+	// #766 closes the ASYNC-path twin of the window #757 fixed for the SYNC path. #757 snapshots
+	// PendingUploadRetirement::packed_stride_bytes at STAGE time. For the SYNC path (_load_chunk)
+	// pack and stage are the same main-thread call, so that snapshot equals the true pack stride --
+	// #757 is correct there. For the ASYNC path the payload is packed on a worker thread
+	// (build_pending_upload_from_pack_job -> pack_gaussians_range, which ALWAYS emits the 144 B
+	// PackedGaussian layout) and STAGED later in finalize_upload_job. If the effective atlas stride
+	// flips 144 B -> 80 B between async-pack and finalize (a mixed-DC asset becomes DC-uniform, so
+	// _refresh_quantization_dc_compatibility toggles per_chunk_quantization_dc_compatible), a
+	// stage-time snapshot captures the POST-flip 80 B stride; at retirement 80 == 80 passes and the
+	// 144 B payload is made resident and rendered/accounted at 80 B -> the exact #513/#757 GPU
+	// corruption + skewed budget.vram_usage, uncaught by #757.
+	//
+	// The fix records the true pack-time stride in PendingChunkUpload (sizeof(PackedGaussian), the
+	// layout pack_gaussians_range always writes) and threads it through finalize_upload_job into
+	// _stage_chunk_upload_retirement, so the ticket carries the stride the payload was REALLY written
+	// at rather than the post-flip stage-time stride. #757's existing fail-closed drop in
+	// _process_upload_retirements() then catches the async flip symmetrically.
+	//
+	// A headless test cannot spin up the real GPU pack worker + submission device, so this drives the
+	// exact async ORDERING via _test_stage_chunk_upload_retirement_async(), which injects the
+	// pack-time stride the way finalize_upload_job() threads PendingChunkUpload::packed_stride_bytes
+	// through. The effective-stride flip itself uses the REAL production trigger (registering then
+	// unregistering a mixed-DC asset), so the pending chunk genuinely survives #513's resident-only
+	// eviction, exactly as it would in flight.
+	//
+	// Mutation/discrimination: if the async stage snapshots the stage-time effective stride instead
+	// of the recorded pack-time stride (i.e. the #766 change to _stage_chunk_upload_retirement
+	// reverted), the ticket carries 80 B == retire-time 80 B -> guard passes -> loaded == 1, vram
+	// inflated, stride_flip_dropped == 0 -> RED. With the fix the ticket carries 144 B != 80 B ->
+	// guard fires -> loaded == 0, vram unchanged, slot drained, dropped == 1 -> GREEN.
+	GaussianStreamingSystem system;
+
+	// Per-chunk quantization enabled and DC-compatible: effective 80 B stride to start.
+	system._test_set_quantization_state(true, true);
+	CHECK(system._test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussianQuantized)));
+
+	// A DC-uniform asset keeps the quantized stride; it provides the chunk we pack/stage below.
+	const uint32_t asset_uniform = 7660;
+	system.register_asset(asset_uniform, _create_registered_streaming_test_gaussian_data(1024));
+
+	// Register a MIXED-DC asset: _refresh_quantization_dc_compatibility() flips
+	// per_chunk_quantization_dc_compatible to false, so the effective stride becomes 144 B. This is
+	// precisely the reachable window: quantization enabled + a mixed-DC asset present ->
+	// is_per_chunk_quantization_enabled() == false -> _can_use_async_pack_path() permits async pack
+	// jobs, which pack the 144 B PackedGaussian layout.
+	const uint32_t asset_mixed = 7661;
+	system.register_asset(asset_mixed, _create_mixed_dc_streaming_test_gaussian_data(64));
+	CHECK(system._test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussian)));
+
+	system._test_reset_atlas_allocator(4);
+
+	auto *asset = system._test_get_asset_state(asset_uniform);
+	if (!asset) {
+		FAIL("uniform asset state missing");
+		return;
+	}
+	auto &asset_chunks = system._test_get_asset_chunks(*asset);
+	if (asset_chunks.is_empty()) {
+		FAIL("uniform asset has no chunks");
+		return;
+	}
+	auto &chunk = asset_chunks[0];
+
+	// The stride the async worker would have PACKED this chunk at (144 B PackedGaussian).
+	const uint64_t pack_time_stride = system._test_atlas_gaussian_stride_bytes();
+	CHECK(pack_time_stride == uint64_t(sizeof(PackedGaussian)));
+	const uint64_t upload_bytes = uint64_t(chunk.count) * pack_time_stride;
+	CHECK(upload_bytes > 0);
+
+	uint32_t buffer_slot = UINT32_MAX;
+	if (!system._test_atlas_allocator().allocate_slot(system._test_make_chunk_key(asset_uniform, 0), buffer_slot)) {
+		FAIL("failed to allocate atlas slot for the pending chunk");
+		return;
+	}
+	// Begin the upload NOW (at 144 B), before the flip: the chunk becomes upload_pending
+	// (is_loaded == false), which is precisely the state #513's resident-only eviction ignores.
+	if (!system._test_begin_chunk_upload(asset_uniform, 0, chunk, buffer_slot)) {
+		FAIL("failed to begin the chunk upload");
+		return;
+	}
+
+	// Flip the effective stride 144 B -> 80 B via the REAL trigger: unregister the mixed-DC asset,
+	// leaving only DC-uniform assets so _refresh_quantization_dc_compatibility() re-enables the
+	// quantized stride. _evict_all_resident_chunks_for_stride_change() runs but only unloads
+	// *resident* chunks, so the pending chunk above survives at its 144 B-packed slot -- exactly the
+	// in-flight async job that finalizes AFTER the flip.
+	// NOTE: unregister_asset() mutates atlas_assets, so `asset`/`asset_chunks`/`chunk` may dangle
+	// afterwards; they are re-fetched below before being read again.
+	system.unregister_asset(asset_mixed);
+	CHECK(system._test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussianQuantized)));
+
+	auto *asset_flipped = system._test_get_asset_state(asset_uniform);
+	if (!asset_flipped) {
+		FAIL("uniform asset state missing after the flip");
+		return;
+	}
+	auto &chunks_flipped = system._test_get_asset_chunks(*asset_flipped);
+	if (chunks_flipped.is_empty()) {
+		FAIL("uniform asset lost its chunks after the flip");
+		return;
+	}
+	auto &chunk_flipped = chunks_flipped[0];
+	CHECK(chunk_flipped.upload_pending); // survived the flip's resident-only eviction
+	CHECK_FALSE(chunk_flipped.is_loaded);
+
+	// Stage the retirement the way the ASYNC finalize does: carrying the 144 B pack-time stride,
+	// even though the effective stride sampled right now is 80 B. This is the crux of #766 -- a
+	// stage-time snapshot here would (wrongly) record 80 B.
+	if (!system._test_stage_chunk_upload_retirement_async(asset_uniform, 0, chunk_flipped, buffer_slot,
+				upload_bytes, /*packed_stride_bytes*/ pack_time_stride, /*retire_after_frames*/ 2,
+				GaussianStreamingTypes::STREAMING_UPLOAD_COMPLETION_MAIN_RD_FRAME_DELAY_BARRIER)) {
+		FAIL("failed to stage the async upload retirement");
+		return;
+	}
+	CHECK(system.get_pending_upload_retirement_slots() == 1);
+	CHECK(system.get_loaded_chunks() == 0); // pending, not resident
+	CHECK(system._test_get_stride_flip_dropped_upload_retirements() == 0);
+
+	// Nothing is resident yet, so this is the true pre-retirement baseline; a wrong completion would
+	// add count*stride on top of it.
+	const uint64_t vram_before_retire = system.get_vram_usage();
+
+	// Advance two frames so the ticket (retire_after_frames == 2) retires through the real
+	// production entry point begin_frame() -> _process_upload_retirements().
+	system.begin_frame();
+	system.begin_frame();
+
+	// Fail closed: the 144 B-packed payload must NOT be made resident at the flipped 80 B stride.
+	// The ticket is dropped, the pending slot drained, and vram is unchanged (no skew). The scheduler
+	// re-requests and re-packs the chunk at the current stride on a later frame.
+	CHECK(system.get_loaded_chunks() == 0); // fix reverted -> 1 (corruption)
+	CHECK(system.get_vram_usage() == vram_before_retire); // fix reverted -> inflated
+	CHECK(system.get_pending_upload_retirement_slots() == 0); // ticket drained
+	CHECK(system._test_get_stride_flip_dropped_upload_retirements() == 1); // guard fired exactly once
+	CHECK(system._test_get_failed_upload_retirements() == 0); // a clean drop, not an invariant violation
+
+	// The pending chunk was rolled back to idle. Re-fetch: unregister_asset() may have rehashed.
+	auto *asset_after = system._test_get_asset_state(asset_uniform);
+	if (!asset_after) {
+		FAIL("uniform asset state missing after retirement");
+		return;
+	}
+	auto &chunks_after = system._test_get_asset_chunks(*asset_after);
+	if (chunks_after.is_empty()) {
+		FAIL("uniform asset lost its chunks after retirement");
+		return;
+	}
+	CHECK_FALSE(chunks_after[0].is_loaded);
+	CHECK_FALSE(chunks_after[0].upload_pending);
+	CHECK(chunks_after[0].buffer_slot == UINT32_MAX);
+}
+
 } // namespace TestGaussianSplatting

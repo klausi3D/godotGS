@@ -3332,7 +3332,8 @@ bool GaussianStreamingSystem::_stage_chunk_upload_retirement(uint32_t asset_id, 
         StreamingChunk &chunk, uint32_t buffer_slot, uint64_t bytes,
         const SHCompressionMetrics &metrics, RenderingDevice *submission_rd,
         uint32_t override_retire_after_frames,
-        StreamingUploadCompletionMode override_completion_mode) {
+        StreamingUploadCompletionMode override_completion_mode,
+        uint64_t override_packed_stride_bytes) {
     if (!chunk.upload_pending || chunk.is_loaded || chunk.buffer_slot != buffer_slot ||
             buffer_slot == UINT32_MAX || bytes == 0) {
         _mark_chunk_upload_failed(asset_id, chunk_idx, chunk, "_stage_chunk_upload_retirement.invalid_state");
@@ -3368,13 +3369,22 @@ bool GaussianStreamingSystem::_stage_chunk_upload_retirement(uint32_t asset_id, 
     ticket.submit_frame = total_frame_count;
     ticket.retire_frame = total_frame_count + retire_after_frames;
     ticket.bytes = bytes;
-    // #757: snapshot the effective atlas stride the chunk was just packed/uploaded at. The GPU
-    // payload was written at this stride; if it no longer matches at retirement time (a mixed-DC
-    // registration flipped per_chunk_quantization_dc_compatible in the interim),
-    // _process_upload_retirements() drops the ticket instead of completing the load at a
-    // mismatched stride. Captured here (not derived from `bytes`) so the guard stays exact even
-    // if chunk.count were to change under the ticket.
-    ticket.packed_stride_bytes = _atlas_gaussian_stride_bytes();
+    // #757: record the atlas stride the chunk's GPU payload was actually written at. If it no
+    // longer matches at retirement time (a mixed-DC registration flipped
+    // per_chunk_quantization_dc_compatible in the interim), _process_upload_retirements() drops the
+    // ticket instead of completing the load at a mismatched stride. Captured here (not derived from
+    // `bytes`) so the guard stays exact even if chunk.count were to change under the ticket.
+    //
+    // #766: for the SYNC path (_load_chunk) pack and stage are the same main-thread call, so the
+    // effective stride sampled now IS the pack stride -- override is 0 and we fall through to
+    // _atlas_gaussian_stride_bytes(), preserving pre-#766 behavior exactly. For the ASYNC path pack
+    // and stage are decoupled (packed on a worker, staged later in finalize_upload_job), so the
+    // caller passes the recorded pack-time stride (PendingChunkUpload::packed_stride_bytes, non-zero)
+    // and we record THAT verbatim -- otherwise a 144->80 flip between pack and stage would be
+    // snapshotted post-flip and slip past the guard (the #513/#757 corruption, async twin).
+    ticket.packed_stride_bytes = override_packed_stride_bytes != 0
+            ? override_packed_stride_bytes
+            : _atlas_gaussian_stride_bytes();
     ticket.completion_mode = completion_mode;
     ticket.metrics = metrics;
     pending_upload_retirements.push_back(ticket);
