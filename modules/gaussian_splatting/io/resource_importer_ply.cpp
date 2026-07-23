@@ -292,6 +292,20 @@ Error ResourceImporterPLY::import(ResourceUID::ID p_source_id, const String &p_s
         return ERR_FILE_CORRUPT;
     }
 
+    // Finiteness is a corruption guard, NOT optional validation: run it
+    // unconditionally (even when validation/validate_required_properties is off),
+    // matching the SPZ importer and the raw asset/data load paths. A NaN/Inf past
+    // splat 0 must never be baked into the generated .res (#518, Codex #756).
+    {
+        int nonfinite_index = -1;
+        if (!gaussian_data->all_render_fields_finite(&nonfinite_index)) {
+            GS_LOG_ERROR_DEFAULT(vformat(
+                    "PLY import rejected: Non-finite (NaN/Inf) position/scale/rotation/opacity at splat %d in %s",
+                    nonfinite_index, p_source_file));
+            return ERR_FILE_CORRUPT;
+        }
+    }
+
     const int original_count = gaussian_data->get_count();
 
     String preset_name = _get_string_option(p_options, OPTION_PRESET,
@@ -660,16 +674,12 @@ Error ResourceImporterPLY::validate_ply_properties(const Ref<PLYLoader> &p_loade
         return ERR_FILE_CORRUPT;
     }
 
-    // The splat-0 heuristics above (scale > 0, quaternion normalization, opacity
-    // range) are representative-sample checks. Finiteness, however, must cover
-    // the WHOLE asset: a NaN/Inf anywhere past index 0 was previously accepted
-    // and shipped to the GPU (#518). Sweep every splat's render-critical fields.
-    int bad_index = -1;
-    if (!data->all_render_fields_finite(&bad_index)) {
-        GS_LOG_ERROR_DEFAULT(vformat(
-                "PLY validation failed: Non-finite (NaN/Inf) position/scale/rotation/opacity at splat %d", bad_index));
-        return ERR_FILE_CORRUPT;
-    }
+    // Whole-asset finiteness is deliberately NOT checked here: it is a corruption
+    // guard that must run even when this optional required-property validation is
+    // disabled, so import() runs all_render_fields_finite() unconditionally on the
+    // decoded data (see there). Keeping it out of this optional block ensures a
+    // NaN/Inf past splat 0 is rejected regardless of validate_required_properties
+    // (#518, Codex #756).
 
     return OK;
 }

@@ -1070,6 +1070,32 @@ TEST_CASE("[GaussianSplatting][Importer][MalformedCorpus] RAW load_from_file rej
     _remove_user_file(source_path);
 }
 
+TEST_CASE("[GaussianSplatting][Importer][MalformedCorpus] GaussianData::load_from_file rejects NaN past splat 0 (#518)") {
+    // GaussianData::load_from_file() is the low-level ClassDB-bound raw-load API:
+    // scripts/tools load a raw PLY/SPZ into a GaussianData and can hand it to the
+    // low-level renderer/streaming path without ever going through
+    // GaussianSplatAsset. It must reject a NaN past splat 0 too, matching the
+    // asset path and the PLY/SPZ importers (Codex #756).
+    const String source_path = "user://gaussian_nan_past_index0_gdata.ply";
+
+    Error write_err = _write_binary_ply_with_nan_past_index_0(source_path);
+    CHECK_MESSAGE(write_err == OK, "Failed to create binary NaN PLY test fixture.");
+    if (write_err != OK) {
+        return;
+    }
+
+    Ref<::GaussianData> data;
+    data.instantiate();
+    const Error load_err = data->load_from_file(source_path);
+    CHECK_MESSAGE(load_err == ERR_FILE_CORRUPT,
+            "GaussianData::load_from_file must reject a PLY whose only NaN is at index >= 1 (#518). "
+            "On the pre-fix branch this returns OK because the raw GaussianData path ran no finiteness sweep.");
+    CHECK_MESSAGE(data->get_count() == 0,
+            "A rejected raw GaussianData load must not publish the payload; get_count() stays 0.");
+
+    _remove_user_file(source_path);
+}
+
 // Direct unit coverage for the shared validator itself: it must report the
 // FIRST offending index, treat the empty payload as vacuously finite, and pass
 // a fully clean payload.

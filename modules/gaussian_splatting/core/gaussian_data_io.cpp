@@ -123,6 +123,21 @@ Error GaussianData::load_from_file(const String &p_path) {
         return ERR_INVALID_DATA;
     }
 
+    // Finiteness corruption guard (#518, Codex #756): reject a NaN/Inf in any
+    // splat's render-critical fields before publishing. This is the low-level
+    // ClassDB-bound GaussianData raw-load API; like GaussianSplatAsset::
+    // load_from_file() and the PLY/SPZ importers it must never hand non-finite
+    // data to the low-level renderer/streaming path.
+    {
+        int nonfinite_index = -1;
+        if (!loaded_data->all_render_fields_finite(&nonfinite_index)) {
+            GS_LOG_ERROR_DEFAULT(vformat(
+                    "Splat load rejected: Non-finite (NaN/Inf) position/scale/rotation/opacity at splat %d in %s",
+                    nonfinite_index, p_path));
+            return ERR_FILE_CORRUPT;
+        }
+    }
+
     // Copy metadata
     LocalVector<Gaussian> loaded_gaussians;
     LocalVector<Vector3> loaded_high_coeffs;
