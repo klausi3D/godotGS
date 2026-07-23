@@ -811,89 +811,61 @@ Error PLYLoader::parse_ascii_data(Ref<FileAccess> file) {
         return ERR_FILE_CORRUPT;
     }
 
-    // Issue #767 (hardened): the byte lower bound above proves enough BYTES
-    // remain, and an earlier revision of this guard proved enough NEWLINES remain
-    // -- but bytes are not rows and newlines are not FIELDS. A hostile file can
-    // pack every required byte onto row 0 and then append `vertex_count - 1` BLANK
-    // lines: each blank line contributes one '\n' byte, so the payload satisfies
-    // the byte guard (blank lines are themselves the counted bytes) AND a bare
-    // newline count, yet the row parser rejects the first blank row -- AFTER
-    // resize(header.vertex_count) has already allocated and per-record initialized
-    // the full declared count. Counting line terminators therefore preserves the
-    // bounded over-allocation #767 set out to close (#583/#755 closed the
-    // pre-vertex-element accounting hole, not this one).
+    // Issue #767/#768 (hardened): the byte lower bound above proves enough BYTES
+    // remain, but bytes are not rows, newlines are not fields, and tokens are not
+    // numbers. Codex walked a byte-padded single line, a blank-line-padded body, a
+    // leading blank row + trailing good rows, and a body of non-float tokens (e.g.
+    // 100000 rows of "x") -- each cleared a looser gate (byte count, newline count,
+    // count-anywhere field tally, in-order token tally) yet the vertex parser below
+    // rejects the first bad row only AFTER resize(header.vertex_count) has already
+    // allocated and per-record initialized the full declared count: a bounded but
+    // real memory-amplification DoS on a hostile file.
     //
-    // Prove the vertex ROWS actually BEAR FIELDS before the large allocation. The
-    // row parser accepts a row iff it splits (split_spaces) into at least
-    // properties.size() whitespace-separated tokens (see the values.size() check
-    // in the parse loop below), so require that many field-bearing rows. Count
-    // tokens per row in a cheap raw byte scan (no per-line String allocation),
-    // bounded to the vertex block, then rewind so the parse loop reads from
-    // vertex_block_start unchanged. This is still a strict lower bound that never
-    // over-rejects a real file -- a genuine N-row body has N field-bearing rows
-    // even when each row is as small as "0\n" -- but a blank/token-deficient row
-    // no longer counts toward the gate. The fast binary path (row count == byte
-    // count / stride, already exact) is untouched.
+    // Close the whole residual class by proving the first header.vertex_count ROWS
+    // each parse EXACTLY as the vertex loop below accepts them, IN ORDER, before the
+    // allocation: not EOF, >= properties.size() whitespace tokens, and every property
+    // token is_valid_float(). This is a faithful lower-bound pre-image of that loop
+    // (same eof_reached/get_line/split_spaces/size/is_valid_float checks), so it never
+    // over-rejects a file the parser would load, but it stops at the FIRST row the
+    // parser would reject -- so no blank / short / non-numeric row can gate the
+    // multi-record resize. Rows after vertex_count are never read by the parser, so
+    // trailing junk stays harmless. One extra sequential line pass over the ASCII
+    // payload; the fast binary path (row count == byte count / stride, exact) is
+    // untouched.
     {
-        const int fields_per_row = MAX(header.properties.size(), 1);
-        const uint64_t required_rows = uint64_t(header.vertex_count); // >= 1 (validated in parse_header)
-        uint64_t field_bearing_rows = 0;
-        bool row_deficient = false; // a row WITHIN the first required_rows had < fields_per_row tokens
-        uint64_t remaining_to_scan = available_bytes;
-        uint8_t scan_buffer[4096];
-        int row_tokens = 0;       // whitespace-separated tokens seen in the current row
-        bool in_token = false;    // currently inside a run of non-whitespace
-        bool row_counted = false; // current row already reached fields_per_row tokens
-        while (!row_deficient && field_bearing_rows < required_rows && remaining_to_scan > 0) {
-            const uint64_t want = MIN<uint64_t>(sizeof(scan_buffer), remaining_to_scan);
-            const uint64_t read = file->get_buffer(scan_buffer, want);
-            if (read == 0) {
-                break; // short read: fewer bytes than the extent check promised
+        const int required_props = header.properties.size(); // >= 1 (parse_header rejects 0)
+        int64_t validated_rows = 0;
+        for (; validated_rows < header.vertex_count; validated_rows++) {
+            if (file->eof_reached()) {
+                break; // short body: fewer rows than declared (parser fails here too)
             }
-            for (uint64_t b = 0; b < read; b++) {
-                const uint8_t c = scan_buffer[b];
-                if (c == '\n') {
-                    // Row boundary. The parser consumes rows IN ORDER and rejects the FIRST row
-                    // with fewer than fields_per_row tokens (values.size() < properties.size()).
-                    // If a row within the first required_rows never reached the field count, that
-                    // is exactly where the parser would fail -> stop and reject. A later run of
-                    // good rows must NOT "pay for" a leading/interior deficient row, because the
-                    // parser never gets past it (Codex #768: a blank first row + N good rows had
-                    // N field-bearing rows total yet failed the ordered parse on row 0). Rows AFTER
-                    // required_rows are never read by the parser, so a trailing blank/short line is
-                    // harmless.
-                    if (!row_counted && field_bearing_rows < required_rows) {
-                        row_deficient = true;
-                        break;
-                    }
-                    row_tokens = 0;
-                    in_token = false;
-                    row_counted = false;
-                } else if (c == ' ' || c == '\t' || c == '\r') {
-                    in_token = false;
-                } else if (!in_token) {
-                    // Start of a new whitespace-delimited token (mirrors split_spaces).
-                    in_token = true;
-                    if (++row_tokens >= fields_per_row && !row_counted) {
-                        field_bearing_rows++;
-                        row_counted = true;
-                    }
+            const String line = file->get_line().strip_edges();
+            const Vector<String> values = line.split_spaces();
+            if (values.size() < required_props) {
+                break; // deficient row: parser rejects at values.size() < properties.size()
+            }
+            bool all_numeric = true;
+            for (int j = 0; j < required_props; j++) {
+                if (!values[j].is_valid_float()) {
+                    all_numeric = false; // non-numeric token: parser rejects at is_valid_float()
+                    break;
                 }
             }
-            remaining_to_scan -= read;
+            if (!all_numeric) {
+                break;
+            }
         }
         // Rewind to the vertex block start for the row parser below. seek() also
         // clears any EOF indicator set by scanning to the end of the payload.
         file->seek(vertex_block_start);
-        if (row_deficient || field_bearing_rows < required_rows) {
+        if (validated_rows < header.vertex_count) {
             GS_LOG_ERROR_DEFAULT(vformat(
-                    "[PLY ASCII] declared vertex_count %d needs its first %d rows to each bear >= %d tokens, but "
-                    "an in-order scan proved only %d consecutive field-bearing rows before a deficient/short row; "
-                    "refusing to allocate for a blank-padded/row-deficient file (issue #767)",
+                    "[PLY ASCII] declared vertex_count %d but only %d leading rows parse as valid vertex rows "
+                    "(>= %d float tokens each) before a deficient/non-numeric row; refusing to allocate for a "
+                    "byte-padded / row-deficient / non-numeric file (issue #767/#768)",
                     header.vertex_count,
-                    header.vertex_count,
-                    fields_per_row,
-                    static_cast<int64_t>(field_bearing_rows)));
+                    static_cast<int64_t>(validated_rows),
+                    required_props));
             return ERR_FILE_CORRUPT;
         }
     }

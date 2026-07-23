@@ -673,6 +673,54 @@ end_header
     DirAccess::remove_absolute(path.get_basename() + ".gsplatcache");
 }
 
+TEST_CASE("[GaussianSplatting][PLY][MalformedCorpus] reject rows with enough tokens that are not valid floats (issue #768 numeric)") {
+    // Codex #768 (round 3): the vertex parser rejects non-float tokens (is_valid_float) only AFTER
+    // resize(vertex_count). A body of vertex_count rows that each have >= properties.size() tokens
+    // but whose tokens are NOT numeric (e.g. the letter "x") clears a token-COUNT gate yet fails the
+    // parser on row 0 -- preserving the allocation amplification. The faithful pre-scan validates
+    // is_valid_float per property token like the parser, so it rejects such a file before resize.
+    //
+    // Fixture: one property `x`, `element vertex 100000`, body = 100000 rows of "x" (one non-float
+    // token each). Bytes = 100000*2 = 200000 >= 100000 (byte gate passes); 100000 newlines and
+    // 100000 single-token rows (count / in-order token gates pass). Only is_valid_float rejects it.
+    //
+    // Discriminator: a token-counting pre-scan reaches vertex_count rows, allocates, and the parser
+    // fails row 0 on is_valid_float -> get_splat_count() == 100000. The numeric pre-scan rejects the
+    // non-float row 0 BEFORE resize -> get_splat_count() == 0.
+    const String path = _make_ply_fixture_path("non_numeric_rows_768");
+
+    const char *header_text = R"(ply
+format ascii 1.0
+element vertex 100000
+property float x
+end_header
+)";
+
+    Ref<FileAccess> f = FileAccess::open(path, FileAccess::WRITE);
+    if (f.is_null()) {
+        FAIL("Should create non-numeric-rows ASCII PLY fixture");
+        return;
+    }
+    f->store_string(header_text);
+    // 100000 rows each with one NON-numeric token. Enough tokens, but is_valid_float("x") == false.
+    for (int r = 0; r < 100000; r++) {
+        f->store_line("x");
+    }
+    f.unref();
+
+    PLYLoader loader;
+    Error err = loader.load_file(path);
+    CHECK_MESSAGE(err == ERR_FILE_CORRUPT,
+            "ASCII PLY whose property tokens are not valid floats must be rejected (issue #768)");
+    // Load-bearing discriminator: the pre-scan validates is_valid_float per property token like the
+    // parser, so a non-numeric row is rejected BEFORE resize.
+    CHECK_MESSAGE(loader.get_splat_count() == 0,
+            "Non-numeric-token ASCII payload must be rejected BEFORE resize; is_valid_float gates the allocation (issue #768)");
+
+    _remove_ply_fixture(path);
+    DirAccess::remove_absolute(path.get_basename() + ".gsplatcache");
+}
+
 TEST_CASE("[GaussianSplatting][PLY][MalformedCorpus] valid minimal-row ASCII payload still loads under the #767 row-count guard") {
     // Positive control proving the #767 newline lower bound never over-rejects a
     // real file. Structural twin of the row-deficient fixture above (same shape,
