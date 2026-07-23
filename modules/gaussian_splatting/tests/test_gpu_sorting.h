@@ -295,6 +295,170 @@ TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] GPU Bitonic Sorting") {
 		rd->free(keys_buffer);
 		rd->free(values_buffer);
 	}
+
+	// #765: BitonicSort::sort() must SELF-PAD its own tail so it is self-contained.
+	// Unlike "Handle non-power-of-two sizes" above -- which pre-fills the padding lanes
+	// [count, padded) with a large sentinel (i.e. the CALLER pads) -- this oracle fills
+	// the tail with GARBAGE that is SMALLER than every real key. If sort() trusts the
+	// caller to pad, the ascending network pulls that garbage DOWN into the valid
+	// [0, count) range: it displaces real records (a leaked garbage payload) and leaks a
+	// negative key. If sort() self-pads (overwrites [count, padded) with kSortPadDepth ==
+	// FLT_MAX before sorting), the garbage never participates and every real record stays
+	// contiguous in [0, count). RED without the self-pad, GREEN with it. The RED signal is
+	// the garbage KEY / garbage VALUE leaking into [0, count), not the ascending order --
+	// which (2) below deliberately still checks, but which a front-loaded run of equal
+	// negatives would satisfy on its own.
+	SUBCASE("Self-pads a garbage tail (non-power-of-two count)") {
+		Ref<BitonicSort> sorter;
+		sorter.instantiate();
+
+		const uint32_t count = 1000; // Not a power of two -> a non-empty padding tail.
+		Error err = sorter->initialize(rd, count);
+		CHECK(err == OK);
+		if (err != OK) {
+			return;
+		}
+
+		const uint32_t padded = sorter->get_max_elements(); // next_power_of_two(1000) == 1024
+		CHECK(padded > count); // there really is a tail [count, padded) to (mis)fill
+
+		// Real records occupy [0, count): strictly-POSITIVE depths (so a negative garbage
+		// key is trivially distinguishable) and a full {0..count-1} index permutation as
+		// the payload (so a leaked garbage value shows up as a missing real index).
+		LocalVector<float> depths;
+		LocalVector<uint32_t> indices;
+		depths.resize(padded);
+		indices.resize(padded);
+
+		RandomNumberGenerator rng;
+		rng.set_seed(1234);
+		for (uint32_t i = 0; i < count; i++) {
+			depths[i] = rng.randf_range(1.0f, 100.0f); // real keys: strictly > 0
+			indices[i] = i;                            // real payload index
+		}
+
+		// GARBAGE tail -- deliberately NOT the pad sentinel. The key is smaller than every
+		// real key, so an un-self-padded ascending sort pulls it to the FRONT of [0, count);
+		// the value is a marker that is not a valid real index, so a leaked payload is
+		// detectable as an out-of-range value in [0, count).
+		const float garbage_key = -100.0f;        // < all real depths; sorts to the front
+		const uint32_t garbage_value = 0x00C0FFEEu; // >= count; not a valid real index
+		for (uint32_t i = count; i < padded; i++) {
+			depths[i] = garbage_key;
+			indices[i] = garbage_value;
+		}
+
+		RID keys_buffer = create_storage_buffer(rd, depths);
+		RID values_buffer = create_storage_buffer(rd, indices);
+
+		err = sorter->sort(keys_buffer, values_buffer, count);
+		CHECK(err == OK);
+
+		Vector<uint8_t> sorted_keys = rd->buffer_get_data(keys_buffer);
+		Vector<uint8_t> sorted_values = rd->buffer_get_data(values_buffer);
+		// #656: guard the readback size before dereferencing -- REQUIRE would not abort,
+		// so a short buffer would segfault the whole run instead of failing this case.
+		if (sorted_keys.size() < int(count * sizeof(float)) ||
+				sorted_values.size() < int(count * sizeof(uint32_t))) {
+			FAIL("buffer_get_data returned fewer than count elements");
+			rd->free(keys_buffer);
+			rd->free(values_buffer);
+			return;
+		}
+		const float *key_ptr = (const float *)sorted_keys.ptr();
+		const uint32_t *value_ptr = (const uint32_t *)sorted_values.ptr();
+
+		// (1) [0, count) is fully ascending.
+		for (uint32_t i = 1; i < count; i++) {
+			CHECK(key_ptr[i] >= key_ptr[i - 1]);
+		}
+
+		// (2) No garbage KEY leaked into [0, count). Every real key was strictly > 0; the
+		//     garbage key was negative. Without the self-pad the garbage sorts to the
+		//     front, so this is the assertion that flips RED.
+		bool garbage_key_leaked = false;
+		for (uint32_t i = 0; i < count; i++) {
+			if (key_ptr[i] <= 0.0f) {
+				garbage_key_leaked = true;
+			}
+		}
+		CHECK(garbage_key_leaked == false);
+
+		// (3) Every real record preserved and no garbage VALUE leaked: the payloads in
+		//     [0, count) are exactly the permutation {0..count-1}. Without the self-pad the
+		//     garbage marker occupies slots and real indices go missing.
+		LocalVector<bool> seen;
+		seen.resize(count);
+		for (uint32_t i = 0; i < count; i++) {
+			seen[i] = false;
+		}
+		bool all_values_in_range = true;
+		for (uint32_t i = 0; i < count; i++) {
+			const uint32_t v = value_ptr[i];
+			if (v < count) {
+				seen[v] = true;
+			} else {
+				all_values_in_range = false;
+			}
+		}
+		CHECK(all_values_in_range);
+		bool all_real_indices_present = true;
+		for (uint32_t i = 0; i < count; i++) {
+			if (!seen[i]) {
+				all_real_indices_present = false;
+			}
+		}
+		CHECK(all_real_indices_present);
+
+		rd->free(keys_buffer);
+		rd->free(values_buffer);
+	}
+
+	// #769: sort() must PROPAGATE a padding-upload failure instead of dispatching over
+	// padded_count and returning OK. Size the key/value buffers to exactly `count`,
+	// deliberately violating the padded_count precondition the self-pad relies on. The
+	// tail write [count, padded) is then out of bounds, and buffer_update rejects it at
+	// its CPU-side bounds check (ERR_INVALID_PARAMETER) BEFORE compute_list_begin() --
+	// so the discriminating assertion resolves at the CPU validation layer, without a
+	// GPU dispatch on the fix path. Pre-#769 both returns were ignored and sort() reported
+	// OK over an unpadded tail; the fix returns the propagated error.
+	SUBCASE("Propagates a padding-upload failure on undersized buffers (#769)") {
+		Ref<BitonicSort> sorter;
+		sorter.instantiate();
+
+		const uint32_t count = 1000; // Not a power of two -> a non-empty padding tail.
+		Error err = sorter->initialize(rd, count);
+		CHECK(err == OK);
+		if (err != OK) {
+			return;
+		}
+
+		const uint32_t padded = sorter->get_max_elements(); // next_power_of_two(1000) == 1024
+		CHECK(padded > count); // there really is a tail [count, padded) the self-pad would write
+
+		// Buffers sized to `count`, NOT `padded`: the self-pad's tail write [count, padded)
+		// is out of bounds by (padded - count) lanes.
+		LocalVector<float> depths;
+		LocalVector<uint32_t> indices;
+		depths.resize(count);
+		indices.resize(count);
+		for (uint32_t i = 0; i < count; i++) {
+			depths[i] = float(count - i); // arbitrary valid keys
+			indices[i] = i;
+		}
+		RID keys_buffer = create_storage_buffer(rd, depths);
+		RID values_buffer = create_storage_buffer(rd, indices);
+
+		err = sorter->sort(keys_buffer, values_buffer, count);
+		// Load-bearing discriminator: pre-#769 the failed tail write was ignored and sort()
+		// returned OK over an unpadded (garbage) tail. The fix aborts with the propagated
+		// buffer_update error before recording any compute work.
+		CHECK_MESSAGE(err != OK,
+				"sort() must not report OK when the padding tail write fails on undersized buffers (#769)");
+
+		rd->free(keys_buffer);
+		rd->free(values_buffer);
+	}
 }
 
 // #622: [GpuSort] tag opts this radix sort-order oracle into the required
