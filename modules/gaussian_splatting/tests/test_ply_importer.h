@@ -721,6 +721,46 @@ end_header
     DirAccess::remove_absolute(path.get_basename() + ".gsplatcache");
 }
 
+TEST_CASE("[GaussianSplatting][PLY][MalformedCorpus] valid ASCII PLY whose last row lacks a trailing newline still loads (issue #768 EOF)") {
+    // Codex #768: the row pre-scan reads the final row to EOF, and some FileAccess backends
+    // (Android's FileChannelDataAccess) do not clear EOF on seek(), so the parser's eof_reached()
+    // guard would reject a VALID file whose last row has no trailing newline. The loader now reopens
+    // the source for the parse to get an EOF-clear cursor on every platform. This positive control
+    // proves that reopen path loads such a file end-to-end (on desktop it also guards against the
+    // reopen regressing valid loading; on Android it additionally guards the EOF path).
+    const String path = _make_ply_fixture_path("no_trailing_newline_768");
+
+    const char *header_text = R"(ply
+format ascii 1.0
+element vertex 3
+property float x
+property float y
+property float z
+end_header
+)";
+
+    Ref<FileAccess> f = FileAccess::open(path, FileAccess::WRITE);
+    if (f.is_null()) {
+        FAIL("Should create no-trailing-newline ASCII PLY fixture");
+        return;
+    }
+    f->store_string(header_text);
+    // Three valid rows; the LAST has no trailing newline (store_string, not store_line), so the
+    // pre-scan reads it to EOF.
+    f->store_string("1 2 3\n4 5 6\n7 8 9");
+    f.unref();
+
+    PLYLoader loader;
+    Error err = loader.load_file(path);
+    CHECK_MESSAGE(err == OK,
+            "A valid ASCII PLY whose final row lacks a trailing newline must load (issue #768 EOF/reopen)");
+    CHECK_MESSAGE(loader.get_splat_count() == 3,
+            "All 3 rows of a newline-terminated-less valid ASCII PLY must load (issue #768)");
+
+    _remove_ply_fixture(path);
+    DirAccess::remove_absolute(path.get_basename() + ".gsplatcache");
+}
+
 TEST_CASE("[GaussianSplatting][PLY][MalformedCorpus] valid minimal-row ASCII payload still loads under the #767 row-count guard") {
     // Positive control proving the #767 newline lower bound never over-rejects a
     // real file. Structural twin of the row-deficient fixture above (same shape,

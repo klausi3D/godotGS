@@ -855,9 +855,25 @@ Error PLYLoader::parse_ascii_data(Ref<FileAccess> file) {
                 break;
             }
         }
-        // Rewind to the vertex block start for the row parser below. seek() also
-        // clears any EOF indicator set by scanning to the end of the payload.
-        file->seek(vertex_block_start);
+        // Rewind to the vertex block start for the row parser below. The pre-scan may have read
+        // the final newline-less row to EOF, and not every FileAccess backend clears the EOF flag
+        // on seek() -- Android's FileChannelDataAccess.seek() only moves the position, so the
+        // parser's eof_reached() guard would then reject a VALID file (Codex #768). Reopen the
+        // source for a fresh, EOF-clear cursor on every platform; fall back to a plain seek if the
+        // handle has no reopenable path (e.g. an in-memory FileAccess). Reopening the (rare, small)
+        // ASCII source once is negligible; the fast binary path never reaches here.
+        {
+            const String source_path = file->get_path();
+            Ref<FileAccess> reopened = source_path.is_empty()
+                    ? Ref<FileAccess>()
+                    : FileAccess::open(source_path, FileAccess::READ);
+            if (reopened.is_valid()) {
+                reopened->seek(vertex_block_start);
+                file = reopened;
+            } else {
+                file->seek(vertex_block_start);
+            }
+        }
         if (validated_rows < header.vertex_count) {
             GS_LOG_ERROR_DEFAULT(vformat(
                     "[PLY ASCII] declared vertex_count %d but only %d leading rows parse as valid vertex rows "
