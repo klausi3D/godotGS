@@ -713,30 +713,6 @@ void main() {
 // WORK BATCHING OPTIMIZATION (Issue #108)
 // ======================================================================
 
-bool BitonicSort::_requires_synchronization(uint32_t stage, uint32_t pass, uint32_t num_elements) const {
-    // Determine if synchronization is required between passes
-    // Strategy: Only sync when data dependencies require it
-
-    // Always sync on final pass of each stage
-    if (pass == 1) {
-        return true;
-    }
-
-    // Sync for large workloads to prevent GPU timeout
-    if (num_elements > 2000000) { // > 2M elements
-        return true;
-    }
-
-    // Sync at power-of-2 intervals for memory coherency
-    uint32_t stage_power = 1u << stage;
-    if ((pass & (stage_power - 1)) == 0) {
-        return true;
-    }
-
-    // For smaller workloads, batch more aggressively
-    return false;
-}
-
 void BitonicSort::shutdown() {
     // Check if resource_device is still valid by comparing with the current shared device
     RenderingDevice *current_shared = get_submission_device();
@@ -887,32 +863,24 @@ Error BitonicSort::sort(RID keys_buffer, RID values_buffer, uint32_t count) {
         num_stages++;
     }
     
-    // Execute all stages and passes with work batching optimization (Issue #108)
-    uint32_t dispatches_batched = 0;
-    const uint32_t MAX_BATCH_DISPATCHES = 8; // Batch small dispatches
-
+    // Execute all stages and passes. Bitonic correctness: every pass reads
+    // elements the previous pass wrote, so a compute barrier is REQUIRED after
+    // every non-final pass (plus the always-on inter-stage barrier). The old
+    // #108 "batch dispatches / _requires_synchronization" heuristic skipped most
+    // of these barriers, racing up to 8 passes -- the 2nd defect behind the #622
+    // oracle red (the 1st was the thread->pair index collision).
     for (uint32_t stage = 1; stage <= num_stages; stage++) {
         for (uint32_t pass = stage; pass > 0; pass--) {
             dispatch_bitonic_pass(compute_rd, compute_list, stage, pass, padded_count);
-            dispatches_batched++;
 
-            // Bitonic correctness: every pass reads elements the previous pass
-            // wrote, so a barrier is REQUIRED after every non-final pass. The old
-            // _requires_synchronization()/MAX_BATCH_DISPATCHES batching skipped
-            // most of them, racing up to 8 passes -- the 2nd defect behind the
-            // #622 oracle red (the 1st was the thread->pair index collision).
-            bool needs_barrier = (pass > 1);
-
-            if (needs_barrier) {
+            if (pass > 1) {
                 compute_rd->compute_list_add_barrier(compute_list);
-                dispatches_batched = 0; // Reset batch counter
             }
         }
 
         // Barrier between stages (always required for correctness)
         if (stage < num_stages) {
             compute_rd->compute_list_add_barrier(compute_list);
-            dispatches_batched = 0;
         }
     }
     
