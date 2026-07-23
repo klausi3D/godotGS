@@ -628,23 +628,72 @@ void compare_and_swap(uint i, uint j, bool ascending) {
 }
 
 void main() {
+    // ------------------------------------------------------------------
+    // Batcher bitonic sorting network -- ONE compare-and-swap per thread.
+    //
+    // #622/#754 correctness fix. The previous mapping collided at the first
+    // merge stage: with block_size == 2 (half_block_size == 1) two consecutive
+    // threads (gid == 2k and gid == 2k+1) both resolved to the SAME pair
+    // (i == 2k, j == 2k+1) but with OPPOSITE `ascending` -- two concurrent,
+    // opposite compare_and_swap() on the same keys[]/values[] = a data race
+    // that produced non-deterministic, unsorted output. It also visited a
+    // stage's sub-passes in the wrong (small->large) distance order. The
+    // canonical mapping below gives every thread a UNIQUE (i, j) pair with a
+    // single well-defined direction.
+    //
+    // The host (BitonicSort::sort) drives a classic (stage, pass) schedule
+    // over a power-of-two PADDED element count:
+    //
+    //   for stage in 1..num_stages:            // seq_size = 2^stage
+    //     for pass in stage..1:                 // compare distance halves
+    //       dispatch_bitonic_pass(stage, pass, padded_count)  // padded/2 threads
+    //
+    // Push-constant meaning (must match dispatch_bitonic_pass on the host):
+    //   params.stage         : current merge stage k (1-based)
+    //   params.pass_in_stage : sub-pass within the stage, running `stage`..1
+    //   params.num_elements  : PADDED (power-of-two) element count = 2^num_stages
+    //   params.block_size    : 2^stage == length of the bitonic sub-sequence
+    //                          being merged this stage (a.k.a. seq_size)
+    // ------------------------------------------------------------------
     uint gid = gl_GlobalInvocationID.x;
 
-    uint half_block_size = params.block_size >> 1;
-    uint block_id = gid / half_block_size;
-    uint thread_in_block = gid %% half_block_size;
+    // A pass has exactly num_elements/2 compare-swap pairs. The host rounds
+    // the dispatch up to a whole number of workgroups, so lanes with
+    // gid >= (num_elements >> 1) are padding: make them inert so they never
+    // index past the (power-of-two sized) key/value buffers. num_elements is
+    // always a power of two here, so this half is exact.
+    uint pair_count = params.num_elements >> 1u;
+    if (gid >= pair_count) {
+        return;
+    }
 
-    bool ascending = ((block_id & 1) == 0);
+    // Compare distance for this pass. Sub-passes within a stage run from the
+    // largest distance (2^(stage-1), when pass_in_stage == stage) down to 1
+    // (when pass_in_stage == 1) -- the canonical Batcher merge order.
+    uint distance = 1u << (params.pass_in_stage - 1u);
 
-    uint stride = 1u << (params.stage - params.pass_in_stage);
-    uint offset = thread_in_block * stride * 2;
-    uint block_start = (block_id / 2) * params.block_size;
+    // Length (2^stage) of the bitonic sub-sequence merged this stage. A pair's
+    // sort direction depends on which half of that sub-sequence its low index
+    // lands in, which is what makes the merged runs alternate up/down.
+    uint seq_size = params.block_size;
 
-    uint i = block_start + offset;
-    uint j = i + stride;
+    // Map thread `gid` to its unique low index `i` by INSERTING A ZERO BIT at
+    // bit position log2(distance): keep the bits below `distance`, shift the
+    // rest up by one. That freed bit is where the compare partner differs, so
+    // `i` has bit(log2 distance) == 0 and j = i | distance == i + distance.
+    // This is a bijection from [0, num_elements/2) onto the pair-low indices,
+    // so every thread owns a distinct (i, j) -- no two threads share a pair.
+    uint i = ((gid & ~(distance - 1u)) << 1u) | (gid & (distance - 1u));
+    uint j = i | distance;
 
-    if (j >= params.num_elements) return;
+    // Ascending when `i` sits in the ascending half of its 2^stage sub-sequence.
+    // (i & seq_size) toggles once per sub-sequence, yielding the alternating
+    // ascending/descending pattern a bitonic merge requires.
+    bool ascending = ((i & seq_size) == 0u);
 
+    // With gid < num_elements/2 and num_elements a power of two, both `i` and
+    // `j` are provably < num_elements, so they are in-bounds for the padded
+    // buffers -- no extra per-index bounds check is needed.
     compare_and_swap(i, j, ascending);
 }
     )",
@@ -663,30 +712,6 @@ void main() {
 // ======================================================================
 // WORK BATCHING OPTIMIZATION (Issue #108)
 // ======================================================================
-
-bool BitonicSort::_requires_synchronization(uint32_t stage, uint32_t pass, uint32_t num_elements) const {
-    // Determine if synchronization is required between passes
-    // Strategy: Only sync when data dependencies require it
-
-    // Always sync on final pass of each stage
-    if (pass == 1) {
-        return true;
-    }
-
-    // Sync for large workloads to prevent GPU timeout
-    if (num_elements > 2000000) { // > 2M elements
-        return true;
-    }
-
-    // Sync at power-of-2 intervals for memory coherency
-    uint32_t stage_power = 1u << stage;
-    if ((pass & (stage_power - 1)) == 0) {
-        return true;
-    }
-
-    // For smaller workloads, batch more aggressively
-    return false;
-}
 
 void BitonicSort::shutdown() {
     // Check if resource_device is still valid by comparing with the current shared device
@@ -745,7 +770,11 @@ void BitonicSort::dispatch_bitonic_pass(RenderingDevice *p_rd, RenderingDevice::
     // Update push constants
     p_rd->compute_list_set_push_constant(p_command_list, &params, sizeof(BitonicParams));
 
-    // Calculate dispatch size
+    // Calculate dispatch size. num_elements is the PADDED (power-of-two) count,
+    // so this is exactly num_elements/2 threads -- one per compare-swap pair --
+    // rounded up to a whole number of WORKGROUP_SIZE workgroups. The shader
+    // maps each thread `gid` in [0, num_elements/2) to one unique (i, j) pair
+    // and makes the rounded-up tail lanes (gid >= num_elements/2) inert.
     uint32_t num_threads = (num_elements + 1) / 2; // Each thread handles a pair
     uint32_t num_groups = (num_threads + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
     
@@ -834,30 +863,24 @@ Error BitonicSort::sort(RID keys_buffer, RID values_buffer, uint32_t count) {
         num_stages++;
     }
     
-    // Execute all stages and passes with work batching optimization (Issue #108)
-    uint32_t dispatches_batched = 0;
-    const uint32_t MAX_BATCH_DISPATCHES = 8; // Batch small dispatches
-
+    // Execute all stages and passes. Bitonic correctness: every pass reads
+    // elements the previous pass wrote, so a compute barrier is REQUIRED after
+    // every non-final pass (plus the always-on inter-stage barrier). The old
+    // #108 "batch dispatches / _requires_synchronization" heuristic skipped most
+    // of these barriers, racing up to 8 passes -- the 2nd defect behind the #622
+    // oracle red (the 1st was the thread->pair index collision).
     for (uint32_t stage = 1; stage <= num_stages; stage++) {
         for (uint32_t pass = stage; pass > 0; pass--) {
             dispatch_bitonic_pass(compute_rd, compute_list, stage, pass, padded_count);
-            dispatches_batched++;
 
-            // Smart barrier insertion - reduce barriers for better GPU utilization
-            bool needs_barrier = (pass > 1) &&
-                               ((dispatches_batched % MAX_BATCH_DISPATCHES) == 0 ||
-                                _requires_synchronization(stage, pass, padded_count));
-
-            if (needs_barrier) {
+            if (pass > 1) {
                 compute_rd->compute_list_add_barrier(compute_list);
-                dispatches_batched = 0; // Reset batch counter
             }
         }
 
         // Barrier between stages (always required for correctness)
         if (stage < num_stages) {
             compute_rd->compute_list_add_barrier(compute_list);
-            dispatches_batched = 0;
         }
     }
     

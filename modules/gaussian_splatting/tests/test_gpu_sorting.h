@@ -39,7 +39,63 @@ static RID create_storage_buffer(RenderingDevice *rd, const LocalVector<T> &data
 	return rd->storage_buffer_create(bytes.size(), bytes);
 }
 
-TEST_CASE("[GaussianSplatting][RequiresGPU] GPU Bitonic Sorting") {
+// #754: The GPU sorter never records on the RenderingDevice passed to
+// initialize()/create_sorter(); it acquires its working device through
+// GaussianSplatManager::get_submission_device() -> get_shared_submission_device()
+// -> get_primary_rendering_device() (see gpu_sorter.cpp). Under --gs-gpu-test there
+// is NO GaussianSplatManager singleton and NO RenderingServer, so that chain returns
+// nullptr and BitonicSort::initialize / GPUSorterFactory::create_sorter fail with
+// ERR_CANT_CREATE *before any sort runs* -- the sort-ORDER CHECKs in these cases
+// never execute, so the "oracle" was gated only on init, not on order.
+//
+// This fixture stands up a manager (mirroring ScopedGaussianManagerPipeline in
+// test_renderer_pipeline.h) and points its primary device at the test's own
+// RenderingDevice, so the sorter records and submits on the SAME device the test
+// buffers live on. It restores the manager's device slot and tears the manager down
+// on every exit path, and it NEVER frees the passed device (the harness owns it), so
+// the harness-owned device cannot be double-freed. See
+// set_primary_rendering_device_for_testing() for the lifetime contract.
+class ScopedGpuSortManagerDevice {
+	GaussianSplatManager *manager = nullptr;
+	bool owns_manager = false;
+	RenderingDevice *previous_primary = nullptr;
+	bool injected = false;
+
+public:
+	explicit ScopedGpuSortManagerDevice(RenderingDevice *p_rd) {
+		manager = GaussianSplatManager::get_singleton();
+		if (!manager) {
+			manager = memnew(GaussianSplatManager);
+			owns_manager = true;
+		}
+		if (manager && p_rd) {
+			previous_primary = manager->set_primary_rendering_device_for_testing(p_rd);
+			injected = true;
+		}
+	}
+
+	~ScopedGpuSortManagerDevice() {
+		if (manager && injected) {
+			// Restore the original slot value BEFORE the manager is destroyed so
+			// ~GaussianSplatManager -> _destroy_local_devices() never memdeletes
+			// the harness-owned test device.
+			manager->set_primary_rendering_device_for_testing(previous_primary);
+		}
+		if (owns_manager && manager) {
+			memdelete(manager);
+		}
+	}
+
+	bool is_valid() const { return manager != nullptr; }
+};
+
+// #622: carries the [GpuSort] tag so it is SELECTED by the required GpuSorting
+// harness batch (filter "*Sort*][RequiresGPU]*"). Without a Sort-bearing tag
+// BEFORE [RequiresGPU], the batch glob does not match (the "Sorting" in the
+// description sits AFTER "][RequiresGPU]"), and this sort-order oracle -- though
+// linked and registered -- runs in NO harness batch. The ascending-order CHECKs
+// below are what make a deliberately-wrong sort turn the batch RED.
+TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] GPU Bitonic Sorting") {
 	RenderingDevice *rd = RenderingDevice::get_singleton();
 	if (!rd) {
 		RenderingServer *rs = RenderingServer::get_singleton();
@@ -53,13 +109,31 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] GPU Bitonic Sorting") {
 		return;
 	}
 
+	// #754: route the sorter's device-acquisition chain onto `rd` (see fixture).
+	// Without this BitonicSort::initialize() below returns ERR_CANT_CREATE and the
+	// ascending-order CHECKs never run.
+	ScopedGpuSortManagerDevice manager_device(rd);
+
 	SUBCASE("Initialize GPU sorter") {
 		Ref<BitonicSort> sorter;
 		sorter.instantiate();
 
-		Error err = sorter->initialize(rd, 10000);
+		const uint32_t requested = 10000u;
+		Error err = sorter->initialize(rd, requested);
 		CHECK(err == OK);
-		CHECK(sorter->get_max_elements() == 10000);
+		// #754: get_max_elements() reports the sorter's real capacity, which
+		// BitonicSort rounds UP to the next power of two so the sort network
+		// operates on a power-of-two element count (BitonicSort::initialize()
+		// -> next_power_of_two()). A request of 10000 therefore yields a
+		// capacity of 16384, NOT 10000. The old `== 10000` expectation asserted
+		// a value the contract never produces; it passed only while the case
+		// was gated at init and never actually executed, and turns FALSE
+		// (16384 == 10000) the moment the case runs. Assert the padded
+		// semantics: an exact next_power_of_two(10000) capacity that is at
+		// least the request.
+		const uint32_t capacity = sorter->get_max_elements();
+		CHECK(capacity == 16384u); // next_power_of_two(10000)
+		CHECK(capacity >= requested);
 	}
 
 	SUBCASE("Sort small dataset") {
@@ -169,11 +243,23 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] GPU Bitonic Sorting") {
 		// BitonicSort handles non-power-of-two internally
 		CHECK(sorter->supports_non_power_of_two());
 
-		// Create test data
+		// #622/#754: BitonicSort::sort() pads `count` up to next_power_of_two and
+		// the compute shader reads AND writes every index in [0, padded). The GPU
+		// buffers must therefore be sized to the padded capacity -- allocating
+		// only `count` floats let the sort race past the end of the buffer
+		// (undefined GPU behavior) and made this a broken oracle. get_max_elements()
+		// reports exactly that padded capacity (next_power_of_two(count)). Fill the
+		// tail with a large finite SENTINEL key so the padding sinks to the top
+		// under the ascending sort and the real data stays contiguous in [0, count).
+		const uint32_t padded = sorter->get_max_elements(); // next_power_of_two(count)
+		CHECK(padded >= count);
+		const float sentinel_key = 3.0e38f; // finite, > any test key; sorts to the tail
+
+		// Create test data, padded to the sort's power-of-two capacity.
 		LocalVector<float> depths;
 		LocalVector<uint32_t> indices;
-		depths.resize(count);
-		indices.resize(count);
+		depths.resize(padded);
+		indices.resize(padded);
 
 		RandomNumberGenerator rng;
 		rng.set_seed(42);
@@ -182,8 +268,12 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] GPU Bitonic Sorting") {
 			depths[i] = rng.randf_range(0.0f, 100.0f);
 			indices[i] = i;
 		}
+		for (uint32_t i = count; i < padded; i++) {
+			depths[i] = sentinel_key;
+			indices[i] = 0xFFFFFFFFu; // sentinel index; never inspected
+		}
 
-		// Create GPU buffers
+		// Create GPU buffers sized to the padded capacity.
 		RID keys_buffer = create_storage_buffer(rd, depths);
 		RID values_buffer = create_storage_buffer(rd, indices);
 
@@ -191,7 +281,9 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] GPU Bitonic Sorting") {
 		err = sorter->sort(keys_buffer, values_buffer, count);
 		CHECK(err == OK);
 
-		// Verify sorting
+		// Verify sorting. The real data occupies [0, count) after the ascending
+		// sort (the sentinel tail sorts into [count, padded)), so only check the
+		// real region.
 		Vector<uint8_t> sorted_depths = rd->buffer_get_data(keys_buffer);
 		const float *depth_ptr = (const float *)sorted_depths.ptr();
 
@@ -205,7 +297,10 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] GPU Bitonic Sorting") {
 	}
 }
 
-TEST_CASE("[GaussianSplatting][RequiresGPU] Radix sort factory honors 32-bit key layout") {
+// #622: [GpuSort] tag opts this radix sort-order oracle into the required
+// GpuSorting harness batch (see the note on "GPU Bitonic Sorting" above). The
+// exact expected_keys / expected_values CHECKs below discriminate a wrong sort.
+TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] Radix sort factory honors 32-bit key layout") {
 	struct GPUSortingConfigRestore {
 		GPUSortingConfig previous_config;
 		~GPUSortingConfigRestore() {
@@ -231,6 +326,12 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Radix sort factory honors 32-bit key
 		MESSAGE("Skipping 32-bit radix sort factory test - no RenderingDevice available");
 		return;
 	}
+
+	// #754: without a manager whose primary device is `rd`, create_sorter() below
+	// returns an invalid sorter (ERR_CANT_CREATE) and the expected_keys/expected_values
+	// CHECKs never run. Declared here so it is torn down after the manual
+	// memdelete(rd) on every exit path (the fixture never frees `rd` itself).
+	ScopedGpuSortManagerDevice manager_device(rd);
 
 	SortKeyConfig key_config;
 	key_config.key_bits = 32;
@@ -429,8 +530,26 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] GPU Sorting Performance") {
 			return;
 		}
 
-		RID keys_buffer = create_storage_buffer(rd, depths);
-		RID values_buffer = create_storage_buffer(rd, indices);
+		// #622/#754: same latent OOB as "Handle non-power-of-two sizes" -- count
+		// (10000) is not a power of two, so sort() dispatches over the padded
+		// capacity and the shader touches every index in [0, padded). Size the GPU
+		// buffers to that padded capacity. The CPU-reference vectors above stay at
+		// `count`; only these GPU copies grow, with a finite sentinel tail that
+		// sorts to the end. (get_max_elements() is valid here: it is only read
+		// after the err==OK guard above.)
+		const uint32_t padded = sorter->get_max_elements(); // next_power_of_two(count)
+		const float sentinel_key = 3.0e38f; // finite, > any test key; sorts to the tail
+		LocalVector<float> gpu_depths = depths;
+		LocalVector<uint32_t> gpu_indices = indices;
+		gpu_depths.resize(padded);
+		gpu_indices.resize(padded);
+		for (uint32_t i = count; i < padded; i++) {
+			gpu_depths[i] = sentinel_key;
+			gpu_indices[i] = 0xFFFFFFFFu; // sentinel index; never inspected
+		}
+
+		RID keys_buffer = create_storage_buffer(rd, gpu_depths);
+		RID values_buffer = create_storage_buffer(rd, gpu_indices);
 
 		uint64_t gpu_start = OS::get_singleton()->get_ticks_usec();
 
@@ -455,7 +574,11 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] GPU Sorting Performance") {
 // WORKGROUP_SIZE bins, silently corrupting the sort at workgroup_size 64/128. This test sorts keys
 // whose bytes span HIGH digit values (>= 128) so those high bins are exercised, and checks the GPU
 // output against a CPU reference at every allowed workgroup_size.
-TEST_CASE("[GaussianSplatting][RequiresGPU] Radix sort 8-bit is correct at all workgroup sizes") {
+// #622: [GpuSort] tag opts this 8-bit radix sort-order oracle into the required
+// GpuSorting harness batch (see the note on "GPU Bitonic Sorting" above). It
+// checks the GPU output against a CPU-sorted reference at every workgroup size,
+// so a wrong sort at any bin count turns the required batch RED.
+TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] Radix sort 8-bit is correct at all workgroup sizes") {
 	struct GPUSortingConfigRestore {
 		GPUSortingConfig previous_config;
 		~GPUSortingConfigRestore() { g_gpu_sorting_config = previous_config; }
@@ -474,6 +597,14 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Radix sort 8-bit is correct at all w
 		MESSAGE("Skipping 8-bit radix sort test - no RenderingDevice available");
 		return;
 	}
+
+	// #754: route create_sorter()'s device-acquisition chain onto `rd`. Without it
+	// every workgroup size fails to init (ERR_CANT_CREATE) for the SAME reason on
+	// every GPU, so `verified` is always 0 and the case asserts nothing -- masking
+	// whether 8-bit radix is genuinely unsupported. With the device wired, the loop
+	// runs the real per-workgroup order CHECKs where 8-bit IS supported, and the
+	// verified==0 branch below verifies the supported fallback where it is not.
+	ScopedGpuSortManagerDevice manager_device(rd);
 
 	LocalVector<uint32_t> base_keys;
 	base_keys.push_back(0xFF000001u);
@@ -551,13 +682,72 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Radix sort 8-bit is correct at all w
 		sorter.unref();
 	}
 
-	// If every workgroup size was rejected by the runtime probes (descriptor / shared-
-	// memory / workgroup limits), an invalid sorter is the SUPPORTED production fallback —
-	// the sort path keeps the 4-bit default — so skip rather than fail the RequiresGPU
-	// suite on a low-capability GPU. When at least one variant was supported the per-
-	// iteration CHECKs above already validated correctness.
+	// #754 (Part B): if every workgroup size was rejected by the runtime probes
+	// (descriptor / shared-memory / workgroup limits), 8-bit radix is unsupported on
+	// this GPU -- e.g. its 256 histogram bins exceed the compute shared-memory budget
+	// on an RTX 3090. That is the DOCUMENTED production fallback: the factory returns
+	// an invalid 8-bit sorter and the sort path keeps the supported 4-bit default
+	// (DEFAULT_RADIX_BITS). The previous behaviour just emitted a MESSAGE and returned
+	// with ZERO assertions, which the #695/#696 anti-hollow audit rejects for this
+	// REQUIRED batch AND which left the "oracle" proving nothing about sort order on
+	// low-capability GPUs. Instead, assert that the supported 4-bit fallback actually
+	// sorts the SAME keys into the SAME reference order, so this case remains a genuine
+	// order oracle regardless of whether 8-bit is available. (When at least one 8-bit
+	// variant was supported, the per-iteration CHECKs above already validated
+	// correctness and this branch is skipped.)
 	if (verified == 0u) {
-		MESSAGE("Skipping 8-bit radix verification: no workgroup size is supported on this GPU");
+		MESSAGE("8-bit radix unsupported at every workgroup size on this GPU; verifying the supported 4-bit radix fallback instead");
+
+		g_gpu_sorting_config.reset_to_defaults(); // DEFAULT_RADIX_BITS == 4 (supported)
+
+		SortKeyConfig fb_key_config;
+		fb_key_config.key_bits = 32;
+		fb_key_config.tile_bits = 16;
+		fb_key_config.depth_bits = 16;
+		fb_key_config.enable_tie_breaker = false;
+
+		Ref<IGPUSorter> fb_sorter = GPUSorterFactory::create_sorter(
+				GPUSorterFactory::ALGORITHM_RADIX, rd, count, fb_key_config);
+		// The 4-bit radix path is the shipped default and must build wherever the
+		// 8-bit path does not; an invalid sorter here is a real defect, not a
+		// capability gap, so this is a hard CHECK.
+		CHECK(fb_sorter.is_valid());
+		if (fb_sorter.is_valid()) {
+			LocalVector<uint32_t> fb_keys = base_keys;
+			LocalVector<uint32_t> fb_values;
+			fb_values.resize(count);
+			for (uint32_t i = 0; i < count; i++) {
+				fb_values[i] = i;
+			}
+
+			RID fb_keys_buffer = create_storage_buffer(rd, fb_keys);
+			RID fb_values_buffer = create_storage_buffer(rd, fb_values);
+
+			Error fb_err = fb_sorter->sort(fb_keys_buffer, fb_values_buffer, count);
+			CHECK(fb_err == OK);
+			if (fb_err == OK) {
+				Vector<uint8_t> keys_result = rd->buffer_get_data(fb_keys_buffer, 0, count * sizeof(uint32_t));
+				Vector<uint8_t> values_result = rd->buffer_get_data(fb_values_buffer, 0, count * sizeof(uint32_t));
+				const uint32_t *sorted_keys = (const uint32_t *)keys_result.ptr();
+				const uint32_t *sorted_values = (const uint32_t *)values_result.ptr();
+				for (uint32_t i = 0; i < count; i++) {
+					// Same discriminating checks as the 8-bit loop: (1) ascending order
+					// matches the CPU reference; (2) the carried value maps back to its key.
+					CHECK_MESSAGE(sorted_keys[i] == expected_keys[i],
+							vformat("4-bit radix fallback pos %d: got 0x%08X expected 0x%08X", i, sorted_keys[i], expected_keys[i]));
+					const bool value_maps_back = sorted_values[i] < count && base_keys[sorted_values[i]] == sorted_keys[i];
+					CHECK_MESSAGE(value_maps_back,
+							vformat("4-bit radix fallback pos %d: value %d does not map back to key 0x%08X", i, sorted_values[i], sorted_keys[i]));
+				}
+				SortingMetrics fb_metrics = fb_sorter->get_metrics();
+				CHECK(fb_metrics.last_radix_bits == 4u);
+			}
+
+			rd->free(fb_keys_buffer);
+			rd->free(fb_values_buffer);
+			fb_sorter->shutdown();
+			fb_sorter.unref();
+		}
 	}
 
 	if (owns_local_device) {

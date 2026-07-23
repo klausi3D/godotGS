@@ -125,7 +125,7 @@ The Python supervisor drives `--gs-gpu-test` in **per-batch subprocesses** so a 
 | `OutputCompositor` | `*OutputCompositor*][RequiresGPU]*` | Active, **required** (promoted #724) |
 | `ComputeInfrastructure` | `*ComputeInfra*][RequiresGPU]*` | Catalogued, empty |
 | `TileRenderer` | `*TileRenderer*][RequiresGPU]*` | Active (3 cases, #641) |
-| `GpuSorting` | `*Sort*][RequiresGPU]*` | Active, **required** (promoted #744) — gates the #508 `[GPUSortPipeline]` overflow-sticky case only (1/5 asserts); sort-order tests are linker-dropped (#622) |
+| `GpuSorting` | `*Sort*][RequiresGPU]*` | Active, **required** (promoted #744) — gates the #508 `[GPUSortPipeline]` overflow-sticky case AND the three `[GpuSort]` sort-order oracles retagged in #622 (Bitonic + 32-bit/8-bit Radix); `check_gpu_sorting_order_coverage.py` pins that coverage. The `.cpp` order tests remain linker-dropped (#622/#631); the `GPU Sorting Performance` timing benchmark stays advisory |
 | `MemoryStream` | `*MemoryStream*][RequiresGPU]*` | Catalogued, empty |
 | `Streaming` | `*Streaming*][RequiresGPU]*` | Catalogued, empty |
 | `Integration` | `*Integration*][RequiresGPU]*` | Active (1 of 2 cases, #641) |

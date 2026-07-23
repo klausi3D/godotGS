@@ -279,9 +279,6 @@ private:
     uint32_t next_power_of_two(uint32_t n) const;
     void dispatch_bitonic_pass(RenderingDevice *p_rd, RenderingDevice::ComputeListID p_command_list, uint32_t stage, uint32_t pass, uint32_t num_elements);
 
-    // Work batching optimization (Issue #108)
-    bool _requires_synchronization(uint32_t stage, uint32_t pass, uint32_t num_elements) const;
-
 protected:
     static void _bind_methods();
 

@@ -79,8 +79,14 @@ GATE_PATH = ROOT / "tests" / "ci" / "check_renderer_release_gates.py"
 # drives GPU streaming + sorting" was retagged [SceneTree][RequiresGPU] and moved into
 # the new RendererSceneTree batch, so it left the backlog by executing rather than by
 # being deleted or excused.
-BACKLOG_MAX_ENTRIES = 69
-BACKLOG_FINGERPRINT = "e91685a38e709b415ba1085d77b2d9d60cd77d70e25be546218ee56a50217d11"
+# Re-pinned by #622 (legitimate SHRINK, 69 -> 66): the three sort-ORDER oracles in
+# test_gpu_sorting.h ("GPU Bitonic Sorting", "Radix sort factory honors 32-bit key
+# layout", "Radix sort 8-bit is correct at all workgroup sizes") were retagged with
+# [GpuSort] so they are SELECTED by the required GpuSorting batch, leaving the backlog
+# by executing rather than by being deleted or excused. ("GPU Sorting Performance",
+# a timing benchmark, is intentionally NOT retagged and remains in the backlog.)
+BACKLOG_MAX_ENTRIES = 66
+BACKLOG_FINGERPRINT = "570e67e0829d3323cac191da605623bad9a8367fd14b0ac892da2c8cb21a72ef"
 
 
 def _load(name: str, path: Path):
