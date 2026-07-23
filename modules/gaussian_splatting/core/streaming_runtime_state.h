@@ -27,6 +27,14 @@ struct BudgetState {
     uint64_t retired_upload_bytes_this_frame = 0;
     uint32_t retired_upload_slots_this_frame = 0;
     uint64_t failed_upload_retirements = 0;
+    // #757 (extends #513): count of pending upload retirements dropped fail-closed because the
+    // EFFECTIVE atlas byte stride flipped (per-chunk quantization DC-compatibility toggled by a
+    // mixed-DC asset registration) between the chunk being packed/staged and its frame-delayed
+    // retirement. #513's resident-chunk eviction cannot cover these (they are upload_pending,
+    // is_loaded == false), so completing them would mark an old-stride payload resident and
+    // read/account it at the new stride -> GPU corruption. Cumulative (never per-frame reset) so
+    // the degraded path is explicit and observable, matching the renderer's timing-honesty rule.
+    uint64_t stride_flip_dropped_upload_retirements = 0;
 
     Dictionary get_vram_debug_stats() const;
     bool is_vram_budget_warning_active() const;

@@ -135,6 +135,7 @@ void GaussianStreamingSystem::end_frame() {
     analytics_snapshot["retired_upload_bytes_this_frame"] = static_cast<int64_t>(budget.retired_upload_bytes_this_frame);
     analytics_snapshot["retired_upload_slots_this_frame"] = static_cast<int64_t>(budget.retired_upload_slots_this_frame);
     analytics_snapshot["failed_upload_retirements"] = static_cast<int64_t>(budget.failed_upload_retirements);
+    analytics_snapshot["stride_flip_dropped_upload_retirements"] = static_cast<int64_t>(budget.stride_flip_dropped_upload_retirements);
     analytics_snapshot["last_upload_completion_mode"] = last_upload_completion_mode;
     analytics_snapshot["zero_visible_consecutive_frames"] = visibility.zero_visible_recovery.zero_visible_consecutive_frames;
     analytics_snapshot["zero_visible_recoveries_triggered"] = (int)visibility.zero_visible_recovery.recoveries_triggered;
@@ -723,6 +724,7 @@ Dictionary GaussianStreamingSystem::_build_streaming_diagnostics_snapshot(
     diagnostics_snapshot["retired_upload_bytes_this_frame"] = static_cast<int64_t>(budget.retired_upload_bytes_this_frame);
     diagnostics_snapshot["retired_upload_slots_this_frame"] = static_cast<int64_t>(budget.retired_upload_slots_this_frame);
     diagnostics_snapshot["failed_upload_retirements"] = static_cast<int64_t>(budget.failed_upload_retirements);
+    diagnostics_snapshot["stride_flip_dropped_upload_retirements"] = static_cast<int64_t>(budget.stride_flip_dropped_upload_retirements);
     diagnostics_snapshot["last_upload_completion_mode"] = last_upload_completion_mode;
     diagnostics_snapshot["last_completed_upload_ticket_id"] = static_cast<int64_t>(last_completed_upload_ticket_id);
     diagnostics_snapshot["sync_promoted_pack_jobs_this_frame"] = static_cast<int64_t>(upload_pipeline.last_sync_promoted_pack_jobs);

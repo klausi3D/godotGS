@@ -569,6 +569,7 @@ void GaussianStreamingSystem::initialize(Ref<::GaussianData> p_data) {
     budget.retired_upload_bytes_this_frame = 0;
     budget.retired_upload_slots_this_frame = 0;
     budget.failed_upload_retirements = 0;
+    budget.stride_flip_dropped_upload_retirements = 0;
     pending_upload_retirements.clear();
     next_upload_ticket_id = 1;
     last_completed_upload_ticket_id = 0;
@@ -814,6 +815,7 @@ void GaussianStreamingSystem::initialize_empty(RenderingDevice *p_device) {
     budget.retired_upload_bytes_this_frame = 0;
     budget.retired_upload_slots_this_frame = 0;
     budget.failed_upload_retirements = 0;
+    budget.stride_flip_dropped_upload_retirements = 0;
     pending_upload_retirements.clear();
     next_upload_ticket_id = 1;
     last_completed_upload_ticket_id = 0;
@@ -1578,12 +1580,53 @@ void GaussianStreamingSystem::_refresh_quantization_dc_compatibility() {
         return;
     }
 
+    // #513: is_per_chunk_quantization_enabled() == (per_chunk_quantization_enabled &&
+    // per_chunk_quantization_dc_compatible) drives the effective atlas byte stride
+    // (_atlas_gaussian_stride_bytes(): 80 B quantized vs 144 B raw). Flipping
+    // per_chunk_quantization_dc_compatible here can change that effective stride while
+    // chunks packed at the OLD stride are still resident in the atlas (e.g. registering a
+    // mixed-DC asset while another asset's chunks are loaded). Leaving them resident would
+    // make the renderer reinterpret 80 B payloads at 144 B (or vice-versa) -> GPU data
+    // corruption, and skew budget.vram_usage when they are later decremented at the *new*
+    // stride (silently clamped at 0). Fail closed: when the effective stride changes, evict
+    // every resident chunk BEFORE committing the flip, so the decrement uses the correct old
+    // stride and nothing is ever read at a mismatched stride. The scheduler re-requests and
+    // re-uploads the evicted chunks at the new stride on subsequent frames.
+    const bool effective_stride_changes =
+            per_chunk_quantization_enabled && (per_chunk_quantization_dc_compatible != compatible);
+    if (effective_stride_changes) {
+        _evict_all_resident_chunks_for_stride_change();
+    }
+
     per_chunk_quantization_dc_compatible = compatible;
     quantization_dirty = true;
     quantization_cpu_cache_valid = false;
     global_atlas_registry.mark_asset_registry_dirty();
     if (!compatible) {
         WARN_PRINT_ONCE("[Quantization] Disabled per-chunk quantization for mixed DC-encoding assets; using the non-quantized upload path.");
+    }
+}
+
+void GaussianStreamingSystem::_evict_all_resident_chunks_for_stride_change() {
+    // Must run BEFORE per_chunk_quantization_dc_compatible is flipped: _unload_chunk()
+    // decrements budget.vram_usage by chunk.count * _atlas_gaussian_stride_bytes(), and while
+    // the flag still holds its old value that stride matches the one each chunk was loaded and
+    // accounted at -- so the payload accounting returns exactly to its pre-load baseline
+    // instead of skewing. Iterate by index; _unload_chunk() mutates chunks in place and never
+    // removes entries, so the traversal stays valid. Snapshot the asset-order list because
+    // _unload_chunk() does not touch it, keeping the outer loop stable.
+    for (uint32_t i = 0; i < asset_registry.atlas_asset_order.size(); i++) {
+        const uint32_t asset_id = asset_registry.atlas_asset_order[i];
+        AtlasAssetState *asset = _get_asset_state(asset_id);
+        if (!asset) {
+            continue;
+        }
+        LocalVector<StreamingChunk> &asset_chunks = _get_asset_chunks(*asset);
+        for (uint32_t chunk_idx = 0; chunk_idx < asset_chunks.size(); chunk_idx++) {
+            if (asset_chunks[chunk_idx].is_loaded) {
+                _unload_chunk(asset_id, chunk_idx);
+            }
+        }
     }
 }
 
@@ -3325,6 +3368,13 @@ bool GaussianStreamingSystem::_stage_chunk_upload_retirement(uint32_t asset_id, 
     ticket.submit_frame = total_frame_count;
     ticket.retire_frame = total_frame_count + retire_after_frames;
     ticket.bytes = bytes;
+    // #757: snapshot the effective atlas stride the chunk was just packed/uploaded at. The GPU
+    // payload was written at this stride; if it no longer matches at retirement time (a mixed-DC
+    // registration flipped per_chunk_quantization_dc_compatible in the interim),
+    // _process_upload_retirements() drops the ticket instead of completing the load at a
+    // mismatched stride. Captured here (not derived from `bytes`) so the guard stays exact even
+    // if chunk.count were to change under the ticket.
+    ticket.packed_stride_bytes = _atlas_gaussian_stride_bytes();
     ticket.completion_mode = completion_mode;
     ticket.metrics = metrics;
     pending_upload_retirements.push_back(ticket);
@@ -3443,6 +3493,25 @@ void GaussianStreamingSystem::_process_upload_retirements() {
                 _release_chunk_slot_if_matches(atlas_allocator,
                         _make_chunk_key(ticket.asset_id, ticket.chunk_idx), ticket.buffer_slot);
             }
+            last_completed_upload_ticket_id = ticket.ticket_id;
+            continue;
+        }
+
+        // #757 (extends #513): fail-closed atlas-stride guard for the frame-delay upload window.
+        // This ticket's chunk was packed and written to the atlas at ticket.packed_stride_bytes,
+        // but the EFFECTIVE per-chunk quantization stride (_atlas_gaussian_stride_bytes(): 80 B
+        // quantized vs 144 B raw) can flip while the ticket waits here -- e.g. registering a
+        // mixed-DC asset toggles per_chunk_quantization_dc_compatible in
+        // _refresh_quantization_dc_compatibility(). #513's guard evicts only *resident* chunks;
+        // an upload_pending chunk (is_loaded == false) is invisible to it and survives the flip.
+        // Completing the load now would call _complete_chunk_load_common(), marking the OLD-stride
+        // payload resident and accounting/rendering it at the NEW stride -> silent GPU corruption
+        // and a skewed budget.vram_usage. Drop the ticket (roll the chunk back to idle and release
+        // its slot) instead; the scheduler re-requests and re-packs it at the current stride on a
+        // later frame -- the same recovery #513 relies on for the chunks it evicts.
+        if (ticket.packed_stride_bytes != _atlas_gaussian_stride_bytes()) {
+            _rollback_pending_chunk(ticket.asset_id, ticket.chunk_idx, chunk, true);
+            budget.stride_flip_dropped_upload_retirements++;
             last_completed_upload_ticket_id = ticket.ticket_id;
             continue;
         }

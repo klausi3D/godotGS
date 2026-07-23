@@ -46,6 +46,35 @@ static Ref<::GaussianData> _create_registered_streaming_test_gaussian_data(uint3
 	return data;
 }
 
+// #513: builds an asset whose gaussians carry MIXED DC encodings, so
+// _data_has_uniform_dc_encoding() reports false and registering it flips the
+// effective per-chunk quantization state (and therefore the atlas byte stride).
+static Ref<::GaussianData> _create_mixed_dc_streaming_test_gaussian_data(uint32_t p_count) {
+	Ref<::GaussianData> data;
+	data.instantiate();
+
+	LocalVector<Gaussian> gaussians;
+	gaussians.resize(MAX(2u, p_count));
+	for (uint32_t i = 0; i < gaussians.size(); i++) {
+		Gaussian &g = gaussians[i];
+		g.position = Vector3(i * 0.1f, i * 0.2f, i * 0.3f);
+		g.scale = Vector3(0.5f, 0.5f, 0.5f);
+		g.rotation = Quaternion();
+		g.opacity = 0.9f;
+		g.sh_dc = Color(1.0f, 0.5f, 0.2f, 0.9f);
+		g.normal = Vector3(0.0f, 1.0f, 0.0f);
+		g.area = 0.25f;
+		// Alternate the DC encoding bit so the asset is NOT DC-uniform.
+		const GaussianDCEncoding encoding = (i % 2u == 0u)
+				? GAUSSIAN_DC_ENCODING_LEGACY_BIAS
+				: GAUSSIAN_DC_ENCODING_LINEAR_RGB;
+		g.render_meta = gaussian_set_dc_encoding(g.render_meta, encoding);
+	}
+
+	data->set_gaussians(gaussians);
+	return data;
+}
+
 struct ConcurrentStreamingAssertionsContext {
 	Ref<GaussianMemoryStream> stream;
 	uint32_t uploads_per_thread = 0;
@@ -566,6 +595,166 @@ TEST_CASE("[GaussianSplatting] Atlas byte stride tracks the EFFECTIVE quantizati
 	CHECK(sys->_test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussian)));
 	sys->_test_set_quantization_state(false, false);
 	CHECK(sys->_test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussian)));
+}
+
+TEST_CASE("[GaussianSplatting][Streaming] Registering a mixed-DC asset evicts chunks resident at the old stride (#513)") {
+	// #513 stride-flip hazard: with per-chunk quantization enabled the atlas packs an 80 B
+	// stride. Registering a mixed-DC asset flips the EFFECTIVE quantization state off inside
+	// _refresh_quantization_dc_compatibility(), so _atlas_gaussian_stride_bytes() jumps to
+	// 144 B. Any chunk already resident was packed/accounted at 80 B: leaving it resident makes
+	// the renderer reinterpret its 80 B payload at 144 B (GPU corruption) and skews
+	// budget.vram_usage when it is decremented at the new 144 B stride. The fail-closed guard
+	// must evict every resident chunk under the OLD stride before committing the flip.
+	//
+	// Discrimination vs. origin/master: on base the flip leaves the resident chunk loaded and
+	// the payload accounting inflated, so get_loaded_chunks() == 1 and get_vram_usage() stays
+	// at the loaded value -> both CHECKs below are RED. With the guard the chunk is evicted at
+	// the old stride, so loaded == 0 and vram returns exactly to its pre-load baseline.
+	Ref<GaussianStreamingSystem> system;
+	system.instantiate();
+	if (!system.is_valid()) {
+		FAIL("streaming system failed to instantiate");
+		return;
+	}
+
+	// Enable per-chunk quantization (effective 80 B stride) before anything is resident.
+	system->_test_set_quantization_state(true, true);
+	CHECK(system->_test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussianQuantized)));
+
+	// A DC-uniform asset keeps the effective quantized stride; register it and make one chunk
+	// resident at 80 B.
+	const uint32_t asset_uniform = 5130;
+	system->register_asset(asset_uniform, _create_registered_streaming_test_gaussian_data(1024));
+	system->_test_reset_atlas_allocator(4);
+
+	const uint64_t vram_baseline = system->get_vram_usage();
+	system->_test_mark_chunk_loaded_for_eviction(asset_uniform, 0, true, 1, 1, 1.0f);
+	CHECK(system->_test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussianQuantized)));
+	CHECK(system->get_loaded_chunks() == 1);
+	const uint64_t vram_loaded = system->get_vram_usage();
+	CHECK(vram_loaded > vram_baseline); // the resident 80 B chunk added payload bytes
+
+	// Registering a MIXED-DC asset flips the effective quantization state off -> stride 144 B.
+	const uint32_t asset_mixed = 5131;
+	system->register_asset(asset_mixed, _create_mixed_dc_streaming_test_gaussian_data(64));
+	CHECK(system->_test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussian)));
+
+	// Fail closed: no chunk may remain resident across the stride flip, and the payload
+	// accounting must return to its pre-load baseline (no skew).
+	CHECK(system->get_loaded_chunks() == 0);
+	CHECK(system->get_vram_usage() == vram_baseline);
+}
+
+TEST_CASE("[GaussianSplatting][Streaming] A stride flip drops a pending upload staged at the old stride (#757 / #513)") {
+	// #757 closes the window #513 left open. #513 only evicts chunks that are already
+	// *resident* (is_loaded) before flipping the effective atlas stride. A chunk that has been
+	// packed and uploaded but is still waiting in the frame-delay retirement queue is
+	// upload_pending (is_loaded == false), so #513's eviction skips it. If the effective stride
+	// flips (a mixed-DC asset registration toggles per_chunk_quantization_dc_compatible) before
+	// that ticket retires, _process_upload_retirements() would mark the OLD-stride (80 B) payload
+	// resident and account/render it at the NEW stride (144 B) -> silent GPU corruption + skewed
+	// budget.vram_usage. The fail-closed stride guard must drop such a ticket instead.
+	//
+	// This drives the exact ordering: stage a pending retirement at 80 B, flip the stride to
+	// 144 B via a mixed-DC registration (the pending chunk survives #513's eviction), then let
+	// the ticket retire through the real begin_frame() -> _process_upload_retirements() path.
+	//
+	// Mutation/discrimination: remove or bypass the stride guard in
+	// _process_upload_retirements() and the pending chunk is completed at 144 B -> loaded == 1,
+	// vram inflated by count*144 B, and stride_flip_dropped == 0 -> all four post-retire CHECKs
+	// go RED. With the guard: loaded == 0, vram unchanged, slot drained, dropped == 1.
+	GaussianStreamingSystem system;
+
+	// Effective 80 B stride (per-chunk quantization enabled and DC-compatible).
+	system._test_set_quantization_state(true, true);
+	CHECK(system._test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussianQuantized)));
+
+	// A DC-uniform asset keeps the quantized stride; register it and reset the atlas allocator.
+	const uint32_t asset_uniform = 7570;
+	system.register_asset(asset_uniform, _create_registered_streaming_test_gaussian_data(1024));
+	system._test_reset_atlas_allocator(4);
+
+	// Stage a pending upload for chunk 0 at the OLD (80 B) stride: allocate a slot, begin the
+	// upload, then stage a MAIN_RD frame-delay retirement ticket. The chunk stays upload_pending
+	// (is_loaded == false), which is precisely the state #513's resident-only eviction ignores.
+	auto *asset = system._test_get_asset_state(asset_uniform);
+	if (!asset) {
+		FAIL("uniform asset state missing");
+		return;
+	}
+	auto &asset_chunks = system._test_get_asset_chunks(*asset);
+	if (asset_chunks.is_empty()) {
+		FAIL("uniform asset has no chunks");
+		return;
+	}
+	auto &chunk = asset_chunks[0];
+
+	const uint64_t old_stride = system._test_atlas_gaussian_stride_bytes();
+	CHECK(old_stride == uint64_t(sizeof(PackedGaussianQuantized)));
+	const uint64_t upload_bytes = uint64_t(chunk.count) * old_stride;
+	CHECK(upload_bytes > 0);
+
+	uint32_t buffer_slot = UINT32_MAX;
+	if (!system._test_atlas_allocator().allocate_slot(system._test_make_chunk_key(asset_uniform, 0), buffer_slot)) {
+		FAIL("failed to allocate atlas slot for the pending chunk");
+		return;
+	}
+	if (!system._test_begin_chunk_upload(asset_uniform, 0, chunk, buffer_slot)) {
+		FAIL("failed to begin the chunk upload");
+		return;
+	}
+	if (!system._test_stage_chunk_upload_retirement(asset_uniform, 0, chunk, buffer_slot, upload_bytes,
+				/*retire_after_frames*/ 2,
+				GaussianStreamingTypes::STREAMING_UPLOAD_COMPLETION_MAIN_RD_FRAME_DELAY_BARRIER)) {
+		FAIL("failed to stage the upload retirement");
+		return;
+	}
+	CHECK(system.get_pending_upload_retirement_slots() == 1);
+	CHECK(system.get_loaded_chunks() == 0); // pending, not resident
+	CHECK(system._test_get_stride_flip_dropped_upload_retirements() == 0);
+
+	// Flip the effective stride to 144 B by registering a MIXED-DC asset. #513's guard runs but
+	// only evicts resident chunks, so the pending chunk above survives at the old 80 B stride.
+	// NOTE: register_asset() may rehash atlas_assets, so `asset`/`asset_chunks`/`chunk` may
+	// dangle after this line -- they are re-fetched below before being read again.
+	const uint32_t asset_mixed = 7571;
+	system.register_asset(asset_mixed, _create_mixed_dc_streaming_test_gaussian_data(64));
+	CHECK(system._test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussian)));
+	CHECK(system.get_pending_upload_retirement_slots() == 1); // the flip did not drain the ticket
+
+	// Snapshot vram in the post-flip pending state. Nothing is resident yet, so this is the true
+	// pre-retirement baseline; a wrong completion would add count*144 B on top of it.
+	const uint64_t vram_before_retire = system.get_vram_usage();
+
+	// Advance two frames so the ticket (retire_after_frames == 2) retires through the real
+	// production entry point begin_frame() -> _process_upload_retirements().
+	system.begin_frame();
+	system.begin_frame();
+
+	// Fail closed: the old-stride payload must NOT be made resident at the new stride. The ticket
+	// is dropped, the pending slot drained, and vram is unchanged (no skew). The scheduler will
+	// re-request and re-pack the chunk at 144 B on a later frame.
+	CHECK(system.get_loaded_chunks() == 0); // guard removed -> 1 (corruption)
+	CHECK(system.get_vram_usage() == vram_before_retire); // guard removed -> inflated by count*144 B
+	CHECK(system.get_pending_upload_retirement_slots() == 0); // ticket drained
+	CHECK(system._test_get_stride_flip_dropped_upload_retirements() == 1); // guard fired exactly once
+	CHECK(system._test_get_failed_upload_retirements() == 0); // not an invariant violation, a clean drop
+
+	// The pending chunk was rolled back to idle. Re-fetch state: the mixed registration may have
+	// rehashed atlas_assets, invalidating the earlier `asset`/`chunk` handles.
+	auto *asset_after = system._test_get_asset_state(asset_uniform);
+	if (!asset_after) {
+		FAIL("uniform asset state missing after the flip");
+		return;
+	}
+	auto &chunks_after = system._test_get_asset_chunks(*asset_after);
+	if (chunks_after.is_empty()) {
+		FAIL("uniform asset lost its chunks after the flip");
+		return;
+	}
+	CHECK_FALSE(chunks_after[0].is_loaded);
+	CHECK_FALSE(chunks_after[0].upload_pending);
+	CHECK(chunks_after[0].buffer_slot == UINT32_MAX);
 }
 
 } // namespace TestGaussianSplatting

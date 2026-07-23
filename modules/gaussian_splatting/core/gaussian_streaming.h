@@ -155,6 +155,15 @@ private:
         uint64_t submit_frame = 0;
         uint64_t retire_frame = 0;
         uint64_t bytes = 0;
+        // #757 (extends #513): the EFFECTIVE atlas byte stride (_atlas_gaussian_stride_bytes(),
+        // 80 B quantized vs 144 B raw) that this chunk was packed/uploaded/staged at. The effective
+        // stride can flip while the ticket sits in the frame-delay queue (a mixed-DC asset
+        // registration toggles per_chunk_quantization_dc_compatible via
+        // _refresh_quantization_dc_compatibility). #513 only evicts *resident* chunks, so an
+        // upload_pending chunk survives the flip; _process_upload_retirements() compares this
+        // against the current stride and fail-closes (drops the ticket) on a mismatch instead of
+        // reinterpreting the old-stride payload at the new stride.
+        uint64_t packed_stride_bytes = 0;
         uint8_t completion_mode = GaussianStreamingTypes::STREAMING_UPLOAD_COMPLETION_NONE;
         SHCompressionMetrics metrics;
     };
@@ -375,6 +384,9 @@ public:
     uint32_t _test_get_retired_upload_slots_this_frame() const { return budget.retired_upload_slots_this_frame; }
     uint64_t _test_get_retired_upload_bytes_this_frame() const { return budget.retired_upload_bytes_this_frame; }
     uint64_t _test_get_failed_upload_retirements() const { return budget.failed_upload_retirements; }
+    // #757: pending retirements dropped fail-closed because the effective atlas stride flipped
+    // between staging and retirement (see BudgetState::stride_flip_dropped_upload_retirements).
+    uint64_t _test_get_stride_flip_dropped_upload_retirements() const { return budget.stride_flip_dropped_upload_retirements; }
     bool _test_stage_chunk_upload_retirement(uint32_t p_asset_id, uint32_t p_chunk_idx,
             StreamingChunk &p_chunk, uint32_t p_buffer_slot, uint64_t p_bytes,
             uint32_t p_retire_after_frames, StreamingUploadCompletionMode p_mode) {
@@ -437,6 +449,9 @@ private:
     void _refresh_primary_chunk_layout_metrics();
     void _register_primary_asset();
     void _refresh_quantization_dc_compatibility();
+    // #513 fail-closed guard: evict every resident chunk before an effective
+    // quantization-stride flip so nothing is ever read/accounted at a mismatched stride.
+    void _evict_all_resident_chunks_for_stride_change();
     uint32_t _advance_asset_generation(uint32_t asset_id);
     uint32_t _alloc_dense_id(uint32_t asset_id);
     void _release_dense_id(uint32_t dense_id);
