@@ -387,6 +387,9 @@ public:
     // #757: pending retirements dropped fail-closed because the effective atlas stride flipped
     // between staging and retirement (see BudgetState::stride_flip_dropped_upload_retirements).
     uint64_t _test_get_stride_flip_dropped_upload_retirements() const { return budget.stride_flip_dropped_upload_retirements; }
+    // #766: async uploads dropped fail-closed in process_upload_queue() on a pack-time/effective
+    // stride mismatch, BEFORE any buffer write (see BudgetState::stride_flip_dropped_prewrite_uploads).
+    uint64_t _test_get_stride_flip_dropped_prewrite_uploads() const { return budget.stride_flip_dropped_prewrite_uploads; }
     bool _test_stage_chunk_upload_retirement(uint32_t p_asset_id, uint32_t p_chunk_idx,
             StreamingChunk &p_chunk, uint32_t p_buffer_slot, uint64_t p_bytes,
             uint32_t p_retire_after_frames, StreamingUploadCompletionMode p_mode) {

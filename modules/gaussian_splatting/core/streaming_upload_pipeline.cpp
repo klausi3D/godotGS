@@ -963,6 +963,33 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
             continue;
         }
 
+        // #766 follow-up (pre-write, fail-closed): the async pack path always emits the
+        // 144 B PackedGaussian layout, and upload_job_slices()/coalescing size and OFFSET
+        // the write by sizeof(PackedGaussian) (slot_capacity_bytes / slot_offset below) --
+        // unlike the SYNC path, which offsets by the runtime _atlas_gaussian_stride_bytes().
+        // If the effective atlas stride flipped 144->80 while this job was in flight (a
+        // mixed-DC (un)registration toggling per-chunk quantization DC-compatibility),
+        // buffer_update() would splice this 144 B payload across the now-80 B slot grid and
+        // clobber neighboring resident 80 B slots. The #757 retirement guard only drops the
+        // ticket AFTER the write and cannot un-corrupt those neighbors, so compare the
+        // pack-time stride against the current effective stride HERE, before any buffer
+        // copy. On a mismatch, roll the chunk back to idle and drop the job; the scheduler
+        // re-packs it at the current stride on a later frame (symmetric with the retirement
+        // guard's recovery). A payload packed at one stride cannot be reinterpreted into the
+        // other's slots, so drop-and-repack -- not a re-strided write -- is the only correct
+        // action. packed_stride_bytes == 0 means "unset" (pre-#766 job) -> fall through to
+        // the effective stride, matching _stage_chunk_upload_retirement's override handling.
+        // The job is dropped before a retirement ticket is staged, and it increments a DISTINCT
+        // counter (stride_flip_dropped_prewrite_uploads) from the retirement-time drop, so the two
+        // fail-closed sites stay individually observable and never double-count one job.
+        if (job->packed_stride_bytes != 0 &&
+                job->packed_stride_bytes != system._atlas_gaussian_stride_bytes()) {
+            system._rollback_pending_chunk(job->asset_id, job->chunk_idx, *chunk, true);
+            system.budget.stride_flip_dropped_prewrite_uploads++;
+            memdelete(job);
+            continue;
+        }
+
         const uint64_t slot_capacity_bytes =
                 uint64_t(GaussianStreamingSystem::CHUNK_SIZE) * sizeof(PackedGaussian);
         const uint32_t remaining_chunk_budget = upload_budget_state.completed_chunks < upload_budget_state.chunk_limit

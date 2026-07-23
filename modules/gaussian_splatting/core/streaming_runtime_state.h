@@ -35,6 +35,11 @@ struct BudgetState {
     // read/account it at the new stride -> GPU corruption. Cumulative (never per-frame reset) so
     // the degraded path is explicit and observable, matching the renderer's timing-honesty rule.
     uint64_t stride_flip_dropped_upload_retirements = 0;
+    // #766: async pack jobs dropped fail-closed in process_upload_queue() because the effective
+    // atlas stride flipped between pack time and the buffer write. Distinct from the retirement
+    // drop above: this one fires BEFORE the write, so no neighbor slot is corrupted. Cumulative,
+    // like the retirement counter, so the pre-write degraded path is explicit and observable.
+    uint64_t stride_flip_dropped_prewrite_uploads = 0;
 
     Dictionary get_vram_debug_stats() const;
     bool is_vram_budget_warning_active() const;
