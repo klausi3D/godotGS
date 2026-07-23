@@ -118,9 +118,22 @@ TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] GPU Bitonic Sorting") {
 		Ref<BitonicSort> sorter;
 		sorter.instantiate();
 
-		Error err = sorter->initialize(rd, 10000);
+		const uint32_t requested = 10000u;
+		Error err = sorter->initialize(rd, requested);
 		CHECK(err == OK);
-		CHECK(sorter->get_max_elements() == 10000);
+		// #754: get_max_elements() reports the sorter's real capacity, which
+		// BitonicSort rounds UP to the next power of two so the sort network
+		// operates on a power-of-two element count (BitonicSort::initialize()
+		// -> next_power_of_two()). A request of 10000 therefore yields a
+		// capacity of 16384, NOT 10000. The old `== 10000` expectation asserted
+		// a value the contract never produces; it passed only while the case
+		// was gated at init and never actually executed, and turns FALSE
+		// (16384 == 10000) the moment the case runs. Assert the padded
+		// semantics: an exact next_power_of_two(10000) capacity that is at
+		// least the request.
+		const uint32_t capacity = sorter->get_max_elements();
+		CHECK(capacity == 16384u); // next_power_of_two(10000)
+		CHECK(capacity >= requested);
 	}
 
 	SUBCASE("Sort small dataset") {
