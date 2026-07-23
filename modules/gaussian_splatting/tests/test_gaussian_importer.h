@@ -1124,6 +1124,18 @@ TEST_CASE("[GaussianSplatting][Importer] all_render_fields_finite sweeps the who
     CHECK_FALSE(data->all_render_fields_finite(&bad_index));
     CHECK_MESSAGE(bad_index == 2, "Validator must report the first non-finite splat index.");
 
+    // Also cover the DC color (sh_dc): inject a NaN into splat 1's color channel.
+    // Splat 1 (index < 2) now becomes the FIRST offending splat, so the validator
+    // must report index 1 — proving the sweep covers the color/SH payload, not
+    // just geometry (Codex #756). Without the sh_dc check it would skip splat 1
+    // and still report the splat-2 geometry NaN above (bad_index == 2).
+    Gaussian color_corrupt = data->get_gaussian(1);
+    color_corrupt.sh_dc.g = nan_value;
+    data->set_gaussian(1, color_corrupt);
+    bad_index = -1;
+    CHECK_FALSE(data->all_render_fields_finite(&bad_index));
+    CHECK_MESSAGE(bad_index == 1, "Validator must catch a NaN in sh_dc (color/SH) at splat 1, before the splat-2 geometry NaN.");
+
     // Empty payload is vacuously finite (must not false-positive on 0 splats).
     Ref<::GaussianData> empty;
     empty.instantiate();

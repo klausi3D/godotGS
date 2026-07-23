@@ -546,15 +546,35 @@ bool GaussianData::all_render_fields_finite(int *r_first_bad_index) const {
     for (uint32_t i = 0; i < count; i++) {
         const Gaussian &g = gaussians[i];
         // Every field the rasterizer consumes directly. A single NaN/Inf here
-        // poisons covariance/projection math and, before #518, only splat 0 was
-        // ever checked — so the sweep must visit all of them.
+        // poisons covariance/projection math (geometry) or the color/SH payload,
+        // and before #518 only splat 0's geometry was ever checked — so the sweep
+        // must visit ALL render-critical fields of every splat, including the DC
+        // color (sh_dc) and first-order SH (sh_1) coefficients (Codex #756).
         if (!Math::is_finite(g.position.x) || !Math::is_finite(g.position.y) || !Math::is_finite(g.position.z) ||
                 !Math::is_finite(g.scale.x) || !Math::is_finite(g.scale.y) || !Math::is_finite(g.scale.z) ||
                 !Math::is_finite(g.rotation.x) || !Math::is_finite(g.rotation.y) ||
                 !Math::is_finite(g.rotation.z) || !Math::is_finite(g.rotation.w) ||
-                !Math::is_finite(g.opacity)) {
+                !Math::is_finite(g.opacity) ||
+                !Math::is_finite(g.sh_dc.r) || !Math::is_finite(g.sh_dc.g) ||
+                !Math::is_finite(g.sh_dc.b) || !Math::is_finite(g.sh_dc.a) ||
+                !Math::is_finite(g.sh_1[0].x) || !Math::is_finite(g.sh_1[0].y) || !Math::is_finite(g.sh_1[0].z) ||
+                !Math::is_finite(g.sh_1[1].x) || !Math::is_finite(g.sh_1[1].y) || !Math::is_finite(g.sh_1[1].z) ||
+                !Math::is_finite(g.sh_1[2].x) || !Math::is_finite(g.sh_1[2].y) || !Math::is_finite(g.sh_1[2].z)) {
             if (r_first_bad_index) {
                 *r_first_bad_index = (int)i;
+            }
+            return false;
+        }
+    }
+    // High-order SH coefficients are stored separately, flattened per splat
+    // (sh_high_order_count Vector3s each). A NaN/Inf there also reaches the GPU SH
+    // payload, so sweep them too and map the offending coefficient to its splat.
+    const uint32_t high_total = sh_high_order_coefficients.size();
+    for (uint32_t j = 0; j < high_total; j++) {
+        const Vector3 &c = sh_high_order_coefficients[j];
+        if (!Math::is_finite(c.x) || !Math::is_finite(c.y) || !Math::is_finite(c.z)) {
+            if (r_first_bad_index) {
+                *r_first_bad_index = (sh_high_order_count > 0) ? (int)(j / sh_high_order_count) : 0;
             }
             return false;
         }
