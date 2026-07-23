@@ -418,7 +418,10 @@ TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] Sorter stays on the buffer-
 		if (device_a) {
 			memdelete(device_a);
 		}
-		if (device_b) {
+		// Guard against a single-device platform returning the SAME pointer twice: device_a was
+		// already freed above, so only free device_b when it is a distinct object (single-owner
+		// teardown), otherwise this would double-free and crash the skip path.
+		if (device_b && device_b != device_a) {
 			memdelete(device_b);
 		}
 		return;
