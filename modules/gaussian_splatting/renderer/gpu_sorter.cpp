@@ -896,10 +896,12 @@ Error BitonicSort::sort(RID keys_buffer, RID values_buffer, uint32_t count) {
             dispatch_bitonic_pass(compute_rd, compute_list, stage, pass, padded_count);
             dispatches_batched++;
 
-            // Smart barrier insertion - reduce barriers for better GPU utilization
-            bool needs_barrier = (pass > 1) &&
-                               ((dispatches_batched % MAX_BATCH_DISPATCHES) == 0 ||
-                                _requires_synchronization(stage, pass, padded_count));
+            // Bitonic correctness: every pass reads elements the previous pass
+            // wrote, so a barrier is REQUIRED after every non-final pass. The old
+            // _requires_synchronization()/MAX_BATCH_DISPATCHES batching skipped
+            // most of them, racing up to 8 passes -- the 2nd defect behind the
+            // #622 oracle red (the 1st was the thread->pair index collision).
+            bool needs_barrier = (pass > 1);
 
             if (needs_barrier) {
                 compute_rd->compute_list_add_barrier(compute_list);
