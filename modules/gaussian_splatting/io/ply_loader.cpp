@@ -838,12 +838,13 @@ Error PLYLoader::parse_ascii_data(Ref<FileAccess> file) {
         const int fields_per_row = MAX(header.properties.size(), 1);
         const uint64_t required_rows = uint64_t(header.vertex_count); // >= 1 (validated in parse_header)
         uint64_t field_bearing_rows = 0;
+        bool row_deficient = false; // a row WITHIN the first required_rows had < fields_per_row tokens
         uint64_t remaining_to_scan = available_bytes;
         uint8_t scan_buffer[4096];
         int row_tokens = 0;       // whitespace-separated tokens seen in the current row
         bool in_token = false;    // currently inside a run of non-whitespace
-        bool row_counted = false; // current row already counted as field-bearing
-        while (field_bearing_rows < required_rows && remaining_to_scan > 0) {
+        bool row_counted = false; // current row already reached fields_per_row tokens
+        while (!row_deficient && field_bearing_rows < required_rows && remaining_to_scan > 0) {
             const uint64_t want = MIN<uint64_t>(sizeof(scan_buffer), remaining_to_scan);
             const uint64_t read = file->get_buffer(scan_buffer, want);
             if (read == 0) {
@@ -852,7 +853,19 @@ Error PLYLoader::parse_ascii_data(Ref<FileAccess> file) {
             for (uint64_t b = 0; b < read; b++) {
                 const uint8_t c = scan_buffer[b];
                 if (c == '\n') {
-                    // Row boundary: reset per-row token accounting.
+                    // Row boundary. The parser consumes rows IN ORDER and rejects the FIRST row
+                    // with fewer than fields_per_row tokens (values.size() < properties.size()).
+                    // If a row within the first required_rows never reached the field count, that
+                    // is exactly where the parser would fail -> stop and reject. A later run of
+                    // good rows must NOT "pay for" a leading/interior deficient row, because the
+                    // parser never gets past it (Codex #768: a blank first row + N good rows had
+                    // N field-bearing rows total yet failed the ordered parse on row 0). Rows AFTER
+                    // required_rows are never read by the parser, so a trailing blank/short line is
+                    // harmless.
+                    if (!row_counted && field_bearing_rows < required_rows) {
+                        row_deficient = true;
+                        break;
+                    }
                     row_tokens = 0;
                     in_token = false;
                     row_counted = false;
@@ -872,11 +885,11 @@ Error PLYLoader::parse_ascii_data(Ref<FileAccess> file) {
         // Rewind to the vertex block start for the row parser below. seek() also
         // clears any EOF indicator set by scanning to the end of the payload.
         file->seek(vertex_block_start);
-        if (field_bearing_rows < required_rows) {
+        if (row_deficient || field_bearing_rows < required_rows) {
             GS_LOG_ERROR_DEFAULT(vformat(
-                    "[PLY ASCII] declared vertex_count %d needs %d field-bearing rows (>= %d tokens each) but "
-                    "the vertex block proves only %d; refusing to allocate for a blank-padded/row-deficient "
-                    "file (issue #767)",
+                    "[PLY ASCII] declared vertex_count %d needs its first %d rows to each bear >= %d tokens, but "
+                    "an in-order scan proved only %d consecutive field-bearing rows before a deficient/short row; "
+                    "refusing to allocate for a blank-padded/row-deficient file (issue #767)",
                     header.vertex_count,
                     header.vertex_count,
                     fields_per_row,

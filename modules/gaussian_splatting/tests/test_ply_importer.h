@@ -620,6 +620,59 @@ end_header
     DirAccess::remove_absolute(path.get_basename() + ".gsplatcache");
 }
 
+TEST_CASE("[GaussianSplatting][PLY][MalformedCorpus] reject a leading blank row followed by enough field-bearing rows (issue #768 in-order)") {
+    // Codex #768 residual on the field-bearing guard: a field-bearing-row COUNT is not enough,
+    // because the parser consumes rows IN ORDER and rejects the first deficient one. A body of one
+    // BLANK row followed by vertex_count field-bearing rows contains vertex_count field-bearing
+    // rows in total -- so a count-ANYWHERE guard reaches required_rows and allocates -- yet the
+    // ordered parser fails on row 0 AFTER resize(vertex_count). The in-order guard must reject at
+    // the leading blank row.
+    //
+    // Fixture: one property `x`, `element vertex 100000`, body = one blank line then 100000 lines
+    // of "0". Bytes = 1 + 100000*2 = 200001 >= 100000 (byte gate passes); newlines = 100001 >=
+    // 99999 (newline gate passes); 100000 field-bearing rows total (count-anywhere gate passes).
+    // Only the IN-ORDER guard rejects it.
+    //
+    // Discriminator: a count-anywhere guard reaches field_bearing_rows == 100000, allocates, and
+    // the parser then fails on row 0 -> get_splat_count() == 100000. The in-order guard trips on
+    // the leading blank row and rejects BEFORE resize -> get_splat_count() == 0. Both return
+    // ERR_FILE_CORRUPT, so the count assertion is the load-bearing discriminator.
+    const String path = _make_ply_fixture_path("leading_blank_row_768");
+
+    const char *header_text = R"(ply
+format ascii 1.0
+element vertex 100000
+property float x
+end_header
+)";
+
+    Ref<FileAccess> f = FileAccess::open(path, FileAccess::WRITE);
+    if (f.is_null()) {
+        FAIL("Should create leading-blank-row ASCII PLY fixture");
+        return;
+    }
+    f->store_string(header_text);
+    // One leading blank line, then 100000 field-bearing rows. store_line appends '\n' to each, so
+    // the ordered parser hits the blank row 0 first while the total field-bearing count is 100000.
+    f->store_line("");
+    for (int r = 0; r < 100000; r++) {
+        f->store_line("0");
+    }
+    f.unref();
+
+    PLYLoader loader;
+    Error err = loader.load_file(path);
+    CHECK_MESSAGE(err == ERR_FILE_CORRUPT,
+            "ASCII PLY whose first row is blank must be rejected even when enough later rows bear fields (issue #768)");
+    // Load-bearing discriminator: rows are validated IN ORDER, so a leading blank row is rejected
+    // before resize regardless of how many field-bearing rows follow.
+    CHECK_MESSAGE(loader.get_splat_count() == 0,
+            "Leading-blank-row ASCII payload must be rejected BEFORE resize; ordered field-bearing rows gate the allocation (issue #768)");
+
+    _remove_ply_fixture(path);
+    DirAccess::remove_absolute(path.get_basename() + ".gsplatcache");
+}
+
 TEST_CASE("[GaussianSplatting][PLY][MalformedCorpus] valid minimal-row ASCII payload still loads under the #767 row-count guard") {
     // Positive control proving the #767 newline lower bound never over-rejects a
     // real file. Structural twin of the row-deficient fixture above (same shape,
