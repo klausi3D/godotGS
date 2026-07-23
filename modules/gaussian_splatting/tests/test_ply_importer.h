@@ -560,6 +560,66 @@ end_header
     DirAccess::remove_absolute(path.get_basename() + ".gsplatcache");
 }
 
+TEST_CASE("[GaussianSplatting][PLY][MalformedCorpus] reject blank-line-padded ASCII payload that satisfies the newline count (issue #767)") {
+    // Residual Codex flagged on #767's first revision: proving NEWLINES is not
+    // proving FIELDS. The row-deficient case above defeats a byte-only guard with
+    // a zero-newline single line; this case defeats a NEWLINE-only guard. A hostile
+    // file puts every required byte on row 0, then appends vertex_count-1 BLANK
+    // lines. Each blank line is one '\n' byte, so the payload satisfies BOTH the
+    // byte lower bound AND newline_count >= vertex_count-1, yet only ONE row bears
+    // fields. A newline-counting guard passes it, runs resize(vertex_count), and the
+    // row parser rejects the first blank row AFTER the over-allocation.
+    //
+    // Fixture: one property `x`, `element vertex 100000`, body = one field-bearing
+    // row "0" followed by 99999 blank lines == 100000 '\n' bytes (>= the 100000-byte
+    // floor for P=1) and 100000 newlines (>= vertex_count-1 == 99999). It therefore
+    // PASSES both the byte and the newline gates.
+    //
+    // Discriminator (RED on a newline-counting guard): newline_count 100000 >= 99999
+    // so parse_ascii_data runs resize(100000) and the row loop hits the blank row 1
+    // and returns ERR_FILE_CORRUPT with get_splat_count() == 100000 -- the bounded
+    // over-allocation. The field-bearing guard proves only 1 field-bearing row
+    // (< 100000) and rejects BEFORE resize, so get_splat_count() == 0. Both paths
+    // return ERR_FILE_CORRUPT, so the count assertion is what flips
+    // over-allocate-then-fail vs reject-before-allocate.
+    const String path = _make_ply_fixture_path("blank_padded_ascii_767");
+
+    const char *header_text = R"(ply
+format ascii 1.0
+element vertex 100000
+property float x
+end_header
+)";
+
+    Ref<FileAccess> f = FileAccess::open(path, FileAccess::WRITE);
+    if (f.is_null()) {
+        FAIL("Should create blank-line-padded ASCII PLY fixture");
+        return;
+    }
+    f->store_string(header_text);
+    // One field-bearing row, then 99999 blank lines. store_line appends '\n' to
+    // each, giving 100000 total newlines -- enough to satisfy a newline-count gate,
+    // but only the first line carries a token.
+    f->store_line("0");
+    for (int r = 0; r < 99999; r++) {
+        f->store_line("");
+    }
+    f.unref();
+
+    PLYLoader loader;
+    Error err = loader.load_file(path);
+    CHECK_MESSAGE(err == ERR_FILE_CORRUPT,
+            "ASCII PLY padded with blank lines to satisfy the newline count must still be rejected (issue #767)");
+    // Load-bearing discriminator: newlines are not fields. The loader must prove
+    // field-bearing rows (>= properties.size() tokens each) before resizing, so a
+    // blank-padded payload allocates nothing.
+    CHECK_MESSAGE(loader.get_splat_count() == 0,
+            "Blank-line-padded ASCII payload must be rejected BEFORE resize; field-bearing rows, not newlines, gate the allocation (issue #767)");
+
+    _remove_ply_fixture(path);
+    DirAccess::remove_absolute(path.get_basename() + ".gsplatcache");
+}
+
 TEST_CASE("[GaussianSplatting][PLY][MalformedCorpus] valid minimal-row ASCII payload still loads under the #767 row-count guard") {
     // Positive control proving the #767 newline lower bound never over-rejects a
     // real file. Structural twin of the row-deficient fixture above (same shape,

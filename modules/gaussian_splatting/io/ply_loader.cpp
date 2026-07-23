@@ -811,42 +811,60 @@ Error PLYLoader::parse_ascii_data(Ref<FileAccess> file) {
         return ERR_FILE_CORRUPT;
     }
 
-    // Issue #767: the byte lower bound above proves enough BYTES remain, but
-    // bytes are not rows. It is a proportionality guard, not a row-count proof: a
-    // hostile file can pack `available_bytes` onto a single long line (few or no
-    // newlines) — e.g. "0 0 0 ..." with no line breaks — and satisfy the check
-    // while declaring a far larger vertex_count. That still let
-    // resize(header.vertex_count) allocate and per-record initialize the full
-    // declared count before the row loop below discovered EOF, i.e. a bounded but
-    // real over-allocation on a byte-padded/row-deficient file (the residual
-    // #583/#755 explicitly left open; they closed the pre-vertex-element
-    // accounting hole, not this one).
+    // Issue #767 (hardened): the byte lower bound above proves enough BYTES
+    // remain, and an earlier revision of this guard proved enough NEWLINES remain
+    // -- but bytes are not rows and newlines are not FIELDS. A hostile file can
+    // pack every required byte onto row 0 and then append `vertex_count - 1` BLANK
+    // lines: each blank line contributes one '\n' byte, so the payload satisfies
+    // the byte guard (blank lines are themselves the counted bytes) AND a bare
+    // newline count, yet the row parser rejects the first blank row -- AFTER
+    // resize(header.vertex_count) has already allocated and per-record initialized
+    // the full declared count. Counting line terminators therefore preserves the
+    // bounded over-allocation #767 set out to close (#583/#755 closed the
+    // pre-vertex-element accounting hole, not this one).
     //
-    // Prove the vertex ROWS exist before the large allocation. N newline-
-    // delimited rows carry at least N-1 line terminators (only the final row may
-    // omit a trailing newline), so require at least vertex_count-1 '\n' bytes in
-    // the vertex block. This is a strict lower bound that never over-rejects a
-    // real file — a genuine N-row body always has >= N-1 newlines, even when each
-    // row is as small as "0\n" — yet a single-line payload (0 newlines) can no
-    // longer gate a multi-record resize. Count with a cheap raw byte scan (no
-    // per-line String allocation), bounded to the vertex block, then rewind so
-    // the parse loop reads from vertex_block_start unchanged. This adds one extra
-    // sequential pass over the ASCII payload only; the fast binary path (row
-    // count == byte count / stride, already exact) is untouched.
+    // Prove the vertex ROWS actually BEAR FIELDS before the large allocation. The
+    // row parser accepts a row iff it splits (split_spaces) into at least
+    // properties.size() whitespace-separated tokens (see the values.size() check
+    // in the parse loop below), so require that many field-bearing rows. Count
+    // tokens per row in a cheap raw byte scan (no per-line String allocation),
+    // bounded to the vertex block, then rewind so the parse loop reads from
+    // vertex_block_start unchanged. This is still a strict lower bound that never
+    // over-rejects a real file -- a genuine N-row body has N field-bearing rows
+    // even when each row is as small as "0\n" -- but a blank/token-deficient row
+    // no longer counts toward the gate. The fast binary path (row count == byte
+    // count / stride, already exact) is untouched.
     {
-        const uint64_t required_newlines = uint64_t(header.vertex_count) - 1; // vertex_count >= 1 (validated in parse_header)
-        uint64_t newline_count = 0;
+        const int fields_per_row = MAX(header.properties.size(), 1);
+        const uint64_t required_rows = uint64_t(header.vertex_count); // >= 1 (validated in parse_header)
+        uint64_t field_bearing_rows = 0;
         uint64_t remaining_to_scan = available_bytes;
         uint8_t scan_buffer[4096];
-        while (newline_count < required_newlines && remaining_to_scan > 0) {
+        int row_tokens = 0;       // whitespace-separated tokens seen in the current row
+        bool in_token = false;    // currently inside a run of non-whitespace
+        bool row_counted = false; // current row already counted as field-bearing
+        while (field_bearing_rows < required_rows && remaining_to_scan > 0) {
             const uint64_t want = MIN<uint64_t>(sizeof(scan_buffer), remaining_to_scan);
             const uint64_t read = file->get_buffer(scan_buffer, want);
             if (read == 0) {
                 break; // short read: fewer bytes than the extent check promised
             }
             for (uint64_t b = 0; b < read; b++) {
-                if (scan_buffer[b] == '\n') {
-                    newline_count++;
+                const uint8_t c = scan_buffer[b];
+                if (c == '\n') {
+                    // Row boundary: reset per-row token accounting.
+                    row_tokens = 0;
+                    in_token = false;
+                    row_counted = false;
+                } else if (c == ' ' || c == '\t' || c == '\r') {
+                    in_token = false;
+                } else if (!in_token) {
+                    // Start of a new whitespace-delimited token (mirrors split_spaces).
+                    in_token = true;
+                    if (++row_tokens >= fields_per_row && !row_counted) {
+                        field_bearing_rows++;
+                        row_counted = true;
+                    }
                 }
             }
             remaining_to_scan -= read;
@@ -854,14 +872,15 @@ Error PLYLoader::parse_ascii_data(Ref<FileAccess> file) {
         // Rewind to the vertex block start for the row parser below. seek() also
         // clears any EOF indicator set by scanning to the end of the payload.
         file->seek(vertex_block_start);
-        if (newline_count < required_newlines) {
+        if (field_bearing_rows < required_rows) {
             GS_LOG_ERROR_DEFAULT(vformat(
-                    "[PLY ASCII] declared vertex_count %d needs at least %d newline-delimited rows but the "
-                    "vertex block holds only %d line terminators; refusing to allocate for a byte-padded/"
-                    "row-deficient file (issue #767)",
+                    "[PLY ASCII] declared vertex_count %d needs %d field-bearing rows (>= %d tokens each) but "
+                    "the vertex block proves only %d; refusing to allocate for a blank-padded/row-deficient "
+                    "file (issue #767)",
                     header.vertex_count,
-                    static_cast<int64_t>(required_newlines),
-                    static_cast<int64_t>(newline_count)));
+                    header.vertex_count,
+                    fields_per_row,
+                    static_cast<int64_t>(field_bearing_rows)));
             return ERR_FILE_CORRUPT;
         }
     }
