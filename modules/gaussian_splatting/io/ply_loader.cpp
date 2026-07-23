@@ -811,6 +811,81 @@ Error PLYLoader::parse_ascii_data(Ref<FileAccess> file) {
         return ERR_FILE_CORRUPT;
     }
 
+    // Issue #767/#768 (hardened): the byte lower bound above proves enough BYTES
+    // remain, but bytes are not rows, newlines are not fields, and tokens are not
+    // numbers. Codex walked a byte-padded single line, a blank-line-padded body, a
+    // leading blank row + trailing good rows, and a body of non-float tokens (e.g.
+    // 100000 rows of "x") -- each cleared a looser gate (byte count, newline count,
+    // count-anywhere field tally, in-order token tally) yet the vertex parser below
+    // rejects the first bad row only AFTER resize(header.vertex_count) has already
+    // allocated and per-record initialized the full declared count: a bounded but
+    // real memory-amplification DoS on a hostile file.
+    //
+    // Close the whole residual class by proving the first header.vertex_count ROWS
+    // each parse EXACTLY as the vertex loop below accepts them, IN ORDER, before the
+    // allocation: not EOF, >= properties.size() whitespace tokens, and every property
+    // token is_valid_float(). This is a faithful lower-bound pre-image of that loop
+    // (same eof_reached/get_line/split_spaces/size/is_valid_float checks), so it never
+    // over-rejects a file the parser would load, but it stops at the FIRST row the
+    // parser would reject -- so no blank / short / non-numeric row can gate the
+    // multi-record resize. Rows after vertex_count are never read by the parser, so
+    // trailing junk stays harmless. One extra sequential line pass over the ASCII
+    // payload; the fast binary path (row count == byte count / stride, exact) is
+    // untouched.
+    {
+        const int required_props = header.properties.size(); // >= 1 (parse_header rejects 0)
+        int64_t validated_rows = 0;
+        for (; validated_rows < header.vertex_count; validated_rows++) {
+            if (file->eof_reached()) {
+                break; // short body: fewer rows than declared (parser fails here too)
+            }
+            const String line = file->get_line().strip_edges();
+            const Vector<String> values = line.split_spaces();
+            if (values.size() < required_props) {
+                break; // deficient row: parser rejects at values.size() < properties.size()
+            }
+            bool all_numeric = true;
+            for (int j = 0; j < required_props; j++) {
+                if (!values[j].is_valid_float()) {
+                    all_numeric = false; // non-numeric token: parser rejects at is_valid_float()
+                    break;
+                }
+            }
+            if (!all_numeric) {
+                break;
+            }
+        }
+        // Rewind to the vertex block start for the row parser below. The pre-scan may have read
+        // the final newline-less row to EOF, and not every FileAccess backend clears the EOF flag
+        // on seek() -- Android's FileChannelDataAccess.seek() only moves the position, so the
+        // parser's eof_reached() guard would then reject a VALID file (Codex #768). Reopen the
+        // source for a fresh, EOF-clear cursor on every platform; fall back to a plain seek if the
+        // handle has no reopenable path (e.g. an in-memory FileAccess). Reopening the (rare, small)
+        // ASCII source once is negligible; the fast binary path never reaches here.
+        {
+            const String source_path = file->get_path();
+            Ref<FileAccess> reopened = source_path.is_empty()
+                    ? Ref<FileAccess>()
+                    : FileAccess::open(source_path, FileAccess::READ);
+            if (reopened.is_valid()) {
+                reopened->seek(vertex_block_start);
+                file = reopened;
+            } else {
+                file->seek(vertex_block_start);
+            }
+        }
+        if (validated_rows < header.vertex_count) {
+            GS_LOG_ERROR_DEFAULT(vformat(
+                    "[PLY ASCII] declared vertex_count %d but only %d leading rows parse as valid vertex rows "
+                    "(>= %d float tokens each) before a deficient/non-numeric row; refusing to allocate for a "
+                    "byte-padded / row-deficient / non-numeric file (issue #767/#768)",
+                    header.vertex_count,
+                    static_cast<int64_t>(validated_rows),
+                    required_props));
+            return ERR_FILE_CORRUPT;
+        }
+    }
+
     gaussian_data->resize(header.vertex_count);
 
     // Check if normal properties exist to determine 2D mode
