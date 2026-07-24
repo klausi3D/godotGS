@@ -764,12 +764,15 @@ void BitonicSort::shutdown() {
     // of comparing to the shared submission device, so split-config teardown still
     // frees on the owning device. The generation check below remains the real
     // staleness guard.
-    bool device_still_valid = _device_is_active(resource_device);
-
-    // ISSUE-010: Also validate device generation to detect recycled/stale pointers.
-    if (device_still_valid && resource_device_generation != 0) {
-        device_still_valid = ResourceOwnerMismatchContract::is_device_generation_valid(
-                resource_device, resource_device_generation);
+    // Free on the OWNING device when its recorded generation still matches (Codex #771: a standalone
+    // local RenderingDevice with no manager, != the global singleton, is missed by _device_is_active
+    // and would leak its resources). Fall back to the manager/singleton liveness check only when no
+    // generation was recorded.
+    bool device_still_valid = false;
+    if (resource_device) {
+        device_still_valid = (resource_device_generation != 0)
+                ? ResourceOwnerMismatchContract::is_device_generation_valid(resource_device, resource_device_generation)
+                : _device_is_active(resource_device);
     }
 
     if (device_still_valid) {
@@ -2451,12 +2454,19 @@ void RadixSort::shutdown() {
     // of comparing to the shared submission device, so split-config teardown still
     // frees on the owning device. The generation check below remains the real
     // staleness guard.
-    bool device_still_valid = _device_is_active(resource_device);
-
-    // ISSUE-010: Also validate device generation to detect recycled/stale pointers.
-    if (device_still_valid && resource_device_generation != 0) {
-        device_still_valid = ResourceOwnerMismatchContract::is_device_generation_valid(
-                resource_device, resource_device_generation);
+    // Free on the OWNING device when its recorded generation still matches -- the authoritative
+    // "same live device we own resources on" proof (a recycled/destroyed device fails it), and the
+    // primary owner-check the _free_uniform_sets owner-resolution above already uses. Preferring it
+    // over _device_is_active() means a standalone local RenderingDevice (no manager, and != the
+    // global singleton -- the #771 no-manager fallback path) is recognized as its own owner and its
+    // shaders/pipelines/temp buffers are freed here instead of leaking until the device is destroyed
+    // (Codex #771). Fall back to the manager/singleton liveness check only when no generation was
+    // recorded (legacy init).
+    bool device_still_valid = false;
+    if (resource_device) {
+        device_still_valid = (resource_device_generation != 0)
+                ? ResourceOwnerMismatchContract::is_device_generation_valid(resource_device, resource_device_generation)
+                : _device_is_active(resource_device);
     }
 
     if (device_still_valid) {
@@ -3254,12 +3264,15 @@ void OneSweepSort::shutdown() {
     wait_for_completion();
 
     RenderingDevice *device = resource_device;
-    bool device_still_valid = _device_is_active(device);
-
-    // ISSUE-010: Also validate device generation to detect recycled/stale pointers.
-    if (device_still_valid && resource_device_generation != 0) {
-        device_still_valid = ResourceOwnerMismatchContract::is_device_generation_valid(
-                device, resource_device_generation);
+    // Free on the OWNING device when its recorded generation still matches (Codex #771: a standalone
+    // local RenderingDevice with no manager, != the global singleton, is missed by _device_is_active
+    // and would leak its resources). Fall back to the manager/singleton liveness check only when no
+    // generation was recorded.
+    bool device_still_valid = false;
+    if (device) {
+        device_still_valid = (resource_device_generation != 0)
+                ? ResourceOwnerMismatchContract::is_device_generation_valid(device, resource_device_generation)
+                : _device_is_active(device);
     }
 
     if (device_still_valid && device) {
