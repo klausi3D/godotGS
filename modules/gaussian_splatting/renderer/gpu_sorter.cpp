@@ -90,14 +90,11 @@ static RenderingDevice *_acquire_submission_device(RenderingDevice *candidate, G
     if (GaussianSplatManager *manager = GaussianSplatManager::get_singleton()) {
         return manager->acquire_submission_device(candidate, lock);
     }
-    // No manager (standalone GPU validation, e.g. run_gpu_validation.cpp, creates sorters directly
-    // from an rd). After #764 the sorter is pinned to the buffer-owner device, so `candidate` is
-    // the sorter's own local/resource device (== p_rd) and its key/value/count buffers live there.
-    // Run the submission on that same device instead of returning nullptr, which would leave an
-    // initialized-but-unusable sorter that fails at submit (Codex #771). No shared device exists
-    // without a manager, so no submission lock is needed -- command, resource, and buffers are all
-    // on the one device. Consistent with Option b.
-    return candidate;
+    // No manager: sorters are rejected at init (_init_sorter_devices / BitonicSort::initialize
+    // require a manager to coordinate async submission/completion), so this is not reached on the
+    // sort path. Kept fail-safe for any other caller.
+    WARN_PRINT_ONCE("[GPU Sort] GaussianSplatManager unavailable; cannot acquire submission device");
+    return nullptr;
 }
 
 static void _free_uniform_sets(RenderingDevice *p_owner, LocalVector<RID> &p_sets) {
@@ -207,6 +204,15 @@ static bool _sort_devices_coherent(RenderingDevice *p_command_rd, RenderingDevic
 // by construction (both == p_rd), so asserting it here would be tautological.
 static Error _init_sorter_devices(RenderingDevice *p_rd, RenderingDevice *&r_local_rd, RenderingDevice *&r_resource_rd) {
     if (!p_rd) {
+        return ERR_CANT_CREATE;
+    }
+    // Sorting needs a GaussianSplatManager to coordinate async submission/completion of the sort
+    // (_acquire_submission_device below, and the caller's wait_for_completion contract). Standalone
+    // no-manager callers are NOT supported: they would submit async work with no completion
+    // coordination and race their own buffer teardown (Codex #771). Reject cleanly at init -- the
+    // same outcome as pre-#764, whose get_submission_device() returned null here without a manager --
+    // so such callers get a clear init failure rather than an unusable sorter.
+    if (!GaussianSplatManager::get_singleton()) {
         return ERR_CANT_CREATE;
     }
     // Command and resource both live on the buffer-owner device (Option b).
@@ -622,6 +628,12 @@ Error BitonicSort::initialize(RenderingDevice *p_rd, uint32_t p_max_elements) {
     // on the default path (there get_shared_submission_device() already returns p_rd).
     // The meaningful command/resource-coherency check runs at sort time (see
     // _sort_devices_coherent in BitonicSort::sort).
+    // #771: sorting needs a GaussianSplatManager to coordinate async submission/completion; reject
+    // standalone no-manager sorters cleanly (see _init_sorter_devices) rather than initializing an
+    // unusable sorter whose async submit would race the caller's buffer teardown.
+    if (!GaussianSplatManager::get_singleton()) {
+        return ERR_CANT_CREATE;
+    }
     local_rd = p_rd;
     max_elements = next_power_of_two(p_max_elements); // Bitonic needs power of 2
 
@@ -764,15 +776,12 @@ void BitonicSort::shutdown() {
     // of comparing to the shared submission device, so split-config teardown still
     // frees on the owning device. The generation check below remains the real
     // staleness guard.
-    // Free on the OWNING device when its recorded generation still matches (Codex #771: a standalone
-    // local RenderingDevice with no manager, != the global singleton, is missed by _device_is_active
-    // and would leak its resources). Fall back to the manager/singleton liveness check only when no
-    // generation was recorded.
-    bool device_still_valid = false;
-    if (resource_device) {
-        device_still_valid = (resource_device_generation != 0)
-                ? ResourceOwnerMismatchContract::is_device_generation_valid(resource_device, resource_device_generation)
-                : _device_is_active(resource_device);
+    bool device_still_valid = _device_is_active(resource_device);
+
+    // ISSUE-010: Also validate device generation to detect recycled/stale pointers.
+    if (device_still_valid && resource_device_generation != 0) {
+        device_still_valid = ResourceOwnerMismatchContract::is_device_generation_valid(
+                resource_device, resource_device_generation);
     }
 
     if (device_still_valid) {
@@ -2454,19 +2463,12 @@ void RadixSort::shutdown() {
     // of comparing to the shared submission device, so split-config teardown still
     // frees on the owning device. The generation check below remains the real
     // staleness guard.
-    // Free on the OWNING device when its recorded generation still matches -- the authoritative
-    // "same live device we own resources on" proof (a recycled/destroyed device fails it), and the
-    // primary owner-check the _free_uniform_sets owner-resolution above already uses. Preferring it
-    // over _device_is_active() means a standalone local RenderingDevice (no manager, and != the
-    // global singleton -- the #771 no-manager fallback path) is recognized as its own owner and its
-    // shaders/pipelines/temp buffers are freed here instead of leaking until the device is destroyed
-    // (Codex #771). Fall back to the manager/singleton liveness check only when no generation was
-    // recorded (legacy init).
-    bool device_still_valid = false;
-    if (resource_device) {
-        device_still_valid = (resource_device_generation != 0)
-                ? ResourceOwnerMismatchContract::is_device_generation_valid(resource_device, resource_device_generation)
-                : _device_is_active(resource_device);
+    bool device_still_valid = _device_is_active(resource_device);
+
+    // ISSUE-010: Also validate device generation to detect recycled/stale pointers.
+    if (device_still_valid && resource_device_generation != 0) {
+        device_still_valid = ResourceOwnerMismatchContract::is_device_generation_valid(
+                resource_device, resource_device_generation);
     }
 
     if (device_still_valid) {
@@ -3264,15 +3266,12 @@ void OneSweepSort::shutdown() {
     wait_for_completion();
 
     RenderingDevice *device = resource_device;
-    // Free on the OWNING device when its recorded generation still matches (Codex #771: a standalone
-    // local RenderingDevice with no manager, != the global singleton, is missed by _device_is_active
-    // and would leak its resources). Fall back to the manager/singleton liveness check only when no
-    // generation was recorded.
-    bool device_still_valid = false;
-    if (device) {
-        device_still_valid = (resource_device_generation != 0)
-                ? ResourceOwnerMismatchContract::is_device_generation_valid(device, resource_device_generation)
-                : _device_is_active(device);
+    bool device_still_valid = _device_is_active(device);
+
+    // ISSUE-010: Also validate device generation to detect recycled/stale pointers.
+    if (device_still_valid && resource_device_generation != 0) {
+        device_still_valid = ResourceOwnerMismatchContract::is_device_generation_valid(
+                device, resource_device_generation);
     }
 
     if (device_still_valid && device) {
