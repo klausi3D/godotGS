@@ -4020,17 +4020,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingrenderergpu_sortercpp" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/renderer/gpu_sorter.cpp
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingcorestreaming_tier_cap_policyh" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4079,6 +4068,17 @@
     <span class="md-ellipsis">
       
         modules/gaussian_splatting/interfaces/painterly_renderer.h
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingrenderergpu_sortercpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/renderer/gpu_sorter.cpp
       
     </span>
   </a>
@@ -4955,17 +4955,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingteststest_gpu_sortingh" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/tests/test_gpu_sorting.h
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingregister_typescpp" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5014,6 +5003,17 @@
     <span class="md-ellipsis">
       
         modules/gaussian_splatting/persistence/gaussian_scene_serializer.cpp
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingteststest_gpu_sortingh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/tests/test_gpu_sorting.h
       
     </span>
   </a>
@@ -9782,79 +9782,6 @@
 <li>line 64: Ref<tilerenderer> get_tile_renderer() const { return tile_re...</tilerenderer></li>
 <li>line 71: bool is_using_external_renderer() const { return using_exter...</li>
 </ul>
-<h2 id="modulesgaussian_splattingrenderergpu_sortercpp">modules/gaussian_splatting/renderer/gpu_sorter.cpp<a class="headerlink" href="#modulesgaussian_splattingrenderergpu_sortercpp" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 97: static void _free_uniform_sets(RenderingDevice *p_owner, Loc...</li>
-<li>line 138: static RID create_compute_shader_from_spirv(RenderingDevice ...</li>
-<li>line 165: static Error _init_sorter_devices(RenderingDevice *p_rd, Ren...</li>
-<li>line 241: static bool _device_is_active(RenderingDevice *device) {...</li>
-<li>line 310: static ComputeCapabilityProbe _probe_compute_capabilities(Re...</li>
-<li>line 328: static bool _subgroup_prefix_forced_off() {...</li>
-<li>line 335: static bool _has_subgroup_hardware_support(const ComputeCapa...</li>
-<li>line 344: static bool _supports_required_subgroups(const ComputeCapabi...</li>
-<li>line 368: static GPUSorterFactory::PolicyProbe _to_policy_probe(const ...</li>
-<li>line 376: static bool _algorithm_meets_requirements(const GPUSorterFac...</li>
-<li>line 422: SortKeyConfig SortKeyConfig::from_settings() {...</li>
-<li>line 492: void SortingMetricsCollector::record_fallback(const String &amp;...</li>
-<li>line 503: static bool device_supports_workgroup(RenderingDevice *rd, u...</li>
-<li>line 508: static GPUSorterFactory::SortingAlgorithm select_sort_algori...</li>
-<li>line 550: void BitonicSort::_bind_methods() {...</li>
-<li>line 554: uint32_t BitonicSort::next_power_of_two(uint32_t n) const {...</li>
-<li>line 565: Error BitonicSort::initialize(RenderingDevice *p_rd, uint32_...</li>
-<li>line 616: void compare_and_swap(uint i, uint j, bool ascending) {...</li>
-<li>line 630: void main() {...</li>
-<li>line 716: void BitonicSort::shutdown() {...</li>
-<li>line 761: void BitonicSort::dispatch_bitonic_pass(RenderingDevice *p_r...</li>
-<li>line 785: Error BitonicSort::sort(RID keys_buffer, RID values_buffer, ...</li>
-<li>line 937: uint64_t BitonicSort::sort_async(RID keys_buffer, RID values...</li>
-<li>line 949: bool BitonicSort::is_ready() const {...</li>
-<li>line 953: void BitonicSort::wait_for_completion() {...</li>
-<li>line 1106: GPUSorterFactory::AutoThresholds GPUSorterFactory::AutoThres...</li>
-<li>line 1212: void RadixSort::_bind_methods() {...</li>
-<li>line 1216: void RadixSort::<em>reset_pass_uniform_sets(PassUniformSets &amp;p</em>...</li>
-<li>line 1314: SortPreflightResult RadixSort::_validate_sort_preflight(RID ...</li>
-<li>line 1532: Error RadixSort::create_variant(RenderingDevice *device, uin...</li>
-<li>line 1593: uint get_radix(uvec2 key, uint shift) {...</li>
-<li>line 1607: uint get_radix(uint key, uint shift) {...</li>
-<li>line 1715: void main() {...</li>
-<li>line 1797: void main() {...</li>
-<li>line 1854: void main() {...</li>
-<li>line 1936: void main() {...</li>
-<li>line 2065: uint32_t RadixSort::get_workgroup_count(uint32_t element_cou...</li>
-<li>line 2069: Error RadixSort::initialize(RenderingDevice *p_rd, uint32_t ...</li>
-<li>line 2251: void main() {...</li>
-<li>line 2289: void RadixSort::_cleanup_partial_init(RenderingDevice *p_rd)...</li>
-<li>line 2384: void RadixSort::shutdown() {...</li>
-<li>line 2450: Error RadixSort::sort(RID keys_buffer, RID values_buffer, ui...</li>
-<li>line 2461: Error RadixSort::sort_indirect(RID keys_buffer, RID values_b...</li>
-<li>line 2480: uint64_t RadixSort::sort_indirect_async(RID keys_buffer, RID...</li>
-<li>line 2495: uint64_t RadixSort::sort_async(RID keys_buffer, RID values_b...</li>
-<li>line 2512: uint64_t RadixSort::_sort_indirect_internal(RID keys_buffer,...</li>
-<li>line 2722: bool RadixSort::is_ready() const {...</li>
-<li>line 2726: void RadixSort::wait_for_completion() {...</li>
-<li>line 2762: void OneSweepSort::_bind_methods() {...</li>
-<li>line 2766: Error OneSweepSort::initialize(RenderingDevice *p_rd, uint32...</li>
-<li>line 2829: void main() {...</li>
-<li>line 2902: void main() {...</li>
-<li>line 2991: void main() {...</li>
-<li>line 3067: void main() {...</li>
-<li>line 3185: void OneSweepSort::shutdown() {...</li>
-<li>line 3263: Error OneSweepSort::sort(RID keys_buffer, RID values_buffer,...</li>
-<li>line 3435: uint64_t OneSweepSort::sort_async(RID keys_buffer, RID value...</li>
-<li>line 3443: bool OneSweepSort::is_ready() const {...</li>
-<li>line 3447: void OneSweepSort::wait_for_completion() {...</li>
-<li>line 3461: bool BitonicSort::is_supported(RenderingDevice *p_rd) {...</li>
-<li>line 3466: SorterCapabilities BitonicSort::get_capabilities() {...</li>
-<li>line 3477: bool RadixSort::is_supported(RenderingDevice *p_rd) {...</li>
-<li>line 3504: SorterCapabilities RadixSort::get_capabilities() {...</li>
-<li>line 3520: bool OneSweepSort::is_supported(RenderingDevice *p_rd) {...</li>
-<li>line 3530: SorterCapabilities OneSweepSort::get_capabilities() {...</li>
-<li>line 3540: static AlgorithmProbe _probe_algorithm(GPUSorterFactory::Sor...</li>
-<li>line 3570: bool GPUSorterFactory::probe_is_supported(SortingAlgorithm a...</li>
-<li>line 3574: bool GPUSorterFactory::probe_supports_indirect(SortingAlgori...</li>
-<li>line 3578: bool GPUSorterFactory::probe_supports_indirect(SortingAlgori...</li>
-<li>line 3582: SorterCapabilities GPUSorterFactory::probe_capabilities(Sort...</li>
-</ul>
 <h2 id="modulesgaussian_splattingcorestreaming_tier_cap_policyh">modules/gaussian_splatting/core/streaming_tier_cap_policy.h<a class="headerlink" href="#modulesgaussian_splattingcorestreaming_tier_cap_policyh" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 36: inline bool _project_setting_has_override(ProjectSettings *p...</li>
@@ -9946,6 +9873,79 @@
 <li>line 111: void set(RenderingDevice *p_device) {...</li>
 <li>line 116: void clear() {...</li>
 <li>line 121: bool matches(RenderingDevice *p_device) const {...</li>
+</ul>
+<h2 id="modulesgaussian_splattingrenderergpu_sortercpp">modules/gaussian_splatting/renderer/gpu_sorter.cpp<a class="headerlink" href="#modulesgaussian_splattingrenderergpu_sortercpp" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 98: static void _free_uniform_sets(RenderingDevice *p_owner, Loc...</li>
+<li>line 139: static RID create_compute_shader_from_spirv(RenderingDevice ...</li>
+<li>line 166: static Error _init_sorter_devices(RenderingDevice *p_rd, Ren...</li>
+<li>line 242: static bool _device_is_active(RenderingDevice *device) {...</li>
+<li>line 311: static ComputeCapabilityProbe _probe_compute_capabilities(Re...</li>
+<li>line 329: static bool _subgroup_prefix_forced_off() {...</li>
+<li>line 336: static bool _has_subgroup_hardware_support(const ComputeCapa...</li>
+<li>line 345: static bool _supports_required_subgroups(const ComputeCapabi...</li>
+<li>line 369: static GPUSorterFactory::PolicyProbe _to_policy_probe(const ...</li>
+<li>line 377: static bool _algorithm_meets_requirements(const GPUSorterFac...</li>
+<li>line 423: SortKeyConfig SortKeyConfig::from_settings() {...</li>
+<li>line 493: void SortingMetricsCollector::record_fallback(const String &amp;...</li>
+<li>line 504: static bool device_supports_workgroup(RenderingDevice *rd, u...</li>
+<li>line 509: static GPUSorterFactory::SortingAlgorithm select_sort_algori...</li>
+<li>line 551: void BitonicSort::_bind_methods() {...</li>
+<li>line 555: uint32_t BitonicSort::next_power_of_two(uint32_t n) const {...</li>
+<li>line 566: Error BitonicSort::initialize(RenderingDevice *p_rd, uint32_...</li>
+<li>line 617: void compare_and_swap(uint i, uint j, bool ascending) {...</li>
+<li>line 631: void main() {...</li>
+<li>line 717: void BitonicSort::shutdown() {...</li>
+<li>line 762: void BitonicSort::dispatch_bitonic_pass(RenderingDevice *p_r...</li>
+<li>line 786: Error BitonicSort::sort(RID keys_buffer, RID values_buffer, ...</li>
+<li>line 989: uint64_t BitonicSort::sort_async(RID keys_buffer, RID values...</li>
+<li>line 1001: bool BitonicSort::is_ready() const {...</li>
+<li>line 1005: void BitonicSort::wait_for_completion() {...</li>
+<li>line 1158: GPUSorterFactory::AutoThresholds GPUSorterFactory::AutoThres...</li>
+<li>line 1264: void RadixSort::_bind_methods() {...</li>
+<li>line 1268: void RadixSort::<em>reset_pass_uniform_sets(PassUniformSets &amp;p</em>...</li>
+<li>line 1366: SortPreflightResult RadixSort::_validate_sort_preflight(RID ...</li>
+<li>line 1584: Error RadixSort::create_variant(RenderingDevice *device, uin...</li>
+<li>line 1645: uint get_radix(uvec2 key, uint shift) {...</li>
+<li>line 1659: uint get_radix(uint key, uint shift) {...</li>
+<li>line 1767: void main() {...</li>
+<li>line 1849: void main() {...</li>
+<li>line 1906: void main() {...</li>
+<li>line 1988: void main() {...</li>
+<li>line 2117: uint32_t RadixSort::get_workgroup_count(uint32_t element_cou...</li>
+<li>line 2121: Error RadixSort::initialize(RenderingDevice *p_rd, uint32_t ...</li>
+<li>line 2303: void main() {...</li>
+<li>line 2341: void RadixSort::_cleanup_partial_init(RenderingDevice *p_rd)...</li>
+<li>line 2436: void RadixSort::shutdown() {...</li>
+<li>line 2502: Error RadixSort::sort(RID keys_buffer, RID values_buffer, ui...</li>
+<li>line 2513: Error RadixSort::sort_indirect(RID keys_buffer, RID values_b...</li>
+<li>line 2532: uint64_t RadixSort::sort_indirect_async(RID keys_buffer, RID...</li>
+<li>line 2547: uint64_t RadixSort::sort_async(RID keys_buffer, RID values_b...</li>
+<li>line 2564: uint64_t RadixSort::_sort_indirect_internal(RID keys_buffer,...</li>
+<li>line 2774: bool RadixSort::is_ready() const {...</li>
+<li>line 2778: void RadixSort::wait_for_completion() {...</li>
+<li>line 2814: void OneSweepSort::_bind_methods() {...</li>
+<li>line 2818: Error OneSweepSort::initialize(RenderingDevice *p_rd, uint32...</li>
+<li>line 2881: void main() {...</li>
+<li>line 2954: void main() {...</li>
+<li>line 3043: void main() {...</li>
+<li>line 3119: void main() {...</li>
+<li>line 3237: void OneSweepSort::shutdown() {...</li>
+<li>line 3315: Error OneSweepSort::sort(RID keys_buffer, RID values_buffer,...</li>
+<li>line 3487: uint64_t OneSweepSort::sort_async(RID keys_buffer, RID value...</li>
+<li>line 3495: bool OneSweepSort::is_ready() const {...</li>
+<li>line 3499: void OneSweepSort::wait_for_completion() {...</li>
+<li>line 3513: bool BitonicSort::is_supported(RenderingDevice *p_rd) {...</li>
+<li>line 3518: SorterCapabilities BitonicSort::get_capabilities() {...</li>
+<li>line 3529: bool RadixSort::is_supported(RenderingDevice *p_rd) {...</li>
+<li>line 3556: SorterCapabilities RadixSort::get_capabilities() {...</li>
+<li>line 3572: bool OneSweepSort::is_supported(RenderingDevice *p_rd) {...</li>
+<li>line 3582: SorterCapabilities OneSweepSort::get_capabilities() {...</li>
+<li>line 3592: static AlgorithmProbe _probe_algorithm(GPUSorterFactory::Sor...</li>
+<li>line 3622: bool GPUSorterFactory::probe_is_supported(SortingAlgorithm a...</li>
+<li>line 3626: bool GPUSorterFactory::probe_supports_indirect(SortingAlgori...</li>
+<li>line 3630: bool GPUSorterFactory::probe_supports_indirect(SortingAlgori...</li>
+<li>line 3634: SorterCapabilities GPUSorterFactory::probe_capabilities(Sort...</li>
 </ul>
 <h2 id="modulesgaussian_splattingteststest_resident_atlas_budgeth">modules/gaussian_splatting/tests/test_resident_atlas_budget.h<a class="headerlink" href="#modulesgaussian_splattingteststest_resident_atlas_budgeth" title="Permanent link">¶</a></h2>
 <ul>
@@ -11090,13 +11090,6 @@
 <ul>
 <li>line 21: inline GaussianSplatting::TileBufferShrinkPolicy projection_...</li>
 </ul>
-<h2 id="modulesgaussian_splattingteststest_gpu_sortingh">modules/gaussian_splatting/tests/test_gpu_sorting.h<a class="headerlink" href="#modulesgaussian_splattingteststest_gpu_sortingh" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 35: static RID create_storage_buffer(RenderingDevice *rd, const ...</li>
-<li>line 65: explicit ScopedGpuSortManagerDevice(RenderingDevice *p_rd) {...</li>
-<li>line 89: bool is_valid() const { return manager != nullptr; }...</li>
-<li>line 768: static inline RID gs_compile_instance_count_clamp_shader(Ren...</li>
-</ul>
 <h2 id="modulesgaussian_splattingregister_typescpp">modules/gaussian_splatting/register_types.cpp<a class="headerlink" href="#modulesgaussian_splattingregister_typescpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 72: void initialize_gaussian_splatting_module(ModuleInitializati...</li>
@@ -11188,6 +11181,13 @@
 <li>line 1490: bool GaussianSceneSerializer::is_gaussian_scene_file(const S...</li>
 <li>line 1498: Array GaussianSceneSerializer::get_supported_compression_typ...</li>
 <li>line 1506: PackedByteArray GaussianSceneSerializer::_migrate_chunk_v1_t...</li>
+</ul>
+<h2 id="modulesgaussian_splattingteststest_gpu_sortingh">modules/gaussian_splatting/tests/test_gpu_sorting.h<a class="headerlink" href="#modulesgaussian_splattingteststest_gpu_sortingh" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 35: static RID create_storage_buffer(RenderingDevice *rd, const ...</li>
+<li>line 65: explicit ScopedGpuSortManagerDevice(RenderingDevice *p_rd) {...</li>
+<li>line 89: bool is_valid() const { return manager != nullptr; }...</li>
+<li>line 932: static inline RID gs_compile_instance_count_clamp_shader(Ren...</li>
 </ul>
 <h2 id="modulesgaussian_splattinginterfacesgpu_sorting_pipelineh">modules/gaussian_splatting/interfaces/gpu_sorting_pipeline.h<a class="headerlink" href="#modulesgaussian_splattinginterfacesgpu_sorting_pipelineh" title="Permanent link">¶</a></h2>
 <ul>
@@ -11791,7 +11791,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 23, 2026 15:39:07 UTC">July 23, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 24, 2026 00:01:08 UTC">July 24, 2026</span>
   </span>
 
     
