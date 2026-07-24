@@ -53,6 +53,18 @@ public:
         uint32_t asset_generation = 0;
         uint64_t enqueue_usec = 0;
         Vector<PackedGaussian> packed_data;
+        // #766 (extends #757): the atlas byte stride the async payload in `packed_data` is
+        // actually written at. build_pending_upload_from_pack_job() packs on a worker thread and
+        // ALWAYS emits the 144 B PackedGaussian layout (pack_gaussians_range + sizeof(PackedGaussian)
+        // sizing/offsets); the 80 B quantized layout only ships through the SYNC path. Because
+        // packing and staging are decoupled for async jobs (staged later in finalize_upload_job),
+        // the EFFECTIVE stride can flip 144->80 in between (a mixed-DC asset becomes DC-uniform ->
+        // _refresh_quantization_dc_compatibility). Recording the true pack-time stride HERE, at pack
+        // time, lets finalize_upload_job hand it to _stage_chunk_upload_retirement so the #757
+        // retirement guard compares the stride the payload was really written at (not the post-flip
+        // stage-time stride) and fail-closes symmetrically for the async path. 0 = not set by the
+        // async packer (staging then falls back to the effective stride, matching pre-#766).
+        uint64_t packed_stride_bytes = 0;
         uint32_t payload_checksum = 0;
         bool payload_checksum_valid = false;
         SHCompressionMetrics metrics;

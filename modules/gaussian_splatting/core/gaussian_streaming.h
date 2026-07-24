@@ -387,11 +387,27 @@ public:
     // #757: pending retirements dropped fail-closed because the effective atlas stride flipped
     // between staging and retirement (see BudgetState::stride_flip_dropped_upload_retirements).
     uint64_t _test_get_stride_flip_dropped_upload_retirements() const { return budget.stride_flip_dropped_upload_retirements; }
+    // #766: async uploads dropped fail-closed in process_upload_queue() on a pack-time/effective
+    // stride mismatch, BEFORE any buffer write (see BudgetState::stride_flip_dropped_prewrite_uploads).
+    uint64_t _test_get_stride_flip_dropped_prewrite_uploads() const { return budget.stride_flip_dropped_prewrite_uploads; }
     bool _test_stage_chunk_upload_retirement(uint32_t p_asset_id, uint32_t p_chunk_idx,
             StreamingChunk &p_chunk, uint32_t p_buffer_slot, uint64_t p_bytes,
             uint32_t p_retire_after_frames, StreamingUploadCompletionMode p_mode) {
         return _stage_chunk_upload_retirement(p_asset_id, p_chunk_idx, p_chunk, p_buffer_slot,
                 p_bytes, SHCompressionMetrics(), nullptr, p_retire_after_frames, p_mode);
+    }
+    // #766: stage a retirement exactly as the ASYNC finalize path does -- carrying the stride the
+    // payload was PACKED at (PendingChunkUpload::packed_stride_bytes), independent of the effective
+    // stride at stage time. Headless tests cannot spin up the real GPU pack worker + submission
+    // device, so this hook injects the pack-time stride the way finalize_upload_job() threads it
+    // through, letting the async pack->flip->finalize ordering be exercised deterministically.
+    bool _test_stage_chunk_upload_retirement_async(uint32_t p_asset_id, uint32_t p_chunk_idx,
+            StreamingChunk &p_chunk, uint32_t p_buffer_slot, uint64_t p_bytes,
+            uint64_t p_packed_stride_bytes, uint32_t p_retire_after_frames,
+            StreamingUploadCompletionMode p_mode) {
+        return _stage_chunk_upload_retirement(p_asset_id, p_chunk_idx, p_chunk, p_buffer_slot,
+                p_bytes, SHCompressionMetrics(), nullptr, p_retire_after_frames, p_mode,
+                p_packed_stride_bytes);
     }
     void _test_process_upload_retirements() { _process_upload_retirements(); }
     void _test_rollback_pending_chunk(uint32_t p_asset_id, uint32_t p_chunk_idx, StreamingChunk &p_chunk, bool p_release_slot) {
@@ -507,7 +523,13 @@ private:
             const SHCompressionMetrics &metrics, RenderingDevice *submission_rd,
             uint32_t override_retire_after_frames = UINT32_MAX,
             StreamingUploadCompletionMode override_completion_mode =
-                    GaussianStreamingTypes::STREAMING_UPLOAD_COMPLETION_NONE);
+                    GaussianStreamingTypes::STREAMING_UPLOAD_COMPLETION_NONE,
+            // #766: stride the payload was actually PACKED at, for the async path where pack and
+            // stage are decoupled. 0 (sync path / _load_chunk, where pack == stage) falls back to
+            // the current effective stride -- identical to pre-#766 behavior. Non-zero (async
+            // finalize_upload_job, carrying PendingChunkUpload::packed_stride_bytes) is recorded
+            // verbatim so the #757 retirement guard compares against the true pack stride.
+            uint64_t override_packed_stride_bytes = 0);
     void _process_upload_retirements();
     bool _has_pending_upload_retirement(uint32_t asset_id, uint32_t chunk_idx, uint32_t buffer_slot) const;
     void _mark_chunk_upload_failed(uint32_t asset_id, uint32_t chunk_idx, StreamingChunk &chunk, const char *context);

@@ -895,3 +895,70 @@ TEST_CASE("[GaussianSplatting][Streaming] Initialize without device emits at mos
     // assertion — doctest fails the test if the process aborts. Reaching
     // this line proves the cascade is closed.
 }
+
+TEST_CASE("[Streaming Pipeline] async upload dropped fail-closed on a pack-time/effective stride flip before writing (#766)") {
+    // #766 follow-up: the async pack path always emits the 144 B PackedGaussian layout, and
+    // process_upload_queue() sizes/offsets the write by sizeof(PackedGaussian). If the effective
+    // atlas stride flips 144->80 (a mixed-DC (un)registration toggling per-chunk quantization
+    // DC-compatibility) while a 144 B job is in flight, writing it would splice the 144 B payload
+    // across the now-80 B slot grid and clobber neighboring resident 80 B slots. The #757
+    // retirement guard only drops the ticket AFTER the write; the #766 pre-write guard in
+    // process_upload_queue() must drop it BEFORE any buffer_update.
+    //
+    // Mutation/discrimination: remove the pre-write stride guard in process_upload_queue() and the
+    // 144 B job is written (the #757 guard then drops it at retirement instead) ->
+    // stride_flip_dropped_prewrite_uploads stays 0 while stride_flip_dropped_upload_retirements
+    // becomes 1. The prewrite-counter assertion below is what flips RED.
+    const TestRenderingDeviceHandle rd_handle = _get_test_rendering_device();
+    RenderingDevice *rd = rd_handle.rd;
+    if (!rd) {
+        MESSAGE("Skipping - Rendering device unavailable");
+        return;
+    }
+
+    Ref<GaussianStreamingSystem> system;
+    system.instantiate();
+    system->initialize_empty(rd);
+    if (!system->is_runtime_ready()) {
+        MESSAGE("Skipping - Streaming runtime not ready");
+        return;
+    }
+
+    GaussianStreamingSystem &system_ref = *system.ptr();
+    auto &uploads = system->_internal_get_upload_pipeline();
+    if (!uploads.async_pack_enabled || !uploads.pack_thread_running.load(std::memory_order_acquire)) {
+        MESSAGE("Skipping - Async pack threads unavailable");
+        return;
+    }
+
+    // Effective 144 B stride at pack time (quantization enabled but mixed-DC), so the async pack
+    // path is permitted and stamps packed_stride_bytes = sizeof(PackedGaussian).
+    system->_test_set_quantization_state(true, false);
+    REQUIRE(system->_test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussian)));
+
+    const uint32_t asset_id = 4243;
+    system->register_asset(asset_id, _create_streaming_phase_order_test_data());
+
+    const bool queued_upload = uploads.queue_chunk_load(system_ref, asset_id, 0);
+    REQUIRE(queued_upload);
+    StreamingUploadPipeline::PendingChunkUpload *prepared_job = _wait_for_prepared_upload(uploads);
+    REQUIRE(prepared_job != nullptr);
+
+    // Flip the effective stride to 80 B BEFORE processing the queue. The in-flight 144 B job now
+    // mismatches the atlas grid; writing it would corrupt neighboring 80 B slots.
+    system->_test_set_quantization_state(true, true);
+    REQUIRE(system->_test_atlas_gaussian_stride_bytes() != uint64_t(sizeof(PackedGaussian)));
+
+    const uint64_t prewrite_before = system->_test_get_stride_flip_dropped_prewrite_uploads();
+    const uint64_t retire_before = system->_test_get_stride_flip_dropped_upload_retirements();
+
+    uploads.process_upload_queue(system_ref);
+
+    // Load-bearing discriminator: the job was dropped BEFORE any buffer write by the pre-write
+    // stride guard, so the pre-write counter advances by exactly one...
+    CHECK(system->_test_get_stride_flip_dropped_prewrite_uploads() == prewrite_before + 1);
+    // ...and NOT via the retirement path (no write happened, so no retirement ticket was staged).
+    CHECK(system->_test_get_stride_flip_dropped_upload_retirements() == retire_before);
+    CHECK(system->get_loaded_chunks() == 0);
+    CHECK(system->get_pending_upload_jobs() == 0);
+}

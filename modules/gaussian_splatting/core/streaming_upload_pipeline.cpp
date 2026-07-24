@@ -862,8 +862,17 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
         }
 
         const uint64_t uploaded_bytes = job->bytes_uploaded;
+        // #766: pass the stride the payload was PACKED at (recorded on the worker thread in
+        // build_pending_upload_from_pack_job), not the effective stride sampled here at stage
+        // time. Async pack and stage are decoupled, so a 144->80 flip in between would otherwise be
+        // snapshotted as the post-flip stride and slip past the #757 retirement guard. With the true
+        // pack-time stride threaded through, _stage_chunk_upload_retirement records it verbatim and
+        // _process_upload_retirements() fail-closes on a mismatch symmetrically for the async path.
         if (!system._stage_chunk_upload_retirement(job->asset_id, job->chunk_idx, chunk,
-                    job->buffer_slot, uploaded_bytes, job->metrics, submission_rd)) {
+                    job->buffer_slot, uploaded_bytes, job->metrics, submission_rd,
+                    /*override_retire_after_frames*/ UINT32_MAX,
+                    /*override_completion_mode*/ GaussianStreamingTypes::STREAMING_UPLOAD_COMPLETION_NONE,
+                    /*override_packed_stride_bytes*/ job->packed_stride_bytes)) {
             memdelete(job);
             return;
         }
@@ -950,6 +959,33 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
             system.diagnostics.last_integrity_mismatch_message = system.diagnostics.last_invariant_message;
             WARN_PRINT(system.diagnostics.last_invariant_message);
             system._rollback_pending_chunk(job->asset_id, job->chunk_idx, *chunk, true);
+            memdelete(job);
+            continue;
+        }
+
+        // #766 follow-up (pre-write, fail-closed): the async pack path always emits the
+        // 144 B PackedGaussian layout, and upload_job_slices()/coalescing size and OFFSET
+        // the write by sizeof(PackedGaussian) (slot_capacity_bytes / slot_offset below) --
+        // unlike the SYNC path, which offsets by the runtime _atlas_gaussian_stride_bytes().
+        // If the effective atlas stride flipped 144->80 while this job was in flight (a
+        // mixed-DC (un)registration toggling per-chunk quantization DC-compatibility),
+        // buffer_update() would splice this 144 B payload across the now-80 B slot grid and
+        // clobber neighboring resident 80 B slots. The #757 retirement guard only drops the
+        // ticket AFTER the write and cannot un-corrupt those neighbors, so compare the
+        // pack-time stride against the current effective stride HERE, before any buffer
+        // copy. On a mismatch, roll the chunk back to idle and drop the job; the scheduler
+        // re-packs it at the current stride on a later frame (symmetric with the retirement
+        // guard's recovery). A payload packed at one stride cannot be reinterpreted into the
+        // other's slots, so drop-and-repack -- not a re-strided write -- is the only correct
+        // action. packed_stride_bytes == 0 means "unset" (pre-#766 job) -> fall through to
+        // the effective stride, matching _stage_chunk_upload_retirement's override handling.
+        // The job is dropped before a retirement ticket is staged, and it increments a DISTINCT
+        // counter (stride_flip_dropped_prewrite_uploads) from the retirement-time drop, so the two
+        // fail-closed sites stay individually observable and never double-count one job.
+        if (job->packed_stride_bytes != 0 &&
+                job->packed_stride_bytes != system._atlas_gaussian_stride_bytes()) {
+            system._rollback_pending_chunk(job->asset_id, job->chunk_idx, *chunk, true);
+            system.budget.stride_flip_dropped_prewrite_uploads++;
             memdelete(job);
             continue;
         }
@@ -1165,6 +1201,17 @@ StreamingUploadPipeline::PendingChunkUpload *StreamingUploadPipeline::build_pend
     upload->chunk_idx = p_job.chunk_idx;
     upload->buffer_slot = p_job.buffer_slot;
     upload->asset_generation = p_job.asset_generation;
+    // #766: stamp the true pack-time stride. This function is the sole producer of async upload
+    // jobs and always packs the 144 B PackedGaussian layout (pack_gaussians_range writes
+    // Vector<PackedGaussian>; upload_job_slices()/coalescing size and offset by sizeof(PackedGaussian)).
+    // Capturing sizeof(PackedGaussian) as a compile-time constant here -- rather than reading the
+    // effective stride at stage time in finalize_upload_job -- pins the value to the layout the
+    // payload was really written at and is race-free (no worker-thread read of the main-thread
+    // quantization flags). If the effective atlas stride later flips 144->80 while this job is in
+    // flight, the #757 retirement guard sees packed_stride_bytes(144) != effective(80) and drops
+    // the ticket instead of making an old-stride payload resident at the new stride (#513/#757
+    // corruption). Must stay in lockstep with the layout pack_gaussians_range emits.
+    upload->packed_stride_bytes = sizeof(PackedGaussian);
 
     const bool has_payload_source = p_job.payload_source.is_valid();
     const bool has_data_ref = p_job.data_ref.is_valid();
