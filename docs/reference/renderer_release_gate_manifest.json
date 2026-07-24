@@ -120,9 +120,9 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 137,
-    "sha256": "27d78a3b7d0ac7c58b19799b8afdfbc83dcce9cf1f769a1b4bcbeb8dbdab5d13",
-    "sha256_last_changed_by": "#622 RETAG (no add/remove): three sort-ORDER oracles in modules/gaussian_splatting/tests/test_gpu_sorting.h -- 'GPU Bitonic Sorting', 'Radix sort factory honors 32-bit key layout' and 'Radix sort 8-bit is correct at all workgroup sizes' -- gained a [GpuSort] tag ([GaussianSplatting][RequiresGPU] -> [GaussianSplatting][GpuSort][RequiresGPU]) so they are SELECTED by the required GpuSorting harness batch (filter '*Sort*][RequiresGPU]*'); previously the batch matched only the #508 [GPUSortPipeline] overflow-sticky case and NO sort-order oracle. test_count stays 137 (no case added or removed); the digest moves only because three (path, name) pairs changed name -- verified by a name-set diff against origin/master renaming exactly three TEST_CASEs and adding/removing zero. None of the three carries a deferred TAG (Importer) or a deferred NAME, and [GpuSort] is not a deferred tag, so deferred_count stays 2. All three now match GpuSorting, so running_in_a_named_batch 66 -> 69 and unbatched_backlog 69 -> 66 (the fourth test_gpu_sorting.h case, 'GPU Sorting Performance', is a timing benchmark and stays in the backlog). The sha256 was RECOMPUTED via tests/ci/check_renderer_release_gates.py _requires_gpu_snapshot().",
+    "test_count": 139,
+    "sha256": "bf5d1284e3842cdebc1235bcfe966c8e1f587a39f31a8dbb836b210ce2142884",
+    "sha256_last_changed_by": "#764/#771 REWORK (+1 case): the split-device fix was reworked (Option b -- pin the sorter to the buffer-owner device p_rd instead of the submission device; the prior init-time resource==command guard was a vacuous self-comparison, and a non-vacuous coherence guard now runs at sort time). A second [GaussianSplatting][GpuSort][RequiresGPU] TEST_CASE was added in modules/gaussian_splatting/tests/test_gpu_sorting.h: 'Sorter stays on the buffer-owner device under a two-device split (#764)', a two-device mutation-proof for the cross-device uniform-set binding hazard (the existing 'Sorter resource/command device identity (#764)' case is retained, its comments updated for the reworked guard). test_count 138 -> 139 (exactly one case added, zero renamed/removed). Both cases carry the [GpuSort] tag, so both MATCH the required GpuSorting harness batch (filter '*Sort*][RequiresGPU]*'); neither is deferred, so deferred_count stays 2 and unbatched_backlog stays 66. running_in_a_named_batch 70 -> 71. The sha256 was RECOMPUTED via tests/ci/check_renderer_release_gates.py _requires_gpu_snapshot().",
     "deferred_tags_any": [
       "Importer"
     ],
@@ -432,8 +432,8 @@
     "note": "[RequiresGPU] test cases that match NO named batch in tests/ci/run_gpu_harness.py and therefore execute nowhere. These are NOT waivers: unlike deferred_requires_gpu_waivers (each proven failing, with an owner and an expiry) these cases have simply never been run, so nothing is known about them. Discovered while landing #329, which addressed only the 28 [SceneTree] cases; measuring the whole corpus with correct doctest semantics showed the gap is larger. Recorded explicitly so it is counted and cannot grow silently: tests/ci/test_gpu_harness_deferred_contract.py fails on any orphan NOT listed here, so this list is a ratchet that may only shrink.",
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
-      "requires_gpu_total": 137,
-      "running_in_a_named_batch": 69,
+      "requires_gpu_total": 139,
+      "running_in_a_named_batch": 71,
       "deferred_with_waiver": 2,
       "unbatched_backlog": 66
     },

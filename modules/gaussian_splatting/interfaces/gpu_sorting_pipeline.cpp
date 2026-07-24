@@ -2790,16 +2790,20 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
         pending_count_age_frames = sort_ctx.runtime.frame_counter - instance_count_readback_state.pending_frame_counter;
     }
 
-    RenderingDevice *sort_submission_device = nullptr;
-    if (GaussianSplatManager *manager = GaussianSplatManager::get_singleton()) {
-        sort_submission_device = manager->get_shared_submission_device();
-    }
+    // #764: the sorter is now pinned to its buffer-owner device (sort_resource_device, where the
+    // sort's key/value/count buffers live and where sort_async() records), NOT the shared submission
+    // device. So sync only when the sort's device differs from the compute device that produced the
+    // depth/count buffers. Codex #771: comparing against get_shared_submission_device() made the
+    // opt-in split config block on the GPU every frame even though the sort now runs same-device on
+    // the buffer owner. On the default config sort_resource_device == compute_rd, so this stays async
+    // exactly as before.
+    RenderingDevice *sort_submission_device = sort_resource_device ? sort_resource_device : rd;
     const bool cross_device_sort_submission =
             sort_submission_device && sort_submission_device != compute_rd;
     if (cross_device_sort_submission) {
-        // Depth/count writes are produced on compute_rd but consumed by the shared submission
-        // device in sort_async(). Always flush+sync before cross-device submission to avoid
-        // consuming stale or incomplete buffers.
+        // Depth/count writes are produced on compute_rd but consumed by the sort on a DIFFERENT
+        // device (sort_submission_device). Flush+sync before the cross-device sort submission to
+        // avoid consuming stale or incomplete buffers.
         gs_device_utils::safe_submit_and_sync(compute_rd);
     } else {
         gs_device_utils::safe_submit(compute_rd);

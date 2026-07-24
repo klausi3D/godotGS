@@ -91,6 +91,9 @@ static RenderingDevice *_acquire_submission_device(RenderingDevice *candidate, G
     if (GaussianSplatManager *manager = GaussianSplatManager::get_singleton()) {
         return manager->acquire_submission_device(candidate, lock);
     }
+    // No manager: sorters are rejected at init (_init_sorter_devices / BitonicSort::initialize
+    // require a manager to coordinate async submission/completion), so this is not reached on the
+    // sort path. Kept fail-safe for any other caller.
     WARN_PRINT_ONCE("[GPU Sort] GaussianSplatManager unavailable; cannot acquire submission device");
     return nullptr;
 }
@@ -154,24 +157,68 @@ static RID create_compute_shader_from_spirv(RenderingDevice *rd, const String &s
     return rd->shader_create_from_spirv(spirv_stages);
 }
 
-static RenderingDevice *get_submission_device() {
-    GaussianSplatManager *manager = GaussianSplatManager::get_singleton();
-    if (manager) {
-        return manager->get_shared_submission_device();
-    }
-    WARN_PRINT_ONCE("[GPU Sort] GaussianSplatManager unavailable; no shared submission device available");
-    return nullptr;
+// #764: sort-time command/resource device-coherency invariant (Option b).
+//
+// The sorter pins ALL its resources (shaders, pipelines, temp + uniform buffers) to
+// the buffer-owner device `p_rd` at init, and resolves the command device that
+// actually records + submits the sort at sort time via
+// _acquire_submission_device(local_rd). Because
+// GaussianSplatManager::acquire_submission_device() returns its argument UNCHANGED
+// whenever that argument is not the shared submission device -- and the buffer-owner
+// device never is -- the command device MUST resolve back to the resource device.
+//
+// This is the NON-VACUOUS check the removed init-time `resource_id == command_id`
+// tautology never was: it re-reads the RUNTIME routing rather than comparing a
+// pointer to itself, and fails closed the moment a future change re-routes the
+// sort's command recording onto a different RenderingDevice than owns its buffers
+// (recording a compute list that binds cross-device resources is undefined
+// behavior). It does NOT fire on the shipped default config NOR on the opt-in
+// shared-submission split config: in both, the command device resolves to `p_rd`.
+static bool _sort_devices_coherent(RenderingDevice *p_command_rd, RenderingDevice *p_resource_rd) {
+    return p_command_rd != nullptr && p_resource_rd != nullptr && p_command_rd == p_resource_rd;
 }
 
+// Resolve the (command, resource) RenderingDevice pair for a sorter at init.
+//
+// #764 (Option b): pin BOTH the resource device (owns the sorter's shaders,
+// pipelines and temp/uniform buffers) and the command device (records + submits the
+// sort's compute) to `p_rd` -- the BUFFER-OWNER device that allocated the
+// key/value/count buffers passed to sort_async()/sort_indirect_async(). A compute
+// list may only bind resources allocated on the device that records it, so the sort
+// MUST run entirely on the device that owns its I/O buffers.
+//
+// Previously this pinned r_local_rd = r_resource_rd =
+// GaussianSplatManager::get_shared_submission_device() and DISCARDED p_rd. In the
+// shipped DEFAULT config (rendering/gaussian_splatting/shared_submission_device_enabled
+// = false) get_shared_submission_device() returns get_primary_rendering_device() ==
+// p_rd, so the two collapsed to one device and nothing split. But with the OPT-IN shared
+// submission device enabled AND a separate shared device actually created on the
+// render thread (GaussianSplatManager::_create_local_device_on_render_thread),
+// p_rd (buffer owner) and the submission device DIVERGE: the sorter then allocated
+// its uniform sets on the submission device while binding p_rd-owned key/value
+// buffers into them -> real cross-device binding (undefined behavior). Pinning to
+// p_rd keeps the sort single-device on BOTH configs, and is a no-op on the default
+// path (there p_rd already IS the submission device).
+//
+// The meaningful, NON-VACUOUS check now lives at sort time (_sort_devices_coherent,
+// asserted in each sort entry point). At init the resource/command identity is true
+// by construction (both == p_rd), so asserting it here would be tautological.
 static Error _init_sorter_devices(RenderingDevice *p_rd, RenderingDevice *&r_local_rd, RenderingDevice *&r_resource_rd) {
-    r_local_rd = get_submission_device();
-    if (!r_local_rd) {
+    if (!p_rd) {
         return ERR_CANT_CREATE;
     }
+    // Sorting needs a GaussianSplatManager to coordinate async submission/completion of the sort
+    // (_acquire_submission_device below, and the caller's wait_for_completion contract). Standalone
+    // no-manager callers are NOT supported: they would submit async work with no completion
+    // coordination and race their own buffer teardown (Codex #771). Reject cleanly at init -- the
+    // same outcome as pre-#764, whose get_submission_device() returned null here without a manager --
+    // so such callers get a clear init failure rather than an unusable sorter.
+    if (!GaussianSplatManager::get_singleton()) {
+        return ERR_CANT_CREATE;
+    }
+    // Command and resource both live on the buffer-owner device (Option b).
+    r_local_rd = p_rd;
     r_resource_rd = p_rd;
-    if (!r_resource_rd) {
-        return ERR_CANT_CREATE;
-    }
     return OK;
 }
 
@@ -572,17 +619,26 @@ Error BitonicSort::initialize(RenderingDevice *p_rd, uint32_t p_max_elements) {
 
     rd = p_rd;
 
-    local_rd = get_submission_device();
-    ERR_FAIL_COND_V_MSG(local_rd == nullptr, ERR_CANT_CREATE, "Failed to acquire shared submission rendering device");
+    // #764 (Option b): pin the sorter to the BUFFER-OWNER device (p_rd), which
+    // allocated the key/value buffers passed to sort(). A compute list may only
+    // bind resources allocated on the device that records it, so command +
+    // resources must both live on p_rd. Previously this used
+    // GaussianSplatManager::get_shared_submission_device(), which DIVERGES from p_rd
+    // whenever the opt-in shared submission device is active -> the sort would bind
+    // p_rd-owned buffers into submission-device uniform sets (cross-device UB). No-op
+    // on the default path (there get_shared_submission_device() already returns p_rd).
+    // The meaningful command/resource-coherency check runs at sort time (see
+    // _sort_devices_coherent in BitonicSort::sort).
+    // #771: sorting needs a GaussianSplatManager to coordinate async submission/completion; reject
+    // standalone no-manager sorters cleanly (see _init_sorter_devices) rather than initializing an
+    // unusable sorter whose async submit would race the caller's buffer teardown.
+    if (!GaussianSplatManager::get_singleton()) {
+        return ERR_CANT_CREATE;
+    }
+    local_rd = p_rd;
     max_elements = next_power_of_two(p_max_elements); // Bitonic needs power of 2
 
     RenderingDevice *command_rd = local_rd;
-    ERR_FAIL_NULL_V_MSG(command_rd, ERR_CANT_CREATE, "Rendering device unavailable for BitonicSort initialization");
-
-    // All shader, pipeline, and buffer resources must live on the same
-    // RenderingDevice that records the compute work. Use the submission
-    // device returned by GaussianSplatManager instead of the graphics device
-    // pointer provided during construction.
     pipeline_device = command_rd;
     resource_device = command_rd;
     resource_device_generation = command_rd->get_device_instance_id();
@@ -715,11 +771,13 @@ void main() {
 // ======================================================================
 
 void BitonicSort::shutdown() {
-    // Check if resource_device is still valid by comparing with the current shared device
-    RenderingDevice *current_shared = get_submission_device();
-    // During shutdown the manager singleton may be gone; trust resource_device.
-    bool device_still_valid = (resource_device != nullptr) &&
-            (current_shared == nullptr || resource_device == current_shared);
+    // #764: resource_device is now the BUFFER-OWNER device (p_rd), which is NOT
+    // necessarily the shared submission device on the opt-in split config. Validate
+    // it against the set of live devices (matching OneSweepSort::shutdown) instead
+    // of comparing to the shared submission device, so split-config teardown still
+    // frees on the owning device. The generation check below remains the real
+    // staleness guard.
+    bool device_still_valid = _device_is_active(resource_device);
 
     // ISSUE-010: Also validate device generation to detect recycled/stale pointers.
     if (device_still_valid && resource_device_generation != 0) {
@@ -796,6 +854,13 @@ Error BitonicSort::sort(RID keys_buffer, RID values_buffer, uint32_t count) {
     // the bitonic sort compute list. All shader, pipeline, and uniform state
     // was created against this same device during initialization.
     ERR_FAIL_NULL_V_MSG(compute_rd, ERR_CANT_CREATE, "Rendering device unavailable for BitonicSort::sort");
+
+    // #764: fail closed if the resolved command device diverged from the
+    // resource/buffer-owner device (resource_device == pipeline_device == p_rd).
+    // Refusing here is strictly safer than recording a compute list that binds
+    // cross-device resources. Silent on the default AND opt-in split configs.
+    ERR_FAIL_COND_V_MSG(!_sort_devices_coherent(compute_rd, resource_device), ERR_CANT_CREATE,
+            "[GPU Sort] #764: BitonicSort command device diverged from its resource/buffer-owner device; refusing cross-device compute.");
 
     // Capture GPU timestamp at start (for actual GPU execution time when available)
     String timestamp_start = vformat("BitonicSort_%d_Start", metrics_collector.total_sorts());
@@ -1443,6 +1508,13 @@ uint64_t RadixSort::_sort_async_internal(RID keys_buffer, RID values_buffer, uin
 
     RenderingDevice *resource_rd = resource_device;
     ERR_FAIL_NULL_V_MSG(resource_rd, 0, "Primary rendering device unavailable for RadixSort::sort_async");
+
+    // #764: fail closed if the resolved command device diverged from the
+    // resource/buffer-owner device (both pinned to p_rd at init). Refusing is safer
+    // than binding p_rd-owned buffers into a compute list recorded on another
+    // device. Silent on the default AND opt-in split configs.
+    ERR_FAIL_COND_V_MSG(!_sort_devices_coherent(compute_rd, resource_rd), 0,
+            "[GPU Sort] #764: RadixSort::sort_async command device diverged from its resource/buffer-owner device; refusing cross-device compute.");
 
     const RadixVariant *variant = select_variant(count);
     ERR_FAIL_NULL_V_MSG(variant, 0, "Radix sort variant not initialized");
@@ -2436,12 +2508,14 @@ void RadixSort::_cleanup_partial_init(RenderingDevice *p_rd) {
 void RadixSort::shutdown() {
     wait_for_completion();
 
-    // Phase 3: Try to properly free resources if we still have a valid device
-    // Check if resource_device is still valid by comparing with the current shared device
-    RenderingDevice *current_shared = get_submission_device();
-    // During shutdown the manager singleton may be gone; trust resource_device.
-    bool device_still_valid = (resource_device != nullptr) &&
-            (current_shared == nullptr || resource_device == current_shared);
+    // Phase 3: Try to properly free resources if we still have a valid device.
+    // #764: resource_device is now the BUFFER-OWNER device (p_rd), which is NOT
+    // necessarily the shared submission device on the opt-in split config. Validate
+    // it against the set of live devices (matching OneSweepSort::shutdown) instead
+    // of comparing to the shared submission device, so split-config teardown still
+    // frees on the owning device. The generation check below remains the real
+    // staleness guard.
+    bool device_still_valid = _device_is_active(resource_device);
 
     // ISSUE-010: Also validate device generation to detect recycled/stale pointers.
     if (device_still_valid && resource_device_generation != 0) {
@@ -2577,6 +2651,12 @@ uint64_t RadixSort::_sort_indirect_internal(RID keys_buffer, RID values_buffer, 
 
     RenderingDevice *resource_rd = resource_device;
     ERR_FAIL_NULL_V_MSG(resource_rd, 0, "Primary rendering device unavailable for RadixSort::_sort_indirect_internal");
+
+    // #764: fail closed if the resolved command device diverged from the
+    // resource/buffer-owner device (both pinned to p_rd at init). Silent on the
+    // default AND opt-in split configs.
+    ERR_FAIL_COND_V_MSG(!_sort_devices_coherent(compute_rd, resource_rd), 0,
+            "[GPU Sort] #764: RadixSort::sort_indirect command device diverged from its resource/buffer-owner device; refusing cross-device compute.");
 
     // Use primary variant for indirect sorting
     const RadixVariant *variant = get_variant(primary_radix_bits);
@@ -3323,6 +3403,12 @@ Error OneSweepSort::sort(RID keys_buffer, RID values_buffer, uint32_t count) {
 
     RenderingDevice *resource_rd = resource_device;
     ERR_FAIL_NULL_V_MSG(resource_rd, ERR_CANT_CREATE, "Primary rendering device unavailable for OneSweepSort::sort");
+
+    // #764: fail closed if the resolved command device diverged from the
+    // resource/buffer-owner device (both pinned to p_rd at init). Silent on the
+    // default AND opt-in split configs.
+    ERR_FAIL_COND_V_MSG(!_sort_devices_coherent(compute_rd, resource_rd), ERR_CANT_CREATE,
+            "[GPU Sort] #764: OneSweepSort::sort command device diverged from its resource/buffer-owner device; refusing cross-device compute.");
 
     // Measures CPU-side command recording + synchronous submit time, NOT GPU execution time.
     // OneSweep uses safe_submit_and_sync per pass which includes GPU wait, so this is closer
