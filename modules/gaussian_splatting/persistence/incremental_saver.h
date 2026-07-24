@@ -92,6 +92,19 @@ private:
     bool is_tracking = false;
     uint64_t last_save_time = 0;
     uint32_t accumulated_changes = 0;
+    // PERSIST-001: set when a STRUCTURAL batch setter (set_gaussians /
+    // set_gaussian_payload) replaces/reshapes the whole splat array in a way that
+    // cannot be expressed as per-index deltas. While set, save_changes() fails
+    // closed (ERR_UNAVAILABLE) instead of writing an empty/partial delta that would
+    // silently drop the edit -> data loss. Cleared only by the paths that
+    // (re)establish a baseline: save_changes() success, create_baseline(),
+    // start_tracking(), update_baseline().
+    bool requires_full_save = false;
+    // PERSIST-002 re-entrancy guard: true ONLY while load_and_apply_changes()
+    // replays a delta. GaussianData::set_gaussian() consults is_applying() so the
+    // replay does NOT re-record the very changes it is applying (which would
+    // duplicate/poison the delta on the next save).
+    bool applying = false;
 
     // Internal methods
     void _track_splat_change(uint32_t index, const Gaussian& old_splat, const Gaussian& new_splat);
@@ -129,6 +142,15 @@ public:
     void record_splat_change(uint32_t index, const Gaussian& old_splat, const Gaussian& new_splat);
     void record_animation_change(int clip_index, AnimationProperty property, const Dictionary& old_data, const Dictionary& new_data);
     void record_metadata_change(const String& key, const Variant& old_value, const Variant& new_value);
+
+    // PERSIST-001/002 hooks used by GaussianData's public setters.
+    // mark_requires_full_save(): a structural batch edit invalidated the delta;
+    // save_changes() must fail closed until a full re-baseline is taken.
+    void mark_requires_full_save() { requires_full_save = true; }
+    bool get_requires_full_save() const { return requires_full_save; }
+    // is_applying(): true only during load_and_apply_changes()'s replay, so
+    // set_gaussian() can suppress re-recording the changes it is applying.
+    bool is_applying() const { return applying; }
 
     // Incremental save operations
     Error save_changes(const String& incremental_file_path);

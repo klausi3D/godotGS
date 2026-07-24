@@ -284,12 +284,23 @@ void GaussianData::set_gaussians(const LocalVector<Gaussian> &p_gaussians) {
     RWLockWrite lock(data_rwlock);
     copy_local_vector(gaussians, p_gaussians);
     _on_gaussian_storage_changed_locked();
+    // PERSIST-001: a wholesale replace of ALL splats cannot be expressed as
+    // per-index deltas, so any incremental delta recorded against the old array is
+    // now invalid. Signal the saver to fail closed until a full re-baseline is taken
+    // (see GaussianIncrementalSaver::save_changes). No-op when no saver is attached.
+    if (incremental_saver.is_valid()) {
+        incremental_saver->mark_requires_full_save();
+    }
 }
 
 void GaussianData::set_gaussians(const Vector<Gaussian> &p_gaussians) {
     RWLockWrite lock(data_rwlock);
     copy_local_vector(gaussians, p_gaussians);
     _on_gaussian_storage_changed_locked();
+    // PERSIST-001: structural replace -> invalidate any recorded incremental delta.
+    if (incremental_saver.is_valid()) {
+        incremental_saver->mark_requires_full_save();
+    }
 }
 
 void GaussianData::set_gaussian_payload(const LocalVector<Gaussian> &p_gaussians,
@@ -347,6 +358,14 @@ void GaussianData::set_gaussian_payload(const LocalVector<Gaussian> &p_gaussians
     is_2d_mode = p_is_2d_mode;
 
     _bump_content_revision();
+
+    // PERSIST-001: a full payload replace reshapes the entire splat array and
+    // cannot be represented by the per-index change list, so any incremental delta
+    // recorded against the previous payload is invalidated. Fail closed on the next
+    // save_changes() until a full re-baseline is taken. No-op when no saver attached.
+    if (incremental_saver.is_valid()) {
+        incremental_saver->mark_requires_full_save();
+    }
 }
 
 uint32_t GaussianData::prune_by_importance(double p_keep_ratio, float p_importance_threshold) {
@@ -529,7 +548,20 @@ void GaussianData::resize(int p_count) {
 void GaussianData::set_gaussian(int p_index, const Gaussian &p_gaussian) {
     RWLockWrite lock(data_rwlock);
     ERR_FAIL_INDEX(p_index, (int)gaussians.size());
+    // PERSIST-001: capture the pre-edit splat BEFORE overwriting so the incremental
+    // saver can record an accurate per-index delta. Read directly from storage --
+    // calling get_gaussian() here would re-enter data_rwlock (read-after-write on
+    // the same thread) and deadlock.
+    const Gaussian old_gaussian = gaussians[p_index];
     gaussians[p_index] = p_gaussian;
+    // Record the change UNLESS we are replaying a delta. _apply_splat_changes()
+    // calls set_gaussian() while applying, and must not re-record what it is
+    // applying (that would duplicate/poison the delta on the next save). The
+    // is_applying() guard suppresses exactly that re-entrant path.
+    // record_splat_change() is itself a no-op when the saver is not tracking.
+    if (incremental_saver.is_valid() && !incremental_saver->is_applying()) {
+        incremental_saver->record_splat_change((uint32_t)p_index, old_gaussian, p_gaussian);
+    }
     _invalidate_streaming_bake_locked();
     _bump_content_revision();
 }

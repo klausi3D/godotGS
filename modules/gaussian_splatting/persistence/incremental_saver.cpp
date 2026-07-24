@@ -215,6 +215,9 @@ void GaussianIncrementalSaver::start_tracking(const String &baseline_file) {
     }
     splat_index_to_change.clear();
     clear_changes();
+    // A fresh tracking session starts from a valid baseline, so any prior
+    // structural-invalidation flag no longer applies (PERSIST-001).
+    requires_full_save = false;
     is_tracking = true;
     last_save_time = _now_usec();
 }
@@ -353,7 +356,16 @@ Error GaussianIncrementalSaver::_apply_splat_changes(::GaussianData *gaussian_da
     ERR_FAIL_NULL_V(gaussian_data, ERR_INVALID_PARAMETER);
     for (uint32_t i = 0; i < splat_changes.size(); i++) {
         const SplatChange &change = splat_changes[i];
-        ERR_CONTINUE(change.index >= (uint32_t)gaussian_data->get_count());
+        // PERSIST-002: an out-of-range index is only reachable once the baseline
+        // count check in load_and_apply_changes() has passed, so it means the delta
+        // itself is corrupt. Fail the whole apply hard instead of silently skipping
+        // the entry (ERR_CONTINUE), which would drop that edit and leave a partially
+        // applied result the caller never learns about.
+        if (change.index >= (uint32_t)gaussian_data->get_count()) {
+            ERR_FAIL_V_MSG(ERR_INVALID_DATA,
+                    vformat("[IncrementalSaver] change index %d is out of range for a target with %d splats; the delta is corrupt",
+                            change.index, gaussian_data->get_count()));
+        }
         Gaussian g = gaussian_data->get_gaussian(change.index);
         if (change.changed_properties & SPLAT_PROP_POSITION) {
             g.position = change.position;
@@ -659,6 +671,14 @@ Dictionary GaussianIncrementalSaver::get_change_statistics() const {
 
 Error GaussianIncrementalSaver::save_changes(const String &incremental_file_path) {
     ERR_FAIL_COND_V(!is_tracking, ERR_UNCONFIGURED);
+    // PERSIST-001: fail closed. A structural batch edit (set_gaussians /
+    // set_gaussian_payload) reshaped the splat array in a way the per-index change
+    // list cannot represent, so persisting `splat_changes` now would write an
+    // empty/partial delta and silently drop the edit. save_changes() has no
+    // GaussianData and cannot itself take a full save, so it must refuse and signal
+    // the caller to create_baseline() (a full re-baseline).
+    ERR_FAIL_COND_V_MSG(requires_full_save, ERR_UNAVAILABLE,
+            "[IncrementalSaver] a structural batch edit invalidated the incremental delta; a full re-baseline (create_baseline) is required to avoid data loss");
 
     struct PendingChange {
         ChangeEntry entry;
@@ -775,6 +795,9 @@ Error GaussianIncrementalSaver::save_changes(const String &incremental_file_path
     // Only advance save state once the file is durably in place.
     last_save_time = timestamp;
     clear_changes();
+    // Success path: the delta on disk now fully represents the tracked edits, so
+    // the structural-invalidation flag (if any) is cleared (PERSIST-001).
+    requires_full_save = false;
     return OK;
 }
 
@@ -875,6 +898,22 @@ Error GaussianIncrementalSaver::load_and_apply_changes(const String &incremental
         return layout_err;
     }
 
+    // PERSIST-002: refuse to apply a delta whose baseline does not match the target.
+    // The delta's changes are per-index edits that are only meaningful against the
+    // exact splat array they were recorded on. Applying them to a different-sized
+    // GaussianData would partially apply the in-range indices and drop the rest ->
+    // silent cross-baseline corruption. Verify BEFORE mutating anything (saver state
+    // or the target), and apply NOTHING on mismatch. loaded_baseline_splat_count == 0
+    // means "unknown/legacy" (older writer, or a baseline whose count could not be
+    // determined at record time) -> the check is skipped for backward compatibility.
+    // gaussian_data is null on the merge path (merge_incremental_files), which has no
+    // target to validate against.
+    if (gaussian_data != nullptr && loaded_baseline_splat_count != 0) {
+        ERR_FAIL_COND_V_MSG((uint32_t)gaussian_data->get_count() != loaded_baseline_splat_count, ERR_INVALID_DATA,
+                vformat("[IncrementalSaver] baseline mismatch: delta was recorded against %d splats but the target has %d; refusing to apply to avoid cross-baseline corruption",
+                        loaded_baseline_splat_count, gaussian_data->get_count()));
+    }
+
     // Strict-decode every change payload BEFORE mutating saver state, so a corrupt
     // entry aborts the load rather than being swallowed into a default-valued
     // change (#603b).
@@ -948,6 +987,15 @@ Error GaussianIncrementalSaver::load_and_apply_changes(const String &incremental
 
     accumulated_changes = entries.size();
     last_save_time = change_timestamp;
+
+    // PERSIST-002: mark the replay so set_gaussian() (invoked by
+    // _apply_splat_changes) does NOT re-record the changes we are applying. RAII so
+    // `applying` is restored to false on EVERY return path below, including errors.
+    struct ApplyGuard {
+        bool &flag;
+        explicit ApplyGuard(bool &p_flag) : flag(p_flag) { flag = true; }
+        ~ApplyGuard() { flag = false; }
+    } apply_guard(applying);
 
     if (gaussian_data) {
         Error err = _apply_splat_changes(gaussian_data);
@@ -1031,6 +1079,9 @@ Error GaussianIncrementalSaver::create_baseline(const String &baseline_path, con
         baseline_timestamp = file->get_modified_time(baseline_path);
     }
     baseline_splat_count = gaussian_data->get_count();
+    // A fresh full baseline supersedes any structural-invalidation state: the delta
+    // is now taken relative to this baseline, so save_changes() may resume (PERSIST-001).
+    requires_full_save = false;
     return OK;
 }
 
@@ -1051,6 +1102,10 @@ Error GaussianIncrementalSaver::update_baseline(const String &new_baseline_file_
         baseline_timestamp = file->get_modified_time(new_baseline_file_path);
     }
     clear_changes();
+    // Rebasing onto a new baseline clears the structural-invalidation flag: whatever
+    // reshaped the array is now the baseline, so per-index deltas are valid again
+    // (PERSIST-001).
+    requires_full_save = false;
     return OK;
 }
 
