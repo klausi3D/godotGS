@@ -244,9 +244,11 @@ void GaussianIncrementalSaver::start_tracking(const String &baseline_file) {
     GaussianSceneSerializer serializer;
     Dictionary info = serializer.get_file_info(baseline_file);
     const bool baseline_valid = info.has("valid") && info["valid"];
-    if (baseline_valid) {
-        baseline_splat_count = info.get("splat_count", 0);
-    }
+    // Always refresh the count: on an invalid/missing baseline reset it to 0 so a delta
+    // saved afterwards claims an UNKNOWN baseline (count 0) and is refused on apply (F4),
+    // instead of inheriting a stale prior N-splat count that could be applied to an
+    // unrelated N-splat target (Codex).
+    baseline_splat_count = baseline_valid ? (uint32_t)(int)info.get("splat_count", 0) : 0;
     splat_index_to_change.clear();
     clear_changes();
     // Only clear the fail-closed guard once the baseline actually validated. If a prior
@@ -566,7 +568,7 @@ Error GaussianIncrementalSaver::_apply_metadata_changes(GaussianAnimationStateMa
     return OK;
 }
 
-Error GaussianIncrementalSaver::_apply_animation_changes(GaussianAnimationStateMachine *animation, const LocalVector<AnimationChange> &changes) const {
+Error GaussianIncrementalSaver::_apply_animation_changes(GaussianAnimationStateMachine *animation, const LocalVector<AnimationChange> &changes, const HashMap<String, MetadataDelta> &metadata_snapshot) const {
     if (!animation) {
         return OK;
     }
@@ -575,7 +577,7 @@ Error GaussianIncrementalSaver::_apply_animation_changes(GaussianAnimationStateM
     // Build a remap from recorded clip index -> runtime index by clip name so animation deltas
     // continue targeting the intended clip.
     HashMap<int, int> clip_index_remap;
-    for (const KeyValue<String, MetadataDelta> &E : metadata_changes) {
+    for (const KeyValue<String, MetadataDelta> &E : metadata_snapshot) {
         PackedStringArray parts = E.key.split(":");
         if (parts.size() != 2 || parts[0] != "clip") {
             continue;
@@ -1127,7 +1129,7 @@ Error GaussianIncrementalSaver::load_and_apply_changes(const String &incremental
         if (err != OK) {
             return err;
         }
-        err = _apply_animation_changes(animation, apply_anims);
+        err = _apply_animation_changes(animation, apply_anims, apply_meta);
         if (err != OK) {
             return err;
         }
@@ -1191,6 +1193,10 @@ Error GaussianIncrementalSaver::merge_incremental_files(const Array &incremental
 
 Error GaussianIncrementalSaver::create_baseline(const String &baseline_path, const ::GaussianData *gaussian_data, const GaussianAnimationStateMachine *animation) {
     ERR_FAIL_NULL_V(gaussian_data, ERR_INVALID_PARAMETER);
+    // Snapshot the data revision BEFORE writing the baseline. If it advances by the time we
+    // clear the (assumed-captured) deltas, a concurrent edit slipped in that the baseline
+    // did NOT capture -> fail closed below instead of dropping it (Codex).
+    const uint64_t rev_before = gaussian_data->get_content_revision();
     GaussianSceneSerializer serializer;
     Error err = serializer.save_scene(baseline_path, gaussian_data, animation);
     if (err != OK) {
@@ -1211,9 +1217,6 @@ Error GaussianIncrementalSaver::create_baseline(const String &baseline_path, con
     baseline_file_path = baseline_path;
     baseline_timestamp = new_timestamp;
     baseline_splat_count = new_count;
-    // A fresh full baseline supersedes any structural-invalidation state: the delta is now
-    // taken relative to this baseline, so save_changes() may resume (PERSIST-001).
-    requires_full_save = false;
     // The baseline just serialized the CURRENT gaussian_data, so the per-index SPLAT
     // deltas recorded before it are captured -- discard them (and the dedup map) so the
     // recovery flow (structural edit -> create_baseline -> save_changes) does not persist
@@ -1229,6 +1232,11 @@ Error GaussianIncrementalSaver::create_baseline(const String &baseline_path, con
         metadata_changes.clear();
     }
     accumulated_changes = splat_changes.size() + animation_changes.size() + metadata_changes.size();
+    // TOCTOU guard (Codex): if the data revision advanced since rev_before, a concurrent
+    // edit was recorded AFTER the baseline snapshot and just cleared above -- fail closed
+    // so the next save forces a fresh baseline that captures it, rather than dropping it.
+    // A fresh full baseline otherwise supersedes any structural-invalidation state.
+    requires_full_save = (gaussian_data->get_content_revision() != rev_before);
     return OK;
 }
 

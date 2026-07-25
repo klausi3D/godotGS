@@ -1583,6 +1583,57 @@ TEST_CASE("[GaussianSplatting][Persistence] PERSIST-002i concurrent records and 
     _remove_persistence_fixture(delta_path);
 }
 
+TEST_CASE("[GaussianSplatting][Persistence] PERSIST-002j re-tracking an invalid baseline resets the splat count to 0") {
+    // After tracking a valid N-splat baseline, re-tracking against a missing/corrupt
+    // baseline must reset baseline_splat_count to 0 (unknown), so a delta saved afterwards
+    // claims count 0 and is refused on apply (F4) -- NOT inherit the stale N count that
+    // could be applied to an unrelated N-splat target (Codex).
+    //
+    // MUTATION that flips this case RED: make start_tracking() keep the stale count on an
+    // invalid baseline (baseline_valid ? new_count : baseline_splat_count). The delta then
+    // claims count N, F4 does not refuse it, and the apply mutates the N-splat target.
+    const int N = 5;
+    const String good_baseline = _make_persistence_fixture_path("persist002j_good", ".gsf");
+    const String delta_path = _make_persistence_fixture_path("persist002j_delta", ".gsif");
+    const bool dir_ready = _ensure_persistence_fixture_dir(good_baseline) && _ensure_persistence_fixture_dir(delta_path);
+    CHECK_MESSAGE(dir_ready, "Persistence fixture directory should be available");
+    if (!dir_ready) {
+        return;
+    }
+
+    Ref<GaussianData> data = _make_seeded_gaussian_data(N);
+    Ref<GaussianSplatting::GaussianIncrementalSaver> saver;
+    saver.instantiate();
+    data->set_incremental_saver(saver);
+    // Track a valid N-splat baseline first (sets baseline_splat_count = N).
+    saver->start_tracking(good_baseline);
+    CHECK_EQ(saver->create_baseline(good_baseline, data.ptr()), OK);
+
+    // Re-track against a MISSING baseline -> the count must reset to 0 (unknown).
+    const String missing_baseline = _make_persistence_fixture_path("persist002j_missing", ".gsf");
+    _remove_persistence_fixture(missing_baseline);
+    saver->start_tracking(missing_baseline);
+
+    // Record an edit and save; the delta must claim an unknown baseline (count 0).
+    Gaussian g = data->get_gaussian(0);
+    g.opacity = 0.71f;
+    data->set_gaussian(0, g);
+    CHECK_MESSAGE(saver->get_splat_change_count() == 1, "sanity: the edit was recorded");
+    CHECK_EQ(saver->save_changes(delta_path), OK);
+
+    // Applying to a fresh N-splat target must be REFUSED (count 0 -> F4), even though the
+    // target happens to have N splats.
+    Ref<GaussianData> target = _make_seeded_gaussian_data(N);
+    const Error apply_err = saver->load_and_apply_changes(delta_path, target.ptr());
+    CHECK_MESSAGE(apply_err == ERR_INVALID_DATA,
+            "a delta saved after re-tracking an invalid baseline must be refused (unknown baseline)");
+    CHECK_MESSAGE(Math::abs(target->get_gaussian(0).opacity - 0.71f) > 0.001f,
+            "the refused delta must not have mutated the target");
+
+    _remove_persistence_fixture(good_baseline);
+    _remove_persistence_fixture(delta_path);
+}
+
 TEST_CASE("[GaussianSplatting][WorldLifetime] GaussianSplatWorld::clear() drops chunk_payload_source") {
     Ref<GaussianSplatWorld> world = create_test_world();
     Ref<GaussianData> data = world->get_gaussian_data();

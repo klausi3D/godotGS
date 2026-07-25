@@ -67,6 +67,25 @@ struct ChangeEntry {
     uint64_t timestamp;
 };
 
+// THREADING CONTRACT
+// ------------------
+// The saver's internal state (change tables, dedup map, baseline fields, requires_full_save,
+// is_tracking, counters, config) is serialised by an internal recursive change_mutex, so
+// RECORDING (via GaussianData setters, under data_rwlock) and SAVING (save_changes) may run
+// concurrently: the common case -- a worker thread editing while the main thread saves -- is
+// thread-safe.
+//
+// However, load_and_apply_changes() and create_baseline() deserialise a delta INTO / serialise
+// a baseline FROM the WHOLE attached GaussianData. Those whole-object operations are NOT atomic
+// w.r.t. concurrent edits of the SAME GaussianData, and the saver cannot make them so (it does
+// not own data_rwlock, and holding it across a full apply would deadlock the record path). The
+// CALLER must therefore ensure EXCLUSIVE access to the GaussianData for the duration of
+// load_and_apply_changes()/create_baseline() -- i.e. quiesce other edits to that data -- exactly
+// as one would not deserialise into an object being mutated elsewhere. Only ONE
+// load_and_apply_changes() may run per saver at a time. create_baseline() additionally fails
+// closed (via content_revision) if it detects the data changed under it, so a stray edit is not
+// silently dropped; a structural replace racing the serializer's raw-storage read is a separate,
+// pre-existing serializer concern tracked in its own issue.
 class GaussianIncrementalSaver : public Resource {
     GDCLASS(GaussianIncrementalSaver, Resource);
 
@@ -138,7 +157,7 @@ private:
     static Error _decode_change_payload(const PackedByteArray& data_blob, const ChangeEntry& entry, Dictionary& r_dict);
     Error _apply_splat_changes(::GaussianData* gaussian_data, const LocalVector<SplatChange>& changes) const;
     Error _apply_metadata_changes(GaussianAnimationStateMachine* animation, const HashMap<String, MetadataDelta>& changes) const;
-    Error _apply_animation_changes(GaussianAnimationStateMachine* animation, const LocalVector<AnimationChange>& changes) const;
+    Error _apply_animation_changes(GaussianAnimationStateMachine* animation, const LocalVector<AnimationChange>& changes, const HashMap<String, MetadataDelta>& metadata_snapshot) const;
 
 protected:
     static void _bind_methods();
@@ -187,7 +206,10 @@ public:
     Error create_baseline(const String& baseline_file_path, const ::GaussianData* gaussian_data, const GaussianAnimationStateMachine* animation = nullptr);
     Error create_baseline_bind(const String& baseline_file_path, const Ref<::GaussianData>& gaussian_data, const Ref<GaussianAnimationStateMachine>& animation = Ref<GaussianAnimationStateMachine>());
     Error update_baseline(const String& new_baseline_file_path);
-    String get_baseline_file() const { return baseline_file_path; }
+    String get_baseline_file() const {
+        MutexLock lock(change_mutex);
+        return baseline_file_path;
+    }
 
     // Change analysis
     uint32_t get_change_count() const {
@@ -206,18 +228,36 @@ public:
     Dictionary get_change_statistics() const;
 
     // Auto-save functionality
-    void set_auto_save_interval(float seconds) { auto_save_interval = MAX(1.0f, seconds); }
-    float get_auto_save_interval() const { return auto_save_interval; }
+    void set_auto_save_interval(float seconds) {
+        MutexLock lock(change_mutex);
+        auto_save_interval = MAX(1.0f, seconds);
+    }
+    float get_auto_save_interval() const {
+        MutexLock lock(change_mutex);
+        return auto_save_interval;
+    }
 
-    void set_max_changes_before_full_save(uint32_t count) { max_changes_before_full_save = count; }
-    uint32_t get_max_changes_before_full_save() const { return max_changes_before_full_save; }
+    void set_max_changes_before_full_save(uint32_t count) {
+        MutexLock lock(change_mutex);
+        max_changes_before_full_save = count;
+    }
+    uint32_t get_max_changes_before_full_save() const {
+        MutexLock lock(change_mutex);
+        return max_changes_before_full_save;
+    }
 
     bool should_auto_save() const;
     bool should_create_full_save() const;
 
     // Change compression
-    void set_enable_change_compression(bool enable) { enable_change_compression = enable; }
-    bool get_enable_change_compression() const { return enable_change_compression; }
+    void set_enable_change_compression(bool enable) {
+        MutexLock lock(change_mutex);
+        enable_change_compression = enable;
+    }
+    bool get_enable_change_compression() const {
+        MutexLock lock(change_mutex);
+        return enable_change_compression;
+    }
 
     // Utility methods
     void clear_changes();
