@@ -1564,12 +1564,20 @@ Error TileRenderer::initialize(RenderingDevice *p_rendering_device, const Vector
     Error err = _compile_tile_shaders();
     if (err != OK) {
         GS_LOG_ERROR_DEFAULT("[TileRenderer] Failed to compile tile renderer shaders");
+        // #643 fail-closed: tear the object fully back down so a retained renderer reports
+        // is_initialized() == false and holds no GPU resources (all-or-nothing).
+        cleanup();
         return err;
     }
 
     if (p_initial_viewport.x > 0 && p_initial_viewport.y > 0) {
         err = _ensure_resources(p_initial_viewport, config_state.tile_size, config_state.desired_output_format);
         if (err != OK) {
+            // #643 fail-closed: _ensure_resources released the resources it allocated, but
+            // initialize() also bound the device (is_initialized() keys on device_context.resource_rd)
+            // and compiled shaders above. Fully tear the object back down so a retained renderer
+            // reports is_initialized() == false and holds no GPU resources (all-or-nothing).
+            cleanup();
             return err;
         }
     } else {
