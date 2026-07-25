@@ -1948,11 +1948,25 @@ Error TileRenderer::_ensure_resources(const Vector2i &p_size, int p_tile_size, R
             _create_output_texture(p_size, config_state.desired_output_format);
         }
 
-        // #643: fail-closed. A partially-initialised TileRenderer (missing output texture or
-        // required diagnostic buffers) must NOT be reported as ready -- returning OK here left
-        // initialize() handing back a renderer that renders nothing while leaking the resources
-        // it did allocate. Release everything and report the failure so the caller can react.
+        // #643: fail-closed. A partially-initialised TileRenderer must NOT be reported as ready --
+        // returning OK here left initialize() handing back a renderer that renders nothing while
+        // leaking the resources it did allocate. Release everything and report the failure.
+        //
+        // Required set: the color output + the per-frame diagnostic buffers, plus (for the fragment
+        // raster path, which init uses -- allow_compute_raster starts false) the depth/normal
+        // attachments and the framebuffer built from them. Under VRAM pressure any of these can fail
+        // while the others succeed, so they must all be validated (Codex #643 review). In the
+        // shared-submission / painterly configuration depth is deliberately best-effort
+        // (create_output_textures logs "painterly depth unavailable" and continues; main-render depth
+        // is used instead), so the fragment attachments are only strictly required when NOT sharing.
+        RenderingDevice *contract_main_device = _get_contract_main_device();
+        const bool sharing_with_main = contract_main_device != nullptr && contract_main_device != device;
+        const bool fragment_targets_incomplete = !sharing_with_main &&
+                (!render_targets.depth_texture.is_valid() ||
+                        !render_targets.normal_texture.is_valid() ||
+                        !render_targets.tile_framebuffer.is_valid());
         const bool resources_incomplete = !render_targets.output_texture.is_valid() ||
+                fragment_targets_incomplete ||
                 !debug_stats.debug_counter_buffer.is_valid() ||
                 !debug_stats.overflow_statistics_buffer.is_valid() ||
                 !debug_stats.debug_splat_audit_buffer.is_valid();
