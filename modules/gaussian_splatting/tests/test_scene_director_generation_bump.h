@@ -337,7 +337,13 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] a re-populated DYNAMIC 
 
 	// First payload: 5 splats.
 	Ref<GaussianSplatAsset> asset = _make_dynamic_repopulate_asset(5);
-	REQUIRE(asset.is_valid());
+	// REQUIRE does not abort under DOCTEST_CONFIG_NO_EXCEPTIONS (see #656): a bare
+	// REQUIRE(asset.is_valid()) would report and continue, then the deref below would
+	// crash the whole binary. Fail-closed with an early return instead.
+	if (!asset.is_valid()) {
+		FAIL("the first DYNAMIC payload asset must be valid");
+		return;
+	}
 	const ObjectID asset_id = asset->get_instance_id();
 
 	director->register_instance(node->get_instance_id(), asset, Transform3D(), 1.0f, 0.0f, 0u);
