@@ -1634,6 +1634,39 @@ TEST_CASE("[GaussianSplatting][Persistence] PERSIST-002j re-tracking an invalid 
     _remove_persistence_fixture(delta_path);
 }
 
+TEST_CASE("[GaussianSplatting][Persistence] PERSIST-001h set_2d_mode fails save_changes closed") {
+    // is_2d_mode is outside the per-index delta contract (and the GSF baseline format cannot
+    // persist it either -- #600), so set_2d_mode() must fail save_changes() closed rather
+    // than silently drop the toggle on reload (Codex).
+    //
+    // MUTATION that flips this case RED: remove the _invalidate_incremental_delta_locked()
+    // call from GaussianData::set_2d_mode(). save_changes() then returns OK with no delta.
+    const int N = 4;
+    const String baseline_path = _make_persistence_fixture_path("persist001h_baseline", ".gsf");
+    const String delta_path = _make_persistence_fixture_path("persist001h_delta", ".gsif");
+    const bool dir_ready = _ensure_persistence_fixture_dir(baseline_path) && _ensure_persistence_fixture_dir(delta_path);
+    CHECK_MESSAGE(dir_ready, "Persistence fixture directory should be available");
+    if (!dir_ready) {
+        return;
+    }
+
+    Ref<GaussianData> data = _make_seeded_gaussian_data(N);
+    Ref<GaussianSplatting::GaussianIncrementalSaver> saver;
+    saver.instantiate();
+    data->set_incremental_saver(saver);
+    saver->start_tracking(baseline_path);
+    CHECK_EQ(saver->create_baseline(baseline_path, data.ptr()), OK);
+    CHECK_MESSAGE(!saver->get_requires_full_save(), "sanity: clean baseline, guard clear");
+
+    data->set_2d_mode(true);
+    CHECK_MESSAGE(saver->get_requires_full_save(), "set_2d_mode() must invalidate the delta");
+    CHECK_MESSAGE(saver->save_changes(delta_path) == ERR_UNAVAILABLE,
+            "save_changes() must fail closed rather than drop the 2D-mode toggle");
+
+    _remove_persistence_fixture(baseline_path);
+    _remove_persistence_fixture(delta_path);
+}
+
 TEST_CASE("[GaussianSplatting][WorldLifetime] GaussianSplatWorld::clear() drops chunk_payload_source") {
     Ref<GaussianSplatWorld> world = create_test_world();
     Ref<GaussianData> data = world->get_gaussian_data();

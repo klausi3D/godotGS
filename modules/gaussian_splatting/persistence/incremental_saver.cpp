@@ -1197,6 +1197,16 @@ Error GaussianIncrementalSaver::create_baseline(const String &baseline_path, con
     // clear the (assumed-captured) deltas, a concurrent edit slipped in that the baseline
     // did NOT capture -> fail closed below instead of dropping it (Codex).
     const uint64_t rev_before = gaussian_data->get_content_revision();
+    // The animation object has no content-revision, so also snapshot the pending
+    // animation/clip-metadata counts to detect animation edits recorded in the
+    // save_scene -> lock window and fail closed rather than clearing them unseen (Codex).
+    uint32_t anim_before = 0;
+    uint32_t meta_before = 0;
+    {
+        MutexLock snapshot_lock(change_mutex);
+        anim_before = animation_changes.size();
+        meta_before = metadata_changes.size();
+    }
     GaussianSceneSerializer serializer;
     Error err = serializer.save_scene(baseline_path, gaussian_data, animation);
     if (err != OK) {
@@ -1225,6 +1235,12 @@ Error GaussianIncrementalSaver::create_baseline(const String &baseline_path, con
     // NOT captured by the full save; retain them (they remain valid deltas relative to
     // this baseline) unless an animation object was actually serialized (Codex: clear only
     // what the full save captured).
+    // TOCTOU detection: an edit recorded in the save_scene -> lock window is not captured by
+    // the baseline. content_revision covers the Gaussian data; for the animation object
+    // (no revision) compare the pending counts -- only relevant when captured_animation,
+    // since otherwise those edits are RETAINED below rather than cleared (Codex).
+    const bool animation_changed_during = captured_animation &&
+            (animation_changes.size() != anim_before || metadata_changes.size() != meta_before);
     splat_changes.clear();
     splat_index_to_change.clear();
     if (captured_animation) {
@@ -1232,11 +1248,11 @@ Error GaussianIncrementalSaver::create_baseline(const String &baseline_path, con
         metadata_changes.clear();
     }
     accumulated_changes = splat_changes.size() + animation_changes.size() + metadata_changes.size();
-    // TOCTOU guard (Codex): if the data revision advanced since rev_before, a concurrent
-    // edit was recorded AFTER the baseline snapshot and just cleared above -- fail closed
-    // so the next save forces a fresh baseline that captures it, rather than dropping it.
-    // A fresh full baseline otherwise supersedes any structural-invalidation state.
-    requires_full_save = (gaussian_data->get_content_revision() != rev_before);
+    // Fail closed if a concurrent edit (Gaussian data OR captured animation) slipped into
+    // the snapshot -> clear window, so the next save forces a fresh baseline that captures
+    // it rather than dropping it. A fresh full baseline otherwise supersedes any structural
+    // invalidation.
+    requires_full_save = (gaussian_data->get_content_revision() != rev_before) || animation_changed_during;
     return OK;
 }
 

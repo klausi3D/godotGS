@@ -1094,6 +1094,10 @@ void GaussianData::set_stroke_ages(const PackedFloat32Array &p_stroke_ages) {
 void GaussianData::set_2d_mode(bool p_enabled) {
     RWLockWrite lock(data_rwlock);
     is_2d_mode = p_enabled;
+    // PERSIST-001: is_2d_mode is outside the per-index delta contract (and the GSF baseline
+    // format cannot persist it either -- #600, which warns on drop), so a toggle cannot be
+    // recorded. Fail closed rather than silently drop it.
+    _invalidate_incremental_delta_locked();
     _bump_content_revision();
 }
 
