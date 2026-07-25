@@ -850,6 +850,9 @@ void GaussianData::set_spherical_harmonics(const PackedFloat32Array &p_sh_data) 
         _set_spherical_harmonics_locked(i, data_ptr + i * floats_per_gaussian, floats_per_gaussian);
     }
     _invalidate_streaming_bake_locked();
+    // PERSIST-001: SH coefficients (high-order + first-order layout) are outside the
+    // per-index delta contract, so a bulk SH assignment cannot be recorded -- fail closed.
+    _invalidate_incremental_delta_locked();
     _bump_content_revision();
 }
 
@@ -1062,6 +1065,9 @@ void GaussianData::set_spherical_harmonics(int p_index, const float *p_coeffs, i
     RWLockWrite lock(data_rwlock);
     _set_spherical_harmonics_locked(p_index, p_coeffs, p_count);
     _invalidate_streaming_bake_locked();
+    // PERSIST-001: a per-index SH edit changes coefficients outside the per-index delta
+    // contract (which serializes only sh_dc), so it cannot be recorded -- fail closed.
+    _invalidate_incremental_delta_locked();
     _bump_content_revision();
 }
 

@@ -973,6 +973,19 @@ Error GaussianIncrementalSaver::load_and_apply_changes(const String &incremental
     // unsaved edits would already be discarded and the target left partially mutated.
     // Reject up front so a failed load leaves BOTH the target and the saver untouched.
     if (gaussian_data != nullptr) {
+        // PERSIST-002 (Codex F4): a delta with an unknown baseline count (0) carries no
+        // verifiable identity -- applying its per-index splat edits to this target could
+        // corrupt unrelated splats even when every index is in range. Refuse. (count>0
+        // mismatches are caught by the count check above; verifying same-count baseline
+        // IDENTITY via a content fingerprint is tracked in issue #773.)
+        if (loaded_baseline_splat_count == 0) {
+            for (uint32_t i = 0; i < entries.size(); i++) {
+                if (entries[i].type == ChangeType::SPLAT_MODIFIED) {
+                    ERR_FAIL_V_MSG(ERR_INVALID_DATA,
+                            "[IncrementalSaver] refusing to apply a splat delta with an unknown baseline count (0); its baseline cannot be verified against the target (see issue #773). No changes applied, saver state preserved.");
+                }
+            }
+        }
         const uint32_t target_count = (uint32_t)gaussian_data->get_count();
         for (uint32_t i = 0; i < entries.size(); i++) {
             if (entries[i].type != ChangeType::SPLAT_MODIFIED) {
@@ -994,6 +1007,10 @@ Error GaussianIncrementalSaver::load_and_apply_changes(const String &incremental
     splat_changes.clear();
     animation_changes.clear();
     metadata_changes.clear();
+    // PERSIST-001 (Codex F5): the dedup map indexes into splat_changes; rebuilding the
+    // change tables here must reset AND repopulate it, otherwise a subsequent
+    // set_gaussian() follows a stale map entry into the wrong (or out-of-bounds) slot.
+    splat_index_to_change.clear();
 
     for (uint32_t i = 0; i < entries.size(); i++) {
         const ChangeEntry &entry = entries[i];
@@ -1018,6 +1035,9 @@ Error GaussianIncrementalSaver::load_and_apply_changes(const String &incremental
                 if (change.changed_properties & SPLAT_PROP_ROTATION) {
                     change.rotation = dict.get("rotation", Quaternion());
                 }
+                // Keep the dedup map consistent with the rebuilt splat_changes so a later
+                // set_gaussian() on a loaded index updates the existing entry in place.
+                splat_index_to_change.insert(change.index, splat_changes.size());
                 splat_changes.push_back(change);
                 break;
             }
@@ -1164,24 +1184,27 @@ Error GaussianIncrementalSaver::create_baseline_bind(const String &baseline_path
 }
 
 Error GaussianIncrementalSaver::update_baseline(const String &new_baseline_file_path) {
+    // PERSIST-001/002 (Codex): validate the NEW baseline BEFORE mutating any saver state.
+    // clear_changes() + requires_full_save=false against a missing/corrupt baseline would
+    // silently drop the fail-closed guard and let the next save_changes() write a lossy
+    // delta. On failure, retain the current tables + flag and report the error.
+    GaussianSceneSerializer serializer;
+    Dictionary info = serializer.get_file_info(new_baseline_file_path);
+    ERR_FAIL_COND_V_MSG(!(info.has("valid") && info["valid"]), ERR_FILE_CORRUPT,
+            vformat("[IncrementalSaver] update_baseline() rejected an invalid/missing baseline '%s'; retaining current tracking state.",
+                    new_baseline_file_path));
+
     baseline_file_path = new_baseline_file_path;
+    baseline_timestamp = 0;
     Ref<FileAccess> file = FileAccess::open(new_baseline_file_path, FileAccess::READ);
     if (file.is_valid()) {
         baseline_timestamp = file->get_modified_time(new_baseline_file_path);
     }
-    // PERSIST-002 (Codex): refresh the baseline splat count from the NEW baseline. A
-    // structural rebase can change the count; leaving the stale value would make the
-    // load-time count check reject valid deltas (or, if it were zero, skip validation).
-    // Mirrors start_tracking() / create_baseline().
-    GaussianSceneSerializer serializer;
-    Dictionary info = serializer.get_file_info(new_baseline_file_path);
-    if (info.has("valid") && info["valid"]) {
-        baseline_splat_count = info.get("splat_count", 0);
-    }
+    // Refresh the baseline splat count from the new baseline (a rebase can change it),
+    // mirroring start_tracking() / create_baseline().
+    baseline_splat_count = info.get("splat_count", 0);
     clear_changes();
-    // Rebasing onto a new baseline clears the structural-invalidation flag: whatever
-    // reshaped the array is now the baseline, so per-index deltas are valid again
-    // (PERSIST-001).
+    // Whatever reshaped the array is now the baseline, so per-index deltas are valid again.
     requires_full_save = false;
     return OK;
 }
