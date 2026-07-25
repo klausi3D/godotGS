@@ -690,6 +690,11 @@ bool GaussianSplatSceneDirector::InstanceStore::retain_asset(const Ref<GaussianS
 #ifdef TOOLS_ENABLED
 	edited_version = p_asset->get_edited_version();
 #endif
+	// DATA-001: procedural repopulation bumps the asset's payload_version but NOT
+	// edited_version (TOOLS-only, a compile-time 0 in exports), so gate the cached
+	// GaussianData on payload_version too -- otherwise a re-populated DYNAMIC asset keeps
+	// rendering its first payload.
+	const uint32_t payload_version = p_asset->get_payload_version();
 	AssetRecord *record = asset_records.getptr(p_asset_id);
 	if (!record) {
 		AssetRecord new_record;
@@ -699,6 +704,7 @@ bool GaussianSplatSceneDirector::InstanceStore::retain_asset(const Ref<GaussianS
 			return false;
 		}
 		new_record.edited_version = edited_version;
+		new_record.payload_version = payload_version;
 		new_record.refcount = 1;
 		asset_records.insert(p_asset_id, new_record);
 		_bump_instance_generation(instance_generation);
@@ -707,7 +713,7 @@ bool GaussianSplatSceneDirector::InstanceStore::retain_asset(const Ref<GaussianS
 	}
 
 	record->asset = p_asset;
-	if (record->data.is_null() || record->edited_version != edited_version) {
+	if (record->data.is_null() || record->edited_version != edited_version || record->payload_version != payload_version) {
 		Ref<GaussianData> refreshed_data;
 		if (!_populate_gaussian_data_from_asset(p_asset, refreshed_data)) {
 			GS_LOG_WARN_DEFAULT("[GaussianSplatSceneDirector] Failed to rebuild GaussianData from asset.");
@@ -715,6 +721,7 @@ bool GaussianSplatSceneDirector::InstanceStore::retain_asset(const Ref<GaussianS
 		}
 		record->data = refreshed_data;
 		record->edited_version = edited_version;
+		record->payload_version = payload_version;
 		_bump_instance_generation(instance_generation);
 		_bump_instance_asset_generation(instance_asset_generation);
 	}
@@ -734,7 +741,10 @@ bool GaussianSplatSceneDirector::InstanceStore::refresh_asset(const Ref<Gaussian
 #ifdef TOOLS_ENABLED
 	edited_version = p_asset->get_edited_version();
 #endif
-	if (!record->data.is_null() && record->edited_version == edited_version) {
+	// DATA-001: also gate on payload_version so a procedurally re-populated DYNAMIC asset
+	// (which never bumps the TOOLS-only edited_version) rebuilds its cached data.
+	const uint32_t payload_version = p_asset->get_payload_version();
+	if (!record->data.is_null() && record->edited_version == edited_version && record->payload_version == payload_version) {
 		return true;
 	}
 	Ref<GaussianData> refreshed_data;
@@ -745,6 +755,7 @@ bool GaussianSplatSceneDirector::InstanceStore::refresh_asset(const Ref<Gaussian
 	record->asset = p_asset;
 	record->data = refreshed_data;
 	record->edited_version = edited_version;
+	record->payload_version = payload_version;
 	_bump_instance_generation(instance_generation);
 	_bump_instance_asset_generation(instance_asset_generation);
 	return true;
@@ -2588,6 +2599,19 @@ bool GaussianSplatSceneDirector::test_has_asset_record_for_scenario(const RID &p
 		return false;
 	}
 	return world->instance_store.has_asset(_asset_records_key(p_asset_object_id));
+}
+
+int GaussianSplatSceneDirector::test_asset_record_splat_count_for_scenario(const RID &p_scenario, ObjectID p_asset_object_id) const {
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+	const SharedWorld *world = world_registry.find(p_scenario);
+	if (!world) {
+		return -1;
+	}
+	const auto *record = world->instance_store.find_asset(_asset_records_key(p_asset_object_id));
+	if (!record || record->data.is_null()) {
+		return -1;
+	}
+	return (int)record->data->get_count();
 }
 
 uint64_t GaussianSplatSceneDirector::test_instance_generation_for_scenario(const RID &p_scenario) const {
