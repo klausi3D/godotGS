@@ -99,6 +99,10 @@ public:
 
     void set_output_format(RD::DataFormat p_format);
     RD::DataFormat get_output_format() const { return config_state.output_format; }
+    // #643: whether a requested output color format can back a compute STORAGE image.
+    // sRGB / BGRA color formats cannot; those render via the fragment raster path, so
+    // their output texture must be created WITHOUT TEXTURE_USAGE_STORAGE_BIT.
+    static bool output_format_supports_storage(RD::DataFormat p_format);
     void set_output_invalidation_callback(std::function<void()> p_callback);
     void clear_output_invalidation_callback();
 

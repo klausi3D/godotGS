@@ -268,6 +268,14 @@ static uint32_t _update_adaptive_overlap_budget(TileRenderer *p_renderer, uint32
 
 } // namespace
 
+// #643: a color format can back a STORAGE image only if it is already storage-compatible,
+// i.e. it maps to itself under the storage-compatible coercion. sRGB and BGRA color formats
+// coerce to R8G8B8A8_UNORM, so they do NOT support storage and must use the fragment raster
+// path. Single source of truth: the file-local _resolve_storage_compatible_color_format().
+bool TileRenderer::output_format_supports_storage(RD::DataFormat p_format) {
+	return p_format == _resolve_storage_compatible_color_format(p_format);
+}
+
 class TileRenderer::RenderFrameExecutor {
 public:
 	RenderFrameExecutor(TileRenderer &p_renderer, RenderingDevice *p_rendering_device, const RenderParams &p_params, RenderingDevice *p_resource_device)
@@ -1930,6 +1938,24 @@ Error TileRenderer::_ensure_resources(const Vector2i &p_size, int p_tile_size, R
             }
             _create_aux_buffers();
             _create_output_texture(p_size, config_state.desired_output_format);
+        }
+
+        // #643: fail-closed. A partially-initialised TileRenderer (missing output texture or
+        // required diagnostic buffers) must NOT be reported as ready -- returning OK here left
+        // initialize() handing back a renderer that renders nothing while leaking the resources
+        // it did allocate. Release everything and report the failure so the caller can react.
+        const bool resources_incomplete = !render_targets.output_texture.is_valid() ||
+                !debug_stats.debug_counter_buffer.is_valid() ||
+                !debug_stats.overflow_statistics_buffer.is_valid() ||
+                !debug_stats.debug_splat_audit_buffer.is_valid();
+        if (resources_incomplete) {
+            GS_LOG_ERROR_DEFAULT("[TileRenderer] Resource allocation failed during _ensure_resources; failing initialization instead of returning a partially-initialised renderer (#643)");
+            projection_buffers.release(device);
+            debug_stats.free_buffers(device);
+            _destroy_output_textures();
+            render_targets.depth_texture_copy_compatible = false;
+            config_state.output_format = RD::DATA_FORMAT_MAX;
+            return ERR_CANT_CREATE;
         }
     }
 
