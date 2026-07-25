@@ -242,14 +242,19 @@ void GaussianIncrementalSaver::start_tracking(const String &baseline_file) {
     }
     GaussianSceneSerializer serializer;
     Dictionary info = serializer.get_file_info(baseline_file);
-    if (info.has("valid") && info["valid"]) {
+    const bool baseline_valid = info.has("valid") && info["valid"];
+    if (baseline_valid) {
         baseline_splat_count = info.get("splat_count", 0);
     }
     splat_index_to_change.clear();
     clear_changes();
-    // A fresh tracking session starts from a valid baseline, so any prior
-    // structural-invalidation flag no longer applies (PERSIST-001).
-    requires_full_save = false;
+    // Only clear the fail-closed guard once the baseline actually validated. If a prior
+    // structural mutation set requires_full_save and this baseline is missing/corrupt,
+    // retaining the guard prevents a later save_changes() from writing a lossy delta with
+    // no valid full baseline behind it (Codex; mirrors create_baseline() / update_baseline()).
+    if (baseline_valid) {
+        requires_full_save = false;
+    }
     is_tracking = true;
     last_save_time = _now_usec();
 }
@@ -1163,13 +1168,21 @@ Error GaussianIncrementalSaver::create_baseline(const String &baseline_path, con
     // A fresh full baseline supersedes any structural-invalidation state: the delta
     // is now taken relative to this baseline, so save_changes() may resume (PERSIST-001).
     requires_full_save = false;
-    // The baseline just serialized the CURRENT gaussian_data, so any deltas recorded
-    // before it are already captured in the full save. Discard them (and the dedup map +
-    // accumulated counter) so the next save_changes() emits only edits made AFTER this
-    // baseline -- otherwise the recovery flow (structural edit -> create_baseline ->
-    // save_changes) would persist stale pre-baseline deltas (Codex: clear stale deltas
-    // when creating a new baseline).
-    clear_changes();
+    // The baseline just serialized the CURRENT gaussian_data, so the per-index SPLAT
+    // deltas recorded before it are captured -- discard them (and the dedup map) so the
+    // recovery flow (structural edit -> create_baseline -> save_changes) does not persist
+    // stale pre-baseline splat deltas. BUT a default create_baseline(path, data) with no
+    // animation writes NO animation chunk, so pending animation / clip-metadata edits are
+    // NOT captured by the full save; retain them (they remain valid deltas relative to
+    // this baseline) unless an animation object was actually serialized (Codex: clear only
+    // what the full save captured).
+    splat_changes.clear();
+    splat_index_to_change.clear();
+    if (animation != nullptr) {
+        animation_changes.clear();
+        metadata_changes.clear();
+    }
+    accumulated_changes = splat_changes.size() + animation_changes.size() + metadata_changes.size();
     return OK;
 }
 

@@ -1392,6 +1392,103 @@ TEST_CASE("[GaussianSplatting][Persistence] PERSIST-002g load rebuilds the dedup
     _remove_persistence_fixture(out_delta);
 }
 
+TEST_CASE("[GaussianSplatting][Persistence] PERSIST-001g create_baseline retains animation edits it did not capture") {
+    // create_baseline(path, data) with the default (no animation object) writes NO
+    // animation chunk, so pending animation / clip-metadata edits are not captured by the
+    // full save. Clearing them anyway (as an unconditional clear_changes() would) loses
+    // the animation edit -- the baseline omits it AND the next delta omits it. Only the
+    // splat deltas the baseline actually captured may be discarded (Codex).
+    //
+    // MUTATION that flips this case RED: replace the selective clear in create_baseline()
+    // with an unconditional clear_changes(). The pending animation change is then dropped
+    // and get_animation_change_count() becomes 0.
+    const int N = 4;
+    const String baseline_path = _make_persistence_fixture_path("persist001g_baseline", ".gsf");
+    const bool dir_ready = _ensure_persistence_fixture_dir(baseline_path);
+    CHECK_MESSAGE(dir_ready, "Persistence fixture directory should be available");
+    if (!dir_ready) {
+        return;
+    }
+
+    Ref<GaussianData> data = _make_seeded_gaussian_data(N);
+    Ref<GaussianSplatting::GaussianIncrementalSaver> saver;
+    saver.instantiate();
+    data->set_incremental_saver(saver);
+    saver->start_tracking(baseline_path);
+    CHECK_EQ(saver->create_baseline(baseline_path, data.ptr()), OK);
+
+    // Stage a pending splat edit AND a pending animation edit.
+    Gaussian g = data->get_gaussian(0);
+    g.opacity = 0.5f;
+    data->set_gaussian(0, g);
+    Dictionary before;
+    Dictionary after;
+    after["value"] = 1;
+    saver->record_animation_change(0, (GaussianSplatting::AnimationProperty)0, before, after);
+    CHECK_MESSAGE(saver->get_splat_change_count() == 1, "sanity: one pending splat edit");
+    CHECK_MESSAGE(saver->get_animation_change_count() == 1, "sanity: one pending animation edit");
+
+    // Re-baseline WITHOUT an animation object: the splat edit is captured (data), the
+    // animation edit is NOT. The splat delta must be discarded, the animation edit kept.
+    CHECK_EQ(saver->create_baseline(baseline_path, data.ptr()), OK);
+    CHECK_MESSAGE(saver->get_splat_change_count() == 0,
+            "create_baseline captured the splat state, so its per-index delta is discarded");
+    CHECK_MESSAGE(saver->get_animation_change_count() == 1,
+            "create_baseline did NOT capture animation, so the pending animation edit is retained");
+
+    _remove_persistence_fixture(baseline_path);
+}
+
+TEST_CASE("[GaussianSplatting][Persistence] PERSIST-002h start_tracking on an invalid baseline retains the fail-closed guard") {
+    // start_tracking() must not clear the requires_full_save guard when the given baseline
+    // is missing/corrupt. If a structural mutation set the guard and the caller then
+    // re-tracks against an invalid baseline, clearing it would let save_changes() write a
+    // lossy delta with no valid full baseline behind it (Codex; mirrors update_baseline).
+    //
+    // MUTATION that flips this case RED: clear requires_full_save unconditionally in
+    // start_tracking() (drop the baseline-validity gate). The guard is then cleared and
+    // save_changes() no longer fails closed.
+    const int N = 4;
+    const String baseline_path = _make_persistence_fixture_path("persist002h_baseline", ".gsf");
+    const String delta_path = _make_persistence_fixture_path("persist002h_delta", ".gsif");
+    const bool dir_ready = _ensure_persistence_fixture_dir(baseline_path) && _ensure_persistence_fixture_dir(delta_path);
+    CHECK_MESSAGE(dir_ready, "Persistence fixture directory should be available");
+    if (!dir_ready) {
+        return;
+    }
+
+    Ref<GaussianData> data = _make_seeded_gaussian_data(N);
+    Ref<GaussianSplatting::GaussianIncrementalSaver> saver;
+    saver.instantiate();
+    data->set_incremental_saver(saver);
+    saver->start_tracking(baseline_path);
+    CHECK_EQ(saver->create_baseline(baseline_path, data.ptr()), OK);
+
+    // A structural edit sets the fail-closed guard.
+    Vector<Gaussian> replacement;
+    replacement.resize(N + 1);
+    for (int i = 0; i < replacement.size(); i++) {
+        Gaussian &g = replacement.write[i];
+        g.opacity = 1.0f;
+        g.scale = Vector3(1, 1, 1);
+        g.rotation = Quaternion();
+    }
+    data->set_gaussians(replacement);
+    CHECK_MESSAGE(saver->get_requires_full_save(), "sanity: the structural edit set the fail-closed flag");
+
+    // Re-tracking against a MISSING baseline must NOT clear the guard.
+    const String missing_baseline = _make_persistence_fixture_path("persist002h_missing", ".gsf");
+    _remove_persistence_fixture(missing_baseline); // ensure it does not exist
+    saver->start_tracking(missing_baseline);
+    CHECK_MESSAGE(saver->get_requires_full_save(),
+            "start_tracking() on an invalid baseline must retain the fail-closed guard");
+    CHECK_MESSAGE(saver->save_changes(delta_path) == ERR_UNAVAILABLE,
+            "save must still fail closed after re-tracking against a missing baseline");
+
+    _remove_persistence_fixture(baseline_path);
+    _remove_persistence_fixture(delta_path);
+}
+
 TEST_CASE("[GaussianSplatting][WorldLifetime] GaussianSplatWorld::clear() drops chunk_payload_source") {
     Ref<GaussianSplatWorld> world = create_test_world();
     Ref<GaussianData> data = world->get_gaussian_data();
