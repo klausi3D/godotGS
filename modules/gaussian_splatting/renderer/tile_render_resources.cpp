@@ -472,11 +472,19 @@ void TileRenderTargets::create_output_textures(const Vector2i &p_size, RD::DataF
 	format.texture_type = RD::TEXTURE_TYPE_2D;
 	format.samples = RD::TEXTURE_SAMPLES_1;
 	format.format = p_format != RD::DATA_FORMAT_MAX ? p_format : RD::DATA_FORMAT_R8G8B8A8_UNORM;
-	format.usage_bits = RD::TEXTURE_USAGE_STORAGE_BIT |
-			RD::TEXTURE_USAGE_SAMPLING_BIT |
+	// #643: sRGB (and BGRA) color formats cannot carry TEXTURE_USAGE_STORAGE_BIT. The
+	// renderer routes such formats to the fragment raster path (TileRenderer::_decide_compute_raster),
+	// which writes the output as a COLOR_ATTACHMENT, so STORAGE is never needed for them.
+	// Requesting it unconditionally made texture_create() fail for sRGB, leaving the renderer
+	// with no output texture while initialize() still returned OK. Only request STORAGE when the
+	// format actually supports it; the sampling/attachment/copy bits are load-bearing on the
+	// fragment path and stay for every format.
+	const bool storage_compatible = TileRenderer::output_format_supports_storage(format.format);
+	format.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT |
 			RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT |
 			RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT |
-			RD::TEXTURE_USAGE_CAN_COPY_TO_BIT;
+			RD::TEXTURE_USAGE_CAN_COPY_TO_BIT |
+			(storage_compatible ? RD::TEXTURE_USAGE_STORAGE_BIT : 0);
 
 	output_texture_owner.clear();
 	output_texture_local_owner = nullptr;

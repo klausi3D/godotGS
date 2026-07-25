@@ -38,17 +38,16 @@ TEST_CASE("[TileRenderer][RequiresGPU] Output format coercion keeps deterministi
         return;
     }
 
-    // KNOWN FAILING — genuine PRODUCT bug, filed as #643. Do not "fix" this by
-    // relaxing the assertion. On a real device `initialize()` above returns OK
-    // while `create_output_textures()` (tile_render_resources.cpp:474) tried to
-    // create an SRGB texture with TEXTURE_USAGE_STORAGE_BIT, which no driver
-    // allows, leaving the renderer with NO output texture and
-    // `config_state.output_format == RD::DATA_FORMAT_MAX`. The module already
-    // has `_resolve_storage_compatible_color_format()` (tile_renderer.cpp:104),
-    // which maps SRGB -> UNORM exactly for this, but never calls it on the
-    // creation path. #643 must decide the contract (coerce to UNORM, or fail
-    // initialize()) and then update this expectation to the DECIDED contract —
-    // not to whatever the code currently does.
+    // #643 CONTRACT (resolved): an explicitly-requested sRGB output format is PRESERVED,
+    // not coerced. sRGB cannot back a compute STORAGE image, so create_output_textures()
+    // omits TEXTURE_USAGE_STORAGE_BIT for it and the renderer draws via the fragment path
+    // (_decide_compute_raster already routes sRGB there). initialize() therefore succeeds
+    // with a real output texture and get_output_format() reports the requested sRGB.
+    // Regression guard: if STORAGE_BIT were re-added unconditionally, texture_create()
+    // would fail for sRGB, create_output_textures() would set output_format = DATA_FORMAT_MAX,
+    // and this assertion would fail (232 == 42, the historical failure). (The fail-closed
+    // half of #643 -- _ensure_resources returning an error + releasing on genuine allocation
+    // failure -- is exercised by mutation, not reachable with a valid device here.)
     CHECK(renderer->get_output_format() == RD::DATA_FORMAT_R8G8B8A8_SRGB);
 
     renderer->set_output_format(RD::DATA_FORMAT_MAX);
