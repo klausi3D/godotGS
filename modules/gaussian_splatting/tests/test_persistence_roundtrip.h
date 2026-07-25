@@ -939,12 +939,12 @@ TEST_CASE("[GaussianSplatting][Persistence] PERSIST-002b a corrupt out-of-range 
     // Reaching the branch: a delta saved WITHOUT a baseline (start_tracking on a
     // path that does not exist yet) writes baseline_splat_count == 0, which
     // load_and_apply_changes() treats as "legacy/unknown" and skips the count check --
-    // so the out-of-range index is evaluated inside _apply_splat_changes(), exactly
-    // the path the two-pass guards.
+    // so an out-of-range index reaches the per-index validation in load_and_apply_changes().
     //
-    // MUTATION that flips this case RED: collapse _apply_splat_changes() back to a
-    // single validate-and-apply loop. Then indices 0 and 1 are mutated before the loop
-    // fails on the out-of-range index, and the "unchanged" CHECKs fail.
+    // MUTATION that flips this case RED: remove the pre-commit index-validation loop
+    // added to load_and_apply_changes(). The corrupt delta then reaches the commit +
+    // _apply_splat_changes() backstop, which applies indices 0 and 1 before failing on
+    // the out-of-range index, so the "unchanged" CHECKs fail.
     const int SRC = 5; // recorded on a 5-splat array: indices 0,1,4 are all valid here
     const int DST = 3; // applied onto a 3-splat target: index 4 is OUT OF RANGE
     const float edit_opacity = 0.815f;
@@ -995,6 +995,236 @@ TEST_CASE("[GaussianSplatting][Persistence] PERSIST-002b a corrupt out-of-range 
 
     _remove_persistence_fixture(baseline_path);
     _remove_persistence_fixture(delta_path);
+}
+
+TEST_CASE("[GaussianSplatting][Persistence] PERSIST-001d bulk mutators fail save_changes closed") {
+    // Bulk/structural mutators the per-index delta cannot represent -- a field overwrite
+    // (set_positions, via _invalidate_derived_caches_locked), a structural resize (via
+    // _on_gaussian_storage_changed_locked), and a prune (explicit hook) -- must all fail
+    // save_changes() closed (ERR_UNAVAILABLE) through the shared
+    // _invalidate_incremental_delta_locked() hook, never silently save an empty/partial
+    // delta (PERSIST-001).
+    //
+    // MUTATION that flips a leg RED: remove the _invalidate_incremental_delta_locked()
+    // call from the matching GaussianData hook (_invalidate_derived_caches_locked /
+    // _on_gaussian_storage_changed_locked / prune_by_importance). That mutator then leaves
+    // requires_full_save false and save_changes() returns OK.
+    const int N = 6;
+    const String baseline_path = _make_persistence_fixture_path("persist001d_baseline", ".gsf");
+    const String delta_path = _make_persistence_fixture_path("persist001d_delta", ".gsif");
+    const bool dir_ready = _ensure_persistence_fixture_dir(baseline_path) && _ensure_persistence_fixture_dir(delta_path);
+    CHECK_MESSAGE(dir_ready, "Persistence fixture directory should be available");
+    if (!dir_ready) {
+        return;
+    }
+
+    Ref<GaussianData> data = _make_seeded_gaussian_data(N);
+    Ref<GaussianSplatting::GaussianIncrementalSaver> saver;
+    saver.instantiate();
+    data->set_incremental_saver(saver);
+    saver->start_tracking(baseline_path);
+
+    // Leg 1: per-property bulk field overwrite (same count).
+    CHECK_EQ(saver->create_baseline(baseline_path, data.ptr()), OK);
+    CHECK_EQ(saver->save_changes(delta_path), OK); // a clean baseline still saves fine
+    PackedVector3Array positions;
+    positions.resize(N);
+    for (int i = 0; i < N; i++) {
+        positions.set(i, Vector3(-1.0f * i, 2.0f, 3.0f));
+    }
+    data->set_positions(positions);
+    CHECK_MESSAGE(saver->get_requires_full_save(), "set_positions() must invalidate the delta");
+    CHECK_MESSAGE(saver->save_changes(delta_path) == ERR_UNAVAILABLE, "save must fail closed after set_positions()");
+
+    // Leg 2: structural resize (count change).
+    CHECK_EQ(saver->create_baseline(baseline_path, data.ptr()), OK);
+    CHECK_MESSAGE(!saver->get_requires_full_save(), "re-baseline clears the flag");
+    data->resize(N + 3);
+    CHECK_MESSAGE(saver->get_requires_full_save(), "resize() must invalidate the delta");
+    CHECK_MESSAGE(saver->save_changes(delta_path) == ERR_UNAVAILABLE, "save must fail closed after resize()");
+
+    // Leg 3: prune (drops splats).
+    CHECK_EQ(saver->create_baseline(baseline_path, data.ptr()), OK);
+    CHECK_MESSAGE(!saver->get_requires_full_save(), "re-baseline clears the flag");
+    const uint32_t before = (uint32_t)data->get_count();
+    const uint32_t kept = data->prune_by_importance(0.5, 0.0f);
+    CHECK_MESSAGE(kept < before, "sanity: prune actually dropped splats");
+    CHECK_MESSAGE(saver->get_requires_full_save(), "prune_by_importance() must invalidate the delta");
+    CHECK_MESSAGE(saver->save_changes(delta_path) == ERR_UNAVAILABLE, "save must fail closed after prune");
+
+    _remove_persistence_fixture(baseline_path);
+    _remove_persistence_fixture(delta_path);
+}
+
+TEST_CASE("[GaussianSplatting][Persistence] PERSIST-001e set_gaussian on an unsupported field fails save closed") {
+    // The per-index delta serializes only position/sh_dc/opacity/scale/rotation. A
+    // set_gaussian() that changes ONLY an unsupported field (here painterly_meta) must NOT
+    // record a lossy partial/empty delta -- it must fail save_changes() closed so the field
+    // is preserved via a full re-baseline (PERSIST-001).
+    //
+    // MUTATION that flips this case RED: delete the _gaussian_unsupported_field_changed()
+    // early-out in GaussianIncrementalSaver::_track_splat_change(). The change then records
+    // nothing (mask==0 -> return), get_requires_full_save() stays false, and save returns OK.
+    const int N = 5;
+    const int edit_index = 2;
+    const String baseline_path = _make_persistence_fixture_path("persist001e_baseline", ".gsf");
+    const String delta_path = _make_persistence_fixture_path("persist001e_delta", ".gsif");
+    const bool dir_ready = _ensure_persistence_fixture_dir(baseline_path) && _ensure_persistence_fixture_dir(delta_path);
+    CHECK_MESSAGE(dir_ready, "Persistence fixture directory should be available");
+    if (!dir_ready) {
+        return;
+    }
+
+    Ref<GaussianData> data = _make_seeded_gaussian_data(N);
+    Ref<GaussianSplatting::GaussianIncrementalSaver> saver;
+    saver.instantiate();
+    data->set_incremental_saver(saver);
+    saver->start_tracking(baseline_path);
+    CHECK_EQ(saver->create_baseline(baseline_path, data.ptr()), OK);
+
+    // Change ONLY painterly_meta (an unsupported field); every supported field stays equal.
+    Gaussian g = data->get_gaussian(edit_index);
+    CHECK_MESSAGE(g.painterly_meta == 0u, "sanity: seeded painterly_meta is 0");
+    g.painterly_meta = 0xABCDu;
+    data->set_gaussian(edit_index, g);
+
+    CHECK_MESSAGE(saver->get_splat_change_count() == 0,
+            "an unsupported-field-only change must NOT record a per-index delta");
+    CHECK_MESSAGE(saver->get_requires_full_save(),
+            "an unsupported-field change must fail the delta closed");
+    CHECK_MESSAGE(saver->save_changes(delta_path) == ERR_UNAVAILABLE,
+            "save_changes() must fail closed rather than drop the unsupported-field edit");
+
+    _remove_persistence_fixture(baseline_path);
+    _remove_persistence_fixture(delta_path);
+}
+
+TEST_CASE("[GaussianSplatting][Persistence] PERSIST-002d update_baseline refreshes the baseline splat count") {
+    // After a structural rebase through update_baseline() onto a baseline with a DIFFERENT
+    // splat count, deltas recorded against the new baseline must round-trip. If
+    // update_baseline() fails to refresh baseline_splat_count from the new baseline file,
+    // save_changes() stamps the stale count into the delta header and the load-time count
+    // check rejects it against the correctly-sized target (PERSIST-002 / Codex).
+    //
+    // MUTATION that flips this case RED: remove the get_file_info()/baseline_splat_count
+    // refresh added to update_baseline(). The delta then carries the OLD (3) count and the
+    // apply onto an 8-splat target fails ERR_INVALID_DATA instead of OK.
+    const int SMALL = 3;
+    const int BIG = 8;
+    const int edit_index = 0;
+    const float edited_opacity = 0.77f;
+
+    const String small_baseline = _make_persistence_fixture_path("persist002d_small", ".gsf");
+    const String big_baseline = _make_persistence_fixture_path("persist002d_big", ".gsf");
+    const String delta_path = _make_persistence_fixture_path("persist002d_delta", ".gsif");
+    const bool dir_ready = _ensure_persistence_fixture_dir(small_baseline) && _ensure_persistence_fixture_dir(big_baseline) && _ensure_persistence_fixture_dir(delta_path);
+    CHECK_MESSAGE(dir_ready, "Persistence fixture directory should be available");
+    if (!dir_ready) {
+        return;
+    }
+
+    // Write a SMALL (3-splat) and a BIG (8-splat) baseline file on disk.
+    {
+        Ref<GaussianData> small_data = _make_seeded_gaussian_data(SMALL);
+        Ref<GaussianData> big_data = _make_seeded_gaussian_data(BIG);
+        Ref<GaussianSplatting::GaussianIncrementalSaver> writer;
+        writer.instantiate();
+        writer->start_tracking(small_baseline);
+        CHECK_EQ(writer->create_baseline(small_baseline, small_data.ptr()), OK);
+        CHECK_EQ(writer->create_baseline(big_baseline, big_data.ptr()), OK);
+    }
+
+    // A saver that starts tracking the SMALL baseline (count = 3) ...
+    Ref<GaussianData> data = _make_seeded_gaussian_data(BIG);
+    Ref<GaussianSplatting::GaussianIncrementalSaver> saver;
+    saver.instantiate();
+    data->set_incremental_saver(saver);
+    saver->start_tracking(small_baseline); // reads count = 3 from the small baseline
+
+    // ... then rebases onto the BIG baseline (count = 8) via update_baseline().
+    CHECK_EQ(saver->update_baseline(big_baseline), OK);
+
+    // Record a per-index edit against the 8-splat data and save the delta.
+    Gaussian g = data->get_gaussian(edit_index);
+    g.opacity = edited_opacity;
+    data->set_gaussian(edit_index, g);
+    CHECK_MESSAGE(saver->get_splat_change_count() == 1, "sanity: the edit was recorded");
+    CHECK_EQ(saver->save_changes(delta_path), OK);
+
+    // Apply onto a fresh 8-splat target: the count check must pass (8 == refreshed 8).
+    Ref<GaussianData> fresh = _make_seeded_gaussian_data(BIG);
+    const Error apply_err = saver->load_and_apply_changes(delta_path, fresh.ptr());
+    CHECK_MESSAGE(apply_err == OK,
+            "update_baseline() must refresh the count so an 8-splat delta applies to an 8-splat target");
+    CHECK_MESSAGE(Math::abs(fresh->get_gaussian(edit_index).opacity - edited_opacity) < 0.001f,
+            "the edit recorded after the rebase must round-trip");
+
+    _remove_persistence_fixture(small_baseline);
+    _remove_persistence_fixture(big_baseline);
+    _remove_persistence_fixture(delta_path);
+}
+
+TEST_CASE("[GaussianSplatting][Persistence] PERSIST-002c a failed corrupt load preserves the saver's pending edits") {
+    // load_and_apply_changes() clears and replaces the saver's pending change tables when
+    // it commits a loaded delta. A corrupt delta (out-of-range index, reachable via a
+    // legacy count==0 file) must be rejected BEFORE that commit, so a tracking saver that
+    // still holds unsaved edits does not lose them to the corrupt file's entries
+    // (PERSIST-002 / Codex: validate before committing saver state).
+    //
+    // MUTATION that flips this case RED: remove the pre-commit index-validation loop in
+    // load_and_apply_changes(). The commit then clears+rebuilds splat_changes from the
+    // corrupt file (3 entries) before _apply_splat_changes() fails, so the saver's pending
+    // edit count becomes 3 instead of the preserved 1.
+    const int SRC = 5;
+    const int DST = 3;
+    const String corrupt_baseline = _make_persistence_fixture_path("persist002c_srcbase", ".gsf");
+    const String corrupt_delta = _make_persistence_fixture_path("persist002c_corrupt", ".gsif");
+    const String pending_baseline = _make_persistence_fixture_path("persist002c_pendbase", ".gsf");
+    const bool dir_ready = _ensure_persistence_fixture_dir(corrupt_baseline) && _ensure_persistence_fixture_dir(corrupt_delta) && _ensure_persistence_fixture_dir(pending_baseline);
+    CHECK_MESSAGE(dir_ready, "Persistence fixture directory should be available");
+    if (!dir_ready) {
+        return;
+    }
+
+    // Build a corrupt legacy delta: no baseline (count 0) with edits at 0,1,4 on a
+    // 5-splat array -> index 4 is out of range for the 3-splat target below.
+    {
+        Ref<GaussianData> src = _make_seeded_gaussian_data(SRC);
+        Ref<GaussianSplatting::GaussianIncrementalSaver> src_saver;
+        src_saver.instantiate();
+        src->set_incremental_saver(src_saver);
+        src_saver->start_tracking(corrupt_baseline); // does not exist -> count stays 0
+        const int idxs[3] = { 0, 1, 4 };
+        for (int k = 0; k < 3; k++) {
+            Gaussian g = src->get_gaussian(idxs[k]);
+            g.opacity = 0.9f;
+            src->set_gaussian(idxs[k], g);
+        }
+        CHECK_MESSAGE(src_saver->get_splat_change_count() == 3, "sanity: 3 edits recorded on the source");
+        CHECK_EQ(src_saver->save_changes(corrupt_delta), OK);
+    }
+
+    // A DIFFERENT, tracking saver with ONE unsaved pending edit on its own 3-splat data.
+    Ref<GaussianData> data = _make_seeded_gaussian_data(DST);
+    Ref<GaussianSplatting::GaussianIncrementalSaver> saver;
+    saver.instantiate();
+    data->set_incremental_saver(saver);
+    saver->start_tracking(pending_baseline); // does not exist -> count 0
+    Gaussian pe = data->get_gaussian(0);
+    pe.opacity = 0.42f;
+    data->set_gaussian(0, pe);
+    CHECK_MESSAGE(saver->get_splat_change_count() == 1, "sanity: one pending edit is staged");
+
+    // Loading the corrupt delta must fail WITHOUT discarding the pending edit.
+    const Error apply_err = saver->load_and_apply_changes(corrupt_delta, data.ptr());
+    CHECK_MESSAGE(apply_err == ERR_INVALID_DATA,
+            "a corrupt out-of-range delta must fail with ERR_INVALID_DATA");
+    CHECK_MESSAGE(saver->get_splat_change_count() == 1,
+            "the saver's pending edit must survive a rejected corrupt load (no state committed)");
+
+    _remove_persistence_fixture(corrupt_baseline);
+    _remove_persistence_fixture(corrupt_delta);
+    _remove_persistence_fixture(pending_baseline);
 }
 
 TEST_CASE("[GaussianSplatting][WorldLifetime] GaussianSplatWorld::clear() drops chunk_payload_source") {

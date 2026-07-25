@@ -183,6 +183,9 @@ void GaussianData::_on_gaussian_storage_changed() {
 void GaussianData::_invalidate_derived_caches_locked() {
     octree.clear();
     _invalidate_streaming_bake_locked();
+    // Per-property bulk mutators (set_positions/scales/rotations/opacities/
+    // set_spherical_harmonics) overwrite fields the per-index delta cannot represent.
+    _invalidate_incremental_delta_locked();
 }
 
 void GaussianData::_invalidate_streaming_bake_locked() {
@@ -190,6 +193,18 @@ void GaussianData::_invalidate_streaming_bake_locked() {
     streaming_primary_source_indices = PackedInt32Array();
     streaming_quantization_records = PackedByteArray();
     streaming_chunk_size_used = 0;
+}
+
+void GaussianData::_invalidate_incremental_delta_locked() {
+    // PERSIST-001 (Codex): route EVERY bulk/structural mutator through here so the
+    // fail-closed guard is a derived invariant rather than a hand-maintained list of
+    // call sites. record_splat_change() only covers a single index and set_gaussian()
+    // only serializes position/sh_dc/opacity/scale/rotation, so anything that replaces
+    // the array wholesale, changes the count, or overwrites unsupported fields in bulk
+    // must invalidate the delta. is_applying() suppresses the re-entrant replay path.
+    if (incremental_saver.is_valid() && !incremental_saver->is_applying()) {
+        incremental_saver->mark_requires_full_save();
+    }
 }
 
 void GaussianData::_debug_check_raw_storage_access(const char *p_method) {
@@ -278,29 +293,23 @@ void GaussianData::_on_gaussian_storage_changed_locked() {
 #endif
 
     _bump_content_revision();
+    // Structural replace (set_gaussians / resize / payload swap): the whole array
+    // changed, so any per-index delta recorded against the old array is invalid.
+    _invalidate_incremental_delta_locked();
 }
 
 void GaussianData::set_gaussians(const LocalVector<Gaussian> &p_gaussians) {
     RWLockWrite lock(data_rwlock);
     copy_local_vector(gaussians, p_gaussians);
+    // PERSIST-001: _on_gaussian_storage_changed_locked() fails the incremental saver
+    // closed -- a wholesale replace cannot be expressed as per-index deltas.
     _on_gaussian_storage_changed_locked();
-    // PERSIST-001: a wholesale replace of ALL splats cannot be expressed as
-    // per-index deltas, so any incremental delta recorded against the old array is
-    // now invalid. Signal the saver to fail closed until a full re-baseline is taken
-    // (see GaussianIncrementalSaver::save_changes). No-op when no saver is attached.
-    if (incremental_saver.is_valid()) {
-        incremental_saver->mark_requires_full_save();
-    }
 }
 
 void GaussianData::set_gaussians(const Vector<Gaussian> &p_gaussians) {
     RWLockWrite lock(data_rwlock);
     copy_local_vector(gaussians, p_gaussians);
     _on_gaussian_storage_changed_locked();
-    // PERSIST-001: structural replace -> invalidate any recorded incremental delta.
-    if (incremental_saver.is_valid()) {
-        incremental_saver->mark_requires_full_save();
-    }
 }
 
 void GaussianData::set_gaussian_payload(const LocalVector<Gaussian> &p_gaussians,
@@ -359,13 +368,10 @@ void GaussianData::set_gaussian_payload(const LocalVector<Gaussian> &p_gaussians
 
     _bump_content_revision();
 
-    // PERSIST-001: a full payload replace reshapes the entire splat array and
-    // cannot be represented by the per-index change list, so any incremental delta
-    // recorded against the previous payload is invalidated. Fail closed on the next
-    // save_changes() until a full re-baseline is taken. No-op when no saver attached.
-    if (incremental_saver.is_valid()) {
-        incremental_saver->mark_requires_full_save();
-    }
+    // PERSIST-001: a full payload replace reshapes the entire splat array and cannot
+    // be represented by the per-index change list. (set_gaussian_payload does not route
+    // through _on_gaussian_storage_changed_locked(), so invalidate explicitly.)
+    _invalidate_incremental_delta_locked();
 }
 
 uint32_t GaussianData::prune_by_importance(double p_keep_ratio, float p_importance_threshold) {
@@ -490,6 +496,10 @@ uint32_t GaussianData::prune_by_importance(double p_keep_ratio, float p_importan
         }
     }
     _bump_content_revision();
+    // PERSIST-001: pruning drops splats (count and indices change), so any per-index
+    // delta recorded against the pre-prune array is invalid. (prune routes through
+    // neither storage-changed nor derived-cache helper, so invalidate explicitly.)
+    _invalidate_incremental_delta_locked();
 
     return keep;
 }

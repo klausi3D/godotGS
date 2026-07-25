@@ -382,6 +382,13 @@ private:
     // system rebuilds chunks against the mutated data instead of reusing stale
     // centers/bounds/quantization records. Caller must hold the write lock.
     void _invalidate_streaming_bake_locked();
+    // PERSIST-001: any bulk/structural mutation that routes through the invalidation
+    // helpers above (or that reshapes the array, e.g. prune) cannot be expressed as
+    // per-index deltas. Fail the attached incremental saver closed so save_changes()
+    // refuses to write a lossy/empty delta until a full re-baseline. Guarded by
+    // is_applying() so delta REPLAY (which mutates via set_gaussian) never self-marks.
+    // Caller must hold the write lock.
+    void _invalidate_incremental_delta_locked();
     void _bump_content_revision() { content_revision.fetch_add(1, std::memory_order_relaxed); }
     void _set_spherical_harmonics_locked(int p_index, const float *p_coeffs, int p_count);
     bool _clear_runtime_modifications_locked();

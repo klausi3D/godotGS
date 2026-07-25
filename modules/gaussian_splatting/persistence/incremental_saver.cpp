@@ -42,6 +42,38 @@ bool _color_different(const Color &a, const Color &b) {
     return !(Math::is_equal_approx(a.r, b.r) && Math::is_equal_approx(a.g, b.g) && Math::is_equal_approx(a.b, b.b) && Math::is_equal_approx(a.a, b.a));
 }
 
+// PERSIST-001 (Codex): fields the per-index delta contract does NOT serialize.
+// _track_splat_change() records only position/sh_dc/opacity/scale/rotation, so a change
+// touching any of these other Gaussian fields cannot be expressed incrementally. Detect
+// it so the saver can fail closed instead of silently dropping the field on reload.
+// (_padding / _padding2 are alignment only and intentionally ignored.)
+bool _gaussian_unsupported_field_changed(const Gaussian &a, const Gaussian &b) {
+    if (!Math::is_equal_approx(a.area, b.area)) {
+        return true;
+    }
+    if (!Math::is_equal_approx(a.stroke_age, b.stroke_age)) {
+        return true;
+    }
+    if (_vec3_different(a.normal, b.normal)) {
+        return true;
+    }
+    for (int i = 0; i < 3; i++) {
+        if (_vec3_different(a.sh_1[i], b.sh_1[i])) {
+            return true;
+        }
+    }
+    if (!Math::is_equal_approx(a.brush_axes.x, b.brush_axes.x) || !Math::is_equal_approx(a.brush_axes.y, b.brush_axes.y)) {
+        return true;
+    }
+    if (a.painterly_meta != b.painterly_meta) {
+        return true;
+    }
+    if (a.render_meta != b.render_meta) {
+        return true;
+    }
+    return false;
+}
+
 uint64_t _now_usec() {
     if (Time *time = Time::get_singleton()) {
         return time->get_ticks_usec();
@@ -266,6 +298,14 @@ void GaussianIncrementalSaver::record_metadata_change(const String &key, const V
 }
 
 void GaussianIncrementalSaver::_track_splat_change(uint32_t index, const Gaussian &old_splat, const Gaussian &new_splat) {
+    // PERSIST-001 (Codex): if the edit touches a Gaussian field the per-index delta
+    // cannot serialize (area, sh_1, normal, stroke_age, brush_axes, painterly_meta,
+    // render_meta), recording only the supported subset would silently lose the rest on
+    // reload. Fail closed instead: require a full re-baseline and record nothing partial.
+    if (_gaussian_unsupported_field_changed(old_splat, new_splat)) {
+        mark_requires_full_save();
+        return;
+    }
     uint8_t mask = 0;
     if (_vec3_different(old_splat.position, new_splat.position)) {
         mask |= SPLAT_PROP_POSITION;
@@ -354,23 +394,17 @@ Error GaussianIncrementalSaver::_read_change_entry(Ref<FileAccess> file, ChangeE
 
 Error GaussianIncrementalSaver::_apply_splat_changes(::GaussianData *gaussian_data) const {
     ERR_FAIL_NULL_V(gaussian_data, ERR_INVALID_PARAMETER);
-    const uint32_t target_count = (uint32_t)gaussian_data->get_count();
-    // PERSIST-002 (atomicity): validate EVERY change index BEFORE mutating anything.
-    // load_and_apply_changes()'s baseline-count check guarantees the header baseline
-    // matches, so an out-of-range index here means the delta is corrupt. Failing
-    // mid-apply would leave the target partially mutated (earlier in-range entries
-    // already written) while returning an error the caller cannot roll back -- so
-    // reject up front and touch nothing (Codex: validate all splat indices before
-    // mutating the target).
-    for (uint32_t i = 0; i < splat_changes.size(); i++) {
-        if (splat_changes[i].index >= target_count) {
-            ERR_FAIL_V_MSG(ERR_INVALID_DATA,
-                    vformat("[IncrementalSaver] change index %d is out of range for a target with %d splats; the delta is corrupt (no changes applied)",
-                            splat_changes[i].index, target_count));
-        }
-    }
     for (uint32_t i = 0; i < splat_changes.size(); i++) {
         const SplatChange &change = splat_changes[i];
+        // Defensive backstop. load_and_apply_changes() validates EVERY index against the
+        // target before committing any saver state or mutating the target (PERSIST-002),
+        // so an out-of-range index is unreachable via that path; guard anyway for any
+        // direct caller of this private helper.
+        if (change.index >= (uint32_t)gaussian_data->get_count()) {
+            ERR_FAIL_V_MSG(ERR_INVALID_DATA,
+                    vformat("[IncrementalSaver] change index %d is out of range for a target with %d splats; the delta is corrupt",
+                            change.index, gaussian_data->get_count()));
+        }
         Gaussian g = gaussian_data->get_gaussian(change.index);
         if (change.changed_properties & SPLAT_PROP_POSITION) {
             g.position = change.position;
@@ -931,6 +965,28 @@ Error GaussianIncrementalSaver::load_and_apply_changes(const String &incremental
         }
     }
 
+    // PERSIST-002 (Codex): validate every SPLAT_MODIFIED index against the target BEFORE
+    // committing any saver state below. The commit clears and replaces this saver's
+    // pending change tables; if an out-of-range index (only reachable via a legacy
+    // baseline_splat_count==0 delta, which skips the count check above, or an otherwise
+    // corrupt file) were caught later in _apply_splat_changes(), a tracking saver's
+    // unsaved edits would already be discarded and the target left partially mutated.
+    // Reject up front so a failed load leaves BOTH the target and the saver untouched.
+    if (gaussian_data != nullptr) {
+        const uint32_t target_count = (uint32_t)gaussian_data->get_count();
+        for (uint32_t i = 0; i < entries.size(); i++) {
+            if (entries[i].type != ChangeType::SPLAT_MODIFIED) {
+                continue;
+            }
+            const uint32_t change_index = (uint32_t)(int)decoded[i].get("index", 0);
+            if (change_index >= target_count) {
+                ERR_FAIL_V_MSG(ERR_INVALID_DATA,
+                        vformat("[IncrementalSaver] change index %d is out of range for a target with %d splats; the delta is corrupt (no changes applied, saver state preserved)",
+                                change_index, target_count));
+            }
+        }
+    }
+
     // Commit: header fields + rebuilt change tables (only reached after the whole
     // file has validated and every payload decoded cleanly).
     baseline_timestamp = loaded_baseline_timestamp;
@@ -1112,6 +1168,15 @@ Error GaussianIncrementalSaver::update_baseline(const String &new_baseline_file_
     Ref<FileAccess> file = FileAccess::open(new_baseline_file_path, FileAccess::READ);
     if (file.is_valid()) {
         baseline_timestamp = file->get_modified_time(new_baseline_file_path);
+    }
+    // PERSIST-002 (Codex): refresh the baseline splat count from the NEW baseline. A
+    // structural rebase can change the count; leaving the stale value would make the
+    // load-time count check reject valid deltas (or, if it were zero, skip validation).
+    // Mirrors start_tracking() / create_baseline().
+    GaussianSceneSerializer serializer;
+    Dictionary info = serializer.get_file_info(new_baseline_file_path);
+    if (info.has("valid") && info["valid"]) {
+        baseline_splat_count = info.get("splat_count", 0);
     }
     clear_changes();
     // Rebasing onto a new baseline clears the structural-invalidation flag: whatever
