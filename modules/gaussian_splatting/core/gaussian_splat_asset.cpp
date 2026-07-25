@@ -1857,9 +1857,20 @@ Error GaussianSplatAsset::populate_from_gaussian_data(const Ref<::GaussianData> 
     // set_splat_count() or call populate_from_gaussian_data() again.
     payload_sealed = true;
 
+    // DATA-001: the payload just changed. Bump the live version (still under
+    // populate_mutex) so a consumer caching a materialized copy -- notably the scene
+    // director's per-asset AssetRecord -- can detect the re-population and rebuild, since
+    // Resource::get_edited_version() is TOOLS-only and never moves here.
+    payload_version++;
+
     emit_changed();
 
     return OK;
+}
+
+uint32_t GaussianSplatAsset::get_payload_version() const {
+    MutexLock cache_lock(populate_mutex);
+    return payload_version;
 }
 
 namespace {

@@ -357,6 +357,10 @@ public:
     // Test/diagnostics-only: true iff the SharedWorld for the scenario holds an
     // asset record under the full 64-bit ObjectID key.
     bool test_has_asset_record_for_scenario(const RID &p_scenario, ObjectID p_asset_object_id) const;
+    // Test/diagnostics-only: splat count of the cached GaussianData in that asset record
+    // (-1 if no world/record/data). Proves a re-populated DYNAMIC asset rebuilds its
+    // cached data instead of serving the stale first payload (DATA-001).
+    int test_asset_record_splat_count_for_scenario(const RID &p_scenario, ObjectID p_asset_object_id) const;
     // Test/diagnostics-only: the InstanceStore instance / asset generation
     // counters for the SharedWorld bound to the given scenario (0 if no world
     // exists). These read the EXACT same InstanceStore::generation() /
@@ -425,6 +429,10 @@ private:
         Ref<GaussianData> data;
         uint32_t refcount = 0;
         uint32_t edited_version = 0;
+        // DATA-001: the asset's payload_version at the time `data` was built. A DYNAMIC
+        // asset re-populated at runtime bumps payload_version (edited_version does not, in
+        // exports), so this lets retain_asset/refresh_asset rebuild the cached data.
+        uint32_t payload_version = 0;
     };
 
     // #610 S3: InstanceStore owns the per-scenario instance records, the

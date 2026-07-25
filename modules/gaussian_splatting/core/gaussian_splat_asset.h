@@ -62,6 +62,12 @@ private:
     uint32_t streaming_chunk_size_used = 0;
 
     uint32_t splat_count = 0;
+    // DATA-001: monotonic version bumped every time the payload is (re)populated via
+    // populate_from_gaussian_data(). Unlike Resource::get_edited_version() (TOOLS-only, so
+    // a compile-time 0 in exported builds and never bumped by procedural repopulation) it
+    // is always live, letting the scene director detect that a DYNAMIC asset was
+    // re-populated at runtime and rebuild its cached GaussianData. Guarded by populate_mutex.
+    uint32_t payload_version = 0;
     uint32_t sh_first_order_terms = 0;
     uint32_t sh_high_order_terms = 0;
     uint32_t compression_flags = COMPRESSION_NONE;
@@ -152,6 +158,8 @@ public:
 
     void set_asset_type(AssetType p_type);
     AssetType get_asset_type() const { return asset_type; }
+    // DATA-001: current payload version (see the member comment). Read under populate_mutex.
+    uint32_t get_payload_version() const;
 
     void set_splat_count(uint32_t p_count);
     // Takes populate_mutex so concurrent prefetch workers cannot observe a torn

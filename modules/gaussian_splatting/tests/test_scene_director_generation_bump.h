@@ -265,4 +265,106 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] instance_asset_generati
 	}
 }
 
+namespace {
+// DATA-001: build a DYNAMIC asset from an N-splat GaussianData, mirroring the node's runtime
+// path (set_asset_type(DYNAMIC) + populate_from_gaussian_data), which bumps payload_version.
+Ref<GaussianData> _make_repopulate_data(int p_count) {
+	Ref<GaussianData> data;
+	data.instantiate();
+	Vector<Gaussian> gaussians;
+	gaussians.resize(p_count);
+	for (int i = 0; i < p_count; i++) {
+		Gaussian &g = gaussians.write[i];
+		g.position = Vector3((float)i, 0.0f, 0.0f);
+		g.scale = Vector3(1.0f, 1.0f, 1.0f);
+		g.rotation = Quaternion();
+		g.opacity = 1.0f;
+		g.sh_dc = Color(1.0f, 1.0f, 1.0f, 1.0f);
+	}
+	data->set_gaussians(gaussians);
+	return data;
+}
+Ref<GaussianSplatAsset> _make_dynamic_repopulate_asset(int p_count) {
+	Ref<GaussianSplatAsset> asset;
+	asset.instantiate();
+	asset->set_asset_type(GaussianSplatAsset::ASSET_TYPE_DYNAMIC);
+	asset->populate_from_gaussian_data(_make_repopulate_data(p_count));
+	return asset;
+}
+} // namespace
+
+// DATA-001: a DYNAMIC asset re-populated at runtime (populate_from_gaussian_data) bumps
+// payload_version but NOT the TOOLS-only edited_version (a compile-time 0 in exports). The
+// scene director's per-asset AssetRecord must rebuild its cached GaussianData on the
+// re-populate; before the fix it early-outs on the unchanged edited_version and keeps
+// serving the FIRST payload.
+//
+// MUTATION-PROVEN: dropping the `|| record->payload_version != payload_version` gate from
+// refresh_asset()/retain_asset() reddens this case -- the cached count stays at the first
+// payload's 5 instead of the re-populated 8.
+TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] a re-populated DYNAMIC asset rebuilds its cached record data (DATA-001)") {
+	SceneTree *tree = SceneTree::get_singleton();
+	if (tree == nullptr) {
+		FAIL("SceneTree must exist (provided by [SceneTree] tag)");
+		return;
+	}
+	Window *root = tree->get_root();
+	if (root == nullptr) {
+		FAIL("SceneTree root window must exist");
+		return;
+	}
+	Ref<World3D> world = root->get_world_3d();
+	if (!world.is_valid()) {
+		FAIL("SceneTree root must have a valid World3D");
+		return;
+	}
+	const RID scenario = world->get_scenario();
+	REQUIRE(scenario.is_valid());
+
+	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+	const bool owns_director = (director == nullptr);
+	if (!director) {
+		director = memnew(GaussianSplatSceneDirector);
+	}
+	if (director == nullptr) {
+		FAIL("GaussianSplatSceneDirector must be available");
+		return;
+	}
+
+	Node3D *node = memnew(Node3D);
+	root->add_child(node);
+	tree->process(0.0);
+
+	// First payload: 5 splats.
+	Ref<GaussianSplatAsset> asset = _make_dynamic_repopulate_asset(5);
+	// REQUIRE does not abort under DOCTEST_CONFIG_NO_EXCEPTIONS (see #656): a bare
+	// REQUIRE(asset.is_valid()) would report and continue, then the deref below would
+	// crash the whole binary. Fail-closed with an early return instead.
+	if (!asset.is_valid()) {
+		FAIL("the first DYNAMIC payload asset must be valid");
+		return;
+	}
+	const ObjectID asset_id = asset->get_instance_id();
+
+	director->register_instance(node->get_instance_id(), asset, Transform3D(), 1.0f, 0.0f, 0u);
+	CHECK_MESSAGE(director->test_asset_record_splat_count_for_scenario(scenario, asset_id) == 5,
+			"the initial register must cache the first payload's 5 splats");
+
+	// Re-populate the SAME asset with a DIFFERENT payload (8 splats) -> payload_version bumps.
+	REQUIRE(asset->populate_from_gaussian_data(_make_repopulate_data(8)) == OK);
+
+	// Re-register the same node -> refresh must rebuild the cached data to the new payload.
+	director->register_instance(node->get_instance_id(), asset, Transform3D(), 1.0f, 0.0f, 0u);
+	CHECK_MESSAGE(director->test_asset_record_splat_count_for_scenario(scenario, asset_id) == 8,
+			"a re-populated DYNAMIC asset must rebuild its cached data (not serve the stale first payload)");
+
+	director->unregister_instance(node->get_instance_id());
+	root->remove_child(node);
+	memdelete(node);
+	tree->process(0.0);
+	if (owns_director) {
+		memdelete(director);
+	}
+}
+
 #endif // TESTS_ENABLED || TOOLS_ENABLED
