@@ -354,18 +354,23 @@ Error GaussianIncrementalSaver::_read_change_entry(Ref<FileAccess> file, ChangeE
 
 Error GaussianIncrementalSaver::_apply_splat_changes(::GaussianData *gaussian_data) const {
     ERR_FAIL_NULL_V(gaussian_data, ERR_INVALID_PARAMETER);
+    const uint32_t target_count = (uint32_t)gaussian_data->get_count();
+    // PERSIST-002 (atomicity): validate EVERY change index BEFORE mutating anything.
+    // load_and_apply_changes()'s baseline-count check guarantees the header baseline
+    // matches, so an out-of-range index here means the delta is corrupt. Failing
+    // mid-apply would leave the target partially mutated (earlier in-range entries
+    // already written) while returning an error the caller cannot roll back -- so
+    // reject up front and touch nothing (Codex: validate all splat indices before
+    // mutating the target).
+    for (uint32_t i = 0; i < splat_changes.size(); i++) {
+        if (splat_changes[i].index >= target_count) {
+            ERR_FAIL_V_MSG(ERR_INVALID_DATA,
+                    vformat("[IncrementalSaver] change index %d is out of range for a target with %d splats; the delta is corrupt (no changes applied)",
+                            splat_changes[i].index, target_count));
+        }
+    }
     for (uint32_t i = 0; i < splat_changes.size(); i++) {
         const SplatChange &change = splat_changes[i];
-        // PERSIST-002: an out-of-range index is only reachable once the baseline
-        // count check in load_and_apply_changes() has passed, so it means the delta
-        // itself is corrupt. Fail the whole apply hard instead of silently skipping
-        // the entry (ERR_CONTINUE), which would drop that edit and leave a partially
-        // applied result the caller never learns about.
-        if (change.index >= (uint32_t)gaussian_data->get_count()) {
-            ERR_FAIL_V_MSG(ERR_INVALID_DATA,
-                    vformat("[IncrementalSaver] change index %d is out of range for a target with %d splats; the delta is corrupt",
-                            change.index, gaussian_data->get_count()));
-        }
         Gaussian g = gaussian_data->get_gaussian(change.index);
         if (change.changed_properties & SPLAT_PROP_POSITION) {
             g.position = change.position;
@@ -1082,6 +1087,13 @@ Error GaussianIncrementalSaver::create_baseline(const String &baseline_path, con
     // A fresh full baseline supersedes any structural-invalidation state: the delta
     // is now taken relative to this baseline, so save_changes() may resume (PERSIST-001).
     requires_full_save = false;
+    // The baseline just serialized the CURRENT gaussian_data, so any deltas recorded
+    // before it are already captured in the full save. Discard them (and the dedup map +
+    // accumulated counter) so the next save_changes() emits only edits made AFTER this
+    // baseline -- otherwise the recovery flow (structural edit -> create_baseline ->
+    // save_changes) would persist stale pre-baseline deltas (Codex: clear stale deltas
+    // when creating a new baseline).
+    clear_changes();
     return OK;
 }
 

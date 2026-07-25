@@ -870,6 +870,133 @@ TEST_CASE("[GaussianSplatting][Persistence] PERSIST-002 delta refuses to apply a
     _remove_persistence_fixture(delta_path);
 }
 
+TEST_CASE("[GaussianSplatting][Persistence] PERSIST-001c create_baseline discards stale pre-baseline deltas") {
+    // Recovery flow: after recording a per-index edit, establishing a NEW baseline
+    // serializes the CURRENT splats in full -- so the earlier per-index delta is
+    // already captured and MUST be discarded. If create_baseline() leaves the stale
+    // change list intact, the next save_changes() emits a delta carrying a
+    // pre-baseline edit that, replayed against the new baseline, re-mutates a splat
+    // the user never touched after the baseline (silent corruption -- Codex PERSIST P1).
+    //
+    // MUTATION that flips this case RED: delete the `clear_changes();` added at the
+    // end of GaussianIncrementalSaver::create_baseline(). Then get_splat_change_count()
+    // stays 1 after the second baseline, and the stale edit reappears on apply.
+    const int N = 5;
+    const int stale_index = 2;
+    const float stale_opacity = 0.123f;
+
+    const String baseline_path = _make_persistence_fixture_path("persist001c_baseline", ".gsf");
+    const String delta_path = _make_persistence_fixture_path("persist001c_delta", ".gsif");
+    const bool dir_ready = _ensure_persistence_fixture_dir(baseline_path) && _ensure_persistence_fixture_dir(delta_path);
+    CHECK_MESSAGE(dir_ready, "Persistence fixture directory should be available");
+    if (!dir_ready) {
+        return;
+    }
+
+    Ref<GaussianData> data = _make_seeded_gaussian_data(N);
+    Ref<GaussianSplatting::GaussianIncrementalSaver> saver;
+    saver.instantiate();
+    data->set_incremental_saver(saver);
+
+    saver->start_tracking(baseline_path);
+    CHECK_EQ(saver->create_baseline(baseline_path, data.ptr()), OK);
+
+    // Record a per-index edit against the FIRST baseline.
+    Gaussian g = data->get_gaussian(stale_index);
+    const float seeded_opacity = g.opacity;
+    CHECK_MESSAGE(Math::abs(seeded_opacity - stale_opacity) > 0.01f,
+            "sanity: the stale edit differs from the seeded value");
+    g.opacity = stale_opacity;
+    data->set_gaussian(stale_index, g);
+    CHECK_MESSAGE(saver->get_splat_change_count() == 1, "sanity: the pre-baseline edit was recorded");
+
+    // Establish a NEW baseline capturing the current (already-edited) state in full.
+    CHECK_EQ(saver->create_baseline(baseline_path, data.ptr()), OK);
+    CHECK_MESSAGE(saver->get_splat_change_count() == 0,
+            "create_baseline() must discard deltas recorded before it -- they are already captured in the full baseline");
+
+    // End-to-end: the delta emitted after the new baseline must be a NO-OP. Apply it
+    // onto a FRESH seeded copy (index `stale_index` still at its seeded value) and
+    // confirm the stale edit does NOT reappear.
+    CHECK_EQ(saver->save_changes(delta_path), OK);
+    Ref<GaussianData> fresh = _make_seeded_gaussian_data(N);
+    const Error apply_err = saver->load_and_apply_changes(delta_path, fresh.ptr());
+    CHECK_EQ(apply_err, OK);
+    CHECK_MESSAGE(Math::abs(fresh->get_gaussian(stale_index).opacity - seeded_opacity) < 0.001f,
+            "a discarded pre-baseline delta must not resurrect the stale edit on apply");
+
+    _remove_persistence_fixture(baseline_path);
+    _remove_persistence_fixture(delta_path);
+}
+
+TEST_CASE("[GaussianSplatting][Persistence] PERSIST-002b a corrupt out-of-range delta applies atomically (all-or-nothing)") {
+    // When a delta reaches _apply_splat_changes() (baseline-count check skipped for a
+    // legacy count==0 delta) and one of its per-index changes is OUT OF RANGE for the
+    // target, the apply must touch NOTHING -- not apply the earlier in-range edits and
+    // then fail on the bad one. A partial apply leaves the target silently corrupted
+    // while the caller sees an error it cannot roll back (Codex PERSIST P2, atomicity).
+    //
+    // Reaching the branch: a delta saved WITHOUT a baseline (start_tracking on a
+    // path that does not exist yet) writes baseline_splat_count == 0, which
+    // load_and_apply_changes() treats as "legacy/unknown" and skips the count check --
+    // so the out-of-range index is evaluated inside _apply_splat_changes(), exactly
+    // the path the two-pass guards.
+    //
+    // MUTATION that flips this case RED: collapse _apply_splat_changes() back to a
+    // single validate-and-apply loop. Then indices 0 and 1 are mutated before the loop
+    // fails on the out-of-range index, and the "unchanged" CHECKs fail.
+    const int SRC = 5; // recorded on a 5-splat array: indices 0,1,4 are all valid here
+    const int DST = 3; // applied onto a 3-splat target: index 4 is OUT OF RANGE
+    const float edit_opacity = 0.815f;
+
+    const String baseline_path = _make_persistence_fixture_path("persist002b_baseline", ".gsf");
+    const String delta_path = _make_persistence_fixture_path("persist002b_delta", ".gsif");
+    const bool dir_ready = _ensure_persistence_fixture_dir(baseline_path) && _ensure_persistence_fixture_dir(delta_path);
+    CHECK_MESSAGE(dir_ready, "Persistence fixture directory should be available");
+    if (!dir_ready) {
+        return;
+    }
+
+    // Record three edits (indices 0, 1, 4 -- in that order) on a 5-splat array WITHOUT
+    // a baseline, so the saved delta carries baseline_splat_count == 0.
+    Ref<GaussianData> data = _make_seeded_gaussian_data(SRC);
+    Ref<GaussianSplatting::GaussianIncrementalSaver> saver;
+    saver.instantiate();
+    data->set_incremental_saver(saver);
+    saver->start_tracking(baseline_path); // baseline_path does not exist yet -> count stays 0
+
+    const int indices[3] = { 0, 1, 4 };
+    for (int k = 0; k < 3; k++) {
+        Gaussian g = data->get_gaussian(indices[k]);
+        g.opacity = edit_opacity;
+        data->set_gaussian(indices[k], g);
+    }
+    CHECK_MESSAGE(saver->get_splat_change_count() == 3,
+            "sanity: three in-range edits recorded on the 5-splat source");
+    CHECK_EQ(saver->save_changes(delta_path), OK);
+
+    // Apply onto a 3-splat target. Index 4 is out of range; the whole apply must fail
+    // and leave EVERY target splat at its original seeded value.
+    Ref<GaussianData> target = _make_seeded_gaussian_data(DST);
+    const float orig0 = target->get_gaussian(0).opacity;
+    const float orig1 = target->get_gaussian(1).opacity;
+    CHECK_MESSAGE(Math::abs(orig0 - edit_opacity) > 0.01f,
+            "sanity: target splat 0 starts different from the delta's edit");
+    CHECK_MESSAGE(Math::abs(orig1 - edit_opacity) > 0.01f,
+            "sanity: target splat 1 starts different from the delta's edit");
+
+    const Error apply_err = saver->load_and_apply_changes(delta_path, target.ptr());
+    CHECK_MESSAGE(apply_err == ERR_INVALID_DATA,
+            "a delta with an out-of-range index must fail with ERR_INVALID_DATA");
+    CHECK_MESSAGE(Math::abs(target->get_gaussian(0).opacity - orig0) < 0.0001f,
+            "atomic apply: in-range splat 0 must be UNCHANGED when a later index is out of range");
+    CHECK_MESSAGE(Math::abs(target->get_gaussian(1).opacity - orig1) < 0.0001f,
+            "atomic apply: in-range splat 1 must be UNCHANGED when a later index is out of range");
+
+    _remove_persistence_fixture(baseline_path);
+    _remove_persistence_fixture(delta_path);
+}
+
 TEST_CASE("[GaussianSplatting][WorldLifetime] GaussianSplatWorld::clear() drops chunk_payload_source") {
     Ref<GaussianSplatWorld> world = create_test_world();
     Ref<GaussianData> data = world->get_gaussian_data();
