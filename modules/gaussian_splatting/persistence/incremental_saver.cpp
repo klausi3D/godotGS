@@ -234,6 +234,7 @@ void GaussianIncrementalSaver::_bind_methods() {
 }
 
 void GaussianIncrementalSaver::start_tracking(const String &baseline_file) {
+    MutexLock lock(change_mutex);
     baseline_file_path = baseline_file;
     baseline_timestamp = 0;
     Ref<FileAccess> file = FileAccess::open(baseline_file, FileAccess::READ);
@@ -260,11 +261,13 @@ void GaussianIncrementalSaver::start_tracking(const String &baseline_file) {
 }
 
 void GaussianIncrementalSaver::stop_tracking() {
+    MutexLock lock(change_mutex);
     is_tracking = false;
     clear_changes();
 }
 
 void GaussianIncrementalSaver::record_splat_change(uint32_t index, const Gaussian &old_splat, const Gaussian &new_splat) {
+    MutexLock lock(change_mutex);
     if (!is_tracking) {
         return;
     }
@@ -272,6 +275,7 @@ void GaussianIncrementalSaver::record_splat_change(uint32_t index, const Gaussia
 }
 
 void GaussianIncrementalSaver::record_animation_change(int clip_index, AnimationProperty property, const Dictionary &old_data, const Dictionary &new_data) {
+    MutexLock lock(change_mutex);
     if (!is_tracking) {
         return;
     }
@@ -288,6 +292,7 @@ void GaussianIncrementalSaver::record_animation_change(int clip_index, Animation
 }
 
 void GaussianIncrementalSaver::record_metadata_change(const String &key, const Variant &old_value, const Variant &new_value) {
+    MutexLock lock(change_mutex);
     if (!is_tracking) {
         return;
     }
@@ -397,10 +402,10 @@ Error GaussianIncrementalSaver::_read_change_entry(Ref<FileAccess> file, ChangeE
     return OK;
 }
 
-Error GaussianIncrementalSaver::_apply_splat_changes(::GaussianData *gaussian_data) const {
+Error GaussianIncrementalSaver::_apply_splat_changes(::GaussianData *gaussian_data, const LocalVector<SplatChange> &changes) const {
     ERR_FAIL_NULL_V(gaussian_data, ERR_INVALID_PARAMETER);
-    for (uint32_t i = 0; i < splat_changes.size(); i++) {
-        const SplatChange &change = splat_changes[i];
+    for (uint32_t i = 0; i < changes.size(); i++) {
+        const SplatChange &change = changes[i];
         // Defensive backstop. load_and_apply_changes() validates EVERY index against the
         // target before committing any saver state or mutating the target (PERSIST-002),
         // so an out-of-range index is unreachable via that path; guard anyway for any
@@ -431,7 +436,7 @@ Error GaussianIncrementalSaver::_apply_splat_changes(::GaussianData *gaussian_da
     return OK;
 }
 
-Error GaussianIncrementalSaver::_apply_metadata_changes(GaussianAnimationStateMachine *animation) const {
+Error GaussianIncrementalSaver::_apply_metadata_changes(GaussianAnimationStateMachine *animation, const HashMap<String, MetadataDelta> &changes) const {
     if (!animation) {
         return OK;
     }
@@ -440,7 +445,7 @@ Error GaussianIncrementalSaver::_apply_metadata_changes(GaussianAnimationStateMa
     Vector<ClipMetadataEntry> clip_upserts;
     Vector<ClipFieldOverride> clip_field_overrides;
 
-    for (const KeyValue<String, MetadataDelta> &E : metadata_changes) {
+    for (const KeyValue<String, MetadataDelta> &E : changes) {
         PackedStringArray parts = E.key.split(":");
         if (parts.is_empty() || parts[0] != "clip") {
             continue;
@@ -561,7 +566,7 @@ Error GaussianIncrementalSaver::_apply_metadata_changes(GaussianAnimationStateMa
     return OK;
 }
 
-Error GaussianIncrementalSaver::_apply_animation_changes(GaussianAnimationStateMachine *animation) const {
+Error GaussianIncrementalSaver::_apply_animation_changes(GaussianAnimationStateMachine *animation, const LocalVector<AnimationChange> &changes) const {
     if (!animation) {
         return OK;
     }
@@ -594,8 +599,8 @@ Error GaussianIncrementalSaver::_apply_animation_changes(GaussianAnimationStateM
         clip_index_remap.insert(recorded_index, runtime_index);
     }
 
-    for (uint32_t i = 0; i < animation_changes.size(); i++) {
-        const AnimationChange &change = animation_changes[i];
+    for (uint32_t i = 0; i < changes.size(); i++) {
+        const AnimationChange &change = changes[i];
         int target_clip_index = change.clip_index;
         if (const int *mapped_index = clip_index_remap.getptr(change.clip_index)) {
             target_clip_index = *mapped_index;
@@ -676,6 +681,7 @@ Error GaussianIncrementalSaver::_apply_animation_changes(GaussianAnimationStateM
 }
 
 void GaussianIncrementalSaver::clear_changes() {
+    MutexLock lock(change_mutex);
     splat_changes.clear();
     animation_changes.clear();
     metadata_changes.clear();
@@ -684,6 +690,7 @@ void GaussianIncrementalSaver::clear_changes() {
 }
 
 bool GaussianIncrementalSaver::should_auto_save() const {
+    MutexLock lock(change_mutex);
     if (!is_tracking) {
         return false;
     }
@@ -692,10 +699,12 @@ bool GaussianIncrementalSaver::should_auto_save() const {
 }
 
 bool GaussianIncrementalSaver::should_create_full_save() const {
+    MutexLock lock(change_mutex);
     return accumulated_changes >= max_changes_before_full_save;
 }
 
 Array GaussianIncrementalSaver::get_changed_splat_indices() const {
+    MutexLock lock(change_mutex);
     Array indices;
     indices.resize(splat_changes.size());
     for (uint32_t i = 0; i < splat_changes.size(); i++) {
@@ -705,6 +714,7 @@ Array GaussianIncrementalSaver::get_changed_splat_indices() const {
 }
 
 Dictionary GaussianIncrementalSaver::get_change_statistics() const {
+    MutexLock lock(change_mutex);
     Dictionary dict;
     dict["splat_changes"] = (int64_t)splat_changes.size();
     dict["animation_changes"] = (int64_t)animation_changes.size();
@@ -714,6 +724,12 @@ Dictionary GaussianIncrementalSaver::get_change_statistics() const {
 }
 
 Error GaussianIncrementalSaver::save_changes(const String &incremental_file_path) {
+    // Whole-method critical section: the requires_full_save check, the snapshot of the
+    // change tables, the file write, and the post-write clear must be atomic w.r.t. a
+    // concurrent record/mark on another thread (else the mutation races the snapshot and
+    // is represented by neither the delta nor the guard). No GaussianData call here, so
+    // holding the lock across the file I/O cannot deadlock against data_rwlock.
+    MutexLock lock(change_mutex);
     ERR_FAIL_COND_V(!is_tracking, ERR_UNCONFIGURED);
     // PERSIST-001: fail closed. A structural batch edit (set_gaussians /
     // set_gaussian_payload) reshaped the splat array in a way the per-index change
@@ -1005,9 +1021,18 @@ Error GaussianIncrementalSaver::load_and_apply_changes(const String &incremental
         }
     }
 
-    // Commit: header fields + rebuilt change tables (only reached after the whole
-    // file has validated and every payload decoded cleanly).
-    baseline_timestamp = loaded_baseline_timestamp;
+    // Commit: header fields + rebuilt change tables (only reached after the whole file
+    // validated and every payload decoded cleanly). Held under change_mutex so a
+    // concurrent record/save on another thread sees a consistent table state; the tables
+    // are snapshotted for the apply phase, which MUST run without the lock (it calls
+    // GaussianData::set_gaussian(), whose data_rwlock -> change_mutex order would deadlock
+    // against a lock held across it).
+    LocalVector<SplatChange> apply_splats;
+    LocalVector<AnimationChange> apply_anims;
+    HashMap<String, MetadataDelta> apply_meta;
+    {
+        MutexLock lock(change_mutex);
+        baseline_timestamp = loaded_baseline_timestamp;
     baseline_splat_count = loaded_baseline_splat_count;
     splat_changes.clear();
     animation_changes.clear();
@@ -1074,27 +1099,35 @@ Error GaussianIncrementalSaver::load_and_apply_changes(const String &incremental
     accumulated_changes = entries.size();
     last_save_time = change_timestamp;
 
-    // PERSIST-002: mark the replay so set_gaussian() (invoked by
-    // _apply_splat_changes) does NOT re-record the changes we are applying. RAII so
-    // `applying` is restored to false on EVERY return path below, including errors.
+        // Snapshot the committed tables so the apply phase can run WITHOUT change_mutex.
+        apply_splats = splat_changes;
+        apply_anims = animation_changes;
+        apply_meta = metadata_changes;
+    }
+
+    // PERSIST-002: mark the replay so set_gaussian() (invoked by _apply_splat_changes)
+    // does NOT re-record the changes we are applying. Thread-scoped: ONLY this replaying
+    // thread is suppressed; concurrent edits from OTHER threads still record. RAII so the
+    // guard clears on EVERY return path below, including errors. The apply reads the
+    // snapshot (not the live tables) so a concurrent record cannot race it.
     struct ApplyGuard {
-        bool &flag;
-        explicit ApplyGuard(bool &p_flag) : flag(p_flag) { flag = true; }
-        ~ApplyGuard() { flag = false; }
-    } apply_guard(applying);
+        SafeNumeric<uint64_t> &id;
+        explicit ApplyGuard(SafeNumeric<uint64_t> &p_id) : id(p_id) { id.set(Thread::get_caller_id()); }
+        ~ApplyGuard() { id.set(Thread::UNASSIGNED_ID); }
+    } apply_guard(applying_thread_id);
 
     if (gaussian_data) {
-        Error err = _apply_splat_changes(gaussian_data);
+        Error err = _apply_splat_changes(gaussian_data, apply_splats);
         if (err != OK) {
             return err;
         }
     }
     if (animation) {
-        Error err = _apply_metadata_changes(animation);
+        Error err = _apply_metadata_changes(animation, apply_meta);
         if (err != OK) {
             return err;
         }
-        err = _apply_animation_changes(animation);
+        err = _apply_animation_changes(animation, apply_anims);
         if (err != OK) {
             return err;
         }
@@ -1115,6 +1148,10 @@ Error GaussianIncrementalSaver::load_and_apply_changes_bind(const String &increm
 
 Error GaussianIncrementalSaver::merge_incremental_files(const Array &incremental_files, const String &output_file) {
     ERR_FAIL_COND_V(incremental_files.is_empty(), ERR_INVALID_PARAMETER);
+    // Recursive lock: this method calls load_and_apply_changes()/clear_changes()/
+    // save_changes(), which re-acquire change_mutex. gaussian_data is null on the merge
+    // load path, so no set_gaussian()/data_rwlock is taken here -> no ABBA.
+    MutexLock lock(change_mutex);
     LocalVector<SplatChange> aggregated_splats;
     LocalVector<AnimationChange> aggregated_anim;
     HashMap<String, MetadataDelta> aggregated_metadata;
@@ -1159,14 +1196,23 @@ Error GaussianIncrementalSaver::create_baseline(const String &baseline_path, con
     if (err != OK) {
         return err;
     }
-    baseline_file_path = baseline_path;
+    // Read from gaussian_data / the file BEFORE taking change_mutex -- get_count() takes
+    // data_rwlock, and holding change_mutex across it would invert the record path's
+    // data_rwlock -> change_mutex lock order and risk deadlock.
+    const uint32_t new_count = (uint32_t)gaussian_data->get_count();
+    uint64_t new_timestamp = 0;
     Ref<FileAccess> file = FileAccess::open(baseline_path, FileAccess::READ);
     if (file.is_valid()) {
-        baseline_timestamp = file->get_modified_time(baseline_path);
+        new_timestamp = file->get_modified_time(baseline_path);
     }
-    baseline_splat_count = gaussian_data->get_count();
-    // A fresh full baseline supersedes any structural-invalidation state: the delta
-    // is now taken relative to this baseline, so save_changes() may resume (PERSIST-001).
+    const bool captured_animation = (animation != nullptr);
+
+    MutexLock lock(change_mutex);
+    baseline_file_path = baseline_path;
+    baseline_timestamp = new_timestamp;
+    baseline_splat_count = new_count;
+    // A fresh full baseline supersedes any structural-invalidation state: the delta is now
+    // taken relative to this baseline, so save_changes() may resume (PERSIST-001).
     requires_full_save = false;
     // The baseline just serialized the CURRENT gaussian_data, so the per-index SPLAT
     // deltas recorded before it are captured -- discard them (and the dedup map) so the
@@ -1178,7 +1224,7 @@ Error GaussianIncrementalSaver::create_baseline(const String &baseline_path, con
     // what the full save captured).
     splat_changes.clear();
     splat_index_to_change.clear();
-    if (animation != nullptr) {
+    if (captured_animation) {
         animation_changes.clear();
         metadata_changes.clear();
     }
@@ -1197,6 +1243,7 @@ Error GaussianIncrementalSaver::create_baseline_bind(const String &baseline_path
 }
 
 Error GaussianIncrementalSaver::update_baseline(const String &new_baseline_file_path) {
+    MutexLock lock(change_mutex);
     // PERSIST-001/002 (Codex): validate the NEW baseline BEFORE mutating any saver state.
     // clear_changes() + requires_full_save=false against a missing/corrupt baseline would
     // silently drop the fail-closed guard and let the next save_changes() write a lossy
@@ -1272,6 +1319,7 @@ Dictionary GaussianIncrementalSaver::get_incremental_file_info(const String &fil
 }
 
 uint64_t GaussianIncrementalSaver::estimate_save_size() const {
+    MutexLock lock(change_mutex);
     uint64_t size = sizeof(uint32_t) + sizeof(uint16_t) * 2 + sizeof(uint64_t) * 2 + sizeof(uint32_t) * 2;
     for (uint32_t i = 0; i < splat_changes.size(); i++) {
         size += sizeof(ChangeEntry) + 128;

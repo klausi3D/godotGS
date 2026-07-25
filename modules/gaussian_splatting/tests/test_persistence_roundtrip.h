@@ -1489,6 +1489,100 @@ TEST_CASE("[GaussianSplatting][Persistence] PERSIST-002h start_tracking on an in
     _remove_persistence_fixture(delta_path);
 }
 
+// File-local worker for PERSIST-002i: hammers per-index (opacity-only) edits on a shared
+// GaussianData, routing each through the saver's record path (data_rwlock -> change_mutex).
+struct PersistStressCtx {
+    GaussianData *data = nullptr;
+    int lo = 0;
+    int hi = 0;
+    int iters = 0;
+    int edits_done = 0;
+};
+static void _persist_stress_worker(void *p_userdata) {
+    PersistStressCtx *ctx = static_cast<PersistStressCtx *>(p_userdata);
+    for (int it = 0; it < ctx->iters; it++) {
+        for (int i = ctx->lo; i < ctx->hi; i++) {
+            Gaussian g = ctx->data->get_gaussian(i);
+            g.opacity = 0.05f + 0.001f * float((it * 7 + i) % 90);
+            ctx->data->set_gaussian(i, g);
+            ctx->edits_done++;
+        }
+    }
+}
+
+TEST_CASE("[GaussianSplatting][Persistence] PERSIST-002i concurrent records and saves stay consistent (no deadlock)") {
+    // Codex: the saver must participate in synchronization. Two worker threads record
+    // per-index edits on a shared GaussianData (each routing through change_mutex under
+    // data_rwlock) while the main thread repeatedly saves and reads stats. This must not
+    // deadlock, crash, or corrupt saver state; change_mutex serialises save-vs-record so
+    // a save never snapshots a half-written change table, and the per-index (opacity)
+    // edits -- being representable -- never trip the fail-closed guard.
+    const int N = 64;
+    const int ITERS = 40;
+    const String baseline_path = _make_persistence_fixture_path("persist002i_baseline", ".gsf");
+    const String delta_path = _make_persistence_fixture_path("persist002i_delta", ".gsif");
+    const bool dir_ready = _ensure_persistence_fixture_dir(baseline_path) && _ensure_persistence_fixture_dir(delta_path);
+    CHECK_MESSAGE(dir_ready, "Persistence fixture directory should be available");
+    if (!dir_ready) {
+        return;
+    }
+
+    Ref<GaussianData> data = _make_seeded_gaussian_data(N);
+    Ref<GaussianSplatting::GaussianIncrementalSaver> saver;
+    saver.instantiate();
+    data->set_incremental_saver(saver);
+    saver->start_tracking(baseline_path);
+    CHECK_EQ(saver->create_baseline(baseline_path, data.ptr()), OK);
+
+    PersistStressCtx ctx_a;
+    ctx_a.data = data.ptr();
+    ctx_a.lo = 0;
+    ctx_a.hi = N / 2;
+    ctx_a.iters = ITERS;
+    PersistStressCtx ctx_b;
+    ctx_b.data = data.ptr();
+    ctx_b.lo = N / 2;
+    ctx_b.hi = N;
+    ctx_b.iters = ITERS;
+
+    Thread worker_a;
+    Thread worker_b;
+    worker_a.start(_persist_stress_worker, &ctx_a);
+    worker_b.start(_persist_stress_worker, &ctx_b);
+
+    // Main thread contends on change_mutex via repeated save + stats reads while the
+    // workers record. A fail-closed (ERR_UNAVAILABLE) here would mean a structural edit
+    // leaked in -- there is none, so it must never happen.
+    int save_failed_closed = 0;
+    int save_other_error = 0;
+    for (int s = 0; s < 80; s++) {
+        Error e = saver->save_changes(delta_path);
+        if (e == ERR_UNAVAILABLE) {
+            save_failed_closed++;
+        } else if (e != OK) {
+            save_other_error++;
+        }
+        (void)saver->get_change_count();
+    }
+
+    worker_a.wait_to_finish();
+    worker_b.wait_to_finish();
+
+    // Reaching here proves no deadlock; the workers completed every edit.
+    CHECK_MESSAGE(ctx_a.edits_done == (N / 2) * ITERS, "worker A completed all its edits");
+    CHECK_MESSAGE(ctx_b.edits_done == (N - N / 2) * ITERS, "worker B completed all its edits");
+    CHECK_MESSAGE(save_failed_closed == 0, "per-index edits must never trip the fail-closed guard");
+    CHECK_MESSAGE(save_other_error == 0, "no unexpected save error under contention");
+
+    // The saver is still in a valid state: a final save + load round-trips cleanly.
+    CHECK_EQ(saver->save_changes(delta_path), OK);
+    Ref<GaussianData> fresh = _make_seeded_gaussian_data(N);
+    CHECK_EQ(saver->load_and_apply_changes(delta_path, fresh.ptr()), OK);
+
+    _remove_persistence_fixture(baseline_path);
+    _remove_persistence_fixture(delta_path);
+}
+
 TEST_CASE("[GaussianSplatting][WorldLifetime] GaussianSplatWorld::clear() drops chunk_payload_source") {
     Ref<GaussianSplatWorld> world = create_test_world();
     Ref<GaussianData> data = world->get_gaussian_data();

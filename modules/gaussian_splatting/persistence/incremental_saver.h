@@ -10,7 +10,10 @@
 #include "core/math/quaternion.h"
 #include "core/templates/local_vector.h"
 #include "core/templates/hash_map.h"
+#include "core/templates/safe_refcount.h"
 #include "core/string/ustring.h"
+#include "core/os/mutex.h"
+#include "core/os/thread.h"
 
 struct Gaussian;
 class GaussianData;
@@ -100,11 +103,22 @@ private:
     // (re)establish a baseline: save_changes() success, create_baseline(),
     // start_tracking(), update_baseline().
     bool requires_full_save = false;
-    // PERSIST-002 re-entrancy guard: true ONLY while load_and_apply_changes()
-    // replays a delta. GaussianData::set_gaussian() consults is_applying() so the
-    // replay does NOT re-record the very changes it is applying (which would
-    // duplicate/poison the delta on the next save).
-    bool applying = false;
+    // PERSIST-002 re-entrancy guard: holds the Thread::ID of the thread currently
+    // replaying a delta in load_and_apply_changes() (Thread::UNASSIGNED_ID otherwise).
+    // GaussianData::set_gaussian() consults is_applying() so the replaying thread does
+    // NOT re-record the changes it is applying -- while edits from OTHER threads are
+    // still recorded normally (Codex: replay suppression is scoped to the replay owner).
+    // Atomic so is_applying() can be read WITHOUT change_mutex; it is called from
+    // set_gaussian() under data_rwlock, and taking change_mutex there would invert the
+    // record path's data_rwlock -> change_mutex lock order and risk deadlock.
+    SafeNumeric<uint64_t> applying_thread_id;
+    // Serialises all mutable saver state (the change tables, the dedup map, the baseline
+    // fields, requires_full_save, is_tracking, accumulated_changes). Recursive so the
+    // record -> _track_splat_change -> mark_requires_full_save re-entry is safe. NEVER
+    // held across a call into GaussianData (set_gaussian / save_scene take data_rwlock;
+    // holding change_mutex across them would deadlock against the record path's
+    // data_rwlock -> change_mutex order).
+    mutable Mutex change_mutex;
 
     // Internal methods
     void _track_splat_change(uint32_t index, const Gaussian& old_splat, const Gaussian& new_splat);
@@ -122,9 +136,9 @@ private:
     // A decode failure or non-Dictionary payload is reported as ERR_FILE_CORRUPT
     // rather than collapsing to defaults (#603b).
     static Error _decode_change_payload(const PackedByteArray& data_blob, const ChangeEntry& entry, Dictionary& r_dict);
-    Error _apply_splat_changes(::GaussianData* gaussian_data) const;
-    Error _apply_metadata_changes(GaussianAnimationStateMachine* animation) const;
-    Error _apply_animation_changes(GaussianAnimationStateMachine* animation) const;
+    Error _apply_splat_changes(::GaussianData* gaussian_data, const LocalVector<SplatChange>& changes) const;
+    Error _apply_metadata_changes(GaussianAnimationStateMachine* animation, const HashMap<String, MetadataDelta>& changes) const;
+    Error _apply_animation_changes(GaussianAnimationStateMachine* animation, const LocalVector<AnimationChange>& changes) const;
 
 protected:
     static void _bind_methods();
@@ -136,7 +150,10 @@ public:
     // Change tracking control
     void start_tracking(const String& baseline_file);
     void stop_tracking();
-    bool is_tracking_enabled() const { return is_tracking; }
+    bool is_tracking_enabled() const {
+        MutexLock lock(change_mutex);
+        return is_tracking;
+    }
 
     // Manual change recording
     void record_splat_change(uint32_t index, const Gaussian& old_splat, const Gaussian& new_splat);
@@ -146,11 +163,19 @@ public:
     // PERSIST-001/002 hooks used by GaussianData's public setters.
     // mark_requires_full_save(): a structural batch edit invalidated the delta;
     // save_changes() must fail closed until a full re-baseline is taken.
-    void mark_requires_full_save() { requires_full_save = true; }
-    bool get_requires_full_save() const { return requires_full_save; }
-    // is_applying(): true only during load_and_apply_changes()'s replay, so
-    // set_gaussian() can suppress re-recording the changes it is applying.
-    bool is_applying() const { return applying; }
+    void mark_requires_full_save() {
+        MutexLock lock(change_mutex);
+        requires_full_save = true;
+    }
+    bool get_requires_full_save() const {
+        MutexLock lock(change_mutex);
+        return requires_full_save;
+    }
+    // is_applying(): true only on the thread currently replaying a delta in
+    // load_and_apply_changes(), so that thread's set_gaussian() suppresses re-recording
+    // the changes it is applying while other threads keep recording. Reads the atomic
+    // thread-id WITHOUT change_mutex (called from set_gaussian() under data_rwlock).
+    bool is_applying() const { return applying_thread_id.get() == Thread::get_caller_id(); }
 
     // Incremental save operations
     Error save_changes(const String& incremental_file_path);
@@ -165,9 +190,18 @@ public:
     String get_baseline_file() const { return baseline_file_path; }
 
     // Change analysis
-    uint32_t get_change_count() const { return splat_changes.size() + animation_changes.size(); }
-    uint32_t get_splat_change_count() const { return splat_changes.size(); }
-    uint32_t get_animation_change_count() const { return animation_changes.size(); }
+    uint32_t get_change_count() const {
+        MutexLock lock(change_mutex);
+        return splat_changes.size() + animation_changes.size();
+    }
+    uint32_t get_splat_change_count() const {
+        MutexLock lock(change_mutex);
+        return splat_changes.size();
+    }
+    uint32_t get_animation_change_count() const {
+        MutexLock lock(change_mutex);
+        return animation_changes.size();
+    }
     Array get_changed_splat_indices() const;
     Dictionary get_change_statistics() const;
 
