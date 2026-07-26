@@ -197,6 +197,11 @@ private:
 
     void _connect_project_settings();
     void _on_project_settings_changed();
+    // Zero the per-(re)initialize runtime state shared by initialize() and
+    // initialize_empty() (issue #222). Both init entry points call this first,
+    // then diverge on data-dependent vs. empty-state setup. Centralizing the
+    // reset removes the "must-zero-a-new-field-in-both-sites" hazard.
+    void _reset_runtime_state();
 
 protected:
     static void _bind_methods();
