@@ -338,6 +338,41 @@ String GPUSortingConfig::get_validation_errors() const {
     return errors;
 }
 
+String GPUSortingConfig::get_portability_warnings() const {
+    // #634: diagnostics for configs that PASS validate() but are non-portable, so
+    // they must NOT change validate()/reset behavior (that would silently reset the
+    // config and change sort selection). These are surfaced as non-fatal warnings at
+    // the config-load sites (initialize_gpu_sorting_config + the runtime reload),
+    // which only ever look at get_validation_errors() when validate() FAILS — leaving
+    // the valid-but-non-portable case invisible without this separate surface.
+    String warnings;
+
+    // radix_bits and workgroup_size are each individually valid, but the RadixSort
+    // scatter kernel's shared-memory footprint is a function of their PRODUCT. (8, 512)
+    // needs 18432 bytes > the 16384-byte (16 KB) minimum Vulkan 1.1 guarantees, so the
+    // scatter pipeline is unbuildable on common Intel/AMD parts and the sorter falls
+    // back (compositing translucent splats unsorted) on those GPUs. Same single-source
+    // helper RadixSort::is_supported() probes the real device limit with. An unsupported
+    // radix_bits returns the fail-closed sentinel: that is a hard validation error
+    // (reported by get_validation_errors + reset to defaults), not a portability issue,
+    // so it produces no warning here.
+    const uint32_t scatter_shared_bytes =
+            GPUSortingConstants::radix_scatter_shared_memory_bytes(radix_bits, workgroup_size);
+    if (scatter_shared_bytes != GPUSortingConstants::RADIX_SCATTER_SHARED_MEMORY_UNSUPPORTED &&
+            scatter_shared_bytes > GPUSortingConstants::VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES) {
+        warnings += vformat(
+                "radix_bits=%d x workgroup_size=%d needs %d bytes of compute shared memory, "
+                "exceeding the %d-byte (16 KB) minimum guaranteed by Vulkan 1.1 (common Intel/AMD "
+                "limit); the RadixSort scatter kernel will be unbuildable on such GPUs and the "
+                "sorter will fall back, compositing translucent splats unsorted. Lower radix_bits "
+                "or workgroup_size.\n",
+                radix_bits, workgroup_size, scatter_shared_bytes,
+                GPUSortingConstants::VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES);
+    }
+
+    return warnings;
+}
+
 void GPUSortingConfig::log_performance_data(uint32_t element_count, float sort_time_ms, const String &algorithm) const {
     if (!enable_performance_logging) {
         return;
@@ -710,6 +745,16 @@ void initialize_gpu_sorting_config() {
         GS_LOG_GPU_SORT_INFO("[GPU Sorting Config] Resetting to defaults...");
         g_gpu_sorting_config.reset_to_defaults();
         g_gpu_sorting_config.save_to_project_settings();
+    } else {
+        // #634: the config is valid but may be non-portable (e.g. radix_bits=8 x
+        // workgroup_size=512 needs 18 KB scatter shared memory). Surface it as a
+        // non-fatal warning here — get_validation_errors() above is only consulted on
+        // the failure path, so this is the reachable point for a valid-but-non-portable
+        // config. The runtime sorter probe already degrades gracefully.
+        const String portability_warnings = g_gpu_sorting_config.get_portability_warnings();
+        if (!portability_warnings.is_empty()) {
+            GS_LOG_GPU_SORT_WARN(portability_warnings);
+        }
     }
 }
 

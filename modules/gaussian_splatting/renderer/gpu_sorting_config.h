@@ -90,6 +90,12 @@ struct GPUSortingConfig {
     // Configuration validation
     bool validate() const;
     String get_validation_errors() const;
+    // #634: non-fatal portability diagnostics for configs that PASS validate() but are
+    // non-portable (e.g. a (radix_bits, workgroup_size) product whose scatter
+    // shared-memory footprint exceeds the 16 KB Vulkan-1.1 minimum). Empty when the
+    // config is portable. Surfaced as a WARN at the config-load sites; never gates
+    // validate() (that would silently reset the config and change sort selection).
+    String get_portability_warnings() const;
 
     // Accessors used by tile renderer overlap-budget policy hooks.
     uint32_t get_overlap_records_hard_cap() const { return max_overlap_records; }

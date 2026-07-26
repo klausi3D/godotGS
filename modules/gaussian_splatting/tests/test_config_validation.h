@@ -735,6 +735,207 @@ TEST_CASE("[GaussianSplatting][Config] sort_path_max_buffer_bytes is total for a
 	CHECK(GPUSortingConstants::sort_path_max_buffer_bytes(50000000ull, 8, 64, 64) == 6400000000ull);
 }
 
+// #634: radix_bits and workgroup_size are each validated independently, but the
+// RadixSort scatter kernel's shared-memory footprint is a function of their
+// PRODUCT. This is a DEVICE-INDEPENDENT (pure CPU) assertion of that derived
+// quantity: it computes the requirement through the SAME single-source helper the
+// runtime probe (RadixSort::is_supported) uses and compares it against the
+// portable Vulkan-1.1 minimum constant — nothing re-derives 18432/16384 by hand.
+TEST_CASE("[GaussianSplatting][Config] RadixSort scatter shared-memory product is bounded (#634)") {
+	using namespace GPUSortingConstants;
+
+	SUBCASE("The unsupportable (8, 512) product exceeds the guaranteed 16 KB floor") {
+		// radix_size = 1<<8 = 256; mask_words = ceil(512/32) = 16;
+		// scatter uints = 256 * (2 + 16) = 4608; bytes = 4608 * 4 = 18432.
+		const uint32_t bytes = radix_scatter_shared_memory_bytes(8, 512);
+		CHECK(bytes == 18432u);
+		// > the 16384-byte (16 KB) minimum Vulkan 1.1 guarantees -> unsupportable.
+		CHECK(bytes > VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES);
+		CHECK(VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES == 16384u);
+	}
+
+	SUBCASE("Supported combos fit within the guaranteed 16 KB floor") {
+		// (8, 256): 256 * (2 + ceil(256/32)=8) * 4 = 256 * 10 * 4 = 10240.
+		CHECK(radix_scatter_shared_memory_bytes(8, 256) == 10240u);
+		CHECK(radix_scatter_shared_memory_bytes(8, 256) <= VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES);
+		// (4, 512): 16 * (2 + 16) * 4 = 1152.
+		CHECK(radix_scatter_shared_memory_bytes(4, 512) == 1152u);
+		CHECK(radix_scatter_shared_memory_bytes(4, 512) <= VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES);
+		// The shipped default (radix_bits=4, workgroup_size=256): 16 * 10 * 4 = 640.
+		CHECK(radix_scatter_shared_memory_bytes(4, 256) == 640u);
+		CHECK(radix_scatter_shared_memory_bytes(4, 256) <= VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES);
+	}
+
+	SUBCASE("An unsupported radix width fails closed with the sentinel, never a small footprint") {
+		const uint32_t unsupported_radix[] = {0, 1, 2, 3, 5, 6, 7, 9, 16, 32, 64, UINT32_MAX};
+		for (uint32_t radix : unsupported_radix) {
+			CHECK_FALSE(is_supported_radix_bits(radix));
+			CHECK(radix_scatter_shared_memory_bytes(radix, 256) == RADIX_SCATTER_SHARED_MEMORY_UNSUPPORTED);
+			// The sentinel is UINT32_MAX, so it can never be mistaken for "fits".
+			CHECK(radix_scatter_shared_memory_bytes(radix, 256) > VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES);
+		}
+	}
+}
+
+// #634 (Codex P2): (radix_bits=8, workgroup_size=512) is a VALID config -- validate()
+// accepts it -- but non-portable (18432 B scatter shared memory > the 16 KB Vulkan-1.1
+// floor). Because both get_validation_errors() consumers only read it on the validate()
+// FAILURE path, the diagnostic for a valid-but-non-portable config must live on a
+// separate, non-fatal surface: get_portability_warnings(). It must NOT gate validate()
+// (that would silently reset the config and change sort selection). Same single-source
+// helper as the formula test above and the runtime probe.
+TEST_CASE("[GaussianSplatting][Config] get_portability_warnings flags the valid-but-nonportable radix x workgroup product (#634)") {
+	GPUSortingConfig config;
+	config.reset_to_defaults();
+
+	const char *kSharedMemFragment = "compute shared memory";
+
+	SUBCASE("(8, 512) passes validate() yet yields a portability warning naming both knobs and the byte total") {
+		config.radix_bits = 8;
+		config.workgroup_size = 512;
+		// The crux of the P2: validate() ACCEPTS it, so it is never reset -- which is
+		// exactly why the diagnostic cannot live behind the validate() failure path.
+		CHECK(config.validate());
+		const String warnings = config.get_portability_warnings();
+		CHECK_FALSE(warnings.is_empty());
+		CHECK(warnings.contains(kSharedMemFragment));
+		CHECK(warnings.contains(String::num_uint64(
+				GPUSortingConstants::radix_scatter_shared_memory_bytes(8, 512))));
+		CHECK(warnings.contains(String::num_uint64(
+				GPUSortingConstants::VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES)));
+		// The non-fatal diagnostic must NOT leak into the hard-error surface, or
+		// get_validation_errors() would be non-empty while validate() is true.
+		CHECK_FALSE(config.get_validation_errors().contains(kSharedMemFragment));
+	}
+
+	SUBCASE("Supported (radix, workgroup) products yield no portability warning") {
+		CHECK(config.get_portability_warnings().is_empty()); // (4, 256) shipped default
+		config.radix_bits = 8;
+		config.workgroup_size = 256;
+		CHECK(config.get_portability_warnings().is_empty());
+		config.radix_bits = 4;
+		config.workgroup_size = 512;
+		CHECK(config.get_portability_warnings().is_empty());
+	}
+
+	SUBCASE("An unsupported radix_bits is a hard error, not a portability warning") {
+		// The helper returns the fail-closed sentinel; get_portability_warnings() must
+		// stay empty (get_validation_errors() names the real problem and the config is
+		// reset to defaults), and must never print the sentinel as a byte count.
+		config.radix_bits = 64;
+		config.workgroup_size = 512;
+		CHECK_FALSE(config.validate());
+		const String warnings = config.get_portability_warnings();
+		CHECK(warnings.is_empty());
+		CHECK(config.get_validation_errors().contains("Radix bits must be 4 or 8"));
+	}
+}
+
+// #634 (Codex P2, round 2): a reachability test that only re-derives
+// get_portability_warnings() after init is VACUOUS -- deleting the
+// GS_LOG_GPU_SORT_WARN call from initialize_gpu_sorting_config() would leave it green,
+// which is exactly the "diagnostic exists but is never surfaced" defect. So this
+// captures the EMISSION itself. GS_LOG_GPU_SORT_WARN -> WARN_PRINT -> Godot's
+// ErrorHandlerList, so a scoped error handler installed around the real config-load
+// call observes the actually-emitted warning text (WARN is never rate-limited --
+// gs_logger::should_rate_limit() covers only INFO/DEBUG/TRACE).
+struct ScopedPortabilityWarningCapture : public ErrorHandlerList {
+	Vector<String> messages;
+
+	static void _handler(void *p_userdata, const char *, const char *, int, const char *p_error,
+			const char *p_message, bool, ErrorHandlerType) {
+		ScopedPortabilityWarningCapture *self = static_cast<ScopedPortabilityWarningCapture *>(p_userdata);
+		String message;
+		if (p_message && p_message[0]) {
+			message = String::utf8(p_message);
+		} else if (p_error) {
+			message = String::utf8(p_error);
+		}
+		if (!message.is_empty()) {
+			self->messages.push_back(message);
+		}
+	}
+
+	ScopedPortabilityWarningCapture() {
+		errfunc = _handler;
+		userdata = this;
+		add_error_handler(this);
+	}
+	~ScopedPortabilityWarningCapture() {
+		remove_error_handler(this);
+	}
+
+	bool captured_containing(const String &p_text) const {
+		for (int i = 0; i < messages.size(); i++) {
+			if (messages[i].find(p_text) != -1) {
+				return true;
+			}
+		}
+		return false;
+	}
+};
+
+TEST_CASE("[GaussianSplatting][Config] initialize_gpu_sorting_config EMITS the nonportable (8,512) warning and stays silent for supported configs (#634)") {
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	REQUIRE(project_settings != nullptr);
+
+	const GPUSortingConfig previous_global_config = g_gpu_sorting_config;
+	const String preset_path = GPUSortingConfig::GPU_PRESET_PATH;
+	const String radix_bits_path = GPUSortingConfig::RADIX_BITS_PATH;
+	const String workgroup_size_path = GPUSortingConfig::WORKGROUP_SIZE_PATH;
+	const String max_elements_path = GPUSortingConfig::MAX_ELEMENTS_PATH;
+	const String key_bits_path = GPUSortingConfig::KEY_BITS_PATH;
+	const String tile_bits_path = GPUSortingConfig::TILE_BITS_PATH;
+	const String depth_bits_path = GPUSortingConfig::DEPTH_BITS_PATH;
+	ProjectSettingGuard preset_guard(project_settings, preset_path);
+	ProjectSettingGuard radix_bits_guard(project_settings, radix_bits_path);
+	ProjectSettingGuard workgroup_size_guard(project_settings, workgroup_size_path);
+	ProjectSettingGuard max_elements_guard(project_settings, max_elements_path);
+	ProjectSettingGuard key_bits_guard(project_settings, key_bits_path);
+	ProjectSettingGuard tile_bits_guard(project_settings, tile_bits_path);
+	ProjectSettingGuard depth_bits_guard(project_settings, depth_bits_path);
+
+	// Custom preset so the individual knobs are honored (named presets impose their own
+	// layout). Pin the validate()-relevant knobs to a known-good state so leftover
+	// global settings cannot make validate() fail (which would reset the config and mask
+	// the case under test). Only radix_bits/workgroup_size differ between subcases.
+	project_settings->set_setting(preset_path, "custom");
+	project_settings->set_setting(max_elements_path, 50000000); // (50M,8,512,64) fits the device size type
+	project_settings->set_setting(key_bits_path, 64);
+	project_settings->set_setting(tile_bits_path, 32);
+	project_settings->set_setting(depth_bits_path, 32);
+
+	const char *kSharedMemFragment = "compute shared memory";
+
+	SUBCASE("(8, 512) valid-but-nonportable -> init EMITS the portability WARN") {
+		project_settings->set_setting(radix_bits_path, 8);
+		project_settings->set_setting(workgroup_size_path, 512);
+		ScopedPortabilityWarningCapture capture;
+		initialize_gpu_sorting_config();
+		// The emission ITSELF, not a re-derivation: deleting the WARN call from
+		// initialize_gpu_sorting_config() makes this fail (mutation-proven).
+		CHECK(capture.captured_containing(kSharedMemFragment));
+		// And the load path accepted it (validate() true -> NOT reset), which is why the
+		// diagnostic cannot live behind the validate() failure path.
+		CHECK(g_gpu_sorting_config.radix_bits == 8u);
+		CHECK(g_gpu_sorting_config.workgroup_size == 512u);
+		CHECK(g_gpu_sorting_config.validate());
+	}
+
+	SUBCASE("(8, 256) supported -> init emits NO portability WARN") {
+		project_settings->set_setting(radix_bits_path, 8);
+		project_settings->set_setting(workgroup_size_path, 256);
+		ScopedPortabilityWarningCapture capture;
+		initialize_gpu_sorting_config();
+		CHECK_FALSE(capture.captured_containing(kSharedMemFragment));
+		CHECK(g_gpu_sorting_config.radix_bits == 8u);
+		CHECK(g_gpu_sorting_config.workgroup_size == 256u);
+		CHECK(g_gpu_sorting_config.validate());
+	}
+
+	g_gpu_sorting_config = previous_global_config;
+}
+
 TEST_CASE("[GaussianSplatting][Config] get_validation_errors survives an out-of-range radix_bits") {
 	// REGRESSION: get_validation_errors() calls sort_path_max_buffer_bytes()
 	// UNCONDITIONALLY — unlike validate(), it does NOT short-circuit through the
