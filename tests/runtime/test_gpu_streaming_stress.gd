@@ -94,6 +94,7 @@ func _run() -> void:
             benchmark_summary["baseline_passed"] = bool(tier_result.get("within_budget", false))
 
     benchmark_summary["tiers"] = tier_results
+    _evaluate_frame_scaling(tier_results)
     if not baseline_found:
         benchmark_summary["baseline_passed"] = false
         _record_failure("Missing baseline streaming tier result", {"baseline_tier": BASELINE_TIER_NAME})
@@ -107,6 +108,46 @@ func _run() -> void:
     else:
         push_error("%s GPU streaming stress test detected failures" % FAIL_MARKER)
     quit(exit_code)
+
+## Applies the deterministic cross-tier frame-scaling verdict (#630).
+##
+## The absolute per-tier p95 ceiling in evaluate_tier_budget() stays as a gross
+## backstop. This adds the contention-robust signal: the per-splat marginal cost
+## between the smallest and largest tier cancels the common-mode runner-load
+## offset, so it is invariant to how loaded the shared runner is.
+##
+## Wiring policy (matches the calibration posture the tier budget already
+## documents): the scale-sanity "inconclusive" verdict identifies a
+## common-mode-dominated, INVALID measurement so CI can re-queue it rather than
+## treat runner load as a regression; that is surfaced (non-blocking) here. The
+## "regression" verdict is likewise surfaced non-blocking for now because its
+## backstop baseline is deliberately generous and must be tightened against
+## several clean optimized-build runs in the dedicated calibration PR before it
+## is promoted to blocking. The full algorithm (including the blocking-regression
+## path) is proven deterministically by test_streaming_gpu_tier_budget_contract.gd.
+func _evaluate_frame_scaling(tier_results: Array) -> void:
+    var samples: Array = []
+    for tier_result in tier_results:
+        if not (tier_result is Dictionary):
+            continue
+        samples.append({
+            "name": String(tier_result.get("name", "tier_unknown")),
+            "size": int(tier_result.get("dataset_size", 0)),
+            "frame_p95_ms": float(tier_result.get("frame_p95_ms", 0.0))
+        })
+    var scaling := StreamingGpuTierBudget.evaluate_scaling_regression(samples)
+    benchmark_summary["frame_scaling"] = scaling
+    var verdict := String(scaling.get("verdict", "insufficient_data"))
+    var reason := String(scaling.get("reason", ""))
+    if verdict == "regression":
+        push_warning("[Streaming] Frame-scaling regression (advisory pending calibration): %s" % reason)
+    elif verdict == "inconclusive":
+        push_warning(
+            "[Streaming] Frame-scaling measurement inconclusive (invalid / common-mode dominated); re-run in a quiet window: %s" % reason
+        )
+    elif verdict == "insufficient_data":
+        push_warning("[Streaming] Frame-scaling verdict skipped: %s" % reason)
+
 
 ## Records a failure with context and marks the script as failed.
 func _record_failure(reason: String, context: Dictionary = {}) -> void:
@@ -423,10 +464,18 @@ func _exercise_tier(tier: Dictionary) -> Dictionary:
                 first_visible_ms = float(Time.get_ticks_usec() - benchmark_start_usec) / 1000.0
                 break
 
-    var frame_avg_ms := _average(frame_times_ms)
-    var frame_p95_ms := _percentile(frame_times_ms, 0.95)
+    # Documented warm-up discard (#630, step 3 of the repeatability protocol in
+    # streaming_gpu_tier_budget.gd). The 3 pre-loop warm-up frames stabilise GPU
+    # timers; this drops the first WARMUP_DISCARD_SAMPLES retained samples that
+    # still ride the ramp before the absolute-p95 backstop and its avg are
+    # computed. trim_warmup() keeps the full window when too few samples remain,
+    # so a short capture is never emptied. This is a noise reduction on the
+    # sample window, not a threshold change.
+    var measured_frame_times_ms := StreamingGpuTierBudget.trim_warmup(frame_times_ms)
+    var frame_avg_ms := _average(measured_frame_times_ms)
+    var frame_p95_ms := _percentile(measured_frame_times_ms, 0.95)
     var frame_max_ms := 0.0
-    for value in frame_times_ms:
+    for value in measured_frame_times_ms:
         frame_max_ms = maxf(frame_max_ms, float(value))
     var frame_p95_to_avg_ratio := frame_p95_ms / maxf(0.001, frame_avg_ms)
     var scheduler_update_cpu_p95_ms := _percentile(scheduler_update_cpu_ms_values, 0.95)
@@ -489,6 +538,11 @@ func _exercise_tier(tier: Dictionary) -> Dictionary:
     tier_result["frame_p95_ms"] = frame_p95_ms
     tier_result["frame_max_ms"] = frame_max_ms
     tier_result["frame_p95_to_avg_ratio"] = frame_p95_to_avg_ratio
+    # Raw-vs-retained sample counts document the warm-up discard for calibration
+    # evidence (#630): frame_raw_sample_count is the captured window,
+    # frame_sample_count is what fed avg/p95 after trim_warmup().
+    tier_result["frame_raw_sample_count"] = frame_times_ms.size()
+    tier_result["frame_sample_count"] = measured_frame_times_ms.size()
     tier_result["source_data_available"] = source_data_available
     tier_result["source_data_status"] = source_data_status
     tier_result["sort_evidence_available"] = bool(sort_evidence.get("available", false))
