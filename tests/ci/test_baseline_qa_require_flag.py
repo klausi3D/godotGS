@@ -13,7 +13,7 @@ run_baseline_qa.py, in a PR whose entire subject is CI honesty). An earlier
 revision of this docstring said that skip path is "exactly the code path
 production CI takes". It is the path NO current CI run takes. main() only
 reaches it when the ``qa`` category is selected, and no workflow selects
-``qa``: baseline_qa.yml runs ``--categories sorting`` and ``--categories
+``qa``: baseline_qa.yml runs ``--categories sorting,renderer`` and ``--categories
 ply,pipeline,runtime,module``; gaussian_production_gates.yml runs
 ``--category pipeline``. WorkflowCategorySelectionTest below pins that
 inventory to ground truth so the corrected statement cannot silently rot.
@@ -238,7 +238,9 @@ class WorkflowCategorySelectionTest(unittest.TestCase):
     # to update it mechanically, which is how a pin stops meaning anything.
     EXPECTED = sorted(
         [
-            ("baseline_qa.yml", frozenset({"sorting"})),
+            # #104: the GPU lane gained the render-thread dispatch characterization
+            # (category "renderer"), a deliberate lane addition pinned here.
+            ("baseline_qa.yml", frozenset({"sorting", "renderer"})),
             ("baseline_qa.yml", frozenset({"ply", "pipeline", "runtime", "module"})),
             ("gaussian_production_gates.yml", frozenset({"pipeline"})),
         ],

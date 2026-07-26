@@ -22,7 +22,7 @@ SYNTHETIC_ASSET_PREP_SCRIPT = ROOT / "tests" / "runtime" / "prepare_synthetic_as
 MINIMUM_SSIM_DROP = 0.02
 MINIMUM_FPS_RATIO = 0.85
 MAXIMUM_TIME_RATIO = 1.20
-TEST_CATEGORIES = ("ply", "pipeline", "sorting", "runtime", "module", "qa")
+TEST_CATEGORIES = ("ply", "pipeline", "sorting", "runtime", "module", "qa", "renderer")
 CATEGORY_ALIASES = {"all": None}
 CLI_CATEGORY_CHOICES = tuple(CATEGORY_ALIASES.keys()) + TEST_CATEGORIES
 
@@ -288,10 +288,12 @@ class BaselineQARunner:
         if test_type == "godot":
             command = [self.godot_binary]
             if test.get("requires_gpu", False):
-                # Windows display driver + Vulkan renderer + safe render thread.
-                # Headless display driver cannot create a RenderingDevice; the
-                # Windows driver is required even on service-mode runners.
-                command.extend(["--display-driver", "windows", "--rendering-driver", "vulkan", "--render-thread", "safe"])
+                # Windows display driver + Vulkan renderer. Headless display driver cannot
+                # create a RenderingDevice; the Windows driver is required even on service-mode
+                # runners. Default render thread is "safe"; a test may request "separate" when it
+                # must run OFF the render thread (e.g. the render-thread dispatch characterization).
+                render_thread = test.get("render_thread", "safe")
+                command.extend(["--display-driver", "windows", "--rendering-driver", "vulkan", "--render-thread", render_thread])
             else:
                 command.append("--headless")
             command.extend(["--verbose", "--script", test["script"]])
@@ -317,8 +319,19 @@ class BaselineQARunner:
             )
 
             test_duration = time.time() - test_start
-            success = result.returncode == 0
             output = (result.stdout or "") + (result.stderr or "")
+            if test.get("classify_by_marker"):
+                # Some GPU tests must run with --render-thread separate, whose engine-level
+                # shutdown is unstable (RenderingDevice::finalize thread assert + ObjectDB leak),
+                # making the process exit code unreliable AFTER the test has already printed its
+                # verdict. Classify by the explicit verdict markers instead: fail on the standard
+                # [RUNTIME_FAIL] marker (AGENTS.md), and pass ONLY if the success marker is present
+                # (so a mid-run crash before the verdict is still a failure).
+                fail_marker = test.get("fail_marker", "[RUNTIME_FAIL]")
+                pass_marker = test.get("pass_marker")
+                success = pass_marker is not None and pass_marker in output and fail_marker not in output
+            else:
+                success = result.returncode == 0
             details = self._parse_test_output(output)
             test_status = "passed" if success else "failed"
             expected_headless_qa_skip = False
@@ -496,6 +509,24 @@ class BaselineQARunner:
                 "script": "tests/ci/test_gpu_sorting_ci.gd",
                 "category": "sorting",
                 "requires_gpu": True,
+            },
+            {
+                # #104: executes the render-thread dispatch/timeout/teardown characterization
+                # under a LIVE RenderingServer + render loop. Runs with --render-thread separate
+                # so the script is OFF the render thread (required by the characterization); that
+                # mode's shutdown is engine-unstable, so this test is classified by its verdict
+                # markers, not the process exit code. The equivalent C++ [RequiresGPU] doctests
+                # can only skip under --test (no RenderingServer), which is the gap #104 closes.
+                "name": "Render-Thread Dispatch Characterization",
+                "type": "godot",
+                "script": "tests/ci/test_render_thread_dispatch.gd",
+                "category": "renderer",
+                "requires_gpu": True,
+                "render_thread": "separate",
+                "classify_by_marker": True,
+                "pass_marker": "[GS-RTD] RESULT: PASS",
+                "fail_marker": "[RUNTIME_FAIL]",
+                "timeout": 180,
             },
             {
                 "name": "Runtime Validation Suite",
