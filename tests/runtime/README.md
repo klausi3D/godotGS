@@ -11,7 +11,8 @@ Runtime scenarios are defined declaratively in:
 - `tests/runtime/runtime_scenarios.json`
 
 The canonical headless CI profile is `headless-ci`.
-The canonical release-ready profile remains `release-ci` (default for explicit runtime validation).
+The canonical release-ready profile remains `release-ci` (default for explicit runtime
+validation, and the nightly evidence lane — see [CI Integration](#ci-integration)).
 The focused canonical node proof profile is `node-asset-gpu-ci`.
 The canonical blocking GPU-backed streaming profile is `streaming-gpu-ci`.
 `--list-profiles` only lists runtime validation profiles; the benchmark proof surfaces are
@@ -93,22 +94,29 @@ headless structural gate in GitHub Actions) execute:
 
 - `--profile headless-ci`
 
-The full release-ready runtime gate uses:
+The release-ready runtime profile `release-ci` runs as a **nightly evidence lane**, not
+as a required PR gate. `.github/workflows/release_ci_runtime.yml` (triggers: `schedule`
+nightly + `workflow_dispatch`) executes it on the self-hosted Windows GPU runner:
 
-- `--profile release-ci`
+- `--profile release-ci --gd-mode windows-vulkan --skip-cpp --fail-on-skip`
+
+`--skip-cpp` mirrors the other self-hosted GPU jobs: the C++ harness compile path uses
+`g++`, which is not provisioned on the MSVC runner, so the lane exercises the GDScript
+runtime suite plus the required renderer proof. This is an evidence lane; baseline QA CI
+does **not** run `release-ci`.
 
 `release-ci` and `node-asset-gpu-ci` require at least one runtime test to emit
 `renderer_proof_status=passed` in its `[RUNTIME_METRICS]` payload. A skipped or
 unavailable local RenderingDevice is still reported explicitly, but it fails those
 proof-required profiles instead of looking like green renderer evidence.
 
-The blocking streaming-specific GPU runtime gate uses:
+The blocking streaming-specific GPU runtime gate (in `gaussian_production_gates.yml`) uses:
 
 - `--profile streaming-gpu-ci`
 
-This keeps headless CI honest about what can actually execute while preserving the
-broader release-ready profile for non-headless lanes and one explicit streaming gate
-for world-streaming and residency regressions.
+This keeps headless CI honest about what can actually execute, wires the broader
+release-ready profile as a nightly non-headless evidence lane, and keeps one explicit
+blocking streaming gate for world-streaming and residency regressions.
 
 Benchmark evidence collection is separate from the canonical runtime gate and uses the
 benchmark runner lane selector instead of runtime validation profiles:

@@ -1,0 +1,154 @@
+name: Release-CI Runtime Evidence
+
+# Nightly (and manual) evidence lane for the canonical release-ready runtime
+# profile `release-ci`. Before this workflow existed, `release-ci` was executed
+# by NO workflow despite being documented as the canonical release-ready lane
+# (issue #524). This wires it as a NIGHTLY EVIDENCE lane on the self-hosted
+# Windows GPU runner — it is intentionally NOT a required PR gate:
+#   - baseline QA CI runs `headless-ci`;
+#   - the blocking GPU streaming gate is `streaming-gpu-ci`
+#     (gaussian_production_gates.yml);
+#   - this lane produces non-blocking release-ready runtime + renderer-proof
+#     evidence on a schedule and on demand.
+on:
+  schedule:
+    # Nightly at 06:00 UTC — offset from baseline_qa (03:30) and release_builds
+    # (02:30) so the three lanes do not contend for the single self-hosted runner.
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  # Nightly evidence — serialize per ref but do NOT cancel an in-flight run when
+  # a manual dispatch lands; both are legitimate evidence runs.
+  group: release-ci-runtime-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  runtime-release-ci:
+    name: Release-CI Runtime Evidence (Windows Self-Hosted GPU)
+    # Never build/run untrusted fork PR code on the persistent self-hosted
+    # Windows + GPU runner. This workflow has no `pull_request` trigger, so the
+    # guard is trivially satisfied for schedule/dispatch, but it is carried
+    # explicitly per .github/workflows/AGENTS.md so the job stays self-describing
+    # and fail-closed if a `pull_request` trigger is ever added.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: [self-hosted, Windows, X64, godotgs, gpu]
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: repo
+    steps:
+      - name: Configure Git safe.directory for self-hosted workspace
+        shell: pwsh
+        working-directory: ${{ github.workspace }}
+        run: |
+          git config --global --add safe.directory '*'
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: repo
+          fetch-depth: 0
+          submodules: recursive
+          set-safe-directory: false
+
+      - name: Verify Python on runner
+        shell: pwsh
+        run: |
+          python --version
+
+      - name: Set up MSVC build env
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install SCons
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install scons numpy pillow
+
+      - name: Build Godot editor with tests
+        shell: pwsh
+        run: |
+          python -m SCons platform=windows target=editor dev_build=yes tests=yes gs_native_arch=no cache_path=C:/godotgs-scons-cache cache_limit=50 -j12
+
+      - name: Resolve Godot binary
+        id: godot_bin
+        shell: pwsh
+        run: |
+          $candidates = @(
+            "bin\\godot.windows.editor.dev.x86_64.console.exe",
+            "bin\\godot.windows.editor.dev.x86_64.exe",
+            "bin\\godot.windows.editor.x86_64.console.exe",
+            "bin\\godot.windows.editor.x86_64.exe"
+          )
+          $resolved = $null
+          foreach ($candidate in $candidates) {
+            if (Test-Path -LiteralPath $candidate) {
+              $resolved = (Resolve-Path -LiteralPath $candidate).Path
+              break
+            }
+          }
+          if (-not $resolved) {
+            throw "Could not find built Godot binary in expected bin\ paths."
+          }
+          Write-Host "Resolved Godot binary: $resolved"
+          "path=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Run release-ci runtime evidence lane (windows-vulkan)
+        # `--gd-mode windows-vulkan` selects the GPU render path
+        # (--render-thread safe --display-driver windows --rendering-driver
+        # vulkan) so the release-ci profile's `requires_renderer_proof` is
+        # satisfied by real GPU rendering. `--skip-cpp` mirrors the other
+        # self-hosted GPU jobs (baseline_qa gpu-tests / production-gates
+        # module-validation): the C++ harness compile path shells out to `g++`,
+        # which is not provisioned on the MSVC runner. The GDScript runtime
+        # suite plus the renderer proof is the release-ready evidence this lane
+        # exists to collect.
+        env:
+          GODOT_BINARY: ${{ steps.godot_bin.outputs.path }}
+        shell: pwsh
+        run: |
+          python tests/runtime/run_runtime_validation.py `
+            --godot-binary "$env:GODOT_BINARY" `
+            --profile release-ci `
+            --gd-mode windows-vulkan `
+            --skip-cpp `
+            --fail-on-skip
+
+      - name: Upload runtime validation report
+        if: ${{ always() && steps.godot_bin.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-ci-runtime-validation-report
+          path: repo/tests/runtime/runtime_validation_report.json
+          if-no-files-found: warn
+
+      - name: Summarize release-ci runtime evidence
+        if: ${{ always() && steps.godot_bin.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          $reportPath = Join-Path $PWD "tests\runtime\runtime_validation_report.json"
+          $stepSummary = $env:GITHUB_STEP_SUMMARY
+          Add-Content -LiteralPath $stepSummary -Value "## Release-CI Runtime Evidence (nightly, non-blocking)"
+          Add-Content -LiteralPath $stepSummary -Value ""
+          if (Test-Path -LiteralPath $reportPath) {
+            $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+            Add-Content -LiteralPath $stepSummary -Value "| Metric | Value |"
+            Add-Content -LiteralPath $stepSummary -Value "|---|---|"
+            Add-Content -LiteralPath $stepSummary -Value "| Profile | $($report.profile) |"
+            Add-Content -LiteralPath $stepSummary -Value "| gd_mode | $($report.gd_mode) |"
+            Add-Content -LiteralPath $stepSummary -Value "| Total | $($report.total) |"
+            Add-Content -LiteralPath $stepSummary -Value "| Passed | $($report.passed) |"
+            Add-Content -LiteralPath $stepSummary -Value "| Failed | $($report.failed) |"
+            Add-Content -LiteralPath $stepSummary -Value "| Skipped | $($report.skipped) |"
+            Add-Content -LiteralPath $stepSummary -Value "| Renderer proof | $($report.renderer_proof.status) |"
+            Add-Content -LiteralPath $stepSummary -Value "| Schema valid | $($report.schema_valid) |"
+          } else {
+            Add-Content -LiteralPath $stepSummary -Value "- No runtime validation report was produced."
+          }
