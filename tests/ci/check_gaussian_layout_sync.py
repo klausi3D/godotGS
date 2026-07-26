@@ -13,6 +13,9 @@ ROOT = Path(__file__).resolve().parents[2]
 HOST_LAYOUT = ROOT / "modules" / "gaussian_splatting" / "renderer" / "gaussian_gpu_layout.h"
 STREAMING_QUANTIZATION_H = ROOT / "modules" / "gaussian_splatting" / "core" / "streaming_quantization.h"
 TILE_RENDER_TYPES_H = ROOT / "modules" / "gaussian_splatting" / "renderer" / "tile_render_types.h"
+TILE_RENDER_DEBUG_STATS_CPP = ROOT / "modules" / "gaussian_splatting" / "renderer" / "tile_render_debug_stats.cpp"
+TILE_RENDER_STAGES_H = ROOT / "modules" / "gaussian_splatting" / "renderer" / "tile_render_stages.h"
+TILE_PREFIX_SCAN_UTILS_H = ROOT / "modules" / "gaussian_splatting" / "renderer" / "tile_prefix_scan_utils.h"
 RENDER_PARAMS_GLSL = ROOT / "modules" / "gaussian_splatting" / "shaders" / "includes" / "gs_render_params.glsl"
 SHADER_ROOTS = (
     ROOT / "modules" / "gaussian_splatting" / "shaders",
@@ -33,9 +36,9 @@ TARGET_STRUCT_NAMES = ("PackedGaussian", "Gaussian", "GaussianQuantized")
 # silently drift from their shader mirrors.
 #
 # The host struct usually lives in gaussian_gpu_layout.h with the same name as its GLSL
-# mirror, but the spec supports (a) a different host header and (b) a host name that
-# differs from the shader name -- as with ChunkQuantizationGPU (host, in
-# core/streaming_quantization.h) vs `struct ChunkQuantization` (GLSL). Field names still
+# mirror, but the spec supports (a) a different host header (or .cpp translation unit) and
+# (b) a host name that differs from the shader name -- as with ChunkQuantizationGPU (host,
+# in core/streaming_quantization.h) vs `struct ChunkQuantization` (GLSL). Field names still
 # match one-to-one between the two mirrors, so the comparison is by field name.
 #
 # (AssetMetaGPU is intentionally excluded for now: it nests an
@@ -51,6 +54,12 @@ EXTRA_MIRROR_STRUCTS = (
     (HOST_LAYOUT, "VisibleChunkRefGPU", "VisibleChunkRefGPU"),
     (HOST_LAYOUT, "SplatRefGPU", "SplatRefGPU"),
     (STREAMING_QUANTIZATION_H, "ChunkQuantizationGPU", "ChunkQuantization"),
+    # DebugSplatAuditEntry previously carried only a host `sizeof == 16` static_assert
+    # (renderer/tile_render_debug_stats.cpp) with no field-by-field check against its two
+    # GLSL `struct DebugSplatAuditEntry` mirrors (shaders/tile_binning.glsl and
+    # shaders/includes/tile_raster_common.glsl). The host struct is all-scalar (4x uint32_t),
+    # so its C++ layout equals std430 exactly and it fits this struct-mirror path unchanged.
+    (TILE_RENDER_DEBUG_STATS_CPP, "DebugSplatAuditEntry", "DebugSplatAuditEntry"),
 )
 
 
@@ -93,6 +102,11 @@ _FIELD_RE = re.compile(r"^\s*(?P<type>\w+)\s+(?P<name>\w+)(?:\[(?P<count>[A-Za-z
 # GLSL SSBO block: `buffer NAME { ... } instance;` (the binding-3 OverflowStats mirror is a
 # buffer block, not a `struct`, so it needs a distinct discovery pattern from _STRUCT_RE_TEMPLATE).
 _BUFFER_BLOCK_RE_TEMPLATE = r"buffer\s+{name}\s*\{{(?P<body>.*?)\}}\s*\w+\s*;"
+# GLSL push-constant block: `layout(push_constant, std430) uniform NAME { ... } instance;`.
+# Like the OverflowStats buffer block it is a std430 block (not a `struct`), so it reuses the
+# std430 field engine but needs its own discovery pattern -- the push-constant blocks are the
+# ABI the host mirrors via `draw_list_set_push_constant`/`compute_list_set_push_constant`.
+_PUSH_CONSTANT_BLOCK_RE_TEMPLATE = r"push_constant\s*,\s*std430\s*\)\s*uniform\s+{name}\s*\{{(?P<body>.*?)\}}\s*\w+\s*;"
 _CONST_RE = re.compile(r"^static constexpr \w+\s+(?P<name>\w+)\s*=\s*(?P<value>\d+)[uU]?\s*;\s*$")
 _SCALAR_BASE_TYPES: dict[str, tuple[str, int, int]] = {
     "float": ("float", 4, 4),
@@ -275,6 +289,18 @@ def _parse_buffer_block_definition(path: Path, block_name: str) -> StructDef:
     match = pattern.search(text)
     if not match:
         raise RuntimeError(f"Could not find `buffer {block_name} {{ ... }} <instance>;` in {path}")
+    fields = _parse_fields_from_body(match.group("body"), path)
+    return StructDef(block_name, fields, None)
+
+
+def _parse_push_constant_block_definition(path: Path, block_name: str) -> StructDef:
+    text = path.read_text(encoding="utf-8")
+    pattern = re.compile(_PUSH_CONSTANT_BLOCK_RE_TEMPLATE.format(name=re.escape(block_name)), re.DOTALL)
+    match = pattern.search(text)
+    if not match:
+        raise RuntimeError(
+            f"Could not find `layout(push_constant, std430) uniform {block_name} {{ ... }} <instance>;` in {path}"
+        )
     fields = _parse_fields_from_body(match.group("body"), path)
     return StructDef(block_name, fields, None)
 
@@ -556,6 +582,88 @@ def _check_overflow_stats_mirror(failures: list[str]) -> None:
         block_def = _parse_buffer_block_definition(shader_path, block_name)
         block_layout = _layout_struct({block_name: block_def}, block_name, "shader")
         _compare_layouts(host_layout, block_layout, shader_path, block_name, OVERFLOW_STATS_HOST_NAME, failures)
+
+
+# Push-constant ABI: each host struct is mirrored by a GLSL `layout(push_constant, std430)`
+# block whose block name differs from the host struct name (like OverflowStats' buffer blocks).
+# The host writes the struct verbatim via *_set_push_constant, so a silent field drift here is
+# GPU-parameter corruption. Only all-scalar blocks are listed: their natural C++ layout equals
+# std430 byte-for-byte, so the existing std430 engine validates them exactly. Push-constant
+# blocks that pack a `vecN` over a host `float[N]` (viewport_blit BlitParams / ivec2,
+# gs_shadow_blit / vec4, painterly_composite CompositePush / vec2) are deferred: the host uses
+# a scalar array with 4-byte alignment while std430 gives the vecN 8/16-byte alignment, so the
+# std430 block rounds its trailing size up past the host struct's sizeof -- comparing them needs
+# host-side std430-alignment emulation this engine deliberately avoids. Those blocks also live
+# as function-local structs without a sizeof static_assert to anchor. Each spec is
+# (host_header, host_struct_name, ((shader_path, block_name), ...)).
+PUSH_CONSTANT_MIRRORS: tuple[tuple[Path, str, tuple[tuple[Path, str], ...]], ...] = (
+    (
+        TILE_RENDER_STAGES_H,
+        "ResolvePushConstants",
+        ((ROOT / "modules" / "gaussian_splatting" / "shaders" / "tile_resolve.glsl", "ResolveParams"),),
+    ),
+    (
+        TILE_PREFIX_SCAN_UTILS_H,
+        "TilePrefixPass2ControlLayout",
+        ((ROOT / "modules" / "gaussian_splatting" / "shaders" / "tile_prefix_scan.glsl", "PrefixPass2Control"),),
+    ),
+)
+
+
+def _parse_push_constant_size_contract(text: str, struct_name: str) -> int | None:
+    """Resolve a host push-constant struct's `sizeof` static_assert to a byte count, accepting
+    both the literal `sizeof(NAME) == 48` form and the `sizeof(NAME) == sizeof(uint32_t) * 4`
+    form these ABI structs use (e.g. TilePrefixPass2ControlLayout). Returns None if neither
+    form is present, so the checker fails closed on a missing anchor."""
+    literal = re.search(rf"static_assert\(sizeof\({re.escape(struct_name)}\)\s*==\s*(\d+)\b", text)
+    if literal:
+        return int(literal.group(1))
+    uint_multiple = re.search(
+        rf"static_assert\(sizeof\({re.escape(struct_name)}\)\s*==\s*sizeof\(uint32_t\)\s*\*\s*(\d+)\b",
+        text,
+    )
+    if uint_multiple:
+        return 4 * int(uint_multiple.group(1))
+    return None
+
+
+def _check_push_constant_mirror(
+    host_header: Path, host_name: str, shader_mirrors: tuple[tuple[Path, str], ...], failures: list[str]
+) -> None:
+    """Validate a host push-constant struct against its GLSL `push_constant` block mirror(s),
+    following the OverflowStats buffer-block pattern: (a) host self-consistency -- the computed
+    std430 layout must match the struct's own sizeof/offsetof static_asserts, keeping the
+    contracts the single source of truth -- and (b) field-by-field parity (names, std430
+    signatures, offsets, size) against every declared GLSL block."""
+    host_text = host_header.read_text(encoding="utf-8")
+    host_def = _parse_struct_definition(host_header, host_name)
+    host_layout = _layout_struct({host_name: host_def}, host_name, "host")
+
+    contract_size = _parse_push_constant_size_contract(host_text, host_name)
+    if contract_size is None:
+        failures.append(
+            f"{host_header.relative_to(ROOT)}: `{host_name}` is in PUSH_CONSTANT_MIRRORS but has no `sizeof` static_assert to anchor"
+        )
+    elif host_layout.size != contract_size:
+        failures.append(
+            f"{host_header.relative_to(ROOT)}: computed {host_name} size {host_layout.size} != host contract {contract_size}"
+        )
+    for field_name, expected_offset in _parse_struct_offset_contracts(host_text, host_name).items():
+        actual_offset = host_layout.offsets.get(field_name)
+        if actual_offset != expected_offset:
+            failures.append(
+                f"{host_header.relative_to(ROOT)}: {host_name}.{field_name} computed offset {actual_offset} != host contract {expected_offset}"
+            )
+
+    for shader_path, block_name in shader_mirrors:
+        if not shader_path.exists():
+            failures.append(
+                f"{block_name}: expected push-constant shader mirror {shader_path.relative_to(ROOT)} not found"
+            )
+            continue
+        block_def = _parse_push_constant_block_definition(shader_path, block_name)
+        block_layout = _layout_struct({block_name: block_def}, block_name, "shader")
+        _compare_layouts(host_layout, block_layout, shader_path, block_name, host_name, failures)
 
 
 def _std140_member_layout(type_name: str, count: int | None) -> tuple[int, int]:
@@ -905,6 +1013,9 @@ def main() -> int:
 
     _check_overflow_stats_mirror(failures)
 
+    for host_header, host_name, shader_mirrors in PUSH_CONSTANT_MIRRORS:
+        _check_push_constant_mirror(host_header, host_name, shader_mirrors, failures)
+
     _check_render_params_ubo(host_text, failures)
 
     if failures:
@@ -922,6 +1033,14 @@ def main() -> int:
     print(
         "[gaussian-layout-check] OverflowStats binding-3 SSBO matches host TileOverflowStatsSnapshot across "
         + ", ".join(path.name for path, _ in OVERFLOW_STATS_SHADER_MIRRORS)
+        + "."
+    )
+    print(
+        "[gaussian-layout-check] Push-constant std430 blocks match their host structs: "
+        + ", ".join(
+            f"{host_name}->{'/'.join(block_name for _, block_name in shader_mirrors)}"
+            for _, host_name, shader_mirrors in PUSH_CONSTANT_MIRRORS
+        )
         + "."
     )
     print("[gaussian-layout-check] RenderParams std140 uniform block matches TileRenderParamsGPU (bidirectional): offsets, scalar kinds, byte widths, component widths, reverse coverage, size, and layout version.")
