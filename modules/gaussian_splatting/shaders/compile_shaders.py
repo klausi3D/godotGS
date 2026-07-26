@@ -33,6 +33,7 @@ ISSUE_ABI = "#1320"
 ISSUE_COUNTER_INIT = "#1322"
 ISSUE_DIAGNOSTICS = "#1324"
 ISSUE_RASTER_BOUNDS = "#51"
+ISSUE_SORTER_MATRIX = "#525"
 
 SECTION_TAG_RE = re.compile(r"^\s*#\[(compute|vertex|fragment)\]\s*$")
 VERSION_DEFINES_RE = re.compile(r"^\s*#VERSION_DEFINES\s*$")
@@ -715,6 +716,510 @@ REQUIRED_VARIANT_DEFINES: dict[str, tuple[str, ...]] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Embedded (runtime-string) sorter shader coverage -- issue #525
+# ---------------------------------------------------------------------------
+# The GPU sort path builds its compute shaders as runtime `vformat()` strings, not
+# file-based `.glsl` with `.glsl.gen.h` includes, so `_discover_runtime_entrypoints`
+# never sees them and the C5 permutation matrix above never compiles them. A GLSL
+# syntax break in any sorter permutation (32/64-bit key, workgroup {64,128,256,512},
+# 4/8-bit radix, subgroups on/off) is therefore caught by NOTHING until the shader
+# first compiles on an end-user GPU across the driver matrix.
+#
+# This section closes that gap WITHOUT duplicating the GLSL: it extracts the actual
+# raw-string shader templates straight out of the C++ translation units (the single
+# source of truth) and reproduces the exact `vformat()` substitution the runtime
+# performs, then feeds the assembled permutations through the SAME offline compiler
+# (`_compiler_command`) the file-based matrix uses. Because the GLSL bodies are read
+# from the live C++ sources, a syntax error introduced into a sorter shader string in
+# gpu_sorter.cpp / gpu_sorting_pipeline.cpp fails this check -- exactly the runtime
+# family the file matrix could not reach. Do not hand-copy the GLSL here; that would
+# re-introduce the drift this check exists to prevent.
+#
+# Permutation axes mirror the runtime clamps:
+#   * key_bits       -> GPUSortingConfig::validate() accepts {32, 64}
+#                       (use_64bit_keys = key_bits > 32 -> uvec2 vs uint key type).
+#   * workgroup_size -> validate() accepts {64, 128, 256, 512}.
+#   * radix_bits     -> GPUSortingConstants::is_supported_radix_bits() accepts {4, 8}.
+#   * subgroups      -> RadixSort selects the subgroup ballot path when the device
+#                       advertises support; both arms must compile.
+# Bitonic, indirect-dispatch, remap, gather and the OneSweep passes are compiled at
+# their fixed runtime shape (WORKGROUP_SIZE / kSortWorkgroupSize = 256, 8-bit radix).
+
+GPU_SORTER_CPP = MODULE_DIR / "renderer" / "gpu_sorter.cpp"
+GPU_SORTING_PIPELINE_CPP = MODULE_DIR / "interfaces" / "gpu_sorting_pipeline.cpp"
+
+# Runtime-validated permutation axes (see the module comment above for the C++
+# clamp each mirrors). Kept as explicit tuples so the coverage self-check can prove
+# every axis endpoint is exercised by at least one compiled permutation.
+SORTER_WORKGROUP_SIZES = (64, 128, 256, 512)
+SORTER_RADIX_BITS = (4, 8)
+SORTER_KEY_BITS = (32, 64)
+
+_RAW_STRING_RE = re.compile(r'R"\((.*?)\)"', re.DOTALL)
+_CSTRING_LITERAL_RE = re.compile(r'"((?:[^"\\]|\\.)*)"')
+_VFORMAT_TOKEN_RE = re.compile(r"%[ds]")
+
+# Shader families the sorter coverage MUST compile. Missing any of these (e.g. an
+# anchor stopped matching because a shader was renamed or extracted to a file) fails
+# the coverage self-check with a non-zero exit rather than silently dropping the
+# family from CI. Fixed-shape (single-permutation) families are marked False.
+SORTER_REQUIRED_FAMILIES: dict[str, bool] = {
+    "radix_histogram": True,
+    "radix_wg_prefix": True,
+    "radix_bin_prefix": True,
+    "radix_scatter": True,
+    "bitonic": False,
+    "radix_indirect_dispatch": False,
+    "onesweep_global_histogram": False,
+    "onesweep_digit_binning": False,
+    "onesweep_chained_scan": False,
+    "onesweep_scatter": False,
+    "remap": False,
+    "gather": False,
+}
+
+
+@dataclass(frozen=True)
+class SorterPermutation:
+    key: str
+    variant: str
+    source: str
+    target_env: str | None
+    issue_ids: tuple[str, ...]
+    axes: dict[str, object]
+
+
+class _SorterExtractionError(Exception):
+    """Raised when a sorter shader template can no longer be located/assembled."""
+
+
+def _unescape_c_literal(text: str) -> str:
+    # Minimal C string-literal unescape for the concatenated remap source. The
+    # sorter shaders only use \n (plus the structural \\ / \" cases handled here).
+    return (
+        text.replace("\\\\", "\x00")
+        .replace("\\n", "\n")
+        .replace("\\t", "\t")
+        .replace('\\"', '"')
+        .replace("\x00", "\\")
+    )
+
+
+def _apply_vformat(template: str, *args: object) -> str:
+    """Reproduce Godot vformat() for the %d/%s placeholders the sorter sources use.
+
+    Substitutes positionally and asserts the placeholder count matches the argument
+    count, so a template whose placeholder shape changed (a real ABI/source drift)
+    fails loudly here instead of emitting a malformed shader.
+    """
+    parts = _VFORMAT_TOKEN_RE.split(template)
+    tokens = _VFORMAT_TOKEN_RE.findall(template)
+    if len(tokens) != len(args):
+        raise _SorterExtractionError(
+            f"vformat placeholder/argument mismatch: template has {len(tokens)} "
+            f"placeholders, received {len(args)} arguments"
+        )
+    out: list[str] = []
+    for index, chunk in enumerate(parts):
+        out.append(chunk)
+        if index < len(args):
+            out.append(str(args[index]))
+    return "".join(out)
+
+
+def _extract_raw_string_containing(text: str, anchor: str) -> str:
+    for match in _RAW_STRING_RE.finditer(text):
+        body = match.group(1)
+        if anchor in body:
+            return body
+    raise _SorterExtractionError(f"no R\"(...)\" raw string contains anchor: {anchor!r}")
+
+
+def _extract_cstring_template(text: str, func_name: str, arg_marker: str) -> str:
+    func_pos = text.find(func_name)
+    if func_pos == -1:
+        raise _SorterExtractionError(f"function not found: {func_name}")
+    vformat_pos = text.find("vformat(", func_pos)
+    if vformat_pos == -1:
+        raise _SorterExtractionError(f"no vformat() call in {func_name}")
+    arg_pos = text.find(arg_marker, vformat_pos)
+    if arg_pos == -1:
+        raise _SorterExtractionError(f"argument marker {arg_marker!r} not found in {func_name}")
+    segment = text[vformat_pos:arg_pos]
+    literals = _CSTRING_LITERAL_RE.findall(segment)
+    if not literals:
+        raise _SorterExtractionError(f"no string literals in {func_name}")
+    return "".join(_unescape_c_literal(literal) for literal in literals)
+
+
+# --- runtime String() fragments the radix vformat() calls interpolate ------------
+# These are the small, non-raw-string helper snippets from RadixSort::create_variant
+# (renderer/gpu_sorter.cpp). They define/consume symbols declared by the extracted
+# raw-string templates and key helpers, so they carry no independent GLSL surface of
+# their own; keeping them in Python (rather than parsing the escaped C++ literals)
+# avoids a second escape-unescape hazard while the mutation-relevant bodies stay
+# sourced from C++.
+def _subgroup_preamble(subgroups: bool) -> str:
+    if subgroups:
+        return (
+            "#extension GL_KHR_shader_subgroup_basic : enable\n"
+            "#extension GL_KHR_shader_subgroup_ballot : enable\n"
+            "#define GS_ENABLE_SUBGROUPS 1\n"
+        )
+    return "#define GS_ENABLE_SUBGROUPS 0\n"
+
+
+def _histogram_key_read(use_64bit: bool) -> str:
+    key_type = "uvec2" if use_64bit else "uint"
+    return (
+        f"            {key_type} key = keys_in.keys[idx];\n"
+        "            radix = get_radix(key, params.bit_shift);"
+    )
+
+
+def _scatter_key_read(use_64bit: bool) -> str:
+    key_decl = "uvec2 key = uvec2(0u);" if use_64bit else "uint key = 0u;"
+    return (
+        f"        {key_decl}\n"
+        "        uint value = 0u;\n"
+        "        uint radix = 0u;\n"
+        "        if (valid) {\n"
+        "            key = keys_in.keys[idx];\n"
+        "            value = values_in.values[idx];\n"
+        "            radix = get_radix(key, params.bit_shift);\n"
+        "        }"
+    )
+
+
+def _radix_variant_label(key_bits: int, radix_bits: int, workgroup: int, subgroups: bool) -> str:
+    return f"key{key_bits}_r{radix_bits}_wg{workgroup}_{'sg' if subgroups else 'plain'}"
+
+
+# Curated (non-Cartesian) radix permutation set. Six variants exercise every axis
+# endpoint -- key_bits {32,64}, radix_bits {4,8}, workgroup {64,128,256,512},
+# subgroups {off,on} -- without compiling the full 2*2*4*2 product on the CI lane.
+SORTER_RADIX_PERMUTATIONS: tuple[tuple[int, int, int, bool], ...] = (
+    (64, 4, 256, False),  # shipped default: 64-bit key, 4-bit radix, 256 threads
+    (64, 4, 256, True),   # subgroup ballot path of the default
+    (32, 4, 128, False),  # 32-bit key opt-in + interior workgroup size
+    (64, 8, 64, False),   # 8-bit radix (256 bins) strided over the MIN workgroup
+    (64, 8, 512, True),   # 8-bit radix + MAX workgroup + subgroups
+    (32, 8, 64, True),    # 32-bit key + 8-bit radix + min workgroup + subgroups
+)
+
+
+def _target_env_for_source(source: str) -> str | None:
+    # Subgroup ops (subgroupBallot/...) need SPIR-V 1.3 == Vulkan 1.1, matching the
+    # file-matrix's _variant_target_env() and the runtime's subgroup capability gate.
+    return "vulkan1.1" if "#define GS_ENABLE_SUBGROUPS 1" in source else None
+
+
+def _build_sorter_permutations() -> tuple[list[SorterPermutation], list[str]]:
+    """Assemble every embedded sorter permutation from the live C++ sources.
+
+    Returns (permutations, errors). `errors` is non-empty when a template anchor no
+    longer resolves or a vformat shape drifted; callers surface it as a fail-closed
+    coverage error (checks) and a compile failure.
+    """
+    permutations: list[SorterPermutation] = []
+    errors: list[str] = []
+
+    try:
+        sorter_text = GPU_SORTER_CPP.read_text(encoding="utf-8")
+    except OSError as exc:
+        return [], [f"cannot read {GPU_SORTER_CPP}: {exc}"]
+    try:
+        pipeline_text = GPU_SORTING_PIPELINE_CPP.read_text(encoding="utf-8")
+    except OSError as exc:
+        return [], [f"cannot read {GPU_SORTING_PIPELINE_CPP}: {exc}"]
+
+    issues = (ISSUE_SORTER_MATRIX,)
+
+    def add(key: str, variant: str, source: str, axes: dict[str, object]) -> None:
+        permutations.append(
+            SorterPermutation(
+                key=key,
+                variant=variant,
+                source=source,
+                target_env=_target_env_for_source(source),
+                issue_ids=issues,
+                axes=axes,
+            )
+        )
+
+    # --- RadixSort family (renderer/gpu_sorter.cpp, RadixSort::create_variant) -----
+    try:
+        histogram_tpl = _extract_raw_string_containing(
+            sorter_text,
+            "uint base = params.histogram_offset + gl_WorkGroupID.x * params.workgroup_stride;",
+        )
+        wg_prefix_tpl = _extract_raw_string_containing(
+            sorter_text, "bin_counts_buf.bin_counts[params.bin_offset + bin] = prefix;"
+        )
+        bin_prefix_tpl = _extract_raw_string_containing(
+            sorter_text, "bin_prefix_buf.bin_prefix[idx] = prefix;"
+        )
+        scatter_tpl = _extract_raw_string_containing(sorter_text, "keys_out.keys[pos] = key;")
+        key_helper_64 = _extract_raw_string_containing(
+            sorter_text, "uint get_radix(uvec2 key, uint shift)"
+        )
+        key_helper_32 = _extract_raw_string_containing(
+            sorter_text, "uint get_radix(uint key, uint shift)"
+        )
+        histogram_update = _extract_raw_string_containing(
+            sorter_text, "atomicAdd(local_histogram[r], count);"
+        )
+        scatter_bin_update = _extract_raw_string_containing(
+            sorter_text, "uint subgroup_words = (gl_SubgroupSize + 31u) / 32u;"
+        )
+
+        for key_bits, radix_bits, workgroup, subgroups in SORTER_RADIX_PERMUTATIONS:
+            use_64bit = key_bits > 32
+            radix_size = 1 << radix_bits
+            mask_words = (workgroup + 31) // 32
+            key_type = "uvec2" if use_64bit else "uint"
+            key_helper = key_helper_64 if use_64bit else key_helper_32
+            preamble = _subgroup_preamble(subgroups)
+            label = _radix_variant_label(key_bits, radix_bits, workgroup, subgroups)
+            axes = {
+                "key_bits": key_bits,
+                "radix_bits": radix_bits,
+                "workgroup": workgroup,
+                "subgroups": subgroups,
+            }
+
+            histogram_source = _apply_vformat(
+                histogram_tpl,
+                radix_bits,
+                radix_size,
+                workgroup,
+                preamble,
+                key_type,
+                key_helper,
+                _histogram_key_read(use_64bit),
+                histogram_update,
+            )
+            add("radix_histogram", label, histogram_source, axes)
+
+            wg_prefix_source = _apply_vformat(wg_prefix_tpl, radix_size, workgroup)
+            add("radix_wg_prefix", label, wg_prefix_source, axes)
+
+            bin_prefix_source = _apply_vformat(bin_prefix_tpl, radix_size)
+            add("radix_bin_prefix", label, bin_prefix_source, axes)
+
+            scatter_source = _apply_vformat(
+                scatter_tpl,
+                radix_bits,
+                radix_size,
+                workgroup,
+                mask_words,
+                preamble,
+                key_type,
+                key_type,
+                key_helper,
+                _scatter_key_read(use_64bit),
+                scatter_bin_update,
+            )
+            add("radix_scatter", label, scatter_source, axes)
+    except _SorterExtractionError as exc:
+        errors.append(f"radix family: {exc}")
+
+    # --- BitonicSort (renderer/gpu_sorter.cpp, BitonicSort::initialize) ------------
+    # Fixed WORKGROUP_SIZE = GPUSortingConstants::DEFAULT_WORKGROUP_SIZE (256); the
+    # sorter compiles only this shape (float keys, no radix/key_bits parametrization).
+    try:
+        bitonic_tpl = _extract_raw_string_containing(sorter_text, "Batcher bitonic sorting network")
+        add("bitonic", "wg256", _apply_vformat(bitonic_tpl, 256), {"workgroup": 256})
+    except _SorterExtractionError as exc:
+        errors.append(f"bitonic: {exc}")
+
+    # --- RadixSort indirect-dispatch args shader (fully static, no placeholders) ---
+    try:
+        dispatch_tpl = _extract_raw_string_containing(
+            sorter_text, "indirect_out.dispatch_xyz[0] = groups;"
+        )
+        add("radix_indirect_dispatch", "default", _apply_vformat(dispatch_tpl), {})
+    except _SorterExtractionError as exc:
+        errors.append(f"indirect_dispatch: {exc}")
+
+    # --- OneSweepSort passes (renderer/gpu_sorter.cpp) -----------------------------
+    # Fixed RADIX_BITS=8 / RADIX_SIZE=256 / WORKGROUP_SIZE=256, CHAINING_FACTOR=4.
+    onesweep_specs = (
+        (
+            "onesweep_global_histogram",
+            "atomicAdd(global_histogram.global_hist[tid], local_histogram[tid]);",
+            (8, 256, 256),
+        ),
+        (
+            "onesweep_digit_binning",
+            "digit_histogram.digit_hist[wid * RADIX_SIZE + tid]",
+            (8, 256, 256, 4),
+        ),
+        ("onesweep_chained_scan", "shared uint scan_scratch[RADIX_SIZE];", (256, 256)),
+        ("onesweep_scatter", "uint output_pos = atomicAdd(local_offsets[digit], 1);", (8, 256, 256)),
+    )
+    for key, anchor, fmt_args in onesweep_specs:
+        try:
+            template = _extract_raw_string_containing(sorter_text, anchor)
+            add(key, "default", _apply_vformat(template, *fmt_args), {})
+        except _SorterExtractionError as exc:
+            errors.append(f"{key}: {exc}")
+
+    # --- Remap + gather (interfaces/gpu_sorting_pipeline.cpp) -----------------------
+    # Fixed kSortWorkgroupSize = 256 (renderer/sorting_contract.h).
+    try:
+        remap_tpl = _extract_cstring_template(
+            pipeline_text, "_get_remap_compute_source", "GaussianSplatting::kSortWorkgroupSize"
+        )
+        add("remap", "default", _apply_vformat(remap_tpl, 256), {})
+    except _SorterExtractionError as exc:
+        errors.append(f"remap: {exc}")
+
+    try:
+        gather_tpl = _extract_raw_string_containing(
+            pipeline_text, "position_buffer.positions[idx] = vec4(g.position, radius);"
+        )
+        add("gather", "default", _apply_vformat(gather_tpl, 256), {})
+    except _SorterExtractionError as exc:
+        errors.append(f"gather: {exc}")
+
+    return permutations, errors
+
+
+def _validate_sorter_coverage() -> tuple[bool, dict[str, object]]:
+    """#525: prove the embedded sorter shader family is fully assembled for CI.
+
+    Fails closed when a template anchor no longer resolves (a family would silently
+    leave CI), when a required family produced no permutation, or when a runtime
+    permutation axis endpoint (key_bits/workgroup min+max) is unexercised. Mirrors
+    the fail-closed philosophy of the runtime-matrix coverage checks above.
+    ASCII-only output. Do not weaken this to make a build pass.
+    """
+    permutations, errors = _build_sorter_permutations()
+
+    families_present = {perm.key for perm in permutations}
+    for family, is_parametrized in sorted(SORTER_REQUIRED_FAMILIES.items()):
+        if family not in families_present:
+            errors.append(f"required sorter family has no compiled permutation: {family}")
+        elif is_parametrized:
+            count = sum(1 for perm in permutations if perm.key == family)
+            if count < 2:
+                errors.append(
+                    f"parametrized sorter family {family} has only {count} permutation(s); "
+                    "expected multiple across the key/workgroup/radix axes"
+                )
+
+    radix_axes = [perm.axes for perm in permutations if perm.key == "radix_scatter"]
+    exercised_key_bits = {axis.get("key_bits") for axis in radix_axes}
+    exercised_workgroups = {axis.get("workgroup") for axis in radix_axes}
+    for key_bits in SORTER_KEY_BITS:
+        if key_bits not in exercised_key_bits:
+            errors.append(f"no radix permutation exercises key_bits={key_bits}")
+    for endpoint in (min(SORTER_WORKGROUP_SIZES), max(SORTER_WORKGROUP_SIZES)):
+        if endpoint not in exercised_workgroups:
+            errors.append(f"no radix permutation exercises workgroup_size={endpoint}")
+
+    ok = len(errors) == 0
+    print(f"[sorter] Embedded sorter permutations assembled: {len(permutations)}")
+    if ok:
+        print(f"[sorter][PASS] Sorter shader family covered for compilation ({ISSUE_SORTER_MATRIX}).")
+    else:
+        print(f"[sorter][FAIL] Sorter shader coverage incomplete ({ISSUE_SORTER_MATRIX}):")
+        for item in errors:
+            print(f"  - {item}")
+
+    return ok, {
+        "ok": ok,
+        "issue_id": ISSUE_SORTER_MATRIX,
+        "permutation_count": len(permutations),
+        "families": sorted(families_present),
+        "permutations": [
+            {"key": perm.key, "variant": perm.variant, "axes": perm.axes}
+            for perm in permutations
+        ],
+        "errors": errors,
+    }
+
+
+def _compile_sorter_permutations(
+    tool: CompilerTool, output_dir: Path
+) -> tuple[bool, list[dict[str, object]]]:
+    """Compile every embedded sorter permutation through the shared compiler path."""
+    permutations, errors = _build_sorter_permutations()
+    results: list[dict[str, object]] = []
+    all_ok = not errors
+
+    for error in errors:
+        print(f"[compile][FAIL] sorter:<assembly> {error}")
+        results.append(
+            {
+                "entry": "sorter",
+                "source": "modules/gaussian_splatting/renderer/gpu_sorter.cpp",
+                "stage": "compute",
+                "variant": "<assembly_error>",
+                "issues": [ISSUE_SORTER_MATRIX],
+                "ok": False,
+                "error": error,
+            }
+        )
+
+    for perm in permutations:
+        output_file = output_dir / f"sorter.{perm.key}.{perm.variant}.compute.spv"
+        temp_file: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                suffix=".sorter.compute.glsl",
+                dir=str(output_dir),
+                delete=False,
+            ) as temp_handle:
+                temp_handle.write(perm.source)
+                temp_file = Path(temp_handle.name)
+
+            cmd = _compiler_command(
+                tool, "compute", temp_file, output_file, (), (), perm.target_env
+            )
+            proc = subprocess.run(cmd, capture_output=True, text=True)
+            ok = proc.returncode == 0
+            all_ok = all_ok and ok
+
+            pipeline_family = perm.key in ("remap", "gather")
+            source_rel = (
+                "modules/gaussian_splatting/interfaces/gpu_sorting_pipeline.cpp"
+                if pipeline_family
+                else "modules/gaussian_splatting/renderer/gpu_sorter.cpp"
+            )
+            result: dict[str, object] = {
+                "entry": f"sorter_{perm.key}",
+                "source": source_rel,
+                "stage": "compute",
+                "variant": perm.variant,
+                "issues": list(perm.issue_ids),
+                "ok": ok,
+                "command": cmd,
+                "output_file": str(output_file),
+            }
+            if not ok:
+                result["stderr"] = proc.stderr.strip()
+                result["stdout"] = proc.stdout.strip()
+                print(f"[compile][FAIL] sorter:{perm.key}:{perm.variant} issues={ISSUE_SORTER_MATRIX}")
+                if proc.stderr.strip():
+                    print(proc.stderr.strip())
+                elif proc.stdout.strip():
+                    print(proc.stdout.strip())
+            else:
+                print(f"[compile][PASS] sorter:{perm.key}:{perm.variant} issues={ISSUE_SORTER_MATRIX}")
+
+            results.append(result)
+        finally:
+            if temp_file is not None and temp_file.exists():
+                temp_file.unlink()
+
+    return all_ok, results
+
+
 ABI_CONTRACTS: tuple[ValidationContract, ...] = (
     ValidationContract(
         key="tile_raster_indirect_count_clamp",
@@ -1323,6 +1828,7 @@ def main() -> int:
             ISSUE_ABI,
             ISSUE_COUNTER_INIT,
             ISSUE_DIAGNOSTICS,
+            ISSUE_SORTER_MATRIX,
         }),
         "matrix": [
             {
@@ -1352,6 +1858,9 @@ def main() -> int:
     required_defines_ok, required_defines_summary = _validate_required_variant_defines()
     summary["required_variant_defines"] = required_defines_summary
 
+    sorter_coverage_ok, sorter_coverage_summary = _validate_sorter_coverage()
+    summary["sorter_coverage"] = sorter_coverage_summary
+
     abi_ok, abi_results = _run_contract_set("ABI", ABI_CONTRACTS)
     summary["abi_contracts"] = abi_results
 
@@ -1361,7 +1870,14 @@ def main() -> int:
     diagnostics_ok, diagnostics_results = _run_contract_set("Diagnostics", DIAGNOSTICS_CONTRACTS)
     summary["diagnostics_contracts"] = diagnostics_results
 
-    checks_ok = matrix_ok and required_defines_ok and abi_ok and counter_ok and diagnostics_ok
+    checks_ok = (
+        matrix_ok
+        and required_defines_ok
+        and sorter_coverage_ok
+        and abi_ok
+        and counter_ok
+        and diagnostics_ok
+    )
 
     compile_enabled = not args.contracts_only and not args.skip_compile
     compile_results: list[dict[str, object]] = []
@@ -1393,6 +1909,12 @@ def main() -> int:
                 entry_ok, entry_results = _compile_entry(entry, tool, args.output_dir, include_dirs)
                 compile_ok = compile_ok and entry_ok
                 compile_results.extend(entry_results)
+
+            # #525: embedded (runtime-string) sorter permutations, assembled from the
+            # live C++ sources and compiled through the same compiler path above.
+            sorter_ok, sorter_results = _compile_sorter_permutations(tool, args.output_dir)
+            compile_ok = compile_ok and sorter_ok
+            compile_results.extend(sorter_results)
 
     summary["compiler"] = compiler_info
     summary["compile_results"] = compile_results
