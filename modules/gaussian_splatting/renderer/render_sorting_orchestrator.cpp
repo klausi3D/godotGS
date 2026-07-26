@@ -1361,6 +1361,14 @@ void GaussianSplatRenderer::reload_gpu_sorting_config_from_project_settings() {
 		GS_LOG_GPU_SORT_ERROR(vformat("[GPU Sort] Invalid runtime sorting config; restoring defaults: %s",
 				g_gpu_sorting_config.get_validation_errors()));
 		g_gpu_sorting_config.reset_to_defaults();
+	} else {
+		// #634: valid but possibly non-portable (e.g. radix_bits=8 x workgroup_size=512
+		// needs 18 KB scatter shared memory). Warn on the reachable path; the runtime
+		// probe already degrades gracefully, so this stays a non-fatal warning.
+		const String portability_warnings = g_gpu_sorting_config.get_portability_warnings();
+		if (!portability_warnings.is_empty()) {
+			GS_LOG_GPU_SORT_WARN(vformat("[GPU Sort] %s", portability_warnings));
+		}
 	}
 	if (sorting_orchestrator) {
 		SortingState &sorting_state = get_sorting_state();
