@@ -18,7 +18,7 @@
       "fail_on_skip": true
     },
     "release-ci": {
-      "description": "Canonical release-ready runtime validation lane used by baseline QA CI.",
+      "description": "Canonical release-ready runtime validation profile: the non-headless GDScript runtime suite plus a required renderer proof. Wired as a nightly + workflow_dispatch evidence lane in .github/workflows/release_ci_runtime.yml on the self-hosted Windows GPU runner (GDScript tests only, --skip-cpp). NOT run by baseline QA CI, which runs headless-ci; the blocking streaming GPU gate is streaming-gpu-ci.",
       "gd_mode": "non-headless",
       "cpp_tests": [
         "Runtime Modifications",
@@ -40,7 +40,7 @@
       "requires_renderer_proof": true
     },
     "node-asset-gpu-ci": {
-      "description": "Focused GPU-backed proof that a canonical GaussianSplatNode3D renders a fixture GaussianSplatAsset and produces visual evidence.",
+      "description": "Focused GPU-backed proof that a canonical GaussianSplatNode3D renders a fixture GaussianSplatAsset and produces visual evidence. Not directly wired to a workflow; its Canonical Node Asset Render scenario is exercised nightly through the release-ci lane (release_ci_runtime.yml).",
       "gd_mode": "windows-vulkan",
       "cpp_tests": [],
       "gd_tests": [

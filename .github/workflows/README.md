@@ -1,6 +1,6 @@
 # GitHub Actions Workflows
 
-This directory contains 6 active workflow files.
+This directory contains 7 active workflow files.
 
 GitHub's Actions tab can also show historical workflow names from past runs, disabled files, or workflow files that are no longer present in this directory. This README tracks the workflow files currently checked into `.github/workflows/`.
 
@@ -14,6 +14,7 @@ GitHub's Actions tab can also show historical workflow names from past runs, dis
 | Gaussian Shader Validation | `gaussian_shader_validation.yml` | Validates shader compile matrix and host/shader contract checks. | Focused shader CI gate. |
 | Release Builds | `release_builds.yml` | Builds Linux and Windows editors for CI artifacts, nightly prereleases, and stable-tag publishes. | Publishes Linux tarballs and Windows zips on the nightly schedule and on `v*` tag pushes. The `finite_math_guard` job blocks publication on every channel, and the `release_candidate_gate` job gates the stable/tag publish path (both-platform builds + `--mode candidate` validation, fail-closed); see below. |
 | Agentic PR Gate | `agentic_pr_gate.yml` | Fork-safe, always-on gate: validates the agentic control plane, runs the agentic tests, the agentic/governance link check, and the GPU-free `--guard-only` lane. | GitHub-hosted (`ubuntu-latest`); runs on every PR and the merge queue. Required status check (job name): `agentic-pr-gate`. |
+| Release-CI Runtime Evidence | `release_ci_runtime.yml` | Nightly + manual evidence lane for the canonical release-ready runtime profile `release-ci` (non-headless GDScript runtime suite + required renderer proof). | Self-hosted Windows GPU runner. **Not a required PR gate** — schedule + `workflow_dispatch` only. Runs `run_runtime_validation.py --profile release-ci --gd-mode windows-vulkan --skip-cpp`. |
 
 ## Required Checks
 
@@ -153,6 +154,7 @@ if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.re
 - `baseline_qa.yml` — `gpu-tests`, `gpu-harness` (form above).
 - `gaussian_production_gates.yml` — `guards`, `module-validation` (form above).
 - `gaussian_shader_validation.yml` — `shader-validation` (form above).
+- `release_ci_runtime.yml` — `runtime-release-ci` (form above). This workflow has no `pull_request` trigger (schedule + `workflow_dispatch` only), so the guard is trivially satisfied; it is carried explicitly to keep the self-hosted job fail-closed if a `pull_request` trigger is ever added.
 - `release_builds.yml` — `build_windows` uses the **stricter** `if: github.event_name != 'pull_request'`, which skips **all** pull requests (fork *and* same-repo); the Windows release lane runs on `push`/tag/schedule/dispatch only.
 
 `pull_request_target` is not used by any workflow, so fork PRs never get a privileged
@@ -177,6 +179,7 @@ maintainer (see the project governance docs under `docs/governance/`).
 | `baseline_qa.yml` | `30 3 * * *` | Runs in update mode and publishes the `gpu-harness-recaptured-baselines` artifact (recaptured PNGs + provenance); opens a recapture PR when `BASELINE_UPDATE_PAT` is provisioned. |
 | `gaussian_production_gates.yml` | `30 3 * * 1` | Runs the non-blocking `openworld-proof-weekly` benchmark evidence surface. |
 | `release_builds.yml` | `30 2 * * *` | Builds and publishes the nightly prerelease, then prunes older nightly releases and tags. |
+| `release_ci_runtime.yml` | `0 6 * * *` | Runs the non-blocking `release-ci` runtime evidence lane on the self-hosted Windows GPU runner and uploads the runtime validation report. |
 
 ## Dependencies
 
