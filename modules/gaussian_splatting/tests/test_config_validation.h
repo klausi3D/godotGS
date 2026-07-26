@@ -735,6 +735,95 @@ TEST_CASE("[GaussianSplatting][Config] sort_path_max_buffer_bytes is total for a
 	CHECK(GPUSortingConstants::sort_path_max_buffer_bytes(50000000ull, 8, 64, 64) == 6400000000ull);
 }
 
+// #634: radix_bits and workgroup_size are each validated independently, but the
+// RadixSort scatter kernel's shared-memory footprint is a function of their
+// PRODUCT. This is a DEVICE-INDEPENDENT (pure CPU) assertion of that derived
+// quantity: it computes the requirement through the SAME single-source helper the
+// runtime probe (RadixSort::is_supported) uses and compares it against the
+// portable Vulkan-1.1 minimum constant — nothing re-derives 18432/16384 by hand.
+TEST_CASE("[GaussianSplatting][Config] RadixSort scatter shared-memory product is bounded (#634)") {
+	using namespace GPUSortingConstants;
+
+	SUBCASE("The unsupportable (8, 512) product exceeds the guaranteed 16 KB floor") {
+		// radix_size = 1<<8 = 256; mask_words = ceil(512/32) = 16;
+		// scatter uints = 256 * (2 + 16) = 4608; bytes = 4608 * 4 = 18432.
+		const uint32_t bytes = radix_scatter_shared_memory_bytes(8, 512);
+		CHECK(bytes == 18432u);
+		// > the 16384-byte (16 KB) minimum Vulkan 1.1 guarantees -> unsupportable.
+		CHECK(bytes > VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES);
+		CHECK(VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES == 16384u);
+	}
+
+	SUBCASE("Supported combos fit within the guaranteed 16 KB floor") {
+		// (8, 256): 256 * (2 + ceil(256/32)=8) * 4 = 256 * 10 * 4 = 10240.
+		CHECK(radix_scatter_shared_memory_bytes(8, 256) == 10240u);
+		CHECK(radix_scatter_shared_memory_bytes(8, 256) <= VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES);
+		// (4, 512): 16 * (2 + 16) * 4 = 1152.
+		CHECK(radix_scatter_shared_memory_bytes(4, 512) == 1152u);
+		CHECK(radix_scatter_shared_memory_bytes(4, 512) <= VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES);
+		// The shipped default (radix_bits=4, workgroup_size=256): 16 * 10 * 4 = 640.
+		CHECK(radix_scatter_shared_memory_bytes(4, 256) == 640u);
+		CHECK(radix_scatter_shared_memory_bytes(4, 256) <= VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES);
+	}
+
+	SUBCASE("An unsupported radix width fails closed with the sentinel, never a small footprint") {
+		const uint32_t unsupported_radix[] = {0, 1, 2, 3, 5, 6, 7, 9, 16, 32, 64, UINT32_MAX};
+		for (uint32_t radix : unsupported_radix) {
+			CHECK_FALSE(is_supported_radix_bits(radix));
+			CHECK(radix_scatter_shared_memory_bytes(radix, 256) == RADIX_SCATTER_SHARED_MEMORY_UNSUPPORTED);
+			// The sentinel is UINT32_MAX, so it can never be mistaken for "fits".
+			CHECK(radix_scatter_shared_memory_bytes(radix, 256) > VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES);
+		}
+	}
+}
+
+// #634: the shared-memory-product overrun must be surfaced at the point of
+// configuration, from GPUSortingConfig::get_validation_errors(), so a user tuning
+// sort performance sees a clear error instead of silently unsorted output. Same
+// derived quantity, same helper as the test above and the runtime probe.
+TEST_CASE("[GaussianSplatting][Config] get_validation_errors flags the radix x workgroup shared-memory overrun (#634)") {
+	GPUSortingConfig config;
+	config.reset_to_defaults();
+
+	const char *kSharedMemFragment = "compute shared memory";
+
+	SUBCASE("(8, 512) is flagged with the shared-memory error naming both knobs and the byte total") {
+		config.radix_bits = 8;
+		config.workgroup_size = 512;
+		const String errors = config.get_validation_errors();
+		CHECK(errors.contains(kSharedMemFragment));
+		// The message reports the concrete overrun and the portable floor.
+		CHECK(errors.contains(String::num_uint64(
+				GPUSortingConstants::radix_scatter_shared_memory_bytes(8, 512))));
+		CHECK(errors.contains(String::num_uint64(
+				GPUSortingConstants::VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES)));
+	}
+
+	SUBCASE("Supported (radix, workgroup) products emit no shared-memory error") {
+		// Shipped default, plus every other in-budget combo.
+		CHECK_FALSE(config.get_validation_errors().contains(kSharedMemFragment)); // (4, 256)
+		config.radix_bits = 8;
+		config.workgroup_size = 256;
+		CHECK_FALSE(config.get_validation_errors().contains(kSharedMemFragment));
+		config.radix_bits = 4;
+		config.workgroup_size = 512;
+		CHECK_FALSE(config.get_validation_errors().contains(kSharedMemFragment));
+	}
+
+	SUBCASE("An unsupported radix_bits reports only the radix error, not a bogus shared-memory figure") {
+		// Mirrors the sentinel handling for sort_path_max_buffer_bytes: the shared-memory
+		// check must not fire (or print the fail-closed sentinel) for a radix the sort
+		// path cannot build; the dedicated radix_bits error names the real problem.
+		config.radix_bits = 64;
+		config.workgroup_size = 512;
+		const String errors = config.get_validation_errors();
+		CHECK(errors.contains("Radix bits must be 4 or 8"));
+		CHECK_FALSE(errors.contains(kSharedMemFragment));
+		CHECK_FALSE(errors.contains(String::num_uint64(
+				GPUSortingConstants::RADIX_SCATTER_SHARED_MEMORY_UNSUPPORTED)));
+	}
+}
+
 TEST_CASE("[GaussianSplatting][Config] get_validation_errors survives an out-of-range radix_bits") {
 	// REGRESSION: get_validation_errors() calls sort_path_max_buffer_bytes()
 	// UNCONDITIONALLY — unlike validate(), it does NOT short-circuit through the

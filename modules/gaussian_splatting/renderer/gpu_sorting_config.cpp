@@ -322,6 +322,35 @@ String GPUSortingConfig::get_validation_errors() const {
     if (workgroup_size != 64 && workgroup_size != 128 && workgroup_size != 256 && workgroup_size != 512) {
         errors += "Workgroup size must be 64, 128, 256, or 512\n";
     }
+    {
+        // #634: radix_bits and workgroup_size are validated independently above, but
+        // the RadixSort scatter kernel's shared-memory footprint is a function of
+        // their PRODUCT. (8, 512) is 18432 bytes > the 16384-byte (16 KB) minimum
+        // Vulkan 1.1 guarantees, so the scatter pipeline is unbuildable on common
+        // Intel/AMD parts and translucent splats would composite UNSORTED. Flag the
+        // derived quantity here — at the point of configuration — rather than as a
+        // silent rendering degradation many frames later. Same single-source helper
+        // RadixSort::is_supported() probes the real device limit with.
+        //
+        // Like sort_buffer_bytes above, this runs UNCONDITIONALLY: an unsupported
+        // radix_bits returns the fail-closed sentinel, for which the dedicated
+        // radix_bits error already names the real problem — emitting a shared-memory
+        // figure derived from a radix width the sort path cannot build would be a lie.
+        const uint32_t scatter_shared_bytes =
+                GPUSortingConstants::radix_scatter_shared_memory_bytes(radix_bits, workgroup_size);
+        if (scatter_shared_bytes == GPUSortingConstants::RADIX_SCATTER_SHARED_MEMORY_UNSUPPORTED) {
+            // Unsupported radix_bits; see the radix_bits error above.
+        } else if (scatter_shared_bytes > GPUSortingConstants::VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES) {
+            errors += vformat(
+                    "RadixSort scatter kernel needs %d bytes of compute shared memory for "
+                    "radix_bits=%d x workgroup_size=%d, exceeding the %d-byte (16 KB) minimum "
+                    "guaranteed by Vulkan 1.1 (common Intel/AMD limit); the sorter would be "
+                    "unbuildable on such devices and translucent splats would composite "
+                    "unsorted. Lower radix_bits or workgroup_size.\n",
+                    scatter_shared_bytes, radix_bits, workgroup_size,
+                    GPUSortingConstants::VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES);
+        }
+    }
     if (key_bits != 32 && key_bits != 64) {
         errors += "Key bits must be 32 or 64\n";
     }
