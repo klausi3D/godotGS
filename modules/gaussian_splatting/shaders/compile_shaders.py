@@ -757,13 +757,16 @@ GPU_SORTING_PIPELINE_CPP = MODULE_DIR / "interfaces" / "gpu_sorting_pipeline.cpp
 GPU_SORTER_H = MODULE_DIR / "renderer" / "gpu_sorter.h"
 GPU_SORTING_CONSTANTS_H = MODULE_DIR / "renderer" / "gpu_sorting_constants.h"
 SORTING_CONTRACT_H = MODULE_DIR / "renderer" / "sorting_contract.h"
+# GPUSortingConfig::validate() is the single source of truth for which radix / workgroup
+# / key-width values the runtime ACCEPTS. The coverage self-check parses those
+# acceptance sets from here (rather than a hand-copied tuple), so if the runtime later
+# accepts a new value, a compiled permutation for it is REQUIRED before the gate passes.
+GPU_SORTING_CONFIG_CPP = MODULE_DIR / "renderer" / "gpu_sorting_config.cpp"
 
-# Runtime-validated permutation axes (see the module comment above for the C++
-# clamp each mirrors). Kept as explicit tuples so the coverage self-check can prove
-# every axis endpoint is exercised by at least one compiled permutation.
-SORTER_WORKGROUP_SIZES = (64, 128, 256, 512)
-SORTER_RADIX_BITS = (4, 8)
-SORTER_KEY_BITS = (32, 64)
+# Both subgroup arms are reachable at runtime (RadixSort compiles the ballot path when
+# the device advertises support, the scalar path otherwise); both must compile. This is
+# an inherent boolean axis, not a config-tunable set, so it is declared here.
+SORTER_SUBGROUP_STATES = (False, True)
 
 _RAW_STRING_RE = re.compile(r'R"\((.*?)\)"', re.DOTALL)
 _CSTRING_LITERAL_RE = re.compile(r'"((?:[^"\\]|\\.)*)"')
@@ -924,6 +927,30 @@ def _parse_uint_constant(path: Path, name: str) -> int:
     if match is None:
         raise _SorterExtractionError(f"constant {name} not found in {path.name}")
     return int(match.group(1))
+
+
+def _parse_accepted_values(path: Path, var_name: str) -> tuple[int, ...]:
+    """Parse an `(var == A || var == B || ...)` acceptance OR-chain from C++ source.
+
+    GPUSortingConfig::validate() is the single source of truth for the radix /
+    workgroup / key-width values the runtime accepts; parsing the acceptance list
+    (rather than hand-copying it) means a newly accepted value is picked up here and,
+    if no permutation exercises it, fails the coverage check closed. Word-boundary
+    anchored so the variable name never matches a longer identifier. Fails closed
+    (raises) when the acceptance chain cannot be located.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise _SorterExtractionError(f"cannot read {path}: {exc}") from exc
+    var = re.escape(var_name)
+    chain = re.search(rf"\(\s*\b{var}\b\s*==\s*\d+(?:\s*\|\|\s*\b{var}\b\s*==\s*\d+)*\s*\)", text)
+    if chain is None:
+        raise _SorterExtractionError(f"no `({var_name} == ...)` acceptance chain in {path.name}")
+    values = tuple(int(v) for v in re.findall(rf"\b{var}\b\s*==\s*(\d+)", chain.group(0)))
+    if not values:
+        raise _SorterExtractionError(f"empty acceptance set for {var_name} in {path.name}")
+    return tuple(sorted(set(values)))
 
 
 def _radix_variant_label(key_bits: int, radix_bits: int, workgroup: int, subgroups: bool) -> str:
@@ -1165,9 +1192,12 @@ def _validate_sorter_coverage() -> tuple[bool, dict[str, object]]:
     """#525: prove the embedded sorter shader family is fully assembled for CI.
 
     Fails closed when a template anchor no longer resolves (a family would silently
-    leave CI), when a required family produced no permutation, or when a runtime
-    permutation axis endpoint (key_bits/workgroup min+max) is unexercised. Mirrors
-    the fail-closed philosophy of the runtime-matrix coverage checks above.
+    leave CI), when a required family produced no permutation, or when ANY accepted
+    value of a runtime permutation axis is unexercised. The accepted key-width / radix
+    / workgroup sets are parsed from GPUSortingConfig::validate() (single source of
+    truth), and the subgroup axis (both arms) is checked too -- so dropping a whole
+    axis, or the runtime accepting a new value with no permutation, fails closed.
+    Mirrors the fail-closed philosophy of the runtime-matrix coverage checks above.
     ASCII-only output. Do not weaken this to make a build pass.
     """
     permutations, errors = _build_sorter_permutations()
@@ -1184,15 +1214,37 @@ def _validate_sorter_coverage() -> tuple[bool, dict[str, object]]:
                     "expected multiple across the key/workgroup/radix axes"
                 )
 
+    # Every accepted value of every declared axis must be exercised by >=1 permutation.
+    # radix_scatter carries one perm per radix permutation, so its axes are the matrix.
     radix_axes = [perm.axes for perm in permutations if perm.key == "radix_scatter"]
-    exercised_key_bits = {axis.get("key_bits") for axis in radix_axes}
-    exercised_workgroups = {axis.get("workgroup") for axis in radix_axes}
-    for key_bits in SORTER_KEY_BITS:
-        if key_bits not in exercised_key_bits:
-            errors.append(f"no radix permutation exercises key_bits={key_bits}")
-    for endpoint in (min(SORTER_WORKGROUP_SIZES), max(SORTER_WORKGROUP_SIZES)):
-        if endpoint not in exercised_workgroups:
-            errors.append(f"no radix permutation exercises workgroup_size={endpoint}")
+    accepted_sets: dict[str, list[int]] = {}
+    for axis_key, config_var in (
+        ("key_bits", "key_bits"),
+        ("radix_bits", "radix_bits"),
+        ("workgroup", "workgroup_size"),
+    ):
+        try:
+            accepted = _parse_accepted_values(GPU_SORTING_CONFIG_CPP, config_var)
+        except _SorterExtractionError as exc:
+            errors.append(f"cannot parse accepted {config_var} set: {exc}")
+            continue
+        accepted_sets[config_var] = list(accepted)
+        exercised = {axis.get(axis_key) for axis in radix_axes}
+        for value in accepted:
+            if value not in exercised:
+                errors.append(
+                    f"no radix permutation exercises {config_var}={value} (accepted by validate())"
+                )
+        for value in sorted(v for v in exercised if v is not None):
+            if value not in accepted:
+                errors.append(
+                    f"radix permutation exercises {config_var}={value} not accepted by validate()"
+                )
+
+    exercised_subgroups = {axis.get("subgroups") for axis in radix_axes}
+    for state in SORTER_SUBGROUP_STATES:
+        if state not in exercised_subgroups:
+            errors.append(f"no radix permutation exercises subgroups={state}")
 
     ok = len(errors) == 0
     print(f"[sorter] Embedded sorter permutations assembled: {len(permutations)}")
@@ -1208,6 +1260,8 @@ def _validate_sorter_coverage() -> tuple[bool, dict[str, object]]:
         "issue_id": ISSUE_SORTER_MATRIX,
         "permutation_count": len(permutations),
         "families": sorted(families_present),
+        "accepted_axis_sets": accepted_sets,
+        "subgroup_states": [bool(state) for state in SORTER_SUBGROUP_STATES],
         "permutations": [
             {"key": perm.key, "variant": perm.variant, "axes": perm.axes}
             for perm in permutations

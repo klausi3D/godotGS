@@ -40,13 +40,17 @@ type) are extracted from `gpu_sorter.cpp`, and the substituted scalar constants
 `RADIX_BITS` from `renderer/gpu_sorting_constants.h`; `CHAINING_FACTOR` from
 `renderer/gpu_sorter.h`) are parsed from their defining headers. So a syntax break in
 a sorter shader string — or an edit to a helper fragment or a constant — fails this
-check instead of matching a stale copy. Radix permutations span the runtime-validated
-axes: key_bits `{32,64}`, workgroup `{64,128,256,512}`, radix_bits `{4,8}`, and
-subgroups on/off. The coverage self-check (`_validate_sorter_coverage`) is
-fail-closed: if a template anchor stops resolving or an axis endpoint is unexercised,
-the run exits non-zero rather than silently dropping coverage. Editing the embedded
-GLSL in either `.cpp`, or any of the parsed constant headers, re-triggers this
-workflow.
+check instead of matching a stale copy. Radix permutations span the runtime axes:
+key_bits, workgroup, radix_bits, and subgroups on/off. The **accepted** value sets for
+key_bits / workgroup / radix_bits are parsed from `GPUSortingConfig::validate()`
+(`renderer/gpu_sorting_config.cpp`) rather than hand-copied, and the coverage
+self-check (`_validate_sorter_coverage`) is fail-closed: it requires **every** accepted
+axis value — plus both subgroup arms — to be exercised by at least one compiled
+permutation. So if the runtime later accepts a new value (e.g. a new workgroup size),
+or a whole axis (all radix-8, all subgroup) is dropped from the permutation set, or a
+template anchor stops resolving, the run exits non-zero rather than silently dropping
+coverage. Editing the embedded GLSL in either `.cpp`, the config acceptance lists, or
+any of the parsed constant headers, re-triggers this workflow.
 
 ## Expected Artifacts
 
