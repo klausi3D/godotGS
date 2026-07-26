@@ -744,10 +744,19 @@ REQUIRED_VARIANT_DEFINES: dict[str, tuple[str, ...]] = {
 #   * subgroups      -> RadixSort selects the subgroup ballot path when the device
 #                       advertises support; both arms must compile.
 # Bitonic, indirect-dispatch, remap, gather and the OneSweep passes are compiled at
-# their fixed runtime shape (WORKGROUP_SIZE / kSortWorkgroupSize = 256, 8-bit radix).
+# their fixed runtime shape. Every scalar these fixed shaders substitute is PARSED
+# from the C++ header that defines it (below) rather than pinned here, so a constant
+# change re-shapes the compiled permutation instead of silently drifting.
 
 GPU_SORTER_CPP = MODULE_DIR / "renderer" / "gpu_sorter.cpp"
 GPU_SORTING_PIPELINE_CPP = MODULE_DIR / "interfaces" / "gpu_sorting_pipeline.cpp"
+# Headers whose constants are substituted into the embedded sorter shaders. Parsed at
+# runtime so the offline matrix always compiles the true shape; each is mirrored in
+# the gaussian_shader_validation.yml `paths:` trigger so a constant change re-runs the
+# gate.
+GPU_SORTER_H = MODULE_DIR / "renderer" / "gpu_sorter.h"
+GPU_SORTING_CONSTANTS_H = MODULE_DIR / "renderer" / "gpu_sorting_constants.h"
+SORTING_CONTRACT_H = MODULE_DIR / "renderer" / "sorting_contract.h"
 
 # Runtime-validated permutation axes (see the module comment above for the C++
 # clamp each mirrors). Kept as explicit tuples so the coverage self-check can prove
@@ -853,43 +862,68 @@ def _extract_cstring_template(text: str, func_name: str, arg_marker: str) -> str
     return "".join(_unescape_c_literal(literal) for literal in literals)
 
 
-# --- runtime String() fragments the radix vformat() calls interpolate ------------
-# These are the small, non-raw-string helper snippets from RadixSort::create_variant
-# (renderer/gpu_sorter.cpp). They define/consume symbols declared by the extracted
-# raw-string templates and key helpers, so they carry no independent GLSL surface of
-# their own; keeping them in Python (rather than parsing the escaped C++ literals)
-# avoids a second escape-unescape hazard while the mutation-relevant bodies stay
-# sourced from C++.
-def _subgroup_preamble(subgroups: bool) -> str:
-    if subgroups:
-        return (
-            "#extension GL_KHR_shader_subgroup_basic : enable\n"
-            "#extension GL_KHR_shader_subgroup_ballot : enable\n"
-            "#define GS_ENABLE_SUBGROUPS 1\n"
+def _extract_adjacent_cstrings(text: str, anchor: str) -> str:
+    """Extract a C++ adjacent-string-literal concatenation containing `anchor`.
+
+    Finds the double-quoted literal whose content holds `anchor`, then greedily
+    absorbs the run of neighbouring literals separated from it by whitespace only --
+    exactly the C/C++ adjacent-literal concatenation rule. Used to source the small
+    interpolated GLSL fragments (subgroup preamble, per-key read snippets) from
+    RadixSort::create_variant() in gpu_sorter.cpp, so a future edit to those fragments
+    fails the compile check instead of matching a stale Python copy.
+    """
+    literals = list(_CSTRING_LITERAL_RE.finditer(text))
+    hit = next((i for i, m in enumerate(literals) if anchor in m.group(1)), None)
+    if hit is None:
+        raise _SorterExtractionError(f"no string literal contains anchor: {anchor!r}")
+
+    start = hit
+    while start > 0 and text[literals[start - 1].end():literals[start].start()].strip() == "":
+        start -= 1
+    end = hit
+    while end + 1 < len(literals) and text[literals[end].end():literals[end + 1].start()].strip() == "":
+        end += 1
+
+    return "".join(_unescape_c_literal(literals[k].group(1)) for k in range(start, end + 1))
+
+
+def _extract_ternary_string_arms(text: str, decl_anchor: str) -> tuple[str, str]:
+    """Return (true_arm, false_arm) string literals of a `cond ? "a" : "b"` decl.
+
+    Locates the statement beginning at `decl_anchor` (e.g. the `String key_type = ...`
+    declaration) up to its terminating `;`, and returns its two string literals in
+    source order. Keeps the small type-keyword fragments (uvec2 / uint) sourced from
+    gpu_sorter.cpp rather than pinned in Python.
+    """
+    pos = text.find(decl_anchor)
+    if pos == -1:
+        raise _SorterExtractionError(f"declaration not found: {decl_anchor!r}")
+    end = text.find(";", pos)
+    if end == -1:
+        raise _SorterExtractionError(f"unterminated declaration: {decl_anchor!r}")
+    literals = _CSTRING_LITERAL_RE.findall(text[pos:end])
+    if len(literals) != 2:
+        raise _SorterExtractionError(
+            f"expected 2 string arms in {decl_anchor!r}, found {len(literals)}"
         )
-    return "#define GS_ENABLE_SUBGROUPS 0\n"
+    return _unescape_c_literal(literals[0]), _unescape_c_literal(literals[1])
 
 
-def _histogram_key_read(use_64bit: bool) -> str:
-    key_type = "uvec2" if use_64bit else "uint"
-    return (
-        f"            {key_type} key = keys_in.keys[idx];\n"
-        "            radix = get_radix(key, params.bit_shift);"
-    )
+def _parse_uint_constant(path: Path, name: str) -> int:
+    """Parse `... name = <int>;` from a C++ header (single source of truth).
 
-
-def _scatter_key_read(use_64bit: bool) -> str:
-    key_decl = "uvec2 key = uvec2(0u);" if use_64bit else "uint key = 0u;"
-    return (
-        f"        {key_decl}\n"
-        "        uint value = 0u;\n"
-        "        uint radix = 0u;\n"
-        "        if (valid) {\n"
-        "            key = keys_in.keys[idx];\n"
-        "            value = values_in.values[idx];\n"
-        "            radix = get_radix(key, params.bit_shift);\n"
-        "        }"
-    )
+    Word-boundary anchored so `RADIX_BITS` never matches `DEFAULT_RADIX_BITS`, and so
+    a usage (`align_up(count, kSortWorkgroupSize)`) never matches the definition. Fails
+    closed (raises) when the constant cannot be located.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise _SorterExtractionError(f"cannot read {path}: {exc}") from exc
+    match = re.search(rf"\b{re.escape(name)}\b\s*=\s*(\d+)", text)
+    if match is None:
+        raise _SorterExtractionError(f"constant {name} not found in {path.name}")
+    return int(match.group(1))
 
 
 def _radix_variant_label(key_bits: int, radix_bits: int, workgroup: int, subgroups: bool) -> str:
@@ -974,13 +1008,28 @@ def _build_sorter_permutations() -> tuple[list[SorterPermutation], list[str]]:
             sorter_text, "uint subgroup_words = (gl_SubgroupSize + 31u) / 32u;"
         )
 
+        # Interpolated helper fragments -- sourced from the SAME C++ (create_variant)
+        # rather than reproduced as Python literals, so an edit to any of them fails
+        # this check instead of matching a stale copy (#525 coverage-drift fix).
+        key_type_64, key_type_32 = _extract_ternary_string_arms(
+            sorter_text, "String key_type = use_64bit_keys"
+        )
+        subgroup_on = _extract_adjacent_cstrings(sorter_text, "GL_KHR_shader_subgroup_basic : enable")
+        subgroup_off = _extract_adjacent_cstrings(sorter_text, "#define GS_ENABLE_SUBGROUPS 0")
+        hist_read_64 = _extract_adjacent_cstrings(sorter_text, "uvec2 key = keys_in.keys[idx];")
+        hist_read_32 = _extract_adjacent_cstrings(sorter_text, "uint key = keys_in.keys[idx];")
+        scatter_read_64 = _extract_adjacent_cstrings(sorter_text, "uvec2 key = uvec2(0u);")
+        scatter_read_32 = _extract_adjacent_cstrings(sorter_text, "uint key = 0u;")
+
         for key_bits, radix_bits, workgroup, subgroups in SORTER_RADIX_PERMUTATIONS:
             use_64bit = key_bits > 32
             radix_size = 1 << radix_bits
             mask_words = (workgroup + 31) // 32
-            key_type = "uvec2" if use_64bit else "uint"
+            key_type = key_type_64 if use_64bit else key_type_32
             key_helper = key_helper_64 if use_64bit else key_helper_32
-            preamble = _subgroup_preamble(subgroups)
+            preamble = subgroup_on if subgroups else subgroup_off
+            hist_read = hist_read_64 if use_64bit else hist_read_32
+            scatter_read = scatter_read_64 if use_64bit else scatter_read_32
             label = _radix_variant_label(key_bits, radix_bits, workgroup, subgroups)
             axes = {
                 "key_bits": key_bits,
@@ -997,7 +1046,7 @@ def _build_sorter_permutations() -> tuple[list[SorterPermutation], list[str]]:
                 preamble,
                 key_type,
                 key_helper,
-                _histogram_key_read(use_64bit),
+                hist_read,
                 histogram_update,
             )
             add("radix_histogram", label, histogram_source, axes)
@@ -1018,7 +1067,7 @@ def _build_sorter_permutations() -> tuple[list[SorterPermutation], list[str]]:
                 key_type,
                 key_type,
                 key_helper,
-                _scatter_key_read(use_64bit),
+                scatter_read,
                 scatter_bin_update,
             )
             add("radix_scatter", label, scatter_source, axes)
@@ -1026,11 +1075,12 @@ def _build_sorter_permutations() -> tuple[list[SorterPermutation], list[str]]:
         errors.append(f"radix family: {exc}")
 
     # --- BitonicSort (renderer/gpu_sorter.cpp, BitonicSort::initialize) ------------
-    # Fixed WORKGROUP_SIZE = GPUSortingConstants::DEFAULT_WORKGROUP_SIZE (256); the
-    # sorter compiles only this shape (float keys, no radix/key_bits parametrization).
+    # WORKGROUP_SIZE = GPUSortingConstants::DEFAULT_WORKGROUP_SIZE, parsed from the
+    # header; the sorter compiles only this shape (float keys, no key parametrization).
     try:
+        bitonic_wg = _parse_uint_constant(GPU_SORTING_CONSTANTS_H, "DEFAULT_WORKGROUP_SIZE")
         bitonic_tpl = _extract_raw_string_containing(sorter_text, "Batcher bitonic sorting network")
-        add("bitonic", "wg256", _apply_vformat(bitonic_tpl, 256), {"workgroup": 256})
+        add("bitonic", f"wg{bitonic_wg}", _apply_vformat(bitonic_tpl, bitonic_wg), {"workgroup": bitonic_wg})
     except _SorterExtractionError as exc:
         errors.append(f"bitonic: {exc}")
 
@@ -1044,45 +1094,69 @@ def _build_sorter_permutations() -> tuple[list[SorterPermutation], list[str]]:
         errors.append(f"indirect_dispatch: {exc}")
 
     # --- OneSweepSort passes (renderer/gpu_sorter.cpp) -----------------------------
-    # Fixed RADIX_BITS=8 / RADIX_SIZE=256 / WORKGROUP_SIZE=256, CHAINING_FACTOR=4.
-    onesweep_specs = (
-        (
-            "onesweep_global_histogram",
-            "atomicAdd(global_histogram.global_hist[tid], local_histogram[tid]);",
-            (8, 256, 256),
-        ),
-        (
-            "onesweep_digit_binning",
-            "digit_histogram.digit_hist[wid * RADIX_SIZE + tid]",
-            (8, 256, 256, 4),
-        ),
-        ("onesweep_chained_scan", "shared uint scan_scratch[RADIX_SIZE];", (256, 256)),
-        ("onesweep_scatter", "uint output_pos = atomicAdd(local_offsets[digit], 1);", (8, 256, 256)),
-    )
-    for key, anchor, fmt_args in onesweep_specs:
-        try:
-            template = _extract_raw_string_containing(sorter_text, anchor)
-            add(key, "default", _apply_vformat(template, *fmt_args), {})
-        except _SorterExtractionError as exc:
-            errors.append(f"{key}: {exc}")
+    # RADIX_BITS / WORKGROUP_SIZE (gpu_sorting_constants.h) and CHAINING_FACTOR
+    # (gpu_sorter.h) are parsed from their headers; RADIX_SIZE = 1 << RADIX_BITS
+    # mirrors the constexpr. A change to any of them re-shapes these compiles.
+    try:
+        os_radix_bits = _parse_uint_constant(GPU_SORTING_CONSTANTS_H, "RADIX_BITS")
+        os_radix_size = 1 << os_radix_bits
+        os_wg = _parse_uint_constant(GPU_SORTING_CONSTANTS_H, "DEFAULT_WORKGROUP_SIZE")
+        os_chaining = _parse_uint_constant(GPU_SORTER_H, "CHAINING_FACTOR")
+    except _SorterExtractionError as exc:
+        errors.append(f"onesweep constants: {exc}")
+        os_radix_bits = os_radix_size = os_wg = os_chaining = None
+
+    if os_wg is not None:
+        onesweep_specs = (
+            (
+                "onesweep_global_histogram",
+                "atomicAdd(global_histogram.global_hist[tid], local_histogram[tid]);",
+                (os_radix_bits, os_radix_size, os_wg),
+            ),
+            (
+                "onesweep_digit_binning",
+                "digit_histogram.digit_hist[wid * RADIX_SIZE + tid]",
+                (os_radix_bits, os_radix_size, os_wg, os_chaining),
+            ),
+            ("onesweep_chained_scan", "shared uint scan_scratch[RADIX_SIZE];", (os_radix_size, os_wg)),
+            (
+                "onesweep_scatter",
+                "uint output_pos = atomicAdd(local_offsets[digit], 1);",
+                (os_radix_bits, os_radix_size, os_wg),
+            ),
+        )
+        for key, anchor, fmt_args in onesweep_specs:
+            try:
+                template = _extract_raw_string_containing(sorter_text, anchor)
+                add(key, "default", _apply_vformat(template, *fmt_args), {})
+            except _SorterExtractionError as exc:
+                errors.append(f"{key}: {exc}")
 
     # --- Remap + gather (interfaces/gpu_sorting_pipeline.cpp) -----------------------
-    # Fixed kSortWorkgroupSize = 256 (renderer/sorting_contract.h).
+    # kSortWorkgroupSize is parsed from renderer/sorting_contract.h (single source of
+    # truth) instead of pinned, so a change to the constant re-shapes these compiles.
     try:
-        remap_tpl = _extract_cstring_template(
-            pipeline_text, "_get_remap_compute_source", "GaussianSplatting::kSortWorkgroupSize"
-        )
-        add("remap", "default", _apply_vformat(remap_tpl, 256), {})
+        sort_wg = _parse_uint_constant(SORTING_CONTRACT_H, "kSortWorkgroupSize")
     except _SorterExtractionError as exc:
-        errors.append(f"remap: {exc}")
+        errors.append(f"kSortWorkgroupSize: {exc}")
+        sort_wg = None
 
-    try:
-        gather_tpl = _extract_raw_string_containing(
-            pipeline_text, "position_buffer.positions[idx] = vec4(g.position, radius);"
-        )
-        add("gather", "default", _apply_vformat(gather_tpl, 256), {})
-    except _SorterExtractionError as exc:
-        errors.append(f"gather: {exc}")
+    if sort_wg is not None:
+        try:
+            remap_tpl = _extract_cstring_template(
+                pipeline_text, "_get_remap_compute_source", "GaussianSplatting::kSortWorkgroupSize"
+            )
+            add("remap", "default", _apply_vformat(remap_tpl, sort_wg), {})
+        except _SorterExtractionError as exc:
+            errors.append(f"remap: {exc}")
+
+        try:
+            gather_tpl = _extract_raw_string_containing(
+                pipeline_text, "position_buffer.positions[idx] = vec4(g.position, radius);"
+            )
+            add("gather", "default", _apply_vformat(gather_tpl, sort_wg), {})
+        except _SorterExtractionError as exc:
+            errors.append(f"gather: {exc}")
 
     return permutations, errors
 

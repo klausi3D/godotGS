@@ -32,13 +32,21 @@ of the live C++ sources** — `renderer/gpu_sorter.cpp` (radix histogram / wg-pr
 bin-prefix / scatter, bitonic, the indirect-dispatch args shader, and the OneSweep
 passes) and `interfaces/gpu_sorting_pipeline.cpp` (remap, gather) — reproducing the
 exact `vformat()` substitution and compiling the assembled permutations through the
-same compiler path as the file matrix. Because the GLSL is read from the C++ (never
-hand-copied), a syntax break in a sorter shader string fails this check. Radix
-permutations span the runtime-validated axes: key_bits `{32,64}`, workgroup
-`{64,128,256,512}`, radix_bits `{4,8}`, and subgroups on/off. The coverage self-check
-(`_validate_sorter_coverage`) is fail-closed: if a template anchor stops resolving or
-an axis endpoint is unexercised, the run exits non-zero rather than silently dropping
-coverage. Editing the embedded GLSL in either source file re-triggers this workflow.
+same compiler path as the file matrix. **Every interpolated piece is sourced from the
+C++, never hand-copied**: the shader templates and the small interpolated helper
+fragments (subgroup extension block, per-key read snippets, the `uvec2`/`uint` key
+type) are extracted from `gpu_sorter.cpp`, and the substituted scalar constants
+(`kSortWorkgroupSize` from `renderer/sorting_contract.h`; `DEFAULT_WORKGROUP_SIZE` /
+`RADIX_BITS` from `renderer/gpu_sorting_constants.h`; `CHAINING_FACTOR` from
+`renderer/gpu_sorter.h`) are parsed from their defining headers. So a syntax break in
+a sorter shader string — or an edit to a helper fragment or a constant — fails this
+check instead of matching a stale copy. Radix permutations span the runtime-validated
+axes: key_bits `{32,64}`, workgroup `{64,128,256,512}`, radix_bits `{4,8}`, and
+subgroups on/off. The coverage self-check (`_validate_sorter_coverage`) is
+fail-closed: if a template anchor stops resolving or an axis endpoint is unexercised,
+the run exits non-zero rather than silently dropping coverage. Editing the embedded
+GLSL in either `.cpp`, or any of the parsed constant headers, re-triggers this
+workflow.
 
 ## Expected Artifacts
 
