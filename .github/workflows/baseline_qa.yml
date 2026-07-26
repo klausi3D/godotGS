@@ -168,7 +168,7 @@ jobs:
         GS_CI_VALIDATION_MODE: "strict"
       run: |
         $args = @(
-          "--categories", "sorting",
+          "--categories", "sorting,renderer",
           "--godot", $env:GODOT_BINARY
         )
         python tests/ci/run_baseline_qa.py @args

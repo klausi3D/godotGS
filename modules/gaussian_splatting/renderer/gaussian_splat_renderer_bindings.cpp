@@ -278,4 +278,19 @@ void GaussianSplatRenderer::_bind_methods() {
     BIND_ENUM_CONSTANT(DEBUG_PREVIEW_DEPTH);
     BIND_ENUM_CONSTANT(DEBUG_PREVIEW_HEATMAP);
     BIND_ENUM_CONSTANT(DEBUG_PREVIEW_RUNTIME_MODIFICATIONS);
+
+#ifdef TESTS_ENABLED
+    // #104: expose the render-thread dispatch characterization hooks to GDScript so the
+    // executable harness (tests/ci/test_render_thread_dispatch.gd) can drive them under a
+    // LIVE RenderingServer + render loop, which the C++ [RequiresGPU] doctests cannot reach
+    // (doctest's --test boot never creates a RenderingServer, so those cases only skip). These
+    // bindings exist only in TESTS_ENABLED builds and never ship in a release template.
+    ClassDB::bind_method(D_METHOD("test_set_render_thread_dispatch_timeout_usec", "timeout_usec"), &GaussianSplatRenderer::test_set_render_thread_dispatch_timeout_usec);
+    ClassDB::bind_method(D_METHOD("test_get_render_thread_dispatch_timeout_usec"), &GaussianSplatRenderer::test_get_render_thread_dispatch_timeout_usec);
+    ClassDB::bind_method(D_METHOD("test_dispatch_call_on_render_thread_blocking_without_completion"), &GaussianSplatRenderer::test_dispatch_call_on_render_thread_blocking_without_completion);
+    ClassDB::bind_method(D_METHOD("test_dispatch_call_on_render_thread_blocking_with_completion"), &GaussianSplatRenderer::test_dispatch_call_on_render_thread_blocking_with_completion);
+    ClassDB::bind_method(D_METHOD("test_is_render_thread_dispatch_path_active"), &GaussianSplatRenderer::test_is_render_thread_dispatch_path_active);
+    ClassDB::bind_method(D_METHOD("test_get_render_thread_dispatch_completed_request_id"), &GaussianSplatRenderer::test_get_render_thread_dispatch_completed_request_id);
+    ClassDB::bind_method(D_METHOD("test_notify_render_thread_dispatch_completed", "request_id"), &GaussianSplatRenderer::test_notify_render_thread_dispatch_completed);
+#endif // TESTS_ENABLED
 }
