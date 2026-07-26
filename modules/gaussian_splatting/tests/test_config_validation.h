@@ -831,12 +831,51 @@ TEST_CASE("[GaussianSplatting][Config] get_portability_warnings flags the valid-
 	}
 }
 
-// #634 (Codex P2): prove the warning is REACHABLE through the real config-load path.
-// initialize_gpu_sorting_config() loads project settings and, on the validate()==true
-// branch, calls get_portability_warnings() -> GS_LOG_GPU_SORT_WARN. A custom-preset
-// (8,512) must leave the loaded global config valid-but-non-portable (so the site
-// warns). The WARN line also appears in this test's console output.
-TEST_CASE("[GaussianSplatting][Config] initialize_gpu_sorting_config surfaces the nonportable (8,512) config as reachable warning (#634)") {
+// #634 (Codex P2, round 2): a reachability test that only re-derives
+// get_portability_warnings() after init is VACUOUS -- deleting the
+// GS_LOG_GPU_SORT_WARN call from initialize_gpu_sorting_config() would leave it green,
+// which is exactly the "diagnostic exists but is never surfaced" defect. So this
+// captures the EMISSION itself. GS_LOG_GPU_SORT_WARN -> WARN_PRINT -> Godot's
+// ErrorHandlerList, so a scoped error handler installed around the real config-load
+// call observes the actually-emitted warning text (WARN is never rate-limited --
+// gs_logger::should_rate_limit() covers only INFO/DEBUG/TRACE).
+struct ScopedPortabilityWarningCapture : public ErrorHandlerList {
+	Vector<String> messages;
+
+	static void _handler(void *p_userdata, const char *, const char *, int, const char *p_error,
+			const char *p_message, bool, ErrorHandlerType) {
+		ScopedPortabilityWarningCapture *self = static_cast<ScopedPortabilityWarningCapture *>(p_userdata);
+		String message;
+		if (p_message && p_message[0]) {
+			message = String::utf8(p_message);
+		} else if (p_error) {
+			message = String::utf8(p_error);
+		}
+		if (!message.is_empty()) {
+			self->messages.push_back(message);
+		}
+	}
+
+	ScopedPortabilityWarningCapture() {
+		errfunc = _handler;
+		userdata = this;
+		add_error_handler(this);
+	}
+	~ScopedPortabilityWarningCapture() {
+		remove_error_handler(this);
+	}
+
+	bool captured_containing(const String &p_text) const {
+		for (int i = 0; i < messages.size(); i++) {
+			if (messages[i].find(p_text) != -1) {
+				return true;
+			}
+		}
+		return false;
+	}
+};
+
+TEST_CASE("[GaussianSplatting][Config] initialize_gpu_sorting_config EMITS the nonportable (8,512) warning and stays silent for supported configs (#634)") {
 	ProjectSettings *project_settings = ProjectSettings::get_singleton();
 	REQUIRE(project_settings != nullptr);
 
@@ -857,25 +896,42 @@ TEST_CASE("[GaussianSplatting][Config] initialize_gpu_sorting_config surfaces th
 	ProjectSettingGuard depth_bits_guard(project_settings, depth_bits_path);
 
 	// Custom preset so the individual knobs are honored (named presets impose their own
-	// layout). Pin the validate()-relevant knobs to a known-good, portable-except-for-
-	// the-product state so leftover global settings cannot make validate() fail (which
-	// would reset the config and mask the case under test).
+	// layout). Pin the validate()-relevant knobs to a known-good state so leftover
+	// global settings cannot make validate() fail (which would reset the config and mask
+	// the case under test). Only radix_bits/workgroup_size differ between subcases.
 	project_settings->set_setting(preset_path, "custom");
-	project_settings->set_setting(radix_bits_path, 8);
-	project_settings->set_setting(workgroup_size_path, 512);
 	project_settings->set_setting(max_elements_path, 50000000); // (50M,8,512,64) fits the device size type
 	project_settings->set_setting(key_bits_path, 64);
 	project_settings->set_setting(tile_bits_path, 32);
 	project_settings->set_setting(depth_bits_path, 32);
 
-	initialize_gpu_sorting_config();
+	const char *kSharedMemFragment = "compute shared memory";
 
-	// The load path accepted (8,512) (validate() true -> NOT reset), and the config is
-	// non-portable, so the else-branch WARN fired (visible in console output above).
-	CHECK(g_gpu_sorting_config.radix_bits == 8u);
-	CHECK(g_gpu_sorting_config.workgroup_size == 512u);
-	CHECK(g_gpu_sorting_config.validate());
-	CHECK_FALSE(g_gpu_sorting_config.get_portability_warnings().is_empty());
+	SUBCASE("(8, 512) valid-but-nonportable -> init EMITS the portability WARN") {
+		project_settings->set_setting(radix_bits_path, 8);
+		project_settings->set_setting(workgroup_size_path, 512);
+		ScopedPortabilityWarningCapture capture;
+		initialize_gpu_sorting_config();
+		// The emission ITSELF, not a re-derivation: deleting the WARN call from
+		// initialize_gpu_sorting_config() makes this fail (mutation-proven).
+		CHECK(capture.captured_containing(kSharedMemFragment));
+		// And the load path accepted it (validate() true -> NOT reset), which is why the
+		// diagnostic cannot live behind the validate() failure path.
+		CHECK(g_gpu_sorting_config.radix_bits == 8u);
+		CHECK(g_gpu_sorting_config.workgroup_size == 512u);
+		CHECK(g_gpu_sorting_config.validate());
+	}
+
+	SUBCASE("(8, 256) supported -> init emits NO portability WARN") {
+		project_settings->set_setting(radix_bits_path, 8);
+		project_settings->set_setting(workgroup_size_path, 256);
+		ScopedPortabilityWarningCapture capture;
+		initialize_gpu_sorting_config();
+		CHECK_FALSE(capture.captured_containing(kSharedMemFragment));
+		CHECK(g_gpu_sorting_config.radix_bits == 8u);
+		CHECK(g_gpu_sorting_config.workgroup_size == 256u);
+		CHECK(g_gpu_sorting_config.validate());
+	}
 
 	g_gpu_sorting_config = previous_global_config;
 }
