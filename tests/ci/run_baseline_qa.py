@@ -6,6 +6,7 @@ Runs the core test scripts and validates results with proper error reporting
 
 import argparse
 import copy
+import re
 import subprocess
 import sys
 import json
@@ -78,6 +79,21 @@ QA_CAPTURE_REQUIRED_BUT_SKIPPED_MESSAGE = (
 # perf assertion belongs.
 NON_DETERMINISTIC_BASELINE_METRIC_MARKERS = ("fps", "frame_time", "_ms")
 
+# A metric whose value is a serialized numeric tuple — Godot renders Color and
+# Vector* as "(1.0, 0.4976, 0.5603, 1.0)" — is a MEASUREMENT that merely looks
+# like a string. It must never be compared for exact equality.
+#
+# Learned from CI, not from theory: the first run of this lane on the
+# self-hosted runner failed on qa_sort_depth_order.center_color, baseline
+# '(1.0, 0.4976, 0.5603, 1.0)' vs current '(1.0, 0.498, 0.5956, 1.0)'. Both
+# runs were correct — the local baseline came from an optimized editor build
+# and CI builds dev_build=yes (-O0), and the rasterized blue channel differs by
+# ~6% between them. Exact-matching a rendered pixel value pins the build
+# configuration, not the renderer's behaviour. The scenes still assert the
+# pixel relationship themselves (red_minus_blue >= 0.15 and r > 0.4, which CI
+# passed at 0.404), which is where a tolerance-bearing assertion belongs.
+SERIALIZED_NUMERIC_TUPLE_RE = re.compile(r"^\(\s*-?\d+(\.\d+)?(\s*,\s*-?\d+(\.\d+)?)+\s*\)$")
+
 
 REQUIRE_QA_BASELINE_INERT_MESSAGE = (
     "--require-qa-baseline/"
@@ -149,17 +165,35 @@ def _format_metric_value(value: Any) -> str:
     return f"{float(value):.6f}"
 
 
-def is_non_deterministic_baseline_metric(metric_name: str) -> bool:
-    """True for metrics whose value describes the runner, not the renderer.
+def is_serialized_numeric_tuple(value: Any) -> bool:
+    """True for a Color/Vector rendered as a string, e.g. "(1.0, 0.5, 0.6, 1.0)".
 
-    See NON_DETERMINISTIC_BASELINE_METRIC_MARKERS. Kept as a predicate rather
-    than a hardcoded name list because the QA scenes emit metric names
-    dynamically (`near_*`/`far_*` prefixes in qa_sort_multi_instance), so any
-    frozen list would silently miss new ones — the failure mode called out in
-    the repo's derive-don't-enumerate guidance.
+    Such a value is a measurement wearing a string's clothes. See
+    SERIALIZED_NUMERIC_TUPLE_RE for the CI failure that motivated this.
+    """
+    return isinstance(value, str) and bool(SERIALIZED_NUMERIC_TUPLE_RE.match(value.strip()))
+
+
+def is_non_deterministic_baseline_metric(metric_name: str, value: Any = None) -> bool:
+    """True for metrics whose value describes the runner or the build, not the
+    renderer's behaviour.
+
+    Two independent tests, because two different things leak in:
+
+    * by NAME — NON_DETERMINISTIC_BASELINE_METRIC_MARKERS catches fps and
+      timings. A predicate rather than a hardcoded list because the QA scenes
+      emit names dynamically (`near_*`/`far_*` in qa_sort_multi_instance), so a
+      frozen list would silently miss new ones — the failure mode called out in
+      the repo's derive-don't-enumerate guidance.
+    * by VALUE SHAPE — a serialized numeric tuple is a rendered pixel value,
+      which differs between an optimized local build and CI's -O0 dev build.
+      Name-based classification could not have caught `center_color`: nothing
+      about that name says "float vector".
     """
     lowered = metric_name.lower()
-    return any(marker in lowered for marker in NON_DETERMINISTIC_BASELINE_METRIC_MARKERS)
+    if any(marker in lowered for marker in NON_DETERMINISTIC_BASELINE_METRIC_MARKERS):
+        return True
+    return is_serialized_numeric_tuple(value)
 
 
 def validate_baseline_candidate(
@@ -209,7 +243,11 @@ def validate_baseline_candidate(
                 reasons.append(f"{scene}: reported no metrics, so it contributes nothing comparable.")
             continue
 
-        comparable = {name: value for name, value in metrics.items() if not is_non_deterministic_baseline_metric(name)}
+        comparable = {
+            name: value
+            for name, value in metrics.items()
+            if not is_non_deterministic_baseline_metric(name, value)
+        }
         for name, value in comparable.items():
             if "ssim" in name.lower() and "threshold" not in name.lower():
                 if not isinstance(value, (int, float)) or isinstance(value, bool):
@@ -250,7 +288,7 @@ def strip_non_deterministic_metrics(payload: Dict[str, Any]) -> Tuple[Dict[str, 
             continue
         scene = str(entry.get("scene", "<unnamed>"))
         for name in sorted(metrics):
-            if is_non_deterministic_baseline_metric(name):
+            if is_non_deterministic_baseline_metric(name, metrics[name]):
                 del metrics[name]
                 dropped.append(f"{scene}.{name}")
     return sanitized, dropped

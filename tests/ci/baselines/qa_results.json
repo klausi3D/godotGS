@@ -36,7 +36,6 @@
       "message": "center_color r=1.000 g=0.498 b=0.560 red_minus_blue=0.440",
       "metrics": {
         "cached_render_reuse_enabled": false,
-        "center_color": "(1.0, 0.4976, 0.5603, 1.0)",
         "cull_gpu_visible_count": 1,
         "cull_static_chunk_total": 0,
         "cull_visible_static_chunks": 0,
@@ -85,7 +84,6 @@
     {
       "message": "center_color r=1.000 g=0.498 b=0.560 red_minus_blue=0.440",
       "metrics": {
-        "center_color": "(1.0, 0.4976, 0.5603, 1.0)",
         "far_cached_render_reuse_enabled": false,
         "far_cull_gpu_visible_count": 2,
         "far_cull_static_chunk_total": 0,

@@ -635,6 +635,58 @@ class NonDeterministicMetricStrippingTest(unittest.TestCase):
                      "visible_splats", "sorted_splats", "red_dominance_margin"):
             self.assertFalse(run_baseline_qa.is_non_deterministic_baseline_metric(name), name)
 
+    def test_serialized_colors_are_classified_by_value_not_name(self):
+        """A rendered pixel value is a measurement wearing a string's clothes.
+
+        Found by CI, not by reasoning: the lane's first self-hosted run failed
+        on qa_sort_depth_order.center_color, baseline '(1.0, 0.4976, 0.5603,
+        1.0)' vs current '(1.0, 0.498, 0.5956, 1.0)'. Both runs were correct —
+        the baseline came from an optimized editor build, CI builds -O0, and
+        the rasterized blue channel differs ~6%. Name-based classification
+        could not have caught this: nothing about 'center_color' says
+        'float vector'.
+        """
+        colour = "(1.0, 0.4976, 0.5603, 1.0)"
+        self.assertTrue(run_baseline_qa.is_serialized_numeric_tuple(colour))
+        self.assertTrue(run_baseline_qa.is_non_deterministic_baseline_metric("center_color", colour))
+        self.assertFalse(
+            run_baseline_qa.is_non_deterministic_baseline_metric("center_color"),
+            "Without the value there is nothing in the NAME to classify on - "
+            "which is exactly why both call sites must pass the value.",
+        )
+
+    def test_path_identity_strings_are_not_mistaken_for_measurements(self):
+        """The value-shape rule must not swallow the enum-like strings that are
+        the whole point of the exact-match comparison."""
+        for value in (
+            "INSTANCE.RASTER.COMPUTE",
+            "ResidentInstanceAtlas",
+            "success",
+            "compute",
+            "COMMON.SKIP.RESIDENT_NOT_FEASIBLE.RESIDENT_NO_INSTANCES",
+        ):
+            self.assertFalse(run_baseline_qa.is_serialized_numeric_tuple(value), value)
+            self.assertFalse(run_baseline_qa.is_non_deterministic_baseline_metric("route_uid", value), value)
+
+    def test_tuple_detection_is_not_fooled_by_near_misses(self):
+        for value in ("(a, b)", "(1.0", "1.0, 2.0", "(1.0,)", "", "()", "(v1.0, v2.0)"):
+            self.assertFalse(run_baseline_qa.is_serialized_numeric_tuple(value), value)
+        for value in ("(1, 2)", "(-1.5, 0.25, 3)", "( 1.0 , 2.0 )"):
+            self.assertTrue(run_baseline_qa.is_serialized_numeric_tuple(value), value)
+
+    def test_committed_baseline_pins_no_rendered_pixel_values(self):
+        """The regression that produced this rule must not be able to return:
+        no metric in the committed baseline may be a serialized numeric tuple."""
+        baseline = ROOT / "tests" / "ci" / "baselines" / "qa_results.json"
+        payload = json.loads(baseline.read_text(encoding="utf-8"))
+        offenders = [
+            f"{entry.get('scene')}.{name}"
+            for entry in payload.get("results", [])
+            for name, value in (entry.get("metrics") or {}).items()
+            if run_baseline_qa.is_serialized_numeric_tuple(value)
+        ]
+        self.assertEqual(offenders, [], f"Baseline pins build-dependent pixel values: {offenders}")
+
     def test_prefixed_variants_are_caught_by_the_predicate(self):
         """qa_sort_multi_instance emits near_*/far_* copies of every metric, so
         a hardcoded name list would miss them. This is why the classifier is a
