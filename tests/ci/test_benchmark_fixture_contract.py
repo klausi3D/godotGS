@@ -36,6 +36,7 @@ from __future__ import annotations
 import importlib.util
 import re
 import struct
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -299,7 +300,43 @@ class ManifestContractTests(unittest.TestCase):
             self.assertEqual(manifest.min_splat_count_for("res://a.ply"), 0)
 
 
-FIXTURE_IMPORT_DIR = ROOT / "tests" / "examples" / "godot" / "test_project" / "tests" / "fixtures"
+FIXTURE_IMPORT_RELATIVE_DIR = (
+    Path("tests") / "examples" / "godot" / "test_project" / "tests" / "fixtures"
+)
+FIXTURE_IMPORT_DIR = ROOT / FIXTURE_IMPORT_RELATIVE_DIR
+
+
+def _tracked_fixture_imports(
+    *,
+    root: Path = ROOT,
+    tracked_paths: list[str] | None = None,
+) -> list[Path]:
+    """Derive fixture imports from Git, excluding ignored editor sidecars."""
+    if tracked_paths is None:
+        pathspec = f"{FIXTURE_IMPORT_RELATIVE_DIR.as_posix()}/*.ply.import"
+        result = subprocess.run(
+            ["git", "ls-files", "-z", "--", pathspec],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                "Could not derive committed benchmark fixture imports from Git: "
+                + (result.stderr.strip() or f"git ls-files exited {result.returncode}")
+            )
+        tracked_paths = [path for path in result.stdout.split("\0") if path]
+
+    fixtures = []
+    for raw_path in tracked_paths:
+        relative_path = Path(raw_path)
+        if (
+            relative_path.parent == FIXTURE_IMPORT_RELATIVE_DIR
+            and relative_path.name.endswith(".ply.import")
+        ):
+            fixtures.append(root / relative_path)
+    return sorted(fixtures)
 
 
 def _parse_import_file(path: Path) -> dict:
@@ -393,11 +430,16 @@ class FixtureImportFidelityTests(unittest.TestCase):
         "compression/quantize_rotations",
     )
 
-    def _fixtures(self) -> list[Path]:
-        # Derived from the directory, never a hand-maintained list: a new
-        # fixture must be covered the moment it is committed, and this repo has
-        # been bitten before by invariants policed by an enumerated list.
-        return sorted(FIXTURE_IMPORT_DIR.glob("*.ply.import"))
+    def _fixtures(
+        self,
+        *,
+        root: Path = ROOT,
+        tracked_paths: list[str] | None = None,
+    ) -> list[Path]:
+        # Derived from the Git index, never a hand-maintained list: a new
+        # committed fixture is covered immediately, while ignored editor
+        # sidecars cannot make identical revisions produce different results.
+        return _tracked_fixture_imports(root=root, tracked_paths=tracked_paths)
 
     def test_there_are_fixtures_to_check(self):
         """Guard against the guard silently covering nothing."""
@@ -406,6 +448,24 @@ class FixtureImportFidelityTests(unittest.TestCase):
             f"No committed .ply.import fixtures found under {FIXTURE_IMPORT_DIR}. "
             "If the fixtures moved, this guard is now inert - point it at the new path.",
         )
+
+    def test_fixture_discovery_ignores_untracked_editor_sidecars(self):
+        with tempfile.TemporaryDirectory() as raw_td:
+            root = Path(raw_td)
+            fixture_dir = root / FIXTURE_IMPORT_RELATIVE_DIR
+            fixture_dir.mkdir(parents=True)
+            tracked = fixture_dir / "synthetic_tracked.ply.import"
+            ignored = fixture_dir / "test_splats.ply.import"
+            tracked.write_text("", encoding="utf-8")
+            ignored.write_text("", encoding="utf-8")
+
+            fixtures = self._fixtures(
+                root=root,
+                tracked_paths=[tracked.relative_to(root).as_posix()],
+            )
+
+        self.assertEqual([path.name for path in fixtures], [tracked.name])
+        self.assertNotIn(ignored.name, [path.name for path in fixtures])
 
     def test_no_fixture_is_thinned_at_import(self):
         """The invariant that actually matters: what was imported == what exists."""
