@@ -34,6 +34,7 @@ a different hat.
 from __future__ import annotations
 
 import importlib.util
+import re
 import struct
 import sys
 import tempfile
@@ -296,6 +297,169 @@ class ManifestContractTests(unittest.TestCase):
             manifest = _manifest_mod.load_benchmark_asset_manifest(legacy)
             self.assertEqual(manifest.asset_min_splat_counts, {})
             self.assertEqual(manifest.min_splat_count_for("res://a.ply"), 0)
+
+
+FIXTURE_IMPORT_DIR = ROOT / "tests" / "examples" / "godot" / "test_project" / "tests" / "fixtures"
+
+
+def _parse_import_file(path: Path) -> dict:
+    """Extract the [params] block and the count fields from a Godot .import file.
+
+    Deliberately a small hand parser: .import is Godot's own ConfigFile-ish
+    format with `&"key": value` metadata, and pulling in a real parser to read
+    five integers would be a worse trade than twelve lines of splitting.
+    """
+    text = path.read_text(encoding="utf-8", errors="replace")
+    params: dict[str, str] = {}
+    in_params = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("["):
+            in_params = stripped == "[params]"
+            continue
+        if in_params and "=" in stripped:
+            key, _, value = stripped.partition("=")
+            params[key.strip()] = value.strip()
+
+    # The `&` prefix matters and is not decoration: Godot writes top-level
+    # metadata keys as StringNames (`&"splat_count"`), while the nested
+    # `loader_statistics` dictionary uses plain string keys. Both spell
+    # "splat_count", and they mean DIFFERENT things — loader_statistics carries
+    # the count parsed from the source PLY, the top-level key carries the count
+    # actually imported. Matching without the prefix finds the source count
+    # first and compares it against itself, which is how the first draft of
+    # this guard passed the very file it was written to reject.
+    counts: dict[str, int] = {}
+    for field in ("original_splat_count", "pre_prune_splat_count", "splat_count"):
+        match = re.search(rf'&"{field}"\s*:\s*(\d+)', text)
+        if match:
+            counts[field] = int(match.group(1))
+    compression = re.search(r'&"compression_flags"\s*:\s*(\d+)', text)
+    return {"params": params, "counts": counts,
+            "compression_flags": int(compression.group(1)) if compression else None}
+
+
+class FixtureImportFidelityTests(unittest.TestCase):
+    """Committed benchmark fixtures must import at FULL fidelity (#790).
+
+    Every `synthetic_*.ply.import` on master carried `quality/preset="mobile"`,
+    `density_multiplier=0.4` and all four `compression/quantize_*=true`. The
+    consequence was recorded in the files' own metadata: synthetic_flower_field
+    declared `original_splat_count: 30000` and shipped `splat_count: 12000`,
+    with `compression_flags: 15`. Every benchmark backed by those fixtures was
+    publishing a number for 40% of the workload it named, through the quantized
+    (unlit) render path rather than the one being measured.
+
+    Nothing generates that state — `ultra` is preset index 0, i.e. the
+    importer's own default for a fresh import (gaussian_import_preset.cpp). The
+    files were stale editor artifacts (importer_version 6 against today's 11,
+    import_time three months old) that nobody re-checked.
+
+    The load-bearing assertion here is the COUNT EQUALITY, not the preset name:
+    it catches thinning no matter which option caused it, including options
+    that do not exist yet.
+    """
+
+    QUANTIZE_OPTIONS = (
+        "compression/quantize_positions",
+        "compression/quantize_colors",
+        "compression/quantize_scales",
+        "compression/quantize_rotations",
+    )
+
+    def _fixtures(self) -> list[Path]:
+        # Derived from the directory, never a hand-maintained list: a new
+        # fixture must be covered the moment it is committed, and this repo has
+        # been bitten before by invariants policed by an enumerated list.
+        return sorted(FIXTURE_IMPORT_DIR.glob("*.ply.import"))
+
+    def test_there_are_fixtures_to_check(self):
+        """Guard against the guard silently covering nothing."""
+        self.assertTrue(
+            self._fixtures(),
+            f"No committed .ply.import fixtures found under {FIXTURE_IMPORT_DIR}. "
+            "If the fixtures moved, this guard is now inert - point it at the new path.",
+        )
+
+    def test_no_fixture_is_thinned_at_import(self):
+        """The invariant that actually matters: what was imported == what exists."""
+        offenders = []
+        for path in self._fixtures():
+            parsed = _parse_import_file(path)
+            counts = parsed["counts"]
+            original = counts.get("original_splat_count")
+            final = counts.get("splat_count")
+            if original is None or final is None:
+                continue
+            if final != original:
+                offenders.append(
+                    f"{path.name}: imports {final} of {original} splats "
+                    f"({final / original:.0%}) - the benchmark measures less than it names"
+                )
+        self.assertEqual(offenders, [], "Thinned benchmark fixtures:\n  " + "\n  ".join(offenders))
+
+    def test_no_fixture_is_quantized(self):
+        """Quantized assets render through a different (unlit) path, so a
+        quantized fixture does not merely measure fewer splats - it measures a
+        different renderer."""
+        offenders = []
+        for path in self._fixtures():
+            parsed = _parse_import_file(path)
+            enabled = [opt for opt in self.QUANTIZE_OPTIONS if parsed["params"].get(opt) == "true"]
+            flags = parsed["compression_flags"]
+            if enabled or (flags is not None and flags != 0):
+                offenders.append(f"{path.name}: quantize={enabled or '-'} compression_flags={flags}")
+        self.assertEqual(offenders, [], "Quantized benchmark fixtures:\n  " + "\n  ".join(offenders))
+
+    def test_no_fixture_declares_a_reducing_import_option(self):
+        """Belt and braces on the two options that can thin a fixture, so the
+        cause is named in the failure rather than only the symptom."""
+        offenders = []
+        for path in self._fixtures():
+            params = _parse_import_file(path)["params"]
+            density = params.get("quality/density_multiplier")
+            max_splats = params.get("quality/max_splats")
+            if density is not None and float(density) < 1.0:
+                offenders.append(f"{path.name}: quality/density_multiplier={density} < 1.0")
+            if max_splats is not None and int(max_splats) != 0:
+                offenders.append(f"{path.name}: quality/max_splats={max_splats} (0 means unlimited)")
+        self.assertEqual(offenders, [], "Reducing import options:\n  " + "\n  ".join(offenders))
+
+    def test_the_thinning_check_still_discriminates(self):
+        """A guard that cannot fail is worse than no guard. Feed it the exact
+        shape master shipped and require a rejection."""
+        with tempfile.TemporaryDirectory() as raw_td:
+            probe = Path(raw_td) / "thinned.ply.import"
+            # Shaped exactly like the real file, INCLUDING the decoy
+            # `loader_statistics.splat_count` that carries the source count with
+            # no `&` prefix. The first draft of this parser matched that one and
+            # compared 30000 against 30000, so the probe must contain it or the
+            # guard's own regression cannot be caught.
+            probe.write_text(
+                '[remap]\n\nmetadata={\n'
+                '&"compression_flags": 15,\n'
+                '&"loader_statistics": {\n'
+                '"splat_count": 30000\n'
+                '},\n'
+                '&"original_splat_count": 30000,\n'
+                '&"splat_count": 12000\n'
+                '}\n\n[params]\n\nquality/preset="mobile"\n'
+                'quality/density_multiplier=0.4\nquality/max_splats=250000\n'
+                'compression/quantize_positions=true\n',
+                encoding="utf-8",
+            )
+            parsed = _parse_import_file(probe)
+            self.assertEqual(parsed["counts"]["original_splat_count"], 30000)
+            self.assertEqual(
+                parsed["counts"]["splat_count"],
+                12000,
+                "Must read the top-level &\"splat_count\" (imported), not "
+                "loader_statistics.splat_count (source).",
+            )
+            self.assertEqual(parsed["compression_flags"], 15)
+            self.assertEqual(parsed["params"]["quality/preset"], '"mobile"')
+            self.assertEqual(parsed["params"]["quality/density_multiplier"], "0.4")
+            self.assertEqual(parsed["params"]["compression/quantize_positions"], "true")
 
 
 if __name__ == "__main__":

@@ -1,85 +1,90 @@
 [remap]
 
 importer="gaussian_splat_ply"
-importer_version=6
+importer_version=11
 type="GaussianSplatAsset"
 uid="uid://dn2tmp3c3pckv"
 path="res://.godot/imported/synthetic_cloud.ply-f733b0a98cdaf71dff5dbc591f48ac53.res"
 metadata={
 &"asset_type": 0,
 &"bounds": AABB(-12.082072, 0.15310723, -12.628657, 24.017673, 7.7208586, 17.103289),
-&"compression_flags": 15,
+&"compression_flags": 0,
 &"dc_encoding": "linear_rgb",
-&"density_multiplier": 0.4,
+&"density_multiplier": 1.0,
 &"enable_lod": true,
 &"import_time": {
-"day": 3,
+"day": 27,
 "dst": true,
-"hour": 0,
-"minute": 18,
-"month": 5,
-"second": 59,
-"weekday": 0,
+"hour": 13,
+"minute": 6,
+"month": 7,
+"second": 33,
+"weekday": 1,
 "year": 2026
 },
 &"loader_statistics": {
 "bounds_max": Vector3(11.935601, 7.8739657, 4.4746313),
 "bounds_min": Vector3(-12.082072, 0.15310723, -12.628657),
-"cache_hit": true,
-"cache_time_ms": 23.975,
+"cache_hit": false,
+"cache_time_ms": 13.808,
 "format": "binary",
-"header_time_ms": 0.838,
-"load_time_ms": 26.264,
-"parse_time_ms": 0.0,
+"header_time_ms": 0.104,
+"load_time_ms": 302.92,
+"parse_time_ms": 43.289,
 "properties": 14,
 "splat_count": 4096
 },
-&"max_splats": 250000,
+&"max_splats": 0,
 &"memory_breakdown_mb": {
-&"colors_mb": 0.006248474,
-&"positions_mb": 0.009372711,
-&"rotations_mb": 0.012496948,
-&"scales_mb": 0.009372711,
-&"total_mb": 0.037490845
+&"colors_mb": 0.0625,
+&"positions_mb": 0.046875,
+&"rotations_mb": 0.0625,
+&"scales_mb": 0.046875,
+&"total_mb": 0.21875
 },
-&"memory_estimate_mb": 0.037490845,
+&"memory_estimate_mb": 0.21875,
 &"normalize_opacity": true,
 &"optimize_for_gpu": true,
 &"options": {
 &"compression/pack_opacity": false,
-&"compression/quantize_colors": true,
-&"compression/quantize_positions": true,
-&"compression/quantize_rotations": true,
-&"compression/quantize_scales": true,
+&"compression/quantize_colors": false,
+&"compression/quantize_positions": false,
+&"compression/quantize_rotations": false,
+&"compression/quantize_scales": false,
 &"general/asset_type": 0,
 &"metadata/include_memory_estimate": true,
 &"metadata/include_statistics": true,
 &"preview/generate_thumbnail": true,
-&"preview/thumbnail_size": 96,
-&"preview/thumbnail_style": 1,
+&"preview/thumbnail_size": 192,
+&"preview/thumbnail_style": 2,
 &"processing/normalize_opacity": true,
+&"processing/prune_importance_threshold": 0.0,
+&"processing/prune_ratio": 1.0,
 &"processing/sort_by_opacity": false,
 &"quality/customized": false,
-&"quality/density_multiplier": 0.4,
+&"quality/density_multiplier": 1.0,
 &"quality/enable_lod": true,
-&"quality/max_splats": 250000,
+&"quality/max_splats": 0,
 &"quality/optimize_for_gpu": true,
-&"quality/preset": "mobile",
+&"quality/preset": "ultra",
 &"validation/validate_required_properties": true,
 &"validation/warn_missing_optional": true
 },
 &"original_splat_count": 4096,
-&"preset_display": "Mobile",
+&"pre_prune_splat_count": 4096,
+&"preset_display": "Ultra Quality",
+&"prune_importance_threshold": 0.0,
+&"prune_ratio": 1.0,
 &"quality_customized": false,
-&"quality_preset": "mobile",
+&"quality_preset": "ultra",
 &"sort_by_opacity": false,
 &"source_file": "res://tests/fixtures/synthetic_cloud.ply",
 &"source_path": "res://tests/fixtures/synthetic_cloud.ply",
-&"splat_count": 1638,
+&"splat_count": 4096,
 &"thumbnail_generated": true,
-&"thumbnail_size": 96,
-&"thumbnail_style": 1,
-&"thumbnail_style_name": "Density",
+&"thumbnail_size": 192,
+&"thumbnail_style": 2,
+&"thumbnail_style_name": "Normals",
 &"validate_required": true,
 &"warn_missing_optional": true
 }
@@ -93,22 +98,24 @@ dest_files=["res://.godot/imported/synthetic_cloud.ply-f733b0a98cdaf71dff5dbc591
 
 [params]
 
-quality/preset="mobile"
+quality/preset="ultra"
 general/asset_type=0
-quality/max_splats=250000
-quality/density_multiplier=0.4
+quality/max_splats=0
+quality/density_multiplier=1.0
 quality/enable_lod=true
 quality/optimize_for_gpu=true
 validation/validate_required_properties=true
 validation/warn_missing_optional=true
 processing/normalize_opacity=true
 processing/sort_by_opacity=false
-compression/quantize_positions=true
-compression/quantize_colors=true
-compression/quantize_scales=true
-compression/quantize_rotations=true
+processing/prune_ratio=1.0
+processing/prune_importance_threshold=0.0
+compression/quantize_positions=false
+compression/quantize_colors=false
+compression/quantize_scales=false
+compression/quantize_rotations=false
 preview/generate_thumbnail=true
-preview/thumbnail_style=1
-preview/thumbnail_size=96
+preview/thumbnail_style=2
+preview/thumbnail_size=192
 metadata/include_statistics=true
 metadata/include_memory_estimate=true
