@@ -255,8 +255,22 @@ def validate_baseline_candidate(
             for name, value in metrics.items()
             if not is_non_deterministic_baseline_metric(name, value)
         }
+        ssim_thresholds = [
+            name for name in comparable
+            if "ssim" in name.lower() and "threshold" in name.lower()
+        ]
+        ssim_measurements = [
+            name for name in comparable
+            if "ssim" in name.lower() and "threshold" not in name.lower()
+        ]
+        if ssim_thresholds and not ssim_measurements:
+            reasons.append(
+                f"{scene}: SSIM acceptance threshold(s) {', '.join(sorted(ssim_thresholds))} "
+                "are present but no SSIM measurement was recorded; this scene captured nothing comparable."
+            )
         for name, value in comparable.items():
-            if "ssim" in name.lower() and "threshold" not in name.lower():
+            lowered_name = name.lower()
+            if "ssim" in lowered_name and "threshold" not in lowered_name:
                 if not isinstance(value, (int, float)) or isinstance(value, bool):
                     reasons.append(f"{scene}.{name}: SSIM metric is not numeric ({value!r}).")
                 elif value != value:  # NaN — calculate_ssim's capture-failure sentinel.
@@ -265,6 +279,14 @@ def validate_baseline_candidate(
                     reasons.append(
                         f"{scene}.{name}: SSIM is {value}, which no successful capture produces; "
                         "this run did not render."
+                    )
+            if lowered_name.endswith("tie_break_margin"):
+                if not isinstance(value, (int, float)) or isinstance(value, bool):
+                    reasons.append(f"{scene}.{name}: tie-break margin is not numeric ({value!r}).")
+                elif value != value or value <= 0.0:
+                    reasons.append(
+                        f"{scene}.{name}: tie-break margin is {value}; "
+                        "a non-positive margin cannot prove which ordering signal won."
                     )
     return reasons
 
@@ -809,14 +831,14 @@ class BaselineQARunner:
             return {"kind": "minimum_ratio", "value": MINIMUM_FPS_RATIO}
         if "frame_time" in metric or metric.endswith("_ms") or metric.endswith("_time_ms"):
             return {"kind": "maximum_ratio", "value": MAXIMUM_TIME_RATIO}
-        # The measured pixel dominance IS the sort-order signal for
-        # qa_sort_depth_order / qa_sort_multi_instance — red must occlude blue.
-        # It is a rendered value, so it moves with the build (0.440 on an
-        # optimized local build, 0.404 on CI's -O0), hence a ratio rather than
-        # equality. The floor stays well above the scenes' own 0.15 acceptance
-        # gate, so this catches a dominance collapse the scene would still wave
-        # through, without firing on build noise.
-        if metric.endswith("red_minus_blue"):
+        # Measured pixel dominance is a sort-order signal, but it moves with the
+        # build, so compare it by ratio rather than equality. For the depth-order
+        # scenes the floor stays above their own 0.15 acceptance gate. For the
+        # tie-break scene this also prevents an almost-equal red/green pixel from
+        # retaining the same binary winner while its ordering signal collapses.
+        # The committed optimized-build margin is 0.0078431442 and CI measured
+        # 0.0078431368, well inside the same observed-noise allowance.
+        if metric.endswith("red_minus_blue") or metric.endswith("tie_break_margin"):
             return {"kind": "minimum_ratio", "value": MINIMUM_DOMINANCE_RATIO}
         return None
 
@@ -1142,7 +1164,10 @@ class BaselineQARunner:
                 # equality is the only sensible relation on them.
                 if isinstance(baseline_value, (str, bool, list)):
                     comparison["metrics_checked"] += 1
-                    if current_value != baseline_value:
+                    # JSON booleans need an explicit type contract: Python
+                    # considers True == 1 and False == 0. Equality alone would
+                    # therefore let a pinned boolean silently become numeric.
+                    if type(current_value) is not type(baseline_value) or current_value != baseline_value:
                         comparison["regressions"].append(
                             {
                                 "scene": scene_name,
@@ -1150,7 +1175,7 @@ class BaselineQARunner:
                                 "baseline": baseline_value,
                                 "current": current_value,
                                 "threshold": baseline_value,
-                                "rule": "current == baseline (path identity)",
+                                "rule": "current type and value == baseline (path identity)",
                             }
                         )
                     continue
@@ -1267,7 +1292,11 @@ class BaselineQARunner:
                         }
                     )
 
-        has_regressions = bool(comparison["regressions"]) or bool(comparison["missing_scenes"])
+        has_regressions = (
+            bool(comparison["regressions"])
+            or bool(comparison["missing_scenes"])
+            or bool(comparison["new_scenes"])
+        )
         comparison["status"] = "failed" if has_regressions else "passed"
         self.test_results["summary"]["qa_baseline"] = comparison
         self._write_baseline_artifacts(comparison, report_path, summary_path)
@@ -1276,6 +1305,8 @@ class BaselineQARunner:
             print("\n[FAIL] QA baseline regression detected:")
             for scene_name in comparison["missing_scenes"]:
                 print(f"   Missing current results for {scene_name}")
+            for scene_name in comparison["new_scenes"]:
+                print(f"   Current QA scene has no committed baseline: {scene_name}")
             for entry in comparison["regressions"]:
                 print(
                     "   {scene}: {metric} baseline={baseline} current={current} threshold={threshold} ({rule})".format(

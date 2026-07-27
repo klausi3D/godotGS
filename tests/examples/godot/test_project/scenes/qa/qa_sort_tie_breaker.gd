@@ -94,17 +94,22 @@ func _on_test_complete():
 	# comparison still reports 1.0. A reversed tie-break would have been
 	# invisible to this scene.
 	#
-	# The contract is in tile_binning.glsl: the depth key is
-	# `(depth_quant << 8) | (global_idx & 0xFF)`, so equal depths resolve by
-	# ASCENDING global index. Splat 0 is red and splat 1 is green, so the
-	# higher index is composited last and green must own the centre pixel.
+	# The key packing suggests green should dominate, but the measured composite
+	# is a red-leading blend. The intended winner is unresolved (#792), so record
+	# the observed direction and margin instead of asserting one here; the
+	# committed baseline makes either a reversal or a signal collapse visible.
 	var winner_image: Image = captured_images[captured_images.size() - 1]
 	var center := Vector2i(winner_image.get_width() / 2, winner_image.get_height() / 2)
 	var center_color := winner_image.get_pixel(center.x, center.y)
 	result_metrics["center_color"] = center_color
-	var winner := "green" if center_color.g > center_color.r else "red"
+	var channel_delta := center_color.g - center_color.r
+	var winner := "tie"
+	if channel_delta > 0.0:
+		winner = "green"
+	elif channel_delta < 0.0:
+		winner = "red"
 	result_metrics["tie_break_winner"] = winner
-	result_metrics["tie_break_margin"] = absf(center_color.r - center_color.g)
+	result_metrics["tie_break_margin"] = absf(channel_delta)
 
 	var min_ssim = 1.0
 	var sum_ssim = 0.0

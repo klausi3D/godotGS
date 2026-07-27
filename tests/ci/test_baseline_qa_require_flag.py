@@ -49,6 +49,7 @@ import json
 import re
 import tempfile
 import unittest
+from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -57,6 +58,84 @@ spec = importlib.util.spec_from_file_location("run_baseline_qa", SCRIPT)
 assert spec and spec.loader
 run_baseline_qa = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(run_baseline_qa)
+
+QA_SCENE_PATH_RE = re.compile(
+    r'^[ \t]*"(res://scenes/qa/[^"\n]+\.tscn)"',
+    re.MULTILINE,
+)
+
+
+def _qa_inventory_failures(scene_files, runner_text, baseline_payload):
+    """Compare disk, runner enrollment, quarantine, and baseline from sources."""
+    failures = []
+    active_match = re.search(
+        r"var test_scenes:.*?=\s*\[(.*?)^\]",
+        runner_text,
+        re.DOTALL | re.MULTILINE,
+    )
+    quarantine_match = re.search(
+        r"const QUARANTINED_SCENES\s*:=\s*\{(.*?)^\}",
+        runner_text,
+        re.DOTALL | re.MULTILINE,
+    )
+    if active_match is None or quarantine_match is None:
+        return ["Could not derive active and quarantined QA scene blocks from qa_test_runner.gd."]
+
+    active_list = QA_SCENE_PATH_RE.findall(active_match.group(1))
+    quarantine_list = QA_SCENE_PATH_RE.findall(quarantine_match.group(1))
+    declarations = Counter(active_list + quarantine_list)
+    duplicate_declarations = sorted(path for path, count in declarations.items() if count != 1)
+    if duplicate_declarations:
+        failures.append(f"QA scenes declared other than exactly once: {duplicate_declarations}")
+
+    active = set(active_list)
+    quarantine = set(quarantine_list)
+    disk = set(scene_files)
+    if active & quarantine:
+        failures.append(f"QA scenes both active and quarantined: {sorted(active & quarantine)}")
+    if disk - (active | quarantine):
+        failures.append(f"QA scene files neither active nor quarantined: {sorted(disk - (active | quarantine))}")
+    if (active | quarantine) - disk:
+        failures.append(f"Runner declares missing QA scene files: {sorted((active | quarantine) - disk)}")
+
+    baseline_active = {
+        entry.get("scene")
+        for entry in baseline_payload.get("results", [])
+        if isinstance(entry, dict) and entry.get("scene")
+    }
+    baseline_quarantine = set((baseline_payload.get("quarantined") or {}).keys())
+    if baseline_active != active:
+        failures.append(
+            "Committed baseline active scenes differ from the runner: "
+            f"missing={sorted(active - baseline_active)} extra={sorted(baseline_active - active)}"
+        )
+    if baseline_quarantine != quarantine:
+        failures.append(
+            "Committed baseline quarantine differs from the runner: "
+            f"missing={sorted(quarantine - baseline_quarantine)} "
+            f"extra={sorted(baseline_quarantine - quarantine)}"
+        )
+    return failures
+
+
+def _production_evidence_streaming_count_failures(script_text):
+    """Ensure evidence counts executed results, never path strings in source."""
+    match = re.search(
+        r"\$qaStreamingSceneCount\s*=\s*0(.*?)\$issue897Ready",
+        script_text,
+        re.DOTALL,
+    )
+    if match is None:
+        return ["Could not locate the QA streaming-count block."]
+    block = match.group(1)
+    failures = []
+    for required in ("$qaSummary.results", "Where-Object", "$_.scene", "res://scenes/qa/qa_stream*"):
+        if required not in block:
+            failures.append(f"Streaming-count block does not use executed-result signal {required!r}.")
+    for forbidden in ("Select-String", "qa_test_runner.gd"):
+        if forbidden in block:
+            failures.append(f"Streaming-count block still derives enabled scenes from source text: {forbidden!r}.")
+    return failures
 
 
 class RecordQaBaselineSkippedTest(unittest.TestCase):
@@ -384,6 +463,156 @@ class WorkflowCategorySelectionTest(unittest.TestCase):
             "its expectations absorbs regressions instead of detecting them.",
         )
 
+    def test_documented_strict_qa_commands_require_real_capture(self):
+        """Every advertised QA compare/update command must request capture.
+
+        Derive the command set from the documentation instead of pinning row
+        names: any current or future run_baseline_qa.py command that selects QA
+        and either enforces or updates the baseline promises real measurements.
+        Without --qa-require-capture it launches headless and can compare none.
+        """
+        guide = ROOT / "docs" / "testing" / "setup-guide.md"
+        rows = [
+            line
+            for line in guide.read_text(encoding="utf-8").splitlines()
+            if "run_baseline_qa.py" in line
+            and re.search(r"--categor(?:y|ies)\s+qa(?:\b|,)", line)
+            and ("--require-qa-baseline" in line or "--update-qa-baseline" in line)
+        ]
+        self.assertGreater(
+            len(rows), 0,
+            "No documented strict/update QA command was found; this guard asserted nothing.",
+        )
+        missing = [line for line in rows if "--qa-require-capture" not in line]
+        self.assertEqual(
+            missing, [],
+            "Documented QA commands that can certify or rewrite the baseline "
+            "must require real capture:\n  " + "\n  ".join(missing),
+        )
+
+
+class QaInventoryAndEvidenceContractTest(unittest.TestCase):
+    """QA enrollment and evidence must be derived from executed ground truth."""
+
+    def test_every_committed_qa_scene_is_enrolled_exactly_once_and_baselined(self):
+        scene_dir = ROOT / "tests" / "examples" / "godot" / "test_project" / "scenes" / "qa"
+        scene_files = {f"res://scenes/qa/{path.name}" for path in scene_dir.glob("*.tscn")}
+        self.assertTrue(scene_files, "No QA scene files were discovered; this guard asserted nothing.")
+
+        runner = (
+            ROOT / "tests" / "examples" / "godot" / "test_project" / "scripts" / "qa_test_runner.gd"
+        ).read_text(encoding="utf-8")
+        baseline = json.loads(
+            (ROOT / "tests" / "ci" / "baselines" / "qa_results.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            _qa_inventory_failures(scene_files, runner, baseline),
+            [],
+            "QA scene enrollment drifted across disk, runner, quarantine, or baseline.",
+        )
+
+    def test_inventory_guard_discriminates_on_an_unenrolled_scene(self):
+        runner = (
+            'var test_scenes: Array[String] = [\n'
+            '\t"res://scenes/qa/active.tscn",\n'
+            ']\n'
+            'const QUARANTINED_SCENES := {\n'
+            '}\n'
+        )
+        baseline = {
+            "results": [{"scene": "res://scenes/qa/active.tscn"}],
+            "quarantined": {},
+        }
+        failures = _qa_inventory_failures(
+            {"res://scenes/qa/active.tscn", "res://scenes/qa/forgotten.tscn"},
+            runner,
+            baseline,
+        )
+        self.assertEqual(
+            failures,
+            ["QA scene files neither active nor quarantined: ['res://scenes/qa/forgotten.tscn']"],
+        )
+
+    def test_inventory_guard_does_not_enroll_a_commented_out_scene(self):
+        runner = (
+            'var test_scenes: Array[String] = [\n'
+            '\t"res://scenes/qa/active.tscn",\n'
+            '\t# "res://scenes/qa/commented.tscn",\n'
+            ']\n'
+            'const QUARANTINED_SCENES := {\n'
+            '}\n'
+        )
+        baseline = {
+            "results": [
+                {"scene": "res://scenes/qa/active.tscn"},
+                {"scene": "res://scenes/qa/commented.tscn"},
+            ],
+            "quarantined": {},
+        }
+        failures = _qa_inventory_failures(
+            {
+                "res://scenes/qa/active.tscn",
+                "res://scenes/qa/commented.tscn",
+            },
+            runner,
+            baseline,
+        )
+        self.assertEqual(
+            failures,
+            [
+                "QA scene files neither active nor quarantined: "
+                "['res://scenes/qa/commented.tscn']",
+                "Committed baseline active scenes differ from the runner: "
+                "missing=[] extra=['res://scenes/qa/commented.tscn']",
+            ],
+        )
+
+    def test_production_evidence_counts_executed_streaming_results(self):
+        script = (ROOT / "tests" / "ci" / "collect_production_evidence.ps1").read_text(encoding="utf-8")
+        self.assertEqual(
+            _production_evidence_streaming_count_failures(script),
+            [],
+            "Production evidence must not count quarantined source strings as enabled scenes.",
+        )
+
+    def test_tie_break_classifier_does_not_call_exact_equality_red(self):
+        scene = (
+            ROOT
+            / "tests"
+            / "examples"
+            / "godot"
+            / "test_project"
+            / "scenes"
+            / "qa"
+            / "qa_sort_tie_breaker.gd"
+        ).read_text(encoding="utf-8")
+        classifier = re.search(
+            r"var channel_delta :=.*?result_metrics\[\"tie_break_margin\"\] = absf\(channel_delta\)",
+            scene,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(classifier, "Could not locate the tie-break winner classifier.")
+        block = classifier.group(0)
+        self.assertIn('var winner := "tie"', block)
+        self.assertIn('winner = "green"', block)
+        self.assertIn('winner = "red"', block)
+        self.assertIn("elif channel_delta < 0.0", block)
+
+    def test_evidence_source_guard_rejects_the_legacy_regex(self):
+        legacy = (
+            '$qaStreamingSceneCount = 0\n'
+            '$qaRunnerScript = "qa_test_runner.gd"\n'
+            '$qaStreamingSceneMatches = @(Select-String -Path $qaRunnerScript)\n'
+            '$qaStreamingSceneCount = $qaStreamingSceneMatches.Count\n'
+            '$issue897Ready = $false\n'
+        )
+        failures = _production_evidence_streaming_count_failures(legacy)
+        self.assertIn(
+            "Streaming-count block still derives enabled scenes from source text: 'Select-String'.",
+            failures,
+        )
+        self.assertTrue(any("$qaSummary.results" in failure for failure in failures), failures)
+
 
 class QaRequireCaptureTest(unittest.TestCase):
     """The third laundering path (#522): a lane that promised a GPU, skipped.
@@ -611,7 +840,29 @@ class BaselineCandidateValidationTest(unittest.TestCase):
         reasons = run_baseline_qa.validate_baseline_candidate(
             [self._scene(metrics={"ssim_threshold": 0.95})]
         )
-        self.assertEqual(reasons, [], "A threshold is allowed to be present on its own.")
+        self.assertEqual(len(reasons), 1, reasons)
+        self.assertIn("no SSIM measurement", reasons[0])
+        self.assertIn("ssim_threshold", reasons[0])
+
+    def test_non_positive_tie_break_margin_cannot_be_frozen(self):
+        """A zero baseline makes a minimum-ratio rule vacuous, while the binary
+        winner can still report `red`; baseline refresh must reject that state."""
+        for value in (0.0, -0.001, float("nan")):
+            with self.subTest(value=value):
+                reasons = run_baseline_qa.validate_baseline_candidate(
+                    [
+                        self._scene(
+                            name="res://scenes/qa/qa_sort_tie_breaker.tscn",
+                            metrics={
+                                "ssim_min": 1.0,
+                                "ssim_threshold": 0.98,
+                                "tie_break_winner": "red",
+                                "tie_break_margin": value,
+                            },
+                        )
+                    ]
+                )
+                self.assertTrue(any("tie-break margin" in reason for reason in reasons), reasons)
 
 
 class NonDeterministicMetricStrippingTest(unittest.TestCase):
@@ -732,7 +983,7 @@ class PathIdentityComparisonTest(unittest.TestCase):
     no numeric threshold can see that.
     """
 
-    def _compare(self, baseline_metrics, current_metrics):
+    def _compare(self, baseline_metrics, current_metrics, *, additional_current_scenes=None):
         with tempfile.TemporaryDirectory() as raw_td:
             td = Path(raw_td)
             scene = "res://scenes/qa/qa_sort_depth_order.tscn"
@@ -743,7 +994,19 @@ class PathIdentityComparisonTest(unittest.TestCase):
             qa_results = td / "qa_results.json"
             baseline = td / "baselines" / "qa_results.json"
             baseline.parent.mkdir(parents=True, exist_ok=True)
-            qa_results.write_text(json.dumps(payload(current_metrics)), encoding="utf-8")
+            current_payload = payload(current_metrics)
+            for scene_name, metrics in (additional_current_scenes or {}).items():
+                current_payload["results"].append(
+                    {
+                        "scene": scene_name,
+                        "passed": True,
+                        "skipped": False,
+                        "message": "",
+                        "metrics": metrics,
+                    }
+                )
+            current_payload["summary"]["total_tests"] = len(current_payload["results"])
+            qa_results.write_text(json.dumps(current_payload), encoding="utf-8")
             baseline.write_text(json.dumps(payload(baseline_metrics)), encoding="utf-8")
 
             runner = run_baseline_qa.BaselineQARunner(godot_binary="unused")
@@ -773,6 +1036,20 @@ class PathIdentityComparisonTest(unittest.TestCase):
         self.assertEqual(len(comparison["regressions"]), 1)
         self.assertEqual(comparison["regressions"][0]["metric"], "route_uid")
 
+    def test_a_new_current_scene_without_a_baseline_fails_closed(self):
+        """Activating a quarantined or newly added scene requires a reviewed
+        baseline refresh; merely listing it as informational is fail-open."""
+        metrics = {"route_uid": "INSTANCE.RASTER.COMPUTE"}
+        new_scene = "res://scenes/qa/qa_newly_activated.tscn"
+        ok, comparison = self._compare(
+            metrics,
+            dict(metrics),
+            additional_current_scenes={new_scene: {"ssim_min": 1.0}},
+        )
+        self.assertFalse(ok, "A scene with no committed baseline must block the compare lane.")
+        self.assertEqual(comparison["new_scenes"], [new_scene])
+        self.assertEqual(comparison["status"], "failed")
+
     def test_a_missing_metric_is_a_regression_not_a_silent_pass(self):
         """If a scene stops emitting a pinned metric entirely, current is None.
         Skipping the comparison there would let a scene quietly stop reporting
@@ -784,6 +1061,22 @@ class PathIdentityComparisonTest(unittest.TestCase):
     def test_boolean_flags_compare_exactly(self):
         ok, _ = self._compare({"streaming_data_source_seen": True}, {"streaming_data_source_seen": False})
         self.assertFalse(ok)
+
+    def test_boolean_flags_cannot_degrade_to_numeric_values(self):
+        """Python equality treats True == 1 and False == 0, but JSON types are
+        part of the pinned path contract and must not disappear silently."""
+        for baseline, current in ((True, 1), (False, 0)):
+            with self.subTest(baseline=baseline, current=current):
+                ok, comparison = self._compare(
+                    {"stage_metrics_valid": baseline},
+                    {"stage_metrics_valid": current},
+                )
+                self.assertFalse(
+                    ok,
+                    f"A pinned boolean becoming numeric must fail despite {baseline} == {current}.",
+                )
+                self.assertEqual(comparison["regressions"][0]["current"], current)
+                self.assertIn("type and value", comparison["regressions"][0]["rule"])
 
     def test_numeric_rules_are_unaffected(self):
         """bool is a subclass of int in Python, so the exact-match branch must
@@ -837,6 +1130,25 @@ class DisappearingAndUnruledMetricTest(PathIdentityComparisonTest):
         self.assertTrue(ok, "The measured local-vs-CI build spread must not fail the gate.")
         ok, _ = self._compare({"red_minus_blue": 0.440}, {"red_minus_blue": 0.10})
         self.assertFalse(ok, "A dominance collapse must fail the gate.")
+
+    def test_tie_break_margin_is_compared_and_catches_signal_collapse(self):
+        """The binary winner can remain `red` while its red/green margin tends
+        toward zero, so the measured margin needs its own baseline rule."""
+        baseline = 0.00784314423799515
+        observed_ci = 0.00784313678741455
+        ok, comparison = self._compare({"tie_break_margin": baseline}, {"tie_break_margin": observed_ci})
+        self.assertTrue(ok, "The observed optimized-vs-CI spread must stay green.")
+        self.assertEqual(comparison["metrics_checked"], 1)
+        self.assertEqual(comparison.get("unchecked_metrics", []), [])
+
+        one_channel_lsb = 1.0 / 255.0
+        ok, comparison = self._compare(
+            {"tie_break_margin": baseline},
+            {"tie_break_margin": one_channel_lsb},
+        )
+        self.assertFalse(ok, "A one-channel-LSB margin must fail even if tie_break_winner is unchanged.")
+        self.assertEqual(comparison["regressions"][0]["metric"], "tie_break_margin")
+        self.assertIn("baseline *", comparison["regressions"][0]["rule"])
 
     def test_the_dominance_floor_is_stricter_than_the_scene_s_own_gate(self):
         """The rule only adds value if it fires before the scene's own 0.15
