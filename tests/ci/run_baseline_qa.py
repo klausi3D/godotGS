@@ -793,18 +793,22 @@ class BaselineQARunner:
 
     def _metric_rule(self, metric_name: str) -> Optional[Dict[str, Any]]:
         metric = metric_name.lower()
+        # ORDER MATTERS, and getting it wrong silently defeats the rule below.
+        # An acceptance THRESHOLD a scene was configured with is a contract, not
+        # a measurement: lowering it makes the scene permit renders it used to
+        # reject, while still passing. It must therefore be pinned exactly —
+        # but `ssim_threshold` also contains "ssim", so if the generic
+        # measurement rule is consulted first the threshold inherits SSIM's
+        # 0.02 tolerance and a 0.98 -> 0.97 weakening slips through. Contracts
+        # are classified before measurements for exactly that reason.
+        if metric.endswith("_dominance_margin") or metric.endswith("_threshold"):
+            return {"kind": "exact_contract"}
         if "ssim" in metric:
             return {"kind": "minimum_delta", "value": MINIMUM_SSIM_DROP}
         if "fps" in metric:
             return {"kind": "minimum_ratio", "value": MINIMUM_FPS_RATIO}
         if "frame_time" in metric or metric.endswith("_ms") or metric.endswith("_time_ms"):
             return {"kind": "maximum_ratio", "value": MAXIMUM_TIME_RATIO}
-        # An acceptance THRESHOLD a scene was configured with is a contract, not
-        # a measurement: if someone lowers it the scene keeps passing while
-        # asserting less. Pin it exactly, the same way the *_threshold metrics
-        # of the SSIM scenes are pinned.
-        if metric.endswith("_dominance_margin") or metric.endswith("_threshold"):
-            return {"kind": "exact_contract"}
         # The measured pixel dominance IS the sort-order signal for
         # qa_sort_depth_order / qa_sort_multi_instance — red must occlude blue.
         # It is a rendered value, so it moves with the build (0.440 on an
@@ -1178,7 +1182,13 @@ class BaselineQARunner:
                         }
                     )
                     continue
-                if not isinstance(current_value, (int, float)):
+                # `bool` is a subclass of `int` in Python, so a metric that
+                # degrades from 1.0 to `true` would satisfy the isinstance check
+                # and float(True) == 1.0 would then sail through the SSIM
+                # comparison — the type contract disappearing without a sound.
+                # Excluded explicitly rather than relying on the str/bool/list
+                # branch above, which only fires when the BASELINE is a bool.
+                if isinstance(current_value, bool) or not isinstance(current_value, (int, float)):
                     comparison["metrics_checked"] += 1
                     comparison["regressions"].append(
                         {

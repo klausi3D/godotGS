@@ -848,6 +848,32 @@ class DisappearingAndUnruledMetricTest(PathIdentityComparisonTest):
             f"Derived floor {derived_floor:.3f} must exceed the scenes' own 0.15 gate.",
         )
 
+    def test_ssim_threshold_is_a_contract_not_a_measurement(self):
+        """Review round 2: `ssim_threshold` contains "ssim", so consulting the
+        generic measurement rule first gave it SSIM's 0.02 tolerance and a
+        0.98 -> 0.97 weakening slipped through — silently defeating the
+        exact-contract rule added in round 1. Classification order is the fix."""
+        self.assertEqual(
+            run_baseline_qa.BaselineQARunner(godot_binary="unused")._metric_rule("ssim_threshold")["kind"],
+            "exact_contract",
+        )
+        ok, comparison = self._compare({"ssim_threshold": 0.98}, {"ssim_threshold": 0.97})
+        self.assertFalse(ok, "A weakened SSIM acceptance threshold must fail the gate.")
+        self.assertIn("acceptance contract", comparison["regressions"][0]["rule"])
+        # The measurement itself keeps its tolerance.
+        self.assertEqual(
+            run_baseline_qa.BaselineQARunner(godot_binary="unused")._metric_rule("ssim_min")["kind"],
+            "minimum_delta",
+        )
+
+    def test_a_numeric_metric_degrading_to_a_boolean_is_a_regression(self):
+        """Review round 2: bool is a subclass of int, so `ssim_min` changing
+        from 1.0 to `true` passed the numeric check and float(True) == 1.0 then
+        satisfied the SSIM comparison — the type contract vanishing silently."""
+        ok, comparison = self._compare({"ssim_min": 1.0}, {"ssim_min": True})
+        self.assertFalse(ok, "A numeric metric that becomes a boolean must fail.")
+        self.assertIn("missing or no longer numeric", comparison["regressions"][0]["rule"])
+
     def test_list_metrics_compare_by_equality(self):
         """`warnings` and `sorted_indices_preview` are deterministic
         collections; treating them as uncomparable made identical values fail."""
