@@ -339,6 +339,32 @@ def _parse_import_file(path: Path) -> dict:
             "compression_flags": int(compression.group(1)) if compression else None}
 
 
+def _fixture_thinning_failure(path: Path) -> str | None:
+    """Describe why one imported fixture cannot prove full source fidelity."""
+    counts = _parse_import_file(path)["counts"]
+    required = ("original_splat_count", "splat_count")
+    missing = [f'&"{field}"' for field in required if field not in counts]
+    if missing:
+        return (
+            f"{path.name}: missing top-level fidelity metadata: "
+            + ", ".join(missing)
+        )
+
+    original = counts["original_splat_count"]
+    final = counts["splat_count"]
+    if original <= 0:
+        return (
+            f'{path.name}: &"original_splat_count" must be positive, '
+            f"got {original}"
+        )
+    if final != original:
+        return (
+            f"{path.name}: imports {final} of {original} splats "
+            f"({final / original:.0%}) - the benchmark measures less than it names"
+        )
+    return None
+
+
 class FixtureImportFidelityTests(unittest.TestCase):
     """Committed benchmark fixtures must import at FULL fidelity (#790).
 
@@ -385,18 +411,54 @@ class FixtureImportFidelityTests(unittest.TestCase):
         """The invariant that actually matters: what was imported == what exists."""
         offenders = []
         for path in self._fixtures():
-            parsed = _parse_import_file(path)
-            counts = parsed["counts"]
-            original = counts.get("original_splat_count")
-            final = counts.get("splat_count")
-            if original is None or final is None:
-                continue
-            if final != original:
-                offenders.append(
-                    f"{path.name}: imports {final} of {original} splats "
-                    f"({final / original:.0%}) - the benchmark measures less than it names"
-                )
+            failure = _fixture_thinning_failure(path)
+            if failure is not None:
+                offenders.append(failure)
         self.assertEqual(offenders, [], "Thinned benchmark fixtures:\n  " + "\n  ".join(offenders))
+
+    def test_missing_top_level_fidelity_metadata_fails_closed(self):
+        """Removing either load-bearing count must not skip the fixture.
+
+        Keep the nested plain-string splat_count decoy in both probes: matching
+        it would recreate the parser bug that once compared the source count to
+        itself and passed the 40%-density fixture.
+        """
+        cases = {
+            "original_splat_count": '&"splat_count": 30000,\n',
+            "splat_count": '&"original_splat_count": 30000,\n',
+        }
+        with tempfile.TemporaryDirectory() as raw_td:
+            for missing_field, present_metadata in cases.items():
+                with self.subTest(missing_field=missing_field):
+                    probe = Path(raw_td) / f"missing_{missing_field}.ply.import"
+                    probe.write_text(
+                        '[remap]\n\nmetadata={\n'
+                        '&"loader_statistics": {\n'
+                        '"splat_count": 30000\n'
+                        '},\n'
+                        + present_metadata
+                        + '}\n\n[params]\n',
+                        encoding="utf-8",
+                    )
+                    self.assertEqual(
+                        _fixture_thinning_failure(probe),
+                        f'{probe.name}: missing top-level fidelity metadata: &"{missing_field}"',
+                    )
+
+    def test_zero_source_count_cannot_make_the_fidelity_check_vacuous(self):
+        with tempfile.TemporaryDirectory() as raw_td:
+            probe = Path(raw_td) / "zero_counts.ply.import"
+            probe.write_text(
+                '[remap]\n\nmetadata={\n'
+                '&"original_splat_count": 0,\n'
+                '&"splat_count": 0\n'
+                '}\n\n[params]\n',
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                _fixture_thinning_failure(probe),
+                'zero_counts.ply.import: &"original_splat_count" must be positive, got 0',
+            )
 
     def test_no_fixture_is_quantized(self):
         """Quantized assets render through a different (unlit) path, so a
@@ -460,6 +522,12 @@ class FixtureImportFidelityTests(unittest.TestCase):
             self.assertEqual(parsed["params"]["quality/preset"], '"mobile"')
             self.assertEqual(parsed["params"]["quality/density_multiplier"], "0.4")
             self.assertEqual(parsed["params"]["compression/quantize_positions"], "true")
+            self.assertEqual(
+                _fixture_thinning_failure(probe),
+                "thinned.ply.import: imports 12000 of 30000 splats (40%) - "
+                "the benchmark measures less than it names",
+                "The discrimination probe must exercise the guard decision, not only its parser.",
+            )
 
 
 if __name__ == "__main__":
