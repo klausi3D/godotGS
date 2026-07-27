@@ -24,6 +24,13 @@ SYNTHETIC_ASSET_PREP_SCRIPT = ROOT / "tests" / "runtime" / "prepare_synthetic_as
 MINIMUM_SSIM_DROP = 0.02
 MINIMUM_FPS_RATIO = 0.85
 MAXIMUM_TIME_RATIO = 1.20
+# Floor for the measured red-over-blue pixel dominance that proves back-to-front
+# sort order. Chosen so the committed baselines (0.404 measured on CI's -O0
+# build, 0.440 on an optimized build) stay comfortably inside it while the
+# resulting absolute floor -- 0.404 * 0.70 = 0.283 -- remains well ABOVE the
+# scenes' own 0.15 acceptance gate. That ordering is the point: if this rule
+# were looser than the scene's own assertion it would add nothing.
+MINIMUM_DOMINANCE_RATIO = 0.70
 TEST_CATEGORIES = ("ply", "pipeline", "sorting", "runtime", "module", "qa")
 CATEGORY_ALIASES = {"all": None}
 CLI_CATEGORY_CHOICES = tuple(CATEGORY_ALIASES.keys()) + TEST_CATEGORIES
@@ -792,6 +799,21 @@ class BaselineQARunner:
             return {"kind": "minimum_ratio", "value": MINIMUM_FPS_RATIO}
         if "frame_time" in metric or metric.endswith("_ms") or metric.endswith("_time_ms"):
             return {"kind": "maximum_ratio", "value": MAXIMUM_TIME_RATIO}
+        # An acceptance THRESHOLD a scene was configured with is a contract, not
+        # a measurement: if someone lowers it the scene keeps passing while
+        # asserting less. Pin it exactly, the same way the *_threshold metrics
+        # of the SSIM scenes are pinned.
+        if metric.endswith("_dominance_margin") or metric.endswith("_threshold"):
+            return {"kind": "exact_contract"}
+        # The measured pixel dominance IS the sort-order signal for
+        # qa_sort_depth_order / qa_sort_multi_instance — red must occlude blue.
+        # It is a rendered value, so it moves with the build (0.440 on an
+        # optimized local build, 0.404 on CI's -O0), hence a ratio rather than
+        # equality. The floor stays well above the scenes' own 0.15 acceptance
+        # gate, so this catches a dominance collapse the scene would still wave
+        # through, without firing on build noise.
+        if metric.endswith("red_minus_blue"):
+            return {"kind": "minimum_ratio", "value": MINIMUM_DOMINANCE_RATIO}
         return None
 
     def _build_baseline_summary_markdown(self, comparison: Dict[str, Any]) -> str:
@@ -1110,7 +1132,11 @@ class BaselineQARunner:
                 # to a SKIP is exactly what made qa_visual_diff score a perfect
                 # 1.0 while rendering nothing (#785), and a numeric tolerance
                 # can never see it.
-                if isinstance(baseline_value, (str, bool)):
+                #
+                # Lists are compared the same way: `warnings` and
+                # `sorted_indices_preview` are deterministic collections, and
+                # equality is the only sensible relation on them.
+                if isinstance(baseline_value, (str, bool, list)):
                     comparison["metrics_checked"] += 1
                     if current_value != baseline_value:
                         comparison["regressions"].append(
@@ -1125,17 +1151,78 @@ class BaselineQARunner:
                         )
                     continue
 
-                if not isinstance(baseline_value, (int, float)) or not isinstance(current_value, (int, float)):
+                # None in the baseline is a recorded absence, not a pin.
+                if baseline_value is None:
+                    comparison.setdefault("unchecked_metrics", []).append(f"{scene_name}.{metric_name}")
+                    continue
+
+                # A pinned numeric metric that stops being emitted, gets renamed,
+                # or changes type must FAIL, not be skipped. The old `continue`
+                # meant a refactor could silently delete the SSIM regression
+                # contract: the scene still exits 0, the metric simply vanishes,
+                # and the comparison reports "passed" having checked nothing.
+                # That is the same disappearing-coverage shape this lane exists
+                # to eliminate, so it is checked before any rule lookup — a
+                # metric the baseline pins is a contract regardless of whether
+                # this script currently knows how to compare its value.
+                if not isinstance(baseline_value, (int, float)):
+                    comparison["metrics_checked"] += 1
+                    comparison["regressions"].append(
+                        {
+                            "scene": scene_name,
+                            "metric": metric_name,
+                            "baseline": baseline_value,
+                            "current": current_value,
+                            "threshold": baseline_value,
+                            "rule": "baseline metric has an uncomparable type",
+                        }
+                    )
+                    continue
+                if not isinstance(current_value, (int, float)):
+                    comparison["metrics_checked"] += 1
+                    comparison["regressions"].append(
+                        {
+                            "scene": scene_name,
+                            "metric": metric_name,
+                            "baseline": baseline_value,
+                            "current": current_value,
+                            "threshold": baseline_value,
+                            "rule": "metric missing or no longer numeric (was pinned by the baseline)",
+                        }
+                    )
                     continue
 
                 rule = self._metric_rule(metric_name)
                 if rule is None:
+                    # Not silently dropped. A numeric metric nobody knows how to
+                    # compare is a coverage gap, and an unrecorded coverage gap
+                    # reads as "checked and fine" to anyone looking at
+                    # metrics_checked. Record it so the gap is countable.
+                    comparison.setdefault("unchecked_metrics", []).append(f"{scene_name}.{metric_name}")
                     continue
 
                 baseline_num = float(baseline_value)
                 current_num = float(current_value)
                 comparison["metrics_checked"] += 1
                 rule_kind = str(rule["kind"])
+
+                if rule_kind == "exact_contract":
+                    # A configured acceptance threshold, not a measurement:
+                    # lowering it makes the scene assert less while still
+                    # passing, which no tolerance can detect.
+                    if current_num != baseline_num:
+                        comparison["regressions"].append(
+                            {
+                                "scene": scene_name,
+                                "metric": metric_name,
+                                "baseline": baseline_num,
+                                "current": current_num,
+                                "threshold": baseline_num,
+                                "rule": "current == baseline (acceptance contract)",
+                            }
+                        )
+                    continue
+
                 rule_value = float(rule["value"])
 
                 passes = True

@@ -794,6 +794,102 @@ class PathIdentityComparisonTest(unittest.TestCase):
         self.assertFalse(ok, "A real SSIM collapse must still be caught by the tolerance rule.")
 
 
+class DisappearingAndUnruledMetricTest(PathIdentityComparisonTest):
+    """Review findings on the comparison's blind spots (#522 review round 1).
+
+    Three separate ways a pinned metric could stop being checked without
+    anything saying so. Each is the same underlying shape as the defect this
+    whole lane exists to remove: coverage that silently evaporates while the
+    gate keeps reporting green.
+    """
+
+    def test_a_numeric_metric_that_disappears_is_a_regression(self):
+        """Raised in review: a scene that still exits 0 but stops emitting (or
+        renames) `ssim_min` used to be skipped, so a refactor could delete the
+        SSIM contract and the comparison would report passed having checked
+        nothing."""
+        ok, comparison = self._compare({"ssim_min": 0.99}, {})
+        self.assertFalse(ok, "A vanished numeric metric must fail, not be skipped.")
+        self.assertEqual(len(comparison["regressions"]), 1)
+        self.assertIn("missing", comparison["regressions"][0]["rule"])
+
+    def test_a_metric_that_changes_type_is_a_regression(self):
+        ok, _ = self._compare({"ssim_min": 0.99}, {"ssim_min": "n/a"})
+        self.assertFalse(ok)
+
+    def test_acceptance_thresholds_are_pinned_exactly(self):
+        """Raised in review: lowering a scene's own acceptance margin makes it
+        assert less while still passing. A threshold is a contract value, so no
+        tolerance applies to it."""
+        ok, _ = self._compare({"red_dominance_margin": 0.15}, {"red_dominance_margin": 0.15})
+        self.assertTrue(ok)
+        ok, comparison = self._compare({"red_dominance_margin": 0.15}, {"red_dominance_margin": 0.05})
+        self.assertFalse(ok, "A lowered acceptance margin must fail the gate.")
+        self.assertIn("acceptance contract", comparison["regressions"][0]["rule"])
+        ok, _ = self._compare({"ssim_threshold": 0.95}, {"ssim_threshold": 0.5})
+        self.assertFalse(ok)
+
+    def test_measured_dominance_has_a_tolerance_but_still_catches_collapse(self):
+        """Raised in review: the sort-order signal itself was compared by
+        nothing. It is a rendered value, so it moves with the build - hence a
+        ratio - but a collapse must still fail."""
+        ok, _ = self._compare({"red_minus_blue": 0.440}, {"red_minus_blue": 0.404})
+        self.assertTrue(ok, "The measured local-vs-CI build spread must not fail the gate.")
+        ok, _ = self._compare({"red_minus_blue": 0.440}, {"red_minus_blue": 0.10})
+        self.assertFalse(ok, "A dominance collapse must fail the gate.")
+
+    def test_the_dominance_floor_is_stricter_than_the_scene_s_own_gate(self):
+        """The rule only adds value if it fires before the scene's own 0.15
+        acceptance gate would. Otherwise it is decoration."""
+        baseline = 0.404
+        derived_floor = baseline * run_baseline_qa.MINIMUM_DOMINANCE_RATIO
+        self.assertGreater(
+            derived_floor, 0.15,
+            f"Derived floor {derived_floor:.3f} must exceed the scenes' own 0.15 gate.",
+        )
+
+    def test_list_metrics_compare_by_equality(self):
+        """`warnings` and `sorted_indices_preview` are deterministic
+        collections; treating them as uncomparable made identical values fail."""
+        ok, _ = self._compare({"warnings": ["Non-uniform scale detected."]},
+                              {"warnings": ["Non-uniform scale detected."]})
+        self.assertTrue(ok, "Identical lists must compare equal, not fail as uncomparable.")
+        ok, _ = self._compare({"warnings": ["Non-uniform scale detected."]}, {"warnings": []})
+        self.assertFalse(ok, "A vanished warning must fail.")
+
+    def test_unruled_metrics_are_recorded_not_silently_dropped(self):
+        """A numeric metric nobody knows how to compare is a coverage gap. An
+        unrecorded gap reads as 'checked and fine' to anyone looking at
+        metrics_checked."""
+        ok, comparison = self._compare({"sort_cache_hits": 3}, {"sort_cache_hits": 9})
+        self.assertTrue(ok, "An unruled metric must not fail the gate...")
+        self.assertIn(
+            "res://scenes/qa/qa_sort_depth_order.tscn.sort_cache_hits",
+            comparison.get("unchecked_metrics", []),
+            "...but it must be recorded as unchecked.",
+        )
+
+    def test_the_committed_baseline_pins_the_tie_break_winner(self):
+        """Review finding: qa_sort_tie_breaker asserts only frame-to-frame
+        stability, so a consistently REVERSED tie-break still scores SSIM 1.0.
+        The recorded winner is what makes a reversal detectable, so the
+        baseline must actually carry it."""
+        baseline = ROOT / "tests" / "ci" / "baselines" / "qa_results.json"
+        payload = json.loads(baseline.read_text(encoding="utf-8"))
+        scene = next(
+            (e for e in payload["results"] if "qa_sort_tie_breaker" in e["scene"]), None
+        )
+        self.assertIsNotNone(scene, "qa_sort_tie_breaker must be in the committed baseline.")
+        self.assertIn(
+            "tie_break_winner", scene["metrics"],
+            "Without a pinned winner a reversed tie-break is invisible to this lane.",
+        )
+        self.assertIsInstance(
+            scene["metrics"]["tie_break_winner"], str,
+            "The winner must be a string so it is compared for exact equality.",
+        )
+
+
 class MetricValueFormattingTest(unittest.TestCase):
     """The red path must be able to report red (#522).
 
