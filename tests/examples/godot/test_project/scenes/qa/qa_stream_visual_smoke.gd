@@ -99,7 +99,7 @@ func _on_test_start():
 	if _is_headless_runtime():
 		result_metrics["skipped"] = true
 		_test_result = true
-		_test_message = "[QA_SKIP] Requires non-headless viewport."
+		_test_message = SKIP_MARKER + " Requires non-headless viewport."
 		_finish_test()
 		return
 
@@ -402,7 +402,7 @@ func _on_test_complete():
 	if bool(result_metrics.get("skipped", false)):
 		_test_result = true
 		if _test_message.is_empty():
-			_test_message = "[QA_SKIP] Requires non-headless viewport."
+			_test_message = SKIP_MARKER + " Requires non-headless viewport."
 		return
 
 	if not _capture_error.is_empty():

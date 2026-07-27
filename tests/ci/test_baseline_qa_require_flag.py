@@ -8,30 +8,38 @@ a require_baseline argument. So --require-qa-baseline /
 GS_CI_REQUIRE_QA_BASELINE had zero effect on that path: turning the switch on
 could never fail a run, even with the baseline file completely absent.
 
-CORRECTION (this claim was previously overstated here and in
-run_baseline_qa.py, in a PR whose entire subject is CI honesty). An earlier
-revision of this docstring said that skip path is "exactly the code path
-production CI takes". It is the path NO current CI run takes. main() only
-reaches it when the ``qa`` category is selected, and no workflow selects
-``qa``: baseline_qa.yml runs ``--categories sorting`` and ``--categories
-ply,pipeline,runtime,module``; gaussian_production_gates.yml runs
-``--category pipeline``. WorkflowCategorySelectionTest below pins that
-inventory to ground truth so the corrected statement cannot silently rot.
+HISTORY, kept because the corrections are the point. An early revision said
+that skip path is "exactly the code path production CI takes"; that was
+overstated and was corrected to "the path NO current CI run takes", because
+main() only reaches it when the ``qa`` category is selected and, at the time,
+no workflow selected ``qa``.
+
+UPDATED BY #522: a workflow selects ``qa`` now. baseline_qa.yml's GPU job runs
+``--categories qa --qa-require-capture --require-qa-baseline`` on the
+fork-guarded self-hosted runner, so the QA-skip path IS reachable from CI --
+and on that lane a skip is a hard failure rather than a legitimate skip,
+because the lane promised a GPU. WorkflowCategorySelectionTest below is
+inverted accordingly: it used to assert no lane selects ``qa``; it now asserts
+exactly one does, so the gate cannot be silently removed again.
 
 The underlying defect was real regardless of which lane hits it: the switch
 was inert wherever that path *is* reached (local/manual ``--category qa``
-runs, the command documented in docs/testing/setup-guide.md, and any future
-QA lane).
+runs, and the command documented in docs/testing/setup-guide.md).
 
-This test locks in the fix's contract:
-  - "legitimately not applicable" (QA Scene Suite could not run at all) is
-    always allowed to skip, regardless of the switch - no environment
-    variable makes a RenderingDevice appear.
-  - "baseline missing" is what the switch actually polices, and it must now
-    fail closed on this path too, not just inside compare_qa_baseline().
-  - The switch's pre-existing off-by-default behavior is unchanged.
-  - Requesting the switch on an invocation that never runs ``qa`` is a hard
-    failure, not a silent no-op (RequireBaselineAppliesTest).
+This test locks in the contract:
+  - "legitimately not applicable" (no RenderingDevice, capture not required)
+    is still allowed to skip - no environment variable makes a GPU appear.
+  - "baseline missing" is what --require-qa-baseline polices, and it fails
+    closed on this path too, not just inside compare_qa_baseline().
+  - "captured nothing on a lane that promised a GPU" is what
+    --qa-require-capture polices, and it fails closed even when a baseline
+    exists (QaRequireCaptureTest).
+  - The switches' pre-existing off-by-default behavior is unchanged.
+  - Requesting --require-qa-baseline on an invocation that never runs ``qa``
+    is a hard failure, not a silent no-op (RequireBaselineAppliesTest).
+  - Nothing that failed to render may become the golden baseline
+    (BaselineCandidateValidationTest), and the blocking lane may not compare
+    machine-dependent metrics (NonDeterministicMetricStrippingTest).
 """
 
 from __future__ import annotations
@@ -181,22 +189,35 @@ class ResolveQaRanTest(unittest.TestCase):
         self.assertTrue(run_baseline_qa.resolve_qa_ran(category=None, categories=None, quick=False))
 
 
-def _extract_baseline_qa_invocations():
+def _extract_baseline_qa_invocations(workflows_dir: Path | None = None):
     """Every run_baseline_qa.py invocation in .github/workflows, with the
     category selector each one passes.
 
+    ``workflows_dir`` defaults to the repo's real workflow directory and is
+    overridable so the parser's own behaviour can be tested against fixtures
+    instead of only against whatever the repo happens to contain today.
+
     Fail closed: an invocation whose selector cannot be parsed is reported as
     an unparsed entry rather than being quietly dropped, because a dropped
-    invocation is exactly how "no workflow selects qa" would rot into a false
-    statement.
+    invocation is exactly how a claim about which lanes run what would rot
+    into a false statement.
+
+    Comment lines are excluded. They are not invocations - nothing a comment
+    says is ever executed - and counting them made the guard fail on prose
+    that merely NAMES the script, which is the one thing a step explaining
+    itself is most likely to do. Excluding them narrows what the guard looks
+    at without letting any executable invocation through: a selector hidden
+    behind a `#` does not run either.
     """
-    workflows_dir = ROOT / ".github" / "workflows"
+    workflows_dir = workflows_dir or (ROOT / ".github" / "workflows")
     selector_re = re.compile(r"--categor(?:y|ies)\"?,?\s+\"?([A-Za-z][A-Za-z,]*)")
     invocations = []
     for workflow in sorted(workflows_dir.glob("*.yml")):
         lines = workflow.read_text(encoding="utf-8").splitlines()
         for index, line in enumerate(lines):
             if "run_baseline_qa.py" not in line:
+                continue
+            if line.lstrip().startswith("#"):
                 continue
             location = f"{workflow.name}:{index + 1}"
             match = selector_re.search(line)
@@ -239,6 +260,7 @@ class WorkflowCategorySelectionTest(unittest.TestCase):
     EXPECTED = sorted(
         [
             ("baseline_qa.yml", frozenset({"sorting"})),
+            ("baseline_qa.yml", frozenset({"qa"})),
             ("baseline_qa.yml", frozenset({"ply", "pipeline", "runtime", "module"})),
             ("gaussian_production_gates.yml", frozenset({"pipeline"})),
         ],
@@ -266,19 +288,503 @@ class WorkflowCategorySelectionTest(unittest.TestCase):
         )
         self.assertEqual(actual, self.EXPECTED)
 
-    def test_no_workflow_selects_the_qa_category(self):
-        offenders = [
+    def test_the_qa_category_is_selected_by_exactly_one_lane(self):
+        """Inverted by #522. This assertion used to read "no workflow selects
+        the qa category" and was TRUE: the SSIM scene suite ran nowhere, so the
+        renderer had no rendered-output gate at all. Activating the lane is the
+        fix, so the guard now polices the opposite fact - that the lane exists
+        and has not silently been dropped again.
+
+        Pinned to exactly one lane on purpose. The suite renders and reads back
+        viewports, so it only produces signal on a GPU runner; a second
+        invocation would almost certainly be a CPU lane that can only skip.
+        """
+        selecting = [
             location
             for location, selector in _extract_baseline_qa_invocations()
             if selector is not None and "qa" in selector
         ]
         self.assertEqual(
-            offenders,
-            [],
-            "A workflow now selects the 'qa' category. The claim in this file "
-            "and in run_baseline_qa._record_qa_baseline_skipped that no CI run "
-            "reaches the QA-skip path is now false - correct the prose.",
+            len(selecting),
+            1,
+            "Exactly one lane must select the 'qa' category (found: "
+            f"{selecting}). If this dropped to zero the visual gate was removed; "
+            "if it grew, a second lane is running the suite - confirm it has a "
+            "real display, because --headless cannot capture anything.",
         )
+        self.assertTrue(
+            selecting[0].startswith("baseline_qa.yml"),
+            f"The qa lane moved out of baseline_qa.yml (now {selecting[0]}); "
+            "update this pin and confirm the new home is fork-guarded and GPU-backed.",
+        )
+
+    def test_comment_lines_are_not_counted_as_invocations(self):
+        """Prose that names the script is not a lane.
+
+        The extractor scans every line mentioning run_baseline_qa.py, so a
+        step whose comment explains what the script does was reported as an
+        unparsed invocation and failed the fail-closed check - punishing the
+        documentation this repo asks for. Narrowing to non-comment lines must
+        not, however, let a real invocation escape.
+        """
+        with tempfile.TemporaryDirectory() as raw_td:
+            fake = Path(raw_td) / "workflows"
+            fake.mkdir(parents=True)
+            (fake / "sample.yml").write_text(
+                "jobs:\n"
+                "  a:\n"
+                "    steps:\n"
+                "    - name: Explain\n"
+                "      # run_baseline_qa.py launders a headless run into a skip\n"
+                "      run: |\n"
+                "        python tests/ci/run_baseline_qa.py --categories qa\n",
+                encoding="utf-8",
+            )
+            found = _extract_baseline_qa_invocations(fake)
+        self.assertEqual(len(found), 1, f"Expected exactly one real invocation, got {found}")
+        self.assertEqual(found[0][1], frozenset({"qa"}))
+
+    def test_a_commented_out_selector_does_not_satisfy_the_pin(self):
+        """The narrowing must not become a hiding place: a lane that is
+        commented out is not a lane, and the guard must report zero, not one."""
+        with tempfile.TemporaryDirectory() as raw_td:
+            fake = Path(raw_td) / "workflows"
+            fake.mkdir(parents=True)
+            (fake / "sample.yml").write_text(
+                "      run: |\n"
+                "        # python tests/ci/run_baseline_qa.py --categories qa\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(_extract_baseline_qa_invocations(fake), [])
+
+    def test_the_qa_lane_demands_capture_and_a_baseline(self):
+        """The lane selecting 'qa' is worthless without both switches.
+
+        Without --qa-require-capture the suite runs --headless, captures
+        nothing, and is laundered into a skip. Without --require-qa-baseline a
+        missing baseline downgrades to a warning. Either omission turns a
+        blocking gate back into theatre, and neither is visible in the category
+        selector this class otherwise pins.
+        """
+        workflow = ROOT / ".github" / "workflows" / "baseline_qa.yml"
+        text = workflow.read_text(encoding="utf-8")
+        qa_step = re.search(
+            r'"--categories",\s*"qa"(.*?)python tests/ci/run_baseline_qa\.py',
+            text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(qa_step, "Could not locate the qa lane's argv block in baseline_qa.yml.")
+        block = qa_step.group(1)
+        self.assertIn("--qa-require-capture", block, "The qa lane must require real capture.")
+        self.assertIn("--require-qa-baseline", block, "The qa lane must require a committed baseline.")
+        self.assertNotIn(
+            "--update-qa-baseline",
+            block,
+            "The qa lane must never rewrite its own baseline: a job that updates "
+            "its expectations absorbs regressions instead of detecting them.",
+        )
+
+
+class QaRequireCaptureTest(unittest.TestCase):
+    """The third laundering path (#522): a lane that promised a GPU, skipped.
+
+    --require-qa-baseline polices whether a baseline FILE exists.
+    --qa-require-capture polices whether the suite actually RENDERED. Before
+    #522 only the first existed, and the skip path's own docstring argued a
+    skip was always "legitimately not applicable" because no switch can make
+    a RenderingDevice appear. That reasoning held only while no lane promised
+    one. baseline_qa.yml's qa-visual lane now runs on the self-hosted GPU
+    runner, so a skip there means the GPU lane failed to render - and with a
+    baseline committed, the old code would have returned True and reported a
+    blocking lane green having compared nothing.
+    """
+
+    def _invoke(self, *, require_capture: bool, require_baseline: bool, baseline_present: bool):
+        with tempfile.TemporaryDirectory() as raw_td:
+            td = Path(raw_td)
+            baseline_path = td / "baselines" / "qa_results.json"
+            if baseline_present:
+                baseline_path.parent.mkdir(parents=True, exist_ok=True)
+                baseline_path.write_text(json.dumps({"results": []}), encoding="utf-8")
+
+            runner = run_baseline_qa.BaselineQARunner(godot_binary="unused")
+            qa_ok = runner._record_qa_baseline_skipped(
+                qa_results_path=td / "qa_results.json",
+                baseline_path=baseline_path,
+                report_path=None,
+                summary_path=None,
+                reason="QA Scene Suite requires local RenderingDevice when run with current headless configuration.",
+                require_baseline=require_baseline,
+                require_capture=require_capture,
+            )
+            return qa_ok, runner.test_results["summary"]["qa_baseline"]
+
+    def test_capture_required_skip_fails_even_with_a_baseline_present(self):
+        """The precise hole: baseline present + suite skipped used to pass."""
+        qa_ok, comparison = self._invoke(require_capture=True, require_baseline=True, baseline_present=True)
+        self.assertFalse(qa_ok, "A GPU lane that captured nothing must fail, not skip.")
+        self.assertEqual(comparison["status"], "failed")
+        self.assertTrue(comparison["require_capture"])
+
+    def test_capture_required_skip_fails_with_no_baseline_too(self):
+        qa_ok, comparison = self._invoke(require_capture=True, require_baseline=False, baseline_present=False)
+        self.assertFalse(qa_ok)
+        self.assertEqual(comparison["status"], "failed")
+
+    def test_capture_not_required_preserves_the_legitimate_skip(self):
+        """Off-by-default behavior is untouched: local headless runs still skip."""
+        qa_ok, comparison = self._invoke(require_capture=False, require_baseline=True, baseline_present=True)
+        self.assertTrue(qa_ok)
+        self.assertEqual(comparison["status"], "skipped")
+        self.assertFalse(comparison["require_capture"])
+
+    def test_qa_suite_argv_uses_the_real_display_only_when_capture_required(self):
+        """--headless has no RenderingDevice, so the suite cannot capture under
+        it. The flag must actually change how the suite is launched, not just
+        how its result is judged."""
+        headless_runner = run_baseline_qa.BaselineQARunner(godot_binary="godot", qa_require_capture=False)
+        capture_runner = run_baseline_qa.BaselineQARunner(godot_binary="godot", qa_require_capture=True)
+
+        def qa_command(runner):
+            for test in runner._build_test_table():
+                if test["name"] == "QA Scene Suite":
+                    return test["command"]
+            self.fail("QA Scene Suite entry not found in the test table.")
+
+        headless_cmd = qa_command(headless_runner)
+        capture_cmd = qa_command(capture_runner)
+
+        self.assertIn("--headless", headless_cmd)
+        self.assertNotIn("--headless", capture_cmd)
+        for flag in run_baseline_qa.GPU_DISPLAY_ARGS:
+            self.assertIn(flag, capture_cmd)
+        self.assertNotIn("--display-driver", headless_cmd)
+
+    def test_headless_skip_laundering_cannot_fire_on_a_capture_run(self):
+        """_is_expected_headless_qa_skip() converts a non-zero exit into a
+        success. It keys off '--headless' being in the argv, so a capture run
+        must be structurally out of its reach - otherwise a GPU lane whose
+        RenderingDevice died would be laundered into a pass."""
+        markers = (
+            "Failed to create primary local RenderingDevice\n"
+            "Failed to create shared local RenderingDevice\n"
+        )
+        capture_cmd = [
+            "godot",
+            *run_baseline_qa.GPU_DISPLAY_ARGS,
+            "--script",
+            "res://scripts/qa_test_runner.gd",
+        ]
+        self.assertFalse(
+            run_baseline_qa.BaselineQARunner._is_expected_headless_qa_skip(
+                "QA Scene Suite", capture_cmd, markers, ""
+            )
+        )
+        headless_cmd = ["godot", "--headless", "--script", "res://scripts/qa_test_runner.gd"]
+        self.assertTrue(
+            run_baseline_qa.BaselineQARunner._is_expected_headless_qa_skip(
+                "QA Scene Suite", headless_cmd, markers, ""
+            )
+        )
+
+
+class BaselineCandidateValidationTest(unittest.TestCase):
+    """Nothing that did not render may become the golden baseline (#522).
+
+    This is the highest-stakes guard in the lane. The comparator's SSIM rule
+    is `current >= baseline - MINIMUM_SSIM_DROP`, so a baseline that recorded
+    ssim 0.0 - the value calculate_ssim returned for a NULL capture before
+    #522 made it NaN - can never fail again. Freezing one silently disarms a
+    blocking gate forever, and nothing downstream would ever report it.
+    """
+
+    @staticmethod
+    def _scene(name="res://scenes/qa/qa_visual_diff.tscn", **overrides):
+        entry = {
+            "scene": name,
+            "passed": True,
+            "skipped": False,
+            "message": "SSIM: 0.9900 (threshold: 0.95)",
+            "metrics": {"ssim": 0.99, "ssim_threshold": 0.95},
+        }
+        entry.update(overrides)
+        return entry
+
+    def test_a_healthy_run_is_accepted(self):
+        self.assertEqual(run_baseline_qa.validate_baseline_candidate([self._scene()]), [])
+
+    def test_empty_results_are_rejected(self):
+        self.assertTrue(run_baseline_qa.validate_baseline_candidate([]))
+
+    def test_zero_ssim_is_rejected(self):
+        """The exact historical hazard: a null capture scored 0.0."""
+        reasons = run_baseline_qa.validate_baseline_candidate(
+            [self._scene(metrics={"ssim_min": 0.0, "ssim_threshold": 0.95})]
+        )
+        self.assertTrue(any("did not render" in reason for reason in reasons), reasons)
+
+    def test_nan_ssim_is_rejected(self):
+        reasons = run_baseline_qa.validate_baseline_candidate(
+            [self._scene(metrics={"ssim": float("nan"), "ssim_threshold": 0.95})]
+        )
+        self.assertTrue(any("NaN" in reason for reason in reasons), reasons)
+
+    def test_failing_scene_is_rejected(self):
+        reasons = run_baseline_qa.validate_baseline_candidate([self._scene(passed=False)])
+        self.assertTrue(any("FAILED" in reason for reason in reasons), reasons)
+
+    def test_skipped_scene_is_rejected(self):
+        reasons = run_baseline_qa.validate_baseline_candidate([self._scene(skipped=True)])
+        self.assertTrue(any("SKIPPED" in reason for reason in reasons), reasons)
+
+    def test_self_skip_marker_in_message_is_rejected(self):
+        """Belt and braces: a scene predating the `skipped` field still says so
+        in its message, and the old runner recorded that as passed=true."""
+        reasons = run_baseline_qa.validate_baseline_candidate(
+            [self._scene(message="[QA_SKIP] Requires non-headless viewport.")]
+        )
+        self.assertTrue(any("self-skipped" in reason for reason in reasons), reasons)
+
+    def test_metricless_scene_is_rejected(self):
+        reasons = run_baseline_qa.validate_baseline_candidate([self._scene(metrics={})])
+        self.assertTrue(any("no metrics" in reason for reason in reasons), reasons)
+
+    def test_validator_is_idempotent_over_its_own_sanitized_output(self):
+        """A scene whose every metric is machine-dependent (qa_performance_budget
+        reports only FPS/frame-time) is left with an empty metrics dict by
+        stripping. Without already_sanitized the validator would reject the
+        very baseline it had just approved."""
+        run = {
+            "results": [
+                {
+                    "scene": "res://scenes/qa/qa_performance_budget.tscn",
+                    "passed": True,
+                    "skipped": False,
+                    "message": "FPS avg=1095.9",
+                    "metrics": {"avg_fps": 1095.9, "p99_frame_time_ms": 1.4},
+                }
+            ]
+        }
+        self.assertEqual(run_baseline_qa.validate_baseline_candidate(run["results"]), [])
+        sanitized, dropped = run_baseline_qa.strip_non_deterministic_metrics(run)
+        self.assertEqual(sanitized["results"][0]["metrics"], {})
+        self.assertEqual(len(dropped), 2)
+        self.assertEqual(
+            run_baseline_qa.validate_baseline_candidate(sanitized["results"], already_sanitized=True),
+            [],
+            "Stripping must not turn an approved run into an invalid baseline.",
+        )
+
+    def test_metricless_scene_is_still_rejected_on_a_raw_run(self):
+        """already_sanitized relaxes exactly one rule and must not leak into
+        raw-run validation, where no metrics means the scene captured nothing."""
+        self.assertTrue(
+            run_baseline_qa.validate_baseline_candidate([self._scene(metrics={})]),
+            "A raw run with a metric-less scene must still be rejected.",
+        )
+
+    def test_committed_baseline_on_disk_is_valid(self):
+        """The file the blocking lane actually compares against must satisfy
+        the guard. A hand-edited or stale baseline is exactly the silent
+        disarming this whole mechanism exists to prevent."""
+        baseline = ROOT / "tests" / "ci" / "baselines" / "qa_results.json"
+        self.assertTrue(baseline.exists(), f"Committed QA baseline missing at {baseline}")
+        payload = json.loads(baseline.read_text(encoding="utf-8"))
+        reasons = run_baseline_qa.validate_baseline_candidate(
+            payload.get("results", []), already_sanitized=True
+        )
+        self.assertEqual(reasons, [], f"Committed QA baseline is not a valid baseline: {reasons}")
+
+    def test_committed_baseline_holds_no_machine_dependent_metrics(self):
+        """Re-stripping the committed baseline must be a no-op; if it drops
+        anything, a machine-dependent metric got in and the blocking lane
+        would fail on runner contention."""
+        baseline = ROOT / "tests" / "ci" / "baselines" / "qa_results.json"
+        payload = json.loads(baseline.read_text(encoding="utf-8"))
+        _sanitized, dropped = run_baseline_qa.strip_non_deterministic_metrics(payload)
+        self.assertEqual(dropped, [], f"Committed baseline still contains machine-dependent metrics: {dropped}")
+
+    def test_ssim_threshold_alone_is_not_treated_as_a_measurement(self):
+        """`ssim_threshold` is configuration, not a captured value; a scene
+        reporting only the threshold captured nothing, and the 0.95 must not
+        be mistaken for a healthy score."""
+        reasons = run_baseline_qa.validate_baseline_candidate(
+            [self._scene(metrics={"ssim_threshold": 0.95})]
+        )
+        self.assertEqual(reasons, [], "A threshold is allowed to be present on its own.")
+
+
+class NonDeterministicMetricStrippingTest(unittest.TestCase):
+    """A blocking gate must measure the renderer, not the runner (#522).
+
+    qa_performance_budget reported avg_fps ~1100-1260 across runs on an idle
+    RTX 3090. Pinned into a baseline compared at MINIMUM_FPS_RATIO=0.85, a
+    contended CI runner would fail the gate for being busy - the same trap
+    #630/#624 hit with the frame-time gate. The scenes keep asserting their
+    own absolute budgets internally (min_fps=20), which is where a perf
+    assertion belongs.
+    """
+
+    def test_fps_and_frame_time_metrics_are_classified_non_deterministic(self):
+        for name in ("avg_fps", "min_fps", "p1_fps", "p99_frame_time_ms", "max_frame_time_ms",
+                     "near_gpu_sorter_last_sort_ms", "far_gpu_sorter_last_sort_ms"):
+            self.assertTrue(run_baseline_qa.is_non_deterministic_baseline_metric(name), name)
+
+    def test_ssim_and_pixel_metrics_are_kept(self):
+        for name in ("ssim", "ssim_min", "ssim_avg", "ssim_threshold", "red_minus_blue",
+                     "visible_splats", "sorted_splats", "red_dominance_margin"):
+            self.assertFalse(run_baseline_qa.is_non_deterministic_baseline_metric(name), name)
+
+    def test_prefixed_variants_are_caught_by_the_predicate(self):
+        """qa_sort_multi_instance emits near_*/far_* copies of every metric, so
+        a hardcoded name list would miss them. This is why the classifier is a
+        predicate over markers rather than a frozen set."""
+        self.assertTrue(run_baseline_qa.is_non_deterministic_baseline_metric("near_gpu_sorter_last_sort_ms"))
+        self.assertTrue(run_baseline_qa.is_non_deterministic_baseline_metric("far_avg_fps"))
+
+    def test_stripping_removes_only_machine_dependent_metrics_and_reports_them(self):
+        payload = {
+            "summary": {"total_tests": 1},
+            "results": [
+                {
+                    "scene": "res://scenes/qa/qa_performance_budget.tscn",
+                    "passed": True,
+                    "metrics": {"avg_fps": 1095.8, "p99_frame_time_ms": 1.4, "ssim": 0.99},
+                }
+            ],
+        }
+        sanitized, dropped = run_baseline_qa.strip_non_deterministic_metrics(payload)
+        metrics = sanitized["results"][0]["metrics"]
+        self.assertEqual(metrics, {"ssim": 0.99})
+        self.assertEqual(
+            dropped,
+            [
+                "res://scenes/qa/qa_performance_budget.tscn.avg_fps",
+                "res://scenes/qa/qa_performance_budget.tscn.p99_frame_time_ms",
+            ],
+        )
+
+    def test_stripping_does_not_mutate_the_caller_payload(self):
+        payload = {"results": [{"scene": "s", "metrics": {"avg_fps": 100.0, "ssim": 0.9}}]}
+        run_baseline_qa.strip_non_deterministic_metrics(payload)
+        self.assertIn("avg_fps", payload["results"][0]["metrics"])
+
+
+class PathIdentityComparisonTest(unittest.TestCase):
+    """Path-identity metrics are compared for exact equality (#522).
+
+    route_uid / data_source / raster_path / stage_*_status name WHICH CODE
+    PATH ran. Measured identical across four independent runs, so a tolerance
+    is the wrong tool: a route silently degrading to a SKIP is precisely what
+    let qa_visual_diff score a perfect 1.0 while rendering nothing (#785), and
+    no numeric threshold can see that.
+    """
+
+    def _compare(self, baseline_metrics, current_metrics):
+        with tempfile.TemporaryDirectory() as raw_td:
+            td = Path(raw_td)
+            scene = "res://scenes/qa/qa_sort_depth_order.tscn"
+            payload = lambda metrics: {  # noqa: E731
+                "summary": {"total_tests": 1},
+                "results": [{"scene": scene, "passed": True, "skipped": False, "message": "", "metrics": metrics}],
+            }
+            qa_results = td / "qa_results.json"
+            baseline = td / "baselines" / "qa_results.json"
+            baseline.parent.mkdir(parents=True, exist_ok=True)
+            qa_results.write_text(json.dumps(payload(current_metrics)), encoding="utf-8")
+            baseline.write_text(json.dumps(payload(baseline_metrics)), encoding="utf-8")
+
+            runner = run_baseline_qa.BaselineQARunner(godot_binary="unused")
+            ok = runner.compare_qa_baseline(
+                qa_results_path=qa_results,
+                baseline_path=baseline,
+                update_baseline=False,
+                require_baseline=True,
+                report_path=None,
+                summary_path=None,
+            )
+            return ok, runner.test_results["summary"]["qa_baseline"]
+
+    def test_identical_path_identity_passes_and_is_counted(self):
+        metrics = {"route_uid": "INSTANCE.RASTER.COMPUTE", "stage_sort_status": "success"}
+        ok, comparison = self._compare(metrics, dict(metrics))
+        self.assertTrue(ok)
+        self.assertEqual(comparison["regressions"], [])
+        self.assertEqual(comparison["metrics_checked"], 2, "Exact-match metrics must be counted as checked.")
+
+    def test_a_changed_route_is_a_regression(self):
+        ok, comparison = self._compare(
+            {"route_uid": "INSTANCE.RASTER.COMPUTE"},
+            {"route_uid": "COMMON.SKIP.RESIDENT_NOT_FEASIBLE.RESIDENT_NO_INSTANCES"},
+        )
+        self.assertFalse(ok, "A route degrading to a SKIP must fail the lane.")
+        self.assertEqual(len(comparison["regressions"]), 1)
+        self.assertEqual(comparison["regressions"][0]["metric"], "route_uid")
+
+    def test_a_missing_metric_is_a_regression_not_a_silent_pass(self):
+        """If a scene stops emitting a pinned metric entirely, current is None.
+        Skipping the comparison there would let a scene quietly stop reporting
+        the very fact the baseline pins."""
+        ok, comparison = self._compare({"stage_raster_status": "success"}, {})
+        self.assertFalse(ok)
+        self.assertEqual(comparison["regressions"][0]["current"], None)
+
+    def test_boolean_flags_compare_exactly(self):
+        ok, _ = self._compare({"streaming_data_source_seen": True}, {"streaming_data_source_seen": False})
+        self.assertFalse(ok)
+
+    def test_numeric_rules_are_unaffected(self):
+        """bool is a subclass of int in Python, so the exact-match branch must
+        come first without capturing genuine numeric metrics."""
+        ok, comparison = self._compare({"ssim_min": 0.99}, {"ssim_min": 0.985})
+        self.assertTrue(ok, "0.985 is within MINIMUM_SSIM_DROP of 0.99.")
+        ok, _ = self._compare({"ssim_min": 0.99}, {"ssim_min": 0.50})
+        self.assertFalse(ok, "A real SSIM collapse must still be caught by the tolerance rule.")
+
+
+class MetricValueFormattingTest(unittest.TestCase):
+    """The red path must be able to report red (#522).
+
+    The regression reporter forced every field through float(), so the first
+    string regression it ever encountered raised ValueError and killed the run
+    instead of printing the failure. Caught by mutation-proving the exact-match
+    rule; without the mutation the crash would have shipped in a path that only
+    executes when something is already broken.
+    """
+
+    def test_strings_and_none_render_without_raising(self):
+        self.assertEqual(run_baseline_qa._format_metric_value("INSTANCE.RASTER.COMPUTE"), "'INSTANCE.RASTER.COMPUTE'")
+        self.assertEqual(run_baseline_qa._format_metric_value(None), "None")
+        self.assertEqual(run_baseline_qa._format_metric_value(True), "True")
+
+    def test_numbers_keep_their_fixed_precision(self):
+        self.assertEqual(run_baseline_qa._format_metric_value(0.985), "0.985000")
+        self.assertEqual(run_baseline_qa._format_metric_value(3), "3.000000")
+
+    def test_markdown_summary_renders_a_string_regression(self):
+        comparison = {
+            "status": "failed",
+            "mode": "compare",
+            "scenes_checked": 1,
+            "metrics_checked": 1,
+            "missing_scenes": [],
+            "new_scenes": [],
+            "regressions": [
+                {
+                    "scene": "res://scenes/qa/qa_sort_depth_order.tscn",
+                    "metric": "route_uid",
+                    "baseline": "INSTANCE.RASTER.COMPUTE",
+                    "current": "COMMON.SKIP.RESIDENT_NOT_FEASIBLE.RESIDENT_NO_INSTANCES",
+                    "threshold": "INSTANCE.RASTER.COMPUTE",
+                    "rule": "current == baseline (path identity)",
+                }
+            ],
+            "notes": [],
+        }
+        runner = run_baseline_qa.BaselineQARunner(godot_binary="unused")
+        markdown = runner._build_baseline_summary_markdown(comparison)
+        self.assertIn("route_uid", markdown)
+        self.assertIn("COMMON.SKIP", markdown)
 
 
 if __name__ == "__main__":

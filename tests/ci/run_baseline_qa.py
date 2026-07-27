@@ -5,6 +5,7 @@ Runs the core test scripts and validates results with proper error reporting
 """
 
 import argparse
+import copy
 import subprocess
 import sys
 import json
@@ -26,20 +27,56 @@ TEST_CATEGORIES = ("ply", "pipeline", "sorting", "runtime", "module", "qa")
 CATEGORY_ALIASES = {"all": None}
 CLI_CATEGORY_CHOICES = tuple(CATEGORY_ALIASES.keys()) + TEST_CATEGORIES
 
-# A missing QA baseline is a coverage gap, not a pass. Real golden baselines
-# don't exist yet (blocked on #522/#138), so this script must not fabricate
-# one or silently treat "nothing to compare against" as success without
-# saying so loudly. --require-qa-baseline (or this env var) is the switch
-# that turns the gap into a hard failure once a real baseline lands; no
-# workflow sets either today (see #596).
+# Windows display driver + Vulkan renderer + safe render thread. The headless
+# display driver cannot create a RenderingDevice, so anything that has to
+# render (or capture what it rendered) needs these; the Windows driver works
+# even on the service-mode self-hosted runner, while --render-thread separate
+# does not (see #104). Single-sourced so the `type: godot` dispatch and the QA
+# Scene Suite argv cannot drift apart.
+GPU_DISPLAY_ARGS = (
+    "--display-driver",
+    "windows",
+    "--rendering-driver",
+    "vulkan",
+    "--render-thread",
+    "safe",
+)
+
+# A missing QA baseline is a coverage gap, not a pass. This script must not
+# fabricate one or silently treat "nothing to compare against" as success
+# without saying so loudly. --require-qa-baseline (or this env var) turns the
+# gap into a hard failure; baseline_qa.yml's qa-visual lane sets it.
 REQUIRE_QA_BASELINE_ENV = "GS_CI_REQUIRE_QA_BASELINE"
 QA_BASELINE_COVERAGE_GAP_NOTE = (
-    "QA baseline regression detection is not enforced: no golden baseline "
-    "exists yet (blocked on #522/#138). This is a coverage gap, not a "
-    "verified pass. Pass --require-qa-baseline (or set "
-    f"{REQUIRE_QA_BASELINE_ENV}=1) once a real baseline is committed to make "
-    "this fail instead of skip."
+    "QA baseline regression detection is not enforced: no golden baseline was "
+    "found. This is a coverage gap, not a verified pass. Pass "
+    "--require-qa-baseline (or set "
+    f"{REQUIRE_QA_BASELINE_ENV}=1) to make this fail instead of skip."
 )
+
+# The QA Scene Suite only produces real signal when it can create a
+# RenderingDevice and read back a viewport. Under --headless every capture
+# returns null, every SSIM scene reports "no capture", and the run is
+# laundered into a skip. A lane that promises a GPU must therefore also
+# promise capture: --qa-require-capture runs the suite on the real display
+# AND refuses to accept a skip as a pass.
+QA_REQUIRE_CAPTURE_ENV = "GS_CI_GPU_REQUIRED"
+QA_CAPTURE_REQUIRED_BUT_SKIPPED_MESSAGE = (
+    "QA Scene Suite produced no results, but capture was declared REQUIRED "
+    "(--qa-require-capture / "
+    f"{QA_REQUIRE_CAPTURE_ENV}=1). On a lane that promises a GPU, a suite that "
+    "never captured is a failure of that promise, not a legitimate skip. "
+    "Refusing to launder it into a pass."
+)
+
+# Metrics whose value is a property of the machine, not of the renderer.
+# Pinning them in a committed baseline makes the gate measure runner
+# contention: a blocking lane would go red because CI was busy, not because
+# anything regressed (see #630/#624 for the same trap in the frame-time gate).
+# The scenes still assert their own absolute budgets internally
+# (qa_performance_budget: min_fps=20 vs ~1200 observed), which is where a
+# perf assertion belongs.
+NON_DETERMINISTIC_BASELINE_METRIC_MARKERS = ("fps", "frame_time", "_ms")
 
 
 REQUIRE_QA_BASELINE_INERT_MESSAGE = (
@@ -97,6 +134,128 @@ def _env_flag(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _format_metric_value(value: Any) -> str:
+    """Render a metric for a human-readable regression line.
+
+    Regressions are no longer numeric-only: path-identity metrics (route_uid,
+    data_source, stage_*_status) are compared for exact equality, and a missing
+    metric surfaces as None. The reporter previously forced every field through
+    float(), so the first string regression it ever saw crashed the run with a
+    ValueError instead of printing the failure — a red path that could not
+    report red.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return repr(value)
+    return f"{float(value):.6f}"
+
+
+def is_non_deterministic_baseline_metric(metric_name: str) -> bool:
+    """True for metrics whose value describes the runner, not the renderer.
+
+    See NON_DETERMINISTIC_BASELINE_METRIC_MARKERS. Kept as a predicate rather
+    than a hardcoded name list because the QA scenes emit metric names
+    dynamically (`near_*`/`far_*` prefixes in qa_sort_multi_instance), so any
+    frozen list would silently miss new ones — the failure mode called out in
+    the repo's derive-don't-enumerate guidance.
+    """
+    lowered = metric_name.lower()
+    return any(marker in lowered for marker in NON_DETERMINISTIC_BASELINE_METRIC_MARKERS)
+
+
+def validate_baseline_candidate(
+    results: List[Dict[str, Any]], *, already_sanitized: bool = False
+) -> List[str]:
+    """Reasons this QA output must NOT be frozen as a golden baseline.
+
+    Empty list == acceptable. This exists because promoting a bad run is
+    silently unrecoverable: the comparator only ever checks
+    ``current >= baseline - 0.02`` for SSIM, so a baseline that recorded
+    ``ssim_min = 0.0`` (the value calculate_ssim used to return for a NULL
+    capture) can never fail again. The gate would be permanently green while
+    testing nothing — the exact vacuous-pass shape this lane exists to
+    eliminate. Every rejection below describes a run that did not actually
+    render, so its numbers are not truth about the renderer.
+
+    ``already_sanitized`` marks the input as the OUTPUT of
+    strip_non_deterministic_metrics() rather than a raw run. It relaxes exactly
+    one rule: a metric-less scene. On a raw run that means "this scene captured
+    nothing" and must be rejected; on a sanitized baseline it can simply mean
+    every metric the scene reports was machine-dependent and was stripped
+    (qa_performance_budget reports only FPS and frame-time figures). Without
+    the distinction the function is not idempotent over its own output — it
+    would reject the very baseline it just approved.
+    """
+    reasons: List[str] = []
+    if not results:
+        reasons.append("QA output contains no scene results at all.")
+        return reasons
+
+    for entry in results:
+        scene = str(entry.get("scene", "<unnamed>"))
+        if not entry.get("passed", False):
+            reasons.append(f"{scene}: scene FAILED; a failing run must never become the baseline.")
+        if entry.get("skipped", False):
+            reasons.append(f"{scene}: scene SKIPPED; a skip frozen as a baseline is a permanent blind spot.")
+        message = str(entry.get("message", ""))
+        if "[QA_SKIP]" in message:
+            reasons.append(f"{scene}: self-skipped ({message.strip()}); it never rendered.")
+
+        metrics = entry.get("metrics")
+        if not isinstance(metrics, dict):
+            reasons.append(f"{scene}: 'metrics' is not an object, so it contributes nothing comparable.")
+            continue
+        if not metrics:
+            if not already_sanitized:
+                reasons.append(f"{scene}: reported no metrics, so it contributes nothing comparable.")
+            continue
+
+        comparable = {name: value for name, value in metrics.items() if not is_non_deterministic_baseline_metric(name)}
+        for name, value in comparable.items():
+            if "ssim" in name.lower() and "threshold" not in name.lower():
+                if not isinstance(value, (int, float)) or isinstance(value, bool):
+                    reasons.append(f"{scene}.{name}: SSIM metric is not numeric ({value!r}).")
+                elif value != value:  # NaN — calculate_ssim's capture-failure sentinel.
+                    reasons.append(f"{scene}.{name}: SSIM is NaN, meaning the capture failed.")
+                elif value <= 0.0:
+                    reasons.append(
+                        f"{scene}.{name}: SSIM is {value}, which no successful capture produces; "
+                        "this run did not render."
+                    )
+    return reasons
+
+
+def strip_non_deterministic_metrics(payload: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
+    """Return a copy of a QA payload with machine-dependent metrics removed.
+
+    A committed baseline is compared by a BLOCKING lane, so anything that
+    tracks runner contention rather than renderer behaviour has to go or the
+    gate reports load, not regressions. Returns the sanitized payload and the
+    sorted list of dropped ``scene.metric`` keys so the drop is auditable
+    instead of invisible.
+
+    A scene can legitimately end up with an EMPTY metrics dict here — every
+    metric qa_performance_budget reports is an FPS or frame-time figure. The
+    entry is deliberately kept rather than removed: it still pins the scene's
+    existence, so the comparator's ``missing_scenes`` check fails if the scene
+    silently drops out of the suite. (validate_baseline_candidate() rejects a
+    metric-less scene, but it runs on the raw pre-strip run, where that means
+    "captured nothing" — a different fact from "captured only machine-dependent
+    numbers".)
+    """
+    sanitized = copy.deepcopy(payload)
+    dropped: List[str] = []
+    for entry in sanitized.get("results", []):
+        metrics = entry.get("metrics")
+        if not isinstance(metrics, dict):
+            continue
+        scene = str(entry.get("scene", "<unnamed>"))
+        for name in sorted(metrics):
+            if is_non_deterministic_baseline_metric(name):
+                del metrics[name]
+                dropped.append(f"{scene}.{name}")
+    return sanitized, dropped
+
+
 def _ci_warning(message: str) -> None:
     """Print a [WARN] line plus, under GitHub Actions, a `::warning::`
     annotation — so a coverage gap shows up in the Checks UI/PR summary
@@ -152,8 +311,12 @@ def prepare_synthetic_assets() -> None:
 
 
 class BaselineQARunner:
-    def __init__(self, godot_binary: str = "godot"):
+    def __init__(self, godot_binary: str = "godot", qa_require_capture: bool = False):
         self.godot_binary = godot_binary
+        # When True the QA Scene Suite runs on the real display instead of
+        # --headless, so its viewport captures produce actual images. See
+        # QA_REQUIRE_CAPTURE_ENV.
+        self.qa_require_capture = qa_require_capture
         self.test_results = {
             "start_time": time.time(),
             "end_time": 0,
@@ -203,42 +366,42 @@ class BaselineQARunner:
         summary_path: Optional[Path],
         reason: str,
         require_baseline: bool = False,
+        require_capture: bool = False,
     ) -> bool:
         """Record that the QA Scene Suite itself did not produce results (e.g.
         no RenderingDevice in this headless environment).
 
-        That is "legitimately not applicable" — no amount of
-        --require-qa-baseline changes whether a RenderingDevice exists, so
-        this path always allows the skip. But --require-qa-baseline /
-        GS_CI_REQUIRE_QA_BASELINE polices a *different, orthogonal* fact:
-        whether a baseline file exists at all. Previously this method
-        returned True unconditionally and never looked at require_baseline,
-        so turning the switch on had zero effect whenever the QA Scene Suite
-        itself skipped. Fail closed here too: if the switch is on and there
-        is still no baseline to eventually enforce against, say so as a
-        failure, not a skip.
+        Two orthogonal switches police two different facts here, and BOTH
+        must fail closed or the skip laundered a pass:
 
-        Scope, stated precisely (an earlier revision of this docstring
-        overclaimed here and the claim was wrong): main() only reaches this
-        method when the ``qa`` category was actually selected — see the
-        ``qa_ran`` gate in main(). As of this commit **no workflow selects
-        ``qa``**: .github/workflows/baseline_qa.yml runs ``--categories
-        sorting`` and ``--categories ply,pipeline,runtime,module``, and
-        .github/workflows/gaussian_production_gates.yml runs ``--category
-        pipeline``. So this path is taken by *no* CI run today, not by every
-        one. It is reachable from local/manual ``--category qa`` runs (the
-        command documented in docs/testing/setup-guide.md) and from any
-        future QA lane, which is what this fix protects. The separate
-        laundering risk — setting the switch on a job that never runs ``qa``,
-        where it can do nothing at all — is handled in main() by failing
-        closed rather than letting the request pass silently.
+        ``require_baseline`` (--require-qa-baseline /
+        GS_CI_REQUIRE_QA_BASELINE) polices whether a baseline file exists at
+        all. An earlier revision returned True unconditionally and never
+        looked at it, so turning the switch on had zero effect whenever the
+        suite itself skipped.
+
+        ``require_capture`` (--qa-require-capture / GS_CI_GPU_REQUIRED)
+        polices whether the suite actually rendered. An earlier revision of
+        this docstring argued the skip was always "legitimately not
+        applicable" because "no amount of --require-qa-baseline changes
+        whether a RenderingDevice exists". That was true only while no lane
+        promised a RenderingDevice. It is now false: baseline_qa.yml's
+        qa-visual lane runs on the self-hosted GPU runner and passes
+        --qa-require-capture, so a suite that produced no results there means
+        the GPU lane failed to render — a hard failure, not a skip. Without
+        this branch the worst case is silent: baseline present + suite
+        skipped + require_baseline on would return True, and a blocking lane
+        would go green having compared nothing.
         """
         baseline_exists = baseline_path.exists()
         baseline_enforced_and_missing = require_baseline and not baseline_exists
+        capture_enforced_and_absent = bool(require_capture)
+        hard_failure = baseline_enforced_and_missing or capture_enforced_and_absent
 
         comparison: Dict[str, Any] = {
-            "status": "failed" if baseline_enforced_and_missing else "skipped",
+            "status": "failed" if hard_failure else "skipped",
             "coverage_gap": True,
+            "require_capture": require_capture,
             "mode": "compare",
             "qa_results_path": str(qa_results_path),
             "baseline_path": str(baseline_path),
@@ -258,13 +421,16 @@ class BaselineQARunner:
             "timestamp_unix": time.time(),
         }
 
-        if baseline_enforced_and_missing:
-            message = (
-                f"QA Scene Suite produced no results ({reason}) AND QA baseline "
-                f"missing at {baseline_path}, with --require-qa-baseline/"
-                f"{REQUIRE_QA_BASELINE_ENV} set. Refusing to launder a missing "
-                "baseline into a pass just because the suite also skipped."
-            )
+        if hard_failure:
+            if capture_enforced_and_absent:
+                message = f"{QA_CAPTURE_REQUIRED_BUT_SKIPPED_MESSAGE} Reason given: {reason}."
+            else:
+                message = (
+                    f"QA Scene Suite produced no results ({reason}) AND QA baseline "
+                    f"missing at {baseline_path}, with --require-qa-baseline/"
+                    f"{REQUIRE_QA_BASELINE_ENV} set. Refusing to launder a missing "
+                    "baseline into a pass just because the suite also skipped."
+                )
             comparison["notes"].append(message)
             print(f"[FAIL] {message}")
             self.test_results["summary"]["qa_baseline"] = comparison
@@ -288,10 +454,7 @@ class BaselineQARunner:
         if test_type == "godot":
             command = [self.godot_binary]
             if test.get("requires_gpu", False):
-                # Windows display driver + Vulkan renderer + safe render thread.
-                # Headless display driver cannot create a RenderingDevice; the
-                # Windows driver is required even on service-mode runners.
-                command.extend(["--display-driver", "windows", "--rendering-driver", "vulkan", "--render-thread", "safe"])
+                command.extend(GPU_DISPLAY_ARGS)
             else:
                 command.append("--headless")
             command.extend(["--verbose", "--script", test["script"]])
@@ -470,8 +633,29 @@ class BaselineQARunner:
             self.test_results["end_time"] = time.time()
             return False
 
+        tests = self._build_test_table()
+
+        selected_tests = tests
+        if categories:
+            selected_tests = [test for test in tests if test.get("category") in categories]
+        elif category:
+            selected_tests = [test for test in tests if test.get("category") == category]
+        elif quick:
+            quick_categories = {"ply", "sorting"}
+            selected_tests = [test for test in tests if test.get("category") in quick_categories]
+        return self._execute_selected_tests(selected_tests)
+
+    def _build_test_table(self) -> List[Dict]:
+        """The full inventory of runnable tests, independent of selection.
+
+        Split out of run_all_tests() so the QA Scene Suite's argv can be
+        asserted directly: whether that entry launches on the real display or
+        under --headless decides whether the whole category can capture
+        anything, and that is too important to be verifiable only by running
+        Godot.
+        """
         qa_output_path = str((ROOT / "tests" / "ci" / "qa_results.json").resolve())
-        tests: List[Dict] = [
+        return [
             {
                 "name": "PLY Loader Tests",
                 "type": "godot",
@@ -521,9 +705,13 @@ class BaselineQARunner:
             {
                 "name": "QA Scene Suite",
                 "type": "command",
+                # --headless cannot create a RenderingDevice, so every
+                # capture_viewport() in the suite returns null and the whole
+                # category degrades into a laundered skip. Only run headless
+                # when the caller has NOT declared that capture is required.
                 "command": [
                     self.godot_binary,
-                    "--headless",
+                    *(GPU_DISPLAY_ARGS if self.qa_require_capture else ("--headless",)),
                     "--path",
                     "tests/examples/godot/test_project",
                     "--script",
@@ -536,17 +724,9 @@ class BaselineQARunner:
             },
         ]
 
-        selected_tests = tests
-        if categories:
-            selected_tests = [test for test in tests if test.get("category") in categories]
-        elif category:
-            selected_tests = [test for test in tests if test.get("category") == category]
-        elif quick:
-            quick_categories = {"ply", "sorting"}
-            selected_tests = [test for test in tests if test.get("category") in quick_categories]
-
+    def _execute_selected_tests(self, selected_tests: List[Dict]) -> bool:
         if not selected_tests:
-            print(f"No tests selected for category='{category}'.")
+            print("No tests selected.")
             self.test_results["total_tests"] = 0
             self.test_results["end_time"] = time.time()
             return True
@@ -627,11 +807,11 @@ class BaselineQARunner:
             )
             for entry in regressions:
                 lines.append(
-                    "| {scene} | {metric} | {baseline:.6f} | {current:.6f} | {rule} |".format(
+                    "| {scene} | {metric} | {baseline} | {current} | {rule} |".format(
                         scene=entry.get("scene", ""),
                         metric=entry.get("metric", ""),
-                        baseline=float(entry.get("baseline", 0.0)),
-                        current=float(entry.get("current", 0.0)),
+                        baseline=_format_metric_value(entry.get("baseline")),
+                        current=_format_metric_value(entry.get("current")),
                         rule=entry.get("rule", ""),
                     )
                 )
@@ -732,14 +912,91 @@ class BaselineQARunner:
             self._write_baseline_artifacts(comparison, report_path, summary_path)
             return False
 
+        # A scene that self-skips still reports passed=true, so the suite exits
+        # 0 and CI would call this lane green while that scene verified nothing.
+        # When the lane promised a GPU, a skip means the promise broke.
+        if self.qa_require_capture:
+            skipped_scenes = [
+                str(entry.get("scene", "<unnamed>"))
+                for entry in current_results
+                if entry.get("skipped", False) or "[QA_SKIP]" in str(entry.get("message", ""))
+            ]
+            if skipped_scenes:
+                message = (
+                    f"{len(skipped_scenes)} QA scene(s) self-skipped on a lane that declared "
+                    "capture REQUIRED (--qa-require-capture / "
+                    f"{QA_REQUIRE_CAPTURE_ENV}=1): {', '.join(skipped_scenes)}. A skip on a GPU "
+                    "lane means the scene verified nothing; refusing to report it as a pass."
+                )
+                print(f"[FAIL] {message}")
+                comparison["status"] = "failed"
+                comparison["notes"].append(message)
+                comparison["skipped_scenes"] = skipped_scenes
+                self.test_results["summary"]["qa_baseline"] = comparison
+                self._write_baseline_artifacts(comparison, report_path, summary_path)
+                return False
+
         if update_baseline:
+            # Refuse to freeze a run that did not actually render. Writing one
+            # is silently unrecoverable: the comparator's SSIM rule is
+            # `current >= baseline - 0.02`, so a baseline holding ssim 0.0 can
+            # never fail again and the blocking lane stays green forever while
+            # testing nothing.
+            rejections = validate_baseline_candidate(current_results)
+            if rejections:
+                message = (
+                    f"Refusing to write a QA baseline from this run ({len(rejections)} "
+                    "problem(s)); a baseline captured from a non-rendering run makes the "
+                    "gate permanently unfailable."
+                )
+                print(f"[FAIL] {message}")
+                for reason in rejections:
+                    print(f"   - {reason}")
+                comparison["status"] = "failed"
+                comparison["notes"].append(message)
+                comparison["notes"].extend(rejections)
+                self.test_results["summary"]["qa_baseline"] = comparison
+                self._write_baseline_artifacts(comparison, report_path, summary_path)
+                return False
+
+            sanitized, dropped = strip_non_deterministic_metrics(current)
+            # Re-validate what will actually be written, not just what was
+            # measured. Stripping is the only step between the two, so this
+            # catches a sanitizer that ever starts removing more than it
+            # should — the file on disk is what the blocking lane compares
+            # against, so the file is what has to be proven sound.
+            post_strip = validate_baseline_candidate(sanitized.get("results", []), already_sanitized=True)
+            if post_strip:
+                message = (
+                    "Sanitizing the QA baseline produced a payload that is no longer valid "
+                    f"({len(post_strip)} problem(s)); refusing to write it."
+                )
+                print(f"[FAIL] {message}")
+                for reason in post_strip:
+                    print(f"   - {reason}")
+                comparison["status"] = "failed"
+                comparison["notes"].append(message)
+                comparison["notes"].extend(post_strip)
+                self.test_results["summary"]["qa_baseline"] = comparison
+                self._write_baseline_artifacts(comparison, report_path, summary_path)
+                return False
+
             baseline_path.parent.mkdir(parents=True, exist_ok=True)
-            baseline_path.write_text(qa_results_path.read_text(encoding="utf-8"), encoding="utf-8")
+            baseline_path.write_text(json.dumps(sanitized, indent=2) + "\n", encoding="utf-8")
             comparison["baseline_exists"] = True
             comparison["status"] = "updated"
             comparison["scenes_checked"] = len(current_results)
+            comparison["dropped_metrics"] = dropped
             comparison["notes"].append(f"Baseline refreshed from current QA output ({len(current_results)} scenes).")
+            if dropped:
+                comparison["notes"].append(
+                    f"Dropped {len(dropped)} machine-dependent metric(s) so the blocking "
+                    "compare measures the renderer, not runner contention: "
+                    f"{', '.join(dropped)}."
+                )
             print(f"[PASS] QA baseline updated at {baseline_path}")
+            if dropped:
+                print(f"   Dropped {len(dropped)} machine-dependent metric(s): {', '.join(dropped)}")
             self.test_results["summary"]["qa_baseline"] = comparison
             self._write_baseline_artifacts(comparison, report_path, summary_path)
             return True
@@ -805,6 +1062,31 @@ class BaselineQARunner:
             for metric_name in sorted(baseline_metrics.keys()):
                 baseline_value = baseline_metrics.get(metric_name)
                 current_value = current_metrics.get(metric_name)
+
+                # Path-identity metrics (route_uid, data_source, raster_path,
+                # stage_*_status, and the boolean seen/ok flags) name WHICH CODE
+                # PATH ran. They are deterministic by construction — measured
+                # identical across four independent runs — so they are compared
+                # for exact equality rather than tolerance. This is the highest-
+                # value comparison in the baseline: a route silently degrading
+                # to a SKIP is exactly what made qa_visual_diff score a perfect
+                # 1.0 while rendering nothing (#785), and a numeric tolerance
+                # can never see it.
+                if isinstance(baseline_value, (str, bool)):
+                    comparison["metrics_checked"] += 1
+                    if current_value != baseline_value:
+                        comparison["regressions"].append(
+                            {
+                                "scene": scene_name,
+                                "metric": metric_name,
+                                "baseline": baseline_value,
+                                "current": current_value,
+                                "threshold": baseline_value,
+                                "rule": "current == baseline (path identity)",
+                            }
+                        )
+                    continue
+
                 if not isinstance(baseline_value, (int, float)) or not isinstance(current_value, (int, float)):
                     continue
 
@@ -861,12 +1143,12 @@ class BaselineQARunner:
                 print(f"   Missing current results for {scene_name}")
             for entry in comparison["regressions"]:
                 print(
-                    "   {scene}: {metric} baseline={baseline:.6f} current={current:.6f} threshold={threshold:.6f} ({rule})".format(
+                    "   {scene}: {metric} baseline={baseline} current={current} threshold={threshold} ({rule})".format(
                         scene=entry["scene"],
                         metric=entry["metric"],
-                        baseline=float(entry["baseline"]),
-                        current=float(entry["current"]),
-                        threshold=float(entry["threshold"]),
+                        baseline=_format_metric_value(entry["baseline"]),
+                        current=_format_metric_value(entry["current"]),
+                        threshold=_format_metric_value(entry["threshold"]),
                         rule=str(entry["rule"]),
                     )
                 )
@@ -1044,10 +1326,21 @@ def main(argv: Optional[List[str]] = None):
         action="store_true",
         help=(
             "Fail if baseline file is unavailable in compare mode, instead of "
-            f"skipping with a coverage-gap warning. Equivalent to setting "
-            f"{REQUIRE_QA_BASELINE_ENV}=1. Not passed by any workflow today: "
-            "real QA baselines don't exist yet (#522, #138). Flip this (or the "
-            "env var) once one is committed to tests/ci/baselines/qa_results.json."
+            "skipping with a coverage-gap warning. Equivalent to setting "
+            f"{REQUIRE_QA_BASELINE_ENV}=1. Set by baseline_qa.yml's qa-visual "
+            "lane against tests/ci/baselines/qa_results.json."
+        ),
+    )
+    parser.add_argument(
+        "--qa-require-capture",
+        action="store_true",
+        help=(
+            "Run the QA Scene Suite on the real display (Windows/Vulkan) instead "
+            "of --headless, and treat a suite that produced no results as a "
+            f"failure rather than a skip. Equivalent to {QA_REQUIRE_CAPTURE_ENV}=1. "
+            "Headless has no RenderingDevice, so every viewport capture returns "
+            "null and the SSIM scenes cannot report anything real; a lane that "
+            "promises a GPU must pass this or it verifies nothing."
         ),
     )
     parser.add_argument(
@@ -1094,6 +1387,21 @@ def main(argv: Optional[List[str]] = None):
             f"{REQUIRE_QA_BASELINE_ENV} because --update-qa-baseline was provided."
         )
 
+    # --qa-require-capture and GS_CI_GPU_REQUIRED are equivalent switches, so a
+    # GPU lane that already exports the env var gets capture enforcement without
+    # an argv change. This decides BOTH how the suite is launched (real display
+    # vs --headless) and whether a no-results run may be laundered into a skip.
+    #
+    # Deliberately NOT given the structurally-inert check that
+    # require_baseline_applies() enforces for --require-qa-baseline. The env var
+    # predates this flag and already means "this lane has a GPU": baseline_qa.yml's
+    # gpu-tests lane sets GS_CI_GPU_REQUIRED=1 while running --categories sorting,
+    # so failing closed on "capture required but qa not selected" would break a
+    # green lane that never asked for QA. The mis-wiring this would have caught —
+    # a qa lane that silently stops running qa — is already caught by
+    # --require-qa-baseline, which the same lane sets.
+    qa_require_capture = args.qa_require_capture or _env_flag(QA_REQUIRE_CAPTURE_ENV)
+
     # Resolve --categories (plural) into a set if provided
     categories_set = None
     if args.categories:
@@ -1101,7 +1409,7 @@ def main(argv: Optional[List[str]] = None):
 
     # Run tests
     run_quick = args.quick and not category_arg_provided
-    runner = BaselineQARunner(godot_binary)
+    runner = BaselineQARunner(godot_binary, qa_require_capture=qa_require_capture)
     success = runner.run_all_tests(
         quick=run_quick,
         category=category,
@@ -1137,6 +1445,7 @@ def main(argv: Optional[List[str]] = None):
                 summary_path=baseline_summary_path,
                 reason=skip_reason,
                 require_baseline=require_baseline_effective,
+                require_capture=qa_require_capture,
             )
         else:
             qa_ok = runner.compare_qa_baseline(

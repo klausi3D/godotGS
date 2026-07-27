@@ -61,12 +61,36 @@ func _on_test_complete():
 		_test_message = "Insufficient captures"
 		return
 
+	result_metrics["ssim_threshold"] = ssim_stability_threshold
+
 	var min_ssim = 1.0
 	var sum_ssim = 0.0
 	var comparisons = 0
 
 	for i in range(1, captured_images.size()):
+		# Non-vacuity precondition. This scene asserts frame-to-frame
+		# STABILITY, so it is the most easily faked of all: two consecutive
+		# blank frames are perfectly stable and score 1.0. Prove the frames
+		# hold rendered content before scoring them.
+		var unscorable := describe_unscorable_pair(
+			captured_images[i - 1], captured_images[i], "frame %d" % (i - 1), "frame %d" % i
+		)
+		if not unscorable.is_empty():
+			_test_result = false
+			_test_message = "No comparable render, refusing to score stability: %s" % unscorable
+			return
 		var ssim = calculate_ssim(captured_images[i - 1], captured_images[i])
+		if is_nan(ssim):
+			# One frame pair was not comparable. min()/+= would silently
+			# propagate NAN into a recorded metric, so stop and report the
+			# capture fault instead of a fabricated stability score.
+			_test_result = false
+			_test_message = "Capture failure between frames %d and %d, no SSIM computed: %s" % [
+				i - 1, i, describe_capture_failure(
+					captured_images[i - 1], captured_images[i], "frame %d" % (i - 1), "frame %d" % i
+				)
+			]
+			return
 		min_ssim = min(min_ssim, ssim)
 		sum_ssim += ssim
 		comparisons += 1
@@ -74,7 +98,6 @@ func _on_test_complete():
 	var avg_ssim = sum_ssim / float(comparisons)
 	result_metrics["ssim_min"] = min_ssim
 	result_metrics["ssim_avg"] = avg_ssim
-	result_metrics["ssim_threshold"] = ssim_stability_threshold
 
 	_test_result = min_ssim >= ssim_stability_threshold
 	_test_message = "SSIM min=%.4f avg=%.4f" % [min_ssim, avg_ssim]

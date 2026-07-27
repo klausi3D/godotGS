@@ -1,0 +1,171 @@
+{
+  "quarantined": {
+    "res://scenes/qa/qa_sh_rotation.tscn": "#785: same invalid two-routes-in-one-scene design as qa_visual_diff; the world path is blank at every camera angle, so the SSIM measured the instance path against the clear colour.",
+    "res://scenes/qa/qa_stream_chunk_loading.tscn": "Pre-existing: streaming monitors not populated.",
+    "res://scenes/qa/qa_stream_eviction_churn.tscn": "Pre-existing: streaming monitors not populated.",
+    "res://scenes/qa/qa_stream_multi_asset.tscn": "Pre-existing: disabled until the runtime surface can prove true resident/streaming coexistence.",
+    "res://scenes/qa/qa_stream_visual_smoke.tscn": "#786: streaming/visual readiness is never reached (luma variance 0.00009 vs the 0.0002 gate) reproducibly across runs. Likely the same subsystem as #787, where GPU Streaming Stress crashes with STATUS_STACK_BUFFER_OVERRUN.",
+    "res://scenes/qa/qa_visual_diff.tscn": "#785: compares GaussianSplatWorld3D against GaussianSplatNode3D in ONE scene, but the renderer commits to a single route per frame and the node always publishes RESIDENT, so the world submission is skipped (route_uid COMMON.SKIP.RESIDENT_NOT_FEASIBLE.RESIDENT_NO_INSTANCES) and its capture is the clear colour. Scored SSIM 1.0000 blank-vs-blank and stayed green with one node displaced 3 world units. Also: the two fixtures hold 10 vs 10000 splats."
+  },
+  "results": [
+    {
+      "message": "Warning found",
+      "metrics": {
+        "warnings": [
+          "Non-uniform scale detected. Instance pipeline uses uniform scale for splats."
+        ]
+      },
+      "passed": true,
+      "scene": "res://scenes/qa/qa_scale_validation.tscn",
+      "skipped": false
+    },
+    {
+      "message": "flags total=2 rot=2 scale=2 trans0=1 full=1",
+      "metrics": {
+        "fully_identity": 1,
+        "rotation_identity": 2,
+        "scale_identity": 2,
+        "total_instances": 2,
+        "translation_zero": 1
+      },
+      "passed": true,
+      "scene": "res://scenes/qa/qa_static_fast_path.tscn",
+      "skipped": false
+    },
+    {
+      "message": "center_color r=1.000 g=0.498 b=0.560 red_minus_blue=0.440",
+      "metrics": {
+        "cached_render_reuse_enabled": false,
+        "center_color": "(1.0, 0.4976, 0.5603, 1.0)",
+        "cull_gpu_visible_count": 1,
+        "cull_static_chunk_total": 0,
+        "cull_visible_static_chunks": 0,
+        "data_source": "ResidentInstanceAtlas",
+        "gpu_sorter_algorithm": "Radix Sort",
+        "instance_pipeline_content_generation": 7568365412333361478,
+        "raster_path": "compute",
+        "raster_reject_index_mismatch": 0,
+        "red_dominance_margin": 0.15,
+        "red_minus_blue": 0.439651370048523,
+        "route_uid": "INSTANCE.RASTER.COMPUTE",
+        "sort_cache_hits": 0,
+        "sort_cache_misses": 0,
+        "sort_route_uid": "INSTANCE.SORT.GPU",
+        "sorted_indices_preview": [],
+        "sorted_splats": 2,
+        "stage_composite_reason": "",
+        "stage_composite_status": "success",
+        "stage_cull_reason": "",
+        "stage_cull_status": "success",
+        "stage_metrics_valid": true,
+        "stage_raster_cached": false,
+        "stage_raster_reason": "",
+        "stage_raster_status": "success",
+        "stage_sort_input_count": 1,
+        "stage_sort_reason": "",
+        "stage_sort_sorted_count": 2,
+        "stage_sort_status": "success",
+        "visible_splats": 2
+      },
+      "passed": true,
+      "scene": "res://scenes/qa/qa_sort_depth_order.tscn",
+      "skipped": false
+    },
+    {
+      "message": "SSIM min=1.0000 avg=1.0000",
+      "metrics": {
+        "ssim_avg": 1.0,
+        "ssim_min": 1.0,
+        "ssim_threshold": 0.98
+      },
+      "passed": true,
+      "scene": "res://scenes/qa/qa_sort_tie_breaker.tscn",
+      "skipped": false
+    },
+    {
+      "message": "center_color r=1.000 g=0.498 b=0.560 red_minus_blue=0.440",
+      "metrics": {
+        "center_color": "(1.0, 0.4976, 0.5603, 1.0)",
+        "far_cached_render_reuse_enabled": false,
+        "far_cull_gpu_visible_count": 2,
+        "far_cull_static_chunk_total": 0,
+        "far_cull_visible_static_chunks": 0,
+        "far_data_source": "ResidentInstanceAtlas",
+        "far_gpu_sorter_algorithm": "Radix Sort",
+        "far_instance_pipeline_content_generation": 2791351158453050958,
+        "far_raster_path": "compute",
+        "far_raster_reject_index_mismatch": 0,
+        "far_route_uid": "INSTANCE.RASTER.COMPUTE",
+        "far_sort_cache_hits": 0,
+        "far_sort_cache_misses": 0,
+        "far_sort_route_uid": "INSTANCE.SORT.GPU",
+        "far_sorted_indices_preview": [],
+        "far_sorted_splats": 2,
+        "far_stage_composite_reason": "",
+        "far_stage_composite_status": "success",
+        "far_stage_cull_reason": "",
+        "far_stage_cull_status": "success",
+        "far_stage_metrics_valid": true,
+        "far_stage_raster_cached": false,
+        "far_stage_raster_reason": "",
+        "far_stage_raster_status": "success",
+        "far_stage_sort_input_count": 2,
+        "far_stage_sort_reason": "",
+        "far_stage_sort_sorted_count": 2,
+        "far_stage_sort_status": "success",
+        "far_visible_splats": 2,
+        "near_cached_render_reuse_enabled": false,
+        "near_cull_gpu_visible_count": 2,
+        "near_cull_static_chunk_total": 0,
+        "near_cull_visible_static_chunks": 0,
+        "near_data_source": "ResidentInstanceAtlas",
+        "near_gpu_sorter_algorithm": "Radix Sort",
+        "near_instance_pipeline_content_generation": 2791351158453050958,
+        "near_raster_path": "compute",
+        "near_raster_reject_index_mismatch": 0,
+        "near_route_uid": "INSTANCE.RASTER.COMPUTE",
+        "near_sort_cache_hits": 0,
+        "near_sort_cache_misses": 0,
+        "near_sort_route_uid": "INSTANCE.SORT.GPU",
+        "near_sorted_indices_preview": [],
+        "near_sorted_splats": 2,
+        "near_stage_composite_reason": "",
+        "near_stage_composite_status": "success",
+        "near_stage_cull_reason": "",
+        "near_stage_cull_status": "success",
+        "near_stage_metrics_valid": true,
+        "near_stage_raster_cached": false,
+        "near_stage_raster_reason": "",
+        "near_stage_raster_status": "success",
+        "near_stage_sort_input_count": 2,
+        "near_stage_sort_reason": "",
+        "near_stage_sort_sorted_count": 2,
+        "near_stage_sort_status": "success",
+        "near_visible_splats": 2,
+        "red_dominance_margin": 0.15,
+        "red_minus_blue": 0.439651370048523,
+        "visible_splats": 2
+      },
+      "passed": true,
+      "scene": "res://scenes/qa/qa_sort_multi_instance.tscn",
+      "skipped": false
+    },
+    {
+      "message": "FPS avg=1042.4 p1=600.0 | Frame p99=1.7ms",
+      "metrics": {},
+      "passed": true,
+      "scene": "res://scenes/qa/qa_performance_budget.tscn",
+      "skipped": false
+    }
+  ],
+  "summary": {
+    "duration_s": 37.172,
+    "end_time": 39.417,
+    "failed": 0,
+    "passed": 6,
+    "quarantined": 6,
+    "skipped": 0,
+    "start_time": 2.245,
+    "total_tests": 6
+  }
+}
