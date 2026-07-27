@@ -147,23 +147,16 @@
       "passed": true,
       "scene": "res://scenes/qa/qa_sort_multi_instance.tscn",
       "skipped": false
-    },
-    {
-      "message": "FPS avg=1042.4 p1=600.0 | Frame p99=1.7ms",
-      "metrics": {},
-      "passed": true,
-      "scene": "res://scenes/qa/qa_performance_budget.tscn",
-      "skipped": false
     }
   ],
   "summary": {
     "duration_s": 37.172,
     "end_time": 39.417,
     "failed": 0,
-    "passed": 6,
-    "quarantined": 6,
+    "passed": 5,
+    "quarantined": 7,
     "skipped": 0,
     "start_time": 2.245,
-    "total_tests": 6
+    "total_tests": 5
   }
 }

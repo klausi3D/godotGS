@@ -12,7 +12,6 @@ var test_scenes: Array[String] = [
 	"res://scenes/qa/qa_sort_depth_order.tscn",
 	"res://scenes/qa/qa_sort_tie_breaker.tscn",
 	"res://scenes/qa/qa_sort_multi_instance.tscn",
-	"res://scenes/qa/qa_performance_budget.tscn",
 ]
 
 ## Scenes deliberately not run, and why.
@@ -42,6 +41,15 @@ const QUARANTINED_SCENES := {
 		"#786: streaming/visual readiness is never reached (luma variance 0.00009 vs the "
 		+ "0.0002 gate) reproducibly across runs. Likely the same subsystem as #787, "
 		+ "where GPU Streaming Stress crashes with STATUS_STACK_BUFFER_OVERRUN.",
+	"res://scenes/qa/qa_performance_budget.tscn":
+		"#523/#778: asserts an absolute frame-time budget, which on a shared "
+		+ "self-hosted runner building dev_build=yes (-O0) measures the machine, not "
+		+ "the renderer. Two consecutive CI runs of this lane measured p99 55.2ms then "
+		+ "65.2ms against a 60ms limit — the same signal that failed the frame-time "
+		+ "gate in #630/#624. CI also measured avg_fps 24.9 where an optimized local "
+		+ "build measures 1095.9, a 44x spread from the build config alone. Perf "
+		+ "gating belongs in the benchmark lanes, which persist per-machine baselines; "
+		+ "this lane exists to gate correctness and render-path identity.",
 	"res://scenes/qa/qa_stream_multi_asset.tscn":
 		"Pre-existing: disabled until the runtime surface can prove true "
 		+ "resident/streaming coexistence.",
