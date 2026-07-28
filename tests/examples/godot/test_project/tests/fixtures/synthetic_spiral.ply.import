@@ -1,85 +1,90 @@
 [remap]
 
 importer="gaussian_splat_ply"
-importer_version=6
+importer_version=11
 type="GaussianSplatAsset"
 uid="uid://c55d8ehnx4ui8"
 path="res://.godot/imported/synthetic_spiral.ply-c298c30d74cc92ca79055883fc813c1e.res"
 metadata={
 &"asset_type": 0,
 &"bounds": AABB(-9.296723, -8.493733, -13.358533, 18.558113, 16.841106, 18.801277),
-&"compression_flags": 15,
+&"compression_flags": 0,
 &"dc_encoding": "linear_rgb",
-&"density_multiplier": 0.4,
+&"density_multiplier": 1.0,
 &"enable_lod": true,
 &"import_time": {
-"day": 3,
+"day": 27,
 "dst": true,
-"hour": 0,
-"minute": 18,
-"month": 5,
-"second": 59,
-"weekday": 0,
+"hour": 13,
+"minute": 6,
+"month": 7,
+"second": 33,
+"weekday": 1,
 "year": 2026
 },
 &"loader_statistics": {
 "bounds_max": Vector3(9.26139, 8.347373, 5.4427443),
 "bounds_min": Vector3(-9.296723, -8.493733, -13.358533),
-"cache_hit": true,
-"cache_time_ms": 34.534,
+"cache_hit": false,
+"cache_time_ms": 19.376,
 "format": "binary",
-"header_time_ms": 0.714,
-"load_time_ms": 36.455,
-"parse_time_ms": 0.0,
+"header_time_ms": 0.076,
+"load_time_ms": 258.559,
+"parse_time_ms": 169.734,
 "properties": 14,
 "splat_count": 25000
 },
-&"max_splats": 250000,
+&"max_splats": 0,
 &"memory_breakdown_mb": {
-&"colors_mb": 0.038146973,
-&"positions_mb": 0.05722046,
-&"rotations_mb": 0.076293945,
-&"scales_mb": 0.05722046,
-&"total_mb": 0.22888184
+&"colors_mb": 0.38146973,
+&"positions_mb": 0.2861023,
+&"rotations_mb": 0.38146973,
+&"scales_mb": 0.2861023,
+&"total_mb": 1.335144
 },
-&"memory_estimate_mb": 0.22888184,
+&"memory_estimate_mb": 1.335144,
 &"normalize_opacity": true,
 &"optimize_for_gpu": true,
 &"options": {
 &"compression/pack_opacity": false,
-&"compression/quantize_colors": true,
-&"compression/quantize_positions": true,
-&"compression/quantize_rotations": true,
-&"compression/quantize_scales": true,
+&"compression/quantize_colors": false,
+&"compression/quantize_positions": false,
+&"compression/quantize_rotations": false,
+&"compression/quantize_scales": false,
 &"general/asset_type": 0,
 &"metadata/include_memory_estimate": true,
 &"metadata/include_statistics": true,
 &"preview/generate_thumbnail": true,
-&"preview/thumbnail_size": 96,
-&"preview/thumbnail_style": 1,
+&"preview/thumbnail_size": 192,
+&"preview/thumbnail_style": 2,
 &"processing/normalize_opacity": true,
+&"processing/prune_importance_threshold": 0.0,
+&"processing/prune_ratio": 1.0,
 &"processing/sort_by_opacity": false,
 &"quality/customized": false,
-&"quality/density_multiplier": 0.4,
+&"quality/density_multiplier": 1.0,
 &"quality/enable_lod": true,
-&"quality/max_splats": 250000,
+&"quality/max_splats": 0,
 &"quality/optimize_for_gpu": true,
-&"quality/preset": "mobile",
+&"quality/preset": "ultra",
 &"validation/validate_required_properties": true,
 &"validation/warn_missing_optional": true
 },
 &"original_splat_count": 25000,
-&"preset_display": "Mobile",
+&"pre_prune_splat_count": 25000,
+&"preset_display": "Ultra Quality",
+&"prune_importance_threshold": 0.0,
+&"prune_ratio": 1.0,
 &"quality_customized": false,
-&"quality_preset": "mobile",
+&"quality_preset": "ultra",
 &"sort_by_opacity": false,
 &"source_file": "res://tests/fixtures/synthetic_spiral.ply",
 &"source_path": "res://tests/fixtures/synthetic_spiral.ply",
-&"splat_count": 10000,
+&"splat_count": 25000,
 &"thumbnail_generated": true,
-&"thumbnail_size": 96,
-&"thumbnail_style": 1,
-&"thumbnail_style_name": "Density",
+&"thumbnail_size": 192,
+&"thumbnail_style": 2,
+&"thumbnail_style_name": "Normals",
 &"validate_required": true,
 &"warn_missing_optional": true
 }
@@ -93,22 +98,24 @@ dest_files=["res://.godot/imported/synthetic_spiral.ply-c298c30d74cc92ca79055883
 
 [params]
 
-quality/preset="mobile"
+quality/preset="ultra"
 general/asset_type=0
-quality/max_splats=250000
-quality/density_multiplier=0.4
+quality/max_splats=0
+quality/density_multiplier=1.0
 quality/enable_lod=true
 quality/optimize_for_gpu=true
 validation/validate_required_properties=true
 validation/warn_missing_optional=true
 processing/normalize_opacity=true
 processing/sort_by_opacity=false
-compression/quantize_positions=true
-compression/quantize_colors=true
-compression/quantize_scales=true
-compression/quantize_rotations=true
+processing/prune_ratio=1.0
+processing/prune_importance_threshold=0.0
+compression/quantize_positions=false
+compression/quantize_colors=false
+compression/quantize_scales=false
+compression/quantize_rotations=false
 preview/generate_thumbnail=true
-preview/thumbnail_style=1
-preview/thumbnail_size=96
+preview/thumbnail_style=2
+preview/thumbnail_size=192
 metadata/include_statistics=true
 metadata/include_memory_estimate=true

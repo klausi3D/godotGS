@@ -1,85 +1,90 @@
 [remap]
 
 importer="gaussian_splat_ply"
-importer_version=6
+importer_version=11
 type="GaussianSplatAsset"
 uid="uid://qqmoaqljvyka"
 path="res://.godot/imported/synthetic_plane.ply-474536e58092e4b151fd0ca9de92877b.res"
 metadata={
 &"asset_type": 0,
 &"bounds": AABB(-9.700173, -0.9696859, -13.734253, 19.322021, 1.9203963, 19.409199),
-&"compression_flags": 15,
+&"compression_flags": 0,
 &"dc_encoding": "linear_rgb",
-&"density_multiplier": 0.4,
+&"density_multiplier": 1.0,
 &"enable_lod": true,
 &"import_time": {
-"day": 3,
+"day": 27,
 "dst": true,
-"hour": 0,
-"minute": 18,
-"month": 5,
-"second": 59,
-"weekday": 0,
+"hour": 13,
+"minute": 6,
+"month": 7,
+"second": 33,
+"weekday": 1,
 "year": 2026
 },
 &"loader_statistics": {
 "bounds_max": Vector3(9.621848, 0.9507104, 5.674946),
 "bounds_min": Vector3(-9.700173, -0.9696859, -13.734253),
-"cache_hit": true,
-"cache_time_ms": 23.097,
+"cache_hit": false,
+"cache_time_ms": 12.616,
 "format": "binary",
-"header_time_ms": 0.829,
-"load_time_ms": 25.309,
-"parse_time_ms": 0.0,
+"header_time_ms": 0.077,
+"load_time_ms": 99.732,
+"parse_time_ms": 17.133,
 "properties": 14,
 "splat_count": 2048
 },
-&"max_splats": 250000,
+&"max_splats": 0,
 &"memory_breakdown_mb": {
-&"colors_mb": 0.003124237,
-&"positions_mb": 0.0046863556,
-&"rotations_mb": 0.006248474,
-&"scales_mb": 0.0046863556,
-&"total_mb": 0.018745422
+&"colors_mb": 0.03125,
+&"positions_mb": 0.0234375,
+&"rotations_mb": 0.03125,
+&"scales_mb": 0.0234375,
+&"total_mb": 0.109375
 },
-&"memory_estimate_mb": 0.018745422,
+&"memory_estimate_mb": 0.109375,
 &"normalize_opacity": true,
 &"optimize_for_gpu": true,
 &"options": {
 &"compression/pack_opacity": false,
-&"compression/quantize_colors": true,
-&"compression/quantize_positions": true,
-&"compression/quantize_rotations": true,
-&"compression/quantize_scales": true,
+&"compression/quantize_colors": false,
+&"compression/quantize_positions": false,
+&"compression/quantize_rotations": false,
+&"compression/quantize_scales": false,
 &"general/asset_type": 0,
 &"metadata/include_memory_estimate": true,
 &"metadata/include_statistics": true,
 &"preview/generate_thumbnail": true,
-&"preview/thumbnail_size": 96,
-&"preview/thumbnail_style": 1,
+&"preview/thumbnail_size": 192,
+&"preview/thumbnail_style": 2,
 &"processing/normalize_opacity": true,
+&"processing/prune_importance_threshold": 0.0,
+&"processing/prune_ratio": 1.0,
 &"processing/sort_by_opacity": false,
 &"quality/customized": false,
-&"quality/density_multiplier": 0.4,
+&"quality/density_multiplier": 1.0,
 &"quality/enable_lod": true,
-&"quality/max_splats": 250000,
+&"quality/max_splats": 0,
 &"quality/optimize_for_gpu": true,
-&"quality/preset": "mobile",
+&"quality/preset": "ultra",
 &"validation/validate_required_properties": true,
 &"validation/warn_missing_optional": true
 },
 &"original_splat_count": 2048,
-&"preset_display": "Mobile",
+&"pre_prune_splat_count": 2048,
+&"preset_display": "Ultra Quality",
+&"prune_importance_threshold": 0.0,
+&"prune_ratio": 1.0,
 &"quality_customized": false,
-&"quality_preset": "mobile",
+&"quality_preset": "ultra",
 &"sort_by_opacity": false,
 &"source_file": "res://tests/fixtures/synthetic_plane.ply",
 &"source_path": "res://tests/fixtures/synthetic_plane.ply",
-&"splat_count": 819,
+&"splat_count": 2048,
 &"thumbnail_generated": true,
-&"thumbnail_size": 96,
-&"thumbnail_style": 1,
-&"thumbnail_style_name": "Density",
+&"thumbnail_size": 192,
+&"thumbnail_style": 2,
+&"thumbnail_style_name": "Normals",
 &"validate_required": true,
 &"warn_missing_optional": true
 }
@@ -93,22 +98,24 @@ dest_files=["res://.godot/imported/synthetic_plane.ply-474536e58092e4b151fd0ca9d
 
 [params]
 
-quality/preset="mobile"
+quality/preset="ultra"
 general/asset_type=0
-quality/max_splats=250000
-quality/density_multiplier=0.4
+quality/max_splats=0
+quality/density_multiplier=1.0
 quality/enable_lod=true
 quality/optimize_for_gpu=true
 validation/validate_required_properties=true
 validation/warn_missing_optional=true
 processing/normalize_opacity=true
 processing/sort_by_opacity=false
-compression/quantize_positions=true
-compression/quantize_colors=true
-compression/quantize_scales=true
-compression/quantize_rotations=true
+processing/prune_ratio=1.0
+processing/prune_importance_threshold=0.0
+compression/quantize_positions=false
+compression/quantize_colors=false
+compression/quantize_scales=false
+compression/quantize_rotations=false
 preview/generate_thumbnail=true
-preview/thumbnail_style=1
-preview/thumbnail_size=96
+preview/thumbnail_style=2
+preview/thumbnail_size=192
 metadata/include_statistics=true
 metadata/include_memory_estimate=true
