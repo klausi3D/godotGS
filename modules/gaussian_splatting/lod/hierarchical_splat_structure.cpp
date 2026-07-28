@@ -47,7 +47,11 @@ void HierarchicalSplatStructure::build_hierarchy(
     // Clear existing hierarchy
     root.reset();
     splat_data.clear();
-    source_to_reordered.clear();
+    // #645: reset(), not clear(). LocalVector::clear() is resize(0) and keeps the
+    // old capacity, so rebuilding a 10M-splat hierarchy from a smaller or empty
+    // asset would retain ~40 MB indefinitely -- and invisibly, since
+    // get_statistics() reports the new size. reset() frees the buffer outright.
+    source_to_reordered.reset();
     total_splats = 0;
     nodes_created = 0;
     build_time_us = 0;
