@@ -571,6 +571,10 @@ HierarchicalSplatStructure::TreeStats HierarchicalSplatStructure::get_statistics
     // Estimate memory usage
     stats.memory_usage = stats.total_nodes * sizeof(OctreeNode);
     stats.memory_usage += splat_data.size() * sizeof(SplatInfo);
+    // #645: the source->reordered inverse map is a long-lived per-splat allocation
+    // rebuilt by every build_hierarchy, so it belongs in the estimate. Omitting it
+    // under-reports by total_splats * 4 bytes (~40 MB at 10M splats).
+    stats.memory_usage += source_to_reordered.size() * sizeof(uint32_t);
 
     return stats;
 }
