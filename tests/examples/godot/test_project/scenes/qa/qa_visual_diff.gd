@@ -61,9 +61,30 @@ func _on_test_complete():
 		_test_message = "Failed to capture images"
 		return
 
-	var ssim = calculate_ssim(world_path_image, instance_image)
-	result_metrics["ssim"] = ssim
 	result_metrics["ssim_threshold"] = ssim_threshold
+
+	# Non-vacuity precondition. Two blank frames score a perfect 1.0, so
+	# without this the scene reports its strongest pass exactly when the
+	# renderer drew nothing — measured behaviour, not a hypothesis.
+	var unscorable := describe_unscorable_pair(
+		world_path_image, instance_image, "world path", "instance path"
+	)
+	if not unscorable.is_empty():
+		_test_result = false
+		_test_message = "No comparable render, refusing to score: %s" % unscorable
+		return
+
+	var ssim = calculate_ssim(world_path_image, instance_image)
+	if is_nan(ssim):
+		# Do NOT record a numeric ssim here. A capture failure is not a
+		# similarity score, and a fabricated number could be frozen into the
+		# committed baseline and disarm this gate permanently.
+		_test_result = false
+		_test_message = "Capture failure, no SSIM computed: %s" % describe_capture_failure(
+			world_path_image, instance_image, "world path", "instance path"
+		)
+		return
+	result_metrics["ssim"] = ssim
 	_test_result = ssim >= ssim_threshold
 	_test_message = "SSIM: %.4f (threshold: %.2f)" % [ssim, ssim_threshold]
 

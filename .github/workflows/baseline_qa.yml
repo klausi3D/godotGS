@@ -173,6 +173,37 @@ jobs:
         )
         python tests/ci/run_baseline_qa.py @args
 
+    - name: Run QA scene suite (blocking visual/SSIM gate)
+      # THE reason this step exists on a GPU job: the QA scene suite renders and
+      # reads back viewports. Under --headless there is no RenderingDevice, every
+      # capture returns null, and run_baseline_qa.py launders the failing run into
+      # a skip — which is why this category ran in no lane at all before #522 and
+      # its scenes had never once executed for real.
+      #
+      # --qa-require-capture launches the suite on the real display AND makes a
+      # no-results run a hard failure: on a lane that promises a GPU, a skip means
+      # the promise broke. --require-qa-baseline makes a missing baseline fail
+      # instead of warning. Both are passed in argv rather than left to
+      # GS_CI_GPU_REQUIRED so the intent is legible at the call site.
+      #
+      # Deliberately COMPARE-ONLY, unlike the gpu-harness visual baselines: this
+      # step never honours steps.baseline_mode. A nightly job that rewrites its
+      # own expectations cannot detect a regression — it absorbs one. Refreshing
+      # tests/ci/baselines/qa_results.json is a deliberate act: run
+      # `--categories qa --qa-require-capture --update-qa-baseline` locally and
+      # commit the result for review.
+      env:
+        GS_CI_GPU_REQUIRED: "1"
+        GS_CI_VALIDATION_MODE: "strict"
+      run: |
+        $args = @(
+          "--categories", "qa",
+          "--qa-require-capture",
+          "--require-qa-baseline",
+          "--godot", $env:GODOT_BINARY
+        )
+        python tests/ci/run_baseline_qa.py @args
+
     - name: Upload GPU test artifacts
       if: always()
       uses: actions/upload-artifact@v4
@@ -181,6 +212,8 @@ jobs:
         path: |
           repo/baseline_qa_results.json
           repo/tests/ci/qa_results.json
+          repo/baseline_qa_regression_report.json
+          repo/baseline_qa_regression_summary.md
           repo/*test_results.json
           repo/*.log
         if-no-files-found: warn

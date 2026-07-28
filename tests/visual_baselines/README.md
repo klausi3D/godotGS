@@ -56,33 +56,46 @@ PNGs are committed to the repo. Keep file sizes small — prefer 256x256 or
 smaller deterministic fixtures over full-viewport captures. The hazard repro
 test in `tests/test_output_compositor_composite_hazard.cpp` uses 256x256.
 
-## Current state: visual gate is wired but not yet exercised
+## Current state: the golden-image gate runs, with one baseline
 
-The helper, baseline directory, capture/compare protocol, and the first
-hazard reproducer test (`test_output_compositor_composite_hazard.h`) all
-ship together. **But no PNG baselines exist yet**, and the existing CI
-test runner cannot capture one.
+**This section previously said "no PNG baselines exist yet" and that the CI
+test runner could not capture one. Both statements are now false** — they
+described the state before the GPU harness landed, and were left behind when
+it did. `composite_hazard_256x256.png` is committed in this directory and is
+compared on every qualifying PR.
 
-The reason: `tests/ci/run_module_tests.py` invokes the Godot test binary
-with `--headless --test`, which does not initialize a `RenderingDevice`.
-The `REQUIRE_GPU_DEVICE()` guard in module tests therefore returns early.
-This affects every test tagged `[RequiresGPU]`, not just the compositor
-hazard repro — see the `REQUIRES_RD_TEST_FILTERS` catalogue
-(`run_module_tests.py:109`) noted as "future use when a full-engine test
-harness is added."
+The lane is `gpu-harness` in `.github/workflows/baseline_qa.yml`, which runs
+`tests/ci/run_gpu_harness.py` on the self-hosted Windows GPU runner (batch
+`CompositorHazard`). It resolves `GS_VISUAL_BASELINE_MODE` to `compare` for
+PRs and `update` for the nightly schedule, records capture provenance (GPU,
+driver, runner, OS build, commit) to `.provenance.json`, and on `update`
+opens a recapture PR. Mismatches upload `*.actual.png` as the
+`gpu-harness-visual-diffs` artifact.
 
-When that GPU-enabled harness lands, the workflow is:
+The workflow for adding a baseline:
 
-1. Run the hazard repro under `GS_VISUAL_BASELINE_MODE=update`; this
-   writes `composite_hazard_256x256.png` to this directory.
-2. Commit the PNG alongside a one-line provenance note in this file
-   (runner + driver version at capture time).
-3. PR runs default to `GS_VISUAL_BASELINE_MODE=compare`; mismatches fail
-   the test and dump the diff to `build/visual_diffs/`.
+1. Add a test that calls `VisualCompare::capture_and_compare(...)`.
+2. Run it under `GS_VISUAL_BASELINE_MODE=update` on a GPU host; this writes
+   the PNG to this directory.
+3. Commit the PNG. If it should block, add it to `blocking_references` in
+   `docs/reference/renderer_release_gate_manifest.json` —
+   `check_renderer_release_gates.py` then requires the file to exist.
+4. PRs run in `compare` mode; mismatch fails the test and writes
+   `<baseline>.actual.png` (gitignored, and a tracked one is a hard failure
+   via `tracked_actual_png_allowed: false`).
 
-Until then, the test will compile and be selected by the
-`*][RequiresGPU]*` filter but report "Skipping test - RenderingDevice
-unavailable" rather than executing the visual assertions.
+**Coverage is still one image.** Growing it beyond the hazard repro — sort
+order, lighting, multi-instance, quantized A/B — is the remaining half of
+#522 and is what P0 #184 needs.
+
+## Not to be confused with: the QA scene suite
+
+`tests/examples/godot/test_project/scenes/qa/` and
+`tests/ci/baselines/qa_results.json` are a **different** mechanism that also
+uses the word "baseline". That one runs GDScript scenes on a real display and
+compares a JSON *metric* snapshot (SSIM figures, pixel dominance, and exact
+path-identity strings like `route_uid`); it holds no golden images. It was
+activated as a blocking lane by #522. Nothing in this directory is used by it.
 
 ## Related
 
