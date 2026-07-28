@@ -397,17 +397,12 @@ Error GaussianMemoryStream::_stream_internal(const LocalVector<Gaussian> &gaussi
 
     ERR_FAIL_COND_V_MSG(start + count > gaussians.size(), ERR_INVALID_PARAMETER, "Invalid range for streaming gaussians");
 
-    int buffer_idx = _get_next_write_buffer();
-    if (buffer_idx < 0) {
-        if (async_mode) {
-            wait_for_all_uploads();
-            buffer_idx = _get_next_write_buffer();
-        }
-        ERR_FAIL_COND_V_MSG(buffer_idx < 0, ERR_BUSY, "No buffers available for streaming");
-    }
-
-    StreamBuffer &buffer = buffers[buffer_idx];
-
+    // #787: pack BEFORE claiming a stream buffer. _get_next_write_buffer() flips the slot from
+    // BUFFER_FREE to BUFFER_UPLOADING, so returning early after that point would strand it in
+    // BUFFER_UPLOADING with upload_fence == 0; _wait_for_buffer_complete() would then treat the
+    // never-written slot as complete and publish it BUFFER_READY, letting
+    // get_current_gpu_buffer() hand stale or empty data to the renderer. Packing first means the
+    // allocation-failure path cannot leave a claimed buffer behind at all.
     Vector<PackedGaussian> packed_gaussians;
     SHCompressionMetrics compression_metrics;
     bool packed_ok = false;
@@ -437,6 +432,17 @@ Error GaussianMemoryStream::_stream_internal(const LocalVector<Gaussian> &gaussi
     // otherwise look like a successful upload of fewer splats than the caller asked for.
     ERR_FAIL_COND_V_MSG(!packed_ok || (uint32_t)packed_gaussians.size() != count, ERR_OUT_OF_MEMORY,
             vformat("Failed to pack %d gaussians for streaming (packed %d).", count, packed_gaussians.size()));
+
+    int buffer_idx = _get_next_write_buffer();
+    if (buffer_idx < 0) {
+        if (async_mode) {
+            wait_for_all_uploads();
+            buffer_idx = _get_next_write_buffer();
+        }
+        ERR_FAIL_COND_V_MSG(buffer_idx < 0, ERR_BUSY, "No buffers available for streaming");
+    }
+
+    StreamBuffer &buffer = buffers[buffer_idx];
 
     uint32_t data_size = packed_gaussians.size() * sizeof(PackedGaussian);
     ERR_FAIL_COND_V_MSG(data_size > buffer.capacity, ERR_OUT_OF_MEMORY,

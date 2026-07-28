@@ -39,6 +39,12 @@ DEFAULT_SCENARIO_CONFIG = RUNTIME_DIR / "runtime_scenarios.json"
 # Fatal engine traps print their diagnostic last, so the tail is the load-bearing part.
 OUTPUT_TAIL_LINES = 40
 
+# #787: exit codes the harness synthesizes itself when the child never reported one -- a
+# timeout (124) or a failure to launch (127). Those results legitimately carry a reason with
+# no captured output, so the "a failed scenario must retain its tail" rule must not apply to
+# them or every silent timeout would be reported as a schema violation.
+HARNESS_SYNTHESIZED_EXIT_CODES = frozenset({124, 127})
+
 
 @dataclass
 class TestResult:
@@ -874,8 +880,15 @@ def _validate_summary_schema(summary: Dict[str, object]) -> List[str]:
             errors.append(f"{prefix}.output_tail must be a string list.")
         # #787: a failing scenario that produced output must carry it. Without this the key
         # could regress to an always-empty list and the summary would look well-formed while
-        # losing the only diagnostic a crashed run ever emits.
-        elif status == "failed" and not output_tail and test_entry.get("reasons"):
+        # losing the only diagnostic a crashed run ever emits. Timeouts and launch failures are
+        # exempt: the harness synthesizes those reasons itself and the child may genuinely have
+        # emitted nothing.
+        elif (
+            status == "failed"
+            and not output_tail
+            and test_entry.get("reasons")
+            and exit_code not in HARNESS_SYNTHESIZED_EXIT_CODES
+        ):
             errors.append(f"{prefix}.output_tail must not be empty for a failed scenario.")
 
     if isinstance(tests, list):

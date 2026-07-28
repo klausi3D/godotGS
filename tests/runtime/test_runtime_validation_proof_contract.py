@@ -181,6 +181,43 @@ class RuntimeCrashDiagnosticRetentionTests(unittest.TestCase):
             f"schema accepted a failed scenario with no retained output: {errors}",
         )
 
+    def test_schema_accepts_a_silent_timeout_with_no_output(self) -> None:
+        """A timeout that produced no output is a valid failure, not a schema violation.
+
+        run_command() synthesizes `Timed out after Ns` with exit code 124 and possibly empty
+        streams, so requiring a nonempty tail purely because a reason exists would flag every
+        silent timeout.
+        """
+        timed_out = runtime_validation.TestResult(
+            name="GPU Streaming Stress",
+            command=["godot"],
+            duration=300.0,
+            exit_code=124,
+            stdout="",
+            stderr="",
+            status="failed",
+            reasons=["Timed out after 300s"],
+            metrics={},
+        )
+        summary = runtime_validation.summarise([timed_out])
+        self.assertEqual(summary["tests"][0]["output_tail"], [])
+        errors = runtime_validation._validate_summary_schema(summary)
+        self.assertEqual(
+            [e for e in errors if "output_tail" in e],
+            [],
+            f"silent timeout wrongly rejected: {errors}",
+        )
+
+    def test_schema_still_rejects_an_empty_tail_for_a_real_process_exit(self) -> None:
+        """The exemption must not swallow the case it was written for."""
+        summary = runtime_validation.summarise([self._crashed()])
+        summary["tests"][0]["output_tail"] = []
+        errors = runtime_validation._validate_summary_schema(summary)
+        self.assertTrue(
+            any("output_tail" in e for e in errors),
+            f"crash exit {summary['tests'][0]['exit_code']} should still require a tail: {errors}",
+        )
+
     def test_schema_rejects_a_missing_output_tail(self) -> None:
         summary = runtime_validation.summarise([self._crashed()])
         del summary["tests"][0]["output_tail"]
