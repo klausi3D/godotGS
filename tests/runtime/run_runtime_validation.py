@@ -35,6 +35,10 @@ FAIL_MARKER = "[RUNTIME_FAIL]"
 METRICS_MARKER = "[RUNTIME_METRICS]"
 DEFAULT_SCENARIO_CONFIG = RUNTIME_DIR / "runtime_scenarios.json"
 
+# #787: how many trailing output lines a non-passing scenario contributes to the summary.
+# Fatal engine traps print their diagnostic last, so the tail is the load-bearing part.
+OUTPUT_TAIL_LINES = 40
+
 
 @dataclass
 class TestResult:
@@ -51,6 +55,23 @@ class TestResult:
     @property
     def success(self) -> bool:
         return self.status == "passed"
+
+    def output_tail(self, max_lines: int = OUTPUT_TAIL_LINES) -> List[str]:
+        """Last lines of the scenario's combined output, for non-passing runs.
+
+        #787: a scenario that dies on a fatal engine trap prints the diagnostic that names
+        the defect (e.g. `FATAL: Index i = N is out of bounds (size = M)`) immediately before
+        aborting -- but the summary only ever serialised `reasons`, and on a crash `reasons`
+        falls back to the FIRST non-empty stderr line, which is a benign startup warning.
+        The nightly GPU streaming crash therefore reported "Can't create an accessibility
+        driver" for a fatal out-of-bounds write, and the message identifying the real fault
+        was captured and then thrown away. Keep the TAIL, where fatal errors actually land.
+        """
+        if self.success:
+            return []
+        combined = f"{self.stdout}\n{self.stderr}"
+        lines = [line.rstrip() for line in combined.splitlines() if line.strip()]
+        return lines[-max_lines:]
 
 
 @dataclass(frozen=True)
@@ -824,7 +845,7 @@ def _validate_summary_schema(summary: Dict[str, object]) -> List[str]:
         if not isinstance(test_entry, dict):
             errors.append(f"{prefix} must be an object.")
             continue
-        for required_key in ("name", "status", "reasons", "command", "duration", "exit_code", "metrics"):
+        for required_key in ("name", "status", "reasons", "command", "duration", "exit_code", "metrics", "output_tail"):
             if required_key not in test_entry:
                 errors.append(f"{prefix} missing '{required_key}'.")
         name = test_entry.get("name")
@@ -848,6 +869,14 @@ def _validate_summary_schema(summary: Dict[str, object]) -> List[str]:
         metrics = test_entry.get("metrics")
         if not isinstance(metrics, dict):
             errors.append(f"{prefix}.metrics must be an object.")
+        output_tail = test_entry.get("output_tail")
+        if not isinstance(output_tail, list) or not all(isinstance(line, str) for line in output_tail):
+            errors.append(f"{prefix}.output_tail must be a string list.")
+        # #787: a failing scenario that produced output must carry it. Without this the key
+        # could regress to an always-empty list and the summary would look well-formed while
+        # losing the only diagnostic a crashed run ever emits.
+        elif status == "failed" and not output_tail and test_entry.get("reasons"):
+            errors.append(f"{prefix}.output_tail must not be empty for a failed scenario.")
 
     if isinstance(tests, list):
         expected_total = summary.get("total")
@@ -973,6 +1002,9 @@ def summarise(results: List[TestResult]) -> Dict[str, object]:
                 "duration": r.duration,
                 "exit_code": r.exit_code,
                 "metrics": r.metrics,
+                # #787: always present so the key is uniformly validatable; populated only for
+                # non-passing scenarios, where it is the only record of why the run died.
+                "output_tail": r.output_tail(),
             }
             for r in results
         ],

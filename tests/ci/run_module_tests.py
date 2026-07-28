@@ -1236,6 +1236,33 @@ def _run_gpu_harness_deferred_contract_guard() -> tuple[bool, list[str]]:
     return True, ["GPU harness deferred contract guard passed."]
 
 
+def _run_runtime_validation_contract_guard() -> tuple[bool, list[str]]:
+    """Guard (#787): the runtime summary keeps the diagnostic a crashed scenario emits.
+
+    Static, headless, no GPU. `tests/runtime/test_runtime_validation_proof_contract.py`
+    existed but was wired into NO lane and no runner -- `check_test_lane_coverage.py`
+    only scans .h/.cpp, so nothing noticed. It therefore never executed once.
+
+    The failure mode it now protects against is the one that hid #787 for a full
+    nightly cycle: the summary serialised only `reasons`, whose crash fallback is the
+    FIRST stderr line (a benign startup warning), so a fatal out-of-bounds trap was
+    reported as "Can't create an accessibility driver" and the message naming the real
+    fault was captured and discarded.
+    """
+    script = ROOT / "tests" / "runtime" / "test_runtime_validation_proof_contract.py"
+    if not script.is_file():
+        return False, [f"Missing runtime validation contract test: {script.relative_to(ROOT)}"]
+
+    code, out, err = _run_command([sys.executable, str(script)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"Runtime validation contract guard failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["Runtime validation contract guard passed."]
+
+
 def _run_gpu_sorting_order_coverage_guard() -> tuple[bool, list[str]]:
     """Guard (#622): the required GpuSorting batch actually gates sort-ORDER.
 
@@ -2000,6 +2027,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_benchmark_fixture_contract_guard,
             "Benchmark fixture contract guard failed.",
             "Benchmark fixture contract guard passed.",
+        ),
+        (
+            True,
+            _run_runtime_validation_contract_guard,
+            "Runtime validation contract guard failed.",
+            "Runtime validation contract guard passed.",
         ),
     ]
     for enabled, runner, failure_summary, success_summary in optional_message_guards:
