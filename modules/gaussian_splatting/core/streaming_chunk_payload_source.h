@@ -118,17 +118,38 @@ public:
 	StagedFileChunkPayloadSource();
 	~StagedFileChunkPayloadSource() override;
 
-	// #714: drop cached read handles for `p_path` so a writer can atomically replace
-	// that file. Windows opens FileAccess without FILE_SHARE_DELETE (see
-	// file_access_windows.cpp: _SH_DENYNO / _SH_DENYWR / _SH_DENYRW), so a cached
-	// reader blocks MoveFileExW replacement AND the backup-swap fallback rename.
-	// Returns how many sources released a handle.
+	// #714: quiesces every live file-backed source reading `p_path` for this object's
+	// lifetime, so a writer can atomically replace that file.
 	//
-	// Only releases IDLE handles. A read in flight holds its own Ref (see
-	// _get_thread_file callers), so the OS handle stays open until that read
-	// returns; callers must still handle a failed replace rather than assume this
-	// guarantees success.
-	static uint32_t release_cached_handles_for_path(const String &p_path);
+	// Windows opens FileAccess without FILE_SHARE_DELETE (file_access_windows.cpp:
+	// _SH_DENYNO / _SH_DENYWR / _SH_DENYRW), so an open reader blocks MoveFileExW
+	// replacement AND the backup-swap fallback rename. Merely dropping the cached
+	// handles is not enough: _get_thread_file() would immediately reopen and re-cache
+	// mid-copy, making reimport intermittent under continuous streaming.
+	//
+	// So this drops the cached handles AND HOLDS each matching source's file_mutex
+	// for its whole lifetime. _get_thread_file() takes that same mutex, so readers
+	// block rather than fail, and none can reopen the file until this guard is
+	// destroyed. Hold it across the RENAME ONLY -- never across the copy -- so the
+	// stall is a metadata operation, not a file-sized one.
+	//
+	// LOCK ORDER: registry mutex -> instance file_mutex. Both are held for the
+	// guard's lifetime; holding the registry mutex is also what stops a source being
+	// destroyed while its file_mutex is held here.
+	class ScopedReaderSuspend {
+		LocalVector<StagedFileChunkPayloadSource *> held;
+		// False when constructed with an empty path, which locks nothing at all.
+		bool registry_locked = false;
+
+	public:
+		explicit ScopedReaderSuspend(const String &p_path);
+		~ScopedReaderSuspend();
+
+		ScopedReaderSuspend(const ScopedReaderSuspend &) = delete;
+		ScopedReaderSuspend &operator=(const ScopedReaderSuspend &) = delete;
+
+		uint32_t suspended_count() const { return held.size(); }
+	};
 
 	void configure(const String &p_path,
 			uint64_t p_gaussian_offset,

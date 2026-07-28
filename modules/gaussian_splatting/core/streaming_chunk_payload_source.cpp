@@ -126,31 +126,44 @@ StagedFileChunkPayloadSource::~StagedFileChunkPayloadSource() {
 	_live_sources().erase(this);
 }
 
-uint32_t StagedFileChunkPayloadSource::release_cached_handles_for_path(const String &p_path) {
+StagedFileChunkPayloadSource::ScopedReaderSuspend::ScopedReaderSuspend(const String &p_path) {
 	if (p_path.is_empty()) {
-		return 0;
+		return;
 	}
 	// Compare globalized paths: a source configured with "res://x.gsplatworld" and a
-	// writer targeting the same file via an absolute path must still match.
+	// writer targeting the same file by absolute path must still match.
 	ProjectSettings *settings = ProjectSettings::get_singleton();
 	const String target = settings ? settings->globalize_path(p_path) : p_path;
 
-	uint32_t released = 0;
-	MutexLock registry_lock(_registry_mutex());
+	// Held for this object's lifetime (released in the destructor), which is why
+	// these are raw lock() calls rather than MutexLock scopes.
+	_registry_mutex().lock();
+	registry_locked = true;
 	for (const KeyValue<StagedFileChunkPayloadSource *, bool> &entry : _live_sources()) {
 		StagedFileChunkPayloadSource *source = entry.key;
-		MutexLock file_lock(source->file_mutex);
-		if (source->cached_files.is_empty()) {
-			continue;
-		}
+		source->file_mutex.lock();
 		const String source_path = settings ? settings->globalize_path(source->file_path) : source->file_path;
 		if (source_path != target) {
+			source->file_mutex.unlock();
 			continue;
 		}
+		// Drop the cached handles so the OS closes them, and keep file_mutex held so
+		// _get_thread_file() cannot reopen before the caller's rename completes.
 		source->cached_files.clear();
-		released++;
+		held.push_back(source);
 	}
-	return released;
+}
+
+StagedFileChunkPayloadSource::ScopedReaderSuspend::~ScopedReaderSuspend() {
+	for (uint32_t i = 0; i < held.size(); i++) {
+		held[i]->file_mutex.unlock();
+	}
+	held.clear();
+	// Only unlock the registry if the constructor locked it (empty path = no-op).
+	if (registry_locked) {
+		registry_locked = false;
+		_registry_mutex().unlock();
+	}
 }
 
 void StagedFileChunkPayloadSource::configure(const String &p_path,

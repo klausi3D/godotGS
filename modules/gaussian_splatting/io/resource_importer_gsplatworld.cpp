@@ -195,21 +195,17 @@ static Error _copy_binary_file(const String &p_source_file, const String &p_dest
 	// #714: an atomic replace needs delete access to the destination, which Windows
 	// does not grant while a FileAccess handle is open on it (file_access_windows.cpp
 	// opens with _SH_DENYNO / _SH_DENYWR / _SH_DENYRW -- none share delete). A world
-	// that is currently streaming caches read handles to exactly this file, so drop
-	// the idle ones first or both MoveFileExW and the backup-swap fallback fail with
-	// a sharing violation where the old truncating write used to succeed.
+	// that is currently streaming caches read handles to exactly this file, so both
+	// MoveFileExW and the backup-swap fallback would fail with a sharing violation
+	// where the old truncating write used to succeed.
 	//
-	// This is best-effort by construction: a read in flight holds its own Ref and
-	// keeps the OS handle open. The replace below therefore still reports failure
-	// rather than silently falling back to a truncating write, which would give up
-	// the crash-atomicity this function exists to provide.
-	const uint32_t released = StagedFileChunkPayloadSource::release_cached_handles_for_path(p_dest_file);
-	if (released > 0) {
-		GS_LOG_STREAMING_INFO(vformat(
-				"[GSplatWorldImport] Released cached streaming read handles from %d source(s) before replacing %s",
-				released, p_dest_file));
-	}
-
+	// The guard is created by the helper immediately before the RENAME, not here:
+	// quiescing readers across the whole copy would stall streaming for the size of
+	// the file, while the rename is a metadata operation. For its lifetime the guard
+	// drops the cached handles AND holds each matching source's file_mutex, so a
+	// reader cannot reopen the destination in the gap -- which is what made a
+	// release-then-copy approach intermittent under continuous streaming.
+	//
 	// Route the destination write through the crash-atomic helper (temp sibling ->
 	// atomic replace-over-existing), exactly like every other final-output saver
 	// (gaussian_splat_world_io / gaussian_scene_serializer / incremental_saver).
@@ -240,7 +236,10 @@ static Error _copy_binary_file(const String &p_source_file, const String &p_dest
 		}
 
 		return OK;
-	});
+	},
+			[&p_dest_file]() {
+				return StagedFileChunkPayloadSource::ScopedReaderSuspend(p_dest_file);
+			});
 }
 
 } // namespace

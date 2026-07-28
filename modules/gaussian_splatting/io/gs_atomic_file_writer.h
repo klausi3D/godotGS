@@ -50,11 +50,22 @@ Error _gs_atomic_rename_temp(const String &p_temp_path, const String &p_final_pa
 String _gs_atomic_win_native_path(const String &p_path);
 #endif
 
+// #714: default no-op pre-rename guard, so callers that need no exclusivity around
+// the rename pay nothing and keep the two-argument call shape.
+struct _GSAtomicNoRenameGuard {};
+
 // Writes `p_final_path` atomically. `p_write` is invoked with the open temp file
 // and must return OK on success; it must NOT retain a persistent Ref to the file
 // beyond its own scope (transient Refs passed to helper functions are fine).
-template <typename TWriter>
-Error gs_atomic_file_write(const String &p_final_path, TWriter &&p_write) {
+//
+// `p_make_rename_guard` is invoked with no arguments immediately before the atomic
+// rename, and whatever it returns is kept alive until the rename has finished. It
+// exists for writers whose destination may be held open by other readers: on
+// Windows the rename needs delete access, which an open FileAccess denies (#714).
+// Scope it to the RENAME ONLY -- the copy above can take arbitrarily long, and any
+// exclusivity held across it would stall readers for the size of the file.
+template <typename TWriter, typename TRenameGuard>
+Error gs_atomic_file_write(const String &p_final_path, TWriter &&p_write, TRenameGuard &&p_make_rename_guard) {
 	String temp_path;
 	Error open_err = OK;
 	Ref<FileAccess> file = _gs_atomic_open_temp(p_final_path, temp_path, &open_err);
@@ -79,5 +90,17 @@ Error gs_atomic_file_write(const String &p_final_path, TWriter &&p_write) {
 		return io_err;
 	}
 
+	// Guaranteed copy elision (C++17) constructs the guard in place, so it needs no
+	// copy or move constructor. It lives until this scope ends, i.e. across the
+	// rename and nothing else.
+	auto rename_guard = p_make_rename_guard();
+	(void)rename_guard;
 	return _gs_atomic_rename_temp(temp_path, p_final_path);
+}
+
+// Two-argument form: no exclusivity around the rename. This is what the three
+// existing savers use and their behaviour is unchanged.
+template <typename TWriter>
+Error gs_atomic_file_write(const String &p_final_path, TWriter &&p_write) {
+	return gs_atomic_file_write(p_final_path, p_write, []() { return _GSAtomicNoRenameGuard(); });
 }
