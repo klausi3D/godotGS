@@ -8,6 +8,7 @@
 #include "core/os/thread.h"
 #include "core/templates/hash_map.h"
 #include "core/templates/local_vector.h"
+#include "core/templates/safe_refcount.h"
 #include "gaussian_data.h"
 #include <cstdint>
 
@@ -96,6 +97,13 @@ protected:
 	AABB bounds;
 	mutable Mutex file_mutex;
 	mutable HashMap<Thread::ID, Ref<FileAccess>> cached_files;
+	// #714: set while a writer is atomically replacing file_path. Lock-free on
+	// purpose: _get_thread_file() must be able to consult it WITHOUT holding
+	// file_mutex, and ScopedReaderSuspend must be able to set it without holding
+	// file_mutex either -- an already-active read still needs that mutex to finish
+	// (_record_io_counters takes it while the reader's Ref is alive), so blocking on
+	// it would stop the very reads the guard is waiting to drain.
+	mutable SafeFlag suspend_opens;
 	mutable uint64_t bytes_requested = 0;
 	mutable uint64_t bytes_read = 0;
 	mutable uint64_t file_open_count = 0;
@@ -127,15 +135,21 @@ public:
 	// handles is not enough: _get_thread_file() would immediately reopen and re-cache
 	// mid-copy, making reimport intermittent under continuous streaming.
 	//
-	// So this drops the cached handles AND HOLDS each matching source's file_mutex
-	// for its whole lifetime. _get_thread_file() takes that same mutex, so readers
-	// block rather than fail, and none can reopen the file until this guard is
-	// destroyed. Hold it across the RENAME ONLY -- never across the copy -- so the
-	// stall is a metadata operation, not a file-sized one.
+	// So this sets each matching source's lock-free `suspend_opens` flag (which stops
+	// NEW opens), takes over the cached handles, and then WAITS for reads already in
+	// flight to release their own Refs before returning to the caller's rename.
 	//
-	// LOCK ORDER: registry mutex -> instance file_mutex. Both are held for the
-	// guard's lifetime; holding the registry mutex is also what stops a source being
-	// destroyed while its file_mutex is held here.
+	// It deliberately does NOT hold file_mutex while waiting. A read already past
+	// _get_thread_file() still needs that mutex to finish -- _record_io_counters()
+	// takes it while the reader's Ref is alive -- so holding it would block the very
+	// reads being drained and make the timeout certain instead of rare.
+	//
+	// LOCK ORDER: registry mutex -> instance file_mutex, and file_mutex is only ever
+	// taken briefly, never across the wait. The registry mutex IS held for the
+	// guard's lifetime, purely so a source cannot be destroyed mid-drain.
+	//
+	// Scope it to the RENAME ONLY, never across the copy: the wait is bounded, but
+	// the copy is file-sized.
 	class ScopedReaderSuspend {
 		LocalVector<StagedFileChunkPayloadSource *> held;
 		// False when constructed with an empty path, which locks nothing at all.

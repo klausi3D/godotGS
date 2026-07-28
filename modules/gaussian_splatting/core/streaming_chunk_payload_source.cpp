@@ -131,6 +131,11 @@ StagedFileChunkPayloadSource::~StagedFileChunkPayloadSource() {
 // FileAccess handles before giving up and letting the caller's rename fail loudly.
 static constexpr uint32_t MAX_READER_DRAIN_USEC = 500 * 1000; // 500 ms
 static constexpr uint32_t READER_DRAIN_POLL_USEC = 250;
+// How long a reader waits for an in-progress replace before opening anyway. Longer
+// than the drain budget so the common case resolves by waiting. On timeout the read
+// proceeds: a stalled editor import is a better outcome than breaking a running
+// scene's streaming, and the import then fails loudly instead of degrading silently.
+static constexpr uint32_t MAX_OPEN_SUSPEND_WAIT_USEC = 1000 * 1000; // 1 s
 
 StagedFileChunkPayloadSource::ScopedReaderSuspend::ScopedReaderSuspend(const String &p_path) {
 	// Handles taken over from the caches, held only until in-flight readers drain.
@@ -150,28 +155,37 @@ StagedFileChunkPayloadSource::ScopedReaderSuspend::ScopedReaderSuspend(const Str
 	registry_locked = true;
 	for (const KeyValue<StagedFileChunkPayloadSource *, bool> &entry : _live_sources()) {
 		StagedFileChunkPayloadSource *source = entry.key;
+		// file_mutex is taken only for this short critical section and released
+		// immediately. Holding it across the drain below would block an in-flight
+		// read's _record_io_counters(), so its Ref would never drop and the wait
+		// could never succeed.
 		source->file_mutex.lock();
 		const String source_path = settings ? settings->globalize_path(source->file_path) : source->file_path;
 		if (source_path != target) {
 			source->file_mutex.unlock();
 			continue;
 		}
-		// Take over the cached handles, then keep file_mutex held so _get_thread_file()
-		// cannot reopen before the caller's rename completes.
+		// Stop NEW opens (lock-free, so readers never block on us), then take over the
+		// cached handles so the only remaining owners are in-flight reads.
+		source->suspend_opens.set();
 		for (const KeyValue<Thread::ID, Ref<FileAccess>> &cached : source->cached_files) {
 			if (cached.value.is_valid()) {
 				pending.push_back(cached.value);
 			}
 		}
 		source->cached_files.clear();
+		source->file_mutex.unlock();
 		held.push_back(source);
 	}
 
-	// Holding file_mutex stops new opens, but a read already past _get_thread_file()
-	// holds its own Ref and reads OUTSIDE the mutex, so its OS handle is still open
-	// and still denies delete access. Wait for those to drain: once a reader returns,
-	// its Ref drops and -- since the cache no longer holds one -- `pending` is the
-	// only remaining owner, i.e. reference count 1.
+	// suspend_opens stops new opens, but a read already past _get_thread_file() holds
+	// its own Ref and reads OUTSIDE the mutex, so its OS handle is still open and
+	// still denies delete access. Wait for those to drain: once a reader returns, its
+	// Ref drops and -- since the cache no longer holds one -- `pending` is the only
+	// remaining owner, i.e. reference count 1.
+	//
+	// file_mutex is NOT held here, by design: the reader must be able to take it to
+	// finish (_record_io_counters), or it could never release the Ref being waited on.
 	//
 	// Bounded on purpose. Under continuous streaming this can legitimately fail to
 	// drain, and blocking an import indefinitely would be worse than the honest
@@ -199,8 +213,10 @@ StagedFileChunkPayloadSource::ScopedReaderSuspend::ScopedReaderSuspend(const Str
 }
 
 StagedFileChunkPayloadSource::ScopedReaderSuspend::~ScopedReaderSuspend() {
+	// Re-admit opens. No file_mutex needed: suspend_opens is lock-free precisely so
+	// this cannot contend with a reader that is mid-read.
 	for (uint32_t i = 0; i < held.size(); i++) {
-		held[i]->file_mutex.unlock();
+		held[i]->suspend_opens.clear();
 	}
 	held.clear();
 	// Only unlock the registry if the constructor locked it (empty path = no-op).
@@ -234,6 +250,18 @@ void StagedFileChunkPayloadSource::configure(const String &p_path,
 }
 
 Ref<FileAccess> StagedFileChunkPayloadSource::_get_thread_file() const {
+	// #714: a writer is atomically replacing this file. Opening a handle now would
+	// deny it delete access on Windows and fail the replace, so wait for the guard to
+	// finish rather than fail the read outright. Checked BEFORE taking file_mutex and
+	// never while holding it -- a reader that already has a handle needs that mutex to
+	// finish, and stalling it here would be the deadlock this flag exists to avoid.
+	OS *os = OS::get_singleton();
+	uint32_t waited_usec = 0;
+	while (suspend_opens.is_set() && os != nullptr && waited_usec < MAX_OPEN_SUSPEND_WAIT_USEC) {
+		os->delay_usec(READER_DRAIN_POLL_USEC);
+		waited_usec += READER_DRAIN_POLL_USEC;
+	}
+
 	const Thread::ID thread_id = Thread::get_caller_id();
 	MutexLock lock(file_mutex);
 
