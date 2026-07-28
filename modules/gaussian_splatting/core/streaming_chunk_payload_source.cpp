@@ -2,6 +2,7 @@
 
 #include "core/config/project_settings.h"
 #include "core/error/error_macros.h"
+#include "core/os/os.h"
 #include "../logger/gs_logger.h"
 
 namespace {
@@ -126,7 +127,15 @@ StagedFileChunkPayloadSource::~StagedFileChunkPayloadSource() {
 	_live_sources().erase(this);
 }
 
+// #714: how long ScopedReaderSuspend waits for in-flight reads to release their
+// FileAccess handles before giving up and letting the caller's rename fail loudly.
+static constexpr uint32_t MAX_READER_DRAIN_USEC = 500 * 1000; // 500 ms
+static constexpr uint32_t READER_DRAIN_POLL_USEC = 250;
+
 StagedFileChunkPayloadSource::ScopedReaderSuspend::ScopedReaderSuspend(const String &p_path) {
+	// Handles taken over from the caches, held only until in-flight readers drain.
+	LocalVector<Ref<FileAccess>> pending;
+
 	if (p_path.is_empty()) {
 		return;
 	}
@@ -147,11 +156,46 @@ StagedFileChunkPayloadSource::ScopedReaderSuspend::ScopedReaderSuspend(const Str
 			source->file_mutex.unlock();
 			continue;
 		}
-		// Drop the cached handles so the OS closes them, and keep file_mutex held so
-		// _get_thread_file() cannot reopen before the caller's rename completes.
+		// Take over the cached handles, then keep file_mutex held so _get_thread_file()
+		// cannot reopen before the caller's rename completes.
+		for (const KeyValue<Thread::ID, Ref<FileAccess>> &cached : source->cached_files) {
+			if (cached.value.is_valid()) {
+				pending.push_back(cached.value);
+			}
+		}
 		source->cached_files.clear();
 		held.push_back(source);
 	}
+
+	// Holding file_mutex stops new opens, but a read already past _get_thread_file()
+	// holds its own Ref and reads OUTSIDE the mutex, so its OS handle is still open
+	// and still denies delete access. Wait for those to drain: once a reader returns,
+	// its Ref drops and -- since the cache no longer holds one -- `pending` is the
+	// only remaining owner, i.e. reference count 1.
+	//
+	// Bounded on purpose. Under continuous streaming this can legitimately fail to
+	// drain, and blocking an import indefinitely would be worse than the honest
+	// outcome: we proceed, the rename fails, and the importer reports the error
+	// rather than silently degrading.
+	OS *os = OS::get_singleton();
+	uint32_t waited_usec = 0;
+	while (os != nullptr && waited_usec < MAX_READER_DRAIN_USEC) {
+		bool any_in_flight = false;
+		for (uint32_t i = 0; i < pending.size(); i++) {
+			if (pending[i]->get_reference_count() > 1) {
+				any_in_flight = true;
+				break;
+			}
+		}
+		if (!any_in_flight) {
+			break;
+		}
+		os->delay_usec(READER_DRAIN_POLL_USEC);
+		waited_usec += READER_DRAIN_POLL_USEC;
+	}
+
+	// Dropping our references closes the handles, so the caller's rename can proceed.
+	pending.clear();
 }
 
 StagedFileChunkPayloadSource::ScopedReaderSuspend::~ScopedReaderSuspend() {
