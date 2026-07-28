@@ -715,7 +715,11 @@ void pack_gaussians_range_quantized(const LocalVector<Gaussian> &src,
         uint32_t higher_order_count = 0,
         uint32_t coefficient_limit = PackedSphericalHarmonics::MAX_ENCODED_COEFFICIENTS);
 
-void pack_gaussians_range(const LocalVector<Gaussian> &src,
+// #787: these return false when the destination could not be allocated. The result is
+// [[nodiscard]] on purpose -- a caller that packs into a Vector and then reports/uploads
+// `count` elements regardless would turn an allocation failure into an invalid host read
+// or bogus GPU atlas metadata, which is worse than the bounds trap this replaced.
+[[nodiscard]] bool pack_gaussians_range(const LocalVector<Gaussian> &src,
         uint32_t start,
         uint32_t count,
         Vector<PackedGaussian> &dst,
@@ -745,7 +749,7 @@ void pack_gaussians_range_raw(const Gaussian *src,
         uint32_t higher_order_count = 0,
         uint32_t coefficient_limit = PackedSphericalHarmonics::MAX_ENCODED_COEFFICIENTS);
 
-void pack_gaussians_range_limited(const LocalVector<Gaussian> &src,
+[[nodiscard]] bool pack_gaussians_range_limited(const LocalVector<Gaussian> &src,
         uint32_t start,
         uint32_t count,
         Vector<PackedGaussian> &dst,
@@ -793,7 +797,7 @@ void pack_gaussian_f16(const Gaussian &src,
  * @param higher_order_count Number of higher-order SH coefficients.
  * @param coefficient_limit Maximum encoded coefficients.
  */
-void pack_gaussians_range_f16(const LocalVector<Gaussian> &src,
+[[nodiscard]] bool pack_gaussians_range_f16(const LocalVector<Gaussian> &src,
         uint32_t start,
         uint32_t count,
         Vector<PackedGaussianF16> &dst,
@@ -817,7 +821,7 @@ void pack_gaussians_range_f16(const LocalVector<Gaussian> &src,
  * @param first_order_count Number of first-order SH coefficients.
  * @param higher_order_count Number of higher-order SH coefficients.
  */
-void pack_gaussians_chunked_f16(const LocalVector<Gaussian> &src,
+[[nodiscard]] bool pack_gaussians_chunked_f16(const LocalVector<Gaussian> &src,
         uint32_t start,
         uint32_t count,
         uint32_t chunk_size,

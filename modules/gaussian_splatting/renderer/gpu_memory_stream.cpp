@@ -410,8 +410,9 @@ Error GaussianMemoryStream::_stream_internal(const LocalVector<Gaussian> &gaussi
 
     Vector<PackedGaussian> packed_gaussians;
     SHCompressionMetrics compression_metrics;
+    bool packed_ok = false;
     if (coefficient_limits) {
-        pack_gaussians_range_limited(gaussians,
+        packed_ok = pack_gaussians_range_limited(gaussians,
                 start,
                 count,
                 packed_gaussians,
@@ -422,7 +423,7 @@ Error GaussianMemoryStream::_stream_internal(const LocalVector<Gaussian> &gaussi
                 coefficient_limits,
                 sh_coefficient_limit);
     } else {
-        pack_gaussians_range(gaussians,
+        packed_ok = pack_gaussians_range(gaussians,
                 start,
                 count,
                 packed_gaussians,
@@ -432,6 +433,10 @@ Error GaussianMemoryStream::_stream_internal(const LocalVector<Gaussian> &gaussi
                 higher_order_count,
                 sh_coefficient_limit);
     }
+    // #787: report the allocation failure instead of streaming a short payload, which would
+    // otherwise look like a successful upload of fewer splats than the caller asked for.
+    ERR_FAIL_COND_V_MSG(!packed_ok || (uint32_t)packed_gaussians.size() != count, ERR_OUT_OF_MEMORY,
+            vformat("Failed to pack %d gaussians for streaming (packed %d).", count, packed_gaussians.size()));
 
     uint32_t data_size = packed_gaussians.size() * sizeof(PackedGaussian);
     ERR_FAIL_COND_V_MSG(data_size > buffer.capacity, ERR_OUT_OF_MEMORY,

@@ -1259,14 +1259,24 @@ StreamingUploadPipeline::PendingChunkUpload *StreamingUploadPipeline::build_pend
     if (telemetry_on) {
         pack_start_usec = _ticks_usec_now();
     }
-    pack_gaussians_range(r_scratch.gaussian_snapshot,
-            0,
-            p_job.chunk_count,
-            upload->packed_data,
-            upload->metrics,
-            sh_coeffs,
-            sh_first_order,
-            sh_high_order);
+    // #787: on allocation failure leave packed_data empty and return the upload unpopulated,
+    // which is the same "no payload" state this function already produces when the snapshot
+    // fails above. An empty payload is retired harmlessly; a short one would stage a chunk
+    // that claims more splats than were written.
+    if (!pack_gaussians_range(r_scratch.gaussian_snapshot,
+                0,
+                p_job.chunk_count,
+                upload->packed_data,
+                upload->metrics,
+                sh_coeffs,
+                sh_first_order,
+                sh_high_order) ||
+            (uint32_t)upload->packed_data.size() != p_job.chunk_count) {
+        upload->packed_data.clear();
+        ERR_FAIL_V_MSG(upload,
+                vformat("Failed to pack chunk %d (%d splats) for streaming upload; dropping payload.",
+                        p_job.chunk_idx, p_job.chunk_count));
+    }
     if (telemetry_on) {
         const uint64_t pack_end_usec = _ticks_usec_now();
         const uint64_t duration = pack_end_usec >= pack_start_usec ? (pack_end_usec - pack_start_usec) : 0;

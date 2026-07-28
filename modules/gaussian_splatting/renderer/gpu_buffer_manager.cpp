@@ -678,14 +678,20 @@ Error GPUBufferManager::upload_gaussian_data(const Ref<::GaussianData> &p_data) 
             GaussianSplatting::debug_trace_record_buffer_mgr(gaussians.size(), g0.sh_dc, g0.opacity);
         }
 
-        pack_gaussians_range(gaussians,
-                0,
-                target_count,
-                packed_data,
-                compression_metrics,
-                p_data->get_sh_high_order_coefficients_ptr(),
-                p_data->get_sh_first_order_count(),
-                p_data->get_sh_high_order_count());
+        // #787: abort before any upload if the pack buffer could not be allocated. Proceeding
+        // would hand buffer_update() a null ptr() with a nonzero byte count below.
+        ERR_FAIL_COND_V_MSG(!pack_gaussians_range(gaussians,
+                                    0,
+                                    target_count,
+                                    packed_data,
+                                    compression_metrics,
+                                    p_data->get_sh_high_order_coefficients_ptr(),
+                                    p_data->get_sh_first_order_count(),
+                                    p_data->get_sh_high_order_count()),
+                ERR_OUT_OF_MEMORY,
+                vformat("Failed to pack %d gaussians for GPU upload; aborting upload.", target_count));
+        ERR_FAIL_COND_V_MSG((uint32_t)packed_data.size() < target_count, ERR_BUG,
+                vformat("Packed gaussian buffer is %d entries, expected %d.", packed_data.size(), target_count));
 
         GaussianSplatManager::ScopedSubmissionLock upload_lock;
         RenderingDevice *upload_device = _acquire_submission_device(write_set.device ? write_set.device : rd, upload_lock);
