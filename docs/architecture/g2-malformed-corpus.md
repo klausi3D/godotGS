@@ -129,8 +129,6 @@ grep -rhoE 'TEST_CASE\("[^"]*\[MalformedCorpus\][^"]*"' modules/gaussian_splatti
 - No **`.gsplatcache` corrupt-cache fallback** test — cache reads reuse the
   world-format guards but are not fed a malformed cache directly.
 - No **compressed gzip-bomb within** the `INT32_MAX` cap.
-- The **gsplatworld importer's final-output copy** is not crash-atomic — see the
-  scope limit under "All savers atomic" above (#714).
 
 ## Optional follow-ons (not required for G2)
 
