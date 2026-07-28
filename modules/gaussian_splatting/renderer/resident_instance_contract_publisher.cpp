@@ -662,6 +662,12 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 						if (r_reason) {
 							*r_reason = "resident_atlas_pack_failed";
 						}
+						// Drop the previously published contract like every other failure path
+						// in this function does. Leaving it live keeps has_instance_pipeline_-
+						// buffers() true and the old atlas/cull/sort RIDs allocated while the
+						// new contract is rejected, so later frames retry the same pack against
+						// the same memory pressure that just failed.
+						p_renderer->clear_instance_pipeline_buffers();
 						return false;
 					}
 
