@@ -1,5 +1,6 @@
 #include "streaming_chunk_payload_source.h"
 
+#include "core/config/project_settings.h"
 #include "core/error/error_macros.h"
 #include "../logger/gs_logger.h"
 
@@ -99,6 +100,58 @@ bool InMemoryChunkPayloadSource::is_valid() const {
 // ---------------------------------------------------------------------------
 
 void StagedFileChunkPayloadSource::_bind_methods() {}
+
+// #714: function-local statics so the registry is initialized on first use and
+// cannot depend on translation-unit static init order.
+Mutex &StagedFileChunkPayloadSource::_registry_mutex() {
+	static Mutex mutex;
+	return mutex;
+}
+
+HashMap<StagedFileChunkPayloadSource *, bool> &StagedFileChunkPayloadSource::_live_sources() {
+	static HashMap<StagedFileChunkPayloadSource *, bool> sources;
+	return sources;
+}
+
+StagedFileChunkPayloadSource::StagedFileChunkPayloadSource() {
+	MutexLock lock(_registry_mutex());
+	_live_sources().insert(this, true);
+}
+
+StagedFileChunkPayloadSource::~StagedFileChunkPayloadSource() {
+	// Unregistering under the registry mutex is what makes
+	// release_cached_handles_for_path() safe: it holds that mutex while touching
+	// each instance, so an instance cannot be destroyed underneath it.
+	MutexLock lock(_registry_mutex());
+	_live_sources().erase(this);
+}
+
+uint32_t StagedFileChunkPayloadSource::release_cached_handles_for_path(const String &p_path) {
+	if (p_path.is_empty()) {
+		return 0;
+	}
+	// Compare globalized paths: a source configured with "res://x.gsplatworld" and a
+	// writer targeting the same file via an absolute path must still match.
+	ProjectSettings *settings = ProjectSettings::get_singleton();
+	const String target = settings ? settings->globalize_path(p_path) : p_path;
+
+	uint32_t released = 0;
+	MutexLock registry_lock(_registry_mutex());
+	for (const KeyValue<StagedFileChunkPayloadSource *, bool> &entry : _live_sources()) {
+		StagedFileChunkPayloadSource *source = entry.key;
+		MutexLock file_lock(source->file_mutex);
+		if (source->cached_files.is_empty()) {
+			continue;
+		}
+		const String source_path = settings ? settings->globalize_path(source->file_path) : source->file_path;
+		if (source_path != target) {
+			continue;
+		}
+		source->cached_files.clear();
+		released++;
+	}
+	return released;
+}
 
 void StagedFileChunkPayloadSource::configure(const String &p_path,
 		uint64_t p_gaussian_offset,

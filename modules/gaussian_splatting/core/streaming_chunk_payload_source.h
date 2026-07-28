@@ -100,12 +100,35 @@ protected:
 	mutable uint64_t bytes_read = 0;
 	mutable uint64_t file_open_count = 0;
 
+	// #714: registry of live file-backed sources, so a writer replacing an imported
+	// .gsplatworld can find the readers holding it open. Guarded by its own static
+	// mutex (see _registry_mutex()) because it is process-wide state, not per-source
+	// state, so it cannot use file_mutex.
+	//
+	// LOCK ORDER: registry mutex -> instance file_mutex, never the reverse. No code
+	// holding file_mutex may touch the registry.
+	static Mutex &_registry_mutex();
+	static HashMap<StagedFileChunkPayloadSource *, bool> &_live_sources();
+
 	Ref<FileAccess> _get_thread_file() const;
 	bool _read_exact(FileAccess *p_file, uint64_t p_offset, void *p_dst, uint64_t p_bytes, const char *p_label, uint64_t *r_bytes_read = nullptr) const;
 	void _record_io_counters(uint64_t p_bytes_requested, uint64_t p_bytes_read) const;
 
 public:
-	StagedFileChunkPayloadSource() = default;
+	StagedFileChunkPayloadSource();
+	~StagedFileChunkPayloadSource() override;
+
+	// #714: drop cached read handles for `p_path` so a writer can atomically replace
+	// that file. Windows opens FileAccess without FILE_SHARE_DELETE (see
+	// file_access_windows.cpp: _SH_DENYNO / _SH_DENYWR / _SH_DENYRW), so a cached
+	// reader blocks MoveFileExW replacement AND the backup-swap fallback rename.
+	// Returns how many sources released a handle.
+	//
+	// Only releases IDLE handles. A read in flight holds its own Ref (see
+	// _get_thread_file callers), so the OS handle stays open until that read
+	// returns; callers must still handle a failed replace rather than assume this
+	// guarantees success.
+	static uint32_t release_cached_handles_for_path(const String &p_path);
 
 	void configure(const String &p_path,
 			uint64_t p_gaussian_offset,

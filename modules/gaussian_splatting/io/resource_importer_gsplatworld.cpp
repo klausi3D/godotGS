@@ -7,6 +7,7 @@
 #include "core/io/file_access.h"
 #include "core/io/resource_loader.h"
 #include "../core/gaussian_data.h"
+#include "../core/streaming_chunk_payload_source.h"
 #include "../logger/gs_logger.h"
 #include "gs_atomic_file_writer.h"
 #include <cstdint>
@@ -189,6 +190,24 @@ static Error _copy_binary_file(const String &p_source_file, const String &p_dest
 	Ref<FileAccess> src = FileAccess::open(p_source_file, FileAccess::READ, &read_err);
 	if (src.is_null()) {
 		return read_err != OK ? read_err : ERR_CANT_OPEN;
+	}
+
+	// #714: an atomic replace needs delete access to the destination, which Windows
+	// does not grant while a FileAccess handle is open on it (file_access_windows.cpp
+	// opens with _SH_DENYNO / _SH_DENYWR / _SH_DENYRW -- none share delete). A world
+	// that is currently streaming caches read handles to exactly this file, so drop
+	// the idle ones first or both MoveFileExW and the backup-swap fallback fail with
+	// a sharing violation where the old truncating write used to succeed.
+	//
+	// This is best-effort by construction: a read in flight holds its own Ref and
+	// keeps the OS handle open. The replace below therefore still reports failure
+	// rather than silently falling back to a truncating write, which would give up
+	// the crash-atomicity this function exists to provide.
+	const uint32_t released = StagedFileChunkPayloadSource::release_cached_handles_for_path(p_dest_file);
+	if (released > 0) {
+		GS_LOG_STREAMING_INFO(vformat(
+				"[GSplatWorldImport] Released cached streaming read handles from %d source(s) before replacing %s",
+				released, p_dest_file));
 	}
 
 	// Route the destination write through the crash-atomic helper (temp sibling ->
