@@ -1875,7 +1875,7 @@
 <tr>
 <td>Build a test-enabled Godot binary</td>
 <td><code>scons platform=&lt;platform&gt; target=editor dev_build=yes tests=yes -j&lt;jobs&gt;</code></td>
-<td><a href="https://github.com/klausi3D/godotGS/blob/b6b2d7258bf8fcc112329483c970c4467d2d17e2/README.md">Repository README</a>, <a href="https://github.com/klausi3D/godotGS/blob/b6b2d7258bf8fcc112329483c970c4467d2d17e2/BUILDING.md">root build notes</a>, <code>modules/gaussian_splatting/SCsub:69</code></td>
+<td><a href="https://github.com/klausi3D/godotGS/blob/568b7b8f712b1218bf47865b1b9616b54b5d2eb2/README.md">Repository README</a>, <a href="https://github.com/klausi3D/godotGS/blob/568b7b8f712b1218bf47865b1b9616b54b5d2eb2/BUILDING.md">root build notes</a>, <code>modules/gaussian_splatting/SCsub:69</code></td>
 </tr>
 <tr>
 <td>Set default Godot binary for Python runners</td>
@@ -1909,12 +1909,12 @@
 </tr>
 <tr>
 <td>Compare QA output against stored baseline (strict)</td>
-<td><code>python3 tests/ci/run_baseline_qa.py --category qa --qa-baseline tests/ci/baselines/qa_results.json --require-qa-baseline</code></td>
+<td><code>python3 tests/ci/run_baseline_qa.py --category qa --qa-require-capture --qa-baseline tests/ci/baselines/qa_results.json --require-qa-baseline</code></td>
 <td><code>tests/ci/run_baseline_qa.py:730</code>, <code>tests/ci/run_baseline_qa.py:735</code>, <code>tests/ci/run_baseline_qa.py:745</code>, <code>tests/ci/run_baseline_qa.py:796</code></td>
 </tr>
 <tr>
 <td>Refresh QA baseline snapshot from current run</td>
-<td><code>python3 tests/ci/run_baseline_qa.py --category qa --update-qa-baseline</code></td>
+<td><code>python3 tests/ci/run_baseline_qa.py --category qa --qa-require-capture --update-qa-baseline</code></td>
 <td><code>tests/ci/run_baseline_qa.py:740</code>, <code>tests/ci/run_baseline_qa.py:456</code></td>
 </tr>
 <tr>
@@ -1970,7 +1970,7 @@
 </tr>
 <tr>
 <td><code>qa</code></td>
-<td><code>godot --headless --path tests/examples/godot/test_project --script res://scripts/qa_test_runner.gd --qa-output tests/ci/qa_results.json</code></td>
+<td><code>godot &lt;display flags&gt; --path tests/examples/godot/test_project --script res://scripts/qa_test_runner.gd --qa-output tests/ci/qa_results.json</code> — runs headless by default, but on the real display (<code>--display-driver windows --rendering-driver vulkan --render-thread safe</code>) when <code>--qa-require-capture</code> / <code>GS_CI_GPU_REQUIRED=1</code> is set. Headless cannot create a RenderingDevice, so the scenes capture nothing and the category degrades to a skip; the blocking lane always passes <code>--qa-require-capture</code>.</td>
 <td><code>tests/ci/run_baseline_qa.py:269</code>, <code>tests/ci/run_baseline_qa.py:271</code>, <code>tests/ci/run_baseline_qa.py:273</code></td>
 </tr>
 </tbody>
@@ -1989,7 +1989,7 @@
 <tbody>
 <tr>
 <td><code>tests/ci/run_baseline_qa.py</code></td>
-<td><code>--godot</code>, <code>--quick</code>, <code>--category</code>, <code>--qa-baseline</code>, <code>--update-qa-baseline</code>, <code>--require-qa-baseline</code>, <code>--baseline-report</code>, <code>--baseline-summary</code></td>
+<td><code>--godot</code>, <code>--quick</code>, <code>--category</code>, <code>--qa-baseline</code>, <code>--update-qa-baseline</code>, <code>--require-qa-baseline</code>, <code>--qa-require-capture</code>, <code>--baseline-report</code>, <code>--baseline-summary</code></td>
 <td>Orchestrates baseline categories and QA baseline compare/update flow.</td>
 <td><code>baseline_qa_results.json</code>, <code>tests/ci/qa_results.json</code>, <code>baseline_qa_regression_report.json</code>, <code>baseline_qa_regression_summary.md</code></td>
 <td><code>tests/ci/run_baseline_qa.py:723</code>, <code>tests/ci/run_baseline_qa.py:735</code>, <code>tests/ci/run_baseline_qa.py:750</code></td>
@@ -2194,7 +2194,7 @@ python3<span class="w"> </span>tests/ci/run_gpu_harness.py<span class="w"> </spa
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 26, 2026 23:56:20 UTC">July 26, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 28, 2026 11:44:09 UTC">July 28, 2026</span>
   </span>
 
     
