@@ -1,6 +1,7 @@
 #include "gaussian_streaming.h"
 #include "../io/streaming_chunk_bake.h"
 #include "gs_project_settings.h"
+#include "gs_vector_alloc.h"
 #include "residency_budget_controller.h"
 #include "streaming_chunk_invariants.h"
 #include "streaming_layout_hint.h"
@@ -1725,7 +1726,18 @@ bool GaussianStreamingSystem::_build_primary_chunks_from_layout_hints(const Ref<
     }
 
     Vector<uint8_t> seen;
-    seen.resize(splat_count);
+    // #794: the zero-fill below is bounded by seen.size() and so is safe on its own,
+    // but the duplicate-detection loop that follows indexes `seen` by source_idx,
+    // checked only against splat_count. On a failed resize seen.size() is 0 while
+    // splat_count is not, so BOTH the read (seen[source_idx], which traps via
+    // CowData::get -> CRASH_BAD_INDEX exactly like the write proxy) and the write
+    // (seen.write[source_idx]) go out of bounds. splat_count is asset-sized, so this
+    // is a real allocation, not a token one.
+    if (!gs_resize_or_fail(seen, (int64_t)splat_count, "GaussianStreamingSystem::validate remap source indices")) {
+        _layout_hint_set_last_failure(this, LayoutHintUsage::PRIMARY, LayoutHintValidationFailure{
+                LayoutHintFailureReason::VALIDATION_ALLOCATION_FAILED, -1, splat_count, 0 });
+        return false;
+    }
     for (int i = 0; i < seen.size(); i++) {
         seen.write[i] = 0;
     }

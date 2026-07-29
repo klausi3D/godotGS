@@ -267,6 +267,7 @@ uint64_t TileRenderer::TileRasterizerStage::dispatch_tile_rasterizer(uint32_t p_
 
         // Configure blend state for THREE color attachments (out_color, out_depth, out_normal)
         RD::PipelineColorBlendState blend_state;
+        // #794: unchecked by the compile-time-constant-count rule (gs_vector_alloc.h).
         blend_state.attachments.resize(3);
 
         // Attachment 0: out_color with alpha blending

@@ -1664,6 +1664,12 @@ Error TileRenderer::initialize(RenderingDevice *p_rendering_device, const Vector
                 depth_state.enable_depth_write = false;
 
                 RD::PipelineColorBlendState blend_state;
+                // #794: deliberately left unchecked. The count is the literal 3, so the
+                // index can never exceed what a successful resize produced; a failure
+                // here means the allocator could not serve 3 small structs, at which
+                // point the process is already gone. Excluded from the sweep by that
+                // rule -- literal-constant count -- not by being individually judged
+                // safe, so the runtime-sized class stays mechanically enforceable.
                 blend_state.attachments.resize(3);
 
                 blend_state.attachments.write[0] = RD::PipelineColorBlendState::Attachment();
@@ -3264,7 +3270,15 @@ Vector<uint64_t> TileRenderer::_test_instance_pipeline_binding_generation_trace(
 	InstancePipelineBindings bindings;
 	uint64_t descriptor_generation = 0u;
 	Vector<uint64_t> generation_trace;
-	generation_trace.resize(p_params_sequence.size());
+	// #794: bounded by p_params_sequence.size(), not generation_trace.size(). This is
+	// a TESTS_ENABLED-only helper, so an empty return is the correct failure: the
+	// caller's assertions fail loudly on a short trace instead of the whole test
+	// binary trapping and taking every later case with it (see tests/AGENTS.md on
+	// REQUIRE not aborting in this build).
+	if (!gs_resize_or_fail(generation_trace, p_params_sequence.size(),
+				"TileRenderer::_test_instance_pipeline_binding_generation_trace")) {
+		return Vector<uint64_t>();
+	}
 
 	for (int i = 0; i < p_params_sequence.size(); i++) {
 		_apply_instance_pipeline_bindings(bindings, p_params_sequence[i], [&descriptor_generation]() {

@@ -1,5 +1,6 @@
 #include "gpu_culler.h"
 #include "../core/gs_project_settings.h"
+#include "../core/gs_vector_alloc.h"
 #include "../lod/lod_config.h"
 #include "core/config/project_settings.h"
 #include "core/error/error_macros.h"
@@ -340,7 +341,17 @@ void GPUCuller::ensure_hierarchical_structure(const Ref<GaussianData> &p_data) {
     }
 
     Vector<GaussianSplatting::GaussianData> build_data;
-    build_data.resize(gaussians.size());
+    // #794: the fill loop is bounded by gaussians.size(), so an ignored resize
+    // failure would write past the end and hard-trap. Fail closed the same way the
+    // empty-source branch above does: drop the hierarchy and leave it dirty, so the
+    // next frame retries instead of culling against a half-built structure.
+    if (!gs_resize_or_fail(build_data, gaussians.size(), "GpuCuller::rebuild_hierarchical_structure")) {
+        culling_state.hierarchical_structure.reset();
+        culling_state.hierarchical_structure_dirty = true;
+        culling_state.hierarchical_structure_source_id = ObjectID();
+        culling_state.hierarchical_structure_source_revision = 0;
+        return;
+    }
 
     const uint32_t gaussian_count = static_cast<uint32_t>(gaussians.size());
     for (uint32_t i = 0; i < gaussian_count; i++) {

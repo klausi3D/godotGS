@@ -101,6 +101,8 @@ const char *_layout_hint_reason_code(LayoutHintFailureReason p_reason) {
             return "remap_source_index_out_of_range";
         case LayoutHintFailureReason::REMAP_SOURCE_INDEX_DUPLICATE:
             return "remap_source_index_duplicate";
+        case LayoutHintFailureReason::VALIDATION_ALLOCATION_FAILED:
+            return "validation_allocation_failed";
         case LayoutHintFailureReason::COUNT:
             break;
     }
@@ -130,6 +132,10 @@ LayoutHintFailureCategory _layout_hint_reason_category(LayoutHintFailureReason p
         case LayoutHintFailureReason::REMAP_SOURCE_COUNT_MISMATCH:
         case LayoutHintFailureReason::REMAP_SOURCE_INDEX_DUPLICATE:
             return LayoutHintFailureCategory::REMAP;
+        // #794: not INPUT (the hints may be perfectly valid) and not INDEX_RANGE (no
+        // index was out of range) -- the validation simply could not be performed.
+        case LayoutHintFailureReason::VALIDATION_ALLOCATION_FAILED:
+            return LayoutHintFailureCategory::OTHER;
         case LayoutHintFailureReason::NONE:
         case LayoutHintFailureReason::COUNT:
             break;

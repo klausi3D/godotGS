@@ -843,7 +843,14 @@ void GaussianImportDialog::_update_comparison() {
     PackedStringArray changes;
     Array keys = new_options.keys();
     PackedStringArray sorted_keys;
-    sorted_keys.resize(keys.size());
+    // #794: the fill loop is bounded by keys.size(), not sorted_keys.size(), so an
+    // ignored resize failure would write past the end and hard-trap. This is editor
+    // UI, so fail closed into the same "nothing to show" path the no-metadata branch
+    // above uses rather than tearing down the editor.
+    if (!gs_resize_or_fail(sorted_keys, keys.size(), "GaussianImportDialog::_update_comparison")) {
+        comparison_label->set_text(TTR("Could not compare import options (out of memory)."));
+        return;
+    }
     for (int i = 0; i < keys.size(); i++) {
         sorted_keys.write[i] = String(keys[i]);
     }

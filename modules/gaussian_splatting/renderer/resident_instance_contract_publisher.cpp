@@ -1,5 +1,6 @@
 #include "resident_instance_contract_publisher.h"
 
+#include "../core/gs_vector_alloc.h"
 #include "gaussian_gpu_layout.h"
 #include "gaussian_splat_renderer.h"
 #include "gpu_sorting_config.h"
@@ -135,7 +136,18 @@ static void _append_chunk_descriptors_for_asset(const ResidentAssetDescriptor &p
 				descriptor.bounds = chunk.bounds;
 				descriptor.count = split_count;
 				descriptor.source_index_remapped = true;
-				descriptor.source_indices.resize(split_count);
+				// #794: the copy loop is bounded by split_count, not by
+				// source_indices.size(), so an ignored resize failure would write past
+				// the end and hard-trap. Publishing a descriptor whose count says
+				// split_count but whose source_indices are empty would be worse than
+				// dropping it -- #793 showed exactly that shape reaching
+				// buffer_update() as a null pointer with a nonzero byte count. So bail
+				// out of publishing entirely rather than emit a partial chunk set.
+				if (!gs_resize_or_fail(descriptor.source_indices, (int64_t)split_count,
+							"ResidentInstanceContractPublisher::_append_chunk_descriptors_for_asset")) {
+					r_chunks.clear();
+					return;
+				}
 				for (uint32_t local_idx = 0; local_idx < split_count; local_idx++) {
 					descriptor.source_indices.write[local_idx] = chunk.indices[offset + local_idx];
 				}

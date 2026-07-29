@@ -1,4 +1,5 @@
 #include "hierarchical_splat_structure.h"
+#include "../core/gs_vector_alloc.h"
 #include "core/error/error_macros.h"
 #include "core/os/os.h"
 #include "core/os/thread.h"
@@ -61,7 +62,17 @@ void HierarchicalSplatStructure::build_hierarchy(
     }
 
     total_splats = splats.size();
-    splat_data.resize(total_splats);
+    // #794: the conversion loop is bounded by total_splats, not splat_data.size(),
+    // so an ignored resize failure would write past the end and hard-trap. Fail
+    // closed into the same state as the empty-input branch above: no hierarchy, and
+    // total_splats back to 0 so get_statistics() cannot report splats that were
+    // never converted.
+    if (!gs_resize_or_fail(splat_data, (int64_t)total_splats, "HierarchicalSplatStructure::build_hierarchy")) {
+        // The helper leaves splat_data empty; reset the count with it so the two
+        // cannot disagree.
+        total_splats = 0;
+        return;
+    }
 
     // Convert splat data to internal format and compute bounds
     AABB total_bounds;
@@ -132,9 +143,25 @@ void HierarchicalSplatStructure::build_node_recursive(
     node->depth = depth;
 
     // Check termination conditions
-    if (depth >= params.max_depth ||
-        count <= params.min_splats_per_node ||
-        node->bounds.get_longest_axis_size() < params.size_threshold) {
+    bool subdivide = !(depth >= params.max_depth ||
+                       count <= params.min_splats_per_node ||
+                       node->bounds.get_longest_axis_size() < params.size_threshold);
+
+    // #794: the subdivision path reorders `splats` through this scratch buffer and
+    // indexes it by (current_offset - start), which is bounded by `count` and NOT by
+    // temp_splats.size() -- so an ignored resize failure would write past the end and
+    // hard-trap the process. Allocate it here, before committing to subdivide, so a
+    // failure degrades this node to a LEAF and reuses the existing leaf contract
+    // below (statistics computed, no children) instead of inventing a
+    // half-subdivided state. Allocated only when actually subdividing, so leaves --
+    // the majority of nodes -- still pay nothing.
+    Vector<SplatInfo> temp_splats;
+    if (subdivide && !gs_resize_or_fail(temp_splats, (int64_t)count,
+                             "HierarchicalSplatStructure::build_node_recursive")) {
+        subdivide = false;
+    }
+
+    if (!subdivide) {
         // Leaf node - compute statistics
         float sum_size = 0.0f;
         float max_size = 0.0f;
@@ -179,9 +206,8 @@ void HierarchicalSplatStructure::build_node_recursive(
         child_indices[child_idx].push_back(i);
     }
 
-    // Reorder splats array to group by child
-    Vector<SplatInfo> temp_splats;
-    temp_splats.resize(count);
+    // Reorder splats array to group by child (temp_splats was allocated above, with
+    // its failure already handled by degrading this node to a leaf).
     uint32_t current_offset = start;
 
     for (uint32_t child = 0; child < 8; child++) {
