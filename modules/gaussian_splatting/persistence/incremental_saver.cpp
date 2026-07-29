@@ -2,6 +2,7 @@
 #include "gaussian_scene_serializer.h"
 #include "../io/gs_atomic_file_writer.h"
 #include "../core/gaussian_data.h"
+#include "../core/gs_vector_alloc.h"
 #include "../animation/animation_state_machine.h"
 
 #include "core/error/error_macros.h"

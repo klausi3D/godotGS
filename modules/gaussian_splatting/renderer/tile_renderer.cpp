@@ -1,5 +1,7 @@
 #include "tile_renderer.h"
 
+#include "../core/gs_vector_alloc.h"
+
 #include "core/error/error_macros.h"
 #include "core/os/os.h"
 #include "core/math/vector3.h"

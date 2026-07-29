@@ -2,6 +2,8 @@
 
 #include "gaussian_import_dialog.h"
 
+#include "../core/gs_vector_alloc.h"
+
 #include "core/io/file_access.h"
 #include "core/math/math_funcs.h"
 #include "core/os/time.h"
