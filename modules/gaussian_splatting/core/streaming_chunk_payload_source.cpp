@@ -252,32 +252,57 @@ void StagedFileChunkPayloadSource::configure(const String &p_path,
 Ref<FileAccess> StagedFileChunkPayloadSource::_get_thread_file() const {
 	// #714: a writer is atomically replacing this file. Opening a handle now would
 	// deny it delete access on Windows and fail the replace, so wait for the guard to
-	// finish rather than fail the read outright. Checked BEFORE taking file_mutex and
-	// never while holding it -- a reader that already has a handle needs that mutex to
-	// finish, and stalling it here would be the deadlock this flag exists to avoid.
+	// finish rather than fail the read outright.
+	//
+	// The WAIT never holds file_mutex -- a reader that already has a handle needs that
+	// mutex to finish (_record_io_counters), and stalling it here would be the very
+	// deadlock this lock-free flag exists to avoid. The flag is then RECHECKED once
+	// the mutex is held, because a lock-free check followed by a lock is a
+	// check-then-act race: the guard can take over the cache in between, and a handle
+	// opened after that point would be invisible to it.
+	//
+	// On exhausting the wait budget the read proceeds anyway: stalling an editor
+	// import beats breaking a running scene's streaming, and the import then fails
+	// loudly rather than degrading silently.
 	OS *os = OS::get_singleton();
-	uint32_t waited_usec = 0;
-	while (suspend_opens.is_set() && os != nullptr && waited_usec < MAX_OPEN_SUSPEND_WAIT_USEC) {
-		os->delay_usec(READER_DRAIN_POLL_USEC);
-		waited_usec += READER_DRAIN_POLL_USEC;
-	}
-
 	const Thread::ID thread_id = Thread::get_caller_id();
-	MutexLock lock(file_mutex);
+	uint32_t waited_usec = 0;
 
-	Ref<FileAccess> *cached_file = cached_files.getptr(thread_id);
-	if (cached_file && cached_file->is_valid()) {
-		return *cached_file;
-	}
+	while (true) {
+		// Wait with NO mutex held: a reader that already holds a handle needs
+		// file_mutex to finish (_record_io_counters), and stalling it here would be
+		// the deadlock this flag exists to avoid.
+		while (suspend_opens.is_set() && os != nullptr && waited_usec < MAX_OPEN_SUSPEND_WAIT_USEC) {
+			os->delay_usec(READER_DRAIN_POLL_USEC);
+			waited_usec += READER_DRAIN_POLL_USEC;
+		}
 
-	Ref<FileAccess> file = FileAccess::open(file_path, FileAccess::READ);
-	if (file.is_null()) {
-		ERR_PRINT(vformat("[StagedFileSource] Cannot open staged world file: %s", file_path));
-		return Ref<FileAccess>();
+		MutexLock lock(file_mutex);
+
+		// Recheck UNDER the mutex. The check above is lock-free, so the guard can set
+		// the flag and take over the cache in the window between it and this
+		// acquisition; opening here would cache a fresh delete-denying handle that the
+		// guard never saw, and its rename would fail. Rechecking closes that window:
+		// either we get here before the guard (it then takes our handle over with the
+		// rest of the cache) or we see the flag and go back to waiting.
+		if (suspend_opens.is_set() && os != nullptr && waited_usec < MAX_OPEN_SUSPEND_WAIT_USEC) {
+			continue; // releases file_mutex, resumes the wait above
+		}
+
+		Ref<FileAccess> *cached_file = cached_files.getptr(thread_id);
+		if (cached_file && cached_file->is_valid()) {
+			return *cached_file;
+		}
+
+		Ref<FileAccess> file = FileAccess::open(file_path, FileAccess::READ);
+		if (file.is_null()) {
+			ERR_PRINT(vformat("[StagedFileSource] Cannot open staged world file: %s", file_path));
+			return Ref<FileAccess>();
+		}
+		cached_files.insert(thread_id, file);
+		file_open_count++;
+		return file;
 	}
-	cached_files.insert(thread_id, file);
-	file_open_count++;
-	return file;
 }
 
 bool StagedFileChunkPayloadSource::_read_exact(FileAccess *p_file, uint64_t p_offset, void *p_dst, uint64_t p_bytes, const char *p_label, uint64_t *r_bytes_read) const {
