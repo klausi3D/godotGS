@@ -187,28 +187,41 @@ StagedFileChunkPayloadSource::ScopedReaderSuspend::ScopedReaderSuspend(const Str
 	// file_mutex is NOT held here, by design: the reader must be able to take it to
 	// finish (_record_io_counters), or it could never release the Ref being waited on.
 	//
-	// Bounded on purpose. Under continuous streaming this can legitimately fail to
-	// drain, and blocking an import indefinitely would be worse than the honest
-	// outcome: we proceed, the rename fails, and the importer reports the error
-	// rather than silently degrading.
+	// Bounded on purpose: a read that never returns would otherwise block an import
+	// forever. When the budget expires with a handle still in flight we do NOT press
+	// on -- `readers_drained` stays false and gs_atomic_file_write() refuses the
+	// replace, because that handle still denies delete access and the rename it would
+	// attempt is one whose precondition is violated. Reporting the real cause beats
+	// reporting whatever DirAccess says about a rename that was never going to work.
+	//
+	// This is what makes the budget non-load-bearing for correctness: it decides how
+	// long an editor import may stall before failing, never whether the file that
+	// ends up on disk is correct.
+	// The in-flight check runs at least once and always decides `readers_drained`,
+	// including when there is no OS singleton to sleep on -- reporting "drained"
+	// because we could not wait would be exactly the false clear this guard exists
+	// to prevent.
 	OS *os = OS::get_singleton();
 	uint32_t waited_usec = 0;
-	while (os != nullptr && waited_usec < MAX_READER_DRAIN_USEC) {
-		bool any_in_flight = false;
+	bool any_in_flight = true;
+	while (true) {
+		any_in_flight = false;
 		for (uint32_t i = 0; i < pending.size(); i++) {
 			if (pending[i]->get_reference_count() > 1) {
 				any_in_flight = true;
 				break;
 			}
 		}
-		if (!any_in_flight) {
+		if (!any_in_flight || os == nullptr || waited_usec >= MAX_READER_DRAIN_USEC) {
 			break;
 		}
 		os->delay_usec(READER_DRAIN_POLL_USEC);
 		waited_usec += READER_DRAIN_POLL_USEC;
 	}
+	readers_drained = !any_in_flight;
 
-	// Dropping our references closes the handles, so the caller's rename can proceed.
+	// Dropping our references closes the handles we own. Any handle still counted
+	// above belongs to an in-flight read and stays open regardless.
 	pending.clear();
 }
 

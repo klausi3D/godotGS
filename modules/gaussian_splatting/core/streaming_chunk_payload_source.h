@@ -150,10 +150,19 @@ public:
 	//
 	// Scope it to the RENAME ONLY, never across the copy: the wait is bounded, but
 	// the copy is file-sized.
+	// The wait is bounded, so it can expire with a reader still holding the file open
+	// (a read slower than the drain budget, or one that never returns). That outcome
+	// is reported by drained() and is part of the contract rather than a caveat:
+	// gs_atomic_file_write() refuses the replace instead of attempting a rename whose
+	// precondition is known to be violated, so the timeout tunes how long an import
+	// may stall, NOT whether the result is correct.
 	class ScopedReaderSuspend {
 		LocalVector<StagedFileChunkPayloadSource *> held;
 		// False when constructed with an empty path, which locks nothing at all.
 		bool registry_locked = false;
+		// True unless the bounded wait expired with a handle still in flight. Starts
+		// true so the "nothing to drain" case (no matching source) is drained.
+		bool readers_drained = true;
 
 	public:
 		explicit ScopedReaderSuspend(const String &p_path);
@@ -163,6 +172,9 @@ public:
 		ScopedReaderSuspend &operator=(const ScopedReaderSuspend &) = delete;
 
 		uint32_t suspended_count() const { return held.size(); }
+		// False => at least one reader still had the destination open when the wait
+		// expired. The caller must NOT attempt the replace; see gs_atomic_file_writer.h.
+		bool drained() const { return readers_drained; }
 	};
 
 	void configure(const String &p_path,

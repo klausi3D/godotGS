@@ -51,8 +51,11 @@ String _gs_atomic_win_native_path(const String &p_path);
 #endif
 
 // #714: default no-op pre-rename guard, so callers that need no exclusivity around
-// the rename pay nothing and keep the two-argument call shape.
-struct _GSAtomicNoRenameGuard {};
+// the rename pay nothing and keep the two-argument call shape. It establishes
+// nothing, so there is nothing that can fail to be established: always drained.
+struct _GSAtomicNoRenameGuard {
+	bool drained() const { return true; }
+};
 
 // Writes `p_final_path` atomically. `p_write` is invoked with the open temp file
 // and must return OK on success; it must NOT retain a persistent Ref to the file
@@ -64,6 +67,13 @@ struct _GSAtomicNoRenameGuard {};
 // Windows the rename needs delete access, which an open FileAccess denies (#714).
 // Scope it to the RENAME ONLY -- the copy above can take arbitrarily long, and any
 // exclusivity held across it would stall readers for the size of the file.
+//
+// The guard must expose `bool drained() const`, reporting whether it actually
+// established that exclusivity. When it returns false the rename is NOT attempted:
+// its precondition is known to be violated, so it would fail and report whatever
+// the filesystem says about a rename that never had a chance, burying the real
+// cause. The temp is removed and ERR_BUSY is returned instead. A guard that
+// establishes nothing returns true -- there is nothing for it to fail at.
 template <typename TWriter, typename TRenameGuard>
 Error gs_atomic_file_write(const String &p_final_path, TWriter &&p_write, TRenameGuard &&p_make_rename_guard) {
 	String temp_path;
@@ -94,7 +104,10 @@ Error gs_atomic_file_write(const String &p_final_path, TWriter &&p_write, TRenam
 	// copy or move constructor. It lives until this scope ends, i.e. across the
 	// rename and nothing else.
 	auto rename_guard = p_make_rename_guard();
-	(void)rename_guard;
+	if (!rename_guard.drained()) {
+		_gs_atomic_remove_temp(temp_path);
+		return ERR_BUSY;
+	}
 	return _gs_atomic_rename_temp(temp_path, p_final_path);
 }
 

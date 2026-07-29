@@ -202,9 +202,16 @@ static Error _copy_binary_file(const String &p_source_file, const String &p_dest
 	// The guard is created by the helper immediately before the RENAME, not here:
 	// quiescing readers across the whole copy would stall streaming for the size of
 	// the file, while the rename is a metadata operation. For its lifetime the guard
-	// drops the cached handles AND holds each matching source's file_mutex, so a
-	// reader cannot reopen the destination in the gap -- which is what made a
-	// release-then-copy approach intermittent under continuous streaming.
+	// sets each matching source's lock-free `suspend_opens` flag (so no reader can
+	// reopen the destination in the gap -- which is what made a release-then-copy
+	// approach intermittent under continuous streaming) and waits for reads already
+	// in flight to release their handles. It does NOT hold file_mutex across that
+	// wait: an in-flight read needs that mutex to finish, so holding it would block
+	// the very reads being drained.
+	//
+	// If that wait expires with a read still holding the file open, the helper
+	// refuses the replace and returns ERR_BUSY rather than attempting a rename that
+	// cannot succeed; see the ERR_BUSY branch at the call site.
 	//
 	// Route the destination write through the crash-atomic helper (temp sibling ->
 	// atomic replace-over-existing), exactly like every other final-output saver
@@ -312,6 +319,18 @@ Error ResourceImporterGSplatWorld::import(ResourceUID::ID p_source_id, const Str
 	String save_path = p_save_path + "." + get_save_extension();
 	// Keep imports cheap for large worlds: source/destination formats are identical.
 	Error err = _copy_binary_file(p_source_file, save_path);
+	if (err == ERR_BUSY) {
+		// #714: the copy itself succeeded; the atomic replace was refused because a
+		// streaming read still held the destination open when the drain budget
+		// expired. Windows grants no delete access to such a handle, so no rename
+		// could have worked. Name the cause and the remedy -- the generic copy
+		// message below would send the reader looking for a disk or format problem.
+		GS_LOG_ERROR_DEFAULT(vformat("GaussianSplatWorld importer could not replace %s: it is still being read "
+									 "by an active stream. The previous file is unchanged. Close or stop any "
+									 "scene streaming this world and reimport.",
+				save_path));
+		return err;
+	}
 	if (err != OK) {
 		GS_LOG_ERROR_DEFAULT(vformat("GaussianSplatWorld importer failed to copy %s -> %s (error %d)",
 				p_source_file, save_path, err));
