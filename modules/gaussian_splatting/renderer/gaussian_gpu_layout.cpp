@@ -283,7 +283,7 @@ void pack_gaussians_range_quantized(const LocalVector<Gaussian> &src,
         uint32_t higher_order_count,
         uint32_t coefficient_limit) {
     ERR_FAIL_NULL_MSG(dst, "pack_gaussians_range_quantized destination is null");
-    ERR_FAIL_COND_MSG(start + count > src.size(), "pack_gaussians_range_quantized out of bounds");
+    ERR_FAIL_COND_MSG((uint64_t)start + (uint64_t)count > (uint64_t)src.size(), "pack_gaussians_range_quantized out of bounds");
     for (uint32_t i = 0; i < count; i++) {
         // Match the sibling range packers: the per-splat higher-order SH block is indexed
         // by the SOURCE splat (start + i), not the destination slot i.
@@ -295,7 +295,30 @@ void pack_gaussians_range_quantized(const LocalVector<Gaussian> &src,
     }
 }
 
-void pack_gaussians_range(const LocalVector<Gaussian> &src,
+// #787: Vector::resize() reports allocation failure through its return value and leaves the
+// vector at its previous (smaller) size -- see CowData::resize()/_fork_allocate(), which return
+// ERR_OUT_OF_MEMORY before touching the size. Ignoring that return and then writing dst.write[i]
+// walks straight off the end, and CRASH_BAD_INDEX in core/templates/vector.h traps the whole
+// process via __fastfail(7). That is exactly how the nightly GPU streaming lane died
+// (0xC0000409, subcode 7, symbolized to VectorWriteProxy<PackedGaussian>::operator[]).
+//
+// Fail closed instead: report the sizes that failed -- which is the diagnostic the crash itself
+// could never deliver -- and leave the output EMPTY, matching the existing "no payload" failure
+// contract of the pack callers, so nobody consumes a partially packed chunk.
+template <typename T>
+static bool _reserve_pack_output(Vector<T> &p_dst, uint32_t p_count, const char *p_where) {
+    if (p_dst.resize(p_count) == OK) {
+        return true;
+    }
+    p_dst.clear();
+    ERR_FAIL_V_MSG(false,
+            vformat("%s: failed to allocate %d entries of %d bytes (%d bytes total); "
+                    "leaving the output empty instead of writing out of bounds.",
+                    String(p_where), p_count, (int64_t)sizeof(T),
+                    (int64_t)p_count * (int64_t)sizeof(T)));
+}
+
+bool pack_gaussians_range(const LocalVector<Gaussian> &src,
         uint32_t start,
         uint32_t count,
         Vector<PackedGaussian> &dst,
@@ -315,12 +338,14 @@ void pack_gaussians_range(const LocalVector<Gaussian> &src,
     }
     if (count == 0) {
         dst.clear();
-        return;
+        return true;
     }
 
-    ERR_FAIL_COND_MSG(start + count > src.size(), "pack_gaussians_range out of bounds");
+    ERR_FAIL_COND_V_MSG((uint64_t)start + (uint64_t)count > (uint64_t)src.size(), false, "pack_gaussians_range out of bounds");
 
-    dst.resize(count);
+    if (!_reserve_pack_output(dst, count, "pack_gaussians_range")) {
+        return false;
+    }
     for (uint32_t i = 0; i < count; i++) {
         const Vector3 *coeff_ptr = nullptr;
         if (higher_order_coeffs && higher_order_count > 0) {
@@ -328,6 +353,7 @@ void pack_gaussians_range(const LocalVector<Gaussian> &src,
         }
         pack_gaussian(src[start + i], dst.write[i], metrics, coeff_ptr, first_order_count, higher_order_count, coefficient_limit);
     }
+    return true;
 }
 
 void pack_gaussians_range_raw(const LocalVector<Gaussian> &src,
@@ -343,7 +369,7 @@ void pack_gaussians_range_raw(const LocalVector<Gaussian> &src,
         return;
     }
 
-    ERR_FAIL_COND_MSG(start + count > src.size(), "pack_gaussians_range_raw out of bounds");
+    ERR_FAIL_COND_MSG((uint64_t)start + (uint64_t)count > (uint64_t)src.size(), "pack_gaussians_range_raw out of bounds");
 
     for (uint32_t i = 0; i < count; i++) {
         const Vector3 *coeff_ptr = nullptr;
@@ -376,7 +402,7 @@ void pack_gaussians_range_raw(const Gaussian *src,
     }
 }
 
-void pack_gaussians_range_limited(const LocalVector<Gaussian> &src,
+bool pack_gaussians_range_limited(const LocalVector<Gaussian> &src,
         uint32_t start,
         uint32_t count,
         Vector<PackedGaussian> &dst,
@@ -388,12 +414,14 @@ void pack_gaussians_range_limited(const LocalVector<Gaussian> &src,
         uint32_t coefficient_limit) {
     if (count == 0) {
         dst.clear();
-        return;
+        return true;
     }
 
-    ERR_FAIL_COND_MSG(start + count > src.size(), "pack_gaussians_range_limited out of bounds");
+    ERR_FAIL_COND_V_MSG((uint64_t)start + (uint64_t)count > (uint64_t)src.size(), false, "pack_gaussians_range_limited out of bounds");
 
-    dst.resize(count);
+    if (!_reserve_pack_output(dst, count, "pack_gaussians_range_limited")) {
+        return false;
+    }
     for (uint32_t i = 0; i < count; i++) {
         const Vector3 *coeff_ptr = nullptr;
         if (higher_order_coeffs && higher_order_count > 0) {
@@ -405,6 +433,7 @@ void pack_gaussians_range_limited(const LocalVector<Gaussian> &src,
         }
         pack_gaussian(src[start + i], dst.write[i], metrics, coeff_ptr, first_order_count, higher_order_count, limit);
     }
+    return true;
 }
 
 // ============================================================================
@@ -518,7 +547,7 @@ void pack_gaussian_f16(const Gaussian &src,
     metrics.coefficient_count += (encoded_total + 1) / 2;
 }
 
-void pack_gaussians_range_f16(const LocalVector<Gaussian> &src,
+bool pack_gaussians_range_f16(const LocalVector<Gaussian> &src,
         uint32_t start,
         uint32_t count,
         Vector<PackedGaussianF16> &dst,
@@ -531,12 +560,14 @@ void pack_gaussians_range_f16(const LocalVector<Gaussian> &src,
 
     if (count == 0) {
         dst.clear();
-        return;
+        return true;
     }
 
-    ERR_FAIL_COND_MSG(start + count > src.size(), "pack_gaussians_range_f16 out of bounds");
+    ERR_FAIL_COND_V_MSG((uint64_t)start + (uint64_t)count > (uint64_t)src.size(), false, "pack_gaussians_range_f16 out of bounds");
 
-    dst.resize(count);
+    if (!_reserve_pack_output(dst, count, "pack_gaussians_range_f16")) {
+        return false;
+    }
     for (uint32_t i = 0; i < count; i++) {
         const Vector3 *coeff_ptr = nullptr;
         if (higher_order_coeffs && higher_order_count > 0) {
@@ -545,9 +576,10 @@ void pack_gaussians_range_f16(const LocalVector<Gaussian> &src,
         pack_gaussian_f16(src[start + i], dst.write[i], metrics, chunk_center,
                 coeff_ptr, first_order_count, higher_order_count, coefficient_limit);
     }
+    return true;
 }
 
-void pack_gaussians_chunked_f16(const LocalVector<Gaussian> &src,
+bool pack_gaussians_chunked_f16(const LocalVector<Gaussian> &src,
         uint32_t start,
         uint32_t count,
         uint32_t chunk_size,
@@ -561,15 +593,21 @@ void pack_gaussians_chunked_f16(const LocalVector<Gaussian> &src,
     if (count == 0) {
         dst.clear();
         chunks.clear();
-        return;
+        return true;
     }
 
-    ERR_FAIL_COND_MSG(start + count > src.size(), "pack_gaussians_chunked_f16 out of bounds");
+    ERR_FAIL_COND_V_MSG((uint64_t)start + (uint64_t)count > (uint64_t)src.size(), false, "pack_gaussians_chunked_f16 out of bounds");
 
     // Compute number of chunks
     uint32_t num_chunks = (count + chunk_size - 1) / chunk_size;
-    chunks.resize(num_chunks);
-    dst.resize(count);
+    if (!_reserve_pack_output(chunks, num_chunks, "pack_gaussians_chunked_f16 (chunk table)")) {
+        dst.clear();
+        return false;
+    }
+    if (!_reserve_pack_output(dst, count, "pack_gaussians_chunked_f16")) {
+        chunks.clear();
+        return false;
+    }
 
     for (uint32_t chunk_idx = 0; chunk_idx < num_chunks; chunk_idx++) {
         uint32_t chunk_start = start + chunk_idx * chunk_size;
@@ -621,6 +659,7 @@ void pack_gaussians_chunked_f16(const LocalVector<Gaussian> &src,
                     PackedSphericalHarmonicsF16::MAX_ENCODED_COEFFICIENTS);
         }
     }
+    return true;
 }
 
 bool is_float16_storage_enabled() {

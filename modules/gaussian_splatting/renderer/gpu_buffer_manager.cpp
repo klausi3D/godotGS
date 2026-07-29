@@ -678,14 +678,28 @@ Error GPUBufferManager::upload_gaussian_data(const Ref<::GaussianData> &p_data) 
             GaussianSplatting::debug_trace_record_buffer_mgr(gaussians.size(), g0.sh_dc, g0.opacity);
         }
 
-        pack_gaussians_range(gaussians,
-                0,
-                target_count,
-                packed_data,
-                compression_metrics,
-                p_data->get_sh_high_order_coefficients_ptr(),
-                p_data->get_sh_first_order_count(),
-                p_data->get_sh_high_order_count());
+        // #787: abort before any upload if the pack buffer could not be allocated. Proceeding
+        // would hand buffer_update() a null ptr() with a nonzero byte count below.
+        const bool packed_ok = pack_gaussians_range(gaussians,
+                                       0,
+                                       target_count,
+                                       packed_data,
+                                       compression_metrics,
+                                       p_data->get_sh_high_order_coefficients_ptr(),
+                                       p_data->get_sh_first_order_count(),
+                                       p_data->get_sh_high_order_count()) &&
+                (uint32_t)packed_data.size() == target_count;
+        if (!packed_ok) {
+            // Close the frame THIS call opened, or the manager stays frame_active and a later
+            // standalone retry treats the stale frame as caller-owned, skipping its own
+            // swap/end so even a successful upload never gets published. Deliberately no
+            // swap_buffers(): publishing a write set we never populated is worse than failing.
+            if (!frame_was_active) {
+                end_frame();
+            }
+            ERR_FAIL_V_MSG(ERR_OUT_OF_MEMORY,
+                    vformat("Failed to pack %d gaussians for GPU upload; aborting upload.", target_count));
+        }
 
         GaussianSplatManager::ScopedSubmissionLock upload_lock;
         RenderingDevice *upload_device = _acquire_submission_device(write_set.device ? write_set.device : rd, upload_lock);

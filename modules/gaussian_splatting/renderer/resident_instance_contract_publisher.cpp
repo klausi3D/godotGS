@@ -652,8 +652,24 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 					quantization_gpu_cpu.push_back(quant_gpu);
 				} else {
 					Vector<PackedGaussian> packed_chunk;
-					pack_gaussians_range(gaussian_snapshot, 0, chunk_pack_count, packed_chunk, sh_metrics, sh_coeffs,
-							sh_first_order, sh_high_order);
+					// #787: abort the publish if the chunk could not be packed. Continuing would
+					// append zero records while chunk_meta.splat_count below still reports
+					// chunk_pack_count, publishing atlas metadata that points at splats which
+					// were never written. Mirrors the quantized branch's alloc-failure handling.
+					if (!pack_gaussians_range(gaussian_snapshot, 0, chunk_pack_count, packed_chunk, sh_metrics, sh_coeffs,
+								sh_first_order, sh_high_order) ||
+							(uint32_t)packed_chunk.size() != chunk_pack_count) {
+						if (r_reason) {
+							*r_reason = "resident_atlas_pack_failed";
+						}
+						// Drop the previously published contract like every other failure path
+						// in this function does. Leaving it live keeps has_instance_pipeline_-
+						// buffers() true and the old atlas/cull/sort RIDs allocated while the
+						// new contract is rejected, so later frames retry the same pack against
+						// the same memory pressure that just failed.
+						p_renderer->clear_instance_pipeline_buffers();
+						return false;
+					}
 
 					atlas_base = atlas_gaussian_cpu.size();
 					for (int i = 0; i < packed_chunk.size(); i++) {

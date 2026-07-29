@@ -188,14 +188,17 @@ RID GaussianData::create_gpu_buffer(RenderingDevice *p_rd) const {
         const Vector3 *sh_coeff_ptr = sh_high_order_coefficients.is_empty()
                 ? nullptr
                 : sh_high_order_coefficients.ptr();
-        pack_gaussians_range(gaussians,
-                0,
-                gaussian_count,
-                packed_gaussians,
-                metrics,
-                sh_coeff_ptr,
-                sh_first_order_count,
-                sh_high_order_count);
+        // #787: no buffer rather than a buffer sized from an unpacked payload.
+        ERR_FAIL_COND_V_MSG(!pack_gaussians_range(gaussians,
+                                    0,
+                                    gaussian_count,
+                                    packed_gaussians,
+                                    metrics,
+                                    sh_coeff_ptr,
+                                    sh_first_order_count,
+                                    sh_high_order_count),
+                RID(),
+                vformat("Failed to pack %d gaussians; not creating a GPU buffer.", gaussian_count));
         pack_end_usec = OS::get_singleton() ? OS::get_singleton()->get_ticks_usec() : pack_start_usec;
     }
 
@@ -263,14 +266,17 @@ void GaussianData::update_gpu_buffer(RID p_buffer, RenderingDevice *p_rd) const 
         const Vector3 *sh_coeff_ptr = sh_high_order_coefficients.is_empty()
                 ? nullptr
                 : sh_high_order_coefficients.ptr();
-        pack_gaussians_range(gaussians,
-                0,
-                gaussian_count,
-                packed_gaussians,
-                metrics,
-                sh_coeff_ptr,
-                sh_first_order_count,
-                sh_high_order_count);
+        // #787: leave the existing buffer contents untouched rather than uploading a
+        // short/empty payload over them.
+        ERR_FAIL_COND_MSG(!pack_gaussians_range(gaussians,
+                                  0,
+                                  gaussian_count,
+                                  packed_gaussians,
+                                  metrics,
+                                  sh_coeff_ptr,
+                                  sh_first_order_count,
+                                  sh_high_order_count),
+                vformat("Failed to pack %d gaussians; skipping GPU buffer update.", gaussian_count));
     }
 
     uint32_t buffer_size = sizeof(PackedGaussian) * packed_gaussians.size();
