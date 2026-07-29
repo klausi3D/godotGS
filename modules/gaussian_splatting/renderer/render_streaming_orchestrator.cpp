@@ -1,6 +1,5 @@
 #include "render_streaming_orchestrator.h"
 
-#include "../core/gs_vector_alloc.h"
 #include "gaussian_gpu_layout.h"
 #include "instance_pipeline_contract.h"
 #include "pipeline_io_contracts.h"
@@ -1220,22 +1219,20 @@ void RenderStreamingOrchestrator::sync_instance_pipeline_assets(GaussianStreamin
 					break;
 				}
 				Vector<uint8_t> seen;
-				// #794: this site is NOT a trap -- unlike the sibling in
-				// gaussian_streaming.cpp, the loop below bound-checks
+				// #794: deliberately left unchecked -- this site is NOT a trap. Unlike
+				// the sibling in gaussian_streaming.cpp, the loop below bound-checks
 				// `offset >= seen.size()` before both the read and the write, so a
-				// failed resize (size 0) makes every offset fail that check rather
-				// than walking off the end. What it got wrong was the DIAGNOSIS: it
-				// reported HINT_NON_CONTIGUOUS_COVERAGE, sending the reader hunting
-				// for corrupt hints in a file that was perfectly fine.
-				if (!gs_resize_or_fail(seen, chunk.indices.size(),
-							"RenderStreamingOrchestrator::validate chunk coverage")) {
-					set_io_layout_failure(LayoutHintFailureReason::VALIDATION_ALLOCATION_FAILED,
-							chunk_idx,
-							static_cast<uint64_t>(chunk.indices.size()),
-							0);
-					layout_valid = false;
-					break;
-				}
+				// failed resize (size 0) makes every offset fail that check and report
+				// a layout failure rather than walking off the end.
+				//
+				// It does MISREPORT such a failure as HINT_NON_CONTIGUOUS_COVERAGE,
+				// sending the reader hunting for corrupt hints in a file that is fine.
+				// Fixing that needs a distinct reason code, and this translation unit
+				// carries its own FILE-LOCAL copy of LayoutHintFailureReason (above)
+				// holding a subset of core/streaming_layout_hint.h's values -- so the
+				// honest fix is to de-duplicate those enums, not to add the value twice.
+				// Tracked separately; out of scope for a crash-class sweep.
+				seen.resize(chunk.indices.size());
 				for (int i = 0; i < seen.size(); i++) {
 					seen.write[i] = 0;
 				}

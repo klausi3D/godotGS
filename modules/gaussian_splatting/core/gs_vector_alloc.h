@@ -58,6 +58,12 @@
 #include "core/error/error_macros.h"
 #include "core/string/ustring.h"
 #include "core/templates/vector.h"
+// vformat() is declared in variant.h, and it MUST be included here: this is a
+// template, so under GCC's two-phase name lookup a call with no argument depending on
+// the template parameter has to be resolvable at definition time. MSVC's permissive
+// lookup accepts it without the include, so omitting this builds on Windows and fails
+// only on the Linux lane -- which is exactly how it was found.
+#include "core/variant/variant.h"
 
 // Resizes p_vec to p_count. On success returns true. On allocation failure clears
 // p_vec, emits an error naming the sizes, and returns false; the caller must then
