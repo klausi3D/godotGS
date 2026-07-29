@@ -50,6 +50,9 @@ func _stream_tiers() -> Array:
             # advisory (enforce=false) so it has been failing invisibly. Arming it is
             # a separate decision and needs the measurement instability fixed first.
             "max_frame_p95_ms": 47.0,
+            # #797: not rescaled. Measured ratio shift on this tier was 1.011-1.053
+            # (mean 1.030) against 2.25 with a worst observed engine-only ratio of
+            # 1.340 -- see the derivation on tier_1m in streaming_gpu_tier_budget.gd.
             "max_frame_p95_to_avg_ratio": 2.25,
             "max_fallback_rate": 0.40,
             "enforce": false
@@ -66,6 +69,9 @@ func _stream_tiers() -> Array:
             # widest of the three tiers and the clearest sign that this measurement
             # is not yet repeatable enough to gate on.
             "max_frame_p95_ms": 83.0,
+            # #797: not rescaled. Measured ratio shift here was 0.985-1.029 (mean
+            # 1.002, the flattest of the three tiers) against 2.50 with a worst
+            # observed engine-only ratio of 1.794. Same derivation as tier_1m.
             "max_frame_p95_to_avg_ratio": 2.50,
             "max_fallback_rate": 0.35,
             "enforce": false
