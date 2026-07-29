@@ -22,7 +22,15 @@ func _record_failure(reason: String, context: Dictionary = {}) -> void:
 func _base_tier_result() -> Dictionary:
 	return {
 		"first_visible_ms": 240.0,
-		"frame_p95_ms": 292.4,
+		# #796: 292.4 -> 152.3, the same 1.92x rescale applied to the tier ceilings.
+		# 292.4 was a recorded run of the OLD frame metric, which spanned the
+		# harness's force_sort_for_view() and get_render_stats() as well as the
+		# engine frame. Against the corrected engine-frame-only ceiling (170.0) the
+		# old figure reads as a failure, so every case built on this base -- all of
+		# which expect a clean frame budget and vary one other field -- began
+		# reporting a spurious frame_p95_exceeded. This test correctly caught the
+		# metric's change of meaning; the fixture had to follow it.
+		"frame_p95_ms": 152.3,
 		"frame_p95_to_avg_ratio": 1.24,
 		"source_data_available": true,
 		"fallback_rate_available": true,

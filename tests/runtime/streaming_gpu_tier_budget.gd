@@ -95,7 +95,19 @@ static func tier_1m_budget() -> Dictionary:
 		# while preserving a hard ceiling for gross regressions. Tighten this in
 		# a dedicated calibration PR after several clean master runs establish a
 		# lower stable envelope.
-		"max_frame_p95_ms": 325.0,
+		# #796: rescaled 325.0 -> 170.0 because the METRIC changed, not the target.
+		# frame_p95_ms used to span the harness's own force_sort_for_view() (a
+		# blocking render-thread dispatch) and get_render_stats(); measured over 5
+		# runs those inflated it by 1.92x. Dividing by the same 1.92 keeps the gate's
+		# effective strictness EXACTLY as before -- it is deliberately not an
+		# opportunity to raise the bar, and equally not a silent loosening, which
+		# leaving 325.0 against a 1.92x smaller number would have been.
+		#
+		# This ceiling still cannot discriminate well: engine-frame p95 on an idle
+		# machine measured [130.2, 132.1, 133.0, 193.0, 286.5] ms across 5 runs, a
+		# 2.2x spread, with tier_2_5m reaching 3.6x. Until that instability is fixed
+		# the number is a gross backstop only. Do NOT tighten it on a single run.
+		"max_frame_p95_ms": 170.0,
 		"max_frame_p95_to_avg_ratio": 2.25,
 		"max_fallback_rate": 0.35,
 		"enforce": true

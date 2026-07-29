@@ -44,7 +44,12 @@ func _stream_tiers() -> Array:
             "size": 250000,
             "max_first_visible_ms": 2500.0,
             "min_residency_ratio": 0.70,
-            "max_frame_p95_ms": 90.0,
+            # #796: 90.0 -> 47.0, the same 1.92x metric rescale applied to tier_1m.
+            # Strictness is unchanged. Note this ceiling was ALREADY breached before
+            # the rescale (observed engine-frame p95 130-248 ms) and still is; it is
+            # advisory (enforce=false) so it has been failing invisibly. Arming it is
+            # a separate decision and needs the measurement instability fixed first.
+            "max_frame_p95_ms": 47.0,
             "max_frame_p95_to_avg_ratio": 2.25,
             "max_fallback_rate": 0.40,
             "enforce": false
@@ -55,7 +60,12 @@ func _stream_tiers() -> Array:
             "size": 2500000,
             "max_first_visible_ms": 5000.0,
             "min_residency_ratio": 0.75,
-            "max_frame_p95_ms": 160.0,
+            # #796: 160.0 -> 83.0, same 1.92x metric rescale. Also already breached
+            # and advisory: observed engine-frame p95 [153.1, 156.2, 157.9, 520.9,
+            # 548.3] ms -- a 3.6x run-to-run spread on an IDLE machine, which is the
+            # widest of the three tiers and the clearest sign that this measurement
+            # is not yet repeatable enough to gate on.
+            "max_frame_p95_ms": 83.0,
             "max_frame_p95_to_avg_ratio": 2.50,
             "max_fallback_rate": 0.35,
             "enforce": false
@@ -333,6 +343,9 @@ func _exercise_tier(tier: Dictionary) -> Dictionary:
 
     var benchmark_start_usec := Time.get_ticks_usec()
     var frame_times_ms: Array = []
+    # #796: harness-side costs, kept OUT of the frame sample but still reported.
+    var harness_forced_sort_ms: Array = []
+    var harness_stats_gather_ms: Array = []
     var scheduler_update_cpu_ms_values: Array = []
     var scheduler_cpu_total_attributed_ms_values: Array = []
     var fallback_frames := 0
@@ -351,12 +364,27 @@ func _exercise_tier(tier: Dictionary) -> Dictionary:
     var first_visible_ms := -1.0
     var stats: Dictionary = {}
     for frame_index in range(SAMPLE_FRAMES):
+        # #796: the frame sample is the ENGINE FRAME ONLY. It used to span the two
+        # harness calls below as well, and they are not free: force_sort_for_view() is
+        # a blocking dispatch to the render thread (it is on run_module_tests.py's
+        # DISPATCHING_METHODS list) and get_render_stats() aggregates. Measured, they
+        # were ~38% and ~7% of the old sample, so every frame budget calibrated
+        # against it was ~1.8x inflated by the harness measuring itself.
+        #
+        # They are still timed, but as their own diagnostics, because a per-sample
+        # blocking sort is a real cost worth watching -- just not a frame time.
         var frame_start_usec := Time.get_ticks_usec()
         await process_frame
+        var engine_frame_end_usec := Time.get_ticks_usec()
         renderer.force_sort_for_view(Transform3D.IDENTITY)
+        var forced_sort_end_usec := Time.get_ticks_usec()
         stats = renderer.get_render_stats()
-        var frame_ms := float(Time.get_ticks_usec() - frame_start_usec) / 1000.0
+        var stats_end_usec := Time.get_ticks_usec()
+
+        var frame_ms := float(engine_frame_end_usec - frame_start_usec) / 1000.0
         frame_times_ms.append(frame_ms)
+        harness_forced_sort_ms.append(float(forced_sort_end_usec - engine_frame_end_usec) / 1000.0)
+        harness_stats_gather_ms.append(float(stats_end_usec - forced_sort_end_usec) / 1000.0)
 
         var visible := _read_stat_int_max(stats, ["visible_after_culling", "visible_splats", "cull_cpu_visible_count"])
         if first_visible_ms < 0.0 and visible > 0:
@@ -536,6 +564,11 @@ func _exercise_tier(tier: Dictionary) -> Dictionary:
     tier_result["first_visible_ms"] = first_visible_ms
     tier_result["frame_avg_ms"] = frame_avg_ms
     tier_result["frame_p95_ms"] = frame_p95_ms
+    # #796: reported, deliberately NOT part of frame_* above. Kept visible so the
+    # harness's own per-sample cost stays observable instead of silently dropped --
+    # if it grows, the numbers above are still honest but the run got slower.
+    tier_result["harness_forced_sort_p95_ms"] = _percentile(harness_forced_sort_ms, 0.95)
+    tier_result["harness_stats_gather_p95_ms"] = _percentile(harness_stats_gather_ms, 0.95)
     tier_result["frame_max_ms"] = frame_max_ms
     tier_result["frame_p95_to_avg_ratio"] = frame_p95_to_avg_ratio
     # Raw-vs-retained sample counts document the warm-up discard for calibration
