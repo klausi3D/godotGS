@@ -170,6 +170,14 @@ private:
     Vector<SplatInfo> splat_data;        // Cached splat information
     uint32_t total_splats;
 
+    // Maps a splat's SOURCE index (SplatInfo::index -- the caller's original
+    // array position, and the value emitted into QueryResult::visible_indices)
+    // to its slot in the REORDERED `splat_data` array. build_node_recursive
+    // permutes splat_data into octree order, so a source index can NOT be used to
+    // subscript splat_data directly. Rebuilt at the end of every build_hierarchy
+    // and used by the capped-query distance sort to look up true positions (#645).
+    LocalVector<uint32_t> source_to_reordered;
+
     // Build statistics
     std::atomic<uint32_t> nodes_created;
     std::atomic<uint64_t> build_time_us;
