@@ -1,4 +1,5 @@
 #include "gpu_memory_stream.h"
+#include "../core/gs_vector_alloc.h" // #798: gs_resize_or_fail() for resize-then-ptrw() outputs
 #include "core/error/error_macros.h"
 #include "core/math/math_funcs.h"
 #include "core/object/object.h"
@@ -552,7 +553,20 @@ void GaussianMemoryStream::_upload_buffer_coalesced(int buffer_index, const Pack
     if (scratch_size < aligned_count) {
         uint32_t grown = scratch_size > 0 ? (scratch_size + scratch_size / 2) : aligned_count;
         uint32_t new_size = MAX(aligned_count, grown);
-        coalesced_upload_scratch.resize(new_size);
+        // #798: this is the #787 shape verbatim -- a PERSISTENT Vector<PackedGaussian> that
+        // grows across calls. A failed grow leaves it non-empty at its old, too-short size
+        // with a still-valid ptrw() (CowData::_fork_allocate() only nulls _ptr when shrinking
+        // to zero), and _validate_and_copy_gaussians() below writes `count` entries -- the
+        // REQUESTED count, not the vector's own size() -- so it would silently overflow a
+        // live heap block. Fail closed with this function's own contract: the sibling
+        // ERR_FAIL_COND_MSG(aligned_size > buffer.capacity) path above also returns without
+        // touching buffer.state/buffer.used, so the buffer keeps its previous state and the
+        // next stream request re-uploads. gs_resize_or_fail() already reports the failing
+        // count/element size/total bytes and names this function, so no second message here.
+        if (!gs_resize_or_fail(coalesced_upload_scratch, int64_t(new_size),
+                    "GaussianMemoryStream::_upload_buffer_coalesced scratch")) {
+            return;
+        }
     }
 
     PackedGaussian *scratch_ptr = coalesced_upload_scratch.ptrw();

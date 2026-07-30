@@ -122,6 +122,7 @@ RID TileRenderer::TileRasterizerStage::_ensure_scene_depth_fallback(RenderingDev
 	fmt.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_UPDATE_BIT;
 	const float far_clear = 1.0f;
 	Vector<uint8_t> data;
+	// #798: unchecked by the compile-time-constant-count rule (gs_vector_alloc.h).
 	data.resize(sizeof(float));
 	memcpy(data.ptrw(), &far_clear, sizeof(float));
 	Vector<Vector<uint8_t>> initial;

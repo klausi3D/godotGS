@@ -1,5 +1,6 @@
 #include "render_sorting_orchestrator.h"
 
+#include "../core/gs_vector_alloc.h" // #798: gs_resize_or_fail() for resize-then-ptrw() outputs
 #include "gaussian_splat_renderer.h"
 #include "render_debug_state_orchestrator.h"
 #include "core/error/error_macros.h"
@@ -426,8 +427,17 @@ Array RenderSortingOrchestrator::run_sort_benchmark(const PackedInt32Array &p_si
 	rng.randomize();
 	Vector<uint8_t> key_data;
 	Vector<uint8_t> value_data;
-	key_data.resize(sorter_capacity * sizeof(float));
-	value_data.resize(sorter_capacity * sizeof(uint32_t));
+	// #798: the fill loops below are bounded by `size` (<= sorter_capacity), not by the
+	// vectors' own size(), and they write through reinterpret_cast<float *>(ptrw()) with no
+	// bounds check. Fail closed the same way the zero-capacity branch above does: warn and
+	// return the results collected so far (empty here).
+	if (!gs_resize_or_fail(key_data, int64_t(sorter_capacity) * int64_t(sizeof(float)),
+				"RenderSortingOrchestrator::run_sort_benchmark key_data") ||
+			!gs_resize_or_fail(value_data, int64_t(sorter_capacity) * int64_t(sizeof(uint32_t)),
+					"RenderSortingOrchestrator::run_sort_benchmark value_data")) {
+		GS_LOG_WARN_DEFAULT("[GPU Sort Benchmark] Failed to allocate CPU benchmark buffers; skipping benchmark");
+		return results;
+	}
 
 	const int size_count = p_sizes.size();
 	for (int i = 0; i < size_count; i++) {
@@ -541,8 +551,15 @@ void RenderSortingOrchestrator::benchmark_sorting_performance() {
 	rng.randomize();
 	Vector<uint8_t> key_data;
 	Vector<uint8_t> value_data;
-	key_data.resize(sorter_capacity * sizeof(float));
-	value_data.resize(sorter_capacity * sizeof(uint32_t));
+	// #798: same shape as run_sort_benchmark — the fill loops are bounded by `size`, not by
+	// the vectors' own size(). Fail closed like the "sorter not initialized" branch above.
+	if (!gs_resize_or_fail(key_data, int64_t(sorter_capacity) * int64_t(sizeof(float)),
+				"RenderSortingOrchestrator::benchmark_sorting_performance key_data") ||
+			!gs_resize_or_fail(value_data, int64_t(sorter_capacity) * int64_t(sizeof(uint32_t)),
+					"RenderSortingOrchestrator::benchmark_sorting_performance value_data")) {
+		GS_LOG_WARN_DEFAULT("[GPU Sort Benchmark] Failed to allocate CPU benchmark buffers; skipping benchmark");
+		return;
+	}
 
 	for (uint32_t size : test_sizes) {
 		if (size > sorter_capacity) {
@@ -1140,7 +1157,22 @@ GaussianRenderState::SortStageSummary RenderSortingOrchestrator::sort_gaussians_
 			}
 		}
 
-		sorting_state.sort_index_bytes.resize(available_splats * sizeof(uint32_t));
+		// #798: sort_index_bytes is a PERSISTENT scratch vector, so a failed grow leaves it
+		// non-empty at its old, too-short size with a still-valid ptrw() -- writing
+		// available_splats entries through it is a silent heap overflow, not a null fault
+		// (CowData::_fork_allocate() only nulls _ptr when shrinking to zero). The write loop
+		// is bounded by available_splats, not by the vector's own size(), so it must be
+		// checked. gs_resize_or_fail() clear()s on failure, which also keeps the
+		// is_empty() guard in apply_sort_buffer_update() honest. Fail closed with this
+		// lambda's existing contract -- return false, publish nothing -- so the fallback
+		// policy in execute_sort_fallback_policy() moves on instead of shipping a partial
+		// permutation. The count is widened to int64_t so the byte product cannot wrap on a
+		// 32-bit size_t build.
+		if (!gs_resize_or_fail(sorting_state.sort_index_bytes,
+					int64_t(available_splats) * int64_t(sizeof(uint32_t)),
+					"RenderSortingOrchestrator::run_cpu_sort sort_index_bytes")) {
+			return false;
+		}
 		uint32_t *sorted_indices = reinterpret_cast<uint32_t *>(sorting_state.sort_index_bytes.ptrw());
 		for (uint32_t i = 0; i < available_splats; i++) {
 			sorted_indices[i] = cpu_cull_state.culled_indices[i];
