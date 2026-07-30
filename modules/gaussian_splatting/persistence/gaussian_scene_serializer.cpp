@@ -118,6 +118,9 @@ static const uint32_t SCENE_HEADER_V2_SIZE = 60;
 
 PackedByteArray _pack_scene_header(const SceneHeader &header) {
     PackedByteArray bytes;
+    // #798 exclusion rule 2: SCENE_HEADER_V2_SIZE is a compile-time constant that does not
+    // scale with scene, asset or file data, so the memcpys below cannot outrun a successful
+    // resize and a failure here means the allocator could not serve 60 bytes.
     bytes.resize(SCENE_HEADER_V2_SIZE);
     uint8_t *w = bytes.ptrw();
 
@@ -509,7 +512,16 @@ Error GaussianSceneSerializer::_write_gaussian_data_chunk(Ref<FileAccess> file, 
 
     const LocalVector<Gaussian> &storage = gaussian_data->get_gaussian_storage();
     PackedByteArray payload;
-    payload.resize(sizeof(uint32_t) + storage.size() * sizeof(Gaussian));
+    // #798: sized from the splat count, so this is the largest allocation the writer makes
+    // (144 B/splat) and by far the likeliest to fail. Both memcpys go through the raw `w`
+    // pointer, which a failed resize leaves null, and memcpy has no null guard -- note the
+    // first one runs even when count == 0. Fail closed with an Error: save_scene() routes
+    // the whole write through gs_atomic_file_write(), so any error here abandons the temp
+    // file and leaves the previous good scene byte-intact.
+    if (!gs_resize_or_fail(payload, int64_t(sizeof(uint32_t)) + int64_t(storage.size()) * int64_t(sizeof(Gaussian)),
+                "GaussianSceneSerializer::_write_gaussian_data_chunk payload")) {
+        return ERR_OUT_OF_MEMORY;
+    }
     uint8_t *w = payload.ptrw();
     uint32_t count = storage.size();
     memcpy(w, &count, sizeof(uint32_t));
@@ -522,7 +534,17 @@ Error GaussianSceneSerializer::_write_gaussian_data_chunk(Ref<FileAccess> file, 
     PackedByteArray final_payload = payload;
     uint32_t flags = 0;
     if (used_compression) {
-        final_payload.resize(sizeof(uint32_t) + compressed.size());
+        // #798: `final_payload` is a CoW copy of `payload`, so refcount > 1 and this resize
+        // takes CowData's FORKING path. On allocation failure that path deliberately drops
+        // the old buffer and leaves _ptr null ("we consciously invite early failure"), so
+        // final_payload becomes EMPTY -- ptrw() is null and both memcpys below write to
+        // address 0 with no null guard anywhere. Size is compressed.size(), i.e. scene-data
+        // derived. Fail closed with an Error; gs_atomic_file_write() then discards the temp
+        // file and the previous good scene survives untouched.
+        if (!gs_resize_or_fail(final_payload, int64_t(sizeof(uint32_t)) + int64_t(compressed.size()),
+                    "GaussianSceneSerializer::_write_gaussian_data_chunk compressed wrapper")) {
+            return ERR_OUT_OF_MEMORY;
+        }
         uint8_t *dst = final_payload.ptrw();
         uint32_t original_size = payload.size();
         memcpy(dst, &original_size, sizeof(uint32_t));
@@ -550,7 +572,16 @@ Error GaussianSceneSerializer::_write_animation_data_chunk(Ref<FileAccess> file,
     }
 
     PackedByteArray payload;
-    payload.resize(len);
+    // #798: NOT a wild write -- encode_variant() treats a null buffer as its measure-only
+    // mode (every store in core/io/marshalls.cpp sits behind `if (buf)`), so a failed resize
+    // makes it return OK having written NOTHING. That is the silent-success shape: the chunk
+    // header would then declare payload.size() == 0, store_buffer() would write nothing, and
+    // save_scene() would return OK for a file whose animation chunk is silently empty.
+    // Checked so the allocation failure aborts the save instead of persisting a truncated
+    // scene. `len` is the encoded size of the animation state machine, i.e. scene-derived.
+    if (!gs_resize_or_fail(payload, len, "GaussianSceneSerializer::_write_animation_data_chunk payload")) {
+        return ERR_OUT_OF_MEMORY;
+    }
     err = encode_variant(dict, payload.ptrw(), len, true);
     if (err != OK) {
         return err;
@@ -561,7 +592,13 @@ Error GaussianSceneSerializer::_write_animation_data_chunk(Ref<FileAccess> file,
     PackedByteArray final_payload = payload;
     uint32_t flags = 0;
     if (used_compression) {
-        final_payload.resize(sizeof(uint32_t) + compressed.size());
+        // #798: see _write_gaussian_data_chunk -- `final_payload` shares `payload`'s buffer,
+        // so this takes CowData's forking path, which on failure drops the data and leaves
+        // ptrw() null for the two unguarded memcpys below.
+        if (!gs_resize_or_fail(final_payload, int64_t(sizeof(uint32_t)) + int64_t(compressed.size()),
+                    "GaussianSceneSerializer::_write_animation_data_chunk compressed wrapper")) {
+            return ERR_OUT_OF_MEMORY;
+        }
         uint8_t *dst = final_payload.ptrw();
         uint32_t original_size = payload.size();
         memcpy(dst, &original_size, sizeof(uint32_t));
@@ -585,7 +622,12 @@ Error GaussianSceneSerializer::_write_metadata_chunk(Ref<FileAccess> file, const
         return err;
     }
     PackedByteArray payload;
-    payload.resize(len);
+    // #798: same silent-success shape as _write_animation_data_chunk -- a failed resize makes
+    // encode_variant() write nothing and return OK, so the save would succeed with an empty
+    // METADATA chunk. `len` is the encoded metadata size, i.e. scene-derived.
+    if (!gs_resize_or_fail(payload, len, "GaussianSceneSerializer::_write_metadata_chunk payload")) {
+        return ERR_OUT_OF_MEMORY;
+    }
     err = encode_variant(p_metadata, payload.ptrw(), len, true);
     if (err != OK) {
         return err;
@@ -625,7 +667,13 @@ Error GaussianSceneSerializer::_write_asset_refs_chunk(Ref<FileAccess> file) {
     if (err != OK) {
         return err;
     }
-    payload.resize(len);
+    // #798: same silent-success shape as _write_animation_data_chunk -- a failed resize makes
+    // encode_variant() write nothing and return OK, so the save would succeed with an empty
+    // ASSET_REFS chunk and the scene would silently lose every asset reference. `len` is the
+    // encoded size of the reference table, i.e. scene-derived.
+    if (!gs_resize_or_fail(payload, len, "GaussianSceneSerializer::_write_asset_refs_chunk payload")) {
+        return ERR_OUT_OF_MEMORY;
+    }
     err = encode_variant(refs, payload.ptrw(), len, true);
     if (err != OK) {
         return err;

@@ -128,16 +128,31 @@ Error _encode_variant_to_bytes(const Variant &value, PackedByteArray &out_bytes)
     if (err != OK) {
         return err;
     }
-    out_bytes.resize(len);
+    // #798: NOT a wild write -- encode_variant() treats a null buffer as its measure-only
+    // mode (every store in core/io/marshalls.cpp sits behind `if (buf)`), so a failed resize
+    // makes it return OK having written NOTHING. That silent success is worse than a crash
+    // here: save_changes() would stamp data_size = 0 on the change entry, write the delta
+    // file, then clear_changes() and reset requires_full_save -- while the READ path rejects
+    // data_size == 0 as ERR_FILE_CORRUPT (#603b). The edit would be unrecoverable and the
+    // save would still have reported OK. `len` is the encoded change-record size.
+    if (!gs_resize_or_fail(out_bytes, len, "GaussianIncrementalSaver::_encode_variant_to_bytes")) {
+        return ERR_OUT_OF_MEMORY;
+    }
     return encode_variant(value, out_bytes.ptrw(), len, true);
 }
 
-PackedByteArray _pack_change_data(const Dictionary &dict) {
-    PackedByteArray bytes;
-    if (_encode_variant_to_bytes(dict, bytes) != OK) {
-        bytes.clear();
+// #798: reports a status instead of returning the array. It used to swallow the encode error
+// and hand back an EMPTY PackedByteArray, which is indistinguishable at every call site from
+// a legitimately empty payload -- the exact shape that let save_changes() persist a
+// zero-length change record and then discard the in-memory edits that produced it.
+Error _pack_change_data(const Dictionary &dict, PackedByteArray &r_bytes) {
+    r_bytes.clear();
+    const Error err = _encode_variant_to_bytes(dict, r_bytes);
+    if (err != OK) {
+        r_bytes.clear();
+        return err;
     }
-    return bytes;
+    return OK;
 }
 
 int _find_clip_index_by_name(GaussianAnimationStateMachine *p_animation, const String &p_clip_name) {
@@ -776,7 +791,14 @@ Error GaussianIncrementalSaver::save_changes(const String &incremental_file_path
 
         PendingChange pc;
         pc.entry.type = ChangeType::SPLAT_MODIFIED;
-        pc.data = _pack_change_data(dict);
+        // #798: bail out BEFORE the atomic write and before clear_changes(), so a failed
+        // payload allocation leaves both the previous delta file and this saver's tracked
+        // edits intact -- the same "validate everything before committing saver state"
+        // discipline PERSIST-001/PERSIST-002 apply below.
+        const Error pack_err = _pack_change_data(dict, pc.data);
+        if (pack_err != OK) {
+            return pack_err;
+        }
         pc.entry.data_size = pc.data.size();
         pc.entry.timestamp = timestamp;
         pending.push_back(pc);
@@ -793,7 +815,11 @@ Error GaussianIncrementalSaver::save_changes(const String &incremental_file_path
 
         PendingChange pc;
         pc.entry.type = ChangeType::ANIMATION_MODIFIED;
-        pc.data = _pack_change_data(dict);
+        // #798: see the SPLAT_MODIFIED loop above -- fail before any state is committed.
+        const Error pack_err = _pack_change_data(dict, pc.data);
+        if (pack_err != OK) {
+            return pack_err;
+        }
         pc.entry.data_size = pc.data.size();
         pc.entry.timestamp = timestamp;
         pending.push_back(pc);
@@ -807,7 +833,11 @@ Error GaussianIncrementalSaver::save_changes(const String &incremental_file_path
 
         PendingChange pc;
         pc.entry.type = ChangeType::METADATA_MODIFIED;
-        pc.data = _pack_change_data(dict);
+        // #798: see the SPLAT_MODIFIED loop above -- fail before any state is committed.
+        const Error pack_err = _pack_change_data(dict, pc.data);
+        if (pack_err != OK) {
+            return pack_err;
+        }
         pc.entry.data_size = pc.data.size();
         pc.entry.timestamp = timestamp;
         pending.push_back(pc);
@@ -934,7 +964,19 @@ Error GaussianIncrementalSaver::_decode_change_payload(const PackedByteArray &da
     // silently apply defaults (#603b).
     ERR_FAIL_COND_V_MSG(entry.data_size == 0, ERR_FILE_CORRUPT, "Incremental change entry has an empty payload.");
     PackedByteArray payload;
-    payload.resize(entry.data_size);
+    // #798: entry.data_size is read straight out of the incremental file's change entry --
+    // FILE-SUPPLIED, so this allocation is corruption-influenced and reachable with no
+    // memory pressure. The check above guarantees it is non-zero, so a failed resize leaves
+    // ptrw() null and this memcpy writes data_size bytes to address 0; memcpy has no null
+    // guard and there is no CRASH_BAD_INDEX here to name the fault. Fail closed with an
+    // Error, which both callers propagate verbatim, so nothing is applied and neither the
+    // target nor the saver's tables are touched (the strict-decode-before-mutate design of
+    // #603b / PERSIST-002). ERR_OUT_OF_MEMORY rather than ERR_FILE_CORRUPT: the file may be
+    // perfectly valid and must not be condemned for an allocation failure.
+    if (!gs_resize_or_fail(payload, int64_t(entry.data_size),
+                "GaussianIncrementalSaver::_decode_change_payload")) {
+        return ERR_OUT_OF_MEMORY;
+    }
     memcpy(payload.ptrw(), data_blob.ptr() + entry.data_offset, entry.data_size);
 
     Variant decoded;

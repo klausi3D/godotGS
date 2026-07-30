@@ -3,6 +3,7 @@
 #include "../io/spz_loader.h"
 #include "../core/gaussian_data.h"
 #include "../core/gaussian_importance.h" // ResidentAtlasBudget::gaussian_importance / select_top_k_indices (prune ranking)
+#include "../core/gs_vector_alloc.h" // #798: gs_resize_or_fail() for resize-then-ptrw() outputs
 #include "core/error/error_macros.h"
 #include "core/io/file_access.h"
 #include "core/io/image.h"
@@ -482,6 +483,17 @@ PackedFloat32Array GaussianSplatAsset::get_stroke_ages() const {
 // Structured getters: these convert raw data into higher-level types and
 // silently fill fallback values when individual splat data is missing.
 // They use WARN_PRINT_ONCE for the "asset not loaded at all" case.
+//
+// #798: every one of these sizes its output to splat_count (or a multiple of it)
+// and then writes through a raw ptrw() with the loop bounded by splat_count, NOT
+// by result.size(). Vector::resize() reports OOM only through its return value and
+// leaves the vector empty, so ptrw() would hand back nullptr and the loop would
+// write the whole asset through address 0 -- no CRASH_BAD_INDEX, no diagnostic.
+// splat_count is file-derived and unbounded, so these are exactly the allocations
+// that can realistically fail. The failure result is the empty array each getter
+// already returns for an unloaded asset (the splat_count == 0 branch above it);
+// consumers such as gaussian_splat_merge_sources() already index these defensively
+// against the returned size() and substitute per-field defaults.
 // ---------------------------------------------------------------------------
 
 PackedVector3Array GaussianSplatAsset::get_position_vectors() const {
@@ -492,7 +504,9 @@ PackedVector3Array GaussianSplatAsset::get_position_vectors() const {
         return result;
     }
 
-    result.resize(splat_count);
+    if (!gs_resize_or_fail(result, splat_count, "GaussianSplatAsset::get_position_vectors")) {
+        return result; // #798: empty == the unloaded-asset result; see the block comment above.
+    }
     Vector3 *write = result.ptrw();
     const float *read = positions.ptr();
     const int available = positions.size();
@@ -525,7 +539,9 @@ PackedVector3Array GaussianSplatAsset::get_scale_vectors() const {
         return result;
     }
 
-    result.resize(splat_count);
+    if (!gs_resize_or_fail(result, splat_count, "GaussianSplatAsset::get_scale_vectors")) {
+        return result; // #798: empty == the unloaded-asset result; see the block comment above.
+    }
     Vector3 *write = result.ptrw();
     const float *read = scales.ptr();
     const int available = scales.size();
@@ -593,7 +609,13 @@ PackedFloat32Array GaussianSplatAsset::get_spherical_harmonics_buffer() const {
     const uint32_t high_terms = sh_high_order_terms;
     const uint32_t total_terms = 1 + first_terms + high_terms;
 
-    result.resize(int64_t(splat_count) * int64_t(total_terms) * 3);
+    // #798: splat_count * total_terms * 3 is the largest output of this family (SH bands
+    // multiply the splat count), so it is the most likely to fail and the write loop is
+    // bounded by splat_count/total_terms rather than result.size().
+    if (!gs_resize_or_fail(result, int64_t(splat_count) * int64_t(total_terms) * 3,
+                "GaussianSplatAsset::get_spherical_harmonics_buffer")) {
+        return result; // empty == the unloaded-asset result; see the block comment above.
+    }
     float *write = result.ptrw();
     const float *dc_read = has_sh_dc_coefficients ? sh_dc_coefficients.ptr() : nullptr;
     const float *first_read = sh_first_order_coefficients.ptr();
@@ -670,7 +692,9 @@ PackedFloat32Array GaussianSplatAsset::get_opacities() const {
         return result;
     }
 
-    result.resize(splat_count);
+    if (!gs_resize_or_fail(result, splat_count, "GaussianSplatAsset::get_opacities")) {
+        return result; // #798: empty == the unloaded-asset result; see the block comment above.
+    }
     float *write = result.ptrw();
     const float *logit_read = opacity_logits.ptr();
     const Color *color_read = colors.ptr();
@@ -701,7 +725,9 @@ PackedInt32Array GaussianSplatAsset::get_palette_ids_buffer() const {
         return result;
     }
 
-    result.resize(splat_count);
+    if (!gs_resize_or_fail(result, splat_count, "GaussianSplatAsset::get_palette_ids_buffer")) {
+        return result; // #798: empty == the unloaded-asset result; see the block comment above.
+    }
     int32_t *write = result.ptrw();
     const int available = palette_ids.size();
 
@@ -721,7 +747,9 @@ PackedInt32Array GaussianSplatAsset::get_painterly_flags_buffer() const {
         return result;
     }
 
-    result.resize(splat_count);
+    if (!gs_resize_or_fail(result, splat_count, "GaussianSplatAsset::get_painterly_flags_buffer")) {
+        return result; // #798: empty == the unloaded-asset result; see the block comment above.
+    }
     int32_t *write = result.ptrw();
     const int available = painterly_flags.size();
 
@@ -745,7 +773,9 @@ PackedVector3Array GaussianSplatAsset::get_normal_vectors() const {
         return result;
     }
 
-    result.resize(splat_count);
+    if (!gs_resize_or_fail(result, splat_count, "GaussianSplatAsset::get_normal_vectors")) {
+        return result; // #798: empty == the unloaded-asset result; see the block comment above.
+    }
     Vector3 *write = result.ptrw();
     const float *read = normals.ptr();
     const int available = normals.size();
@@ -769,7 +799,9 @@ PackedVector2Array GaussianSplatAsset::get_brush_axes_vector2() const {
         return result;
     }
 
-    result.resize(splat_count);
+    if (!gs_resize_or_fail(result, splat_count, "GaussianSplatAsset::get_brush_axes_vector2")) {
+        return result; // #798: empty == the unloaded-asset result; see the block comment above.
+    }
     Vector2 *write = result.ptrw();
     const float *read = brush_axes.ptr();
     const int available = brush_axes.size();
@@ -793,7 +825,9 @@ PackedFloat32Array GaussianSplatAsset::get_stroke_ages_buffer() const {
         return result;
     }
 
-    result.resize(splat_count);
+    if (!gs_resize_or_fail(result, splat_count, "GaussianSplatAsset::get_stroke_ages_buffer")) {
+        return result; // #798: empty == the unloaded-asset result; see the block comment above.
+    }
     float *write = result.ptrw();
     const int available = stroke_ages.size();
 
@@ -1132,6 +1166,9 @@ void GaussianSplatAsset::_ensure_buffer_sizes() {
     const uint32_t count = splat_count;
     const int old_scale_size = scales.size();
     const int old_rotation_size = rotations.size();
+    // #798: unchecked by the own-size rule. Every write below is bounded by the vector's
+    // OWN size() and gated on size() > old_size, so a failed resize (which leaves size()
+    // at the old value) skips the fill entirely instead of walking off a null ptrw().
     positions.resize(count * 3);
     colors.resize(count);
     scales.resize(count * 3);
@@ -1629,6 +1666,38 @@ bool GaussianSplatAsset::populate_gaussian_data(Ref<::GaussianData> &r_data) con
     return true;
 }
 
+namespace {
+// #798: a lane pointer that fails closed on a SHORT lane.
+//
+// _ensure_buffer_sizes() sizes every SoA lane with a bare Vector::resize(), which reports
+// OOM only through its return value and -- crucially -- leaves the vector at its PREVIOUS
+// size rather than empty. populate_from_gaussian_data() is the asset REWRITE path, so that
+// previous size is routinely non-zero: a failed grow leaves a live, non-empty, TOO SHORT
+// heap block. `is_empty() ? nullptr : ptrw()` does not catch that, and the write loop
+// indexes by the NEW splat count, so it would run past the end of a real allocation -- a
+// silent heap overflow, strictly worse than the null-ptrw case this class of bug usually
+// produces. Separate the two cases: an EMPTY lane is a legitimately absent optional lane
+// (nullptr, skipped by the has_* flags), while a short non-empty lane is an allocation
+// failure and clears r_ok so the caller aborts the whole population. Degrading a short
+// lane to "absent" is deliberately NOT an option -- that would silently drop a field
+// (the opacity_logits class of data-loss bug) instead of reporting it.
+template <typename T>
+T *_gs_lane_ptrw_or_fail(Vector<T> &p_lane, int64_t p_required, const char *p_name, bool &r_ok) {
+    if (p_lane.is_empty()) {
+        return nullptr;
+    }
+    if (int64_t(p_lane.size()) < p_required) {
+        r_ok = false;
+        ERR_PRINT(vformat("[GaussianSplatAsset] populate_from_gaussian_data: lane '%s' holds %d of "
+                          "the %d elements this payload needs, so its buffer allocation failed. "
+                          "Aborting the population instead of writing past the end of the lane.",
+                String(p_name), int64_t(p_lane.size()), p_required));
+        return nullptr;
+    }
+    return p_lane.ptrw();
+}
+} // namespace
+
 Error GaussianSplatAsset::populate_from_gaussian_data(const Ref<::GaussianData> &p_gaussian_data) {
     if (p_gaussian_data.is_null()) {
         GS_LOG_ERROR_DEFAULT("populate_from_gaussian_data called with invalid GaussianData reference");
@@ -1671,19 +1740,36 @@ Error GaussianSplatAsset::populate_from_gaussian_data(const Ref<::GaussianData> 
 
     const Vector3 *high_order_ptr = p_gaussian_data->get_sh_high_order_coefficients_ptr();
 
-    float *positions_ptr = positions.is_empty() ? nullptr : positions.ptrw();
-    Color *colors_ptr = colors.is_empty() ? nullptr : colors.ptrw();
-    float *scales_ptr = scales.is_empty() ? nullptr : scales.ptrw();
-    float *rotations_ptr = rotations.is_empty() ? nullptr : rotations.ptrw();
-    float *sh_dc_ptr = sh_dc_coefficients.is_empty() ? nullptr : sh_dc_coefficients.ptrw();
-    float *sh_first_order_ptr = sh_first_order_coefficients.is_empty() ? nullptr : sh_first_order_coefficients.ptrw();
-    float *sh_high_order_ptr = sh_high_order_coefficients.is_empty() ? nullptr : sh_high_order_coefficients.ptrw();
-    float *opacity_logits_ptr = opacity_logits.is_empty() ? nullptr : opacity_logits.ptrw();
-    int32_t *palette_ids_ptr = palette_ids.is_empty() ? nullptr : palette_ids.ptrw();
-    int32_t *painterly_flags_ptr = painterly_flags.is_empty() ? nullptr : painterly_flags.ptrw();
-    float *normals_ptr = normals.is_empty() ? nullptr : normals.ptrw();
-    float *brush_axes_ptr = brush_axes.is_empty() ? nullptr : brush_axes.ptrw();
-    float *stroke_ages_ptr = stroke_ages.is_empty() ? nullptr : stroke_ages.ptrw();
+    // #798: each lane states the length the write loop below will index it to, right where
+    // its pointer is produced, so the requirement cannot drift away from the indexing.
+    // See _gs_lane_ptrw_or_fail() for why is_empty() alone is not a sufficient guard here.
+    const int64_t need_1 = int64_t(count);
+    const int64_t need_2 = int64_t(count) * 2;
+    const int64_t need_3 = int64_t(count) * 3;
+    const int64_t need_4 = int64_t(count) * 4;
+    bool lanes_ok = true;
+    float *positions_ptr = _gs_lane_ptrw_or_fail(positions, need_3, "positions", lanes_ok);
+    Color *colors_ptr = _gs_lane_ptrw_or_fail(colors, need_1, "colors", lanes_ok);
+    float *scales_ptr = _gs_lane_ptrw_or_fail(scales, need_3, "scales", lanes_ok);
+    float *rotations_ptr = _gs_lane_ptrw_or_fail(rotations, need_4, "rotations", lanes_ok);
+    float *sh_dc_ptr = _gs_lane_ptrw_or_fail(sh_dc_coefficients, need_3, "sh_dc_coefficients", lanes_ok);
+    float *sh_first_order_ptr = _gs_lane_ptrw_or_fail(sh_first_order_coefficients,
+            int64_t(count) * int64_t(sh_first_order_terms) * 3, "sh_first_order_coefficients", lanes_ok);
+    float *sh_high_order_ptr = _gs_lane_ptrw_or_fail(sh_high_order_coefficients,
+            int64_t(count) * int64_t(sh_high_order_terms) * 3, "sh_high_order_coefficients", lanes_ok);
+    float *opacity_logits_ptr = _gs_lane_ptrw_or_fail(opacity_logits, need_1, "opacity_logits", lanes_ok);
+    int32_t *palette_ids_ptr = _gs_lane_ptrw_or_fail(palette_ids, need_1, "palette_ids", lanes_ok);
+    int32_t *painterly_flags_ptr = _gs_lane_ptrw_or_fail(painterly_flags, need_1, "painterly_flags", lanes_ok);
+    float *normals_ptr = _gs_lane_ptrw_or_fail(normals, need_3, "normals", lanes_ok);
+    float *brush_axes_ptr = _gs_lane_ptrw_or_fail(brush_axes, need_2, "brush_axes", lanes_ok);
+    float *stroke_ages_ptr = _gs_lane_ptrw_or_fail(stroke_ages, need_1, "stroke_ages", lanes_ok);
+    if (!lanes_ok) {
+        // Same failure contract as the "GaussianData contains no splats" bail above: restore
+        // the seal we just cleared and report an Error, so a partially-sized asset is never
+        // handed back as if it had been populated.
+        payload_sealed = previous_seal;
+        return ERR_OUT_OF_MEMORY;
+    }
 
     const bool has_positions = positions_ptr != nullptr;
     const bool has_colors = colors_ptr != nullptr;

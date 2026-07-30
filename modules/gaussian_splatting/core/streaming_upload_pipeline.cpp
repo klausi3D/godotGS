@@ -1,6 +1,7 @@
 #include "streaming_upload_pipeline.h"
 #include "gaussian_streaming.h"
 #include "gs_project_settings.h"
+#include "gs_vector_alloc.h" // #798: gs_resize_or_fail() for resize-then-ptrw() outputs
 #include "streaming_queue_pressure_controller.h"
 #include "streaming_tier_cap_policy.h"
 #include "core/config/project_settings.h"
@@ -1053,7 +1054,31 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
                     if (batched_job_count > 1) {
                         const uint32_t batched_gaussian_count =
                                 uint32_t((uint64_t(batched_job_count) * slot_capacity_bytes) / sizeof(PackedGaussian));
-                        upload_coalescing_scratch.resize(batched_gaussian_count);
+                        // #798: scratch_ptr is a memcpy DESTINATION whose write offsets are
+                        // bounded by the batched payload sizes, not by the scratch's own size().
+                        // Vector::resize() reports OOM only through its return value and leaves
+                        // the vector EMPTY, so an ignored failure hands memcpy a null destination
+                        // and splices every batched chunk through address 0.
+                        //
+                        // consume_upload_jobs() has ALREADY removed the additional jobs from the
+                        // upload queue and coalesced_upload_jobs is now their only owner, so we
+                        // must not just fall through to the per-job path below: those jobs would
+                        // leak and their chunks would stay PENDING forever. Apply this loop's own
+                        // established failure contract instead -- the same rollback + memdelete +
+                        // continue it already uses for a bad chunk count, a payload/chunk size
+                        // mismatch, a checksum mismatch and a pre-write stride flip -- once per
+                        // batched job (index 0 is `job`/`chunk`). The scheduler re-packs and
+                        // re-queues these chunks on a later frame.
+                        if (!gs_resize_or_fail(upload_coalescing_scratch, batched_gaussian_count,
+                                    "StreamingUploadPipeline::process_upload_queue coalescing scratch")) {
+                            for (uint32_t i = 0; i < batched_job_count; i++) {
+                                PendingChunkUpload *batched_job = coalesced_upload_jobs[i];
+                                system._rollback_pending_chunk(batched_job->asset_id, batched_job->chunk_idx,
+                                        *coalesced_upload_chunks[i], true);
+                                memdelete(batched_job);
+                            }
+                            continue;
+                        }
                         PackedGaussian *scratch_ptr = upload_coalescing_scratch.ptrw();
                         uint32_t scratch_offset = 0;
                         for (uint32_t i = 0; i < batched_job_count; i++) {

@@ -1,6 +1,7 @@
 #include "gaussian_splat_merge_utils.h"
 
 #include "gs_project_settings.h"
+#include "gs_vector_alloc.h" // #798: gs_resize_or_fail() for resize-then-ptrw() outputs
 #include "core/error/error_macros.h"
 #include "core/math/math_funcs.h"
 #include "core/config/project_settings.h"
@@ -205,14 +206,28 @@ bool gaussian_splat_merge_sources(const Vector<GaussianSplatMergeSource> &source
     PackedInt32Array brush_override_ids;
     TypedArray<Quaternion> rotations;
 
-    positions.resize(total_splats);
-    scales.resize(total_splats);
-    normals.resize(total_splats);
-    brush_axes.resize(total_splats);
-    opacities.resize(total_splats);
-    stroke_ages.resize(total_splats);
-    palette_ids.resize(total_splats);
-    brush_override_ids.resize(total_splats);
+    // #798: every lane below is written as `lane_ptr[write_offset + splat]`, bounded by the
+    // summed source splat counts -- never by the destination's own size(). Vector::resize()
+    // reports OOM only through its return value and leaves the vector EMPTY, so an ignored
+    // failure makes ptrw() return nullptr and the merge loop writes total_splats elements
+    // through address 0 with no CRASH_BAD_INDEX to name it. total_splats is the sum of every
+    // source asset's splat count, so this is the largest and least bounded allocation in the
+    // module's merge path. All eight Vector-backed lanes are folded into ONE check so a partial
+    // success can never leave the lanes at mismatched sizes; the failure path is this function's own
+    // `return false` contract (used above for "no sources" / "no splats"), which leaves the
+    // already-cleared `out` untouched so the caller sees no merged result.
+    if (!gs_resize_or_fail(positions, total_splats, "gaussian_splat_merge_sources positions") ||
+            !gs_resize_or_fail(scales, total_splats, "gaussian_splat_merge_sources scales") ||
+            !gs_resize_or_fail(normals, total_splats, "gaussian_splat_merge_sources normals") ||
+            !gs_resize_or_fail(brush_axes, total_splats, "gaussian_splat_merge_sources brush_axes") ||
+            !gs_resize_or_fail(opacities, total_splats, "gaussian_splat_merge_sources opacities") ||
+            !gs_resize_or_fail(stroke_ages, total_splats, "gaussian_splat_merge_sources stroke_ages") ||
+            !gs_resize_or_fail(palette_ids, total_splats, "gaussian_splat_merge_sources palette_ids") ||
+            !gs_resize_or_fail(brush_override_ids, total_splats, "gaussian_splat_merge_sources brush_override_ids")) {
+        return false;
+    }
+    // rotations is a TypedArray (Array-backed): Array::set() below is ERR_FAIL_INDEX-guarded,
+    // so it cannot wild-write and is out of the #798 class.
     rotations.resize(total_splats);
 
     Vector3 *position_ptr = positions.ptrw();
@@ -231,8 +246,14 @@ bool gaussian_splat_merge_sources(const Vector<GaussianSplatMergeSource> &source
 
     Vector<PackedFloat32Array> sh_buffers;
     Vector<uint32_t> sh_offsets;
-    sh_buffers.resize(sources.size());
-    sh_offsets.resize(sources.size());
+    // #798 (adjacent, read side): these are indexed by source_index < sources.size(), i.e. by
+    // the REQUESTED count, not by their own size(). set() below is ERR_FAIL_INDEX-guarded, but
+    // the later `sh_buffers[source_index]` read is CowData::get() -> CRASH_BAD_INDEX, which
+    // hard-traps the process. Same `return false` contract as the lane allocations above.
+    if (!gs_resize_or_fail(sh_buffers, sources.size(), "gaussian_splat_merge_sources sh_buffers") ||
+            !gs_resize_or_fail(sh_offsets, sources.size(), "gaussian_splat_merge_sources sh_offsets")) {
+        return false;
+    }
 
     uint32_t write_offset = 0;
     for (int source_index = 0; source_index < sources.size(); source_index++) {
@@ -342,7 +363,17 @@ bool gaussian_splat_merge_sources(const Vector<GaussianSplatMergeSource> &source
     }
 
     PackedFloat32Array sh_combined;
-    sh_combined.resize(total_splats * sh_terms_per_gaussian);
+    // #798: sh_ptr is written at `(base_offset + splat) * target_stride` (and memcpy'd into at
+    // the same offsets), bounded by total_splats * sh_terms_per_gaussian rather than by
+    // sh_combined.size() -- a null ptrw() would take a std::memcpy destination directly. The
+    // count is computed in int64_t because the original `uint32_t * int` product could wrap and
+    // under-allocate, which turns the same memcpy into a heap overflow instead of a clean OOM;
+    // an over-large request now fails here and takes this function's own `return false` path,
+    // leaving the already-cleared `out` untouched.
+    if (!gs_resize_or_fail(sh_combined, int64_t(total_splats) * int64_t(sh_terms_per_gaussian),
+                "gaussian_splat_merge_sources sh_combined")) {
+        return false;
+    }
     float *sh_ptr = sh_combined.ptrw();
     for (int source_index = 0; source_index < sources.size(); source_index++) {
         const GaussianSplatMergeSource &source = sources[source_index];
