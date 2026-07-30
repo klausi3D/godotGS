@@ -39,7 +39,7 @@ HierarchicalSplatStructure::~HierarchicalSplatStructure() {
     }
 }
 
-void HierarchicalSplatStructure::build_hierarchy(
+bool HierarchicalSplatStructure::build_hierarchy(
     const Vector<GaussianData>& splats,
     const BuildParams& params) {
 
@@ -58,7 +58,9 @@ void HierarchicalSplatStructure::build_hierarchy(
     build_time_us = 0;
 
     if (splats.is_empty()) {
-        return;
+        // Nothing to build is not a failure: GPUCuller handles the empty-source case
+        // before it ever gets here, and the reset state above is the correct result.
+        return true;
     }
 
     total_splats = splats.size();
@@ -69,9 +71,10 @@ void HierarchicalSplatStructure::build_hierarchy(
     // never converted.
     if (!gs_resize_or_fail(splat_data, (int64_t)total_splats, "HierarchicalSplatStructure::build_hierarchy")) {
         // The helper leaves splat_data empty; reset the count with it so the two
-        // cannot disagree.
+        // cannot disagree. root stays null, so report failure -- the caller must NOT
+        // cache this as a built hierarchy (#794 review).
         total_splats = 0;
-        return;
+        return false;
     }
 
     // Convert splat data to internal format and compute bounds
@@ -128,6 +131,7 @@ void HierarchicalSplatStructure::build_hierarchy(
 
     GS_LOG_RENDERER_INFO(vformat("Octree built: %d nodes, %d splats, %.2f ms",
             nodes_created.load(), total_splats, build_time_us.load() / 1000.0));
+    return true;
 }
 
 void HierarchicalSplatStructure::build_node_recursive(

@@ -380,7 +380,22 @@ void GPUCuller::ensure_hierarchical_structure(const Ref<GaussianData> &p_data) {
     params.min_splats_per_node = culling_state.culling_min_gaussians;
     params.compute_importance = true;
 
-    culling_state.hierarchical_structure->build_hierarchy(build_data, params);
+    // #794 review: this used to be an unconditional "mark clean". build_hierarchy()
+    // returned void, so an allocation failure left a null root that nothing here could
+    // see -- the hierarchy was cached as built, the source revision recorded, and every
+    // later frame took the hierarchical path against an empty tree. query_visible_splats()
+    // returns no candidates for a null root, so the whole asset went invisible and never
+    // retried until its content revision happened to change.
+    //
+    // On failure, stay DIRTY and record neither the id nor the revision, so the next
+    // frame retries the build. Matches the empty-source branch above.
+    if (!culling_state.hierarchical_structure->build_hierarchy(build_data, params)) {
+        culling_state.hierarchical_structure.reset();
+        culling_state.hierarchical_structure_dirty = true;
+        culling_state.hierarchical_structure_source_id = ObjectID();
+        culling_state.hierarchical_structure_source_revision = 0;
+        return;
+    }
     culling_state.hierarchical_structure_dirty = false;
     culling_state.hierarchical_structure_source_id = source_id;
     culling_state.hierarchical_structure_source_revision = source_revision;
