@@ -156,6 +156,14 @@ public:
 	// gs_atomic_file_write() refuses the replace instead of attempting a rename whose
 	// precondition is known to be violated, so the timeout tunes how long an import
 	// may stall, NOT whether the result is correct.
+	//
+	// WINDOWS ONLY in effect. The constraint being worked around is Windows-specific
+	// (FileAccessWindows opens via _wfsopen with _SH_DENY*, none of which share delete),
+	// whereas POSIX rename() replaces the destination with readers still open -- they
+	// keep the old inode until they close. On POSIX the constructor is therefore an
+	// early-out no-op that reports drained; suspending and draining there would burn up
+	// to the drain budget per reimport and could refuse a replace that would have
+	// succeeded.
 	class ScopedReaderSuspend {
 		LocalVector<StagedFileChunkPayloadSource *> held;
 		// False when constructed with an empty path, which locks nothing at all.

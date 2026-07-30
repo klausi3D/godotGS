@@ -138,12 +138,31 @@ static constexpr uint32_t READER_DRAIN_POLL_USEC = 250;
 static constexpr uint32_t MAX_OPEN_SUSPEND_WAIT_USEC = 1000 * 1000; // 1 s
 
 StagedFileChunkPayloadSource::ScopedReaderSuspend::ScopedReaderSuspend(const String &p_path) {
-	// Handles taken over from the caches, held only until in-flight readers drain.
-	LocalVector<Ref<FileAccess>> pending;
-
 	if (p_path.is_empty()) {
 		return;
 	}
+
+#if !defined(WINDOWS_ENABLED)
+	// #714: this guard exists for one platform-specific reason -- Windows denies the
+	// delete access a replace needs while any FileAccess handle is open, because
+	// FileAccessWindows opens via _wfsopen with _SH_DENY* and none of those share
+	// delete. POSIX rename() has no such constraint: it atomically replaces the
+	// destination and open readers simply keep reading the old inode until they close.
+	//
+	// So on POSIX there is nothing to suspend and nothing to wait for. Doing it anyway
+	// would be worse than pointless -- it would spend up to MAX_READER_DRAIN_USEC per
+	// reimport and, on timeout, report a not-drained state that makes
+	// gs_atomic_file_write() refuse a replace that would have succeeded. That is a
+	// regression on Linux/macOS relative to the pre-#714 behaviour, so the guard is a
+	// no-op here and reports drained (readers_drained defaults true, nothing is locked,
+	// and the destructor's registry_locked/held checks make it inert).
+	return;
+#endif
+
+	// Handles taken over from the caches, held only until in-flight readers drain.
+	// Declared after the platform early-out so POSIX builds do not carry an unused local.
+	LocalVector<Ref<FileAccess>> pending;
+
 	// Compare globalized paths: a source configured with "res://x.gsplatworld" and a
 	// writer targeting the same file by absolute path must still match.
 	ProjectSettings *settings = ProjectSettings::get_singleton();

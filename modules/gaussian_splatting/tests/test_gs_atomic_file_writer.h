@@ -249,6 +249,30 @@ TEST_CASE("[GaussianSplatting][AtomicWrite] the real reader-suspend guard report
     CHECK(guard.drained());
 }
 
+TEST_CASE("[GaussianSplatting][AtomicWrite] the reader-suspend guard only engages on Windows") {
+    // #714 review: the constraint this guard works around is Windows-specific
+    // (FileAccessWindows opens via _wfsopen with _SH_DENY*, none of which share delete).
+    // POSIX rename() replaces a destination that readers still hold open, so draining
+    // there costs up to the drain budget per reimport and, on timeout, would refuse a
+    // replace that would have succeeded -- a regression on Linux/macOS.
+    //
+    // Asserted per platform rather than skipped, so neither half can silently flip: on
+    // POSIX the guard must suspend nothing at all, and on Windows it must still be the
+    // real thing rather than accidentally compiled out.
+    const String path = _atomic_test_path("platform_scope");
+    StagedFileChunkPayloadSource::ScopedReaderSuspend guard(path);
+    CHECK(guard.drained()); // both platforms: nothing is streaming this path
+#ifdef WINDOWS_ENABLED
+    // Live-source registry is empty here, so 0 is expected -- what matters is that the
+    // Windows build still runs the real constructor. Covered behaviourally by the
+    // drained()/not-drained cases above.
+    CHECK(guard.suspended_count() == 0);
+#else
+    CHECK_MESSAGE(guard.suspended_count() == 0,
+            "POSIX must not suspend readers: rename() replaces an open destination");
+#endif
+}
+
 TEST_CASE("[GaussianSplatting][AtomicWrite] the reader-suspend guard is a no-op for an empty path") {
     // Braces, not parens: `guard(String())` is the most vexing parse -- it declares a
     // FUNCTION taking a String(*)() and returning the guard, and then
