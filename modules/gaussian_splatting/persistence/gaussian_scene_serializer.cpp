@@ -1,5 +1,6 @@
 #include "gaussian_scene_serializer.h"
 #include "incremental_saver.h"
+#include "../core/gs_vector_alloc.h"
 #include "../io/gs_atomic_file_writer.h"
 
 #include "core/io/compression.h"
@@ -287,7 +288,15 @@ PackedByteArray GaussianSceneSerializer::_compress_data(const PackedByteArray &d
     Compression::Mode mode = _to_compression_mode(type);
     PackedByteArray result;
     int64_t max_size = Compression::get_max_compressed_buffer_size(data.size(), mode);
-    result.resize(max_size);
+    // #798: Compression::compress() has NO null guard on p_dst -- it hands the pointer
+    // straight to the codec, which writes through it. A failed resize makes ptrw() null
+    // (CowData::_fork_allocate(0) unrefs and leaves _ptr null), so this would be a wild
+    // write rather than the named CRASH_BAD_INDEX trap of the #794 class. Fall back to
+    // the raw data, exactly as the compress-failed branch immediately below does.
+    if (!gs_resize_or_fail(result, max_size, "GaussianSceneSerializer::_compress_data")) {
+        GS_LOG_ERROR_DEFAULT("Could not allocate the compression buffer. Falling back to raw data.");
+        return data;
+    }
     int64_t compressed_size = Compression::compress(result.ptrw(), data.ptr(), data.size(), mode);
     if (compressed_size <= 0) {
         GS_LOG_ERROR_DEFAULT("Failed to compress chunk. Falling back to raw data.");
