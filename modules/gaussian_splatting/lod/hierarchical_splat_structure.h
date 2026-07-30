@@ -90,8 +90,18 @@ public:
 
     // Build a coarse CPU hierarchy for live candidate generation. GPUCuller still performs the
     // final per-splat frustum, distance, and budget filtering on the query output.
-    void build_hierarchy(const Vector<GaussianData>& splats, const BuildParams& params);
-    void build_hierarchy(const Vector<GaussianData>& splats) { build_hierarchy(splats, BuildParams()); }
+    //
+    // #794: returns false ONLY when the build could not allocate, leaving no usable
+    // hierarchy. Empty input is not a failure (nothing to build) and returns true.
+    //
+    // [[nodiscard]] is deliberate. This used to return void, so an allocation failure
+    // left a null root that the caller could not see -- GPUCuller then marked the
+    // hierarchy clean, recorded the source revision, and every later frame took the
+    // hierarchical path against an empty tree, making the whole asset invisible with no
+    // retry until the revision changed. A silently-ignorable status is what allowed
+    // that, so ignoring it is now a compile error.
+    [[nodiscard]] bool build_hierarchy(const Vector<GaussianData>& splats, const BuildParams& params);
+    [[nodiscard]] bool build_hierarchy(const Vector<GaussianData>& splats) { return build_hierarchy(splats, BuildParams()); }
 
     // Rebuild specific nodes (for dynamic updates)
     void update_node(OctreeNode* node, const Vector<GaussianData>& splats);

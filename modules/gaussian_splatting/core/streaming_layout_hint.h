@@ -37,6 +37,11 @@ enum class LayoutHintFailureReason : uint8_t {
     REMAP_SOURCE_COUNT_MISMATCH,
     REMAP_SOURCE_INDEX_OUT_OF_RANGE,
     REMAP_SOURCE_INDEX_DUPLICATE,
+    // #794: validation could not run because a scratch buffer sized from the hint data
+    // could not be allocated. Distinct on purpose: reporting an allocation failure as
+    // a layout/coverage problem would send the reader hunting for corrupt hints in a
+    // file that is perfectly valid.
+    VALIDATION_ALLOCATION_FAILED,
     COUNT,
 };
 

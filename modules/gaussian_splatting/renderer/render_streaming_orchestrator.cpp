@@ -1219,6 +1219,19 @@ void RenderStreamingOrchestrator::sync_instance_pipeline_assets(GaussianStreamin
 					break;
 				}
 				Vector<uint8_t> seen;
+				// #794: deliberately left unchecked -- this site is NOT a trap. Unlike
+				// the sibling in gaussian_streaming.cpp, the loop below bound-checks
+				// `offset >= seen.size()` before both the read and the write, so a
+				// failed resize (size 0) makes every offset fail that check and report
+				// a layout failure rather than walking off the end.
+				//
+				// It does MISREPORT such a failure as HINT_NON_CONTIGUOUS_COVERAGE,
+				// sending the reader hunting for corrupt hints in a file that is fine.
+				// Fixing that needs a distinct reason code, and this translation unit
+				// carries its own FILE-LOCAL copy of LayoutHintFailureReason (above)
+				// holding a subset of core/streaming_layout_hint.h's values -- so the
+				// honest fix is to de-duplicate those enums, not to add the value twice.
+				// Tracked separately; out of scope for a crash-class sweep.
 				seen.resize(chunk.indices.size());
 				for (int i = 0; i < seen.size(); i++) {
 					seen.write[i] = 0;

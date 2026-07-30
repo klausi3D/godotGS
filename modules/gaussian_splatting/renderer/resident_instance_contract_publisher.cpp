@@ -1,5 +1,6 @@
 #include "resident_instance_contract_publisher.h"
 
+#include "../core/gs_vector_alloc.h"
 #include "gaussian_gpu_layout.h"
 #include "gaussian_splat_renderer.h"
 #include "gpu_sorting_config.h"
@@ -114,11 +115,16 @@ static bool _upload_typed_storage_buffer(GaussianSplatRenderer *p_renderer, Rend
 	return true;
 }
 
-static void _append_chunk_descriptors_for_asset(const ResidentAssetDescriptor &p_asset,
+// #794 review: returns false ONLY on allocation failure. This used to return void, so
+// an allocation failure produced an empty list that the caller could not distinguish
+// from "this asset legitimately has no chunks" -- it did `continue`, published a
+// successful contract, and cached the source generation, leaving the asset with a valid
+// dense id but no atlas chunks: invisible, with no retry until its generation changed.
+[[nodiscard]] static bool _append_chunk_descriptors_for_asset(const ResidentAssetDescriptor &p_asset,
 		LocalVector<ResidentChunkDescriptor> &r_chunks) {
 	const uint32_t total_count = p_asset.data.is_valid() ? uint32_t(MAX(0, p_asset.data->get_count())) : 0u;
 	if (total_count == 0) {
-		return;
+		return true; // nothing to append is not a failure
 	}
 
 	if (!p_asset.static_chunks.is_empty()) {
@@ -135,7 +141,18 @@ static void _append_chunk_descriptors_for_asset(const ResidentAssetDescriptor &p
 				descriptor.bounds = chunk.bounds;
 				descriptor.count = split_count;
 				descriptor.source_index_remapped = true;
-				descriptor.source_indices.resize(split_count);
+				// #794: the copy loop is bounded by split_count, not by
+				// source_indices.size(), so an ignored resize failure would write past
+				// the end and hard-trap. Publishing a descriptor whose count says
+				// split_count but whose source_indices are empty would be worse than
+				// dropping it -- #793 showed exactly that shape reaching
+				// buffer_update() as a null pointer with a nonzero byte count. So bail
+				// out of publishing entirely rather than emit a partial chunk set.
+				if (!gs_resize_or_fail(descriptor.source_indices, (int64_t)split_count,
+							"ResidentInstanceContractPublisher::_append_chunk_descriptors_for_asset")) {
+					r_chunks.clear();
+					return false;
+				}
 				for (uint32_t local_idx = 0; local_idx < split_count; local_idx++) {
 					descriptor.source_indices.write[local_idx] = chunk.indices[offset + local_idx];
 				}
@@ -143,7 +160,7 @@ static void _append_chunk_descriptors_for_asset(const ResidentAssetDescriptor &p
 				offset += split_count;
 			}
 		}
-		return;
+		return true;
 	}
 
 	const LocalVector<Gaussian> &gaussians = p_asset.data->get_gaussian_storage();
@@ -155,6 +172,7 @@ static void _append_chunk_descriptors_for_asset(const ResidentAssetDescriptor &p
 		descriptor.bounds = _compute_contiguous_chunk_bounds(gaussians, start, count);
 		r_chunks.push_back(descriptor);
 	}
+	return true;
 }
 
 } // namespace
@@ -505,7 +523,22 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 			}
 
 			LocalVector<ResidentChunkDescriptor> chunk_descriptors;
-			_append_chunk_descriptors_for_asset(asset, chunk_descriptors);
+			// #794 review: an allocation failure here must NOT be mistaken for "this
+			// asset has no chunks". Continuing past it published a successful contract
+			// and cached the source generation, leaving the asset with a valid dense id
+			// and no atlas chunks -- invisible, and not retried until its generation
+			// changed. Fail the whole publish, matching how this function's other
+			// allocation limits behave.
+			if (!_append_chunk_descriptors_for_asset(asset, chunk_descriptors)) {
+				if (r_reason) {
+					*r_reason = "resident_chunk_descriptor_allocation_failed";
+				}
+				// Deliberately not clearing the instance pipeline buffers, for the same
+				// reason as the clamp-source-limit branch above: the streaming
+				// orchestrator may already have published its own atlas/cull buffers,
+				// and clearing them would force MISSING_CULL_INPUTS every later frame.
+				return false;
+			}
 			if (chunk_descriptors.is_empty()) {
 				continue;
 			}

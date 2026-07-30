@@ -160,7 +160,14 @@ bool test_hierarchical_structure_build() {
     params.min_splats_per_node = 16;
 
     uint64_t start = OS::get_singleton()->get_ticks_usec();
-    structure.build_hierarchy(splats, params);
+    // #794: build_hierarchy is [[nodiscard]]. Guard-and-return, NOT CHECK/REQUIRE:
+    // neither aborts in this build (tests/AGENTS.md), so continuing after a failed
+    // build would run this case against a null hierarchy and crash the whole test
+    // binary -- verified by mutation.
+    if (!structure.build_hierarchy(splats, params)) {
+        FAIL("build_hierarchy could not allocate; the rest of this case cannot run");
+        return false;
+    }
     uint64_t build_time = OS::get_singleton()->get_ticks_usec() - start;
 
     // Validate structure
@@ -200,7 +207,14 @@ bool test_frustum_culling() {
     auto camera = test.create_test_camera(Vector3(0, 0, 50));
 
     HierarchicalSplatStructure structure;
-    structure.build_hierarchy(splats);
+    // #794: build_hierarchy is [[nodiscard]]. Guard-and-return, NOT CHECK/REQUIRE:
+    // neither aborts in this build (tests/AGENTS.md), so continuing after a failed
+    // build would run this case against a null hierarchy and crash the whole test
+    // binary -- verified by mutation.
+    if (!structure.build_hierarchy(splats)) {
+        FAIL("build_hierarchy could not allocate; the rest of this case cannot run");
+        return false;
+    }
 
     Frustum frustum = camera->get_frustum();
 
@@ -359,7 +373,14 @@ bool test_scalability() {
         params.max_depth = 8;
 
         uint64_t start = OS::get_singleton()->get_ticks_usec();
-        structure.build_hierarchy(splats, params);
+        // #794: build_hierarchy is [[nodiscard]]. Guard-and-return, NOT CHECK/REQUIRE:
+        // neither aborts in this build (tests/AGENTS.md), so continuing after a failed
+        // build would run this case against a null hierarchy and crash the whole test
+        // binary -- verified by mutation.
+        if (!structure.build_hierarchy(splats, params)) {
+            FAIL("build_hierarchy could not allocate; the rest of this case cannot run");
+            return false;
+        }
         float build_time = (OS::get_singleton()->get_ticks_usec() - start) / 1000.0f;
 
         // Test query performance
@@ -543,7 +564,14 @@ TEST_CASE("[GaussianSplatting][SceneTree] Hierarchical LOD query keeps index and
     GaussianSplatting::HierarchicalSplatStructure::BuildParams params;
     params.max_depth = 7;
     params.min_splats_per_node = 8;
-    structure.build_hierarchy(splats, params);
+    // #794: build_hierarchy is [[nodiscard]]. Guard-and-return, NOT CHECK/REQUIRE:
+    // neither aborts in this build (tests/AGENTS.md), so continuing after a failed
+    // build would run this case against a null hierarchy and crash the whole test
+    // binary -- verified by mutation.
+    if (!structure.build_hierarchy(splats, params)) {
+        FAIL("build_hierarchy could not allocate; the rest of this case cannot run");
+        return;
+    }
 
     Camera3D *camera = fixture.create_test_camera(Vector3(0.0f, 0.0f, 280.0f));
     CHECK(camera != nullptr);
@@ -583,7 +611,14 @@ TEST_CASE("[GaussianSplatting] Hierarchical large build subdivides the tree") {
     GaussianSplatting::HierarchicalSplatStructure::BuildParams params;
     params.max_depth = 7;
     params.min_splats_per_node = 16;
-    structure.build_hierarchy(splats, params);
+    // #794: build_hierarchy is [[nodiscard]]. Guard-and-return, NOT CHECK/REQUIRE:
+    // neither aborts in this build (tests/AGENTS.md), so continuing after a failed
+    // build would run this case against a null hierarchy and crash the whole test
+    // binary -- verified by mutation.
+    if (!structure.build_hierarchy(splats, params)) {
+        FAIL("build_hierarchy could not allocate; the rest of this case cannot run");
+        return;
+    }
 
     const GaussianSplatting::HierarchicalSplatStructure::TreeStats stats = structure.get_statistics();
     const GaussianSplatting::HierarchicalSplatStructure::OctreeNode *root = structure.get_root();
@@ -603,13 +638,27 @@ TEST_CASE("[GaussianSplatting][SceneTree] Hierarchical empty rebuild clears hier
     GaussianSplatting::HierarchicalSplatStructure::BuildParams params;
     params.max_depth = 6;
     params.min_splats_per_node = 4;
-    structure.build_hierarchy(splats, params);
+    // #794: build_hierarchy is [[nodiscard]]. Guard-and-return, NOT CHECK/REQUIRE:
+    // neither aborts in this build (tests/AGENTS.md), so continuing after a failed
+    // build would run this case against a null hierarchy and crash the whole test
+    // binary -- verified by mutation.
+    if (!structure.build_hierarchy(splats, params)) {
+        FAIL("build_hierarchy could not allocate; the rest of this case cannot run");
+        return;
+    }
 
     REQUIRE(structure.get_root() != nullptr);
     CHECK(structure.get_total_splats() == splats.size());
 
     Vector<GaussianSplatting::GaussianData> empty_splats;
-    structure.build_hierarchy(empty_splats, params);
+    // #794: build_hierarchy is [[nodiscard]]. Guard-and-return, NOT CHECK/REQUIRE:
+    // neither aborts in this build (tests/AGENTS.md), so continuing after a failed
+    // build would run this case against a null hierarchy and crash the whole test
+    // binary -- verified by mutation.
+    if (!structure.build_hierarchy(empty_splats, params)) {
+        FAIL("build_hierarchy could not allocate; the rest of this case cannot run");
+        return;
+    }
 
     const GaussianSplatting::HierarchicalSplatStructure::TreeStats stats = structure.get_statistics();
     CHECK(structure.get_root() == nullptr);
@@ -645,7 +694,14 @@ TEST_CASE("[GaussianSplatting] Hierarchical build preserves source importance we
     GaussianSplatting::HierarchicalSplatStructure structure;
     GaussianSplatting::HierarchicalSplatStructure::BuildParams params;
     params.compute_importance = true;
-    structure.build_hierarchy(splats, params);
+    // #794: build_hierarchy is [[nodiscard]]. Guard-and-return, NOT CHECK/REQUIRE:
+    // neither aborts in this build (tests/AGENTS.md), so continuing after a failed
+    // build would run this case against a null hierarchy and crash the whole test
+    // binary -- verified by mutation.
+    if (!structure.build_hierarchy(splats, params)) {
+        FAIL("build_hierarchy could not allocate; the rest of this case cannot run");
+        return;
+    }
 
     const GaussianSplatting::HierarchicalSplatStructure::OctreeNode *root = structure.get_root();
     REQUIRE(root != nullptr);
@@ -653,7 +709,14 @@ TEST_CASE("[GaussianSplatting] Hierarchical build preserves source importance we
 
     GaussianSplatting::HierarchicalSplatStructure uniform_structure;
     params.compute_importance = false;
-    uniform_structure.build_hierarchy(splats, params);
+    // #794: build_hierarchy is [[nodiscard]]. Guard-and-return, NOT CHECK/REQUIRE:
+    // neither aborts in this build (tests/AGENTS.md), so continuing after a failed
+    // build would run this case against a null hierarchy and crash the whole test
+    // binary -- verified by mutation.
+    if (!uniform_structure.build_hierarchy(splats, params)) {
+        FAIL("build_hierarchy could not allocate; the rest of this case cannot run");
+        return;
+    }
 
     const GaussianSplatting::HierarchicalSplatStructure::OctreeNode *uniform_root = uniform_structure.get_root();
     REQUIRE(uniform_root != nullptr);
@@ -668,7 +731,14 @@ TEST_CASE("[GaussianSplatting][SceneTree] Hierarchical small leaf query stays al
     GaussianSplatting::HierarchicalSplatStructure::BuildParams params;
     params.max_depth = 6;
     params.min_splats_per_node = 32;
-    structure.build_hierarchy(splats, params);
+    // #794: build_hierarchy is [[nodiscard]]. Guard-and-return, NOT CHECK/REQUIRE:
+    // neither aborts in this build (tests/AGENTS.md), so continuing after a failed
+    // build would run this case against a null hierarchy and crash the whole test
+    // binary -- verified by mutation.
+    if (!structure.build_hierarchy(splats, params)) {
+        FAIL("build_hierarchy could not allocate; the rest of this case cannot run");
+        return;
+    }
 
     const GaussianSplatting::HierarchicalSplatStructure::TreeStats stats = structure.get_statistics();
     const GaussianSplatting::HierarchicalSplatStructure::OctreeNode *root = structure.get_root();
@@ -699,7 +769,14 @@ TEST_CASE("[GaussianSplatting][SceneTree] Hierarchical query returns empty for a
     Vector<GaussianSplatting::GaussianData> splats = fixture.generate_grid_splats(3, 3, 3, 2.0f);
 
     GaussianSplatting::HierarchicalSplatStructure structure;
-    structure.build_hierarchy(splats);
+    // #794: build_hierarchy is [[nodiscard]]. Guard-and-return, NOT CHECK/REQUIRE:
+    // neither aborts in this build (tests/AGENTS.md), so continuing after a failed
+    // build would run this case against a null hierarchy and crash the whole test
+    // binary -- verified by mutation.
+    if (!structure.build_hierarchy(splats)) {
+        FAIL("build_hierarchy could not allocate; the rest of this case cannot run");
+        return;
+    }
 
     Camera3D *camera = fixture.create_test_camera(Vector3(0.0f, 0.0f, -30.0f));
     REQUIRE(camera != nullptr);
@@ -727,7 +804,14 @@ TEST_CASE("[GaussianSplatting][SceneTree] Hierarchical capped query is determini
     GaussianSplatting::HierarchicalSplatStructure::BuildParams params;
     params.max_depth = 7;
     params.min_splats_per_node = 8;
-    structure.build_hierarchy(splats, params);
+    // #794: build_hierarchy is [[nodiscard]]. Guard-and-return, NOT CHECK/REQUIRE:
+    // neither aborts in this build (tests/AGENTS.md), so continuing after a failed
+    // build would run this case against a null hierarchy and crash the whole test
+    // binary -- verified by mutation.
+    if (!structure.build_hierarchy(splats, params)) {
+        FAIL("build_hierarchy could not allocate; the rest of this case cannot run");
+        return;
+    }
 
     const GaussianSplatting::HierarchicalSplatStructure::TreeStats stats = structure.get_statistics();
     const GaussianSplatting::HierarchicalSplatStructure::OctreeNode *root = structure.get_root();
@@ -777,7 +861,14 @@ TEST_CASE("[GaussianSplatting][SceneTree] Hierarchical capped query returns the 
     GaussianSplatting::HierarchicalSplatStructure::BuildParams params;
     params.max_depth = 7;
     params.min_splats_per_node = 8;
-    structure.build_hierarchy(splats, params);
+    // #794: build_hierarchy is [[nodiscard]]. Guard-and-return, NOT CHECK/REQUIRE:
+    // neither aborts in this build (tests/AGENTS.md), so continuing after a failed
+    // build would run this case against a null hierarchy and crash the whole test
+    // binary -- verified by mutation.
+    if (!structure.build_hierarchy(splats, params)) {
+        FAIL("build_hierarchy could not allocate; the rest of this case cannot run");
+        return;
+    }
 
     // The bug only manifests when splat_data is actually reordered, i.e. when the
     // octree subdivides. A single-leaf tree leaves source index == slot, which

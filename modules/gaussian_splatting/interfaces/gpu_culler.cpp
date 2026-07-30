@@ -1,5 +1,6 @@
 #include "gpu_culler.h"
 #include "../core/gs_project_settings.h"
+#include "../core/gs_vector_alloc.h"
 #include "../lod/lod_config.h"
 #include "core/config/project_settings.h"
 #include "core/error/error_macros.h"
@@ -340,7 +341,17 @@ void GPUCuller::ensure_hierarchical_structure(const Ref<GaussianData> &p_data) {
     }
 
     Vector<GaussianSplatting::GaussianData> build_data;
-    build_data.resize(gaussians.size());
+    // #794: the fill loop is bounded by gaussians.size(), so an ignored resize
+    // failure would write past the end and hard-trap. Fail closed the same way the
+    // empty-source branch above does: drop the hierarchy and leave it dirty, so the
+    // next frame retries instead of culling against a half-built structure.
+    if (!gs_resize_or_fail(build_data, gaussians.size(), "GpuCuller::rebuild_hierarchical_structure")) {
+        culling_state.hierarchical_structure.reset();
+        culling_state.hierarchical_structure_dirty = true;
+        culling_state.hierarchical_structure_source_id = ObjectID();
+        culling_state.hierarchical_structure_source_revision = 0;
+        return;
+    }
 
     const uint32_t gaussian_count = static_cast<uint32_t>(gaussians.size());
     for (uint32_t i = 0; i < gaussian_count; i++) {
@@ -369,7 +380,22 @@ void GPUCuller::ensure_hierarchical_structure(const Ref<GaussianData> &p_data) {
     params.min_splats_per_node = culling_state.culling_min_gaussians;
     params.compute_importance = true;
 
-    culling_state.hierarchical_structure->build_hierarchy(build_data, params);
+    // #794 review: this used to be an unconditional "mark clean". build_hierarchy()
+    // returned void, so an allocation failure left a null root that nothing here could
+    // see -- the hierarchy was cached as built, the source revision recorded, and every
+    // later frame took the hierarchical path against an empty tree. query_visible_splats()
+    // returns no candidates for a null root, so the whole asset went invisible and never
+    // retried until its content revision happened to change.
+    //
+    // On failure, stay DIRTY and record neither the id nor the revision, so the next
+    // frame retries the build. Matches the empty-source branch above.
+    if (!culling_state.hierarchical_structure->build_hierarchy(build_data, params)) {
+        culling_state.hierarchical_structure.reset();
+        culling_state.hierarchical_structure_dirty = true;
+        culling_state.hierarchical_structure_source_id = ObjectID();
+        culling_state.hierarchical_structure_source_revision = 0;
+        return;
+    }
     culling_state.hierarchical_structure_dirty = false;
     culling_state.hierarchical_structure_source_id = source_id;
     culling_state.hierarchical_structure_source_revision = source_revision;

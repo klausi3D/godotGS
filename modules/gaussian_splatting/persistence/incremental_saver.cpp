@@ -2,6 +2,7 @@
 #include "gaussian_scene_serializer.h"
 #include "../io/gs_atomic_file_writer.h"
 #include "../core/gaussian_data.h"
+#include "../core/gs_vector_alloc.h"
 #include "../animation/animation_state_machine.h"
 
 #include "core/error/error_macros.h"
@@ -980,7 +981,14 @@ Error GaussianIncrementalSaver::load_and_apply_changes(const String &incremental
     // entry aborts the load rather than being swallowed into a default-valued
     // change (#603b).
     Vector<Dictionary> decoded;
-    decoded.resize(entries.size());
+    // #794: the decode loop is bounded by entries.size(), not decoded.size(), so an
+    // ignored resize failure would write past the end and hard-trap. entries.size()
+    // comes from the file, so this allocation is corruption-influenced. Fail closed
+    // BEFORE any saver state is mutated, which is exactly the invariant the
+    // strict-decode-first design above exists to hold.
+    if (!gs_resize_or_fail(decoded, (int64_t)entries.size(), "IncrementalSaver::load change payloads")) {
+        return ERR_OUT_OF_MEMORY;
+    }
     for (uint32_t i = 0; i < entries.size(); i++) {
         Error decode_err = _decode_change_payload(data_blob, entries[i], decoded.write[i]);
         if (decode_err != OK) {

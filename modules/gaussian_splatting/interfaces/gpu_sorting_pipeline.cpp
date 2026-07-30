@@ -3,6 +3,7 @@
 
 #include "gpu_sorting_pipeline.h"
 #include "../core/gaussian_splat_scene_director.h"
+#include "../core/gs_vector_alloc.h"
 #include "../core/gs_project_settings.h"
 #include "sync_policy.h"
 #include "../logger/gs_logger.h"
@@ -928,7 +929,15 @@ bool GPUSortingPipeline::_publish_sorted_results(const Vector<uint8_t> &p_sorted
     // We only snapshotted the indices; distances/importance are not needed for sorting.
     const uint32_t snapshot_count = static_cast<uint32_t>(sort_readback_state.snapshot_indices.size());
     Vector<uint32_t> resolved_indices;
-    resolved_indices.resize(available_splats);
+    // #794: the reorder loop is bounded by available_splats, not by
+    // resolved_indices.size(), so an ignored resize failure would write past the end
+    // and hard-trap. Fail closed the same way the insufficient-readback branch above
+    // does -- return false and publish nothing, so no consumer sees a partial
+    // permutation (which would silently mis-order the frame rather than skip it).
+    if (!gs_resize_or_fail(resolved_indices, (int64_t)available_splats,
+                "GpuSortingPipeline::resolve_async_sorted_indices")) {
+        return false;
+    }
 
     // BUF-3: Only reorder the indices using the sorted permutation.
     // Distances and importance weights are not used by the rendering path after sorting,

@@ -1,5 +1,7 @@
 #include "gaussian_splat_world_io.h"
 
+#include "../core/gs_vector_alloc.h"
+
 #include "core/error/error_macros.h"
 #include "core/io/file_access.h"
 #include "core/io/json.h"
@@ -766,7 +768,19 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 
 	Vector<ChunkRecord> chunk_records;
 	if ((flags & kFlagHasChunks) != 0 && chunk_count > 0) {
-		chunk_records.resize(chunk_count);
+		// #794: the read loop is bounded by chunk_count, not chunk_records.size(), so
+		// an ignored resize failure would write past the end and hard-trap. chunk_count
+		// comes straight off disk, so this allocation is attacker/corruption-influenced.
+		// Fail closed exactly like the other header/payload read failures in this
+		// function: ERR_FILE_CORRUPT is wrong here (the file may be fine), so report
+		// the allocation failure itself.
+		if (!gs_resize_or_fail(chunk_records, (int64_t)chunk_count,
+					"GaussianSplatWorldIO::load chunk table")) {
+			if (r_error) {
+				*r_error = ERR_OUT_OF_MEMORY;
+			}
+			return Ref<Resource>();
+		}
 		file->seek(chunk_table_offset);
 		for (uint32_t i = 0; i < chunk_count; i++) {
 			chunk_records.write[i] = _read_chunk_record(file);
