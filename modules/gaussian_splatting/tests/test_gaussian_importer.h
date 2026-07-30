@@ -2759,6 +2759,142 @@ TEST_CASE("[GaussianSplatting][Importer] gsplatworld importer reports resident-u
 	_remove_user_file(imported_path);
 }
 
+// #714: the importer's final-output copy (`_copy_binary_file`) must be
+// crash-atomic like every other final-output saver -- an interrupted copy must
+// never destroy a pre-existing destination file.
+//
+// Deterministic discriminator (no fault injection, only the public `import()`):
+// import a .gsplatworld whose import destination resolves to the source file
+// itself (`p_save_path + ".gsplatworld" == p_source_file`). This is the sharpest
+// form of the truncate-on-open hazard the atomic routing removes.
+//   - BASE (direct `FileAccess::open(dest, WRITE)`): opening the destination for
+//     write truncates it to zero BEFORE the copy reads a single byte -- and the
+//     destination IS the source, so the payload is gone. The copy then produces an
+//     empty output that fails to load, and `import()` removes it: the file is
+//     destroyed. The survival assertions FAIL. (Red on origin/master.)
+//   - FIX (routed through `gs_atomic_file_write`): the copy streams into a temp
+//     sibling and only replaces the destination once the whole copy has succeeded,
+//     so the source is read intact and the file survives byte-for-byte (whether or
+//     not the final replace-over-an-open-handle succeeds). The assertions PASS.
+//
+// Not tagged [MalformedCorpus]: the input is valid; the defect is a write-path
+// atomicity bug, not a parser-hardening gap.
+TEST_CASE("[GaussianSplatting][Importer] gsplatworld importer copy is crash-atomic (an interrupted in-place copy preserves the file) (#714)") {
+    Ref<GaussianData> data;
+    data.instantiate();
+    data->resize(2);
+
+    PackedVector3Array positions;
+    positions.push_back(Vector3(0.0f, 0.0f, 0.0f));
+    positions.push_back(Vector3(1.0f, 0.0f, 0.0f));
+    data->set_positions(positions);
+
+    PackedVector3Array scales;
+    scales.push_back(Vector3(1.0f, 1.0f, 1.0f));
+    scales.push_back(Vector3(1.0f, 1.0f, 1.0f));
+    data->set_scales(scales);
+
+    TypedArray<Quaternion> rotations;
+    rotations.push_back(Quaternion(0.0f, 0.0f, 0.0f, 1.0f));
+    rotations.push_back(Quaternion(0.0f, 0.0f, 0.0f, 1.0f));
+    data->set_rotations(rotations);
+
+    PackedFloat32Array opacities;
+    opacities.push_back(1.0f);
+    opacities.push_back(1.0f);
+    data->set_opacities(opacities);
+
+    PackedFloat32Array sh_dc;
+    sh_dc.push_back(1.0f);
+    sh_dc.push_back(0.0f);
+    sh_dc.push_back(0.0f);
+    sh_dc.push_back(0.0f);
+    sh_dc.push_back(1.0f);
+    sh_dc.push_back(0.0f);
+    data->set_spherical_harmonics(sh_dc);
+
+    Ref<GaussianSplatWorld> source_world;
+    source_world.instantiate();
+    source_world->set_gaussian_data(data);
+    source_world->set_bounds(AABB(Vector3(-1.0f, -1.0f, -1.0f), Vector3(4.0f, 4.0f, 4.0f)));
+
+    // save_path = p_save_path + ".gsplatworld", so the destination equals the
+    // source file when p_save_path is the source path minus its extension.
+    const String save_base_path = "user://gsplatworld_importer_inplace_atomic";
+    const String source_path = save_base_path + ".gsplatworld";
+
+    Error save_err = ResourceSaver::save(source_world, source_path);
+    CHECK_MESSAGE(save_err == OK, "Saving source gsplatworld should succeed.");
+    if (save_err != OK) {
+        _remove_user_file(source_path);
+        return;
+    }
+
+    // Snapshot the good on-disk bytes before the (in-place) import.
+    PackedByteArray original;
+    {
+        Ref<FileAccess> f = FileAccess::open(source_path, FileAccess::READ);
+        if (f.is_null()) {
+            FAIL("Fixture .gsplatworld must be readable before the in-place import.");
+            _remove_user_file(source_path);
+            return;
+        }
+        const uint64_t len = f->get_length();
+        original.resize(len);
+        if (len > 0) {
+            f->get_buffer(original.ptrw(), len);
+        }
+    }
+    REQUIRE_MESSAGE(original.size() > 0,
+            "Fixture must be non-empty, or the byte-survival assertion below cannot discriminate.");
+
+    Ref<ResourceImporterGSplatWorld> importer;
+    importer.instantiate();
+
+    HashMap<StringName, Variant> options;
+    // Return value intentionally ignored: the invariant is about the file, not
+    // whether the (in-place) import reports success. On the atomic path the final
+    // replace-over-an-open-source-handle may or may not succeed; either way the
+    // pre-existing bytes must survive.
+    importer->import(ResourceUID::INVALID_ID, source_path, save_base_path, options, nullptr, nullptr, nullptr);
+
+    PackedByteArray after;
+    const bool still_exists = FileAccess::exists(source_path);
+    if (still_exists) {
+        Ref<FileAccess> f = FileAccess::open(source_path, FileAccess::READ);
+        if (!f.is_null()) {
+            const uint64_t len = f->get_length();
+            after.resize(len);
+            if (len > 0) {
+                f->get_buffer(after.ptrw(), len);
+            }
+        }
+    }
+
+    CHECK_MESSAGE(still_exists,
+            "#714: an interrupted/failed final-output copy must not delete the destination file.");
+    CHECK_MESSAGE(after == original,
+            "#714: the importer copy must be crash-atomic -- the pre-existing destination must survive "
+            "byte-intact; a direct truncating write destroys it.");
+
+    // Best-effort cleanup of the fixture and any atomic temp/backup siblings.
+    _remove_user_file(source_path);
+    {
+        Ref<DirAccess> da = DirAccess::create(DirAccess::ACCESS_USERDATA);
+        if (da.is_valid()) {
+            const String prefix = String(source_path).get_file();
+            da->list_dir_begin();
+            for (String name = da->get_next(); !name.is_empty(); name = da->get_next()) {
+                if (!da->current_is_dir() &&
+                        (name.begins_with(prefix + ".tmp.") || name.begins_with(prefix + ".bak."))) {
+                    da->remove(name);
+                }
+            }
+            da->list_dir_end();
+        }
+    }
+}
+
 TEST_CASE("[GaussianSplatting][Importer] GaussianSplatAsset save_to_file rejects empty assets") {
     Ref<GaussianSplatAsset> asset;
     asset.instantiate();

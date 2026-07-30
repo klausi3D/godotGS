@@ -1,6 +1,8 @@
 #include "streaming_chunk_payload_source.h"
 
+#include "core/config/project_settings.h"
 #include "core/error/error_macros.h"
+#include "core/os/os.h"
 #include "../logger/gs_logger.h"
 
 namespace {
@@ -100,6 +102,162 @@ bool InMemoryChunkPayloadSource::is_valid() const {
 
 void StagedFileChunkPayloadSource::_bind_methods() {}
 
+// #714: function-local statics so the registry is initialized on first use and
+// cannot depend on translation-unit static init order.
+Mutex &StagedFileChunkPayloadSource::_registry_mutex() {
+	static Mutex mutex;
+	return mutex;
+}
+
+HashMap<StagedFileChunkPayloadSource *, bool> &StagedFileChunkPayloadSource::_live_sources() {
+	static HashMap<StagedFileChunkPayloadSource *, bool> sources;
+	return sources;
+}
+
+StagedFileChunkPayloadSource::StagedFileChunkPayloadSource() {
+	MutexLock lock(_registry_mutex());
+	_live_sources().insert(this, true);
+}
+
+StagedFileChunkPayloadSource::~StagedFileChunkPayloadSource() {
+	// Unregistering under the registry mutex is what makes
+	// release_cached_handles_for_path() safe: it holds that mutex while touching
+	// each instance, so an instance cannot be destroyed underneath it.
+	MutexLock lock(_registry_mutex());
+	_live_sources().erase(this);
+}
+
+// #714: how long ScopedReaderSuspend waits for in-flight reads to release their
+// FileAccess handles before giving up and letting the caller's rename fail loudly.
+static constexpr uint32_t MAX_READER_DRAIN_USEC = 500 * 1000; // 500 ms
+static constexpr uint32_t READER_DRAIN_POLL_USEC = 250;
+// How long a reader waits for an in-progress replace before opening anyway. Longer
+// than the drain budget so the common case resolves by waiting. On timeout the read
+// proceeds: a stalled editor import is a better outcome than breaking a running
+// scene's streaming, and the import then fails loudly instead of degrading silently.
+static constexpr uint32_t MAX_OPEN_SUSPEND_WAIT_USEC = 1000 * 1000; // 1 s
+
+StagedFileChunkPayloadSource::ScopedReaderSuspend::ScopedReaderSuspend(const String &p_path) {
+	if (p_path.is_empty()) {
+		return;
+	}
+
+#if !defined(WINDOWS_ENABLED)
+	// #714: this guard exists for one platform-specific reason -- Windows denies the
+	// delete access a replace needs while any FileAccess handle is open, because
+	// FileAccessWindows opens via _wfsopen with _SH_DENY* and none of those share
+	// delete. POSIX rename() has no such constraint: it atomically replaces the
+	// destination and open readers simply keep reading the old inode until they close.
+	//
+	// So on POSIX there is nothing to suspend and nothing to wait for. Doing it anyway
+	// would be worse than pointless -- it would spend up to MAX_READER_DRAIN_USEC per
+	// reimport and, on timeout, report a not-drained state that makes
+	// gs_atomic_file_write() refuse a replace that would have succeeded. That is a
+	// regression on Linux/macOS relative to the pre-#714 behaviour, so the guard is a
+	// no-op here and reports drained (readers_drained defaults true, nothing is locked,
+	// and the destructor's registry_locked/held checks make it inert).
+	return;
+#endif
+
+	// Handles taken over from the caches, held only until in-flight readers drain.
+	// Declared after the platform early-out so POSIX builds do not carry an unused local.
+	LocalVector<Ref<FileAccess>> pending;
+
+	// Compare globalized paths: a source configured with "res://x.gsplatworld" and a
+	// writer targeting the same file by absolute path must still match.
+	ProjectSettings *settings = ProjectSettings::get_singleton();
+	const String target = settings ? settings->globalize_path(p_path) : p_path;
+
+	// Held for this object's lifetime (released in the destructor), which is why
+	// these are raw lock() calls rather than MutexLock scopes.
+	_registry_mutex().lock();
+	registry_locked = true;
+	for (const KeyValue<StagedFileChunkPayloadSource *, bool> &entry : _live_sources()) {
+		StagedFileChunkPayloadSource *source = entry.key;
+		// file_mutex is taken only for this short critical section and released
+		// immediately. Holding it across the drain below would block an in-flight
+		// read's _record_io_counters(), so its Ref would never drop and the wait
+		// could never succeed.
+		source->file_mutex.lock();
+		const String source_path = settings ? settings->globalize_path(source->file_path) : source->file_path;
+		if (source_path != target) {
+			source->file_mutex.unlock();
+			continue;
+		}
+		// Stop NEW opens (lock-free, so readers never block on us), then take over the
+		// cached handles so the only remaining owners are in-flight reads.
+		source->suspend_opens.set();
+		for (const KeyValue<Thread::ID, Ref<FileAccess>> &cached : source->cached_files) {
+			if (cached.value.is_valid()) {
+				pending.push_back(cached.value);
+			}
+		}
+		source->cached_files.clear();
+		source->file_mutex.unlock();
+		held.push_back(source);
+	}
+
+	// suspend_opens stops new opens, but a read already past _get_thread_file() holds
+	// its own Ref and reads OUTSIDE the mutex, so its OS handle is still open and
+	// still denies delete access. Wait for those to drain: once a reader returns, its
+	// Ref drops and -- since the cache no longer holds one -- `pending` is the only
+	// remaining owner, i.e. reference count 1.
+	//
+	// file_mutex is NOT held here, by design: the reader must be able to take it to
+	// finish (_record_io_counters), or it could never release the Ref being waited on.
+	//
+	// Bounded on purpose: a read that never returns would otherwise block an import
+	// forever. When the budget expires with a handle still in flight we do NOT press
+	// on -- `readers_drained` stays false and gs_atomic_file_write() refuses the
+	// replace, because that handle still denies delete access and the rename it would
+	// attempt is one whose precondition is violated. Reporting the real cause beats
+	// reporting whatever DirAccess says about a rename that was never going to work.
+	//
+	// This is what makes the budget non-load-bearing for correctness: it decides how
+	// long an editor import may stall before failing, never whether the file that
+	// ends up on disk is correct.
+	// The in-flight check runs at least once and always decides `readers_drained`,
+	// including when there is no OS singleton to sleep on -- reporting "drained"
+	// because we could not wait would be exactly the false clear this guard exists
+	// to prevent.
+	OS *os = OS::get_singleton();
+	uint32_t waited_usec = 0;
+	bool any_in_flight = true;
+	while (true) {
+		any_in_flight = false;
+		for (uint32_t i = 0; i < pending.size(); i++) {
+			if (pending[i]->get_reference_count() > 1) {
+				any_in_flight = true;
+				break;
+			}
+		}
+		if (!any_in_flight || os == nullptr || waited_usec >= MAX_READER_DRAIN_USEC) {
+			break;
+		}
+		os->delay_usec(READER_DRAIN_POLL_USEC);
+		waited_usec += READER_DRAIN_POLL_USEC;
+	}
+	readers_drained = !any_in_flight;
+
+	// Dropping our references closes the handles we own. Any handle still counted
+	// above belongs to an in-flight read and stays open regardless.
+	pending.clear();
+}
+
+StagedFileChunkPayloadSource::ScopedReaderSuspend::~ScopedReaderSuspend() {
+	// Re-admit opens. No file_mutex needed: suspend_opens is lock-free precisely so
+	// this cannot contend with a reader that is mid-read.
+	for (uint32_t i = 0; i < held.size(); i++) {
+		held[i]->suspend_opens.clear();
+	}
+	held.clear();
+	// Only unlock the registry if the constructor locked it (empty path = no-op).
+	if (registry_locked) {
+		registry_locked = false;
+		_registry_mutex().unlock();
+	}
+}
+
 void StagedFileChunkPayloadSource::configure(const String &p_path,
 		uint64_t p_gaussian_offset,
 		uint64_t p_sh_offset,
@@ -124,22 +282,59 @@ void StagedFileChunkPayloadSource::configure(const String &p_path,
 }
 
 Ref<FileAccess> StagedFileChunkPayloadSource::_get_thread_file() const {
+	// #714: a writer is atomically replacing this file. Opening a handle now would
+	// deny it delete access on Windows and fail the replace, so wait for the guard to
+	// finish rather than fail the read outright.
+	//
+	// The WAIT never holds file_mutex -- a reader that already has a handle needs that
+	// mutex to finish (_record_io_counters), and stalling it here would be the very
+	// deadlock this lock-free flag exists to avoid. The flag is then RECHECKED once
+	// the mutex is held, because a lock-free check followed by a lock is a
+	// check-then-act race: the guard can take over the cache in between, and a handle
+	// opened after that point would be invisible to it.
+	//
+	// On exhausting the wait budget the read proceeds anyway: stalling an editor
+	// import beats breaking a running scene's streaming, and the import then fails
+	// loudly rather than degrading silently.
+	OS *os = OS::get_singleton();
 	const Thread::ID thread_id = Thread::get_caller_id();
-	MutexLock lock(file_mutex);
+	uint32_t waited_usec = 0;
 
-	Ref<FileAccess> *cached_file = cached_files.getptr(thread_id);
-	if (cached_file && cached_file->is_valid()) {
-		return *cached_file;
-	}
+	while (true) {
+		// Wait with NO mutex held: a reader that already holds a handle needs
+		// file_mutex to finish (_record_io_counters), and stalling it here would be
+		// the deadlock this flag exists to avoid.
+		while (suspend_opens.is_set() && os != nullptr && waited_usec < MAX_OPEN_SUSPEND_WAIT_USEC) {
+			os->delay_usec(READER_DRAIN_POLL_USEC);
+			waited_usec += READER_DRAIN_POLL_USEC;
+		}
 
-	Ref<FileAccess> file = FileAccess::open(file_path, FileAccess::READ);
-	if (file.is_null()) {
-		ERR_PRINT(vformat("[StagedFileSource] Cannot open staged world file: %s", file_path));
-		return Ref<FileAccess>();
+		MutexLock lock(file_mutex);
+
+		// Recheck UNDER the mutex. The check above is lock-free, so the guard can set
+		// the flag and take over the cache in the window between it and this
+		// acquisition; opening here would cache a fresh delete-denying handle that the
+		// guard never saw, and its rename would fail. Rechecking closes that window:
+		// either we get here before the guard (it then takes our handle over with the
+		// rest of the cache) or we see the flag and go back to waiting.
+		if (suspend_opens.is_set() && os != nullptr && waited_usec < MAX_OPEN_SUSPEND_WAIT_USEC) {
+			continue; // releases file_mutex, resumes the wait above
+		}
+
+		Ref<FileAccess> *cached_file = cached_files.getptr(thread_id);
+		if (cached_file && cached_file->is_valid()) {
+			return *cached_file;
+		}
+
+		Ref<FileAccess> file = FileAccess::open(file_path, FileAccess::READ);
+		if (file.is_null()) {
+			ERR_PRINT(vformat("[StagedFileSource] Cannot open staged world file: %s", file_path));
+			return Ref<FileAccess>();
+		}
+		cached_files.insert(thread_id, file);
+		file_open_count++;
+		return file;
 	}
-	cached_files.insert(thread_id, file);
-	file_open_count++;
-	return file;
 }
 
 bool StagedFileChunkPayloadSource::_read_exact(FileAccess *p_file, uint64_t p_offset, void *p_dst, uint64_t p_bytes, const char *p_label, uint64_t *r_bytes_read) const {

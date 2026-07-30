@@ -319,9 +319,9 @@ STATIC_FORMAT_GUARDS: tuple[tuple[str, Path, tuple[str, ...]], ...] = (
     # writer must route its destination write through gs_atomic_file_write (temp
     # -> fsync -> atomic rename with backup swap), so a crash mid-save cannot
     # truncate the prior good file. The [AtomicWrite] doctest lane proves the
-    # helper is crash-atomic; these guards lock in that each saver actually USES
+    # helper is crash-atomic; these guards lock in that each writer actually USES
     # it (the PLY cache writer delegates to the world saver, so it is covered
-    # transitively). If a saver is intentionally re-plumbed, update the guard.
+    # transitively). If a writer is intentionally re-plumbed, update the guard.
     (
         "atomic_saver_world_io",
         MODULE_SOURCE_DIR / "io" / "gaussian_splat_world_io.cpp",
@@ -335,6 +335,16 @@ STATIC_FORMAT_GUARDS: tuple[tuple[str, Path, tuple[str, ...]], ...] = (
     (
         "atomic_saver_incremental",
         MODULE_SOURCE_DIR / "persistence" / "incremental_saver.cpp",
+        (r"gs_atomic_file_write\s*\(",),
+    ),
+    # #714: the .gsplatworld importer's final-output copy (_copy_binary_file) also
+    # writes the artifact the importer produces. It historically used a plain
+    # truncating FileAccess::WRITE and bypassed this guard set, so an interrupted
+    # copy could destroy an existing generated output while the three guards above
+    # stayed green. It now routes through the atomic helper; lock that in.
+    (
+        "atomic_saver_gsplatworld_importer",
+        MODULE_SOURCE_DIR / "io" / "resource_importer_gsplatworld.cpp",
         (r"gs_atomic_file_write\s*\(",),
     ),
 )
