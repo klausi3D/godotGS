@@ -6,6 +6,7 @@
 #include "../core/gaussian_splat_settings_manager.h"
 #include "../core/gaussian_splat_scene_director.h"
 #include "../core/gaussian_splat_source_path.h"
+#include "../core/gs_vector_alloc.h"
 #include "../core/quality_tier_config.h"
 #include "../renderer/gaussian_splat_renderer.h"
 #include "../logger/gs_debug_trace.h"
@@ -746,8 +747,16 @@ void GaussianSplatNode3D::set_splat_data(const PackedVector3Array &p_positions,
 
     _reset_manual_splat_state();
     _ensure_renderer_data_for_splats(splat_count, p_positions);
-    _apply_optional_splat_arrays(splat_count, p_colors, p_scales, p_opacities, p_rotations,
-            p_spherical_harmonics, p_palette_ids, p_painterly_flags, p_normals, p_brush_axes, p_stroke_ages);
+    // #798: stop before _populate_runtime_asset_from_renderer_data() /
+    // _finalize_manual_splat_setup(), which are what publish, upload and cache this data.
+    // Returning here leaves the node in the state _reset_manual_splat_state() just
+    // established -- no splats rendered -- rather than rendering splats whose opacity or SH
+    // silently failed to allocate. Matches the early returns above for the other two
+    // pre-flight failures in this method.
+    if (!_apply_optional_splat_arrays(splat_count, p_colors, p_scales, p_opacities, p_rotations,
+                p_spherical_harmonics, p_palette_ids, p_painterly_flags, p_normals, p_brush_axes, p_stroke_ages)) {
+        return;
+    }
     renderer_data->set_2d_mode(p_is_2d_mode);
     _populate_runtime_asset_from_renderer_data();
     _compute_manual_splat_bounds(splat_count, p_positions, p_scales);
@@ -840,7 +849,12 @@ void GaussianSplatNode3D::_ensure_renderer_data_for_splats(int splat_count, cons
     renderer_data->set_positions(p_positions);
 }
 
-void GaussianSplatNode3D::_apply_optional_splat_arrays(int splat_count,
+// #798: returns a status rather than void. Two of the derived arrays below are allocated at
+// splat_count and filled through raw ptrw() pointers; failing closed while returning void
+// would let set_splat_data() go on to _populate_runtime_asset_from_renderer_data() and
+// _finalize_manual_splat_setup(), publishing and caching a node whose opacity or SH is
+// silently absent -- indistinguishable from data the caller never supplied.
+bool GaussianSplatNode3D::_apply_optional_splat_arrays(int splat_count,
         const PackedColorArray &p_colors,
         const PackedVector3Array &p_scales,
         const PackedFloat32Array &p_opacities,
@@ -863,7 +877,12 @@ void GaussianSplatNode3D::_apply_optional_splat_arrays(int splat_count,
         renderer_data->set_opacities(p_opacities);
     } else if (p_colors.size() == splat_count) {
         PackedFloat32Array opacity_from_color;
-        opacity_from_color.resize(splat_count);
+        // #798: the fill loop is bounded by splat_count, not by opacity_from_color.size(),
+        // and writes through a raw ptrw() pointer that a failed resize leaves null.
+        if (!gs_resize_or_fail(opacity_from_color, splat_count,
+                    "GaussianSplatNode3D::set_splat_data opacity_from_color")) {
+            return false;
+        }
         float *opacity_ptr = opacity_from_color.ptrw();
         for (int i = 0; i < splat_count; i++) {
             opacity_ptr[i] = CLAMP(p_colors[i].a, 0.0f, 1.0f);
@@ -875,7 +894,13 @@ void GaussianSplatNode3D::_apply_optional_splat_arrays(int splat_count,
         renderer_data->set_spherical_harmonics(p_spherical_harmonics);
     } else if (!p_colors.is_empty()) {
         PackedFloat32Array sh_dc;
-        sh_dc.resize(splat_count * 3);
+        // #798: same shape -- the loop is bounded by splat_count and indexes sh_ptr up to
+        // splat_count * 3 - 1, never consulting sh_dc.size(). int64_t so the count expression
+        // itself cannot overflow before the check sees it.
+        if (!gs_resize_or_fail(sh_dc, int64_t(splat_count) * 3,
+                    "GaussianSplatNode3D::set_splat_data sh_dc")) {
+            return false;
+        }
         float *sh_ptr = sh_dc.ptrw();
         for (int i = 0; i < splat_count; i++) {
             const Color color = p_colors[i];
@@ -905,6 +930,8 @@ void GaussianSplatNode3D::_apply_optional_splat_arrays(int splat_count,
     if (!p_stroke_ages.is_empty()) {
         renderer_data->set_stroke_ages(p_stroke_ages);
     }
+
+    return true;
 }
 
 void GaussianSplatNode3D::_populate_runtime_asset_from_renderer_data() {

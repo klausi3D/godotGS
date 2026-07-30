@@ -15,6 +15,7 @@
 #include "core/templates/vector.h"
 #include "core/variant/dictionary.h"
 #include "../core/gaussian_data.h"
+#include "../core/gs_vector_alloc.h"
 #include "../editor/gaussian_thumbnail_generator.h"
 #include "../logger/gs_logger.h"
 
@@ -353,7 +354,16 @@ Error ResourceImporterPLY::import(ResourceUID::ID p_source_id, const String &p_s
     const double merge_stride = merge_density ? double(original_count) / double(final_count) : 1.0;
 
     Vector<int> indices;
-    indices.resize(original_count);
+    // #798: original_count is the PLY's splat count -- FILE-DERIVED, so this allocation is
+    // reachable from a merely large or malformed asset without any memory pressure. The
+    // loop below writes through the raw ptrw() pointer bounded by original_count, not by
+    // indices.size(), and a failed resize leaves ptrw() null (CowData::_fork_allocate(0)
+    // unrefs and leaves _ptr null), so indices_ptr[0] would be a wild write with no
+    // CRASH_BAD_INDEX to name it. Fail closed with this importer's own Error contract,
+    // and report the allocation rather than misreporting file corruption.
+    if (!gs_resize_or_fail(indices, original_count, "ResourceImporterPLY::import indices")) {
+        return ERR_OUT_OF_MEMORY;
+    }
     int *indices_ptr = indices.ptrw();
     for (int i = 0; i < original_count; i++) {
         indices_ptr[i] = i;
@@ -371,11 +381,21 @@ Error ResourceImporterPLY::import(ResourceUID::ID p_source_id, const String &p_s
     PackedFloat32Array rotations;
     PackedFloat32Array opacity_logits;
 
-    positions.resize(final_count * 3);
-    colors.resize(final_count);
-    scales.resize(final_count * 3);
-    opacity_logits.resize(final_count);
-    rotations.resize(final_count * 4);
+    // #798: every count here derives from final_count, which derives from the PLY's own
+    // splat count -- FILE-DERIVED. The write loop below drives raw ptrw() pointers with an
+    // index bounded by final_count rather than by each array's size(), so a failed resize
+    // turns the very first store into a write through nullptr. Fail closed before any
+    // asset is instantiated or written, reporting the allocation as the cause.
+    // opacity_logits is written via write[] (the #794 class, which CRASH_BAD_INDEX would
+    // trap loudly rather than corrupt); it is folded into the same check only so that one
+    // logical output allocation has one failure mode instead of two.
+    if (!gs_resize_or_fail(positions, int64_t(final_count) * 3, "ResourceImporterPLY::import positions") ||
+            !gs_resize_or_fail(colors, final_count, "ResourceImporterPLY::import colors") ||
+            !gs_resize_or_fail(scales, int64_t(final_count) * 3, "ResourceImporterPLY::import scales") ||
+            !gs_resize_or_fail(opacity_logits, final_count, "ResourceImporterPLY::import opacity_logits") ||
+            !gs_resize_or_fail(rotations, int64_t(final_count) * 4, "ResourceImporterPLY::import rotations")) {
+        return ERR_OUT_OF_MEMORY;
+    }
 
     // View-dependent SH bands. The PLY loader already parsed up to 48 SH floats
     // per splat into `Gaussian::sh_1[]` and `GaussianData::sh_high_order_coefficients`;
@@ -387,11 +407,23 @@ Error ResourceImporterPLY::import(ResourceUID::ID p_source_id, const String &p_s
 
     PackedFloat32Array sh_first_order;
     PackedFloat32Array sh_high_order;
+    // #798: these two are NOT wild writes -- the loop below re-checks `sh_first_ptr` /
+    // `sh_high_ptr` for null, so a failed resize skips the stores. They are checked anyway
+    // because that guard converts the crash into SILENT PERMANENT DATA LOSS: the import
+    // would return OK and bake a DC-only .res (set_sh_*_coefficients() maps an empty array
+    // to terms=0), so the asset renders without view-dependent SH forever and nothing
+    // reports why. Counts are final_count x term count, both FILE-DERIVED.
     if (sh_first_terms > 0) {
-        sh_first_order.resize(int(final_count) * int(sh_first_terms) * 3);
+        if (!gs_resize_or_fail(sh_first_order, int64_t(final_count) * int64_t(sh_first_terms) * 3,
+                    "ResourceImporterPLY::import sh_first_order")) {
+            return ERR_OUT_OF_MEMORY;
+        }
     }
     if (sh_high_terms > 0 && sh_high_src != nullptr) {
-        sh_high_order.resize(int(final_count) * int(sh_high_terms) * 3);
+        if (!gs_resize_or_fail(sh_high_order, int64_t(final_count) * int64_t(sh_high_terms) * 3,
+                    "ResourceImporterPLY::import sh_high_order")) {
+            return ERR_OUT_OF_MEMORY;
+        }
     }
 
     float *positions_ptr = positions.ptrw();

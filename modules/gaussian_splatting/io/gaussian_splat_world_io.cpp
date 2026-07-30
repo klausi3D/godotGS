@@ -848,7 +848,24 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 			chunk.center = record.center;
 			chunk.radius = record.radius;
 			if (record.index_count > 0 && !all_indices.is_empty()) {
-				chunk.indices.resize(record.index_count);
+				// #798: record.index_count is read straight out of the on-disk chunk
+				// record -- FILE-SUPPLIED, so this allocation is attacker/corruption-
+				// influenced and reachable with no memory pressure at all. The memcpy
+				// below writes record.index_count * 4 bytes through ptrw(), which a
+				// failed resize leaves null (CowData::_fork_allocate(0) unrefs and
+				// leaves _ptr null); memcpy to null is UB and there is no
+				// CRASH_BAD_INDEX here to turn it into a named trap. Fail closed the
+				// same way this function reports every other load failure -- via
+				// *r_error plus an empty Ref -- but with ERR_OUT_OF_MEMORY rather than
+				// ERR_FILE_CORRUPT, since the file may be perfectly valid (this
+				// matches the chunk-table allocation above and the payload probe).
+				if (!gs_resize_or_fail(chunk.indices, (int64_t)record.index_count,
+							"GaussianSplatWorldIO::load chunk indices")) {
+					if (r_error) {
+						*r_error = ERR_OUT_OF_MEMORY;
+					}
+					return Ref<Resource>();
+				}
 				const uint64_t src_offset = record.indices_offset;
 				const uint64_t src_size = uint64_t(record.index_count);
 				if (src_offset <= uint64_t(all_indices.size()) && src_size <= uint64_t(all_indices.size()) - src_offset) {

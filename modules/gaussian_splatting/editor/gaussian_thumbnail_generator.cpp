@@ -2,6 +2,7 @@
 
 #include "gaussian_thumbnail_generator.h"
 
+#include "../core/gs_vector_alloc.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
 #include "core/math/color.h"
@@ -219,8 +220,21 @@ Dictionary GaussianThumbnailGenerator::_project_to_canvas(const GaussianSplatAss
     r_hits.clear();
     r_accum.clear();
 
-    r_hits.resize(p_size * p_size);
-    r_accum.resize(p_size * p_size);
+    // #798: both write loops below (init, and the scatter at the bottom) are bounded by
+    // p_size * p_size, never by r_hits.size() / r_accum.size(), so a failed resize leaves
+    // ptrw() null and the first store is a wild write. Clear BOTH on failure, not just the
+    // one that failed: every caller loops on hits.size() while indexing accum with the same
+    // i, so a sized `hits` next to an empty `accum` would turn into a null-pointer READ in
+    // _generate_color_thumbnail. Empty-both is a state the callers already tolerate -- their
+    // loops simply do not run -- and it degrades to a flat thumbnail rather than a crash.
+    if (!gs_resize_or_fail(r_hits, int64_t(p_size) * int64_t(p_size),
+                "GaussianThumbnailGenerator::_project_to_canvas hits") ||
+            !gs_resize_or_fail(r_accum, int64_t(p_size) * int64_t(p_size),
+                    "GaussianThumbnailGenerator::_project_to_canvas accum")) {
+        r_hits.clear();
+        r_accum.clear();
+        return result;
+    }
 
     int *hits_ptr = r_hits.ptrw();
     Color *accum_ptr = r_accum.ptrw();
@@ -372,10 +386,27 @@ Ref<Image> GaussianThumbnailGenerator::_generate_normals_thumbnail(const Gaussia
     extent.y = MAX(extent.y, 0.0001f);
     extent.z = MAX(extent.z, 0.0001f);
 
+    // #798: the accumulate loop below is bounded by splat_count and scatters into
+    // normal_ptr[idx] for idx < p_size * p_size -- it never consults normal_accum.size().
+    // So an EMPTY canvas is not benign here the way it is in the other three styles: with
+    // hits empty, normal_ptr is null and that loop writes straight through it. Bail out
+    // before the resizes; `image` is already flat-filled and the read loop at the bottom is
+    // bounded by hits.size(), so returning here yields byte-identical output.
+    if (hits.is_empty()) {
+        return image;
+    }
+
     Vector<Vector3> normal_accum;
-    normal_accum.resize(hits.size());
     Vector<int> normal_counts;
-    normal_counts.resize(hits.size());
+    // #798: the bound is hits.size(), i.e. ANOTHER vector's size, so exclusion rule 1 does
+    // not apply -- a failed resize here shrinks the buffer without shrinking the loop bound.
+    // Degrade to the flat-filled image, the same result the empty-canvas case above produces.
+    if (!gs_resize_or_fail(normal_accum, hits.size(),
+                "GaussianThumbnailGenerator::_generate_normals_thumbnail normal_accum") ||
+            !gs_resize_or_fail(normal_counts, hits.size(),
+                    "GaussianThumbnailGenerator::_generate_normals_thumbnail normal_counts")) {
+        return image;
+    }
 
     Vector3 *normal_ptr = normal_accum.ptrw();
     int *count_ptr = normal_counts.ptrw();

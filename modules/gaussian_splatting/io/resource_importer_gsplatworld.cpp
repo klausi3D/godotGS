@@ -226,6 +226,12 @@ static Error _copy_binary_file(const String &p_source_file, const String &p_dest
 		const uint64_t file_size = src->get_length();
 		constexpr uint64_t chunk_size = 1024 * 1024; // 1 MiB
 		PackedByteArray buffer;
+		// #798 exclusion rule 2: chunk_size is a compile-time constant that does not scale
+		// with the file, so this is not a data-driven allocation. It also fails safely: a
+		// failed resize leaves buffer_ptr null, and get_buffer() null-guards
+		// (ERR_FAIL_COND_V(!p_dst && p_length > 0, -1)) -- and unlike most call sites this
+		// one CHECKS the return via `read != to_read`, so the copy aborts before
+		// store_buffer() ever sees the null (it would be reported as ERR_FILE_CORRUPT).
 		buffer.resize(chunk_size);
 		uint8_t *buffer_ptr = buffer.ptrw();
 

@@ -294,7 +294,9 @@ private:
             const PackedFloat32Array &p_stroke_ages) const;
     void _reset_manual_splat_state();
     void _ensure_renderer_data_for_splats(int splat_count, const PackedVector3Array &p_positions);
-    void _apply_optional_splat_arrays(int splat_count,
+    // #798: false means a splat_count-sized derived array could not be allocated; the
+    // caller must NOT go on to publish/finalize the node.
+    bool _apply_optional_splat_arrays(int splat_count,
             const PackedColorArray &p_colors,
             const PackedVector3Array &p_scales,
             const PackedFloat32Array &p_opacities,
