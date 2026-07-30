@@ -22,7 +22,20 @@ func _record_failure(reason: String, context: Dictionary = {}) -> void:
 func _base_tier_result() -> Dictionary:
 	return {
 		"first_visible_ms": 240.0,
-		"frame_p95_ms": 292.4,
+		# #796/#797: 292.4 -> 162.0, using the CORRECTED measured factor 1.805 for this
+		# tier (the first revision used 1.92, which had summed percentiles -- see
+		# streaming_gpu_tier_budget.gd). This value only has to be a clean in-budget
+		# recording; it is rescaled alongside the ceiling so the two stay comparable.
+		# 292.4 was a recorded run of the OLD frame metric, which spanned the
+		# harness's force_sort_for_view() and get_render_stats() as well as the
+		# engine frame. Against the corrected engine-frame-only ceiling the
+		# old figure reads as a failure, so every case built on this base -- all of
+		# which expect a clean frame budget and vary one other field -- began
+		# reporting a spurious frame_p95_exceeded. This test correctly caught the
+		# metric's change of meaning; the fixture had to follow it.
+		#
+		# Against the ceiling (180.0) this must stay comfortably in budget.
+		"frame_p95_ms": 162.0,
 		"frame_p95_to_avg_ratio": 1.24,
 		"source_data_available": true,
 		"fallback_rate_available": true,
@@ -292,6 +305,30 @@ func _run_scaling_cases() -> Array:
 
 
 func _run() -> void:
+	# #797: DERIVE the exceed-boundary from the enforced ceiling instead of hardcoding it.
+	# This case used to pass 325.001 -- a literal matching the pre-#796 ceiling. Once the
+	# ceiling was rescaled for the engine-only metric that value was still far above it, so
+	# the case passed no matter
+	# what: restoring or accidentally raising the ceiling anywhere up to 325 would have left
+	# this test green while it claimed to verify the boundary. A test whose fixture is a
+	# copy of the value under test stops testing it the moment the value moves, which is
+	# why the number is now read from the budget rather than repeated here.
+	var enforced_p95_ceiling := float(StreamingGpuTierBudget.tier_1m_budget().get("max_frame_p95_ms", 0.0))
+
+	# #797: deriving the fixture above makes the boundary cases robust, but it also makes
+	# them indifferent to the ceiling's VALUE -- so on its own it would let a silent
+	# recalibration through. Pin the calibrated number too. tests/AGENTS.md forbids
+	# unjustified threshold changes; this turns "someone moved the ceiling" from an
+	# invisible edit into a failing test that has to be answered in review.
+	# Updating this constant is legitimate -- it just has to be deliberate, and land with
+	# the evidence for the new value.
+	const CALIBRATED_TIER_1M_P95_CEILING_MS := 180.0
+	if not is_equal_approx(enforced_p95_ceiling, CALIBRATED_TIER_1M_P95_CEILING_MS):
+		_record_failure("tier_1m max_frame_p95_ms moved away from its calibrated value", {
+			"expected": CALIBRATED_TIER_1M_P95_CEILING_MS,
+			"actual": enforced_p95_ceiling,
+			"why": "the ceiling is metric-specific (#796 engine-frame-only); changing it needs its own measured justification"
+		})
 	var cases := [
 		{
 			"name": "clean_current_result",
@@ -300,10 +337,22 @@ func _run() -> void:
 			"telemetry_failures": []
 		},
 		{
+			# Just above the ceiling, so it fails for the right reason and would stop
+			# failing if the check were removed.
 			"name": "frame_p95_exceeded",
-			"result_overrides": {"frame_p95_ms": 325.001},
+			"result_overrides": {"frame_p95_ms": enforced_p95_ceiling + 0.001},
 			"within_budget": false,
 			"budget_failures": ["frame_p95_exceeded"],
+			"telemetry_failures": []
+		},
+		{
+			# The paired NEGATIVE boundary: exactly AT the ceiling must pass. Without this,
+			# a check mutated to `>=` (or a ceiling driven to 0) would still satisfy the
+			# case above, so the boundary would be asserted from one side only.
+			"name": "frame_p95_at_ceiling_is_within_budget",
+			"result_overrides": {"frame_p95_ms": enforced_p95_ceiling},
+			"within_budget": true,
+			"budget_failures": [],
 			"telemetry_failures": []
 		},
 		{

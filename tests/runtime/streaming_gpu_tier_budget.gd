@@ -68,12 +68,37 @@ const WARMUP_MIN_RETAINED_SAMPLES := 30
 # 3). 1.20 sits below the healthiest observed contended cluster and above it;
 # it is a floor on measurement validity, not a product target. Widen after
 # optimized-build calibration.
+#
+# #797: re-checked against the corrected engine-only metric, because the harness's
+# force_sort_for_view() did tier-dependent cull/sort work and so did NOT cancel out
+# of the differential as a common-mode offset would. Measured as a paired
+# comparison over the same 5 idle runs (legacy scale ratio -> engine scale ratio):
+#
+#   1.250 -> 1.203,  1.053 -> 1.053,  1.279 -> 1.252,  1.741 -> 1.668,
+#   2.931 -> 3.145
+#
+# The differential does shift, but by <= 7% and not consistently in one direction --
+# far too little to move this floor. 4 of the 5 runs still separate above 1.20, and
+# the fifth (1.053) is exactly the common-mode-dominated run the floor exists to
+# mark invalid. So 1.20 is kept for the new metric on evidence, not by omission.
+#
+# It also cannot be TIGHTENED yet regardless (#763): no CI lane builds optimized,
+# and on an optimized build the tiers do not separate at all -- 4 of 5 clean runs
+# came back inconclusive with NEGATIVE marginal cost. The ~4.97x separation cited
+# above is a -O0 artefact and must not be used as a calibration target.
 const SCALE_SANITY_MIN_RATIO := 1.20
 # Backstop baseline for the per-splat marginal cost, in milliseconds per one
 # million splats, measured across the smallest<->largest tier span. Clean dev
 # evidence sat well under this (master@base ~258 ms/Msplat on the noisy 2.5M
 # tier). Deliberately generous so it never false-fails a healthy run; a
 # dedicated calibration PR tightens it against several clean optimized runs.
+#
+# #797: engine-only marginal cost over the same 5 paired runs measured 3.5, 11.2,
+# 13.3, 36.2 and 113.7 ms/Msplat -- worst case still 4.2x under the 480 ms/Msplat
+# trip point. Removing the harness cost moved the marginal by a few ms/Msplat, so
+# this backstop keeps its entire margin under the new metric and is not re-picked.
+# Tightening it to a value that could actually catch a regression is #763's job and
+# is blocked on the same optimized-build gap.
 const MARGINAL_COST_BASELINE_MS_PER_MSPLAT := 320.0
 # Fractional headroom over the baseline before a healthy-scaling run is called a
 # regression (0.5 => trips at 1.5x baseline).
@@ -95,7 +120,71 @@ static func tier_1m_budget() -> Dictionary:
 		# while preserving a hard ceiling for gross regressions. Tighten this in
 		# a dedicated calibration PR after several clean master runs establish a
 		# lower stable envelope.
-		"max_frame_p95_ms": 325.0,
+		# #796/#797: 325.0 -> 180.0 because the METRIC changed. frame_p95_ms used to span
+		# the harness's own force_sort_for_view() (a blocking render-thread dispatch) and
+		# get_render_stats().
+		#
+		# THIS IS A RECALIBRATION, NOT AN EXACT CONVERSION. Earlier revisions of this
+		# comment claimed the latter; that claim was wrong twice over and is withdrawn.
+		#
+		# First error: the factor was stated as 1.92x, computed as
+		# (p95(harness) + p95(frame)) / p95(frame). PERCENTILES ARE NOT ADDITIVE -- summing
+		# them overstates p95(frame + harness), because the two maxima do not occur in the
+		# same frame. The quantity that matters is p95(E+H)/p95(E) over IDENTICAL per-frame
+		# samples: 1.853, 1.770, 1.823, 1.850, 1.729 -> mean 1.805.
+		#
+		# Second error, and the deeper one: because that factor VARIES per run (1.73-1.85),
+		# no single engine-only ceiling reproduces the old gate's decisions exactly. Dividing
+		# by the mean leaves a band where the two disagree:
+		#
+		#     old passes, new fails:   180.0 < E <= 325/1.729 = 187.9
+		#     new passes, old fails:   325/1.853 = 175.4 < E <= 180.0
+		#     => disagreement band 175.4 .. 187.9 ms, 12.6 ms wide (~7% of the ceiling)
+		#
+		# So 180.0 is chosen, not derived-as-equivalent. What can be said for it: over the
+		# 5 paired runs the two gates returned the SAME verdict on every one (0/5
+		# disagreements) because no observed engine p95 fell in that band -- measured values
+		# were 118.1, 295.8, 115.5, 115.8, 140.2 ms.
+		#
+		# Keeping the legacy E+H sample for this one check was the alternative, and is
+		# rejected deliberately: that sample is the harness timing itself, which is the
+		# defect #796 exists to remove, and it would not have helped -- see below.
+		#
+		# WHAT ACTUALLY DOMINATES THIS GATE, and it is not the constant: run 2 above
+		# (engine 295.8 ms) FAILS under both metrics -- 295.8 > 180 and its legacy
+		# equivalent 523.7 > 325. On an IDLE machine, on unchanged code, this enforced
+		# ceiling false-fails 1 run in 5 either way. A ~7% band is noise next to a 20%
+		# false-fail rate. Do not read any strictness conclusion from this number until the
+		# measurement instability is fixed; arming and tightening decisions belong to #763
+		# and #530, not here, and this must not be loosened to swallow the spike either --
+		# that would trade a false-fail for a gate that cannot see a real regression.
+		#
+		# The neutrality discussion above concerns this absolute ceiling only. The derived
+		# ratio check below does not transform this way and carries its own justification.
+		"max_frame_p95_ms": 180.0,
+		# #797: deliberately NOT rescaled, on measured grounds rather than by
+		# assuming a ratio is invariant. It is not: p95(E)/avg(E) differs from
+		# p95(E+H)/avg(E+H) by an amount that depends on how the harness cost H
+		# co-varies with the frame E, and it can move in either direction.
+		#
+		# So it was measured, not modelled. The harness was instrumented to compute
+		# BOTH metrics from the SAME per-frame samples over 5 idle-machine runs -- an
+		# exact paired comparison, because legacy = E + forced_sort + stats is
+		# precisely the pre-#796 expression. Ratio under new / ratio under old:
+		#
+		#   tier_1m     0.989 .. 1.064   mean 1.017
+		#   tier_250k   1.011 .. 1.053   mean 1.030
+		#   tier_2_5m   0.985 .. 1.029   mean 1.002
+		#
+		# H turns out to be nearly PROPORTIONAL to the frame rather than a constant
+		# offset -- it rides the same spikes, so both metrics see almost the same
+		# dispersion. The strictly neutral value here would be 2.25 * 1.017 = 2.29,
+		# but the shift's own run-to-run spread (+-6%) dwarfs its 1.7% mean, so 2.29
+		# would be false precision. 2.25 is therefore kept, and the residual
+		# effective tightening is at most ~6% against 41% of headroom: the worst
+		# engine-only ratio observed on this tier was 1.600. A 6% shift cannot flip a
+		# check with that much room, which is what makes keeping this number safe
+		# rather than merely convenient.
 		"max_frame_p95_to_avg_ratio": 2.25,
 		"max_fallback_rate": 0.35,
 		"enforce": true
