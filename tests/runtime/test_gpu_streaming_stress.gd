@@ -377,15 +377,35 @@ func _exercise_tier(tier: Dictionary) -> Dictionary:
     var first_visible_ms := -1.0
     var stats: Dictionary = {}
     for frame_index in range(SAMPLE_FRAMES):
-        # #796: the frame sample is the ENGINE FRAME ONLY. It used to span the two
-        # harness calls below as well, and they are not free: force_sort_for_view() is
-        # a blocking dispatch to the render thread (it is on run_module_tests.py's
-        # DISPATCHING_METHODS list) and get_render_stats() aggregates. Measured, they
-        # were ~38% and ~7% of the old sample, so every frame budget calibrated
-        # against it was ~1.8x inflated by the harness measuring itself.
+        # #796: the frame sample no longer spans the two harness calls below, which are
+        # not free: force_sort_for_view() dispatches to the render thread (it is on
+        # run_module_tests.py's DISPATCHING_METHODS list) and get_render_stats()
+        # aggregates. Measured, they were ~38% and ~7% of the old sample, so every frame
+        # budget calibrated against it was ~1.8x inflated by the harness timing itself.
         #
-        # They are still timed, but as their own diagnostics, because a per-sample
-        # blocking sort is a real cost worth watching -- just not a frame time.
+        # They are still timed, as their own diagnostics, because a per-sample sort is a
+        # real cost worth watching -- just not a frame time.
+        #
+        # #797 -- THIS IS A PARTIAL EXCLUSION, NOT AN ENGINE-ONLY SAMPLE. An earlier
+        # revision of this comment claimed "the frame sample is the ENGINE FRAME ONLY";
+        # that is withdrawn. On the GPU_RADIX path force_sort_for_view() submits via
+        # gs_device_utils::safe_submit() WITHOUT synchronising -- gpu_sorter.cpp says so
+        # explicitly ("Use safe_submit without sync"). The call therefore returns before
+        # its GPU work completes, and that work is paid during the NEXT iteration's
+        # `await process_frame`, landing inside the following frame_times_ms entry.
+        #
+        # So moving the call out of the timed region removes its CPU dispatch cost but
+        # merely SHIFTS its GPU cost one sample forward. Independent evidence that this
+        # is material, not theoretical: a controlled A/B on this harness measured the
+        # forced sort perturbing the frame that FOLLOWS it by ~27 ms (~23%).
+        #
+        # Fixing it means either draining the submission before the next sample begins
+        # (no drain is currently exposed to GDScript) or dropping the forced sort from
+        # this loop entirely and letting the engine frame path sort on its own -- sort
+        # evidence would survive, since it only needs total_sorts > 0 or a non-empty
+        # history, and the natural path already contributes ~1 sort per frame. Both are
+        # harness redesigns with their own measurement burden, tracked separately rather
+        # than bolted on here.
         var frame_start_usec := Time.get_ticks_usec()
         await process_frame
         var engine_frame_end_usec := Time.get_ticks_usec()
