@@ -44,12 +44,17 @@ func _stream_tiers() -> Array:
             "size": 250000,
             "max_first_visible_ms": 2500.0,
             "min_residency_ratio": 0.70,
-            # #796: 90.0 -> 47.0, the same 1.92x metric rescale applied to tier_1m.
-            # Strictness is unchanged. Note this ceiling was ALREADY breached before
+            # #796/#797: 90.0 -> 50.5. Uses THIS TIER'S measured factor, not tier_1m's:
+            # p95(E+H)/p95(E) from identical samples over 5 runs was 1.77, 1.81, 1.77,
+            # 1.74, 1.81 -> mean 1.781, so 90/1.781 = 50.5. The first revision divided by
+            # tier_1m's 1.92 and got 47.0, which was ~7% stricter than neutral while
+            # claiming strictness was unchanged -- and 1.92 was itself wrong (it summed
+            # percentiles; see streaming_gpu_tier_budget.gd).
+            # Note this ceiling was ALREADY breached before
             # the rescale (observed engine-frame p95 130-248 ms) and still is; it is
             # advisory (enforce=false) so it has been failing invisibly. Arming it is
             # a separate decision and needs the measurement instability fixed first.
-            "max_frame_p95_ms": 47.0,
+            "max_frame_p95_ms": 50.5,
             # #797: not rescaled. Measured ratio shift on this tier was 1.011-1.053
             # (mean 1.030) against 2.25 with a worst observed engine-only ratio of
             # 1.340 -- see the derivation on tier_1m in streaming_gpu_tier_budget.gd.
@@ -63,12 +68,14 @@ func _stream_tiers() -> Array:
             "size": 2500000,
             "max_first_visible_ms": 5000.0,
             "min_residency_ratio": 0.75,
-            # #796: 160.0 -> 83.0, same 1.92x metric rescale. Also already breached
+            # #796/#797: 160.0 -> 89.3, using this tier's measured factor: 1.84, 1.80,
+            # 1.81, 1.82, 1.69 -> mean 1.792, so 160/1.792 = 89.3. The first revision's
+            # 83.0 came from the wrong 1.92. Also already breached
             # and advisory: observed engine-frame p95 [153.1, 156.2, 157.9, 520.9,
             # 548.3] ms -- a 3.6x run-to-run spread on an IDLE machine, which is the
             # widest of the three tiers and the clearest sign that this measurement
             # is not yet repeatable enough to gate on.
-            "max_frame_p95_ms": 83.0,
+            "max_frame_p95_ms": 89.3,
             # #797: not rescaled. Measured ratio shift here was 0.985-1.029 (mean
             # 1.002, the flattest of the three tiers) against 2.50 with a worst
             # observed engine-only ratio of 1.794. Same derivation as tier_1m.

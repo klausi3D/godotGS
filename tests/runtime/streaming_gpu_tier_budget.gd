@@ -120,13 +120,21 @@ static func tier_1m_budget() -> Dictionary:
 		# while preserving a hard ceiling for gross regressions. Tighten this in
 		# a dedicated calibration PR after several clean master runs establish a
 		# lower stable envelope.
-		# #796: rescaled 325.0 -> 170.0 because the METRIC changed, not the target.
+		# #796: rescaled 325.0 -> 180.0 because the METRIC changed, not the target.
 		# frame_p95_ms used to span the harness's own force_sort_for_view() (a
-		# blocking render-thread dispatch) and get_render_stats(); measured over 5
-		# runs those inflated it by 1.92x. Dividing by the same 1.92 keeps THIS
+		# blocking render-thread dispatch) and get_render_stats().
+		#
+		# #797 CORRECTION: the factor was first stated as 1.92x, computed as
+		# (p95(harness) + p95(frame)) / p95(frame). That is wrong -- PERCENTILES ARE NOT
+		# ADDITIVE, so summing them overstates p95(frame + harness) because the two
+		# maxima do not co-occur in the same frame. Re-measured the only quantity that
+		# actually matters, p95(E+H)/p95(E) from IDENTICAL per-frame samples, over 5
+		# runs: 1.85, 1.77, 1.82, 1.85, 1.73 -> mean 1.805. So the neutral ceiling is
+		# 325/1.805 = 180.0, and the earlier 170.0 was ~5.6% STRICTER than neutral
+		# rather than equivalent. Dividing by the measured 1.805 keeps THIS
 		# CEILING's effective strictness as before -- it is deliberately not an
 		# opportunity to raise the bar, and equally not a silent loosening, which
-		# leaving 325.0 against a 1.92x smaller number would have been.
+		# leaving 325.0 against an ~1.8x smaller number would have been.
 		#
 		# That neutrality claim covers this absolute ceiling ONLY. It is a pure
 		# scale, so dividing threshold and metric by the same factor is exact. The
@@ -137,7 +145,7 @@ static func tier_1m_budget() -> Dictionary:
 		# machine measured [130.2, 132.1, 133.0, 193.0, 286.5] ms across 5 runs, a
 		# 2.2x spread, with tier_2_5m reaching 3.6x. Until that instability is fixed
 		# the number is a gross backstop only. Do NOT tighten it on a single run.
-		"max_frame_p95_ms": 170.0,
+		"max_frame_p95_ms": 180.0,
 		# #797: deliberately NOT rescaled, on measured grounds rather than by
 		# assuming a ratio is invariant. It is not: p95(E)/avg(E) differs from
 		# p95(E+H)/avg(E+H) by an amount that depends on how the harness cost H

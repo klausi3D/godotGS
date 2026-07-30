@@ -22,15 +22,20 @@ func _record_failure(reason: String, context: Dictionary = {}) -> void:
 func _base_tier_result() -> Dictionary:
 	return {
 		"first_visible_ms": 240.0,
-		# #796: 292.4 -> 152.3, the same 1.92x rescale applied to the tier ceilings.
+		# #796/#797: 292.4 -> 162.0, using the CORRECTED measured factor 1.805 for this
+		# tier (the first revision used 1.92, which had summed percentiles -- see
+		# streaming_gpu_tier_budget.gd). This value only has to be a clean in-budget
+		# recording; it is rescaled alongside the ceiling so the two stay comparable.
 		# 292.4 was a recorded run of the OLD frame metric, which spanned the
 		# harness's force_sort_for_view() and get_render_stats() as well as the
-		# engine frame. Against the corrected engine-frame-only ceiling (170.0) the
+		# engine frame. Against the corrected engine-frame-only ceiling the
 		# old figure reads as a failure, so every case built on this base -- all of
 		# which expect a clean frame budget and vary one other field -- began
 		# reporting a spurious frame_p95_exceeded. This test correctly caught the
 		# metric's change of meaning; the fixture had to follow it.
-		"frame_p95_ms": 152.3,
+		#
+		# Against the ceiling (180.0) this must stay comfortably in budget.
+		"frame_p95_ms": 162.0,
 		"frame_p95_to_avg_ratio": 1.24,
 		"source_data_available": true,
 		"fallback_rate_available": true,
@@ -302,7 +307,8 @@ func _run_scaling_cases() -> Array:
 func _run() -> void:
 	# #797: DERIVE the exceed-boundary from the enforced ceiling instead of hardcoding it.
 	# This case used to pass 325.001 -- a literal matching the pre-#796 ceiling. Once the
-	# ceiling became 170.0 that value was still far above it, so the case passed no matter
+	# ceiling was rescaled for the engine-only metric that value was still far above it, so
+	# the case passed no matter
 	# what: restoring or accidentally raising the ceiling anywhere up to 325 would have left
 	# this test green while it claimed to verify the boundary. A test whose fixture is a
 	# copy of the value under test stops testing it the moment the value moves, which is
@@ -316,7 +322,7 @@ func _run() -> void:
 	# invisible edit into a failing test that has to be answered in review.
 	# Updating this constant is legitimate -- it just has to be deliberate, and land with
 	# the evidence for the new value.
-	const CALIBRATED_TIER_1M_P95_CEILING_MS := 170.0
+	const CALIBRATED_TIER_1M_P95_CEILING_MS := 180.0
 	if not is_equal_approx(enforced_p95_ceiling, CALIBRATED_TIER_1M_P95_CEILING_MS):
 		_record_failure("tier_1m max_frame_p95_ms moved away from its calibrated value", {
 			"expected": CALIBRATED_TIER_1M_P95_CEILING_MS,
