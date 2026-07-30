@@ -120,31 +120,47 @@ static func tier_1m_budget() -> Dictionary:
 		# while preserving a hard ceiling for gross regressions. Tighten this in
 		# a dedicated calibration PR after several clean master runs establish a
 		# lower stable envelope.
-		# #796: rescaled 325.0 -> 180.0 because the METRIC changed, not the target.
-		# frame_p95_ms used to span the harness's own force_sort_for_view() (a
-		# blocking render-thread dispatch) and get_render_stats().
+		# #796/#797: 325.0 -> 180.0 because the METRIC changed. frame_p95_ms used to span
+		# the harness's own force_sort_for_view() (a blocking render-thread dispatch) and
+		# get_render_stats().
 		#
-		# #797 CORRECTION: the factor was first stated as 1.92x, computed as
-		# (p95(harness) + p95(frame)) / p95(frame). That is wrong -- PERCENTILES ARE NOT
-		# ADDITIVE, so summing them overstates p95(frame + harness) because the two
-		# maxima do not co-occur in the same frame. Re-measured the only quantity that
-		# actually matters, p95(E+H)/p95(E) from IDENTICAL per-frame samples, over 5
-		# runs: 1.85, 1.77, 1.82, 1.85, 1.73 -> mean 1.805. So the neutral ceiling is
-		# 325/1.805 = 180.0, and the earlier 170.0 was ~5.6% STRICTER than neutral
-		# rather than equivalent. Dividing by the measured 1.805 keeps THIS
-		# CEILING's effective strictness as before -- it is deliberately not an
-		# opportunity to raise the bar, and equally not a silent loosening, which
-		# leaving 325.0 against an ~1.8x smaller number would have been.
+		# THIS IS A RECALIBRATION, NOT AN EXACT CONVERSION. Earlier revisions of this
+		# comment claimed the latter; that claim was wrong twice over and is withdrawn.
 		#
-		# That neutrality claim covers this absolute ceiling ONLY. It is a pure
-		# scale, so dividing threshold and metric by the same factor is exact. The
-		# derived ratio check below does NOT transform that way; it has its own
-		# measured justification.
+		# First error: the factor was stated as 1.92x, computed as
+		# (p95(harness) + p95(frame)) / p95(frame). PERCENTILES ARE NOT ADDITIVE -- summing
+		# them overstates p95(frame + harness), because the two maxima do not occur in the
+		# same frame. The quantity that matters is p95(E+H)/p95(E) over IDENTICAL per-frame
+		# samples: 1.853, 1.770, 1.823, 1.850, 1.729 -> mean 1.805.
 		#
-		# This ceiling still cannot discriminate well: engine-frame p95 on an idle
-		# machine measured [130.2, 132.1, 133.0, 193.0, 286.5] ms across 5 runs, a
-		# 2.2x spread, with tier_2_5m reaching 3.6x. Until that instability is fixed
-		# the number is a gross backstop only. Do NOT tighten it on a single run.
+		# Second error, and the deeper one: because that factor VARIES per run (1.73-1.85),
+		# no single engine-only ceiling reproduces the old gate's decisions exactly. Dividing
+		# by the mean leaves a band where the two disagree:
+		#
+		#     old passes, new fails:   180.0 < E <= 325/1.729 = 187.9
+		#     new passes, old fails:   325/1.853 = 175.4 < E <= 180.0
+		#     => disagreement band 175.4 .. 187.9 ms, 12.6 ms wide (~7% of the ceiling)
+		#
+		# So 180.0 is chosen, not derived-as-equivalent. What can be said for it: over the
+		# 5 paired runs the two gates returned the SAME verdict on every one (0/5
+		# disagreements) because no observed engine p95 fell in that band -- measured values
+		# were 118.1, 295.8, 115.5, 115.8, 140.2 ms.
+		#
+		# Keeping the legacy E+H sample for this one check was the alternative, and is
+		# rejected deliberately: that sample is the harness timing itself, which is the
+		# defect #796 exists to remove, and it would not have helped -- see below.
+		#
+		# WHAT ACTUALLY DOMINATES THIS GATE, and it is not the constant: run 2 above
+		# (engine 295.8 ms) FAILS under both metrics -- 295.8 > 180 and its legacy
+		# equivalent 523.7 > 325. On an IDLE machine, on unchanged code, this enforced
+		# ceiling false-fails 1 run in 5 either way. A ~7% band is noise next to a 20%
+		# false-fail rate. Do not read any strictness conclusion from this number until the
+		# measurement instability is fixed; arming and tightening decisions belong to #763
+		# and #530, not here, and this must not be loosened to swallow the spike either --
+		# that would trade a false-fail for a gate that cannot see a real regression.
+		#
+		# The neutrality discussion above concerns this absolute ceiling only. The derived
+		# ratio check below does not transform this way and carries its own justification.
 		"max_frame_p95_ms": 180.0,
 		# #797: deliberately NOT rescaled, on measured grounds rather than by
 		# assuming a ratio is invariant. It is not: p95(E)/avg(E) differs from
