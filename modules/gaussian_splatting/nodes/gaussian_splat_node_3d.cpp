@@ -748,13 +748,23 @@ void GaussianSplatNode3D::set_splat_data(const PackedVector3Array &p_positions,
     _reset_manual_splat_state();
     _ensure_renderer_data_for_splats(splat_count, p_positions);
     // #798: stop before _populate_runtime_asset_from_renderer_data() /
-    // _finalize_manual_splat_setup(), which are what publish, upload and cache this data.
-    // Returning here leaves the node in the state _reset_manual_splat_state() just
-    // established -- no splats rendered -- rather than rendering splats whose opacity or SH
-    // silently failed to allocate. Matches the early returns above for the other two
-    // pre-flight failures in this method.
+    // _finalize_manual_splat_setup(), which are what publish, upload and cache this data,
+    // rather than rendering splats whose opacity or SH silently failed to allocate.
+    //
+    // #798 review correction: a bare `return` here is NOT enough, and an earlier revision of
+    // this comment wrongly claimed it left the node with "no splats rendered".
+    // _reset_manual_splat_state() only unrefs splat_asset and disconnects its `changed`
+    // signal -- it does NOT unregister the renderer. By this point
+    // _ensure_renderer_data_for_splats() has already resized the REUSABLE renderer_data and
+    // written the new positions into it, so on an already-registered node the previous render
+    // registration would stay live alongside half-overwritten CPU data: stale splats or a
+    // count mismatch, not an empty node. Clear the partial data and drop the registration.
     if (!_apply_optional_splat_arrays(splat_count, p_colors, p_scales, p_opacities, p_rotations,
                 p_spherical_harmonics, p_palette_ids, p_painterly_flags, p_normals, p_brush_axes, p_stroke_ages)) {
+        if (renderer_data.is_valid()) {
+            renderer_data->resize(0);
+        }
+        _unregister_shared_renderer();
         return;
     }
     renderer_data->set_2d_mode(p_is_2d_mode);

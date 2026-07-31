@@ -149,7 +149,20 @@ static PackedByteArray _compress_data(const uint8_t *p_data, uint64_t p_size) {
 		return PackedByteArray(); // Compression failed
 	}
 	
-	result.resize(compressed_size);
+	// #798 review (post-merge review of #802): the SHRINK needs checking too -- a class the
+	// original sweep predicate missed, since it only looked for "resize then write past the
+	// end". CowData::_fork_allocate() keeps the old size when a realloc fails, so a failed
+	// shrink leaves `result` at max_compressed: compressed_size valid bytes followed by an
+	// UNINITIALIZED heap tail (sized with resize(), not resize_initialized()). The caller
+	// stores result.size(), so that tail would be written into the .gsplatworld file -- and
+	// gzip stops at the stream end, so the file still LOADS while carrying leaked process
+	// memory. Fail closed to the empty array this function already uses for a failed compress.
+	if (result.resize(compressed_size) != OK) {
+		ERR_PRINT(vformat("[GaussianSplatWorldIO] Failed to trim the compression buffer from %d to %d "
+						  "bytes; discarding it rather than writing the uninitialized tail.",
+				int64_t(max_compressed), int64_t(compressed_size)));
+		return PackedByteArray();
+	}
 	return result;
 }
 

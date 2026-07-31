@@ -69,7 +69,15 @@ void bake_streaming_chunks_for_asset(
     const uint32_t num_chunks = (splat_count + chunk_size - 1) / chunk_size;
 
     Vector<StreamingChunkBakeRecord> records;
-    records.resize(int(num_chunks));
+    // #798 review (post-merge review of #802): the derived sweep MISSED this one because the
+    // matching `records.write[int(i)]` is ~38 lines below, outside the 11-line window the
+    // predicate scanned. It is the #794 write[] class: the loop is bounded by num_chunks, not
+    // by records.size(), so a failed resize traps in CRASH_BAD_INDEX. Fail closed the same way
+    // the early bails in this function do -- leave the asset's streaming records untouched, so
+    // has_baked_streaming_chunks() stays false and the runtime takes its full-rebuild path.
+    if (!gs_resize_or_fail(records, int64_t(num_chunks), "StreamingChunkBake::bake chunk records")) {
+        return;
+    }
 
     // Per-asset registration path does NOT consume Morton-sorted primary
     // source indices (see gaussian_streaming.cpp build_primary_spatial=false
