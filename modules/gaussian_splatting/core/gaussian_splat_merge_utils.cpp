@@ -278,6 +278,28 @@ bool gaussian_splat_merge_sources(const Vector<GaussianSplatMergeSource> &source
         PackedInt32Array asset_brush_override_ids = asset->get_brush_override_ids_buffer();
         PackedFloat32Array asset_sh = asset->get_spherical_harmonics_buffer();
 
+        // #798 review: those getters return an EMPTY array when their own output allocation
+        // fails, which is indistinguishable here from an unloaded asset. The write loop below
+        // substitutes defaults for any short array -- Vector3() for a missing position,
+        // Vector3(1,1,1) for a missing scale -- and the merge still reports success. So an OOM
+        // in a getter would silently collapse every splat of this source to the ORIGIN at unit
+        // scale and hand back a "successful" merge over destroyed geometry.
+        //
+        // positions and scales are not optional: the asset claims splat_count splats, and both
+        // feed the merged transform AND the bounds. A short array here can only mean the
+        // getter's allocation failed, so reject the merge instead of defaulting. The remaining
+        // lanes (normals, brush axes, opacity, stroke ages, palette/override ids) have
+        // meaningful defaults and are legitimately absent on non-painterly assets, so their
+        // existing size-guarded fallbacks stay.
+        if (uint32_t(asset_positions.size()) < splat_count || uint32_t(asset_scales.size()) < splat_count) {
+            ERR_PRINT(vformat("[GaussianSplatMerge] source %d reports %d splats but supplied %d positions and "
+                              "%d scales; its buffer allocation failed. Refusing to merge rather than "
+                              "substituting origin/unit defaults for the missing geometry.",
+                    int64_t(source_index), int64_t(splat_count),
+                    int64_t(asset_positions.size()), int64_t(asset_scales.size())));
+            return false;
+        }
+
         sh_buffers.set(source_index, asset_sh);
         sh_offsets.set(source_index, write_offset);
         if (!asset_sh.is_empty() && splat_count > 0) {

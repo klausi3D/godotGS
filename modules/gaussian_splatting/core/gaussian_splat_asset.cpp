@@ -1681,9 +1681,30 @@ namespace {
 // failure and clears r_ok so the caller aborts the whole population. Degrading a short
 // lane to "absent" is deliberately NOT an option -- that would silently drop a field
 // (the opacity_logits class of data-loss bug) instead of reporting it.
+//
+// #798 review: an EMPTY lane is only legitimately absent when NOTHING was supposed to be
+// allocated for it. _ensure_buffer_sizes() sizes each lane to exactly the length the write
+// loop indexes it to, so callers pass that same length here -- which makes the test derivable
+// rather than a hand-maintained required/optional list:
+//
+//     p_required == 0  -> the lane is genuinely absent (nullptr, skipped by its has_* flag)
+//     p_required  > 0  -> the lane MUST hold p_required elements; empty means the sizing
+//                         failed outright (a fresh/CoW-forked lane whose _alloc failed leaves
+//                         _ptr null, hence empty rather than short), so fail closed.
+//
+// Without that second case a failed allocation of a required lane returned nullptr with r_ok
+// still true, and populate_from_gaussian_data() went on to seal the asset, bump its version
+// and return OK with a nonzero splat_count and no payload for that lane.
 template <typename T>
 T *_gs_lane_ptrw_or_fail(Vector<T> &p_lane, int64_t p_required, const char *p_name, bool &r_ok) {
     if (p_lane.is_empty()) {
+        if (p_required > 0) {
+            r_ok = false;
+            ERR_PRINT(vformat("[GaussianSplatAsset] populate_from_gaussian_data: lane '%s' is empty "
+                              "but this payload needs %d elements, so its buffer allocation failed. "
+                              "Aborting the population instead of sealing an asset with a missing lane.",
+                    String(p_name), p_required));
+        }
         return nullptr;
     }
     if (int64_t(p_lane.size()) < p_required) {
@@ -1752,7 +1773,10 @@ Error GaussianSplatAsset::populate_from_gaussian_data(const Ref<::GaussianData> 
     Color *colors_ptr = _gs_lane_ptrw_or_fail(colors, need_1, "colors", lanes_ok);
     float *scales_ptr = _gs_lane_ptrw_or_fail(scales, need_3, "scales", lanes_ok);
     float *rotations_ptr = _gs_lane_ptrw_or_fail(rotations, need_4, "rotations", lanes_ok);
-    float *sh_dc_ptr = _gs_lane_ptrw_or_fail(sh_dc_coefficients, need_3, "sh_dc_coefficients", lanes_ok);
+    // _ensure_buffer_sizes() sizes this lane to 0 when the asset has no DC coefficients, so
+    // pass the length IT produces -- not need_3 -- or a legitimate absence reads as a failure.
+    const int64_t need_sh_dc = has_sh_dc_coefficients ? need_3 : int64_t(0);
+    float *sh_dc_ptr = _gs_lane_ptrw_or_fail(sh_dc_coefficients, need_sh_dc, "sh_dc_coefficients", lanes_ok);
     float *sh_first_order_ptr = _gs_lane_ptrw_or_fail(sh_first_order_coefficients,
             int64_t(count) * int64_t(sh_first_order_terms) * 3, "sh_first_order_coefficients", lanes_ok);
     float *sh_high_order_ptr = _gs_lane_ptrw_or_fail(sh_high_order_coefficients,

@@ -309,8 +309,22 @@ PackedByteArray GaussianSceneSerializer::_compress_data(const PackedByteArray &d
         return data;
     }
 
+    // #798 review (post-merge review of #802): this SHRINK must be checked too, which the
+    // original sweep predicate missed entirely -- it only looked for "resize then write past
+    // the end". CowData::_fork_allocate() preserves the old size when a realloc fails, so a
+    // failed shrink leaves `result` at max_size: `compressed_size` valid bytes followed by an
+    // UNINITIALIZED heap tail (this buffer was sized with resize(), not resize_initialized()).
+    // Returning that writes leaked process memory into the saved scene file, and tags it as
+    // compressed. Fall back to the raw data instead -- and reset r_used_compression, which was
+    // already set above, or the caller would frame raw bytes with the compressed flag.
+    if (result.resize(compressed_size) != OK) {
+        GS_LOG_ERROR_DEFAULT(vformat("Failed to trim the compression buffer from %d to %d bytes. "
+                                     "Falling back to raw data rather than emitting the uninitialized tail.",
+                int64_t(max_size), int64_t(compressed_size)));
+        r_used_compression = false;
+        return data;
+    }
     r_used_compression = true;
-    result.resize(compressed_size);
     return result;
 }
 
