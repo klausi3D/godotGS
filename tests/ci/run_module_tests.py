@@ -40,6 +40,8 @@ ENVIRONMENT_SKIP_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_environment_skip_
 ENVIRONMENT_SKIP_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_environment_skip_marker.py"
 SKIP_MARKER_DETECTOR_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_run_module_tests_skip_marker.py"
 ENVIRONMENT_SKIP_BASELINE_PATH = ROOT / "tests" / "ci" / "environment_skip_baseline.json"
+
+UNCHECKED_RESIZE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_unchecked_resize.py"
 TEST_LANE_COVERAGE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_test_lane_coverage.py"
 TEST_LANE_COVERAGE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_test_lane_coverage.py"
 GPU_SORTING_ORDER_COVERAGE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_gpu_sorting_order_coverage.py"
@@ -972,6 +974,24 @@ def _run_environment_skip_marker_guard() -> tuple[bool, list[str]]:
         # is exactly the vacuous-pass shape this module keeps eliminating.
         reported.extend([f"{label} passed."] if quiet_on_success else output_lines)
     return True, reported
+def _run_unchecked_resize_guard() -> tuple[bool, list[str]]:
+    """Ratchet: no NEW unchecked `Vector::resize()` feeding a raw write (#794, #798).
+
+    A failed resize leaves the vector at its PREVIOUS size, so a later `write[]` traps
+    in CRASH_BAD_INDEX and a later `ptrw()` write runs past a live allocation with no
+    diagnostic at all. This compares the tree against a GENERATED baseline and fails
+    only on sites that are not already recorded, so it cannot silently bless a new
+    defect while also not claiming the existing set is proven safe.
+    """
+    if not UNCHECKED_RESIZE_GUARD_SCRIPT.is_file():
+        return False, [f"Missing unchecked-resize guard: {UNCHECKED_RESIZE_GUARD_SCRIPT.relative_to(ROOT)}"]
+    code, out, err = _run_command([sys.executable, str(UNCHECKED_RESIZE_GUARD_SCRIPT)])
+    output_lines = [line for line in (out + err).splitlines() if line.strip()]
+    if code != 0:
+        if not output_lines:
+            output_lines = [f"Unchecked-resize guard failed with exit code {code}."]
+        return False, output_lines
+    return True, output_lines
 
 
 def _run_require_null_deref_guard() -> tuple[bool, list[str]]:
@@ -2181,6 +2201,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_environment_skip_marker_guard,
             "Environment-skip marker guard failed.",
             "Environment-skip marker guard passed.",
+        ),
+        (
+            True,
+            _run_unchecked_resize_guard,
+            "Unchecked-resize guard failed.",
+            "Unchecked-resize guard passed.",
         ),
         (
             True,
