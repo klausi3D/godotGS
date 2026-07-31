@@ -149,7 +149,12 @@ private:
     void _poll_uploads();
 
     // Quaternion validation and data copy (Issue #108, #744)
-    void _upload_buffer_coalesced(int buffer_index, const PackedGaussian *data, uint32_t count);
+    // #798 review: returns false when the coalescing scratch could not be grown. Must NOT be
+    // void: _stream_internal() has already claimed the slot (BUFFER_UPLOADING) by this point,
+    // and the #787 comment there spells out the consequence of returning early after that --
+    // the slot strands with upload_fence == 0, _wait_for_buffer_complete() publishes it
+    // BUFFER_READY, and get_current_gpu_buffer() hands stale or empty data to the renderer.
+    [[nodiscard]] bool _upload_buffer_coalesced(int buffer_index, const PackedGaussian *data, uint32_t count);
     void _validate_and_copy_gaussians(const PackedGaussian *src, PackedGaussian *dst, uint32_t count);
     float _measure_transfer_bandwidth(uint32_t bytes, uint64_t start_time, uint64_t end_time);
     void _update_bandwidth_stats(int buffer_index, uint32_t bytes, float bandwidth_mbps);

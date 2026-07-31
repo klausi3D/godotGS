@@ -450,7 +450,18 @@ Error GaussianMemoryStream::_stream_internal(const LocalVector<Gaussian> &gaussi
             vformat("Data size (%d bytes) exceeds buffer capacity (%d bytes)", data_size, buffer.capacity));
 
     if (async_mode && enable_async_upload) {
-        _upload_buffer_coalesced(buffer_idx, packed_gaussians.ptr(), packed_gaussians.size());
+        if (!_upload_buffer_coalesced(buffer_idx, packed_gaussians.ptr(), packed_gaussians.size())) {
+            // #798 review: the slot is already BUFFER_UPLOADING at this point. Per the #787
+            // note above, abandoning it here would strand it with upload_fence == 0, and
+            // _wait_for_buffer_complete() would publish that never-written slot BUFFER_READY --
+            // handing stale or empty data to the renderer as a successful upload. Release it
+            // back to BUFFER_FREE (the same transition wait_for_all_uploads() performs) and
+            // report the failure instead of returning OK.
+            BufferState expected = BUFFER_UPLOADING;
+            buffer.state.compare_exchange_strong(expected, BUFFER_FREE);
+            ERR_FAIL_V_MSG(ERR_OUT_OF_MEMORY,
+                    "Coalesced upload scratch allocation failed; released the claimed stream buffer.");
+        }
     } else {
         uint32_t dst_offset = 0;
         if (!buffer.from_pool && buffer.pool_offset != UINT32_MAX) {
@@ -513,9 +524,9 @@ void GaussianMemoryStream::_upload_buffer_async(int buffer_index, const uint8_t 
 // MEMORY ACCESS PATTERN OPTIMIZATION (Issue #108)
 // ======================================================================
 
-void GaussianMemoryStream::_upload_buffer_coalesced(int buffer_index, const PackedGaussian *data, uint32_t count) {
-    ERR_FAIL_INDEX_MSG(buffer_index, BUFFER_COUNT, "Invalid buffer index");
-    ERR_FAIL_NULL_MSG(data, "Data pointer is null");
+bool GaussianMemoryStream::_upload_buffer_coalesced(int buffer_index, const PackedGaussian *data, uint32_t count) {
+    ERR_FAIL_INDEX_V_MSG(buffer_index, BUFFER_COUNT, false, "Invalid buffer index");
+    ERR_FAIL_NULL_V_MSG(data, false, "Data pointer is null");
 
     StreamBuffer &buffer = buffers[buffer_index];
     RenderingDevice *transfer_rd = buffer.gpu_allocation_device;
@@ -523,7 +534,7 @@ void GaussianMemoryStream::_upload_buffer_coalesced(int buffer_index, const Pack
     if (GaussianSplatManager *manager = GaussianSplatManager::get_singleton()) {
         transfer_rd = manager->acquire_submission_device(buffer.gpu_allocation_device, submission_lock);
     }
-    ERR_FAIL_NULL_MSG(transfer_rd, "RenderingDevice unavailable for GPU transfer");
+    ERR_FAIL_NULL_V_MSG(transfer_rd, false, "RenderingDevice unavailable for GPU transfer");
 
     if (count == 0) {
         buffer.used = 0;
@@ -531,7 +542,8 @@ void GaussianMemoryStream::_upload_buffer_coalesced(int buffer_index, const Pack
         buffer.upload_submit_frame = 0;
         buffer.upload_frame_delay = 0;
         buffer.state = BUFFER_READY;
-        return;
+        // Legitimate completion, not a failure: the slot is published READY with used == 0.
+        return true;
     }
 
     uint32_t size = count * sizeof(PackedGaussian);
@@ -540,7 +552,12 @@ void GaussianMemoryStream::_upload_buffer_coalesced(int buffer_index, const Pack
 
     uint32_t aligned_size = (size + alignment - 1) & ~(alignment - 1);
 
-    ERR_FAIL_COND_MSG(aligned_size > buffer.capacity,
+    // #798 review: now that this function reports status, this pre-existing bail returns
+    // false too, so the caller releases the claimed slot instead of stranding it in
+    // BUFFER_UPLOADING with upload_fence == 0. That also closes the same #787 strand on this
+    // older path -- a scope widening beyond the allocation fix, called out deliberately
+    // rather than slipped in: returning true here would assert a success that did not happen.
+    ERR_FAIL_COND_V_MSG(aligned_size > buffer.capacity, false,
             vformat("Upload size (%d) exceeds buffer capacity (%d)", aligned_size, buffer.capacity));
 
     uint32_t aligned_count = aligned_size / sizeof(PackedGaussian);
@@ -559,13 +576,13 @@ void GaussianMemoryStream::_upload_buffer_coalesced(int buffer_index, const Pack
         // to zero), and _validate_and_copy_gaussians() below writes `count` entries -- the
         // REQUESTED count, not the vector's own size() -- so it would silently overflow a
         // live heap block. Fail closed with this function's own contract: the sibling
-        // ERR_FAIL_COND_MSG(aligned_size > buffer.capacity) path above also returns without
+        // ERR_FAIL_COND_V_MSG(aligned_size > buffer.capacity) path above also returns without
         // touching buffer.state/buffer.used, so the buffer keeps its previous state and the
         // next stream request re-uploads. gs_resize_or_fail() already reports the failing
         // count/element size/total bytes and names this function, so no second message here.
         if (!gs_resize_or_fail(coalesced_upload_scratch, int64_t(new_size),
                     "GaussianMemoryStream::_upload_buffer_coalesced scratch")) {
-            return;
+            return false;
         }
     }
 
@@ -598,6 +615,7 @@ void GaussianMemoryStream::_upload_buffer_coalesced(int buffer_index, const Pack
         float bandwidth_mbps = _measure_transfer_bandwidth(aligned_size, submit_start, submit_end);
         _update_bandwidth_stats(buffer_index, aligned_size, bandwidth_mbps);
     }
+    return true;
 }
 
 void GaussianMemoryStream::_validate_and_copy_gaussians(const PackedGaussian *src, PackedGaussian *dst, uint32_t count) {
