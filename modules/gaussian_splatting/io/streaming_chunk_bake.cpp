@@ -1,6 +1,7 @@
 #include "streaming_chunk_bake.h"
 
 #include "../core/gaussian_data.h"
+#include "../core/gs_vector_alloc.h"
 #include "../core/gaussian_splat_asset.h"
 #include "../core/gaussian_streaming.h"
 #include "../core/streaming_quantization.h"
@@ -16,7 +17,13 @@ PackedByteArray serialize_records(const Vector<StreamingChunkBakeRecord> &p_reco
         return bytes;
     }
     const int byte_count = num * int(sizeof(StreamingChunkBakeRecord));
-    bytes.resize(byte_count);
+    // #798: memcpy through ptrw(). On a failed resize ptrw() is nullptr (CowData's
+    // _fork_allocate(0) unrefs and leaves _ptr null), and memcpy to null is UB -- unlike
+    // the write[] class in #794 there is no CRASH_BAD_INDEX to turn it into a named trap.
+    // Fail closed to the empty array this function already returns for "nothing to do".
+    if (!gs_resize_or_fail(bytes, byte_count, "StreamingChunkBakeIO::serialize_records")) {
+        return PackedByteArray();
+    }
     memcpy(bytes.ptrw(), p_records.ptr(), size_t(byte_count));
     return bytes;
 }
@@ -31,7 +38,13 @@ bool deserialize_records(const PackedByteArray &p_bytes, Vector<StreamingChunkBa
         return false;
     }
     const int num = byte_count / int(sizeof(StreamingChunkBakeRecord));
-    r_records.resize(num);
+    // #798: `num` is derived from the INPUT BYTE COUNT, i.e. from file data, so this
+    // allocation is attacker/corruption-influenced and reachable without memory pressure.
+    // memcpy through a null ptrw() is UB; fail closed via this function's existing bool
+    // contract, leaving r_records cleared as the caller already expects on failure.
+    if (!gs_resize_or_fail(r_records, num, "StreamingChunkBakeIO::deserialize_records")) {
+        return false;
+    }
     memcpy(r_records.ptrw(), p_bytes.ptr(), size_t(byte_count));
     return true;
 }
@@ -66,10 +79,19 @@ void bake_streaming_chunks_for_asset(
         // Reserved for future primary-spatial bakes. Per the current plan,
         // per-asset bakes leave this empty; runtime fast-path skips Morton
         // remap unless the bake provides indices.
-        primary_indices.resize(int(splat_count));
-        int32_t *write = primary_indices.ptrw();
-        for (uint32_t i = 0; i < splat_count; i++) {
-            write[i] = int32_t(i);
+        // #798: splat_count is asset-sized. `write` is a raw ptrw() pointer and the
+        // loop is bounded by splat_count, not by primary_indices.size(), so a failed
+        // resize gives a null `write` and the very first store is a wild write -- no
+        // CRASH_BAD_INDEX stands in the way. Fail closed to the empty array that the
+        // surrounding contract already treats as "no Morton indices baked".
+        if (!gs_resize_or_fail(primary_indices, int64_t(splat_count),
+                    "StreamingChunkBake::bake primary Morton indices")) {
+            primary_indices = PackedInt32Array();
+        } else {
+            int32_t *write = primary_indices.ptrw();
+            for (uint32_t i = 0; i < splat_count; i++) {
+                write[i] = int32_t(i);
+            }
         }
     }
 
@@ -138,9 +160,16 @@ void bake_streaming_chunks_for_asset(
 
     if (bake_quant) {
         PackedByteArray quant_bytes;
-        quant_bytes.resize(int(num_chunks * sizeof(ChunkQuantizationInfo)));
-        memcpy(quant_bytes.ptrw(), baked_quant.ptr(), num_chunks * sizeof(ChunkQuantizationInfo));
-        p_asset->set_streaming_quantization_records(quant_bytes);
+        // #798: memcpy through ptrw(); null on a failed resize. Fail closed to the SAME
+        // empty-records state the bake_quant=false branch below produces, so the asset
+        // ends up in a state the loader already handles rather than a novel one.
+        if (!gs_resize_or_fail(quant_bytes, int64_t(num_chunks) * int64_t(sizeof(ChunkQuantizationInfo)),
+                    "StreamingChunkBake::bake quantization records")) {
+            p_asset->set_streaming_quantization_records(PackedByteArray());
+        } else {
+            memcpy(quant_bytes.ptrw(), baked_quant.ptr(), num_chunks * sizeof(ChunkQuantizationInfo));
+            p_asset->set_streaming_quantization_records(quant_bytes);
+        }
     } else {
         p_asset->set_streaming_quantization_records(PackedByteArray());
     }

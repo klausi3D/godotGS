@@ -137,8 +137,13 @@ static PackedByteArray _compress_data(const uint8_t *p_data, uint64_t p_size) {
 	if (p_size == 0) return result;
 	
 	int64_t max_compressed = Compression::get_max_compressed_buffer_size(p_size, Compression::MODE_GZIP);
-	result.resize(max_compressed);
-	
+	// #798: Compression::compress() does not null-check p_dst; it passes it to the codec.
+	// A failed resize leaves ptrw() null, so this would write through it. Fail closed to
+	// the empty array this function already returns for a failed compression.
+	if (!gs_resize_or_fail(result, max_compressed, "GaussianSplatWorldIO::_compress_data")) {
+		return PackedByteArray();
+	}
+
 	int64_t compressed_size = Compression::compress(result.ptrw(), p_data, p_size, Compression::MODE_GZIP);
 	if (compressed_size <= 0 || compressed_size > max_compressed) {
 		return PackedByteArray(); // Compression failed

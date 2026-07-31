@@ -1,5 +1,6 @@
 #include "spz_loader.h"
 #include "core/os/os.h"
+#include "../core/gs_vector_alloc.h"
 #include "../logger/gs_logger.h"
 
 #include <cmath>
@@ -562,7 +563,15 @@ Error SPZLoader::decompress_data(const PackedByteArray &p_compressed, PackedByte
     GS_LOG_STREAMING_DEBUG(vformat("[SPZ-DECOMP] compressed=%d MB, deflate=%d MB, original_size=%d MB",
             (int)(data_size / 1024 / 1024), (int)(deflate_size / 1024 / 1024), expected_size / 1024 / 1024));
 
-    r_decompressed.resize(expected_size);
+    // #798: expected_size comes from the SPZ header's DECLARED decompressed size, i.e.
+    // straight from file data (cf. #603), so this allocation is corruption-influenced and
+    // reachable without memory pressure. Compression::decompress() does not null-check
+    // p_dst -- it hands the pointer to the codec -- so a failed resize would be a wild
+    // write, with no CRASH_BAD_INDEX to name it. Fail closed with the allocation as the
+    // reported cause rather than a bogus "decompression failed".
+    if (!gs_resize_or_fail(r_decompressed, expected_size, "SPZLoader::decompress_data output")) {
+        return ERR_OUT_OF_MEMORY;
+    }
 
     // Strategy 1: let engine gzip mode handle complete stream.
     int result = Compression::decompress(r_decompressed.ptrw(), expected_size,
@@ -573,7 +582,10 @@ Error SPZLoader::decompress_data(const PackedByteArray &p_compressed, PackedByte
 
     // Strategy 2: strip gzip framing and decode raw DEFLATE.
     PackedByteArray deflate_data;
-    deflate_data.resize(deflate_size);
+    // #798: deflate_size is likewise file-derived, and memcpy to a null ptrw() is UB.
+    if (!gs_resize_or_fail(deflate_data, int64_t(deflate_size), "SPZLoader::decompress_data deflate copy")) {
+        return ERR_OUT_OF_MEMORY;
+    }
     memcpy(deflate_data.ptrw(), data + header_end, deflate_size);
     result = Compression::decompress(r_decompressed.ptrw(), expected_size,
             deflate_data.ptr(), deflate_size, Compression::MODE_DEFLATE);
