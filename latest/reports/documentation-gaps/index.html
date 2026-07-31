@@ -3052,17 +3052,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingiostreaming_chunk_bakecpp" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/io/streaming_chunk_bake.cpp
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingcorestreaming_eviction_controllercpp" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3932,17 +3921,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingiogaussian_splat_world_iocpp" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/io/gaussian_splat_world_io.cpp
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingcoregaussian_datacpp" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3969,6 +3947,17 @@
     <span class="md-ellipsis">
       
         modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingiogaussian_splat_world_iocpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/io/gaussian_splat_world_io.cpp
       
     </span>
   </a>
@@ -4207,10 +4196,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingiospz_loadercpp" class="md-nav__link">
+  <a href="#modulesgaussian_splattingiostreaming_chunk_bakecpp" class="md-nav__link">
     <span class="md-ellipsis">
       
-        modules/gaussian_splatting/io/spz_loader.cpp
+        modules/gaussian_splatting/io/streaming_chunk_bake.cpp
       
     </span>
   </a>
@@ -4310,6 +4299,17 @@
     <span class="md-ellipsis">
       
         tests/examples/godot/test_project/scripts/qa_test_base.gd
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingiospz_loadercpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/io/spz_loader.cpp
       
     </span>
   </a>
@@ -7877,11 +7877,6 @@
 <li>line 1478: void PainterlyRenderer::clear_painterly_gpu_resources(Gaussi...</li>
 <li>line 1491: void PainterlyRenderer::update_painterly_gpu_resources(Gauss...</li>
 </ul>
-<h2 id="modulesgaussian_splattingiostreaming_chunk_bakecpp">modules/gaussian_splatting/io/streaming_chunk_bake.cpp<a class="headerlink" href="#modulesgaussian_splattingiostreaming_chunk_bakecpp" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 12: PackedByteArray serialize_records(const Vector&lt;StreamingChun...</li>
-<li>line 24: bool deserialize_records(const PackedByteArray &amp;p_bytes, Vec...</li>
-</ul>
 <h2 id="modulesgaussian_splattingcorestreaming_eviction_controllercpp">modules/gaussian_splatting/core/streaming_eviction_controller.cpp<a class="headerlink" href="#modulesgaussian_splattingcorestreaming_eviction_controllercpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 10: void StreamingEvictionController::load_streaming_tuning_conf...</li>
@@ -9696,33 +9691,6 @@
 <li>line 116: void clear() {...</li>
 <li>line 121: bool matches(RenderingDevice *p_device) const {...</li>
 </ul>
-<h2 id="modulesgaussian_splattingiogaussian_splat_world_iocpp">modules/gaussian_splatting/io/gaussian_splat_world_io.cpp<a class="headerlink" href="#modulesgaussian_splattingiogaussian_splat_world_iocpp" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 59: static bool fits_within(uint64_t p_offset, uint64_t p_size, ...</li>
-<li>line 66: static bool checked_mul_u64(uint64_t p_a, uint64_t p_b, uint...</li>
-<li>line 84: static bool _read_exact(Ref<fileaccess> p_file, void *p_dst,...</fileaccess></li>
-<li>line 102: static void _write_vec3(Ref<fileaccess> p_file, const Vector...</fileaccess></li>
-<li>line 108: static Vector3 _read_vec3(Ref<fileaccess> p_file) {...</fileaccess></li>
-<li>line 112: static void _write_chunk_record(Ref<fileaccess> p_file, cons...</fileaccess></li>
-<li>line 122: static ChunkRecord _read_chunk_record(Ref<fileaccess> p_file...</fileaccess></li>
-<li>line 135: static PackedByteArray _compress_data(const uint8_t *p_data,...</li>
-<li>line 151: static bool _decompress_data(const uint8_t *p_compressed, ui...</li>
-<li>line 158: static Error <em>ensure_file_write_ok(const Ref<fileaccess> &amp;p</fileaccess></em>...</li>
-<li>line 170: static Error _materialize_payload_source_for_save(const Gaus...</li>
-<li>line 214: static uint64_t _count_chunk_indices(const Vector&lt;StaticChun...</li>
-<li>line 241: static PackedByteArray _build_world_metadata_bytes(const Gau...</li>
-<li>line 399: static Error _write_world_chunk_table(const Ref<fileaccess> ...</fileaccess></li>
-<li>line 416: static Error _write_world_chunk_indices(const Ref&lt;FileAccess...</li>
-<li>line 446: static Error <em>write_world_metadata(const Ref<fileaccess> &amp;p</fileaccess></em>...</li>
-<li>line 485: static Ref<resource> _load_gsplatworld_resource(const String...</resource></li>
-<li>line 922: Ref<gaussiansplatworld> ResourceFormatLoaderGaussianSplatWor...</gaussiansplatworld></li>
-<li>line 928: void ResourceFormatLoaderGaussianSplatWorld::get_recognized_...</li>
-<li>line 932: bool ResourceFormatLoaderGaussianSplatWorld::handles_type(co...</li>
-<li>line 936: String ResourceFormatLoaderGaussianSplatWorld::get_resource_...</li>
-<li>line 944: Error ResourceFormatSaverGaussianSplatWorld::save(const Ref&lt;...</li>
-<li>line 993: bool ResourceFormatSaverGaussianSplatWorld::recognize(const ...</li>
-<li>line 997: bool ResourceFormatSaverGaussianSplatWorld::recognize_path(c...</li>
-</ul>
 <h2 id="modulesgaussian_splattingcoregaussian_datacpp">modules/gaussian_splatting/core/gaussian_data.cpp<a class="headerlink" href="#modulesgaussian_splattingcoregaussian_datacpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 46: void copy_local_vector(LocalVector<t> &amp;r_target, const Conta...</t></li>
@@ -9913,6 +9881,33 @@
 <li>line 2777: bool GaussianSplatNode3D::is_color_grading_baked() const {...</li>
 <li>line 2785: bool GaussianSplatNode3D::<em>can_drop_data_fw(const Point2 &amp;p</em>...</li>
 <li>line 2804: void GaussianSplatNode3D::_drop_data_fw(const Point2 &amp;p_poin...</li>
+</ul>
+<h2 id="modulesgaussian_splattingiogaussian_splat_world_iocpp">modules/gaussian_splatting/io/gaussian_splat_world_io.cpp<a class="headerlink" href="#modulesgaussian_splattingiogaussian_splat_world_iocpp" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 59: static bool fits_within(uint64_t p_offset, uint64_t p_size, ...</li>
+<li>line 66: static bool checked_mul_u64(uint64_t p_a, uint64_t p_b, uint...</li>
+<li>line 84: static bool _read_exact(Ref<fileaccess> p_file, void *p_dst,...</fileaccess></li>
+<li>line 102: static void _write_vec3(Ref<fileaccess> p_file, const Vector...</fileaccess></li>
+<li>line 108: static Vector3 _read_vec3(Ref<fileaccess> p_file) {...</fileaccess></li>
+<li>line 112: static void _write_chunk_record(Ref<fileaccess> p_file, cons...</fileaccess></li>
+<li>line 122: static ChunkRecord _read_chunk_record(Ref<fileaccess> p_file...</fileaccess></li>
+<li>line 135: static PackedByteArray _compress_data(const uint8_t *p_data,...</li>
+<li>line 156: static bool _decompress_data(const uint8_t *p_compressed, ui...</li>
+<li>line 163: static Error <em>ensure_file_write_ok(const Ref<fileaccess> &amp;p</fileaccess></em>...</li>
+<li>line 175: static Error _materialize_payload_source_for_save(const Gaus...</li>
+<li>line 219: static uint64_t _count_chunk_indices(const Vector&lt;StaticChun...</li>
+<li>line 246: static PackedByteArray _build_world_metadata_bytes(const Gau...</li>
+<li>line 404: static Error _write_world_chunk_table(const Ref<fileaccess> ...</fileaccess></li>
+<li>line 421: static Error _write_world_chunk_indices(const Ref&lt;FileAccess...</li>
+<li>line 451: static Error <em>write_world_metadata(const Ref<fileaccess> &amp;p</fileaccess></em>...</li>
+<li>line 490: static Ref<resource> _load_gsplatworld_resource(const String...</resource></li>
+<li>line 927: Ref<gaussiansplatworld> ResourceFormatLoaderGaussianSplatWor...</gaussiansplatworld></li>
+<li>line 933: void ResourceFormatLoaderGaussianSplatWorld::get_recognized_...</li>
+<li>line 937: bool ResourceFormatLoaderGaussianSplatWorld::handles_type(co...</li>
+<li>line 941: String ResourceFormatLoaderGaussianSplatWorld::get_resource_...</li>
+<li>line 949: Error ResourceFormatSaverGaussianSplatWorld::save(const Ref&lt;...</li>
+<li>line 998: bool ResourceFormatSaverGaussianSplatWorld::recognize(const ...</li>
+<li>line 1002: bool ResourceFormatSaverGaussianSplatWorld::recognize_path(c...</li>
 </ul>
 <h2 id="modulesgaussian_splattinginterfacesrender_device_managerh">modules/gaussian_splatting/interfaces/render_device_manager.h<a class="headerlink" href="#modulesgaussian_splattinginterfacesrender_device_managerh" title="Permanent link">¶</a></h2>
 <ul>
@@ -10326,28 +10321,10 @@
 <li>line 241: void GaussianData::update_gpu_buffer(RID p_buffer, Rendering...</li>
 <li>line 287: Error GaussianData::validate_gpu_payload(String *r_error_mes...</li>
 </ul>
-<h2 id="modulesgaussian_splattingiospz_loadercpp">modules/gaussian_splatting/io/spz_loader.cpp<a class="headerlink" href="#modulesgaussian_splattingiospz_loadercpp" title="Permanent link">¶</a></h2>
+<h2 id="modulesgaussian_splattingiostreaming_chunk_bakecpp">modules/gaussian_splatting/io/streaming_chunk_bake.cpp<a class="headerlink" href="#modulesgaussian_splattingiostreaming_chunk_bakecpp" title="Permanent link">¶</a></h2>
 <ul>
-<li>line 25: static bool _offset_range_valid(uint32_t p_offset, uint64_t ...</li>
-<li>line 29: static bool _mul_u64_overflow(uint64_t p_a, uint64_t p_b, ui...</li>
-<li>line 37: static bool _add_u64_overflow(uint64_t p_a, uint64_t p_b, ui...</li>
-<li>line 45: static bool _compute_expected_payload_bytes(const SPZLoader:...</li>
-<li>line 82: void SPZLoader::_bind_methods() {...</li>
-<li>line 89: bool SPZLoader::is_spz_file(const String &amp;p_path) {...</li>
-<li>line 114: Error SPZLoader::load_file(const String &amp;p_path) {...</li>
-<li>line 589: Error SPZLoader::parse_positions(const uint8_t *p_data, uint...</li>
-<li>line 608: Error SPZLoader::parse_alphas(const uint8_t *p_data, uint32_...</li>
-<li>line 618: Error SPZLoader::parse_colors(const uint8_t *p_data, uint32_...</li>
-<li>line 637: Error SPZLoader::parse_scales(const uint8_t *p_data, uint32_...</li>
-<li>line 651: Error SPZLoader::parse_rotations_v2(const uint8_t *p_data, u...</li>
-<li>line 687: Error SPZLoader::parse_rotations_v3(const uint8_t *p_data, u...</li>
-<li>line 795: float SPZLoader::fixed_to_float(int32_t p_fixed, uint8_t p_f...</li>
-<li>line 799: int32_t SPZLoader::read_int24(const uint8_t *p_data) const {...</li>
-<li>line 811: float SPZLoader::decode_scale(uint8_t p_encoded) const {...</li>
-<li>line 819: float SPZLoader::decode_alpha(uint8_t p_encoded) const {...</li>
-<li>line 828: float SPZLoader::decode_sh_coefficient(uint8_t p_encoded, ui...</li>
-<li>line 838: int SPZLoader::get_splat_count() const {...</li>
-<li>line 842: Dictionary SPZLoader::get_load_statistics() const {...</li>
+<li>line 13: PackedByteArray serialize_records(const Vector&lt;StreamingChun...</li>
+<li>line 31: bool deserialize_records(const PackedByteArray &amp;p_bytes, Vec...</li>
 </ul>
 <h2 id="modulesgaussian_splattingloggergs_loggerh">modules/gaussian_splatting/logger/gs_logger.h<a class="headerlink" href="#modulesgaussian_splattingloggergs_loggerh" title="Permanent link">¶</a></h2>
 <ul>
@@ -10430,6 +10407,29 @@
 <li>line 385: func _prepare_ssim_image(img: Image) -&gt; Image:...</li>
 <li>line 400: func _compute_luma_buffer(img: Image) -&gt; PackedFloat32Array:...</li>
 <li>line 413: func _get_ssim_kernel() -&gt; PackedFloat32Array:...</li>
+</ul>
+<h2 id="modulesgaussian_splattingiospz_loadercpp">modules/gaussian_splatting/io/spz_loader.cpp<a class="headerlink" href="#modulesgaussian_splattingiospz_loadercpp" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 26: static bool _offset_range_valid(uint32_t p_offset, uint64_t ...</li>
+<li>line 30: static bool _mul_u64_overflow(uint64_t p_a, uint64_t p_b, ui...</li>
+<li>line 38: static bool _add_u64_overflow(uint64_t p_a, uint64_t p_b, ui...</li>
+<li>line 46: static bool _compute_expected_payload_bytes(const SPZLoader:...</li>
+<li>line 83: void SPZLoader::_bind_methods() {...</li>
+<li>line 90: bool SPZLoader::is_spz_file(const String &amp;p_path) {...</li>
+<li>line 115: Error SPZLoader::load_file(const String &amp;p_path) {...</li>
+<li>line 601: Error SPZLoader::parse_positions(const uint8_t *p_data, uint...</li>
+<li>line 620: Error SPZLoader::parse_alphas(const uint8_t *p_data, uint32_...</li>
+<li>line 630: Error SPZLoader::parse_colors(const uint8_t *p_data, uint32_...</li>
+<li>line 649: Error SPZLoader::parse_scales(const uint8_t *p_data, uint32_...</li>
+<li>line 663: Error SPZLoader::parse_rotations_v2(const uint8_t *p_data, u...</li>
+<li>line 699: Error SPZLoader::parse_rotations_v3(const uint8_t *p_data, u...</li>
+<li>line 807: float SPZLoader::fixed_to_float(int32_t p_fixed, uint8_t p_f...</li>
+<li>line 811: int32_t SPZLoader::read_int24(const uint8_t *p_data) const {...</li>
+<li>line 823: float SPZLoader::decode_scale(uint8_t p_encoded) const {...</li>
+<li>line 831: float SPZLoader::decode_alpha(uint8_t p_encoded) const {...</li>
+<li>line 840: float SPZLoader::decode_sh_coefficient(uint8_t p_encoded, ui...</li>
+<li>line 850: int SPZLoader::get_splat_count() const {...</li>
+<li>line 854: Dictionary SPZLoader::get_load_statistics() const {...</li>
 </ul>
 <h2 id="testscitest_ply_pipeline_cigd">tests/ci/test_ply_pipeline_ci.gd<a class="headerlink" href="#testscitest_ply_pipeline_cigd" title="Permanent link">¶</a></h2>
 <ul>
@@ -11083,53 +11083,53 @@
 </ul>
 <h2 id="modulesgaussian_splattingpersistencegaussian_scene_serializercpp">modules/gaussian_splatting/persistence/gaussian_scene_serializer.cpp<a class="headerlink" href="#modulesgaussian_splattingpersistencegaussian_scene_serializercpp" title="Permanent link">¶</a></h2>
 <ul>
-<li>line 92: Compression::Mode _to_compression_mode(CompressionType type)...</li>
-<li>line 103: uint32_t _fnv1a(const uint8_t *data, int64_t length) {...</li>
-<li>line 118: PackedByteArray _pack_scene_header(const SceneHeader &amp;header...</li>
-<li>line 139: SceneHeader _unpack_scene_header(const PackedByteArray &amp;byte...</li>
-<li>line 182: Error _resolve_chunk_compression(uint32_t chunk_flags, bool ...</li>
-<li>line 204: Error _ensure_file_write_ok(const Ref<fileaccess> &amp;file, con...</fileaccess></li>
-<li>line 221: void GaussianSceneSerializer::_bind_methods() {...</li>
-<li>line 249: void GaussianSceneSerializer::set_compression_type_bind(int ...</li>
-<li>line 256: int GaussianSceneSerializer::get_compression_type_bind() con...</li>
-<li>line 260: Error GaussianSceneSerializer::_write_chunk_header(Ref&lt;FileA...</li>
-<li>line 270: Error GaussianSceneSerializer::_write_scene_header(Ref&lt;FileA...</li>
-<li>line 281: PackedByteArray GaussianSceneSerializer::_compress_data(cons...</li>
-<li>line 305: uint64_t GaussianSceneSerializer::max_codec_expansion_bytes(...</li>
-<li>line 325: uint64_t GaussianSceneSerializer::get_load_allocation_budget...</li>
-<li>line 349: void GaussianSceneSerializer::set_load_allocation_budget_ove...</li>
-<li>line 469: uint32_t GaussianSceneSerializer::_calculate_checksum(const ...</li>
-<li>line 476: bool GaussianSceneSerializer::_verify_checksum(const PackedB...</li>
-<li>line 498: Error GaussianSceneSerializer::_write_gaussian_data_chunk(Re...</li>
-<li>line 533: Error GaussianSceneSerializer::_write_animation_data_chunk(R...</li>
-<li>line 572: Error GaussianSceneSerializer::_write_metadata_chunk(Ref&lt;Fil...</li>
-<li>line 594: Error GaussianSceneSerializer::_write_asset_refs_chunk(Ref&lt;F...</li>
-<li>line 634: Error GaussianSceneSerializer::_read_chunk_header(Ref&lt;FileAc...</li>
-<li>line 663: Error GaussianSceneSerializer::_read_scene_header(Ref&lt;FileAc...</li>
-<li>line 754: Error GaussianSceneSerializer::_read_animation_data_chunk(Re...</li>
-<li>line 785: Error GaussianSceneSerializer::_read_metadata_chunk(Ref&lt;File...</li>
-<li>line 802: Error GaussianSceneSerializer::_read_asset_refs_chunk(Ref&lt;Fi...</li>
-<li>line 833: void GaussianSceneSerializer::_track_asset(const String &amp;pat...</li>
-<li>line 854: bool GaussianSceneSerializer::_is_asset_modified(const Asset...</li>
-<li>line 863: Error GaussianSceneSerializer::save_scene(const String &amp;file...</li>
-<li>line 873: Error GaussianSceneSerializer::_write_scene_to_file(const Re...</li>
-<li>line 1007: Error GaussianSceneSerializer::_read_scene_body(const Ref&lt;Fi...</li>
-<li>line 1150: Error GaussianSceneSerializer::_read_scene_into_staging(cons...</li>
-<li>line 1193: Error GaussianSceneSerializer::load_scene(const String &amp;file...</li>
-<li>line 1241: Error GaussianSceneSerializer::save_incremental(const String...</li>
-<li>line 1266: Error GaussianSceneSerializer::load_incremental(const String...</li>
-<li>line 1334: void GaussianSceneSerializer::add_asset_reference(const Stri...</li>
-<li>line 1338: void GaussianSceneSerializer::remove_asset_reference(const S...</li>
-<li>line 1350: bool GaussianSceneSerializer::has_asset_reference(const Stri...</li>
-<li>line 1354: Array GaussianSceneSerializer::get_asset_references() const ...</li>
-<li>line 1369: bool GaussianSceneSerializer::validate_assets() const {...</li>
-<li>line 1378: bool GaussianSceneSerializer::_file_claims_checksum_protecti...</li>
-<li>line 1429: Error GaussianSceneSerializer::validate_file(const String &amp;f...</li>
-<li>line 1455: Dictionary GaussianSceneSerializer::get_file_info(const Stri...</li>
-<li>line 1480: uint64_t GaussianSceneSerializer::get_file_size_estimate(con...</li>
-<li>line 1490: bool GaussianSceneSerializer::is_gaussian_scene_file(const S...</li>
-<li>line 1498: Array GaussianSceneSerializer::get_supported_compression_typ...</li>
-<li>line 1506: PackedByteArray GaussianSceneSerializer::_migrate_chunk_v1_t...</li>
+<li>line 93: Compression::Mode _to_compression_mode(CompressionType type)...</li>
+<li>line 104: uint32_t _fnv1a(const uint8_t *data, int64_t length) {...</li>
+<li>line 119: PackedByteArray _pack_scene_header(const SceneHeader &amp;header...</li>
+<li>line 140: SceneHeader _unpack_scene_header(const PackedByteArray &amp;byte...</li>
+<li>line 183: Error _resolve_chunk_compression(uint32_t chunk_flags, bool ...</li>
+<li>line 205: Error _ensure_file_write_ok(const Ref<fileaccess> &amp;file, con...</fileaccess></li>
+<li>line 222: void GaussianSceneSerializer::_bind_methods() {...</li>
+<li>line 250: void GaussianSceneSerializer::set_compression_type_bind(int ...</li>
+<li>line 257: int GaussianSceneSerializer::get_compression_type_bind() con...</li>
+<li>line 261: Error GaussianSceneSerializer::_write_chunk_header(Ref&lt;FileA...</li>
+<li>line 271: Error GaussianSceneSerializer::_write_scene_header(Ref&lt;FileA...</li>
+<li>line 282: PackedByteArray GaussianSceneSerializer::_compress_data(cons...</li>
+<li>line 314: uint64_t GaussianSceneSerializer::max_codec_expansion_bytes(...</li>
+<li>line 334: uint64_t GaussianSceneSerializer::get_load_allocation_budget...</li>
+<li>line 358: void GaussianSceneSerializer::set_load_allocation_budget_ove...</li>
+<li>line 478: uint32_t GaussianSceneSerializer::_calculate_checksum(const ...</li>
+<li>line 485: bool GaussianSceneSerializer::_verify_checksum(const PackedB...</li>
+<li>line 507: Error GaussianSceneSerializer::_write_gaussian_data_chunk(Re...</li>
+<li>line 542: Error GaussianSceneSerializer::_write_animation_data_chunk(R...</li>
+<li>line 581: Error GaussianSceneSerializer::_write_metadata_chunk(Ref&lt;Fil...</li>
+<li>line 603: Error GaussianSceneSerializer::_write_asset_refs_chunk(Ref&lt;F...</li>
+<li>line 643: Error GaussianSceneSerializer::_read_chunk_header(Ref&lt;FileAc...</li>
+<li>line 672: Error GaussianSceneSerializer::_read_scene_header(Ref&lt;FileAc...</li>
+<li>line 763: Error GaussianSceneSerializer::_read_animation_data_chunk(Re...</li>
+<li>line 794: Error GaussianSceneSerializer::_read_metadata_chunk(Ref&lt;File...</li>
+<li>line 811: Error GaussianSceneSerializer::_read_asset_refs_chunk(Ref&lt;Fi...</li>
+<li>line 842: void GaussianSceneSerializer::_track_asset(const String &amp;pat...</li>
+<li>line 863: bool GaussianSceneSerializer::_is_asset_modified(const Asset...</li>
+<li>line 872: Error GaussianSceneSerializer::save_scene(const String &amp;file...</li>
+<li>line 882: Error GaussianSceneSerializer::_write_scene_to_file(const Re...</li>
+<li>line 1016: Error GaussianSceneSerializer::_read_scene_body(const Ref&lt;Fi...</li>
+<li>line 1159: Error GaussianSceneSerializer::_read_scene_into_staging(cons...</li>
+<li>line 1202: Error GaussianSceneSerializer::load_scene(const String &amp;file...</li>
+<li>line 1250: Error GaussianSceneSerializer::save_incremental(const String...</li>
+<li>line 1275: Error GaussianSceneSerializer::load_incremental(const String...</li>
+<li>line 1343: void GaussianSceneSerializer::add_asset_reference(const Stri...</li>
+<li>line 1347: void GaussianSceneSerializer::remove_asset_reference(const S...</li>
+<li>line 1359: bool GaussianSceneSerializer::has_asset_reference(const Stri...</li>
+<li>line 1363: Array GaussianSceneSerializer::get_asset_references() const ...</li>
+<li>line 1378: bool GaussianSceneSerializer::validate_assets() const {...</li>
+<li>line 1387: bool GaussianSceneSerializer::_file_claims_checksum_protecti...</li>
+<li>line 1438: Error GaussianSceneSerializer::validate_file(const String &amp;f...</li>
+<li>line 1464: Dictionary GaussianSceneSerializer::get_file_info(const Stri...</li>
+<li>line 1489: uint64_t GaussianSceneSerializer::get_file_size_estimate(con...</li>
+<li>line 1499: bool GaussianSceneSerializer::is_gaussian_scene_file(const S...</li>
+<li>line 1507: Array GaussianSceneSerializer::get_supported_compression_typ...</li>
+<li>line 1515: PackedByteArray GaussianSceneSerializer::_migrate_chunk_v1_t...</li>
 </ul>
 <h2 id="modulesgaussian_splattinginterfacesgpu_sorting_pipelineh">modules/gaussian_splatting/interfaces/gpu_sorting_pipeline.h<a class="headerlink" href="#modulesgaussian_splattinginterfacesgpu_sorting_pipelineh" title="Permanent link">¶</a></h2>
 <ul>
@@ -11820,7 +11820,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 30, 2026 07:03:04 UTC">July 30, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 31, 2026 08:36:02 UTC">July 31, 2026</span>
   </span>
 
     
