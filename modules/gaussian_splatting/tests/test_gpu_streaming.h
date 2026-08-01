@@ -910,4 +910,118 @@ TEST_CASE("[GaussianSplatting][Streaming] A stride flip drops an ASYNC-packed pe
 	CHECK(chunks_after[0].buffer_slot == UINT32_MAX);
 }
 
+// ── #798 review round 2: a failed coalesced upload must report zero bytes ──
+//
+// _stream_internal() claims a slot (BUFFER_UPLOADING) BEFORE attempting the
+// coalesced upload. When the scratch allocation fails, that slot still carries
+// `used` from whatever it last held, and _wait_for_buffer_complete() can publish
+// it BUFFER_READY without ever taking buffer_mutex -- so get_current_gpu_buffer()
+// could hand the renderer a slot advertising the PREVIOUS frame's byte count.
+// The round-2 fix clears `used` FIRST, before attempting the release, so a slot
+// that does get published reports zero bytes rather than stale contents.
+//
+// The three buffers rotate, so cycling all of them and then failing makes the
+// aggregate byte count discriminating: clearing the claimed slot must drop the
+// total, whereas leaving it stale keeps the total unchanged.
+//
+// NOT COVERED, deliberately: the lost-CAS arm. Proving it needs the lock-free
+// poller to publish the slot between the claim and the cleanup, which cannot be
+// scheduled deterministically without making the polling path take buffer_mutex
+// -- the wider change this fix explicitly declines to make. The window is
+// narrowed, not closed, and no assertion here claims otherwise.
+// HONEST STATUS: this case does not currently execute. In this build neither
+// RenderingDevice::get_singleton() nor create_local_rendering_device() yields a
+// device under --test, with or without --headless and with or without a
+// [SceneTree] tag (all four measured), so it takes the skip below with ZERO
+// assertions. That is not specific to this case: the existing
+// "GPU Memory Streaming" cases in this same file skip identically (2 passed, 0
+// assertions), and run_module_tests.py already documents RequiresGPU cases
+// "vacuously passing" the corpus the lane claims to cover -- which is why the
+// requires-RD lane is strict=False.
+//
+// It is kept because the contract it pins is real and it becomes a live proof
+// the moment the GPU harness can produce a device. It is NOT evidence today, and
+// the PR body says so rather than counting it as coverage.
+TEST_CASE("[GaussianSplatting][RequiresGPU] A failed coalesced upload leaves no stale bytes reported as used") {
+	RenderingDevice *rd = RenderingDevice::get_singleton();
+	if (!rd) {
+		RenderingServer *rs = RenderingServer::get_singleton();
+		if (rs) {
+			rd = rs->create_local_rendering_device();
+		}
+	}
+	if (!rd) {
+		MESSAGE("Skipping - no RenderingDevice available");
+		return;
+	}
+
+	// Sized so a single upload is comfortably more than 1 MB: get_used_memory_mb()
+	// truncates to whole megabytes, so a small payload would read 0 either way and
+	// the assertion would be vacuous.
+	const uint32_t kSplats = 150000;
+
+	Ref<GaussianMemoryStream> stream;
+	stream.instantiate();
+	Error init_err = stream->initialize(rd, kSplats, 64);
+	if (init_err != OK) {
+		MESSAGE("Skipping - stream initialize failed");
+		return;
+	}
+	stream->set_async_upload(true);
+
+	LocalVector<Gaussian> splats;
+	splats.resize(kSplats);
+	for (uint32_t i = 0; i < kSplats; i++) {
+		Gaussian &g = splats[i];
+		g.position = Vector3(float(i % 100), 0.0f, 0.0f);
+		g.scale = Vector3(0.5f, 0.5f, 0.5f);
+		g.rotation = Quaternion();
+		g.opacity = 1.0f;
+		g.sh_dc = Color(1, 1, 1, 1);
+		g.normal = Vector3(0, 1, 0);
+		g.area = 0.785f;
+	}
+
+	// Cycle every slot so each one carries a nonzero `used`.
+	for (int i = 0; i < 3; i++) {
+		stream->begin_frame(uint64_t(i));
+		if (stream->stream_gaussians_async(splats) != OK) {
+			MESSAGE("Skipping - warm-up upload did not succeed on this device");
+			stream->shutdown();
+			return;
+		}
+		stream->wait_for_all_uploads();
+		stream->swap_buffers();
+	}
+
+	const uint32_t used_before = stream->get_used_memory_mb();
+	if (used_before == 0) {
+		FAIL("warm-up uploads must leave a nonzero used-byte total for this case to discriminate");
+		stream->shutdown();
+		return;
+	}
+
+	stream->begin_frame(99);
+	Error err;
+	{
+		ERR_PRINT_OFF;
+		err = stream->stream_gaussians_async(splats);
+		ERR_PRINT_ON;
+	}
+	const uint32_t used_after = stream->get_used_memory_mb();
+
+	if (err == OK) {
+		// Success arm: a completed upload must still account for its bytes.
+		CHECK_MESSAGE(used_after > 0,
+				"A successful upload must report its bytes as used.");
+	} else {
+		// Failure arm -- the round-2 contract.
+		CHECK_MESSAGE(used_after < used_before,
+				"A failed coalesced upload must clear the claimed slot's byte count, so a slot "
+				"published by the lock-free poller reports zero bytes instead of stale contents.");
+	}
+
+	stream->shutdown();
+}
+
 } // namespace TestGaussianSplatting

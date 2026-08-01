@@ -457,10 +457,31 @@ Error GaussianMemoryStream::_stream_internal(const LocalVector<Gaussian> &gaussi
             // handing stale or empty data to the renderer as a successful upload. Release it
             // back to BUFFER_FREE (the same transition wait_for_all_uploads() performs) and
             // report the failure instead of returning OK.
+            // #798 review round 2: the previous revision ignored the CAS result, which is
+            // wrong on two counts. _wait_for_buffer_complete() does NOT take buffer_mutex --
+            // it reads buffer.state lock-free -- so holding the lock here does not exclude it.
+            // It can therefore observe this slot as BUFFER_UPLOADING with upload_fence == 0 and
+            // publish it BUFFER_READY before this cleanup runs, after which the CAS below fails
+            // silently and we would have reported a release that did not happen.
+            //
+            // Order matters: clear `used` FIRST. Whether or not we win the CAS, a slot that does
+            // get published then reports zero bytes, so get_current_gpu_buffer() hands the
+            // renderer an empty buffer rather than the previous frame's stale contents. Then
+            // attempt the release and report honestly on the outcome.
+            buffer.used = 0;
             BufferState expected = BUFFER_UPLOADING;
-            buffer.state.compare_exchange_strong(expected, BUFFER_FREE);
+            if (buffer.state.compare_exchange_strong(expected, BUFFER_FREE)) {
+                ERR_FAIL_V_MSG(ERR_OUT_OF_MEMORY,
+                        "Coalesced upload scratch allocation failed; released the claimed stream buffer.");
+            }
+            // Lost the race: the poller already moved the slot on (READY or RENDERING). It is
+            // now empty rather than stale, but it is published, so say so instead of claiming a
+            // clean release. Closing the window entirely requires the polling path to respect
+            // buffer_mutex, which is a wider change than this allocation fix.
             ERR_FAIL_V_MSG(ERR_OUT_OF_MEMORY,
-                    "Coalesced upload scratch allocation failed; released the claimed stream buffer.");
+                    vformat("Coalesced upload scratch allocation failed and the stream buffer was already "
+                            "republished as state %d before it could be released; it now reports zero bytes.",
+                            int(expected)));
         }
     } else {
         uint32_t dst_offset = 0;
