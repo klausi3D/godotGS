@@ -21,6 +21,7 @@
 #include "../animation/animation_state_machine.h"
 #include "../core/gaussian_data.h"
 #include "../core/gaussian_splat_asset.h"
+#include "../core/gaussian_splat_merge_utils.h"
 #include "core/io/resource.h"
 #include "core/os/semaphore.h"
 #include "core/os/thread.h"
@@ -668,6 +669,170 @@ TEST_CASE("[GaussianSplatting][DataAuthority] Raw storage accessors compile-surv
     const Gaussian *ptr = data->get_gaussians();
     REQUIRE(ptr != nullptr);
     CHECK(ptr[0].position.is_equal_approx(Vector3(-2, 0, 0)));
+}
+
+// ---------------------------------------------------------------------------
+// #798 review round 2 -- failure-path contracts.
+//
+// Both cases below sit on branches that are reachable ONLY when an allocation
+// fails, so they are written as CONTRACTS with two arms rather than as tests
+// that assert a failure they cannot provoke. Each arm carries a real assertion,
+// so neither is vacuous: the success arm verifies the normal payload, and the
+// failure arm verifies the fail-closed state. The failure arm is what a narrow
+// mutation (forcing the corresponding allocation to fail) exercises, exactly as
+// #799 mutation-proved build_hierarchy().
+//
+// NOTE: guard-and-return, never REQUIRE-then-use. disable_exceptions=True means
+// DOCTEST_CONFIG_NO_EXCEPTIONS, so REQUIRE does NOT abort the case; #799 hit
+// 602 CrashHandlerExceptions that way.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Distinct from _make_authority_test_splat(): the normal is (1,0,0), NOT the
+// (0,1,0) that gaussian_splat_merge_sources() substitutes when a source's
+// normal lane is short. That difference is the whole point -- it is what makes
+// "the merge silently defaulted this lane" observable instead of invisible.
+LocalVector<Gaussian> _make_failure_contract_cloud(int p_count) {
+    LocalVector<Gaussian> splats;
+    splats.resize(p_count);
+    for (int i = 0; i < p_count; i++) {
+        Gaussian g;
+        g.position = Vector3(float(i), 0, 0);
+        g.scale = Vector3(1, 1, 1);
+        g.rotation = Quaternion();
+        g.opacity = 1.0f;
+        g.sh_dc = Color(1, 1, 1, 1);
+        g.normal = Vector3(1, 0, 0);
+        g.area = 1.0f;
+        g.brush_axes = Vector2(1.0f, 1.0f);
+        g.stroke_age = 0.0f;
+        g.painterly_meta = 0;
+        g.render_meta = 0;
+        splats[i] = g;
+    }
+    return splats;
+}
+
+} // namespace
+
+TEST_CASE("[GaussianSplatting][DataAuthority] Failed populate_from_gaussian_data leaves a coherent empty asset, never a mixed one") {
+    Ref<GaussianSplatAsset> asset;
+    asset.instantiate();
+
+    // Seed a payload first, so a failed REWRITE has a previous state it could
+    // leak. This is the case that matters: populate_from_gaussian_data() has
+    // already replaced splat_count and the SH term counts and re-run
+    // _ensure_buffer_sizes() over every lane before the lane pointers are taken.
+    Ref<::GaussianData> seed;
+    seed.instantiate();
+    seed->set_gaussians(_make_failure_contract_cloud(4));
+    if (asset->populate_from_gaussian_data(seed) != OK) {
+        FAIL("seed populate_from_gaussian_data() must succeed");
+        return;
+    }
+    if (asset->get_splat_count() != 4u) {
+        FAIL("seed populate must yield 4 splats");
+        return;
+    }
+
+    // Rewrite with a DIFFERENT count, so a surviving "new count + unwritten
+    // lanes" mixed state is distinguishable from both the old and the new one.
+    Ref<::GaussianData> rewrite;
+    rewrite.instantiate();
+    rewrite->set_gaussians(_make_failure_contract_cloud(6));
+
+    Error err;
+    {
+        ERR_PRINT_OFF;
+        err = asset->populate_from_gaussian_data(rewrite);
+        ERR_PRINT_ON;
+    }
+
+    if (err == OK) {
+        // Success arm: the rewrite is fully applied.
+        CHECK(asset->get_splat_count() == 6u);
+        CHECK(asset->get_positions().size() == 6 * 3);
+        CHECK(asset->get_opacities().size() == 6);
+    } else {
+        // Failure arm -- the round-2 contract. Restoring payload_sealed alone
+        // used to leave splat_count == 6 with lanes at a mixture of old, newly
+        // sized and empty lengths, and callers such as
+        // _register_instance_in_director() log the Error and register the asset
+        // anyway. The asset must instead be coherently EMPTY: splat_count == 0
+        // is the shape every getter already early-outs on.
+        CHECK_MESSAGE(asset->get_splat_count() == 0u,
+                "A failed populate_from_gaussian_data() must reset to an empty asset, not leave a mixed one.");
+        CHECK(asset->get_positions().is_empty());
+        CHECK(asset->get_opacities().is_empty());
+        CHECK(asset->get_spherical_harmonics_buffer().is_empty());
+    }
+}
+
+TEST_CASE("[GaussianSplatting][DataAuthority] Merge either preserves every source lane or refuses the merge") {
+    Vector<GaussianSplatMergeSource> sources;
+    for (int s = 0; s < 2; s++) {
+        Ref<GaussianSplatAsset> asset;
+        asset.instantiate();
+        Ref<::GaussianData> data;
+        data.instantiate();
+        data->set_gaussians(_make_failure_contract_cloud(3));
+        if (asset->populate_from_gaussian_data(data) != OK) {
+            FAIL("merge source populate_from_gaussian_data() must succeed");
+            return;
+        }
+        GaussianSplatMergeSource src;
+        src.asset = asset;
+        src.transform = Transform3D(); // identity: world normal == local normal
+        sources.push_back(src);
+    }
+
+    GaussianSplatMergeResult out;
+    bool merged;
+    {
+        ERR_PRINT_OFF;
+        merged = gaussian_splat_merge_sources(sources, 10.0f, out);
+        ERR_PRINT_ON;
+    }
+
+    if (merged) {
+        // Success arm: a merge that reports success must carry the SOURCE data
+        // through, not per-lane defaults. Under a mutation that makes one
+        // source's normal getter fail, the pre-round-2 guard (positions and
+        // scales only) let the merge report success while substituting the
+        // (0,1,0) fallback for every splat -- which is precisely what this
+        // assertion catches.
+        if (out.data.is_null()) {
+            FAIL("a successful merge must produce GaussianData");
+            return;
+        }
+        if (out.data->get_count() != 6) {
+            FAIL("a successful merge of 2x3 splats must produce 6 splats");
+            return;
+        }
+        const Gaussian *merged_splats = out.data->get_gaussians();
+        if (merged_splats == nullptr) {
+            FAIL("a successful merge must expose splat storage");
+            return;
+        }
+        bool normals_preserved = true;
+        for (int i = 0; i < 6; i++) {
+            if (!merged_splats[i].normal.is_equal_approx(Vector3(1, 0, 0))) {
+                normals_preserved = false;
+                break;
+            }
+        }
+        CHECK_MESSAGE(normals_preserved,
+                "A merge reporting success must carry each source's normals through, "
+                "not substitute the (0,1,0) default for a lane whose allocation failed.");
+    } else {
+        // Failure arm -- the round-2 contract: refuse the merge outright rather
+        // than emitting geometry built from defaults.
+        // Extra parens are load-bearing: a top-level || inside CHECK trips doctest's
+        // expression decomposition ("Expression Too Complex", doctest.h:1545).
+        CHECK_MESSAGE((out.data.is_null() || out.data->get_count() == 0),
+                "A refused merge must not hand back partially-defaulted geometry.");
+    }
 }
 
 } // namespace TestGaussianSplatting

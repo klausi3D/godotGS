@@ -1788,9 +1788,39 @@ Error GaussianSplatAsset::populate_from_gaussian_data(const Ref<::GaussianData> 
     float *brush_axes_ptr = _gs_lane_ptrw_or_fail(brush_axes, need_2, "brush_axes", lanes_ok);
     float *stroke_ages_ptr = _gs_lane_ptrw_or_fail(stroke_ages, need_1, "stroke_ages", lanes_ok);
     if (!lanes_ok) {
-        // Same failure contract as the "GaussianData contains no splats" bail above: restore
-        // the seal we just cleared and report an Error, so a partially-sized asset is never
-        // handed back as if it had been populated.
+        // #798 review round 2: restoring only `payload_sealed` was not enough. By this point the
+        // function has already replaced splat_count and the SH term counts, invalidated the
+        // gaussian-data cache and the streaming bake, and run _ensure_buffer_sizes() over every
+        // lane -- so a bare return leaves a MIXED asset: a new count, new term layout, and lanes
+        // at a mixture of old, newly-sized and empty lengths. That is observable, because callers
+        // such as _register_instance_in_director() log the Error and then register runtime_asset
+        // anyway.
+        //
+        // Reset to a coherent EMPTY state instead: splat_count 0 with cleared lanes is exactly
+        // the shape every consumer already handles (each getter early-outs on splat_count == 0),
+        // whereas "mixed" is a shape none of them handle.
+        //
+        // A true transactional rollback is deliberately NOT attempted. Preserving the previous
+        // payload would mean snapshotting every lane BEFORE the rewrite, i.e. allocating a full
+        // copy of the asset on the path whose whole premise is that allocation is failing. Losing
+        // the payload is the honest outcome here; silently keeping half of it is not.
+        splat_count = 0;
+        sh_first_order_terms = 0;
+        sh_high_order_terms = 0;
+        positions.clear();
+        colors.clear();
+        scales.clear();
+        rotations.clear();
+        sh_dc_coefficients.clear();
+        sh_first_order_coefficients.clear();
+        sh_high_order_coefficients.clear();
+        opacity_logits.clear();
+        palette_ids.clear();
+        painterly_flags.clear();
+        normals.clear();
+        brush_axes.clear();
+        stroke_ages.clear();
+        _recalculate_sh_component_counts();
         payload_sealed = previous_seal;
         return ERR_OUT_OF_MEMORY;
     }

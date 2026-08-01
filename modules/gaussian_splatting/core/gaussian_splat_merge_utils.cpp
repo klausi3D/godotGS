@@ -285,18 +285,59 @@ bool gaussian_splat_merge_sources(const Vector<GaussianSplatMergeSource> &source
         // in a getter would silently collapse every splat of this source to the ORIGIN at unit
         // scale and hand back a "successful" merge over destroyed geometry.
         //
-        // positions and scales are not optional: the asset claims splat_count splats, and both
-        // feed the merged transform AND the bounds. A short array here can only mean the
-        // getter's allocation failed, so reject the merge instead of defaulting. The remaining
-        // lanes (normals, brush axes, opacity, stroke ages, palette/override ids) have
-        // meaningful defaults and are legitimately absent on non-painterly assets, so their
-        // existing size-guarded fallbacks stay.
-        if (uint32_t(asset_positions.size()) < splat_count || uint32_t(asset_scales.size()) < splat_count) {
-            ERR_PRINT(vformat("[GaussianSplatMerge] source %d reports %d splats but supplied %d positions and "
-                              "%d scales; its buffer allocation failed. Refusing to merge rather than "
-                              "substituting origin/unit defaults for the missing geometry.",
-                    int64_t(source_index), int64_t(splat_count),
-                    int64_t(asset_positions.size()), int64_t(asset_scales.size())));
+        // REVIEW CORRECTION: an earlier revision checked only positions and scales, on the
+        // reasoning that the painterly lanes "have meaningful defaults and are legitimately
+        // absent on non-painterly assets". That reasoning was WRONG, and
+        // GaussianSplatAsset::_ensure_buffer_sizes() disproves it: opacity_logits, palette_ids,
+        // painterly_flags, normals, brush_axes and stroke_ages are every one of them sized
+        // UNCONDITIONALLY to `count`. So for an asset reporting splat_count > 0 they are never
+        // legitimately short -- an undersized result can ONLY mean that getter's own allocation
+        // failed, and defaulting it silently rewrites the source's appearance.
+        //
+        // The SH lanes are the genuine exception: sh_dc is sized to 0 when the asset has no DC
+        // coefficients, and the order lanes scale with term counts that may be 0. They are
+        // therefore checked against what the asset itself declares, not against splat_count.
+        struct RequiredLane {
+            const char *name;
+            int64_t have;
+            int64_t need;
+        };
+        const int64_t need_n = int64_t(splat_count);
+        const RequiredLane required_lanes[] = {
+            {"positions", asset_positions.size(), need_n},
+            {"scales", asset_scales.size(), need_n},
+            {"rotations", asset_rotations.size(), need_n},
+            {"normals", asset_normals.size(), need_n},
+            {"brush_axes", asset_brush_axes.size(), need_n},
+            {"opacities", asset_opacities.size(), need_n},
+            {"stroke_ages", asset_stroke_ages.size(), need_n},
+            {"palette_ids", asset_palette_ids.size(), need_n},
+            {"brush_override_ids", asset_brush_override_ids.size(), need_n},
+        };
+        bool lanes_complete = true;
+        for (const RequiredLane &lane : required_lanes) {
+            if (lane.have < lane.need) {
+                ERR_PRINT(vformat("[GaussianSplatMerge] source %d reports %d splats but its '%s' buffer holds "
+                                  "%d; that getter's allocation failed. Refusing to merge rather than "
+                                  "substituting defaults for missing data.",
+                        int64_t(source_index), need_n, String(lane.name), lane.have));
+                lanes_complete = false;
+            }
+        }
+        // SH: expected size is the asset's own declared term layout, so a legitimately
+        // DC-only or SH-less asset is not treated as a failure.
+        // Mirrors get_spherical_harmonics_buffer(): splat_count * (1 + first + high) * 3.
+        const int64_t sh_terms_total =
+                int64_t(1) + int64_t(asset->get_sh_first_order_terms()) + int64_t(asset->get_sh_high_order_terms());
+        const int64_t expected_sh = int64_t(splat_count) * sh_terms_total * 3;
+        if (expected_sh > 0 && int64_t(asset_sh.size()) < expected_sh) {
+            ERR_PRINT(vformat("[GaussianSplatMerge] source %d declares %d SH terms per splat (%d floats total) but "
+                              "supplied %d; that getter's allocation failed. Refusing to merge rather than "
+                              "zero-filling the coefficients.",
+                    int64_t(source_index), sh_terms_total, expected_sh, int64_t(asset_sh.size())));
+            lanes_complete = false;
+        }
+        if (!lanes_complete) {
             return false;
         }
 
