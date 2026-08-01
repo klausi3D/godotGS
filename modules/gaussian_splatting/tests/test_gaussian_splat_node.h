@@ -3115,5 +3115,155 @@ TEST_CASE("[GaussianSplatting][Editor] Inspector suppresses every debug/ propert
 }
 
 #endif // TOOLS_ENABLED
+// ── #798 review round 2: a failed set_splat_data() must fail CLOSED ──────
+//
+// set_splat_data() returns void, so the only honest observable is what the node
+// ends up publishing. _register_instance_in_director() (~:2457-2470) rebuilds
+// `asset` from renderer_data on every tree/world re-entry, CONTINUES past the
+// populate error, and assigns `asset = runtime_asset` regardless. Before the
+// round-2 fix, runtime_asset still held the PREVIOUS payload and
+// populate_from_gaussian_data() bailed at its `count <= 0` check BEFORE
+// overwriting splat_count -- so the old splats were republished on a node whose
+// set_splat_data() had failed.
+//
+// Written as a contract: the node must publish either the NEW payload or
+// nothing, and in neither case the stale previous payload.
+//
+// HONEST STATUS: in this build the case cannot reach that contract. set_splat_data()
+// gates on _ensure_renderer_for_manual_data() (:742), and headless the SceneDirector
+// returns no shared renderer, so it bails before touching runtime_asset --
+// renderer_data is instantiated ONLY at :861, reachable ONLY from set_splat_data().
+// The case therefore takes the no-renderer leg below (1 assertion) and does NOT
+// exercise the fix. Measured, not assumed: with and without --headless.
+//
+// So runtime_asset.unref() here rests on cited inspection, not on a passing
+// mutation: populate_from_gaussian_data() bails at its `count <= 0` check
+// (gaussian_splat_asset.cpp:1751) BEFORE overwriting splat_count, so a
+// runtime_asset holding the previous payload keeps it, and
+// _register_instance_in_director() assigns `asset = runtime_asset` at :2467
+// regardless of the error it just logged. The PR body states this rather than
+// counting this case as coverage.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] A failed set_splat_data must not republish the previous payload") {
+	SceneTree *tree = SceneTree::get_singleton();
+	if (tree == nullptr) {
+		FAIL("SceneTree must exist (provided by [SceneTree] tag)");
+		return;
+	}
+	Window *root = tree->get_root();
+	if (root == nullptr) {
+		FAIL("SceneTree root window must exist");
+		return;
+	}
+	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+	if (director == nullptr) {
+		FAIL("GaussianSplatSceneDirector singleton must exist");
+		return;
+	}
+
+	GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+	root->add_child(node);
+	tree->process(0.0);
+
+	// ---- first payload: 5 splats ----
+	PackedVector3Array positions;
+	PackedColorArray colors;
+	PackedVector3Array scales;
+	PackedFloat32Array opacities;
+	TypedArray<Quaternion> rotations;
+	for (int i = 0; i < 5; i++) {
+		positions.push_back(Vector3(float(i), 0.0f, 0.0f));
+		colors.push_back(Color(1, 1, 1, 1));
+		scales.push_back(Vector3(1, 1, 1));
+		opacities.push_back(1.0f);
+		rotations.push_back(Quaternion());
+	}
+	PackedFloat32Array sh;
+	PackedInt32Array palette_ids;
+	PackedInt32Array painterly_flags;
+	PackedVector3Array normals;
+	PackedVector2Array brush_axes;
+	PackedFloat32Array stroke_ages;
+
+	node->set_splat_data(positions, colors, scales, opacities, rotations,
+			sh, palette_ids, painterly_flags, normals, brush_axes, stroke_ages, false);
+	tree->process(0.0);
+
+	Ref<GaussianSplatRenderer> renderer = node->get_renderer();
+	if (!renderer.is_valid()) {
+		// Headless with no renderer: set_splat_data() bails at
+		// _ensure_renderer_for_manual_data() before any payload is published, so
+		// there is no stale-republish path to exercise. Assert that explicitly
+		// rather than returning with zero assertions (a silent skip in a required
+		// batch is indistinguishable from a passing test).
+		GaussianSplatSceneDirector::InstanceSubmission headless_sub;
+		const bool headless_published =
+				director->get_instance_submission(node->get_instance_id(), &headless_sub) &&
+				headless_sub.asset.is_valid() && headless_sub.asset->get_splat_count() > 0;
+		CHECK_MESSAGE(!headless_published,
+				"With no renderer, set_splat_data() must publish no payload at all.");
+		root->remove_child(node);
+		memdelete(node);
+		tree->process(0.0);
+		return;
+	}
+
+	GaussianSplatSceneDirector::InstanceSubmission first;
+	if (!director->get_instance_submission(node->get_instance_id(), &first)) {
+		FAIL("the node must be registered with the director after set_splat_data()");
+		return;
+	}
+	if (!first.asset.is_valid()) {
+		FAIL("the first set_splat_data() must publish an asset");
+		return;
+	}
+	if (first.asset->get_splat_count() != 5u) {
+		FAIL("the first set_splat_data() must publish 5 splats");
+		return;
+	}
+
+	// ---- second payload: a DIFFERENT count, so a stale republish is unambiguous ----
+	PackedVector3Array positions_b;
+	PackedColorArray colors_b;
+	PackedVector3Array scales_b;
+	PackedFloat32Array opacities_b;
+	TypedArray<Quaternion> rotations_b;
+	for (int i = 0; i < 7; i++) {
+		positions_b.push_back(Vector3(0.0f, float(i), 0.0f));
+		colors_b.push_back(Color(1, 1, 1, 1));
+		scales_b.push_back(Vector3(1, 1, 1));
+		opacities_b.push_back(1.0f);
+		rotations_b.push_back(Quaternion());
+	}
+	{
+		// The mutation arm emits the expected allocation ERR_PRINT; keep the log clean.
+		ERR_PRINT_OFF;
+		node->set_splat_data(positions_b, colors_b, scales_b, opacities_b, rotations_b,
+				sh, palette_ids, painterly_flags, normals, brush_axes, stroke_ages, false);
+		ERR_PRINT_ON;
+	}
+	tree->process(0.0);
+
+	// Force the tree/world re-entry that rebuilds `asset` from runtime_asset.
+	root->remove_child(node);
+	root->add_child(node);
+	tree->process(0.0);
+
+	GaussianSplatSceneDirector::InstanceSubmission after;
+	const bool has_after = director->get_instance_submission(node->get_instance_id(), &after);
+	const int published = (has_after && after.asset.is_valid())
+			? int(after.asset->get_splat_count())
+			: 0;
+
+	CHECK_MESSAGE(published != 5,
+			"After set_splat_data() fails, a tree re-entry must NOT republish the previous 5-splat payload.");
+	// Extra parens are load-bearing: a top-level || inside CHECK trips doctest's
+	// expression decomposition ("Expression Too Complex", doctest.h:1545).
+	CHECK_MESSAGE((published == 7 || published == 0),
+			"The node must publish either the new payload or nothing -- never a stale or mixed one.");
+
+	root->remove_child(node);
+	memdelete(node);
+	tree->process(0.0);
+}
 
 #endif // TESTS_ENABLED || TOOLS_ENABLED

@@ -764,6 +764,14 @@ void GaussianSplatNode3D::set_splat_data(const PackedVector3Array &p_positions,
         if (renderer_data.is_valid()) {
             renderer_data->resize(0);
         }
+        // #798 review round 2: clearing renderer_data and dropping the registration is still not
+        // failed-closed. runtime_asset keeps the PREVIOUS payload, and
+        // _register_instance_in_director() (~:2451-2461) re-populates from renderer_data,
+        // CONTINUES past the resulting error, and then assigns `asset = runtime_asset` regardless
+        // -- so on the next tree/world re-entry the old splats reappear on a node whose
+        // set_splat_data() failed. Drop the cached asset too, so a later registration has nothing
+        // stale to fall back to.
+        runtime_asset.unref();
         _unregister_shared_renderer();
         return;
     }
