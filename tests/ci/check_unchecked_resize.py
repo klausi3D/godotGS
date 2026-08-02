@@ -120,10 +120,29 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 MODULE_ROOT = REPO_ROOT / "modules" / "gaussian_splatting"
 BASELINE_PATH = REPO_ROOT / "tests" / "ci" / "unchecked_resize_baseline.json"
 
+# Applied to an ASSEMBLED statement, not to a raw line: a normally formatted call
+# such as `values.resize(` / `        runtime_count);` is a single statement split
+# across two lines, and a line-anchored match silently skipped it -- so a later
+# `values.ptrw()` was never examined and a new unsafe allocation passed the guard.
 RESIZE_RE = re.compile(
     r"^\s*([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)*)\s*"
     r"\.resize(?:_initialized|_uninitialized)?\s*\(\s*(.+?)\s*\)\s*;\s*$"
 )
+# Cheap prefilter so statement assembly only runs on candidate lines.
+RESIZE_HEAD_RE = re.compile(
+    r"^\s*([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)*)\s*"
+    r"\.resize(?:_initialized|_uninitialized)?\s*\("
+)
+# A function definition opening a top-level block. Deliberately rejects lines ending
+# in ';' (declarations) and control-flow keywords.
+# Captures the QUALIFIED name: `Error Alpha::build(` -> "Alpha::build", not "build".
+# Capturing only the trailing identifier let two classes' same-named methods in one
+# file collide back onto a single key, which is the P1 defect this whole change is
+# about -- just one level further in.
+FUNC_DEF_RE = re.compile(
+    r"^[A-Za-z_~][\w\s:<>,\*&\[\]]*?\b((?:[A-Za-z_~][\w]*::)*[A-Za-z_~][\w]*)\s*\("
+)
+NOT_A_FUNCTION = frozenset({"if", "for", "while", "switch", "catch", "return", "else", "do"})
 # Any form on the SAME line that consumes or checks the return value.
 CONSUMED_RE = re.compile(
     r"(=\s*[\w:]*resize|if\s*\(|ERR_FAIL|ERR_CONTINUE|ERR_BREAK|return\s|CHECK|REQUIRE"
@@ -139,7 +158,9 @@ LOCAL_VECTOR_RE = re.compile(r"\bLocalVector\s*<")
 CONST_COUNT_RE = re.compile(r"^(\d+|[A-Z][A-Z0-9_]{2,}|sizeof\s*\(.*\)|\d+\s*[*+]\s*sizeof\s*\(.*\))$")
 
 DECL_LOOKBACK = 70
-MAX_FUNCTION_SPAN = 200
+# How many physical lines a single statement may span before assembly gives up.
+# This bounds only STATEMENT assembly, never function scope -- see _function_spans().
+MAX_STATEMENT_LINES = 12
 
 
 def _module_sources() -> list[pathlib.Path]:
@@ -169,25 +190,130 @@ def _normalise(expr: str) -> str:
     return re.sub(r"\s+", "", expr)
 
 
-def _function_end(lines: list[str], start: int) -> int:
-    limit = min(start + MAX_FUNCTION_SPAN, len(lines))
-    for j in range(start + 1, limit):
+def _assemble_statement(lines: list[str], start: int) -> tuple[str, int]:
+    """Join physical lines from `start` into one logical statement.
+
+    Returns (text, last_line_index). A resize call split across lines is a single
+    statement; matching per physical line missed it entirely, which let a new
+    unsafe allocation through. Assembly stops when the parentheses opened by the
+    call have balanced AND a ';' has been seen after the closing paren.
+    """
+    text = ""
+    for j in range(start, min(start + MAX_STATEMENT_LINES, len(lines))):
+        text = lines[j].strip() if not text else f"{text} {lines[j].strip()}"
+        depth = 0
+        opened = False
+        close_at = -1
+        for pos, ch in enumerate(text):
+            if ch == "(":
+                depth += 1
+                opened = True
+            elif ch == ")":
+                depth -= 1
+                if opened and depth == 0:
+                    close_at = pos
+        if opened and depth == 0 and close_at >= 0 and ";" in text[close_at:]:
+            return text, j
+    return "", start
+
+
+def _function_spans(lines: list[str]) -> list[tuple[int, int, str]]:
+    """Derive real top-level function spans by brace depth.
+
+    Replaces a fixed MAX_FUNCTION_SPAN cap. That cap meant any function whose raw
+    consumer sat further than the cap below its resize() had the site silently
+    dropped -- recreating exactly the window-length evasion that motivated
+    function-scoped scanning in the first place.
+
+    Known limitation, stated rather than hidden: braces inside string literals or
+    comments are not excluded, so depth can be miscounted in pathological files.
+    The fallback in _consumer_scan_end() is therefore deliberately unbounded, so a
+    miscount widens the scan rather than truncating it -- a guard that over-scans
+    reports a site for review; one that under-scans misses a defect.
+    """
+    spans: list[tuple[int, int, str]] = []
+    depth = 0
+    sig: tuple[str, int] | None = None
+    fn_start: int | None = None
+    fn_name = ""
+    fn_depth = 0
+    for i, line in enumerate(lines):
+        opens = line.count("{")
+        closes = line.count("}")
+        if fn_start is None:
+            match = FUNC_DEF_RE.match(line)
+            if match and match.group(1) not in NOT_A_FUNCTION and not line.rstrip().endswith(";"):
+                # A candidate must survive until a block actually opens: Godot style
+                # routinely puts the '{' on the line AFTER a wrapped parameter list.
+                sig = (match.group(1), i)
+            # `sig is not None` is the load-bearing part, and is what keeps
+            # `namespace GaussianSplatting {` transparent: a container line has no '('
+            # so FUNC_DEF_RE never matches it, and a brace with no pending signature
+            # opens no span. An earlier revision opened a span for ANY brace and named
+            # it "<anonymous>", which swallowed a whole file into one scope and
+            # collapsed every function identity in it back together.
+            #
+            # An explicit namespace/class/struct pattern was tried here as well and
+            # REMOVED: mutation testing showed reverting it changed no behaviour and no
+            # test, i.e. it was dead code carrying a comment that claimed otherwise.
+            if opens > 0 and sig is not None:
+                fn_start, fn_name, fn_depth = sig[1], sig[0], depth
+                sig = None
+        depth += opens - closes
+        if fn_start is not None and depth <= fn_depth:
+            spans.append((fn_start, i, fn_name))
+            fn_start = None
+            fn_name = ""
+    return spans
+
+
+def _consumer_scan_end(lines: list[str], index: int, spans: list[tuple[int, int, str]]) -> int:
+    """End of the enclosing function, never a fixed-length window."""
+    for start, end, _ in spans:
+        if start <= index <= end:
+            return end
+    # No span resolved (brace miscount, or file-scope). Scan to the next column-0
+    # '}' with NO cap, then to end of file. Over-scanning is the safe direction.
+    for j in range(index + 1, len(lines)):
         if lines[j].startswith("}"):
             return j
-    return limit
+    return len(lines)
 
 
-def find_sites() -> list[str]:
+def _function_name_at(index: int, spans: list[tuple[int, int, str]]) -> str:
+    for start, end, name in spans:
+        if start <= index <= end:
+            return name
+    return "<file-scope>"
+
+
+def find_sites() -> tuple[list[str], list[str]]:
+    """Return (sites, read_errors).
+
+    read_errors is NOT cosmetic: an unreadable source used to be skipped with
+    `continue`, which dropped every site in that file and still let the run exit 0,
+    reporting the file's baseline entries as "fixed". Incomplete scanning must never
+    be accepted as evidence that no new site exists, so the caller fails on it.
+    """
     sites: list[str] = []
+    errors: list[str] = []
     for path in _module_sources():
         try:
             lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError:
+        except OSError as exc:
+            errors.append(f"{path.relative_to(REPO_ROOT).as_posix()}: {exc}")
             continue
         rel = path.relative_to(REPO_ROOT).as_posix()
+        spans = _function_spans(lines)
+        seen_in_file: dict[str, int] = {}
         for i, line in enumerate(lines):
-            match = RESIZE_RE.match(line)
-            if not match or CONSUMED_RE.search(line):
+            if not RESIZE_HEAD_RE.match(line):
+                continue
+            statement, last = _assemble_statement(lines, i)
+            if not statement:
+                continue
+            match = RESIZE_RE.match(statement)
+            if not match or CONSUMED_RE.search(statement):
                 continue
             var, count = match.group(1), match.group(2)
             if CONST_COUNT_RE.match(count):
@@ -199,15 +325,23 @@ def find_sites() -> list[str]:
                 continue  # unresolved type -> not flagged; see blind spot 1
             base = re.escape(var)
             consumer = re.compile(rf"{base}\s*(\.write\s*\[|\.ptrw\s*\(|\.ptr\s*\()")
-            end = _function_end(lines, i)
-            if any(consumer.search(lines[j]) for j in range(i + 1, end)):
-                # Key on file + symbol + count expression, NOT the line number. A
-                # line-keyed baseline reports a false "new site" for every edit that
-                # shifts lines, which would make this guard fire on unrelated changes
-                # and get it switched off. Found by mutation-testing this script:
-                # injecting one site made an untouched site 5 lines below look new.
-                sites.append(f"{rel}::{var}.resize({_normalise(count)})")
-    return sorted(set(sites))
+            end = _consumer_scan_end(lines, i, spans)
+            if any(consumer.search(lines[j]) for j in range(last + 1, end + 1)):
+                # Key on file + ENCLOSING FUNCTION + symbol + count expression, and
+                # never on the line number. Line numbers make every unrelated edit
+                # look like a new site; but file+symbol+count ALONE collapses distinct
+                # statements together -- measured: 80 statements folded into 69 keys,
+                # with `result.resize(splat_count)` in gaussian_splat_asset.cpp
+                # covering eight separate getters. Fixing one of those eight, or adding
+                # a ninth, left the key set unchanged and the ratchet passed silently.
+                # The function name restores independent tracking while staying stable
+                # under line shifts; an ordinal disambiguates true repeats within one
+                # function.
+                key = f"{rel}::{_function_name_at(i, spans)}::{var}.resize({_normalise(count)})"
+                occurrence = seen_in_file.get(key, 0) + 1
+                seen_in_file[key] = occurrence
+                sites.append(key if occurrence == 1 else f"{key}#{occurrence}")
+    return sorted(sites), errors
 
 
 def load_baseline() -> list[str]:
@@ -221,12 +355,20 @@ def write_baseline(sites: list[str]) -> None:
     BASELINE_PATH.write_text(
         json.dumps(
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "comment": (
                     "GENERATED by tests/ci/check_unchecked_resize.py --regenerate. "
                     "Known unchecked Vector::resize() sites feeding a raw write (#794, #798). "
                     "This list is a ratchet, NOT an assertion that these sites are safe. "
-                    "It must only ever shrink; a new entry means a new unchecked site."
+                    "It must only ever shrink; a new entry means a new unchecked site. "
+                    "schema 2: keys carry the ENCLOSING FUNCTION name "
+                    "(file::function::symbol.resize(count)). Under schema 1 the key omitted the "
+                    "function, so distinct statements sharing a file/symbol/count collapsed onto "
+                    "one key -- 80 statements folded into 69 keys, with result.resize(splat_count) "
+                    "in gaussian_splat_asset.cpp standing in for eight separate getters. Fixing "
+                    "one of those, or adding a ninth, left the key set unchanged and the ratchet "
+                    "passed silently. --regenerate now REFUSES to add any key; the one-time "
+                    "schema migration used --migrate-key-schema."
                 ),
                 "sites": sites,
             },
@@ -240,20 +382,50 @@ def write_baseline(sites: list[str]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--regenerate", action="store_true",
-                        help="rewrite the baseline from the current tree (expected to shrink it)")
+                        help="rewrite the baseline from the current tree (may only shrink it)")
+    parser.add_argument("--migrate-key-schema", action="store_true",
+                        help="one-time: rewrite the baseline when the KEY FORMAT itself changed. "
+                             "Prints the full added/removed sets for review. Never used by CI.")
     args = parser.parse_args()
 
-    sites = find_sites()
+    sites, read_errors = find_sites()
 
-    if args.regenerate:
+    # Fail closed on unreadable sources. A partial scan cannot distinguish "no new
+    # site" from "did not look", and the old code returned success either way.
+    if read_errors:
+        print("[unchecked-resize] FAILED: could not read module source(s); the scan is "
+              "incomplete and its result cannot be trusted.\n")
+        for item in read_errors:
+            print(f"  {item}")
+        return 1
+
+    if args.regenerate or args.migrate_key_schema:
         previous = load_baseline()
+        added = sorted(set(sites) - set(previous))
+        removed = sorted(set(previous) - set(sites))
+
+        if added and not args.migrate_key_schema:
+            # Set inclusion, NOT a net count. Fixing one old site while introducing a
+            # new one nets zero, and the old code wrote the new site into the baseline
+            # and returned 0 -- after which normal CI passed on the committed file.
+            print("[unchecked-resize] REFUSED: regeneration would ADD new site(s) to the "
+                  "baseline. Regenerating records fixes; it must never bless a new defect.\n")
+            for site in added:
+                print(f"  + {site}")
+            print("\nFix the site(s), or if the key format itself changed, re-run with "
+                  "--migrate-key-schema and have the full delta reviewed.")
+            return 1
+
         write_baseline(sites)
-        delta = len(sites) - len(previous)
-        print(f"[unchecked-resize] baseline regenerated: {len(sites)} site(s) "
-              f"({delta:+d} vs previous {len(previous)}).")
-        if delta > 0:
-            print("[unchecked-resize] WARNING: the baseline GREW. Regenerating is for "
-                  "recording fixes; a growth should be justified or fixed, not baselined.")
+        print(f"[unchecked-resize] baseline written: {len(sites)} site(s) "
+              f"(previous {len(previous)}; -{len(removed)} removed, +{len(added)} added).")
+        for site in removed:
+            print(f"  - {site}")
+        for site in added:
+            print(f"  + {site}")
+        if added:
+            print("\n[unchecked-resize] KEY SCHEMA MIGRATION: the additions above are key-format "
+                  "changes, not necessarily new defects. Review the mapping before committing.")
         return 0
 
     baseline = load_baseline()

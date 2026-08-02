@@ -985,13 +985,30 @@ def _run_unchecked_resize_guard() -> tuple[bool, list[str]]:
     """
     if not UNCHECKED_RESIZE_GUARD_SCRIPT.is_file():
         return False, [f"Missing unchecked-resize guard: {UNCHECKED_RESIZE_GUARD_SCRIPT.relative_to(ROOT)}"]
+
+    # Run the guard's OWN self-tests in the same lane, and FIRST. Codex review found
+    # five distinct ways to evade this guard (key collision, --regenerate blessing a
+    # new site on a net-zero delta, a fixed-window function-scope cap, line-anchored
+    # matching missing wrapped calls, and an unreadable source passing silently).
+    # Each is now a self-test. Wiring them here rather than into a separate lane is
+    # deliberate: this file already documents a guard that "existed but was wired into
+    # NO lane and no runner ... therefore never executed once", and a self-test that
+    # does not run is worth exactly nothing.
+    self_test = ROOT / "tests" / "ci" / "test_unchecked_resize_guard.py"
+    if not self_test.is_file():
+        return False, [f"Missing unchecked-resize guard self-test: {self_test.relative_to(ROOT)}"]
+    code, out, err = _run_command([sys.executable, str(self_test)])
+    if code != 0:
+        lines = [line for line in (out + err).splitlines() if line.strip()]
+        return False, lines or [f"Unchecked-resize guard self-test failed with exit code {code}."]
+
     code, out, err = _run_command([sys.executable, str(UNCHECKED_RESIZE_GUARD_SCRIPT)])
     output_lines = [line for line in (out + err).splitlines() if line.strip()]
     if code != 0:
         if not output_lines:
             output_lines = [f"Unchecked-resize guard failed with exit code {code}."]
         return False, output_lines
-    return True, output_lines
+    return True, ["Unchecked-resize guard self-test passed (7 cases)."] + output_lines
 
 
 def _run_require_null_deref_guard() -> tuple[bool, list[str]]:
