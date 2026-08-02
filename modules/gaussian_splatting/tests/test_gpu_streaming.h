@@ -942,7 +942,11 @@ TEST_CASE("[GaussianSplatting][Streaming] A stride flip drops an ASYNC-packed pe
 // It is kept because the contract it pins is real and it becomes a live proof
 // the moment the GPU harness can produce a device. It is NOT evidence today, and
 // the PR body says so rather than counting it as coverage.
-TEST_CASE("[GaussianSplatting][RequiresGPU] A failed coalesced upload leaves no stale bytes reported as used") {
+// The [MemoryStream] tag is required, not stylistic: without it this case matches
+// NO BatchSpec in run_gpu_harness.py and lands in unbatched_requires_gpu_backlog,
+// which test_gpu_harness_deferred_contract.py enforces as a shrink-only ratchet
+// ("If you ADDED entries, stop: put the test in a batch instead").
+TEST_CASE("[GaussianSplatting][MemoryStream][RequiresGPU] A failed coalesced upload leaves no stale bytes reported as used") {
 	RenderingDevice *rd = RenderingDevice::get_singleton();
 	if (!rd) {
 		RenderingServer *rs = RenderingServer::get_singleton();
