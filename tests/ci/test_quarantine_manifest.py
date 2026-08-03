@@ -988,6 +988,51 @@ def unlaned_fingerprint(declarations: list) -> str:
     return array_fingerprint(declarations)
 
 
+def issue_verification_problems(verified_raw: object, now: datetime) -> list:
+    """Bound the human issue-state verification in BOTH directions.
+
+    Round 3 (Codex P2 on #821): this was an upper bound only. A
+    ISSUES_VERIFIED_OPEN_UTC in the future - by accident, timezone error, or
+    deliberately - makes `now - verified` NEGATIVE, so the age assertion passes
+    until that future date PLUS ISSUE_VERIFICATION_MAX_AGE_DAYS. A stale
+    allowlist could then sit green for years while still LOOKING bounded, which
+    is worse than having no horizon at all: the guard reports a guarantee it is
+    not providing.
+
+    The general shape - a bound with one unguarded direction, or a pin whose
+    unparseable value silently skips its own rule - is checked for elsewhere in
+    this file too (the MAX_EXPIRY_UTC ceiling, and
+    test_pinned_time_and_size_constants_are_evaluable).
+    """
+    verified = _parse_utc(verified_raw)
+    if verified is None:
+        return [
+            f"ISSUES_VERIFIED_OPEN_UTC {verified_raw!r} is missing or not a parseable ISO-8601 "
+            f"UTC timestamp, so the freshness of the issue allowlist cannot be established. "
+            f"This fails closed: an unevaluable pin is not a satisfied pin."
+        ]
+    if verified > now:
+        return [
+            f"ISSUES_VERIFIED_OPEN_UTC {verified_raw} is IN THE FUTURE (now "
+            f"{now.isoformat()}). A future timestamp does not make the allowlist fresher - it "
+            f"DISABLES the bound, because the age check then passes until that date plus "
+            f"ISSUE_VERIFICATION_MAX_AGE_DAYS={ISSUE_VERIFICATION_MAX_AGE_DAYS} days. Set it to "
+            f"the date the issues were actually checked with "
+            f"'gh issue view <n> --repo klausi3D/godotGS --json number,state'."
+        ]
+    age = now - verified
+    if age > timedelta(days=ISSUE_VERIFICATION_MAX_AGE_DAYS):
+        return [
+            f"ISSUES_VERIFIED_OPEN was last checked against GitHub on {verified_raw} "
+            f"({age.days} days ago), over ISSUE_VERIFICATION_MAX_AGE_DAYS="
+            f"{ISSUE_VERIFICATION_MAX_AGE_DAYS}. An offline allowlist can only say 'these were "
+            f"open when a human last looked'; re-check every referenced issue, drop any that "
+            f"closed, and refresh the date. Every declaration's own expires_utc falls due before "
+            f"this, so this is a backstop, not the primary cadence."
+        ]
+    return []
+
+
 def _perturb(value: object) -> object:
     """Return a value that is JSON-different from `value`, whatever its type.
 
@@ -1099,7 +1144,18 @@ def declaration_problems(kind: str, index: int, declaration: object, now: dateti
                 f"silencer, not a quarantine."
             )
         ceiling = _parse_utc(MAX_EXPIRY_UTC)
-        if ceiling is not None and expires > ceiling:
+        if ceiling is None:
+            # Round 3: this used to be `if ceiling is not None and ...`, so a
+            # malformed pinned constant silently DISABLED the ceiling rule while
+            # every test stayed green. Same shape as the freshness bug below - a
+            # bound with an unguarded direction. Fail closed instead.
+            problems.append(
+                f"{label} cannot be checked against the expiry ceiling: the pinned "
+                f"MAX_EXPIRY_UTC={MAX_EXPIRY_UTC!r} is not a parseable ISO-8601 UTC timestamp. A "
+                f"pin that cannot be evaluated disables the rule it exists to enforce, so this "
+                f"fails closed rather than skipping."
+            )
+        elif expires > ceiling:
             problems.append(
                 f"{label} 'expires_utc' {expires_raw} is beyond the pinned MAX_EXPIRY_UTC="
                 f"{MAX_EXPIRY_UTC}. The relative horizon alone never stops SERIAL renewal, so the "
@@ -1407,22 +1463,36 @@ class QuarantineManifestRatchetTests(unittest.TestCase):
         self.assertEqual(problems, [], "\n  " + "\n  ".join(problems))
 
     def test_issue_open_verification_is_not_stale(self) -> None:
-        verified = _parse_utc(ISSUES_VERIFIED_OPEN_UTC)
+        problems = issue_verification_problems(
+            ISSUES_VERIFIED_OPEN_UTC, datetime.now(timezone.utc)
+        )
+        self.assertEqual(problems, [], "\n  " + "\n  ".join(problems))
+
+    def test_pinned_time_and_size_constants_are_evaluable(self) -> None:
+        """A pin that cannot be evaluated disables the rule it enforces.
+
+        Round 3: the expiry ceiling was guarded by `if ceiling is not None`, so a
+        malformed MAX_EXPIRY_UTC silently skipped the check. Every pinned bound
+        is asserted usable here, so a typo fails loudly instead of quietly
+        switching a rule off.
+        """
         self.assertIsNotNone(
-            verified, "ISSUES_VERIFIED_OPEN_UTC must be an ISO-8601 UTC timestamp."
+            _parse_utc(MAX_EXPIRY_UTC),
+            f"pinned MAX_EXPIRY_UTC={MAX_EXPIRY_UTC!r} is not a parseable ISO-8601 UTC timestamp.",
         )
-        age = datetime.now(timezone.utc) - verified
-        self.assertLessEqual(
-            age.days,
-            ISSUE_VERIFICATION_MAX_AGE_DAYS,
-            f"ISSUES_VERIFIED_OPEN was last checked against GitHub on {ISSUES_VERIFIED_OPEN_UTC} "
-            f"({age.days} days ago), over ISSUE_VERIFICATION_MAX_AGE_DAYS="
-            f"{ISSUE_VERIFICATION_MAX_AGE_DAYS}. An offline allowlist can only say 'these were "
-            f"open when a human last looked'; re-check every referenced issue with "
-            f"'gh issue view <n> --repo klausi3D/godotGS --json number,state', drop any that "
-            f"closed, and refresh the date. Every declaration's own expires_utc falls due before "
-            f"this, so this is a backstop, not the primary cadence.",
+        self.assertIsNotNone(
+            _parse_utc(ISSUES_VERIFIED_OPEN_UTC),
+            f"pinned ISSUES_VERIFIED_OPEN_UTC={ISSUES_VERIFIED_OPEN_UTC!r} is not parseable.",
         )
+        for name, value in (
+            ("ISSUE_VERIFICATION_MAX_AGE_DAYS", ISSUE_VERIFICATION_MAX_AGE_DAYS),
+            ("EXPIRY_HORIZON_DAYS", EXPIRY_HORIZON_DAYS),
+            ("MIN_REASON_CHARS", MIN_REASON_CHARS),
+        ):
+            with self.subTest(constant=name):
+                self.assertIsInstance(value, int, f"{name} must be an int")
+                self.assertFalse(isinstance(value, bool), f"{name} must not be a bool")
+                self.assertGreater(value, 0, f"{name} must be positive; 0 or less disables it")
 
     def test_ratchet_messages_are_ascii(self) -> None:
         """CI's cp1252 stdout has been broken by a non-ASCII byte before."""
@@ -1578,6 +1648,107 @@ class QuarantineDeclarationContentRuleTests(unittest.TestCase):
             declaration_problems("unlaned_tests", 0, "a string", self.now),
             ["unlaned_tests[0] must be a JSON object."],
         )
+
+    def test_unparseable_expiry_ceiling_fails_closed(self) -> None:
+        """A malformed MAX_EXPIRY_UTC must FAIL, not silently skip its own rule.
+
+        The ceiling was previously applied only `if ceiling is not None`, so a
+        typo in the pin switched the rule off with every test still green.
+        """
+        module = sys.modules[__name__]
+        # The declaration's OWN expiry must stay valid, so the only thing broken
+        # is the pinned ceiling.
+        declaration = self._unlaned(expires_utc="2026-10-15T00:00:00Z")
+        with mock.patch.object(module, "MAX_EXPIRY_UTC", "not a timestamp"):
+            out = self._problems("unlaned_tests", declaration)
+        self.assertIn("MAX_EXPIRY_UTC", out)
+        self.assertIn("fails closed", out)
+
+
+class IssueVerificationFreshnessTests(unittest.TestCase):
+    """The freshness bound must hold in BOTH directions (round 3, #821 P2).
+
+    Written against the function rather than the pinned constant, so each
+    direction is provable without editing the module.
+    """
+
+    def setUp(self) -> None:
+        self.now = datetime(2026, 8, 3, 12, 0, 0, tzinfo=timezone.utc)
+
+    def _problems(self, value: object) -> str:
+        return "\n".join(issue_verification_problems(value, self.now))
+
+    def test_recent_verification_is_accepted(self) -> None:
+        recent = (self.now - timedelta(days=30)).isoformat()
+        self.assertEqual(issue_verification_problems(recent, self.now), [])
+
+    def test_verification_exactly_at_the_horizon_is_accepted(self) -> None:
+        edge = (self.now - timedelta(days=ISSUE_VERIFICATION_MAX_AGE_DAYS)).isoformat()
+        self.assertEqual(issue_verification_problems(edge, self.now), [])
+
+    def test_verification_past_the_horizon_is_rejected(self) -> None:
+        stale = (
+            self.now - timedelta(days=ISSUE_VERIFICATION_MAX_AGE_DAYS + 1)
+        ).isoformat()
+        self.assertIn("ISSUE_VERIFICATION_MAX_AGE_DAYS", self._problems(stale))
+
+    def test_future_verification_is_rejected_by_name(self) -> None:
+        """The P2 itself: a future timestamp made the bound pass for longer.
+
+        It must fail, and the message must name the ACTUAL problem rather than
+        reporting generic staleness - a reader told 'too old' about a timestamp
+        dated next year will not find the bug.
+        """
+        for days_ahead in (1, 365):
+            with self.subTest(days_ahead=days_ahead):
+                future = (self.now + timedelta(days=days_ahead)).isoformat()
+                out = self._problems(future)
+                self.assertIn("IN THE FUTURE", out)
+                self.assertNotIn("days ago", out)
+
+    def test_a_future_timestamp_cannot_pass_CI_at_any_point_while_it_is_future(self) -> None:
+        """Pins WHY the future case matters, and states what it does NOT cover.
+
+        The guarantee is that a future-dated timestamp cannot LAND: every run
+        between the edit and that date rejects it, so the change can never go
+        green. Below, an age-only bound accepts all of these instants - which is
+        exactly the silent extension the P2 described - and the two-sided bound
+        rejects every one of them.
+
+        The limitation, stated rather than implied: once wall-clock passes the
+        timestamp, it is indistinguishable from one written honestly on that
+        day. Offline, nothing can tell those apart. The defense is that the edit
+        cannot survive review or CI in the window where it would matter, not
+        that a landed lie is later detectable.
+        """
+        future_raw = (self.now + timedelta(days=365)).isoformat()
+        for days_from_edit in (0, 1, 100, 364):
+            with self.subTest(days_from_edit=days_from_edit):
+                run_at = self.now + timedelta(days=days_from_edit)
+                age_only_would_pass = (run_at - _parse_utc(future_raw)) <= timedelta(
+                    days=ISSUE_VERIFICATION_MAX_AGE_DAYS
+                )
+                self.assertTrue(
+                    age_only_would_pass,
+                    "premise: an upper-bound-only check accepts this future timestamp here",
+                )
+                self.assertNotEqual(
+                    issue_verification_problems(future_raw, run_at),
+                    [],
+                    "a future-dated verification must be rejected on every run while it is "
+                    "still in the future, so the edit can never land green.",
+                )
+
+    def test_unparseable_and_missing_verification_fail_closed(self) -> None:
+        for value in ("", "   ", "soon", None, 20260803, "2026-13-45T00:00:00Z"):
+            with self.subTest(value=value):
+                out = self._problems(value)
+                self.assertIn("fails closed", out)
+
+    def test_messages_are_ascii(self) -> None:
+        for value in ("2099-01-01T00:00:00Z", "2000-01-01T00:00:00Z", "nonsense"):
+            for message in issue_verification_problems(value, self.now):
+                message.encode("ascii")
 
 
 class QuarantineRepinToolTests(unittest.TestCase):
