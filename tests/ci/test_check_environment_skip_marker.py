@@ -78,6 +78,36 @@ VALID_MACRO_HEADER = """\
 """
 
 
+class IsolatedTestCase(unittest.TestCase):
+    """Base class that neutralises every ambient variable a result depends on.
+
+    A suite whose outcome depends on the environment it runs in cannot be
+    evidence about CI. This bit twice on this branch: first `GITHUB_EVENT_NAME`
+    (fixed per-case), then the BASE variables -- and the second time the
+    workflow itself was exporting `GS_CI_BASE_REF`, so the guard's own self-test
+    ran inside `--guard-only`, read the ambient base, failed, and re-blocked the
+    merge queue the export existed to unblock.
+
+    Fixing the case and not the class is what allowed the repeat, so the list is
+    DERIVED from the resolver under test (`BASE_REF_ENV_VARS`) rather than
+    written out here: a variable added to the resolver later is neutralised
+    automatically, with no second edit to remember. `CI` and `GITHUB_EVENT_NAME`
+    are added because they gate the same code paths.
+    """
+
+    @staticmethod
+    def ambient_variables() -> tuple[str, ...]:
+        return tuple(sorted(set(guard.BASE_REF_ENV_VARS) | {"CI", "GITHUB_EVENT_NAME"}))
+
+    def setUp(self) -> None:
+        super().setUp()
+        patcher = mock.patch.dict(os.environ, {}, clear=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        for name in self.ambient_variables():
+            os.environ.pop(name, None)
+
+
 def _valid_allowance_entry(allowed: int) -> dict:
     """A schema-valid allowance entry, for fixtures that need one."""
     return {
@@ -89,10 +119,11 @@ def _valid_allowance_entry(allowed: int) -> dict:
     }
 
 
-class GuardTestCase(unittest.TestCase):
+class GuardTestCase(IsolatedTestCase):
     """Base: a synthetic module-tests tree plus a redirected baseline path."""
 
     def setUp(self) -> None:
+        super().setUp()
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name)
         self.tests_dir = self.root / "tests"
@@ -748,7 +779,7 @@ class MacroContractTests(GuardTestCase):
         self.assertIn("REQUIRE_STREAMING_CAPABLE does not route its skip through GS_ENV_SKIP", out)
 
 
-class TwoCommitRatchetTests(unittest.TestCase):
+class TwoCommitRatchetTests(IsolatedTestCase):
     """PROPERTIES of the ratchet, exercised across two real commits.
 
     These are written as properties, not as assertions about a mechanism:
@@ -770,6 +801,7 @@ class TwoCommitRatchetTests(unittest.TestCase):
     """
 
     def setUp(self) -> None:
+        super().setUp()
         self._tmp = tempfile.TemporaryDirectory()
         self.repo = Path(self._tmp.name) / "repo"
         (self.repo / "modules" / "gaussian_splatting" / "tests").mkdir(parents=True)
@@ -1192,7 +1224,7 @@ class TwoCommitRatchetTests(unittest.TestCase):
         )
 
 
-class RealTreeTests(unittest.TestCase):
+class RealTreeTests(IsolatedTestCase):
     """A handful of assertions against the committed tree, so a refactor that
     makes the scan silently stop matching cannot hide behind synthetic fixtures.
     """
@@ -1259,6 +1291,31 @@ class RealTreeTests(unittest.TestCase):
         baseline, failures = real.load_baseline()
         self.assertEqual([], failures)
         self.assertEqual(baseline, real.scan_fingerprints())
+
+    def test_isolation_covers_every_variable_the_resolver_reads(self) -> None:
+        """The isolation list must not drift from the resolver.
+
+        Derivation is the mechanism, but a later hand-edit could still replace it
+        with a literal tuple. This asserts the containment directly, so the
+        suite's environment-independence is itself a tested property rather than
+        a convention.
+        """
+        isolated = set(IsolatedTestCase.ambient_variables())
+        self.assertTrue(
+            set(guard.BASE_REF_ENV_VARS) <= isolated,
+            f"resolver reads {sorted(set(guard.BASE_REF_ENV_VARS) - isolated)} which the "
+            f"fixture does not neutralise; an ambient value can reach these tests",
+        )
+        self.assertIn("CI", isolated)
+        self.assertIn("GITHUB_EVENT_NAME", isolated)
+
+    def test_no_ambient_base_variable_survives_into_a_test(self) -> None:
+        """Proves the neutralisation actually happens, not merely that a list exists."""
+        for name in IsolatedTestCase.ambient_variables():
+            self.assertIsNone(
+                os.environ.get(name),
+                f"{name} leaked into the test environment",
+            )
 
     def test_committed_inventory_is_the_declared_number(self) -> None:
         real = _load_guard()

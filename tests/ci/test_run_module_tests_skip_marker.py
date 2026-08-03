@@ -98,7 +98,40 @@ def _markers(text: str) -> int:
     return len(harness.DOCTEST_SKIP_MARKER_RE.findall(text))
 
 
-class RealCaptureTests(unittest.TestCase):
+class IsolatedTestCase(unittest.TestCase):
+    """Base class that neutralises every ambient variable a result depends on.
+
+    A suite whose outcome depends on the environment it runs in cannot be
+    evidence about CI -- the same reason a local run said nothing about the
+    enforcement branch. This bit twice: first GITHUB_EVENT_NAME, then the BASE
+    variables, and the second time the workflow itself exported GS_CI_BASE_REF,
+    so this self-test ran inside --guard-only, read the ambient base, failed,
+    and re-blocked the merge queue the export existed to unblock.
+
+    The list is DERIVED from the wrapper under test
+    (ENVIRONMENT_SKIP_BASE_ENV_VARS) rather than written out here, so a variable
+    added later is neutralised automatically. CI and GITHUB_EVENT_NAME gate the
+    same code paths and are added explicitly.
+    """
+
+    @staticmethod
+    def ambient_variables() -> tuple[str, ...]:
+        return tuple(
+            sorted(
+                set(harness.ENVIRONMENT_SKIP_BASE_ENV_VARS) | {"CI", "GITHUB_EVENT_NAME"}
+            )
+        )
+
+    def setUp(self) -> None:
+        super().setUp()
+        patcher = mock.patch.dict(os.environ, {}, clear=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        for name in self.ambient_variables():
+            os.environ.pop(name, None)
+
+
+class RealCaptureTests(IsolatedTestCase):
     """A3 / A4: the exact-count assertions, fed the committed capture."""
 
     def _fixture_text(self) -> str:
@@ -213,7 +246,7 @@ class RealCaptureTests(unittest.TestCase):
         self.assertEqual(EXPECTED_SKIP_MARKERS, len(harness.DOCTEST_SKIP_MARKER_RE.findall(text)))
 
 
-class RealShapeTests(unittest.TestCase):
+class RealShapeTests(IsolatedTestCase):
     """The console shapes the detector must survive.
 
     Each line here is the exact framing doctest's ConsoleReporter produces:
@@ -346,7 +379,7 @@ class RealShapeTests(unittest.TestCase):
             self.assertEqual([], BASELINE_SKIP_MARKER_RE.findall(sample), sample)
 
 
-class ParseWiringTests(unittest.TestCase):
+class ParseWiringTests(IsolatedTestCase):
     """The count must reach _parse_doctest_results, not just the regex."""
 
     def test_parse_doctest_results_reports_the_marker_count(self) -> None:
@@ -411,7 +444,7 @@ def _allowance(mapping: dict):
             harness.ENVIRONMENT_SKIP_BASELINE_PATH = saved
 
 
-class LaneAllowanceTests(unittest.TestCase):
+class LaneAllowanceTests(IsolatedTestCase):
     """The tolerance that keeps this slice from converting skips into failures.
 
     Enforcement is not weakened by it: an absent lane means an allowance of
@@ -511,7 +544,7 @@ class LaneAllowanceTests(unittest.TestCase):
         self.assertTrue(within)
 
 
-class BaseForwardingTests(unittest.TestCase):
+class BaseForwardingTests(IsolatedTestCase):
     """(l) The wrapper must hand the review base to the guard subprocess.
 
     resolve_base_sha() being correct inside the guard is worth nothing if the
@@ -593,7 +626,7 @@ class BaseForwardingTests(unittest.TestCase):
         self.assertNotIn("--base-ref", command)
 
 
-class WorkflowBaseExportTests(unittest.TestCase):
+class WorkflowBaseExportTests(IsolatedTestCase):
     """Every base-bearing event the gate triggers on must be given a base.
 
     The guard fails closed without one. agentic_pr_gate.yml triggers on
@@ -666,6 +699,18 @@ class WorkflowBaseExportTests(unittest.TestCase):
                     f"trigger '{event}' is base-bearing but this test does not know how "
                     f"to check its export -- add it rather than letting it pass silently"
                 )
+
+    def test_isolation_covers_every_variable_the_wrapper_reads(self) -> None:
+        """The isolation list must not drift from the wrapper's own list."""
+        isolated = set(IsolatedTestCase.ambient_variables())
+        missing = set(harness.ENVIRONMENT_SKIP_BASE_ENV_VARS) - isolated
+        self.assertEqual(
+            set(),
+            missing,
+            f"the wrapper reads {sorted(missing)} which the fixture does not neutralise",
+        )
+        for name in IsolatedTestCase.ambient_variables():
+            self.assertIsNone(os.environ.get(name), f"{name} leaked into the test environment")
 
     def test_non_base_bearing_events_do_not_require_a_base(self) -> None:
         """push / schedule / workflow_dispatch have no review base at all.
