@@ -38,7 +38,6 @@
     "test_gaussian_importer.h": [
       "asset|is_valid()|1d3a9ed8b4",
       "asset|is_valid()|1d3a9ed8b4",
-      "asset|is_valid()|58530ddbfe",
       "asset|is_valid()|6adcc27e98",
       "asset|is_valid()|70b910fe8c",
       "asset|is_valid()|70b910fe8c",
@@ -54,8 +53,6 @@
       "file|is_valid()|bcfe8b0877",
       "preview_node|!= nullptr|95d6c23da3",
       "project_settings|!= nullptr|5f9521769b",
-      "project_settings|!= nullptr|5f9521769b",
-      "source_data|is_valid()|de91b209e8",
       "source_data|is_valid()|de91b209e8"
     ],
     "test_gaussian_splat_asset_prune.h": [
