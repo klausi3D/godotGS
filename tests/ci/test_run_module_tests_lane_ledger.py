@@ -189,12 +189,20 @@ FORBIDDEN_ABSOLUTE_CLAIMS = (
     re.compile(r"(?:can )?never (?:change|affect|influence) the (?:runner's )?exit code", re.I),
     re.compile(r"all invisible to the exit code", re.I),
     re.compile(r"invisible to the exit code\b(?![^.]*exception)", re.I),
+    # #822 P2-3: a RUN-WIDE claim an advisory record cannot make. The loop
+    # continues past ADVISORY-FAIL, so a later strict lane can fail the run.
+    # Note this targets "CI / the run still exits 0" only - "a LANE exits 0" is
+    # a different and entirely legitimate statement.
+    re.compile(r"\b(?:CI|the run)\s+still\s+exit(?:s|ed)\s+0", re.I),
 )
 # Each doc must positively state the exception, so deleting the qualification
 # is caught as well as re-asserting the absolute claim.
 # Every separator is \s+ because these sentences are hard-wrapped in the docs.
-REQUIRED_EXCEPTION_MARKER = re.compile(
-    r"exits?\s+0\s+while\s+its\s+doctest\s+summary\s+\**reports\**\s+failures", re.I
+REQUIRED_DOC_MARKERS = (
+    re.compile(
+        r"exits?\s+0\s+while\s+its\s+doctest\s+summary\s+\**reports\**\s+failures", re.I
+    ),
+    re.compile(r"(?:does|did)\s+not\s+itself\s+fail\s+the\s+run", re.I),
 )
 
 
@@ -458,7 +466,7 @@ class LaneLedgerOutcomeTests(unittest.TestCase):
         rc, output = _drive(lanes, results)
         self._assert_record(output, "StrictLane", strict=1, outcome="FAIL", failed_tests=1)
         totals = _aggregate(output)
-        self.assertEqual(totals["strict_failures"], 1)
+        self.assertEqual(totals["gating_failures"], 1)
         self.assertEqual(
             totals["advisory_failures"], 0, "a strict failure is not an advisory failure"
         )
@@ -494,6 +502,112 @@ class LaneLedgerOutcomeTests(unittest.TestCase):
         )
         self.assertIn("missing doctest summary", output)
         self._assert_parity(rc, BASELINE_RC_NO_SUMMARY, {}, lanes, results)
+
+    def test_an_advisory_lane_failure_is_never_charged_to_a_strict_lane(self) -> None:
+        """#822 P2-1: FAIL is not the same thing as "a strict lane failed".
+
+        An ADVISORY lane records FAIL when it exits 0 with a missing or failing
+        summary. Deriving the strict-failure count from that outcome produced
+        `strict_lanes=0 strict_failures=1` - an aggregate that is not merely
+        imprecise but attributes the failure to a lane class that has no members
+        in this run. A published aggregate that is wrong is worse than one that
+        is missing, because it gets quoted.
+        """
+        lanes = [("AdvisoryLane", False)]
+        results = _godot(True, False, NO_SUMMARY_OUTPUT, 0)
+        rc, output = _drive(lanes, results)
+        self._assert_record(output, "AdvisoryLane", strict=0, outcome="FAIL")
+        totals = _aggregate(output)
+        self.assertEqual(totals["strict_lanes"], 0, "the scenario has no strict lane")
+        self.assertEqual(
+            totals["gating_failures"],
+            1,
+            "the lane did fail the run, and the aggregate must say so",
+        )
+        self.assertNotIn(
+            "strict_failures",
+            totals,
+            "strict_failures counted FAIL outcomes regardless of the lane's strict "
+            "flag; the field must be named for what it counts",
+        )
+        self.assertEqual(rc, BASELINE_RC_NO_SUMMARY)
+
+    def test_gating_failures_are_split_by_the_declared_strict_flag(self) -> None:
+        """The split must come from record.strict, never from the outcome."""
+        lanes = [("AdvisoryLane", False), ("StrictLane", True)]
+        results = [
+            _godot(True, False, NO_SUMMARY_OUTPUT, 0),  # advisory -> FAIL, aborts
+            _godot(True, False, PASS_OUTPUT, 0),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "lane_ledger.json"
+            rc, output = _drive(lanes, results, lane_report=report)
+            payload = json.loads(report.read_text(encoding="utf-8"))
+        totals = payload["totals"]
+        self.assertEqual(totals["gating_failures"], 1)
+        self.assertEqual(
+            totals["gating_failures_on_advisory_lanes"],
+            1,
+            "the failing lane is declared strict=False",
+        )
+        self.assertEqual(totals["gating_failures_on_strict_lanes"], 0)
+        self.assertEqual(_records(output)["AdvisoryLane"]["outcome"], "FAIL")
+        self.assertEqual(rc, BASELINE_RC_NO_SUMMARY)
+
+    def test_a_teardown_crash_is_not_reported_as_test_failures(self) -> None:
+        """#822 P2-2: a clean all-pass summary plus a nonzero exit is not "failed".
+
+        The repo already draws this distinction in
+        _classify_quarantined_lane_outcome(); reporting it as reason=failed would
+        announce "an advisory lane is failing tests" with both failed counts at
+        zero.
+        """
+        lanes = [("AdvisoryLane", False)]
+        # Every test passed; the process still exited nonzero.
+        results = _godot(False, False, PASS_OUTPUT, 1)
+        rc, output = _drive(lanes, results)
+        self._assert_record(
+            output,
+            "AdvisoryLane",
+            outcome="ADVISORY-FAIL",
+            passed_tests=5,
+            failed_tests=0,
+            failed_assertions=0,
+            executed=1,
+            exit_code=1,
+        )
+        self.assertEqual(
+            _advisory_red(output),
+            {"AdvisoryLane": "nonzero-exit-no-test-failures"},
+            "a summary with zero failures did not report a test failure",
+        )
+        self._assert_parity(rc, BASELINE_RC_ADVISORY_FAIL, {}, lanes, results)
+
+    def test_reason_distinguishes_all_four_advisory_red_shapes(self) -> None:
+        """Each reason must be reachable and distinct; otherwise the field is noise."""
+        lanes = [
+            ("FailedLane", False),
+            ("CrashedLane", False),
+            ("TeardownLane", False),
+            ("EmptyLane", False),
+        ]
+        results = [
+            _godot(False, False, FAIL_OUTPUT, 1),
+            _godot(False, False, CRASH_OUTPUT, 3221225477),
+            _godot(False, False, PASS_OUTPUT, 1),
+            _godot(True, False, NO_COVERAGE_OUTPUT, 0),
+        ]
+        rc, output = _drive(lanes, results)
+        self.assertEqual(
+            _advisory_red(output),
+            {
+                "FailedLane": "failed",
+                "CrashedLane": "crashed",
+                "TeardownLane": "nonzero-exit-no-test-failures",
+                "EmptyLane": "no-coverage",
+            },
+        )
+        self.assertEqual(rc, BASELINE_RC_ADVISORY_FAIL)
 
     def test_unavailable_binary_warn_only(self) -> None:
         lanes = [("StrictLane", True)]
@@ -747,8 +861,74 @@ class LaneReportTests(unittest.TestCase):
         self.assertEqual(by_lane["AdvisoryFailLane"]["failed_tests"], 1)
         self.assertTrue(by_lane["AdvisoryFailLane"]["advisory_red"])
         self.assertEqual(by_lane["PassLane"]["outcome"], "PASS")
-        self.assertEqual(payload["totals"], _aggregate(output))
+        # The JSON totals are a strict SUPERSET of the printed aggregate: every
+        # field on stdout must be present and identical, and the JSON carries
+        # the strict/advisory split of gating_failures that the one-line
+        # aggregate has no room for. Superset, never contradiction.
+        printed = _aggregate(output)
+        json_totals = payload["totals"]
+        for key, value in printed.items():
+            self.assertIn(key, json_totals, f"stdout reports {key} but the JSON does not")
+            self.assertEqual(
+                json_totals[key], value, f"{key} differs between stdout and the JSON report"
+            )
+        self.assertEqual(
+            set(json_totals) - set(printed),
+            {"gating_failures_on_strict_lanes", "gating_failures_on_advisory_lanes"},
+            "the JSON may only ADD the gating-failure split to the printed aggregate",
+        )
+        self.assertEqual(
+            json_totals["gating_failures_on_strict_lanes"]
+            + json_totals["gating_failures_on_advisory_lanes"],
+            json_totals["gating_failures"],
+            "the split must account for exactly the gating failures, no more, no less",
+        )
         self.assertEqual(rc, BASELINE_RC_ADVISORY_FAIL)
+
+    def test_report_does_not_claim_the_run_exited_zero(self) -> None:
+        """#822 P2-3: an advisory red plus a LATER strict failure.
+
+        The loop continues past ADVISORY-FAIL, so the run can still exit 1 while
+        the report on disk holds the advisory record. A note asserting "CI
+        exited 0" is a run-wide claim the record cannot make; the true and
+        stable claim is about the advisory RESULT not itself failing the run.
+        """
+        lanes = [("AdvisoryLane", False), ("StrictLane", True)]
+        results = [
+            _godot(False, False, FAIL_OUTPUT, 1),  # advisory red, run continues
+            _godot(False, False, FAIL_OUTPUT, 1),  # strict lane then fails the run
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "lane_ledger.json"
+            rc, output = _drive(lanes, results, lane_report=report)
+            payload = json.loads(report.read_text(encoding="utf-8"))
+
+        self.assertEqual(rc, 1, "the later strict lane must fail the run")
+        self.assertEqual(_advisory_red(output), {"AdvisoryLane": "failed"})
+        by_lane = {lane["lane"]: lane for lane in payload["lanes"]}
+        self.assertTrue(by_lane["AdvisoryLane"]["advisory_red"])
+        self.assertEqual(by_lane["StrictLane"]["outcome"], "FAIL")
+
+        note = payload["baseline_note"]
+        for claim in ("exited 0", "exits 0", "still exit"):
+            self.assertNotIn(
+                claim,
+                note,
+                f"baseline_note asserts a run-wide outcome ({claim!r}) that a later "
+                f"lane can invalidate; this very report accompanies a run that "
+                f"exited {rc}",
+            )
+        self.assertIn(
+            "did not itself fail the run",
+            note,
+            "the note must describe the advisory RESULT, which is stable, rather than "
+            "the run's final exit code, which is not known when the record is made",
+        )
+        self.assertEqual(
+            payload["lane_loop_exit_code"],
+            1,
+            "the report must carry what the lane loop actually returned",
+        )
 
     def test_unwritable_report_path_fails_the_run(self) -> None:
         lanes = [("PassLane", True)]
@@ -933,19 +1113,20 @@ class DocConsistencyTests(unittest.TestCase):
                     match = pattern.search(text)
                     if match is not None:
                         self.fail(
-                            f"{doc.name} states an absolute claim the code contradicts: "
-                            f"{match.group(0)!r} - an advisory lane that exits 0 with a "
-                            f"failing doctest summary DOES fail the run"
+                            f"{doc.name} over-claims: {match.group(0)!r}. An advisory lane "
+                            f"that exits 0 with a failing doctest summary DOES fail the "
+                            f"run, and a run whose advisory lane went red can still exit "
+                            f"nonzero because of a LATER strict lane"
                         )
-                if REQUIRED_EXCEPTION_MARKER.search(text) is None:
-                    # Deliberately not assertRegex: it dumps the whole document
-                    # into the failure, which buries the one sentence at issue.
-                    self.fail(
-                        f"{doc.name} must state the exit-0-with-failures exception, not "
-                        f"just avoid denying it; deleting the qualification is the same "
-                        f"defect. Expected a sentence matching "
-                        f"{REQUIRED_EXCEPTION_MARKER.pattern!r}"
-                    )
+                for marker in REQUIRED_DOC_MARKERS:
+                    if marker.search(text) is None:
+                        # Deliberately not assertRegex: it dumps the whole
+                        # document into the failure, burying the sentence at issue.
+                        self.fail(
+                            f"{doc.name} must state the qualification, not merely avoid "
+                            f"denying it; deleting it is the same defect. Expected a "
+                            f"sentence matching {marker.pattern!r}"
+                        )
 
 
 if __name__ == "__main__":

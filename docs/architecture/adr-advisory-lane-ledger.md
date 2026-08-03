@@ -19,6 +19,12 @@ compiled C++ is byte-identical to this branch). Headline:
 advisory_failures=0  strict_failures=0  unavailable=0  not_run=0
 ```
 
+That block is quoted **verbatim as published**, so it still shows `strict_failures`, which
+round 3 renamed to `gating_failures` (§4a). The measured value is unaffected by the rename:
+the run recorded no `FAIL` outcome on any lane, strict or advisory, so both the old and the
+new field are 0. A later run must be compared against `gating_failures`, not against a field
+name that no longer exists.
+
 **The advisory lanes are not concealing failures.** The motivating hypothesis of this slice —
 that advisory lanes are swallowing red — is **not supported by the measurement**, and that
 finding must not be quietly dropped now that it is inconvenient. What the run did surface:
@@ -151,9 +157,33 @@ After the lane block, unconditionally — including when `advisory_failures=0`, 
 absence of output can never be read as absence of failures:
 
 ```
-[module-tests][lane-ledger] lanes=<n> strict_lanes=<n> advisory_lanes=<n> advisory_failures=<n> advisory_zero_coverage=<n> quarantine_tolerated=<n> unavailable=<n> quarantine_rejected=<n> strict_failures=<n> passed=<n> not_run=<n>
-[module-tests][lane-ledger] ADVISORY-RED lane=<name> reason=<failed|crashed|no-coverage>
+[module-tests][lane-ledger] lanes=<n> strict_lanes=<n> advisory_lanes=<n> advisory_failures=<n> advisory_zero_coverage=<n> quarantine_tolerated=<n> unavailable=<n> quarantine_rejected=<n> gating_failures=<n> passed=<n> not_run=<n>
+[module-tests][lane-ledger] ADVISORY-RED lane=<name> reason=<failed|crashed|nonzero-exit-no-test-failures|no-coverage>
 ```
+
+### 4a. Every field names only what it can support
+
+Three fields were reworked in round 3 because each over-claimed, and for a measurement tool
+**a confidently wrong field is worse than an absent one — someone will quote it.** The rule
+adopted here: prefer the narrower claim the data actually supports.
+
+- `strict_failures` → **`gating_failures`**. The old field counted `FAIL` outcomes, but an
+  *advisory* lane also records `FAIL` (exit 0 with a missing or failing summary), so the
+  aggregate could read `strict_lanes=0 strict_failures=1` — an advisory harness anomaly
+  charged to a strict lane. The name now matches what is counted, and the strict/advisory
+  split is derived from `record.strict`, never from the outcome
+  (`gating_failures_on_strict_lanes` / `gating_failures_on_advisory_lanes`, JSON).
+- **`reason=`** is derived from the failed counts *and* the exit status, not from "did a
+  summary exist". A clean all-pass summary followed by a nonzero exit is a teardown/harness
+  failure — `_classify_quarantined_lane_outcome()` has always known this — and calling it
+  `failed` would report a test failure where no test failed. It is now
+  `nonzero-exit-no-test-failures`, named for the observation rather than a guessed cause.
+- **`baseline_note`** no longer asserts that CI exited 0. The loop continues past an
+  `ADVISORY-FAIL`, so a *later* strict lane can fail the run while the same report claims
+  success. The note now describes the advisory *result* ("did not itself fail the run"),
+  which is true and stable, and the JSON carries `lane_loop_exit_code` — narrowly named
+  because the harness-integrity check and the report write itself can still change the
+  process exit code after the report is on disk.
 
 ### 5. `--lane-report <path>` writes the same records as JSON
 

@@ -1927,9 +1927,16 @@ LANE_OUTCOMES: tuple[str, ...] = (
     LANE_OUTCOME_QUARANTINE_REJECTED,
     LANE_OUTCOME_NOT_RUN,
 )
+# Says what is true of the ADVISORY RESULT, not what the whole run did. "CI
+# exited 0" is a run-wide claim this record cannot make: the loop continues past
+# an ADVISORY-FAIL, so a LATER strict lane can still fail the run while this
+# report sits in the same file asserting success. See totals.gating_failures and
+# lane_loop_exit_code for what the run actually did.
 LANE_LEDGER_BASELINE_NOTE = (
     "Reporting only (#705 slice 1): this ledger observes lane outcomes and changes no "
-    "exit code. An ADVISORY-RED lane FAILED and CI still exited 0."
+    "exit code. An ADVISORY-RED lane failed, crashed or executed nothing, and that "
+    "outcome did not itself fail the run; the run's exit code is decided elsewhere and "
+    "may still be nonzero for another lane's reason."
 )
 
 
@@ -1976,11 +1983,32 @@ class LaneLedgerRecord:
 
     @property
     def advisory_red_reason(self) -> str:
+        """Why this advisory lane is red, named from what was actually observed.
+
+        "A summary exists, therefore tests failed" is WRONG, and the repo
+        already knows it is wrong: _classify_quarantined_lane_outcome() treats a
+        clean all-pass summary followed by a nonzero exit as a teardown/harness
+        failure, not a test failure. Reporting that shape as reason=failed would
+        have this ledger announce "an advisory lane is failing tests" when
+        nothing failed - a confidently wrong claim someone would then quote.
+
+        So the reason is derived from the failed COUNTS and the exit status:
+        - no-coverage                    nothing executed
+        - failed                         the summary reports failed tests/assertions
+        - nonzero-exit-no-test-failures  every test passed, yet the process still
+                                         exited nonzero (teardown/harness crash);
+                                         named for the observation, not a guessed cause
+        - crashed                        no doctest summary at all
+        """
         if self.outcome == LANE_OUTCOME_ADVISORY_NO_COVERAGE:
             return "no-coverage"
-        # A lane that produced a doctest summary reported failures; one that did
-        # not never got far enough to print one.
-        return "failed" if self.executed else "crashed"
+        if self.failed_tests > 0 or self.failed_assertions > 0:
+            return "failed"
+        if self.executed:
+            # A summary was printed and it reported no failures, yet the lane is
+            # red - so the lane exited nonzero after its tests passed.
+            return "nonzero-exit-no-test-failures"
+        return "crashed"
 
     def to_json(self) -> dict:
         return {
@@ -2011,7 +2039,16 @@ class LaneLedgerTotals:
     quarantine_tolerated: int = 0
     unavailable: int = 0
     quarantine_rejected: int = 0
-    strict_failures: int = 0
+    # Lanes whose outcome was FAIL, i.e. that failed the run. Deliberately NOT
+    # called strict_failures: an ADVISORY lane also records FAIL when it exits 0
+    # with a missing or failing doctest summary, so counting FAIL outcomes as
+    # "strict failures" could print `strict_lanes=0 strict_failures=1` and
+    # attribute an advisory harness anomaly to a strict lane. The field is named
+    # for what it counts, and the strict/advisory split below is derived from
+    # record.strict rather than from the outcome.
+    gating_failures: int = 0
+    gating_failures_on_strict_lanes: int = 0
+    gating_failures_on_advisory_lanes: int = 0
     passed: int = 0
     not_run: int = 0
 
@@ -2025,7 +2062,9 @@ class LaneLedgerTotals:
             "quarantine_tolerated": self.quarantine_tolerated,
             "unavailable": self.unavailable,
             "quarantine_rejected": self.quarantine_rejected,
-            "strict_failures": self.strict_failures,
+            "gating_failures": self.gating_failures,
+            "gating_failures_on_strict_lanes": self.gating_failures_on_strict_lanes,
+            "gating_failures_on_advisory_lanes": self.gating_failures_on_advisory_lanes,
             "passed": self.passed,
             "not_run": self.not_run,
         }
@@ -2125,7 +2164,15 @@ class LaneLedger:
             elif record.outcome == LANE_OUTCOME_UNAVAILABLE:
                 totals.unavailable += 1
             elif record.outcome == LANE_OUTCOME_FAIL:
-                totals.strict_failures += 1
+                totals.gating_failures += 1
+                # Split by the lane's DECLARED strictness, never by the outcome:
+                # an advisory lane can record FAIL (exit 0 with a missing or
+                # failing summary), and charging that to a strict lane would make
+                # the published aggregate quotably wrong.
+                if record.strict:
+                    totals.gating_failures_on_strict_lanes += 1
+                else:
+                    totals.gating_failures_on_advisory_lanes += 1
             elif record.outcome == LANE_OUTCOME_NOT_RUN:
                 totals.not_run += 1
         return totals
@@ -2157,7 +2204,7 @@ class LaneLedger:
             f"quarantine_tolerated={totals.quarantine_tolerated} "
             f"unavailable={totals.unavailable} "
             f"quarantine_rejected={totals.quarantine_rejected} "
-            f"strict_failures={totals.strict_failures} "
+            f"gating_failures={totals.gating_failures} "
             f"passed={totals.passed} "
             f"not_run={totals.not_run}"
         )
@@ -2169,11 +2216,17 @@ class LaneLedger:
                 )
         return totals
 
-    def to_json(self, totals: LaneLedgerTotals) -> dict:
+    def to_json(self, totals: LaneLedgerTotals, *, lane_loop_exit_code: int) -> dict:
         return {
             "schema_version": LANE_LEDGER_SCHEMA_VERSION,
             "baseline_note": LANE_LEDGER_BASELINE_NOTE,
             "generated_utc": datetime.now(timezone.utc).isoformat(),
+            # The value the LANE LOOP produced. Named narrowly on purpose: this
+            # report is written before the harness-integrity check and before the
+            # write itself can fail, either of which can still make the PROCESS
+            # exit nonzero afterwards. Reporting it as "the run's exit code"
+            # would be the same over-claim as asserting CI exited 0.
+            "lane_loop_exit_code": lane_loop_exit_code,
             "lanes": [record.to_json() for record in self.records],
             "totals": totals.to_json(),
         }
@@ -3497,7 +3550,7 @@ def _execute_lane(
         if _report_failed_lane(name, strict, output):
             return None, result(
                 LANE_OUTCOME_ADVISORY_FAIL,
-                "advisory lane failed or crashed; the run still exits 0",
+                "advisory lane failed or crashed; this outcome did not itself fail the run",
             )
         return 1, result(LANE_OUTCOME_FAIL, "strict lane failed or crashed")
 
@@ -3557,7 +3610,10 @@ def _run_doctest_lanes(
     integrity_errors = ledger.check_integrity(aborted=aborted)
     if lane_report_path is not None:
         integrity_errors.extend(
-            _write_lane_report(lane_report_path, ledger.to_json(ledger_totals))
+            _write_lane_report(
+                lane_report_path,
+                ledger.to_json(ledger_totals, lane_loop_exit_code=exit_code),
+            )
         )
     if integrity_errors:
         # The ledger gates no TEST outcome, but it must not report success for a

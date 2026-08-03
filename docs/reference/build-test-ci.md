@@ -43,7 +43,7 @@ For module-only build commands and SCons targets, see [Gaussian Splatting Build 
 **20 strict, 6 advisory** (`strict=False`).
 
 When an advisory lane fails the ordinary way — the lane process exits nonzero, or crashes —
-the failure is **tolerated and the run still exits 0**. The same holds when it executes
+the failure is **tolerated and does not itself fail the run**. The same holds when it executes
 nothing or self-skips its coverage. Since doctest exits nonzero whenever a test fails, that
 covers the normal shape of an advisory failure.
 
@@ -66,8 +66,8 @@ One line per lane, in lane order:
 | --- | --- | --- |
 | `PASS` | exit 0 with real executed coverage | none |
 | `FAIL` | strict lane failed/crashed, or any lane exited 0 with a missing/failing summary | run fails |
-| `ADVISORY-FAIL` | advisory lane failed or crashed | **none — CI still exits 0** |
-| `ADVISORY-NO-COVERAGE` | advisory lane executed nothing (0 passed tests or 0 passed assertions) | **none — CI still exits 0** |
+| `ADVISORY-FAIL` | advisory lane failed or crashed | **none — does not itself fail the run** |
+| `ADVISORY-NO-COVERAGE` | advisory lane executed nothing (0 passed tests or 0 passed assertions) | **none — does not itself fail the run** |
 | `UNAVAILABLE` | binary has no `--test` support | fails only in strict tests-unavailable mode |
 | `QUARANTINE-TOLERATED` | known failure tolerated per `tests/ci/quarantine_manifest.json` | none |
 | `QUARANTINE-REJECTED` | quarantine entry stale/misconfigured | run fails |
@@ -81,20 +81,45 @@ After the per-lane block, printed unconditionally — including when `advisory_f
 that absence of output can never be read as absence of failures:
 
 ```
-[module-tests][lane-ledger] lanes=<n> strict_lanes=<n> advisory_lanes=<n> advisory_failures=<n> advisory_zero_coverage=<n> quarantine_tolerated=<n> unavailable=<n> quarantine_rejected=<n> strict_failures=<n> passed=<n> not_run=<n>
-[module-tests][lane-ledger] ADVISORY-RED lane=<name> reason=<failed|crashed|no-coverage>
+[module-tests][lane-ledger] lanes=<n> strict_lanes=<n> advisory_lanes=<n> advisory_failures=<n> advisory_zero_coverage=<n> quarantine_tolerated=<n> unavailable=<n> quarantine_rejected=<n> gating_failures=<n> passed=<n> not_run=<n>
+[module-tests][lane-ledger] ADVISORY-RED lane=<name> reason=<failed|crashed|nonzero-exit-no-test-failures|no-coverage>
 ```
 
-**An `ADVISORY-RED` line means that lane failed, crashed, or executed nothing, and CI still
-exited 0.** It is not a warning about a future problem; it is a lane outcome that nothing
-gates on today (`reason=` says which of the three it was). Arming those lanes is
-#705 / #519, and must be done against the measured values this ledger produces — not a
-guessed threshold. The first full measured run (2026-08-03) reported
+`gating_failures` counts lanes whose outcome was `FAIL`, i.e. that failed the run. It is
+deliberately **not** called `strict_failures`: an advisory lane also records `FAIL` when it
+exits 0 with a missing or failing summary, so counting `FAIL` outcomes as strict failures
+could print `strict_lanes=0 strict_failures=1` and charge an advisory harness anomaly to a
+strict lane. The strict/advisory split is derived from each lane's declared `strict` flag
+and is in the JSON as `gating_failures_on_strict_lanes` /
+`gating_failures_on_advisory_lanes`.
+
+**An `ADVISORY-RED` line means that lane failed, crashed, or executed nothing, and that
+outcome did not itself fail the run.** (It does *not* mean the run passed: the loop
+continues after an advisory failure, so a later strict lane can still fail — read
+`gating_failures` for that.) It is not a warning about a future problem; it is a lane
+outcome that nothing gates on today, and `reason=` says which kind:
+
+| `reason=` | What was observed |
+| --- | --- |
+| `failed` | the doctest summary reports failed tests or assertions |
+| `crashed` | no doctest summary at all — the lane died before reporting |
+| `nonzero-exit-no-test-failures` | every test passed and the process still exited nonzero (teardown/harness failure, not a test failure) |
+| `no-coverage` | the lane executed nothing |
+
+`nonzero-exit-no-test-failures` exists because "a summary was printed, therefore tests
+failed" is wrong, and reporting it as `failed` would announce a test failure where none
+occurred. `_classify_quarantined_lane_outcome()` already draws the same distinction.
+
+Arming those lanes is #705 / #519, and must be done against the measured values this ledger
+produces — not a guessed threshold. The first full measured run (2026-08-03) reported
 `advisory_failures=0` with one `ADVISORY-RED … reason=no-coverage`; see the ADR for what
 that does and does not license.
 
 `--lane-report <path>` writes the same records as JSON
-(`{schema_version, baseline_note, generated_utc, lanes, totals}`). The file is a build
+(`{schema_version, baseline_note, generated_utc, lane_loop_exit_code, lanes, totals}`).
+`lane_loop_exit_code` is narrowly named on purpose: the report is written before the
+harness-integrity check and before the write itself can fail, either of which can still make
+the process exit nonzero afterwards. The file is a build
 output and must stay untracked. It is rejected together with `--guard-only`, where it could
 only produce an empty report. An unwritable path fails the run rather than being skipped —
 checked before the lanes run, using a sibling probe file so an existing report is never
