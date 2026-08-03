@@ -265,6 +265,10 @@ BASELINE_SCHEMA_VERSION = 1
 # is not a skip site) and checked structurally instead, below.
 MACRO_HEADER_NAME = "test_macros.h"
 
+# Sites outside any TEST_CASE (helpers, file scope). A stable literal rather than
+# a hash of nothing, so the key reads plainly in the baseline.
+FILE_SCOPE = "<file-scope>"
+
 # The token the canonical helper must emit into doctest's output. Kept in sync
 # with tests/ci/run_module_tests.py:DOCTEST_SKIP_MARKER_RE and with
 # modules/gaussian_splatting/tests/test_macros.h:GS_ENV_SKIP.
@@ -456,8 +460,8 @@ def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def fingerprint(kind: str, detail: str) -> str:
-    """Stable identity for one skip site, independent of its line number.
+def fingerprint(kind: str, detail: str, case: str = FILE_SCOPE) -> str:
+    """Stable identity for one skip SITE, independent of its line number.
 
     Line numbers are deliberately not part of it: a line-keyed baseline goes
     stale on every unrelated edit above it, which trains people to regenerate
@@ -466,6 +470,27 @@ def fingerprint(kind: str, detail: str) -> str:
     For a `macro` site the detail IS the macro name and is used verbatim: the
     call sites are homogeneous (`REQUIRE_GPU_DEVICE();`) and carry no other
     distinguishing text, so hashing would only obscure the report.
+
+    ## Why the enclosing case is part of the key
+
+    Without it this identifies a SHAPE, not a site. Every `REQUIRE_GPU_DEVICE()`
+    in a file collapsed to the single key `macro|REQUIRE_GPU_DEVICE`, so deleting
+    one and adding an identical one ELSEWHERE IN THE SAME FILE left every
+    multiset comparison unchanged: the shrink-only inventory gained skipped
+    coverage with no baseline edit and no report. The same swap was already
+    closed at the FILE level (that is what per-file entries are for) and was
+    still wide open at the site level.
+
+    The enclosing `TEST_CASE` name is the right granularity: stable across
+    unrelated edits (unlike a line number) and specific enough that moving a skip
+    to a different case is correctly reported as one removal plus one addition.
+
+    RESIDUAL, stated rather than implied: two identical skips inside the SAME
+    case are still interchangeable, because they share a key. Distinguishing them
+    would need positional information, which reintroduces exactly the staleness
+    the line-number decision rejected. Swapping one duplicate for another within
+    a single case is close to a no-op semantically, so this is where the
+    precision/stability trade is deliberately settled.
 
     ## Why SHA1, deliberately, and why it must not be "upgraded"
 
@@ -487,19 +512,54 @@ def fingerprint(kind: str, detail: str) -> str:
     to zero. If it ever must change, that is its own reviewed commit whose diff
     shows all 384 keys moving and says why.
     """
+    case_digest = hashlib.sha1(
+        _normalize(case).encode("utf-8"), usedforsecurity=False
+    ).hexdigest()[:10]
     if kind == "macro":
-        return f"macro|{detail}"
+        return f"macro|{detail}|{case_digest}"
     digest = hashlib.sha1(
         _normalize(detail).encode("utf-8"), usedforsecurity=False
     ).hexdigest()[:10]
-    return f"{kind}|{digest}"
+    return f"{kind}|{digest}|{case_digest}"
+
+
+# A doctest case header. The name is the first string literal. Bounding a case
+# at the NEXT header (never by brace depth) is deliberate: a body's braces do not
+# end where the case does, and over-running attributes the following case's macro
+# to the previous one.
+_CASE_RE = re.compile(r"\bTEST_CASE(?:_TEMPLATE)?\s*\(\s*\"((?:[^\"\\]|\\.)*)\"")
+
+
+
+def _case_bounds(text: str) -> list[tuple[int, str]]:
+    """(offset, case_name) for each case header, in source order."""
+    return [(m.start(), m.group(1)) for m in _CASE_RE.finditer(text)]
+
+
+def _enclosing_case(bounds: list[tuple[int, str]], offset: int) -> str:
+    """The case a site belongs to: the last header at or before it."""
+    owner = FILE_SCOPE
+    for start, name in bounds:
+        if start <= offset:
+            owner = name
+        else:
+            break
+    return owner
 
 
 def scan_source(
     text: str,
     macro_names: tuple[tuple[str, ...], tuple[str, ...]] | None = None,
-) -> list[tuple[int, str, str]]:
-    """Return (line, kind, detail) for every environment-skip site in one source.
+) -> list[tuple[int, str, str, str]]:
+    """Return (line, kind, detail, case) for every environment-skip site.
+
+    `case` is the enclosing TEST_CASE name, and it is part of a site's identity.
+    Without it a fingerprint identifies a SHAPE, not a site: every
+    `REQUIRE_GPU_DEVICE()` maps to `macro|REQUIRE_GPU_DEVICE`, so deleting one
+    and adding an identical one elsewhere in the same file leaves both multiset
+    comparisons unchanged and the inventory silently gains skipped coverage.
+    Several committed files already hold duplicate fingerprints, so that was
+    reachable today, not theoretical.
 
     `macro_names` is the (function_like, object_like) pair from
     skip_macro_names(), and defaults to deriving it at CALL time -- never a
@@ -509,21 +569,27 @@ def scan_source(
     if macro_names is None:
         macro_names = skip_macro_names()
     stripped = strip_comments(text)
-    sites: list[tuple[int, str, str]] = []
+    bounds = _case_bounds(stripped)
+    sites: list[tuple[int, str, str, str]] = []
+
+    def add(offset: int, kind: str, detail: str) -> None:
+        sites.append(
+            (_line_of(stripped, offset), kind, detail, _enclosing_case(bounds, offset))
+        )
 
     for name, pattern in _macro_call_patterns(macro_names):
         for match in pattern.finditer(stripped):
-            sites.append((_line_of(stripped, match.start()), "macro", name))
+            add(match.start(), "macro", name)
 
     for match in _MESSAGE_RE.finditer(stripped):
         literal = match.group("text")
         if _SKIP_PROSE_PREFIX_RE.search(literal):
-            sites.append((_line_of(stripped, match.start()), "message", literal))
+            add(match.start(), "message", literal)
 
     for match in _PRINT_RE.finditer(stripped):
         literal = match.group("text")
         if _SKIP_PROSE_ANYWHERE_RE.search(literal):
-            sites.append((_line_of(stripped, match.start()), "warn", literal))
+            add(match.start(), "warn", literal)
 
     return sorted(sites)
 
@@ -593,10 +659,10 @@ def source_key(path: Path) -> str:
     return path.name
 
 
-def scan_all() -> dict[str, list[tuple[int, str, str]]]:
+def scan_all() -> dict[str, list[tuple[int, str, str, str]]]:
     """Repo-relative path -> sites, for every test source that has any."""
     macro_names = skip_macro_names()
-    results: dict[str, list[tuple[int, str, str]]] = {}
+    results: dict[str, list[tuple[int, str, str, str]]] = {}
     for path in test_sources():
         sites = scan_source(path.read_text(encoding="utf-8", errors="replace"), macro_names)
         if sites:
@@ -606,7 +672,7 @@ def scan_all() -> dict[str, list[tuple[int, str, str]]]:
 
 def scan_fingerprints() -> dict[str, list[str]]:
     return {
-        name: sorted(fingerprint(kind, detail) for _, kind, detail in sites)
+        name: sorted(fingerprint(kind, detail, case) for _, kind, detail, case in sites)
         for name, sites in scan_all().items()
     }
 
@@ -743,7 +809,9 @@ def load_baseline(path: Path | None = None) -> tuple[dict[str, list[str]], list[
 
 
 def build_baseline_document(
-    found: dict[str, list[str]], previous: dict | None
+    found: dict[str, list[str]],
+    previous: dict | None,
+    new_renames: dict[str, str] | None = None,
 ) -> dict:
     """Render the on-disk baseline document from a scan result."""
     document = {
@@ -792,6 +860,14 @@ def build_baseline_document(
             ),
         },
         "runtime_lane_allowance": (previous or {}).get("runtime_lane_allowance", {}),
+        # Renames recorded by --write-baseline --rename, so the base comparison
+        # can re-key the REFERENCE instead of reading a legitimate move as pure
+        # growth. Append-only and purely re-keying: it can never introduce a
+        # fingerprint that was not already baselined at the base.
+        "rename_ledger": (
+            list((previous or {}).get("rename_ledger", []))
+            + [{"from": old_key, "to": new_key} for old_key, new_key in sorted((new_renames or {}).items())]
+        ),
         "files": {
             name: {
                 "owner": BASELINE_OWNER,
@@ -1022,7 +1098,10 @@ def baseline_document_at_base(
 
 
 def check_sites_against_base(
-    current: dict[str, list[str]], base_document: dict | str
+    current: dict[str, list[str]],
+    base_document: dict | str,
+    rename_ledger: list[dict] | None = None,
+    scanned_keys: set[str] | None = None,
 ) -> list[str]:
     """The baseline's SITE LIST may only shrink relative to the review base.
 
@@ -1034,6 +1113,22 @@ def check_sites_against_base(
 
     Comparing the baseline file itself against the base closes it: the file grew,
     and growth is a violation regardless of how the bytes got there.
+
+    ## The rename ledger, and why it is not a second bypass
+
+    A file that legitimately MOVED has its fingerprints under a new key, which
+    against the base reads as pure growth -- so the base comparison, added in
+    round 3, left `--write-baseline --rename` unable to produce a baseline that
+    passes. A guard with no legal route for a legitimate operation gets bypassed
+    rather than obeyed, so the route has to exist.
+
+    The ledger records `{"from": old_key, "to": new_key}` and is applied to the
+    BASE document before comparing, i.e. it only ever RE-KEYS the reference. It
+    cannot introduce a fingerprint: whatever it moves was already baselined at
+    the base. And an entry whose `from` is still a live scanned source is
+    rejected outright -- that is the "transfer credit between two live files"
+    shape `_validate_renames` blocks at write time, re-checked here at read time
+    so a hand-written ledger entry cannot do what the writer refuses to.
     """
     if base_document == ABSENT_AT_BASE:
         return []
@@ -1049,6 +1144,26 @@ def check_sites_against_base(
             return [f"baseline at the review base has a malformed entry for '{name}'."]
 
     failures: list[str] = []
+    for entry in rename_ledger or []:
+        if not isinstance(entry, dict):
+            failures.append(f"rename_ledger entry is not an object: {entry!r}")
+            continue
+        old, new = entry.get("from"), entry.get("to")
+        if not isinstance(old, str) or not isinstance(new, str) or not old or not new:
+            failures.append(f"rename_ledger entry needs string 'from' and 'to': {entry!r}")
+            continue
+        if scanned_keys is not None and old in scanned_keys:
+            failures.append(
+                f"rename_ledger claims '{old}' moved to '{new}', but '{old}' is still a live "
+                f"scanned source. A rename means the source is GONE; this shape transfers "
+                f"credit between two live files."
+            )
+            continue
+        if old in base_sites:
+            base_sites[new] = sorted(base_sites.get(new, []) + base_sites.pop(old))
+    if failures:
+        return failures
+
     for name in sorted(set(current) | set(base_sites)):
         added = multiset_difference(current.get(name, []), base_sites.get(name, []))
         if added:
@@ -1181,7 +1296,7 @@ def write_baseline(
             print(f"  - {addition}")
         return 1
 
-    document = build_baseline_document(found, previous_document)
+    document = build_baseline_document(found, previous_document, renames)
     path.write_text(_serialize(document), encoding="utf-8")
     total = sum(len(v) for v in found.values())
     print(
@@ -1270,7 +1385,14 @@ def main(argv: list[str] | None = None) -> int:
                         "run. Review the whole file, not a diff."
                     )
                 failures.extend(check_allowance(document, base_document))
-                failures.extend(check_sites_against_base(baseline, base_document))
+                failures.extend(
+                    check_sites_against_base(
+                        baseline,
+                        base_document,
+                        document.get("rename_ledger"),
+                        {source_key(p) for p in files},
+                    )
+                )
 
     total = sum(len(v) for v in found.values())
 
@@ -1278,11 +1400,13 @@ def main(argv: list[str] | None = None) -> int:
     # a single entry) because a file legitimately holds many identical sites
     # (`REQUIRE_GPU_DEVICE();` twelve times); reporting the same line twelve
     # times would hide eleven of them.
-    where: dict[str, dict[str, list[tuple[int, str, str]]]] = {}
+    where: dict[str, dict[str, list[tuple[int, str, str, str]]]] = {}
     for name, sites in found.items():
-        table: dict[str, list[tuple[int, str, str]]] = {}
-        for line_no, kind, detail in sites:
-            table.setdefault(fingerprint(kind, detail), []).append((line_no, kind, detail))
+        table: dict[str, list[tuple[int, str, str, str]]] = {}
+        for line_no, kind, detail, case in sites:
+            table.setdefault(fingerprint(kind, detail, case), []).append(
+                (line_no, kind, detail, case)
+            )
         where[name] = table
 
     for name in sorted(set(found_prints) | set(baseline)):
@@ -1298,8 +1422,12 @@ def main(argv: list[str] | None = None) -> int:
             pending = dict(where[name])
             for print_ in added:
                 occurrences = pending.get(print_) or []
-                line_no, kind, detail = occurrences.pop() if occurrences else (0, "?", print_)
-                failures.append(f"    line {line_no}: [{kind}] {_elide(detail, 90)}")
+                line_no, kind, detail, case = (
+                    occurrences.pop() if occurrences else (0, "?", print_, FILE_SCOPE)
+                )
+                failures.append(
+                    f"    line {line_no}: [{kind}] {_elide(detail, 70)}  (case: {_elide(case, 60)})"
+                )
             failures.append(
                 f"    An environment skip is scored by doctest as a PASS (the vendored 2.4.12 "
                 f"has no runtime skip API), so a new one silently removes coverage. Either give "

@@ -855,6 +855,53 @@ def _run_test_linkage_guard() -> tuple[bool, list[str]]:
     return True, output_lines
 
 
+# Set from --base-ref in _run_ci_guard_steps so the guard subprocess can be told
+# which base to ratchet against. A module global rather than a parameter because
+# the guard-step table calls its runners with no arguments.
+_GUARD_BASE_REF_OVERRIDE: str | None = None
+
+# The PR base, in priority order. GITHUB_BASE_SHA / GITHUB_BASE_REF are what
+# .github/workflows/agentic_pr_gate.yml has available from
+# `github.event.pull_request.base.*`.
+ENVIRONMENT_SKIP_BASE_ENV_VARS: tuple[str, ...] = (
+    "GS_CI_ENV_SKIP_BASE_REF",
+    "GS_CI_BASE_REF",
+    "GITHUB_BASE_SHA",
+    "GITHUB_BASE_REF",
+)
+
+
+def _environment_skip_base_ref() -> tuple[str | None, list[str]]:
+    """The review base to hand the env-skip guard, or a hard failure.
+
+    In CI this MUST be explicit. The guard's own fallback chain ends at
+    origin/master, which is correct only for PRs that target master -- and the
+    PRs most in need of the ratchet are the stacked ones that do not. Letting
+    the fallback run in CI means "defaulted to master" and "confirmed against
+    the real base" produce the same green, which is the conflation this whole
+    change exists to remove.
+
+    Locally, returning None is fine and deliberate: the guard then uses its
+    documented local defaults, which is the right ergonomics for a dev machine
+    and is never the thing a merge decision rests on.
+    """
+    if _GUARD_BASE_REF_OVERRIDE:
+        return _GUARD_BASE_REF_OVERRIDE, []
+    for name in ENVIRONMENT_SKIP_BASE_ENV_VARS:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value, []
+    if _is_ci():
+        return None, [
+            "Environment-skip guard: no review base available in CI. Set one of "
+            f"{', '.join(ENVIRONMENT_SKIP_BASE_ENV_VARS)} (the workflow has "
+            "github.event.pull_request.base.sha) or pass --base-ref. Refusing to let the "
+            "guard fall back to origin/master: on a PR stacked on a feature branch that "
+            "grades the ratchet against the wrong branch, and reports green either way."
+        ]
+    return None, []
+
+
 def _run_environment_skip_marker_guard() -> tuple[bool, list[str]]:
     """#595: environment skips are a counted, shrink-only inventory.
 
@@ -871,6 +918,10 @@ def _run_environment_skip_marker_guard() -> tuple[bool, list[str]]:
     metric-reset parity guards, so the rules are exercised against synthetic
     fixtures even when the real tree happens not to trip them.
     """
+    base_ref, base_failures = _environment_skip_base_ref()
+    if base_failures:
+        return False, base_failures
+
     reported: list[str] = []
     for label, script, quiet_on_success in (
         ("Environment-skip marker guard unit test", ENVIRONMENT_SKIP_TEST_SCRIPT, True),
@@ -884,7 +935,14 @@ def _run_environment_skip_marker_guard() -> tuple[bool, list[str]]:
     ):
         if not script.is_file():
             return False, [f"Missing {label} script: {script.relative_to(ROOT)}"]
-        code, out, err = _run_command([sys.executable, str(script)])
+        # The base MUST reach the guard. Its own resolution falls back to
+        # origin/master, which is wrong for any PR that does not target master --
+        # and PRs stacked on a feature branch are exactly the ones the ratchet
+        # exists to police (#821 targets gs/595-env-skip-marker, #822 targets
+        # gs/650-quarantine-ratchet). Without this the ratchet silently graded
+        # against master on precisely those PRs.
+        extra = ["--base-ref", base_ref] if base_ref and script is ENVIRONMENT_SKIP_GUARD_SCRIPT else []
+        code, out, err = _run_command([sys.executable, str(script), *extra])
         output_lines = [line for line in (out + err).splitlines() if line.strip()]
         if code != 0:
             if not output_lines:
@@ -2208,6 +2266,12 @@ def _run_configured_render_and_static_guards(cli_args: argparse.Namespace) -> in
 
 
 def _run_ci_guard_steps(cli_args: argparse.Namespace) -> int | None:
+    # Publish --base-ref so the env-skip guard subprocess ratchets against the
+    # SAME base the render-path guard diffs against, instead of silently
+    # resolving its own (which ends at origin/master).
+    global _GUARD_BASE_REF_OVERRIDE
+    _GUARD_BASE_REF_OVERRIDE = getattr(cli_args, "base_ref", None)
+
     history_guard_mode, history_guard_mode_warning = _resolve_history_artifact_guard_mode()
     if history_guard_mode_warning:
         print(f"[module-tests] {history_guard_mode_warning}")

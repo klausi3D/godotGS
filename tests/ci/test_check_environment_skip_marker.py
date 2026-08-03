@@ -200,7 +200,7 @@ class SiteRecognitionTests(GuardTestCase):
             "TEST_CASE(\"a\") {\n    REQUIRE_GPU_DEVICE();\n    CHECK(rd);\n}\n",
         )
         sites = guard.scan_source((self.tests_dir / "test_alpha.h").read_text(encoding="utf-8"))
-        self.assertEqual([(2, "macro", "REQUIRE_GPU_DEVICE")], sites)
+        self.assertEqual([(2, "macro", "REQUIRE_GPU_DEVICE", "a")], sites)
 
     def test_direct_gs_env_skip_site_is_recognised(self) -> None:
         self.write_source(
@@ -209,7 +209,7 @@ class SiteRecognitionTests(GuardTestCase):
             "        return;\n    }\n}\n",
         )
         sites = guard.scan_source((self.tests_dir / "test_alpha.h").read_text(encoding="utf-8"))
-        self.assertEqual([(3, "macro", "GS_ENV_SKIP")], sites)
+        self.assertEqual([(3, "macro", "GS_ENV_SKIP", "a")], sites)
 
     def test_free_form_prose_site_is_recognised(self) -> None:
         """An unconverted MESSAGE("Skip…") is a site (A7): the 356 legacy sites
@@ -221,7 +221,7 @@ class SiteRecognitionTests(GuardTestCase):
             "    return;\n}\n",
         )
         sites = guard.scan_source((self.tests_dir / "test_alpha.h").read_text(encoding="utf-8"))
-        self.assertEqual([(2, "message", "Skipping test - renderer unavailable")], sites)
+        self.assertEqual([(2, "message", "Skipping test - renderer unavailable", "a")], sites)
 
     def test_vformat_prose_site_is_recognised(self) -> None:
         self.write_source(
@@ -229,7 +229,7 @@ class SiteRecognitionTests(GuardTestCase):
             'MESSAGE(vformat("Skipping %s - unsupported", label));\n',
         )
         sites = guard.scan_source((self.tests_dir / "test_alpha.h").read_text(encoding="utf-8"))
-        self.assertEqual([(1, "message", "Skipping %s - unsupported")], sites)
+        self.assertEqual([(1, "message", "Skipping %s - unsupported", guard.FILE_SCOPE)], sites)
 
     def test_warn_print_prose_site_is_recognised(self) -> None:
         self.write_source(
@@ -405,6 +405,43 @@ class RatchetTests(GuardTestCase):
         code, out = self.run_guard()
         self.assertEqual(1, code, out)
         self.assertIn("NEW environment-skip site(s)", out)
+
+    def test_moving_an_identical_skip_to_another_case_is_detected(self) -> None:
+        """(m) The site-vs-shape defect, as a property.
+
+        Before the re-key, every `REQUIRE_GPU_DEVICE()` in a file shared one key
+        (`macro|REQUIRE_GPU_DEVICE`). Deleting one from case A and adding an
+        identical one to case B therefore left the multiset unchanged: the
+        shrink-only inventory silently gained skipped coverage in a case that
+        previously had none, with no baseline edit and no report. Several
+        committed files already carry duplicate shapes, so it was reachable.
+        """
+        self.write_source(
+            "test_alpha.h",
+            'TEST_CASE("case A") {\n    REQUIRE_GPU_DEVICE();\n}\n'
+            'TEST_CASE("case B") {\n    CHECK(true);\n}\n',
+        )
+        self.regenerate()
+        code, out = self.run_guard()
+        self.assertEqual(0, code, out)
+
+        # Same shape, same file, same COUNT -- moved to a different case.
+        self.write_source(
+            "test_alpha.h",
+            'TEST_CASE("case A") {\n    CHECK(true);\n}\n'
+            'TEST_CASE("case B") {\n    REQUIRE_GPU_DEVICE();\n}\n',
+        )
+        code, out = self.run_guard()
+        self.assertEqual(1, code, out)
+        self.assertIn("NEW environment-skip site(s)", out)
+        self.assertIn("no longer found", out)
+
+    def test_identical_shapes_in_different_cases_have_different_keys(self) -> None:
+        """The mechanism behind the property above, pinned directly."""
+        a = guard.fingerprint("macro", "REQUIRE_GPU_DEVICE", "case A")
+        b = guard.fingerprint("macro", "REQUIRE_GPU_DEVICE", "case B")
+        self.assertNotEqual(a, b)
+        self.assertEqual(a, guard.fingerprint("macro", "REQUIRE_GPU_DEVICE", "case A"))
 
     def test_swap_is_detected(self) -> None:
         """A count-only baseline would license this: remove one site, add a
@@ -905,6 +942,59 @@ class TwoCommitRatchetTests(unittest.TestCase):
         code, out = self._run(["--base-ref", "base"])
         self.assertEqual(0, code, out)
 
+    def test_rename_round_trip_through_the_documented_flow_passes(self) -> None:
+        """(n) EVERY documented workflow must have a legal route.
+
+        The round-3 base-relative fix broke this one: a moved file's
+        fingerprints land under a new key, which against the base reads as pure
+        growth, so `--write-baseline --rename` could no longer produce a
+        baseline the guard accepts. A guard with no legal path for a legitimate
+        operation gets bypassed, not obeyed -- so this test walks the documented
+        flow end to end and asserts it GOES GREEN.
+        """
+        self._write_source(
+            "test_alpha.h", 'REQUIRE_GPU_DEVICE();\nMESSAGE("Skipping - x");\n'
+        )
+        self._seed_and_commit()
+        self._git("branch", "-f", "base", "HEAD")
+
+        # The documented move: rename the file, then re-key via the writer.
+        (self.tests_dir / "test_alpha.h").rename(self.tests_dir / "test_renamed.h")
+        old_key = "modules/gaussian_splatting/tests/test_alpha.h"
+        new_key = "modules/gaussian_splatting/tests/test_renamed.h"
+        code, out = self._run(["--write-baseline", "--rename", f"{old_key}={new_key}"])
+        self.assertEqual(0, code, out)
+        self._commit_all("move a test file")
+
+        code, out = self._run(["--base-ref", "base"])
+        self.assertEqual(0, code, out)
+
+        document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
+        self.assertEqual([{"from": old_key, "to": new_key}], document["rename_ledger"])
+        self.assertNotIn(old_key, document["files"])
+        self.assertEqual(2, document["files"][new_key]["count"])
+
+    def test_a_hand_written_ledger_entry_cannot_move_live_credit(self) -> None:
+        """The ledger must not become the bypass the writer refuses to be."""
+        self._write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self._write_source("test_beta.h", "REQUIRE_LOCAL_GPU_DEVICE();\n")
+        self._seed_and_commit()
+        self._git("branch", "-f", "base", "HEAD")
+
+        document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
+        document["rename_ledger"] = [
+            {
+                "from": "modules/gaussian_splatting/tests/test_alpha.h",
+                "to": "modules/gaussian_splatting/tests/test_beta.h",
+            }
+        ]
+        self.baseline_path.write_text(guard._serialize(document), encoding="utf-8")
+        self._commit_all("hand-written ledger entry")
+
+        code, out = self._run(["--base-ref", "base"])
+        self.assertEqual(1, code, out)
+        self.assertIn("still a live scanned source", out)
+
     # -- base resolution --------------------------------------------------
 
     def test_unresolvable_base_fails_closed(self) -> None:
@@ -966,28 +1056,47 @@ class RealTreeTests(unittest.TestCase):
     def test_fingerprint_digest_is_pinned_to_its_committed_values(self) -> None:
         """Every one of the 384 baseline keys comes from fingerprint().
 
-        Changing the hash algorithm re-keys the whole ratchet at once: every
-        baselined entry reports stale, every real site reports new, and the
-        tempting "fix" is to regenerate -- which resets the ratchet to zero
-        while looking like routine maintenance. `usedforsecurity=False` is safe
-        precisely because it does not move these bytes; sha256 would.
+        Changing the hash algorithm, or the key SHAPE, re-keys the whole ratchet
+        at once: every baselined entry reports stale, every real site reports
+        new, and the tempting "fix" is to regenerate -- which resets the ratchet
+        to zero while looking like routine maintenance. `usedforsecurity=False`
+        is safe precisely because it does not move these bytes; sha256 would, and
+        so would dropping the enclosing-case component.
 
-        These literals are the values actually committed in
-        environment_skip_baseline.json, so this fails on any algorithm or
-        normalisation change, not merely on a different-looking one.
+        These literals are values actually committed in
+        environment_skip_baseline.json.
         """
         real = _load_guard()
-        self.assertEqual(
-            "message|ed617c6cc2",
-            real.fingerprint("message", "Skipping - THREADS_ENABLED is not enabled in this build"),
+        diagnostics_case = (
+            "[Gaussian Diagnostics] Production metrics preserve GPU timing "
+            "capture semantics without GPU"
         )
         self.assertEqual(
-            "message|2fdc85c6d5",
-            real.fingerprint("message", "Skipping test - ProjectSettings unavailable"),
+            "message|2fdc85c6d5|d6920be551",
+            real.fingerprint(
+                "message", "Skipping test - ProjectSettings unavailable", diagnostics_case
+            ),
         )
-        # macro keys are verbatim, never hashed -- pinned so a "consistency"
-        # refactor cannot start hashing them and re-key 28 more entries.
-        self.assertEqual("macro|REQUIRE_GPU_DEVICE", real.fingerprint("macro", "REQUIRE_GPU_DEVICE"))
+        self.assertEqual(
+            "macro|REQUIRE_GPU_DEVICE|337f4fcc2b",
+            real.fingerprint(
+                "macro",
+                "REQUIRE_GPU_DEVICE",
+                "[GaussianSplatting][AsyncReadback] Batched readback tolerates "
+                "per-request failures",
+            ),
+        )
+
+        # The whole point of the round-4 re-key: the SAME shape in a DIFFERENT
+        # case must not collide, or a swap nets zero and the inventory grows
+        # silently.
+        other = real.fingerprint(
+            "macro",
+            "REQUIRE_GPU_DEVICE",
+            "[GaussianSplatting][AsyncReadback] Batched readback rejects fully "
+            "failed batches cleanly",
+        )
+        self.assertNotEqual("macro|REQUIRE_GPU_DEVICE|337f4fcc2b", other)
 
         # And the committed baseline must still be exactly what the scan produces.
         baseline, failures = real.load_baseline()
@@ -1032,7 +1141,7 @@ class RealTreeTests(unittest.TestCase):
         names = real.skip_macro_names(header)
         self.assertIn("REQUIRE_BRAND_NEW_THING", names[0])
         sites = real.scan_source("TEST_CASE(\"a\") { REQUIRE_BRAND_NEW_THING(); }\n", names)
-        self.assertEqual([(1, "macro", "REQUIRE_BRAND_NEW_THING")], sites)
+        self.assertEqual([(1, "macro", "REQUIRE_BRAND_NEW_THING", "a")], sites)
 
     def test_an_object_like_wrapper_macro_is_picked_up(self) -> None:
         """The reviewer's counter-example, which the first derivation missed.
@@ -1054,7 +1163,7 @@ class RealTreeTests(unittest.TestCase):
             'TEST_CASE("a") {\n    GS_SKIP_NO_GPU;\n    CHECK(true);\n}\n',
             (function_like, object_like),
         )
-        self.assertEqual([(2, "macro", "GS_SKIP_NO_GPU")], sites)
+        self.assertEqual([(2, "macro", "GS_SKIP_NO_GPU", "a")], sites)
 
     def test_a_regressed_wrapper_macro_is_also_picked_up(self) -> None:
         """Derivation must survive the wrapper reverting to free-form prose."""

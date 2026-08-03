@@ -511,5 +511,81 @@ class LaneAllowanceTests(unittest.TestCase):
         self.assertTrue(within)
 
 
+class BaseForwardingTests(unittest.TestCase):
+    """(l) The wrapper must hand the review base to the guard subprocess.
+
+    resolve_base_sha() being correct inside the guard is worth nothing if the
+    caller never tells it which base to use: the guard's own fallback chain ends
+    at origin/master, which is right only for PRs targeting master. The PRs that
+    most need the ratchet are the stacked ones that do not (#821 targets
+    gs/595-env-skip-marker, #822 targets gs/650-quarantine-ratchet), and there
+    the ratchet would have graded against the wrong branch and reported green.
+    """
+
+    def _capture(self, env: dict[str, str], override: str | None = None):
+        calls: list[list[str]] = []
+
+        def fake_run(command, *args, **kwargs):
+            calls.append(list(command))
+            return 0, "", ""
+
+        saved_override = harness._GUARD_BASE_REF_OVERRIDE
+        harness._GUARD_BASE_REF_OVERRIDE = override
+        with mock.patch.object(harness, "_run_command", fake_run):
+            with mock.patch.dict(os.environ, env, clear=False):
+                for name in harness.ENVIRONMENT_SKIP_BASE_ENV_VARS:
+                    if name not in env:
+                        os.environ.pop(name, None)
+                try:
+                    ok, output = harness._run_environment_skip_marker_guard()
+                finally:
+                    harness._GUARD_BASE_REF_OVERRIDE = saved_override
+        return ok, output, calls
+
+    def _guard_call(self, calls: list[list[str]]) -> list[str]:
+        guard_script = str(harness.ENVIRONMENT_SKIP_GUARD_SCRIPT)
+        for command in calls:
+            if guard_script in command:
+                return command
+        self.fail(f"guard script was never invoked; calls={calls}")
+
+    def test_base_from_a_non_master_pr_is_forwarded(self) -> None:
+        ok, output, calls = self._capture(
+            {"CI": "1", "GITHUB_BASE_SHA": "gs/595-env-skip-marker"}
+        )
+        self.assertTrue(ok, output)
+        command = self._guard_call(calls)
+        self.assertIn("--base-ref", command)
+        self.assertEqual(
+            "gs/595-env-skip-marker", command[command.index("--base-ref") + 1]
+        )
+
+    def test_explicit_base_ref_wins(self) -> None:
+        ok, output, calls = self._capture(
+            {"CI": "1", "GITHUB_BASE_SHA": "ignored"}, override="gs/650-quarantine-ratchet"
+        )
+        self.assertTrue(ok, output)
+        command = self._guard_call(calls)
+        self.assertEqual(
+            "gs/650-quarantine-ratchet", command[command.index("--base-ref") + 1]
+        )
+
+    def test_ci_without_any_base_fails_closed(self) -> None:
+        """'Defaulted to master' and 'confirmed against the real base' must not
+        share an encoding."""
+        ok, output, calls = self._capture({"CI": "1"})
+        self.assertFalse(ok)
+        self.assertTrue(any("no review base available in CI" in line for line in output), output)
+        self.assertEqual([], calls, "the guard must not run at all without a base")
+
+    def test_local_run_without_a_base_is_allowed(self) -> None:
+        """Local ergonomics: the guard falls back to its documented defaults,
+        and no merge decision rests on a local run."""
+        ok, output, calls = self._capture({"CI": ""})
+        self.assertTrue(ok, output)
+        command = self._guard_call(calls)
+        self.assertNotIn("--base-ref", command)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
