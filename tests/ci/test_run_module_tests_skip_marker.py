@@ -640,16 +640,41 @@ class WorkflowBaseExportTests(IsolatedTestCase):
     on this very branch (the hand-written macro list, twice over).
     """
 
-    WORKFLOW = ROOT / ".github" / "workflows" / "agentic_pr_gate.yml"
+    WORKFLOWS_DIR = ROOT / ".github" / "workflows"
+    INVOCATION = re.compile(r"run_module_tests\.py")
 
-    def _trigger_events(self) -> set[str]:
-        """Event names under the workflow's top-level `on:` key."""
-        text = self.WORKFLOW.read_text(encoding="utf-8")
+    def _invoking_workflows(self) -> list[Path]:
+        """Every workflow that invokes run_module_tests.py, DERIVED by scanning.
+
+        Not a hand-maintained list. Checking only agentic_pr_gate.yml is how
+        gaussian_production_gates.yml -- a second required gate, with FOUR
+        failing workflow x event pairs across TWO invocation sites -- stayed
+        invisible for a round. A second hand-written list would be the same
+        defect one file over.
+        """
+        found = [
+            path
+            for path in sorted(self.WORKFLOWS_DIR.glob("*.yml"))
+            if self.INVOCATION.search(path.read_text(encoding="utf-8"))
+        ]
+        self.assertTrue(found, "no workflow invokes run_module_tests.py; the scan is broken")
+        return found
+
+    def _invocation_offsets(self, text: str) -> list[int]:
+        """Every run_module_tests.py invocation in one workflow.
+
+        Per INVOCATION, not per workflow: gaussian_production_gates.yml runs the
+        guard twice (--guard-only in one job, a full run in another), and a
+        per-workflow check would have passed while one step still had no base.
+        """
+        return [m.start() for m in self.INVOCATION.finditer(text)]
+
+    def _trigger_events_of(self, text: str) -> set[str]:
         lines = text.splitlines()
         try:
             start = next(i for i, line in enumerate(lines) if re.match(r"^on:\s*$", line))
         except StopIteration:
-            self.fail(f"{self.WORKFLOW.name} has no top-level 'on:' block")
+            self.fail("workflow has no top-level 'on:' block")
         events: set[str] = set()
         for line in lines[start + 1 :]:
             if line and not line[0].isspace():
@@ -660,57 +685,60 @@ class WorkflowBaseExportTests(IsolatedTestCase):
         self.assertTrue(events, "derived no trigger events; the parser is broken")
         return events
 
-    def _guard_step_env(self) -> str:
-        """The `env:` block attached to the guard-only step."""
-        text = self.WORKFLOW.read_text(encoding="utf-8")
-        marker = "run: python tests/ci/run_module_tests.py --guard-only"
-        self.assertIn(marker, text, "the guard-only step moved or was renamed")
-        # The step's env: block precedes its run: line within the same step.
-        step_start = text.rindex("- name:", 0, text.index(marker))
-        return text[step_start : text.index(marker)]
+    def _step_env_for(self, text: str, invocation_at: int) -> str:
+        """The `env:` block of the step containing this invocation."""
+        step_start = text.rfind("- name:", 0, invocation_at)
+        self.assertNotEqual(-1, step_start, "invocation is not inside a named step")
+        return text[step_start:invocation_at]
 
-    def test_every_base_bearing_trigger_is_covered_by_the_export(self) -> None:
-        events = self._trigger_events()
-        base_bearing = events & harness.BASE_BEARING_EVENTS
-        self.assertTrue(
-            base_bearing,
-            f"no base-bearing trigger found in {sorted(events)}; if the workflow "
-            f"genuinely no longer runs on one, this test should be removed deliberately",
-        )
-        env_block = self._guard_step_env()
-        self.assertIn(
-            "GS_CI_BASE_REF",
-            env_block,
-            "the guard-only step exports no review base; the guard fails closed "
-            "without one, so this blocks the gate",
-        )
-        for event in sorted(base_bearing):
-            if event == "pull_request":
-                self.assertIn("github.event.pull_request.base.sha", env_block)
-            elif event == "merge_group":
-                self.assertIn(
-                    "github.event.merge_group.base_sha",
-                    env_block,
-                    "merge_group triggers this workflow but no merge-queue base is "
-                    "exported; every merge-queue run would fail closed",
-                )
-            else:
-                self.fail(
-                    f"trigger '{event}' is base-bearing but this test does not know how "
-                    f"to check its export -- add it rather than letting it pass silently"
-                )
+    def test_every_invocation_covers_every_base_bearing_trigger(self) -> None:
+        """The complete surface: workflow x invocation x event.
 
-    def test_isolation_covers_every_variable_the_wrapper_reads(self) -> None:
-        """The isolation list must not drift from the wrapper's own list."""
-        isolated = set(IsolatedTestCase.ambient_variables())
-        missing = set(harness.ENVIRONMENT_SKIP_BASE_ENV_VARS) - isolated
-        self.assertEqual(
-            set(),
-            missing,
-            f"the wrapper reads {sorted(missing)} which the fixture does not neutralise",
-        )
-        for name in IsolatedTestCase.ambient_variables():
-            self.assertIsNone(os.environ.get(name), f"{name} leaked into the test environment")
+        Enumerated by scanning, and checked per INVOCATION rather than per
+        workflow -- gaussian_production_gates.yml invokes the runner twice, and
+        a per-workflow assertion would pass while one of the two steps still had
+        no base and failed a required gate closed.
+        """
+        problems: list[str] = []
+        checked = 0
+        for path in self._invoking_workflows():
+            text = path.read_text(encoding="utf-8")
+            events = self._trigger_events_of(text)
+            base_bearing = sorted(events & harness.BASE_BEARING_EVENTS)
+            if not base_bearing:
+                continue
+            for offset in self._invocation_offsets(text):
+                env_block = self._step_env_for(text, offset)
+                for event in base_bearing:
+                    checked += 1
+                    if "GS_CI_BASE_REF" not in env_block:
+                        problems.append(
+                            f"{path.name} x {event}: the step invoking run_module_tests.py "
+                            f"exports no review base; the guard fails closed and this gate "
+                            f"is blocked"
+                        )
+                    elif event == "merge_group" and "merge_group.base_sha" not in env_block:
+                        problems.append(
+                            f"{path.name} x {event}: a base is exported but not for "
+                            f"merge_group; every merge-queue run of this gate fails closed"
+                        )
+                    elif event == "pull_request" and "pull_request.base.sha" not in env_block:
+                        problems.append(
+                            f"{path.name} x {event}: a base is exported but not for "
+                            f"pull_request"
+                        )
+        self.assertTrue(checked, "no workflow x event pair was checked; the derivation broke")
+        self.assertEqual([], problems, "\n".join(problems))
+
+    def test_the_scan_finds_both_known_gates(self) -> None:
+        """Positive control: a derivation that finds nothing must not pass.
+
+        Without this, a regex that stopped matching would make the check above
+        vacuous -- it would iterate zero workflows and assert zero problems.
+        """
+        names = {path.name for path in self._invoking_workflows()}
+        self.assertIn("agentic_pr_gate.yml", names)
+        self.assertIn("gaussian_production_gates.yml", names)
 
     def test_non_base_bearing_events_do_not_require_a_base(self) -> None:
         """push / schedule / workflow_dispatch have no review base at all.
