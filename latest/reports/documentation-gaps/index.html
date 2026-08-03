@@ -3800,10 +3800,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingteststest_gaussian_importerh" class="md-nav__link">
+  <a href="#modulesgaussian_splattingrenderertile_renderercpp" class="md-nav__link">
     <span class="md-ellipsis">
       
-        modules/gaussian_splatting/tests/test_gaussian_importer.h
+        modules/gaussian_splatting/renderer/tile_renderer.cpp
       
     </span>
   </a>
@@ -3811,10 +3811,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingrenderertile_renderercpp" class="md-nav__link">
+  <a href="#modulesgaussian_splattingteststest_gaussian_importerh" class="md-nav__link">
     <span class="md-ellipsis">
       
-        modules/gaussian_splatting/renderer/tile_renderer.cpp
+        modules/gaussian_splatting/tests/test_gaussian_importer.h
       
     </span>
   </a>
@@ -9427,28 +9427,6 @@
 <li>line 167: GPUPerformanceMonitor::SummaryMetrics GPUPerformanceMonitor:...</li>
 <li>line 190: void GPUPerformanceMonitor::_prune_old_frames(uint64_t p_cur...</li>
 </ul>
-<h2 id="modulesgaussian_splattingteststest_gaussian_importerh">modules/gaussian_splatting/tests/test_gaussian_importer.h<a class="headerlink" href="#modulesgaussian_splattingteststest_gaussian_importerh" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 47: String _load_text_fixture_or_empty(const String &amp;p_path) {...</li>
-<li>line 55: Error _write_missing_opacity_ascii_ply(const String &amp;p_path)...</li>
-<li>line 86: Error _write_minimal_ascii_ply(const String &amp;p_path) {...</li>
-<li>line 125: Error _write_binary_ply_with_nan_past_index_0(const String &amp;...</li>
-<li>line 212: Error _write_ascii_ply_with_first_order_sh(const String &amp;p_p...</li>
-<li>line 266: Error _write_invalid_gsplatworld(const String &amp;p_path) {...</li>
-<li>line 281: Error _write_truncated_copy(const String &amp;p_source_path, con...</li>
-<li>line 315: Error _corrupt_gsplatworld_for_decode_failure(const String &amp;...</li>
-<li>line 350: void _remove_user_file(const String &amp;p_user_path) {...</li>
-<li>line 359: Error _write_import_sidecar(const String &amp;p_source_path, con...</li>
-<li>line 450: PackedByteArray <em>make_spz_header(uint32_t p_version, uint32</em>...</li>
-<li>line 473: PackedByteArray _gzip_compress(const PackedByteArray &amp;p_inpu...</li>
-<li>line 486: PackedByteArray <em>make_spz_v2_single_point_payload(uint8_t p</em>...</li>
-<li>line 505: Error _write_binary_file(const String &amp;p_path, const PackedB...</li>
-<li>line 515: Error _write_text_file(const String &amp;p_path, const String &amp;p...</li>
-<li>line 526: Ref<a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="" data-desc-position="bottom"><img></a> _make_thumbnail_test_image() {...</li>
-<li>line 536: bool _color_approx_eq(const Color &amp;p_a, const Color &amp;p_b, fl...</li>
-<li>line 543: Ref<gaussiansplatasset> <em>make_thumbnail_fixture_asset(int p</em>...</gaussiansplatasset></li>
-<li>line 613: static void _preview_generator_thread(void *p_userdata) {...</li>
-</ul>
 <h2 id="modulesgaussian_splattingrenderertile_renderercpp">modules/gaussian_splatting/renderer/tile_renderer.cpp<a class="headerlink" href="#modulesgaussian_splattingrenderertile_renderercpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 66: void set_timestamp_context(RenderingDevice *p_device, const ...</li>
@@ -9567,6 +9545,28 @@
 <li>line 3644: void TileRenderer::set_device_manager(RenderDeviceManager *p...</li>
 <li>line 3653: void TileRenderer::clear_output_resource_tracking() {...</li>
 <li>line 3657: TileRenderer::RenderResult TileRenderer::render_with_contrac...</li>
+</ul>
+<h2 id="modulesgaussian_splattingteststest_gaussian_importerh">modules/gaussian_splatting/tests/test_gaussian_importer.h<a class="headerlink" href="#modulesgaussian_splattingteststest_gaussian_importerh" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 47: String _load_text_fixture_or_empty(const String &amp;p_path) {...</li>
+<li>line 55: Error _write_missing_opacity_ascii_ply(const String &amp;p_path)...</li>
+<li>line 86: Error _write_minimal_ascii_ply(const String &amp;p_path) {...</li>
+<li>line 125: Error _write_binary_ply_with_nan_past_index_0(const String &amp;...</li>
+<li>line 212: Error _write_ascii_ply_with_first_order_sh(const String &amp;p_p...</li>
+<li>line 266: Error _write_invalid_gsplatworld(const String &amp;p_path) {...</li>
+<li>line 281: Error _write_truncated_copy(const String &amp;p_source_path, con...</li>
+<li>line 315: Error _corrupt_gsplatworld_for_decode_failure(const String &amp;...</li>
+<li>line 350: void _remove_user_file(const String &amp;p_user_path) {...</li>
+<li>line 359: Error _write_import_sidecar(const String &amp;p_source_path, con...</li>
+<li>line 450: PackedByteArray <em>make_spz_header(uint32_t p_version, uint32</em>...</li>
+<li>line 473: PackedByteArray _gzip_compress(const PackedByteArray &amp;p_inpu...</li>
+<li>line 486: PackedByteArray <em>make_spz_v2_single_point_payload(uint8_t p</em>...</li>
+<li>line 505: Error _write_binary_file(const String &amp;p_path, const PackedB...</li>
+<li>line 515: Error _write_text_file(const String &amp;p_path, const String &amp;p...</li>
+<li>line 526: Ref<a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="" data-desc-position="bottom"><img></a> _make_thumbnail_test_image() {...</li>
+<li>line 536: bool _color_approx_eq(const Color &amp;p_a, const Color &amp;p_b, fl...</li>
+<li>line 543: Ref<gaussiansplatasset> <em>make_thumbnail_fixture_asset(int p</em>...</gaussiansplatasset></li>
+<li>line 613: static void _preview_generator_thread(void *p_userdata) {...</li>
 </ul>
 <h2 id="modulesgaussian_splattingteststest_tile_descriptor_cacheh">modules/gaussian_splatting/tests/test_tile_descriptor_cache.h<a class="headerlink" href="#modulesgaussian_splattingteststest_tile_descriptor_cacheh" title="Permanent link">¶</a></h2>
 <ul>
@@ -11820,7 +11820,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 31, 2026 08:36:02 UTC">July 31, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 3, 2026 18:41:53 UTC">August 3, 2026</span>
   </span>
 
     
