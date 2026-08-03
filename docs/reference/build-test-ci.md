@@ -40,8 +40,19 @@ For module-only build commands and SCons targets, see [Gaussian Splatting Build 
 ## Per-lane result ledger
 
 `tests/ci/run_module_tests.py` declares 26 doctest lanes in `MODULE_TEST_FILTERS`:
-**20 strict, 6 advisory** (`strict=False`). An advisory lane's failure, crash, zero
-coverage and self-skipped coverage **cannot change the runner's exit code by any path**.
+**20 strict, 6 advisory** (`strict=False`).
+
+When an advisory lane fails the ordinary way — the lane process exits nonzero, or crashes —
+the failure is **tolerated and the run still exits 0**. The same holds when it executes
+nothing or self-skips its coverage. Since doctest exits nonzero whenever a test fails, that
+covers the normal shape of an advisory failure.
+
+**Two outcomes still fail the run for _any_ lane, `strict` or not**, and the claim above
+does not extend to them: a lane that exits 0 while its doctest summary reports failures, and
+a lane that exits 0 with no doctest summary at all. Both are harness anomalies rather than
+ordinary test failures, and both are recorded as `FAIL` (see the table). Read "advisory" as
+"failures of the ordinary shape are tolerated", not as an unconditional exemption.
+
 Since #705 the runner records what each lane actually did. **The ledger reports; it gates
 nothing** — see [`docs/architecture/adr-advisory-lane-ledger.md`](../architecture/adr-advisory-lane-ledger.md).
 
@@ -74,15 +85,21 @@ that absence of output can never be read as absence of failures:
 [module-tests][lane-ledger] ADVISORY-RED lane=<name> reason=<failed|crashed|no-coverage>
 ```
 
-**An `ADVISORY-RED` line means that lane FAILED and CI still exited 0.** It is not a
-warning about a future problem; it is a test failure that nothing gates on today. Arming
-those lanes is #705 / #519, and must be done against the measured values this ledger
-produces — not a guessed threshold.
+**An `ADVISORY-RED` line means that lane failed, crashed, or executed nothing, and CI still
+exited 0.** It is not a warning about a future problem; it is a lane outcome that nothing
+gates on today (`reason=` says which of the three it was). Arming those lanes is
+#705 / #519, and must be done against the measured values this ledger produces — not a
+guessed threshold. The first full measured run (2026-08-03) reported
+`advisory_failures=0` with one `ADVISORY-RED … reason=no-coverage`; see the ADR for what
+that does and does not license.
 
 `--lane-report <path>` writes the same records as JSON
 (`{schema_version, baseline_note, generated_utc, lanes, totals}`). The file is a build
 output and must stay untracked. It is rejected together with `--guard-only`, where it could
-only produce an empty report. An unwritable path fails the run rather than being skipped.
+only produce an empty report. An unwritable path fails the run rather than being skipped —
+checked before the lanes run, using a sibling probe file so an existing report is never
+truncated. The write itself is serialize-then-temp-then-`os.replace`, so the destination is
+either the previous report or the complete new one, never empty or partial.
 
 The ledger's own unit test (`tests/ci/test_run_module_tests_lane_ledger.py`) runs in the
 `--guard-only` lane; it asserts exit-code parity per outcome class and ledger completeness

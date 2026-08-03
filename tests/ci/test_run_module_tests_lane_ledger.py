@@ -157,6 +157,46 @@ NO_SUMMARY_OUTPUT = "engine started\nfilter matched nothing\nengine exited\n"
 UNAVAILABLE_OUTPUT = "Unknown option '--test'.\n"
 PASS_WITH_SKIP_OUTPUT = _skip_marker_line() + _summary(5, 0, 120, 0)
 
+# Stands in for a previous, valid measurement on disk. Its exact content does
+# not matter; that it is byte-for-byte unchanged after a failed or interrupted
+# run does.
+PRIOR_REPORT = '{"schema_version": 1, "note": "the previous measurement"}\n'
+
+# --------------------------------------------------------------------------
+# Doc-consistency (#822 P2-2).
+#
+# "Advisory lanes can never affect the exit code" is FALSE: an exit-0 lane whose
+# doctest summary reports failures fails the run regardless of `strict`. The
+# absolute claim was written into both docs while the table and the test right
+# beside it had the exception correct - docs drift from code most easily at
+# exactly the point where the author knows the exception and is summarising.
+#
+# This is a WORDING pin, and a wording pin is weak: it cannot prove a paragraph
+# is true, only that a known-false phrasing has not come back. The behavioural
+# leg in the same test is what proves the exception is real.
+#
+# The ban is on the PHRASE, so it also trips on a sentence that quotes the claim
+# in order to refute it. That is a known wart, accepted deliberately: making the
+# pattern negation-aware would make it guess at meaning, and a guessing guard is
+# worse than one that forces the author to phrase the warning differently.
+# --------------------------------------------------------------------------
+DOCS_CLAIMING_ADVISORY_BEHAVIOUR = (
+    ROOT / "docs" / "reference" / "build-test-ci.md",
+    ROOT / "docs" / "architecture" / "adr-advisory-lane-ledger.md",
+)
+FORBIDDEN_ABSOLUTE_CLAIMS = (
+    re.compile(r"cannot change the (?:runner's )?exit code by any path", re.I),
+    re.compile(r"(?:can )?never (?:change|affect|influence) the (?:runner's )?exit code", re.I),
+    re.compile(r"all invisible to the exit code", re.I),
+    re.compile(r"invisible to the exit code\b(?![^.]*exception)", re.I),
+)
+# Each doc must positively state the exception, so deleting the qualification
+# is caught as well as re-asserting the absolute claim.
+# Every separator is \s+ because these sentences are hard-wrapped in the docs.
+REQUIRED_EXCEPTION_MARKER = re.compile(
+    r"exits?\s+0\s+while\s+its\s+doctest\s+summary\s+\**reports\**\s+failures", re.I
+)
+
 
 def _godot(ok: bool, skipped: bool, output: str, returncode: int | None):
     factory = getattr(harness, "GodotRunResult", None)
@@ -241,6 +281,33 @@ def _drive(
         stack.enter_context(contextlib.redirect_stdout(buffer))
         rc = _call_lane_loop(test_runs, mode, allow_unavailable, lane_report)
     return rc, buffer.getvalue()
+
+
+def _run_main(argv, *, drop_lane: bool = False, godot_result=None):
+    """Drive main() with the guards and asset prep stubbed out.
+
+    Only the lane-report preflight and the run-list integrity check need a real
+    main(); everything before them is unrelated to this slice.
+    """
+    result = godot_result if godot_result is not None else _godot(True, False, PASS_OUTPUT, 0)
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(mock.patch.dict(os.environ, {"CI": ""}))
+        stack.enter_context(mock.patch.object(sys, "argv", argv))
+        stack.enter_context(mock.patch.object(harness, "_run_ci_guard_steps", return_value=None))
+        stack.enter_context(
+            mock.patch.object(harness, "_prepare_synthetic_assets", return_value=(True, []))
+        )
+        stack.enter_context(mock.patch.object(harness, "_run_godot", return_value=result))
+        stack.enter_context(mock.patch.object(harness, "_load_quarantine", return_value={}))
+        if drop_lane:
+            original = harness._build_module_test_runs
+            stack.enter_context(
+                mock.patch.object(
+                    harness, "_build_module_test_runs", lambda gpu: original(gpu)[1:]
+                )
+            )
+        stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+        return harness.main()
 
 
 def _records(output: str) -> dict[str, dict[str, str]]:
@@ -707,9 +774,108 @@ class LaneReportTests(unittest.TestCase):
             errors = harness._preflight_lane_report_path(bad)
             self.assertTrue(errors, "an unwritable --lane-report path must be rejected early")
             self.assertIn("not writable", errors[0])
+            self.assertEqual(
+                sorted(p.name for p in Path(tmp).iterdir()),
+                [],
+                "the writability probe must not leave scratch files behind",
+            )
         # Also drive the loop, so this method is not vacuous when the lane loop
         # is stubbed out.
         rc, output = _drive([("PassLane", True)], _godot(True, False, PASS_OUTPUT, 0))
+        self.assertEqual(_records(output)["PassLane"]["outcome"], "PASS")
+        self.assertEqual(rc, BASELINE_RC_PASS)
+
+    def test_preflight_does_not_truncate_an_existing_report(self) -> None:
+        """The writability probe must not destroy the previous measurement.
+
+        The first implementation opened the DESTINATION in "w" mode, which
+        truncated the last valid report at second zero. This report is the
+        evidence the whole slice exists to produce, so a check that could only
+        ever confirm "we could have written something" must not consume the
+        thing it is protecting.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "lane_ledger.json"
+            dest.write_text(PRIOR_REPORT, encoding="utf-8")
+            self.assertEqual(harness._preflight_lane_report_path(dest), [])
+            self.assertEqual(
+                dest.read_text(encoding="utf-8"),
+                PRIOR_REPORT,
+                "the preflight truncated an existing lane report",
+            )
+            self.assertEqual(
+                sorted(p.name for p in Path(tmp).iterdir()),
+                ["lane_ledger.json"],
+                "the probe must be cleaned up and must not be the destination",
+            )
+
+    def test_an_interrupted_run_leaves_the_previous_report_intact(self) -> None:
+        """Three ways a run can end before _write_lane_report(); all must preserve it."""
+        # (a) main() aborts on the run-list integrity check, AFTER the preflight
+        #     and BEFORE any lane runs.
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "lane_ledger.json"
+            dest.write_text(PRIOR_REPORT, encoding="utf-8")
+            rc = _run_main(
+                ["run_module_tests.py", "--godot-binary", "fake", "--lane-report", str(dest)],
+                drop_lane=True,
+            )
+            self.assertEqual(rc, 1, "a dropped lane must fail the run")
+            self.assertEqual(
+                dest.read_text(encoding="utf-8"),
+                PRIOR_REPORT,
+                "an aborted run destroyed the previous measurement",
+            )
+
+        # (b) the lane loop itself dies part-way through.
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "lane_ledger.json"
+            dest.write_text(PRIOR_REPORT, encoding="utf-8")
+            boom = RuntimeError("lane runner died")
+            with mock.patch.object(harness, "_execute_lane", side_effect=boom):
+                with self.assertRaises(RuntimeError):
+                    _drive(
+                        [("PassLane", True)],
+                        _godot(True, False, PASS_OUTPUT, 0),
+                        lane_report=dest,
+                    )
+            self.assertEqual(
+                dest.read_text(encoding="utf-8"),
+                PRIOR_REPORT,
+                "a crash mid-run destroyed the previous measurement",
+            )
+
+        # (c) the payload cannot be serialized: nothing may touch the filesystem.
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "lane_ledger.json"
+            dest.write_text(PRIOR_REPORT, encoding="utf-8")
+            errors = harness._write_lane_report(dest, {"lanes": {1, 2, 3}})
+            self.assertTrue(errors, "an unserializable payload must be reported")
+            self.assertEqual(
+                dest.read_text(encoding="utf-8"),
+                PRIOR_REPORT,
+                "a serialisation failure destroyed the previous measurement",
+            )
+            self.assertEqual(
+                sorted(p.name for p in Path(tmp).iterdir()),
+                ["lane_ledger.json"],
+                "a failed write must not leave a temp file beside the report",
+            )
+
+    def test_a_successful_write_replaces_the_previous_report(self) -> None:
+        """The other half of atomicity: it must still actually overwrite."""
+        lanes = [("PassLane", True)]
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "lane_ledger.json"
+            dest.write_text(PRIOR_REPORT, encoding="utf-8")
+            rc, output = _drive(lanes, _godot(True, False, PASS_OUTPUT, 0), lane_report=dest)
+            payload = json.loads(dest.read_text(encoding="utf-8"))
+            self.assertEqual(
+                sorted(p.name for p in Path(tmp).iterdir()),
+                ["lane_ledger.json"],
+                "no temp file may survive a successful write",
+            )
+        self.assertEqual([lane["lane"] for lane in payload["lanes"]], ["PassLane"])
         self.assertEqual(_records(output)["PassLane"]["outcome"], "PASS")
         self.assertEqual(rc, BASELINE_RC_PASS)
 
@@ -733,6 +899,53 @@ class LaneReportTests(unittest.TestCase):
         # ... and the flag is accepted on its own.
         with mock.patch.object(sys, "argv", ["run_module_tests.py", "--lane-report", "x.json"]):
             self.assertEqual(harness._parse_args().lane_report, "x.json")
+
+
+class DocConsistencyTests(unittest.TestCase):
+    """The docs must not deny an exception the code implements (#822 P2-2)."""
+
+    maxDiff = None
+
+    def test_an_advisory_lane_exiting_zero_with_failures_does_gate(self) -> None:
+        """The behavioural leg: the exception the docs must not deny is real."""
+        lanes = [("AdvisoryLane", False)]
+        # exit 0, but the doctest summary reports a failed test.
+        results = _godot(True, False, FAIL_OUTPUT, 0)
+        rc, output = _drive(lanes, results)
+        self.assertEqual(
+            _records(output)["AdvisoryLane"]["outcome"],
+            "FAIL",
+            "an advisory lane that exits 0 with a failing summary is recorded FAIL",
+        )
+        self.assertEqual(
+            rc,
+            1,
+            "an advisory lane CAN fail the run: exit 0 with a failing doctest summary "
+            "goes through _validate_successful_lane() regardless of strict",
+        )
+
+    def test_docs_do_not_claim_advisory_lanes_can_never_gate(self) -> None:
+        for doc in DOCS_CLAIMING_ADVISORY_BEHAVIOUR:
+            with self.subTest(doc=doc.name):
+                self.assertTrue(doc.is_file(), f"missing doc: {doc}")
+                text = doc.read_text(encoding="utf-8")
+                for pattern in FORBIDDEN_ABSOLUTE_CLAIMS:
+                    match = pattern.search(text)
+                    if match is not None:
+                        self.fail(
+                            f"{doc.name} states an absolute claim the code contradicts: "
+                            f"{match.group(0)!r} - an advisory lane that exits 0 with a "
+                            f"failing doctest summary DOES fail the run"
+                        )
+                if REQUIRED_EXCEPTION_MARKER.search(text) is None:
+                    # Deliberately not assertRegex: it dumps the whole document
+                    # into the failure, which buries the one sentence at issue.
+                    self.fail(
+                        f"{doc.name} must state the exit-0-with-failures exception, not "
+                        f"just avoid denying it; deleting the qualification is the same "
+                        f"defect. Expected a sentence matching "
+                        f"{REQUIRED_EXCEPTION_MARKER.pattern!r}"
+                    )
 
 
 if __name__ == "__main__":

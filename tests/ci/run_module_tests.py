@@ -8,6 +8,7 @@ strict/warn-only policy (strict fails, warn-only skips).
 from __future__ import annotations
 
 import argparse
+import contextlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import importlib.util
@@ -17,6 +18,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -2177,16 +2179,72 @@ class LaneLedger:
         }
 
 
+def _lane_report_probe(path: Path, suffix: str) -> tuple[int, str]:
+    """Create a uniquely-named sibling of `path` in the SAME directory.
+
+    Sibling, not the destination itself, and same directory so the eventual
+    os.replace() stays on one filesystem. The caller owns the returned fd/name.
+    """
+    return tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=suffix)
+
+
 def _write_lane_report(path: Path, payload: dict) -> list[str]:
-    """Write the JSON ledger. Returns integrity errors (fail closed, never silent)."""
+    """Write the JSON ledger atomically. Returns integrity errors (never silent).
+
+    Serialize first, write to a sibling temp file, then os.replace() onto the
+    destination. Three failure modes are ruled out by that order:
+
+    - a payload that will not serialize never touches the filesystem at all;
+    - a write that dies half-way leaves the temp file, not a truncated report;
+    - the destination is either the OLD report or the NEW one, never an empty or
+      partial file.
+
+    That matters more here than for an ordinary output file: this report IS the
+    evidence, and the runner elsewhere treats an empty report as a red flag. A
+    writer that can replace a good measurement with an empty file manufactures
+    exactly that red flag while destroying the thing it was meant to preserve.
+
+    os.replace (NOT os.rename) is used deliberately: it is atomic on Windows and
+    overwrites an existing destination. The recorded non-atomic-rename hazard in
+    this repo is Godot's DirAccess::rename (remove-then-move); that is engine
+    code and does not apply to Python's os.replace.
+    """
     try:
-        path.write_text(json.dumps(payload, indent=2, sort_keys=False) + "\n", encoding="utf-8")
-    except (OSError, TypeError, ValueError) as exc:
+        text = json.dumps(payload, indent=2, sort_keys=False) + "\n"
+    except (TypeError, ValueError) as exc:
+        return [
+            f"--lane-report payload for {path} is not serializable: "
+            f"{type(exc).__name__}: {exc}. The previous report (if any) was left "
+            f"untouched; refusing to report success for a run whose ledger was not "
+            f"persisted."
+        ]
+
+    handle = None
+    temp_name = None
+    try:
+        handle, temp_name = _lane_report_probe(path, ".tmp")
+        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+            handle = None  # now owned by the context manager
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp_name, str(path))
+        temp_name = None
+    except (OSError, ValueError) as exc:
         return [
             f"--lane-report could not be written to {path}: "
             f"{type(exc).__name__}: {exc}. Refusing to report success for a run whose "
             f"ledger was not persisted."
         ]
+    finally:
+        if handle is not None:
+            with contextlib.suppress(OSError):
+                os.close(handle)
+        if temp_name is not None:
+            # The replace never happened; do not leave scratch beside the report.
+            with contextlib.suppress(OSError):
+                os.unlink(temp_name)
+
     print(f"[module-tests][lane-ledger] wrote lane report to {path}")
     return []
 
@@ -2194,17 +2252,33 @@ def _write_lane_report(path: Path, payload: dict) -> list[str]:
 def _preflight_lane_report_path(path: Path) -> list[str]:
     """Refuse an unwritable --lane-report path BEFORE spending a full lane run on it.
 
+    NON-DESTRUCTIVE: the probe is a sibling temp file, never the destination. An
+    earlier version opened the destination itself in "w" mode, which truncated
+    the previous report at second zero -- so a run that was then interrupted, or
+    that failed the run-list integrity check before the write, replaced the last
+    valid measurement with an empty file. For a tool whose whole purpose is
+    producing trustworthy evidence, destroying good evidence to check that we
+    could have written some is the worst available failure mode.
+
     The end-of-run write still fails closed on its own; this only moves the
     diagnosis to second zero instead of after 26 lanes.
     """
+    handle = None
+    temp_name = None
     try:
-        with path.open("w", encoding="utf-8"):
-            pass
+        handle, temp_name = _lane_report_probe(path, ".probe")
     except (OSError, ValueError) as exc:
         return [
             f"--lane-report path is not writable: {path} "
             f"({type(exc).__name__}: {exc})."
         ]
+    finally:
+        if handle is not None:
+            with contextlib.suppress(OSError):
+                os.close(handle)
+        if temp_name is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(temp_name)
     return []
 
 

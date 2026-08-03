@@ -9,6 +9,37 @@
   lifecycle lanes are advisory). **Precedent:**
   [`adr-test-quarantine-manifest.md`](adr-test-quarantine-manifest.md).
 
+## Status note 2026-08-03: the measurement has been taken, and it falsifies the hypothesis
+
+The evidence run has been executed against a `tests=yes` binary on the self-hosted runner
+(the `wt-595` binary, with `git diff 8fae40f00de..HEAD -- '*.h' '*.cpp'` empty, so the
+compiled C++ is byte-identical to this branch). Headline:
+
+```
+advisory_failures=0  strict_failures=0  unavailable=0  not_run=0
+```
+
+**The advisory lanes are not concealing failures.** The motivating hypothesis of this slice —
+that advisory lanes are swallowing red — is **not supported by the measurement**, and that
+finding must not be quietly dropped now that it is inconvenient. What the run did surface:
+
+- one `ADVISORY-RED … reason=no-coverage`: **`GPU Memory Stream`, 1 case selected,
+  0 assertions executed** — a lane that has been reporting green while running nothing;
+- **47 skip markers across 4 lanes, 38 of them in `Streaming Pipeline`** — roughly 60% of
+  that lane self-skipping.
+
+So the concealed problem is **absent coverage, not concealed failure**. That materially
+changes what GS-705-2 should arm: a gate on advisory *failures* would pin 0 and defend
+nothing, because there is nothing there to defend against. The defensible ratchets are on
+**executed coverage** (a lane with 0 assertions must not count as green) and on the
+**skip-marker counts** (shrink-only, pinned at the measured 47/38), neither of which is a
+guess. Flipping the six lanes to `strict` as #705 literally proposes is now measurably
+cheap for five of them and would immediately fail on `GPU Memory Stream`'s zero coverage —
+which is the correct outcome, and should be handled by giving that lane real coverage, not
+by re-hiding it.
+
+The ledger format needed no change to produce this; the run used it as shipped.
+
 ## Context
 
 `MODULE_TEST_FILTERS` declares 26 lanes: **20 strict, 6 advisory** (`GaussianSplatting
@@ -18,10 +49,18 @@
 For an advisory lane, `_run_doctest_lanes()` routes a nonzero exit or a crash into
 `_report_failed_lane()`, which prints one free-text line and returns `True`, so the loop
 continues and `main()` still returns 0. `_handle_no_executed_coverage()` /
-`_report_advisory_no_coverage()` do the same for a lane that executed nothing. **Failure,
-crash, zero coverage and skipped coverage are therefore all invisible to the exit code**
-on an advisory lane. The only advisory outcome that still gates is exit-0-with-no-doctest
-summary — a harness error, not a test failure.
+`_report_advisory_no_coverage()` do the same for a lane that executed nothing. **On an
+advisory lane, a nonzero exit, a crash, zero coverage and self-skipped coverage are all
+tolerated**, and since doctest exits nonzero whenever a test fails, that covers the normal
+shape of an advisory failure.
+
+Two outcomes are **not** tolerated, on any lane, `strict` or not, and it is worth being
+exact about them rather than writing the tidier absolute claim: a lane that exits 0 while
+its doctest summary **reports failures**, and a lane that exits 0 with **no doctest summary
+at all**, both go through `_validate_successful_lane()` → `_report_lane_failure()` → `return
+1`. Both are harness anomalies rather than ordinary test failures. "Advisory" is therefore
+not an unconditional exemption from the exit code, and this ADR's own first draft summarised
+it as though it were, while the accompanying table and test had it right.
 
 The end-of-run summary `_print_doctest_totals()` reports `lanes`,
 `lanes_with_coverage`, `lanes_with_skips`, `lanes_unavailable`, `quarantined_failing` and
@@ -36,10 +75,11 @@ Two consequences are already measurable at the branch base:
   case selected, nothing executed, lane green. `Streaming Pipeline` runs 62 tests /
   213 assertions with **38 skip markers**.
 
-#705 asks for these lanes to be made strict. That flip cannot be made responsibly today,
-because **no run of this repository has ever recorded whether an advisory lane passed,
-failed, crashed or executed nothing.** Arming a gate on a guessed number is as bad as
-having no gate.
+#705 asks for these lanes to be made strict. At the time this ADR was filed that flip could
+not be made responsibly, because **no run of this repository had ever recorded whether an
+advisory lane passed, failed, crashed or executed nothing.** Arming a gate on a guessed
+number is as bad as having no gate. The status note above records what the first such run
+actually measured, and it is not what this section predicted.
 
 ## Decision
 
@@ -122,6 +162,17 @@ is optional; omitting it changes nothing. The file is a build output and stays *
 It is rejected in combination with `--guard-only`, where it could only ever produce an
 empty report that a reader would mistake for "no lanes failed".
 
+**The report is evidence, so writing it must never destroy evidence.** The writability
+preflight probes a **sibling** temp file, never the destination, and the write is
+serialize → temp file → `os.replace()`. The destination is therefore always either the
+previous report or the complete new one — never empty, never partial. The first
+implementation of the preflight opened the destination in `"w"` mode, which truncated the
+last valid measurement at second zero; a run interrupted after that point left behind
+exactly the empty report the rest of the runner treats as a red flag, with the real
+measurement gone. (`os.replace`, not `os.rename`: it is atomic on Windows and overwrites.
+The repo's recorded non-atomic-rename hazard is Godot's `DirAccess::rename`, which is
+engine code and does not apply here.)
+
 ### 6. Fail closed on anything the ledger cannot determine
 
 An unwritable report path, a lane recorded twice, or a lane left `NOT-RUN` in a run that
@@ -146,7 +197,9 @@ bug being fixed, so it must be loud.
 ## Consequences
 
 - The first honest, per-lane measurement of which advisory lanes are red becomes available
-  from a single run, and is the pinned input for GS-705-2.
+  from a single run, and is the pinned input for GS-705-2. It has now been taken, and it
+  redirected GS-705-2 from "gate advisory failures" (measured 0, would defend nothing) to
+  "gate executed coverage and skip counts" — see the status note.
 - CI output grows by ~30 lines per run.
 - Turning previously hidden state visibly RED is an accepted and expected outcome. The red
   must **not** be resolved by reverting this change, by re-hiding the lane, or by removing
