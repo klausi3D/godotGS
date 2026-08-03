@@ -17,6 +17,54 @@
 
 #include "../core/gaussian_splat_manager.h"
 
+// ---------------------------------------------------------------------------
+// #595: the canonical, machine-readable environment-skip marker.
+//
+// The vendored doctest (2.4.12, thirdparty/doctest/doctest.h) has NO runtime
+// skip API. `doctest::skip(bool)` is a registration-time decorator evaluated
+// during static registration, long before Main::test_setup() has bootstrapped
+// any RenderingDevice, so it cannot express "this machine has no GPU". And
+// because the build defines DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS,
+// no assertion unwinds either. An environment skip is therefore unavoidably
+//
+//     <emit something>; return;
+//
+// and doctest scores a TEST_CASE that simply returns as PASSED. The emitted
+// text is consequently the ONLY thing that can distinguish "skipped because
+// the machine could not run it" from "ran and verified something".
+//
+// Free-form prose ("Skipping test - ...") is not good enough for that job: it
+// is unstable, and the CI detector that was supposed to count it
+// (tests/ci/run_module_tests.py) was line-anchored and therefore matched zero
+// real doctest output, because ConsoleReporter::log_message always prefixes a
+// message with `<file>(<line>): MESSAGE: `. So the marker is a FIXED TOKEN:
+//
+//     GS_ENV_SKIP: <reason>
+//
+// Consumers:
+//   * tests/ci/run_module_tests.py counts the token in raw doctest output
+//     (DOCTEST_SKIP_MARKER_RE) and enforces the per-lane allowance.
+//   * tests/ci/check_environment_skip_marker.py keeps the STATIC inventory of
+//     environment-skip sites shrink-only, and verifies that the four macros
+//     below still route their skip through this helper.
+//
+// The reason is funnelled through Godot's String so a caller may pass either a
+// string literal or a vformat() result; doctest stringifies String via the
+// StringMaker in tests/test_macros.h.
+//
+// The ARGUMENT MUST STAY PARENTHESISED. doctest's MESSAGE(...) expands through
+// DOCTEST_ADD_MESSAGE_AT -> DOCTEST_ADD_AT_IMPL to `mb * __VA_ARGS__;`
+// (doctest.h:2365), splicing the argument in unparenthesised next to a `*`.
+// `*` binds tighter than `+`, so an unwrapped `String(a) + String(b)` parses as
+// `(mb * String(a)) + String(b)` -- i.e. MessageBuilder + String, which has no
+// operator and fails to COMPILE (MSVC C2678) at every expansion site. The extra
+// parentheses make the concatenation one operand of `operator*`.
+//
+// Do not "simplify" this to the comma form `MESSAGE("GS_ENV_SKIP: ", m_reason)`
+// without re-capturing tests/ci/fixtures/doctest_env_skip_sample.txt: the
+// detector and the baseline both key on the rendered text.
+#define GS_ENV_SKIP(m_reason) MESSAGE((String("GS_ENV_SKIP: ") + String(m_reason)))
+
 // Performance testing utilities
 class PerformanceTimer {
 private:
@@ -103,7 +151,7 @@ public:
     ScopedFallbackRD _gs_rd_scope;                                        \
     RenderingDevice *rd = _gs_rd_scope.rd;                                \
     if (rd == nullptr) {                                                  \
-        MESSAGE("Skipping test - RenderingDevice unavailable");           \
+        GS_ENV_SKIP("RenderingDevice unavailable");                       \
         return;                                                           \
     }
 
@@ -167,7 +215,7 @@ public:
     ScopedLocalRD _gs_local_rd_scope;                                     \
     RenderingDevice *local_device = _gs_local_rd_scope.rd;                \
     if (local_device == nullptr) {                                        \
-        MESSAGE("Skipping test - local RenderingDevice unavailable");     \
+        GS_ENV_SKIP("local RenderingDevice unavailable");                 \
         return;                                                           \
     }
 
@@ -236,7 +284,7 @@ public:
             }                                                                \
         }                                                                    \
         if (_gs_streaming_probe == nullptr) {                                \
-            MESSAGE("Skipping test - streaming unavailable");                \
+            GS_ENV_SKIP("streaming unavailable");                            \
             return;                                                          \
         }                                                                    \
     } while (0)
@@ -267,7 +315,7 @@ public:
     do {                                                                      \
         WorkerThreadPool *_gs_wtp_probe = WorkerThreadPool::get_singleton();  \
         if (_gs_wtp_probe == nullptr || _gs_wtp_probe->get_thread_count() <= 0) { \
-            MESSAGE("Skipping test - worker thread pool unavailable");        \
+            GS_ENV_SKIP("worker thread pool unavailable");                    \
             return;                                                           \
         }                                                                     \
     } while (0)

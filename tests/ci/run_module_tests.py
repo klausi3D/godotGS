@@ -36,6 +36,10 @@ DOC_CLASSES_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_doc_classes_complete.p
 TEST_LINKAGE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_test_linkage.py"
 REQUIRE_NULL_DEREF_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_require_null_deref.py"
 REQUIRE_NULL_DEREF_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_require_null_deref.py"
+ENVIRONMENT_SKIP_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_environment_skip_marker.py"
+ENVIRONMENT_SKIP_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_environment_skip_marker.py"
+SKIP_MARKER_DETECTOR_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_run_module_tests_skip_marker.py"
+ENVIRONMENT_SKIP_BASELINE_PATH = ROOT / "tests" / "ci" / "environment_skip_baseline.json"
 TEST_LANE_COVERAGE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_test_lane_coverage.py"
 TEST_LANE_COVERAGE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_test_lane_coverage.py"
 GPU_SORTING_ORDER_COVERAGE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_gpu_sorting_order_coverage.py"
@@ -225,7 +229,88 @@ ALLOW_TESTS_UNAVAILABLE_ENV = "GS_CI_ALLOW_TESTS_UNAVAILABLE"
 HISTORY_ARTIFACT_GUARD_MODE_ENV = "GS_CI_HISTORY_ARTIFACT_GUARD_MODE"
 HISTORY_ARTIFACT_GUARD_MODES = ("off", "warn", "strict")
 HISTORY_ARTIFACT_MATCH_COUNT_RE = re.compile(r"Matched blob entries:\s*(\d+)")
-DOCTEST_SKIP_MARKER_RE = re.compile(r"(?m)^\s*(?:Skipping(?: test)?\s*-\s+.+)$")
+# Environment-skip detection (#595).
+#
+# The previous pattern was `(?m)^\s*(?:Skipping(?: test)?\s*-\s+.+)$` and it
+# matched NOTHING that doctest has ever printed. doctest's ConsoleReporter
+# always emits a message through file_line_to_stream() first
+# (thirdparty/doctest/doctest.h:6051-6056, 6423-6437), so the real line is
+#
+#     C:\...\test_painterly_pipeline.h(473): MESSAGE: Skipping test - ...
+#
+# The marker can therefore never START a line, and a line-anchored regex is
+# structurally incapable of seeing it. Measured on a real headless run at
+# baseline e9ddb27c285: 3 `MESSAGE: Skipping` lines present, 0 regex matches,
+# `test cases: 9 | 9 passed | 0 failed`. The policy below has consequently never
+# fired once, and every environment skip in every strict lane has been scored as
+# a pass.
+#
+# The repaired detector is NOT line-anchored and counts two things:
+#
+#   * the canonical token `GS_ENV_SKIP:` emitted by
+#     modules/gaussian_splatting/tests/test_macros.h:GS_ENV_SKIP(). Matched on
+#     its own, with no prefix requirement, so it survives a reporter change or a
+#     non-console reporter.
+#   * the LEGACY free-form `MESSAGE: Skip…` prose, in its PREFIX FORM only -
+#     the message must BEGIN with `Skipping`/`Skipped`. #595 deliberately does
+#     not rewrite those 354 sites (that is slice GS-595-B), and dropping them
+#     from the count would shrink the reported number while growing the hidden
+#     surface. They are counted until they are converted.
+#
+# KNOWN GAP, stated so a zero here is never misread as proof of execution: the
+# EMBEDDED FORM is NOT counted - a message that mentions skipping mid-sentence
+# rather than at the start, e.g.
+#     MESSAGE("[TileRenderer] RenderingServer not available, skipping regression test");
+#     MESSAGE("Renderer unavailable (headless mode) - skipping renderer state checks");
+# Measured on this tree: 9 such sites in 4 files, and TWO of those files
+# (test_shadow_instance_subset.h, test_node_bootstrap.h) contain ONLY embedded
+# skips, so they are invisible to both this detector and the static inventory.
+# Both hold [SceneTree] cases, i.e. the strict `GaussianSplatting [SceneTree]`
+# lane - which can therefore report 0 markers while skipping at runtime. Closing
+# the gap is follow-on GS-595-E and must be its own measured step: widening the
+# detector here would move the baseline and the enforcement blast radius in the
+# same change. The shape contract is written out in full in
+# tests/ci/check_environment_skip_marker.py; the two must change together.
+#
+# Robustness the shape demands: the `<file>(<line>): ` prefix and the
+# `--gnu-file-line` `<file>:<line>: ` variant (both simply precede the match),
+# absolute Windows paths with drive letters and backslashes (never touched,
+# since nothing is anchored), and the ANSI colour escape doctest writes between
+# `MESSAGE: ` and the message body (`s << Color::None << mb.m_string`).
+#
+# BOTH branches require the doctest `MESSAGE:` framing. An earlier version
+# matched the bare token `GS_ENV_SKIP:` anywhere in the stream, which meant any
+# log line that happened to contain the token counted as a skip -- and with a
+# lane allowance of 0, ONE false positive fails a lane. The framing costs
+# nothing real (every lane runs the console reporter) and removes that class.
+#
+# The prose branch is case-INSENSITIVE, matching the static guard's
+# `_SKIP_PROSE_PREFIX_RE`. Measured on this corpus the two agree exactly (354
+# sites either way), so this closes a definitional mismatch rather than changing
+# a number.
+#
+# KNOWN ASYMMETRY, measured rather than assumed: the static guard counts 2
+# `WARN_PRINT` skip sites that this detector does NOT count, because WARN_PRINT
+# does not go through doctest -- it reaches the stream as Godot's own
+# `WARNING: <text>` framing. A runtime branch for that shape was evaluated and
+# REJECTED: 38 WARN_PRINT/ERR_PRINT literals engine-wide mention skipping,
+# including in this module's own hot path
+# (gaussian_streaming.cpp "[Streaming] Skipping Morton sort..."), and the
+# captured fixture itself contains a production line reading "...will be
+# collected but skipped because no renderer can be attached." Counting those
+# would manufacture skip markers out of ordinary logging and fail lanes for no
+# reason. Static-only is the deliberate, documented resolution; the full shape
+# contract lives in tests/ci/check_environment_skip_marker.py.
+#
+# tests/ci/test_run_module_tests_skip_marker.py pins both halves against a
+# captured real sample, and re-asserts that the OLD pattern finds zero matches
+# in it so this regression cannot silently return.
+DOCTEST_ENV_SKIP_TOKEN = "GS_ENV_SKIP:"
+_ANSI_ESCAPE = r"(?:\x1b\[[0-9;]*[A-Za-z])*"
+DOCTEST_SKIP_MARKER_RE = re.compile(
+    rf"MESSAGE{_ANSI_ESCAPE}:[ \t]*{_ANSI_ESCAPE}[ \t]*"
+    rf"(?:{re.escape(DOCTEST_ENV_SKIP_TOKEN)}|(?i:Skipp?(?:ing|ed))\b)"
+)
 
 # StringName orphan guard: PR 6 of work package #352.
 #
@@ -768,6 +853,48 @@ def _run_test_linkage_guard() -> tuple[bool, list[str]]:
         return False, output_lines
 
     return True, output_lines
+
+
+def _run_environment_skip_marker_guard() -> tuple[bool, list[str]]:
+    """#595: environment skips are a counted, shrink-only inventory.
+
+    doctest 2.4.12 has no runtime skip API and this build never unwinds, so an
+    environment skip is `MESSAGE(...); return;` -- which doctest scores as
+    PASSED. The static inventory is therefore the only thing that can tell a
+    skipped case from a case that ran, for the many cases no lane executes at
+    all. The guard also pins the four canonical macros to the `GS_ENV_SKIP:`
+    token that the runtime detector above counts: without that check, reverting
+    the macro bodies to free-form MESSAGE() would blind the runtime detector
+    while every static count stayed identical.
+
+    Runs the guard's own unit test first, mirroring the REQUIRE null-deref and
+    metric-reset parity guards, so the rules are exercised against synthetic
+    fixtures even when the real tree happens not to trip them.
+    """
+    reported: list[str] = []
+    for label, script, quiet_on_success in (
+        ("Environment-skip marker guard unit test", ENVIRONMENT_SKIP_TEST_SCRIPT, True),
+        # The DETECTOR's own pin test. It was written and then wired into no
+        # lane at all -- the same defect this whole change exists to remove, and
+        # the worst possible file to leave unrun: it is the only coverage of the
+        # runtime_lane_allowance schema, the expiry-drops-to-zero rule and the
+        # over-allowance failure, i.e. every code path that can LOOSEN the gate.
+        ("Skip-marker detector pin test", SKIP_MARKER_DETECTOR_TEST_SCRIPT, True),
+        ("Environment-skip marker guard", ENVIRONMENT_SKIP_GUARD_SCRIPT, False),
+    ):
+        if not script.is_file():
+            return False, [f"Missing {label} script: {script.relative_to(ROOT)}"]
+        code, out, err = _run_command([sys.executable, str(script)])
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if code != 0:
+            if not output_lines:
+                output_lines = [f"{label} failed with exit code {code}."]
+            return False, reported + [f"{label} FAILED:"] + output_lines
+        # The unit test's per-case chatter is noise on success, but its result
+        # must still be visible: a guard whose self-test silently stopped running
+        # is exactly the vacuous-pass shape this module keeps eliminating.
+        reported.extend([f"{label} passed."] if quiet_on_success else output_lines)
+    return True, reported
 
 
 def _run_require_null_deref_guard() -> tuple[bool, list[str]]:
@@ -1974,6 +2101,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
         ),
         (
             True,
+            _run_environment_skip_marker_guard,
+            "Environment-skip marker guard failed.",
+            "Environment-skip marker guard passed.",
+        ),
+        (
+            True,
             _run_test_lane_coverage_guard,
             "Test lane coverage guard failed.",
             "Test lane coverage guard passed.",
@@ -2168,14 +2301,139 @@ def _report_advisory_no_coverage(
     _print_output_if_present(output)
 
 
+def _display_path(path: Path) -> str:
+    """Repo-relative when possible, absolute otherwise.
+
+    `Path.relative_to` RAISES for a path outside the tree, so using it directly
+    in an error message turns a clear diagnostic into a ValueError traceback --
+    including in the unit tests that redirect the baseline at a tempdir.
+    """
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
+def _environment_skip_lane_allowance() -> dict[str, int]:
+    """Per-lane tolerance for environment-skip markers (#595).
+
+    The tolerance exists only because repairing the detector turned a provably
+    inert count into a real one. Converting every pre-existing environment skip
+    into a lane failure in the same change is explicitly out of scope for #595
+    (that is what slices GS-595-B/C do, one reviewed step at a time), so the
+    lanes that already skip need a frozen, derived allowance.
+
+    It lives beside the static inventory in environment_skip_baseline.json under
+    `runtime_lane_allowance`, must be MEASURED from a real lane run rather than
+    guessed, and may only ever shrink. A lane with no entry has an allowance of
+    zero, which is the strictest possible reading: nothing here can loosen a
+    lane that is clean today.
+
+    EVERY entry must carry `allowed`, `owner`, `reason`, `issue_url` and
+    `expires_utc`, mirroring quarantine_manifest.json's required fields and the
+    deferred_requires_gpu_waivers. A bare {"lane": N} map is a silencer with no
+    expiry and no one accountable for it, and it would rot exactly the way the
+    free-form prose baseline did. An EXPIRED entry is dropped to zero rather than
+    honoured, so an allowance that nobody renews tightens by itself instead of
+    becoming permanent.
+
+    Fail-closed: an unreadable or malformed file raises rather than silently
+    yielding an empty (or, worse, permissive) mapping.
+    """
+    path = ENVIRONMENT_SKIP_BASELINE_PATH
+    label = _display_path(path)
+    if not path.is_file():
+        raise RuntimeError(
+            f"Environment-skip baseline missing: {label}. Refusing to "
+            f"evaluate the skip-marker policy against an absent baseline."
+        )
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
+        raise RuntimeError(f"{label}: not readable JSON ({exc}).") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError(f"{label}: must be a JSON object.")
+    allowance = data.get("runtime_lane_allowance", {})
+    if not isinstance(allowance, dict):
+        raise RuntimeError(f"{label}: 'runtime_lane_allowance' must be an object.")
+
+    known_lanes = {lane for lane, *_ in MODULE_TEST_FILTERS}
+    now = datetime.now(timezone.utc)
+    out: dict[str, int] = {}
+    for lane, entry in allowance.items():
+        where = f"{label}: runtime_lane_allowance['{lane}']"
+        if not isinstance(entry, dict):
+            raise RuntimeError(
+                f"{where} must be an object carrying "
+                f"{{allowed, owner, reason, issue_url, expires_utc}}, got {entry!r}. "
+                f"A bare number is a silencer with no owner and no expiry."
+            )
+        missing = [
+            field
+            for field in ("allowed", "owner", "reason", "issue_url", "expires_utc")
+            if field not in entry
+        ]
+        if missing:
+            raise RuntimeError(f"{where} is missing required field(s): {', '.join(missing)}.")
+        allowed = entry["allowed"]
+        if not isinstance(allowed, int) or isinstance(allowed, bool) or allowed < 0:
+            raise RuntimeError(f"{where}.allowed must be a non-negative integer, got {allowed!r}.")
+        for field in ("owner", "reason", "issue_url"):
+            if not isinstance(entry[field], str) or not entry[field].strip():
+                raise RuntimeError(f"{where}.{field} must be a non-empty string.")
+        try:
+            expires = datetime.fromisoformat(str(entry["expires_utc"]))
+        except ValueError as exc:
+            raise RuntimeError(f"{where}.expires_utc is not an ISO-8601 timestamp ({exc}).") from exc
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if lane not in known_lanes:
+            raise RuntimeError(
+                f"{where} names a lane that is not in MODULE_TEST_FILTERS. A stale lane name "
+                f"is an allowance that silently applies to nothing."
+            )
+        if expires <= now:
+            print(
+                f"[module-tests] environment-skip allowance for '{lane}' EXPIRED at "
+                f"{entry['expires_utc']} (owner {entry['owner']}, {entry['issue_url']}); "
+                f"treating it as 0. Renew it deliberately or fix the skips."
+            )
+            out[str(lane)] = 0
+            continue
+        out[str(lane)] = allowed
+    return out
+
+
 def _enforce_skipped_marker_policy(name: str, strict: bool, output: str, skipped_markers: int) -> bool:
     if skipped_markers <= 0:
         return True
 
     print(f"[module-tests] '{name}' reported {skipped_markers} skipped doctest marker(s).")
     if strict and _is_ci():
-        _report_lane_failure(name, "skipped doctest coverage is not allowed in CI.", output)
-        return False
+        try:
+            allowance = _environment_skip_lane_allowance().get(name, 0)
+        except RuntimeError as exc:
+            # Fail CLOSED, but as a lane failure rather than an uncaught
+            # traceback: a stack dump reads as "the runner crashed" and invites
+            # someone to rerun, where a lane failure reads as "fix the baseline".
+            _report_lane_failure(
+                name, f"environment-skip allowance is unusable: {exc}", output
+            )
+            return False
+        if skipped_markers > allowance:
+            _report_lane_failure(
+                name,
+                f"skipped doctest coverage is not allowed in CI "
+                f"({skipped_markers} marker(s) > allowance {allowance}). Lower the count in "
+                f"the source, or record a MEASURED allowance under 'runtime_lane_allowance' "
+                f"in tests/ci/environment_skip_baseline.json with an owner (#595).",
+                output,
+            )
+            return False
+        print(
+            f"[module-tests] '{name}' is within its frozen environment-skip allowance "
+            f"({skipped_markers} <= {allowance}); see tests/ci/environment_skip_baseline.json (#595)."
+        )
     return True
 
 

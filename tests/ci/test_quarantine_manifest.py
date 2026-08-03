@@ -15,6 +15,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -141,11 +142,40 @@ def _failing_summary_no_case_output() -> str:
 
 
 def _fail_output_with_skip(case: str = FAILING_CASE) -> str:
-    # The matching failing case PLUS a NEW "Skipping test - ..." marker (one
-    # skipped doctest marker). doctest's skip line matches DOCTEST_SKIP_MARKER_RE.
+    # The matching failing case PLUS one environment-skip marker.
+    #
+    # This fixture used to be the skip prose alone, starting at column 0, under a
+    # comment asserting that doctest emits it that way. doctest does not, and
+    # never has. ConsoleReporter::log_message (thirdparty/doctest/doctest.h:6423)
+    # calls file_line_to_stream() (:6051) FIRST, so every MESSAGE is printed as
+    #     <file>(<line>): MESSAGE: <text>
+    # A column-0 marker is unreachable, and the line-anchored
+    # DOCTEST_SKIP_MARKER_RE that matched this fixture therefore matched nothing
+    # a real run has ever produced. The fixture certified a fiction, and the
+    # policy it "covered" had never fired once (#595).
+    #
+    # Both real shapes are exercised: the canonical `GS_ENV_SKIP:` token emitted
+    # by modules/gaussian_splatting/tests/test_macros.h, and one of the ~354
+    # not-yet-converted legacy prose sites, which must keep being counted until
+    # slice GS-595-B converts them.
     return (
         _case_failure_block(case)
-        + "Skipping test - GPU device unavailable\n"
+        + "modules/gaussian_splatting/tests/test_animation.h(61): MESSAGE: "
+        "GS_ENV_SKIP: RenderingDevice unavailable\n"
+        + "[doctest] test cases: 3 | 1 passed | 1 failed | 1 skipped\n"
+        + "[doctest] assertions: 10 | 9 passed | 1 failed\n"
+        + "[doctest] Status: FAILURE!\n"
+    )
+
+
+def _fail_output_with_legacy_skip(case: str = FAILING_CASE) -> str:
+    # The legacy, unconverted prose shape in its REAL console framing. Counted
+    # exactly like the canonical token, so the ~354 sites #595 deliberately does
+    # not rewrite stay visible instead of dropping out of the number.
+    return (
+        _case_failure_block(case)
+        + "modules/gaussian_splatting/tests/test_animation.h(61): MESSAGE: "
+        "Skipping test - GPU device unavailable\n"
         + "[doctest] test cases: 3 | 1 passed | 1 failed | 1 skipped\n"
         + "[doctest] assertions: 10 | 9 passed | 1 failed\n"
         + "[doctest] Status: FAILURE!\n"
@@ -483,6 +513,40 @@ class QuarantineLaneWiringTests(unittest.TestCase):
         self.assertIn("quarantined_failing=1", out)
         self.assertIn("lanes_with_skips=1", out)
         self.assertIn("skipped_markers=1", out)
+
+    def test_quarantined_legacy_prose_skip_marker_fails_in_strict_ci(self) -> None:
+        # #595: the ~354 not-yet-converted `MESSAGE("Skip…")` sites must keep
+        # being detected in their REAL console framing. If the detector only
+        # recognised the new canonical token, repairing it would shrink the
+        # reported number while the hidden surface grew.
+        with mock.patch.dict(os.environ, {"CI": "1"}):
+            with _manifest([_valid_entry()]):
+                rc, out = _run_lane(
+                    VALID_LANE,
+                    strict=True,
+                    godot_result=(False, False, _fail_output_with_legacy_skip()),
+                )
+        self.assertEqual(rc, 1, out)
+        self.assertIn("[module-tests][QUARANTINE-UNEXPECTED]", out)
+        self.assertIn("newly skipped coverage", out)
+
+    def test_baseline_skip_regex_is_inert_on_real_console_output(self) -> None:
+        # #595 regression pin. The pre-fix pattern was line-anchored, and doctest
+        # ALWAYS prefixes a message with `<file>(<line>): MESSAGE: `
+        # (thirdparty/doctest/doctest.h:6051, :6423), so it could not match any
+        # real output. Both fixtures above are real-shaped; the old pattern must
+        # find nothing in either, and the current detector must find exactly one
+        # marker in each. Without this, re-anchoring the regex would silently
+        # restore the inert gate and every fixture here would still be green.
+        inert = re.compile(r"(?m)^\s*(?:Skipping(?: test)?\s*-\s+.+)$")
+        for label, sample in (
+            ("canonical", _fail_output_with_skip()),
+            ("legacy prose", _fail_output_with_legacy_skip()),
+        ):
+            self.assertEqual([], inert.findall(sample), label)
+            self.assertEqual(
+                1, len(harness.DOCTEST_SKIP_MARKER_RE.findall(sample)), label
+            )
 
     def test_quarantined_zero_coverage_is_coverage_lost_and_nonzero(self) -> None:
         # Codex P2 (comment 3601513465): a quarantined lane that exits 0 with a

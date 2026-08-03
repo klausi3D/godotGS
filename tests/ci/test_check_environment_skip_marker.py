@@ -1,0 +1,794 @@
+#!/usr/bin/env python3
+"""Unit tests for tests/ci/check_environment_skip_marker.py (#595).
+
+The guard passing against the committed tree only proves the tree is clean
+today. These cases pin the *rules*: what counts as an environment-skip site,
+what deliberately does not, that the ratchet fails in BOTH directions, that a
+missing or corrupt baseline fails closed, and that `--write-baseline` cannot be
+used to launder a new skip into the inventory.
+
+Everything runs against synthetic source trees in a tempdir, so a case cannot
+pass or fail because of an unrelated edit to the real module tests. stdlib
+`unittest` + `tempfile` only — no new dependency.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import io
+import json
+import contextlib
+import re
+import tempfile
+import unittest
+from pathlib import Path
+
+GUARD_PATH = Path(__file__).resolve().parent / "check_environment_skip_marker.py"
+
+
+def _load_guard():
+    spec = importlib.util.spec_from_file_location("check_environment_skip_marker", GUARD_PATH)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+guard = _load_guard()
+
+
+# A minimal, VALID macro header: GS_ENV_SKIP defined and emitting the token, and
+# all four guarded macros routing through it. The macro-contract check runs on
+# every guard invocation, so every synthetic tree needs one.
+VALID_MACRO_HEADER = """\
+#define GS_ENV_SKIP(m_reason) MESSAGE(String("GS_ENV_SKIP: ") + String(m_reason))
+
+#define REQUIRE_GPU_DEVICE()                        \\
+    RenderingDevice *rd = get_rd();                 \\
+    if (rd == nullptr) {                            \\
+        GS_ENV_SKIP("RenderingDevice unavailable"); \\
+        return;                                     \\
+    }
+
+#define REQUIRE_LOCAL_GPU_DEVICE()                        \\
+    RenderingDevice *local_device = make_local();         \\
+    if (local_device == nullptr) {                        \\
+        GS_ENV_SKIP("local RenderingDevice unavailable"); \\
+        return;                                           \\
+    }
+
+#define REQUIRE_STREAMING_CAPABLE()             \\
+    do {                                        \\
+        if (!streaming_ok()) {                  \\
+            GS_ENV_SKIP("streaming unavailable"); \\
+            return;                             \\
+        }                                       \\
+    } while (0)
+
+#define REQUIRE_WORKER_THREAD_POOL()                    \\
+    do {                                                \\
+        if (!pool_ok()) {                               \\
+            GS_ENV_SKIP("worker thread pool unavailable"); \\
+            return;                                     \\
+        }                                               \\
+    } while (0)
+"""
+
+
+def _valid_allowance_entry(allowed: int) -> dict:
+    """A schema-valid allowance entry, for fixtures that need one."""
+    return {
+        "allowed": allowed,
+        "owner": "gaussian-splatting-module",
+        "reason": "measured environment skip frozen by #595",
+        "issue_url": "https://github.com/klausi3D/godotGS/issues/595",
+        "expires_utc": "2026-11-01T00:00:00+00:00",
+    }
+
+
+class GuardTestCase(unittest.TestCase):
+    """Base: a synthetic module-tests tree plus a redirected baseline path."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.tests_dir = self.root / "tests"
+        self.tests_dir.mkdir()
+        self.baseline_path = self.root / "environment_skip_baseline.json"
+
+        # The engine test dir is redirected at an EMPTY tempdir too. The scan
+        # covers tests/test_*.{h,cpp} as well as the module tree, so leaving it
+        # pointed at the real repo would make every synthetic tree carry the
+        # real corpus's sources.
+        self.engine_dir = self.root / "engine_tests"
+        self.engine_dir.mkdir()
+
+        self._saved = (guard.MODULE_TESTS_DIR, guard.ENGINE_TESTS_DIR, guard.BASELINE_PATH)
+        guard.MODULE_TESTS_DIR = self.tests_dir
+        guard.ENGINE_TESTS_DIR = self.engine_dir
+        guard.BASELINE_PATH = self.baseline_path
+        self.write_macro_header(VALID_MACRO_HEADER)
+        self.addCleanup(self._restore)
+
+    def _restore(self) -> None:
+        (
+            guard.MODULE_TESTS_DIR,
+            guard.ENGINE_TESTS_DIR,
+            guard.BASELINE_PATH,
+        ) = self._saved
+        self._tmp.cleanup()
+
+    def write_macro_header(self, text: str) -> None:
+        (self.tests_dir / "test_macros.h").write_text(text, encoding="utf-8")
+
+    def write_source(self, name: str, text: str) -> None:
+        (self.tests_dir / name).write_text(text, encoding="utf-8")
+
+    def run_guard(self, argv: list[str] | None = None) -> tuple[int, str]:
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            code = guard.main(argv or [])
+        return code, buffer.getvalue()
+
+    def seed_baseline(self) -> None:
+        """Compose an initial baseline WITHOUT going through write_baseline().
+
+        There is deliberately no create-from-nothing path in the guard: every
+        such path has turned out to be a laundering bypass. The composition
+        helpers are pure -- they render a document and have no inclusion
+        semantics to subvert -- so the tests use those to seed a synthetic tree
+        and exercise the real shrink-only writer for everything after.
+        """
+        document = guard.build_baseline_document(guard.scan_fingerprints(), None)
+        self.baseline_path.write_text(guard._serialize(document), encoding="utf-8")
+
+    def regenerate(self) -> None:
+        """Seed if absent, otherwise go through the shrink-only writer."""
+        if not self.baseline_path.is_file():
+            self.seed_baseline()
+            return
+        code, out = self.run_guard(["--write-baseline"])
+        self.assertEqual(code, 0, out)
+
+
+class SiteRecognitionTests(GuardTestCase):
+    def test_canonical_macro_site_is_recognised(self) -> None:
+        """A skip behind the canonical macro is a site (A7)."""
+        self.write_source(
+            "test_alpha.h",
+            "TEST_CASE(\"a\") {\n    REQUIRE_GPU_DEVICE();\n    CHECK(rd);\n}\n",
+        )
+        sites = guard.scan_source((self.tests_dir / "test_alpha.h").read_text(encoding="utf-8"))
+        self.assertEqual([(2, "macro", "REQUIRE_GPU_DEVICE")], sites)
+
+    def test_direct_gs_env_skip_site_is_recognised(self) -> None:
+        self.write_source(
+            "test_alpha.h",
+            'TEST_CASE("a") {\n    if (!ok) {\n        GS_ENV_SKIP("no device");\n'
+            "        return;\n    }\n}\n",
+        )
+        sites = guard.scan_source((self.tests_dir / "test_alpha.h").read_text(encoding="utf-8"))
+        self.assertEqual([(3, "macro", "GS_ENV_SKIP")], sites)
+
+    def test_free_form_prose_site_is_recognised(self) -> None:
+        """An unconverted MESSAGE("Skip…") is a site (A7): the 356 legacy sites
+        must be COUNTED, not silently dropped, or the inventory shrinks while
+        the hidden surface grows."""
+        self.write_source(
+            "test_alpha.h",
+            'TEST_CASE("a") {\n    MESSAGE("Skipping test - renderer unavailable");\n'
+            "    return;\n}\n",
+        )
+        sites = guard.scan_source((self.tests_dir / "test_alpha.h").read_text(encoding="utf-8"))
+        self.assertEqual([(2, "message", "Skipping test - renderer unavailable")], sites)
+
+    def test_vformat_prose_site_is_recognised(self) -> None:
+        self.write_source(
+            "test_alpha.h",
+            'MESSAGE(vformat("Skipping %s - unsupported", label));\n',
+        )
+        sites = guard.scan_source((self.tests_dir / "test_alpha.h").read_text(encoding="utf-8"))
+        self.assertEqual([(1, "message", "Skipping %s - unsupported")], sites)
+
+    def test_warn_print_prose_site_is_recognised(self) -> None:
+        self.write_source(
+            "test_alpha.h",
+            'WARN_PRINT("RenderingDevice unavailable - skipping painterly test");\n',
+        )
+        sites = guard.scan_source((self.tests_dir / "test_alpha.h").read_text(encoding="utf-8"))
+        self.assertEqual(1, len(sites))
+        self.assertEqual("warn", sites[0][1])
+
+    def test_comment_mentioning_macro_is_not_counted(self) -> None:
+        """A7: prose about the macro must not inflate the count.
+
+        `git grep -c REQUIRE_GPU_DEVICE` DID count these during the #595
+        investigation, which is why the guard strips comments first.
+        """
+        self.write_source(
+            "test_alpha.h",
+            "// Use REQUIRE_GPU_DEVICE() here once the lane exists.\n"
+            "/* REQUIRE_LOCAL_GPU_DEVICE() and MESSAGE(\"Skipping test - x\") are\n"
+            "   documented above. */\n"
+            "TEST_CASE(\"a\") { CHECK(true); }\n",
+        )
+        self.assertEqual([], guard.scan_source((self.tests_dir / "test_alpha.h").read_text(encoding="utf-8")))
+
+    def test_failing_precondition_macro_is_not_a_site(self) -> None:
+        """REQUIRE_RENDERING_DEVICE_SINGLETON() FAILs rather than skipping, so it
+        is deliberately outside the silent-pass surface (contract non-goal)."""
+        self.write_source("test_alpha.h", "REQUIRE_RENDERING_DEVICE_SINGLETON();\n")
+        self.assertEqual([], guard.scan_source((self.tests_dir / "test_alpha.h").read_text(encoding="utf-8")))
+
+    def test_non_skip_message_is_not_a_site(self) -> None:
+        """Only prose that BEGINS with skip wording counts; ordinary diagnostics
+        that happen to mention skipping do not."""
+        self.write_source(
+            "test_alpha.h",
+            'MESSAGE("Pre-teardown sample: skipped 3 chunks");\n',
+        )
+        self.assertEqual([], guard.scan_source((self.tests_dir / "test_alpha.h").read_text(encoding="utf-8")))
+
+    def test_embedded_prose_form_is_knowingly_not_counted(self) -> None:
+        """The documented boundary of the shape contract, asserted rather than
+        left emergent.
+
+        A message that mentions skipping MID-SENTENCE is a genuine environment
+        skip that this detector does not see. Closing that is follow-on
+        GS-595-E; until then the exclusion is pinned here so nobody can widen or
+        narrow it by accident, and so the number in the baseline keeps meaning
+        exactly one thing.
+        """
+        for literal in (
+            "Cache file not created (caching may be disabled); skipping version guard test",
+            "[TileRenderer] RenderingServer not available, skipping regression test",
+            "Renderer unavailable (headless mode) - skipping renderer state checks",
+        ):
+            self.write_source("test_alpha.h", f'MESSAGE("{literal}");\n')
+            self.assertEqual(
+                [],
+                guard.scan_source((self.tests_dir / "test_alpha.h").read_text(encoding="utf-8")),
+                literal,
+            )
+
+    def test_embedded_gap_on_the_committed_tree_is_exactly_nine(self) -> None:
+        """The gap is measured, not estimated, and its size is pinned.
+
+        If this number moves, either someone converted an embedded site (good,
+        lower it) or added one (bad). Either way it must be a deliberate edit,
+        not a silent drift in the hidden surface.
+        """
+        real = _load_guard()
+        anywhere = re.compile(r"\bskipp(?:ing|ed)\b", re.IGNORECASE)
+        embedded: list[str] = []
+        for path in real.test_sources():
+            text = real.strip_comments(path.read_text(encoding="utf-8", errors="replace"))
+            for match in real._MESSAGE_RE.finditer(text):
+                literal = match.group("text")
+                if not real._SKIP_PROSE_PREFIX_RE.search(literal) and anywhere.search(literal):
+                    embedded.append(path.name)
+        self.assertEqual(9, len(embedded), sorted(embedded))
+        self.assertEqual(
+            {
+                "test_ply_importer.h",
+                "test_shadow_instance_subset.h",
+                "tile_renderer_regression_test.cpp",
+                "test_node_bootstrap.h",
+            },
+            set(embedded),
+        )
+
+    def test_embedded_only_files_are_absent_from_the_inventory(self) -> None:
+        """The consequence spelled out: two files skip and are counted nowhere.
+
+        Both hold [SceneTree] cases, so the strict `GaussianSplatting [SceneTree]`
+        lane can read zero skip markers while skipping at runtime. Pinning this
+        keeps the fact discoverable from the test suite rather than only from a
+        docstring.
+        """
+        real = _load_guard()
+        found = real.scan_all()
+        for name in ("test_shadow_instance_subset.h", "test_node_bootstrap.h"):
+            self.assertNotIn(name, found, f"{name} unexpectedly entered the inventory")
+
+    def test_macro_header_is_excluded_from_the_inventory(self) -> None:
+        """The definitions are not call sites; counting them would make the
+        inventory move whenever the macro is edited."""
+        self.assertNotIn("test_macros.h", [p.name for p in guard.test_sources()])
+
+
+class RatchetTests(GuardTestCase):
+    def test_clean_tree_passes_with_summary_line(self) -> None:
+        self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self.regenerate()
+        code, out = self.run_guard()
+        self.assertEqual(0, code, out)
+        self.assertIn("[env-skip] PASS", out)
+        self.assertIn("1 baselined site(s) across 1 file(s), 0 new, 0 stale.", out)
+
+    def test_new_unbaselined_site_fails(self) -> None:
+        """A7 / A11(c)."""
+        self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self.regenerate()
+        self.write_source(
+            "test_alpha.h",
+            'REQUIRE_GPU_DEVICE();\nMESSAGE("Skipping - synthetic");\nreturn;\n',
+        )
+        code, out = self.run_guard()
+        self.assertEqual(1, code, out)
+        self.assertIn("1 NEW environment-skip site(s)", out)
+        self.assertIn("Skipping - synthetic", out)
+
+    def test_new_site_of_an_already_baselined_shape_fails(self) -> None:
+        """The multiset, not the set: a SECOND identical skip is still new."""
+        self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self.regenerate()
+        self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\nREQUIRE_GPU_DEVICE();\n")
+        code, out = self.run_guard()
+        self.assertEqual(1, code, out)
+        self.assertIn("1 NEW environment-skip site(s)", out)
+        self.assertIn("line 2:", out)
+
+    def test_removed_site_fails_as_stale(self) -> None:
+        """A7 / A11(d): fixing a site must tighten the ratchet, not leave slack."""
+        self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\nREQUIRE_GPU_DEVICE();\n")
+        self.regenerate()
+        self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        code, out = self.run_guard()
+        self.assertEqual(1, code, out)
+        self.assertIn("1 baselined site(s) no longer found", out)
+        self.assertIn("the ratchet must tighten", out)
+
+    def test_deleted_baseline_entry_fails(self) -> None:
+        """A11(d): dropping an entry must not silently pass."""
+        self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self.regenerate()
+        document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
+        document["files"].pop("test_alpha.h")
+        self.baseline_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
+        code, out = self.run_guard()
+        self.assertEqual(1, code, out)
+        self.assertIn("NEW environment-skip site(s)", out)
+
+    def test_swap_is_detected(self) -> None:
+        """A count-only baseline would license this: remove one site, add a
+        different one, count unchanged."""
+        self.write_source("test_alpha.h", 'MESSAGE("Skipping - reason A");\n')
+        self.regenerate()
+        self.write_source("test_alpha.h", 'MESSAGE("Skipping - reason B");\n')
+        code, out = self.run_guard()
+        self.assertEqual(1, code, out)
+        self.assertIn("NEW environment-skip site(s)", out)
+        self.assertIn("no longer found", out)
+
+
+class FailClosedTests(GuardTestCase):
+    def test_missing_baseline_fails(self) -> None:
+        self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        code, out = self.run_guard()
+        self.assertEqual(1, code, out)
+        self.assertIn("Baseline file missing", out)
+
+    def test_unparseable_baseline_fails(self) -> None:
+        self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self.baseline_path.write_text("{not json", encoding="utf-8")
+        code, out = self.run_guard()
+        self.assertEqual(1, code, out)
+        self.assertIn("not readable JSON", out)
+
+    def test_desynced_count_fails(self) -> None:
+        """A count that disagrees with its site list is a corrupt baseline."""
+        self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self.regenerate()
+        document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
+        document["files"]["test_alpha.h"]["count"] = 99
+        self.baseline_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
+        code, out = self.run_guard()
+        self.assertEqual(1, code, out)
+        self.assertIn("does not equal len(sites)", out)
+
+    def test_entry_without_owner_fails(self) -> None:
+        """A10: every tolerated entry carries an owner and a tracking issue."""
+        self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self.regenerate()
+        document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
+        document["files"]["test_alpha.h"].pop("owner")
+        self.baseline_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
+        code, out = self.run_guard()
+        self.assertEqual(1, code, out)
+        self.assertIn("missing a non-empty 'owner'", out)
+
+    def test_empty_source_tree_fails(self) -> None:
+        """A scan that finds no sources is broken, not clean."""
+        (self.tests_dir / "test_macros.h").unlink()
+        code, out = self.run_guard()
+        self.assertEqual(1, code, out)
+        self.assertIn("no module test sources found", out)
+
+
+class WriteBaselineTests(GuardTestCase):
+    def test_writer_is_idempotent(self) -> None:
+        """A6: two runs on an unchanged tree are byte-identical."""
+        self.write_source("test_alpha.h", 'REQUIRE_GPU_DEVICE();\nMESSAGE("Skipping - x");\n')
+        self.regenerate()
+        first = self.baseline_path.read_bytes()
+        self.regenerate()
+        self.assertEqual(first, self.baseline_path.read_bytes())
+
+    def test_writer_refuses_to_add_a_site(self) -> None:
+        """The one edit this file exists to prevent: laundering a new skip into
+        the baseline by regenerating it."""
+        self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self.regenerate()
+        self.write_source("test_alpha.h", 'REQUIRE_GPU_DEVICE();\nMESSAGE("Skipping - new");\n')
+        code, out = self.run_guard(["--write-baseline"])
+        self.assertEqual(1, code, out)
+        self.assertIn("refuses to ADD environment-skip sites", out)
+
+    def test_writer_records_removals(self) -> None:
+        """The ratchet must be able to tighten without hand-editing."""
+        self.write_source("test_alpha.h", 'REQUIRE_GPU_DEVICE();\nMESSAGE("Skipping - x");\n')
+        self.regenerate()
+        self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self.regenerate()
+        document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
+        self.assertEqual(1, document["files"]["test_alpha.h"]["count"])
+        code, out = self.run_guard()
+        self.assertEqual(0, code, out)
+
+    def test_deleting_the_baseline_does_not_launder_an_addition(self) -> None:
+        """F2, the reproduced bypass: refuse -> rm baseline -> write -> pass.
+
+        The no-additions check used to sit inside `if path.is_file()`, so
+        deleting the baseline skipped it entirely and the new site landed with
+        exit 0. The resulting diff looks like an ordinary one-line addition.
+        """
+        self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self.regenerate()
+        self.write_source("test_alpha.h", 'REQUIRE_GPU_DEVICE();\nMESSAGE("Skipping - new");\n')
+
+        code, out = self.run_guard(["--write-baseline"])
+        self.assertEqual(1, code, out)
+        self.assertIn("refuses to ADD", out)
+
+        self.baseline_path.unlink()
+        code, out = self.run_guard(["--write-baseline"])
+        self.assertEqual(1, code, out)
+        self.assertIn("NO path that creates it from the current tree", out)
+        self.assertFalse(self.baseline_path.is_file(), "a bypassed write still created the file")
+
+    def test_there_is_no_cli_flag_that_creates_a_baseline(self) -> None:
+        """The blocker: version 2 of the F2 fix RELOCATED the bypass.
+
+        `--bootstrap-baseline` wrote unconditionally, so the laundering sequence
+        survived verbatim -- only the flag name changed, and its diff still
+        looked like an ordinary shrink. Any future flag that writes a baseline
+        from the current tree re-opens it, so the absence of one is the thing
+        being asserted.
+        """
+        self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self.regenerate()
+        self.write_source("test_alpha.h", 'REQUIRE_GPU_DEVICE();\nMESSAGE("Skipping - new");\n')
+        self.baseline_path.unlink()
+
+        for argv in (["--bootstrap-baseline"], ["--write-baseline"], []):
+            with self.assertRaises(SystemExit) if argv == ["--bootstrap-baseline"] else contextlib.nullcontext():
+                code, out = self.run_guard(argv)
+                self.assertEqual(1, code, out)
+            self.assertFalse(
+                self.baseline_path.is_file(),
+                f"{argv} created a baseline from the current tree",
+            )
+
+    def test_rename_rekeys_an_entry_without_adding(self) -> None:
+        """F5: a renamed file must not be a deadlock between guard and writer."""
+        self.write_source("test_alpha.h", 'REQUIRE_GPU_DEVICE();\nMESSAGE("Skipping - x");\n')
+        self.regenerate()
+        (self.tests_dir / "test_alpha.h").rename(self.tests_dir / "test_renamed.h")
+
+        code, out = self.run_guard()
+        self.assertEqual(1, code, out)
+
+        code, out = self.run_guard(["--write-baseline"])
+        self.assertEqual(1, code, out)
+        self.assertIn("refuses to ADD", out)
+
+        code, out = self.run_guard(["--write-baseline", "--rename", "test_alpha.h=test_renamed.h"])
+        self.assertEqual(0, code, out)
+        document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
+        self.assertNotIn("test_alpha.h", document["files"])
+        self.assertEqual(2, document["files"]["test_renamed.h"]["count"])
+        code, out = self.run_guard()
+        self.assertEqual(0, code, out)
+
+    def test_rename_cannot_introduce_a_site(self) -> None:
+        """Renaming re-keys fingerprints; it must never add one."""
+        self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self.regenerate()
+        (self.tests_dir / "test_alpha.h").rename(self.tests_dir / "test_renamed.h")
+        self.write_source("test_renamed.h", 'REQUIRE_GPU_DEVICE();\nMESSAGE("Skipping - extra");\n')
+        code, out = self.run_guard(["--write-baseline", "--rename", "test_alpha.h=test_renamed.h"])
+        self.assertEqual(1, code, out)
+        self.assertIn("refuses to ADD", out)
+
+    def test_rename_of_an_unknown_key_is_rejected(self) -> None:
+        self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self.regenerate()
+        code, out = self.run_guard(["--write-baseline", "--rename", "nope.h=other.h"])
+        self.assertEqual(1, code, out)
+        self.assertIn("not in the baseline", out)
+
+    def test_rename_cannot_transfer_credit_between_two_live_files(self) -> None:
+        """The laundering primitive --rename used to be.
+
+        Delete three sites from A, add three to an unrelated live B, then
+        `--rename A=B`: the total cannot grow, so the inclusion check is happy,
+        but the ATTRIBUTION is a lie and a same-fingerprint swap is invisible.
+        A real rename means the source file is GONE.
+        """
+        self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\nREQUIRE_GPU_DEVICE();\n")
+        self.write_source("test_beta.h", "REQUIRE_LOCAL_GPU_DEVICE();\n")
+        self.regenerate()
+
+        # A keeps existing but loses its sites; B gains two.
+        self.write_source("test_alpha.h", "// emptied\n")
+        self.write_source(
+            "test_beta.h",
+            "REQUIRE_LOCAL_GPU_DEVICE();\nREQUIRE_GPU_DEVICE();\nREQUIRE_GPU_DEVICE();\n",
+        )
+        code, out = self.run_guard(
+            ["--write-baseline", "--rename", "test_alpha.h=test_beta.h"]
+        )
+        self.assertEqual(1, code, out)
+        self.assertIn("still exists on disk", out)
+
+    def test_rename_cannot_park_credit_on_an_invented_path(self) -> None:
+        self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self.regenerate()
+        (self.tests_dir / "test_alpha.h").unlink()
+        code, out = self.run_guard(
+            ["--write-baseline", "--rename", "test_alpha.h=totally/made/up.h"]
+        )
+        self.assertEqual(1, code, out)
+        self.assertIn("not a scanned source file", out)
+
+    def test_writer_preserves_runtime_lane_allowance(self) -> None:
+        """The runtime allowance is measured from real lane output, not from the
+        static scan; regenerating the static half must not drop it.
+
+        The fixture used to be `{"Painterly": 3}` -- simultaneously the bare-int
+        silencer shape the schema now rejects AND a lane that does not exist. It
+        asserted that an invalid value must SURVIVE regeneration, i.e. it pinned
+        the wrong thing in two ways at once.
+        """
+        self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self.regenerate()
+        allowance = {"GaussianSplatting [Editor]": _valid_allowance_entry(1)}
+        document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
+        document["runtime_lane_allowance"] = allowance
+        self.baseline_path.write_text(guard._serialize(document), encoding="utf-8")
+        self.regenerate()
+        document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
+        self.assertEqual(allowance, document["runtime_lane_allowance"])
+
+    def test_bare_integer_allowance_fails_the_guard(self) -> None:
+        """Always-on validation: the allowance used to be copied through
+        untouched and read only when a lane tripped."""
+        self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self.regenerate()
+        document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
+        document["runtime_lane_allowance"] = {"GaussianSplatting [Editor]": 9999}
+        self.baseline_path.write_text(guard._serialize(document), encoding="utf-8")
+        code, out = self.run_guard()
+        self.assertEqual(1, code, out)
+        self.assertIn("must be an object", out)
+
+    def test_allowance_ratchet_rejects_a_raise_and_a_new_lane(self) -> None:
+        """Shrink-only, checked against the previously committed document."""
+        previous = {
+            "runtime_lane_allowance": {"GaussianSplatting [Editor]": _valid_allowance_entry(1)}
+        }
+        raised = {
+            "runtime_lane_allowance": {"GaussianSplatting [Editor]": _valid_allowance_entry(2)}
+        }
+        added = {
+            "runtime_lane_allowance": {
+                "GaussianSplatting [Editor]": _valid_allowance_entry(1),
+                "GaussianSplatting [PLY]": _valid_allowance_entry(1),
+            }
+        }
+        lowered = {
+            "runtime_lane_allowance": {"GaussianSplatting [Editor]": _valid_allowance_entry(0)}
+        }
+        self.assertTrue(any("rose 1 -> 2" in f for f in guard.check_allowance(raised, previous)))
+        self.assertTrue(any("is NEW" in f for f in guard.check_allowance(added, previous)))
+        self.assertEqual([], guard.check_allowance(lowered, previous))
+        self.assertEqual([], guard.check_allowance(previous, previous))
+
+
+class MacroContractTests(GuardTestCase):
+    def test_valid_header_passes_the_contract_check(self) -> None:
+        self.assertEqual([], guard.check_macro_contract())
+
+    def test_reverted_macro_body_fails(self) -> None:
+        """A11(b): if a macro stops routing through GS_ENV_SKIP, the guard must go
+        RED even though the static site count is unchanged."""
+        self.write_macro_header(
+            VALID_MACRO_HEADER.replace(
+                'GS_ENV_SKIP("RenderingDevice unavailable");',
+                'MESSAGE("Skipping test - RenderingDevice unavailable");',
+            )
+        )
+        failures = guard.check_macro_contract()
+        self.assertTrue(failures)
+        self.assertTrue(
+            any("REQUIRE_GPU_DEVICE does not route its skip through GS_ENV_SKIP" in f for f in failures),
+            failures,
+        )
+
+    def test_retired_token_fails(self) -> None:
+        """Changing the emitted token silently un-counts every environment skip,
+        so the guard pins the token itself."""
+        self.write_macro_header(VALID_MACRO_HEADER.replace('"GS_ENV_SKIP: "', '"SKIPPED: "'))
+        failures = guard.check_macro_contract()
+        self.assertTrue(any("no longer emits the literal token" in f for f in failures), failures)
+
+    def test_missing_helper_fails(self) -> None:
+        self.write_macro_header("// nothing here\n")
+        failures = guard.check_macro_contract()
+        self.assertTrue(any("GS_ENV_SKIP(reason) is not defined" in f for f in failures), failures)
+
+    def test_macro_contract_failure_fails_the_whole_guard(self) -> None:
+        """The contract check must be wired into main(), not merely available."""
+        self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self.regenerate()
+        self.write_macro_header(
+            VALID_MACRO_HEADER.replace(
+                'GS_ENV_SKIP("streaming unavailable");',
+                'MESSAGE("Skipping test - streaming unavailable");',
+            )
+        )
+        code, out = self.run_guard()
+        self.assertEqual(1, code, out)
+        self.assertIn("REQUIRE_STREAMING_CAPABLE does not route its skip through GS_ENV_SKIP", out)
+
+
+class RealTreeTests(unittest.TestCase):
+    """A handful of assertions against the committed tree, so a refactor that
+    makes the scan silently stop matching cannot hide behind synthetic fixtures.
+    """
+
+    def test_committed_scan_equals_the_committed_baseline_exactly(self) -> None:
+        """Discriminating version of an earlier VACUOUS assertion.
+
+        The previous test asserted `len(sources) > 50` and `sites > 100`, which
+        would pass against almost any half-broken scanner. This asserts the scan
+        reproduces the committed baseline fingerprint-for-fingerprint -- the only
+        statement that actually pins the guard to its own recorded number.
+        """
+        real = _load_guard()
+        baseline, failures = real.load_baseline()
+        self.assertEqual([], failures)
+        self.assertEqual(baseline, real.scan_fingerprints())
+
+    def test_fingerprint_digest_is_pinned_to_its_committed_values(self) -> None:
+        """Every one of the 384 baseline keys comes from fingerprint().
+
+        Changing the hash algorithm re-keys the whole ratchet at once: every
+        baselined entry reports stale, every real site reports new, and the
+        tempting "fix" is to regenerate -- which resets the ratchet to zero
+        while looking like routine maintenance. `usedforsecurity=False` is safe
+        precisely because it does not move these bytes; sha256 would.
+
+        These literals are the values actually committed in
+        environment_skip_baseline.json, so this fails on any algorithm or
+        normalisation change, not merely on a different-looking one.
+        """
+        real = _load_guard()
+        self.assertEqual(
+            "message|ed617c6cc2",
+            real.fingerprint("message", "Skipping - THREADS_ENABLED is not enabled in this build"),
+        )
+        self.assertEqual(
+            "message|2fdc85c6d5",
+            real.fingerprint("message", "Skipping test - ProjectSettings unavailable"),
+        )
+        # macro keys are verbatim, never hashed -- pinned so a "consistency"
+        # refactor cannot start hashing them and re-key 28 more entries.
+        self.assertEqual("macro|REQUIRE_GPU_DEVICE", real.fingerprint("macro", "REQUIRE_GPU_DEVICE"))
+
+        # And the committed baseline must still be exactly what the scan produces.
+        baseline, failures = real.load_baseline()
+        self.assertEqual([], failures)
+        self.assertEqual(baseline, real.scan_fingerprints())
+
+    def test_committed_inventory_is_the_declared_number(self) -> None:
+        real = _load_guard()
+        found = real.scan_all()
+        self.assertEqual(384, sum(len(v) for v in found.values()))
+        self.assertEqual(27, len(found))
+
+    def test_derived_macro_set_matches_the_headers_actual_macros(self) -> None:
+        """The list is derived, not hand-written -- pin what it derives TO."""
+        real = _load_guard()
+        self.assertEqual(
+            (
+                "GS_ENV_SKIP",
+                "REQUIRE_GPU_DEVICE",
+                "REQUIRE_LOCAL_GPU_DEVICE",
+                "REQUIRE_STREAMING_CAPABLE",
+                "REQUIRE_WORKER_THREAD_POOL",
+            ),
+            real.skip_macro_names()[0],
+        )
+        self.assertEqual((), real.skip_macro_names()[1])
+
+    def test_a_new_wrapper_macro_is_picked_up_automatically(self) -> None:
+        """The F3 hazard: a skip wrapper added to the ONE excluded file.
+
+        With a hand-written name list this yields zero sites for a real skip.
+        Derivation is what closes it, so derivation is what is tested.
+        """
+        real = _load_guard()
+        header = VALID_MACRO_HEADER + (
+            "\n#define REQUIRE_BRAND_NEW_THING()      \\\n"
+            '    if (!thing()) {                     \\\n'
+            '        GS_ENV_SKIP("thing missing");   \\\n'
+            "        return;                         \\\n"
+            "    }\n"
+        )
+        names = real.skip_macro_names(header)
+        self.assertIn("REQUIRE_BRAND_NEW_THING", names[0])
+        sites = real.scan_source("TEST_CASE(\"a\") { REQUIRE_BRAND_NEW_THING(); }\n", names)
+        self.assertEqual([(1, "macro", "REQUIRE_BRAND_NEW_THING")], sites)
+
+    def test_an_object_like_wrapper_macro_is_picked_up(self) -> None:
+        """The reviewer's counter-example, which the first derivation missed.
+
+        `#define GS_SKIP_NO_GPU do { GS_ENV_SKIP("no gpu"); return; } while (0)`
+        was invisible twice over: `_DEFINE_RE` required a `(` after the name, so
+        it never entered the derived set, and the call pattern ended in `\\(`, so
+        a bare `GS_SKIP_NO_GPU;` would not have matched even if it had. The
+        result was `0 new, 0 stale` for real skips.
+        """
+        real = _load_guard()
+        header = VALID_MACRO_HEADER + (
+            '\n#define GS_SKIP_NO_GPU do { GS_ENV_SKIP("no gpu"); return; } while (0)\n'
+        )
+        function_like, object_like = real.skip_macro_names(header)
+        self.assertIn("GS_SKIP_NO_GPU", object_like)
+        self.assertNotIn("GS_SKIP_NO_GPU", function_like)
+        sites = real.scan_source(
+            'TEST_CASE("a") {\n    GS_SKIP_NO_GPU;\n    CHECK(true);\n}\n',
+            (function_like, object_like),
+        )
+        self.assertEqual([(2, "macro", "GS_SKIP_NO_GPU")], sites)
+
+    def test_a_regressed_wrapper_macro_is_also_picked_up(self) -> None:
+        """Derivation must survive the wrapper reverting to free-form prose."""
+        real = _load_guard()
+        header = VALID_MACRO_HEADER + (
+            "\n#define REQUIRE_LEGACY_THING()                     \\\n"
+            '    if (!thing()) {                                  \\\n'
+            '        MESSAGE("Skipping test - thing missing");    \\\n'
+            "        return;                                      \\\n"
+            "    }\n"
+        )
+        self.assertIn("REQUIRE_LEGACY_THING", real.skip_macro_names(header)[0])
+
+    def test_failing_macro_is_never_derived_as_a_skip(self) -> None:
+        real = _load_guard()
+        header = VALID_MACRO_HEADER + (
+            "\n#define REQUIRE_RENDERING_DEVICE_SINGLETON()          \\\n"
+            '    if (!rd()) { FAIL("no singleton, skipping is wrong"); return; }\n'
+        )
+        derived = real.skip_macro_names(header)
+        self.assertNotIn("REQUIRE_RENDERING_DEVICE_SINGLETON", derived[0] + derived[1])
+
+    def test_committed_macros_satisfy_the_contract(self) -> None:
+        real = _load_guard()
+        self.assertEqual([], real.check_macro_contract())
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
