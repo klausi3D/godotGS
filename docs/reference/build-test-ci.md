@@ -26,6 +26,7 @@ scons platform=<platform> target=editor dev_build=yes tests=yes -j<jobs>
   - `python3 tests/ci/run_module_tests.py --guard-only`
   - `python3 tests/ci/run_module_tests.py --godot-binary <module-built-binary>`
   - `--guard-only` includes the renderer release-gate contract check.
+  - `--lane-report <path>` additionally writes the per-lane ledger below as JSON (see [Per-lane result ledger](#per-lane-result-ledger)).
 - Runtime validation:
   - `python3 tests/runtime/run_runtime_validation.py --godot-binary <module-built-binary> --gd-mode headless`
 - Benchmark suite:
@@ -35,6 +36,57 @@ scons platform=<platform> target=editor dev_build=yes tests=yes -j<jobs>
   - Direct doctest invocation: `<module-built-binary> --gs-gpu-test --test-case="*HazardRepro*"`
 
 For module-only build commands and SCons targets, see [Gaussian Splatting Build and Test Guide](../../modules/gaussian_splatting/docs/BUILD_AND_TEST.md). For test-runner overviews, see [Tests Overview](../../tests/README.md).
+
+## Per-lane result ledger
+
+`tests/ci/run_module_tests.py` declares 26 doctest lanes in `MODULE_TEST_FILTERS`:
+**20 strict, 6 advisory** (`strict=False`). An advisory lane's failure, crash, zero
+coverage and self-skipped coverage **cannot change the runner's exit code by any path**.
+Since #705 the runner records what each lane actually did. **The ledger reports; it gates
+nothing** — see [`docs/architecture/adr-advisory-lane-ledger.md`](../architecture/adr-advisory-lane-ledger.md).
+
+One line per lane, in lane order:
+
+```
+[module-tests][lane-result] lane=<name> strict=<0|1> outcome=<OUTCOME> passed_tests=<n> passed_assertions=<n> failed_tests=<n> failed_assertions=<n> skipped_markers=<n> exit_code=<n> executed=<0|1> zero_coverage=<0|1|-1>
+```
+
+| `OUTCOME` | Meaning | Exit code effect |
+| --- | --- | --- |
+| `PASS` | exit 0 with real executed coverage | none |
+| `FAIL` | strict lane failed/crashed, or any lane exited 0 with a missing/failing summary | run fails |
+| `ADVISORY-FAIL` | advisory lane failed or crashed | **none — CI still exits 0** |
+| `ADVISORY-NO-COVERAGE` | advisory lane executed nothing (0 passed tests or 0 passed assertions) | **none — CI still exits 0** |
+| `UNAVAILABLE` | binary has no `--test` support | fails only in strict tests-unavailable mode |
+| `QUARANTINE-TOLERATED` | known failure tolerated per `tests/ci/quarantine_manifest.json` | none |
+| `QUARANTINE-REJECTED` | quarantine entry stale/misconfigured | run fails |
+| `NOT-RUN` | the runner never reached this lane (an earlier lane aborted the run) | none |
+
+A count of `-1` means **not known** (the lane produced no doctest summary), never zero.
+`NOT-RUN` lanes are printed rather than omitted: an absent lane reading as a passed lane is
+the defect this ledger exists to remove.
+
+After the per-lane block, printed unconditionally — including when `advisory_failures=0`, so
+that absence of output can never be read as absence of failures:
+
+```
+[module-tests][lane-ledger] lanes=<n> strict_lanes=<n> advisory_lanes=<n> advisory_failures=<n> advisory_zero_coverage=<n> quarantine_tolerated=<n> unavailable=<n> quarantine_rejected=<n> strict_failures=<n> passed=<n> not_run=<n>
+[module-tests][lane-ledger] ADVISORY-RED lane=<name> reason=<failed|crashed|no-coverage>
+```
+
+**An `ADVISORY-RED` line means that lane FAILED and CI still exited 0.** It is not a
+warning about a future problem; it is a test failure that nothing gates on today. Arming
+those lanes is #705 / #519, and must be done against the measured values this ledger
+produces — not a guessed threshold.
+
+`--lane-report <path>` writes the same records as JSON
+(`{schema_version, baseline_note, generated_utc, lanes, totals}`). The file is a build
+output and must stay untracked. It is rejected together with `--guard-only`, where it could
+only produce an empty report. An unwritable path fails the run rather than being skipped.
+
+The ledger's own unit test (`tests/ci/test_run_module_tests_lane_ledger.py`) runs in the
+`--guard-only` lane; it asserts exit-code parity per outcome class and ledger completeness
+against `MODULE_TEST_FILTERS`.
 
 ## GPU Test Harness and Visual Gate
 
