@@ -170,11 +170,35 @@ list is already broken, so that list is now DERIVED from the header itself
 object-like `#define NAME do { … } while (0)` forms, in both the compliant and
 the regressed shape.
 
-That claim is narrower than it sounds, and the narrowness is the point: it holds
-for a macro DEFINED IN `test_macros.h` whose body textually contains
-`GS_ENV_SKIP(` or skip prose. A wrapper defined in another header, or one whose
-body reaches a skip only through a further indirection this scan cannot follow,
-is still invisible.
+Derivation is TRANSITIVE and iterated to a fixed point: a macro whose body
+invokes an already-identified skip macro is itself one, however many hops away.
+`#define REQUIRE_RENDERER() REQUIRE_GPU_DEVICE()` contains neither the token nor
+skip prose, so a seed-only pass missed it — and since `test_macros.h` is the one
+file excluded from the site scan, both the delegation and every call site were
+invisible at once.
+
+### What still reaches a skip and is NOT counted
+
+This is the third variant of one root cause (object-like macros, then delegating
+macros), so the general property is worth stating instead of the specific fixes:
+**anything that reaches a skip must be counted, however indirectly** — and a
+text scan cannot enforce that. Known-unreachable shapes:
+
+* a wrapper macro defined in **another header**. Only `test_macros.h` is parsed
+  for definitions, so a skip macro defined elsewhere is neither derived nor
+  matched. Widening the parse is possible; deciding *which* headers count is the
+  part that needs a real answer rather than a guess.
+* a **function** (not a macro) that emits a skip and returns a bool the caller
+  branches on — `if (!ensure_device()) { return; }`. The skip text lives in the
+  helper, so the helper is counted once while every caller is invisible. Nothing
+  textual can tell that `ensure_device()` returning false means "skipped": that
+  is a dataflow fact, not a lexical one.
+* a skip reached through a template, a lambda, or a `#include`d fragment.
+
+All of these need a C++ front end, not a regex. The honest summary is: this
+guard is a ratchet against a RECOGNISED set of shapes spreading, and the
+recognised set is enumerated above. It is not, and cannot be, a proof that the
+corpus contains no other environment skips.
 
 Closing the remaining shapes needs a real C++ parser, not a text scan. Do not
 read a passing run as "there are no undeclared skips"; read it as "no skip of a
@@ -354,25 +378,65 @@ def skip_macro_names(macro_header_text: str | None = None) -> tuple[str, ...]:
 
     function_like = {"GS_ENV_SKIP"}
     object_like: set[str] = set()
+
+    definitions: dict[str, tuple[str, bool]] = {}
     for match in _DEFINE_RE.finditer(text):
         name = match.group("name")
         if name in NON_SKIP_MACROS or name == "GS_ENV_SKIP":
             continue
         body = _macro_body(text, name)
-        if body is None:
-            continue
-        emits_skip = "GS_ENV_SKIP(" in body or any(
+        if body is not None:
+            definitions[name] = (body, bool(match.group("paren")))
+
+    def record(name: str, is_function_like: bool) -> None:
+        (function_like if is_function_like else object_like).add(name)
+
+    # Seed: macros that emit a skip DIRECTLY.
+    for name, (body, is_fn) in definitions.items():
+        if "GS_ENV_SKIP(" in body or any(
             _SKIP_PROSE_ANYWHERE_RE.search(m.group("text"))
             for pattern in (_MESSAGE_RE, _PRINT_RE)
             for m in pattern.finditer(body)
-        )
-        if not emits_skip:
-            continue
-        if match.group("paren"):
-            function_like.add(name)
-        else:
-            object_like.add(name)
+        ):
+            record(name, is_fn)
+
+    # Fixed point: a macro whose body INVOKES a known skip macro is itself one.
+    #
+    # `#define REQUIRE_RENDERER() REQUIRE_GPU_DEVICE()` contains neither the
+    # token nor skip prose, so the seed pass alone never sees it -- and because
+    # test_macros.h is excluded from the site scan, BOTH the delegation and every
+    # REQUIRE_RENDERER() call site were invisible, so new environment skips
+    # passed the shrink-only guard untouched.
+    #
+    # Iterated to a fixed point rather than one level deep: a two-hop chain
+    # (A -> B -> GS_ENV_SKIP) is no less real than a one-hop one, and "we handled
+    # the case we happened to think of" is how this same root cause has now
+    # produced three separate blind spots (object-like macros, delegating macros,
+    # and whatever the next shape turns out to be).
+    changed = True
+    while changed:
+        changed = False
+        known = function_like | object_like
+        for name, (body, is_fn) in definitions.items():
+            if name in known:
+                continue
+            expansion = _macro_expansion(body, name)
+            if any(re.search(rf"\b{re.escape(other)}\b", expansion) for other in known):
+                record(name, is_fn)
+                changed = True
     return tuple(sorted(function_like)), tuple(sorted(object_like))
+
+
+def _macro_expansion(body: str, name: str) -> str:
+    """A macro body with its `#define NAME(args)` header removed.
+
+    The header must go before searching for delegated calls, or a macro's own
+    name (and its parameter list) counts as an invocation of itself.
+    """
+    match = re.match(
+        rf"^[ \t]*#[ \t]*define[ \t]+{re.escape(name)}\s*(\([^)]*\))?", body
+    )
+    return body[match.end():] if match else body
 
 
 def _macro_call_patterns(
@@ -1205,6 +1269,13 @@ def check_sites_against_base(
                 f"credit between two live files."
             )
             continue
+        if new in base_sites and old in base_sites:
+            failures.append(
+                f"rename_ledger claims '{old}' moved to '{new}', but '{new}' already existed "
+                f"at the review base. A rename creates its destination; merging onto a "
+                f"pre-existing file launders a deletion plus new coverage."
+            )
+            continue
         if old in base_sites:
             base_sites[new] = sorted(base_sites.get(new, []) + base_sites.pop(old))
     if failures:
@@ -1226,6 +1297,7 @@ def _validate_renames(
     renames: dict[str, str],
     baseline: dict[str, list[str]],
     found: dict[str, list[str]],
+    base_keys: set[str] | None = None,
 ) -> list[str]:
     """Reject anything that is not an actual file rename.
 
@@ -1235,17 +1307,34 @@ def _validate_renames(
     goes green. The total cannot grow, but the ATTRIBUTION is a lie, and if the
     added fingerprints happen to match the deleted ones the swap is invisible.
 
-    A real rename has three properties, all required here:
+    A real rename has FOUR properties, all required here:
 
     * OLD is baselined (there is credit to move);
     * OLD is GONE FROM DISK -- not merely emptied of sites. This is what stops
       the transfer-between-live-files case, because A still exists;
     * NEW exists on disk AND appears in the current scan, so credit cannot be
-      parked on an invented path (`totally/made/up.h` was accepted before).
+      parked on an invented path (`totally/made/up.h` was accepted before);
+    * NEW did NOT EXIST AT THE REVIEW BASE. A file that a rename creates is new
+      by definition. Without this, deleting baselined file A and adding an
+      identical skip to a PRE-EXISTING file B is accepted as a "rename": the
+      writer transfers A's fingerprints onto B and the base-relative ledger
+      replays the same transfer, so both checks agree -- while what actually
+      happened was a deletion PLUS new skipped coverage in B.
+
+    `base_keys` is the set of baselined keys at the review base. When it is None
+    the base could not be consulted, and the destination check is skipped -- the
+    caller is responsible for having already failed closed on an unresolvable
+    base, so reaching here with None means the baseline is being introduced.
     """
     failures: list[str] = []
     scanned = {source_key(path): path for path in test_sources()}
     for old, new in sorted(renames.items()):
+        if base_keys is not None and new in base_keys:
+            failures.append(
+                f"'{new}' already existed at the review base, so this is not a rename. "
+                f"Moving '{old}' onto a pre-existing file launders a deletion plus new "
+                f"skipped coverage as if it were a move."
+            )
         if old not in baseline:
             failures.append(f"'{old}' is not in the baseline; there is no credit to move.")
         if old in scanned:
@@ -1270,6 +1359,7 @@ def write_baseline(
     path: Path | None = None,
     *,
     renames: dict[str, str] | None = None,
+    base_ref: str | None = None,
 ) -> int:
     """Regenerate the baseline from this guard's own scan. Refuses to ADD sites.
 
@@ -1319,7 +1409,18 @@ def write_baseline(
             print(f"  - {failure}")
         return 1
 
-    rename_failures = _validate_renames(renames, baseline, found)
+    base_keys: set[str] | None = None
+    if renames:
+        base_document, base_failures = baseline_document_at_base(path, base_ref)
+        if base_failures:
+            print("[env-skip] FAIL cannot validate --rename without a review base:")
+            for failure in base_failures:
+                print(f"  - {failure}")
+            return 1
+        if isinstance(base_document, dict):
+            base_files = base_document.get("files")
+            base_keys = set(base_files) if isinstance(base_files, dict) else set()
+    rename_failures = _validate_renames(renames, baseline, found, base_keys)
     if rename_failures:
         print("[env-skip] FAIL --rename rejected:")
         for failure in rename_failures:
@@ -1395,7 +1496,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if args.write_baseline:
-        return write_baseline(renames=renames)
+        return write_baseline(renames=renames, base_ref=base_ref)
 
     files = test_sources()
     if not files:

@@ -964,7 +964,9 @@ class TwoCommitRatchetTests(unittest.TestCase):
         (self.tests_dir / "test_alpha.h").rename(self.tests_dir / "test_renamed.h")
         old_key = "modules/gaussian_splatting/tests/test_alpha.h"
         new_key = "modules/gaussian_splatting/tests/test_renamed.h"
-        code, out = self._run(["--write-baseline", "--rename", f"{old_key}={new_key}"])
+        code, out = self._run(
+            ["--write-baseline", "--rename", f"{old_key}={new_key}", "--base-ref", "base"]
+        )
         self.assertEqual(0, code, out)
         self._commit_all("move a test file")
 
@@ -975,6 +977,35 @@ class TwoCommitRatchetTests(unittest.TestCase):
         self.assertEqual([{"from": old_key, "to": new_key}], document["rename_ledger"])
         self.assertNotIn(old_key, document["files"])
         self.assertEqual(2, document["files"][new_key]["count"])
+
+    def test_rename_onto_a_file_that_existed_at_the_base_is_rejected(self) -> None:
+        """(B) A rename CREATES its destination.
+
+        Deleting baselined file A and adding an identical skip to a PRE-EXISTING
+        file B was accepted as a rename: the writer moved A's fingerprints onto
+        B and the ledger replayed the same move, so both checks agreed -- while
+        what happened was a deletion PLUS new skipped coverage in B. Requiring
+        the destination to be absent at the review base is what distinguishes
+        the two, and the base is now available to ask.
+        """
+        self._write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self._write_source("test_beta.h", 'MESSAGE("Skipping - pre-existing");\n')
+        self._seed_and_commit()
+        self._git("branch", "-f", "base", "HEAD")
+
+        # A is deleted; B (pre-existing) gains an identical skip to A's.
+        (self.tests_dir / "test_alpha.h").unlink()
+        self._write_source(
+            "test_beta.h",
+            'MESSAGE("Skipping - pre-existing");\nREQUIRE_GPU_DEVICE();\n',
+        )
+        old_key = "modules/gaussian_splatting/tests/test_alpha.h"
+        new_key = "modules/gaussian_splatting/tests/test_beta.h"
+        code, out = self._run(
+            ["--write-baseline", "--rename", f"{old_key}={new_key}", "--base-ref", "base"]
+        )
+        self.assertEqual(1, code, out)
+        self.assertIn("already existed at the review base", out)
 
     def test_a_hand_written_ledger_entry_cannot_move_live_credit(self) -> None:
         """The ledger must not become the bypass the writer refuses to be."""
@@ -1290,6 +1321,51 @@ class RealTreeTests(unittest.TestCase):
             (function_like, object_like),
         )
         self.assertEqual([(2, "macro", "GS_SKIP_NO_GPU", "a")], sites)
+
+    def test_a_delegating_wrapper_macro_is_derived_transitively(self) -> None:
+        """(C) The third variant of one root cause.
+
+        `#define REQUIRE_RENDERER() REQUIRE_GPU_DEVICE()` contains neither the
+        token nor skip prose, so a seed-only pass never sees it -- and because
+        test_macros.h is the ONE file excluded from the site scan, both the
+        delegation and every REQUIRE_RENDERER() call site were invisible, so new
+        environment skips passed the shrink-only guard.
+
+        Derivation is iterated to a FIXED POINT, not one level: a two-hop chain
+        is no less real than a one-hop one, and "we handled the case we thought
+        of" is precisely how this root cause has now produced three blind spots
+        (object-like macros, delegating macros, and whatever is next).
+        """
+        real = _load_guard()
+
+        one_hop = VALID_MACRO_HEADER + "\n#define REQUIRE_RENDERER() REQUIRE_GPU_DEVICE()\n"
+        self.assertIn("REQUIRE_RENDERER", real.skip_macro_names(one_hop)[0])
+
+        two_hop = one_hop + "#define REQUIRE_RENDERER_2() REQUIRE_RENDERER()\n"
+        derived = real.skip_macro_names(two_hop)[0]
+        self.assertIn("REQUIRE_RENDERER", derived)
+        self.assertIn("REQUIRE_RENDERER_2", derived)
+
+        # ... and an object-like macro three hops from the token.
+        three_hop = two_hop + "#define GS_SKIP_ALL do { REQUIRE_RENDERER_2(); } while (0)\n"
+        self.assertIn("GS_SKIP_ALL", real.skip_macro_names(three_hop)[1])
+
+        # The call site of a delegated wrapper must actually be COUNTED, not
+        # merely named in the derived set.
+        sites = real.scan_source(
+            'TEST_CASE("a") {\n    REQUIRE_RENDERER();\n}\n', real.skip_macro_names(one_hop)
+        )
+        self.assertEqual([(2, "macro", "REQUIRE_RENDERER", "a")], sites)
+
+    def test_delegation_to_a_failing_macro_is_not_a_skip(self) -> None:
+        """Transitivity must not drag in REQUIRE_RENDERING_DEVICE_SINGLETON,
+        which FAILs rather than skipping."""
+        real = _load_guard()
+        header = VALID_MACRO_HEADER + (
+            "\n#define REQUIRE_SINGLETON_ONLY() REQUIRE_RENDERING_DEVICE_SINGLETON()\n"
+        )
+        function_like, object_like = real.skip_macro_names(header)
+        self.assertNotIn("REQUIRE_SINGLETON_ONLY", function_like + object_like)
 
     def test_a_regressed_wrapper_macro_is_also_picked_up(self) -> None:
         """Derivation must survive the wrapper reverting to free-form prose."""

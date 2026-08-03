@@ -536,6 +536,12 @@ class BaseForwardingTests(unittest.TestCase):
                 for name in harness.ENVIRONMENT_SKIP_BASE_ENV_VARS:
                     if name not in env:
                         os.environ.pop(name, None)
+                # The base requirement now depends on the EVENT, so the ambient
+                # GITHUB_EVENT_NAME must be controlled too. Without this, running
+                # the suite under `GITHUB_EVENT_NAME=push` silently changes what
+                # these cases assert -- which is exactly how it failed once.
+                if "GITHUB_EVENT_NAME" not in env:
+                    os.environ["GITHUB_EVENT_NAME"] = "pull_request"
                 try:
                     ok, output = harness._run_environment_skip_marker_guard()
                 finally:
@@ -585,6 +591,118 @@ class BaseForwardingTests(unittest.TestCase):
         self.assertTrue(ok, output)
         command = self._guard_call(calls)
         self.assertNotIn("--base-ref", command)
+
+
+class WorkflowBaseExportTests(unittest.TestCase):
+    """Every base-bearing event the gate triggers on must be given a base.
+
+    The guard fails closed without one. agentic_pr_gate.yml triggers on
+    `pull_request` AND `merge_group` but exported a base only for the former, so
+    every merge-queue run of a required check would have been blocked -- a
+    defect introduced by making the guard correctly refuse.
+
+    The event list is DERIVED from the workflow's own `on:` block rather than
+    written out here. A hand-written list is how the next event type gets
+    missed, and this repo has been bitten by that repeatedly -- including twice
+    on this very branch (the hand-written macro list, twice over).
+    """
+
+    WORKFLOW = ROOT / ".github" / "workflows" / "agentic_pr_gate.yml"
+
+    def _trigger_events(self) -> set[str]:
+        """Event names under the workflow's top-level `on:` key."""
+        text = self.WORKFLOW.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        try:
+            start = next(i for i, line in enumerate(lines) if re.match(r"^on:\s*$", line))
+        except StopIteration:
+            self.fail(f"{self.WORKFLOW.name} has no top-level 'on:' block")
+        events: set[str] = set()
+        for line in lines[start + 1 :]:
+            if line and not line[0].isspace():
+                break
+            match = re.match(r"^  ([A-Za-z_][A-Za-z0-9_]*):", line)
+            if match:
+                events.add(match.group(1))
+        self.assertTrue(events, "derived no trigger events; the parser is broken")
+        return events
+
+    def _guard_step_env(self) -> str:
+        """The `env:` block attached to the guard-only step."""
+        text = self.WORKFLOW.read_text(encoding="utf-8")
+        marker = "run: python tests/ci/run_module_tests.py --guard-only"
+        self.assertIn(marker, text, "the guard-only step moved or was renamed")
+        # The step's env: block precedes its run: line within the same step.
+        step_start = text.rindex("- name:", 0, text.index(marker))
+        return text[step_start : text.index(marker)]
+
+    def test_every_base_bearing_trigger_is_covered_by_the_export(self) -> None:
+        events = self._trigger_events()
+        base_bearing = events & harness.BASE_BEARING_EVENTS
+        self.assertTrue(
+            base_bearing,
+            f"no base-bearing trigger found in {sorted(events)}; if the workflow "
+            f"genuinely no longer runs on one, this test should be removed deliberately",
+        )
+        env_block = self._guard_step_env()
+        self.assertIn(
+            "GS_CI_BASE_REF",
+            env_block,
+            "the guard-only step exports no review base; the guard fails closed "
+            "without one, so this blocks the gate",
+        )
+        for event in sorted(base_bearing):
+            if event == "pull_request":
+                self.assertIn("github.event.pull_request.base.sha", env_block)
+            elif event == "merge_group":
+                self.assertIn(
+                    "github.event.merge_group.base_sha",
+                    env_block,
+                    "merge_group triggers this workflow but no merge-queue base is "
+                    "exported; every merge-queue run would fail closed",
+                )
+            else:
+                self.fail(
+                    f"trigger '{event}' is base-bearing but this test does not know how "
+                    f"to check its export -- add it rather than letting it pass silently"
+                )
+
+    def test_non_base_bearing_events_do_not_require_a_base(self) -> None:
+        """push / schedule / workflow_dispatch have no review base at all.
+
+        gaussian_production_gates.yml runs --guard-only on those events too, so
+        demanding a base there would fail a required gate on every push.
+        """
+        for event in ("push", "schedule", "workflow_dispatch"):
+            with mock.patch.dict(
+                os.environ, {"CI": "1", "GITHUB_EVENT_NAME": event}, clear=False
+            ):
+                for name in harness.ENVIRONMENT_SKIP_BASE_ENV_VARS:
+                    os.environ.pop(name, None)
+                saved = harness._GUARD_BASE_REF_OVERRIDE
+                harness._GUARD_BASE_REF_OVERRIDE = None
+                try:
+                    base_ref, failures = harness._environment_skip_base_ref()
+                finally:
+                    harness._GUARD_BASE_REF_OVERRIDE = saved
+            self.assertEqual([], failures, event)
+            self.assertIsNone(base_ref, event)
+
+    def test_base_bearing_event_without_a_base_still_fails_closed(self) -> None:
+        for event in sorted(harness.BASE_BEARING_EVENTS):
+            with mock.patch.dict(
+                os.environ, {"CI": "1", "GITHUB_EVENT_NAME": event}, clear=False
+            ):
+                for name in harness.ENVIRONMENT_SKIP_BASE_ENV_VARS:
+                    os.environ.pop(name, None)
+                saved = harness._GUARD_BASE_REF_OVERRIDE
+                harness._GUARD_BASE_REF_OVERRIDE = None
+                try:
+                    base_ref, failures = harness._environment_skip_base_ref()
+                finally:
+                    harness._GUARD_BASE_REF_OVERRIDE = saved
+            self.assertIsNone(base_ref, event)
+            self.assertTrue(failures, f"{event} should require a base")
 
 
 if __name__ == "__main__":

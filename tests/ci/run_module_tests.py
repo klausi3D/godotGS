@@ -871,19 +871,35 @@ ENVIRONMENT_SKIP_BASE_ENV_VARS: tuple[str, ...] = (
 )
 
 
+# Events that propose a CHANGE for review and therefore HAVE a base. Anything
+# else (push, schedule, workflow_dispatch) has no "review base" at all: HEAD is
+# already the integrated state, so demanding one there would block the run rather
+# than protect it. gaussian_production_gates.yml runs --guard-only on push,
+# schedule, workflow_dispatch and merge_group as well as pull_request, so the
+# distinction is load-bearing and not hypothetical.
+BASE_BEARING_EVENTS: frozenset[str] = frozenset(
+    {"pull_request", "pull_request_target", "merge_group"}
+)
+
+
 def _environment_skip_base_ref() -> tuple[str | None, list[str]]:
     """The review base to hand the env-skip guard, or a hard failure.
 
-    In CI this MUST be explicit. The guard's own fallback chain ends at
-    origin/master, which is correct only for PRs that target master -- and the
-    PRs most in need of the ratchet are the stacked ones that do not. Letting
-    the fallback run in CI means "defaulted to master" and "confirmed against
-    the real base" produce the same green, which is the conflation this whole
-    change exists to remove.
+    For a base-bearing event this MUST be explicit. The guard's own fallback
+    chain ends at origin/master, which is correct only for PRs that target
+    master -- and the PRs most in need of the ratchet are the stacked ones that
+    do not. Letting the fallback run there means "defaulted to master" and
+    "confirmed against the real base" produce the same green, which is the
+    conflation this whole change exists to remove.
 
-    Locally, returning None is fine and deliberate: the guard then uses its
-    documented local defaults, which is the right ergonomics for a dev machine
-    and is never the thing a merge decision rests on.
+    For an event with no base (push, schedule, workflow_dispatch) returning None
+    is correct, not lax: there is no proposed change to grade, the base-relative
+    comparison has nothing to say, and the scan-vs-baseline check that catches a
+    new skip is still fully enforced. Demanding a base there would fail every
+    such run of a required gate.
+
+    Locally, returning None is likewise deliberate: the guard uses its documented
+    defaults, and no merge decision rests on a local run.
     """
     if _GUARD_BASE_REF_OVERRIDE:
         return _GUARD_BASE_REF_OVERRIDE, []
@@ -891,6 +907,9 @@ def _environment_skip_base_ref() -> tuple[str | None, list[str]]:
         value = os.environ.get(name, "").strip()
         if value:
             return value, []
+    event = os.environ.get("GITHUB_EVENT_NAME", "").strip()
+    if event and event not in BASE_BEARING_EVENTS:
+        return None, []
     if _is_ci():
         return None, [
             "Environment-skip guard: no review base available in CI. Set one of "

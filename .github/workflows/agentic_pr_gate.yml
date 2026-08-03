@@ -80,4 +80,17 @@ jobs:
           fi
 
       - name: Run guard-only checks (GPU-free, portable)
+        # GS_CI_BASE_REF is the review base the shrink-only ratchets in
+        # tests/ci/check_environment_skip_marker.py compare against (#595). It
+        # must be supplied for EVERY event this workflow triggers on, not just
+        # pull_request: the guard fails closed without one, so a missing export
+        # on merge_group would block the merge queue on a required check.
+        # tests/ci/test_run_module_tests_skip_marker.py derives the event list
+        # from this file's own `on:` block and fails if any base-bearing event
+        # is left without an export.
+        env:
+          GS_CI_BASE_REF: >-
+            ${{ github.event_name == 'merge_group'
+                && github.event.merge_group.base_sha
+                || github.event.pull_request.base.sha }}
         run: python tests/ci/run_module_tests.py --guard-only
