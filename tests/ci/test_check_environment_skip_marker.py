@@ -19,6 +19,7 @@ import io
 import json
 import contextlib
 import re
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -103,15 +104,42 @@ class GuardTestCase(unittest.TestCase):
         self.engine_dir = self.root / "engine_tests"
         self.engine_dir.mkdir()
 
-        self._saved = (guard.MODULE_TESTS_DIR, guard.ENGINE_TESTS_DIR, guard.BASELINE_PATH)
+        self._saved = (
+            guard.ROOT,
+            guard.MODULE_TESTS_DIR,
+            guard.ENGINE_TESTS_DIR,
+            guard.BASELINE_PATH,
+        )
+        guard.ROOT = self.root
         guard.MODULE_TESTS_DIR = self.tests_dir
         guard.ENGINE_TESTS_DIR = self.engine_dir
         guard.BASELINE_PATH = self.baseline_path
         self.write_macro_header(VALID_MACRO_HEADER)
+
+        # A real (empty) git history, so base resolution succeeds. These cases
+        # are about the scan and the writer, not the base ratchet: the baseline
+        # does not exist at this base, so the base comparison correctly reports
+        # ABSENT_AT_BASE and stands aside. Without a repo, every one of them
+        # would fail closed on "cannot resolve the review base" -- which is the
+        # right behaviour, but not what they are testing.
+        subprocess.run(
+            ["git", "init", "-q", "-b", "main"], cwd=self.root, check=True, capture_output=True
+        )
+        for key, value in (("user.email", "t@example.com"), ("user.name", "t")):
+            subprocess.run(
+                ["git", "config", key, value], cwd=self.root, check=True, capture_output=True
+            )
+        subprocess.run(
+            ["git", "commit", "-q", "--allow-empty", "-m", "base"],
+            cwd=self.root,
+            check=True,
+            capture_output=True,
+        )
         self.addCleanup(self._restore)
 
     def _restore(self) -> None:
         (
+            guard.ROOT,
             guard.MODULE_TESTS_DIR,
             guard.ENGINE_TESTS_DIR,
             guard.BASELINE_PATH,
@@ -124,10 +152,23 @@ class GuardTestCase(unittest.TestCase):
     def write_source(self, name: str, text: str) -> None:
         (self.tests_dir / name).write_text(text, encoding="utf-8")
 
+    def key(self, name: str) -> str:
+        """The baseline key for a synthetic source.
+
+        Keys are repo-relative POSIX paths, not basenames (two `test_utils.h`
+        exist in the real tree). Tests go through this rather than hardcoding a
+        shape, so a future key change breaks one helper instead of twenty
+        assertions -- and cannot silently make an assertNotIn vacuous.
+        """
+        return f"tests/{name}"
+
     def run_guard(self, argv: list[str] | None = None) -> tuple[int, str]:
+        argv = list(argv or [])
+        if "--base-ref" not in argv:
+            argv += ["--base-ref", "main"]
         buffer = io.StringIO()
         with contextlib.redirect_stdout(buffer):
-            code = guard.main(argv or [])
+            code = guard.main(argv)
         return code, buffer.getvalue()
 
     def seed_baseline(self) -> None:
@@ -288,8 +329,23 @@ class SiteRecognitionTests(GuardTestCase):
         """
         real = _load_guard()
         found = real.scan_all()
+        prefix = "modules/gaussian_splatting/tests/"
+
+        # Positive control FIRST. Keys are repo-relative paths, so asserting
+        # `assertNotIn("test_node_bootstrap.h", found)` passes no matter what --
+        # a bare basename is never a key. That is exactly how this assertion was
+        # vacuous until the keys changed shape underneath it, so the test now
+        # proves it can see a file before claiming it cannot see these two.
+        self.assertIn(
+            prefix + "test_painterly_pipeline.h",
+            found,
+            "positive control missing: this test can no longer detect ANY file, "
+            "so its negative assertions below prove nothing",
+        )
         for name in ("test_shadow_instance_subset.h", "test_node_bootstrap.h"):
-            self.assertNotIn(name, found, f"{name} unexpectedly entered the inventory")
+            self.assertNotIn(
+                prefix + name, found, f"{name} unexpectedly entered the inventory"
+            )
 
     def test_macro_header_is_excluded_from_the_inventory(self) -> None:
         """The definitions are not call sites; counting them would make the
@@ -344,7 +400,7 @@ class RatchetTests(GuardTestCase):
         self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
         self.regenerate()
         document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
-        document["files"].pop("test_alpha.h")
+        document["files"].pop(self.key("test_alpha.h"))
         self.baseline_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
         code, out = self.run_guard()
         self.assertEqual(1, code, out)
@@ -381,7 +437,7 @@ class FailClosedTests(GuardTestCase):
         self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
         self.regenerate()
         document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
-        document["files"]["test_alpha.h"]["count"] = 99
+        document["files"][self.key("test_alpha.h")]["count"] = 99
         self.baseline_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
         code, out = self.run_guard()
         self.assertEqual(1, code, out)
@@ -392,7 +448,7 @@ class FailClosedTests(GuardTestCase):
         self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
         self.regenerate()
         document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
-        document["files"]["test_alpha.h"].pop("owner")
+        document["files"][self.key("test_alpha.h")].pop("owner")
         self.baseline_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
         code, out = self.run_guard()
         self.assertEqual(1, code, out)
@@ -432,7 +488,7 @@ class WriteBaselineTests(GuardTestCase):
         self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
         self.regenerate()
         document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
-        self.assertEqual(1, document["files"]["test_alpha.h"]["count"])
+        self.assertEqual(1, document["files"][self.key("test_alpha.h")]["count"])
         code, out = self.run_guard()
         self.assertEqual(0, code, out)
 
@@ -493,11 +549,11 @@ class WriteBaselineTests(GuardTestCase):
         self.assertEqual(1, code, out)
         self.assertIn("refuses to ADD", out)
 
-        code, out = self.run_guard(["--write-baseline", "--rename", "test_alpha.h=test_renamed.h"])
+        code, out = self.run_guard(["--write-baseline", "--rename", f"{self.key('test_alpha.h')}={self.key('test_renamed.h')}"])
         self.assertEqual(0, code, out)
         document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
-        self.assertNotIn("test_alpha.h", document["files"])
-        self.assertEqual(2, document["files"]["test_renamed.h"]["count"])
+        self.assertNotIn(self.key("test_alpha.h"), document["files"])
+        self.assertEqual(2, document["files"][self.key("test_renamed.h")]["count"])
         code, out = self.run_guard()
         self.assertEqual(0, code, out)
 
@@ -507,7 +563,7 @@ class WriteBaselineTests(GuardTestCase):
         self.regenerate()
         (self.tests_dir / "test_alpha.h").rename(self.tests_dir / "test_renamed.h")
         self.write_source("test_renamed.h", 'REQUIRE_GPU_DEVICE();\nMESSAGE("Skipping - extra");\n')
-        code, out = self.run_guard(["--write-baseline", "--rename", "test_alpha.h=test_renamed.h"])
+        code, out = self.run_guard(["--write-baseline", "--rename", f"{self.key('test_alpha.h')}={self.key('test_renamed.h')}"])
         self.assertEqual(1, code, out)
         self.assertIn("refuses to ADD", out)
 
@@ -537,7 +593,7 @@ class WriteBaselineTests(GuardTestCase):
             "REQUIRE_LOCAL_GPU_DEVICE();\nREQUIRE_GPU_DEVICE();\nREQUIRE_GPU_DEVICE();\n",
         )
         code, out = self.run_guard(
-            ["--write-baseline", "--rename", "test_alpha.h=test_beta.h"]
+            ["--write-baseline", "--rename", f"{self.key('test_alpha.h')}={self.key('test_beta.h')}"]
         )
         self.assertEqual(1, code, out)
         self.assertIn("still exists on disk", out)
@@ -547,7 +603,7 @@ class WriteBaselineTests(GuardTestCase):
         self.regenerate()
         (self.tests_dir / "test_alpha.h").unlink()
         code, out = self.run_guard(
-            ["--write-baseline", "--rename", "test_alpha.h=totally/made/up.h"]
+            ["--write-baseline", "--rename", f"{self.key('test_alpha.h')}=totally/made/up.h"]
         )
         self.assertEqual(1, code, out)
         self.assertIn("not a scanned source file", out)
@@ -651,6 +707,242 @@ class MacroContractTests(GuardTestCase):
         code, out = self.run_guard()
         self.assertEqual(1, code, out)
         self.assertIn("REQUIRE_STREAMING_CAPABLE does not route its skip through GS_ENV_SKIP", out)
+
+
+class TwoCommitRatchetTests(unittest.TestCase):
+    """PROPERTIES of the ratchet, exercised across two real commits.
+
+    These are written as properties, not as assertions about a mechanism:
+
+      * no commit can increase any `allowed` value or add a lane, BY ANY ROUTE,
+        including a direct edit of the baseline file;
+      * no commit can add a site to the inventory, BY ANY ROUTE, including a
+        direct edit of the baseline file.
+
+    The two-commit fixture is load-bearing. Every earlier test here used a
+    single working tree, where the "committed reference" and the "current
+    document" are necessarily the same thing -- so they passed against a guard
+    that read its reference from HEAD and compared the change with itself. A
+    single-commit test CANNOT distinguish HEAD from the review base, which is
+    exactly why three rounds of tests missed this. The repo had already recorded
+    the lesson in tests/ci/test_gpu_harness_deferred_contract.py: "The first
+    version of this guard read the allowed backlog out of the manifest and
+    compared the manifest against itself. That is not a ratchet."
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self._tmp.name) / "repo"
+        (self.repo / "modules" / "gaussian_splatting" / "tests").mkdir(parents=True)
+        (self.repo / "tests" / "ci").mkdir(parents=True)
+        (self.repo / "engine_tests").mkdir()
+
+        self.tests_dir = self.repo / "modules" / "gaussian_splatting" / "tests"
+        self.baseline_path = self.repo / "tests" / "ci" / "environment_skip_baseline.json"
+
+        self._saved = (
+            guard.ROOT,
+            guard.MODULE_TESTS_DIR,
+            guard.ENGINE_TESTS_DIR,
+            guard.BASELINE_PATH,
+        )
+        guard.ROOT = self.repo
+        guard.MODULE_TESTS_DIR = self.tests_dir
+        guard.ENGINE_TESTS_DIR = self.repo / "engine_tests"
+        guard.BASELINE_PATH = self.baseline_path
+        self.addCleanup(self._restore)
+
+        (self.tests_dir / "test_macros.h").write_text(VALID_MACRO_HEADER, encoding="utf-8")
+        self._git("init", "-q", "-b", "main")
+        self._git("config", "user.email", "t@example.com")
+        self._git("config", "user.name", "t")
+
+    def _restore(self) -> None:
+        (
+            guard.ROOT,
+            guard.MODULE_TESTS_DIR,
+            guard.ENGINE_TESTS_DIR,
+            guard.BASELINE_PATH,
+        ) = self._saved
+        self._tmp.cleanup()
+
+    def _git(self, *args: str) -> None:
+        subprocess.run(
+            ["git", *args], cwd=self.repo, check=True, capture_output=True, text=True
+        )
+
+    def _write_source(self, name: str, text: str) -> None:
+        (self.tests_dir / name).write_text(text, encoding="utf-8")
+
+    def _seed_and_commit(self) -> None:
+        """Commit 1: the base. Baseline matches the tree exactly."""
+        document = guard.build_baseline_document(guard.scan_fingerprints(), None)
+        self.baseline_path.write_text(guard._serialize(document), encoding="utf-8")
+        self._git("add", "-A")
+        self._git("commit", "-q", "-m", "base")
+
+    def _commit_all(self, message: str) -> None:
+        """Commit 2: the change under review. HEAD now IS the change."""
+        self._git("add", "-A")
+        self._git("commit", "-q", "-m", message)
+
+    def _run(self, argv: list[str] | None = None) -> tuple[int, str]:
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            code = guard.main(argv if argv is not None else ["--base-ref", "main"])
+        return code, buffer.getvalue()
+
+    def _set_allowance(self, entry: dict | None) -> None:
+        document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
+        document["runtime_lane_allowance"] = (
+            {} if entry is None else {"GaussianSplatting [Editor]": entry}
+        )
+        self.baseline_path.write_text(guard._serialize(document), encoding="utf-8")
+
+    # -- property 1: the allowance may never grow -------------------------
+
+    def test_raising_an_allowance_by_direct_edit_fails(self) -> None:
+        self._write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self._seed_and_commit()
+        self._set_allowance(_valid_allowance_entry(1))
+        self._commit_all("record a measured allowance")
+        # `base` is the commit that CARRIES allowance=1: that is the immutable
+        # reference the next commit must be judged against.
+        self._git("branch", "-f", "base", "HEAD")
+
+        self._set_allowance(_valid_allowance_entry(9999))
+        self._commit_all("raise the allowance by hand")
+        code, out = self._run(["--base-ref", "base"])
+        self.assertEqual(1, code, out)
+        self.assertIn("rose 1 -> 9999", out)
+
+    def test_adding_an_allowance_lane_by_direct_edit_fails(self) -> None:
+        self._write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self._seed_and_commit()
+        self._git("branch", "-f", "base", "HEAD")
+
+        self._set_allowance(_valid_allowance_entry(3))
+        self._commit_all("add a brand new allowance lane")
+        code, out = self._run(["--base-ref", "base"])
+        self.assertEqual(1, code, out)
+        self.assertIn("is NEW", out)
+
+    def test_lowering_an_allowance_is_allowed(self) -> None:
+        """The ratchet must still turn the good way."""
+        self._write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self._seed_and_commit()
+        self._set_allowance(_valid_allowance_entry(2))
+        self._commit_all("measured allowance")
+        self._git("branch", "-f", "base", "HEAD")
+
+        self._set_allowance(_valid_allowance_entry(1))
+        self._commit_all("tighten")
+        code, out = self._run(["--base-ref", "base"])
+        self.assertEqual(0, code, out)
+
+    # -- property 2: the site inventory may never grow --------------------
+
+    def test_adding_a_site_and_hand_editing_the_baseline_fails(self) -> None:
+        """The hole P1-2 named: tool paths were closed, the text editor was not.
+
+        Adding a skip AND its fingerprint in one commit makes `actual` and
+        `allowed` agree, so the scan-vs-baseline check reports nothing. Only a
+        base-relative comparison of the baseline FILE catches it.
+        """
+        self._write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self._seed_and_commit()
+        self._git("branch", "-f", "base", "HEAD")
+
+        # A real new skip, plus a hand edit that "authorises" it.
+        self._write_source(
+            "test_alpha.h", 'REQUIRE_GPU_DEVICE();\nMESSAGE("Skipping - smuggled");\n'
+        )
+        document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
+        key = "modules/gaussian_splatting/tests/test_alpha.h"
+        entry = document["files"][key]
+        entry["sites"] = sorted(entry["sites"] + [guard.fingerprint("message", "Skipping - smuggled")])
+        entry["count"] = len(entry["sites"])
+        self.baseline_path.write_text(guard._serialize(document), encoding="utf-8")
+        self._commit_all("add a skip and authorise it by hand")
+
+        # The scan-vs-baseline check is satisfied -- that is the whole point.
+        code, out = self._run(["--base-ref", "base"])
+        self.assertEqual(1, code, out)
+        self.assertIn("the BASELINE FILE gained", out)
+
+    def test_adding_a_whole_new_baselined_file_by_hand_fails(self) -> None:
+        self._write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self._seed_and_commit()
+        self._git("branch", "-f", "base", "HEAD")
+
+        self._write_source("test_beta.h", "REQUIRE_LOCAL_GPU_DEVICE();\n")
+        document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
+        document["files"]["modules/gaussian_splatting/tests/test_beta.h"] = {
+            "owner": "x",
+            "issue_url": "x",
+            "conversion_slice": "x",
+            "count": 1,
+            "sites": ["macro|REQUIRE_LOCAL_GPU_DEVICE"],
+        }
+        self.baseline_path.write_text(guard._serialize(document), encoding="utf-8")
+        self._commit_all("smuggle a whole file")
+
+        code, out = self._run(["--base-ref", "base"])
+        self.assertEqual(1, code, out)
+        self.assertIn("the BASELINE FILE gained", out)
+
+    def test_removing_a_site_and_shrinking_the_baseline_is_allowed(self) -> None:
+        self._write_source(
+            "test_alpha.h", 'REQUIRE_GPU_DEVICE();\nMESSAGE("Skipping - x");\n'
+        )
+        self._seed_and_commit()
+        self._git("branch", "-f", "base", "HEAD")
+
+        self._write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        code, _ = self._run(["--write-baseline"])
+        self.assertEqual(0, code)
+        self._commit_all("fix one skip")
+        code, out = self._run(["--base-ref", "base"])
+        self.assertEqual(0, code, out)
+
+    # -- base resolution --------------------------------------------------
+
+    def test_unresolvable_base_fails_closed(self) -> None:
+        """'Cannot determine the base' must never encode as 'nothing changed'."""
+        self._write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self._seed_and_commit()
+        code, out = self._run(["--base-ref", "no-such-ref-anywhere"])
+        self.assertEqual(1, code, out)
+        self.assertIn("cannot resolve the review base", out)
+        self.assertIn("Refusing to fall back to HEAD", out)
+
+    def test_head_is_not_accepted_as_its_own_reference(self) -> None:
+        """The defect itself, as a property.
+
+        With HEAD as the base, merge-base(HEAD, HEAD) is HEAD, so the reference
+        IS the change. A raise must still be caught -- and it is, because the
+        guard compares against the merge-base with an explicit base ref, so
+        passing HEAD deliberately is the one case that degenerates. Asserting it
+        keeps the degeneracy visible rather than latent.
+        """
+        self._write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self._seed_and_commit()
+        self._set_allowance(_valid_allowance_entry(1))
+        self._commit_all("allowance")
+        self._git("branch", "-f", "base", "HEAD")
+        self._set_allowance(_valid_allowance_entry(9999))
+        self._commit_all("raise")
+
+        base_code, base_out = self._run(["--base-ref", "base"])
+        head_code, _ = self._run(["--base-ref", "HEAD"])
+        self.assertEqual(1, base_code, base_out)
+        self.assertEqual(
+            0,
+            head_code,
+            "comparing against HEAD should degenerate to comparing the change with "
+            "itself -- if this ever fails, the reference resolution changed and this "
+            "test's premise needs revisiting",
+        )
 
 
 class RealTreeTests(unittest.TestCase):

@@ -245,6 +245,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -861,7 +862,7 @@ def _load_allowance(document: dict) -> tuple[dict[str, int], list[str]]:
     return out, failures
 
 
-def check_allowance(document: dict, previous: dict | None) -> list[str]:
+def check_allowance(document: dict, previous: dict | str | None) -> list[str]:
     """Validate the allowance ALWAYS, and ratchet it shrink-only.
 
     Two holes this closes. The allowance used to be read only by
@@ -872,13 +873,20 @@ def check_allowance(document: dict, previous: dict | None) -> list[str]:
     nothing ever looked at it.
 
     Now: the schema is validated on every run, and the number may only ever
-    SHRINK relative to the previously committed document. Raising one, or adding
-    a lane, is a deliberate act that has to happen somewhere a reviewer looks --
+    SHRINK relative to the document AT THE REVIEW BASE. Raising one, or adding a
+    lane, is a deliberate act that has to happen somewhere a reviewer looks --
     not a side effect of regenerating the site inventory.
+
+    `previous` MUST come from the review base, never from HEAD. See
+    resolve_base_sha(): in CI, HEAD is the proposed commit, so a HEAD-relative
+    reference compares the change with itself and permits any increase.
+    ABSENT_AT_BASE means the file is being introduced by this change; there is
+    genuinely nothing to ratchet against, and the caller reports that explicitly.
     """
     current, failures = _load_allowance(document)
-    if failures or previous is None:
+    if failures or previous is None or previous == ABSENT_AT_BASE:
         return failures
+    assert isinstance(previous, dict)
     baseline_allowance, previous_failures = _load_allowance(previous)
     if previous_failures:
         return [f"previously committed allowance is malformed: {f}" for f in previous_failures]
@@ -897,36 +905,160 @@ def check_allowance(document: dict, previous: dict | None) -> list[str]:
     return failures
 
 
-def _committed_baseline_document(path: Path) -> dict | None:
-    """The baseline as committed at HEAD, or None when it is not tracked yet.
+# Where the review base comes from, in priority order. CI supplies the PR base
+# sha; .github/workflows/agentic_pr_gate.yml already passes
+# `github.event.pull_request.base.sha` around, so this reads the same value.
+BASE_REF_ENV_VARS: tuple[str, ...] = (
+    "GS_CI_ENV_SKIP_BASE_REF",
+    "GS_CI_BASE_REF",
+    "GITHUB_BASE_SHA",
+)
+# Local fallbacks, tried in order, only when nothing explicit was supplied.
+DEFAULT_BASE_REFS: tuple[str, ...] = ("origin/master", "master")
 
-    Used only as the shrink-only reference. A tree with no committed baseline
-    (the very first commit) has nothing to ratchet against, which is a fact
-    about history rather than a fail-open: the site inventory itself is still
-    fully enforced on that run.
-    """
-    try:
-        rel = path.resolve().relative_to(ROOT).as_posix()
-    except ValueError:
-        return None
+# Returned when the base resolved fine but the baseline did not exist there --
+# i.e. this change INTRODUCES the file. Distinct from "could not resolve", which
+# is a hard failure.
+ABSENT_AT_BASE = "absent-at-base"
+
+
+def _git(args: list[str]) -> tuple[int, str]:
     try:
         result = subprocess.run(
-            ["git", "show", f"HEAD:{rel}"],
+            ["git", *args],
             cwd=ROOT,
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
         )
-    except (OSError, ValueError):
-        return None
-    if result.returncode != 0:
-        return None
+    except (OSError, ValueError) as exc:
+        return 1, str(exc)
+    return result.returncode, result.stdout
+
+
+def resolve_base_sha(base_ref: str | None = None) -> tuple[str | None, list[str]]:
+    """The merge-base of HEAD and the review base, or a failure.
+
+    A ratchet must compare against an immutable reference OUTSIDE the change
+    under review. `HEAD` is not that: locally, pre-commit, HEAD is the previous
+    commit and reading the reference from it happens to work -- but in CI HEAD
+    IS the proposed commit, so the guard reads back the very document the change
+    just edited and compares it with itself. Raising an allowance from 1 to 9999
+    then passes the shrink-only check, because both sides moved together.
+
+    This repo has already written that lesson down, in
+    tests/ci/test_gpu_harness_deferred_contract.py: "The first version of this
+    guard read the allowed backlog out of the manifest and compared the manifest
+    against itself. That is not a ratchet." It is the same defect.
+
+    So the base is resolved explicitly and, when it cannot be, this FAILS. It
+    must never fall back to HEAD: that reinstates the bug in precisely the
+    situation where it matters, and it would encode "cannot determine the base"
+    and "nothing changed" identically -- the exact conflation this whole branch
+    exists to remove.
+    """
+    candidates: list[str] = []
+    if base_ref:
+        candidates.append(base_ref)
+    else:
+        for name in BASE_REF_ENV_VARS:
+            value = os.environ.get(name, "").strip()
+            if value:
+                candidates.append(value)
+        candidates.extend(DEFAULT_BASE_REFS)
+
+    tried: list[str] = []
+    for candidate in candidates:
+        code, out = _git(["rev-parse", "--verify", f"{candidate}^{{commit}}"])
+        if code != 0:
+            tried.append(candidate)
+            continue
+        code, merge_base = _git(["merge-base", "HEAD", candidate])
+        if code != 0 or not merge_base.strip():
+            tried.append(f"{candidate} (no merge-base with HEAD)")
+            continue
+        return merge_base.strip(), []
+
+    return None, [
+        "cannot resolve the review base, so the shrink-only ratchet has nothing immutable "
+        "to compare against. Refusing to fall back to HEAD: in CI, HEAD IS the change, and "
+        "comparing a change with itself is what let a ratchet be raised silently "
+        f"(tried: {', '.join(tried) or 'nothing'}). Pass --base-ref, or set one of "
+        f"{', '.join(BASE_REF_ENV_VARS)}."
+    ]
+
+
+def baseline_document_at_base(
+    path: Path, base_ref: str | None = None
+) -> tuple[dict | str | None, list[str]]:
+    """The baseline as committed at the REVIEW BASE.
+
+    Returns (document, failures), where document may be ABSENT_AT_BASE when the
+    base resolved but the file did not exist there -- that is this change
+    introducing the file, which is a fact about history rather than a bypass,
+    and is reported rather than passed over in silence.
+    """
+    base_sha, failures = resolve_base_sha(base_ref)
+    if failures:
+        return None, failures
     try:
-        document = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return None
-    return document if isinstance(document, dict) else None
+        rel = path.resolve().relative_to(ROOT).as_posix()
+    except ValueError:
+        return None, [
+            f"baseline {path} is outside the repository root {ROOT}; cannot locate it at the "
+            f"review base."
+        ]
+    code, out = _git(["show", f"{base_sha}:{rel}"])
+    if code != 0:
+        return ABSENT_AT_BASE, []
+    try:
+        document = json.loads(out)
+    except json.JSONDecodeError as exc:
+        return None, [f"baseline at review base {base_sha[:12]} is not valid JSON: {exc}"]
+    if not isinstance(document, dict):
+        return None, [f"baseline at review base {base_sha[:12]} is not a JSON object."]
+    return document, []
+
+
+def check_sites_against_base(
+    current: dict[str, list[str]], base_document: dict | str
+) -> list[str]:
+    """The baseline's SITE LIST may only shrink relative to the review base.
+
+    Closes the hand-edit path. The scan-vs-baseline check catches "added a skip
+    and forgot the baseline"; it cannot catch "added a skip AND added its
+    fingerprint to the baseline in the same commit", because then `actual` and
+    `allowed` match and nothing is reported. Removing the --bootstrap-baseline
+    flag closed the TOOL route to that; it did nothing about a text editor.
+
+    Comparing the baseline file itself against the base closes it: the file grew,
+    and growth is a violation regardless of how the bytes got there.
+    """
+    if base_document == ABSENT_AT_BASE:
+        return []
+    assert isinstance(base_document, dict)
+    base_files = base_document.get("files")
+    if not isinstance(base_files, dict):
+        return ["baseline at the review base has no 'files' object; refusing to compare."]
+    base_sites: dict[str, list[str]] = {}
+    for name, entry in base_files.items():
+        if isinstance(entry, dict) and isinstance(entry.get("sites"), list):
+            base_sites[name] = sorted(str(s) for s in entry["sites"])
+        else:
+            return [f"baseline at the review base has a malformed entry for '{name}'."]
+
+    failures: list[str] = []
+    for name in sorted(set(current) | set(base_sites)):
+        added = multiset_difference(current.get(name, []), base_sites.get(name, []))
+        if added:
+            failures.append(
+                f"{name}: the BASELINE FILE gained {len(added)} site(s) relative to the review "
+                f"base. The inventory may only shrink; adding a fingerprint by hand is the "
+                f"same weakening as adding one with a tool:"
+            )
+            failures.extend(f"    {print_}" for print_ in added)
+    return failures
 
 
 def _validate_renames(
@@ -1078,7 +1210,19 @@ def main(argv: list[str] | None = None) -> int:
             "Moves fingerprints verbatim; can never introduce one. Repeatable."
         ),
     )
+    parser.add_argument(
+        "--base-ref",
+        default=None,
+        help=(
+            "The review base to ratchet against (a commit-ish; the merge-base with HEAD is "
+            "used). CI should pass the PR base sha. Defaults to "
+            f"{', '.join(BASE_REF_ENV_VARS)} then {', '.join(DEFAULT_BASE_REFS)}. NEVER "
+            "falls back to HEAD -- in CI, HEAD is the change, and a ratchet that compares "
+            "the change with itself is not a ratchet."
+        ),
+    )
     args = parser.parse_args(argv)
+    base_ref = args.base_ref
 
     renames, rename_errors = _parse_renames(args.rename)
     if rename_errors:
@@ -1102,17 +1246,31 @@ def main(argv: list[str] | None = None) -> int:
     baseline, failures = load_baseline()
     failures = list(failures) + check_macro_contract()
 
-    # The allowance is validated on EVERY run, not only when a lane trips, and
-    # ratcheted against the committed document so it can only shrink.
+    # Both ratchets compare against the REVIEW BASE, never HEAD. In CI, HEAD is
+    # the proposed commit, so a HEAD-relative reference compares the change with
+    # itself and permits exactly the weakening it exists to reject. The base is
+    # resolved once and shared by the allowance check and the site-inventory
+    # check -- they are one rule applied to two parts of the same file.
     if BASELINE_PATH.is_file():
         try:
             document = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
             failures.append(f"baseline is not readable JSON: {exc}")
         else:
-            failures.extend(
-                check_allowance(document, _committed_baseline_document(BASELINE_PATH))
-            )
+            base_document, base_failures = baseline_document_at_base(BASELINE_PATH, base_ref)
+            failures.extend(base_failures)
+            if not base_failures:
+                if base_document == ABSENT_AT_BASE:
+                    # Reported, never silent: this run has no ratchet reference
+                    # because the change INTRODUCES the file. The scan-vs-baseline
+                    # check below is still fully enforced.
+                    print(
+                        "[env-skip] NOTE the baseline does not exist at the review base, so this "
+                        "change introduces it; the shrink-only comparison has no reference this "
+                        "run. Review the whole file, not a diff."
+                    )
+                failures.extend(check_allowance(document, base_document))
+                failures.extend(check_sites_against_base(baseline, base_document))
 
     total = sum(len(v) for v in found.values())
 
