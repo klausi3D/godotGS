@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import copy
 import hashlib
 import importlib.util
 import io
@@ -62,8 +63,18 @@ COMMITTED_MANIFEST_PATH = ROOT / "tests" / "ci" / "quarantine_manifest.json"
 #   * a BASELINE -- the actual pinned set, so an addition is rejected by set
 #                   INCLUSION (a fix-one/add-one swap nets zero and would pass a
 #                   count-only check),
-#   * a FINGERPRINT -- one hash over the whole set, so any edit at all is a
-#                   deliberate, review-visible re-pin rather than a one-liner.
+#   * a FINGERPRINT -- one hash over the COMPLETE declaration objects, in order,
+#                   so any edit at all is a deliberate, review-visible re-pin
+#                   rather than a one-liner. Both arrays get identical treatment
+#                   (array_fingerprint): every field, including fields invented
+#                   after this guard was written, and including the ORDER, which
+#                   is semantic because lane-coverage attribution is
+#                   first-match-wins (#664). Round 2 (Codex on #821) found the
+#                   unlaned hash covering only (test_case, count), which left a
+#                   rewritten owner/reason/risk/expiry - and an issue_url swapped
+#                   between two allowlisted issues - completely invisible. That
+#                   is the orphaning failure this branch exists to close, running
+#                   in reverse.
 #
 # The ratchet turns ONE WAY: counts may go DOWN, never UP; entries may leave the
 # manifest, never join it without a matching guard edit in the same PR.
@@ -112,8 +123,16 @@ UNLANED_BASELINE: tuple[tuple[str, int], ...] = (
     ("[Streaming VRAM]*", 1),
     ("[VisualCompare]*", 3),
 )
+# Re-pinned in round 2 (Codex on #821) because the HASH INPUT widened, not
+# because the data moved: the fingerprint now covers every field of every
+# declaration, in order, exactly like QUARANTINE_ENTRIES_FINGERPRINT, instead of
+# only the (test_case, count) projection. The declaration set is byte-identical
+# either side of the re-pin -- 10 declarations, 86 total, LOST 0 / GAINED 0 --
+# and UNLANED_MAX_DECLARATIONS / UNLANED_MAX_TOTAL_COUNT / UNLANED_BASELINE are
+# untouched above. Previous value, for audit: 599451ce55bba30f68959d61a61526989
+# fe2046ed0e7ac31cedfa77c9f525b9e.
 UNLANED_FINGERPRINT = (
-    "599451ce55bba30f68959d61a61526989fe2046ed0e7ac31cedfa77c9f525b9e"
+    "16d05a33e1ffa19ceca12e86896f77f66d02e07f24a90358dcce810fa87300f7"
 )
 
 # ---------------------------------------------------------------------------
@@ -900,10 +919,37 @@ def load_committed_manifest() -> dict:
     return data
 
 
+def array_fingerprint(items: list) -> str:
+    """Hash a WHOLE manifest array: every field of every element, in order.
+
+    Both arrays get exactly this treatment. Round 2 (Codex on #821) found that
+    `unlaned_tests` had been given a NARROWER rule than its sibling `entries`,
+    with no stated reason: the hash covered only (test_case, count), so a
+    declaration's `reason`, `owner`, `risk` and `expires_utc` - and an
+    `issue_url` swapped between two already-allowlisted issues - could all be
+    rewritten with the fingerprint unchanged and every test still green. That
+    defeats the "any edit at all is visible" guarantee exactly where it matters,
+    waiver OWNERSHIP and TRACKING, which is the failure mode this branch exists
+    to close: 9 of 10 declarations had been quietly orphaned onto CLOSED issues.
+    A hash over a hand-listed subset of fields is the same class of defect as an
+    invariant guarded by a hand-written list.
+
+    Two properties follow from hashing the array as committed, and both are
+    deliberate:
+      * TOTALITY - a field added by a future schema change is hashed the day it
+        appears, because nothing here enumerates field names.
+      * ORDER - check_test_lane_coverage.py attributes stranded cases
+        FIRST-MATCH-WINS, so declaration order is semantic (#664): a reorder can
+        silently re-attribute cases between declarations. Order is therefore part
+        of the pinned content, not cosmetic.
+    """
+    payload = json.dumps(items, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def entries_fingerprint(entries: list) -> str:
     """Hash over the WHOLE entries array, so any field edit is visible."""
-    payload = json.dumps(entries, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return array_fingerprint(entries)
 
 
 def entry_keys(entries: list) -> list:
@@ -931,9 +977,35 @@ def unlaned_pairs(declarations: list) -> list:
     return sorted(pairs)
 
 
-def unlaned_fingerprint(pairs: list) -> str:
-    payload = "\n".join(f"{test_case}\t{count}" for test_case, count in pairs)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+def unlaned_fingerprint(declarations: list) -> str:
+    """Hash over the WHOLE declaration objects - see array_fingerprint.
+
+    Takes the declarations themselves, NOT the (test_case, count) projection.
+    `unlaned_pairs` still exists, but only for the SIZE and SET-INCLUSION rules,
+    which answer a different question ("did the declared set grow?") than the
+    fingerprint ("did anything at all change?").
+    """
+    return array_fingerprint(declarations)
+
+
+def _perturb(value: object) -> object:
+    """Return a value that is JSON-different from `value`, whatever its type.
+
+    Type-driven, so the totality test needs no per-field knowledge.
+    """
+    if isinstance(value, bool):
+        return not value
+    if isinstance(value, int):
+        return value + 1
+    if isinstance(value, float):
+        return value + 1.0
+    if isinstance(value, str):
+        return value + " (perturbed)"
+    if isinstance(value, list):
+        return list(value) + ["perturbed"]
+    if isinstance(value, dict):
+        return {**value, "perturbed": True}
+    return "perturbed"
 
 
 def _parse_utc(value: object):
@@ -1182,30 +1254,121 @@ class QuarantineManifestRatchetTests(unittest.TestCase):
         )
 
     def test_unlaned_fingerprint_matches_the_pinned_baseline(self) -> None:
-        actual = unlaned_fingerprint(unlaned_pairs(self.declarations))
+        actual = unlaned_fingerprint(self.declarations)
         self.assertEqual(
             actual,
             UNLANED_FINGERPRINT,
-            "the 'unlaned_tests' (test_case, count) set changed without re-pinning this guard.\n"
+            "'unlaned_tests' changed without re-pinning this guard.\n"
             f"  pinned: {UNLANED_FINGERPRINT}\n  actual: {actual}\n"
-            "A count-only ratchet would pass a same-size swap; this will not. If the change is a "
-            "legitimate SHRINK, re-pin with\n"
+            "The fingerprint covers every field of every declaration, in order - a rewritten "
+            "owner, reason, risk or expiry, and an issue_url swapped between two allowlisted "
+            "issues, are all as visible as an addition. A count-only ratchet would pass a "
+            "same-size swap; this will not. If the change is a legitimate SHRINK, re-pin with\n"
             "  python tests/ci/test_quarantine_manifest.py --print-fingerprint",
+        )
+
+    def test_fingerprint_covers_every_field_of_every_declaration(self) -> None:
+        """TOTALITY: no field is unhashed, including fields not invented yet.
+
+        Written as the property, not against today's field list. Round 2 (#821):
+        the previous fingerprint hashed 2 of the 7 fields, so `owner`,
+        `reason`, `risk`, `expires_utc` and an `issue_url` swapped between two
+        allowlisted issues were all invisible. A guard whose coverage is a
+        hand-written list of field names is the defect this repo keeps paying
+        for; this test derives the list from the data instead.
+        """
+        baseline = unlaned_fingerprint(self.declarations)
+        checked = 0
+        for index, declaration in enumerate(self.declarations):
+            self.assertIsInstance(declaration, dict)
+            for key, value in declaration.items():
+                checked += 1
+                edited = copy.deepcopy(self.declarations)
+                edited[index][key] = _perturb(value)
+                self.assertNotEqual(
+                    unlaned_fingerprint(edited),
+                    baseline,
+                    f"rewriting unlaned_tests[{index}][{key!r}] does not change the "
+                    f"fingerprint - that field is UNHASHED and can be edited silently.",
+                )
+                dropped = copy.deepcopy(self.declarations)
+                del dropped[index][key]
+                self.assertNotEqual(
+                    unlaned_fingerprint(dropped),
+                    baseline,
+                    f"DELETING unlaned_tests[{index}][{key!r}] does not change the fingerprint.",
+                )
+        self.assertGreater(checked, 0, "no declaration fields were checked - vacuous test")
+        # A field added by a future schema change must be hashed the day it
+        # appears, with no edit to this guard.
+        extended = copy.deepcopy(self.declarations)
+        extended[0]["a_field_invented_after_this_guard_was_written"] = "value"
+        self.assertNotEqual(
+            unlaned_fingerprint(extended),
+            baseline,
+            "a NEW field added to a declaration is not hashed; the fingerprint is enumerating "
+            "field names somewhere instead of hashing the whole object.",
+        )
+
+    def test_fingerprint_pins_declaration_order(self) -> None:
+        """Order is semantic, so it is pinned.
+
+        check_test_lane_coverage.py attributes stranded cases FIRST-MATCH-WINS
+        (#664), so moving a catch-all above a narrow family silently
+        re-attributes cases between declarations while every count stays put.
+        """
+        self.assertGreaterEqual(len(self.declarations), 2)
+        reordered = list(self.declarations)
+        reordered[0], reordered[1] = reordered[1], reordered[0]
+        self.assertNotEqual(
+            unlaned_fingerprint(reordered),
+            unlaned_fingerprint(self.declarations),
+            "reordering two declarations leaves the fingerprint unchanged, so a first-match-wins "
+            "re-attribution (#664) would be invisible.",
+        )
+
+    def test_fingerprint_is_not_the_old_narrow_projection(self) -> None:
+        """Round-2 regression pin (#821): re-narrowing the hash must fail here.
+
+        If a future change reverts the fingerprint to the (test_case, count)
+        projection, every other test in this file still passes - the pinned
+        constant would simply be re-derived from the narrower input. This is the
+        test that notices.
+        """
+        narrow_payload = "\n".join(
+            f"{test_case}\t{count}" for test_case, count in unlaned_pairs(self.declarations)
+        )
+        narrow = hashlib.sha256(narrow_payload.encode("utf-8")).hexdigest()
+        self.assertNotEqual(
+            UNLANED_FINGERPRINT,
+            narrow,
+            "UNLANED_FINGERPRINT equals the hash of the (test_case, count) projection. The "
+            "fingerprint must cover the WHOLE declaration objects; the narrow form cannot see a "
+            "rewritten owner, reason or issue_url.",
+        )
+        self.assertEqual(
+            unlaned_fingerprint(self.declarations),
+            array_fingerprint(self.declarations),
+            "unlaned_tests must get the SAME treatment as entries, not a narrower one.",
         )
 
     # -- the pins must agree with each other -------------------------------
     def test_pinned_constants_are_internally_consistent(self) -> None:
         """A half-finished re-pin is caught here, not six months later.
 
-        Someone editing UNLANED_BASELINE but forgetting UNLANED_FINGERPRINT (or
-        the reverse) would otherwise leave one of the three pins silently
-        describing a set nobody committed.
+        Someone editing UNLANED_BASELINE but forgetting the MAX constants (or
+        the reverse) would otherwise leave one of the pins silently describing a
+        set nobody committed.
+
+        UNLANED_FINGERPRINT is deliberately NOT cross-checked against
+        UNLANED_BASELINE: since round 2 the fingerprint hashes the complete
+        declaration objects, which the (test_case, count) baseline does not
+        carry, so it cannot be derived from it. That is the point - the
+        fingerprint sees strictly more than the baseline does. It is instead
+        checked against the committed manifest, and against re-narrowing, by
+        test_unlaned_fingerprint_matches_the_pinned_baseline and
+        test_fingerprint_is_not_the_old_narrow_projection.
         """
-        self.assertEqual(
-            unlaned_fingerprint(sorted(UNLANED_BASELINE)),
-            UNLANED_FINGERPRINT,
-            "UNLANED_FINGERPRINT does not hash UNLANED_BASELINE - the re-pin is half done.",
-        )
         self.assertEqual(
             len(UNLANED_BASELINE),
             UNLANED_MAX_DECLARATIONS,
@@ -1508,7 +1671,8 @@ def _print_fingerprint() -> int:
     for test_case, count in pairs:
         print(f"    ({test_case!r}, {count}),")
     print(")")
-    print(f'UNLANED_FINGERPRINT = "{unlaned_fingerprint(pairs)}"')
+    # Hashes the declarations themselves, not the pair projection printed above.
+    print(f'UNLANED_FINGERPRINT = "{unlaned_fingerprint(data["unlaned_tests"])}"')
     return 0
 
 

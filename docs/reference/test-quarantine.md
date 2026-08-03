@@ -84,6 +84,23 @@ miss:
 | `QUARANTINE_ENTRIES_BASELINE`, `UNLANED_BASELINE` | additions by **set inclusion** - a same-size swap or a fix-one/add-one trade nets zero and still fails |
 | `QUARANTINE_ENTRIES_FINGERPRINT`, `UNLANED_FINGERPRINT` | any edit at all, so a re-pin is a deliberate two-file diff instead of a one-liner |
 
+Both fingerprints hash the **complete objects** - every field of every element,
+in the order committed - and both arrays get identical treatment. Two properties
+follow deliberately:
+
+- **Totality.** Nothing enumerates field names, so a field added by a future
+  schema change is hashed the day it appears. A hash over a hand-listed subset
+  of fields is the same class of defect as an invariant guarded by a
+  hand-written list. (Round 2 of #650 found the `unlaned_tests` hash covering
+  only `test_case` and `count`, so a rewritten `owner`, `reason`, `risk` or
+  `expires_utc` - and an `issue_url` swapped between two allowlisted open issues
+  - were all invisible. That is the closed-issue orphaning failure in reverse,
+  in the guard built to catch it.)
+- **Order.** `check_test_lane_coverage.py` attributes stranded cases
+  **first-match-wins** (#664), so moving a catch-all above a narrow family
+  silently re-attributes cases while every count stays put. Declaration order is
+  therefore pinned content, not cosmetics.
+
 Two further pins close the ways a declaration can become permanent without ever
 growing the count:
 
