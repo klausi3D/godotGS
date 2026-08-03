@@ -18,10 +18,12 @@ import importlib.util
 import io
 import json
 import contextlib
+import os
 import re
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 GUARD_PATH = Path(__file__).resolve().parent / "check_environment_skip_marker.py"
@@ -997,6 +999,130 @@ class TwoCommitRatchetTests(unittest.TestCase):
 
     # -- base resolution --------------------------------------------------
 
+    def _make_remote_ref(self, name: str, commit: str = "HEAD") -> None:
+        """Create refs/remotes/origin/<name> without needing a real remote."""
+        out = subprocess.run(
+            ["git", "rev-parse", commit],
+            cwd=self.repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        self._git("update-ref", f"refs/remotes/origin/{name}", out)
+
+    def test_branch_name_base_resolves_via_origin_when_no_local_branch(self) -> None:
+        """GITHUB_BASE_REF is a BRANCH NAME, and under actions/checkout the base
+        usually exists only as a remote-tracking ref.
+
+        A bare `<ref>` lookup then fails and the guard fails closed on a
+        legitimate PR -- correct-but-unusable, the same shape as the --rename
+        path. A STACKED base is the realistic case: `gs/650-quarantine-ratchet`
+        will not exist locally.
+        """
+        self._write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self._seed_and_commit()
+        self._make_remote_ref("gs/650-quarantine-ratchet")
+        # Deliberately NO local branch of that name.
+        probe = subprocess.run(
+            ["git", "rev-parse", "--verify", "gs/650-quarantine-ratchet^{commit}"],
+            cwd=self.repo,
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(0, probe.returncode, "fixture is wrong: a local branch exists")
+
+        sha, failures = guard.resolve_base_sha("gs/650-quarantine-ratchet")
+        self.assertEqual([], failures)
+        self.assertIsNotNone(sha)
+
+        code, out = self._run(["--base-ref", "gs/650-quarantine-ratchet"])
+        self.assertEqual(0, code, out)
+
+    def test_stale_local_branch_loses_to_the_remote_tracking_ref(self) -> None:
+        """The tightest available reference wins.
+
+        A stale local branch yields an OLDER merge-base, and an older base is
+        not merely imprecise: if the baseline did not exist there, the whole
+        comparison degrades to ABSENT_AT_BASE and the ratchet stops constraining
+        anything. Observed on the real worktree -- local `master` sat at
+        b6b2d7258bf while origin/master was a3bb6925132.
+        """
+        self._write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self._seed_and_commit()
+        stale = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        self._git("branch", "-f", "release", stale)
+
+        # Move on, and point origin/release at the newer commit.
+        self._write_source("test_beta.h", "REQUIRE_LOCAL_GPU_DEVICE();\n")
+        code, _ = self._run(["--write-baseline"])
+        self._git("add", "-A")
+        self._git("commit", "-q", "-m", "advance")
+        self._make_remote_ref("release", "HEAD")
+        fresh = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+        sha, failures = guard.resolve_base_sha("release")
+        self.assertEqual([], failures)
+        self.assertEqual(fresh, sha, "resolution took the STALE local branch")
+        self.assertNotEqual(stale, sha)
+
+    def test_origin_prefixed_ref_is_not_double_prefixed(self) -> None:
+        self._write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self._seed_and_commit()
+        self._make_remote_ref("main")
+        sha, failures = guard.resolve_base_sha("origin/main")
+        self.assertEqual([], failures)
+        self.assertIsNotNone(sha)
+
+    def test_an_explicit_but_unresolvable_base_does_not_fall_back_to_master(self) -> None:
+        """Found while verifying the origin/ fix, and worse than the bug it sat next to.
+
+        An explicit base from the environment was appended to the DEFAULT list
+        rather than replacing it, so an unreachable stacked base fell through to
+        origin/master and the run went GREEN -- graded against the wrong branch,
+        which is exactly what forwarding the base was supposed to prevent.
+        'The base you named is unreachable' and 'you named no base' must not
+        share an outcome.
+        """
+        self._write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self._seed_and_commit()
+        self._git("branch", "-f", "master", "HEAD")
+
+        sha, failures = guard.resolve_base_sha("gs/no-such-stacked-branch")
+        self.assertIsNone(sha)
+        self.assertTrue(failures)
+        self.assertIn("an explicitly named base did not resolve", failures[0])
+
+        with mock.patch.dict(
+            os.environ, {"GITHUB_BASE_REF": "gs/no-such-stacked-branch"}, clear=False
+        ):
+            sha, failures = guard.resolve_base_sha(None)
+        self.assertIsNone(sha, "an unresolvable env base silently fell back")
+        self.assertTrue(failures)
+
+    def test_no_base_named_at_all_still_uses_local_defaults(self) -> None:
+        """Local ergonomics must survive the stricter explicit-base rule."""
+        self._write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self._seed_and_commit()
+        self._git("branch", "-f", "master", "HEAD")
+        with mock.patch.dict(os.environ, {}, clear=False):
+            for name in guard.BASE_REF_ENV_VARS:
+                os.environ.pop(name, None)
+            sha, failures = guard.resolve_base_sha(None)
+        self.assertEqual([], failures)
+        self.assertIsNotNone(sha)
+
     def test_unresolvable_base_fails_closed(self) -> None:
         """'Cannot determine the base' must never encode as 'nothing changed'."""
         self._write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
@@ -1106,7 +1232,7 @@ class RealTreeTests(unittest.TestCase):
     def test_committed_inventory_is_the_declared_number(self) -> None:
         real = _load_guard()
         found = real.scan_all()
-        self.assertEqual(384, sum(len(v) for v in found.values()))
+        self.assertEqual(383, sum(len(v) for v in found.values()))
         self.assertEqual(27, len(found))
 
     def test_derived_macro_set_matches_the_headers_actual_macros(self) -> None:

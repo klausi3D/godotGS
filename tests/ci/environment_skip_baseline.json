@@ -67,10 +67,9 @@
       "owner": "gaussian-splatting-module",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/595",
       "conversion_slice": "GS-595-B",
-      "count": 6,
+      "count": 5,
       "sites": [
         "macro|REQUIRE_GPU_DEVICE|13dbc168c7",
-        "message|2fbcc8b891|fcb994b1b5",
         "message|34a045a7ed|1260f55cd3",
         "message|ed617c6cc2|48f90d00fe",
         "message|ed617c6cc2|b6764c7b8e",

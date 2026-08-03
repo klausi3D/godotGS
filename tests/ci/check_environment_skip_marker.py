@@ -988,6 +988,11 @@ BASE_REF_ENV_VARS: tuple[str, ...] = (
     "GS_CI_ENV_SKIP_BASE_REF",
     "GS_CI_BASE_REF",
     "GITHUB_BASE_SHA",
+    # GitHub Actions sets this automatically on every `pull_request` event, and
+    # it is a BRANCH NAME (`master`, `gs/650-quarantine-ratchet`), never a sha.
+    # Omitting it meant the one variable CI supplies for free was ignored, and
+    # resolution fell through to origin/master on every stacked PR.
+    "GITHUB_BASE_REF",
 )
 # Local fallbacks, tried in order, only when nothing explicit was supplied.
 DEFAULT_BASE_REFS: tuple[str, ...] = ("origin/master", "master")
@@ -1034,34 +1039,75 @@ def resolve_base_sha(base_ref: str | None = None) -> tuple[str | None, list[str]
     and "nothing changed" identically -- the exact conflation this whole branch
     exists to remove.
     """
+    # An EXPLICIT base (argument or environment) is authoritative. If it does not
+    # resolve, that is a failure -- never a silent fall-through to the local
+    # defaults. Falling through would grade a stacked PR against master while
+    # reporting green, which is the precise defect the base plumbing exists to
+    # prevent; "the base you named is unreachable" and "you named no base" are
+    # different conditions and must not share an outcome.
     candidates: list[str] = []
+    explicit = False
     if base_ref:
         candidates.append(base_ref)
+        explicit = True
     else:
         for name in BASE_REF_ENV_VARS:
             value = os.environ.get(name, "").strip()
             if value:
                 candidates.append(value)
-        candidates.extend(DEFAULT_BASE_REFS)
+                explicit = True
+        if not explicit:
+            candidates.extend(DEFAULT_BASE_REFS)
 
     tried: list[str] = []
     for candidate in candidates:
-        code, out = _git(["rev-parse", "--verify", f"{candidate}^{{commit}}"])
-        if code != 0:
-            tried.append(candidate)
-            continue
-        code, merge_base = _git(["merge-base", "HEAD", candidate])
-        if code != 0 or not merge_base.strip():
-            tried.append(f"{candidate} (no merge-base with HEAD)")
-            continue
-        return merge_base.strip(), []
+        # A ref may reach us as a BRANCH NAME rather than a sha:
+        # GITHUB_BASE_REF is `master` or `gs/650-quarantine-ratchet`, never a
+        # sha. Under actions/checkout the base branch usually exists ONLY as a
+        # remote-tracking ref, so a bare `<ref>` lookup fails and the guard fails
+        # closed on a legitimate PR -- correct-but-unusable, the same shape as
+        # the --rename path. So both forms are tried.
+        forms = [candidate]
+        if not candidate.startswith("origin/"):
+            forms.append(f"origin/{candidate}")
 
+        resolved: list[str] = []
+        for form in forms:
+            code, _ = _git(["rev-parse", "--verify", f"{form}^{{commit}}"])
+            if code != 0:
+                tried.append(form)
+                continue
+            code, merge_base = _git(["merge-base", "HEAD", form])
+            if code != 0 or not merge_base.strip():
+                tried.append(f"{form} (no merge-base with HEAD)")
+                continue
+            resolved.append(merge_base.strip())
+
+        if not resolved:
+            continue
+        # When both a local branch and its remote-tracking ref resolve, take the
+        # DESCENDANT-most merge-base. A stale local branch yields an OLDER base,
+        # and an older base is not merely imprecise: if the baseline did not
+        # exist there, the comparison degrades to ABSENT_AT_BASE and the ratchet
+        # silently stops constraining anything. Measured on this very worktree:
+        # local `master` sat at b6b2d7258bf while origin/master was a3bb6925132.
+        # Tightest available reference wins.
+        best = resolved[0]
+        for other in resolved[1:]:
+            code, _ = _git(["merge-base", "--is-ancestor", best, other])
+            if code == 0:
+                best = other
+        return best, []
+
+    named = "an explicitly named base did not resolve" if explicit else "no base was named"
     return None, [
-        "cannot resolve the review base, so the shrink-only ratchet has nothing immutable "
-        "to compare against. Refusing to fall back to HEAD: in CI, HEAD IS the change, and "
-        "comparing a change with itself is what let a ratchet be raised silently "
-        f"(tried: {', '.join(tried) or 'nothing'}). Pass --base-ref, or set one of "
-        f"{', '.join(BASE_REF_ENV_VARS)}."
+        f"cannot resolve the review base ({named}), so the shrink-only ratchet has nothing "
+        "immutable to compare against. Refusing to fall back to HEAD or to master: in CI, "
+        "HEAD IS the change, and grading a stacked PR against master reports green either "
+        f"way (tried: {', '.join(tried) or 'nothing'}). Pass --base-ref, or set one of "
+        f"{', '.join(BASE_REF_ENV_VARS)}. Under actions/checkout the base branch may exist "
+        "only as origin/<name>; both forms are tried, so a failure here means neither is "
+        "fetched -- check fetch-depth."
     ]
 
 
