@@ -108,7 +108,7 @@ LANE_RESULT_RE = re.compile(
     r"outcome=(?P<outcome>\S+) passed_tests=(?P<passed_tests>-?\d+) "
     r"passed_assertions=(?P<passed_assertions>-?\d+) failed_tests=(?P<failed_tests>-?\d+) "
     r"failed_assertions=(?P<failed_assertions>-?\d+) skipped_markers=(?P<skipped_markers>-?\d+) "
-    r"exit_code=(?P<exit_code>-?\d+) executed=(?P<executed>[01]) "
+    r"exit_code=(?P<exit_code>-?\d+) summary_reported=(?P<summary_reported>[01]) "
     r"zero_coverage=(?P<zero_coverage>-?[01])$"
 )
 
@@ -153,6 +153,12 @@ FAIL_OUTPUT = _case_failure_block() + _summary(2, 1, 9, 1) + "[doctest] Status: 
 # nothing executed, lane green.
 NO_COVERAGE_OUTPUT = _summary(1, 0, 0, 0)
 CRASH_OUTPUT = "engine booted\nAccess violation\n"
+# Every selected test fails: both PASSED counts are zero while the lane executed
+# the most coverage of any shape. The passed-count derivation removed in round 4
+# called this "no coverage".
+ALL_FAILING_OUTPUT = (
+    _case_failure_block() + _summary(0, 4, 0, 12) + "[doctest] Status: FAILURE!\n"
+)
 NO_SUMMARY_OUTPUT = "engine started\nfilter matched nothing\nengine exited\n"
 UNAVAILABLE_OUTPUT = "Unknown option '--test'.\n"
 PASS_WITH_SKIP_OUTPUT = _skip_marker_line() + _summary(5, 0, 120, 0)
@@ -399,7 +405,7 @@ class LaneLedgerOutcomeTests(unittest.TestCase):
         self.assertIn(
             "[module-tests][lane-result] lane=StrictLane strict=1 outcome=PASS "
             "passed_tests=5 passed_assertions=120 failed_tests=0 failed_assertions=0 "
-            "skipped_markers=0 exit_code=0 executed=1 zero_coverage=0",
+            "skipped_markers=0 exit_code=0 summary_reported=1 zero_coverage=0",
             output,
         )
         totals = _aggregate(output)
@@ -424,7 +430,7 @@ class LaneLedgerOutcomeTests(unittest.TestCase):
             passed_assertions=9,
             failed_assertions=1,
             exit_code=1,
-            executed=1,
+            summary_reported=1,
         )
         totals = _aggregate(output)
         self.assertEqual(
@@ -449,7 +455,7 @@ class LaneLedgerOutcomeTests(unittest.TestCase):
             failed_tests=-1,
             passed_assertions=-1,
             failed_assertions=-1,
-            executed=0,
+            summary_reported=0,
             zero_coverage=-1,
             exit_code=3221225477,
         )
@@ -484,7 +490,7 @@ class LaneLedgerOutcomeTests(unittest.TestCase):
             outcome="ADVISORY-NO-COVERAGE",
             passed_tests=1,
             passed_assertions=0,
-            executed=1,
+            summary_reported=1,
             zero_coverage=1,
         )
         totals = _aggregate(output)
@@ -498,10 +504,150 @@ class LaneLedgerOutcomeTests(unittest.TestCase):
         results = _godot(True, False, NO_SUMMARY_OUTPUT, 0)
         rc, output = _drive(lanes, results)
         self._assert_record(
-            output, "AdvisoryLane", outcome="FAIL", passed_tests=-1, executed=0
+            output, "AdvisoryLane", outcome="FAIL", passed_tests=-1, summary_reported=0
         )
         self.assertIn("missing doctest summary", output)
         self._assert_parity(rc, BASELINE_RC_NO_SUMMARY, {}, lanes, results)
+
+    def test_a_lane_where_everything_fails_is_not_recorded_as_no_coverage(self) -> None:
+        """#822 P2 round 4: executed coverage is passed + FAILED, never passed alone.
+
+        A lane in which every test fails has both PASSED counts at zero while
+        having executed the most coverage of any shape there is. Deriving
+        "nothing ran" from the passed counts filed that case under "no coverage" -
+        the inverse of what this field exists to expose, and the field a future
+        coverage ratchet is meant to be armed on, so the catastrophe would have
+        registered as improvement.
+        """
+        lanes = [("AdvisoryLane", False)]
+        results = _godot(False, False, ALL_FAILING_OUTPUT, 1)
+        rc, output = _drive(lanes, results)
+        self._assert_record(
+            output,
+            "AdvisoryLane",
+            outcome="ADVISORY-FAIL",
+            passed_tests=0,
+            failed_tests=4,
+            passed_assertions=0,
+            failed_assertions=12,
+            summary_reported=1,
+            zero_coverage=0,
+        )
+        self.assertEqual(
+            _aggregate(output)["advisory_zero_coverage"],
+            0,
+            "a lane that executed and failed everything has coverage",
+        )
+        self.assertEqual(_advisory_red(output), {"AdvisoryLane": "failed"})
+        self._assert_parity(rc, BASELINE_RC_ADVISORY_FAIL, {}, lanes, results)
+
+    def test_zero_coverage_and_failures_are_mutually_exclusive(self) -> None:
+        """The INVARIANT, as a property over every record of every shape.
+
+        Not a case: the removed passed-count formula satisfied every
+        case-by-case test written for it and still violated this. Any future
+        derivation must satisfy the property, whatever the formula.
+        """
+        lanes = [
+            ("AllFailing", False),
+            ("PartlyFailing", False),
+            ("EmptyLane", False),
+            ("PassLane", True),
+            ("Crashed", False),
+            ("Teardown", False),
+        ]
+        results = [
+            _godot(False, False, ALL_FAILING_OUTPUT, 1),
+            _godot(False, False, FAIL_OUTPUT, 1),
+            _godot(True, False, NO_COVERAGE_OUTPUT, 0),
+            _godot(True, False, PASS_OUTPUT, 0),
+            _godot(False, False, CRASH_OUTPUT, 3221225477),
+            _godot(False, False, PASS_OUTPUT, 1),
+        ]
+        rc, output = _drive(lanes, results)
+        records = _records(output)
+        self.assertEqual(len(records), len(lanes), "every lane must be recorded")
+        for lane, record in records.items():
+            with self.subTest(lane=lane):
+                if record["zero_coverage"] != "1":
+                    continue
+                self.assertLessEqual(
+                    int(record["failed_tests"]),
+                    0,
+                    f"{lane}: zero_coverage=1 with failed_tests="
+                    f"{record['failed_tests']} - a record cannot say both 'nothing "
+                    f"ran' and 'these ran and failed'",
+                )
+                self.assertLessEqual(
+                    int(record["failed_assertions"]),
+                    0,
+                    f"{lane}: zero_coverage=1 with failed_assertions="
+                    f"{record['failed_assertions']} - executed failures are proof "
+                    f"that coverage ran",
+                )
+        # The invariant must not be satisfied vacuously by never setting the flag.
+        self.assertEqual(
+            records["EmptyLane"]["zero_coverage"],
+            "1",
+            "the lane that really executed nothing must still be flagged",
+        )
+        self.assertEqual(records["AllFailing"]["zero_coverage"], "0")
+        self.assertEqual(rc, BASELINE_RC_ADVISORY_FAIL)
+
+    def test_a_self_contradictory_record_is_an_integrity_failure(self) -> None:
+        """The invariant is enforced in production, not only in this file."""
+        contradictory = harness.LaneLedgerRecord(
+            lane="Impossible",
+            strict=False,
+            outcome=harness.LANE_OUTCOME_ADVISORY_FAIL,
+            zero_coverage=True,
+            failed_tests=3,
+            failed_assertions=9,
+        )
+        errors = harness._self_contradictory_records([contradictory])
+        self.assertTrue(errors, "zero_coverage=1 with failures must be reported")
+        self.assertIn("zero_coverage=1", errors[0])
+        self.assertIn("Impossible", errors[0])
+
+        # WIRING. Calling the helper directly only proves the helper works; it
+        # says nothing about whether anything calls it, and a guard wired to
+        # nothing is the failure mode this repository keeps re-learning. Force a
+        # contradictory record through the real loop and require the run to fail
+        # with the integrity line.
+        def contradictory_lane(*_args, **_kwargs):
+            return None, harness.LaneResult(
+                outcome=harness.LANE_OUTCOME_ADVISORY_FAIL,
+                summary_reported=True,
+                zero_coverage=True,
+                passed_tests=0,
+                failed_tests=3,
+                passed_assertions=0,
+                failed_assertions=9,
+                skipped_markers=0,
+                detail="synthetic contradiction",
+            )
+
+        with mock.patch.object(harness, "_execute_lane", contradictory_lane):
+            rc_bad, output_bad = _drive(
+                [("AdvisoryLane", False)], _godot(False, False, ALL_FAILING_OUTPUT, 1)
+            )
+        self.assertIn(
+            "[module-tests][lane-ledger][INTEGRITY]",
+            output_bad,
+            "check_integrity() must consult the invariant, not merely define it",
+        )
+        self.assertIn("cannot say both", output_bad)
+        self.assertNotEqual(rc_bad, 0, "a self-contradictory ledger must not report success")
+
+        # ... and the REAL derivation never produces that shape.
+        lanes = [("AdvisoryLane", False)]
+        rc, output = _drive(lanes, _godot(False, False, ALL_FAILING_OUTPUT, 1))
+        self.assertNotIn(
+            "[module-tests][lane-ledger][INTEGRITY]",
+            output,
+            "the real derivation must not produce a contradictory record",
+        )
+        self.assertEqual(rc, BASELINE_RC_ADVISORY_FAIL)
 
     def test_an_advisory_lane_failure_is_never_charged_to_a_strict_lane(self) -> None:
         """#822 P2-1: FAIL is not the same thing as "a strict lane failed".
@@ -573,7 +719,7 @@ class LaneLedgerOutcomeTests(unittest.TestCase):
             passed_tests=5,
             failed_tests=0,
             failed_assertions=0,
-            executed=1,
+            summary_reported=1,
             exit_code=1,
         )
         self.assertEqual(
@@ -613,7 +759,7 @@ class LaneLedgerOutcomeTests(unittest.TestCase):
         lanes = [("StrictLane", True)]
         results = _godot(True, True, UNAVAILABLE_OUTPUT, 1)
         rc, output = _drive(lanes, results)
-        self._assert_record(output, "StrictLane", outcome="UNAVAILABLE", executed=0)
+        self._assert_record(output, "StrictLane", outcome="UNAVAILABLE", summary_reported=0)
         self.assertEqual(_aggregate(output)["unavailable"], 1)
         self._assert_parity(rc, BASELINE_RC_UNAVAILABLE_WARN, {}, lanes, results)
 
@@ -622,7 +768,7 @@ class LaneLedgerOutcomeTests(unittest.TestCase):
         results = _godot(True, True, UNAVAILABLE_OUTPUT, 1)
         kwargs = {"mode": "strict"}
         rc, output = _drive(lanes, results, **kwargs)
-        self._assert_record(output, "StrictLane", outcome="UNAVAILABLE", executed=0)
+        self._assert_record(output, "StrictLane", outcome="UNAVAILABLE", summary_reported=0)
         self.assertEqual(
             _aggregate(output)["unavailable"],
             1,

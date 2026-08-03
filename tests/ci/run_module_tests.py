@@ -1946,8 +1946,13 @@ class LaneResult:
 
     outcome: str
     exit_code: int = LANE_COUNT_UNKNOWN
-    executed: bool = False
+    # "doctest printed a summary", NOT "something ran". A summary of
+    # `0 passed | 0 failed` is reported and executed nothing; the field is named
+    # for the observation so the two are never confused. Whether anything
+    # actually ran is zero_coverage's job.
+    summary_reported: bool = False
     # None == not knowable (no doctest summary), never silently False.
+    # Derived from passed + FAILED counts: see _execute_lane().
     zero_coverage: bool | None = None
     passed_tests: int = LANE_COUNT_UNKNOWN
     failed_tests: int = LANE_COUNT_UNKNOWN
@@ -1963,7 +1968,7 @@ class LaneLedgerRecord:
     strict: bool
     outcome: str = LANE_OUTCOME_NOT_RUN
     exit_code: int = LANE_COUNT_UNKNOWN
-    executed: bool = False
+    summary_reported: bool = False
     zero_coverage: bool | None = None
     passed_tests: int = LANE_COUNT_UNKNOWN
     failed_tests: int = LANE_COUNT_UNKNOWN
@@ -2004,7 +2009,7 @@ class LaneLedgerRecord:
             return "no-coverage"
         if self.failed_tests > 0 or self.failed_assertions > 0:
             return "failed"
-        if self.executed:
+        if self.summary_reported:
             # A summary was printed and it reported no failures, yet the lane is
             # red - so the lane exited nonzero after its tests passed.
             return "nonzero-exit-no-test-failures"
@@ -2016,7 +2021,7 @@ class LaneLedgerRecord:
             "strict": self.strict,
             "outcome": self.outcome,
             "exit_code": self.exit_code,
-            "executed": self.executed,
+            "summary_reported": self.summary_reported,
             "zero_coverage": self.zero_coverage,
             "passed_tests": self.passed_tests,
             "failed_tests": self.failed_tests,
@@ -2070,6 +2075,40 @@ class LaneLedgerTotals:
         }
 
 
+def _self_contradictory_records(records: Iterable[LaneLedgerRecord]) -> list[str]:
+    """The INVARIANT behind zero_coverage, checked as a property of every record.
+
+    A record may not simultaneously report "no coverage executed" and a nonzero
+    failed count. Failures are proof that coverage executed, so the two together
+    mean the ledger is contradicting itself, and a reader (or a future ratchet)
+    would have to guess which half to believe.
+
+    This is stated as an invariant rather than as a test of one formula on
+    purpose: the passed-count derivation that #822 round 4 removed satisfied
+    every case-by-case test written for it while violating this property for the
+    single most informative shape there is - a lane in which everything failed.
+
+    `failed_tests > 0` is included, not just `failed_assertions > 0`. Under
+    DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS a case is failed IFF it
+    recorded a failed assertion, so a failed test with zero executed assertions
+    should be impossible; if it ever appears, that model of doctest is wrong and
+    surfacing it loudly is worth more than tolerating it quietly.
+    """
+    errors: list[str] = []
+    for record in records:
+        if record.zero_coverage is not True:
+            continue
+        if record.failed_tests > 0 or record.failed_assertions > 0:
+            errors.append(
+                f"lane '{record.lane}' reports zero_coverage=1 together with "
+                f"failed_tests={record.failed_tests} / "
+                f"failed_assertions={record.failed_assertions}. Executed failures are "
+                f"proof that coverage ran; a record cannot say both 'nothing ran' and "
+                f"'these ran and failed'."
+            )
+    return errors
+
+
 def _format_zero_coverage(value: bool | None) -> str:
     if value is None:
         return str(LANE_COUNT_UNKNOWN)
@@ -2079,9 +2118,17 @@ def _format_zero_coverage(value: bool | None) -> str:
 def _format_lane_result_line(record: LaneLedgerRecord) -> str:
     """The stable per-lane grammar.
 
-    The first eight fields are the contracted grammar; `exit_code`, `executed`
-    and `zero_coverage` are an additive suffix (a superset is not a weakening).
-    They are what lets a reader tell a crash from a pass from an empty lane.
+    The first eight fields are the contracted grammar; `exit_code`,
+    `summary_reported` and `zero_coverage` are an additive suffix (a superset is
+    not a weakening). They are what lets a reader tell a crash from a pass from
+    an empty lane.
+
+    `summary_reported` was called `executed` until #822 round 4. It never meant
+    "something ran" - a `0 passed | 0 failed` summary is reported and executes
+    nothing - and a field whose name overstates what it observes is the same
+    defect as a count derived across a boundary the data does not cross. Renamed
+    rather than redefined, deliberately: a rename breaks a parser loudly, a
+    silent change of meaning does not.
     """
     return (
         f"[module-tests][lane-result] lane={record.lane} "
@@ -2093,7 +2140,7 @@ def _format_lane_result_line(record: LaneLedgerRecord) -> str:
         f"failed_assertions={record.failed_assertions} "
         f"skipped_markers={record.skipped_markers} "
         f"exit_code={record.exit_code} "
-        f"executed={1 if record.executed else 0} "
+        f"summary_reported={1 if record.summary_reported else 0} "
         f"zero_coverage={_format_zero_coverage(record.zero_coverage)}"
     )
 
@@ -2134,7 +2181,7 @@ class LaneLedger:
             )
         record.outcome = result.outcome
         record.exit_code = result.exit_code
-        record.executed = result.executed
+        record.summary_reported = result.summary_reported
         record.zero_coverage = result.zero_coverage
         record.passed_tests = result.passed_tests
         record.failed_tests = result.failed_tests
@@ -2187,6 +2234,7 @@ class LaneLedger:
                         f"record (outcome stayed {LANE_OUTCOME_NOT_RUN} in a run that "
                         f"was not aborted); an unrecorded lane reads as a passed lane."
                     )
+        errors.extend(_self_contradictory_records(self.records))
         return errors
 
     def print_block(self) -> LaneLedgerTotals:
@@ -3506,13 +3554,26 @@ def _execute_lane(
         summary_found,
     ) = _lane_counts_from_output(output)
 
+    # EXECUTED coverage is passed + failed, never passed alone. A lane in which
+    # every test fails has both PASSED counts at zero while having executed the
+    # most coverage of any shape there is; deriving "nothing ran" from the passed
+    # counts would file the maximally-informative case under "no coverage" - the
+    # exact inverse of what this field exists to expose, and it would read as an
+    # improvement to any future ratchet armed on it (#822 round 4).
+    executed_tests = LANE_COUNT_UNKNOWN if not summary_found else passed_tests + failed_tests
+    executed_assertions = (
+        LANE_COUNT_UNKNOWN if not summary_found else passed_asserts + failed_asserts
+    )
+
     def result(outcome: str, detail: str) -> LaneResult:
         return LaneResult(
             outcome=outcome,
             exit_code=lane_exit_code,
-            executed=summary_found,
+            summary_reported=summary_found,
             zero_coverage=(
-                None if not summary_found else not (passed_tests > 0 and passed_asserts > 0)
+                None
+                if not summary_found
+                else not (executed_tests > 0 and executed_assertions > 0)
             ),
             passed_tests=passed_tests,
             failed_tests=failed_tests,
@@ -3569,7 +3630,13 @@ def _execute_lane(
     # returns None (-> FAIL above) for a strict lane with no executed coverage.
     return None, result(
         LANE_OUTCOME_ADVISORY_NO_COVERAGE,
-        "advisory lane executed no coverage (0 passed tests or 0 passed assertions)",
+        # Passed counts are the right basis HERE and only here: this path is
+        # reached solely when _validate_successful_lane() has already
+        # established failed_tests == failed_assertions == 0, so passed IS the
+        # executed total. The ledger's own zero_coverage field cannot make that
+        # assumption, because it also describes failing lanes.
+        "advisory lane executed no coverage (0 passed tests or 0 passed assertions, "
+        "with no failures on this path)",
     )
 
 

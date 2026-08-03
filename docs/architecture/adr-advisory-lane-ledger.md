@@ -44,7 +44,16 @@ cheap for five of them and would immediately fail on `GPU Memory Stream`'s zero 
 which is the correct outcome, and should be handled by giving that lane real coverage, not
 by re-hiding it.
 
-The ledger format needed no change to produce this; the run used it as shipped.
+The ledger format needed no change to produce this; the run used it as shipped. The measured
+numbers are also unaffected by the round-4 `zero_coverage` fix (§4a): that run recorded no
+failing lane at all — `advisory_failures=0` and no `FAIL` outcome — and the old and new
+formulas differ only where failed counts are nonzero. The one `ADVISORY-NO-COVERAGE`
+(`GPU Memory Stream`, `1 passed | 0 failed`, 0 assertions) is `zero_coverage=1` under both.
+
+**The ratchet recommended above depends on that fix.** Armed on the old formula, a lane in
+which every test failed would have reported `zero_coverage=1` — indistinguishable from a
+lane that ran nothing, and a coverage ratchet would have read the catastrophe as
+improvement. GS-705-2 must pin against `zero_coverage` as defined in §4a.
 
 ## Context
 
@@ -163,9 +172,11 @@ absence of output can never be read as absence of failures:
 
 ### 4a. Every field names only what it can support
 
-Three fields were reworked in round 3 because each over-claimed, and for a measurement tool
+Four fields were reworked because each over-claimed, and for a measurement tool
 **a confidently wrong field is worse than an absent one — someone will quote it.** The rule
-adopted here: prefer the narrower claim the data actually supports.
+adopted here: prefer the narrower claim the data actually supports. Every one of these was a
+field summarising across a boundary the data does not cross — outcome → lane class,
+summary-exists → tests-failed, this-lane → whole-run, and passed-count → executed-at-all.
 
 - `strict_failures` → **`gating_failures`**. The old field counted `FAIL` outcomes, but an
   *advisory* lane also records `FAIL` (exit 0 with a missing or failing summary), so the
@@ -184,6 +195,27 @@ adopted here: prefer the narrower claim the data actually supports.
   which is true and stable, and the JSON carries `lane_loop_exit_code` — narrowly named
   because the harness-integrity check and the report write itself can still change the
   process exit code after the report is on disk.
+- **`zero_coverage`** is derived from **passed + failed**, not from the passed counts alone
+  (round 4), and **`executed` → `summary_reported`**. The old formula emitted
+  `zero_coverage=1` for a lane in which *every* test failed — both passed counts are zero
+  there — so the same record said "nothing ran" and "these ran and failed". That is the
+  inverse of the defect this ledger exists to expose, in the one field that exposes it, and
+  it mattered strategically: the ratchet this ADR recommends below is armed on **executed
+  coverage**, so a catastrophically failing lane would have registered as *improvement*.
+  `executed` was renamed in the same pass because it only ever meant "doctest printed a
+  summary" — a `0 passed | 0 failed` summary is reported and executes nothing.
+
+  The invariant now stands on its own, checked over every record rather than case by case:
+  **`zero_coverage=1` and a nonzero failed count are mutually exclusive**, and a record
+  holding both is a harness-integrity failure. The removed formula passed every case-by-case
+  test written for it while violating that property, which is the argument for stating
+  invariants rather than examples.
+
+  One place still derives coverage from passed counts, correctly:
+  `_handle_no_executed_coverage()` decides the `ADVISORY-NO-COVERAGE` *outcome*, and it is
+  reached only after `_validate_successful_lane()` has established zero failures — so passed
+  *is* the executed total there. That is baseline gating logic and changing it would break
+  exit-code parity.
 
 ### 5. `--lane-report <path>` writes the same records as JSON
 

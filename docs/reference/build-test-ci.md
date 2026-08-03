@@ -59,15 +59,27 @@ nothing** — see [`docs/architecture/adr-advisory-lane-ledger.md`](../architect
 One line per lane, in lane order:
 
 ```
-[module-tests][lane-result] lane=<name> strict=<0|1> outcome=<OUTCOME> passed_tests=<n> passed_assertions=<n> failed_tests=<n> failed_assertions=<n> skipped_markers=<n> exit_code=<n> executed=<0|1> zero_coverage=<0|1|-1>
+[module-tests][lane-result] lane=<name> strict=<0|1> outcome=<OUTCOME> passed_tests=<n> passed_assertions=<n> failed_tests=<n> failed_assertions=<n> skipped_markers=<n> exit_code=<n> summary_reported=<0|1> zero_coverage=<0|1|-1>
 ```
+
+`summary_reported=1` means doctest printed a summary — **not** that anything ran; a
+`0 passed | 0 failed` summary is reported and executes nothing. (It was called `executed`
+until #822 round 4; renamed rather than redefined, because a rename breaks a parser loudly
+while a silent change of meaning does not.)
+
+`zero_coverage=1` means the lane executed no coverage, derived from **passed + failed**
+counts. A lane in which every test fails has both *passed* counts at zero while having
+executed the most coverage of any shape there is, so a passed-only derivation would file
+the maximally-informative case under "nothing ran" — the exact inverse of what this field
+exists to expose. `zero_coverage=1` together with a nonzero failed count is a
+self-contradictory record and is reported as a harness-integrity failure.
 
 | `OUTCOME` | Meaning | Exit code effect |
 | --- | --- | --- |
 | `PASS` | exit 0 with real executed coverage | none |
 | `FAIL` | strict lane failed/crashed, or any lane exited 0 with a missing/failing summary | run fails |
 | `ADVISORY-FAIL` | advisory lane failed or crashed | **none — does not itself fail the run** |
-| `ADVISORY-NO-COVERAGE` | advisory lane executed nothing (0 passed tests or 0 passed assertions) | **none — does not itself fail the run** |
+| `ADVISORY-NO-COVERAGE` | advisory lane executed nothing (0 passed tests or 0 passed assertions — this path is only reached once failures are known to be 0, so passed *is* the executed total here) | **none — does not itself fail the run** |
 | `UNAVAILABLE` | binary has no `--test` support | fails only in strict tests-unavailable mode |
 | `QUARANTINE-TOLERATED` | known failure tolerated per `tests/ci/quarantine_manifest.json` | none |
 | `QUARANTINE-REJECTED` | quarantine entry stale/misconfigured | run fails |
