@@ -1274,6 +1274,35 @@ def _run_export_template_naming_guard() -> tuple[bool, list[str]]:
     return True, ["Export template naming guard passed."]
 
 
+def _run_release_builds_path_filter_guard() -> tuple[bool, list[str]]:
+    """Guard (#825): every script release_builds.yml runs also triggers it.
+
+    Static, headless, no GPU, no PyYAML. The workflow's `paths:` filters list
+    root-level `"*.py"`, and a single `*` does not span `/`, so a change to
+    `tests/ci/resolve_export_template.py` -- which BOTH export-template jobs
+    execute -- skipped the workflow entirely. The resolver's unit tests would
+    pass while neither real packaging path ran.
+
+    The general hazard: moving logic out of a workflow into a helper module
+    improves testability and silently reduces integration coverage, because the
+    helper lands outside the paths the workflow watches. This guard derives the
+    executed-script set from the workflow rather than trusting the filter list,
+    so the next helper cannot reopen the gap unnoticed.
+    """
+    script = ROOT / "tests" / "ci" / "test_release_builds_path_filters.py"
+    if not script.is_file():
+        return False, [f"Missing release builds path filter test: {script.relative_to(ROOT)}"]
+
+    code, out, err = _run_command([sys.executable, str(script)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"Release builds path filter guard failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["Release builds path filter guard passed."]
+
+
 def _run_export_smoke_preset_state_guard() -> tuple[bool, list[str]]:
     """Guard (#825): the export smoke test never destroys a preset it did not create.
 
@@ -2111,6 +2140,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_export_smoke_preset_state_guard,
             "Export smoke preset state guard failed.",
             "Export smoke preset state guard passed.",
+        ),
+        (
+            True,
+            _run_release_builds_path_filter_guard,
+            "Release builds path filter guard failed.",
+            "Release builds path filter guard passed.",
         ),
     ]
     for enabled, runner, failure_summary, success_summary in optional_message_guards:

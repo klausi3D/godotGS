@@ -16,6 +16,17 @@ on:
       - "*.py"
       - "SConstruct"
       - ".github/workflows/release_builds.yml"
+      # Helper scripts this workflow EXECUTES. `*.py` above is root-level only
+      # (a single `*` does not span `/`), so without these a change to one of
+      # them would skip the very lanes that run it. Deliberately not
+      # `tests/ci/**`: that would fire two editor builds plus two template
+      # builds on unrelated guard edits. The list is kept honest by
+      # tests/ci/test_release_builds_path_filters.py, which derives the set of
+      # executed scripts from this file and fails if one is not listed here --
+      # so a new helper cannot silently reopen the gap (#825).
+      - "tests/ci/resolve_export_template.py"
+      - "tests/ci/check_renderer_release_gates.py"
+      - "tests/ci/release_attestation.py"
   push:
     branches: [master, main, develop]
     tags:
@@ -33,6 +44,10 @@ on:
       - "*.py"
       - "SConstruct"
       - ".github/workflows/release_builds.yml"
+      # Keep in sync with the pull_request filter above; same reasoning.
+      - "tests/ci/resolve_export_template.py"
+      - "tests/ci/check_renderer_release_gates.py"
+      - "tests/ci/release_attestation.py"
   schedule:
     # Nightly preview build at 02:30 UTC.
     - cron: "30 2 * * *"
