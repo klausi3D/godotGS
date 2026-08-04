@@ -119,6 +119,12 @@ gitignored and would therefore vanish without showing up in `git status`. Pass
 `--overwrite-preset` to let it move yours to `export_presets.cfg.smoke-backup`
 and put it back afterwards.
 
+If a run is interrupted, a `export_presets.cfg.smoke-backup` may be left behind.
+The next run **refuses to start** in that case, with or without
+`--overwrite-preset`: one of the two files is your original and the tool cannot
+tell which. Inspect them, keep the one you want as `export_presets.cfg`, delete
+the backup, and re-run.
+
 It fails if the exported binary carries no `GaussianSplat` symbols, and it runs
 the game with a real Vulkan rendering device rather than `--headless` — a
 headless run has no `RenderingDevice`, which would make any "it rendered"

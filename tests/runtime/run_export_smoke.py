@@ -110,7 +110,11 @@ def _discover(candidates: Sequence[str]) -> Optional[Path]:
 def _resolve_editor(explicit: Optional[str]) -> Optional[Path]:
     raw = explicit or os.environ.get("GODOT_EDITOR_BINARY") or os.environ.get("GODOT_BINARY")
     if raw:
-        candidate = Path(raw)
+        # Resolve against the CALLER's cwd, at the moment we validate it. The
+        # editor is later spawned with cwd=ROOT, so a relative path that exists
+        # here would be looked up under the repository there -- accepted as
+        # valid and then not found. Same shape as --output-dir.
+        candidate = Path(raw).resolve()
         return candidate if candidate.is_file() else None
     return _discover(
         (
@@ -124,7 +128,9 @@ def _resolve_editor(explicit: Optional[str]) -> Optional[Path]:
 def _resolve_template(explicit: Optional[str]) -> Optional[Path]:
     raw = explicit or os.environ.get("GODOT_EXPORT_TEMPLATE")
     if raw:
-        candidate = Path(raw)
+        # Absolute for the same reason as the editor: validated in the caller's
+        # cwd, embedded into the preset and used from another one.
+        candidate = Path(raw).resolve()
         return candidate if candidate.is_file() else None
     return _discover(
         (
@@ -183,18 +189,78 @@ def _template_has_gs_symbols(binary: Path) -> List[str]:
     return [needle.decode("ascii") for needle in REQUIRED_TEMPLATE_SYMBOLS if needle in remaining]
 
 
+def preset_paths() -> tuple[Path, Path]:
+    """(preset, backup). Read through this so tests can repoint PROJECT_DIR."""
+    return PROJECT_DIR / "export_presets.cfg", PROJECT_DIR / PRESET_BACKUP_NAME
+
+
+def preset_state_error(overwrite_allowed: bool) -> Optional[str]:
+    """Refusal reason for the current on-disk preset state, or None to proceed.
+
+    The backup file is *state*, and it has three possible starting conditions.
+    Enumerating them explicitly is the whole point of this function -- an
+    earlier version handled only "absent", and its `backup_path.unlink()` for
+    the other cases deleted the developer's original in exactly the crash the
+    backup existed to survive.
+
+      1. no backup                -> normal; only the preset itself gates the run
+      2. backup + generated preset -> a previous run died mid-flight
+      3. backup + no preset        -> a previous run died between the two moves
+
+    In (2) and (3) the tool cannot tell which file is the developer's, so it
+    refuses in both and says so. Silently preferring either one is how the
+    original gets destroyed.
+    """
+    preset, backup = preset_paths()
+
+    if backup.exists():
+        if preset.exists():
+            situation = (
+                f"both {preset.name} and {backup.name} are present, which means a previous run "
+                f"was interrupted between backing your preset up and restoring it. One of those "
+                f"two files is your original and this tool cannot tell which -- deleting or "
+                f"overwriting either could lose uncommitted config"
+            )
+        else:
+            situation = (
+                f"{backup.name} is present with no {preset.name}, which means a previous run was "
+                f"interrupted after it moved your preset aside. That backup is most likely your "
+                f"original, and this run will not consume a file it did not create"
+            )
+        return (
+            f"Refusing to run: {situation}. Look in {PROJECT_DIR}, keep the file you want as "
+            f"{preset.name}, delete {backup.name}, then re-run. --overwrite-preset does not "
+            "override this."
+        )
+
+    if preset.exists() and not overwrite_allowed:
+        return (
+            f"{preset} already exists and this run did not create it. "
+            "It is gitignored, so overwriting it would be an unrecoverable, invisible edit to "
+            "your config. Move it aside, or pass --overwrite-preset to have the run move it to "
+            f"{backup.name} and restore it afterwards."
+        )
+
+    return None
+
+
 def _write_preset(template_binary: Path, backup_path: Path) -> Path:
     """Write the generated preset, first moving any pre-existing one aside.
 
-    The caller has already established that overwriting is allowed. The existing
-    file is *moved* (not copied-then-truncated), so a crash between here and the
-    restore leaves the developer's original on disk under `backup_path` rather
-    than losing it.
+    The caller has already established (via `preset_state_error`) that
+    overwriting is allowed and that no backup exists. The existing file is
+    *moved* (not copied-then-truncated), so a crash between here and the restore
+    leaves the developer's original on disk under `backup_path`.
     """
     target = PROJECT_DIR / "export_presets.cfg"
     if target.exists():
+        # Defense in depth: never clobber a backup, whatever the caller thinks.
+        # If this fires, the pre-flight check was bypassed.
         if backup_path.exists():
-            backup_path.unlink()
+            raise RuntimeError(
+                f"Refusing to overwrite an existing backup at {backup_path}; it may hold the "
+                "only copy of a developer's preset."
+            )
         target.replace(backup_path)
         print(f"[export-smoke] moved your existing export_presets.cfg to {backup_path.name}")
 
@@ -293,18 +359,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not PROBE_FILE.is_file():
         return _fail(f"Export smoke probe missing: {PROBE_FILE}")
 
-    # Never destroy a preset this run did not create. The file is gitignored, so
-    # `git status` would not warn a developer that their own config had been
-    # overwritten -- refuse by default and make taking it over an explicit,
-    # typed-out decision.
-    existing_preset = PROJECT_DIR / "export_presets.cfg"
-    if existing_preset.exists() and not args.overwrite_preset:
-        return _fail(
-            f"{existing_preset} already exists and this run did not create it. "
-            "It is gitignored, so overwriting it would be an unrecoverable, invisible edit to "
-            "your config. Move it aside, or pass --overwrite-preset to have the run move it to "
-            f"{PRESET_BACKUP_NAME} and restore it afterwards."
-        )
+    # Never destroy a preset this run did not create, and never assume a leftover
+    # backup is disposable. Both files are gitignored, so `git status` would not
+    # warn a developer that their own config had been taken.
+    refusal = preset_state_error(args.overwrite_preset)
+    if refusal is not None:
+        return _fail(refusal)
 
     print(f"[export-smoke] editor   = {editor}")
     print(f"[export-smoke] template = {template}")

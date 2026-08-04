@@ -1274,6 +1274,34 @@ def _run_export_template_naming_guard() -> tuple[bool, list[str]]:
     return True, ["Export template naming guard passed."]
 
 
+def _run_export_smoke_preset_state_guard() -> tuple[bool, list[str]]:
+    """Guard (#825): the export smoke test never destroys a preset it did not create.
+
+    Static, headless, no GPU, no engine binary -- it drives the preset/backup
+    state machine over a temp directory.
+
+    `test_project/export_presets.cfg` is gitignored, so losing a developer's own
+    copy is *invisible* to `git status`. The first fix moved the file aside
+    instead of truncating it, which made the happy path safe and left the
+    recovery path worse: with a backup already on disk from a crashed run, the
+    unconditional `unlink()` deleted the only surviving original. This guard
+    pins all three backup states (absent / present-with-preset /
+    present-without-preset) and that a refusal rewrites nothing.
+    """
+    script = ROOT / "tests" / "runtime" / "test_export_smoke_preset_state.py"
+    if not script.is_file():
+        return False, [f"Missing export smoke preset state test: {script.relative_to(ROOT)}"]
+
+    code, out, err = _run_command([sys.executable, str(script)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"Export smoke preset state guard failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["Export smoke preset state guard passed."]
+
+
 def _run_runtime_validation_contract_guard() -> tuple[bool, list[str]]:
     """Guard (#787): the runtime summary keeps the diagnostic a crashed scenario emits.
 
@@ -2077,6 +2105,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_export_template_naming_guard,
             "Export template naming guard failed.",
             "Export template naming guard passed.",
+        ),
+        (
+            True,
+            _run_export_smoke_preset_state_guard,
+            "Export smoke preset state guard failed.",
+            "Export smoke preset state guard passed.",
         ),
     ]
     for enabled, runner, failure_summary, success_summary in optional_message_guards:
