@@ -141,7 +141,9 @@ the process exit nonzero afterwards. The file is a build
 output and must stay untracked. It is rejected together with `--guard-only`, where it could
 only produce an empty report. An unwritable path fails the run rather than being skipped —
 checked before the lanes run, using a sibling probe file so an existing report is never
-truncated. A ledger that fails its own integrity check is **not written at all**, so a
+truncated. A destination that names an existing **directory** is rejected there too — the
+sibling probe succeeds for it, so without an explicit check the run would execute all 26
+lanes before `os.replace()` finally raised. A ledger that fails its own integrity check is **not written at all**, so a
 known-untrustworthy report can never replace the last valid measurement; the refusal is
 printed and the full block is on stdout regardless. The write itself is
 serialize-then-temp-then-`os.replace`, so the destination is

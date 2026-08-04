@@ -116,18 +116,138 @@ LANE_RESULT_RE = re.compile(
 # --------------------------------------------------------------------------
 # doctest output fixtures, in the framing a real ConsoleReporter emits.
 # --------------------------------------------------------------------------
-def _summary(passed_tests: int, failed_tests: int, passed_asserts: int, failed_asserts: int) -> str:
+# Every VALID shape below is anchored to a verbatim capture of a real headless
+# run, `tests/ci/fixtures/doctest_env_skip_sample.txt` (#817). It is not
+# decoration: the hand-authored summaries this file used until #822 round 6 were
+# a shape doctest has never emitted. Real output is
+#
+#     [doctest] test cases:  9 |  9 passed | 0 failed | 2063 skipped
+#     [doctest] assertions: 69 | 69 passed | 0 failed |
+#
+# - column-padded, with a fourth `| N skipped` field on the test-cases line, and
+# a TRAILING `|` on the assertions line. The manufactured version had none of
+# those. `_parse_doctest_results()` happens to tolerate both, so every outcome
+# test in this file was green while its inputs were fiction: the suite could not
+# have detected a wrong assumption about the producer's format, which is the
+# definition of a self-certifying fixture (docs/governance/evidence-integrity.md).
+CAPTURED_DOCTEST_SAMPLE = ROOT / "tests" / "ci" / "fixtures" / "doctest_env_skip_sample.txt"
+# Quoted in failures so a missing capture says how to regenerate it rather than
+# tempting the next person to type one out.
+CAPTURE_COMMAND = (
+    'bin/godot.windows.editor.dev.x86_64.console.exe --headless --test '
+    '"--test-case=*Painterly*"'
+)
+
+
+def _captured_sample_text() -> str:
+    """The capture, verbatim. Fails closed: a missing capture is not a skip."""
+    if not CAPTURED_DOCTEST_SAMPLE.is_file():
+        raise RuntimeError(
+            f"missing captured doctest sample {CAPTURED_DOCTEST_SAMPLE}. Regenerate "
+            f"with: {CAPTURE_COMMAND}. Refusing to fall back to a hand-authored "
+            f"summary - that is the defect this anchoring removed."
+        )
+    return CAPTURED_DOCTEST_SAMPLE.read_text(encoding="utf-8")
+
+
+CAPTURED_SAMPLE = _captured_sample_text()
+# Counted from the capture by reading it; asserted exactly (never "> 0") in
+# CapturedFixtureContractTests below, so a doctest format change breaks THERE
+# instead of silently invalidating every outcome test in this file.
+CAPTURED_PASSED_TESTS = 9
+CAPTURED_FAILED_TESTS = 0
+CAPTURED_PASSED_ASSERTIONS = 69
+CAPTURED_FAILED_ASSERTIONS = 0
+CAPTURED_SKIP_MARKERS = 3
+
+
+def _captured_line(prefix: str) -> str:
+    matches = [
+        line for line in CAPTURED_SAMPLE.splitlines() if line.startswith(prefix)
+    ]
+    if len(matches) != 1:
+        raise RuntimeError(
+            f"expected exactly one {prefix!r} line in {CAPTURED_DOCTEST_SAMPLE.name}, "
+            f"found {len(matches)}. Recapture with: {CAPTURE_COMMAND}"
+        )
+    return matches[0]
+
+
+def _captured_repeated_line(prefix: str) -> str:
+    """A line the capture repeats identically (e.g. the test-case separator)."""
+    matches = {line for line in CAPTURED_SAMPLE.splitlines() if line.startswith(prefix)}
+    if len(matches) != 1:
+        raise RuntimeError(
+            f"expected one distinct {prefix!r} line in {CAPTURED_DOCTEST_SAMPLE.name}, "
+            f"found {len(matches)}. Recapture with: {CAPTURE_COMMAND}"
+        )
+    return matches.pop()
+
+
+CAPTURED_TEST_CASES_LINE = _captured_line("[doctest] test cases:")
+CAPTURED_ASSERTIONS_LINE = _captured_line("[doctest] assertions:")
+CAPTURED_SEPARATOR_LINE = _captured_repeated_line("=======")
+# The real MESSAGE framing, taken from the capture rather than retyped: doctest's
+# log_message() calls file_line_to_stream() first, so a marker can never start a
+# line. The previous hand-written version of this file asserted that framing in a
+# comment while the rest of the file invented everything around it.
+CAPTURED_SKIP_MARKER_LINE = _captured_line(
+    "modules\\gaussian_splatting\\tests\\test_painterly_material.cpp(209)"
+)
+
+
+def _respell_counts(line: str, values: list[int]) -> str:
+    """Substitute the integers of a CAPTURED line, keeping every literal apart.
+
+    Separators, spacing, the `| N skipped` column and the trailing `|` all come
+    from the real producer. Only the digits are ours, so a generated summary
+    cannot drift from the captured framing - asserted by
+    test_generated_summaries_match_the_captured_framing.
+    """
+    remaining = iter(values)
+    return re.sub(r"\d+", lambda match: str(next(remaining, int(match.group(0)))), line)
+
+
+def _summary(
+    passed_tests: int,
+    failed_tests: int,
+    passed_asserts: int,
+    failed_asserts: int,
+    filtered_out: int = 2063,
+) -> str:
+    """A summary in the captured framing, with counts this test needs.
+
+    KNOWN GAP, stated rather than papered over: the repository's only doctest
+    capture is a PASSING run, so no captured sample exists for a summary that
+    reports failures or for a zero-assertion lane. Those counts are substituted
+    into the captured lines rather than invented whole; the framing is real, the
+    numbers are the test's. Capturing a failing run would be strictly better and
+    is not something this change can do without a lane sweep.
+    """
     return (
-        f"[doctest] test cases: {passed_tests + failed_tests} | {passed_tests} passed "
-        f"| {failed_tests} failed\n"
-        f"[doctest] assertions: {passed_asserts + failed_asserts} | {passed_asserts} passed "
-        f"| {failed_asserts} failed\n"
+        _respell_counts(
+            CAPTURED_TEST_CASES_LINE,
+            [passed_tests + failed_tests, passed_tests, failed_tests, filtered_out],
+        )
+        + "\n"
+        + _respell_counts(
+            CAPTURED_ASSERTIONS_LINE,
+            [passed_asserts + failed_asserts, passed_asserts, failed_asserts],
+        )
+        + "\n"
     )
 
 
 def _case_failure_block(case: str = FAILING_CASE) -> str:
+    """A failing test-case block.
+
+    The separator and the `TEST CASE:  ` header framing are taken from the
+    capture. The `ERROR:` line is NOT captured anywhere in this repository - the
+    only sample is a passing run - so it is constructed, and that gap is stated
+    here rather than left for a reader to assume otherwise.
+    """
     return (
-        "===============================================================================\n"
+        CAPTURED_SEPARATOR_LINE + "\n"
         "modules/gaussian_splatting/tests/test_animation.h(42):\n"
         f"TEST CASE:  {case}\n"
         "\n"
@@ -138,30 +258,31 @@ def _case_failure_block(case: str = FAILING_CASE) -> str:
     )
 
 
-def _skip_marker_line() -> str:
-    # The real framing: doctest's log_message() calls file_line_to_stream()
-    # first, so a marker can never start a line.
-    return (
-        "modules/gaussian_splatting/tests/test_animation.h(61): MESSAGE: "
-        "GS_ENV_SKIP: RenderingDevice unavailable\n"
-    )
-
-
+# --- Valid shapes: captured, or captured framing with substituted counts ------
 PASS_OUTPUT = _summary(5, 0, 120, 0)
 FAIL_OUTPUT = _case_failure_block() + _summary(2, 1, 9, 1) + "[doctest] Status: FAILURE!\n"
 # The measured shape of the real `GPU Memory Stream` lane: one case selected,
 # nothing executed, lane green.
 NO_COVERAGE_OUTPUT = _summary(1, 0, 0, 0)
-CRASH_OUTPUT = "engine booted\nAccess violation\n"
 # Every selected test fails: both PASSED counts are zero while the lane executed
 # the most coverage of any shape. The passed-count derivation removed in round 4
 # called this "no coverage".
 ALL_FAILING_OUTPUT = (
     _case_failure_block() + _summary(0, 4, 0, 12) + "[doctest] Status: FAILURE!\n"
 )
+# VERBATIM. A real clean run that self-skipped three cases - no substitution at
+# all, so the skip-marker path is asserted against exactly what a binary printed.
+PASS_WITH_SKIP_OUTPUT = CAPTURED_SAMPLE
+
+# --- Deliberately malformed / absent shapes: constructed, which is the point --
+# Construction is correct here because the construction IS the property: these
+# assert what the runner does when there is NO well-formed producer output to
+# parse. There is nothing to capture.
+CRASH_OUTPUT = "engine booted\nAccess violation\n"
 NO_SUMMARY_OUTPUT = "engine started\nfilter matched nothing\nengine exited\n"
+# Produced by Godot's argument parser, not by doctest; matched by
+# _tests_unavailable(). No capture of it exists in the repository either.
 UNAVAILABLE_OUTPUT = "Unknown option '--test'.\n"
-PASS_WITH_SKIP_OUTPUT = _skip_marker_line() + _summary(5, 0, 120, 0)
 
 # Stands in for a previous, valid measurement on disk. Its exact content does
 # not matter; that it is byte-for-byte unchanged after a failed or interrupted
@@ -860,25 +981,34 @@ class LaneLedgerOutcomeTests(unittest.TestCase):
 
     def test_strict_ci_skip_policy_failure_is_recorded_with_its_skip_count(self) -> None:
         # Runs with CI=1, because _enforce_skipped_marker_policy is behind
-        # _is_ci(): a local green says nothing about this path.
+        # _is_ci(): a local green says nothing about this path. The input is the
+        # VERBATIM capture, so the asserted counts are a real binary's, not ours.
         lanes = [("StrictLane", True)]
         results = _godot(True, False, PASS_WITH_SKIP_OUTPUT, 0)
         kwargs = {"ci": True}
         rc, output = _drive(lanes, results, **kwargs)
         self._assert_record(
-            output, "StrictLane", outcome="FAIL", skipped_markers=1, passed_tests=5
+            output,
+            "StrictLane",
+            outcome="FAIL",
+            skipped_markers=CAPTURED_SKIP_MARKERS,
+            passed_tests=CAPTURED_PASSED_TESTS,
         )
         self.assertIn("skipped doctest coverage is not allowed in CI", output)
         self._assert_parity(rc, BASELINE_RC_STRICT_FAIL, kwargs, lanes, results)
 
     def test_skip_markers_are_reported_not_dropped(self) -> None:
-        # Same output, advisory lane, no CI: the lane passes and the ledger must
+        # Same capture, advisory lane, no CI: the lane passes and the ledger must
         # still carry the skip count.
         lanes = [("AdvisoryLane", False)]
         results = _godot(True, False, PASS_WITH_SKIP_OUTPUT, 0)
         rc, output = _drive(lanes, results)
         self._assert_record(
-            output, "AdvisoryLane", outcome="PASS", skipped_markers=1, passed_tests=5
+            output,
+            "AdvisoryLane",
+            outcome="PASS",
+            skipped_markers=CAPTURED_SKIP_MARKERS,
+            passed_tests=CAPTURED_PASSED_TESTS,
         )
         self._assert_parity(rc, BASELINE_RC_PASS, {}, lanes, results)
 
@@ -1161,6 +1291,28 @@ class LaneReportTests(unittest.TestCase):
             "the report must carry what the lane loop actually returned",
         )
 
+    def test_a_directory_destination_fails_before_any_lane_runs(self) -> None:
+        """The preflight must reject it, not os.replace() 26 lanes later."""
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp) / "reports"
+            directory.mkdir()
+            with mock.patch.object(harness, "_run_godot") as godot:
+                rc = _run_main(
+                    [
+                        "run_module_tests.py",
+                        "--godot-binary",
+                        "fake",
+                        "--lane-report",
+                        str(directory),
+                    ]
+                )
+            self.assertEqual(rc, 1, "a directory destination must fail the run")
+            self.assertEqual(
+                godot.call_count,
+                0,
+                "no lane may be executed once the destination is known to be invalid",
+            )
+
     def test_an_untrustworthy_ledger_does_not_overwrite_the_previous_report(self) -> None:
         """#822 round 5: atomicity is not the same guarantee as worth-keeping.
 
@@ -1234,6 +1386,26 @@ class LaneReportTests(unittest.TestCase):
                 sorted(p.name for p in Path(tmp).iterdir()),
                 [],
                 "the writability probe must not leave scratch files behind",
+            )
+
+            # A DIRECTORY destination: the sibling probe succeeds for it, because
+            # "can I write a file next to this path" is a different question from
+            # "can I write this path". Without an explicit check the run does all
+            # 26 lanes and only then dies in os.replace() - which is precisely the
+            # cost the preflight exists to avoid.
+            directory = Path(tmp) / "reports"
+            directory.mkdir()
+            dir_errors = harness._preflight_lane_report_path(directory)
+            self.assertTrue(
+                dir_errors,
+                "a directory --lane-report destination must be rejected BEFORE the "
+                "lanes run, not by os.replace() after them",
+            )
+            self.assertIn("is a directory", dir_errors[0])
+            self.assertEqual(
+                sorted(p.name for p in directory.iterdir()),
+                [],
+                "the rejected probe must leave nothing inside the directory",
             )
         # Also drive the loop, so this method is not vacuous when the lane loop
         # is stubbed out.
@@ -1355,6 +1527,116 @@ class LaneReportTests(unittest.TestCase):
         # ... and the flag is accepted on its own.
         with mock.patch.object(sys, "argv", ["run_module_tests.py", "--lane-report", "x.json"]):
             self.assertEqual(harness._parse_args().lane_report, "x.json")
+
+
+class CapturedFixtureContractTests(unittest.TestCase):
+    """The capture is the producer contract every other test in this file leans on.
+
+    If doctest's summary format changes, these fail - loudly, in one place -
+    rather than every outcome test silently continuing to assert against a shape
+    the producer no longer emits.
+    """
+
+    maxDiff = None
+
+    def test_captured_sample_parses_to_the_values_the_helpers_assume(self) -> None:
+        (
+            passed_tests,
+            failed_tests,
+            passed_asserts,
+            failed_asserts,
+            skip_markers,
+            summary_found,
+        ) = harness._parse_doctest_results(CAPTURED_SAMPLE)
+        self.assertTrue(
+            summary_found,
+            f"the runner no longer finds a summary in a real capture; recapture "
+            f"with: {CAPTURE_COMMAND}",
+        )
+        self.assertEqual(passed_tests, CAPTURED_PASSED_TESTS)
+        self.assertEqual(failed_tests, CAPTURED_FAILED_TESTS)
+        self.assertEqual(passed_asserts, CAPTURED_PASSED_ASSERTIONS)
+        self.assertEqual(failed_asserts, CAPTURED_FAILED_ASSERTIONS)
+        self.assertEqual(
+            skip_markers,
+            CAPTURED_SKIP_MARKERS,
+            "the skip-marker detector no longer counts the real captured markers",
+        )
+
+    def test_captured_summary_carries_the_framing_the_old_fixtures_omitted(self) -> None:
+        """Pins the specific ways the manufactured shape was wrong.
+
+        Without this, "anchored to a capture" could quietly decay back into a
+        hand-authored string that merely looks plausible.
+        """
+        self.assertRegex(
+            CAPTURED_TEST_CASES_LINE,
+            r"\|\s*\d+\s*skipped\s*$",
+            "real doctest reports a fourth `| N skipped` column on the test-cases "
+            "line; the manufactured fixture had no such column",
+        )
+        self.assertTrue(
+            CAPTURED_ASSERTIONS_LINE.rstrip().endswith("|"),
+            "real doctest leaves a TRAILING `|` on the assertions line; the "
+            "manufactured fixture ended at `N failed`",
+        )
+        self.assertIn(
+            "MESSAGE:",
+            CAPTURED_SKIP_MARKER_LINE,
+            "the captured marker must carry doctest's file(line): MESSAGE: framing",
+        )
+        self.assertNotRegex(
+            CAPTURED_SKIP_MARKER_LINE,
+            r"^\s*(?:GS_ENV_SKIP|Skip)",
+            "a marker can never start a line: log_message() emits the file/line "
+            "header first",
+        )
+
+    def test_generated_summaries_match_the_captured_framing(self) -> None:
+        """Only the digits may differ from the real producer's lines."""
+
+        def skeleton(text: str) -> str:
+            return re.sub(r"\d+", "#", text)
+
+        for label, passed_tests, failed_tests, passed_asserts, failed_asserts in (
+            ("pass", 5, 0, 120, 0),
+            ("mixed", 2, 1, 9, 1),
+            ("zero-coverage", 1, 0, 0, 0),
+            ("all-failing", 0, 4, 0, 12),
+        ):
+            with self.subTest(shape=label):
+                generated = _summary(
+                    passed_tests, failed_tests, passed_asserts, failed_asserts
+                ).splitlines()
+                self.assertEqual(
+                    skeleton(generated[0]),
+                    skeleton(CAPTURED_TEST_CASES_LINE),
+                    "generated test-cases line drifted from the captured framing",
+                )
+                self.assertEqual(
+                    skeleton(generated[1]),
+                    skeleton(CAPTURED_ASSERTIONS_LINE),
+                    "generated assertions line drifted from the captured framing",
+                )
+
+    def test_generated_summaries_carry_the_counts_they_were_asked_for(self) -> None:
+        """The substitution must not silently mis-place a number."""
+        parsed = harness._parse_doctest_results(_summary(2, 1, 9, 1))
+        self.assertEqual(parsed[:5], (2, 1, 9, 1, 0))
+        parsed_empty = harness._parse_doctest_results(_summary(1, 0, 0, 0))
+        self.assertEqual(parsed_empty[:5], (1, 0, 0, 0, 0))
+
+    def test_the_verbatim_capture_drives_the_skip_marker_path(self) -> None:
+        """PASS_WITH_SKIP_OUTPUT is the capture itself, not a reconstruction."""
+        self.assertEqual(PASS_WITH_SKIP_OUTPUT, CAPTURED_SAMPLE)
+        rc, output = _drive([("AdvisoryLane", False)], _godot(True, False, CAPTURED_SAMPLE, 0))
+        records = _records(output)
+        self.assertEqual(records["AdvisoryLane"]["skipped_markers"], str(CAPTURED_SKIP_MARKERS))
+        self.assertEqual(records["AdvisoryLane"]["passed_tests"], str(CAPTURED_PASSED_TESTS))
+        self.assertEqual(
+            records["AdvisoryLane"]["passed_assertions"], str(CAPTURED_PASSED_ASSERTIONS)
+        )
+        self.assertEqual(rc, BASELINE_RC_PASS)
 
 
 class DocConsistencyTests(unittest.TestCase):

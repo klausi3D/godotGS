@@ -2383,6 +2383,16 @@ def _preflight_lane_report_path(path: Path) -> list[str]:
     The end-of-run write still fails closed on its own; this only moves the
     diagnosis to second zero instead of after 26 lanes.
     """
+    # The sibling probe answers "can I create a file NEXT TO this path", which is
+    # a neighbouring question, not the one being asked. For a destination that is
+    # an existing DIRECTORY the probe succeeds and os.replace() only raises after
+    # every lane has run - defeating the entire purpose of a preflight. Rule out
+    # the one input class the probe structurally cannot observe, first.
+    if path.is_dir():
+        return [
+            f"--lane-report path is a directory: {path}. Name the JSON file to "
+            f"write, not the directory to write it into."
+        ]
     handle = None
     temp_name = None
     try:
