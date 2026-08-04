@@ -1644,43 +1644,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
       
         <li class="md-nav__item">
-  <a href="#context-problem" class="md-nav__link">
+  <a href="#status-note-2026-08-03-650-the-failing-set-has-been-measured" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Context / problem
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decisions-the-owner-needs-to-make" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decisions the owner needs to make
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#consequences" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Consequences
+        Status note 2026-08-03 (#650): the failing set has been measured
       
     </span>
   </a>
@@ -1725,6 +1692,27 @@
 <li><strong>Program ledger:</strong> #458. <strong>Related:</strong> #329 (26–29 GPU <code>[SceneTree]</code>/<code>[Importer]</code> tests
   deferred), #395 (missing <code>history_artifact_audit.py</code>).</li>
 </ul>
+<h2 id="status-note-2026-08-03-650-the-failing-set-has-been-measured">Status note 2026-08-03 (#650): the failing set has been measured<a class="headerlink" href="#status-note-2026-08-03-650-the-failing-set-has-been-measured" title="Permanent link">¶</a></h2>
+<p>The claim below that <strong>"the real failing set is currently unknown"</strong> is superseded.
+It has been measured on a headless <code>*GaussianSplatting*</code> run excluding <code>[RequiresGPU]</code>:
+the prose baseline said "3 known failures", the measured number is <strong>1</strong>. Two were
+fixed before anyone re-read the prose (#652; #653/#655). The survivor is
+<code>[GaussianSplatting][Thumbnail] Generator caches deterministic asset+settings keys</code>,
+failing at <code>modules/gaussian_splatting/tests/test_gaussian_importer.h:1181</code>
+(<code>CHECK(misses &gt;= 2)</code> reports <code>CHECK( 0 &gt;= 2 )</code>), tracked in <strong>#814</strong>.</p>
+<p><strong>Slice 2 remains open and unchanged.</strong> <code>entries</code> still ships empty, and populating it
+still requires a base-SHA-proven reproduction plus explicit human approval per §6. The
+survivor above is <em>not</em> eligible: an entry names a <code>MODULE_TEST_FILTERS</code> lane and the
+harness fails a quarantined lane that does not actually run and fail, and no <code>[Thumbnail]</code>
+lane exists. Nothing in the repo can make a known-failing test both <strong>run</strong> and be
+<strong>tolerated</strong> while it is unlaned, so the failure stays in <code>unlaned_tests</code> (documenting
+non-execution) until #819 gives it a lane.</p>
+<h1 id="650-additionally-added-a-shrink-only-ratchet-in-testscitest_quarantine_manifestpy">650 additionally added a shrink-only <strong>ratchet</strong> in <code>tests/ci/test_quarantine_manifest.py</code><a class="headerlink" href="#650-additionally-added-a-shrink-only-ratchet-in-testscitest_quarantine_manifestpy" title="Permanent link">¶</a></h1>
+<p>over both arrays, and an offline tracking-issue-liveness check. The latter found that 9 of
+the 10 <code>unlaned_tests</code> declarations pointed at <strong>closed</strong> issues (#520, #329); they were
+re-pointed at live successors (#819, #820, #814). See
+<a href="../../reference/test-quarantine/"><code>docs/reference/test-quarantine.md</code></a> for the constants
+and the re-pin procedure.</p>
 <h2 id="context-problem">Context / problem<a class="headerlink" href="#context-problem" title="Permanent link">¶</a></h2>
 <p>G5 ("testing enforced, not just present") requires: <em>no excluded test category without an
 in-repo tracked waiver (file with issue links); known failures live in a quarantine
@@ -1823,7 +1811,7 @@ guard. Specifics:</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 4, 2026 13:54:28 UTC">August 4, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 4, 2026 13:56:51 UTC">August 4, 2026</span>
   </span>
 
     
