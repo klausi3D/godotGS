@@ -276,6 +276,134 @@ jobs:
             dist/BUILD-INFO.txt
           retention-days: 14
 
+  build_linux_export_template:
+    name: Build Linux Export Template (release)
+    # Issue #825: this fork publishes no export templates, so a user who
+    # downloads it gets an editor and no way to export a game. This job builds
+    # the Linux release template and uploads it as an artifact. It is
+    # deliberately NOT wired into `release_candidate_gate` or `publish_release`
+    # -- template distribution must not become a dependency of the release gate.
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    needs: release_metadata
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            scons \
+            pkg-config \
+            libx11-dev \
+            libxcursor-dev \
+            libxinerama-dev \
+            libxi-dev \
+            libxrandr-dev \
+            libgl1-mesa-dev \
+            libglu1-mesa-dev \
+            libasound2-dev \
+            libpulse-dev \
+            libudev-dev \
+            libvulkan-dev \
+            mesa-vulkan-drivers
+
+      - name: Restore SCons build cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          # Separate cache path/prefix from the editor job: template_release and
+          # editor objects differ in every flag that matters (TOOLS_ENABLED,
+          # NDEBUG, optimize), so sharing one cache would only thrash it.
+          path: .scons_cache_template
+          key: release-scons-linux-template-${{ hashFiles('SConstruct', 'methods.py') }}-${{ github.sha }}
+          restore-keys: |
+            release-scons-linux-template-${{ hashFiles('SConstruct', 'methods.py') }}-
+            release-scons-linux-template-
+
+      - name: Build Linux export template (release)
+        run: |
+          set -euo pipefail
+          # No `dev_build` and no `tests` here, on any channel. The editor jobs
+          # set dev_build=yes on non-stable channels; copying that would publish
+          # an -O0 template that nobody can ship a game with.
+          scons platform=linuxbsd target=template_release arch=x86_64 gs_native_arch=no \
+            cache_path=.scons_cache_template cache_limit=10 -j"$(nproc)"
+
+      - name: Stage export template under Godot's expected file name
+        id: package
+        run: |
+          set -euo pipefail
+
+          # EditorExportPlatformLinuxBSD::get_template_file_name() (see
+          # platform/linuxbsd/export/export_plugin.cpp) builds the name as
+          # "linux_" + target + "." + arch -- note the '.' separator, which
+          # differs from Windows' '_'. Do not "normalise" the two.
+          template_name="linux_release.x86_64"
+
+          mapfile -t built < <(find bin -maxdepth 1 -type f -name 'godot.linuxbsd.template_release.x86_64*' | sort)
+          if [[ "${#built[@]}" -eq 0 ]]; then
+            echo "Could not locate built Linux release template in bin/"
+            ls -la bin || true
+            exit 1
+          fi
+          if [[ "${#built[@]}" -gt 1 ]]; then
+            echo "Ambiguous Linux release template in bin/ -- found ${#built[@]}: ${built[*]}"
+            ls -la bin || true
+            exit 1
+          fi
+
+          mkdir -p dist
+          cp "${built[0]}" "dist/${template_name}"
+          chmod +x "dist/${template_name}"
+
+          version_label="${{ needs.release_metadata.outputs.tag }}"
+          if [[ -z "${version_label}" ]]; then
+            version_label="${GITHUB_SHA:0:12}"
+          fi
+
+          archive_base="godotgs-export-template-linux-x86_64-${version_label}"
+          archive_path="dist/${archive_base}.tar.xz"
+          checksum_path="dist/${archive_base}.sha256"
+
+          tar -C dist -cJf "${archive_path}" "${template_name}"
+          sha256sum "${archive_path}" > "${checksum_path}"
+
+          cat > dist/EXPORT-TEMPLATE-INFO.txt <<EOF
+          channel=${{ needs.release_metadata.outputs.channel }}
+          tag=${{ needs.release_metadata.outputs.tag }}
+          commit=${GITHUB_SHA}
+          target=template_release
+          template=${template_name}
+          source_binary=$(basename "${built[0]}")
+          note_scope=Only release templates are published for now; debug templates are a follow-up.
+          note_usage=Set custom_template/release in export_presets.cfg or the export silently uses a stock non-GS template.
+          generated_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          EOF
+
+          echo "archive=${archive_path}" >> "$GITHUB_OUTPUT"
+          echo "checksum=${checksum_path}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload export template artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: godotgs-export-template-linux-${{ needs.release_metadata.outputs.channel }}-${{ github.run_number }}
+          path: |
+            ${{ steps.package.outputs.archive }}
+            ${{ steps.package.outputs.checksum }}
+            dist/EXPORT-TEMPLATE-INFO.txt
+          retention-days: 14
+
   finite_math_guard:
     name: Fast-math Finiteness Guard (Linux optimize=speed)
     # Issue #590: the shipping config (target=template_release resolves
@@ -561,6 +689,168 @@ jobs:
           path: |
             repo/${{ steps.package.outputs.archive }}
             repo/${{ steps.package.outputs.checksum }}
+          retention-days: 14
+
+  build_windows_export_template:
+    name: Build Windows Export Template (release)
+    # Issue #825: companion to build_linux_export_template. Uploads the Windows
+    # release template as an artifact only -- deliberately NOT a dependency of
+    # `release_candidate_gate` or `publish_release`.
+    runs-on: [self-hosted, Windows, X64, godotgs]
+    needs: release_metadata
+    # Never run self-hosted Windows job on untrusted PR code, same as the editor
+    # job above.
+    if: github.event_name != 'pull_request'
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: repo
+    steps:
+      - name: Configure Git safe.directory for self-hosted workspace
+        shell: pwsh
+        working-directory: ${{ github.workspace }}
+        run: |
+          git config --global --add safe.directory '*'
+
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: repo
+          fetch-depth: 0
+          submodules: recursive
+          set-safe-directory: false
+
+      - name: Verify Python on runner
+        shell: pwsh
+        run: |
+          python --version
+
+      - name: Set up MSVC build env
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+
+      - name: Install SCons
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install scons
+
+      - name: Build Windows export template (release)
+        shell: pwsh
+        run: |
+          # No `dev_build` and no `tests` on any channel -- an export template
+          # must ship optimized. `cache_path` is deliberately distinct from the
+          # editor job's C:/godotgs-scons-cache so template and editor objects
+          # do not thrash a shared cache.
+          $args = @(
+            "platform=windows",
+            "target=template_release",
+            "arch=x86_64",
+            "gs_native_arch=no",
+            "cache_path=C:/godotgs-scons-cache-template",
+            "cache_limit=50",
+            "-j12"
+          )
+          python -m SCons @args
+
+      - name: Resolve export template binaries
+        id: template_bin
+        shell: pwsh
+        run: |
+          # EditorExportPlatformWindows::get_template_file_name()
+          # (platform/windows/export/export_plugin.cpp) builds the name as
+          # "windows_" + target + "_" + arch + ".exe" -- '_' before the arch,
+          # unlike Linux's '.'. The console wrapper is resolved as
+          # <template basename> + ".console.exe" (same file, modify_template()),
+          # so both halves must ship or `debug/export_console_wrapper` exports
+          # come out without a console binary.
+          $allExes = @(Get-ChildItem -Path "bin" -Filter "godot.windows.template_release*.x86_64.exe" -File -ErrorAction SilentlyContinue)
+          $mainExes = @($allExes | Where-Object { $_.Name -notlike "*.console.exe" })
+          $consoleExes = @($allExes | Where-Object { $_.Name -like "*.console.exe" })
+
+          if ($mainExes.Count -ne 1) {
+            Write-Host "bin\ contents:"
+            Get-ChildItem -Path "bin" -ErrorAction SilentlyContinue | Format-Table Name, Length | Out-String | Write-Host
+            $names = ($mainExes | ForEach-Object { $_.Name }) -join ", "
+            throw "Expected exactly one main Windows release template in bin\ (godot.windows.template_release*.x86_64.exe excluding .console.exe), found $($mainExes.Count): $names."
+          }
+          if ($consoleExes.Count -ne 1) {
+            Write-Host "bin\ contents:"
+            Get-ChildItem -Path "bin" -ErrorAction SilentlyContinue | Format-Table Name, Length | Out-String | Write-Host
+            $names = ($consoleExes | ForEach-Object { $_.Name }) -join ", "
+            throw "Expected exactly one Windows release console wrapper in bin\ (*.console.exe), found $($consoleExes.Count): $names. Godot's Windows export needs the .console.exe sibling next to the template."
+          }
+
+          $main = $mainExes[0]
+          $console = $consoleExes[0]
+          Write-Host "Resolved template: $($main.FullName) ($([math]::Round($main.Length / 1MB, 1)) MB)"
+          Write-Host "Resolved console wrapper: $($console.FullName) ($([math]::Round($console.Length / 1KB, 1)) KB)"
+          "main_path=$($main.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "main_name=$($main.Name)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "console_path=$($console.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "console_name=$($console.Name)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Stage export template under Godot's expected file names
+        id: package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+
+          $templateName = "windows_release_x86_64.exe"
+          $consoleTemplateName = "windows_release_x86_64.console.exe"
+          Copy-Item -LiteralPath "${{ steps.template_bin.outputs.main_path }}" -Destination (Join-Path "dist" $templateName) -Force
+          Copy-Item -LiteralPath "${{ steps.template_bin.outputs.console_path }}" -Destination (Join-Path "dist" $consoleTemplateName) -Force
+
+          $versionLabel = "${{ needs.release_metadata.outputs.tag }}"
+          if ([string]::IsNullOrWhiteSpace($versionLabel)) {
+            $versionLabel = "${{ github.sha }}".Substring(0, 12)
+          }
+
+          $distPath = (Resolve-Path "dist").Path
+          $archiveBase = "godotgs-export-template-windows-x86_64-$versionLabel"
+          $archiveName = "$archiveBase.zip"
+          $archivePath = Join-Path $distPath $archiveName
+          $checksumPath = Join-Path $distPath "$archiveBase.sha256"
+          $infoPath = Join-Path $distPath "EXPORT-TEMPLATE-INFO.txt"
+
+          @(
+            "channel=${{ needs.release_metadata.outputs.channel }}"
+            "tag=${{ needs.release_metadata.outputs.tag }}"
+            "commit=${{ github.sha }}"
+            "target=template_release"
+            "template=$templateName"
+            "console_template=$consoleTemplateName"
+            "source_binary=${{ steps.template_bin.outputs.main_name }}"
+            "note_scope=Only release templates are published for now; debug templates are a follow-up."
+            "note_usage=Set custom_template/release in export_presets.cfg or the export silently uses a stock non-GS template."
+            "generated_at_utc=$(Get-Date -AsUTC -Format o)"
+          ) | Set-Content -Path $infoPath -Encoding utf8
+
+          Push-Location $distPath
+          try {
+            Compress-Archive -Path @($templateName, $consoleTemplateName) -DestinationPath $archivePath -Force
+          } finally {
+            Pop-Location
+          }
+
+          $archiveSizeMB = [math]::Round((Get-Item $archivePath).Length / 1MB, 1)
+          Write-Host "Built archive $archiveName ($archiveSizeMB MB) containing: $templateName, $consoleTemplateName"
+
+          $hash = Get-FileHash -Algorithm SHA256 -Path $archivePath
+          "{0}  {1}" -f $hash.Hash.ToLower(), $archiveName | Out-File -FilePath $checksumPath -Encoding ascii
+
+          "archive=dist/$archiveName" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "checksum=dist/$archiveBase.sha256" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "info=dist/EXPORT-TEMPLATE-INFO.txt" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Upload export template artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: godotgs-export-template-windows-${{ needs.release_metadata.outputs.channel }}-${{ github.run_number }}
+          path: |
+            repo/${{ steps.package.outputs.archive }}
+            repo/${{ steps.package.outputs.checksum }}
+            repo/${{ steps.package.outputs.info }}
           retention-days: 14
 
   release_candidate_gate:
