@@ -52,6 +52,7 @@ RUNTIME_DIR = ROOT / "tests" / "runtime"
 PROJECT_DIR = ROOT / "tests" / "examples" / "godot" / "test_project"
 PRESET_TEMPLATE = RUNTIME_DIR / "export_smoke_preset.cfg.in"
 PRESET_NAME = "Export Smoke"
+PRESET_BACKUP_NAME = "export_presets.cfg.smoke-backup"
 PROBE_RES_PATH = "res://tests/export_smoke_probe.gd"
 PROBE_FILE = PROJECT_DIR / "tests" / "export_smoke_probe.gd"
 FIXTURE_FILE = PROJECT_DIR / "tests" / "fixtures" / "synthetic_cube.ply"
@@ -182,16 +183,38 @@ def _template_has_gs_symbols(binary: Path) -> List[str]:
     return [needle.decode("ascii") for needle in REQUIRED_TEMPLATE_SYMBOLS if needle in remaining]
 
 
-def _write_preset(template_binary: Path) -> Path:
+def _write_preset(template_binary: Path, backup_path: Path) -> Path:
+    """Write the generated preset, first moving any pre-existing one aside.
+
+    The caller has already established that overwriting is allowed. The existing
+    file is *moved* (not copied-then-truncated), so a crash between here and the
+    restore leaves the developer's original on disk under `backup_path` rather
+    than losing it.
+    """
+    target = PROJECT_DIR / "export_presets.cfg"
+    if target.exists():
+        if backup_path.exists():
+            backup_path.unlink()
+        target.replace(backup_path)
+        print(f"[export-smoke] moved your existing export_presets.cfg to {backup_path.name}")
+
     preset_text = PRESET_TEMPLATE.read_text(encoding="utf-8")
     preset_text = preset_text.replace("@PRESET_NAME@", PRESET_NAME)
     # Godot stores/reads this as an absolute path with forward slashes.
     preset_text = preset_text.replace(
         "@CUSTOM_TEMPLATE_RELEASE@", template_binary.resolve().as_posix()
     )
-    target = PROJECT_DIR / "export_presets.cfg"
     target.write_text(preset_text, encoding="utf-8")
     return target
+
+
+def _restore_preset(generated: Optional[Path], backup_path: Path) -> None:
+    """Remove the generated preset and put the developer's original back."""
+    if generated is not None and generated.exists():
+        generated.unlink()
+    if backup_path.exists():
+        backup_path.replace(PROJECT_DIR / "export_presets.cfg")
+        print(f"[export-smoke] restored your original {PROJECT_DIR.name}/export_presets.cfg")
 
 
 def _parse_metrics(output: str) -> Optional[dict]:
@@ -217,7 +240,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--export-timeout", type=int, default=1800)
     parser.add_argument("--run-timeout", type=int, default=300)
     parser.add_argument("--skip-import", action="store_true", help="Reuse the project's existing .godot import cache.")
-    parser.add_argument("--keep", action="store_true", help="Keep the exported artifacts and generated preset.")
+    parser.add_argument(
+        "--keep",
+        action="store_true",
+        help=(
+            "Keep the exported binary and pack. The generated export_presets.cfg is removed "
+            "either way so a displaced original is always put back."
+        ),
+    )
+    parser.add_argument(
+        "--overwrite-preset",
+        action="store_true",
+        help=(
+            "Allow the run to take over an existing "
+            "tests/examples/godot/test_project/export_presets.cfg. Without this the run refuses "
+            "rather than touching a preset it did not create. Even with it, the original is moved "
+            "aside to export_presets.cfg.smoke-backup and restored afterwards."
+        ),
+    )
     parser.add_argument(
         "--allow-blank-viewport",
         action="store_true",
@@ -253,6 +293,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not PROBE_FILE.is_file():
         return _fail(f"Export smoke probe missing: {PROBE_FILE}")
 
+    # Never destroy a preset this run did not create. The file is gitignored, so
+    # `git status` would not warn a developer that their own config had been
+    # overwritten -- refuse by default and make taking it over an explicit,
+    # typed-out decision.
+    existing_preset = PROJECT_DIR / "export_presets.cfg"
+    if existing_preset.exists() and not args.overwrite_preset:
+        return _fail(
+            f"{existing_preset} already exists and this run did not create it. "
+            "It is gitignored, so overwriting it would be an unrecoverable, invisible edit to "
+            "your config. Move it aside, or pass --overwrite-preset to have the run move it to "
+            f"{PRESET_BACKUP_NAME} and restore it afterwards."
+        )
+
     print(f"[export-smoke] editor   = {editor}")
     print(f"[export-smoke] template = {template}")
 
@@ -279,9 +332,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return _fail(f"Could not generate the smoke fixture {FIXTURE_FILE}.")
 
     owns_output_dir = args.output_dir is None
-    output_dir = Path(args.output_dir) if args.output_dir else Path(tempfile.mkdtemp(prefix="gs-export-smoke-"))
+    # Resolve to an absolute path against the CALLER's cwd before anything runs.
+    # The export subprocess runs with cwd=ROOT, so a relative --output-dir would
+    # otherwise silently land somewhere the caller never named.
+    output_dir = (
+        Path(args.output_dir).resolve()
+        if args.output_dir
+        else Path(tempfile.mkdtemp(prefix="gs-export-smoke-")).resolve()
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     exported = output_dir / "gs_export_smoke.exe"
+    preset_backup = PROJECT_DIR / PRESET_BACKUP_NAME
     preset_path: Optional[Path] = None
 
     try:
@@ -296,7 +357,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 print(_tail(imported.stdout + "\n" + imported.stderr))
                 return _fail(f"Project import failed (exit {imported.returncode}).")
 
-        preset_path = _write_preset(template)
+        preset_path = _write_preset(template, preset_backup)
         exported_result = _run(
             [
                 str(editor),
@@ -363,11 +424,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
         return EXIT_PASS
     finally:
-        if not args.keep:
-            if preset_path is not None and preset_path.exists():
-                preset_path.unlink()
-            if owns_output_dir:
-                shutil.rmtree(output_dir, ignore_errors=True)
+        # The preset teardown is NOT gated on --keep: --keep is about keeping the
+        # exported artifacts, and leaving someone else's config displaced is not
+        # a debugging convenience.
+        _restore_preset(preset_path, preset_backup)
+        if not args.keep and owns_output_dir:
+            shutil.rmtree(output_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

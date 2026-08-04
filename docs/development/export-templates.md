@@ -113,6 +113,12 @@ python tests/runtime/run_export_smoke.py \
     --template bin/godot.windows.template_release.x86_64.exe
 ```
 
+The run generates an `export_presets.cfg` in that project. If you already have
+one there, the run **refuses to start** rather than overwriting a file that is
+gitignored and would therefore vanish without showing up in `git status`. Pass
+`--overwrite-preset` to let it move yours to `export_presets.cfg.smoke-backup`
+and put it back afterwards.
+
 It fails if the exported binary carries no `GaussianSplat` symbols, and it runs
 the game with a real Vulkan rendering device rather than `--headless` — a
 headless run has no `RenderingDevice`, which would make any "it rendered"

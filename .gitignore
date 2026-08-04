@@ -448,6 +448,8 @@ test_data/visual_quality_reference.json
 # tests/runtime/export_smoke_preset.cfg.in. It embeds an absolute
 # custom_template/release path, so it must never be committed (#825).
 tests/examples/godot/test_project/export_presets.cfg
+# Where the runner parks a developer's own preset for the duration of a run.
+tests/examples/godot/test_project/export_presets.cfg.smoke-backup
 
 # Node/local package managers
 node_modules/

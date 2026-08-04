@@ -340,31 +340,28 @@ jobs:
           scons platform=linuxbsd target=template_release arch=x86_64 gs_native_arch=no \
             cache_path=.scons_cache_template cache_limit=10 -j"$(nproc)"
 
+      - name: Resolve export template binary
+        id: template_bin
+        run: |
+          set -euo pipefail
+          # Shared, unit-tested resolver (tests/ci/resolve_export_template.py +
+          # test_resolve_export_template.py). It owns both the SConstruct output
+          # names and Godot's expected export-template names, so neither job
+          # re-derives them inline. Fails closed on missing/ambiguous binaries.
+          python3 tests/ci/resolve_export_template.py \
+            --bin-dir bin --platform linuxbsd --scons-target template_release --arch x86_64
+
       - name: Stage export template under Godot's expected file name
         id: package
         run: |
           set -euo pipefail
 
-          # EditorExportPlatformLinuxBSD::get_template_file_name() (see
-          # platform/linuxbsd/export/export_plugin.cpp) builds the name as
-          # "linux_" + target + "." + arch -- note the '.' separator, which
-          # differs from Windows' '_'. Do not "normalise" the two.
-          template_name="linux_release.x86_64"
-
-          mapfile -t built < <(find bin -maxdepth 1 -type f -name 'godot.linuxbsd.template_release.x86_64*' | sort)
-          if [[ "${#built[@]}" -eq 0 ]]; then
-            echo "Could not locate built Linux release template in bin/"
-            ls -la bin || true
-            exit 1
-          fi
-          if [[ "${#built[@]}" -gt 1 ]]; then
-            echo "Ambiguous Linux release template in bin/ -- found ${#built[@]}: ${built[*]}"
-            ls -la bin || true
-            exit 1
-          fi
+          template_name="${{ steps.template_bin.outputs.template_name }}"
+          built_path="${{ steps.template_bin.outputs.main_path }}"
+          built_name="${{ steps.template_bin.outputs.main_name }}"
 
           mkdir -p dist
-          cp "${built[0]}" "dist/${template_name}"
+          cp "${built_path}" "dist/${template_name}"
           chmod +x "dist/${template_name}"
 
           version_label="${{ needs.release_metadata.outputs.tag }}"
@@ -373,11 +370,13 @@ jobs:
           fi
 
           archive_base="godotgs-export-template-linux-x86_64-${version_label}"
-          archive_path="dist/${archive_base}.tar.xz"
-          checksum_path="dist/${archive_base}.sha256"
 
-          tar -C dist -cJf "${archive_path}" "${template_name}"
-          sha256sum "${archive_path}" > "${checksum_path}"
+          tar -C dist -cJf "dist/${archive_base}.tar.xz" "${template_name}"
+          # #632: record the checksum against the BARE archive file name, not
+          # "dist/<name>", so `sha256sum -c <file>.sha256` works from the
+          # directory the assets are downloaded into. Matches what the Windows
+          # job writes.
+          ( cd dist && sha256sum "${archive_base}.tar.xz" > "${archive_base}.sha256" )
 
           cat > dist/EXPORT-TEMPLATE-INFO.txt <<EOF
           channel=${{ needs.release_metadata.outputs.channel }}
@@ -385,14 +384,14 @@ jobs:
           commit=${GITHUB_SHA}
           target=template_release
           template=${template_name}
-          source_binary=$(basename "${built[0]}")
+          source_binary=${built_name}
           note_scope=Only release templates are published for now; debug templates are a follow-up.
           note_usage=Set custom_template/release in export_presets.cfg or the export silently uses a stock non-GS template.
           generated_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           EOF
 
-          echo "archive=${archive_path}" >> "$GITHUB_OUTPUT"
-          echo "checksum=${checksum_path}" >> "$GITHUB_OUTPUT"
+          echo "archive=dist/${archive_base}.tar.xz" >> "$GITHUB_OUTPUT"
+          echo "checksum=dist/${archive_base}.sha256" >> "$GITHUB_OUTPUT"
 
       - name: Upload export template artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -756,38 +755,25 @@ jobs:
         id: template_bin
         shell: pwsh
         run: |
-          # EditorExportPlatformWindows::get_template_file_name()
-          # (platform/windows/export/export_plugin.cpp) builds the name as
-          # "windows_" + target + "_" + arch + ".exe" -- '_' before the arch,
-          # unlike Linux's '.'. The console wrapper is resolved as
-          # <template basename> + ".console.exe" (same file, modify_template()),
-          # so both halves must ship or `debug/export_console_wrapper` exports
-          # come out without a console binary.
-          $allExes = @(Get-ChildItem -Path "bin" -Filter "godot.windows.template_release*.x86_64.exe" -File -ErrorAction SilentlyContinue)
-          $mainExes = @($allExes | Where-Object { $_.Name -notlike "*.console.exe" })
-          $consoleExes = @($allExes | Where-Object { $_.Name -like "*.console.exe" })
-
-          if ($mainExes.Count -ne 1) {
+          $ErrorActionPreference = "Stop"
+          # Shared, unit-tested resolver (tests/ci/resolve_export_template.py +
+          # test_resolve_export_template.py). It owns both the SConstruct output
+          # names and Godot's expected export-template names.
+          #
+          # This step used to glob inline with
+          # `godot.windows.template_release*.x86_64.exe` and then require one
+          # `*.console.exe` among the matches. SConstruct appends `.console`
+          # AFTER the architecture, so the wrapper is
+          # `godot.windows.template_release.x86_64.console.exe` and never
+          # matched -- the count check threw on every run and no artifact was
+          # ever uploaded. The resolver's predicates are disjoint by
+          # construction and are tested against those exact file names.
+          python tests/ci/resolve_export_template.py --bin-dir bin --platform windows --scons-target template_release --arch x86_64
+          if ($LASTEXITCODE -ne 0) {
             Write-Host "bin\ contents:"
             Get-ChildItem -Path "bin" -ErrorAction SilentlyContinue | Format-Table Name, Length | Out-String | Write-Host
-            $names = ($mainExes | ForEach-Object { $_.Name }) -join ", "
-            throw "Expected exactly one main Windows release template in bin\ (godot.windows.template_release*.x86_64.exe excluding .console.exe), found $($mainExes.Count): $names."
+            throw "Could not resolve the Windows export template binaries in bin\."
           }
-          if ($consoleExes.Count -ne 1) {
-            Write-Host "bin\ contents:"
-            Get-ChildItem -Path "bin" -ErrorAction SilentlyContinue | Format-Table Name, Length | Out-String | Write-Host
-            $names = ($consoleExes | ForEach-Object { $_.Name }) -join ", "
-            throw "Expected exactly one Windows release console wrapper in bin\ (*.console.exe), found $($consoleExes.Count): $names. Godot's Windows export needs the .console.exe sibling next to the template."
-          }
-
-          $main = $mainExes[0]
-          $console = $consoleExes[0]
-          Write-Host "Resolved template: $($main.FullName) ($([math]::Round($main.Length / 1MB, 1)) MB)"
-          Write-Host "Resolved console wrapper: $($console.FullName) ($([math]::Round($console.Length / 1KB, 1)) KB)"
-          "main_path=$($main.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "main_name=$($main.Name)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "console_path=$($console.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "console_name=$($console.Name)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Stage export template under Godot's expected file names
         id: package
@@ -796,8 +782,8 @@ jobs:
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force -Path dist | Out-Null
 
-          $templateName = "windows_release_x86_64.exe"
-          $consoleTemplateName = "windows_release_x86_64.console.exe"
+          $templateName = "${{ steps.template_bin.outputs.template_name }}"
+          $consoleTemplateName = "${{ steps.template_bin.outputs.console_template_name }}"
           Copy-Item -LiteralPath "${{ steps.template_bin.outputs.main_path }}" -Destination (Join-Path "dist" $templateName) -Force
           Copy-Item -LiteralPath "${{ steps.template_bin.outputs.console_path }}" -Destination (Join-Path "dist" $consoleTemplateName) -Force
 
