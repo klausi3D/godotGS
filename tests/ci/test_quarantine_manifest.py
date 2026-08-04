@@ -10,7 +10,10 @@ global is patched to point at it.
 
 from __future__ import annotations
 
+import argparse
 import contextlib
+import copy
+import hashlib
 import importlib.util
 import io
 import json
@@ -38,6 +41,152 @@ spec.loader.exec_module(harness)
 
 # A real lane name from MODULE_TEST_FILTERS so entries pass the unknown-lane check.
 VALID_LANE = harness.MODULE_TEST_FILTERS[0][0]
+
+
+COMMITTED_MANIFEST_PATH = ROOT / "tests" / "ci" / "quarantine_manifest.json"
+
+# ---------------------------------------------------------------------------
+# PINNED BASELINE / SHRINK-ONLY RATCHET (#650). Do not "update to make CI pass".
+#
+# Before this block the manifest had no size or content ratchet at all. A PR
+# could append a quarantine entry, or an 11th `unlaned_tests` declaration, in a
+# single hunk and go green -- the guard read the manifest and compared it
+# against itself, which is not a ratchet. That is the same hole
+# tests/ci/test_gpu_harness_deferred_contract.py:55-89 closed for
+# unbatched_requires_gpu_backlog, and its comment records why the first version
+# there did not work either.
+#
+# The baseline therefore lives HERE, in the guard, not in the data the guard
+# checks. Both arrays are pinned three ways, because each catches something the
+# others do not:
+#   * a MAX      -- growth in size fails,
+#   * a BASELINE -- the actual pinned set, so an addition is rejected by set
+#                   INCLUSION (a fix-one/add-one swap nets zero and would pass a
+#                   count-only check),
+#   * a FINGERPRINT -- one hash over the COMPLETE declaration objects, in order,
+#                   so any edit at all is a deliberate, review-visible re-pin
+#                   rather than a one-liner. Both arrays get identical treatment
+#                   (array_fingerprint): every field, including fields invented
+#                   after this guard was written, and including the ORDER, which
+#                   is semantic because lane-coverage attribution is
+#                   first-match-wins (#664). Round 2 (Codex on #821) found the
+#                   unlaned hash covering only (test_case, count), which left a
+#                   rewritten owner/reason/risk/expiry - and an issue_url swapped
+#                   between two allowlisted issues - completely invisible. That
+#                   is the orphaning failure this branch exists to close, running
+#                   in reverse.
+#
+# The ratchet turns ONE WAY: counts may go DOWN, never UP; entries may leave the
+# manifest, never join it without a matching guard edit in the same PR.
+# RAISING any constant below is a review RED FLAG. It means a test was newly
+# stranded, or a new failure was quarantined, instead of being given a lane.
+#
+# Legitimate SHRINK (the only allowed direction):
+#   1. give the case a lane in tests/ci/run_module_tests.py (or a batch in
+#      run_gpu_harness.py) so it actually runs,
+#   2. delete or lower its declaration in tests/ci/quarantine_manifest.json,
+#   3. re-pin the constants below with
+#        python tests/ci/test_quarantine_manifest.py --print-fingerprint
+#      which REFUSES to print anything for a growth or an addition. There is no
+#      writer: the constants are pasted by a human, and nothing in this repo can
+#      regenerate this block from the current tree.
+# ---------------------------------------------------------------------------
+
+# The manifest's only legitimate homes. Pinned so a third array cannot be added
+# as a fresh, unratcheted place to park declarations.
+MANIFEST_TOP_LEVEL_KEYS = frozenset({"schema_version", "entries", "unlaned_tests"})
+
+# 'entries' ships EMPTY and the measured headless baseline at the base SHA is
+# zero laned failures, so the pinned maximum is 0. The one known surviving
+# failure ([Thumbnail] cache, #814) structurally cannot be enrolled here: an
+# entry names a MODULE_TEST_FILTERS lane, and no lane selects [Thumbnail].
+QUARANTINE_ENTRIES_MAX = 0
+QUARANTINE_ENTRIES_BASELINE: tuple[tuple[str, str], ...] = ()
+QUARANTINE_ENTRIES_FINGERPRINT = (
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+)
+
+# 'unlaned_tests': 10 declarations covering 86 stranded cases, matching
+# check_test_lane_coverage.py's "86 stranded, all declared in 10 manifest
+# entries". Measured, not transcribed -- see --print-fingerprint.
+UNLANED_MAX_DECLARATIONS = 10
+UNLANED_MAX_TOTAL_COUNT = 86
+UNLANED_BASELINE: tuple[tuple[str, int], ...] = (
+    ("*][RequiresGPU]*", 59),
+    ("[GPU Memory Stream]*", 6),
+    ("[GaussianSplatting][GeneratePLY]*", 1),
+    ("[GaussianSplatting][NodeSurface][World]*", 1),
+    ("[GaussianSplatting][Thumbnail]*", 2),
+    ("[GaussianSplatting][World]*", 3),
+    ("[Integration]*", 9),
+    ("[RendererSceneCull] Hidden indexing policy gates Gaussian exemption", 1),
+    ("[Streaming VRAM]*", 1),
+    ("[VisualCompare]*", 3),
+)
+# Re-pinned in round 2 (Codex on #821) because the HASH INPUT widened, not
+# because the data moved: the fingerprint now covers every field of every
+# declaration, in order, exactly like QUARANTINE_ENTRIES_FINGERPRINT, instead of
+# only the (test_case, count) projection. The declaration set is byte-identical
+# either side of the re-pin -- 10 declarations, 86 total, LOST 0 / GAINED 0 --
+# and UNLANED_MAX_DECLARATIONS / UNLANED_MAX_TOTAL_COUNT / UNLANED_BASELINE are
+# untouched above. Previous value, for audit: 599451ce55bba30f68959d61a61526989
+# fe2046ed0e7ac31cedfa77c9f525b9e.
+UNLANED_FINGERPRINT = (
+    "16d05a33e1ffa19ceca12e86896f77f66d02e07f24a90358dcce810fa87300f7"
+)
+
+# ---------------------------------------------------------------------------
+# Per-declaration content rules (both arrays).
+#
+# Field PRESENCE was already checked by run_module_tests.py's schema guard, but
+# presence is not hygiene: 'reason' could be "TODO", 'issue_url' could be any
+# string, and 'expires_utc' could be a decade out -- a permanent silencer
+# wearing a manifest entry's clothes.
+# ---------------------------------------------------------------------------
+MIN_REASON_CHARS = 40
+PLACEHOLDER_REASON_TOKENS = frozenset(
+    {"todo", "tbd", "fixme", "n/a", "na", "none", "unknown", "wip", "xxx", "?", "-"}
+)
+ISSUE_URL_RE = re.compile(r"^https://github\.com/klausi3D/godotGS/issues/([0-9]+)$")
+VALID_RISK_CLASSES = frozenset({"R0", "R1", "R2", "R3"})
+BASE_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+
+# A quarantine is bounded by definition. An expiry a decade out is not a
+# quarantine, it is a deletion with extra steps.
+EXPIRY_HORIZON_DAYS = 180
+# Absolute ceiling, pinned like the counts. The relative horizon alone does not
+# stop SERIAL renewal: a PR could push every expiry out by 179 days, forever,
+# and never trip it. Moving the ceiling is a guard edit, so a renewal is
+# review-visible. Lowering it is always fine; raising it is the red flag.
+MAX_EXPIRY_UTC = "2026-10-15T00:00:00Z"
+
+# ---------------------------------------------------------------------------
+# Tracking-issue liveness, checked OFFLINE.
+#
+# #520 was CLOSED while 8 declarations still pointed at it, and #329 was CLOSED
+# while the 59-case [RequiresGPU] catch-all still pointed at it. Nothing noticed,
+# because "the issue that owns this declaration is still open" was never
+# checked. That is a silent expiry: the declaration outlives its tracking issue
+# and the work becomes untracked while still looking blessed.
+#
+# This is enforced against a pinned ALLOWLIST rather than the GitHub API on
+# purpose. A guard that needs the network is a guard that fails when the network
+# does, and CI would then either block on rate limits or fail open. An allowlist
+# is fail-closed in the useful direction: an issue nobody has verified as OPEN is
+# rejected, so referencing a new tracking issue is a deliberate two-file diff.
+#
+# Verified OPEN on the date below with:
+#   gh issue view <n> --repo klausi3D/godotGS --json number,state
+# Verified CLOSED at the same time, and therefore deliberately NOT listed:
+#   #329, #520.
+ISSUES_VERIFIED_OPEN = frozenset({641, 814, 819, 820})
+ISSUES_VERIFIED_OPEN_UTC = "2026-08-03T00:00:00Z"
+# An allowlist can only answer "was this open when a human last looked". Bound
+# how stale that answer may get, so the verification cannot silently become
+# folklore. This horizon is deliberately LATER than MAX_EXPIRY_UTC: every
+# declaration must already be renewed by then, and re-checking the issue state
+# is part of that renewal.
+ISSUE_VERIFICATION_MAX_AGE_DAYS = 180
 
 
 def _future_iso(days: int = 365) -> str:
@@ -730,5 +879,978 @@ class DoctestCaseMatchingTests(unittest.TestCase):
         self.assertTrue(harness._test_case_matches("*play? a clip*", FAILING_CASE))
 
 
+class ManifestUnreadable(RuntimeError):
+    """The committed manifest is missing, unreadable, or not the expected shape."""
+
+
+def load_committed_manifest() -> dict:
+    """Read the COMMITTED manifest, failing closed on anything unexpected.
+
+    A missing or unparseable manifest is NOT a clean manifest: every
+    `unlaned_tests` declaration the lane-coverage guard relies on vanishes with
+    it, and the ratchet below would have nothing to compare. So this raises
+    instead of returning a permissive default.
+    """
+    if not COMMITTED_MANIFEST_PATH.is_file():
+        raise ManifestUnreadable(
+            f"committed quarantine manifest is missing ({COMMITTED_MANIFEST_PATH}). "
+            "Deleting it does not make the manifest clean - it deletes the ratchet."
+        )
+    try:
+        raw = COMMITTED_MANIFEST_PATH.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ManifestUnreadable(
+            f"committed quarantine manifest is unreadable ({COMMITTED_MANIFEST_PATH}): {exc}"
+        ) from exc
+    try:
+        data = json.loads(raw)
+    except ValueError as exc:
+        raise ManifestUnreadable(
+            f"committed quarantine manifest is not valid JSON ({COMMITTED_MANIFEST_PATH}): {exc}"
+        ) from exc
+    if not isinstance(data, dict):
+        raise ManifestUnreadable("committed quarantine manifest root must be a JSON object.")
+    for key in ("entries", "unlaned_tests"):
+        if not isinstance(data.get(key), list):
+            raise ManifestUnreadable(
+                f"committed quarantine manifest '{key}' must be a list "
+                f"(got {type(data.get(key)).__name__})."
+            )
+    return data
+
+
+def array_fingerprint(items: list) -> str:
+    """Hash a WHOLE manifest array: every field of every element, in order.
+
+    Both arrays get exactly this treatment. Round 2 (Codex on #821) found that
+    `unlaned_tests` had been given a NARROWER rule than its sibling `entries`,
+    with no stated reason: the hash covered only (test_case, count), so a
+    declaration's `reason`, `owner`, `risk` and `expires_utc` - and an
+    `issue_url` swapped between two already-allowlisted issues - could all be
+    rewritten with the fingerprint unchanged and every test still green. That
+    defeats the "any edit at all is visible" guarantee exactly where it matters,
+    waiver OWNERSHIP and TRACKING, which is the failure mode this branch exists
+    to close: 9 of 10 declarations had been quietly orphaned onto CLOSED issues.
+    A hash over a hand-listed subset of fields is the same class of defect as an
+    invariant guarded by a hand-written list.
+
+    Two properties follow from hashing the array as committed, and both are
+    deliberate:
+      * TOTALITY - a field added by a future schema change is hashed the day it
+        appears, because nothing here enumerates field names.
+      * ORDER - check_test_lane_coverage.py attributes stranded cases
+        FIRST-MATCH-WINS, so declaration order is semantic (#664): a reorder can
+        silently re-attribute cases between declarations. Order is therefore part
+        of the pinned content, not cosmetic.
+    """
+    payload = json.dumps(items, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def entries_fingerprint(entries: list) -> str:
+    """Hash over the WHOLE entries array, so any field edit is visible."""
+    return array_fingerprint(entries)
+
+
+def entry_keys(entries: list) -> list:
+    """Identity of each entry: (lane, test_case), sorted."""
+    return sorted(
+        (str(entry.get("lane", "")), str(entry.get("test_case", "")))
+        for entry in entries
+        if isinstance(entry, dict)
+    )
+
+
+def unlaned_pairs(declarations: list) -> list:
+    """Sorted (test_case, count) pairs; a non-int count sorts as -1 and fails."""
+    pairs = []
+    for declaration in declarations:
+        if not isinstance(declaration, dict):
+            continue
+        count = declaration.get("count")
+        pairs.append(
+            (
+                str(declaration.get("test_case", "")),
+                count if isinstance(count, int) and not isinstance(count, bool) else -1,
+            )
+        )
+    return sorted(pairs)
+
+
+def unlaned_fingerprint(declarations: list) -> str:
+    """Hash over the WHOLE declaration objects - see array_fingerprint.
+
+    Takes the declarations themselves, NOT the (test_case, count) projection.
+    `unlaned_pairs` still exists, but only for the SIZE and SET-INCLUSION rules,
+    which answer a different question ("did the declared set grow?") than the
+    fingerprint ("did anything at all change?").
+    """
+    return array_fingerprint(declarations)
+
+
+def issue_verification_problems(verified_raw: object, now: datetime) -> list:
+    """Bound the human issue-state verification in BOTH directions.
+
+    Round 3 (Codex P2 on #821): this was an upper bound only. A
+    ISSUES_VERIFIED_OPEN_UTC in the future - by accident, timezone error, or
+    deliberately - makes `now - verified` NEGATIVE, so the age assertion passes
+    until that future date PLUS ISSUE_VERIFICATION_MAX_AGE_DAYS. A stale
+    allowlist could then sit green for years while still LOOKING bounded, which
+    is worse than having no horizon at all: the guard reports a guarantee it is
+    not providing.
+
+    The general shape - a bound with one unguarded direction, or a pin whose
+    unparseable value silently skips its own rule - is checked for elsewhere in
+    this file too (the MAX_EXPIRY_UTC ceiling, and
+    test_pinned_time_and_size_constants_are_evaluable).
+    """
+    verified = _parse_utc(verified_raw)
+    if verified is None:
+        return [
+            f"ISSUES_VERIFIED_OPEN_UTC {verified_raw!r} is missing or not a parseable ISO-8601 "
+            f"UTC timestamp, so the freshness of the issue allowlist cannot be established. "
+            f"This fails closed: an unevaluable pin is not a satisfied pin."
+        ]
+    if verified > now:
+        return [
+            f"ISSUES_VERIFIED_OPEN_UTC {verified_raw} is IN THE FUTURE (now "
+            f"{now.isoformat()}). A future timestamp does not make the allowlist fresher - it "
+            f"DISABLES the bound, because the age check then passes until that date plus "
+            f"ISSUE_VERIFICATION_MAX_AGE_DAYS={ISSUE_VERIFICATION_MAX_AGE_DAYS} days. Set it to "
+            f"the date the issues were actually checked with "
+            f"'gh issue view <n> --repo klausi3D/godotGS --json number,state'."
+        ]
+    age = now - verified
+    if age > timedelta(days=ISSUE_VERIFICATION_MAX_AGE_DAYS):
+        return [
+            f"ISSUES_VERIFIED_OPEN was last checked against GitHub on {verified_raw} "
+            f"({age.days} days ago), over ISSUE_VERIFICATION_MAX_AGE_DAYS="
+            f"{ISSUE_VERIFICATION_MAX_AGE_DAYS}. An offline allowlist can only say 'these were "
+            f"open when a human last looked'; re-check every referenced issue, drop any that "
+            f"closed, and refresh the date. Every declaration's own expires_utc falls due before "
+            f"this, so this is a backstop, not the primary cadence."
+        ]
+    return []
+
+
+def _perturb(value: object) -> object:
+    """Return a value that is JSON-different from `value`, whatever its type.
+
+    Type-driven, so the totality test needs no per-field knowledge.
+    """
+    if isinstance(value, bool):
+        return not value
+    if isinstance(value, int):
+        return value + 1
+    if isinstance(value, float):
+        return value + 1.0
+    if isinstance(value, str):
+        return value + " (perturbed)"
+    if isinstance(value, list):
+        return list(value) + ["perturbed"]
+    if isinstance(value, dict):
+        return {**value, "perturbed": True}
+    return "perturbed"
+
+
+def _parse_utc(value: object):
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def declaration_problems(kind: str, index: int, declaration: object, now: datetime) -> list:
+    """Content rules for one declaration in either array. ASCII messages only.
+
+    The existing schema guard checks field PRESENCE. Presence is not hygiene: a
+    present 'reason' can be "TODO", a present 'issue_url' can point at a closed
+    issue, and a present 'expires_utc' can be a decade out. Each rule below names
+    the constant it enforces so the failure says what to do, not just what broke.
+    """
+    label = f"{kind}[{index}]"
+    if not isinstance(declaration, dict):
+        return [f"{label} must be a JSON object."]
+    label = f"{kind}[{index}] ({str(declaration.get('test_case', '?'))!r})"
+    problems: list = []
+
+    reason = declaration.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        problems.append(f"{label} has no 'reason'.")
+    else:
+        text = reason.strip()
+        token = text.strip(".!:;-? ").lower()
+        # An all-punctuation reason ("-", "???") strips to nothing; it is a
+        # placeholder too, not merely a short reason.
+        if not token or token in PLACEHOLDER_REASON_TOKENS:
+            problems.append(
+                f"{label} 'reason' is the placeholder {text!r} (PLACEHOLDER_REASON_TOKENS). "
+                f"A placeholder reason is an untracked skip wearing a manifest entry's clothes: "
+                f"say what is broken and what it would take to give the case a lane."
+            )
+        elif len(text) < MIN_REASON_CHARS:
+            problems.append(
+                f"{label} 'reason' is {len(text)} characters, under MIN_REASON_CHARS="
+                f"{MIN_REASON_CHARS}. A reason too short to state the defect and the exit "
+                f"condition cannot be reviewed."
+            )
+
+    issue_url = declaration.get("issue_url")
+    match = ISSUE_URL_RE.match(issue_url.strip()) if isinstance(issue_url, str) else None
+    if match is None:
+        problems.append(
+            f"{label} 'issue_url' {issue_url!r} does not match ISSUE_URL_RE "
+            f"(https://github.com/klausi3D/godotGS/issues/<number>). A declaration must point at "
+            f"a tracking issue in THIS repo, not at prose or another project."
+        )
+    else:
+        number = int(match.group(1))
+        if number not in ISSUES_VERIFIED_OPEN:
+            problems.append(
+                f"{label} 'issue_url' points at issue #{number}, which is not in the guard's "
+                f"ISSUES_VERIFIED_OPEN allowlist. A declaration whose tracking issue is CLOSED is "
+                f"a SILENT EXPIRY: the work stops being tracked while the declaration still looks "
+                f"blessed (#520 and #329 were both closed under live declarations). Check with "
+                f"'gh issue view {number} --repo klausi3D/godotGS --json number,state'. If OPEN, "
+                f"add it to ISSUES_VERIFIED_OPEN and refresh ISSUES_VERIFIED_OPEN_UTC in the same "
+                f"PR. If CLOSED, re-point the declaration at live work - do not widen the "
+                f"allowlist to cover a closed issue."
+            )
+
+    expires_raw = declaration.get("expires_utc")
+    expires = _parse_utc(expires_raw)
+    if expires is None:
+        problems.append(
+            f"{label} has a missing or unparseable 'expires_utc' {expires_raw!r} "
+            f"(want ISO-8601 UTC, e.g. 2026-10-15T00:00:00Z)."
+        )
+    else:
+        if expires <= now:
+            problems.append(
+                f"{label} EXPIRED on {expires_raw}. Give the case(s) a lane, or renew the "
+                f"declaration with fresh justification."
+            )
+        horizon = now + timedelta(days=EXPIRY_HORIZON_DAYS)
+        if expires > horizon:
+            problems.append(
+                f"{label} 'expires_utc' {expires_raw} is more than EXPIRY_HORIZON_DAYS="
+                f"{EXPIRY_HORIZON_DAYS} days beyond this run (past {horizon.date().isoformat()}). "
+                f"A quarantine is bounded by definition; an expiry that far out is a permanent "
+                f"silencer, not a quarantine."
+            )
+        ceiling = _parse_utc(MAX_EXPIRY_UTC)
+        if ceiling is None:
+            # Round 3: this used to be `if ceiling is not None and ...`, so a
+            # malformed pinned constant silently DISABLED the ceiling rule while
+            # every test stayed green. Same shape as the freshness bug below - a
+            # bound with an unguarded direction. Fail closed instead.
+            problems.append(
+                f"{label} cannot be checked against the expiry ceiling: the pinned "
+                f"MAX_EXPIRY_UTC={MAX_EXPIRY_UTC!r} is not a parseable ISO-8601 UTC timestamp. A "
+                f"pin that cannot be evaluated disables the rule it exists to enforce, so this "
+                f"fails closed rather than skipping."
+            )
+        elif expires > ceiling:
+            problems.append(
+                f"{label} 'expires_utc' {expires_raw} is beyond the pinned MAX_EXPIRY_UTC="
+                f"{MAX_EXPIRY_UTC}. The relative horizon alone never stops SERIAL renewal, so the "
+                f"ceiling is pinned in the guard and renewing is a deliberate two-file diff. Do "
+                f"NOT raise MAX_EXPIRY_UTC to make this pass."
+            )
+
+    risk = declaration.get("risk")
+    if risk is not None and (
+        not isinstance(risk, str) or risk.strip() not in VALID_RISK_CLASSES
+    ):
+        problems.append(
+            f"{label} 'risk' {risk!r} is not one of "
+            f"{sorted(VALID_RISK_CLASSES)} (VALID_RISK_CLASSES)."
+        )
+
+    owner = declaration.get("owner")
+    if not isinstance(owner, str) or not owner.strip():
+        problems.append(
+            f"{label} has no 'owner'. A declaration without an owner is nobody's job."
+        )
+
+    if kind == "entries":
+        base_sha = declaration.get("base_sha_proven_failing")
+        if not isinstance(base_sha, str) or not BASE_SHA_RE.match(base_sha.strip()):
+            problems.append(
+                f"{label} 'base_sha_proven_failing' {base_sha!r} is not 40 lowercase hex "
+                f"characters (BASE_SHA_RE). An entry must name the exact commit the failure was "
+                f"reproduced on; an abbreviated, uppercase or absent SHA cannot be re-verified."
+            )
+        for field in ("lane", "test_case"):
+            value = declaration.get(field)
+            if not isinstance(value, str) or not value.strip():
+                problems.append(f"{label} has no '{field}'.")
+    else:
+        count = declaration.get("count")
+        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+            problems.append(
+                f"{label} 'count' must be a positive integer (the number of stranded cases this "
+                f"declaration covers), got {count!r}."
+            )
+
+    return problems
+
+
+class QuarantineManifestRatchetTests(unittest.TestCase):
+    """The shrink-only ratchet over the COMMITTED manifest (#650).
+
+    Every test here reads tests/ci/quarantine_manifest.json directly rather than
+    through the harness global, which other tests in this file patch to point at
+    temporary fixtures.
+    """
+
+    def setUp(self) -> None:
+        try:
+            self.data = load_committed_manifest()
+        except ManifestUnreadable as exc:
+            self.fail(str(exc))
+        self.entries = self.data["entries"]
+        self.declarations = self.data["unlaned_tests"]
+
+    # -- structure ----------------------------------------------------------
+    def test_manifest_has_no_unratcheted_third_home(self) -> None:
+        keys = set(self.data)
+        self.assertEqual(
+            keys,
+            set(MANIFEST_TOP_LEVEL_KEYS),
+            "the manifest's top-level keys changed. Both 'entries' and 'unlaned_tests' are "
+            "ratcheted here; a NEW top-level array would be an unratcheted third place to park "
+            "declarations, which is exactly the bypass this pin exists to stop "
+            "(MANIFEST_TOP_LEVEL_KEYS).",
+        )
+
+    # -- entries ratchet ----------------------------------------------------
+    def test_entries_count_is_within_pinned_max(self) -> None:
+        self.assertLessEqual(
+            len(self.entries),
+            QUARANTINE_ENTRIES_MAX,
+            f"'entries' grew to {len(self.entries)}, above the pinned "
+            f"QUARANTINE_ENTRIES_MAX={QUARANTINE_ENTRIES_MAX}. Do NOT raise the constant to make "
+            f"this pass: an entry tolerates a real failure in a real lane and is human-gated "
+            f"(ADR docs/architecture/adr-test-quarantine-manifest.md, charter section 6). Fix the "
+            f"test, or - if the failure is genuinely approved - re-pin this guard in the SAME PR "
+            f"so the addition is a two-file diff.",
+        )
+
+    def test_entries_are_a_subset_of_the_pinned_baseline(self) -> None:
+        baseline = set(QUARANTINE_ENTRIES_BASELINE)
+        added = [key for key in entry_keys(self.entries) if key not in baseline]
+        self.assertEqual(
+            added,
+            [],
+            "these (lane, test_case) entries are NOT in QUARANTINE_ENTRIES_BASELINE. Set "
+            "inclusion, not a net count: removing one entry and adding another leaves the count "
+            "unchanged and must still fail.\n  " + "\n  ".join(map(repr, added)),
+        )
+
+    def test_entries_fingerprint_matches_the_pinned_baseline(self) -> None:
+        actual = entries_fingerprint(self.entries)
+        self.assertEqual(
+            actual,
+            QUARANTINE_ENTRIES_FINGERPRINT,
+            "'entries' changed without re-pinning this guard.\n"
+            f"  pinned: {QUARANTINE_ENTRIES_FINGERPRINT}\n  actual: {actual}\n"
+            "The fingerprint covers every field of every entry, so an edit to a reason, an "
+            "expiry or an issue link is as visible as an addition. Re-pin with\n"
+            "  python tests/ci/test_quarantine_manifest.py --print-fingerprint",
+        )
+
+    # -- unlaned_tests ratchet ---------------------------------------------
+    def test_unlaned_declaration_count_is_within_pinned_max(self) -> None:
+        self.assertLessEqual(
+            len(self.declarations),
+            UNLANED_MAX_DECLARATIONS,
+            f"'unlaned_tests' grew to {len(self.declarations)} declarations, above the pinned "
+            f"UNLANED_MAX_DECLARATIONS={UNLANED_MAX_DECLARATIONS}. The path of least resistance "
+            f"when check_test_lane_coverage.py fails on a newly stranded case is to add one more "
+            f"declaration; that is the growth this constant refuses. Give the case a lane in "
+            f"tests/ci/run_module_tests.py (or a batch in run_gpu_harness.py) instead. Do NOT "
+            f"raise the constant.",
+        )
+
+    def test_unlaned_total_count_is_within_pinned_max(self) -> None:
+        total = sum(count for _, count in unlaned_pairs(self.declarations))
+        self.assertLessEqual(
+            total,
+            UNLANED_MAX_TOTAL_COUNT,
+            f"'unlaned_tests' now declares {total} stranded cases, above the pinned "
+            f"UNLANED_MAX_TOTAL_COUNT={UNLANED_MAX_TOTAL_COUNT}. Raising an existing 'count' by 1 "
+            f"is the same amnesty as adding a declaration, so it is capped the same way.",
+        )
+
+    def test_unlaned_declarations_are_a_subset_of_the_pinned_baseline(self) -> None:
+        baseline = dict(UNLANED_BASELINE)
+        problems = []
+        for test_case, count in unlaned_pairs(self.declarations):
+            if test_case not in baseline:
+                problems.append(
+                    f"{test_case!r} is a NEW declaration (count {count}); it is not in "
+                    f"UNLANED_BASELINE."
+                )
+            elif count > baseline[test_case]:
+                problems.append(
+                    f"{test_case!r} count rose {baseline[test_case]} -> {count}."
+                )
+        self.assertEqual(
+            problems,
+            [],
+            "unlaned_tests grew by set inclusion even if the totals did not. A same-size swap "
+            "(drop one family, add another) and a fix-one/add-one trade both net zero and must "
+            "still fail here.\n  " + "\n  ".join(problems),
+        )
+
+    def test_unlaned_fingerprint_matches_the_pinned_baseline(self) -> None:
+        actual = unlaned_fingerprint(self.declarations)
+        self.assertEqual(
+            actual,
+            UNLANED_FINGERPRINT,
+            "'unlaned_tests' changed without re-pinning this guard.\n"
+            f"  pinned: {UNLANED_FINGERPRINT}\n  actual: {actual}\n"
+            "The fingerprint covers every field of every declaration, in order - a rewritten "
+            "owner, reason, risk or expiry, and an issue_url swapped between two allowlisted "
+            "issues, are all as visible as an addition. A count-only ratchet would pass a "
+            "same-size swap; this will not. If the change is a legitimate SHRINK, re-pin with\n"
+            "  python tests/ci/test_quarantine_manifest.py --print-fingerprint",
+        )
+
+    def test_fingerprint_covers_every_field_of_every_declaration(self) -> None:
+        """TOTALITY: no field is unhashed, including fields not invented yet.
+
+        Written as the property, not against today's field list. Round 2 (#821):
+        the previous fingerprint hashed 2 of the 7 fields, so `owner`,
+        `reason`, `risk`, `expires_utc` and an `issue_url` swapped between two
+        allowlisted issues were all invisible. A guard whose coverage is a
+        hand-written list of field names is the defect this repo keeps paying
+        for; this test derives the list from the data instead.
+        """
+        baseline = unlaned_fingerprint(self.declarations)
+        checked = 0
+        for index, declaration in enumerate(self.declarations):
+            self.assertIsInstance(declaration, dict)
+            for key, value in declaration.items():
+                checked += 1
+                edited = copy.deepcopy(self.declarations)
+                edited[index][key] = _perturb(value)
+                self.assertNotEqual(
+                    unlaned_fingerprint(edited),
+                    baseline,
+                    f"rewriting unlaned_tests[{index}][{key!r}] does not change the "
+                    f"fingerprint - that field is UNHASHED and can be edited silently.",
+                )
+                dropped = copy.deepcopy(self.declarations)
+                del dropped[index][key]
+                self.assertNotEqual(
+                    unlaned_fingerprint(dropped),
+                    baseline,
+                    f"DELETING unlaned_tests[{index}][{key!r}] does not change the fingerprint.",
+                )
+        self.assertGreater(checked, 0, "no declaration fields were checked - vacuous test")
+        # A field added by a future schema change must be hashed the day it
+        # appears, with no edit to this guard.
+        extended = copy.deepcopy(self.declarations)
+        extended[0]["a_field_invented_after_this_guard_was_written"] = "value"
+        self.assertNotEqual(
+            unlaned_fingerprint(extended),
+            baseline,
+            "a NEW field added to a declaration is not hashed; the fingerprint is enumerating "
+            "field names somewhere instead of hashing the whole object.",
+        )
+
+    def test_fingerprint_pins_declaration_order(self) -> None:
+        """Order is semantic, so it is pinned.
+
+        check_test_lane_coverage.py attributes stranded cases FIRST-MATCH-WINS
+        (#664), so moving a catch-all above a narrow family silently
+        re-attributes cases between declarations while every count stays put.
+        """
+        self.assertGreaterEqual(len(self.declarations), 2)
+        reordered = list(self.declarations)
+        reordered[0], reordered[1] = reordered[1], reordered[0]
+        self.assertNotEqual(
+            unlaned_fingerprint(reordered),
+            unlaned_fingerprint(self.declarations),
+            "reordering two declarations leaves the fingerprint unchanged, so a first-match-wins "
+            "re-attribution (#664) would be invisible.",
+        )
+
+    def test_fingerprint_is_not_the_old_narrow_projection(self) -> None:
+        """Round-2 regression pin (#821): re-narrowing the hash must fail here.
+
+        If a future change reverts the fingerprint to the (test_case, count)
+        projection, every other test in this file still passes - the pinned
+        constant would simply be re-derived from the narrower input. This is the
+        test that notices.
+        """
+        narrow_payload = "\n".join(
+            f"{test_case}\t{count}" for test_case, count in unlaned_pairs(self.declarations)
+        )
+        narrow = hashlib.sha256(narrow_payload.encode("utf-8")).hexdigest()
+        self.assertNotEqual(
+            UNLANED_FINGERPRINT,
+            narrow,
+            "UNLANED_FINGERPRINT equals the hash of the (test_case, count) projection. The "
+            "fingerprint must cover the WHOLE declaration objects; the narrow form cannot see a "
+            "rewritten owner, reason or issue_url.",
+        )
+        self.assertEqual(
+            unlaned_fingerprint(self.declarations),
+            array_fingerprint(self.declarations),
+            "unlaned_tests must get the SAME treatment as entries, not a narrower one.",
+        )
+
+    # -- the pins must agree with each other -------------------------------
+    def test_pinned_constants_are_internally_consistent(self) -> None:
+        """A half-finished re-pin is caught here, not six months later.
+
+        Someone editing UNLANED_BASELINE but forgetting the MAX constants (or
+        the reverse) would otherwise leave one of the pins silently describing a
+        set nobody committed.
+
+        UNLANED_FINGERPRINT is deliberately NOT cross-checked against
+        UNLANED_BASELINE: since round 2 the fingerprint hashes the complete
+        declaration objects, which the (test_case, count) baseline does not
+        carry, so it cannot be derived from it. That is the point - the
+        fingerprint sees strictly more than the baseline does. It is instead
+        checked against the committed manifest, and against re-narrowing, by
+        test_unlaned_fingerprint_matches_the_pinned_baseline and
+        test_fingerprint_is_not_the_old_narrow_projection.
+        """
+        self.assertEqual(
+            len(UNLANED_BASELINE),
+            UNLANED_MAX_DECLARATIONS,
+            "UNLANED_MAX_DECLARATIONS must equal len(UNLANED_BASELINE).",
+        )
+        self.assertEqual(
+            sum(count for _, count in UNLANED_BASELINE),
+            UNLANED_MAX_TOTAL_COUNT,
+            "UNLANED_MAX_TOTAL_COUNT must equal the sum of UNLANED_BASELINE counts.",
+        )
+        self.assertEqual(
+            len(QUARANTINE_ENTRIES_BASELINE),
+            QUARANTINE_ENTRIES_MAX,
+            "QUARANTINE_ENTRIES_MAX must equal len(QUARANTINE_ENTRIES_BASELINE).",
+        )
+        if not QUARANTINE_ENTRIES_BASELINE:
+            # While the baseline is empty the fingerprint is fully determined, so
+            # a stale hash left behind by a partial re-pin is caught here.
+            self.assertEqual(
+                QUARANTINE_ENTRIES_FINGERPRINT,
+                entries_fingerprint([]),
+                "QUARANTINE_ENTRIES_BASELINE is empty, so QUARANTINE_ENTRIES_FINGERPRINT must "
+                "hash the empty entries array - the re-pin is half done.",
+            )
+
+    # -- per-declaration content -------------------------------------------
+    def test_committed_declarations_pass_the_content_rules(self) -> None:
+        now = datetime.now(timezone.utc)
+        problems: list = []
+        for index, entry in enumerate(self.entries):
+            problems.extend(declaration_problems("entries", index, entry, now))
+        for index, declaration in enumerate(self.declarations):
+            problems.extend(
+                declaration_problems("unlaned_tests", index, declaration, now)
+            )
+        self.assertEqual(problems, [], "\n  " + "\n  ".join(problems))
+
+    def test_issue_open_verification_is_not_stale(self) -> None:
+        problems = issue_verification_problems(
+            ISSUES_VERIFIED_OPEN_UTC, datetime.now(timezone.utc)
+        )
+        self.assertEqual(problems, [], "\n  " + "\n  ".join(problems))
+
+    def test_pinned_time_and_size_constants_are_evaluable(self) -> None:
+        """A pin that cannot be evaluated disables the rule it enforces.
+
+        Round 3: the expiry ceiling was guarded by `if ceiling is not None`, so a
+        malformed MAX_EXPIRY_UTC silently skipped the check. Every pinned bound
+        is asserted usable here, so a typo fails loudly instead of quietly
+        switching a rule off.
+        """
+        self.assertIsNotNone(
+            _parse_utc(MAX_EXPIRY_UTC),
+            f"pinned MAX_EXPIRY_UTC={MAX_EXPIRY_UTC!r} is not a parseable ISO-8601 UTC timestamp.",
+        )
+        self.assertIsNotNone(
+            _parse_utc(ISSUES_VERIFIED_OPEN_UTC),
+            f"pinned ISSUES_VERIFIED_OPEN_UTC={ISSUES_VERIFIED_OPEN_UTC!r} is not parseable.",
+        )
+        for name, value in (
+            ("ISSUE_VERIFICATION_MAX_AGE_DAYS", ISSUE_VERIFICATION_MAX_AGE_DAYS),
+            ("EXPIRY_HORIZON_DAYS", EXPIRY_HORIZON_DAYS),
+            ("MIN_REASON_CHARS", MIN_REASON_CHARS),
+        ):
+            with self.subTest(constant=name):
+                self.assertIsInstance(value, int, f"{name} must be an int")
+                self.assertFalse(isinstance(value, bool), f"{name} must not be a bool")
+                self.assertGreater(value, 0, f"{name} must be positive; 0 or less disables it")
+
+    def test_ratchet_messages_are_ascii(self) -> None:
+        """CI's cp1252 stdout has been broken by a non-ASCII byte before."""
+        now = datetime.now(timezone.utc)
+        broken = {
+            "reason": "TODO",
+            "issue_url": "https://example.com/issues/1",
+            "expires_utc": "2099-01-01T00:00:00Z",
+            "risk": "R9",
+            "owner": "",
+            "count": 0,
+            "test_case": "*x*",
+        }
+        for kind in ("entries", "unlaned_tests"):
+            for message in declaration_problems(kind, 0, broken, now):
+                message.encode("ascii")
+
+
+class QuarantineDeclarationContentRuleTests(unittest.TestCase):
+    """Each content rule is proven to DISCRIMINATE, against synthetic input.
+
+    The committed manifest satisfies every rule, so if these rules were only
+    exercised against it they would be indistinguishable from rules that never
+    fire. Each case below mutates exactly one field of an otherwise-valid
+    declaration and asserts the specific rule reports it.
+    """
+
+    def setUp(self) -> None:
+        self.now = datetime.now(timezone.utc)
+        self.open_issue = sorted(ISSUES_VERIFIED_OPEN)[0]
+
+    def _unlaned(self, **overrides) -> dict:
+        declaration = {
+            "test_case": "[GaussianSplatting][Example]*",
+            "count": 1,
+            "reason": (
+                "Placeholder-free reason long enough to describe the defect, why no lane "
+                "selects the case, and what would retire the declaration."
+            ),
+            "issue_url": f"https://github.com/klausi3D/godotGS/issues/{self.open_issue}",
+            "owner": "klausi3D",
+            "risk": "R1",
+            "expires_utc": MAX_EXPIRY_UTC,
+        }
+        declaration.update(overrides)
+        return declaration
+
+    def _entry(self, **overrides) -> dict:
+        entry = self._unlaned()
+        entry.pop("count")
+        entry["lane"] = VALID_LANE
+        entry["base_sha_proven_failing"] = "8fae40f00de2e4efe07017b7660fb4d90043fd45"
+        entry.update(overrides)
+        return entry
+
+    def _problems(self, kind: str, declaration: dict) -> str:
+        return "\n".join(declaration_problems(kind, 0, declaration, self.now))
+
+    def test_valid_declarations_report_nothing(self) -> None:
+        self.assertEqual(declaration_problems("unlaned_tests", 0, self._unlaned(), self.now), [])
+        self.assertEqual(declaration_problems("entries", 0, self._entry(), self.now), [])
+
+    def test_placeholder_reason_is_rejected(self) -> None:
+        for token in sorted(PLACEHOLDER_REASON_TOKENS):
+            with self.subTest(token=token):
+                out = self._problems("unlaned_tests", self._unlaned(reason=token.upper()))
+                self.assertIn("PLACEHOLDER_REASON_TOKENS", out)
+
+    def test_short_reason_is_rejected(self) -> None:
+        out = self._problems("unlaned_tests", self._unlaned(reason="no lane yet, sorry"))
+        self.assertIn("MIN_REASON_CHARS", out)
+
+    def test_reason_at_the_boundary_is_accepted(self) -> None:
+        # The rule must discriminate at its boundary, not merely somewhere.
+        text = "x" * MIN_REASON_CHARS
+        self.assertNotIn("MIN_REASON_CHARS", self._problems("unlaned_tests", self._unlaned(reason=text)))
+        self.assertIn(
+            "MIN_REASON_CHARS",
+            self._problems("unlaned_tests", self._unlaned(reason="x" * (MIN_REASON_CHARS - 1))),
+        )
+
+    def test_foreign_or_malformed_issue_url_is_rejected(self) -> None:
+        for url in (
+            "https://github.com/example/repo/issues/999",
+            "https://github.com/klausi3D/godotGS/pull/650",
+            "see the tracking issue",
+            "https://github.com/klausi3D/godotGS/issues/",
+        ):
+            with self.subTest(url=url):
+                self.assertIn("ISSUE_URL_RE", self._problems("unlaned_tests", self._unlaned(issue_url=url)))
+
+    def test_closed_issue_is_rejected(self) -> None:
+        # #520 and #329 are the real closures that motivated the rule.
+        for number in (520, 329):
+            with self.subTest(issue=number):
+                out = self._problems(
+                    "unlaned_tests",
+                    self._unlaned(
+                        issue_url=f"https://github.com/klausi3D/godotGS/issues/{number}"
+                    ),
+                )
+                self.assertIn("ISSUES_VERIFIED_OPEN", out)
+                self.assertIn("SILENT EXPIRY", out)
+
+    def test_past_expiry_is_rejected(self) -> None:
+        out = self._problems("unlaned_tests", self._unlaned(expires_utc=_past_iso()))
+        self.assertIn("EXPIRED", out)
+
+    def test_far_future_expiry_is_rejected_by_both_the_horizon_and_the_ceiling(self) -> None:
+        out = self._problems("unlaned_tests", self._unlaned(expires_utc="2099-01-01T00:00:00Z"))
+        self.assertIn("EXPIRY_HORIZON_DAYS", out)
+        self.assertIn("MAX_EXPIRY_UTC", out)
+
+    def test_serial_renewal_inside_the_horizon_still_trips_the_ceiling(self) -> None:
+        # This is the case a relative horizon alone cannot catch: a renewal that
+        # is comfortably within EXPIRY_HORIZON_DAYS but past the pinned ceiling.
+        renewed = (_parse_utc(MAX_EXPIRY_UTC) + timedelta(days=1)).isoformat()
+        out = self._problems("unlaned_tests", self._unlaned(expires_utc=renewed))
+        self.assertIn("MAX_EXPIRY_UTC", out)
+        self.assertNotIn("EXPIRY_HORIZON_DAYS", out)
+
+    def test_unparseable_expiry_is_rejected(self) -> None:
+        out = self._problems("unlaned_tests", self._unlaned(expires_utc="soon"))
+        self.assertIn("unparseable", out)
+
+    def test_unknown_risk_class_is_rejected(self) -> None:
+        out = self._problems("unlaned_tests", self._unlaned(risk="R9"))
+        self.assertIn("VALID_RISK_CLASSES", out)
+
+    def test_absent_risk_is_allowed_on_unlaned_declarations(self) -> None:
+        declaration = self._unlaned()
+        declaration.pop("risk")
+        self.assertEqual(declaration_problems("unlaned_tests", 0, declaration, self.now), [])
+
+    def test_missing_owner_is_rejected(self) -> None:
+        self.assertIn("owner", self._problems("unlaned_tests", self._unlaned(owner="  ")))
+
+    def test_entry_requires_a_full_lowercase_hex_base_sha(self) -> None:
+        for value in ("8fae40f", "8FAE40F00DE2E4EFE07017B7660FB4D90043FD45", "", "not a sha"):
+            with self.subTest(value=value):
+                self.assertIn(
+                    "BASE_SHA_RE",
+                    self._problems("entries", self._entry(base_sha_proven_failing=value)),
+                )
+
+    def test_unlaned_count_must_be_a_positive_integer(self) -> None:
+        for value in (0, -1, "2", 1.5, True, None):
+            with self.subTest(value=value):
+                self.assertIn("'count'", self._problems("unlaned_tests", self._unlaned(count=value)))
+
+    def test_non_object_declaration_is_rejected(self) -> None:
+        self.assertEqual(
+            declaration_problems("unlaned_tests", 0, "a string", self.now),
+            ["unlaned_tests[0] must be a JSON object."],
+        )
+
+    def test_unparseable_expiry_ceiling_fails_closed(self) -> None:
+        """A malformed MAX_EXPIRY_UTC must FAIL, not silently skip its own rule.
+
+        The ceiling was previously applied only `if ceiling is not None`, so a
+        typo in the pin switched the rule off with every test still green.
+        """
+        module = sys.modules[__name__]
+        # The declaration's OWN expiry must stay valid, so the only thing broken
+        # is the pinned ceiling.
+        declaration = self._unlaned(expires_utc="2026-10-15T00:00:00Z")
+        with mock.patch.object(module, "MAX_EXPIRY_UTC", "not a timestamp"):
+            out = self._problems("unlaned_tests", declaration)
+        self.assertIn("MAX_EXPIRY_UTC", out)
+        self.assertIn("fails closed", out)
+
+
+class IssueVerificationFreshnessTests(unittest.TestCase):
+    """The freshness bound must hold in BOTH directions (round 3, #821 P2).
+
+    Written against the function rather than the pinned constant, so each
+    direction is provable without editing the module.
+    """
+
+    def setUp(self) -> None:
+        self.now = datetime(2026, 8, 3, 12, 0, 0, tzinfo=timezone.utc)
+
+    def _problems(self, value: object) -> str:
+        return "\n".join(issue_verification_problems(value, self.now))
+
+    def test_recent_verification_is_accepted(self) -> None:
+        recent = (self.now - timedelta(days=30)).isoformat()
+        self.assertEqual(issue_verification_problems(recent, self.now), [])
+
+    def test_verification_exactly_at_the_horizon_is_accepted(self) -> None:
+        edge = (self.now - timedelta(days=ISSUE_VERIFICATION_MAX_AGE_DAYS)).isoformat()
+        self.assertEqual(issue_verification_problems(edge, self.now), [])
+
+    def test_verification_past_the_horizon_is_rejected(self) -> None:
+        stale = (
+            self.now - timedelta(days=ISSUE_VERIFICATION_MAX_AGE_DAYS + 1)
+        ).isoformat()
+        self.assertIn("ISSUE_VERIFICATION_MAX_AGE_DAYS", self._problems(stale))
+
+    def test_future_verification_is_rejected_by_name(self) -> None:
+        """The P2 itself: a future timestamp made the bound pass for longer.
+
+        It must fail, and the message must name the ACTUAL problem rather than
+        reporting generic staleness - a reader told 'too old' about a timestamp
+        dated next year will not find the bug.
+        """
+        for days_ahead in (1, 365):
+            with self.subTest(days_ahead=days_ahead):
+                future = (self.now + timedelta(days=days_ahead)).isoformat()
+                out = self._problems(future)
+                self.assertIn("IN THE FUTURE", out)
+                self.assertNotIn("days ago", out)
+
+    def test_a_future_timestamp_cannot_pass_CI_at_any_point_while_it_is_future(self) -> None:
+        """Pins WHY the future case matters, and states what it does NOT cover.
+
+        The guarantee is that a future-dated timestamp cannot LAND: every run
+        between the edit and that date rejects it, so the change can never go
+        green. Below, an age-only bound accepts all of these instants - which is
+        exactly the silent extension the P2 described - and the two-sided bound
+        rejects every one of them.
+
+        The limitation, stated rather than implied: once wall-clock passes the
+        timestamp, it is indistinguishable from one written honestly on that
+        day. Offline, nothing can tell those apart. The defense is that the edit
+        cannot survive review or CI in the window where it would matter, not
+        that a landed lie is later detectable.
+        """
+        future_raw = (self.now + timedelta(days=365)).isoformat()
+        for days_from_edit in (0, 1, 100, 364):
+            with self.subTest(days_from_edit=days_from_edit):
+                run_at = self.now + timedelta(days=days_from_edit)
+                age_only_would_pass = (run_at - _parse_utc(future_raw)) <= timedelta(
+                    days=ISSUE_VERIFICATION_MAX_AGE_DAYS
+                )
+                self.assertTrue(
+                    age_only_would_pass,
+                    "premise: an upper-bound-only check accepts this future timestamp here",
+                )
+                self.assertNotEqual(
+                    issue_verification_problems(future_raw, run_at),
+                    [],
+                    "a future-dated verification must be rejected on every run while it is "
+                    "still in the future, so the edit can never land green.",
+                )
+
+    def test_unparseable_and_missing_verification_fail_closed(self) -> None:
+        for value in ("", "   ", "soon", None, 20260803, "2026-13-45T00:00:00Z"):
+            with self.subTest(value=value):
+                out = self._problems(value)
+                self.assertIn("fails closed", out)
+
+    def test_messages_are_ascii(self) -> None:
+        for value in ("2099-01-01T00:00:00Z", "2000-01-01T00:00:00Z", "nonsense"):
+            for message in issue_verification_problems(value, self.now):
+                message.encode("ascii")
+
+
+class QuarantineRepinToolTests(unittest.TestCase):
+    """--print-fingerprint is a re-pin AID, and must never launder growth.
+
+    Any regenerate-style helper is a laundering primitive unless it refuses
+    additions by set inclusion: a fix-one/add-one trade nets zero, so a net-count
+    check would wave it through. There is deliberately no writer at all - the
+    tool prints, a human pastes, and no path in this repo can synthesise the
+    pinned block from the current tree.
+    """
+
+    def test_tool_refuses_a_new_declaration(self) -> None:
+        pairs = sorted(list(UNLANED_BASELINE) + [("[Brand New Family]*", 1)])
+        refusals = repin_refusals([], pairs)
+        self.assertTrue(any("NEW" in r for r in refusals), refusals)
+
+    def test_tool_refuses_a_same_size_swap(self) -> None:
+        pairs = sorted(list(UNLANED_BASELINE)[1:] + [("[Brand New Family]*", UNLANED_BASELINE[0][1])])
+        refusals = repin_refusals([], pairs)
+        self.assertTrue(any("NEW" in r for r in refusals), refusals)
+
+    def test_tool_refuses_a_raised_count(self) -> None:
+        pairs = sorted(
+            [(UNLANED_BASELINE[0][0], UNLANED_BASELINE[0][1] + 1)] + list(UNLANED_BASELINE)[1:]
+        )
+        refusals = repin_refusals([], pairs)
+        self.assertTrue(any("count rose" in r for r in refusals), refusals)
+
+    def test_tool_refuses_a_new_entry(self) -> None:
+        refusals = repin_refusals(
+            [{"lane": VALID_LANE, "test_case": "*anything*"}], sorted(UNLANED_BASELINE)
+        )
+        self.assertTrue(any("entries" in r for r in refusals), refusals)
+
+    def test_tool_allows_a_genuine_shrink(self) -> None:
+        self.assertEqual(repin_refusals([], sorted(UNLANED_BASELINE)[1:]), [])
+        lowered = sorted(
+            [(UNLANED_BASELINE[0][0], UNLANED_BASELINE[0][1] - 1)] + list(UNLANED_BASELINE)[1:]
+        )
+        self.assertEqual(repin_refusals([], lowered), [])
+
+
+def repin_refusals(entries: list, pairs: list) -> list:
+    """Reasons --print-fingerprint must refuse to emit new constants."""
+    baseline = dict(UNLANED_BASELINE)
+    entry_baseline = set(QUARANTINE_ENTRIES_BASELINE)
+    refusals: list = []
+    for test_case, count in pairs:
+        if test_case not in baseline:
+            refusals.append(
+                f"unlaned_tests declaration {test_case!r} is NEW (count {count}). A newly "
+                f"stranded case belongs in a lane, not in the manifest."
+            )
+        elif count > baseline[test_case]:
+            refusals.append(
+                f"unlaned_tests {test_case!r} count rose {baseline[test_case]} -> {count}."
+            )
+    for key in entry_keys(entries):
+        if key not in entry_baseline:
+            refusals.append(f"entries {key!r} is NEW; a quarantine entry is human-gated.")
+    return refusals
+
+
+def _print_fingerprint() -> int:
+    try:
+        data = load_committed_manifest()
+    except ManifestUnreadable as exc:
+        print(f"REFUSED: {exc}")
+        return 1
+    entries = data["entries"]
+    pairs = unlaned_pairs(data["unlaned_tests"])
+    refusals = repin_refusals(entries, pairs)
+    if refusals:
+        print(
+            "REFUSED: --print-fingerprint re-pins a SHRINK only, decided by set inclusion "
+            "(a fix-one/add-one trade nets zero and is still growth)."
+        )
+        for refusal in refusals:
+            print(f"  - {refusal}")
+        return 1
+    print(f"QUARANTINE_ENTRIES_MAX = {len(entries)}")
+    print(f'QUARANTINE_ENTRIES_FINGERPRINT = "{entries_fingerprint(entries)}"')
+    print("QUARANTINE_ENTRIES_BASELINE = (")
+    for lane, test_case in entry_keys(entries):
+        print(f"    ({lane!r}, {test_case!r}),")
+    print(")")
+    print(f"UNLANED_MAX_DECLARATIONS = {len(pairs)}")
+    print(f"UNLANED_MAX_TOTAL_COUNT = {sum(count for _, count in pairs)}")
+    print("UNLANED_BASELINE = (")
+    for test_case, count in pairs:
+        print(f"    ({test_case!r}, {count}),")
+    print(")")
+    # Hashes the declarations themselves, not the pair projection printed above.
+    print(f'UNLANED_FINGERPRINT = "{unlaned_fingerprint(data["unlaned_tests"])}"')
+    return 0
+
+
 if __name__ == "__main__":
-    unittest.main()
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--print-fingerprint", action="store_true")
+    args, rest = parser.parse_known_args()
+    if args.print_fingerprint:
+        raise SystemExit(_print_fingerprint())
+    unittest.main(argv=[sys.argv[0], *rest])
