@@ -212,10 +212,18 @@ jobs:
       - name: Build module-enabled Linux editor
         run: |
           set -euo pipefail
+          # gs_avx2=no is PINNED, not left to `auto` (#671). GS_AVX2_ENABLED has
+          # ZERO C++ readers, so there is no runtime dispatch and no fallback:
+          # gs_avx2=yes is an unconditional ISA floor whose failure mode on an
+          # older CPU is an illegal-instruction fault inside GS code, not a
+          # diagnostic. Upstream Godot declines AVX2 for the same reason
+          # (SConstruct:737-739) and ships SSE4.2. `auto` declines today, so this
+          # is a NO-OP -- pinned so a future change to `auto` cannot silently
+          # raise the CPU floor of an artifact a user downloads.
           if [[ "${{ needs.release_metadata.outputs.channel }}" == "stable" ]]; then
-            scons platform=linuxbsd target=editor cache_path=.scons_cache cache_limit=10 -j"$(nproc)"
+            scons platform=linuxbsd target=editor gs_avx2=no cache_path=.scons_cache cache_limit=10 -j"$(nproc)"
           else
-            scons platform=linuxbsd target=editor dev_build=yes tests=yes cache_path=.scons_cache cache_limit=10 -j"$(nproc)"
+            scons platform=linuxbsd target=editor dev_build=yes tests=yes gs_avx2=no cache_path=.scons_cache cache_limit=10 -j"$(nproc)"
           fi
 
       - name: Resolve built binary
@@ -341,8 +349,12 @@ jobs:
       - name: Build module editor with optimize=speed (fast-math path)
         run: |
           set -euo pipefail
+          # gs_avx2=no here is NOT about publishing -- this lane ships nothing.
+          # It is pinned so the finite-math guard exercises the same ISA as the
+          # artifacts we publish; a guard that compiles a different instruction
+          # set than the shipping build is not evidence about the shipping build.
           scons platform=linuxbsd target=editor tests=yes optimize=speed \
-            gs_native_arch=no cache_path=.scons_cache cache_limit=10 -j"$(nproc)"
+            gs_native_arch=no gs_avx2=no cache_path=.scons_cache cache_limit=10 -j"$(nproc)"
 
       - name: Resolve built binary
         id: binary
@@ -427,6 +439,9 @@ jobs:
             "platform=windows",
             "target=editor",
             "gs_native_arch=no",
+            # gs_avx2=no pinned on every published artifact -- see #671 and the
+            # comment on the Linux editor build above.
+            "gs_avx2=no",
             "cache_path=C:/godotgs-scons-cache",
             "cache_limit=50",
             "-j12"
