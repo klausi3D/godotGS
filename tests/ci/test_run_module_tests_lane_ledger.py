@@ -46,8 +46,10 @@ import importlib.util
 import inspect
 import io
 import json
+import math
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -159,6 +161,9 @@ CAPTURED_FAILED_TESTS = 0
 CAPTURED_PASSED_ASSERTIONS = 69
 CAPTURED_FAILED_ASSERTIONS = 0
 CAPTURED_SKIP_MARKERS = 3
+# doctest's `N skipped` column = numTestCases - numTestCasesPassingFilters, i.e.
+# cases the filter excluded. Read from the capture, not chosen.
+CAPTURED_FILTERED_OUT = 2063
 
 
 def _captured_line(prefix: str) -> str:
@@ -186,6 +191,11 @@ def _captured_repeated_line(prefix: str) -> str:
 
 CAPTURED_TEST_CASES_LINE = _captured_line("[doctest] test cases:")
 CAPTURED_ASSERTIONS_LINE = _captured_line("[doctest] assertions:")
+# The producer itself. The capture is a SNAPSHOT of its output; without a link
+# back to the source, nothing notices when the producer changes underneath the
+# snapshot (see ProducerContractTests and the declared limitation there).
+VENDORED_DOCTEST_HEADER = ROOT / "thirdparty" / "doctest" / "doctest.h"
+CAPTURED_DOCTEST_VERSION = "2.4.12"
 CAPTURED_SEPARATOR_LINE = _captured_repeated_line("=======")
 # The real MESSAGE framing, taken from the capture rather than retyped: doctest's
 # log_message() calls file_line_to_stream() first, so a marker can never start a
@@ -196,16 +206,22 @@ CAPTURED_SKIP_MARKER_LINE = _captured_line(
 )
 
 
-def _respell_counts(line: str, values: list[int]) -> str:
-    """Substitute the integers of a CAPTURED line, keeping every literal apart.
+def _doctest_column_width(test_cases: int, assertions: int) -> int:
+    """doctest's own column-width rule, mirrored.
 
-    Separators, spacing, the `| N skipped` column and the trailing `|` all come
-    from the real producer. Only the digits are ours, so a generated summary
-    cannot drift from the captured framing - asserted by
-    test_generated_summaries_match_the_captured_framing.
+    ConsoleReporter::test_run_end (thirdparty/doctest/doctest.h) computes
+
+        width = int(ceil(log10(double(max(<test-case count>, <assertion count>)) + 1)))
+
+    for each of the three columns and applies it with std::setw to BOTH summary
+    lines. Round 6 re-spelled only the digits of the captured line, which kept the
+    capture's two-character columns for every count - so `_summary(5, 0, 120, 0)`
+    claimed two-wide columns where the producer emits three. That was the same
+    self-certifying defect one level down, and it was self-sealing:
+    `_parse_doctest_results()` accepts either spacing, and the skeleton test
+    compared the generated line back against the same stale padding.
     """
-    remaining = iter(values)
-    return re.sub(r"\d+", lambda match: str(next(remaining, int(match.group(0)))), line)
+    return math.ceil(math.log10(max(test_cases, assertions) + 1))
 
 
 def _summary(
@@ -215,26 +231,34 @@ def _summary(
     failed_asserts: int,
     filtered_out: int = 2063,
 ) -> str:
-    """A summary in the captured framing, with counts this test needs.
+    """Render a doctest summary the way doctest renders one.
+
+    This is a reimplementation of the producer's formatter, not a mutation of a
+    captured string - and it is only trustworthy because
+    `test_renderer_reproduces_the_capture_byte_for_byte` proves it reproduces the
+    real capture exactly from the capture's own counts. Every literal and every
+    column width below is therefore backed by real output.
 
     KNOWN GAP, stated rather than papered over: the repository's only doctest
     capture is a PASSING run, so no captured sample exists for a summary that
-    reports failures or for a zero-assertion lane. Those counts are substituted
-    into the captured lines rather than invented whole; the framing is real, the
-    numbers are the test's. Capturing a failing run would be strictly better and
-    is not something this change can do without a lane sweep.
+    reports failures or for a zero-assertion lane. Those shapes are rendered by
+    this function; the framing and the widths are the producer's rule, the counts
+    are the test's. Capturing a failing run would be strictly better and needs a
+    lane sweep this change was told not to do.
     """
+    total_tests = passed_tests + failed_tests
+    total_asserts = passed_asserts + failed_asserts
+    totwidth = _doctest_column_width(total_tests, total_asserts)
+    passwidth = _doctest_column_width(passed_tests, passed_asserts)
+    failwidth = _doctest_column_width(failed_tests, failed_asserts)
     return (
-        _respell_counts(
-            CAPTURED_TEST_CASES_LINE,
-            [passed_tests + failed_tests, passed_tests, failed_tests, filtered_out],
-        )
-        + "\n"
-        + _respell_counts(
-            CAPTURED_ASSERTIONS_LINE,
-            [passed_asserts + failed_asserts, passed_asserts, failed_asserts],
-        )
-        + "\n"
+        f"[doctest] test cases: {total_tests:>{totwidth}} "
+        f"| {passed_tests:>{passwidth}} passed "
+        f"| {failed_tests:>{failwidth}} failed |"
+        f" {filtered_out} skipped\n"
+        f"[doctest] assertions: {total_asserts:>{totwidth}} "
+        f"| {passed_asserts:>{passwidth}} passed "
+        f"| {failed_asserts:>{failwidth}} failed |\n"
     )
 
 
@@ -280,8 +304,17 @@ PASS_WITH_SKIP_OUTPUT = CAPTURED_SAMPLE
 # parse. There is nothing to capture.
 CRASH_OUTPUT = "engine booted\nAccess violation\n"
 NO_SUMMARY_OUTPUT = "engine started\nfilter matched nothing\nengine exited\n"
-# Produced by Godot's argument parser, not by doctest; matched by
-# _tests_unavailable(). No capture of it exists in the repository either.
+# DECLARED GAP (#822 round 7). This is a WELL-FORMED producer response - Godot's
+# argument parser refusing --test on a tests=no binary - so by the rule it belongs
+# on the captured side, and it is not captured: this repository has no
+# tests-disabled binary and building one is out of scope here. It is therefore
+# invented, and rather than dress that up with a better-looking fake, the string
+# is pinned to production's OWN marker list and driven through the real
+# _run_godot()/_tests_unavailable() path (see
+# TestsUnavailableDetectionTests), so at least "the runner recognises this text"
+# is asserted rather than assumed. What remains unverified is whether a real
+# tests-disabled Godot emits wording that any marker matches. That needs a
+# non-test build; it is a follow-up, not something to invent past.
 UNAVAILABLE_OUTPUT = "Unknown option '--test'.\n"
 
 # Stands in for a previous, valid measurement on disk. Its exact content does
@@ -447,6 +480,11 @@ def _run_main(argv, *, drop_lane: bool = False, godot_result=None):
             )
         stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
         return harness.main()
+
+
+def _grammar_padding(line: str) -> str:
+    """The line's whitespace/punctuation skeleton, with digits collapsed per run."""
+    return re.sub(r"\d", "#", line)
 
 
 def _grammar_keys(line: str) -> list[str]:
@@ -1530,11 +1568,21 @@ class LaneReportTests(unittest.TestCase):
 
 
 class CapturedFixtureContractTests(unittest.TestCase):
-    """The capture is the producer contract every other test in this file leans on.
+    """What the checked-in capture guarantees, stated exactly.
 
-    If doctest's summary format changes, these fail - loudly, in one place -
-    rather than every outcome test silently continuing to assert against a shape
-    the producer no longer emits.
+    THIS CLASS DETECTS:
+      - an edit to the capture (`doctest_env_skip_sample.txt`);
+      - an edit to `_parse_doctest_results()` that changes how the capture parses;
+      - a renderer in this file that stops reproducing the capture byte for byte.
+
+    IT DOES NOT DETECT producer drift on its own. Every assertion here reads a
+    checked-in snapshot, so a change to the vendored `ConsoleReporter` alone
+    leaves them all green. ProducerContractTests below adds the missing link;
+    the residual limitation is declared there.
+
+    Round 6 claimed this class made "a doctest format change break here, once".
+    That was false, it was repeated to the owner, and a false claim of protection
+    is worse than no claim because it stops the next person looking.
     """
 
     maxDiff = None
@@ -1592,32 +1640,45 @@ class CapturedFixtureContractTests(unittest.TestCase):
             "header first",
         )
 
-    def test_generated_summaries_match_the_captured_framing(self) -> None:
-        """Only the digits may differ from the real producer's lines."""
+    def test_renderer_reproduces_the_capture_byte_for_byte(self) -> None:
+        """The anchor: our formatter IS doctest's, proven against real output.
 
-        def skeleton(text: str) -> str:
-            return re.sub(r"\d+", "#", text)
+        Given the capture's own counts, `_summary()` must reproduce the captured
+        lines exactly - padding included. Everything else in this file that uses
+        a rendered summary rests on this one assertion.
+        """
+        rendered = _summary(
+            CAPTURED_PASSED_TESTS,
+            CAPTURED_FAILED_TESTS,
+            CAPTURED_PASSED_ASSERTIONS,
+            CAPTURED_FAILED_ASSERTIONS,
+            filtered_out=CAPTURED_FILTERED_OUT,
+        ).splitlines()
+        self.assertEqual(rendered[0], CAPTURED_TEST_CASES_LINE)
+        self.assertEqual(rendered[1], CAPTURED_ASSERTIONS_LINE)
 
-        for label, passed_tests, failed_tests, passed_asserts, failed_asserts in (
-            ("pass", 5, 0, 120, 0),
-            ("mixed", 2, 1, 9, 1),
-            ("zero-coverage", 1, 0, 0, 0),
-            ("all-failing", 0, 4, 0, 12),
-        ):
-            with self.subTest(shape=label):
-                generated = _summary(
-                    passed_tests, failed_tests, passed_asserts, failed_asserts
-                ).splitlines()
-                self.assertEqual(
-                    skeleton(generated[0]),
-                    skeleton(CAPTURED_TEST_CASES_LINE),
-                    "generated test-cases line drifted from the captured framing",
-                )
-                self.assertEqual(
-                    skeleton(generated[1]),
-                    skeleton(CAPTURED_ASSERTIONS_LINE),
-                    "generated assertions line drifted from the captured framing",
-                )
+    def test_column_widths_follow_the_counts_not_the_capture(self) -> None:
+        """Padding is DERIVED, as doctest derives it - not inherited from the capture.
+
+        Round 6 re-spelled the captured digits and kept its two-character
+        columns, so a 120-assertion lane was rendered with the padding of a
+        69-assertion one. `_parse_doctest_results()` accepts either, and the old
+        skeleton test compared the result back against that same stale padding,
+        so nothing could see it.
+        """
+        # max(5, 120) + 1 -> 3 columns, where the capture uses 2.
+        wide = _summary(5, 0, 120, 0).splitlines()
+        self.assertEqual(wide[0], "[doctest] test cases:   5 |   5 passed | 0 failed | 2063 skipped")
+        self.assertEqual(wide[1], "[doctest] assertions: 120 | 120 passed | 0 failed |")
+        self.assertNotEqual(
+            _grammar_padding(wide[0]),
+            _grammar_padding(CAPTURED_TEST_CASES_LINE),
+            "a 120-assertion summary must NOT carry the capture's 69-assertion padding",
+        )
+        # A failing shape widens the third column, which is 0-wide in the capture.
+        mixed = _summary(2, 1, 9, 1).splitlines()
+        self.assertEqual(mixed[0], "[doctest] test cases:  3 | 2 passed | 1 failed | 2063 skipped")
+        self.assertEqual(mixed[1], "[doctest] assertions: 10 | 9 passed | 1 failed |")
 
     def test_generated_summaries_carry_the_counts_they_were_asked_for(self) -> None:
         """The substitution must not silently mis-place a number."""
@@ -1637,6 +1698,181 @@ class CapturedFixtureContractTests(unittest.TestCase):
             records["AdvisoryLane"]["passed_assertions"], str(CAPTURED_PASSED_ASSERTIONS)
         )
         self.assertEqual(rc, BASELINE_RC_PASS)
+
+
+class TestsUnavailableDetectionTests(unittest.TestCase):
+    """Drive the unavailable path through the REAL detector, not around it.
+
+    The outcome tests build their unavailable result with `_godot(True, True,
+    ...)`, which sets `skipped=True` by hand and so never executes
+    `_run_godot()` or `_tests_unavailable()`. That is convenient for asserting
+    ledger behaviour and useless for asserting that the runner would ever
+    classify a real binary's refusal as "tests unavailable" - the fixture was
+    deciding the thing under test.
+
+    DECLARED GAP: no tests-disabled binary exists in this repository, so the
+    wording below is invented rather than captured. These tests assert only that
+    production's own marker list recognises it and that the classification flows
+    out of `_run_godot()`. Whether a real tests=no build emits matching wording
+    is unverified and needs a non-test build (follow-up).
+    """
+
+    maxDiff = None
+
+    def test_the_fixture_text_is_recognised_by_the_production_marker_list(self) -> None:
+        self.assertTrue(
+            harness._tests_unavailable(UNAVAILABLE_OUTPUT),
+            "the invented unavailable fixture is not recognised by "
+            "_tests_unavailable(); the outcome tests would then be asserting "
+            "against text the runner cannot classify",
+        )
+        self.assertFalse(
+            harness._tests_unavailable(PASS_OUTPUT),
+            "a normal passing run must not be classified as tests-unavailable",
+        )
+
+    def test_run_godot_classifies_it_without_the_fixture_deciding(self) -> None:
+        """skipped=True must come OUT of _run_godot, not be handed to it."""
+        completed = subprocess.CompletedProcess(
+            args=["godot"], returncode=1, stdout=UNAVAILABLE_OUTPUT, stderr=""
+        )
+        with mock.patch.object(subprocess, "run", return_value=completed):
+            ok, skipped, output = harness._run_godot("godot", ["--headless", "--test"])
+        self.assertTrue(ok, "a tests-unavailable binary is not a lane failure")
+        self.assertTrue(
+            skipped,
+            "_run_godot must derive skipped=True from _tests_unavailable(output)",
+        )
+        self.assertEqual(output, UNAVAILABLE_OUTPUT)
+
+    def test_a_nonzero_exit_without_a_marker_is_not_treated_as_unavailable(self) -> None:
+        """The discriminating case: the detector must not swallow real failures."""
+        completed = subprocess.CompletedProcess(
+            args=["godot"], returncode=1, stdout="some other failure\n", stderr=""
+        )
+        with mock.patch.object(subprocess, "run", return_value=completed):
+            ok, skipped, _output = harness._run_godot("godot", ["--headless", "--test"])
+        self.assertFalse(ok)
+        self.assertFalse(
+            skipped,
+            "an unrecognised nonzero exit is a FAILURE, not a tests-unavailable skip",
+        )
+
+    def test_the_unavailable_ledger_path_runs_on_a_detector_derived_result(self) -> None:
+        """End to end: real detection feeding the real ledger."""
+        completed = subprocess.CompletedProcess(
+            args=["godot"], returncode=1, stdout=UNAVAILABLE_OUTPUT, stderr=""
+        )
+        buffer = io.StringIO()
+        with mock.patch.dict(os.environ, {"CI": ""}):
+            with mock.patch.object(subprocess, "run", return_value=completed):
+                with mock.patch.object(harness, "_load_quarantine", return_value={}):
+                    with contextlib.redirect_stdout(buffer):
+                        rc = harness._run_doctest_lanes(
+                            "godot",
+                            [("StrictLane", ["--headless", "--test"], True)],
+                            "warn-only",
+                            False,
+                        )
+        output = buffer.getvalue()
+        self.assertEqual(_records(output)["StrictLane"]["outcome"], "UNAVAILABLE")
+        self.assertEqual(_aggregate(output)["unavailable"], 1)
+        self.assertEqual(rc, BASELINE_RC_UNAVAILABLE_WARN)
+
+
+class ProducerContractTests(unittest.TestCase):
+    """Link the checked-in capture back to the producer that made it.
+
+    A snapshot cannot notice the thing it is a snapshot OF changing. These
+    assertions read `thirdparty/doctest/doctest.h` directly, so replacing or
+    patching the vendored reporter fails HERE, with an instruction to recapture,
+    instead of leaving every summary assertion in this file green against output
+    the binary no longer produces.
+
+    DECLARED LIMITATION - this is a source contract, not an execution one. It
+    detects a version change and the removal or renaming of the format literals
+    and width rule this file reimplements. It CANNOT detect a semantic change
+    inside doctest that leaves all of those textually intact. Only running a real
+    binary can close that, which needs a build and a lane run; #705's follow-up
+    should either capture the summary shapes from a real failing run or assert
+    the ledger against live lane output. Recorded rather than hidden, because the
+    previous version of this file claimed a guarantee it did not have.
+    """
+
+    maxDiff = None
+
+    def _reporter_source(self) -> str:
+        self.assertTrue(
+            VENDORED_DOCTEST_HEADER.is_file(),
+            f"vendored doctest header missing at {VENDORED_DOCTEST_HEADER}",
+        )
+        return VENDORED_DOCTEST_HEADER.read_text(encoding="utf-8", errors="replace")
+
+    def test_vendored_doctest_version_matches_the_capture(self) -> None:
+        """A doctest upgrade must force a recapture rather than pass silently."""
+        source = self._reporter_source()
+        parts = []
+        for macro in ("MAJOR", "MINOR", "PATCH"):
+            match = re.search(rf"#define DOCTEST_VERSION_{macro}\s+(\d+)", source)
+            self.assertIsNotNone(match, f"cannot read DOCTEST_VERSION_{macro}")
+            parts.append(match.group(1))
+        vendored = ".".join(parts)
+        self.assertEqual(
+            vendored,
+            CAPTURED_DOCTEST_VERSION,
+            f"vendored doctest is {vendored} but the capture was taken from "
+            f"{CAPTURED_DOCTEST_VERSION}. Recapture with: {CAPTURE_COMMAND}",
+        )
+        # ... and the capture says so itself, so the two cannot drift apart
+        # without one of these two assertions firing.
+        self.assertIn(
+            f'doctest version is "{CAPTURED_DOCTEST_VERSION}"',
+            CAPTURED_SAMPLE,
+            "the capture no longer records the doctest version it came from",
+        )
+
+    def test_summary_format_literals_still_exist_in_the_reporter(self) -> None:
+        """The literals this file reimplements must still be the producer's."""
+        source = self._reporter_source()
+        for literal in (
+            '"[doctest] "',
+            '"test cases: "',
+            '"assertions: "',
+            '" passed"',
+            '" failed"',
+            '" skipped"',
+        ):
+            with self.subTest(literal=literal):
+                self.assertIn(
+                    literal,
+                    source,
+                    f"ConsoleReporter no longer emits {literal}; _summary() and "
+                    f"_parse_doctest_results() were written against it. "
+                    f"Recapture with: {CAPTURE_COMMAND}",
+                )
+
+    def test_reporter_still_derives_column_widths_from_the_counts(self) -> None:
+        """The width rule `_doctest_column_width()` mirrors must still be there.
+
+        If doctest stops computing widths this way, our renderer's padding is
+        wrong even though every literal survived - which is exactly the class of
+        drift round 7 found in the round-6 fix.
+        """
+        source = self._reporter_source()
+        for expression in ("totwidth", "passwidth", "failwidth"):
+            with self.subTest(width=expression):
+                self.assertRegex(
+                    source,
+                    rf"auto\s+{expression}\s*=\s*int\(std::ceil\(log10\(",
+                    f"ConsoleReporter no longer derives {expression} with "
+                    f"ceil(log10(...)); _doctest_column_width() mirrors that rule. "
+                    f"Recapture with: {CAPTURE_COMMAND}",
+                )
+        self.assertIn(
+            "std::setw(totwidth)",
+            source,
+            "the computed width is no longer applied with std::setw",
+        )
 
 
 class DocConsistencyTests(unittest.TestCase):
