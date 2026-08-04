@@ -42,6 +42,27 @@ Full command reference: `docs/reference/build-test-ci.md`.
   deliberately narrow (see its docstring) — it will not catch a dereference
   through an alias or a non-null precondition. Write the guard, do not rely on
   the checker.
+- **A green check must be able to fail.** Governing rules and the catalogue of
+  recurring shapes: [evidence integrity](../docs/governance/evidence-integrity.md).
+  In this directory specifically:
+  - **Mutation-prove it.** Revert the fix, show the test goes RED, restore, show
+    GREEN. Include a mutation that deletes the guard's **wiring**, not only its
+    logic — a check invoked by no lane is the most common way one becomes
+    decorative. This repo has shipped an enforced-but-unmatchable regex, and a
+    pin test that ran in no lane.
+  - **Never fabricate fixture input.** Capture it from the real producer. A test
+    that invents a format the producer never emits certifies a fiction, and reads
+    as proof that the guard works.
+  - **A ratchet compares against an immutable reference outside the change.**
+    Not `HEAD` (in CI, `HEAD` *is* the change), not the document being checked.
+    Fail closed when the reference cannot be resolved.
+  - **Derive coverage lists, never hand-write them.** Macro names, fields, lanes,
+    workflow events. A hand-maintained list guarding an invariant is already
+    broken.
+  - **Assert properties, not mechanisms.** *"No route can increase the set"*
+    outlives *"this flag refuses"*.
+  - **Say which mode a result came from.** Enforcement often sits behind
+    `_is_ci()`; a local green can say nothing about CI.
 - **No unjustified baseline/threshold updates.** Never edit a golden baseline,
   performance threshold, or release-gate manifest just to make a test pass.
   Changing a baseline requires its own justification and review; treat it as a
