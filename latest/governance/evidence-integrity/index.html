@@ -7,7 +7,7 @@
       
       
       
-        <link rel="canonical" href="https://klausi3d.github.io/godotGS/latest/reports/timestamp_monitor_investigation/">
+        <link rel="canonical" href="https://klausi3d.github.io/godotGS/latest/governance/evidence-integrity/">
       
       
       
@@ -20,7 +20,7 @@
     
     
       
-        <title>Timestamp Monitor Investigation — gpu_time_raster_ms reads 0 - Godot Gaussian Splatting Docs</title>
+        <title>Evidence Integrity - Godot Gaussian Splatting Docs</title>
       
     
     
@@ -83,7 +83,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#timestamp-monitor-investigation-gpu_time_raster_ms-reads-0" class="md-skip">
+        <a href="#evidence-integrity" class="md-skip">
           Skip to content
         </a>
       
@@ -122,7 +122,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Timestamp Monitor Investigation — gpu_time_raster_ms reads 0
+              Evidence Integrity
             
           </span>
         </div>
@@ -1533,7 +1533,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../governance/contribution-standards/" class="md-nav__link">
+      <a href="../contribution-standards/" class="md-nav__link">
         
   
   
@@ -1644,10 +1644,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
       
         <li class="md-nav__item">
-  <a href="#symptom" class="md-nav__link">
+  <a href="#the-rule" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Symptom
+        The rule
       
     </span>
   </a>
@@ -1655,10 +1655,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-is-confirmed" class="md-nav__link">
+  <a href="#the-question-to-ask-before-reporting-a-check-as-green" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What is confirmed
+        The question to ask before reporting a check as green
       
     </span>
   </a>
@@ -1666,10 +1666,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-is-mechanically-true-in-the-code" class="md-nav__link">
+  <a href="#recurring-shapes" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What is mechanically true in the code
+        Recurring shapes
       
     </span>
   </a>
@@ -1677,10 +1677,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-was-tried-and-ruled-out" class="md-nav__link">
+  <a href="#required-practices" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What was tried and ruled out
+        Required practices
       
     </span>
   </a>
@@ -1688,54 +1688,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#hypotheses-still-open" class="md-nav__link">
+  <a href="#why-this-page-exists" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Hypotheses still open
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why-this-matters" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why this matters
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#next-investigation-steps" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Next investigation steps
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#related-codex-audit-findings-not-the-monitor-itself-but-in-the-same-area" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Related codex audit findings (not the monitor itself, but in the same area)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#workaround-until-fixed" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Workaround until fixed
+        Why this page exists
       
     </span>
   </a>
@@ -1768,81 +1724,172 @@
   
 
 
-<h1 id="timestamp-monitor-investigation-gpu_time_raster_ms-reads-0">Timestamp Monitor Investigation — <code>gpu_time_raster_ms</code> reads 0<a class="headerlink" href="#timestamp-monitor-investigation-gpu_time_raster_ms-reads-0" title="Permanent link">¶</a></h1>
-<p><strong>Status</strong>: open, partial fix applied (commit removing one of the per-frame syncronous readbacks).
-<strong>Date</strong>: 2026-04-15
-<strong>Branch context</strong>: investigated on <code>test/tier2-pr232-plus-235</code> (≈ master + tier-2 + #232).</p>
-<h2 id="symptom">Symptom<a class="headerlink" href="#symptom" title="Permanent link">¶</a></h2>
-<p><code>Performance.get_custom_monitor("gaussian_splatting/gpu_time_raster_ms")</code> reads <code>0.000</code> on direct-node scenes (GaussianSplatNode3D, no streaming world). <code>gpu_time_binning_ms</code>, <code>gpu_time_prefix_ms</code>, <code>gpu_time_resolve_ms</code> likely also zero (only raster was probed).</p>
-<p><code>gpu_time_sort_ms</code> and <code>gpu_time_cull_ms</code> work — those use a different timing source (sort pipeline / culler), not the tile-renderer timestamp pool.</p>
-<h2 id="what-is-confirmed">What is confirmed<a class="headerlink" href="#what-is-confirmed" title="Permanent link">¶</a></h2>
-<p>Verified via temporary <code>print_line()</code> diagnostics (since reverted):</p>
+<h1 id="evidence-integrity">Evidence Integrity<a class="headerlink" href="#evidence-integrity" title="Permanent link">¶</a></h1>
+<p>How this repository distinguishes <em>"this was checked and passed"</em> from <em>"this was
+not checked"</em>. It is the single most common defect class found in the module's
+guards, tests and CI — not because the work was careless, but because the two
+states are easy to encode identically and almost impossible to tell apart
+afterwards.</p>
+<p>This page is normative for guards, tests, CI configuration and any artifact
+presented as evidence. See also <a href="../contribution-standards/">contribution standards</a>,
+<a href="../review-policy/">review policy</a> and <a href="https://github.com/klausi3D/godotGS/blob/81bff2b38c3528a9d286c79e028794ce300e7c6f/tests/AGENTS.md"><code>tests/AGENTS.md</code></a>.</p>
+<h2 id="the-rule">The rule<a class="headerlink" href="#the-rule" title="Permanent link">¶</a></h2>
+<blockquote>
+<p><strong>Absence of a signal is never a passing signal.</strong></p>
+<p>"Did not run", "could not run", "found nothing to check" and "ran and passed"
+must have four distinguishable encodings. Collapsing any of them into "pass"
+is a defect even when the collapsed value happens to be correct today.</p>
+</blockquote>
+<h2 id="the-question-to-ask-before-reporting-a-check-as-green">The question to ask before reporting a check as green<a class="headerlink" href="#the-question-to-ask-before-reporting-a-check-as-green" title="Permanent link">¶</a></h2>
+<blockquote>
+<p><strong>What would a failure have to look like for this check to see it?</strong></p>
+<p>If the answer is <em>"it couldn't"</em>, the check is not evidence yet — regardless
+of whether it passed.</p>
+</blockquote>
+<p>Applied honestly this catches the whole class before review does. Every example
+below was green at the moment it was found.</p>
+<h2 id="recurring-shapes">Recurring shapes<a class="headerlink" href="#recurring-shapes" title="Permanent link">¶</a></h2>
+<p>Each row is a real defect found in this repository. The point is not the
+individual bugs — it is that they are one bug wearing different clothes.</p>
 <table>
 <thead>
 <tr>
-<th>Check</th>
-<th>Result</th>
+<th>Shape</th>
+<th>What it looks like</th>
+<th>Real instance</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>TileRenderer::resolve_gpu_timestamps_async()</code> called every frame</td>
-<td>yes</td>
+<td><strong>Fail-open on absence</strong></td>
+<td>An empty, missing or unreadable input yields the <em>most permissive</em> result.</td>
+<td><code>classify_change.py</code> returned <code>R0</code> — the lowest risk class — for an empty changed-path set, while <code>policy.json</code> declares <code>default_unclassified: R3</code> (#812). A skipped guard emitted <code>passed: true</code> with a <code>fail_reason</code> nobody reads (#811).</td>
 </tr>
 <tr>
-<td><code>gpu_timestamp_capture_enabled</code></td>
-<td>true (default)</td>
+<td><strong>Skip encoded as pass</strong></td>
+<td>An environment guard returns early; the runner scores it as success.</td>
+<td><code>REQUIRE_GPU_DEVICE()</code> expanded to <code>MESSAGE(...); return;</code> and doctest scored the bare return <strong>PASS</strong> (#595). A test opened with an <em>unconditional</em> <code>return</code> before 63 lines of body and passed with zero assertions, inside a strict lane (#813).</td>
 </tr>
 <tr>
-<td><code>_get_submission_device()</code> returns a valid device</td>
-<td>yes</td>
+<td><strong>Guard wired to nothing</strong></td>
+<td>The check exists, is correct, and is never invoked.</td>
+<td>The skip-marker gate was enforced at the lane level but its regex could never match doctest's real output, so it counted 0 for its entire life (#595). A 515-line pin test ran in no lane. A helper was unit-tested directly and nothing called it.</td>
 </tr>
 <tr>
-<td><code>device-&gt;get_captured_timestamps_count()</code> at resolve time</td>
-<td><strong>0 every frame</strong></td>
+<td><strong>Self-certifying fixture</strong></td>
+<td>The test manufactures input in a format the real producer never emits.</td>
+<td>The skip gate's only test fabricated the marker at column 0 — a shape doctest never produces — under a comment asserting that doctest emits it (#595).</td>
+</tr>
+<tr>
+<td><strong>Compared against itself</strong></td>
+<td>A ratchet reads its "reference" from the same commit or document it is checking.</td>
+<td>A shrink-only guard resolved its base with <code>git show HEAD:&lt;file&gt;</code>; in CI <code>HEAD</code> <em>is</em> the proposed commit, so it compared the change with itself and could never see an increase (#817). An earlier guard "read the allowed backlog out of the manifest and compared the manifest against itself" (<code>test_gpu_harness_deferred_contract.py</code>).</td>
+</tr>
+<tr>
+<td><strong>Fixture cannot represent the property</strong></td>
+<td>The test harness structurally cannot express what is being guaranteed.</td>
+<td>A single-commit fixture cannot distinguish <code>HEAD</code> from the review base, so every test written in it passed against a broken ratchet. A single-environment run cannot detect environment dependence. Checking one workflow cannot answer "are the gates unblocked?"</td>
+</tr>
+<tr>
+<td><strong>Hand-written list guarding an invariant</strong></td>
+<td>Coverage is enumerated by a human and drifts.</td>
+<td>A five-name macro list missed object-like macros, then delegating wrappers (#595). Field lists, event lists and file lists have all drifted the same way.</td>
+</tr>
+<tr>
+<td><strong>Net-zero change</strong></td>
+<td>A count-based check passes because a removal offsets an addition.</td>
+<td>Fix-one/add-one netted zero and was written into a baseline. A same-size declaration swap, and a doctest-equivalent pattern rewrite, both passed every pre-existing guard (#650).</td>
+</tr>
+<tr>
+<td><strong>Summarising across a boundary the data does not cross</strong></td>
+<td>A field claims more than its inputs support.</td>
+<td><code>zero_coverage</code> derived from <em>passed</em> counts reported an all-failing lane as "nothing ran". <code>strict_failures</code> derived from an outcome mis-attributed an advisory anomaly to a strict lane. A field named <code>executed</code> only meant "a summary was printed" (#705).</td>
+</tr>
+<tr>
+<td><strong>Green where the gate cannot fire</strong></td>
+<td>The check runs in a mode that structurally cannot fail.</td>
+<td>Enforcement sat behind <code>_is_ci()</code>, so every local run was green and said nothing about CI (#595). A stacked PR runs 2 of 17 checks because <code>branches: [master]</code> filters on the base (#823).</td>
+</tr>
+<tr>
+<td><strong>Stale tracking presented as live</strong></td>
+<td>A pointer to accountability outlives the accountability.</td>
+<td>9 of 10 quarantine declarations — covering 85 of 86 stranded cases — cited <strong>closed</strong> issues (#650).</td>
+</tr>
+<tr>
+<td><strong>A fix that relocates the defect</strong></td>
+<td>The primitive survives under a new name, and the test moves with it.</td>
+<td>A laundering path closed in <code>--write-baseline</code> reappeared behind <code>--bootstrap-baseline</code>; the test covered only the old flag (#595).</td>
 </tr>
 </tbody>
 </table>
-<p>Function exits at the early-return at <code>tile_renderer.cpp:2384</code> (<code>if (available == 0) return;</code>) before ever entering <code>_compute_stage_durations()</code>.</p>
-<h2 id="what-is-mechanically-true-in-the-code">What is mechanically true in the code<a class="headerlink" href="#what-is-mechanically-true-in-the-code" title="Permanent link">¶</a></h2>
-<ul>
-<li>Raster stage emits <code>capture_timestamp("TileRaster_&lt;serial&gt;_Begin/_End")</code> at <code>tile_render_rasterizer_stage.cpp:86/114</code> (compute path) and <code>:149/227</code> (graphics path).</li>
-<li>The capture device is <code>submission_device</code> = <code>_acquire_submission_device()</code> = <code>_get_submission_device()</code> — same device the resolve queries. Not a device-mismatch bug.</li>
-<li><code>_reset_timestamp_tracking()</code> at <code>tile_renderer.cpp:2175-2193</code> keeps previous values when <code>gpu_timestamp_capture_enabled=true</code>, so stale values would persist if any capture had succeeded — they haven't.</li>
-<li>The code itself flags the cause at <code>tile_renderer.cpp:495-497</code>:<blockquote>
-<p>"GaussianSplat_Begin/End timestamps are NOT captured because buffer_get_data() in the prefix sum forces a flush that resets the timestamp buffer. Only TileOverlapCount markers (pre-flush) can be read."</p>
-</blockquote>
-</li>
-</ul>
-<h2 id="what-was-tried-and-ruled-out">What was tried and ruled out<a class="headerlink" href="#what-was-tried-and-ruled-out" title="Permanent link">¶</a></h2>
-<ul>
-<li><strong><code>active_renderer</code> registration</strong>: <code>GaussianSplattingPerformanceMonitors::register_renderer(TileRenderer*)</code> is never called in production code (only in tests at <code>tests/test_diagnostics.h</code>). So the monitor's "direct" path (<code>active_renderer-&gt;get_last_gpu_raster_time_ms()</code>) is always 0 and the monitor depends entirely on the snapshot fallback. <strong>Not the root cause</strong> — fallback chain is wired correctly.</li>
-<li><strong>Calling <code>resolve_gpu_timestamps_async()</code> from the monitor getter</strong>: tried and reverted. Caused per-poll GPU sync, halving FPS. Do not repeat.</li>
-<li><strong>Removing per-frame <code>sorted_indices_preview</code> readback</strong> (<code>render_diagnostics_orchestrator.cpp:1002</code>): committed as a separate perf win. Did <strong>not</strong> restore raster_ms — there's at least one more in-frame flush wiping the timestamp buffer.</li>
-<li><strong>Prefix-scan policy-gated readbacks</strong> (<code>tile_render_prefix_scan.cpp:230/418/65/558/579/603</code>): all default-off and not overridden in the GH project. Not the source.</li>
-</ul>
-<h2 id="hypotheses-still-open">Hypotheses still open<a class="headerlink" href="#hypotheses-still-open" title="Permanent link">¶</a></h2>
+<h2 id="required-practices">Required practices<a class="headerlink" href="#required-practices" title="Permanent link">¶</a></h2>
+<p>These are mandatory; a reviewer should treat a violation as a finding.</p>
 <ol>
-<li>Some other in-frame <code>buffer_get_data()</code> or device-flushing operation between raster <code>capture_timestamp()</code> and end-of-frame <code>resolve_gpu_timestamps_async()</code> query. Need to enumerate every device-touching call on the per-frame path post-raster.</li>
-<li>Multi-context boundary: the local compute device may not actually share the timestamp buffer with whatever device returns from <code>_get_submission_device()</code> at resolve time, even though the pointers compare equal in our diagnostic. Worth checking whether device pointer identity → timestamp pool identity in Godot's RD layer.</li>
-<li>Timestamp buffer is reset by Godot at frame boundaries before our resolve runs — possible if <code>update_gpu_pass_metrics_from_tile_renderer()</code> runs in a phase where the previous frame's captures have already been wiped.</li>
+<li>
+<p><strong>Encode absence distinctly.</strong> A guard that cannot run must report a state
+   that is not <code>pass</code>. Consumers of <strong>required</strong> evidence must then fail closed
+   on it. This does not promote advisory signals to gates: an explicitly
+   non-blocking check (e.g. <code>qlty check</code>, see
+   <a href="../../reference/build-test-ci/">build/test/CI</a>) may be <em>unavailable</em> without
+   failing anything — what it may not do is report <em>absence</em> as <em>success</em>. The
+   rule is about the encoding, not the severity. If a sentinel means "not
+   measured", something must require a real measurement before that value can
+   back a <strong>release</strong> claim.</p>
+</li>
+<li>
+<p><strong>Ratchet against an immutable reference outside the change under review.</strong>
+   Never <code>HEAD</code>, never the document being checked. Fail closed when the
+   reference cannot be resolved — "cannot determine the base" and "nothing
+   changed" must not share an encoding.</p>
+</li>
+<li>
+<p><strong>Mutation-prove every guard.</strong> Revert the fix, show the test goes RED,
+   restore, show GREEN. A test that passes with its fix reverted proves nothing.
+   Include a mutation that <strong>deletes the wiring</strong>, not only the logic — a guard
+   invoked by nothing is the most common way a check becomes decorative.</p>
+</li>
+<li>
+<p><strong>Prefer property-shaped assertions to mechanism-shaped ones.</strong> Assert <em>"no
+   invocation by any route can increase the set"</em>, not <em>"this flag refuses"</em>.
+   The first survives a refactor; the second moves with the defect it was
+   written against.</p>
+</li>
+<li>
+<p><strong>Derive coverage; enumerate only policy.</strong> A list that <em>describes</em> what
+   exists — macro names, fields, lanes, workflow events, files — must be derived
+   from the source of truth; a hand-maintained one guarding an invariant is
+   already broken. A list that <em>decides</em> policy is different: a closed set like
+   <code>REQUIRED_BATCHES</code> (<code>tests/ci/run_gpu_harness.py</code>) <strong>is</strong> the contract, and
+   deriving it from the corpus would let the corpus silently redefine what is
+   required. The test: would discovering a new item mean the list is <em>stale</em>
+   (derive it) or that someone must <em>decide</em> (enumerate it, and guard the
+   enumeration against silent growth).</p>
+</li>
+<li>
+<p><strong>Verify the legal route, not only the illegal one.</strong> Confirming that a
+   guard blocks the bad case says nothing about whether the good case still
+   works. A guard with no passing route for a legitimate operation gets bypassed,
+   not obeyed.</p>
+</li>
+<li>
+<p><strong>State the mode and the scope of every result.</strong> "Green" is meaningless
+   without <em>which environment, which event, which commit range</em>. Where hardware
+   or a mode was unavailable, write <strong>"not run"</strong>, never "passed".</p>
+</li>
+<li>
+<p><strong>Declare the limits.</strong> When a check cannot cover a known shape, say so
+   explicitly and name the shape. A guard documented as a ratchet over an
+   <em>enumerated</em> set of shapes is honest; the same guard implying corpus-wide
+   proof is not.</p>
+</li>
 </ol>
-<h2 id="why-this-matters">Why this matters<a class="headerlink" href="#why-this-matters" title="Permanent link">¶</a></h2>
-<p>Without <code>raster_ms</code> (and the other tile-renderer monitors), all subsequent GPU-side optimization work is blind. The dream scene runs at ~60 FPS with 227k visible splats, and we need to know whether the bulk of the 16ms is in raster, in CPU setup, or in something else entirely. Codex audits identified candidate wins (per-pixel SSBO chain, 40KB shared-memory occupancy throttle, cross-device sort sync, resident contract republish), but we can't quantify their impact without the monitor.</p>
-<h2 id="next-investigation-steps">Next investigation steps<a class="headerlink" href="#next-investigation-steps" title="Permanent link">¶</a></h2>
-<ul>
-<li><strong>Enumerate all per-frame device-touching calls</strong> on the tile_renderer path after raster capture. Targets: <code>buffer_get_data</code>, <code>safe_sync</code>, <code>safe_submit_and_sync</code>, <code>_flush_pending_submission(true)</code>, <code>compute_list_add_barrier</code> of full-barrier type, <code>submit</code>, <code>sync</code>. Categorize: which fire by default, which only on debug/sync paths.</li>
-<li><strong>Cross-check device identity</strong> between capture site and resolve site: log <code>submission_device</code> pointer at both call sites; if they're different objects despite both coming from <code>_get_submission_device()</code>, that's the bug.</li>
-<li><strong>Try a synthetic capture-then-immediately-query</strong> to isolate whether timestamps survive AT ALL on this path, independent of the raster pipeline. If a degenerate <code>capture("test_Begin"); capture("test_End"); get_count()</code> returns 0, the timestamp pool is being wiped by something further upstream than we think.</li>
-</ul>
-<h2 id="related-codex-audit-findings-not-the-monitor-itself-but-in-the-same-area">Related codex audit findings (not the monitor itself, but in the same area)<a class="headerlink" href="#related-codex-audit-findings-not-the-monitor-itself-but-in-the-same-area" title="Permanent link">¶</a></h2>
-<ul>
-<li><code>gpu_sorting_pipeline.cpp:2604-2609</code> — <code>safe_submit_and_sync(compute_rd)</code> before <code>sort_async()</code> on cross-device sort. Per-frame full sync. Likely candidate for "what wipes the timestamp buffer" if cross-device path is active.</li>
-<li><code>tile_render_resolve.cpp:1243-1249</code> — <code>safe_sync()</code> after resolve dispatch on non-main RD. Another flush.</li>
-<li><code>tile_render_prefix_scan.cpp:417/499/603</code> — sync readbacks on policy-gated paths.</li>
-</ul>
-<h2 id="workaround-until-fixed">Workaround until fixed<a class="headerlink" href="#workaround-until-fixed" title="Permanent link">¶</a></h2>
-<p>Use frame-time variance (<code>Engine.get_frames_per_second()</code> over a sample window) and CPU-side timing markers (e.g. <code>Time.get_ticks_usec()</code> around code regions) to estimate where time goes. Imprecise, but the only signal we have on this path right now.</p>
+<h2 id="why-this-page-exists">Why this page exists<a class="headerlink" href="#why-this-page-exists" title="Permanent link">¶</a></h2>
+<p>Twenty-two distinct instances of the shapes above were found in a single
+review pass across the test harness, CI guards and release-evidence layer. Every
+one was green. None were caught by the checks that existed, because in each case
+the check could not observe the thing it claimed to rule out.</p>
+<p>The individual fixes are in the git history. The rule is here so the next one is
+recognised as a member of a known family rather than rediscovered as a novelty.</p>
 
 
 
@@ -1863,7 +1910,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 4, 2026 13:54:33 UTC">August 4, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 4, 2026 13:54:31 UTC">August 4, 2026</span>
   </span>
 
     
