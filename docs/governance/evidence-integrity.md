@@ -53,9 +53,14 @@ individual bugs — it is that they are one bug wearing different clothes.
 These are mandatory; a reviewer should treat a violation as a finding.
 
 1. **Encode absence distinctly.** A guard that cannot run must report a state
-   that is not `pass`, and consumers must fail closed on it. If a sentinel means
-   "not measured", something must require a real measurement before that value
-   can back a release claim.
+   that is not `pass`. Consumers of **required** evidence must then fail closed
+   on it. This does not promote advisory signals to gates: an explicitly
+   non-blocking check (e.g. `qlty check`, see
+   [build/test/CI](../reference/build-test-ci.md)) may be *unavailable* without
+   failing anything — what it may not do is report *absence* as *success*. The
+   rule is about the encoding, not the severity. If a sentinel means "not
+   measured", something must require a real measurement before that value can
+   back a **release** claim.
 
 2. **Ratchet against an immutable reference outside the change under review.**
    Never `HEAD`, never the document being checked. Fail closed when the
@@ -72,9 +77,15 @@ These are mandatory; a reviewer should treat a violation as a finding.
    The first survives a refactor; the second moves with the defect it was
    written against.
 
-5. **Derive, never enumerate.** Any list that defines coverage — macro names,
-   fields, lanes, workflow events, files — must be derived from the source of
-   truth. A hand-maintained list guarding an invariant is already broken.
+5. **Derive coverage; enumerate only policy.** A list that *describes* what
+   exists — macro names, fields, lanes, workflow events, files — must be derived
+   from the source of truth; a hand-maintained one guarding an invariant is
+   already broken. A list that *decides* policy is different: a closed set like
+   `REQUIRED_BATCHES` (`tests/ci/run_gpu_harness.py`) **is** the contract, and
+   deriving it from the corpus would let the corpus silently redefine what is
+   required. The test: would discovering a new item mean the list is *stale*
+   (derive it) or that someone must *decide* (enumerate it, and guard the
+   enumeration against silent growth).
 
 6. **Verify the legal route, not only the illegal one.** Confirming that a
    guard blocks the bad case says nothing about whether the good case still

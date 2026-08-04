@@ -62,9 +62,13 @@ Full command reference: `docs/reference/build-test-ci.md`.
   - **A ratchet compares against an immutable reference outside the change.**
     Not `HEAD` (in CI, `HEAD` *is* the change), not the document being checked.
     Fail closed when the reference cannot be resolved.
-  - **Derive coverage lists, never hand-write them.** Macro names, fields, lanes,
-    workflow events. A hand-maintained list guarding an invariant is already
-    broken.
+  - **Derive coverage lists; enumerate only policy.** A list that *describes*
+    what exists — macro names, fields, lanes, workflow events — must be derived;
+    hand-maintained ones drift. A list that *decides* policy, like
+    `REQUIRED_BATCHES` in `tests/ci/run_gpu_harness.py`, is the contract itself
+    and must stay explicit — deriving it would let the corpus redefine what is
+    required. Ask whether a new item means the list is stale, or means someone
+    must decide.
   - **Assert properties, not mechanisms.** *"No route can increase the set"*
     outlives *"this flag refuses"*.
   - **Say which mode a result came from.** Enforcement often sits behind
