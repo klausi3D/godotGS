@@ -308,6 +308,16 @@ jobs:
           "path=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Run Gaussian pipeline smoke tests
+        env:
+          # run_baseline_qa.py can reach tests/ci/run_module_tests.py (its
+          # `module` category), which fails closed on a base-bearing event
+          # without a review base (#595). Exported per SCRIPT rather than per
+          # category: the category list is an argument that can change, and a
+          # base that is present-but-unused costs nothing.
+          GS_CI_BASE_REF: >-
+            ${{ github.event_name == 'merge_group'
+                && github.event.merge_group.base_sha
+                || github.event.pull_request.base.sha }}
         shell: pwsh
         run: |
           python tests/ci/run_baseline_qa.py --category pipeline --godot "${{ steps.godot_bin.outputs.path }}"

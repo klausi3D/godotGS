@@ -638,36 +638,123 @@ class WorkflowBaseExportTests(IsolatedTestCase):
     written out here. A hand-written list is how the next event type gets
     missed, and this repo has been bitten by that repeatedly -- including twice
     on this very branch (the hand-written macro list, twice over).
+
+    ## DECLARED LIMITATIONS of this walk
+
+    The reachability walk is a TEXT scan over a bounded file set, so its
+    boundary is worth stating rather than implying:
+
+    * Only `.py` files under `tests/` and `scripts/` are considered as
+      intermediate callers. A shell script, a `Makefile`, a composite action, a
+      reusable workflow (`workflow_call`), or a container entrypoint that
+      invokes the runner is NOT followed.
+    * Only `.yml` workflows are scanned; `.yaml` is not, and neither are
+      workflows in other repositories that call these by reference.
+    * An edge is recognised only when the reference shares a line with an
+      invocation-shaped token (`sys.executable`, `subprocess`, `_run_command`,
+      `python`). A dynamically composed command -- a name assembled from
+      fragments, or read from config -- is invisible.
+    * The walk is script-granular, not argument-granular: it cannot tell that
+      `run_baseline_qa.py --category pipeline` does not reach the runner while
+      `--categories …,module` does. It deliberately over-approximates, because
+      demanding an unused base variable costs nothing and missing one blocks a
+      required gate.
+
+    Within those bounds it IS transitive to a fixed point, which is what the
+    workflow-only grep of the previous round was not: `baseline_qa.yml` never
+    names `run_module_tests.py`, and was invisible until the walk followed
+    `run_baseline_qa.py`.
     """
 
     WORKFLOWS_DIR = ROOT / ".github" / "workflows"
     INVOCATION = re.compile(r"run_module_tests\.py")
 
-    def _invoking_workflows(self) -> list[Path]:
-        """Every workflow that invokes run_module_tests.py, DERIVED by scanning.
+    TARGET = "run_module_tests.py"
+    # Where an invoking script may live. Bounded on purpose -- see the
+    # LIMITATIONS note in this class's docstring.
+    SCRIPT_DIRS = ("tests", "scripts")
+    # A reference only counts as an INVOCATION in one of these shapes. A bare
+    # mention (an import, a docstring, a comment) does not make a script part of
+    # the call path, and treating it as one would demand base exports from
+    # workflows that never reach the guard.
+    INVOKES = re.compile(r"(sys\.executable|subprocess|_run_command|python3?)")
 
-        Not a hand-maintained list. Checking only agentic_pr_gate.yml is how
-        gaussian_production_gates.yml -- a second required gate, with FOUR
-        failing workflow x event pairs across TWO invocation sites -- stayed
-        invisible for a round. A second hand-written list would be the same
-        defect one file over.
+    def reaching_scripts(self) -> set[str]:
+        """Every script basename that reaches run_module_tests.py, TRANSITIVELY.
+
+        Seeded with the target itself, then iterated to a FIXED POINT: any script
+        that invokes a member is itself a member. One level would not have been
+        enough -- baseline_qa.yml never names run_module_tests.py; it invokes
+        run_baseline_qa.py, which invokes the runner. A workflow-only grep was
+        blind to that, and the merge queue would have blocked after a ~90-minute
+        job had already run.
+
+        This is the same fixed-point reasoning as the delegated-macro derivation
+        in round 6, in a different medium. Hard-coding "one level" here would be
+        the same defect as hard-coding "function-like macros only".
         """
-        found = [
+        members = {self.TARGET}
+        candidates = [
             path
-            for path in sorted(self.WORKFLOWS_DIR.glob("*.yml"))
-            if self.INVOCATION.search(path.read_text(encoding="utf-8"))
+            for directory in self.SCRIPT_DIRS
+            for path in (ROOT / directory).rglob("*.py")
+            if path.is_file()
         ]
-        self.assertTrue(found, "no workflow invokes run_module_tests.py; the scan is broken")
+        changed = True
+        while changed:
+            changed = False
+            for path in candidates:
+                if path.name in members:
+                    continue
+                try:
+                    text = path.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                for line in text.splitlines():
+                    if any(member in line for member in members) and self.INVOKES.search(line):
+                        members.add(path.name)
+                        changed = True
+                        break
+        return members
+
+    def _invoking_workflows(self) -> list[tuple[Path, str]]:
+        """(workflow, member) for every workflow that reaches the runner.
+
+        Derived by scanning, never hand-maintained. Checking only
+        agentic_pr_gate.yml is how gaussian_production_gates.yml stayed invisible
+        for a round (four failing pairs, two invocation sites); checking only
+        workflows that NAME the runner is how baseline_qa.yml stayed invisible
+        for another.
+        """
+        members = self.reaching_scripts()
+        found: list[tuple[Path, str]] = []
+        for path in sorted(self.WORKFLOWS_DIR.glob("*.yml")):
+            text = path.read_text(encoding="utf-8")
+            for member in sorted(members):
+                if member in text:
+                    found.append((path, member))
+        self.assertTrue(found, "no workflow reaches run_module_tests.py; the scan is broken")
         return found
 
-    def _invocation_offsets(self, text: str) -> list[int]:
-        """Every run_module_tests.py invocation in one workflow.
+    def _invocation_offsets(self, text: str, member: str) -> list[int]:
+        """Every INVOCATION of `member` in one workflow.
 
-        Per INVOCATION, not per workflow: gaussian_production_gates.yml runs the
-        guard twice (--guard-only in one job, a full run in another), and a
-        per-workflow check would have passed while one step still had no base.
+        Per invocation, not per workflow: gaussian_production_gates.yml runs the
+        runner twice and baseline_qa.yml calls run_baseline_qa.py three times, so
+        a per-file check would pass while one step still had no base.
+
+        A COMMENT mentioning the script is not an invocation. Without this the
+        explanatory comments added next to each export were themselves counted
+        as unexported call sites -- the same "a mention is not a call"
+        distinction already applied to scripts via INVOKES, missing here.
         """
-        return [m.start() for m in self.INVOCATION.finditer(text)]
+        offsets: list[int] = []
+        for match in re.finditer(re.escape(member), text):
+            line_start = text.rfind("\n", 0, match.start()) + 1
+            if text[line_start : match.start()].lstrip().startswith("#"):
+                continue
+            offsets.append(match.start())
+        return offsets
 
     def _trigger_events_of(self, text: str) -> set[str]:
         lines = text.splitlines()
@@ -692,53 +779,58 @@ class WorkflowBaseExportTests(IsolatedTestCase):
         return text[step_start:invocation_at]
 
     def test_every_invocation_covers_every_base_bearing_trigger(self) -> None:
-        """The complete surface: workflow x invocation x event.
-
-        Enumerated by scanning, and checked per INVOCATION rather than per
-        workflow -- gaussian_production_gates.yml invokes the runner twice, and
-        a per-workflow assertion would pass while one of the two steps still had
-        no base and failed a required gate closed.
-        """
+        """The complete surface: workflow x reaching-script x invocation x event."""
         problems: list[str] = []
         checked = 0
-        for path in self._invoking_workflows():
+        for path, member in self._invoking_workflows():
             text = path.read_text(encoding="utf-8")
             events = self._trigger_events_of(text)
             base_bearing = sorted(events & harness.BASE_BEARING_EVENTS)
             if not base_bearing:
                 continue
-            for offset in self._invocation_offsets(text):
+            for offset in self._invocation_offsets(text, member):
                 env_block = self._step_env_for(text, offset)
                 for event in base_bearing:
                     checked += 1
                     if "GS_CI_BASE_REF" not in env_block:
                         problems.append(
-                            f"{path.name} x {event}: the step invoking run_module_tests.py "
-                            f"exports no review base; the guard fails closed and this gate "
-                            f"is blocked"
+                            f"{path.name} x {event}: the step invoking {member} exports no "
+                            f"review base; the guard fails closed and this gate is blocked"
                         )
                     elif event == "merge_group" and "merge_group.base_sha" not in env_block:
                         problems.append(
-                            f"{path.name} x {event}: a base is exported but not for "
-                            f"merge_group; every merge-queue run of this gate fails closed"
+                            f"{path.name} x {event} ({member}): a base is exported but not "
+                            f"for merge_group; every merge-queue run fails closed"
                         )
                     elif event == "pull_request" and "pull_request.base.sha" not in env_block:
                         problems.append(
-                            f"{path.name} x {event}: a base is exported but not for "
-                            f"pull_request"
+                            f"{path.name} x {event} ({member}): a base is exported but not "
+                            f"for pull_request"
                         )
         self.assertTrue(checked, "no workflow x event pair was checked; the derivation broke")
         self.assertEqual([], problems, "\n".join(problems))
 
-    def test_the_scan_finds_both_known_gates(self) -> None:
-        """Positive control: a derivation that finds nothing must not pass.
+    def test_the_scan_reaches_the_indirect_caller(self) -> None:
+        """Positive control, and the specific miss it exists to prevent.
 
-        Without this, a regex that stopped matching would make the check above
-        vacuous -- it would iterate zero workflows and assert zero problems.
+        run_baseline_qa.py reaches the runner one level of indirection away, and
+        baseline_qa.yml never names run_module_tests.py at all. If the fixed
+        point stops finding either, the check above silently narrows.
         """
-        names = {path.name for path in self._invoking_workflows()}
-        self.assertIn("agentic_pr_gate.yml", names)
-        self.assertIn("gaussian_production_gates.yml", names)
+        members = self.reaching_scripts()
+        self.assertIn("run_module_tests.py", members)
+        self.assertIn(
+            "run_baseline_qa.py",
+            members,
+            "the transitive walk no longer reaches the indirect caller",
+        )
+        names = {path.name for path, _member in self._invoking_workflows()}
+        for workflow in (
+            "agentic_pr_gate.yml",
+            "gaussian_production_gates.yml",
+            "baseline_qa.yml",
+        ):
+            self.assertIn(workflow, names, f"{workflow} dropped out of the derived surface")
 
     def test_non_base_bearing_events_do_not_require_a_base(self) -> None:
         """push / schedule / workflow_dispatch have no review base at all.

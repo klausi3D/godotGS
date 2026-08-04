@@ -273,6 +273,7 @@ import os
 import re
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -998,8 +999,72 @@ def _load_allowance(document: dict) -> tuple[dict[str, int], list[str]]:
         for field in ("owner", "reason", "issue_url"):
             if not isinstance(entry[field], str) or not entry[field].strip():
                 failures.append(f"{where}.{field} must be a non-empty string.")
+
+        # `expires_utc` was PRESENCE-checked but never PARSED here, so a
+        # malformed timestamp sailed through the GPU-free guard lane and only
+        # exploded much later, in the full lane, on the first run that happened
+        # to emit a marker. Malformed committed configuration must fail where it
+        # is committed.
+        #
+        # This is the same shape as the MAX_EXPIRY_UTC typo found on the sibling
+        # task: a pinned time value that, when unparseable, stops enforcing
+        # instead of failing. An expiry nobody can parse is an expiry that never
+        # arrives.
+        expires = entry["expires_utc"]
+        if not isinstance(expires, str) or not expires.strip():
+            failures.append(f"{where}.expires_utc must be a non-empty ISO-8601 string.")
+        else:
+            try:
+                parsed = datetime.fromisoformat(expires)
+            except ValueError as exc:
+                failures.append(
+                    f"{where}.expires_utc is not an ISO-8601 timestamp ({exc}). An expiry "
+                    f"that cannot be parsed is an allowance that never expires."
+                )
+            else:
+                if parsed.tzinfo is None:
+                    failures.append(
+                        f"{where}.expires_utc must carry a UTC offset; a naive timestamp is "
+                        f"ambiguous about when it actually lapses."
+                    )
         out[lane] = allowed
     return out, failures
+
+
+def _check_document_schema(document: dict) -> list[str]:
+    """Validate the parts of the baseline nothing else looks at.
+
+    Audit prompted by the expiry hole: every field accepted without validation is
+    a field that fails somewhere distant from where it was written. These are the
+    remaining ones.
+    """
+    failures: list[str] = []
+
+    version = document.get("schema_version")
+    if version != BASELINE_SCHEMA_VERSION:
+        failures.append(
+            f"schema_version is {version!r}, expected {BASELINE_SCHEMA_VERSION}. A format "
+            f"change must be a deliberate, reviewed migration, not a silently misread file."
+        )
+
+    # The rename ledger was validated only inside check_sites_against_base, which
+    # is skipped when the baseline is ABSENT_AT_BASE -- so on exactly the runs
+    # with no base reference, a malformed ledger was accepted in silence.
+    ledger = document.get("rename_ledger", [])
+    if not isinstance(ledger, list):
+        failures.append("rename_ledger must be a list.")
+    else:
+        for index, entry in enumerate(ledger):
+            if not isinstance(entry, dict):
+                failures.append(f"rename_ledger[{index}] must be an object, got {entry!r}.")
+                continue
+            for field in ("from", "to"):
+                value = entry.get(field)
+                if not isinstance(value, str) or not value.strip():
+                    failures.append(
+                        f"rename_ledger[{index}].{field} must be a non-empty string."
+                    )
+    return failures
 
 
 def check_allowance(document: dict, previous: dict | str | None) -> list[str]:
@@ -1519,6 +1584,11 @@ def main(argv: list[str] | None = None) -> int:
         except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
             failures.append(f"baseline is not readable JSON: {exc}")
         else:
+            # Schema validation runs UNCONDITIONALLY, before the base is even
+            # consulted: malformed committed configuration must fail on the
+            # GPU-free lane where it was written, not on a distant runtime lane
+            # that happens to emit a marker.
+            failures.extend(_check_document_schema(document))
             base_document, base_failures = baseline_document_at_base(BASELINE_PATH, base_ref)
             failures.extend(base_failures)
             if not base_failures:

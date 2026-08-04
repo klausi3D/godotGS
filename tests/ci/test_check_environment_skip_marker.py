@@ -709,6 +709,63 @@ class WriteBaselineTests(GuardTestCase):
         self.assertEqual(1, code, out)
         self.assertIn("must be an object", out)
 
+    def test_malformed_expiry_fails_the_gpu_free_guard(self) -> None:
+        """(G) Malformed committed config must fail where it is committed.
+
+        `expires_utc` was presence-checked but never PARSED here, so a broken
+        timestamp passed the GPU-free lane and only exploded much later, in a
+        runtime lane that happened to emit a marker. Same shape as the
+        MAX_EXPIRY_UTC typo on the sibling task: a pinned time value that, when
+        unparseable, stops enforcing instead of failing.
+        """
+        self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self.regenerate()
+        for bad, expected in (
+            ("not-a-timestamp", "not an ISO-8601 timestamp"),
+            ("2026-13-45T99:00:00Z", "not an ISO-8601 timestamp"),
+            ("2026-11-01T00:00:00", "must carry a UTC offset"),
+            ("", "non-empty ISO-8601 string"),
+        ):
+            entry = _valid_allowance_entry(1)
+            entry["expires_utc"] = bad
+            document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
+            document["runtime_lane_allowance"] = {"GaussianSplatting [Editor]": entry}
+            self.baseline_path.write_text(guard._serialize(document), encoding="utf-8")
+            code, out = self.run_guard()
+            self.assertEqual(1, code, f"{bad!r} was accepted: {out}")
+            self.assertIn(expected, out, bad)
+
+    def test_schema_version_and_rename_ledger_are_validated(self) -> None:
+        """Audit prompted by the expiry hole: what else is accepted unchecked.
+
+        `rename_ledger` was validated only inside check_sites_against_base, which
+        is skipped when the baseline is ABSENT_AT_BASE -- so on exactly the runs
+        with no base reference, a malformed ledger passed in silence.
+        """
+        self.write_source("test_alpha.h", "REQUIRE_GPU_DEVICE();\n")
+        self.regenerate()
+
+        document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
+        document["schema_version"] = 99
+        self.baseline_path.write_text(guard._serialize(document), encoding="utf-8")
+        code, out = self.run_guard()
+        self.assertEqual(1, code, out)
+        self.assertIn("schema_version", out)
+
+        for ledger, expected in (
+            ("not-a-list", "rename_ledger must be a list"),
+            ([{"from": "a"}], "rename_ledger[0].to"),
+            ([{"from": "", "to": "b"}], "rename_ledger[0].from"),
+            (["nope"], "rename_ledger[0] must be an object"),
+        ):
+            document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
+            document["schema_version"] = guard.BASELINE_SCHEMA_VERSION
+            document["rename_ledger"] = ledger
+            self.baseline_path.write_text(guard._serialize(document), encoding="utf-8")
+            code, out = self.run_guard()
+            self.assertEqual(1, code, f"{ledger!r} was accepted: {out}")
+            self.assertIn(expected, out)
+
     def test_allowance_ratchet_rejects_a_raise_and_a_new_lane(self) -> None:
         """Shrink-only, checked against the previously committed document."""
         previous = {

@@ -166,6 +166,16 @@ jobs:
       env:
         GS_CI_GPU_REQUIRED: "1"
         GS_CI_VALIDATION_MODE: "strict"
+        # GS_CI_BASE_REF is the review base for the shrink-only ratchets in
+        # tests/ci/check_environment_skip_marker.py (#595). This step reaches
+        # tests/ci/run_module_tests.py INDIRECTLY, via run_baseline_qa.py's
+        # `module` category, and the wrapper fails closed on a base-bearing
+        # event without a base -- which would block the merge queue only after
+        # the long job had already run.
+        GS_CI_BASE_REF: >-
+          ${{ github.event_name == 'merge_group'
+              && github.event.merge_group.base_sha
+              || github.event.pull_request.base.sha }}
       run: |
         $args = @(
           "--categories", "sorting",
@@ -195,6 +205,16 @@ jobs:
       env:
         GS_CI_GPU_REQUIRED: "1"
         GS_CI_VALIDATION_MODE: "strict"
+        # GS_CI_BASE_REF is the review base for the shrink-only ratchets in
+        # tests/ci/check_environment_skip_marker.py (#595). This step reaches
+        # tests/ci/run_module_tests.py INDIRECTLY, via run_baseline_qa.py's
+        # `module` category, and the wrapper fails closed on a base-bearing
+        # event without a base -- which would block the merge queue only after
+        # the long job had already run.
+        GS_CI_BASE_REF: >-
+          ${{ github.event_name == 'merge_group'
+              && github.event.merge_group.base_sha
+              || github.event.pull_request.base.sha }}
       run: |
         $args = @(
           "--categories", "qa",
@@ -838,6 +858,16 @@ jobs:
       env:
         DISPLAY: :99
         GS_CI_GPU_REQUIRED: "0"
+        # GS_CI_BASE_REF is the review base for the shrink-only ratchets in
+        # tests/ci/check_environment_skip_marker.py (#595). This step reaches
+        # tests/ci/run_module_tests.py INDIRECTLY, via run_baseline_qa.py's
+        # `module` category, and the wrapper fails closed on a base-bearing
+        # event without a base -- which would block the merge queue only after
+        # the long job had already run.
+        GS_CI_BASE_REF: >-
+          ${{ github.event_name == 'merge_group'
+              && github.event.merge_group.base_sha
+              || github.event.pull_request.base.sha }}
       run: |
         python3 tests/ci/run_baseline_qa.py --categories ply,pipeline,runtime,module
       continue-on-error: false
