@@ -50,9 +50,15 @@ Full command reference: `docs/reference/build-test-ci.md`.
     logic — a check invoked by no lane is the most common way one becomes
     decorative. This repo has shipped an enforced-but-unmatchable regex, and a
     pin test that ran in no lane.
-  - **Never fabricate fixture input.** Capture it from the real producer. A test
-    that invents a format the producer never emits certifies a fiction, and reads
-    as proof that the guard works.
+  - **Never hand-author a fixture that claims to model a real producer's
+    output.** Capture it from that producer. A parser/format contract test whose
+    input was invented certifies a fiction and reads as proof the guard works —
+    this repo shipped a skip-marker gate whose only test fabricated a column-0
+    marker doctest never emits. This applies to *producer-format* fixtures only:
+    synthetic corpora built by `tests/runtime/prepare_synthetic_assets.py`,
+    malformed-input cases, and other constructed data remain the correct choice,
+    because there the deterministic construction *is* the point. The test is
+    whether the fixture asserts something about a format someone else produces.
   - **A ratchet compares against an immutable reference outside the change.**
     Not `HEAD` (in CI, `HEAD` *is* the change), not the document being checked.
     Fail closed when the reference cannot be resolved.
