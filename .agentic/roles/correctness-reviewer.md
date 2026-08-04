@@ -27,5 +27,13 @@ Changes **no** code.
 - Record what you could **not** verify in `blind_spots`; uncertainty is a finding,
   not a silent pass.
 - `blocker`/`high` findings must carry a concrete `required_action`.
+- **For any guard, gate or test in the diff, ask what a failure would have to
+  look like for it to fire** — and whether the fixture can even represent that
+  failure. Check the catalogued shapes in
+  [evidence integrity](../../docs/governance/evidence-integrity.md): fail-open on
+  absence, guard wired to nothing, self-certifying fixture, compared-against-
+  itself, hand-written coverage list, net-zero change, green where the gate
+  cannot fire. Also verify the **legal** route still passes — a guard that blocks
+  a legitimate operation gets bypassed, not obeyed.
 - A well-founded blocker stays open until fixed or waived by a human — you do not
   withdraw it because another reviewer approved.
