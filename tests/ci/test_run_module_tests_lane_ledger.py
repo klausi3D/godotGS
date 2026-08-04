@@ -204,6 +204,10 @@ FORBIDDEN_ABSOLUTE_CLAIMS = (
 # Each doc must positively state the exception, so deleting the qualification
 # is caught as well as re-asserting the absolute claim.
 # Every separator is \s+ because these sentences are hard-wrapped in the docs.
+# A local worktree name (wt-595, wt-705, ...) is the clearest marker of evidence
+# that cannot be reproduced from the repository. Deliberately narrow: the docs may
+# discuss worktrees as a concept, just not name one machine's.
+LOCAL_WORKTREE_RE = re.compile(r"\bwt-\d+\b")
 REQUIRED_DOC_MARKERS = (
     re.compile(
         r"exits?\s+0\s+while\s+its\s+doctest\s+summary\s+\**reports\**\s+failures", re.I
@@ -322,6 +326,11 @@ def _run_main(argv, *, drop_lane: bool = False, godot_result=None):
             )
         stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
         return harness.main()
+
+
+def _grammar_keys(line: str) -> list[str]:
+    """The ordered `key=` names in a ledger line or a documented template of one."""
+    return re.findall(r"(\w+)=", line)
 
 
 def _records(output: str) -> dict[str, dict[str, str]]:
@@ -649,6 +658,46 @@ class LaneLedgerOutcomeTests(unittest.TestCase):
         )
         self.assertEqual(rc, BASELINE_RC_ADVISORY_FAIL)
 
+    def test_zero_coverage_is_counted_whatever_the_outcome(self) -> None:
+        """#822 round 5: zero coverage is a property, not an outcome bucket.
+
+        An advisory lane can execute nothing while its outcome is ADVISORY-FAIL
+        (a crash whose summary still printed 0|0). Counting the aggregate off the
+        ADVISORY-NO-COVERAGE outcome alone under-reported the exact thing the
+        field exists to expose - and it is the field GS-705-2 ratchets on.
+        """
+        lanes = [("CrashedEmpty", False), ("QuietlyEmpty", False)]
+        results = [
+            # Nonzero exit -> ADVISORY-FAIL, but the summary shows nothing ran.
+            _godot(False, False, NO_COVERAGE_OUTPUT, 1),
+            # Exit 0 -> ADVISORY-NO-COVERAGE.
+            _godot(True, False, NO_COVERAGE_OUTPUT, 0),
+        ]
+        rc, output = _drive(lanes, results)
+        records = _records(output)
+        self.assertEqual(records["CrashedEmpty"]["outcome"], "ADVISORY-FAIL")
+        self.assertEqual(records["CrashedEmpty"]["zero_coverage"], "1")
+        self.assertEqual(records["QuietlyEmpty"]["outcome"], "ADVISORY-NO-COVERAGE")
+        self.assertEqual(
+            _aggregate(output)["advisory_zero_coverage"],
+            2,
+            "both lanes executed nothing; only one of them has the "
+            "ADVISORY-NO-COVERAGE outcome",
+        )
+        self.assertEqual(rc, BASELINE_RC_ADVISORY_FAIL)
+
+    def test_unknown_coverage_is_never_counted_as_zero_coverage(self) -> None:
+        """A lane with no summary is `-1` (not knowable) and must not be counted."""
+        lanes = [("Crashed", False)]
+        rc, output = _drive(lanes, _godot(False, False, CRASH_OUTPUT, 3221225477))
+        self._assert_record(output, "Crashed", outcome="ADVISORY-FAIL", zero_coverage=-1)
+        self.assertEqual(
+            _aggregate(output)["advisory_zero_coverage"],
+            0,
+            "'not knowable' must never be silently read as 'zero'",
+        )
+        self.assertEqual(rc, BASELINE_RC_ADVISORY_FAIL)
+
     def test_an_advisory_lane_failure_is_never_charged_to_a_strict_lane(self) -> None:
         """#822 P2-1: FAIL is not the same thing as "a strict lane failed".
 
@@ -941,6 +990,42 @@ class LaneLedgerTotalityTests(unittest.TestCase):
         self.assertIn("'UnavailableLane' was attempted but produced no ledger record", output)
         self.assertNotEqual(rc, 0, "an incomplete ledger must not report success")
 
+    def test_a_missing_record_before_an_abort_is_still_an_integrity_failure(self) -> None:
+        """#822 round 5: an abort must not excuse the records already collected.
+
+        Validation used to be skipped wholesale whenever the run aborted, so a
+        lane whose record went missing BEFORE the aborting lane escaped the check
+        entirely - the "did not run reads as passed" hole reopened for exactly
+        the runs where something had already gone wrong.
+        """
+        original = harness.LaneLedger.record
+
+        def skip_first_lane(self, index, result, *, ended_run):
+            if index == 0:
+                return
+            original(self, index, result, ended_run=ended_run)
+
+        lanes = [("AdvisoryLane", False), ("StrictLane", True), ("NeverReached", False)]
+        results = [
+            _godot(False, False, FAIL_OUTPUT, 1),  # advisory red, run continues
+            _godot(False, False, FAIL_OUTPUT, 1),  # strict lane aborts the run
+            _godot(True, False, PASS_OUTPUT, 0),
+        ]
+        with mock.patch.object(harness.LaneLedger, "record", skip_first_lane):
+            rc, output = _drive(lanes, results)
+        self.assertIn(
+            "'AdvisoryLane' was attempted but produced no ledger record",
+            output,
+            "a lane attempted before the abort must still be validated",
+        )
+        self.assertNotIn(
+            "'NeverReached' was attempted",
+            output,
+            "a lane the runner never reached must NOT be reported as missing",
+        )
+        self.assertEqual(_records(output)["NeverReached"]["outcome"], "NOT-RUN")
+        self.assertNotEqual(rc, 0)
+
     def test_a_lane_cannot_be_recorded_twice(self) -> None:
         """An overwrite is how a FAIL would become a PASS."""
         lanes = [("AdvisoryLane", False)]
@@ -963,7 +1048,7 @@ class LaneLedgerTotalityTests(unittest.TestCase):
                     with contextlib.redirect_stdout(buffer):
                         ledger.print_block()
         self.assertEqual(_records(buffer.getvalue())["AdvisoryLane"]["outcome"], "ADVISORY-FAIL")
-        errors = ledger.check_integrity(aborted=False)
+        errors = ledger.check_integrity(attempted_lanes=1)
         self.assertTrue(errors, "recording a lane twice must be an integrity error")
         self.assertIn("recorded twice", errors[0])
         # Non-vacuous under the anti-vacuous mutation too: also drive the loop.
@@ -1075,6 +1160,51 @@ class LaneReportTests(unittest.TestCase):
             1,
             "the report must carry what the lane loop actually returned",
         )
+
+    def test_an_untrustworthy_ledger_does_not_overwrite_the_previous_report(self) -> None:
+        """#822 round 5: atomicity is not the same guarantee as worth-keeping.
+
+        temp -> os.replace guarantees the destination is never empty or partial.
+        It does not decide whether a ledger that failed its OWN integrity check
+        deserves to replace the last valid measurement. It does not.
+        """
+        original = harness.LaneLedger.record
+
+        def skip_first_lane(self, index, result, *, ended_run):
+            if index == 0:
+                return
+            original(self, index, result, ended_run=ended_run)
+
+        lanes = [("AdvisoryLane", False), ("PassLane", True)]
+        results = [
+            _godot(False, False, FAIL_OUTPUT, 1),
+            _godot(True, False, PASS_OUTPUT, 0),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "lane_ledger.json"
+            dest.write_text(PRIOR_REPORT, encoding="utf-8")
+            with mock.patch.object(harness.LaneLedger, "record", skip_first_lane):
+                rc, output = _drive(lanes, results, lane_report=dest)
+            surviving = dest.read_text(encoding="utf-8")
+            leftovers = sorted(p.name for p in Path(tmp).iterdir())
+
+        self.assertNotEqual(rc, 0, "an incomplete ledger must not report success")
+        self.assertEqual(
+            surviving,
+            PRIOR_REPORT,
+            "a ledger that failed its own integrity check overwrote the last valid "
+            "measurement",
+        )
+        self.assertEqual(leftovers, ["lane_ledger.json"], "no temp file may survive")
+        self.assertIn("refusing to write", output)
+        self.assertIn(
+            "[module-tests][lane-ledger][INTEGRITY]",
+            output,
+            "a report that was NOT written must say so; a silently missing report is "
+            "the same absence-reads-as-success defect",
+        )
+        # The evidence is not lost: the full block is still on stdout.
+        self.assertEqual(_records(output)["PassLane"]["outcome"], "PASS")
 
     def test_unwritable_report_path_fails_the_run(self) -> None:
         lanes = [("PassLane", True)]
@@ -1249,6 +1379,72 @@ class DocConsistencyTests(unittest.TestCase):
             "an advisory lane CAN fail the run: exit 0 with a failing doctest summary "
             "goes through _validate_successful_lane() regardless of strict",
         )
+
+    def test_documented_grammar_matches_the_emitted_grammar(self) -> None:
+        """The documented field names are DERIVED from the code, not hand-listed.
+
+        #822 round 5 P2: renaming `executed` to `summary_reported` so that a
+        stale parser breaks loudly accomplishes nothing while the documented
+        grammar still advertises the old name. A hand-maintained copy of a
+        format is a copy that drifts, so this compares the real emitted line
+        against every documented template.
+        """
+        record = harness.LaneLedgerRecord(lane="SampleLane", strict=True)
+        emitted_lane_keys = _grammar_keys(harness._format_lane_result_line(record))
+        self.assertIn("summary_reported", emitted_lane_keys, "sanity: the field exists")
+
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            harness.LaneLedger([("SampleLane", True)]).print_block()
+        aggregate_line = next(
+            line
+            for line in buffer.getvalue().splitlines()
+            if line.startswith("[module-tests][lane-ledger] lanes=")
+        )
+        emitted_aggregate_keys = _grammar_keys(aggregate_line)
+
+        for doc in DOCS_CLAIMING_ADVISORY_BEHAVIOUR:
+            text = doc.read_text(encoding="utf-8")
+            for label, prefix, expected in (
+                ("per-lane", "[module-tests][lane-result] ", emitted_lane_keys),
+                ("aggregate", "[module-tests][lane-ledger] lanes=", emitted_aggregate_keys),
+            ):
+                with self.subTest(doc=doc.name, line=label):
+                    templates = [
+                        line for line in text.splitlines() if line.startswith(prefix)
+                    ]
+                    self.assertTrue(
+                        templates,
+                        f"{doc.name} documents no {label} grammar line; the format must "
+                        f"be written down somewhere a reader will find it",
+                    )
+                    for template in templates:
+                        self.assertEqual(
+                            _grammar_keys(template),
+                            expected,
+                            f"{doc.name}: the documented {label} grammar does not match "
+                            f"what the runner emits",
+                        )
+
+    def test_docs_carry_no_local_worktree_identifiers(self) -> None:
+        """#822 round 5 P1: no ephemeral agent artifacts in the repository.
+
+        A local worktree name is the clearest machine-readable marker of
+        evidence that cannot be reproduced from the repository. An ADR records
+        why a decision was made and what would change it; the transcript and the
+        binary provenance of one run on one afternoon belong in the pull request
+        (AGENTS.md - transcripts, session IDs, scratch notes, dirty-worktree
+        dumps, local task instances).
+        """
+        for doc in DOCS_CLAIMING_ADVISORY_BEHAVIOUR:
+            with self.subTest(doc=doc.name):
+                match = LOCAL_WORKTREE_RE.search(doc.read_text(encoding="utf-8"))
+                if match is not None:
+                    self.fail(
+                        f"{doc.name} names a local worktree ({match.group(0)!r}). That "
+                        f"evidence is not reproducible from the repository and goes "
+                        f"stale on the next measurement; put it in the PR body."
+                    )
 
     def test_docs_do_not_claim_advisory_lanes_can_never_gate(self) -> None:
         for doc in DOCS_CLAIMING_ADVISORY_BEHAVIOUR:

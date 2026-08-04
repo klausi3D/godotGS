@@ -9,51 +9,43 @@
   lifecycle lanes are advisory). **Precedent:**
   [`adr-test-quarantine-manifest.md`](adr-test-quarantine-manifest.md).
 
-## Status note 2026-08-03: the measurement has been taken, and it falsifies the hypothesis
+## Status note: the measurement falsified the motivating hypothesis
 
-The evidence run has been executed against a `tests=yes` binary on the self-hosted runner
-(the `wt-595` binary, with `git diff 8fae40f00de..HEAD -- '*.h' '*.cpp'` empty, so the
-compiled C++ is byte-identical to this branch). Headline:
+A full lane run has since been executed against a `tests=yes` binary on the self-hosted
+runner. **It recorded no advisory failures**, so the premise this slice was built on —
+that advisory lanes are swallowing red — is **not supported by the measurement**. That
+finding stands on the record rather than being quietly dropped for being inconvenient.
 
-```
-advisory_failures=0  strict_failures=0  unavailable=0  not_run=0
-```
+What the run did surface is **absent coverage, not concealed failure**: one advisory lane
+(`GPU Memory Stream`) reporting green while executing zero assertions, and a substantial
+block of self-skipped coverage concentrated in one lane (`Streaming Pipeline`).
 
-That block is quoted **verbatim as published**, so it still shows `strict_failures`, which
-round 3 renamed to `gating_failures` (§4a). The measured value is unaffected by the rename:
-the run recorded no `FAIL` outcome on any lane, strict or advisory, so both the old and the
-new field are 0. A later run must be compared against `gating_failures`, not against a field
-name that no longer exists.
+That changes what GS-705-2 should arm:
 
-**The advisory lanes are not concealing failures.** The motivating hypothesis of this slice —
-that advisory lanes are swallowing red — is **not supported by the measurement**, and that
-finding must not be quietly dropped now that it is inconvenient. What the run did surface:
+- a gate on advisory *failures* would pin zero and defend nothing, because there is nothing
+  there to defend against;
+- the defensible ratchets are on **executed coverage** (a lane with 0 assertions must not
+  count as green) and on the **skip-marker counts** (shrink-only), each pinned at the value
+  the ledger measures at arming time;
+- flipping the six lanes to `strict`, as #705 literally proposes, is cheap for most of them
+  and would immediately fail the zero-coverage lane. That is the correct outcome, to be
+  resolved by giving that lane real coverage — never by re-hiding it.
 
-- one `ADVISORY-RED … reason=no-coverage`: **`GPU Memory Stream`, 1 case selected,
-  0 assertions executed** — a lane that has been reporting green while running nothing;
-- **47 skip markers across 4 lanes, 38 of them in `Streaming Pipeline`** — roughly 60% of
-  that lane self-skipping.
+**The coverage ratchet depends on the round-4 `zero_coverage` definition (§4a).** Armed on
+the superseded passed-count formula, a lane in which every test failed would have reported
+`zero_coverage=1`, indistinguishable from a lane that ran nothing, and the ratchet would
+have read that catastrophe as improvement. GS-705-2 must pin against `zero_coverage` as
+defined in §4a, and against `gating_failures` — round 3 renamed `strict_failures`, so any
+older transcript uses a field name that no longer exists.
 
-So the concealed problem is **absent coverage, not concealed failure**. That materially
-changes what GS-705-2 should arm: a gate on advisory *failures* would pin 0 and defend
-nothing, because there is nothing there to defend against. The defensible ratchets are on
-**executed coverage** (a lane with 0 assertions must not count as green) and on the
-**skip-marker counts** (shrink-only, pinned at the measured 47/38), neither of which is a
-guess. Flipping the six lanes to `strict` as #705 literally proposes is now measurably
-cheap for five of them and would immediately fail on `GPU Memory Stream`'s zero coverage —
-which is the correct outcome, and should be handled by giving that lane real coverage, not
-by re-hiding it.
+Neither the round-3 renames nor the round-4 `zero_coverage` fix changes the numbers that run
+measured: it recorded no failing lane at all, and the superseded formulas differ from the
+current ones only where failed counts are nonzero.
 
-The ledger format needed no change to produce this; the run used it as shipped. The measured
-numbers are also unaffected by the round-4 `zero_coverage` fix (§4a): that run recorded no
-failing lane at all — `advisory_failures=0` and no `FAIL` outcome — and the old and new
-formulas differ only where failed counts are nonzero. The one `ADVISORY-NO-COVERAGE`
-(`GPU Memory Stream`, `1 passed | 0 failed`, 0 assertions) is `zero_coverage=1` under both.
-
-**The ratchet recommended above depends on that fix.** Armed on the old formula, a lane in
-which every test failed would have reported `zero_coverage=1` — indistinguishable from a
-lane that ran nothing, and a coverage ratchet would have read the catastrophe as
-improvement. GS-705-2 must pin against `zero_coverage` as defined in §4a.
+> The per-lane transcript, exact invocation and binary provenance for that run live in the
+> pull request, not here. An ADR records *why* a decision was made and *what would change
+> it*; evidence valid for one machine on one afternoon belongs with the change that produced
+> it (`AGENTS.md` — no ephemeral agent artifacts in the repository).
 
 ## Context
 
@@ -146,18 +138,22 @@ lane that was never attempted.
 Per lane, one line in lane order:
 
 ```
-[module-tests][lane-result] lane=<name> strict=<0|1> outcome=<OUTCOME> passed_tests=<n> passed_assertions=<n> failed_tests=<n> failed_assertions=<n> skipped_markers=<n> exit_code=<n> executed=<0|1> zero_coverage=<0|1|-1>
+[module-tests][lane-result] lane=<name> strict=<0|1> outcome=<OUTCOME> passed_tests=<n> passed_assertions=<n> failed_tests=<n> failed_assertions=<n> skipped_markers=<n> exit_code=<n> summary_reported=<0|1> zero_coverage=<0|1|-1>
 ```
 
 `OUTCOME` is one of `PASS`, `FAIL`, `ADVISORY-FAIL`, `ADVISORY-NO-COVERAGE`,
 `UNAVAILABLE`, `QUARANTINE-TOLERATED`, `QUARANTINE-REJECTED`, `NOT-RUN`.
 
 The first eight fields are the grammar named in the task contract. `exit_code`,
-`executed` and `zero_coverage` are an **additive suffix**: the contract's prefix is
+`summary_reported` and `zero_coverage` are an **additive suffix**: the contract's prefix is
 unchanged, and a superset is not a weakening. They are present because the process exit
-code, "did this lane execute at all" and "did it have zero executed coverage" are the
-three facts a reader needs to tell a crash from a pass from an empty lane, and dropping
-them would make the ledger unable to answer the question it was built for.
+code, "did doctest report at all" and "did the lane execute any coverage" are the three
+facts a reader needs to tell a crash from a pass from an empty lane, and dropping them
+would make the ledger unable to answer the question it was built for.
+
+`summary_reported` was called `executed` until round 4 (§4a). The rename is recorded **in
+this grammar**, not only in the code: renaming a field so that a stale parser breaks loudly
+accomplishes nothing if the documented grammar still advertises the old name.
 
 `NOT-RUN` is likewise additive. When a strict lane aborts the run, the remaining lanes are
 printed as `NOT-RUN` rather than omitted, for the same reason as §2.
@@ -237,11 +233,23 @@ engine code and does not apply here.)
 
 ### 6. Fail closed on anything the ledger cannot determine
 
-An unwritable report path, a lane recorded twice, or a lane left `NOT-RUN` in a run that
-was not aborted is a **harness-integrity failure**: the runner prints
-`[module-tests][lane-ledger][INTEGRITY] ...` and returns nonzero. This is not a test gate —
-it cannot be reached by any test outcome — but silently omitting a lane would recreate the
-bug being fixed, so it must be loud.
+An unwritable report path, a lane recorded twice, a self-contradictory record, or a lane the
+runner **attempted** that was left `NOT-RUN` is a **harness-integrity failure**: the runner
+prints `[module-tests][lane-ledger][INTEGRITY] ...` and returns nonzero. This is not a test
+gate — it cannot be reached by any test outcome — but silently omitting a lane would recreate
+the bug being fixed, so it must be loud.
+
+"Attempted" is counted, not inferred from an abort flag. Validation used to be skipped
+entirely whenever the run aborted, which excused every record collected *before* the abort —
+reopening the "did not run reads as passed" hole for exactly the runs where something had
+already gone wrong. Only lanes after the aborting one may be `NOT-RUN`.
+
+**A ledger that fails its own integrity check is not written to `--lane-report`.** The
+atomic write guarantees the destination is never empty or partial; it does not decide
+whether the content deserves to replace what is there. Overwriting the last valid
+measurement with a known-untrustworthy one destroys good evidence in favour of bad — the
+same trade the preflight fix in §5 refused — and the full block is on stdout regardless. The
+refusal is printed, so a missing report is never silent.
 
 ## Explicitly not decided here
 

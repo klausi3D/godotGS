@@ -2198,12 +2198,22 @@ class LaneLedger:
                 totals.strict_lanes += 1
             else:
                 totals.advisory_lanes += 1
+            # Zero coverage is a PROPERTY of the record, not one bucket in a
+            # mutually-exclusive outcome chain: an advisory lane can execute
+            # nothing while its outcome is ADVISORY-FAIL (a crash whose summary
+            # reported 0|0), QUARANTINE-TOLERATED or FAIL. Counting it from the
+            # ADVISORY-NO-COVERAGE outcome alone under-reported exactly the thing
+            # this ledger exists to expose, and it is the field GS-705-2 is meant
+            # to ratchet on. `is True` on purpose: None means "not knowable"
+            # (no doctest summary) and must never be silently read as zero.
+            if not record.strict and record.zero_coverage is True:
+                totals.advisory_zero_coverage += 1
             if record.outcome == LANE_OUTCOME_PASS:
                 totals.passed += 1
             elif record.outcome == LANE_OUTCOME_ADVISORY_FAIL:
                 totals.advisory_failures += 1
             elif record.outcome == LANE_OUTCOME_ADVISORY_NO_COVERAGE:
-                totals.advisory_zero_coverage += 1
+                pass  # counted above, by property
             elif record.outcome == LANE_OUTCOME_QUARANTINE_TOLERATED:
                 totals.quarantine_tolerated += 1
             elif record.outcome == LANE_OUTCOME_QUARANTINE_REJECTED:
@@ -2224,16 +2234,25 @@ class LaneLedger:
                 totals.not_run += 1
         return totals
 
-    def check_integrity(self, *, aborted: bool) -> list[str]:
+    def check_integrity(self, *, attempted_lanes: int) -> list[str]:
+        """Validate every lane the runner ATTEMPTED, abort or no abort.
+
+        `attempted_lanes` is how many lanes the loop reached, so only the lanes
+        AFTER an aborting one may legitimately be NOT-RUN. The previous version
+        took an `aborted` flag and skipped the whole check whenever it was set,
+        which meant a lane whose record went missing BEFORE the abort escaped
+        validation entirely - the same "did not run reads as passed" hole this
+        ledger exists to close, reopened for exactly the runs where a lane
+        already failed.
+        """
         errors = list(self.integrity_errors)
-        if not aborted:
-            for record in self.records:
-                if record.outcome == LANE_OUTCOME_NOT_RUN:
-                    errors.append(
-                        f"lane '{record.lane}' was attempted but produced no ledger "
-                        f"record (outcome stayed {LANE_OUTCOME_NOT_RUN} in a run that "
-                        f"was not aborted); an unrecorded lane reads as a passed lane."
-                    )
+        for index, record in enumerate(self.records):
+            if index < attempted_lanes and record.outcome == LANE_OUTCOME_NOT_RUN:
+                errors.append(
+                    f"lane '{record.lane}' was attempted but produced no ledger "
+                    f"record (outcome stayed {LANE_OUTCOME_NOT_RUN}); an unrecorded "
+                    f"lane reads as a passed lane."
+                )
         errors.extend(_self_contradictory_records(self.records))
         return errors
 
@@ -3652,9 +3671,10 @@ def _run_doctest_lanes(
     ledger = LaneLedger((name, strict) for name, _run_args, strict in runs)
     quarantine = _load_quarantine()
     exit_code = 0
-    aborted = False
+    attempted_lanes = 0
     for index, (name, run_args, strict) in enumerate(runs):
         totals.lanes += 1
+        attempted_lanes += 1
         lane_exit_code, lane_result = _execute_lane(
             godot,
             name,
@@ -3668,20 +3688,33 @@ def _run_doctest_lanes(
         ledger.record(index, lane_result, ended_run=lane_exit_code is not None)
         if lane_exit_code is not None:
             exit_code = lane_exit_code
-            aborted = True
             break
     else:
         _print_doctest_totals(totals)
 
     ledger_totals = ledger.print_block()
-    integrity_errors = ledger.check_integrity(aborted=aborted)
+    integrity_errors = ledger.check_integrity(attempted_lanes=attempted_lanes)
     if lane_report_path is not None:
-        integrity_errors.extend(
-            _write_lane_report(
-                lane_report_path,
-                ledger.to_json(ledger_totals, lane_loop_exit_code=exit_code),
+        if integrity_errors:
+            # The atomic write guarantees the destination is never empty or
+            # partial; it does NOT decide whether this ledger is worth keeping.
+            # A ledger that failed its own integrity check is known-untrustworthy,
+            # so overwriting the last valid measurement with it destroys good
+            # evidence in favour of bad - the same trade the round-2 preflight fix
+            # refused. The full block is on stdout above either way.
+            print(
+                f"[module-tests][lane-ledger][INTEGRITY] refusing to write "
+                f"{lane_report_path}: this ledger failed its own integrity check "
+                f"(see the lines below). Any previous report at that path is left "
+                f"untouched; the full block is on stdout above."
             )
-        )
+        else:
+            integrity_errors.extend(
+                _write_lane_report(
+                    lane_report_path,
+                    ledger.to_json(ledger_totals, lane_loop_exit_code=exit_code),
+                )
+            )
     if integrity_errors:
         # The ledger gates no TEST outcome, but it must not report success for a
         # run whose own record is incomplete or unpersisted.

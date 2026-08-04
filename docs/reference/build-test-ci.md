@@ -105,6 +105,12 @@ strict lane. The strict/advisory split is derived from each lane's declared `str
 and is in the JSON as `gating_failures_on_strict_lanes` /
 `gating_failures_on_advisory_lanes`.
 
+`advisory_zero_coverage` counts advisory lanes whose `zero_coverage` is 1, **whatever their
+outcome**. It is not tied to the `ADVISORY-NO-COVERAGE` outcome, because a lane can execute
+nothing while its outcome is `ADVISORY-FAIL`, `QUARANTINE-TOLERATED` or `FAIL`; counting it
+from the outcome alone under-reported the very thing the field exists to expose. A lane that
+produced no doctest summary has `zero_coverage=-1` (not knowable) and is never counted.
+
 **An `ADVISORY-RED` line means that lane failed, crashed, or executed nothing, and that
 outcome did not itself fail the run.** (It does *not* mean the run passed: the loop
 continues after an advisory failure, so a later strict lane can still fail — read
@@ -135,7 +141,10 @@ the process exit nonzero afterwards. The file is a build
 output and must stay untracked. It is rejected together with `--guard-only`, where it could
 only produce an empty report. An unwritable path fails the run rather than being skipped —
 checked before the lanes run, using a sibling probe file so an existing report is never
-truncated. The write itself is serialize-then-temp-then-`os.replace`, so the destination is
+truncated. A ledger that fails its own integrity check is **not written at all**, so a
+known-untrustworthy report can never replace the last valid measurement; the refusal is
+printed and the full block is on stdout regardless. The write itself is
+serialize-then-temp-then-`os.replace`, so the destination is
 either the previous report or the complete new one, never empty or partial.
 
 The ledger's own unit test (`tests/ci/test_run_module_tests_lane_ledger.py`) runs in the
