@@ -217,7 +217,7 @@ jobs:
           # gs_avx2=yes is an unconditional ISA floor whose failure mode on an
           # older CPU is an illegal-instruction fault inside GS code, not a
           # diagnostic. Upstream Godot declines AVX2 for the same reason
-          # (SConstruct:737-739) and ships SSE4.2. `auto` declines today, so this
+          # (SConstruct:736-740) and ships SSE4.2. `auto` declines today, so this
           # is a NO-OP -- pinned so a future change to `auto` cannot silently
           # raise the CPU floor of an artifact a user downloads.
           if [[ "${{ needs.release_metadata.outputs.channel }}" == "stable" ]]; then
