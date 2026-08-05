@@ -121,8 +121,14 @@ outcome that nothing gates on today, and `reason=` says which kind:
 | --- | --- |
 | `failed` | the doctest summary reports failed tests or assertions |
 | `crashed` | no doctest summary at all — the lane died before reporting |
-| `nonzero-exit-no-test-failures` | every test passed and the process still exited nonzero (teardown/harness failure, not a test failure) |
-| `no-coverage` | the lane executed nothing |
+| `nonzero-exit-no-test-failures` | tests **ran** and passed, and the process still exited nonzero (teardown/harness failure, not a test failure) |
+| `no-coverage` | the lane executed nothing — whatever its outcome or exit code |
+
+The reasons are evaluated in that order, and `no-coverage` is checked **before**
+`nonzero-exit-no-test-failures`: a lane that exits nonzero after printing a summary in which
+nothing ran is a no-coverage lane, and reporting it as a teardown failure would tell a
+reader that tests ran and passed when none ran. `no-coverage` requires `zero_coverage=1`
+exactly; `-1` ("not knowable", no summary) reports `crashed`.
 
 `nonzero-exit-no-test-failures` exists because "a summary was printed, therefore tests
 failed" is wrong, and reporting it as `failed` would announce a test failure where none

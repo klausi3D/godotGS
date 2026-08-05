@@ -1893,10 +1893,17 @@ class DoctestTotals:
 # Per-lane result ledger (#705, slice 1).
 #
 # It REPORTS; it gates nothing. See docs/architecture/adr-advisory-lane-ledger.md.
-# Advisory (strict=False) lanes cannot change the exit code by any path, so a
-# failure, a crash, zero coverage and self-skipped coverage are all invisible
-# today. The ledger records what happened per lane so #705/#519 can be armed
-# later against a MEASURED value instead of a guessed one.
+#
+# On an advisory (strict=False) lane, a nonzero exit, a crash, zero coverage and
+# self-skipped coverage are all TOLERATED - that lane's own outcome does not fail
+# the run - and since doctest exits nonzero whenever a test fails, that covers the
+# normal shape of an advisory failure. Two outcomes still fail the run for ANY
+# lane regardless of strict: exit 0 while the doctest summary reports failures,
+# and exit 0 with no doctest summary at all. "Advisory" is not an unconditional
+# exemption from the exit code.
+#
+# The ledger records what happened per lane so #705/#519 can be armed later
+# against a MEASURED value instead of a guessed one.
 # --------------------------------------------------------------------------
 
 LANE_LEDGER_SCHEMA_VERSION = 1
@@ -1997,21 +2004,33 @@ class LaneLedgerRecord:
         have this ledger announce "an advisory lane is failing tests" when
         nothing failed - a confidently wrong claim someone would then quote.
 
-        So the reason is derived from the failed COUNTS and the exit status:
-        - no-coverage                    nothing executed
+        So the reason is derived from the failed COUNTS, the executed coverage
+        and the exit status:
         - failed                         the summary reports failed tests/assertions
-        - nonzero-exit-no-test-failures  every test passed, yet the process still
+        - no-coverage                    nothing executed, whatever the outcome or
+                                         the exit code
+        - nonzero-exit-no-test-failures  tests RAN and passed, yet the process still
                                          exited nonzero (teardown/harness crash);
                                          named for the observation, not a guessed cause
         - crashed                        no doctest summary at all
+
+        The zero-coverage check has to come BEFORE the teardown fallback. A lane
+        that exits nonzero after printing a summary in which nothing ran is a
+        no-coverage lane; reporting it as `nonzero-exit-no-test-failures` because
+        a summary merely exists tells a stdout consumer that tests ran and passed
+        when none ran at all - and the aggregate is meanwhile counting it under
+        advisory_zero_coverage, so the two would disagree in the same block.
+
+        `is True`, not truthiness: `None` means "not knowable" (no summary) and
+        must never be read as zero.
         """
-        if self.outcome == LANE_OUTCOME_ADVISORY_NO_COVERAGE:
-            return "no-coverage"
         if self.failed_tests > 0 or self.failed_assertions > 0:
             return "failed"
+        if self.outcome == LANE_OUTCOME_ADVISORY_NO_COVERAGE or self.zero_coverage is True:
+            return "no-coverage"
         if self.summary_reported:
-            # A summary was printed and it reported no failures, yet the lane is
-            # red - so the lane exited nonzero after its tests passed.
+            # A summary was printed, it reported no failures, and something DID
+            # run - yet the lane is red, so it exited nonzero after passing.
             return "nonzero-exit-no-test-failures"
         return "crashed"
 

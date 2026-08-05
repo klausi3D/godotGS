@@ -340,10 +340,69 @@ PRIOR_REPORT = '{"schema_version": 1, "note": "the previous measurement"}\n'
 # pattern negation-aware would make it guess at meaning, and a guessing guard is
 # worse than one that forces the author to phrase the warning differently.
 # --------------------------------------------------------------------------
-DOCS_CLAIMING_ADVISORY_BEHAVIOUR = (
+# WHERE THE CLAIM CAN LIVE, derived - not where it happened to live when this
+# guard was written (#822 round 8). The first version scanned exactly two
+# markdown files, and the very commit that added it put the banned wording into
+# run_module_tests.py's own header comment. The guard was green while the false
+# claim it exists to prevent was live in the runner: a check that cannot observe
+# the thing it claims to rule out, written specifically to rule out that thing.
+#
+# So membership is decided by CONTENT: any text file in the project's own subtree
+# that discusses advisory lanes or the ledger is in scope, and a new file that
+# starts discussing them is covered the day it is written. Extending a
+# hand-written list of filenames would have rebuilt the same defect with a longer
+# list.
+#
+# The one hand-drawn boundary is the search root: the project's own directories
+# per AGENTS.md, excluding vendored upstream. That is a scope decision about what
+# this repository owns, not a guess about where a claim might appear.
+CLAIM_SEARCH_ROOTS = (
+    ROOT / "docs",
+    ROOT / "tests",
+    ROOT / "modules" / "gaussian_splatting",
+    ROOT / ".github",
+)
+CLAIM_SEARCH_SUFFIXES = frozenset({".md", ".py", ".yml", ".yaml", ".txt", ".json"})
+# A file is in scope when it TALKS ABOUT the thing the rule is about.
+LEDGER_TOPIC_RE = re.compile(
+    r"advisory lane|ADVISORY-RED|ADVISORY-FAIL|lane-ledger|lane-result|"
+    r"advisory \(strict=False\)",
+    re.I,
+)
+# The two documents that must additionally state the qualification positively.
+# This list is for the REQUIRED-marker check (a doc must say the thing), which is
+# a statement about these specific documents; the FORBIDDEN check above is
+# repo-wide and needs no list.
+DOCS_REQUIRED_TO_STATE_THE_EXCEPTION = (
     ROOT / "docs" / "reference" / "build-test-ci.md",
     ROOT / "docs" / "architecture" / "adr-advisory-lane-ledger.md",
 )
+
+
+def _files_discussing_the_ledger() -> list[Path]:
+    """Every project-owned text file that discusses advisory lanes / the ledger.
+
+    Excludes only this file, and by identity rather than by name: it *defines*
+    the forbidden patterns, so their appearance here is a pattern definition and
+    not a claim. Nothing else is exempt.
+    """
+    self_path = Path(__file__).resolve()
+    found: list[Path] = []
+    for root in CLAIM_SEARCH_ROOTS:
+        if not root.is_dir():
+            continue
+        for path in root.rglob("*"):
+            if not path.is_file() or path.suffix.lower() not in CLAIM_SEARCH_SUFFIXES:
+                continue
+            if path.resolve() == self_path:
+                continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if LEDGER_TOPIC_RE.search(text):
+                found.append(path)
+    return sorted(found)
 FORBIDDEN_ABSOLUTE_CLAIMS = (
     re.compile(r"cannot change the (?:runner's )?exit code by any path", re.I),
     re.compile(r"(?:can )?never (?:change|affect|influence) the (?:runner's )?exit code", re.I),
@@ -936,6 +995,49 @@ class LaneLedgerOutcomeTests(unittest.TestCase):
             "a summary with zero failures did not report a test failure",
         )
         self._assert_parity(rc, BASELINE_RC_ADVISORY_FAIL, {}, lanes, results)
+
+    def test_a_nonzero_exit_with_nothing_executed_reports_no_coverage(self) -> None:
+        """#822 round 8: reason= must not hide zero coverage behind a summary.
+
+        A lane that exits nonzero after printing a summary in which nothing ran
+        was reported as `nonzero-exit-no-test-failures` merely because a summary
+        existed - telling a stdout consumer that tests ran and passed when none
+        ran. The aggregate was meanwhile counting the same lane under
+        advisory_zero_coverage, so the two disagreed inside one block.
+        """
+        lanes = [("EmptyAndFailing", False)]
+        results = _godot(False, False, NO_COVERAGE_OUTPUT, 1)
+        rc, output = _drive(lanes, results)
+        self._assert_record(
+            output,
+            "EmptyAndFailing",
+            outcome="ADVISORY-FAIL",
+            zero_coverage=1,
+            summary_reported=1,
+            failed_tests=0,
+            failed_assertions=0,
+        )
+        self.assertEqual(
+            _advisory_red(output),
+            {"EmptyAndFailing": "no-coverage"},
+            "nothing executed, so the reason is no-coverage - not a teardown crash",
+        )
+        # The stdout reason and the aggregate must agree in the same block.
+        self.assertEqual(_aggregate(output)["advisory_zero_coverage"], 1)
+        self._assert_parity(rc, BASELINE_RC_ADVISORY_FAIL, {}, lanes, results)
+
+    def test_unknown_coverage_still_reports_crashed_not_no_coverage(self) -> None:
+        """`is True`, not truthiness: -1 means not knowable and must not read as zero."""
+        lanes = [("Crashed", False)]
+        rc, output = _drive(lanes, _godot(False, False, CRASH_OUTPUT, 3221225477))
+        self._assert_record(output, "Crashed", zero_coverage=-1, summary_reported=0)
+        self.assertEqual(
+            _advisory_red(output),
+            {"Crashed": "crashed"},
+            "a lane with no summary has UNKNOWN coverage; it must not be reported "
+            "as having executed nothing",
+        )
+        self.assertEqual(rc, BASELINE_RC_ADVISORY_FAIL)
 
     def test_reason_distinguishes_all_four_advisory_red_shapes(self) -> None:
         """Each reason must be reachable and distinct; otherwise the field is noise."""
@@ -1921,7 +2023,7 @@ class DocConsistencyTests(unittest.TestCase):
         )
         emitted_aggregate_keys = _grammar_keys(aggregate_line)
 
-        for doc in DOCS_CLAIMING_ADVISORY_BEHAVIOUR:
+        for doc in DOCS_REQUIRED_TO_STATE_THE_EXCEPTION:
             text = doc.read_text(encoding="utf-8")
             for label, prefix, expected in (
                 ("per-lane", "[module-tests][lane-result] ", emitted_lane_keys),
@@ -1954,7 +2056,7 @@ class DocConsistencyTests(unittest.TestCase):
         (AGENTS.md - transcripts, session IDs, scratch notes, dirty-worktree
         dumps, local task instances).
         """
-        for doc in DOCS_CLAIMING_ADVISORY_BEHAVIOUR:
+        for doc in DOCS_REQUIRED_TO_STATE_THE_EXCEPTION:
             with self.subTest(doc=doc.name):
                 match = LOCAL_WORKTREE_RE.search(doc.read_text(encoding="utf-8"))
                 if match is not None:
@@ -1964,20 +2066,56 @@ class DocConsistencyTests(unittest.TestCase):
                         f"stale on the next measurement; put it in the PR body."
                     )
 
-    def test_docs_do_not_claim_advisory_lanes_can_never_gate(self) -> None:
-        for doc in DOCS_CLAIMING_ADVISORY_BEHAVIOUR:
-            with self.subTest(doc=doc.name):
-                self.assertTrue(doc.is_file(), f"missing doc: {doc}")
-                text = doc.read_text(encoding="utf-8")
+    def test_nothing_in_the_project_claims_advisory_lanes_can_never_gate(self) -> None:
+        """Repo-wide, not doc-wide (#822 round 8).
+
+        The previous version scanned two markdown files, and the commit that
+        added it put the banned wording into run_module_tests.py. SOURCE
+        COMMENTS make this claim to exactly the audience most likely to act on
+        it, so the scan follows the subject rather than a file list.
+        """
+        scanned = _files_discussing_the_ledger()
+        self.assertGreaterEqual(
+            len(scanned),
+            3,
+            "the content-derived scan found almost nothing, which means the topic "
+            "regex or the search roots stopped matching - a silently empty scan is "
+            "the same absence-reads-as-success defect",
+        )
+        # The two places the claim has actually appeared must be in scope, or the
+        # derivation has drifted away from the thing it is supposed to cover.
+        scanned_resolved = {path.resolve() for path in scanned}
+        for required in (
+            ROOT / "tests" / "ci" / "run_module_tests.py",
+            *DOCS_REQUIRED_TO_STATE_THE_EXCEPTION,
+        ):
+            self.assertIn(
+                required.resolve(),
+                scanned_resolved,
+                f"{required.name} discusses advisory lanes but the scan does not "
+                f"cover it",
+            )
+
+        for path in scanned:
+            with self.subTest(path=path.relative_to(ROOT).as_posix()):
+                text = path.read_text(encoding="utf-8", errors="replace")
                 for pattern in FORBIDDEN_ABSOLUTE_CLAIMS:
                     match = pattern.search(text)
                     if match is not None:
                         self.fail(
-                            f"{doc.name} over-claims: {match.group(0)!r}. An advisory lane "
-                            f"that exits 0 with a failing doctest summary DOES fail the "
-                            f"run, and a run whose advisory lane went red can still exit "
-                            f"nonzero because of a LATER strict lane"
+                            f"{path.relative_to(ROOT).as_posix()} over-claims: "
+                            f"{match.group(0)!r}. An advisory lane that exits 0 with a "
+                            f"failing doctest summary DOES fail the run, and a run whose "
+                            f"advisory lane went red can still exit nonzero because of a "
+                            f"LATER strict lane"
                         )
+
+    def test_the_two_reference_documents_state_the_qualification(self) -> None:
+        """Avoiding the false claim is not the same as stating the true one."""
+        for doc in DOCS_REQUIRED_TO_STATE_THE_EXCEPTION:
+            with self.subTest(doc=doc.name):
+                self.assertTrue(doc.is_file(), f"missing doc: {doc}")
+                text = doc.read_text(encoding="utf-8")
                 for marker in REQUIRED_DOC_MARKERS:
                     if marker.search(text) is None:
                         # Deliberately not assertRegex: it dumps the whole
