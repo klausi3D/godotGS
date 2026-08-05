@@ -22,6 +22,17 @@ of the runtime harness uses (`run_runtime_validation._resolve_mode_args`,
 added for #382). Only the editor-side `--import` / `--export-release` steps run
 headless, because they render nothing.
 
+What actually proves the module is in there
+-------------------------------------------
+The byte-string scan of the template and of the exported binary is a **fast
+pre-check, not proof**: it rules a stock template OUT (a stock template
+contains none of those literals), but any file containing them would pass it,
+so it cannot rule a GS template IN. The proof is downstream and runs inside the
+exported binary: `export_smoke_probe.gd` resolves the GS types through ClassDB
+and then requires a live RenderingDevice, a renderer, visible splats and a
+successful GPU raster pass. Do not quote the symbol scan on its own as evidence
+that an export is GS-enabled.
+
 Usage
 -----
     python tests/runtime/run_export_smoke.py \
@@ -63,10 +74,17 @@ FAIL_MARKER = "[EXPORT_SMOKE_FAIL]"
 PASS_MARKER = "[EXPORT_SMOKE_PASS]"
 METRICS_MARKER = "[EXPORT_SMOKE_METRICS]"
 
-# Byte needles that must be present in a GS-enabled export template. A stock
-# Godot template contains neither; that is exactly the silent failure this test
-# is built to catch (issue #825: GrandmasHouse exported on 2026-01-21 with
-# custom_template/release="" and its .exe carries zero GS symbols).
+# Byte needles absent from a stock Godot template, which is the silent failure
+# this test exists to catch (issue #825: GrandmasHouse exported on 2026-01-21
+# with custom_template/release="" and its .exe carries zero GS symbols).
+#
+# NECESSARY, NOT SUFFICIENT. This is a cheap pre-check, not proof that a binary
+# is GS-enabled: any file containing these literals passes it, so on its own it
+# is trivially defeatable. Its job is to fail fast before a multi-minute export,
+# and to catch the specific stock-template case. The actual proof that the
+# module is present and working is downstream, in the exported binary itself:
+# the ClassDB lookup in export_smoke_probe.gd and the render evidence it
+# gathers on a live RenderingDevice.
 REQUIRED_TEMPLATE_SYMBOLS: Sequence[bytes] = (b"GaussianSplat", b"gaussian_splatting")
 
 EXIT_PASS = 0
@@ -164,8 +182,15 @@ def _tail(text: str, lines: int = 30) -> str:
     return "\n".join(kept)
 
 
-def _template_has_gs_symbols(binary: Path) -> List[str]:
-    """Return the required needles that are absent from `binary`.
+def _missing_gs_symbol_needles(binary: Path) -> List[str]:
+    """Return the byte needles that are absent from `binary`.
+
+    An empty result means only "these literals appear somewhere in the file" --
+    it does NOT establish that the binary is a GS-enabled Godot template. See
+    REQUIRED_TEMPLATE_SYMBOLS: this is a fast, defeatable pre-check whose value
+    is catching the stock-template case before a multi-minute export. Treat a
+    non-empty result as conclusive (the module is definitely not in there) and
+    an empty one as merely "keep going".
 
     Read in chunks with an overlap so a needle straddling a chunk boundary is
     still found -- an unbounded read of a ~70 MB (Windows) or ~120 MB (Linux)
@@ -369,16 +394,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print(f"[export-smoke] editor   = {editor}")
     print(f"[export-smoke] template = {template}")
 
-    # Guard the template itself before spending minutes on an export. A stock
-    # template would produce a green-looking export and a silently splat-free
-    # game; refuse to proceed instead.
-    missing = _template_has_gs_symbols(template)
+    # Cheap pre-check before spending minutes on an export: a stock template
+    # would produce a green-looking export and a silently splat-free game.
+    # Absence of the needles is conclusive; presence proves nothing on its own.
+    missing = _missing_gs_symbol_needles(template)
     if missing:
         return _fail(
             f"Export template {template} contains no {', '.join(missing)} symbols -- "
-            "it is not a GS-enabled template."
+            "it cannot be a GS-enabled template."
         )
-    print("[export-smoke] template carries GaussianSplat symbols.")
+    print("[export-smoke] pre-check: template contains GS symbol strings (not yet proof).")
 
     if not FIXTURE_FILE.is_file():
         prep = _run(
@@ -436,16 +461,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print(_tail(exported_result.stdout + "\n" + exported_result.stderr))
             return _fail(f"Export failed (exit {exported_result.returncode}); no binary at {exported}.")
 
-        # Discriminating static check on the produced artifact, mirroring the
-        # evidence in #825 (`grep -a GaussianSplat <exe>`). A stock-template
-        # export lands here with zero matches.
-        missing_in_export = _template_has_gs_symbols(exported)
+        # Static screen on the produced artifact, mirroring the evidence in #825
+        # (`grep -a GaussianSplat <exe>`): a stock-template export lands here
+        # with zero matches. One-directional -- it rules a stock template OUT,
+        # it does not rule a GS template IN, since any binary containing these
+        # literals would pass. The proof that the module is actually there and
+        # working is the ClassDB lookup plus the render evidence in
+        # export_smoke_probe.gd, which runs next inside this very binary.
+        missing_in_export = _missing_gs_symbol_needles(exported)
         if missing_in_export:
             return _fail(
                 f"Exported binary {exported} contains no {', '.join(missing_in_export)} symbols: "
                 "the export used a stock template (custom_template/release unset or wrong)."
             )
-        print("[export-smoke] exported binary carries GaussianSplat symbols.")
+        print("[export-smoke] pre-check: exported binary contains GS symbol strings; "
+              "running it now for the ClassDB + render proof.")
 
         run_result = _run(
             [str(exported), *_resolve_mode_args("windows-vulkan"), "--script", PROBE_RES_PATH],

@@ -125,10 +125,15 @@ The next run **refuses to start** in that case, with or without
 tell which. Inspect them, keep the one you want as `export_presets.cfg`, delete
 the backup, and re-run.
 
-It fails if the exported binary carries no `GaussianSplat` symbols, and it runs
-the game with a real Vulkan rendering device rather than `--headless` — a
-headless run has no `RenderingDevice`, which would make any "it rendered"
-assertion vacuous.
+It fails fast if the exported binary carries no `GaussianSplat` symbols. Treat
+that scan as a **pre-check only**: their absence rules a stock template out,
+but their presence proves nothing on its own — any file containing those
+literals would pass it. What actually proves the module is present and working
+is the next step, inside the exported binary: the probe resolves the GS types
+through `ClassDB` and then requires a live `RenderingDevice`, a renderer,
+visible splats and a successful GPU raster pass. The game is therefore run with
+a real Vulkan rendering device rather than `--headless` — a headless run has no
+`RenderingDevice`, which would make any "it rendered" assertion vacuous.
 
 The final assertion reads pixels back from the game window, so it needs an
 interactive desktop session — the same requirement as the in-repo
