@@ -26,8 +26,13 @@ was one level of indirection away, and widening the regex would have fixed that
 instance while leaving the class.
 
 So the rule is: **anything this file cannot model is an error, not silence.**
-Unsupported filter patterns raise. Unsupported `python` invocation forms raise.
-A local composite action raises. None of them fall through to "covered".
+Discovery is fail-CLOSED by default -- an execution-shaped line must fully
+resolve to a repository path or it raises. That default was inverted after
+three consecutive rounds found discovery fail-open in a different way each time
+(the regex shape, then invocation indirection, then module form / quoted local
+actions / variable interpreters), each fix having enumerated only the forms it
+had just been shown. Enumerating cases is what kept failing; the structural
+rule is the fix, and the case tests are its evidence rather than its substance.
 
 DECLARED LIMITATIONS
 --------------------
@@ -41,23 +46,32 @@ Each of these fails loudly rather than being silently mis-answered:
   semantics model for a construct the workflow does not use, any `!` pattern
   raises `UnsupportedFilterPattern`. Teaching the guard last-match-wins is a
   small change; doing it blind is not.
-* Glob constructs beyond `*`, `**` and `?` (character classes, `+`, braces,
-  backslash escapes) raise rather than being matched literally.
-* `python` invocations that are not a module (`-m`), inline (`-c`), a
-  flags-only run (`--version`), or a resolvable script path raise
-  `UnsupportedInvocation` -- including a quoted or variable script argument, or
-  a `.py` path that does not exist in the tree.
-* Script references are only looked for on lines that name an interpreter, or
-  on `./`-prefixed tokens. A helper reached through a wrapper the workflow does
-  not name on the same line is out of reach of discovery -- which is why the
-  manifest, not discovery, is the source of truth.
-* Non-python interpreter lines (`bash x.sh`, `pwsh x.ps1`) contribute only
-  paths that exist in the tree; unlike the python parser, a reference to a
-  missing file is skipped rather than raised, because the argument grammar of
-  an arbitrary shell is not modelled.
-* Steps that `uses:` a LOCAL composite action (`uses: ./...`) raise: their
+* Only `*` and a trailing `**` are modelled. `?` and `+` raise, because in
+  GitHub's syntax they quantify the PRECEDING character rather than matching an
+  arbitrary one -- an fnmatch-style translation would claim
+  `tests/ci/x.?y` covers `tests/ci/x.py`, which GitHub does not. `**/` raises
+  because it must also match ZERO directory levels (`a/**/b` covers `a/b`).
+  Character classes, braces and escapes raise outright.
+* `python` invocations must resolve: `-c` and flags-only runs are accepted,
+  `-m` is resolved against the tree (so `python -m tests.ci.helper` IS
+  discovered) and otherwise must be in `ALLOWED_PYTHON_MODULES`, and anything
+  else must be a literal `.py` path that exists. Unknown flags, variable paths
+  and missing files raise.
+* Non-python interpreters (`bash`, `sh`, `pwsh`, `powershell`) are parsed the
+  same way: `-c`/`-Command` terminate, known flags are skipped, and the first
+  remaining token must resolve to a repository file or it raises.
+* A repository script named on a line with NO literally named interpreter -- a
+  variable interpreter (`$PYTHON x.py`), a wrapper, or another YAML key --
+  raises, because the guard cannot confirm how it runs.
+* Steps that `uses:` a LOCAL composite action raise, quoted or not: their
   `run:` bodies live in another file this guard does not read. Third-party
   `uses:` steps are out of scope by design; they are not repository paths.
+* The `on:` block is excluded from execution scanning -- its `paths:` entries
+  are themselves quoted script paths.
+* Script paths embedded inside a GitHub expression (e.g.
+  `hashFiles('methods.py')`) are not treated as executions: tokens are matched
+  literally after quote-stripping only. Expressions cannot run repository code,
+  so this is a deliberate boundary rather than a gap.
 * Commented-out lines are ignored, in YAML and in shell bodies alike.
 
 No PyYAML. `tests/ci/run_module_tests.py --guard-only` runs under a bare
@@ -95,10 +109,12 @@ SCRIPT_SUFFIXES = (".py", ".sh", ".ps1")
 # `actions/setup-python@<sha>` (hyphen before) and inside `python-version:`
 # (hyphen after), so the pinned action and the setup-python input both parsed
 # as python invocations. Hyphens must be excluded on both sides.
-INTERPRETERS = re.compile(r"(?<![\w./-])(?:python3?|bash|sh|pwsh|powershell)(?![\w-])")
-PYTHON_TOKEN = re.compile(r"(?<![\w./-])python3?(?![\w-])")
+INTERPRETER_TOKEN = re.compile(r"(?<![\w./-])(python3?|bash|sh|pwsh|powershell)(?![\w-])")
 LIST_ITEM = re.compile(r'^\s*-\s*["\']?([^"\'#]+?)["\']?\s*(?:#.*)?$')
-LOCAL_ACTION = re.compile(r"^\s*(?:-\s*)?uses:\s*\./")
+# Quotes allowed: `uses: "./.github/actions/x"` is a local action too.
+LOCAL_ACTION = re.compile(r"""^\s*(?:-\s*)?uses:\s*["']?\.""")
+USES_KEY = re.compile(r"^\s*(?:-\s*)?uses:\s*(.+?)\s*$")
+SHELL_KEY = re.compile(r"^\s*shell:\s*[\w-]+\s*$")
 
 # python flags that take no argument and never name a script.
 PY_FLAGS_NO_ARG = frozenset(
@@ -106,10 +122,35 @@ PY_FLAGS_NO_ARG = frozenset(
 )
 # python flags that consume the following token.
 PY_FLAGS_WITH_ARG = frozenset({"-X", "-W", "--check-hash-based-pycs"})
-# Forms that terminate parsing without naming a repository script.
-PY_TERMINAL_OK = frozenset({"-m", "-c", "--version", "-V", "-h", "--help", "-"})
+# Forms that terminate parsing without naming a repository script. NOTE: `-m` is
+# NOT here -- a module can be repository code (`python -m tests.ci.helper`), so
+# it is resolved against the tree, not waved through.
+PY_TERMINAL_OK = frozenset({"-c", "--version", "-V", "-h", "--help", "-"})
+
+# The ONLY `python -m` targets accepted without resolving to a repository file.
+# Keep this minimal and say why each one is not repository code.
+ALLOWED_PYTHON_MODULES = frozenset(
+    {
+        "pip",  # `python -m pip install ...` -- stdlib-adjacent installer.
+        "SCons",  # `python -m SCons @args` -- the build system, a pip dependency.
+    }
+)
+
+SHELL_FLAGS_NO_ARG = frozenset({"-e", "-u", "-x", "-l", "-i", "-NoProfile", "-NoLogo"})
+SHELL_FLAGS_WITH_ARG = frozenset({"-o", "-ExecutionPolicy"})
+SHELL_TERMINAL_OK = frozenset({"-c", "-Command", "-command", "-EncodedCommand"})
 # Unmodelled glob constructs; matching them literally would be wrong.
-UNSUPPORTED_GLOB_CHARS = "[]{}+\\"
+#
+# `?` is here because GitHub's `?` means "zero or one of the PRECEDING
+# character", not "exactly one arbitrary non-slash character" as in fnmatch.
+# Modelling it the fnmatch way claimed `tests/ci/x.?y` covers `tests/ci/x.py`,
+# which GitHub does not. `+` has the same shape (one or more of the preceding
+# character), and character classes / braces / escapes are unmodelled outright.
+UNSUPPORTED_GLOB_CHARS = "?[]{}+\\"
+# `**/` must match ZERO directory levels too (`a/**/b` covers `a/b`), which the
+# straight `**` -> `.*` translation below gets wrong. Refused rather than
+# approximated.
+UNSUPPORTED_GLOB_SEQUENCES = ("**/",)
 
 
 class UnsupportedFilterPattern(RuntimeError):
@@ -121,10 +162,16 @@ class UnsupportedInvocation(RuntimeError):
 
 
 def github_path_match(pattern: str, path: str) -> bool:
-    """GitHub `paths:` glob semantics: `*` stops at `/`, `**` does not.
+    """GitHub `paths:` glob semantics for the subset this guard models.
+
+    Models exactly two constructs: a leading/embedded `*` (any run of characters
+    that does not cross `/`) and `**` (any run, `/` included) when it is not
+    followed by `/`. Everything else raises.
 
     `fnmatch` cannot be used here -- its `*` happily crosses `/`, which is the
     exact assumption that made `"*.py"` look like it covered `tests/ci/*.py`.
+    And its `?` means something different from GitHub's, which is why `?` is
+    refused rather than translated (see UNSUPPORTED_GLOB_CHARS).
     """
     if pattern.startswith("!"):
         raise UnsupportedFilterPattern(
@@ -138,9 +185,19 @@ def github_path_match(pattern: str, path: str) -> bool:
     if bad:
         raise UnsupportedFilterPattern(
             f"paths: pattern {pattern!r} uses glob construct(s) {bad} that this guard does not "
-            "model (only *, ** and ? are). Matching them literally would silently mis-answer "
-            "coverage."
+            "model (only * and ** are). In GitHub's syntax `?` and `+` quantify the PRECEDING "
+            "character rather than matching an arbitrary one, so translating them the fnmatch "
+            "way would claim coverage GitHub does not give. Implement and test them against "
+            "the documented behaviour, or keep them out of paths:."
         )
+    for sequence in UNSUPPORTED_GLOB_SEQUENCES:
+        if sequence in pattern:
+            raise UnsupportedFilterPattern(
+                f"paths: pattern {pattern!r} contains {sequence!r}, which must also match ZERO "
+                "directory levels (`a/**/b` covers `a/b`). This guard's `**` translation does "
+                "not, so it would under-report coverage here and over-report it elsewhere. "
+                "Implement the zero-level case with tests, or keep it out of paths:."
+            )
 
     regex = ""
     index = 0
@@ -152,8 +209,6 @@ def github_path_match(pattern: str, path: str) -> bool:
                 index += 2
                 continue
             regex += "[^/]*"
-        elif char == "?":
-            regex += "[^/]"
         else:
             regex += re.escape(char)
         index += 1
@@ -237,73 +292,163 @@ def _content_lines(workflow_text: str) -> List[str]:
     ]
 
 
-def check_python_invocations(workflow_text: str) -> Set[str]:
-    """Repo scripts run via python; raises on any form it cannot classify.
+def _body_lines(workflow_text: str) -> List[str]:
+    """Content lines OUTSIDE the top-level `on:` block.
 
-    Silence is the failure mode being designed out here: an invocation this
-    parser does not understand must stop the guard, not be skipped.
+    The `paths:` entries are themselves quoted script paths, so scanning them
+    for executions would flag the very list this guard checks against.
     """
-    found: Set[str] = set()
+    lines: List[str] = []
+    in_on_block = False
     for line in _content_lines(workflow_text):
-        for match in PYTHON_TOKEN.finditer(line):
-            argv = line[match.end() :].split()
-            index = 0
-            while index < len(argv):
-                token = argv[index]
-                if token in PY_TERMINAL_OK or token.startswith("-c") and token != "-c":
-                    break
-                if token in PY_FLAGS_WITH_ARG:
-                    index += 2
-                    continue
-                if token in PY_FLAGS_NO_ARG:
-                    index += 1
-                    continue
-                if token.startswith("-"):
-                    raise UnsupportedInvocation(
-                        f"Unrecognised python flag {token!r} in: {line.strip()!r}. This guard "
-                        "cannot tell whether a script follows it, so it refuses rather than "
-                        "guessing (see DECLARED LIMITATIONS)."
-                    )
-                candidate = _normalise(token)
-                if not candidate.endswith(".py"):
-                    raise UnsupportedInvocation(
-                        f"python argument {token!r} is not a literal .py path in: "
-                        f"{line.strip()!r}. A variable or computed script path cannot be "
-                        "checked against paths:; name it literally or add it to "
-                        "RELEASE_HELPER_SCRIPTS and extend this parser."
-                    )
-                if not (ROOT / candidate).is_file():
-                    raise UnsupportedInvocation(
-                        f"python script {candidate!r} does not exist in the tree "
-                        f"(from: {line.strip()!r})."
-                    )
-                found.add(candidate)
-                break
-            else:
-                # `python` with no arguments at all.
-                raise UnsupportedInvocation(
-                    f"Bare python invocation with no resolvable argument in: {line.strip()!r}."
-                )
-    return found
+        indent = len(line) - len(line.lstrip())
+        if indent == 0:
+            in_on_block = re.match(r"^on:\s*$", line.strip()) is not None
+            if in_on_block:
+                continue
+        if in_on_block:
+            continue
+        lines.append(line)
+    return lines
+
+
+def _resolve_python_module(module: str, line: str) -> Set[str]:
+    if module in ALLOWED_PYTHON_MODULES:
+        return set()
+    as_path = module.replace(".", "/")
+    for candidate in (f"{as_path}.py", f"{as_path}/__main__.py"):
+        if (ROOT / candidate).is_file():
+            return {candidate}
+    raise UnsupportedInvocation(
+        f"`python -m {module}` is neither a repository module nor an allowlisted external one "
+        f"(from: {line.strip()!r}). If it is repository code, name it so it can be checked "
+        f"against paths:; if it is a third-party tool, add it to ALLOWED_PYTHON_MODULES with a "
+        "comment saying why it is not a repository path."
+    )
+
+
+def _resolve_python(argv: List[str], line: str) -> Set[str]:
+    index = 0
+    while index < len(argv):
+        token = argv[index]
+        if token == "-m":
+            if index + 1 >= len(argv):
+                raise UnsupportedInvocation(f"`python -m` with no module in: {line.strip()!r}")
+            return _resolve_python_module(_normalise(argv[index + 1]), line)
+        if token in PY_TERMINAL_OK:
+            return set()
+        if token in PY_FLAGS_WITH_ARG:
+            index += 2
+            continue
+        if token in PY_FLAGS_NO_ARG:
+            index += 1
+            continue
+        if token.startswith("-"):
+            raise UnsupportedInvocation(
+                f"Unrecognised python flag {token!r} in: {line.strip()!r}. This guard cannot "
+                "tell whether a script follows it, so it refuses rather than guessing."
+            )
+        candidate = _normalise(token)
+        if not candidate.endswith(".py"):
+            raise UnsupportedInvocation(
+                f"python argument {token!r} is not a literal .py path in: {line.strip()!r}. "
+                "A variable or computed script path cannot be checked against paths:; name it "
+                "literally, or list it in RELEASE_HELPER_SCRIPTS and extend this parser."
+            )
+        if not (ROOT / candidate).is_file():
+            raise UnsupportedInvocation(
+                f"python script {candidate!r} does not exist in the tree (from: {line.strip()!r})."
+            )
+        return {candidate}
+    raise UnsupportedInvocation(
+        f"Bare python invocation with no resolvable argument in: {line.strip()!r}."
+    )
+
+
+def _resolve_shell(interpreter: str, argv: List[str], line: str) -> Set[str]:
+    index = 0
+    while index < len(argv):
+        token = argv[index]
+        if token in SHELL_TERMINAL_OK:
+            return set()
+        if token in SHELL_FLAGS_WITH_ARG:
+            index += 2
+            continue
+        if token in SHELL_FLAGS_NO_ARG:
+            index += 1
+            continue
+        if token.startswith("-"):
+            raise UnsupportedInvocation(
+                f"Unrecognised {interpreter} flag {token!r} in: {line.strip()!r}. Refusing "
+                "rather than guessing whether a script follows it."
+            )
+        candidate = _normalise(token)
+        if not (ROOT / candidate).is_file():
+            raise UnsupportedInvocation(
+                f"{interpreter} target {token!r} does not resolve to a repository file "
+                f"(from: {line.strip()!r}). A wrapper that runs repository code must be named "
+                "literally so its path can be checked against paths:."
+            )
+        return {candidate}
+    raise UnsupportedInvocation(
+        f"Bare {interpreter} invocation with no resolvable argument in: {line.strip()!r}."
+    )
 
 
 def referenced_scripts(workflow_text: str) -> Set[str]:
-    """Repo scripts (.py/.sh/.ps1) the workflow names on an interpreter line.
+    """Repo scripts this workflow executes. Fail-CLOSED: unresolved forms raise.
 
-    Deliberately narrow, and narrowness is declared rather than hidden: this is
-    a cross-check on the manifest, never a replacement for it.
+    The default is inverted deliberately. Three rounds of review found this
+    discovery fail-open in a different way each time -- first the regex shape,
+    then invocation indirection, then module form / quoted local actions /
+    variable interpreters -- and each fix had enumerated only the forms just
+    demonstrated. So the rule is no longer "recognise these executions"; it is
+    "everything execution-shaped must fully resolve, and anything else raises".
+
+    Still a cross-check on RELEASE_HELPER_SCRIPTS, never a replacement for it.
     """
-    found: Set[str] = set(check_python_invocations(workflow_text))
-    for line in _content_lines(workflow_text):
-        interpreted = INTERPRETERS.search(line) is not None
+    found: Set[str] = set()
+    for line in _body_lines(workflow_text):
+        uses = USES_KEY.match(line)
+        if uses:
+            target = _normalise(uses.group(1).split("#")[0])
+            if uses.group(1).strip().strip("\"'").startswith((".", "/")):
+                raise UnsupportedInvocation(
+                    f"Local composite action {target!r} in: {line.strip()!r}. Its run: bodies "
+                    "live in another file this guard does not read, so the scripts it executes "
+                    "cannot be cross-checked. Extend the guard to follow it, or list its "
+                    "scripts in RELEASE_HELPER_SCRIPTS explicitly."
+                )
+            continue  # `owner/repo@sha` -- not a repository path.
+
+        if SHELL_KEY.match(line):
+            continue  # `shell: pwsh` names an interpreter but runs nothing.
+
+        attributed: Set[str] = set()
+        for match in INTERPRETER_TOKEN.finditer(line):
+            interpreter = match.group(1)
+            argv = line[match.end() :].split()
+            if interpreter.startswith("python"):
+                attributed |= _resolve_python(argv, line)
+            else:
+                attributed |= _resolve_shell(interpreter, argv, line)
+        found |= attributed
+
+        # A script path that no named interpreter accounted for: `$PYTHON x.py`,
+        # `%PY% x.py`, `./wrapper.sh`, or a bare path under some other key. If it
+        # exists in the tree it is a dependency the guard cannot attribute, so it
+        # raises rather than being passed over.
         for token in line.split():
-            normalised = _normalise(token)
-            if not normalised.endswith(SCRIPT_SUFFIXES):
+            candidate = _normalise(token)
+            if not candidate.endswith(SCRIPT_SUFFIXES) or candidate in attributed:
                 continue
-            if not (interpreted or token.strip("\"'").startswith(("./", ".\\"))):
-                continue
-            if (ROOT / normalised).is_file():
-                found.add(normalised)
+            if (ROOT / candidate).is_file():
+                raise UnsupportedInvocation(
+                    f"Repository script {candidate!r} appears in: {line.strip()!r} without a "
+                    "literally named interpreter (a variable interpreter, a wrapper, or another "
+                    "key). This guard cannot confirm how it runs, so it refuses; name the "
+                    "interpreter literally or list the script in RELEASE_HELPER_SCRIPTS."
+                )
     return found
 
 
@@ -342,6 +487,31 @@ class NegatedPatternTests(unittest.TestCase):
                 with self.assertRaises(UnsupportedFilterPattern):
                     github_path_match(pattern, "tests/ci/a.py")
 
+    def test_question_mark_is_refused_not_treated_as_fnmatch(self) -> None:
+        """GitHub's `?` is zero-or-one of the PRECEDING character.
+
+        Translating it the fnmatch way (`[^/]`) claimed
+        `tests/ci/resolve_export_template.?y` covers `...template.py`, which
+        GitHub does not. Refused until implemented against the documented
+        behaviour.
+        """
+        with self.assertRaises(UnsupportedFilterPattern) as ctx:
+            github_path_match(
+                "tests/ci/resolve_export_template.?y", "tests/ci/resolve_export_template.py"
+            )
+        self.assertIn("PRECEDING", str(ctx.exception))
+
+    def test_double_star_slash_is_refused_because_zero_levels_must_match(self) -> None:
+        """`a/**/b` must also cover `a/b`; the `**` -> `.*` translation does not."""
+        with self.assertRaises(UnsupportedFilterPattern) as ctx:
+            github_path_match("tests/**/helper.py", "tests/helper.py")
+        self.assertIn("ZERO", str(ctx.exception))
+
+    def test_trailing_double_star_is_still_supported(self) -> None:
+        # `core/**` has no following slash, so it stays modelled -- the real
+        # workflow depends on it.
+        self.assertTrue(github_path_match("core/**", "core/io/file.cpp"))
+
     def test_the_real_workflow_uses_no_unsupported_pattern(self) -> None:
         filters = parse_event_paths(_workflow_text())
         for event in FILTERED_EVENTS:
@@ -351,49 +521,116 @@ class NegatedPatternTests(unittest.TestCase):
 
 
 class UnsupportedInvocationTests(unittest.TestCase):
-    """Unparseable invocations are errors, not silence."""
+    """Unresolved invocations are errors, not silence."""
 
     def test_variable_script_path_raises(self) -> None:
         with self.assertRaises(UnsupportedInvocation):
-            check_python_invocations('        run: python "$SCRIPT" --flag\n')
+            referenced_scripts('        run: python "$SCRIPT" --flag\n')
 
     def test_nonexistent_script_raises(self) -> None:
         with self.assertRaises(UnsupportedInvocation):
-            check_python_invocations("        run: python tests/ci/not_a_real_script.py\n")
+            referenced_scripts("        run: python tests/ci/not_a_real_script.py\n")
 
     def test_unknown_flag_raises_rather_than_being_skipped(self) -> None:
         with self.assertRaises(UnsupportedInvocation):
-            check_python_invocations("        run: python --frobnicate tests/ci/release_attestation.py\n")
+            referenced_scripts("        run: python --frobnicate tests/ci/release_attestation.py\n")
 
     def test_bare_python_raises(self) -> None:
         with self.assertRaises(UnsupportedInvocation):
-            check_python_invocations("        run: python\n")
+            referenced_scripts("        run: python\n")
 
     def test_dash_u_and_other_no_arg_flags_still_find_the_script(self) -> None:
-        found = check_python_invocations("        run: python -u tests/ci/release_attestation.py x\n")
+        found = referenced_scripts("        run: python -u tests/ci/release_attestation.py x\n")
         self.assertEqual(found, {"tests/ci/release_attestation.py"})
 
-    def test_module_and_inline_forms_are_accepted_without_a_script(self) -> None:
+    def test_inline_and_allowlisted_module_forms_need_no_script(self) -> None:
         for body in (
             "        run: python -m pip install --upgrade pip\n",
             "        run: python -m SCons @args\n",
-            '        run: python -c "import sys; print(sys.version)"\n',
+            '        run: python -c "import sys"\n',
             "        run: python --version\n",
         ):
             with self.subTest(body=body.strip()):
-                self.assertEqual(check_python_invocations(body), set())
+                self.assertEqual(referenced_scripts(body), set())
 
     def test_repo_prefix_from_the_self_hosted_checkout_is_stripped(self) -> None:
-        found = check_python_invocations("        run: python repo/tests/ci/release_attestation.py generate\n")
+        found = referenced_scripts("        run: python repo/tests/ci/release_attestation.py generate\n")
         self.assertEqual(found, {"tests/ci/release_attestation.py"})
 
     def test_commented_out_invocations_are_ignored(self) -> None:
-        self.assertEqual(check_python_invocations("          # python $UNPARSEABLE\n"), set())
+        self.assertEqual(referenced_scripts("          # python $UNPARSEABLE\n"), set())
 
-    def test_the_real_workflow_parses_cleanly(self) -> None:
+    def test_the_real_workflow_resolves_cleanly(self) -> None:
         # If this raises, a new invocation form landed and the guard is telling
         # you it can no longer vouch for coverage.
-        self.assertTrue(check_python_invocations(_workflow_text()))
+        self.assertTrue(referenced_scripts(_workflow_text()))
+
+
+class FailClosedExecutionFormTests(unittest.TestCase):
+    """The four fail-open forms found in round 6, each now resolved or refused.
+
+    Enumerating cases is what failed three rounds running, so the rule that
+    covers them is structural: an execution-shaped line must fully resolve or
+    raise. These tests are the evidence for that rule, not the rule itself.
+    """
+
+    def test_module_form_resolves_to_repository_code(self) -> None:
+        # `python -m tests.ci.release_attestation` runs repository code and must
+        # be DISCOVERED, not waved through as "a module, so no script".
+        found = referenced_scripts("        run: python -m tests.ci.release_attestation generate\n")
+        self.assertEqual(found, {"tests/ci/release_attestation.py"})
+
+    def test_unknown_non_repository_module_raises(self) -> None:
+        with self.assertRaises(UnsupportedInvocation) as ctx:
+            referenced_scripts("        run: python -m tests.ci.release_helper\n")
+        self.assertIn("ALLOWED_PYTHON_MODULES", str(ctx.exception))
+
+    def test_quoted_local_composite_action_raises(self) -> None:
+        for body in (
+            '      - uses: "./.github/actions/helper"\n',
+            "      - uses: './.github/actions/helper'\n",
+            "      - uses: ./.github/actions/helper\n",
+        ):
+            with self.subTest(body=body.strip()):
+                with self.assertRaises(UnsupportedInvocation):
+                    referenced_scripts(body)
+
+    def test_third_party_action_is_still_accepted(self) -> None:
+        self.assertEqual(
+            referenced_scripts("      - uses: actions/checkout@11d5960a # v4\n"), set()
+        )
+
+    def test_variable_interpreter_raises(self) -> None:
+        for body in (
+            "        run: $PYTHON tests/ci/release_attestation.py\n",
+            "        run: ${PYTHON} tests/ci/release_attestation.py\n",
+            "        run: %PY% tests/ci/release_attestation.py\n",
+        ):
+            with self.subTest(body=body.strip()):
+                with self.assertRaises(UnsupportedInvocation) as ctx:
+                    referenced_scripts(body)
+                self.assertIn("without a literally named interpreter", str(ctx.exception))
+
+    def test_shell_wrapper_running_repository_code_is_discovered(self) -> None:
+        found = referenced_scripts("        run: bash misc/scripts/gitignore_check.sh\n")
+        self.assertEqual(found, {"misc/scripts/gitignore_check.sh"})
+
+    def test_shell_wrapper_that_does_not_resolve_raises(self) -> None:
+        with self.assertRaises(UnsupportedInvocation):
+            referenced_scripts("        run: bash tools/not_in_the_tree.sh\n")
+
+    def test_shell_key_declaring_an_interpreter_is_not_an_invocation(self) -> None:
+        self.assertEqual(referenced_scripts("        shell: pwsh\n"), set())
+
+    def test_paths_entries_are_not_scanned_as_executions(self) -> None:
+        # They are quoted script paths with no interpreter; scanning them would
+        # flag the very list this guard checks against.
+        self.assertEqual(
+            referenced_scripts(
+                'on:\n  push:\n    paths:\n      - "tests/ci/release_attestation.py"\n'
+            ),
+            set(),
+        )
 
 
 class ManifestTests(unittest.TestCase):
