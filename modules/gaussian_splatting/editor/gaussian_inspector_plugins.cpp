@@ -859,17 +859,35 @@ void GaussianSplatNodeInspectorPlugin::parse_category(Object *p_object, const St
 }
 
 bool GaussianSplatNodeInspectorPlugin::parse_property(Object *p_object, const Variant::Type p_type, const String &p_path, const PropertyHint p_hint, const String &p_hint_text, const BitField<PropertyUsageFlags> p_usage, const bool p_wide) {
-    // Every debug/* property is presented by the custom Debug Visualization controls in
-    // parse_begin(), so none of them needs a second, duplicate default editor.
+    // Suppress the default editor for every debug/* property that the custom Debug
+    // Visualization controls in parse_begin() already present, so it does not get a
+    // second, duplicate editor.
     //
     // This used to be a hand-written list of 11 names. It had drifted: it missed
     // debug/overlay_opacity, which left the "Debug" group in the inspector holding
-    // exactly one orphan property ~1700 px away from its siblings (#836). Derive the
-    // set from the group prefix instead of restating it - GaussianSplatNode3D declares
-    // the group as ADD_GROUP("Debug", "debug/") (nodes/gaussian_splat_node_3d.cpp:234),
+    // exactly one orphan property ~1700 px away from its siblings (#836). The set is
+    // derived from the group prefix instead of restated - GaussianSplatNode3D declares
+    // the group as ADD_GROUP("Debug", "debug/") (nodes/gaussian_splat_node_3d.cpp:236),
     // so the prefix *is* the definition of the set, and a debug property added later
     // cannot fall out of sync with this guard again.
-    if (p_path.begins_with("debug/")) {
+    //
+    // debug/overlay_opacity is the one deliberate exception, and it is an exception
+    // *because it has no replacement*, not because the list is hand-maintained: the
+    // node declares 12 debug/* properties, parse_begin() builds a control for 11 of
+    // them (preview_enabled, show_bounds, show_statistics, show_tile_grid,
+    // show_density_heatmap, show_performance_hud, show_lod_spheres,
+    // show_performance_overlay, show_residency_hud, runtime_preview, debug_draw_mode)
+    // and none for overlay_opacity. Suppressing it removed the only way to tune the
+    // performance/LOD overlay blend from the inspector while the property stayed
+    // documented and script-visible. Do NOT "simplify" this back to a bare prefix
+    // check: that silently deletes a user-facing control. It may only be folded back
+    // in once parse_begin() grows an opacity slider of its own - and whoever does that
+    // must also hide the now-memberless "Debug" group: EditorInspector only prunes
+    // empty sections inside `if (!current_favorites.is_empty())`
+    // (editor/inspector/editor_inspector.cpp:4500, :4623), so with no favorites set the
+    // group header survives with nothing under it. Measured: suppressing all 12 left a
+    // Debug section with zero EditorProperty children in the inspector tree.
+    if (p_path.begins_with("debug/") && p_path != "debug/overlay_opacity") {
         return true;
     }
 
