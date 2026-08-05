@@ -148,7 +148,7 @@ void GaussianDataInspectorPlugin::parse_begin(Object *p_object) {
 
     // For now, just add a simple label
     Label *info_label = memnew(Label);
-    info_label->set_text("Gaussian Data: " + itos(data->get_count()) + " splats");
+    info_label->set_text(vformat(TTR("Gaussian Data: %d splats"), data->get_count()));
     add_custom_control(info_label);
 }
 
@@ -177,19 +177,19 @@ void GaussianRendererInspectorPlugin::parse_begin(Object *p_object) {
     preset_container->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 
     Button *performance_preset = memnew(Button);
-    performance_preset->set_text("Performance");
+    performance_preset->set_text(TTR("Performance"));
     performance_preset->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     performance_preset->connect("pressed", callable_mp(renderer, &GaussianSplatRenderer::set_quality_preset).bind("performance"));
     preset_container->add_child(performance_preset);
 
     Button *balanced_preset = memnew(Button);
-    balanced_preset->set_text("Balanced");
+    balanced_preset->set_text(TTR("Balanced"));
     balanced_preset->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     balanced_preset->connect("pressed", callable_mp(renderer, &GaussianSplatRenderer::set_quality_preset).bind("balanced"));
     preset_container->add_child(balanced_preset);
 
     Button *quality_preset = memnew(Button);
-    quality_preset->set_text("Quality");
+    quality_preset->set_text(TTR("Quality"));
     quality_preset->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     quality_preset->connect("pressed", callable_mp(renderer, &GaussianSplatRenderer::set_quality_preset).bind("quality"));
     preset_container->add_child(quality_preset);
@@ -199,10 +199,10 @@ void GaussianRendererInspectorPlugin::parse_begin(Object *p_object) {
     // Add performance stats
     Dictionary stats = renderer->get_render_stats();
     Label *stats_label = memnew(Label);
-    String stats_text = "Performance:\n";
-    stats_text += "Visible: " + itos(stats["visible_splats"]) + "/" + itos(stats["total_splats"]) + " splats\n";
-    stats_text += "Sort: " + String::num(stats["sort_time_ms"], 1) + " ms | ";
-    stats_text += "Render: " + String::num(stats["render_time_ms"], 1) + " ms";
+    String stats_text = TTR("Performance:") + "\n";
+    stats_text += vformat(TTR("Visible: %d/%d splats"), (int64_t)stats["visible_splats"], (int64_t)stats["total_splats"]) + "\n";
+    stats_text += vformat(TTR("Sort: %s ms"), String::num(stats["sort_time_ms"], 1)) + " | ";
+    stats_text += vformat(TTR("Render: %s ms"), String::num(stats["render_time_ms"], 1));
     stats_label->set_text(stats_text);
     add_custom_control(stats_label);
 }
@@ -473,17 +473,24 @@ void GaussianSplatNodeInspectorPlugin::parse_begin(Object *p_object) {
         return;
     }
 
-    VBoxContainer *root = memnew(VBoxContainer);
+    // This block used to be a bare VBoxContainer, which the inspector renders with no
+    // fold arrow at all - roughly 1700 px of telemetry permanently pinned above the
+    // first real property (#836). EditorInspectorSection gives it the same header and
+    // fold arrow as a native property group. setup() reads the per-object fold state,
+    // which defaults to folded, so the block starts collapsed and the user's choice
+    // persists in the scene's folding cfg like any other section. The bg color passed
+    // here is a placeholder: the section recomputes it from the editor theme on
+    // NOTIFICATION_THEME_CHANGED (editor/inspector/editor_inspector.cpp:1891).
+    EditorInspectorSection *section = memnew(EditorInspectorSection);
+    section->setup("gaussian_splat_overview", TTR("Gaussian Splat Overview"), node, Color(0, 0, 0, 0), true);
+
+    VBoxContainer *root = section->get_vbox();
     root->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     root->add_theme_constant_override("separation", int(Math::round(4.0f * EDSCALE)));
 
-    Label *header = memnew(Label);
-    header->set_text("Gaussian Splat Overview");
-    root->add_child(header);
-
     Label *origin = memnew(Label);
     origin->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
-    origin->set_text("Asset Origin: " + node->get_asset_origin_label());
+    origin->set_text(vformat(TTR("Asset Origin: %s"), node->get_asset_origin_label()));
     root->add_child(origin);
 
     Label *stats = memnew(Label);
@@ -499,13 +506,13 @@ void GaussianSplatNodeInspectorPlugin::parse_begin(Object *p_object) {
     actions->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 
     Button *reload = memnew(Button);
-    reload->set_text("Reload");
+    reload->set_text(TTR("Reload"));
     reload->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     reload->connect("pressed", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_reload_pressed).bind(node->get_instance_id()));
     actions->add_child(reload);
 
     Button *force_update = memnew(Button);
-    force_update->set_text("Force Update");
+    force_update->set_text(TTR("Force Update"));
     force_update->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     force_update->connect("pressed", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_force_update_pressed).bind(node->get_instance_id()));
     actions->add_child(force_update);
@@ -513,42 +520,42 @@ void GaussianSplatNodeInspectorPlugin::parse_begin(Object *p_object) {
     root->add_child(actions);
 
     Label *quality_label = memnew(Label);
-    quality_label->set_text("Quality Presets");
+    quality_label->set_text(TTR("Quality Presets"));
     root->add_child(quality_label);
 
     HFlowContainer *quality_row = memnew(HFlowContainer);
     quality_row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-    _add_quality_button(quality_row, "Performance", node->get_instance_id(), GaussianSplatNode3D::QUALITY_PERFORMANCE);
-    _add_quality_button(quality_row, "Balanced", node->get_instance_id(), GaussianSplatNode3D::QUALITY_BALANCED);
-    _add_quality_button(quality_row, "Quality", node->get_instance_id(), GaussianSplatNode3D::QUALITY_QUALITY);
+    _add_quality_button(quality_row, TTR("Performance"), node->get_instance_id(), GaussianSplatNode3D::QUALITY_PERFORMANCE);
+    _add_quality_button(quality_row, TTR("Balanced"), node->get_instance_id(), GaussianSplatNode3D::QUALITY_BALANCED);
+    _add_quality_button(quality_row, TTR("Quality"), node->get_instance_id(), GaussianSplatNode3D::QUALITY_QUALITY);
     root->add_child(quality_row);
 
 #ifdef DEBUG_ENABLED
     const bool shared_renderer_debug_controls = is_renderer_shared_with_other_content(node);
 
     Label *debug_label = memnew(Label);
-    debug_label->set_text("Debug Visualization");
+    debug_label->set_text(TTR("Debug Visualization"));
     root->add_child(debug_label);
 
     HFlowContainer *toggle_row = memnew(HFlowContainer);
     toggle_row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 
     CheckButton *preview_toggle = memnew(CheckButton);
-    preview_toggle->set_text("Preview");
+    preview_toggle->set_text(TTR("Preview"));
     preview_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     preview_toggle->set_pressed(node->is_preview_enabled());
     preview_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_preview_toggled).bind(node->get_instance_id()));
     toggle_row->add_child(preview_toggle);
 
     CheckButton *bounds_toggle = memnew(CheckButton);
-    bounds_toggle->set_text("Bounds");
+    bounds_toggle->set_text(TTR("Bounds"));
     bounds_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     bounds_toggle->set_pressed(node->is_showing_bounds());
     bounds_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_bounds_toggled).bind(node->get_instance_id()));
     toggle_row->add_child(bounds_toggle);
 
     CheckButton *stats_toggle = memnew(CheckButton);
-    stats_toggle->set_text("Statistics");
+    stats_toggle->set_text(TTR("Statistics"));
     stats_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     stats_toggle->set_pressed(node->is_showing_statistics());
     stats_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_stats_toggled).bind(node->get_instance_id()));
@@ -561,21 +568,21 @@ void GaussianSplatNodeInspectorPlugin::parse_begin(Object *p_object) {
         overlay_row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 
         CheckButton *grid_toggle = memnew(CheckButton);
-        grid_toggle->set_text("Tile Grid");
+        grid_toggle->set_text(TTR("Tile Grid"));
         grid_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
         grid_toggle->set_pressed(node->is_showing_tile_grid());
         grid_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_tile_grid_toggled).bind(node->get_instance_id()));
         overlay_row->add_child(grid_toggle);
 
         CheckButton *heatmap_toggle = memnew(CheckButton);
-        heatmap_toggle->set_text("Heatmap");
+        heatmap_toggle->set_text(TTR("Heatmap"));
         heatmap_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
         heatmap_toggle->set_pressed(node->is_showing_density_heatmap());
         heatmap_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_density_heatmap_toggled).bind(node->get_instance_id()));
         overlay_row->add_child(heatmap_toggle);
 
         CheckButton *hud_toggle = memnew(CheckButton);
-        hud_toggle->set_text("HUD");
+        hud_toggle->set_text(TTR("HUD"));
         hud_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
         hud_toggle->set_pressed(node->is_showing_performance_hud());
         hud_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_performance_hud_toggled).bind(node->get_instance_id()));
@@ -593,14 +600,14 @@ void GaussianSplatNodeInspectorPlugin::parse_begin(Object *p_object) {
     lod_row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 
     CheckButton *lod_toggle = memnew(CheckButton);
-    lod_toggle->set_text("LOD Spheres");
+    lod_toggle->set_text(TTR("LOD Spheres"));
     lod_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     lod_toggle->set_pressed(node->is_showing_lod_spheres());
     lod_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_lod_spheres_toggled).bind(node->get_instance_id()));
     lod_row->add_child(lod_toggle);
 
     CheckButton *performance_overlay_toggle = memnew(CheckButton);
-    performance_overlay_toggle->set_text("Performance Overlay");
+    performance_overlay_toggle->set_text(TTR("Performance Overlay"));
     performance_overlay_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     performance_overlay_toggle->set_pressed(node->is_showing_performance_overlay());
     performance_overlay_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_performance_overlay_toggled).bind(node->get_instance_id()));
@@ -613,15 +620,15 @@ void GaussianSplatNodeInspectorPlugin::parse_begin(Object *p_object) {
     preview_row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 
     Label *preview_label = memnew(Label);
-    preview_label->set_text("Preview Mode");
+    preview_label->set_text(TTR("Preview Mode"));
     preview_row->add_child(preview_label);
 
     OptionButton *preview_mode = memnew(OptionButton);
     preview_mode->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-    preview_mode->add_item("Off", GaussianSplatNode3D::DEBUG_DRAW_OFF);
-    preview_mode->add_item("Wireframe", GaussianSplatNode3D::DEBUG_DRAW_WIREFRAME);
-    preview_mode->add_item("Points", GaussianSplatNode3D::DEBUG_DRAW_POINTS);
-    preview_mode->add_item("Heatmap", GaussianSplatNode3D::DEBUG_DRAW_HEATMAP);
+    preview_mode->add_item(TTR("Off"), GaussianSplatNode3D::DEBUG_DRAW_OFF);
+    preview_mode->add_item(TTR("Wireframe"), GaussianSplatNode3D::DEBUG_DRAW_WIREFRAME);
+    preview_mode->add_item(TTR("Points"), GaussianSplatNode3D::DEBUG_DRAW_POINTS);
+    preview_mode->add_item(TTR("Heatmap"), GaussianSplatNode3D::DEBUG_DRAW_HEATMAP);
     int selected_index = preview_mode->get_item_index(node->get_debug_draw_mode());
     if (selected_index >= 0) {
         preview_mode->select(selected_index);
@@ -843,7 +850,7 @@ void GaussianSplatNodeInspectorPlugin::parse_begin(Object *p_object) {
         }
     }
 
-    add_custom_control(root);
+    add_custom_control(section);
 }
 
 void GaussianSplatNodeInspectorPlugin::parse_category(Object *p_object, const String &p_category) {
@@ -852,12 +859,17 @@ void GaussianSplatNodeInspectorPlugin::parse_category(Object *p_object, const St
 }
 
 bool GaussianSplatNodeInspectorPlugin::parse_property(Object *p_object, const Variant::Type p_type, const String &p_path, const PropertyHint p_hint, const String &p_hint_text, const BitField<PropertyUsageFlags> p_usage, const bool p_wide) {
-    // Skip default debug toggles since we provide custom controls.
-    if (p_path == "debug/preview_enabled" || p_path == "debug/show_bounds" || p_path == "debug/show_statistics" ||
-            p_path == "debug/show_tile_grid" || p_path == "debug/show_density_heatmap" ||
-            p_path == "debug/show_performance_hud" || p_path == "debug/show_lod_spheres" ||
-            p_path == "debug/show_performance_overlay" || p_path == "debug/debug_draw_mode" ||
-            p_path == "debug/runtime_preview" || p_path == "debug/show_residency_hud") {
+    // Every debug/* property is presented by the custom Debug Visualization controls in
+    // parse_begin(), so none of them needs a second, duplicate default editor.
+    //
+    // This used to be a hand-written list of 11 names. It had drifted: it missed
+    // debug/overlay_opacity, which left the "Debug" group in the inspector holding
+    // exactly one orphan property ~1700 px away from its siblings (#836). Derive the
+    // set from the group prefix instead of restating it - GaussianSplatNode3D declares
+    // the group as ADD_GROUP("Debug", "debug/") (nodes/gaussian_splat_node_3d.cpp:234),
+    // so the prefix *is* the definition of the set, and a debug property added later
+    // cannot fall out of sync with this guard again.
+    if (p_path.begins_with("debug/")) {
         return true;
     }
 

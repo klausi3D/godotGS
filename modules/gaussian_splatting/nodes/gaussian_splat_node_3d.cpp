@@ -179,9 +179,11 @@ void GaussianSplatNode3D::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("set_scene_effector_layer_mask", "mask"), &GaussianSplatNode3D::set_scene_effector_layer_mask);
     ClassDB::bind_method(D_METHOD("get_scene_effector_layer_mask"), &GaussianSplatNode3D::get_scene_effector_layer_mask);
-    ADD_PROPERTY(PropertyInfo(Variant::INT, "rendering/scene_effector_layer_mask", PROPERTY_HINT_FLAGS,
-            "Layer 1,Layer 2,Layer 3,Layer 4,Layer 5,Layer 6,Layer 7,Layer 8,Layer 9,Layer 10,"
-            "Layer 11,Layer 12,Layer 13,Layer 14,Layer 15,Layer 16"),
+    // PROPERTY_HINT_LAYERS_3D_RENDER renders the compact 4x5 layer grid used by
+    // VisualInstance3D::layers (scene/3d/visual_instance_3d.cpp:188) instead of the
+    // ~700 px vertical checkbox list PROPERTY_HINT_FLAGS produces. Bit semantics are
+    // unchanged: bit N still means "layer N+1".
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "rendering/scene_effector_layer_mask", PROPERTY_HINT_LAYERS_3D_RENDER),
             "set_scene_effector_layer_mask", "get_scene_effector_layer_mask");
 
     ClassDB::bind_method(D_METHOD("set_scene_effector_scope_root", "scope_root"), &GaussianSplatNode3D::set_scene_effector_scope_root);

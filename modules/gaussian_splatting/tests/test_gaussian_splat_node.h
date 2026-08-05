@@ -2908,4 +2908,108 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree] Two nodes with separate asset Re
 	memdelete(node_b);
 }
 
+// --- Inspector surface contracts (#836 / #834) -------------------------------
+//
+// These lock in the two property-declaration fixes that shrink the Gaussian
+// inspector. They are pure ClassDB/PropertyInfo checks, so they need no GPU and
+// no editor.
+
+namespace {
+
+bool find_property_info(Object *p_object, const StringName &p_name, PropertyInfo &r_info) {
+	if (p_object == nullptr) {
+		return false;
+	}
+	List<PropertyInfo> property_list;
+	p_object->get_property_list(&property_list);
+	for (const List<PropertyInfo>::Element *E = property_list.front(); E; E = E->next()) {
+		if (E->get().name == p_name) {
+			r_info = E->get();
+			return true;
+		}
+	}
+	return false;
+}
+
+} // namespace
+
+TEST_CASE("[GaussianSplatting][Editor] Effector layer masks use the compact 3D-render layer grid") {
+	// PROPERTY_HINT_FLAGS with an explicit "Layer 1,...,Layer 16" list renders as a
+	// 16-row vertical checkbox column (~700 px in the inspector). Godot's
+	// PROPERTY_HINT_LAYERS_3D_RENDER renders the same bitmask as a 4x5 grid, which is
+	// what VisualInstance3D::layers uses (scene/3d/visual_instance_3d.cpp:188).
+	GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+	if (!node) {
+		FAIL("could not allocate GaussianSplatNode3D");
+		return;
+	}
+	// The mask is only editor-visible while scene effectors are enabled.
+	node->set_scene_effectors_enabled(true);
+
+	PropertyInfo node_mask;
+	CHECK(find_property_info(node, StringName("rendering/scene_effector_layer_mask"), node_mask));
+	CHECK(node_mask.hint == PROPERTY_HINT_LAYERS_3D_RENDER);
+	CHECK(node_mask.hint_string.is_empty());
+	memdelete(node);
+
+	SphereEffector3D *effector = memnew(SphereEffector3D);
+	if (!effector) {
+		FAIL("could not allocate SphereEffector3D");
+		return;
+	}
+	PropertyInfo effector_mask;
+	CHECK(find_property_info(effector, StringName("layer_mask"), effector_mask));
+	CHECK(effector_mask.hint == PROPERTY_HINT_LAYERS_3D_RENDER);
+	CHECK(effector_mask.hint_string.is_empty());
+	memdelete(effector);
+}
+
+TEST_CASE("[GaussianSplatting][Editor] GaussianSplatAsset bulk arrays are storage-only, not removed") {
+	// #834: the editor enumerates the property list and calls every getter, so having
+	// these multi-million-element arrays carry PROPERTY_USAGE_EDITOR is what produced
+	// the "get_*() called on unloaded asset" warning stack. They must stay STORAGE
+	// (serialization + script access preserved) and lose only editor display - #712 is
+	// this repo's precedent for a removed ClassDB property breaking saved scenes.
+	const char *bulk_arrays[] = {
+		"data/positions",
+		"data/colors",
+		"data/scales",
+		"data/rotations",
+		"data/sh_dc",
+		"data/sh_first_order",
+		"data/sh_high_order",
+		"data/opacity_logits",
+		"data/palette_ids",
+		"data/painterly_flags",
+		"data/normals",
+		"data/brush_axes",
+		"data/stroke_ages",
+	};
+
+	Ref<GaussianSplatAsset> asset;
+	asset.instantiate();
+	if (asset.is_null()) {
+		FAIL("could not instantiate GaussianSplatAsset");
+		return;
+	}
+
+	for (const char *name : bulk_arrays) {
+		// doctest prints a bare `const char *` as a pointer; String has a StringMaker.
+		const String label(name);
+		const StringName property_name(name);
+		PropertyInfo info;
+		const bool present = find_property_info(asset.ptr(), property_name, info);
+		CHECK_MESSAGE(present, "property still declared: ", label);
+		if (!present) {
+			continue;
+		}
+		CHECK_MESSAGE((info.usage & PROPERTY_USAGE_STORAGE) != 0, "still serialized: ", label);
+		CHECK_MESSAGE((info.usage & PROPERTY_USAGE_EDITOR) == 0, "no longer editor-visible: ", label);
+		// Still reachable from script through ClassDB (Object::get / Object::set).
+		bool valid = false;
+		asset->get(property_name, &valid);
+		CHECK_MESSAGE(valid, "still readable via Object::get(): ", label);
+	}
+}
+
 #endif // TESTS_ENABLED || TOOLS_ENABLED
