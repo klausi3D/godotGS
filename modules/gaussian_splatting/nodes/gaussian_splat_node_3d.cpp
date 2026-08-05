@@ -521,16 +521,18 @@ void GaussianSplatNode3D::_validate_property(PropertyInfo &p_property) const {
     if (_is_renderer_shared_with_other_content(renderer)) {
         // Color grading stays visible on every node even when the renderer is
         // shared: each node pushes its own grading to the renderer (last
-        // write wins until per-submission grading lands). Painterly, debug
-        // overlays, and renderer-wide quality knobs (lod_bias, max_splats)
-        // remain renderer-wide and are hidden here on non-owner peers —
-        // see gaussian_splat_node_helpers.cpp:1284-1378 for the
-        // ownership/silent-drop logic these match.
+        // write wins until per-submission grading lands). Painterly and
+        // renderer-wide quality knobs (lod_bias, max_splats) remain
+        // renderer-wide and are hidden here on non-owner peers — see
+        // gaussian_splat_node_helpers.cpp for the ownership/silent-drop logic
+        // these match.
+        //
+        // The four debug overlay toggles are deliberately NOT in this list
+        // since #831: they are pushed as the union over all peers, so they
+        // work on a shared renderer and must stay editable. Hiding them was
+        // the visible half of a suppression that made them unreachable in
+        // every scene with more than one splat node.
         if (p_property.name.begins_with("painterly/") ||
-                p_property.name == "debug/show_tile_grid" ||
-                p_property.name == "debug/show_density_heatmap" ||
-                p_property.name == "debug/show_performance_hud" ||
-                p_property.name == "debug/show_residency_hud" ||
                 p_property.name == "quality/lod_bias" ||
                 p_property.name == "quality/max_splat_count") {
             p_property.usage = PROPERTY_USAGE_NO_EDITOR;
@@ -2212,7 +2214,22 @@ void GaussianSplatNode3D::_destroy_debug_hud_control() {
 void GaussianSplatNode3D::_update_debug_hud_visibility() {
     bool should_show_hud = show_performance_hud || show_residency_hud;
     if (renderer.is_valid()) {
-        should_show_hud = renderer->is_debug_show_performance_hud() || renderer->is_debug_show_residency_hud();
+        // #831: the HUD flags themselves are now the union over all peers (see
+        // GaussianSplatNodeDebugHelper::push_debug_overlay_union), so every node
+        // bound to a shared renderer would otherwise spawn its own control and
+        // stack N identical overlays in the same corner. The renderer's HUD is
+        // renderer-wide state, so exactly one node draws it: the settings-owner
+        // lease holder, which is already unique per renderer.
+        //
+        // #832: show_device_boundaries / show_texture_states emit their own HUD
+        // sections now that they are no longer nested inside the performance-HUD
+        // block, so they also have to be able to bring the control up — without
+        // this they would still render nothing when enabled on their own.
+        should_show_hud = (renderer->is_debug_show_performance_hud() ||
+                                  renderer->is_debug_show_residency_hud() ||
+                                  renderer->is_debug_show_device_boundaries() ||
+                                  renderer->is_debug_show_texture_states()) &&
+                renderer_helper.can_apply_renderer_settings();
     }
     if (!should_show_hud) {
         _destroy_debug_hud_control();
@@ -2622,6 +2639,10 @@ void GaussianSplatNode3D::_converge_shared_renderer_state() {
     // re-enter this node through the director, and the updated cache makes that
     // re-entry a no-op instead of unbounded recursion.
     shared_renderer_multi_instance_state = shared_renderer_multi_instance;
+    // #831: the peer set just changed, so the overlay union this node last
+    // pushed may be stale even though its own four flags did not move. Drop the
+    // edge-trigger memo so the re-apply below recomputes and writes it.
+    debug_helper.invalidate_debug_overlay_push_cache();
     _apply_renderer_settings();
     notify_property_list_changed();
 }

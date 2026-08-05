@@ -563,36 +563,41 @@ void GaussianSplatNodeInspectorPlugin::parse_begin(Object *p_object) {
 
     root->add_child(toggle_row);
 
-    if (!shared_renderer_debug_controls) {
-        HFlowContainer *overlay_row = memnew(HFlowContainer);
-        overlay_row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+    // #831: these overlays used to be hidden whenever the renderer was shared,
+    // because the underlying push forced them false. They are now the union
+    // over every node bound to the renderer, so they work while shared and the
+    // controls stay available. The hint states what "shared" means for them
+    // instead of claiming they are unavailable.
+    HFlowContainer *overlay_row = memnew(HFlowContainer);
+    overlay_row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 
-        CheckButton *grid_toggle = memnew(CheckButton);
-        grid_toggle->set_text(TTR("Tile Grid"));
-        grid_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-        grid_toggle->set_pressed(node->is_showing_tile_grid());
-        grid_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_tile_grid_toggled).bind(node->get_instance_id()));
-        overlay_row->add_child(grid_toggle);
+    CheckButton *grid_toggle = memnew(CheckButton);
+    grid_toggle->set_text(TTR("Tile Grid"));
+    grid_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+    grid_toggle->set_pressed(node->is_showing_tile_grid());
+    grid_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_tile_grid_toggled).bind(node->get_instance_id()));
+    overlay_row->add_child(grid_toggle);
 
-        CheckButton *heatmap_toggle = memnew(CheckButton);
-        heatmap_toggle->set_text(TTR("Heatmap"));
-        heatmap_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-        heatmap_toggle->set_pressed(node->is_showing_density_heatmap());
-        heatmap_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_density_heatmap_toggled).bind(node->get_instance_id()));
-        overlay_row->add_child(heatmap_toggle);
+    CheckButton *heatmap_toggle = memnew(CheckButton);
+    heatmap_toggle->set_text(TTR("Heatmap"));
+    heatmap_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+    heatmap_toggle->set_pressed(node->is_showing_density_heatmap());
+    heatmap_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_density_heatmap_toggled).bind(node->get_instance_id()));
+    overlay_row->add_child(heatmap_toggle);
 
-        CheckButton *hud_toggle = memnew(CheckButton);
-        hud_toggle->set_text(TTR("HUD"));
-        hud_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-        hud_toggle->set_pressed(node->is_showing_performance_hud());
-        hud_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_performance_hud_toggled).bind(node->get_instance_id()));
-        overlay_row->add_child(hud_toggle);
+    CheckButton *hud_toggle = memnew(CheckButton);
+    hud_toggle->set_text(TTR("HUD"));
+    hud_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+    hud_toggle->set_pressed(node->is_showing_performance_hud());
+    hud_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_performance_hud_toggled).bind(node->get_instance_id()));
+    overlay_row->add_child(hud_toggle);
 
-        root->add_child(overlay_row);
-    } else {
+    root->add_child(overlay_row);
+
+    if (shared_renderer_debug_controls) {
         Label *shared_debug_hint = memnew(Label);
         shared_debug_hint->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
-        shared_debug_hint->set_text(TTR("Per-node tile grid, heatmap, and HUD toggles are unavailable while this renderer is shared with other content."));
+        shared_debug_hint->set_text(TTR("This renderer is shared with other content. Tile grid, heatmap and HUD are renderer-wide: enabling one here enables it for every splat node on this renderer, and it stays on until every node has it off."));
         root->add_child(shared_debug_hint);
     }
 
@@ -652,14 +657,13 @@ void GaussianSplatNodeInspectorPlugin::parse_begin(Object *p_object) {
     runtime_preview_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_runtime_preview_toggled).bind(node->get_instance_id(), preview_mode));
     runtime_row->add_child(runtime_preview_toggle);
 
-    if (!shared_renderer_debug_controls) {
-        CheckButton *residency_toggle = memnew(CheckButton);
-        residency_toggle->set_text(TTR("Residency HUD"));
-        residency_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-        residency_toggle->set_pressed(node->is_showing_residency_hud());
-        residency_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_residency_hud_toggled).bind(node->get_instance_id()));
-        runtime_row->add_child(residency_toggle);
-    }
+    // #831: renderer-wide but reachable while shared (union over peers).
+    CheckButton *residency_toggle = memnew(CheckButton);
+    residency_toggle->set_text(TTR("Residency HUD"));
+    residency_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+    residency_toggle->set_pressed(node->is_showing_residency_hud());
+    residency_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_residency_hud_toggled).bind(node->get_instance_id()));
+    runtime_row->add_child(residency_toggle);
 
     root->add_child(runtime_row);
 #endif

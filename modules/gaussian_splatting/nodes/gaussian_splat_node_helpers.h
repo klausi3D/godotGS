@@ -54,6 +54,17 @@ public:
     void set_runtime_preview_enabled(bool p_enabled);
     void set_show_residency_hud(bool p_show);
 
+    // #831: push the renderer-wide screen-space overlay flags as the union over
+    // every node bound to this node's renderer. Edge-triggered against the last
+    // union any node pushed to that renderer, so an unchanged node does NOT
+    // re-assert the flags every frame -- that re-assertion is what silently
+    // reverted every GaussianSplatRenderer::set_debug_show_*() call one frame
+    // after it was made.
+    void push_debug_overlay_union();
+    // Drop the edge-trigger memo for this node's renderer so the next push
+    // writes unconditionally. Called when the peer set changes.
+    void invalidate_debug_overlay_push_cache();
+
 private:
     GaussianSplatNode3D &owner;
 };

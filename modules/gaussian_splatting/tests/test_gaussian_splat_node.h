@@ -1093,7 +1093,13 @@ TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Shared renderer ow
     memdelete(node_a);
 }
 
-TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer hides node-local debug settings and restores them when the settings owner exits") {
+// #831: this case previously pinned the opposite contract -- "shared renderer
+// hides node-local debug settings" -- which forced all four screen-space debug
+// overlays off in any scene with more than one splat node while the node
+// property still read back true. That suppression is replaced by a union over
+// the renderer's peers, so the assertions below pin the new contract: the
+// request reaches the renderer, and the control stays editable.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer unions node-local debug overlay requests and keeps the property editable") {
     SceneTree *tree = SceneTree::get_singleton();
     REQUIRE_MESSAGE(tree != nullptr, "SceneTree singleton required");
 
@@ -1115,8 +1121,12 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer hid
 
     Ref<GaussianSplatRenderer> renderer_a = node_a->get_renderer();
     Ref<GaussianSplatRenderer> renderer_b = node_b->get_renderer();
+    // #595: this case only runs in the [RequiresGPU] harness, where a shared
+    // renderer is always reachable. An environment skip here would be scored as
+    // a PASS and silently drop the whole #831 contract, so the precondition
+    // fails instead.
     if (!renderer_a.is_valid() || !renderer_b.is_valid() || renderer_a != renderer_b) {
-        MESSAGE("Skipping test - renderer unavailable (headless mode)");
+        FAIL("shared renderer required: both nodes must resolve the same GaussianSplatRenderer");
         root->remove_child(node_b);
         root->remove_child(node_a);
         memdelete(node_b);
@@ -1126,13 +1136,31 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer hid
 
     CHECK(node_a->is_showing_density_heatmap());
     CHECK_FALSE(node_b->is_showing_density_heatmap());
-    CHECK_FALSE(renderer_a->is_debug_show_density_heatmap());
-    CHECK_FALSE(is_property_editor_exposed(node_a, StringName("debug/show_density_heatmap")));
-    CHECK_FALSE(is_property_editor_exposed(node_b, StringName("debug/show_density_heatmap")));
+    // The union carries node_a's request through to the shared renderer.
+    CHECK(renderer_a->is_debug_show_density_heatmap());
+    // ...and neither node hides the control, so the user can still turn it off.
+    CHECK(is_property_editor_exposed(node_a, StringName("debug/show_density_heatmap")));
+    CHECK(is_property_editor_exposed(node_b, StringName("debug/show_density_heatmap")));
 
+    // A second requester is idempotent.
     node_b->set_show_density_heatmap(true);
     CHECK(node_b->is_showing_density_heatmap());
+    CHECK(renderer_a->is_debug_show_density_heatmap());
+
+    // Clearing one peer does NOT clear the renderer-wide overlay while another
+    // peer still requests it -- that is what makes the union order-independent.
+    node_a->set_show_density_heatmap(false);
+    CHECK_FALSE(node_a->is_showing_density_heatmap());
+    CHECK(node_b->is_showing_density_heatmap());
+    CHECK(renderer_a->is_debug_show_density_heatmap());
+
+    // Clearing the last requester clears the renderer.
+    node_b->set_show_density_heatmap(false);
     CHECK_FALSE(renderer_a->is_debug_show_density_heatmap());
+
+    // Re-arm on node_a, then remove it: the union shrinks to node_b's false.
+    node_a->set_show_density_heatmap(true);
+    CHECK(renderer_a->is_debug_show_density_heatmap());
 
     root->remove_child(node_a);
     memdelete(node_a);
@@ -1140,11 +1168,72 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer hid
     tree->process(0.0);
 
     CHECK(is_property_editor_exposed(node_b, StringName("debug/show_density_heatmap")));
-    CHECK(node_b->is_showing_density_heatmap());
-    CHECK(renderer_a->is_debug_show_density_heatmap());
+    CHECK_FALSE(node_b->is_showing_density_heatmap());
+    CHECK_FALSE(renderer_a->is_debug_show_density_heatmap());
 
     root->remove_child(node_b);
     memdelete(node_b);
+}
+
+// #831 part 2: the node re-asserted its own four debug overlay flags from
+// update_splats() on every frame, so a GaussianSplatRenderer::set_debug_show_*()
+// call taken through the bound GDScript API was silently reverted one frame
+// later (measured: the flag reads back true in the same frame and false in the
+// next). The push is now edge-triggered against the last request the node
+// pushed, so an unchanged node leaves a renderer-side write alone.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Node debug apply does not revert a renderer-side debug flag write") {
+    // #656: REQUIRE does not abort in this build, so guard-then-return rather
+    // than dereferencing after a REQUIRE.
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+
+    GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+    node->set_splat_asset(make_single_splat_asset(4242.0f));
+
+    root->add_child(node);
+    tree->process(0.0);
+
+    Ref<GaussianSplatRenderer> renderer = node->get_renderer();
+    // #595: no environment skip -- a skip is scored as a PASS, and this case
+    // exists precisely to prove the renderer-side write survives.
+    if (!renderer.is_valid()) {
+        FAIL("renderer required: this case runs only in the [RequiresGPU] harness");
+        root->remove_child(node);
+        memdelete(node);
+        return;
+    }
+
+    CHECK_FALSE(node->is_showing_density_heatmap());
+    CHECK_FALSE(renderer->is_debug_show_density_heatmap());
+
+    renderer->set_debug_show_density_heatmap(true);
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // The node's per-frame apply must not clobber this.
+    for (int i = 0; i < 5; i++) {
+        tree->process(0.0);
+    }
+    CHECK(renderer->is_debug_show_density_heatmap());
+    // The node's own request is untouched by the renderer-side write.
+    CHECK_FALSE(node->is_showing_density_heatmap());
+
+    // A node-local change is still authoritative when it actually changes.
+    node->set_show_density_heatmap(true);
+    CHECK(renderer->is_debug_show_density_heatmap());
+    node->set_show_density_heatmap(false);
+    CHECK_FALSE(renderer->is_debug_show_density_heatmap());
+
+    root->remove_child(node);
+    memdelete(node);
 }
 
 TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Detached node reclaims retained renderer debug settings on re-entry") {

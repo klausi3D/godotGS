@@ -306,7 +306,10 @@ BATCHES: tuple[BatchSpec, ...] = (
     # NodeSceneTree budget guard in test_gpu_harness_deferred_contract.py encodes,
     # and squarely in #677 silent-truncation territory on a loaded runner. 300 s
     # is ~1.96x. This is a re-budget for genuinely more work, NOT headroom for a
-    # hang: every one of the 22 cases completes and the batch reports 22/22.
+    # hang: every one of the cases completes and the batch reports N/N.
+    #
+    # #831 added one case: 23 cases / 297 assertions, measured 86.2 s and 92.9 s
+    # wall on an RTX 3090, so the 300 s budget is still ~3.2x on a quiet box.
     BatchSpec("NodeSceneTree", ("*[Node][SceneTree][RequiresGPU]*",), timeout_seconds=300),
     # #719/#745: the "Explicit resident quantization rejection falls back" case is no longer
     # excluded. Its two render-output assertions (has_rendered_content() == true and
@@ -424,10 +427,10 @@ BATCHES: tuple[BatchSpec, ...] = (
 # per-case audit in main() — subjects every one of their cases to the hollow-required-case
 # gate too, so a regression that silently emptied a case would fail loudly.
 #
-# NodeSceneTree is DELIBERATELY NOT promoted (#724). It is the largest batch (22 cases /
-# 281 assertions; was 285 before #708/PR #843 converted four size-then-index sites to
-# guard-then-FAIL, which record nothing on the success path) and its wall time swings
-# hard on this shared, self-hosted runner:
+# NodeSceneTree is DELIBERATELY NOT promoted (#724). It is the largest batch (23 cases /
+# 293 assertions: 281 on master after #708/PR #843 converted four size-then-index sites
+# to guard-then-FAIL, which record nothing on the success path, plus +1 case / +12
+# assertions from #831) and its wall time swings hard on this shared, self-hosted runner:
 # 76.5 s (quiet, run 29806293610), 134.8 s (run 29818964659), and 189.2 s in the run
 # #724 cites — the last is only 1.59x under the 300 s budget, right at the 1.5x floor,
 # and #630 has PROVEN ~2x timing swings on this box under concurrent builds. Promoting a
