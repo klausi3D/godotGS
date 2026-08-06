@@ -29,6 +29,7 @@
 #include "core/templates/list.h"
 #include "core/variant/variant.h"
 #include "scene/main/scene_tree.h"
+#include "scene/main/viewport.h"
 #include "scene/main/window.h"
 
 #include <cstring>
@@ -2152,6 +2153,190 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Union reconcile at 
 
     root->remove_child(world_node);
     memdelete(world_node);
+}
+
+// #839 round 6: one HUD owner per VIEWPORT, not one per renderer.
+//
+// A GaussianSplatRenderer is shared per World3D
+// (gaussian_splat_node_helpers.cpp: director->get_shared_renderer(get_world_3d())),
+// and a SubViewport inherits its parent's World3D unless it opts into
+// use_own_world_3d (scene/main/viewport.cpp: Viewport::find_world_3d() walks to
+// the parent). So the two SubViewports below, both default-configured, resolve the
+// SAME renderer -- and rounds 2-5 elected exactly ONE HUD owner across it.
+//
+// The HUD control is a CanvasLayer parented to the elected node, and
+// CanvasLayer::_notification(NOTIFICATION_ENTER_TREE) attaches it to
+// Node::get_viewport() (scene/main/canvas_layer.cpp). A renderer-wide election
+// therefore put the only HUD in the winner's viewport and left every other
+// viewport on the same world with no HUD and no way to ask for one.
+//
+// Both halves are asserted, because a fix that only widened the election would
+// regress the round-2..5 invariant just as badly as the bug:
+//   - each viewport has a HUD  (the round-6 fix; RED before it)
+//   - each viewport has exactly ONE  (rounds 2-5; the two nodes in viewport A
+//     must not stack two overlays in the same corner)
+// UPDATE_MODE_MANUAL again removes the per-frame apply as an alternative
+// explanation, and the frame loop proves the state is settled rather than early.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Each viewport sharing one world renderer gets exactly one debug HUD") {
+    // #656: REQUIRE does not abort in this build (disable_exceptions=True), so
+    // guard-then-return rather than dereferencing after a REQUIRE.
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    if (!project_settings) {
+        FAIL("ProjectSettings singleton required");
+        return;
+    }
+    ProjectSettingGuard hud_guard(project_settings, "rendering/gaussian_splatting/debug/show_performance_hud");
+
+    SubViewport *viewport_a = memnew(SubViewport);
+    SubViewport *viewport_b = memnew(SubViewport);
+    viewport_a->set_size(Size2i(64, 64));
+    viewport_b->set_size(Size2i(64, 64));
+    root->add_child(viewport_a);
+    root->add_child(viewport_b);
+    tree->process(0.0);
+
+    // Two nodes in viewport A (so "exactly one per viewport" is a real constraint
+    // there and not trivially satisfied by there being a single candidate), one in
+    // viewport B.
+    GaussianSplatNode3D *node_a1 = memnew(GaussianSplatNode3D);
+    GaussianSplatNode3D *node_a2 = memnew(GaussianSplatNode3D);
+    GaussianSplatNode3D *node_b1 = memnew(GaussianSplatNode3D);
+    node_a1->set_splat_asset(make_single_splat_asset(0.0f));
+    node_a2->set_splat_asset(make_single_splat_asset(10.0f));
+    node_b1->set_splat_asset(make_single_splat_asset(20.0f));
+    node_a1->set_show_performance_hud(false);
+    node_a2->set_show_performance_hud(false);
+    node_b1->set_show_performance_hud(false);
+    node_a1->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    node_a2->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    node_b1->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+
+    viewport_a->add_child(node_a1);
+    viewport_a->add_child(node_a2);
+    viewport_b->add_child(node_b1);
+    tree->process(0.0);
+
+    Ref<GaussianSplatRenderer> renderer = node_a1->get_renderer();
+    // #595: no environment skip -- a skip is scored as a PASS. If the viewports do
+    // not in fact share a renderer the case proves nothing, so it must FAIL rather
+    // than pass quietly.
+    const bool shared = renderer.is_valid() &&
+            node_a2->get_renderer() == renderer &&
+            node_b1->get_renderer() == renderer;
+    if (!shared) {
+        FAIL("shared renderer required: all three nodes across both SubViewports must resolve the same GaussianSplatRenderer");
+        viewport_b->remove_child(node_b1);
+        viewport_a->remove_child(node_a2);
+        viewport_a->remove_child(node_a1);
+        root->remove_child(viewport_b);
+        root->remove_child(viewport_a);
+        memdelete(node_b1);
+        memdelete(node_a2);
+        memdelete(node_a1);
+        memdelete(viewport_b);
+        memdelete(viewport_a);
+        return;
+    }
+    // ...and the nodes really are in DIFFERENT viewports, which is the whole
+    // premise. Without this the case degenerates into the round-4 one.
+    if (node_a1->get_viewport() != viewport_a || node_a2->get_viewport() != viewport_a ||
+            node_b1->get_viewport() != viewport_b) {
+        FAIL("precondition: node_a1/node_a2 must live in viewport_a and node_b1 in viewport_b");
+        viewport_b->remove_child(node_b1);
+        viewport_a->remove_child(node_a2);
+        viewport_a->remove_child(node_a1);
+        root->remove_child(viewport_b);
+        root->remove_child(viewport_a);
+        memdelete(node_b1);
+        memdelete(node_a2);
+        memdelete(node_a1);
+        memdelete(viewport_b);
+        memdelete(viewport_a);
+        return;
+    }
+
+    CHECK_FALSE(renderer->is_debug_hud_source_active());
+    CHECK_FALSE(node_has_debug_hud_control(node_a1));
+    CHECK_FALSE(node_has_debug_hud_control(node_a2));
+    CHECK_FALSE(node_has_debug_hud_control(node_b1));
+
+    // One node asks; the flag is renderer-wide (the #831 union), so BOTH viewports
+    // are now rendering a world whose renderer wants a HUD.
+    node_a1->set_show_performance_hud(true);
+    CHECK(renderer->is_debug_show_performance_hud());
+
+    const int hud_in_a = (node_has_debug_hud_control(node_a1) ? 1 : 0) +
+            (node_has_debug_hud_control(node_a2) ? 1 : 0);
+    const int hud_in_b = node_has_debug_hud_control(node_b1) ? 1 : 0;
+    // Rounds 2-5: no stacking within a viewport.
+    CHECK(hud_in_a == 1);
+    // Round 6: pre-fix this was 0 and stayed 0 forever -- the renderer-wide
+    // election had already been won by a node in viewport_a.
+    CHECK(hud_in_b == 1);
+
+    // MANUAL: nothing reconciles this on its own, so the assertions above are
+    // settled state, not a transient.
+    for (int i = 0; i < 5; i++) {
+        tree->process(0.0);
+    }
+    const int hud_in_a_settled = (node_has_debug_hud_control(node_a1) ? 1 : 0) +
+            (node_has_debug_hud_control(node_a2) ? 1 : 0);
+    CHECK(hud_in_a_settled == 1);
+    CHECK(node_has_debug_hud_control(node_b1));
+
+    // The renderer-side write route (round 3, thread C) must reach both viewports
+    // too: it notifies every peer of the renderer, and each peer now answers the
+    // per-viewport question.
+    node_a1->set_show_performance_hud(false);
+    CHECK_FALSE(renderer->is_debug_hud_source_active());
+    CHECK_FALSE(node_has_debug_hud_control(node_a1));
+    CHECK_FALSE(node_has_debug_hud_control(node_a2));
+    CHECK_FALSE(node_has_debug_hud_control(node_b1));
+
+    renderer->set_debug_show_device_boundaries(true);
+    CHECK(renderer->is_debug_hud_source_active());
+    const int hud_in_a_renderer_side = (node_has_debug_hud_control(node_a1) ? 1 : 0) +
+            (node_has_debug_hud_control(node_a2) ? 1 : 0);
+    CHECK(hud_in_a_renderer_side == 1);
+    CHECK(node_has_debug_hud_control(node_b1));
+
+    // When viewport A's owner leaves, viewport A re-elects its OTHER node and
+    // viewport B is undisturbed -- the elections are independent.
+    GaussianSplatNode3D *departing = node_has_debug_hud_control(node_a1) ? node_a1 : node_a2;
+    GaussianSplatNode3D *remaining = (departing == node_a1) ? node_a2 : node_a1;
+    viewport_a->remove_child(departing);
+    memdelete(departing);
+    if (departing == node_a1) {
+        node_a1 = nullptr;
+    } else {
+        node_a2 = nullptr;
+    }
+    tree->process(0.0);
+    CHECK(node_has_debug_hud_control(remaining));
+    CHECK(node_has_debug_hud_control(node_b1));
+
+    renderer->set_debug_show_device_boundaries(false);
+    CHECK_FALSE(node_has_debug_hud_control(remaining));
+    CHECK_FALSE(node_has_debug_hud_control(node_b1));
+
+    viewport_b->remove_child(node_b1);
+    viewport_a->remove_child(remaining);
+    root->remove_child(viewport_b);
+    root->remove_child(viewport_a);
+    memdelete(node_b1);
+    memdelete(remaining);
+    memdelete(viewport_b);
+    memdelete(viewport_a);
 }
 
 TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Detached node reclaims retained renderer debug settings on re-entry") {

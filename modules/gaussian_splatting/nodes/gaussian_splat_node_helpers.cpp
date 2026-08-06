@@ -214,17 +214,41 @@ static ObjectID _peek_renderer_settings_owner(ObjectID p_renderer_id) {
 // tree and bound to the renderer, and nothing else. It does NOT need the node to
 // own the renderer's scene data, and it does NOT need the node to have local
 // source data of its own.
-static bool _node_can_host_debug_hud(GaussianSplatNode3D *p_node, const GaussianSplatRenderer *p_renderer) {
-    if (!p_node || !p_renderer) {
+//
+// #839 round 6: ...and it must be in p_viewport. The HUD control is a CanvasLayer
+// parented to the node, and CanvasLayer::_notification(NOTIFICATION_ENTER_TREE)
+// attaches itself to Node::get_viewport() (scene/main/canvas_layer.cpp), so the
+// control is only ever visible in the hosting node's own viewport. A peer in a
+// different viewport therefore cannot host "the" HUD on that viewport's behalf.
+static bool _node_can_host_debug_hud(GaussianSplatNode3D *p_node, const GaussianSplatRenderer *p_renderer,
+        const Viewport *p_viewport) {
+    if (!p_node || !p_renderer || !p_viewport) {
         return false;
     }
     if (!p_node->is_inside_tree() || !p_node->is_inside_world()) {
         return false;
     }
+    if (p_node->get_viewport() != p_viewport) {
+        return false;
+    }
     return p_node->get_renderer().ptr() == p_renderer;
 }
 
-// #839 round 4, thread 1: elect the ONE node that draws p_renderer's debug HUD.
+// #839 round 4, thread 1 / round 6: elect the ONE node that draws p_renderer's
+// debug HUD IN p_viewport.
+//
+// The election is keyed by (renderer, viewport), not by renderer alone. A
+// GaussianSplatRenderer is shared per World3D
+// (director->get_shared_renderer(node->get_world_3d())), and a World3D is shared
+// by every viewport that does not opt into use_own_world_3d -- two SubViewports
+// under the same parent inherit it by default (Viewport::find_world_3d() walks to
+// the parent). Those viewports' nodes therefore resolve the SAME renderer. Under a
+// renderer-only election exactly one of them wins, and because the HUD control is
+// a CanvasLayer bound to its host node's viewport, the HUD then appears in that
+// one viewport and is missing from every other viewport rendering the same world,
+// with no way to ask for it. Keying by viewport as well gives each viewport its
+// own owner; keying by viewport *and* renderer keeps the uniqueness that stops N
+// peers in ONE viewport from stacking N identical overlays in the same corner.
 //
 // The four renderer-wide HUD flags are unioned over the renderer's peers (#831),
 // so without a unique owner N peers would stack N identical overlays in the same
@@ -240,16 +264,18 @@ static bool _node_can_host_debug_hud(GaussianSplatNode3D *p_node, const Gaussian
 //
 // This is a HUD-specific election, not a second lease, so there is no lifetime to
 // manage and no claim to release: it is a pure function of (settings owner,
-// director registration order, eligibility), evaluated identically by every node
-// that asks. Whoever evaluates first therefore gets the same answer as whoever
-// evaluates last, which is what makes "exactly one HUD" hold.
+// director registration order, eligibility, viewport), evaluated identically by
+// every node that asks about the same viewport. Whoever evaluates first therefore
+// gets the same answer as whoever evaluates last, which is what makes "exactly one
+// HUD per viewport" hold.
 //
 // The settings owner is PREFERRED rather than required, so on a renderer that has
 // one the HUD stays on the same node it was on before this change; the first
 // eligible registered node is the fallback for the world-backed case where the
-// lease is unowned.
-static ObjectID _elect_debug_hud_owner(const GaussianSplatRenderer *p_renderer) {
-    if (!p_renderer) {
+// lease is unowned, and also for every viewport the (renderer-wide, hence single)
+// settings owner does not live in.
+static ObjectID _elect_debug_hud_owner(const GaussianSplatRenderer *p_renderer, const Viewport *p_viewport) {
+    if (!p_renderer || !p_viewport) {
         return ObjectID();
     }
     GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
@@ -266,7 +292,7 @@ static ObjectID _elect_debug_hud_owner(const GaussianSplatRenderer *p_renderer) 
     ObjectID first_eligible;
     for (uint32_t i = 0; i < peer_ids.size(); i++) {
         GaussianSplatNode3D *peer = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(peer_ids[i]));
-        if (!_node_can_host_debug_hud(peer, p_renderer)) {
+        if (!_node_can_host_debug_hud(peer, p_renderer, p_viewport)) {
             continue;
         }
         if (peer_ids[i] == settings_owner) {
@@ -798,6 +824,11 @@ void GaussianSplatNodeViewportHelper::on_observed_viewport_exited() {
 
 // #839 round 4, thread 1. See _elect_debug_hud_owner() for why this is a
 // HUD-specific election rather than the settings-owner lease.
+//
+// #839 round 6: the question this answers is "does THIS node draw the HUD for the
+// viewport it lives in", not "does this node draw the renderer's only HUD". The
+// control is viewport-bound (CanvasLayer), so the renderer's other viewports run
+// their own election and get their own owner.
 bool GaussianSplatNodeDebugHelper::can_own_debug_hud() const {
     if (!owner.renderer.is_valid()) {
         return false;
@@ -805,7 +836,11 @@ bool GaussianSplatNodeDebugHelper::can_own_debug_hud() const {
     if (!owner.is_inside_tree() || !owner.is_inside_world()) {
         return false;
     }
-    return _elect_debug_hud_owner(owner.renderer.ptr()) == owner.get_instance_id();
+    const Viewport *viewport = owner.get_viewport();
+    if (!viewport) {
+        return false;
+    }
+    return _elect_debug_hud_owner(owner.renderer.ptr(), viewport) == owner.get_instance_id();
 }
 
 // #831: push the four renderer-wide screen-space overlay flags (tile grid,
