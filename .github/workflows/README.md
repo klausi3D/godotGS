@@ -169,13 +169,27 @@ text. It is therefore **declared here** and reviewed by a maintainer:
 - Persistent self-hosted runner labels: `self-hosted`, `Windows`, `X64`, `godotgs`, `gpu`
 - GitHub-hosted runner labels: `ubuntu-latest`
 
+Those two bullets are parsed, so their **form is load-bearing**. Each must open
+with its clause (`- <clause>:`) and then contain a comma-separated list of
+backticked labels and nothing else — an optional closing period is the only
+extra allowed. Do not append an example, a counter-example or an explanation to
+either bullet, and do not restate either clause in a second bullet: every
+backticked token in the declaration is read as current policy, so a
+counter-example such as `windows-2022` written inside the second bullet would
+*become* a declared GitHub-hosted label and quietly move a job out of the trust
+boundary. Explanations belong in paragraphs like this one. A bullet that only
+mentions a clause mid-sentence (“we no longer declare …”) is not a declaration
+and is rejected, rather than being read backwards.
+
 `tests/ci/test_release_builds_runner_trust.py` parses both bullets and
 cross-checks them: every label that appears next to `self-hosted` in any
 `.github/workflows/*.yml` must be listed above (so a label newly added to the
 runner fails the guard until it is declared), and the two lists must be
-**disjoint**. A `runs-on:` whose labels are neither a subset of the persistent
-list nor a *single* label from the GitHub-hosted list is a hard failure, not an
-assumption of safety.
+**disjoint**. That scan is case-insensitive, exactly as GitHub's own label
+matching is, so `runs-on: [Self-Hosted, …]` contributes its labels just like the
+lowercase spelling. A `runs-on:` whose labels are neither a subset of the
+persistent list nor a *single* label from the GitHub-hosted list is a hard
+failure, not an assumption of safety.
 
 Two label shapes are deliberately **not** treated as GitHub-hosted, because
 earlier versions of the guard inferred hosting from the shape of the label text

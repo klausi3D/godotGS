@@ -95,6 +95,22 @@ from the self-hosted runner inventory -- is not inferable from workflow text at
 all. It is a maintainer statement, made once, in a reviewed location, instead of
 a regex re-deriving it wrongly on every run.
 
+Both halves of that arrangement have to be read *strictly*, because both are
+places where a near-miss reads as a pass:
+
+* the workflow scan is **normalized before detection**. GitHub matches runner
+  labels case-insensitively, so `runs-on: [Self-Hosted, ...]` is an ordinary
+  declaration; a case-sensitive pre-filter skipped it while the lowercase
+  declarations elsewhere kept the scan non-empty, so nothing raised and that
+  line's labels never reached the cross-check;
+* the README declaration must be a **delimited clause**: the marker begins the
+  bullet, and the rest is a comma-separated list of backticked labels and
+  nothing else. "A bullet containing the marker, scraped for backticks" accepted
+  prose that declared no policy at all (a negative or historical sentence) and
+  read trailing prose as policy -- a counter-example naming `windows-2022`
+  became a declared GitHub-hosted label, which is exactly the classification
+  that drops a job out of `self_hosted_jobs()`.
+
 No PyYAML: `tests/ci/validate_automation.py` treats PyYAML as optional, so a
 guard that imports it would silently degrade on a runner without it.
 
@@ -155,6 +171,22 @@ README_JOB_LIST_MARKER = "self-hosted jobs"
 # can establish.
 README_PERSISTENT_LABELS_MARKER = "Persistent self-hosted runner labels:"
 README_GITHUB_HOSTED_LABELS_MARKER = "GitHub-hosted runner labels:"
+# The declaration bullet must be exactly `- <marker> `a`, `b`, `c`[.]` and nothing
+# else. Two things go wrong when the clause is merely "a bullet containing the
+# marker, scraped for backticks":
+#
+# * a historical/negative/explanatory bullet ("We no longer declare GitHub-hosted
+#   runner labels: `ubuntu-latest`.") satisfies the check without declaring a
+#   policy at all;
+# * trailing prose is scraped as policy, so a counter-example
+#   ("... `ubuntu-latest`. For example `windows-2022` is not one.") becomes a
+#   declared GitHub-hosted label -- and `windows-2022` is exactly the
+#   self-hosted-looking label rounds 5/6 got wrong.
+#
+# So: the marker must BEGIN the bullet, and what follows must be a comma-separated
+# list of backticked labels with an optional terminating period. Anything else
+# raises rather than being partly believed.
+DECLARED_LABEL_CLAUSE = re.compile(r"^`[^`]+`(?:, *`[^`]+`)*\.?$")
 
 JOB_KEY = re.compile(r"^  ([A-Za-z_][A-Za-z0-9_-]*):\s*$")
 JOB_LEVEL_KEY = re.compile(r"^    ([A-Za-z_][A-Za-z0-9_-]*):(.*)$")
@@ -219,6 +251,16 @@ def persistent_runner_labels(paths: Optional[List[Path]] = None) -> frozenset:
     runner label shows up in this vocabulary as soon as one job spells it out
     next to `self-hosted`, and until then any job using it alone is unmodelled
     (a failure) rather than assumed GitHub-hosted.
+
+    Case-insensitive throughout. GitHub matches runner labels case-insensitively,
+    so `runs-on: [Self-Hosted, Windows, X64, godotgs]` is a perfectly ordinary
+    declaration. A case-*sensitive* pre-filter here would skip that line while the
+    lowercase declarations elsewhere keep ``declarations`` non-zero -- the scan
+    stays non-empty, nothing raises, and the labels that line pairs with
+    `self-hosted` never reach the cross-check in
+    :func:`build_runner_label_policy`. A label sitting on the persistent runner
+    could then remain declared GitHub-hosted, which drops an unguarded job out of
+    :func:`self_hosted_jobs` entirely.
     """
     if paths is None:
         paths = sorted(WORKFLOW_DIR.glob("*.yml")) + sorted(WORKFLOW_DIR.glob("*.yaml"))
@@ -228,7 +270,10 @@ def persistent_runner_labels(paths: Optional[List[Path]] = None) -> frozenset:
     for path in paths:
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             match = RUNS_ON_LINE.match(line)
-            if not match or SELF_HOSTED_LABEL not in match.group(1):
+            # Normalize before detecting: routing is case-insensitive, so the
+            # pre-filter must be too, or a valid mixed-case declaration is
+            # silently dropped from the derived vocabulary.
+            if not match or SELF_HOSTED_LABEL not in match.group(1).lower():
                 continue
             parsed = _parse_runs_on(match.group(1), f"{path.name}:{number}")
             lowered = {str(label).lower() for label in parsed}
@@ -478,19 +523,56 @@ def readme_trust_section() -> str:
 
 
 def _declared_labels_from_section(section: str, marker: str) -> Set[str]:
-    matches = [
-        line.split(marker, 1)[1]
+    """The labels declared by the one bullet that *is* the ``marker`` declaration.
+
+    Deliberately not "any bullet mentioning the marker, scraped for backticks".
+    That accepted prose which does not declare a policy (a negative or historical
+    sentence with the marker embedded mid-bullet) and, worse, read trailing prose
+    as policy -- a counter-example such as ``windows-2022`` named after the list
+    became a declared GitHub-hosted label, which is precisely the classification
+    that lets a self-hosted job out of :func:`self_hosted_jobs`.
+
+    So the bullet must *begin* with the marker and its remainder must be exactly a
+    comma-separated list of backticked labels (:data:`DECLARED_LABEL_CLAUSE`).
+    Anything ambiguous -- a second bullet that merely mentions the marker
+    included -- raises.
+    """
+    mentioning = [
+        line.strip()
         for line in section.splitlines()
         if line.lstrip().startswith("- ") and marker in line
     ]
-    if len(matches) != 1:
+    if len(mentioning) != 1:
         raise UnmodelledWorkflowConstruct(
-            f"The Runner Trust Boundary section of {README.name} must declare exactly one "
-            f"bullet starting the clause {marker!r}, found {len(matches)}. That declaration is "
-            "how this guard learns which labels reach the persistent runner; without it, it "
-            "refuses to classify any job."
+            f"The Runner Trust Boundary section of {README.name} must contain exactly one "
+            f"bullet mentioning {marker!r}, found {len(mentioning)}. That declaration is how "
+            "this guard learns which labels reach the persistent runner; a second bullet "
+            "mentioning it -- even as an aside -- makes the declaration ambiguous, so the "
+            "guard refuses to classify any job."
         )
-    labels = {name.strip().lower() for name in BACKTICKED.findall(matches[0])}
+
+    bullet = mentioning[0]
+    prefix = f"- {marker}"
+    if not bullet.startswith(prefix):
+        raise UnmodelledWorkflowConstruct(
+            f"The {marker!r} bullet in {README.name} does not *begin* with that clause "
+            f"({bullet!r}). A marker embedded mid-sentence can be part of a historical, "
+            "negative or explanatory statement ('We no longer declare ...'), which is not a "
+            f"policy declaration. Write the bullet as `- {marker} `label`, `label``."
+        )
+
+    clause = bullet[len(prefix) :].strip()
+    if not DECLARED_LABEL_CLAUSE.match(clause):
+        raise UnmodelledWorkflowConstruct(
+            f"The {marker!r} bullet in {README.name} must be followed by a comma-separated "
+            "list of backticked labels and nothing else (an optional trailing period is "
+            f"allowed); found {clause!r}. Trailing prose is not ignorable here: every "
+            "backticked token after the marker used to be read as declared policy, so a "
+            "counter-example like `windows-2022` silently became a GitHub-hosted label. Put "
+            "explanation in its own paragraph, outside this bullet."
+        )
+
+    labels = {name.strip().lower() for name in BACKTICKED.findall(clause)}
     labels.discard("")
     if not labels:
         raise UnmodelledWorkflowConstruct(
@@ -747,6 +829,12 @@ class RunnerLabelClassificationTests(unittest.TestCase):
         with self.assertRaises(UnmodelledWorkflowConstruct):
             persistent_runner_labels([corpus])
 
+    def test_a_mixed_case_self_hosted_declaration_is_detected(self) -> None:
+        # GitHub matches labels case-insensitively, so `Self-Hosted` is a valid
+        # spelling of the declaration and its companions belong in the vocabulary.
+        corpus = self._corpus("jobs:\n  a:\n    runs-on: [Self-Hosted, Windows, Brand-New-Rig]\n")
+        self.assertEqual(persistent_runner_labels([corpus]), frozenset({"windows", "brand-new-rig"}))
+
     def test_custom_labels_without_the_self_hosted_label_are_self_hosted(self) -> None:
         # The hole this class exists for: GitHub routes `[Windows, X64, godotgs]`
         # to the persistent runner, `self-hosted` label or not.
@@ -882,6 +970,26 @@ class RunnerLabelPolicyTests(unittest.TestCase):
         self.assertTrue(self_hosted)
         self.assertTrue(set(jobs) - set(self_hosted))
 
+    def test_the_real_policy_routes_a_custom_label_only_job_to_the_runner(self) -> None:
+        # Anchored to the *shipped* README, not to a synthetic policy: the review
+        # question is whether THIS repository's declared labels catch a job that
+        # reaches the persistent runner without ever writing `self-hosted`.
+        policy = runner_label_policy()
+        self.assertEqual(
+            classify_runner(["Windows", "X64", "godotgs"], "sneaky", policy), "self-hosted"
+        )
+        lines = [
+            "jobs:",
+            "  sneaky:",
+            "    runs-on: [Windows, X64, godotgs]",
+            "  hosted:",
+            "    runs-on: ubuntu-latest",
+        ]
+        jobs = parse_jobs(lines)
+        self.assertEqual(sorted(self_hosted_jobs(jobs, policy)), ["sneaky"])
+        # ... and it is unguarded, so the fork-guard check has something to fail on.
+        self.assertIsNone(classify_guard(jobs["sneaky"]["if"]))
+
     def test_a_persistent_label_missing_from_the_declaration_raises(self) -> None:
         # A new label bolted onto the runner shows up in the derived vocabulary
         # first; until a human declares it, the guard refuses to classify.
@@ -895,6 +1003,34 @@ class RunnerLabelPolicyTests(unittest.TestCase):
             [corpus], (self.DECLARED_PERSISTENT + ["brand-new-rig"], self.DECLARED_HOSTED)
         )
         self.assertIn("brand-new-rig", policy.persistent)
+
+    def test_a_mixed_case_declaration_cannot_hide_behind_a_lowercase_one(self) -> None:
+        # The fail-open this test exists for: a case-SENSITIVE pre-filter skips
+        # the `Self-Hosted` line, while the lowercase declaration in the other
+        # file keeps the scan non-empty so nothing raises. `ubuntu-latest` sits on
+        # the persistent runner in that second file, yet stays declared
+        # GitHub-hosted -- and an unguarded `runs-on: ubuntu-latest` job then
+        # drops out of `self_hosted_jobs()` with no fork-guard and no README
+        # check. Normalizing first turns that into a hard failure.
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        lower = Path(directory.name) / "a.yml"
+        lower.write_text(
+            "jobs:\n  real:\n    runs-on: [self-hosted, Windows, X64, godotgs]\n", encoding="utf-8"
+        )
+        mixed = Path(directory.name) / "b.yml"
+        mixed.write_text(
+            "jobs:\n  other:\n    runs-on: [Self-Hosted, Windows, X64, godotgs, ubuntu-latest]\n",
+            encoding="utf-8",
+        )
+        # Not vacuous: the lowercase file alone declares a valid policy, so the
+        # failure below is caused by the mixed-case line and nothing else.
+        self.assertIn(
+            "godotgs",
+            runner_label_policy([lower], (self.DECLARED_PERSISTENT, self.DECLARED_HOSTED)).persistent,
+        )
+        with self.assertRaises(UnmodelledWorkflowConstruct):
+            runner_label_policy([lower, mixed], (self.DECLARED_PERSISTENT, self.DECLARED_HOSTED))
 
     def test_a_hosted_label_that_is_also_a_persistent_label_raises(self) -> None:
         # The disjointness the shape-based fallback assumed without evidence.
@@ -934,6 +1070,80 @@ class RunnerLabelPolicyTests(unittest.TestCase):
         section = f"## Runner Trust Boundary\n- {README_PERSISTENT_LABELS_MARKER} none.\n"
         with self.assertRaises(UnmodelledWorkflowConstruct):
             _declared_labels_from_section(section, README_PERSISTENT_LABELS_MARKER)
+
+    def _hosted_section(self, bullet: str) -> str:
+        return f"## Runner Trust Boundary\n{bullet}\n"
+
+    def test_a_well_formed_declaration_is_still_accepted(self) -> None:
+        # Guard the guard: the strictness below must not have made every bullet
+        # fail, which would turn the tests after it into vacuous assertRaises.
+        for bullet in (
+            f"- {README_GITHUB_HOSTED_LABELS_MARKER} `ubuntu-latest`",
+            f"- {README_GITHUB_HOSTED_LABELS_MARKER} `ubuntu-latest`.",
+            f"- {README_GITHUB_HOSTED_LABELS_MARKER} `ubuntu-latest`, `ubuntu-24.04`.",
+        ):
+            with self.subTest(bullet=bullet):
+                self.assertIn(
+                    "ubuntu-latest",
+                    _declared_labels_from_section(
+                        self._hosted_section(bullet), README_GITHUB_HOSTED_LABELS_MARKER
+                    ),
+                )
+
+    def test_a_negative_or_historical_bullet_is_not_a_declaration(self) -> None:
+        # The marker embedded mid-sentence says the opposite of what the guard
+        # would read off it. An inverted claim must not satisfy the requirement.
+        for bullet in (
+            f"- We no longer declare {README_GITHUB_HOSTED_LABELS_MARKER} `ubuntu-latest`.",
+            f"- Historically the {README_GITHUB_HOSTED_LABELS_MARKER} `ubuntu-latest`.",
+        ):
+            with self.subTest(bullet=bullet):
+                with self.assertRaises(UnmodelledWorkflowConstruct):
+                    _declared_labels_from_section(
+                        self._hosted_section(bullet), README_GITHUB_HOSTED_LABELS_MARKER
+                    )
+
+    def test_trailing_prose_after_the_declared_list_raises(self) -> None:
+        # Every backticked token after the marker used to be read as policy, so a
+        # counter-example became a declared label.
+        bullet = (
+            f"- {README_GITHUB_HOSTED_LABELS_MARKER} `ubuntu-latest`. For example "
+            "`windows-2022` is a self-hosted label, not one of these."
+        )
+        with self.assertRaises(UnmodelledWorkflowConstruct):
+            _declared_labels_from_section(
+                self._hosted_section(bullet), README_GITHUB_HOSTED_LABELS_MARKER
+            )
+
+    def test_trailing_prose_would_otherwise_reach_classify_runner(self) -> None:
+        # Why the clause above matters: the scraped counter-example does not stay
+        # inert, it becomes a routable "GitHub-hosted" label, and a self-hosted
+        # job carrying it then leaves the sweep unguarded and undocumented.
+        hosted = {"ubuntu-latest", "windows-2022"}
+        policy = build_runner_label_policy(["Windows", "X64", "godotgs"], hosted, ["godotgs"])
+        self.assertEqual(classify_runner(["windows-2022"], "sneaky", policy), "github-hosted")
+
+    def test_an_extra_bullet_mentioning_the_marker_raises(self) -> None:
+        # Ambiguity is not resolved in favour of the "real" one; two mentions
+        # means the guard cannot tell which is the policy.
+        section = (
+            "## Runner Trust Boundary\n"
+            f"- {README_GITHUB_HOSTED_LABELS_MARKER} `ubuntu-latest`\n"
+            f"- Note: `windows-2022` is not among the {README_GITHUB_HOSTED_LABELS_MARKER} above.\n"
+        )
+        with self.assertRaises(UnmodelledWorkflowConstruct):
+            _declared_labels_from_section(section, README_GITHUB_HOSTED_LABELS_MARKER)
+
+    def test_the_real_readme_bullets_satisfy_the_strict_clause(self) -> None:
+        # The strictness is only credible if the shipped README already meets it.
+        section = readme_trust_section()
+        self.assertIn(
+            "godotgs", _declared_labels_from_section(section, README_PERSISTENT_LABELS_MARKER)
+        )
+        self.assertEqual(
+            _declared_labels_from_section(section, README_GITHUB_HOSTED_LABELS_MARKER),
+            {"ubuntu-latest"},
+        )
 
 
 class GuardFormCrossCheckTests(unittest.TestCase):
