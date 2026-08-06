@@ -13,6 +13,31 @@ Each case is written so it FAILS against the pre-fix guard:
   test_multiline_resize_is_detected              <- line-anchored regex
   test_unreadable_source_fails_the_guard         <- `except OSError: continue`
 
+plus a second review round, where three more evasions were reported against the fixed
+guard -- all of them the same root cause, the guard parsing C++ with a regex and a raw
+brace count, so ordinary formatting defeated it:
+
+  test_trailing_comment_does_not_hide_a_site     <- RESIZE_RE required ';' at end of line
+  test_block_comment_does_not_hide_a_site        <- ditto, /* */ form
+  test_brace_in_a_comment_does_not_end_the_span  <- a '}' in a comment truncated the span
+  test_brace_in_a_string_does_not_end_the_span   <- ditto, inside a string literal
+  test_comment_only_consumer_is_not_a_consumer   <- a ptrw() in a comment read as code
+  test_swapped_duplicate_is_reported_as_new      <- an occurrence ordinal COUNTS sites, it
+                                                    does not identify them, so fixing one
+                                                    duplicate while adding another was
+                                                    invisible
+
+Measured, not assumed: those six FAIL against the pre-fix guard (29f4df42603) and pass
+against the fixed one. Two further cases here are NOT evasion tests and pass on both
+sides -- said plainly so nobody reads them as proof of a fix:
+
+  test_duplicate_sites_have_stable_identities    invariant: duplicates stay distinct.
+                                                 The ordinal already satisfied it, which
+                                                 is exactly why counting looked adequate.
+  test_unique_keys_carry_no_context_suffix       confines the new context digest to real
+                                                 duplicates, so it cannot churn the 80
+                                                 unique baseline keys.
+
 plus two regression tests for defects found while fixing the above:
 
   test_consumer_does_not_leak_across_functions   <- namespace-as-span over-scanned
@@ -184,6 +209,183 @@ Error Wrapped::build() {
         finally:
             sys.argv = argv
         self.assertEqual(code, 1, "an incomplete scan must fail the guard")
+
+    # -- P1 (round 2): comments hiding a statement -------------------------
+    def test_trailing_comment_does_not_hide_a_site(self):
+        """A trailing comment must not make an unchecked resize invisible.
+
+        Pre-fix RESIZE_RE required the ';' to end the assembled statement, so any call
+        with a trailing comment was dropped before the consumer was ever looked for.
+        This is not a hypothetical formatting: it hid a live site at
+        renderer/render_resource_orchestrator.cpp:267 whose ptrw() sits two lines below.
+        """
+        self._write("a.cpp", """
+Error Commented::build() {
+    Vector<uint8_t> vertex_data;
+    vertex_data.resize(splat_count * 40); // 3 pos + 4 color + 3 scale
+    uint8_t *w = vertex_data.ptrw();
+    return OK;
+}
+""")
+        sites = self._sites()
+        self.assertEqual(len(sites), 1, f"a trailing comment must not hide a site: {sites}")
+
+    def test_block_comment_does_not_hide_a_site(self):
+        """Same hole, /* */ form -- fixed by masking rather than by widening the regex."""
+        self._write("a.cpp", """
+Error Blocked::build() {
+    Vector<uint8_t> payload;
+    payload.resize(runtime_count); /* sized from the file header */
+    uint8_t *w = payload.ptrw();
+    return OK;
+}
+""")
+        sites = self._sites()
+        self.assertEqual(len(sites), 1, f"a block comment must not hide a site: {sites}")
+
+    # -- P2 (round 2): braces in comments and strings -----------------------
+    def test_brace_in_a_comment_does_not_end_the_span(self):
+        """A '}' inside a comment must not close the enclosing function early.
+
+        Pre-fix the raw brace count closed the span at the comment; the resize still
+        fell INSIDE that truncated span, so _consumer_scan_end() returned the premature
+        end and the unbounded fallback -- the thing the docstring claimed made
+        miscounting safe -- was never reached. The consumer below was simply lost.
+        """
+        self._write("a.cpp", """
+Error Braced::build() {
+    Vector<float> values;
+    values.resize(runtime_count);
+    // closing the loop below with } would be wrong
+    float *w = values.ptrw();
+    return OK;
+}
+""")
+        sites = self._sites()
+        self.assertEqual(len(sites), 1, f"a brace in a comment must not truncate scope: {sites}")
+
+    def test_brace_in_a_string_does_not_end_the_span(self):
+        """Same hole via a string literal."""
+        self._write("a.cpp", """
+Error Stringy::build() {
+    Vector<float> values;
+    values.resize(runtime_count);
+    print_line("}");
+    float *w = values.ptrw();
+    return OK;
+}
+""")
+        sites = self._sites()
+        self.assertEqual(len(sites), 1, f"a brace in a string must not truncate scope: {sites}")
+
+    def test_comment_only_consumer_is_not_a_consumer(self):
+        """Masking must cut BOTH ways: commented-out code is not a raw write.
+
+        The same masking that stops comments hiding a site also stops a commented
+        `ptrw()` from inventing one. Asserted so a later "just strip // for matching"
+        shortcut cannot quietly reintroduce the false positive.
+        """
+        self._write("a.cpp", """
+Error OnlyInAComment::build() {
+    Vector<float> values;
+    values.resize(runtime_count);
+    // float *w = values.ptrw();
+    return OK;
+}
+""")
+        sites = self._sites()
+        self.assertEqual(sites, [], f"a consumer inside a comment must not count: {sites}")
+
+    # -- P1 (round 2): duplicate identity ----------------------------------
+    def test_duplicate_sites_have_stable_identities(self):
+        """Two identical statements in one function must get DISTINCT identities."""
+        self._write("a.cpp", """
+Error Dup::build() {
+    Vector<float> v;
+    int head = 1;
+    v.resize(n);
+    float *a = v.ptrw();
+    int tail = 2;
+    v.resize(n);
+    float *b = v.ptrw();
+    return OK;
+}
+""")
+        sites = self._sites()
+        self.assertEqual(len(sites), 2, f"both duplicates must be tracked: {sites}")
+        self.assertEqual(len(set(sites)), 2, f"duplicates collapsed onto one key: {sites}")
+
+    def test_swapped_duplicate_is_reported_as_new(self):
+        """Fix one duplicate, add another in the same function -> the ratchet must fire.
+
+        This is the case an occurrence ORDINAL cannot see. Pre-fix the two sites were
+        `key` and `key#2`; fixing the first and adding a third produced the SAME two
+        keys, so the count and the exact set were unchanged and CI passed over a real
+        new unchecked site. Identity has to come from context, not from counting.
+        """
+        both = """
+Error Dup::build() {
+    Vector<float> v;
+    int head = 1;
+    v.resize(n);
+    float *a = v.ptrw();
+    int tail = 2;
+    v.resize(n);
+    float *b = v.ptrw();
+    return OK;
+}
+"""
+        self._write("a.cpp", both)
+        baseline = self._sites()
+
+        swapped = """
+Error Dup::build() {
+    Vector<float> v;
+    int head = 1;
+    ERR_FAIL_COND_V(gs_resize_or_fail(v, n) != OK, ERR_OUT_OF_MEMORY);
+    float *a = v.ptrw();
+    int tail = 2;
+    v.resize(n);
+    float *b = v.ptrw();
+    int extra = 3;
+    v.resize(n);
+    float *c = v.ptrw();
+    return OK;
+}
+"""
+        self._write("a.cpp", swapped)
+        after = self._sites()
+        self.assertEqual(len(after), 2, f"expected two live sites after the swap: {after}")
+        new_sites = [s for s in after if s not in baseline]
+        self.assertEqual(
+            len(new_sites), 1,
+            f"the newly added duplicate must read as NEW against the baseline: "
+            f"baseline={baseline} after={after} new={new_sites}",
+        )
+        survivor = [s for s in after if s in baseline]
+        self.assertEqual(
+            len(survivor), 1,
+            f"the untouched duplicate must keep its identity: baseline={baseline} after={after}",
+        )
+
+    def test_unique_keys_carry_no_context_suffix(self):
+        """Context sensitivity must be confined to actual duplicates.
+
+        A digest on every key would make an edit NEXT TO a normal site look like a new
+        site, and --regenerate refuses to add keys, so that would deadlock the guard on
+        an unrelated change. Only repeated keys carry the suffix.
+        """
+        self._write("a.cpp", """
+Error Solo::build() {
+    Vector<float> values;
+    values.resize(runtime_count);
+    float *w = values.ptrw();
+    return OK;
+}
+""")
+        sites = self._sites()
+        self.assertEqual(len(sites), 1, f"expected one site: {sites}")
+        self.assertNotIn("@", sites[0], f"a unique key must stay context-free: {sites}")
 
     # -- regressions found while fixing the above --------------------------
     def test_consumer_does_not_leak_across_functions(self):

@@ -986,11 +986,14 @@ def _run_unchecked_resize_guard() -> tuple[bool, list[str]]:
     if not UNCHECKED_RESIZE_GUARD_SCRIPT.is_file():
         return False, [f"Missing unchecked-resize guard: {UNCHECKED_RESIZE_GUARD_SCRIPT.relative_to(ROOT)}"]
 
-    # Run the guard's OWN self-tests in the same lane, and FIRST. Codex review found
-    # five distinct ways to evade this guard (key collision, --regenerate blessing a
-    # new site on a net-zero delta, a fixed-window function-scope cap, line-anchored
-    # matching missing wrapped calls, and an unreadable source passing silently).
-    # Each is now a self-test. Wiring them here rather than into a separate lane is
+    # Run the guard's OWN self-tests in the same lane, and FIRST. Two review rounds
+    # found EIGHT distinct ways to evade this guard: key collision, --regenerate
+    # blessing a new site on a net-zero delta, a fixed-window function-scope cap,
+    # line-anchored matching missing wrapped calls, an unreadable source passing
+    # silently, a trailing comment hiding a statement, a '}' inside a comment or string
+    # truncating the function span, and an occurrence ordinal that counted duplicate
+    # sites without identifying them. Each is now a self-test. Wiring them here rather
+    # than into a separate lane is
     # deliberate: this file already documents a guard that "existed but was wired into
     # NO lane and no runner ... therefore never executed once", and a self-test that
     # does not run is worth exactly nothing.
@@ -1001,6 +1004,11 @@ def _run_unchecked_resize_guard() -> tuple[bool, list[str]]:
     if code != 0:
         lines = [line for line in (out + err).splitlines() if line.strip()]
         return False, lines or [f"Unchecked-resize guard self-test failed with exit code {code}."]
+    # Report the case count unittest actually ran, never a number typed by hand: the
+    # previous literal ("7 cases") was already stale, and a hand-maintained count is a
+    # claim about coverage that nothing checks.
+    ran = re.search(r"^Ran (\d+) tests?", out + err, re.MULTILINE)
+    case_count = f"{ran.group(1)} cases" if ran else "case count not reported"
 
     code, out, err = _run_command([sys.executable, str(UNCHECKED_RESIZE_GUARD_SCRIPT)])
     output_lines = [line for line in (out + err).splitlines() if line.strip()]
@@ -1008,7 +1016,7 @@ def _run_unchecked_resize_guard() -> tuple[bool, list[str]]:
         if not output_lines:
             output_lines = [f"Unchecked-resize guard failed with exit code {code}."]
         return False, output_lines
-    return True, ["Unchecked-resize guard self-test passed (7 cases)."] + output_lines
+    return True, [f"Unchecked-resize guard self-test passed ({case_count})."] + output_lines
 
 
 def _run_require_null_deref_guard() -> tuple[bool, list[str]]:

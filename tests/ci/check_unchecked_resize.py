@@ -94,6 +94,10 @@ Stated plainly, because an undocumented blind spot invites false confidence:
 5. **Integer overflow in `N` itself** -- e.g. `uint32_t * sizeof(...)` wrapping and
    under-allocating *past* a correct check. Two such cases were found by hand during
    #798; a source scan cannot evaluate the arithmetic.
+6. **Code inside `#if 0` / disabled preprocessor regions**, which is still counted as
+   live source. Comments and string literals no longer are -- they are masked out
+   before any analysis (`_mask_source`) -- but the preprocessor is not evaluated, so
+   braces in a disabled region can still miscount function depth.
 
 Reliable detection of 1-3 needs type and dataflow information, i.e. a clang-tidy check
 or a compiler plugin. This is a ratchet against the pattern spreading, not a proof that
@@ -104,13 +108,24 @@ the module is free of it.
     python tests/ci/check_unchecked_resize.py              # verify against the baseline
     python tests/ci/check_unchecked_resize.py --regenerate # after fixing sites
 
-Regenerating is expected to SHRINK the baseline. If it would grow, the guard fails and
-prints the new sites; that is the case that must be justified or fixed, never silently
-re-baselined.
+Regenerating is expected to SHRINK the baseline. If it would grow, `--regenerate`
+FAILS and prints the new sites; that is the case that must be justified or fixed, never
+silently re-baselined.
+
+There is exactly one other way the recorded set may grow, and it is not a defect being
+blessed: when THE DETECTOR changes -- a new key format, or a widened predicate that
+reveals sites which were always in the tree and merely invisible. That path is
+`--accept-detector-change`, it is never run by CI, and it prints the full delta so each
+addition is reviewed against the diff. Widening detection and then declining to record
+what it finds would leave the guard permanently red; recording it silently would be
+indistinguishable from blessing a new defect. Printing it and naming the reason is the
+only honest option, and the reason is a claim a reviewer must check, not a fact this
+script can prove.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import pathlib
 import re
@@ -120,10 +135,24 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 MODULE_ROOT = REPO_ROOT / "modules" / "gaussian_splatting"
 BASELINE_PATH = REPO_ROOT / "tests" / "ci" / "unchecked_resize_baseline.json"
 
-# Applied to an ASSEMBLED statement, not to a raw line: a normally formatted call
-# such as `values.resize(` / `        runtime_count);` is a single statement split
-# across two lines, and a line-anchored match silently skipped it -- so a later
-# `values.ptrw()` was never examined and a new unsafe allocation passed the guard.
+# Applied to an ASSEMBLED, COMMENT-MASKED statement, never to a raw line.
+#
+# Two ordinary formatting choices used to defeat this, and both are the SAME defect:
+# the guard parsed C++ with a line-anchored regex, so anything the compiler treats as
+# one statement but the reader writes across two lines -- or anything with a trailing
+# comment -- simply was not seen. Neither is an exotic evasion; Godot style produces
+# both routinely.
+#
+#   values.resize(              <- wrapped call: never matched at all
+#           runtime_count);
+#   values.resize(n); // note   <- `;\s*$` rejects it, so the ptrw() below is never read
+#
+# The second form is not hypothetical either: it hid a live site at
+# renderer/render_resource_orchestrator.cpp:267, whose `vertex_data.ptrw()` sits two
+# lines below. Rather than special-case a trailing comment in the pattern, comments and
+# string literals are MASKED OUT of the source before any analysis (see _mask_source),
+# which removes the whole class -- including the `}` -inside-a-comment case that used to
+# close a function span early in _function_spans().
 RESIZE_RE = re.compile(
     r"^\s*([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)*)\s*"
     r"\.resize(?:_initialized|_uninitialized)?\s*\(\s*(.+?)\s*\)\s*;\s*$"
@@ -161,6 +190,103 @@ DECL_LOOKBACK = 70
 # How many physical lines a single statement may span before assembly gives up.
 # This bounds only STATEMENT assembly, never function scope -- see _function_spans().
 MAX_STATEMENT_LINES = 12
+
+
+def _mask_source(lines: list[str]) -> list[str]:
+    """Blank out comments and string/char literal CONTENT, preserving geometry.
+
+    Every character that belongs to a comment or a literal is replaced by a space, so
+    the returned list has the same number of lines and each line the same length. Line
+    numbers, columns and brace/paren positions therefore stay usable, while text that
+    the compiler ignores can no longer steer the analysis.
+
+    This one step closes three separately-reported holes that were all the same
+    underlying problem -- the guard parsing C++ with regex and raw brace counting:
+
+    * a trailing `// comment` after `resize(n);` made RESIZE_RE reject the statement;
+    * a `}` inside a comment or a string between the resize and its consumer closed the
+      enclosing function span early, so _consumer_scan_end() returned a premature end
+      and the consumer was never reached. The advertised unbounded fallback did NOT
+      save this case: the resize still fell inside the truncated span, so the fallback
+      never ran;
+    * `.resize(` or `.ptrw()` mentioned inside a comment or a string was read as code.
+
+    Handled: `//`, `/* */` (including multi-line), `"..."` and `'...'` with escapes, and
+    raw strings `R"delim(...)delim"`. Digit separators (`1'000'000`) are NOT treated as
+    char literals. Not handled, and stated rather than hidden: `#if 0` blocks are still
+    counted as live code, so braces inside a disabled region can still miscount depth.
+    """
+    out: list[str] = []
+    in_block = False
+    raw_terminator: str | None = None
+    for line in lines:
+        buf = list(line)
+        i = 0
+        n = len(line)
+        while i < n:
+            if raw_terminator is not None:
+                idx = line.find(raw_terminator, i)
+                stop = n if idx < 0 else idx + len(raw_terminator)
+                for k in range(i, stop):
+                    buf[k] = " "
+                i = stop
+                if idx >= 0:
+                    raw_terminator = None
+                continue
+            if in_block:
+                idx = line.find("*/", i)
+                stop = n if idx < 0 else idx + 2
+                for k in range(i, stop):
+                    buf[k] = " "
+                i = stop
+                if idx >= 0:
+                    in_block = False
+                continue
+            ch = line[i]
+            nxt = line[i + 1] if i + 1 < n else ""
+            if ch == "/" and nxt == "/":
+                for k in range(i, n):
+                    buf[k] = " "
+                i = n
+                continue
+            if ch == "/" and nxt == "*":
+                in_block = True
+                buf[i] = buf[i + 1] = " "
+                i += 2
+                continue
+            if ch == "R" and nxt == '"':
+                j = i + 2
+                delim = ""
+                while j < n and line[j] != "(":
+                    delim += line[j]
+                    j += 1
+                if j < n:
+                    raw_terminator = f"){delim}\""
+                    for k in range(i, j + 1):
+                        buf[k] = " "
+                    i = j + 1
+                    continue
+            if ch == "'" and i > 0 and (line[i - 1].isalnum() or line[i - 1] == "_"):
+                i += 1  # digit separator such as 1'000'000, not a char literal
+                continue
+            if ch in ('"', "'"):
+                buf[i] = " "
+                j = i + 1
+                while j < n:
+                    if line[j] == "\\" and j + 1 < n:
+                        buf[j] = buf[j + 1] = " "
+                        j += 2
+                        continue
+                    closing = line[j] == ch
+                    buf[j] = " "
+                    j += 1
+                    if closing:
+                        break
+                i = j
+                continue
+            i += 1
+        out.append("".join(buf))
+    return out
 
 
 def _module_sources() -> list[pathlib.Path]:
@@ -225,11 +351,18 @@ def _function_spans(lines: list[str]) -> list[tuple[int, int, str]]:
     dropped -- recreating exactly the window-length evasion that motivated
     function-scoped scanning in the first place.
 
-    Known limitation, stated rather than hidden: braces inside string literals or
-    comments are not excluded, so depth can be miscounted in pathological files.
-    The fallback in _consumer_scan_end() is therefore deliberately unbounded, so a
-    miscount widens the scan rather than truncating it -- a guard that over-scans
-    reports a site for review; one that under-scans misses a defect.
+    MUST be called on masked lines (see _mask_source). Raw brace counting used to
+    include braces inside comments and string literals, and the consequence was not
+    the harmless over-scan the previous revision of this docstring claimed: a stray
+    `}` in a comment between a resize and its consumer closed the span EARLY, the
+    resize still fell inside that truncated span, so _consumer_scan_end() returned the
+    premature end and the unbounded fallback below it never ran. The site was dropped
+    silently. Masking removes the input, rather than relying on a fallback that the
+    failing case cannot reach.
+
+    The fallback in _consumer_scan_end() stays unbounded regardless, for the cases
+    masking cannot fix (`#if 0`, unbalanced macros): a guard that over-scans reports a
+    site for review; one that under-scans misses a defect.
     """
     spans: list[tuple[int, int, str]] = []
     depth = 0
@@ -287,6 +420,37 @@ def _function_name_at(index: int, spans: list[tuple[int, int, str]]) -> str:
     return "<file-scope>"
 
 
+def _context_digest(lines: list[str], start: int, last: int) -> str:
+    """A stable identity for one of several IDENTICAL statements in one function.
+
+    An occurrence ORDINAL (`key`, `key#2`, ...) does not identify a statement, it only
+    counts them: fixing the first duplicate while adding a new unchecked one elsewhere
+    in the same function leaves both the number and the exact set of keys unchanged, so
+    the ratchet passes over a real new site. That is the same "cardinality is not
+    identity" hole the function name fixed one level up.
+
+    The identity used instead is the nearest preceding and nearest following statement
+    (whitespace-collapsed, braces skipped), which distinguishes two copies that sit in
+    different places while staying stable under line shifts elsewhere in the file.
+
+    Deliberately narrow: this suffix is only attached to keys that actually REPEAT
+    within a file (see find_sites). A unique key keeps its plain, context-free form, so
+    an edit next to a normal site can never make it look new. Two duplicates whose
+    surrounding statements are also identical remain indistinguishable by any textual
+    identity; they fall back to an ordinal, which at least preserves their COUNT.
+    """
+    def _neighbour(rng) -> str:
+        for k in rng:
+            text = _normalise(lines[k])
+            if text and text not in ("{", "}", "{}"):
+                return text
+        return ""
+
+    before = _neighbour(range(start - 1, -1, -1))
+    after = _neighbour(range(last + 1, len(lines)))
+    return hashlib.sha1(f"{before}|{after}".encode("utf-8")).hexdigest()[:8]
+
+
 def find_sites() -> tuple[list[str], list[str]]:
     """Return (sites, read_errors).
 
@@ -299,13 +463,18 @@ def find_sites() -> tuple[list[str], list[str]]:
     errors: list[str] = []
     for path in _module_sources():
         try:
-            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            raw_lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
         except OSError as exc:
             errors.append(f"{path.relative_to(REPO_ROOT).as_posix()}: {exc}")
             continue
+        # Analyse the MASKED source throughout -- statement matching, type lookback,
+        # brace depth and consumer search alike. Comments and string literals are not
+        # code, and letting them steer any of those four is what produced three of the
+        # reported evasions.
+        lines = _mask_source(raw_lines)
         rel = path.relative_to(REPO_ROOT).as_posix()
         spans = _function_spans(lines)
-        seen_in_file: dict[str, int] = {}
+        candidates: list[tuple[str, str]] = []
         for i, line in enumerate(lines):
             if not RESIZE_HEAD_RE.match(line):
                 continue
@@ -335,12 +504,29 @@ def find_sites() -> tuple[list[str], list[str]]:
                 # covering eight separate getters. Fixing one of those eight, or adding
                 # a ninth, left the key set unchanged and the ratchet passed silently.
                 # The function name restores independent tracking while staying stable
-                # under line shifts; an ordinal disambiguates true repeats within one
-                # function.
+                # under line shifts. True repeats within one function are disambiguated
+                # by _context_digest() below -- NOT by an occurrence ordinal, which
+                # counts statements without identifying them.
                 key = f"{rel}::{_function_name_at(i, spans)}::{var}.resize({_normalise(count)})"
-                occurrence = seen_in_file.get(key, 0) + 1
-                seen_in_file[key] = occurrence
-                sites.append(key if occurrence == 1 else f"{key}#{occurrence}")
+                candidates.append((key, _context_digest(lines, i, last)))
+
+        # Second pass: only keys that actually REPEAT in this file carry a contextual
+        # suffix. Unique keys -- every entry in the baseline as recorded today -- keep
+        # their plain form, so context sensitivity cannot churn them.
+        repeated = {key for key in {k for k, _ in candidates}
+                    if sum(1 for k, _ in candidates if k == key) > 1}
+        used: dict[str, int] = {}
+        for key, digest in candidates:
+            if key not in repeated:
+                sites.append(key)
+                continue
+            identity = f"{key}@{digest}"
+            nth = used.get(identity, 0) + 1
+            used[identity] = nth
+            # Ordinal only for the residual case of two duplicates with IDENTICAL
+            # surrounding statements, which no textual identity can tell apart. It
+            # preserves the count, so adding a third still fails the ratchet.
+            sites.append(identity if nth == 1 else f"{identity}#{nth}")
     return sorted(sites), errors
 
 
@@ -367,8 +553,13 @@ def write_baseline(sites: list[str]) -> None:
                     "one key -- 80 statements folded into 69 keys, with result.resize(splat_count) "
                     "in gaussian_splat_asset.cpp standing in for eight separate getters. Fixing "
                     "one of those, or adding a ninth, left the key set unchanged and the ratchet "
-                    "passed silently. --regenerate now REFUSES to add any key; the one-time "
-                    "schema migration used --migrate-key-schema."
+                    "passed silently. --regenerate now REFUSES to add any key; a change to the "
+                    "DETECTOR itself (key format, or a widened predicate that reveals "
+                    "pre-existing sites) uses --accept-detector-change and must have its full "
+                    "delta reviewed in the PR. The render_resource_orchestrator.cpp "
+                    "vertex_data entry arrived that way: comment masking made a site that had "
+                    "always been there visible for the first time. It is NOT newly introduced "
+                    "and is NOT blessed as safe -- it is tracked for a fix under #798."
                 ),
                 "sites": sites,
             },
@@ -383,9 +574,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--regenerate", action="store_true",
                         help="rewrite the baseline from the current tree (may only shrink it)")
-    parser.add_argument("--migrate-key-schema", action="store_true",
-                        help="one-time: rewrite the baseline when the KEY FORMAT itself changed. "
-                             "Prints the full added/removed sets for review. Never used by CI.")
+    parser.add_argument("--accept-detector-change", "--migrate-key-schema",
+                        dest="accept_detector_change", action="store_true",
+                        help="rewrite the baseline when THE DETECTOR changed rather than the "
+                             "tree: a new key format, or a widened predicate that reveals "
+                             "sites which were always present but previously invisible. Prints "
+                             "the full added/removed sets, which must be reviewed in the PR. "
+                             "Never used by CI, and never a way to record a NEW defect.")
     args = parser.parse_args()
 
     sites, read_errors = find_sites()
@@ -399,12 +594,12 @@ def main() -> int:
             print(f"  {item}")
         return 1
 
-    if args.regenerate or args.migrate_key_schema:
+    if args.regenerate or args.accept_detector_change:
         previous = load_baseline()
         added = sorted(set(sites) - set(previous))
         removed = sorted(set(previous) - set(sites))
 
-        if added and not args.migrate_key_schema:
+        if added and not args.accept_detector_change:
             # Set inclusion, NOT a net count. Fixing one old site while introducing a
             # new one nets zero, and the old code wrote the new site into the baseline
             # and returned 0 -- after which normal CI passed on the committed file.
@@ -412,8 +607,9 @@ def main() -> int:
                   "baseline. Regenerating records fixes; it must never bless a new defect.\n")
             for site in added:
                 print(f"  + {site}")
-            print("\nFix the site(s), or if the key format itself changed, re-run with "
-                  "--migrate-key-schema and have the full delta reviewed.")
+            print("\nFix the site(s). Only if THE DETECTOR changed -- a new key format, or a "
+                  "widened predicate exposing sites that were always there -- re-run with "
+                  "--accept-detector-change and have the full delta reviewed in the PR.")
             return 1
 
         write_baseline(sites)
@@ -424,8 +620,11 @@ def main() -> int:
         for site in added:
             print(f"  + {site}")
         if added:
-            print("\n[unchecked-resize] KEY SCHEMA MIGRATION: the additions above are key-format "
-                  "changes, not necessarily new defects. Review the mapping before committing.")
+            print("\n[unchecked-resize] DETECTOR CHANGE: the additions above are attributed to a "
+                  "changed key format or a widened predicate, NOT to newly written code. That "
+                  "attribution is a claim, not a fact this script can verify -- review each "
+                  "addition against the diff before committing, and record why it was not "
+                  "already visible.")
         return 0
 
     baseline = load_baseline()
