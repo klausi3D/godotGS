@@ -885,9 +885,13 @@ class GpuHarnessBatchTimeoutBudgetTests(unittest.TestCase):
     re-hide half the batch.
 
     RE-MEASURED after the #329 waiver-reduction pass un-quarantined the last four
-    NodeSceneTree cases: the batch is now 22 executing cases / 285 assertions and
+    NodeSceneTree cases: the batch is now 22 executing cases / 281 assertions and
     measured 127.7 s, 133.8 s and 153.3 s wall across three consecutive runs on an
     RTX 3090 (run-to-run variance is large here -- device bring-up dominates).
+    (285 -> 281: #708 replaced four success-path `REQUIRE`/`CHECK` size assertions
+    with `if (...) { FAIL(...); return; }` guards, which record no assertion when
+    the size is correct. The conditions are still enforced -- see #708 for the
+    mutation proof. Case count is unchanged.)
     The constant tracks the SLOWEST observed run, not the mean, because the failure
     mode being guarded is truncation on a runner slower than this box.
 

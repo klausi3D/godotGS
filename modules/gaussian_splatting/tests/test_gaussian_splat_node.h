@@ -1285,7 +1285,17 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Scene sphere effect
 
     LocalVector<GaussianSplatSceneDirector::SphereEffectorSelection> payload;
     director->build_sphere_effector_payload_for_renderer(renderer.ptr(), payload);
-    REQUIRE(payload.size() == 2);
+    // #708/#656: REQUIRE does not abort in this build, so a bare REQUIRE on the
+    // payload size followed by payload[0] reads out of bounds and takes down the
+    // entire batch process. Guard explicitly, like the instance-row lookup below.
+    if (payload.size() != 2) {
+        FAIL("expected 2 sphere effector payload entries, got ", payload.size());
+        root->remove_child(group_b);
+        root->remove_child(group_a);
+        memdelete(group_b);
+        memdelete(group_a);
+        return;
+    }
     CHECK(payload[0].target_opacity == doctest::Approx(0.35f));
 
     LocalVector<InstanceDataGPU> instance_buffer;
@@ -1320,7 +1330,15 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Scene sphere effect
         CHECK(bool(debug_state_a.get(StringName("position_active"), false)));
         CHECK(bool(debug_state_a.get(StringName("opacity_active"), false)));
         const PackedStringArray selected_names = debug_state_a.get(StringName("selected_effector_names"), PackedStringArray());
-        CHECK(selected_names.size() == 1);
+        // #708/#656: a CHECK never aborts either, so guard before indexing.
+        if (selected_names.size() != 1) {
+            FAIL("expected 1 selected effector name, got ", selected_names.size());
+            root->remove_child(group_b);
+            root->remove_child(group_a);
+            memdelete(group_b);
+            memdelete(group_a);
+            return;
+        }
         CHECK(selected_names[0] == String("EffectorA"));
     }
     {
@@ -1412,7 +1430,15 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Scene sphere effect
 
     LocalVector<GaussianSplatSceneDirector::SphereEffectorSelection> payload;
     director->build_sphere_effector_payload_for_renderer(renderer.ptr(), payload);
-    REQUIRE(payload.size() == 4);
+    // #708/#656: REQUIRE does not abort in this build; payload[0..3] is read at
+    // the end of this case, so an unexpected payload size would crash the whole
+    // batch instead of failing this one test. Guard explicitly.
+    if (payload.size() != 4) {
+        FAIL("expected 4 truncated sphere effector payload entries, got ", payload.size());
+        root->remove_child(group);
+        memdelete(group);
+        return;
+    }
     CHECK(director->get_sphere_effector_count_for_renderer(renderer.ptr()) == 5u);
     CHECK(node->get_last_matched_scene_effector_count() == 5u);
     {
@@ -1421,7 +1447,13 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Scene sphere effect
         CHECK(int64_t(debug_state.get(StringName("bound_count"), -1)) == 4);
         CHECK(bool(debug_state.get(StringName("truncated"), false)));
         const PackedStringArray selected_names = debug_state.get(StringName("selected_effector_names"), PackedStringArray());
-        REQUIRE(selected_names.size() == 4);
+        // #708/#656: same guard before indexing the selected-name list.
+        if (selected_names.size() != 4) {
+            FAIL("expected 4 selected effector names, got ", selected_names.size());
+            root->remove_child(group);
+            memdelete(group);
+            return;
+        }
         CHECK(selected_names[0] == String("EffectorB"));
         CHECK(selected_names[1] == String("EffectorC"));
         CHECK(selected_names[2] == String("EffectorE"));
