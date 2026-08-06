@@ -94,7 +94,7 @@ that absence of output can never be read as absence of failures:
 
 ```
 [module-tests][lane-ledger] lanes=<n> strict_lanes=<n> advisory_lanes=<n> advisory_failures=<n> advisory_zero_coverage=<n> quarantine_tolerated=<n> unavailable=<n> quarantine_rejected=<n> gating_failures=<n> passed=<n> not_run=<n>
-[module-tests][lane-ledger] ADVISORY-RED lane=<name> reason=<failed|crashed|nonzero-exit-no-test-failures|no-coverage>
+[module-tests][lane-ledger] ADVISORY-RED lane=<name> reason=<failed|no-coverage|nonzero-exit-no-test-failures|crashed>
 ```
 
 `gating_failures` counts lanes whose outcome was `FAIL`, i.e. that failed the run. It is
@@ -120,15 +120,18 @@ outcome that nothing gates on today, and `reason=` says which kind:
 | `reason=` | What was observed |
 | --- | --- |
 | `failed` | the doctest summary reports failed tests or assertions |
-| `crashed` | no doctest summary at all — the lane died before reporting |
-| `nonzero-exit-no-test-failures` | tests **ran** and passed, and the process still exited nonzero (teardown/harness failure, not a test failure) |
 | `no-coverage` | the lane executed nothing — whatever its outcome or exit code |
+| `nonzero-exit-no-test-failures` | tests **ran** and passed, and the process still exited nonzero (teardown/harness failure, not a test failure) |
+| `crashed` | no doctest summary at all — the lane died before reporting |
 
-The reasons are evaluated in that order, and `no-coverage` is checked **before**
-`nonzero-exit-no-test-failures`: a lane that exits nonzero after printing a summary in which
-nothing ran is a no-coverage lane, and reporting it as a teardown failure would tell a
-reader that tests ran and passed when none ran. `no-coverage` requires `zero_coverage=1`
-exactly; `-1` ("not knowable", no summary) reports `crashed`.
+**The rows are in evaluation order**, first match wins, and the row order is asserted
+against the order of the `return` statements in `advisory_red_reason()` — a table that
+merely *claims* to be the evaluation order is a copy that drifts. `no-coverage` is checked
+**before** `nonzero-exit-no-test-failures`: a lane that exits nonzero after printing a
+summary in which nothing ran is a no-coverage lane, and reporting it as a teardown failure
+would tell a reader that tests ran and passed when none ran. `crashed` is last because it is
+the fallback for "there was no summary to read at all": `no-coverage` requires
+`zero_coverage=1` exactly, and `-1` ("not knowable", no summary) reports `crashed`.
 
 `nonzero-exit-no-test-failures` exists because "a summary was printed, therefore tests
 failed" is wrong, and reporting it as `failed` would announce a test failure where none
@@ -147,9 +150,16 @@ the process exit nonzero afterwards. The file is a build
 output and must stay untracked. It is rejected together with `--guard-only`, where it could
 only produce an empty report. An unwritable path fails the run rather than being skipped —
 checked before the lanes run, using a sibling probe file so an existing report is never
-truncated. A destination that names an existing **directory** is rejected there too — the
-sibling probe succeeds for it, so without an explicit check the run would execute all 26
-lanes before `os.replace()` finally raised. A ledger that fails its own integrity check is **not written at all**, so a
+truncated. The preflight additionally rejects the destination classes the sibling probe
+structurally cannot see, because "can I create a file next to this path" is a different
+question from "can I replace this path": an existing **directory** (or any other non-regular
+file), and an existing file this process may not write (the Windows read-only attribute, a
+POSIX mode without write permission). Without those checks the run executes all 26 lanes
+before `os.replace()` finally raises. What the preflight deliberately does **not** claim is
+that the write will succeed: a destination can be opened by another process without delete
+sharing, have its permissions changed, or lose its parent directory afterwards — unavoidable
+time-of-check/time-of-use races that no probe can rule out, which is why the end-of-run write
+still fails closed on its own. A ledger that fails its own integrity check is **not written at all**, so a
 known-untrustworthy report can never replace the last valid measurement; the refusal is
 printed and the full block is on stdout regardless. The write itself is
 serialize-then-temp-then-`os.replace`, so the destination is

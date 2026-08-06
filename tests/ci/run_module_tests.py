@@ -2402,15 +2402,49 @@ def _preflight_lane_report_path(path: Path) -> list[str]:
     The end-of-run write still fails closed on its own; this only moves the
     diagnosis to second zero instead of after 26 lanes.
     """
+    # WHAT THIS RULES OUT - and, just as importantly, what it does not.
+    #
     # The sibling probe answers "can I create a file NEXT TO this path", which is
-    # a neighbouring question, not the one being asked. For a destination that is
-    # an existing DIRECTORY the probe succeeds and os.replace() only raises after
-    # every lane has run - defeating the entire purpose of a preflight. Rule out
-    # the one input class the probe structurally cannot observe, first.
+    # a neighbouring question, not the one being asked. Two destination classes
+    # are invalid ALREADY and the probe structurally cannot observe either, so
+    # both used to surface only from os.replace() after every lane had run,
+    # defeating the entire purpose of a preflight:
+    #
+    #   - the destination is an existing directory (or any other non-regular
+    #     file): os.replace() onto it raises;
+    #   - the destination is an existing file this process may not write (the
+    #     Windows read-only attribute, a POSIX mode without write permission):
+    #     os.replace() onto a read-only file raises PermissionError on Windows.
+    #
+    # DELIBERATELY NOT CLAIMED: that a clean preflight means the write will
+    # succeed. A destination can be opened by another process without delete
+    # sharing (normal on Windows), have its permissions changed, or lose its
+    # parent directory between this check and the end-of-run write. Those are
+    # unavoidable time-of-check/time-of-use races; no probe can rule them out,
+    # and a preflight that implied otherwise would be making a false promise in
+    # exactly the cases someone relies on it. This rejects what is KNOWABLY
+    # invalid at second zero; the end-of-run write still fails closed for the
+    # rest, and both halves are needed.
     if path.is_dir():
         return [
             f"--lane-report path is a directory: {path}. Name the JSON file to "
             f"write, not the directory to write it into."
+        ]
+    if path.exists() and not path.is_file():
+        return [
+            f"--lane-report path exists and is not a regular file: {path}. "
+            f"os.replace() cannot replace it; name a regular file."
+        ]
+    # Rejected on EVERY platform, on purpose. On POSIX the rename could still
+    # succeed through the parent directory's permissions, so this is stricter
+    # than the OS: writing this run's evidence over a file the process is not
+    # permitted to write is not something to do silently, and naming the wrong
+    # destination is far cheaper to diagnose now than after 26 lanes.
+    if path.is_file() and not os.access(path, os.W_OK):
+        return [
+            f"--lane-report destination exists and is not writable: {path}. "
+            f"Replacing it would fail only after every lane had run; remove the "
+            f"read-only attribute or name a different file."
         ]
     handle = None
     temp_name = None

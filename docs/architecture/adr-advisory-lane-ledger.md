@@ -163,7 +163,7 @@ absence of output can never be read as absence of failures:
 
 ```
 [module-tests][lane-ledger] lanes=<n> strict_lanes=<n> advisory_lanes=<n> advisory_failures=<n> advisory_zero_coverage=<n> quarantine_tolerated=<n> unavailable=<n> quarantine_rejected=<n> gating_failures=<n> passed=<n> not_run=<n>
-[module-tests][lane-ledger] ADVISORY-RED lane=<name> reason=<failed|crashed|nonzero-exit-no-test-failures|no-coverage>
+[module-tests][lane-ledger] ADVISORY-RED lane=<name> reason=<failed|no-coverage|nonzero-exit-no-test-failures|crashed>
 ```
 
 ### 4a. Every field names only what it can support
@@ -230,6 +230,16 @@ exactly the empty report the rest of the runner treats as a red flag, with the r
 measurement gone. (`os.replace`, not `os.rename`: it is atomic on Windows and overwrites.
 The repo's recorded non-atomic-rename hazard is Godot's `DirAccess::rename`, which is
 engine code and does not apply here.)
+
+**The preflight rejects what is knowably invalid; it does not promise the write will
+succeed.** A sibling probe answers "can I create a file *next to* this path", so it is blind
+to the destination itself: an existing directory (or other non-regular file), and an existing
+file this process may not write, both pass the probe and then fail in `os.replace()` after
+every lane has run. Those two classes are checked explicitly. The residual classes are
+genuine time-of-check/time-of-use races — another process opening the destination without
+delete sharing, a permission change, the parent directory disappearing — and are qualified as
+such rather than papered over: no probe can rule them out, so the end-of-run write fails
+closed on its own and both halves are load-bearing.
 
 ### 6. Fail closed on anything the ledger cannot determine
 

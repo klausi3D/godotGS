@@ -49,10 +49,12 @@ import json
 import math
 import os
 import re
+import stat
 import subprocess
 import sys
 import tempfile
 import unittest
+from collections.abc import Iterable
 from pathlib import Path
 from unittest import mock
 
@@ -362,13 +364,33 @@ CLAIM_SEARCH_ROOTS = (
     ROOT / "modules" / "gaussian_splatting",
     ROOT / ".github",
 )
-CLAIM_SEARCH_SUFFIXES = frozenset({".md", ".py", ".yml", ".yaml", ".txt", ".json"})
+# WHICH FILES ARE TEXT is decided by CONTENT too (#822 round 9). Round 8 replaced
+# a hand-written list of FILENAMES with a hand-written list of SUFFIXES - .md,
+# .py, .yml, .yaml, .txt, .json - which excluded .h, .cpp and .gd, i.e. every
+# language the module is actually written in. The regression that motivated this
+# guard was a claim in a SOURCE COMMENT, so the list left out precisely the kind
+# of file the defect came from: the claim could be written into module source and
+# the guard would stay green. A hand-maintained list of the places an invariant
+# can be violated is an invariant that is already broken, and this branch has now
+# rebuilt that shape twice; the list is deleted rather than lengthened.
+#
+# A candidate is any regular file under a project-owned root that is text, and
+# "is text" is answered by reading it: a file containing a NUL byte is binary.
+# That costs a full read of each root, which is the price of not guessing.
+BINARY_MARKER = b"\x00"
 # A file is in scope when it TALKS ABOUT the thing the rule is about.
 LEDGER_TOPIC_RE = re.compile(
     r"advisory lane|ADVISORY-RED|ADVISORY-FAIL|lane-ledger|lane-result|"
     r"advisory \(strict=False\)",
     re.I,
 )
+# The same pattern over bytes, DERIVED from the one above rather than retyped, so
+# the topic can never differ between the two. Every alternative is ASCII, and a
+# file that is not ASCII-compatible enough for this to hold contains NUL bytes and
+# was already classified binary. Matching bytes first means only the handful of
+# files that actually discuss the ledger are decoded, instead of every text file
+# in the roots.
+LEDGER_TOPIC_BYTES_RE = re.compile(LEDGER_TOPIC_RE.pattern.encode("ascii"), re.I)
 # The two documents that must additionally state the qualification positively.
 # This list is for the REQUIRED-marker check (a doc must say the thing), which is
 # a statement about these specific documents; the FORBIDDEN check above is
@@ -379,30 +401,101 @@ DOCS_REQUIRED_TO_STATE_THE_EXCEPTION = (
 )
 
 
-def _files_discussing_the_ledger() -> list[Path]:
+def _read_candidate(path: Path) -> str | None:
+    """The file's text when it discusses the ledger, else None.
+
+    None means "not a candidate to check" for one of two content reasons: the
+    file is binary (it contains a NUL byte - decided by content, never by
+    suffix), or it does not mention the subject at all. OSError is deliberately
+    NOT caught here: an unreadable candidate is a fact the caller must report,
+    not a file to quietly drop.
+    """
+    data = path.read_bytes()
+    if BINARY_MARKER in data:
+        return None
+    if not LEDGER_TOPIC_BYTES_RE.search(data):
+        return None
+    return data.decode("utf-8", errors="replace")
+
+
+def _files_discussing_the_ledger(
+    roots: Iterable[Path] = CLAIM_SEARCH_ROOTS,
+) -> tuple[list[tuple[Path, str]], list[str]]:
     """Every project-owned text file that discusses advisory lanes / the ledger.
+
+    Returns `(files, unreadable)`: the in-scope `(path, text)` pairs, and the
+    candidates that could NOT be read.
+
+    The second half exists because round 8 wrote `except OSError: continue`
+    (#822 round 9). A candidate that a permission, a Windows sharing lock or an
+    I/O error made unreadable was silently dropped, and the scan then reported
+    "clean" over evidence it had never looked at - a clean result whose only
+    support is that nothing was observed. The minimum-count assertion cannot see
+    one missing file. So the failure is returned and the caller fails on it; a
+    file that cannot be read is an unknown, and an unknown is never a pass.
+
+    `roots` is a parameter so the scanner itself can be exercised against a
+    planted tree without the caller having to fake the repository. The guard
+    passes nothing and gets the real roots.
 
     Excludes only this file, and by identity rather than by name: it *defines*
     the forbidden patterns, so their appearance here is a pattern definition and
     not a claim. Nothing else is exempt.
     """
     self_path = Path(__file__).resolve()
-    found: list[Path] = []
-    for root in CLAIM_SEARCH_ROOTS:
+    found: list[tuple[Path, str]] = []
+    unreadable: list[str] = []
+    for root in roots:
         if not root.is_dir():
             continue
-        for path in root.rglob("*"):
-            if not path.is_file() or path.suffix.lower() not in CLAIM_SEARCH_SUFFIXES:
+        for path in sorted(root.rglob("*")):
+            if not path.is_file():
                 continue
             if path.resolve() == self_path:
                 continue
             try:
-                text = path.read_text(encoding="utf-8", errors="replace")
-            except OSError:
+                text = _read_candidate(path)
+            except OSError as exc:
+                unreadable.append(f"{path}: {type(exc).__name__}: {exc}")
                 continue
-            if LEDGER_TOPIC_RE.search(text):
-                found.append(path)
-    return sorted(found)
+            if text is not None:
+                found.append((path, text))
+    return sorted(found, key=lambda pair: pair[0]), sorted(unreadable)
+
+
+def _claim_scan_errors(roots: Iterable[Path] = CLAIM_SEARCH_ROOTS) -> list[str]:
+    """Every reason the claim scan over `roots` is RED, or [] when it is clean."""
+    return _claim_scan_errors_from(*_files_discussing_the_ledger(roots))
+
+
+def _claim_scan_errors_from(
+    files: Iterable[tuple[Path, str]], unreadable: Iterable[str]
+) -> list[str]:
+    """Every reason a completed scan is RED, or [] when it is clean.
+
+    One rule, two callers: the guard asserts this is empty for the real roots
+    (reusing the scan it already did), and the mutation proofs assert it is NOT
+    empty for a planted tree. The guard's verdict is exactly `== []`, so a
+    non-empty return here IS the guard going red.
+    """
+    errors = [
+        f"a candidate file could not be read, so the scan cannot claim the repo is "
+        f"clean: {reason}"
+        for reason in unreadable
+    ]
+    for path, text in files:
+        for pattern in FORBIDDEN_ABSOLUTE_CLAIMS:
+            match = pattern.search(text)
+            if match is not None:
+                errors.append(
+                    f"{path} over-claims: {match.group(0)!r}. An advisory lane that "
+                    f"exits 0 with a failing doctest summary DOES fail the run, and a "
+                    f"run whose advisory lane went red can still exit nonzero because "
+                    f"of a LATER strict lane"
+                )
+    return errors
+
+
 FORBIDDEN_ABSOLUTE_CLAIMS = (
     re.compile(r"cannot change the (?:runner's )?exit code by any path", re.I),
     re.compile(r"(?:can )?never (?:change|affect|influence) the (?:runner's )?exit code", re.I),
@@ -427,6 +520,38 @@ REQUIRED_DOC_MARKERS = (
     ),
     re.compile(r"(?:does|did)\s+not\s+itself\s+fail\s+the\s+run", re.I),
 )
+# `reason=<a|b|c>` as documented in either reference.
+REASON_ALTERNATION_RE = re.compile(r"reason=<([a-z0-9|-]+)>")
+
+
+def _evaluated_reason_order() -> list[str]:
+    """The reason literals in the order `advisory_red_reason()` returns them.
+
+    Derived from the implementation, not retyped beside it: the reason table in
+    build-test-ci.md states that its row order IS the evaluation order, and a
+    hand-copied order is a copy that drifts - which is exactly what it did.
+    The property is a linear if-chain, so source order is evaluation order.
+    """
+    prop = harness.LaneLedgerRecord.advisory_red_reason
+    source = inspect.getsource(getattr(prop, "fget", prop))
+    return re.findall(r'return\s+"([^"]+)"', source)
+
+
+def _documented_reason_order(text: str) -> list[str]:
+    """The `reason=` table's rows, in document order."""
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if not line.startswith("| `reason=`"):
+            continue
+        rows: list[str] = []
+        # +2 skips the header and the |---|---| separator.
+        for row in lines[index + 2 :]:
+            match = re.match(r"\|\s*`([^`]+)`", row)
+            if match is None:
+                break
+            rows.append(match.group(1))
+        return rows
+    return []
 
 
 def _godot(ok: bool, skipped: bool, output: str, returncode: int | None):
@@ -1514,6 +1639,70 @@ class LaneReportTests(unittest.TestCase):
             "the lane records are still printed when the report write fails",
         )
 
+    def test_a_read_only_destination_fails_before_any_lane_runs(self) -> None:
+        """#822 round 9: the second class the sibling probe cannot see.
+
+        The probe asks "can I create a file NEXT TO this path". An existing
+        read-only destination is not a directory and its parent still accepts a
+        temp file, so the probe passed and the run died in `os.replace()` after
+        26 lanes - the exact cost the preflight exists to avoid, for the second
+        input class in a row.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "lane_ledger.json"
+            dest.write_text(PRIOR_REPORT, encoding="utf-8")
+            self.assertEqual(
+                harness._preflight_lane_report_path(dest),
+                [],
+                "sanity: a writable existing destination is accepted",
+            )
+            os.chmod(dest, stat.S_IREAD)
+            try:
+                if os.access(dest, os.W_OK):
+                    # Running as root (or a filesystem that ignores the bit):
+                    # the condition cannot be created, so asserting on it would
+                    # measure the environment rather than the code.
+                    self.skipTest(
+                        "this platform/user cannot make a file unwritable; the "
+                        "read-only destination class is unreachable here"
+                    )
+                errors = harness._preflight_lane_report_path(dest)
+                self.assertTrue(
+                    errors,
+                    "a destination that cannot be replaced must be rejected BEFORE "
+                    "the lanes run, not by os.replace() after them",
+                )
+                self.assertIn("not writable", errors[0])
+                self.assertEqual(
+                    dest.read_text(encoding="utf-8"),
+                    PRIOR_REPORT,
+                    "the rejection must not touch the previous measurement",
+                )
+                self.assertEqual(
+                    sorted(p.name for p in Path(tmp).iterdir()),
+                    ["lane_ledger.json"],
+                    "the rejected preflight must leave no scratch file behind",
+                )
+                # End to end: main() refuses before a single lane is executed.
+                with mock.patch.object(harness, "_run_godot") as godot:
+                    rc = _run_main(
+                        [
+                            "run_module_tests.py",
+                            "--godot-binary",
+                            "fake",
+                            "--lane-report",
+                            str(dest),
+                        ]
+                    )
+                self.assertEqual(rc, 1, "a non-replaceable destination must fail the run")
+                self.assertEqual(
+                    godot.call_count,
+                    0,
+                    "no lane may run once the destination is known to be invalid",
+                )
+            finally:
+                os.chmod(dest, stat.S_IWRITE)
+
     def test_preflight_rejects_an_unwritable_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             good = Path(tmp) / "ok.json"
@@ -2073,8 +2262,11 @@ class DocConsistencyTests(unittest.TestCase):
         added it put the banned wording into run_module_tests.py. SOURCE
         COMMENTS make this claim to exactly the audience most likely to act on
         it, so the scan follows the subject rather than a file list.
+
+        Round 9: an unreadable candidate is now a FAILURE rather than a silent
+        skip, so "clean" can never rest on a file the scan did not read.
         """
-        scanned = _files_discussing_the_ledger()
+        scanned, unreadable = _files_discussing_the_ledger()
         self.assertGreaterEqual(
             len(scanned),
             3,
@@ -2084,7 +2276,7 @@ class DocConsistencyTests(unittest.TestCase):
         )
         # The two places the claim has actually appeared must be in scope, or the
         # derivation has drifted away from the thing it is supposed to cover.
-        scanned_resolved = {path.resolve() for path in scanned}
+        scanned_resolved = {path.resolve() for path, _text in scanned}
         for required in (
             ROOT / "tests" / "ci" / "run_module_tests.py",
             *DOCS_REQUIRED_TO_STATE_THE_EXCEPTION,
@@ -2095,20 +2287,145 @@ class DocConsistencyTests(unittest.TestCase):
                 f"{required.name} discusses advisory lanes but the scan does not "
                 f"cover it",
             )
+        self.assertEqual(
+            unreadable,
+            [],
+            "a candidate could not be read; the scan cannot report clean over a file "
+            "it never opened",
+        )
+        self.assertEqual(_claim_scan_errors_from(scanned, unreadable), [])
 
-        for path in scanned:
-            with self.subTest(path=path.relative_to(ROOT).as_posix()):
-                text = path.read_text(encoding="utf-8", errors="replace")
-                for pattern in FORBIDDEN_ABSOLUTE_CLAIMS:
-                    match = pattern.search(text)
-                    if match is not None:
-                        self.fail(
-                            f"{path.relative_to(ROOT).as_posix()} over-claims: "
-                            f"{match.group(0)!r}. An advisory lane that exits 0 with a "
-                            f"failing doctest summary DOES fail the run, and a run whose "
-                            f"advisory lane went red can still exit nonzero because of a "
-                            f"LATER strict lane"
-                        )
+    def test_a_claim_in_module_source_turns_the_guard_red(self) -> None:
+        """The suffix hole, proven shut (#822 round 9).
+
+        Round 8's whitelist was `.md .py .yml .yaml .txt .json`, so `.h`, `.cpp`
+        and `.gd` - the languages the module is written in, and the file kind the
+        motivating regression actually lived in - were invisible to a guard whose
+        stated purpose is to catch that claim wherever it can live. This plants
+        the banned wording in each excluded suffix, in the real tree, and asserts
+        the guard is red. Against round 8 every one of these is green.
+        """
+        module_root = ROOT / "modules" / "gaussian_splatting"
+        self.assertIn(
+            module_root,
+            CLAIM_SEARCH_ROOTS,
+            "the plant location must be a REAL search root, or this proves nothing "
+            "about the guard as configured",
+        )
+        planted_text = (
+            "// An advisory lane can never change the exit code, so nothing here "
+            "gates.\n"
+        )
+        with tempfile.TemporaryDirectory(
+            dir=str(module_root), prefix=".claim_scan_probe_"
+        ) as tmp:
+            planted = []
+            for suffix in (".h", ".cpp", ".gd", ".md"):
+                path = Path(tmp) / f"claim_probe{suffix}"
+                path.write_text(planted_text, encoding="utf-8")
+                planted.append(path)
+
+            scanned, unreadable = _files_discussing_the_ledger([Path(tmp)])
+            self.assertEqual(unreadable, [], "the planted files must all be readable")
+            self.assertEqual(
+                [path for path, _text in scanned],
+                sorted(planted),
+                "every planted suffix must be scanned; a suffix the scan cannot see "
+                "is a place the claim can hide",
+            )
+            scoped_errors = _claim_scan_errors_from(scanned, unreadable)
+            for path in planted:
+                self.assertTrue(
+                    any(str(path) in error for error in scoped_errors),
+                    f"the ban did not fire for {path.name}",
+                )
+
+            # End to end, over the REAL roots: this is the guard's own verdict,
+            # which is exactly `_claim_scan_errors_from(...) == []`.
+            source_probe = Path(tmp) / "claim_probe.cpp"
+            real_errors = _claim_scan_errors()
+        self.assertTrue(
+            any(str(source_probe) in error for error in real_errors),
+            "a prohibited claim in a .cpp file under a real search root left the "
+            "guard green",
+        )
+
+    def test_an_unreadable_candidate_fails_instead_of_being_skipped(self) -> None:
+        """`except OSError: continue` reported clean over unread evidence.
+
+        A candidate made unreadable by a permission, a Windows sharing lock or an
+        I/O error was silently dropped, so the scan's "clean" rested on a file it
+        never opened - and the minimum-count assertion cannot detect one missing
+        file. Absence of a signal is not a passing signal.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            readable = Path(tmp) / "readable.md"
+            readable.write_text("This documents the lane-ledger.\n", encoding="utf-8")
+            locked = Path(tmp) / "locked.md"
+            locked.write_text("This also documents the lane-ledger.\n", encoding="utf-8")
+
+            real_reader = _read_candidate
+
+            def refuse_one(path: Path):
+                if path == locked:
+                    raise PermissionError(13, "Permission denied")
+                return real_reader(path)
+
+            with mock.patch.object(sys.modules[__name__], "_read_candidate", refuse_one):
+                scanned, unreadable = _files_discussing_the_ledger([Path(tmp)])
+
+        self.assertEqual(
+            [path for path, _text in scanned],
+            [readable],
+            "sanity: the readable candidate is still scanned",
+        )
+        self.assertEqual(len(unreadable), 1, "the unreadable candidate must be reported")
+        self.assertIn(str(locked), unreadable[0])
+        self.assertTrue(
+            _claim_scan_errors_from(scanned, unreadable),
+            "an unreadable candidate must make the scan RED; a scan that skips it "
+            "reports clean over evidence it never read",
+        )
+
+    def test_documented_reason_order_matches_the_evaluated_order(self) -> None:
+        """The reason table claims to BE the evaluation order, so pin it (#822 round 9).
+
+        `build-test-ci.md` listed `nonzero-exit-no-test-failures` before
+        `no-coverage`, said "the reasons are evaluated in that order", and in the
+        very same sentence said `no-coverage` is checked first - so the canonical
+        reference contradicted itself and the code. The order is derived from the
+        `return` statements of `advisory_red_reason()` rather than retyped.
+        """
+        evaluated = _evaluated_reason_order()
+        self.assertEqual(
+            evaluated,
+            ["failed", "no-coverage", "nonzero-exit-no-test-failures", "crashed"],
+            "sanity: the reasons were read off the implementation in branch order",
+        )
+        documented = _documented_reason_order(
+            (ROOT / "docs" / "reference" / "build-test-ci.md").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            documented,
+            evaluated,
+            "the documented reason table is not in evaluation order, and it says it "
+            "is; a reader following the table would classify a lane the way the code "
+            "does not",
+        )
+        for doc in DOCS_REQUIRED_TO_STATE_THE_EXCEPTION:
+            text = doc.read_text(encoding="utf-8")
+            alternations = REASON_ALTERNATION_RE.findall(text)
+            with self.subTest(doc=doc.name):
+                self.assertTrue(
+                    alternations, f"{doc.name} documents no reason= grammar at all"
+                )
+                for alternation in alternations:
+                    self.assertEqual(
+                        alternation.split("|"),
+                        evaluated,
+                        f"{doc.name}: the documented reason= alternation is not the "
+                        f"set the code emits, in evaluation order",
+                    )
 
     def test_the_two_reference_documents_state_the_qualification(self) -> None:
         """Avoiding the false claim is not the same as stating the true one."""
