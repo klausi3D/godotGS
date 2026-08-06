@@ -716,7 +716,14 @@ LocalVector<Gaussian> _make_failure_contract_cloud(int p_count) {
 
 } // namespace
 
-TEST_CASE("[GaussianSplatting][DataAuthority] Failed populate_from_gaussian_data leaves a coherent empty asset, never a mixed one") {
+TEST_CASE("[GaussianSplatting][DataAuthority] A failed populate_from_gaussian_data resets coherently AND announces the reset") {
+    // #798 review round 3. The previous revision of this case asserted its failure
+    // contract inside an `if (err != OK)` arm that NOTHING could enter: a 6-splat
+    // rewrite never runs out of memory, so every failure assertion below was dead
+    // code and the case passed without executing a single line of the branch it
+    // claims to guard. GaussianSplatAsset::_test_force_next_populate_lane_failure()
+    // now reproduces the exact buffer shape a failed Vector::resize() leaves behind,
+    // so the branch runs for real and `err == ERR_OUT_OF_MEMORY` proves it did.
     Ref<GaussianSplatAsset> asset;
     asset.instantiate();
 
@@ -735,6 +742,7 @@ TEST_CASE("[GaussianSplatting][DataAuthority] Failed populate_from_gaussian_data
         FAIL("seed populate must yield 4 splats");
         return;
     }
+    const uint32_t seeded_version = asset->get_payload_version();
 
     // Rewrite with a DIFFERENT count, so a surviving "new count + unwritten
     // lanes" mixed state is distinguishable from both the old and the new one.
@@ -742,35 +750,89 @@ TEST_CASE("[GaussianSplatting][DataAuthority] Failed populate_from_gaussian_data
     rewrite.instantiate();
     rewrite->set_gaussians(_make_failure_contract_cloud(6));
 
-    Error err;
-    {
-        ERR_PRINT_OFF;
-        err = asset->populate_from_gaussian_data(rewrite);
-        ERR_PRINT_ON;
-    }
-
-    if (err == OK) {
-        // Success arm: the rewrite is fully applied.
+    SUBCASE("an unforced rewrite still succeeds") {
+        // Keeps the injection honest: with nothing armed, the very same call must
+        // take the success path. A hook that failed unconditionally would make the
+        // failure subcases below vacuous in the opposite direction.
+        const Error err = asset->populate_from_gaussian_data(rewrite);
+        CHECK(err == OK);
         CHECK(asset->get_splat_count() == 6u);
         CHECK(asset->get_positions().size() == 6 * 3);
         CHECK(asset->get_opacities().size() == 6);
-    } else {
-        // Failure arm -- the round-2 contract. Restoring payload_sealed alone
-        // used to leave splat_count == 6 with lanes at a mixture of old, newly
-        // sized and empty lengths, and callers such as
-        // _register_instance_in_director() log the Error and register the asset
-        // anyway. The asset must instead be coherently EMPTY: splat_count == 0
-        // is the shape every getter already early-outs on.
+        CHECK(asset->get_payload_version() != seeded_version);
+    }
+
+    SUBCASE("a lane whose fresh allocation failed (empty) resets the asset and bumps the version") {
+        SIGNAL_WATCH(asset.ptr(), "changed");
+        SIGNAL_DISCARD("changed");
+        asset->_test_force_next_populate_lane_failure(GaussianSplatAsset::TEST_LANE_FAILURE_EMPTY);
+
+        Error err;
+        {
+            ERR_PRINT_OFF;
+            err = asset->populate_from_gaussian_data(rewrite);
+            ERR_PRINT_ON;
+        }
+
+        // Proves the guarded branch actually ran. Without this the assertions below
+        // would also be satisfied by a populate that never failed at all.
+        CHECK_MESSAGE(err == ERR_OUT_OF_MEMORY,
+                "the forced lane failure must reach the ERR_OUT_OF_MEMORY branch");
+
+        // Round-2 contract: coherently EMPTY, never mixed.
         CHECK_MESSAGE(asset->get_splat_count() == 0u,
                 "A failed populate_from_gaussian_data() must reset to an empty asset, not leave a mixed one.");
         CHECK(asset->get_positions().is_empty());
         CHECK(asset->get_opacities().is_empty());
         CHECK(asset->get_spherical_harmonics_buffer().is_empty());
+
+        // Round-3 contract: the reset is a payload change and must be announced, or
+        // InstanceStore::refresh_asset() short-circuits on the unchanged version and
+        // the renderer keeps drawing the geometry this asset no longer has.
+        CHECK_MESSAGE(asset->get_payload_version() != seeded_version,
+                "A failed populate must bump payload_version so version-gated consumers rebuild.");
+        Array expected_changed;
+        expected_changed.push_back(Array());
+        SIGNAL_CHECK("changed", expected_changed);
+        SIGNAL_UNWATCH(asset.ptr(), "changed");
+    }
+
+    SUBCASE("a lane whose grow failed (short, non-empty) resets the asset and bumps the version") {
+        // The nastier of the two shapes: the lane is live and non-empty, just too
+        // short, so an is_empty()-only guard would wave it through and the write
+        // loop would run off the end of a real allocation.
+        SIGNAL_WATCH(asset.ptr(), "changed");
+        SIGNAL_DISCARD("changed");
+        asset->_test_force_next_populate_lane_failure(GaussianSplatAsset::TEST_LANE_FAILURE_SHORT);
+
+        Error err;
+        {
+            ERR_PRINT_OFF;
+            err = asset->populate_from_gaussian_data(rewrite);
+            ERR_PRINT_ON;
+        }
+
+        CHECK_MESSAGE(err == ERR_OUT_OF_MEMORY,
+                "the forced short lane must reach the ERR_OUT_OF_MEMORY branch");
+        CHECK(asset->get_splat_count() == 0u);
+        CHECK(asset->get_positions().is_empty());
+        CHECK_MESSAGE(asset->get_payload_version() != seeded_version,
+                "A failed populate must bump payload_version so version-gated consumers rebuild.");
+        Array expected_changed;
+        expected_changed.push_back(Array());
+        SIGNAL_CHECK("changed", expected_changed);
+        SIGNAL_UNWATCH(asset.ptr(), "changed");
     }
 }
 
 TEST_CASE("[GaussianSplatting][DataAuthority] Merge either preserves every source lane or refuses the merge") {
+    // #798 review round 3: as above, the refusal arm of this case used to be
+    // unreachable -- a 3-splat getter never OOMs -- so the round-2 widening of the
+    // merge guard beyond positions/scales was asserted but never exercised.
+    // _test_force_next_getter_failure() makes get_normal_vectors() return the exact
+    // empty array its gs_resize_or_fail() failure path returns.
     Vector<GaussianSplatMergeSource> sources;
+    Vector<Ref<GaussianSplatAsset>> source_assets;
     for (int s = 0; s < 2; s++) {
         Ref<GaussianSplatAsset> asset;
         asset.instantiate();
@@ -785,23 +847,20 @@ TEST_CASE("[GaussianSplatting][DataAuthority] Merge either preserves every sourc
         src.asset = asset;
         src.transform = Transform3D(); // identity: world normal == local normal
         sources.push_back(src);
+        source_assets.push_back(asset);
+    }
+    if (source_assets.size() != 2) {
+        FAIL("test setup must build 2 merge sources");
+        return;
     }
 
-    GaussianSplatMergeResult out;
-    bool merged;
-    {
-        ERR_PRINT_OFF;
-        merged = gaussian_splat_merge_sources(sources, 10.0f, out);
-        ERR_PRINT_ON;
-    }
-
-    if (merged) {
-        // Success arm: a merge that reports success must carry the SOURCE data
-        // through, not per-lane defaults. Under a mutation that makes one
-        // source's normal getter fail, the pre-round-2 guard (positions and
-        // scales only) let the merge report success while substituting the
-        // (0,1,0) fallback for every splat -- which is precisely what this
-        // assertion catches.
+    SUBCASE("an intact merge carries every source lane through") {
+        GaussianSplatMergeResult out;
+        const bool merged = gaussian_splat_merge_sources(sources, 10.0f, out);
+        if (!merged) {
+            FAIL("a merge over intact sources must succeed");
+            return;
+        }
         if (out.data.is_null()) {
             FAIL("a successful merge must produce GaussianData");
             return;
@@ -825,9 +884,24 @@ TEST_CASE("[GaussianSplatting][DataAuthority] Merge either preserves every sourc
         CHECK_MESSAGE(normals_preserved,
                 "A merge reporting success must carry each source's normals through, "
                 "not substitute the (0,1,0) default for a lane whose allocation failed.");
-    } else {
-        // Failure arm -- the round-2 contract: refuse the merge outright rather
-        // than emitting geometry built from defaults.
+    }
+
+    SUBCASE("a source whose normals getter OOMs is refused, not defaulted") {
+        // normals is the discriminating lane: the pre-round-2 guard checked only
+        // positions and scales, so this exact input produced a "successful" merge
+        // whose every splat carried the (0,1,0) fallback instead of (1,0,0).
+        source_assets.write[0]->_test_force_next_getter_failure(GaussianSplatAsset::TEST_GETTER_FAILURE_NORMALS);
+
+        GaussianSplatMergeResult out;
+        bool merged;
+        {
+            ERR_PRINT_OFF;
+            merged = gaussian_splat_merge_sources(sources, 10.0f, out);
+            ERR_PRINT_ON;
+        }
+
+        CHECK_MESSAGE(!merged,
+                "A source whose normals allocation failed must be refused, not merged with defaults.");
         // Extra parens are load-bearing: a top-level || inside CHECK trips doctest's
         // expression decomposition ("Expression Too Complex", doctest.h:1545).
         CHECK_MESSAGE((out.data.is_null() || out.data->get_count() == 0),

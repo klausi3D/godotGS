@@ -35,6 +35,37 @@ public:
         COMPRESSION_ROTATIONS = 1 << 3
     };
 
+#ifdef TESTS_ENABLED
+    // #798 review round 3: the allocation-failure contracts on this class (the
+    // populate_from_gaussian_data() reset, and the merge refusal driven by the
+    // structured getters) could not be exercised by any test, because a real
+    // Vector::resize() failure cannot be provoked from a unit test at any size the
+    // test itself can afford to allocate. Their "failure arm" assertions therefore
+    // never ran -- a green test that proves nothing, which is precisely the defect
+    // shape these guards exist to prevent.
+    //
+    // These arm-once hooks reproduce the exact post-failure buffer SHAPES that
+    // cowdata.h leaves behind, so the production failure branches execute for real.
+    // TESTS_ENABLED only: absent from editor and export builds (see #725).
+    enum TestLaneFailure {
+        TEST_LANE_FAILURE_NONE,
+        // A fresh or CoW-forked lane whose _alloc() failed: _ptr stays null, so the
+        // lane reads back EMPTY rather than short.
+        TEST_LANE_FAILURE_EMPTY,
+        // A failed GROW of an already-populated lane: the lane keeps its previous,
+        // shorter size. This is the shape that would silently overflow the heap.
+        TEST_LANE_FAILURE_SHORT,
+    };
+    enum TestGetterFailure {
+        TEST_GETTER_FAILURE_NONE,
+        // get_normal_vectors() output allocation failed. Deliberately a lane that
+        // _ensure_buffer_sizes() sizes UNCONDITIONALLY to splat_count, so an empty
+        // result can only mean OOM -- the case the merge guard must refuse rather
+        // than paper over with the (0,1,0) default.
+        TEST_GETTER_FAILURE_NORMALS,
+    };
+#endif
+
 private:
     AssetType asset_type = ASSET_TYPE_STATIC;
     PackedFloat32Array positions;  // x,y,z packed
@@ -91,6 +122,13 @@ private:
     // normal import and deserialization paths still populate through
     // the public property setters before first runtime promotion.
     mutable bool payload_sealed = false;
+
+#ifdef TESTS_ENABLED
+    // Both are consumed (and cleared) by the single call they arm; see the enum
+    // declarations above.
+    TestLaneFailure test_lane_failure = TEST_LANE_FAILURE_NONE;
+    mutable TestGetterFailure test_getter_failure = TEST_GETTER_FAILURE_NONE;
+#endif
 
     static std::atomic<uint32_t> instance_count;
 
@@ -283,6 +321,15 @@ public:
         MutexLock cache_lock(populate_mutex);
         return streaming_chunk_size_used > 0 && !streaming_chunk_records.is_empty();
     }
+
+#ifdef TESTS_ENABLED
+    // Arms the NEXT populate_from_gaussian_data() to see p_mode's buffer shape on the
+    // `positions` lane, then clears itself. See TestLaneFailure.
+    void _test_force_next_populate_lane_failure(TestLaneFailure p_mode) { test_lane_failure = p_mode; }
+    // Arms the NEXT matching structured getter to return its allocation-failure result
+    // (the empty array), then clears itself. See TestGetterFailure.
+    void _test_force_next_getter_failure(TestGetterFailure p_mode) const { test_getter_failure = p_mode; }
+#endif
 };
 
 VARIANT_ENUM_CAST(GaussianSplatAsset::AssetType);

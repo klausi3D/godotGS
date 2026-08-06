@@ -773,6 +773,15 @@ PackedVector3Array GaussianSplatAsset::get_normal_vectors() const {
         return result;
     }
 
+#ifdef TESTS_ENABLED
+    // Arm-once allocation-failure injection; see GaussianSplatAsset::TestGetterFailure.
+    // Placed exactly where the real gs_resize_or_fail() failure returns, so the injected
+    // result is byte-identical to the production one.
+    if (test_getter_failure == TEST_GETTER_FAILURE_NORMALS) {
+        test_getter_failure = TEST_GETTER_FAILURE_NONE;
+        return result;
+    }
+#endif
     if (!gs_resize_or_fail(result, splat_count, "GaussianSplatAsset::get_normal_vectors")) {
         return result; // #798: empty == the unloaded-asset result; see the block comment above.
     }
@@ -1759,6 +1768,24 @@ Error GaussianSplatAsset::populate_from_gaussian_data(const Ref<::GaussianData> 
     sh_high_order_terms = p_gaussian_data->get_sh_high_order_count();
     _ensure_buffer_sizes();
 
+#ifdef TESTS_ENABLED
+    // Arm-once allocation-failure injection; see GaussianSplatAsset::TestLaneFailure.
+    // _ensure_buffer_sizes() ignores every resize() return, so a failure there is visible
+    // ONLY as the lane's resulting size. Reproducing that size is therefore a complete
+    // simulation of the failure, not an approximation of it.
+    if (test_lane_failure != TEST_LANE_FAILURE_NONE) {
+        const TestLaneFailure mode = test_lane_failure;
+        test_lane_failure = TEST_LANE_FAILURE_NONE;
+        if (mode == TEST_LANE_FAILURE_EMPTY) {
+            positions.clear();
+        } else {
+            // Non-empty but short: keep one splat's worth, which is < count * 3 for any
+            // count > 1. Shrinking never allocates, so this cannot itself fail.
+            positions.resize(3);
+        }
+    }
+#endif
+
     const Vector3 *high_order_ptr = p_gaussian_data->get_sh_high_order_coefficients_ptr();
 
     // #798: each lane states the length the write loop below will index it to, right where
@@ -1822,6 +1849,24 @@ Error GaussianSplatAsset::populate_from_gaussian_data(const Ref<::GaussianData> 
         stroke_ages.clear();
         _recalculate_sh_component_counts();
         payload_sealed = previous_seal;
+
+        // #798 review round 3: the reset above is a PAYLOAD CHANGE, so it has to be
+        // announced exactly like the success path announces one. Without this, the reset
+        // is invisible to every consumer that caches a materialized copy and gates the
+        // rebuild on payload_version: InstanceStore::refresh_asset() returns true
+        // unconditionally when the version has not moved
+        // (gaussian_splat_scene_director.cpp), and retain_asset() likewise skips the
+        // rebuild -- so the renderer keeps drawing the OLD geometry from its cached
+        // GaussianData while every direct reader of the asset sees splat_count == 0.
+        // "Empty here, old geometry there" is a worse divergence than the mixed state
+        // this branch was added to prevent.
+        //
+        // Bumping instead makes the next retain/refresh attempt the rebuild, which then
+        // fails loudly (_populate_gaussian_data_from_asset() returns false on
+        // splat_count == 0) and propagates false to its caller -- the failure becoming
+        // observable is the point.
+        payload_version++;
+        emit_changed();
         return ERR_OUT_OF_MEMORY;
     }
 
