@@ -341,6 +341,21 @@ private:
     // the P1 lease blocks.
     void _converge_shared_renderer_state();
     void _notify_renderer_peers_shared_state_changed(const Ref<GaussianSplatRenderer> &p_renderer);
+    // #839 round 2: single entry point for "the set of nodes bound to
+    // p_renderer just changed". The debug-overlay union is a function of that
+    // set, so it must be recomputed on EVERY peer-set change, not only when the
+    // set crosses the 1<->2 shared/not-shared boundary that
+    // `_converge_shared_renderer_state` is edge-triggered on. `p_include_self`
+    // is false when this node is the one leaving.
+    void _on_renderer_peer_set_changed(const Ref<GaussianSplatRenderer> &p_renderer, bool p_include_self);
+    // Recompute this node's contribution to the renderer-wide overlay union and
+    // reconcile its own HUD control against the result.
+    void _reconcile_debug_overlay_state();
+    // Fan HUD-control reconciliation out to every node bound to this node's
+    // renderer, including this one. The overlay flags are renderer-wide but the
+    // control is drawn only by the settings-owner lease holder, so a peer that
+    // changes a HUD flag must notify the holder.
+    void _notify_renderer_peers_debug_hud_dirty();
     void _update_shared_transform();
     bool _resolve_is_2d_mode() const;
     uint32_t _get_instance_flags() const;

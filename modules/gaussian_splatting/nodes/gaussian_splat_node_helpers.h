@@ -6,6 +6,7 @@
 class Dictionary;
 
 class GaussianSplatNode3D;
+class GaussianSplatRenderer;
 class Viewport;
 
 class GaussianSplatNodeAssetHelper {
@@ -60,10 +61,22 @@ public:
     // re-assert the flags every frame -- that re-assertion is what silently
     // reverted every GaussianSplatRenderer::set_debug_show_*() call one frame
     // after it was made.
+    //
+    // When the union actually CHANGES, this also fans HUD-control reconciliation
+    // out to the renderer's peers: the flags are renderer-wide but the control is
+    // drawn by exactly one node (the settings-owner lease holder), so a non-owner
+    // peer flipping show_performance_hud / show_residency_hud has to reach the
+    // owner or the flag is enabled with no HUD on screen (#839 round 2,
+    // finding 1). Unchanged pushes stay free.
     void push_debug_overlay_union();
     // Drop the edge-trigger memo for this node's renderer so the next push
     // writes unconditionally. Called when the peer set changes.
     void invalidate_debug_overlay_push_cache();
+    // Same, addressed by renderer rather than by node. The peer-set change that
+    // makes the memo stale is observed by a node that may be LEAVING (and is
+    // therefore no longer allowed to push), so the invalidation cannot be tied
+    // to a node that is still bound to the renderer (#839 round 2, finding 2).
+    static void invalidate_debug_overlay_push_cache_for_renderer(const GaussianSplatRenderer *p_renderer);
 
 private:
     GaussianSplatNode3D &owner;

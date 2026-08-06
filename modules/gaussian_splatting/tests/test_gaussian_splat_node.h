@@ -171,6 +171,17 @@ bool is_property_editor_exposed(Object *p_object, const StringName &p_property_n
     return false;
 }
 
+// #839 round 2: observe whether a node is actually DRAWING the debug HUD.
+// GaussianSplatNode3D::_ensure_debug_hud_control adds a CanvasLayer child named
+// "GaussianSplatDebugHUDLayer" and _destroy_debug_hud_control removes it, so the
+// child's presence is exactly "this node owns the on-screen HUD control".
+bool node_has_debug_hud_control(GaussianSplatNode3D *p_node) {
+    if (p_node == nullptr) {
+        return false;
+    }
+    return p_node->get_node_or_null(NodePath("GaussianSplatDebugHUDLayer")) != nullptr;
+}
+
 Ref<ColorGradingResource> make_color_grading_resource() {
     Ref<ColorGradingResource> grading;
     grading.instantiate();
@@ -1234,6 +1245,197 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Node debug apply do
 
     root->remove_child(node);
     memdelete(node);
+}
+
+// #839 round 2, finding 1: the HUD flags are unioned across the renderer's
+// peers, but the HUD CONTROL is drawn by exactly one node -- the settings-owner
+// lease holder -- so that N peers do not stack N identical overlays. A NON-owner
+// peer that enables show_performance_hud therefore set the renderer flag, was
+// refused the control by its own ownership check, and the actual owner was never
+// told anything had changed: flag enabled, nothing on screen.
+//
+// UPDATE_MODE_MANUAL is the case that does not self-heal. The owner's per-frame
+// apply (update_splats -> apply_renderer_settings -> apply_renderer_debug_settings
+// -> _update_debug_hud_visibility) is the only thing that would have reconciled
+// it, and MANUAL never runs update_splats -- see
+// GaussianSplatNode3D::process_gaussian_render's UPDATE_MODE_MANUAL arm. The
+// frame loop below is the proof that this is permanent, not deferred.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Manual-mode HUD owner is notified when a peer toggles a HUD flag") {
+    // #656: REQUIRE does not abort in this build (disable_exceptions=True), so
+    // guard-then-return rather than dereferencing after a REQUIRE.
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    if (!project_settings) {
+        FAIL("ProjectSettings singleton required");
+        return;
+    }
+    // set_show_performance_hud writes the project setting in an editor build,
+    // and every later-constructed node seeds its node-local default from it.
+    ProjectSettingGuard hud_guard(project_settings, "rendering/gaussian_splatting/debug/show_performance_hud");
+
+    GaussianSplatNode3D *node_a = memnew(GaussianSplatNode3D);
+    GaussianSplatNode3D *node_b = memnew(GaussianSplatNode3D);
+    node_a->set_splat_asset(make_single_splat_asset(0.0f));
+    node_b->set_splat_asset(make_single_splat_asset(10.0f));
+    node_a->set_show_performance_hud(false);
+    node_b->set_show_performance_hud(false);
+    // Neither node's own per-frame apply may rescue this.
+    node_a->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    node_b->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+
+    // node_a enters first, so node_a claims the settings-owner lease for the
+    // shared renderer (_claim_renderer_settings_owner: first claimant wins and a
+    // live holder is never displaced).
+    root->add_child(node_a);
+    tree->process(0.0);
+    root->add_child(node_b);
+    tree->process(0.0);
+
+    Ref<GaussianSplatRenderer> renderer = node_a->get_renderer();
+    // #595: no environment skip -- a skip is scored as a PASS.
+    if (!renderer.is_valid() || node_b->get_renderer() != renderer) {
+        FAIL("shared renderer required: both nodes must resolve the same GaussianSplatRenderer");
+        root->remove_child(node_b);
+        root->remove_child(node_a);
+        memdelete(node_b);
+        memdelete(node_a);
+        return;
+    }
+
+    CHECK_FALSE(renderer->is_debug_show_performance_hud());
+    CHECK_FALSE(node_has_debug_hud_control(node_a));
+    CHECK_FALSE(node_has_debug_hud_control(node_b));
+
+    // The NON-owner peer turns the HUD on.
+    node_b->set_show_performance_hud(true);
+    CHECK(renderer->is_debug_show_performance_hud());
+
+    // ...and the owner must be drawing it. Pre-fix this was false here and
+    // stayed false forever, because node_b was refused the control and node_a
+    // was never notified.
+    CHECK(node_has_debug_hud_control(node_a));
+    // Exactly one control, on the lease holder -- not one per peer.
+    CHECK_FALSE(node_has_debug_hud_control(node_b));
+
+    // MANUAL: no amount of frames reconciles this on its own, so the assertion
+    // above is not merely early.
+    for (int i = 0; i < 5; i++) {
+        tree->process(0.0);
+    }
+    CHECK(node_has_debug_hud_control(node_a));
+    CHECK_FALSE(node_has_debug_hud_control(node_b));
+
+    // Clearing it from the non-owner tears the owner's control down again.
+    node_b->set_show_performance_hud(false);
+    CHECK_FALSE(renderer->is_debug_show_performance_hud());
+    CHECK_FALSE(node_has_debug_hud_control(node_a));
+    CHECK_FALSE(node_has_debug_hud_control(node_b));
+
+    root->remove_child(node_b);
+    root->remove_child(node_a);
+    memdelete(node_b);
+    memdelete(node_a);
+}
+
+// #839 round 2, finding 2: the overlay union is a function of the SET of nodes
+// bound to the renderer, but the only thing that recomputed it on a peer change
+// was _converge_shared_renderer_state, which is edge-triggered on the
+// shared/not-shared BOOLEAN. A set that shrinks 3 -> 2 leaves that boolean at
+// true, so every remaining peer returned early and nobody dropped the departed
+// node's request: the renderer kept rendering an overlay no live node asks for.
+//
+// Again UPDATE_MODE_MANUAL is the non-self-healing case: the per-frame
+// update_splats -> apply_renderer_settings -> push_debug_overlay_union route,
+// which is the only other thing that recomputes the union, never runs.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Manual-mode peers recompute the overlay union when a third peer leaves") {
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    if (!project_settings) {
+        FAIL("ProjectSettings singleton required");
+        return;
+    }
+    ProjectSettingGuard tile_guard(project_settings, "rendering/gaussian_splatting/debug/show_tile_grid");
+
+    GaussianSplatNode3D *node_a = memnew(GaussianSplatNode3D);
+    GaussianSplatNode3D *node_b = memnew(GaussianSplatNode3D);
+    GaussianSplatNode3D *node_c = memnew(GaussianSplatNode3D);
+    node_a->set_splat_asset(make_single_splat_asset(0.0f));
+    node_b->set_splat_asset(make_single_splat_asset(10.0f));
+    node_c->set_splat_asset(make_single_splat_asset(20.0f));
+    node_a->set_show_tile_grid(false);
+    node_b->set_show_tile_grid(false);
+    node_c->set_show_tile_grid(false);
+    node_a->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    node_b->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    node_c->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+
+    root->add_child(node_a);
+    root->add_child(node_b);
+    root->add_child(node_c);
+    tree->process(0.0);
+
+    Ref<GaussianSplatRenderer> renderer = node_a->get_renderer();
+    if (!renderer.is_valid() || node_b->get_renderer() != renderer || node_c->get_renderer() != renderer) {
+        FAIL("shared renderer required: all three nodes must resolve the same GaussianSplatRenderer");
+        root->remove_child(node_c);
+        root->remove_child(node_b);
+        root->remove_child(node_a);
+        memdelete(node_c);
+        memdelete(node_b);
+        memdelete(node_a);
+        return;
+    }
+
+    // node_a is the SOLE requester.
+    node_a->set_show_tile_grid(true);
+    CHECK(renderer->is_debug_show_tile_grid());
+    CHECK_FALSE(node_b->is_showing_tile_grid());
+    CHECK_FALSE(node_c->is_showing_tile_grid());
+
+    // 3 -> 2: still "shared", so the shared/not-shared boolean does NOT move on
+    // node_b or node_c and the pre-fix convergence hook returned early on both.
+    root->remove_child(node_a);
+    memdelete(node_a);
+    node_a = nullptr;
+
+    // The sole requester is gone, so the renderer-wide overlay must be gone too.
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+
+    // ...and it must not merely be deferred to a frame that MANUAL never runs.
+    for (int i = 0; i < 5; i++) {
+        tree->process(0.0);
+    }
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+
+    // The union still works in the shrunken set: node_c can turn it back on and
+    // node_b can no longer hold it on by itself.
+    node_c->set_show_tile_grid(true);
+    CHECK(renderer->is_debug_show_tile_grid());
+    node_c->set_show_tile_grid(false);
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+
+    root->remove_child(node_c);
+    root->remove_child(node_b);
+    memdelete(node_c);
+    memdelete(node_b);
 }
 
 TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Detached node reclaims retained renderer debug settings on re-entry") {

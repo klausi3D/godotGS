@@ -2639,9 +2639,15 @@ void GaussianSplatNode3D::_converge_shared_renderer_state() {
     // re-enter this node through the director, and the updated cache makes that
     // re-entry a no-op instead of unbounded recursion.
     shared_renderer_multi_instance_state = shared_renderer_multi_instance;
-    // #831: the peer set just changed, so the overlay union this node last
-    // pushed may be stale even though its own four flags did not move. Drop the
-    // edge-trigger memo so the re-apply below recomputes and writes it.
+    // #831: the shared/not-shared state just flipped, so the overlay union this
+    // node last pushed may be stale even though its own four flags did not move.
+    // Drop the edge-trigger memo so the re-apply below recomputes and writes it.
+    //
+    // #839 round 2: this covers the shared-ness flips that are NOT peer-set
+    // changes (a world submission appearing or disappearing on this renderer).
+    // Peer-set changes are handled up front and unconditionally in
+    // `_on_renderer_peer_set_changed`, which is where the invalidation belongs —
+    // this boolean does not move when the set goes 2 -> 3 or 3 -> 2.
     debug_helper.invalidate_debug_overlay_push_cache();
     _apply_renderer_settings();
     notify_property_list_changed();
@@ -2682,6 +2688,71 @@ void GaussianSplatNode3D::_notify_renderer_peers_shared_state_changed(const Ref<
             continue;
         }
         peer->_converge_shared_renderer_state();
+        // #839 round 2, finding 2: `_converge_shared_renderer_state` is
+        // edge-triggered on the shared/not-shared BOOLEAN, so a peer set that
+        // shrinks 3 -> 2 (or grows 2 -> 3) returns early there and never
+        // recomputes the overlay union — even though the union is a function of
+        // the peer SET, not of that boolean. If the node that just left was the
+        // sole requester of an overlay, the renderer keeps rendering it. The
+        // per-frame apply would eventually correct it, but only on a node whose
+        // update mode actually runs update_splats(): under UPDATE_MODE_MANUAL
+        // (or while a visibility-gated mode skips the node) nothing ever does,
+        // so the stale overlay is permanent. Reconcile unconditionally.
+        peer->_reconcile_debug_overlay_state();
+    }
+}
+
+// #839 round 2: the ONE place that reacts to "the node set bound to p_renderer
+// changed". The memo is dropped once, up front, addressed by renderer rather
+// than by node, because the observer may be the node that is leaving and is
+// therefore no longer allowed to push. Every remaining peer then recomputes; the
+// first one to do so writes the fresh union and the rest memoize against it, so
+// this costs exactly one renderer write.
+void GaussianSplatNode3D::_on_renderer_peer_set_changed(const Ref<GaussianSplatRenderer> &p_renderer, bool p_include_self) {
+    if (!p_renderer.is_valid()) {
+        return;
+    }
+    GaussianSplatNodeDebugHelper::invalidate_debug_overlay_push_cache_for_renderer(p_renderer.ptr());
+    if (p_include_self) {
+        // Cheap and edge-triggered; only a genuine shared/not-shared flip
+        // re-applies the renderer-wide settings this node owns.
+        _converge_shared_renderer_state();
+    }
+    _notify_renderer_peers_shared_state_changed(p_renderer);
+    if (p_include_self) {
+        _reconcile_debug_overlay_state();
+    }
+}
+
+void GaussianSplatNode3D::_reconcile_debug_overlay_state() {
+    debug_helper.push_debug_overlay_union();
+    _update_debug_hud_visibility();
+}
+
+void GaussianSplatNode3D::_notify_renderer_peers_debug_hud_dirty() {
+    _update_debug_hud_visibility();
+    if (!renderer.is_valid()) {
+        return;
+    }
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    if (!director) {
+        return;
+    }
+    // Same locking contract as _notify_renderer_peers_shared_state_changed:
+    // collect_instance_node_ids_for_renderer takes world_mutex and returns
+    // ObjectIDs, and this runs with no director lock held.
+    LocalVector<ObjectID> peer_ids;
+    director->collect_instance_node_ids_for_renderer(renderer.ptr(), peer_ids);
+    const ObjectID self_id = get_instance_id();
+    for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        if (peer_ids[i] == self_id) {
+            continue;
+        }
+        GaussianSplatNode3D *peer = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(peer_ids[i]));
+        if (!peer) {
+            continue;
+        }
+        peer->_update_debug_hud_visibility();
     }
 }
 
@@ -2701,11 +2772,11 @@ void GaussianSplatNode3D::_register_shared_renderer() {
         return;
     }
     _register_instance_in_director();
-    // The instance set for this renderer may have just grown past 1. Converge
-    // self first (cheap, edge-triggered), then the peers whose forced-false P2
-    // writes are now owed.
-    _converge_shared_renderer_state();
-    _notify_renderer_peers_shared_state_changed(renderer);
+    // The instance set for this renderer just grew. Converge self first (cheap,
+    // edge-triggered), then the peers whose forced-false P2 writes are now owed,
+    // and recompute the overlay union for the new set regardless of whether the
+    // shared/not-shared boolean moved (#839 round 2, finding 2).
+    _on_renderer_peer_set_changed(renderer, /*p_include_self=*/true);
 }
 
 void GaussianSplatNode3D::_unregister_shared_renderer() {
@@ -2716,8 +2787,12 @@ void GaussianSplatNode3D::_unregister_shared_renderer() {
     const Ref<GaussianSplatRenderer> departing_renderer = renderer;
     _unregister_instance_in_director();
     // The set just shrank; a remaining node may now be alone again and is owed
-    // the restore of its node-local debug / painterly state.
-    _notify_renderer_peers_shared_state_changed(departing_renderer);
+    // the restore of its node-local debug / painterly state. It is also owed the
+    // recomputed overlay union whether or not it is alone again: if the node
+    // that just left was the sole requester of an overlay, nothing else drops it
+    // (#839 round 2, finding 2). `p_include_self` is false — this node is no
+    // longer part of the set and must not push to the renderer it is leaving.
+    _on_renderer_peer_set_changed(departing_renderer, /*p_include_self=*/false);
 }
 
 void GaussianSplatNode3D::_update_shared_transform() {

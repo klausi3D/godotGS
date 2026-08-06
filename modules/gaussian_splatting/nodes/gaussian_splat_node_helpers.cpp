@@ -639,11 +639,15 @@ void GaussianSplatNodeViewportHelper::on_observed_viewport_exited() {
 }
 
 void GaussianSplatNodeDebugHelper::invalidate_debug_overlay_push_cache() {
-    if (!owner.renderer.is_valid()) {
+    invalidate_debug_overlay_push_cache_for_renderer(owner.renderer.ptr());
+}
+
+void GaussianSplatNodeDebugHelper::invalidate_debug_overlay_push_cache_for_renderer(const GaussianSplatRenderer *p_renderer) {
+    if (!p_renderer) {
         return;
     }
     MutexLock lock(g_debug_overlay_push_mutex);
-    g_debug_overlay_last_push.erase(owner.renderer->get_instance_id());
+    g_debug_overlay_last_push.erase(p_renderer->get_instance_id());
 }
 
 // #831: push the four renderer-wide screen-space overlay flags (tile grid,
@@ -727,6 +731,19 @@ void GaussianSplatNodeDebugHelper::push_debug_overlay_union() {
     owner.renderer->set_debug_show_density_heatmap(request.show_density_heatmap);
     owner.renderer->set_debug_show_performance_hud(request.show_performance_hud);
     owner.renderer->set_debug_show_residency_hud(request.show_residency_hud);
+
+    // #839 round 2, finding 1: the flags are renderer-wide, but the HUD control
+    // is drawn by exactly ONE node -- the settings-owner lease holder (see
+    // GaussianSplatNode3D::_update_debug_hud_visibility). A non-owner peer that
+    // enables show_performance_hud / show_residency_hud therefore sets the
+    // renderer flag and is then refused the control by the ownership check,
+    // while the owner is never told anything changed. If the owner runs with
+    // UPDATE_MODE_MANUAL (or is skipped by a visibility-based update mode) its
+    // per-frame apply never runs either, so the flag stays enabled with no HUD
+    // on screen indefinitely. Route the reconciliation to every peer -- the
+    // holder among them creates the control, the rest are a no-op. Only on an
+    // actual change, so the per-frame memoized path stays free.
+    owner._notify_renderer_peers_debug_hud_dirty();
 }
 
 void GaussianSplatNodeDebugHelper::apply_renderer_debug_settings() {
