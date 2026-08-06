@@ -59,8 +59,15 @@ nothing** — see [`docs/architecture/adr-advisory-lane-ledger.md`](../architect
 One line per lane, in lane order:
 
 ```
-[module-tests][lane-result] lane=<name> strict=<0|1> outcome=<OUTCOME> passed_tests=<n> passed_assertions=<n> failed_tests=<n> failed_assertions=<n> skipped_markers=<n> exit_code=<n> summary_reported=<0|1> zero_coverage=<0|1|-1>
+[module-tests][lane-result] lane=<name> strict=<0|1> outcome=<OUTCOME> passed_tests=<n> passed_assertions=<n> failed_tests=<n> failed_assertions=<n> skipped_markers=<n> exit_code=<n> exit_code_reported=<0|1> summary_reported=<0|1> zero_coverage=<0|1|-1>
 ```
+
+`exit_code_reported=0` means **no return code exists** for that lane — it was never
+attempted, or the process could not be launched — and `exit_code` is then the `-1`
+placeholder. Read `exit_code` only when `exit_code_reported=1`, because `-1` is also a return
+code a real process produces: `subprocess` reports a POSIX `SIGHUP` termination as `-1`. The
+`-1`-means-unknown convention is safe for the *counts* (no count can be negative) and unsafe
+for an exit code, which is why the availability is carried beside the value (#822 round 10).
 
 `summary_reported=1` means doctest printed a summary — **not** that anything ran; a
 `0 passed | 0 failed` summary is reported and executes nothing. (It was called `executed`
@@ -93,17 +100,26 @@ After the per-lane block, printed unconditionally — including when `advisory_f
 that absence of output can never be read as absence of failures:
 
 ```
-[module-tests][lane-ledger] lanes=<n> strict_lanes=<n> advisory_lanes=<n> advisory_failures=<n> advisory_zero_coverage=<n> quarantine_tolerated=<n> unavailable=<n> quarantine_rejected=<n> gating_failures=<n> passed=<n> not_run=<n>
+[module-tests][lane-ledger] lanes=<n> strict_lanes=<n> advisory_lanes=<n> advisory_failures=<n> advisory_zero_coverage=<n> quarantine_tolerated=<n> unavailable=<n> quarantine_rejected=<n> fail_outcomes=<n> run_ending_outcomes=<n> passed=<n> not_run=<n>
 [module-tests][lane-ledger] ADVISORY-RED lane=<name> reason=<failed|no-coverage|nonzero-exit-no-test-failures|crashed>
 ```
 
-`gating_failures` counts lanes whose outcome was `FAIL`, i.e. that failed the run. It is
+`fail_outcomes` counts lanes whose outcome was `FAIL` — that and nothing more. It is
 deliberately **not** called `strict_failures`: an advisory lane also records `FAIL` when it
 exits 0 with a missing or failing summary, so counting `FAIL` outcomes as strict failures
 could print `strict_lanes=0 strict_failures=1` and charge an advisory harness anomaly to a
 strict lane. The strict/advisory split is derived from each lane's declared `strict` flag
-and is in the JSON as `gating_failures_on_strict_lanes` /
-`gating_failures_on_advisory_lanes`.
+and is in the JSON as `fail_outcomes_on_strict_lanes` / `fail_outcomes_on_advisory_lanes`.
+
+`run_ending_outcomes` counts lanes whose outcome **ended the run**, whatever that outcome
+was. Read this one, not `fail_outcomes`, for "did a lane stop this run": `UNAVAILABLE` under
+strict tests-unavailable mode and `QUARANTINE-REJECTED` both abort the lane loop and set the
+exit code while recording no `FAIL`, so a gated run can legitimately report
+`fail_outcomes=0`. It is derived from each record's `ended_run` — the flag the loop sets from
+the value it actually broke on — so a future abort path is counted the day it is added. (The
+field was called `gating_failures` until #822 round 10 and counted only `FAIL`; it was
+renamed rather than widened in place, so a stale consumer breaks loudly instead of silently
+reading a number whose meaning changed. `schema_version` is now `2`.)
 
 `advisory_zero_coverage` counts advisory lanes whose `zero_coverage` is 1, **whatever their
 outcome**. It is not tied to the `ADVISORY-NO-COVERAGE` outcome, because a lane can execute
@@ -114,7 +130,7 @@ produced no doctest summary has `zero_coverage=-1` (not knowable) and is never c
 **An `ADVISORY-RED` line means that lane failed, crashed, or executed nothing, and that
 outcome did not itself fail the run.** (It does *not* mean the run passed: the loop
 continues after an advisory failure, so a later strict lane can still fail — read
-`gating_failures` for that.) It is not a warning about a future problem; it is a lane
+`run_ending_outcomes` for that.) It is not a warning about a future problem; it is a lane
 outcome that nothing gates on today, and `reason=` says which kind:
 
 | `reason=` | What was observed |
@@ -144,9 +160,14 @@ that does and does not license.
 
 `--lane-report <path>` writes the same records as JSON
 (`{schema_version, baseline_note, generated_utc, lane_loop_exit_code, lanes, totals}`).
-`lane_loop_exit_code` is narrowly named on purpose: the report is written before the
-harness-integrity check and before the write itself can fail, either of which can still make
-the process exit nonzero afterwards. The file is a build
+`lane_loop_exit_code` is narrowly named on purpose: it is what the **lane loop** returned,
+which is not the same claim as "the process that wrote this file exited with it". The order
+is run the lanes → print the block → check ledger integrity → write, so a ledger that fails
+its integrity check is never written, and a write that fails leaves the *previous* report on
+disk — in both cases the process exits nonzero while the path holds an older report
+describing a different run. After a successful write nothing else changes the exit code, so a
+freshly written report and its process do agree; a consumer that cannot tell the two cases
+apart must read `generated_utc` rather than assume the file is this run's. The file is a build
 output and must stay untracked. It is rejected together with `--guard-only`, where it could
 only produce an empty report. An unwritable path fails the run rather than being skipped —
 checked before the lanes run, using a sibling probe file so an existing report is never

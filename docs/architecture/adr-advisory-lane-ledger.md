@@ -35,8 +35,11 @@ That changes what GS-705-2 should arm:
 the superseded passed-count formula, a lane in which every test failed would have reported
 `zero_coverage=1`, indistinguishable from a lane that ran nothing, and the ratchet would
 have read that catastrophe as improvement. GS-705-2 must pin against `zero_coverage` as
-defined in §4a, and against `gating_failures` — round 3 renamed `strict_failures`, so any
-older transcript uses a field name that no longer exists.
+defined in §4a, and — for "did a lane stop this run" — against `run_ending_outcomes`, never
+against the `FAIL`-outcome count alone. Two abort paths (a strict tests-unavailable lane, a
+rejected quarantine) end the run without recording `FAIL`. The field has been renamed twice
+(`strict_failures` → `gating_failures` in round 3 → `fail_outcomes` in round 10), so any
+older transcript uses field names that no longer exist.
 
 Neither the round-3 renames nor the round-4 `zero_coverage` fix changes the numbers that run
 measured: it recorded no failing lane at all, and the superseded formulas differ from the
@@ -138,18 +141,26 @@ lane that was never attempted.
 Per lane, one line in lane order:
 
 ```
-[module-tests][lane-result] lane=<name> strict=<0|1> outcome=<OUTCOME> passed_tests=<n> passed_assertions=<n> failed_tests=<n> failed_assertions=<n> skipped_markers=<n> exit_code=<n> summary_reported=<0|1> zero_coverage=<0|1|-1>
+[module-tests][lane-result] lane=<name> strict=<0|1> outcome=<OUTCOME> passed_tests=<n> passed_assertions=<n> failed_tests=<n> failed_assertions=<n> skipped_markers=<n> exit_code=<n> exit_code_reported=<0|1> summary_reported=<0|1> zero_coverage=<0|1|-1>
 ```
 
 `OUTCOME` is one of `PASS`, `FAIL`, `ADVISORY-FAIL`, `ADVISORY-NO-COVERAGE`,
 `UNAVAILABLE`, `QUARANTINE-TOLERATED`, `QUARANTINE-REJECTED`, `NOT-RUN`.
 
 The first eight fields are the grammar named in the task contract. `exit_code`,
-`summary_reported` and `zero_coverage` are an **additive suffix**: the contract's prefix is
-unchanged, and a superset is not a weakening. They are present because the process exit
-code, "did doctest report at all" and "did the lane execute any coverage" are the three
-facts a reader needs to tell a crash from a pass from an empty lane, and dropping them
-would make the ledger unable to answer the question it was built for.
+`exit_code_reported`, `summary_reported` and `zero_coverage` are an **additive suffix**: the
+contract's prefix is unchanged, and a superset is not a weakening. They are present because
+the process exit code, "was an exit code reported at all", "did doctest report at all" and
+"did the lane execute any coverage" are the facts a reader needs to tell a crash from a pass
+from an empty lane, and dropping them would make the ledger unable to answer the question it
+was built for.
+
+`exit_code_reported` was added in round 10 because `-1` cannot carry two meanings at once.
+Every *count* in this ledger uses `-1` for "not known" (§3), which is safe because no count
+can be negative — but `-1` is a return code `subprocess` genuinely reports, for a POSIX
+process killed by `SIGHUP`. Without the companion flag, "this lane was signalled" and "no
+return code exists for this lane" are the same record, in the one field whose purpose is
+distinguishing how a lane ended. **Read `exit_code` only when `exit_code_reported=1`.**
 
 `summary_reported` was called `executed` until round 4 (§4a). The rename is recorded **in
 this grammar**, not only in the code: renaming a field so that a stale parser breaks loudly
@@ -162,7 +173,7 @@ After the lane block, unconditionally — including when `advisory_failures=0`, 
 absence of output can never be read as absence of failures:
 
 ```
-[module-tests][lane-ledger] lanes=<n> strict_lanes=<n> advisory_lanes=<n> advisory_failures=<n> advisory_zero_coverage=<n> quarantine_tolerated=<n> unavailable=<n> quarantine_rejected=<n> gating_failures=<n> passed=<n> not_run=<n>
+[module-tests][lane-ledger] lanes=<n> strict_lanes=<n> advisory_lanes=<n> advisory_failures=<n> advisory_zero_coverage=<n> quarantine_tolerated=<n> unavailable=<n> quarantine_rejected=<n> fail_outcomes=<n> run_ending_outcomes=<n> passed=<n> not_run=<n>
 [module-tests][lane-ledger] ADVISORY-RED lane=<name> reason=<failed|no-coverage|nonzero-exit-no-test-failures|crashed>
 ```
 
@@ -174,12 +185,23 @@ adopted here: prefer the narrower claim the data actually supports. Every one of
 field summarising across a boundary the data does not cross — outcome → lane class,
 summary-exists → tests-failed, this-lane → whole-run, and passed-count → executed-at-all.
 
-- `strict_failures` → **`gating_failures`**. The old field counted `FAIL` outcomes, but an
-  *advisory* lane also records `FAIL` (exit 0 with a missing or failing summary), so the
-  aggregate could read `strict_lanes=0 strict_failures=1` — an advisory harness anomaly
-  charged to a strict lane. The name now matches what is counted, and the strict/advisory
-  split is derived from `record.strict`, never from the outcome
-  (`gating_failures_on_strict_lanes` / `gating_failures_on_advisory_lanes`, JSON).
+- `strict_failures` → `gating_failures` → **`fail_outcomes`**, plus a new
+  **`run_ending_outcomes`**. The original field counted `FAIL` outcomes, but an *advisory*
+  lane also records `FAIL` (exit 0 with a missing or failing summary), so the aggregate could
+  read `strict_lanes=0 strict_failures=1` — an advisory harness anomaly charged to a strict
+  lane. Round 3 fixed the *class* half of that name and left the *gating* half over-claiming:
+  `FAIL` is not the only outcome that ends the run. A strict tests-unavailable lane aborts as
+  `UNAVAILABLE`, and a stale or invalid quarantine aborts as `QUARANTINE-REJECTED`; both stop
+  the loop and set the exit code while recording no `FAIL`, so a gated run could publish
+  `gating_failures=0`. Round 10 therefore renames the field to the narrow thing it counts and
+  gives the broader question its own count, derived from each record's `ended_run` — the flag
+  the loop sets from the value it actually broke on, so a future abort path is counted the day
+  it is added, not the day someone remembers to list its outcome. Widening the old field in
+  place was rejected for the reason `executed` was renamed rather than redefined: a stale
+  consumer must break loudly, not keep parsing a number that changed meaning. The
+  strict/advisory split is still derived from `record.strict`, never from the outcome
+  (`fail_outcomes_on_strict_lanes` / `fail_outcomes_on_advisory_lanes`, JSON), and the schema
+  version is bumped to 2.
 - **`reason=`** is derived from the failed counts *and* the exit status, not from "did a
   summary exist". A clean all-pass summary followed by a nonzero exit is a teardown/harness
   failure — `_classify_quarantined_lane_outcome()` has always known this — and calling it
@@ -189,8 +211,9 @@ summary-exists → tests-failed, this-lane → whole-run, and passed-count → e
   `ADVISORY-FAIL`, so a *later* strict lane can fail the run while the same report claims
   success. The note now describes the advisory *result* ("did not itself fail the run"),
   which is true and stable, and the JSON carries `lane_loop_exit_code` — narrowly named
-  because the harness-integrity check and the report write itself can still change the
-  process exit code after the report is on disk.
+  because it is the value the **lane loop** produced, which is not necessarily the exit code
+  of the process that left the file you are reading. See §5 for the ordering that makes those
+  differ.
 - **`zero_coverage`** is derived from **passed + failed**, not from the passed counts alone
   (round 4), and **`executed` → `summary_reported`**. The old formula emitted
   `zero_coverage=1` for a lane in which *every* test failed — both passed counts are zero
@@ -215,8 +238,18 @@ summary-exists → tests-failed, this-lane → whole-run, and passed-count → e
 
 ### 5. `--lane-report <path>` writes the same records as JSON
 
-`{schema_version, baseline_note, generated_utc, lanes: [...], totals: {...}}`. The option
-is optional; omitting it changes nothing. The file is a build output and stays **untracked**.
+`{schema_version, baseline_note, generated_utc, lane_loop_exit_code, lanes: [...],
+totals: {...}}`. The option is optional; omitting it changes nothing. The file is a build
+output and stays **untracked**.
+
+**`lane_loop_exit_code` is the lane loop's result, not proof of the process's.** The order in
+`_run_doctest_lanes()` is: run the lanes → print the block → check ledger integrity → write.
+A ledger that fails its integrity check is therefore **not written at all**, and a write that
+fails leaves the previous report untouched; in both cases the process exits nonzero while the
+path still holds an *older* report describing a different run. After a write that succeeds,
+`main()` returns the lane loop's value unchanged, so a freshly written report and its process
+agree. A consumer that cannot tell which case it is holding must read `generated_utc` — the
+file's existence is not evidence that it came from the run just observed.
 It is rejected in combination with `--guard-only`, where it could only ever produce an
 empty report that a reader would mistake for "no lanes failed".
 

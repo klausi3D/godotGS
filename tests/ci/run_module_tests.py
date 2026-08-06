@@ -1906,11 +1906,21 @@ class DoctestTotals:
 # against a MEASURED value instead of a guessed one.
 # --------------------------------------------------------------------------
 
-LANE_LEDGER_SCHEMA_VERSION = 1
+# 2 (#822 round 10): `gating_failures` -> `fail_outcomes` plus the new
+# `run_ending_outcomes` and `exit_code_reported` fields. A rename plus a version
+# bump breaks a stale consumer loudly; a silently redefined field does not.
+LANE_LEDGER_SCHEMA_VERSION = 2
 # "Not known", as distinct from "zero". _parse_doctest_results() returns 0 for
 # every count when no doctest summary was found, which makes a crash before any
 # output indistinguishable from a lane that ran and passed nothing. The ledger
 # never propagates that ambiguity.
+#
+# COUNTS ONLY. -1 is outside the range of every count, so it cannot collide with
+# a real one. It IS inside the range of a process exit code: `subprocess` reports
+# a POSIX SIGHUP termination as returncode -1, so "no return code was reported"
+# and "the process was killed by signal 1" would be the same value in the
+# exit_code field. That is what `exit_code_reported` exists to separate; see
+# LaneResult.
 LANE_COUNT_UNKNOWN = -1
 
 LANE_OUTCOME_PASS = "PASS"
@@ -1937,8 +1947,8 @@ LANE_OUTCOMES: tuple[str, ...] = (
 # Says what is true of the ADVISORY RESULT, not what the whole run did. "CI
 # exited 0" is a run-wide claim this record cannot make: the loop continues past
 # an ADVISORY-FAIL, so a LATER strict lane can still fail the run while this
-# report sits in the same file asserting success. See totals.gating_failures and
-# lane_loop_exit_code for what the run actually did.
+# report sits in the same file asserting success. See totals.run_ending_outcomes
+# and lane_loop_exit_code for what the run actually did.
 LANE_LEDGER_BASELINE_NOTE = (
     "Reporting only (#705 slice 1): this ledger observes lane outcomes and changes no "
     "exit code. An ADVISORY-RED lane failed, crashed or executed nothing, and that "
@@ -1953,6 +1963,16 @@ class LaneResult:
 
     outcome: str
     exit_code: int = LANE_COUNT_UNKNOWN
+    # "the subprocess reported a return code at all", NOT "the return code was
+    # nonzero" (#822 round 10). Without it, `exit_code=-1` is ambiguous: it is
+    # what the ledger records when no return code is available (a lane that was
+    # never attempted, a `GodotRunResult` carrying returncode=None because the
+    # process could not be launched, or a stub that returns a bare 3-tuple), and
+    # it is ALSO the genuine value `subprocess` reports for a POSIX process
+    # killed by SIGHUP. Those are different facts about a lane, and the field
+    # whose whole purpose is telling a crash from a pass may not conflate them.
+    # Read exit_code ONLY when exit_code_reported is true.
+    exit_code_reported: bool = False
     # "doctest printed a summary", NOT "something ran". A summary of
     # `0 passed | 0 failed` is reported and executed nothing; the field is named
     # for the observation so the two are never confused. Whether anything
@@ -1975,6 +1995,9 @@ class LaneLedgerRecord:
     strict: bool
     outcome: str = LANE_OUTCOME_NOT_RUN
     exit_code: int = LANE_COUNT_UNKNOWN
+    # False on a seeded, never-attempted lane, which is exactly right: no
+    # process ran, so no return code was reported. See LaneResult.
+    exit_code_reported: bool = False
     summary_reported: bool = False
     zero_coverage: bool | None = None
     passed_tests: int = LANE_COUNT_UNKNOWN
@@ -2040,6 +2063,7 @@ class LaneLedgerRecord:
             "strict": self.strict,
             "outcome": self.outcome,
             "exit_code": self.exit_code,
+            "exit_code_reported": self.exit_code_reported,
             "summary_reported": self.summary_reported,
             "zero_coverage": self.zero_coverage,
             "passed_tests": self.passed_tests,
@@ -2063,16 +2087,35 @@ class LaneLedgerTotals:
     quarantine_tolerated: int = 0
     unavailable: int = 0
     quarantine_rejected: int = 0
-    # Lanes whose outcome was FAIL, i.e. that failed the run. Deliberately NOT
-    # called strict_failures: an ADVISORY lane also records FAIL when it exits 0
-    # with a missing or failing doctest summary, so counting FAIL outcomes as
-    # "strict failures" could print `strict_lanes=0 strict_failures=1` and
-    # attribute an advisory harness anomaly to a strict lane. The field is named
-    # for what it counts, and the strict/advisory split below is derived from
-    # record.strict rather than from the outcome.
-    gating_failures: int = 0
-    gating_failures_on_strict_lanes: int = 0
-    gating_failures_on_advisory_lanes: int = 0
+    # Lanes whose outcome was FAIL. Deliberately NOT called strict_failures: an
+    # ADVISORY lane also records FAIL when it exits 0 with a missing or failing
+    # doctest summary, so counting FAIL outcomes as "strict failures" could print
+    # `strict_lanes=0 strict_failures=1` and attribute an advisory harness
+    # anomaly to a strict lane. The field is named for what it counts, and the
+    # strict/advisory split below is derived from record.strict rather than from
+    # the outcome.
+    #
+    # It was called `gating_failures` until #822 round 10, and that name was the
+    # same over-claim one rung up: FAIL is not the only outcome that ends the
+    # run. A strict tests-unavailable lane aborts with UNAVAILABLE, and a stale
+    # or invalid quarantine aborts with QUARANTINE-REJECTED; both stop the loop
+    # and decide the exit code while recording no FAIL at all, so a run that was
+    # gated could publish `gating_failures=0`. Counting them under the old name
+    # would have changed its meaning silently, which is how a consumer's parser
+    # stays green while its numbers stop being true - so the field is renamed to
+    # the narrow thing it measures and the broader question gets its own count
+    # below.
+    fail_outcomes: int = 0
+    fail_outcomes_on_strict_lanes: int = 0
+    fail_outcomes_on_advisory_lanes: int = 0
+    # Lanes whose outcome ENDED the run, whatever that outcome was: FAIL,
+    # UNAVAILABLE under strict tests-unavailable mode, or QUARANTINE-REJECTED.
+    # Derived from the record's own `ended_run`, which the lane loop sets from
+    # the value it actually broke on, so a future abort path is counted here the
+    # day it is added rather than the day someone remembers to list its outcome.
+    # This is the field to read for "did a lane stop this run", and the field
+    # #705/#519's ratchet must consult.
+    run_ending_outcomes: int = 0
     passed: int = 0
     not_run: int = 0
 
@@ -2086,9 +2129,10 @@ class LaneLedgerTotals:
             "quarantine_tolerated": self.quarantine_tolerated,
             "unavailable": self.unavailable,
             "quarantine_rejected": self.quarantine_rejected,
-            "gating_failures": self.gating_failures,
-            "gating_failures_on_strict_lanes": self.gating_failures_on_strict_lanes,
-            "gating_failures_on_advisory_lanes": self.gating_failures_on_advisory_lanes,
+            "fail_outcomes": self.fail_outcomes,
+            "fail_outcomes_on_strict_lanes": self.fail_outcomes_on_strict_lanes,
+            "fail_outcomes_on_advisory_lanes": self.fail_outcomes_on_advisory_lanes,
+            "run_ending_outcomes": self.run_ending_outcomes,
             "passed": self.passed,
             "not_run": self.not_run,
         }
@@ -2138,9 +2182,14 @@ def _format_lane_result_line(record: LaneLedgerRecord) -> str:
     """The stable per-lane grammar.
 
     The first eight fields are the contracted grammar; `exit_code`,
-    `summary_reported` and `zero_coverage` are an additive suffix (a superset is
-    not a weakening). They are what lets a reader tell a crash from a pass from
-    an empty lane.
+    `exit_code_reported`, `summary_reported` and `zero_coverage` are an additive
+    suffix (a superset is not a weakening). They are what lets a reader tell a
+    crash from a pass from an empty lane.
+
+    `exit_code_reported` is not decoration and not redundant with `exit_code`:
+    `exit_code=-1` means "unknown" for every count in this ledger, but -1 is a
+    return code `subprocess` really does report (POSIX SIGHUP), so the two facts
+    are only separable by carrying the availability alongside the value.
 
     `summary_reported` was called `executed` until #822 round 4. It never meant
     "something ran" - a `0 passed | 0 failed` summary is reported and executes
@@ -2159,6 +2208,7 @@ def _format_lane_result_line(record: LaneLedgerRecord) -> str:
         f"failed_assertions={record.failed_assertions} "
         f"skipped_markers={record.skipped_markers} "
         f"exit_code={record.exit_code} "
+        f"exit_code_reported={1 if record.exit_code_reported else 0} "
         f"summary_reported={1 if record.summary_reported else 0} "
         f"zero_coverage={_format_zero_coverage(record.zero_coverage)}"
     )
@@ -2200,6 +2250,7 @@ class LaneLedger:
             )
         record.outcome = result.outcome
         record.exit_code = result.exit_code
+        record.exit_code_reported = result.exit_code_reported
         record.summary_reported = result.summary_reported
         record.zero_coverage = result.zero_coverage
         record.passed_tests = result.passed_tests
@@ -2227,6 +2278,10 @@ class LaneLedger:
             # (no doctest summary) and must never be silently read as zero.
             if not record.strict and record.zero_coverage is True:
                 totals.advisory_zero_coverage += 1
+            # Also a PROPERTY, not an outcome bucket, and for the same reason:
+            # three different outcomes end the run, and one more may be added.
+            if record.ended_run:
+                totals.run_ending_outcomes += 1
             if record.outcome == LANE_OUTCOME_PASS:
                 totals.passed += 1
             elif record.outcome == LANE_OUTCOME_ADVISORY_FAIL:
@@ -2240,15 +2295,15 @@ class LaneLedger:
             elif record.outcome == LANE_OUTCOME_UNAVAILABLE:
                 totals.unavailable += 1
             elif record.outcome == LANE_OUTCOME_FAIL:
-                totals.gating_failures += 1
+                totals.fail_outcomes += 1
                 # Split by the lane's DECLARED strictness, never by the outcome:
                 # an advisory lane can record FAIL (exit 0 with a missing or
                 # failing summary), and charging that to a strict lane would make
                 # the published aggregate quotably wrong.
                 if record.strict:
-                    totals.gating_failures_on_strict_lanes += 1
+                    totals.fail_outcomes_on_strict_lanes += 1
                 else:
-                    totals.gating_failures_on_advisory_lanes += 1
+                    totals.fail_outcomes_on_advisory_lanes += 1
             elif record.outcome == LANE_OUTCOME_NOT_RUN:
                 totals.not_run += 1
         return totals
@@ -2290,7 +2345,8 @@ class LaneLedger:
             f"quarantine_tolerated={totals.quarantine_tolerated} "
             f"unavailable={totals.unavailable} "
             f"quarantine_rejected={totals.quarantine_rejected} "
-            f"gating_failures={totals.gating_failures} "
+            f"fail_outcomes={totals.fail_outcomes} "
+            f"run_ending_outcomes={totals.run_ending_outcomes} "
             f"passed={totals.passed} "
             f"not_run={totals.not_run}"
         )
@@ -2307,11 +2363,18 @@ class LaneLedger:
             "schema_version": LANE_LEDGER_SCHEMA_VERSION,
             "baseline_note": LANE_LEDGER_BASELINE_NOTE,
             "generated_utc": datetime.now(timezone.utc).isoformat(),
-            # The value the LANE LOOP produced. Named narrowly on purpose: this
-            # report is written before the harness-integrity check and before the
-            # write itself can fail, either of which can still make the PROCESS
-            # exit nonzero afterwards. Reporting it as "the run's exit code"
-            # would be the same over-claim as asserting CI exited 0.
+            # The value the LANE LOOP produced. Named narrowly on purpose, and
+            # the reason is about the FILE, not about this run's ordering
+            # (#822 round 10 corrected the earlier claim here, which had the
+            # order backwards): the integrity check runs BEFORE the write, so a
+            # ledger that fails it is never written, and a write that fails
+            # leaves the previous report in place. In both cases the process
+            # exits nonzero while this path holds an OLDER report whose
+            # lane_loop_exit_code describes a different run - so a reader must
+            # check generated_utc before treating any report as this run's.
+            # When the write does succeed, main() returns the lane loop's value
+            # unchanged. Calling the field "the run's exit code" would be the
+            # same over-claim as asserting CI exited 0.
             "lane_loop_exit_code": lane_loop_exit_code,
             "lanes": [record.to_json() for record in self.records],
             "totals": totals.to_json(),
@@ -3626,6 +3689,11 @@ def _execute_lane(
     run_result = _run_godot(godot, run_args)
     ok, skipped, output = run_result
     raw_returncode = getattr(run_result, "returncode", None)
+    # The availability is carried, not encoded into the value: -1 is a return
+    # code POSIX processes really produce (SIGHUP), so a lane whose process was
+    # signalled and a lane for which no return code exists would otherwise be
+    # the same record. See LaneResult.exit_code_reported.
+    exit_code_reported = raw_returncode is not None
     lane_exit_code = LANE_COUNT_UNKNOWN if raw_returncode is None else int(raw_returncode)
     (
         passed_tests,
@@ -3651,6 +3719,7 @@ def _execute_lane(
         return LaneResult(
             outcome=outcome,
             exit_code=lane_exit_code,
+            exit_code_reported=exit_code_reported,
             summary_reported=summary_found,
             zero_coverage=(
                 None

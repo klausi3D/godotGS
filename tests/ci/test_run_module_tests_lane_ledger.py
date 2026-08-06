@@ -112,7 +112,9 @@ LANE_RESULT_RE = re.compile(
     r"outcome=(?P<outcome>\S+) passed_tests=(?P<passed_tests>-?\d+) "
     r"passed_assertions=(?P<passed_assertions>-?\d+) failed_tests=(?P<failed_tests>-?\d+) "
     r"failed_assertions=(?P<failed_assertions>-?\d+) skipped_markers=(?P<skipped_markers>-?\d+) "
-    r"exit_code=(?P<exit_code>-?\d+) summary_reported=(?P<summary_reported>[01]) "
+    r"exit_code=(?P<exit_code>-?\d+) "
+    r"exit_code_reported=(?P<exit_code_reported>[01]) "
+    r"summary_reported=(?P<summary_reported>[01]) "
     r"zero_coverage=(?P<zero_coverage>-?[01])$"
 )
 
@@ -355,15 +357,52 @@ PRIOR_REPORT = '{"schema_version": 1, "note": "the previous measurement"}\n'
 # hand-written list of filenames would have rebuilt the same defect with a longer
 # list.
 #
-# The one hand-drawn boundary is the search root: the project's own directories
-# per AGENTS.md, excluding vendored upstream. That is a scope decision about what
-# this repository owns, not a guess about where a claim might appear.
-CLAIM_SEARCH_ROOTS = (
-    ROOT / "docs",
-    ROOT / "tests",
-    ROOT / "modules" / "gaussian_splatting",
-    ROOT / ".github",
+# WHICH FILES ARE CANDIDATES, in the third and last form this has taken
+# (#822 round 10). Round 8 replaced a list of two FILENAMES with a list of
+# SUFFIXES; round 9 replaced the suffixes with content detection but kept a
+# hand-written list of four DIRECTORIES - docs/, tests/,
+# modules/gaussian_splatting/, .github/ - under a comment calling the FORBIDDEN
+# check "repo-wide". It was not: root-level AGENTS.md, CONTRIBUTING.md and
+# README.md, and any project-owned directory added later, were invisible to a
+# guard whose stated property is that this claim cannot live anywhere in the
+# project. Same defect, third costume.
+#
+# The fix is the POLARITY, not a longer list. Nothing is in scope because someone
+# listed it. Every file in the working tree is a candidate UNLESS it falls in a
+# subtree this repository declares as upstream Godot or vendored (AGENTS.md,
+# "Repository map" / "Upstream Godot boundary"). Forgetting to update the list
+# below can therefore only cost an unnecessary read - never create a blind spot -
+# and a project-owned file is covered the day it is created, wherever it is put.
+#
+# The file list comes from git rather than from a directory walk, for two
+# reasons: `--exclude-standard` uses .gitignore, which is the repository's own
+# maintained ground truth for "generated, not authored", so build output does not
+# need a second hand-written exclusion list; and `--others` includes files that
+# exist but are not committed yet, so a claim is caught while it is still being
+# written rather than one commit later. If git cannot be run, the scan reports
+# that as an error and goes RED: a candidate list that could not be built is an
+# unknown, and an unknown is never a pass.
+#
+# MEASURED, because "scan literally everything" was the first choice: the whole
+# tree is 14413 files / 394 MB and takes ~173 s to read on this machine, against
+# 1297 files / 98 MB and ~0.3 s warm once the upstream subtrees are dropped. The
+# excluded areas are engine code this fork does not author; the module, the docs,
+# the tests, the workflows and every root-level file remain in scope.
+UPSTREAM_SUBTREES = (
+    "core/",
+    "doc/",
+    "drivers/",
+    "editor/",
+    "main/",
+    "misc/",
+    "platform/",
+    "scene/",
+    "servers/",
+    "thirdparty/",
 )
+# modules/ is upstream EXCEPT this fork's own module.
+OWNED_MODULE_PREFIX = "modules/gaussian_splatting/"
+GIT_LS_FILES = ("ls-files", "-z", "--cached", "--others", "--exclude-standard")
 # WHICH FILES ARE TEXT is decided by CONTENT too (#822 round 9). Round 8 replaced
 # a hand-written list of FILENAMES with a hand-written list of SUFFIXES - .md,
 # .py, .yml, .yaml, .txt, .json - which excluded .h, .cpp and .gd, i.e. every
@@ -374,9 +413,9 @@ CLAIM_SEARCH_ROOTS = (
 # can be violated is an invariant that is already broken, and this branch has now
 # rebuilt that shape twice; the list is deleted rather than lengthened.
 #
-# A candidate is any regular file under a project-owned root that is text, and
-# "is text" is answered by reading it: a file containing a NUL byte is binary.
-# That costs a full read of each root, which is the price of not guessing.
+# A candidate is any project-owned regular file that is text, and "is text" is
+# answered by reading it: a file containing a NUL byte is binary. That costs a
+# full read of the in-scope files, which is the price of not guessing.
 BINARY_MARKER = b"\x00"
 # A file is in scope when it TALKS ABOUT the thing the rule is about.
 LEDGER_TOPIC_RE = re.compile(
@@ -393,8 +432,8 @@ LEDGER_TOPIC_RE = re.compile(
 LEDGER_TOPIC_BYTES_RE = re.compile(LEDGER_TOPIC_RE.pattern.encode("ascii"), re.I)
 # The two documents that must additionally state the qualification positively.
 # This list is for the REQUIRED-marker check (a doc must say the thing), which is
-# a statement about these specific documents; the FORBIDDEN check above is
-# repo-wide and needs no list.
+# a statement about these specific documents; the FORBIDDEN check above needs no
+# list, because it covers the project by exclusion rather than by enumeration.
 DOCS_REQUIRED_TO_STATE_THE_EXCEPTION = (
     ROOT / "docs" / "reference" / "build-test-ci.md",
     ROOT / "docs" / "architecture" / "adr-advisory-lane-ledger.md",
@@ -418,13 +457,64 @@ def _read_candidate(path: Path) -> str | None:
     return data.decode("utf-8", errors="replace")
 
 
+def _is_upstream(relative: str) -> bool:
+    """True for the subtrees this fork does not author (AGENTS.md repository map)."""
+    normalized = relative.replace("\\", "/")
+    if normalized.startswith(UPSTREAM_SUBTREES):
+        return True
+    return normalized.startswith("modules/") and not normalized.startswith(
+        OWNED_MODULE_PREFIX
+    )
+
+
+def _project_files() -> tuple[list[Path], list[str]]:
+    """Every project-owned file in the working tree, and why the list may be short.
+
+    Returns `(paths, problems)`. `problems` is non-empty only when the list could
+    not be built - git missing, git failing, or an empty listing in a tree that
+    self-evidently has files. Each entry makes the scan RED. A guard that cannot
+    enumerate what it must examine has not found nothing; it has found out
+    nothing, and the two must never print the same.
+    """
+    try:
+        completed = subprocess.run(
+            ["git", *GIT_LS_FILES],
+            cwd=str(ROOT),
+            capture_output=True,
+            check=False,
+        )
+    except OSError as exc:
+        return [], [
+            f"could not enumerate the project's files with git ({type(exc).__name__}: "
+            f"{exc}), so the claim scan has no candidate list and cannot report clean"
+        ]
+    if completed.returncode != 0:
+        detail = completed.stderr.decode("utf-8", errors="replace").strip()
+        return [], [
+            f"`git {' '.join(GIT_LS_FILES)}` failed with exit {completed.returncode} "
+            f"({detail}); the claim scan has no candidate list and cannot report clean"
+        ]
+    names = [
+        name
+        for name in completed.stdout.decode("utf-8", errors="replace").split("\0")
+        if name
+    ]
+    if not names:
+        return [], [
+            "git listed no files at all for the claim scan; an empty candidate list "
+            "in a non-empty repository is a broken scan, not a clean one"
+        ]
+    return [ROOT / name for name in names if not _is_upstream(name)], []
+
+
 def _files_discussing_the_ledger(
-    roots: Iterable[Path] = CLAIM_SEARCH_ROOTS,
+    candidates: Iterable[Path] | None = None,
 ) -> tuple[list[tuple[Path, str]], list[str]]:
     """Every project-owned text file that discusses advisory lanes / the ledger.
 
-    Returns `(files, unreadable)`: the in-scope `(path, text)` pairs, and the
-    candidates that could NOT be read.
+    Returns `(files, problems)`: the in-scope `(path, text)` pairs, and every
+    reason this scan is incomplete - a candidate list that could not be built, or
+    a candidate that could not be read.
 
     The second half exists because round 8 wrote `except OSError: continue`
     (#822 round 9). A candidate that a permission, a Windows sharing lock or an
@@ -433,55 +523,56 @@ def _files_discussing_the_ledger(
     support is that nothing was observed. The minimum-count assertion cannot see
     one missing file. So the failure is returned and the caller fails on it; a
     file that cannot be read is an unknown, and an unknown is never a pass.
+    Round 10 puts the enumeration itself under the same rule.
 
-    `roots` is a parameter so the scanner itself can be exercised against a
-    planted tree without the caller having to fake the repository. The guard
-    passes nothing and gets the real roots.
+    `candidates` is a parameter so the scanner can be exercised against a planted
+    set of files without faking the repository. The guard passes nothing and gets
+    the real project-owned tree.
 
     Excludes only this file, and by identity rather than by name: it *defines*
     the forbidden patterns, so their appearance here is a pattern definition and
     not a claim. Nothing else is exempt.
     """
+    problems: list[str] = []
+    if candidates is None:
+        candidates, problems = _project_files()
     self_path = Path(__file__).resolve()
     found: list[tuple[Path, str]] = []
-    unreadable: list[str] = []
-    for root in roots:
-        if not root.is_dir():
+    for path in sorted(candidates):
+        if not path.is_file():
+            # A path git listed that is gone, or a directory handed in by a
+            # caller: neither is evidence that was skipped.
             continue
-        for path in sorted(root.rglob("*")):
-            if not path.is_file():
-                continue
-            if path.resolve() == self_path:
-                continue
-            try:
-                text = _read_candidate(path)
-            except OSError as exc:
-                unreadable.append(f"{path}: {type(exc).__name__}: {exc}")
-                continue
-            if text is not None:
-                found.append((path, text))
-    return sorted(found, key=lambda pair: pair[0]), sorted(unreadable)
+        if path.resolve() == self_path:
+            continue
+        try:
+            text = _read_candidate(path)
+        except OSError as exc:
+            problems.append(f"{path}: {type(exc).__name__}: {exc}")
+            continue
+        if text is not None:
+            found.append((path, text))
+    return sorted(found, key=lambda pair: pair[0]), sorted(problems)
 
 
-def _claim_scan_errors(roots: Iterable[Path] = CLAIM_SEARCH_ROOTS) -> list[str]:
-    """Every reason the claim scan over `roots` is RED, or [] when it is clean."""
-    return _claim_scan_errors_from(*_files_discussing_the_ledger(roots))
+def _claim_scan_errors(candidates: Iterable[Path] | None = None) -> list[str]:
+    """Every reason the claim scan is RED, or [] when it is clean."""
+    return _claim_scan_errors_from(*_files_discussing_the_ledger(candidates))
 
 
 def _claim_scan_errors_from(
-    files: Iterable[tuple[Path, str]], unreadable: Iterable[str]
+    files: Iterable[tuple[Path, str]], problems: Iterable[str]
 ) -> list[str]:
     """Every reason a completed scan is RED, or [] when it is clean.
 
-    One rule, two callers: the guard asserts this is empty for the real roots
-    (reusing the scan it already did), and the mutation proofs assert it is NOT
-    empty for a planted tree. The guard's verdict is exactly `== []`, so a
-    non-empty return here IS the guard going red.
+    One rule, two callers: the guard asserts this is empty for the real project
+    tree (reusing the scan it already did), and the mutation proofs assert it is
+    NOT empty for a planted set of files. The guard's verdict is exactly `== []`,
+    so a non-empty return here IS the guard going red.
     """
     errors = [
-        f"a candidate file could not be read, so the scan cannot claim the repo is "
-        f"clean: {reason}"
-        for reason in unreadable
+        f"the scan is incomplete, so it cannot claim the project is clean: {reason}"
+        for reason in problems
     ]
     for path, text in files:
         for pattern in FORBIDDEN_ABSOLUTE_CLAIMS:
@@ -535,6 +626,36 @@ def _evaluated_reason_order() -> list[str]:
     prop = harness.LaneLedgerRecord.advisory_red_reason
     source = inspect.getsource(getattr(prop, "fget", prop))
     return re.findall(r'return\s+"([^"]+)"', source)
+
+
+def _documented_json_keys(text: str) -> list[str]:
+    """The top-level keys of the `--lane-report` object as a document states it.
+
+    Both references write the shape as an inline code span beginning
+    `{schema_version, ...`; nested values (`lanes: [...]`, `totals: {...}`) are
+    skipped by depth so only the top level is compared. The span may be
+    hard-wrapped, so whitespace is collapsed first.
+    """
+    match = re.search(r"`\{schema_version[^`]*\}`", text, re.S)
+    if match is None:
+        return []
+    body = " ".join(match.group(0).strip("`").split())
+    body = body[1:-1] if body.startswith("{") and body.endswith("}") else body
+    keys: list[str] = []
+    current = ""
+    depth = 0
+    for character in body:
+        if character in "{[":
+            depth += 1
+        elif character in "}]":
+            depth -= 1
+        if character == "," and depth == 0:
+            keys.append(current)
+            current = ""
+        else:
+            current += character
+    keys.append(current)
+    return [key.strip().split(":")[0].strip() for key in keys if key.strip()]
 
 
 def _documented_reason_order(text: str) -> list[str]:
@@ -757,7 +878,8 @@ class LaneLedgerOutcomeTests(unittest.TestCase):
         self.assertIn(
             "[module-tests][lane-result] lane=StrictLane strict=1 outcome=PASS "
             "passed_tests=5 passed_assertions=120 failed_tests=0 failed_assertions=0 "
-            "skipped_markers=0 exit_code=0 summary_reported=1 zero_coverage=0",
+            "skipped_markers=0 exit_code=0 exit_code_reported=1 summary_reported=1 "
+            "zero_coverage=0",
             output,
         )
         totals = _aggregate(output)
@@ -824,7 +946,7 @@ class LaneLedgerOutcomeTests(unittest.TestCase):
         rc, output = _drive(lanes, results)
         self._assert_record(output, "StrictLane", strict=1, outcome="FAIL", failed_tests=1)
         totals = _aggregate(output)
-        self.assertEqual(totals["gating_failures"], 1)
+        self.assertEqual(totals["fail_outcomes"], 1)
         self.assertEqual(
             totals["advisory_failures"], 0, "a strict failure is not an advisory failure"
         )
@@ -1058,7 +1180,7 @@ class LaneLedgerOutcomeTests(unittest.TestCase):
         totals = _aggregate(output)
         self.assertEqual(totals["strict_lanes"], 0, "the scenario has no strict lane")
         self.assertEqual(
-            totals["gating_failures"],
+            totals["fail_outcomes"],
             1,
             "the lane did fail the run, and the aggregate must say so",
         )
@@ -1070,7 +1192,7 @@ class LaneLedgerOutcomeTests(unittest.TestCase):
         )
         self.assertEqual(rc, BASELINE_RC_NO_SUMMARY)
 
-    def test_gating_failures_are_split_by_the_declared_strict_flag(self) -> None:
+    def test_fail_outcomes_are_split_by_the_declared_strict_flag(self) -> None:
         """The split must come from record.strict, never from the outcome."""
         lanes = [("AdvisoryLane", False), ("StrictLane", True)]
         results = [
@@ -1082,15 +1204,165 @@ class LaneLedgerOutcomeTests(unittest.TestCase):
             rc, output = _drive(lanes, results, lane_report=report)
             payload = json.loads(report.read_text(encoding="utf-8"))
         totals = payload["totals"]
-        self.assertEqual(totals["gating_failures"], 1)
+        self.assertEqual(totals["fail_outcomes"], 1)
         self.assertEqual(
-            totals["gating_failures_on_advisory_lanes"],
+            totals["fail_outcomes_on_advisory_lanes"],
             1,
             "the failing lane is declared strict=False",
         )
-        self.assertEqual(totals["gating_failures_on_strict_lanes"], 0)
+        self.assertEqual(totals["fail_outcomes_on_strict_lanes"], 0)
         self.assertEqual(_records(output)["AdvisoryLane"]["outcome"], "FAIL")
         self.assertEqual(rc, BASELINE_RC_NO_SUMMARY)
+
+    def test_an_abort_that_records_no_fail_is_still_counted_as_run_ending(self) -> None:
+        """#822 round 10: FAIL is not the only outcome that ends the run.
+
+        `gating_failures` counted FAIL outcomes and was named as though it
+        counted every failure that gates. Two abort paths record no FAIL at all:
+        a strict tests-unavailable lane (UNAVAILABLE) and a stale or invalid
+        quarantine (QUARANTINE-REJECTED). Both stop the loop and decide the exit
+        code, so a gated run published `gating_failures=0` - a published
+        aggregate that is wrong in the direction of "nothing gated", which is the
+        direction this whole ledger exists to make impossible.
+
+        Both aborts are driven here, and each is asserted against BOTH counts:
+        the FAIL count must stay 0 (it is the narrow measurement, and inflating
+        it would be the opposite error) while the run-ending count must be 1.
+        """
+        quarantine = {
+            "QuarantinedLane": [
+                {"test_case": "*plays a clip*", "issue_url": "https://example/issues/1"}
+            ]
+        }
+        cases = (
+            (
+                "UNAVAILABLE",
+                [("StrictLane", True), ("NeverReached", True)],
+                _godot(True, True, UNAVAILABLE_OUTPUT, 1),
+                {"mode": "strict"},
+                BASELINE_RC_UNAVAILABLE_STRICT,
+            ),
+            (
+                "QUARANTINE-REJECTED",
+                [("QuarantinedLane", True), ("NeverReached", True)],
+                # A quarantined lane that PASSED: the entry is stale.
+                _godot(True, False, PASS_OUTPUT, 0),
+                {"quarantine": quarantine},
+                BASELINE_RC_QUARANTINE_REJECTED,
+            ),
+        )
+        for outcome, lanes, results, kwargs, expected_rc in cases:
+            with self.subTest(outcome=outcome):
+                rc, output = _drive(lanes, results, **kwargs)
+                self.assertEqual(
+                    _records(output)[lanes[0][0]]["outcome"],
+                    outcome,
+                    "sanity: the abort path under test is the one that ran",
+                )
+                self.assertEqual(
+                    _records(output)["NeverReached"]["outcome"],
+                    "NOT-RUN",
+                    "sanity: the run really did end at the first lane",
+                )
+                totals = _aggregate(output)
+                self.assertEqual(
+                    totals["fail_outcomes"],
+                    0,
+                    "no lane recorded FAIL, and the narrow count must not pretend "
+                    "otherwise",
+                )
+                self.assertEqual(
+                    totals["run_ending_outcomes"],
+                    1,
+                    f"{outcome} ended the run and set the exit code; an aggregate "
+                    f"reporting 0 here tells a consumer nothing gated",
+                )
+                self.assertEqual(rc, expected_rc, "sanity: the run really was gated")
+
+    def test_a_fail_outcome_is_counted_as_run_ending_exactly_once(self) -> None:
+        """The broad count must include FAIL, not replace it.
+
+        A run-ending count derived from something other than what the loop broke
+        on could just as easily miss the ordinary case, so the ordinary case is
+        pinned too: one FAIL, one abort, both counts at 1.
+        """
+        lanes = [("StrictLane", True), ("NeverReached", True)]
+        results = _godot(False, False, FAIL_OUTPUT, 1)
+        rc, output = _drive(lanes, results)
+        totals = _aggregate(output)
+        self.assertEqual(totals["fail_outcomes"], 1)
+        self.assertEqual(totals["run_ending_outcomes"], 1)
+        self.assertEqual(_records(output)["NeverReached"]["outcome"], "NOT-RUN")
+        self.assertEqual(rc, BASELINE_RC_STRICT_FAIL)
+
+    def test_a_run_nothing_ended_reports_no_run_ending_outcome(self) -> None:
+        """The count must be able to say zero, or it is not a measurement.
+
+        An advisory red does NOT end the run, so a ledger whose run-ending count
+        were "any red lane" would report 1 here and make the field useless for
+        the one question it answers.
+        """
+        lanes = [("AdvisoryLane", False), ("PassLane", True)]
+        results = [
+            _godot(False, False, FAIL_OUTPUT, 1),
+            _godot(True, False, PASS_OUTPUT, 0),
+        ]
+        rc, output = _drive(lanes, results)
+        totals = _aggregate(output)
+        self.assertEqual(totals["advisory_failures"], 1, "sanity: a lane did go red")
+        self.assertEqual(
+            totals["run_ending_outcomes"],
+            0,
+            "an advisory failure does not end the run, so nothing ended it",
+        )
+        self.assertEqual(rc, BASELINE_RC_ADVISORY_FAIL)
+
+    def test_a_missing_return_code_is_not_reported_as_a_signal(self) -> None:
+        """#822 round 10: -1 cannot mean both "unknown" and "killed by SIGHUP".
+
+        The ledger writes LANE_COUNT_UNKNOWN (-1) into `exit_code` when no return
+        code is available, and `subprocess` reports a POSIX SIGHUP termination as
+        the return code -1. Without `exit_code_reported` the two records are
+        byte-identical, so "we never learned how this lane ended" and "this lane
+        was signalled" read the same to every consumer of the field whose purpose
+        is telling them apart.
+        """
+        lanes = [("SignalledLane", False)]
+        rc, output = _drive(lanes, _godot(False, False, CRASH_OUTPUT, -1))
+        signalled = _records(output)["SignalledLane"]
+        self.assertEqual(signalled["exit_code"], "-1")
+        self.assertEqual(
+            signalled["exit_code_reported"],
+            "1",
+            "the process reported -1; that is a real return code, not an absence",
+        )
+
+        # Same printed exit_code, opposite meaning: a result carrying no return
+        # code at all (the runner produces this when the process could not be
+        # launched, and a pre-#705 stub produces it by returning a bare 3-tuple).
+        rc_missing, output_missing = _drive(
+            [("NoReturnCodeLane", False)], _godot(False, False, CRASH_OUTPUT, None)
+        )
+        missing = _records(output_missing)["NoReturnCodeLane"]
+        self.assertEqual(missing["exit_code"], signalled["exit_code"])
+        self.assertEqual(
+            missing["exit_code_reported"],
+            "0",
+            "no return code exists for this lane, and the ledger must say so rather "
+            "than publish a value that looks like SIGHUP",
+        )
+        self.assertEqual(rc, BASELINE_RC_ADVISORY_FAIL)
+        self.assertEqual(rc_missing, BASELINE_RC_ADVISORY_FAIL)
+
+    def test_a_never_attempted_lane_reports_no_return_code(self) -> None:
+        """A seeded NOT-RUN lane ran no process, so it reported no exit code."""
+        lanes = [("StrictLane", True), ("NeverReached", True)]
+        rc, output = _drive(lanes, _godot(False, False, FAIL_OUTPUT, 1))
+        never = _records(output)["NeverReached"]
+        self.assertEqual(never["outcome"], "NOT-RUN")
+        self.assertEqual(never["exit_code_reported"], "0")
+        self.assertEqual(never["exit_code"], "-1")
+        self.assertEqual(rc, BASELINE_RC_STRICT_FAIL)
 
     def test_a_teardown_crash_is_not_reported_as_test_failures(self) -> None:
         """#822 P2-2: a clean all-pass summary plus a nonzero exit is not "failed".
@@ -1489,7 +1761,7 @@ class LaneReportTests(unittest.TestCase):
         self.assertEqual(by_lane["PassLane"]["outcome"], "PASS")
         # The JSON totals are a strict SUPERSET of the printed aggregate: every
         # field on stdout must be present and identical, and the JSON carries
-        # the strict/advisory split of gating_failures that the one-line
+        # the strict/advisory split of fail_outcomes that the one-line
         # aggregate has no room for. Superset, never contradiction.
         printed = _aggregate(output)
         json_totals = payload["totals"]
@@ -1500,14 +1772,14 @@ class LaneReportTests(unittest.TestCase):
             )
         self.assertEqual(
             set(json_totals) - set(printed),
-            {"gating_failures_on_strict_lanes", "gating_failures_on_advisory_lanes"},
-            "the JSON may only ADD the gating-failure split to the printed aggregate",
+            {"fail_outcomes_on_strict_lanes", "fail_outcomes_on_advisory_lanes"},
+            "the JSON may only ADD the FAIL-outcome split to the printed aggregate",
         )
         self.assertEqual(
-            json_totals["gating_failures_on_strict_lanes"]
-            + json_totals["gating_failures_on_advisory_lanes"],
-            json_totals["gating_failures"],
-            "the split must account for exactly the gating failures, no more, no less",
+            json_totals["fail_outcomes_on_strict_lanes"]
+            + json_totals["fail_outcomes_on_advisory_lanes"],
+            json_totals["fail_outcomes"],
+            "the split must account for exactly the FAIL outcomes, no more, no less",
         )
         self.assertEqual(rc, BASELINE_RC_ADVISORY_FAIL)
 
@@ -1555,6 +1827,51 @@ class LaneReportTests(unittest.TestCase):
             1,
             "the report must carry what the lane loop actually returned",
         )
+
+    def test_a_freshly_written_report_agrees_with_the_process(self) -> None:
+        """The write ordering, asserted rather than described (#822 round 10).
+
+        `build-test-ci.md` used to justify the narrow name of
+        `lane_loop_exit_code` by claiming the report is written BEFORE the
+        integrity check, so either could still change the exit code afterwards.
+        The order is the reverse - integrity is checked first and an untrustworthy
+        ledger is never written - so after a write that succeeds nothing else
+        moves the exit code, and a freshly written report and its process agree.
+        That is the property the corrected paragraph states, so it is pinned here:
+        a reader who trusts the doc is trusting this assertion.
+
+        The narrow name still earns itself in the cases where no FRESH report
+        exists: integrity failure (test above: the previous report is left
+        untouched) and a failed write (test_an_interrupted_run_leaves_the_previous
+        _report_intact). There the process exits nonzero while the path holds an
+        older run's file, which is why `generated_utc` is in the payload.
+        """
+        for label, godot_result, expected_rc in (
+            ("clean run", _godot(True, False, PASS_OUTPUT, 0), 0),
+            ("gated run", _godot(False, False, FAIL_OUTPUT, 1), 1),
+        ):
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as tmp:
+                report = Path(tmp) / "lane_ledger.json"
+                rc = _run_main(
+                    [
+                        "run_module_tests.py",
+                        "--godot-binary",
+                        "fake",
+                        "--lane-report",
+                        str(report),
+                    ],
+                    godot_result=godot_result,
+                )
+                self.assertTrue(report.is_file(), "the report must have been written")
+                payload = json.loads(report.read_text(encoding="utf-8"))
+                self.assertEqual(rc, expected_rc, "sanity: the scenario is the one asked for")
+                self.assertEqual(
+                    payload["lane_loop_exit_code"],
+                    rc,
+                    "nothing after a successful write may change the exit code; if "
+                    "something now can, the reference's ordering paragraph is wrong "
+                    "again",
+                )
 
     def test_a_directory_destination_fails_before_any_lane_runs(self) -> None:
         """The preflight must reject it, not os.replace() 26 lanes later."""
@@ -2265,14 +2582,17 @@ class DocConsistencyTests(unittest.TestCase):
 
         Round 9: an unreadable candidate is now a FAILURE rather than a silent
         skip, so "clean" can never rest on a file the scan did not read.
+
+        Round 10: the candidate list is the whole working tree minus the
+        upstream subtrees, so "repo-wide" is now literally what it does.
         """
         scanned, unreadable = _files_discussing_the_ledger()
         self.assertGreaterEqual(
             len(scanned),
             3,
             "the content-derived scan found almost nothing, which means the topic "
-            "regex or the search roots stopped matching - a silently empty scan is "
-            "the same absence-reads-as-success defect",
+            "regex or the candidate enumeration stopped matching - a silently empty "
+            "scan is the same absence-reads-as-success defect",
         )
         # The two places the claim has actually appeared must be in scope, or the
         # derivation has drifted away from the thing it is supposed to cover.
@@ -2306,11 +2626,10 @@ class DocConsistencyTests(unittest.TestCase):
         the guard is red. Against round 8 every one of these is green.
         """
         module_root = ROOT / "modules" / "gaussian_splatting"
-        self.assertIn(
-            module_root,
-            CLAIM_SEARCH_ROOTS,
-            "the plant location must be a REAL search root, or this proves nothing "
-            "about the guard as configured",
+        self.assertFalse(
+            _is_upstream("modules/gaussian_splatting/x.cpp"),
+            "the plant location must be inside the scanned project tree, or this "
+            "proves nothing about the guard as configured",
         )
         planted_text = (
             "// An advisory lane can never change the exit code, so nothing here "
@@ -2325,7 +2644,7 @@ class DocConsistencyTests(unittest.TestCase):
                 path.write_text(planted_text, encoding="utf-8")
                 planted.append(path)
 
-            scanned, unreadable = _files_discussing_the_ledger([Path(tmp)])
+            scanned, unreadable = _files_discussing_the_ledger(sorted(planted))
             self.assertEqual(unreadable, [], "the planted files must all be readable")
             self.assertEqual(
                 [path for path, _text in scanned],
@@ -2340,15 +2659,164 @@ class DocConsistencyTests(unittest.TestCase):
                     f"the ban did not fire for {path.name}",
                 )
 
-            # End to end, over the REAL roots: this is the guard's own verdict,
-            # which is exactly `_claim_scan_errors_from(...) == []`.
-            source_probe = Path(tmp) / "claim_probe.cpp"
+            # End to end, over the REAL candidate list: this is the guard's own
+            # verdict, which is exactly `_claim_scan_errors_from(...) == []`. The
+            # plants are untracked, and `git ls-files --others` lists them - a
+            # claim is caught while it is being written, not one commit later.
             real_errors = _claim_scan_errors()
-        self.assertTrue(
-            any(str(source_probe) in error for error in real_errors),
-            "a prohibited claim in a .cpp file under a real search root left the "
-            "guard green",
+            missed = [
+                path.name
+                for path in planted
+                if not any(str(path) in error for error in real_errors)
+            ]
+        self.assertEqual(
+            missed,
+            [],
+            f"a prohibited claim inside the project tree left the guard green for "
+            f"{missed}; every planted suffix must be reachable through the REAL "
+            f"candidate enumeration, not only through a hand-passed file list",
         )
+
+    def test_a_claim_in_a_root_level_file_turns_the_guard_red(self) -> None:
+        """The directory whitelist, proven shut (#822 round 10).
+
+        Round 9's search roots were docs/, tests/, modules/gaussian_splatting/
+        and .github/. AGENTS.md, CONTRIBUTING.md and README.md are none of those,
+        and they are exactly the files a contributor reads before touching CI - so
+        the claim could sit in the most-read file in the repository while a guard
+        described in its own comment as repo-wide reported clean. This plants the
+        banned wording in a real root-level file and asserts the guard is red.
+        Against round 9 it is green.
+        """
+        handle, name = tempfile.mkstemp(
+            dir=str(ROOT), prefix="claim_scan_probe_", suffix=".md"
+        )
+        os.close(handle)
+        planted = Path(name)
+        try:
+            planted.write_text(
+                "Advisory lanes can never change the exit code, so a red advisory "
+                "lane is nothing to act on.\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                planted.parent.resolve(),
+                ROOT.resolve(),
+                "sanity: the plant must be a ROOT-level file, which is the location "
+                "the previous search roots excluded",
+            )
+            errors = _claim_scan_errors()
+        finally:
+            planted.unlink(missing_ok=True)
+        self.assertTrue(
+            any(str(planted) in error for error in errors),
+            "a prohibited claim in a root-level file left the guard green; the scan "
+            "is still enumerating a hand-picked set of directories",
+        )
+
+    def test_the_candidate_list_is_the_project_minus_upstream(self) -> None:
+        """Scope by exclusion, asserted in both directions (#822 round 10).
+
+        The list-shaped defect this replaces cannot be caught by a scan-is-clean
+        assertion, so the ENUMERATION is checked directly: project-owned files
+        outside the old four roots must be candidates, and the upstream subtrees
+        must not be - a scope that quietly swallowed the module or the docs would
+        be just as broken as one that missed the root.
+        """
+        files, problems = _project_files()
+        self.assertEqual(problems, [], "the candidate list must build cleanly here")
+        relative = {path.relative_to(ROOT).as_posix() for path in files}
+
+        owned = (
+            "AGENTS.md",
+            "CONTRIBUTING.md",
+            "README.md",
+            "docs/reference/build-test-ci.md",
+            "tests/ci/run_module_tests.py",
+            "modules/gaussian_splatting/AGENTS.md",
+        )
+        for name in owned:
+            with self.subTest(owned=name):
+                self.assertTrue(
+                    (ROOT / name).is_file(),
+                    f"{name} is expected to exist in this repository; if it moved, "
+                    f"this assertion is what should be updated",
+                )
+                self.assertIn(
+                    name,
+                    relative,
+                    f"{name} is project-owned but is not a claim-scan candidate",
+                )
+
+        for prefix in (*UPSTREAM_SUBTREES, "modules/gltf/"):
+            with self.subTest(upstream=prefix):
+                self.assertFalse(
+                    [name for name in relative if name.startswith(prefix)],
+                    f"{prefix} is upstream Godot and must stay out of the scan",
+                )
+        self.assertFalse(
+            _is_upstream("modules/gaussian_splatting/renderer/x.cpp"),
+            "this fork's own module is not upstream",
+        )
+
+    def test_a_candidate_list_that_cannot_be_built_fails_the_scan(self) -> None:
+        """An enumeration that failed is not an enumeration that found nothing.
+
+        The round-9 hole was a candidate the scan could not READ; the same shape
+        one level up is a candidate list the scan could not BUILD. If git is
+        missing, fails, or returns nothing, a scan that then reported `[]` would
+        be publishing "no prohibited claim exists" on the strength of having
+        looked at no files at all.
+        """
+        class _Completed:
+            def __init__(self, returncode: int, stdout: bytes = b"") -> None:
+                self.returncode = returncode
+                self.stdout = stdout
+                self.stderr = b"fatal: not a git repository"
+
+        cases = (
+            ("git is missing", {"side_effect": FileNotFoundError(2, "no git")}),
+            ("git fails", {"return_value": _Completed(128)}),
+            ("git lists nothing", {"return_value": _Completed(0, b"")}),
+        )
+        for label, patch_kwargs in cases:
+            with self.subTest(case=label):
+                with mock.patch.object(subprocess, "run", **patch_kwargs):
+                    files, problems = _project_files()
+                self.assertEqual(files, [], "no list means no candidates")
+                self.assertTrue(problems, f"{label} must be reported, not swallowed")
+                self.assertTrue(
+                    _claim_scan_errors_from([], problems),
+                    f"{label} left the guard green over a scan that examined nothing",
+                )
+
+    def test_documented_json_shape_matches_the_emitted_shape(self) -> None:
+        """The report's documented object is DERIVED from to_json() (#822 round 10).
+
+        The ADR advertised `{schema_version, baseline_note, generated_utc, lanes,
+        totals}` while every written report also carried `lane_loop_exit_code` -
+        and the same ADR went on to tell consumers to read that field. A
+        hand-copied shape is a copy that drifts, exactly as the per-line grammar
+        did in round 5, so it is pinned the same way rather than re-typed
+        correctly and left to drift again.
+        """
+        ledger = harness.LaneLedger([("SampleLane", True)])
+        emitted = set(ledger.to_json(ledger.totals(), lane_loop_exit_code=0))
+        self.assertIn("lane_loop_exit_code", emitted, "sanity: the field exists")
+        for doc in DOCS_REQUIRED_TO_STATE_THE_EXCEPTION:
+            with self.subTest(doc=doc.name):
+                documented = _documented_json_keys(doc.read_text(encoding="utf-8"))
+                self.assertTrue(
+                    documented,
+                    f"{doc.name} documents no JSON shape for --lane-report; the "
+                    f"format must be written down where a reader will find it",
+                )
+                self.assertEqual(
+                    set(documented),
+                    emitted,
+                    f"{doc.name}: the documented JSON object is not what the runner "
+                    f"writes",
+                )
 
     def test_an_unreadable_candidate_fails_instead_of_being_skipped(self) -> None:
         """`except OSError: continue` reported clean over unread evidence.
@@ -2372,7 +2840,7 @@ class DocConsistencyTests(unittest.TestCase):
                 return real_reader(path)
 
             with mock.patch.object(sys.modules[__name__], "_read_candidate", refuse_one):
-                scanned, unreadable = _files_discussing_the_ledger([Path(tmp)])
+                scanned, unreadable = _files_discussing_the_ledger([readable, locked])
 
         self.assertEqual(
             [path for path, _text in scanned],
