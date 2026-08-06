@@ -53,16 +53,47 @@ label set:
 
 * `self-hosted` present -> self-hosted;
 * otherwise, labels that are a subset of the **persistent-runner label
-  vocabulary** -> self-hosted. That vocabulary is *derived* from every
-  `runs-on:` in `.github/workflows/` that does spell out `self-hosted`
-  (`persistent_runner_labels()`), never hand-written here -- a hand-written list
-  of "labels that mean self-hosted" is the same shape of already-broken
-  invariant this guard exists to replace;
-* otherwise, labels that are all GitHub-hosted runner *images*
-  (`ubuntu-latest`, `windows-2022`, `macos-14`, ...) -> GitHub-hosted;
-* anything else -> `UnmodelledWorkflowConstruct`. A label this guard has never
-  seen paired with `self-hosted` and that is not a hosted image may or may not
-  select the persistent runner, and "may" is not "no".
+  vocabulary** -> self-hosted;
+* otherwise, a label set of **exactly one** label that the repository has
+  explicitly declared as a GitHub-hosted runner label -> GitHub-hosted;
+* anything else -> `UnmodelledWorkflowConstruct`.
+
+Both label sets come from a **declared runner-label policy**, not from pattern
+matching on the label text (`runner_label_policy()`). Rounds 5 and 6 inferred
+"GitHub-hosted" from the *shape* of a label -- anything matching
+`^(ubuntu|windows|macos)-(latest|<version>)$` was treated as a safe hosted image
+-- and that inference was wrong twice, because nothing stops a self-hosted runner
+from carrying a label that looks like a hosted image. `windows-2022` is a
+perfectly ordinary custom label for a self-hosted Windows Server 2022 box.
+Worse, GitHub routes an *array* to a runner matching **every** label, so
+`runs-on: [ubuntu-latest, windows-2022]` cannot name a GitHub-hosted image at
+all: no hosted runner carries two image labels, so the only machine that can
+satisfy it is a self-hosted one whose custom labels happen to spell those two
+words. The shape-based fallback nevertheless called that "github-hosted", which
+dropped the job out of `self_hosted_jobs()` -- so it received neither the fork
+guard check nor the README checks.
+
+Hence:
+
+* the persistent runner's label inventory and the GitHub-hosted labels this
+  repository actually uses are **declared** in the Runner Trust Boundary section
+  of `.github/workflows/README.md`, where a human reviews them against the real
+  runner inventory. That declaration is the only place "this label is not on our
+  self-hosted runner" is ever asserted;
+* the declaration is cross-checked against the workflows: every label derived
+  from a `runs-on:` that spells out `self-hosted` (`persistent_runner_labels()`)
+  must appear in the declared persistent inventory, and the declared hosted
+  labels must be **disjoint** from it. A new persistent-runner label therefore
+  fails the guard until it is declared, instead of being silently filed under
+  "unknown, probably fine";
+* a GitHub-hosted classification additionally requires a **single** label,
+  because a GitHub-hosted runner matches exactly one image label. Any multi-label
+  set that is not a subset of the persistent vocabulary is unmodelled.
+
+The residual assumption -- that the declared hosted labels really are absent
+from the self-hosted runner inventory -- is not inferable from workflow text at
+all. It is a maintainer statement, made once, in a reviewed location, instead of
+a regex re-deriving it wrongly on every run.
 
 No PyYAML: `tests/ci/validate_automation.py` treats PyYAML as optional, so a
 guard that imports it would silently degrade on a runner without it.
@@ -77,7 +108,7 @@ import re
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_DIR = ROOT / ".github" / "workflows"
@@ -86,14 +117,6 @@ README = WORKFLOW_DIR / "README.md"
 
 SELF_HOSTED_LABEL = "self-hosted"
 
-# A GitHub-hosted runner image label: `ubuntu-latest`, `ubuntu-24.04`,
-# `windows-2022`, `macos-14`, plus the documented `-arm` / `-large` /
-# `-<n>-cores` variants. Deliberately narrow: a label that does not match and is
-# not in the derived persistent-runner vocabulary is unmodelled, not "hosted".
-GITHUB_HOSTED_IMAGE = re.compile(
-    r"^(?:ubuntu|windows|macos)-(?:latest|\d{1,4}(?:\.\d{2})?)"
-    r"(?:-(?:arm|large|xlarge|\d{1,3}-cores))*$"
-)
 RUNS_ON_LINE = re.compile(r"^\s*runs-on:(.*)$")
 
 # The repository standard (`.github/workflows/AGENTS.md`): fork PRs skip, trusted
@@ -125,6 +148,13 @@ README_SECTION_HEADING = "## Runner Trust Boundary"
 # backticked token out of the bullet and "found" the job `push` inside
 # "runs on `push`/tag/schedule/dispatch".
 README_JOB_LIST_MARKER = "self-hosted jobs"
+
+# The declared runner-label policy, read from two bullets in the same README
+# section. Declared, because "this label does not select our self-hosted runner"
+# is a fact about the runner inventory that no amount of reading workflow text
+# can establish.
+README_PERSISTENT_LABELS_MARKER = "Persistent self-hosted runner labels:"
+README_GITHUB_HOSTED_LABELS_MARKER = "GitHub-hosted runner labels:"
 
 JOB_KEY = re.compile(r"^  ([A-Za-z_][A-Za-z0-9_-]*):\s*$")
 JOB_LEVEL_KEY = re.compile(r"^    ([A-Za-z_][A-Za-z0-9_-]*):(.*)$")
@@ -217,15 +247,94 @@ def persistent_runner_labels(paths: Optional[List[Path]] = None) -> frozenset:
     return frozenset(labels)
 
 
-def classify_runner(labels: List[str], job: str, persistent: Optional[frozenset] = None) -> str:
+class RunnerLabelPolicy(NamedTuple):
+    """The declared, cross-checked label inventory this guard classifies against.
+
+    `persistent` never contains `self-hosted` itself -- that label is handled
+    separately because it is the one label whose meaning is fixed by GitHub.
+    """
+
+    persistent: frozenset
+    github_hosted: frozenset
+
+
+def build_runner_label_policy(
+    declared_persistent: Iterable[str],
+    declared_github_hosted: Iterable[str],
+    derived_persistent: Iterable[str],
+) -> RunnerLabelPolicy:
+    """Validate a declared policy against the labels derived from the workflows.
+
+    Three things have to hold, or the guard refuses to classify anything:
+
+    * the declaration is non-empty on both sides -- an empty hosted set would
+      make every hosted job unmodelled, an empty persistent set would silently
+      stop the subset rule from ever firing;
+    * every label the workflows pair with `self-hosted` is declared persistent,
+      so a newly added persistent-runner label fails loudly instead of being
+      classified by omission;
+    * the declared hosted labels are disjoint from the persistent inventory.
+      This is the assumption the shape-based fallback got wrong: a hosted-looking
+      label that is *also* on the self-hosted runner routes to the runner.
+    """
+    persistent = {str(label).lower() for label in declared_persistent} - {SELF_HOSTED_LABEL}
+    hosted = {str(label).lower() for label in declared_github_hosted}
+    derived = {str(label).lower() for label in derived_persistent} - {SELF_HOSTED_LABEL}
+
+    if not persistent:
+        raise UnmodelledWorkflowConstruct(
+            "The declared persistent self-hosted runner label inventory is empty. Without it "
+            "a job that reaches the runner through its custom labels alone cannot be "
+            "recognized."
+        )
+    if not hosted:
+        raise UnmodelledWorkflowConstruct(
+            "The declared GitHub-hosted runner label set is empty, so no job could ever be "
+            "classified GitHub-hosted. Declare the hosted labels this repository uses."
+        )
+
+    undeclared = sorted(derived - persistent)
+    if undeclared:
+        raise UnmodelledWorkflowConstruct(
+            f"Label(s) {undeclared} appear next to `self-hosted` in .github/workflows/ but are "
+            "not in the declared persistent-runner inventory in the Runner Trust Boundary "
+            "section of .github/workflows/README.md. Declare them there (and confirm they are "
+            "not also GitHub-hosted labels) so the trust boundary stays reviewable."
+        )
+
+    overlap = sorted(hosted & (persistent | {SELF_HOSTED_LABEL}))
+    if overlap:
+        raise UnmodelledWorkflowConstruct(
+            f"Label(s) {overlap} are declared both as GitHub-hosted labels and as persistent "
+            "self-hosted runner labels. A job carrying such a label may land on the persistent "
+            "runner, so it cannot be treated as GitHub-hosted. The two declared sets must be "
+            "disjoint."
+        )
+
+    return RunnerLabelPolicy(frozenset(persistent), frozenset(hosted))
+
+
+def runner_label_policy(
+    paths: Optional[List[Path]] = None,
+    declared: Optional[Tuple[Iterable[str], Iterable[str]]] = None,
+) -> RunnerLabelPolicy:
+    """The repository's runner-label policy: declared in README, checked against the workflows."""
+    if declared is None:
+        declared = declared_runner_labels()
+    return build_runner_label_policy(declared[0], declared[1], persistent_runner_labels(paths))
+
+
+def classify_runner(
+    labels: List[str], job: str, policy: Optional[RunnerLabelPolicy] = None
+) -> str:
     """"self-hosted" / "github-hosted" for a job's `runs-on:` labels.
 
     Raises `UnmodelledWorkflowConstruct` for a label set that is neither, because
     a label GitHub might route to the persistent runner must not be filed under
     "safe" by default.
     """
-    if persistent is None:
-        persistent = persistent_runner_labels()
+    if policy is None:
+        policy = runner_label_policy()
 
     lowered = {str(label).lower() for label in labels}
     if not lowered:
@@ -235,18 +344,25 @@ def classify_runner(labels: List[str], job: str, persistent: Optional[frozenset]
         )
     if SELF_HOSTED_LABEL in lowered:
         return "self-hosted"
-    if lowered <= persistent:
+    if lowered <= policy.persistent:
         # GitHub routes a job to any runner carrying all of the job's labels, so
         # these select the persistent runner even without the `self-hosted` label.
         return "self-hosted"
-    if all(GITHUB_HOSTED_IMAGE.match(label) for label in lowered):
+    if len(lowered) == 1 and lowered <= policy.github_hosted:
+        # Single label only: a GitHub-hosted runner matches exactly one image
+        # label, so a multi-label set can only be satisfied by a machine carrying
+        # all of them -- which, for two image-shaped labels, means a self-hosted
+        # one with custom labels.
         return "github-hosted"
     raise UnmodelledWorkflowConstruct(
         f"Job {job!r} selects its runner with labels {sorted(lowered)}, which are neither a "
-        f"GitHub-hosted runner image nor a subset of the derived persistent-runner label "
-        f"vocabulary {sorted(persistent)}. This guard cannot tell whether they route to the "
-        "persistent self-hosted runner, and it will not assume they do not. Add the "
-        "`self-hosted` label if they do, or extend this guard."
+        f"subset of the declared persistent-runner label inventory {sorted(policy.persistent)} "
+        f"nor a single declared GitHub-hosted label {sorted(policy.github_hosted)}. GitHub "
+        "routes a job to any runner carrying all of its labels, and a self-hosted runner may "
+        "carry a label that merely looks like a hosted image, so this guard will not assume "
+        "these route away from the persistent runner. Add the `self-hosted` label if they "
+        "route to it, or declare the labels in the Runner Trust Boundary section of "
+        ".github/workflows/README.md."
     )
 
 
@@ -329,16 +445,16 @@ def parse_jobs(lines: Optional[List[str]] = None) -> Dict[str, Dict[str, object]
 
 def self_hosted_jobs(
     jobs: Optional[Dict[str, Dict[str, object]]] = None,
-    persistent: Optional[frozenset] = None,
+    policy: Optional[RunnerLabelPolicy] = None,
 ) -> Dict[str, Dict[str, object]]:
     if jobs is None:
         jobs = parse_jobs()
-    if persistent is None:
-        persistent = persistent_runner_labels()
+    if policy is None:
+        policy = runner_label_policy()
     return {
         name: data
         for name, data in jobs.items()
-        if classify_runner(data["runs_on"], name, persistent) == "self-hosted"
+        if classify_runner(data["runs_on"], name, policy) == "self-hosted"
     }
 
 
@@ -359,6 +475,37 @@ def readme_trust_section() -> str:
         )
     end = text.find("\n## ", start + len(README_SECTION_HEADING))
     return text[start:] if end < 0 else text[start:end]
+
+
+def _declared_labels_from_section(section: str, marker: str) -> Set[str]:
+    matches = [
+        line.split(marker, 1)[1]
+        for line in section.splitlines()
+        if line.lstrip().startswith("- ") and marker in line
+    ]
+    if len(matches) != 1:
+        raise UnmodelledWorkflowConstruct(
+            f"The Runner Trust Boundary section of {README.name} must declare exactly one "
+            f"bullet starting the clause {marker!r}, found {len(matches)}. That declaration is "
+            "how this guard learns which labels reach the persistent runner; without it, it "
+            "refuses to classify any job."
+        )
+    labels = {name.strip().lower() for name in BACKTICKED.findall(matches[0])}
+    labels.discard("")
+    if not labels:
+        raise UnmodelledWorkflowConstruct(
+            f"The {marker!r} bullet in {README.name} lists no backticked labels."
+        )
+    return labels
+
+
+def declared_runner_labels() -> Tuple[Set[str], Set[str]]:
+    """(persistent self-hosted labels, GitHub-hosted labels) as declared in README."""
+    section = readme_trust_section()
+    return (
+        _declared_labels_from_section(section, README_PERSISTENT_LABELS_MARKER),
+        _declared_labels_from_section(section, README_GITHUB_HOSTED_LABELS_MARKER),
+    )
 
 
 def readme_release_builds_bullet() -> str:
@@ -446,6 +593,37 @@ def extract_declared_job_forms(bullet: str) -> Dict[str, str]:
     return forms
 
 
+def guard_form_violations(
+    self_hosted: Dict[str, Dict[str, object]], declared_forms: Dict[str, str]
+) -> List[str]:
+    """Per-job disagreements between the workflow's guards and README's tags.
+
+    Extracted from the test body so a synthetic workflow + README pair can drive
+    the *production* comparison end to end. That matters here specifically: with
+    every real self-hosted job on the same guard form, a comparison that only
+    checked *set* membership ("README mentions `strict` somewhere") would agree
+    with this one on the real repository and disagree only on a mixed-form
+    workflow -- the one case the real files cannot produce.
+    """
+    violations: List[str] = []
+    for name, data in sorted(self_hosted.items()):
+        actual = classify_guard(data["if"])
+        if name not in declared_forms:
+            violations.append(
+                f"self-hosted job {name!r} (guard form {actual!r}) carries no guard-form tag in "
+                "the Runner Trust Boundary bullet."
+            )
+            continue
+        if declared_forms[name] != actual:
+            violations.append(
+                f"the Runner Trust Boundary bullet documents job {name!r} as using the "
+                f"{declared_forms[name]!r} guard form, but the workflow has if={data['if']!r} "
+                f"({actual!r}). The documented trust boundary must describe the guard each job "
+                "actually carries."
+            )
+    return violations
+
+
 class RunnerTrustTests(unittest.TestCase):
     def setUp(self) -> None:
         self.jobs = parse_jobs()
@@ -518,23 +696,8 @@ class RunnerTrustTests(unittest.TestCase):
         # Per job. The two accepted forms differ in whether trusted same-repo PRs
         # run, so "README mentions this form somewhere in the bullet" is not a
         # statement about the job whose form changed.
-        declared = readme_declared_job_forms()
-        for name, data in sorted(self.self_hosted.items()):
-            with self.subTest(job=name):
-                self.assertIn(
-                    name,
-                    declared,
-                    f"self-hosted job {name!r} carries no guard-form tag in the Runner "
-                    "Trust Boundary bullet.",
-                )
-                self.assertEqual(
-                    declared[name],
-                    classify_guard(data["if"]),
-                    f"the Runner Trust Boundary bullet documents job {name!r} as using the "
-                    f"{declared[name]!r} guard form, but the workflow has "
-                    f"if={data['if']!r}. The documented trust boundary must describe the "
-                    "guard each job actually carries.",
-                )
+        violations = guard_form_violations(self.self_hosted, readme_declared_job_forms())
+        self.assertEqual(violations, [], "\n".join(violations))
 
     def test_the_readme_shows_every_guard_form_in_use(self) -> None:
         # A per-job tag is only checkable prose if the bullet also shows what the
@@ -555,7 +718,10 @@ class RunnerTrustTests(unittest.TestCase):
 class RunnerLabelClassificationTests(unittest.TestCase):
     """Routing is by label set, so `self-hosted` being optional must not be a hole."""
 
-    VOCABULARY = frozenset({"windows", "x64", "godotgs", "gpu"})
+    POLICY = RunnerLabelPolicy(
+        persistent=frozenset({"windows", "x64", "godotgs", "gpu"}),
+        github_hosted=frozenset({"ubuntu-latest"}),
+    )
 
     def test_the_derived_vocabulary_is_real_and_not_degenerate(self) -> None:
         labels = persistent_runner_labels()
@@ -585,7 +751,7 @@ class RunnerLabelClassificationTests(unittest.TestCase):
         # The hole this class exists for: GitHub routes `[Windows, X64, godotgs]`
         # to the persistent runner, `self-hosted` label or not.
         self.assertEqual(
-            classify_runner(["Windows", "X64", "godotgs"], "sneaky", self.VOCABULARY),
+            classify_runner(["Windows", "X64", "godotgs"], "sneaky", self.POLICY),
             "self-hosted",
         )
 
@@ -598,28 +764,251 @@ class RunnerLabelClassificationTests(unittest.TestCase):
             "    runs-on: ubuntu-latest",
         ]
         jobs = parse_jobs(lines)
-        self.assertEqual(sorted(self_hosted_jobs(jobs, self.VOCABULARY)), ["sneaky"])
+        self.assertEqual(sorted(self_hosted_jobs(jobs, self.POLICY)), ["sneaky"])
         self.assertIsNone(classify_guard(jobs["sneaky"]["if"]))
 
     def test_the_self_hosted_label_alone_is_still_self_hosted(self) -> None:
-        self.assertEqual(classify_runner(["self-hosted"], "a", self.VOCABULARY), "self-hosted")
+        self.assertEqual(classify_runner(["self-hosted"], "a", self.POLICY), "self-hosted")
 
-    def test_github_hosted_images_are_not_self_hosted(self) -> None:
-        for label in ("ubuntu-latest", "ubuntu-24.04", "windows-2022", "macos-14", "ubuntu-24.04-arm"):
+    def test_a_single_declared_github_hosted_label_is_hosted(self) -> None:
+        self.assertEqual(classify_runner(["ubuntu-latest"], "a", self.POLICY), "github-hosted")
+
+    def test_an_undeclared_image_shaped_label_raises(self) -> None:
+        # Round 5/6 classified all of these "github-hosted" purely because they
+        # match `^(ubuntu|windows|macos)-...`. Nothing stops a self-hosted runner
+        # from carrying exactly such a custom label -- `windows-2022` is the
+        # obvious one for a self-hosted Windows Server 2022 box -- so the shape of
+        # the string is not evidence about where the job lands. Only the declared
+        # inventory in README is.
+        for label in ("ubuntu-24.04", "windows-2022", "macos-14", "ubuntu-24.04-arm"):
             with self.subTest(label=label):
-                self.assertEqual(classify_runner([label], "a", self.VOCABULARY), "github-hosted")
+                with self.assertRaises(UnmodelledWorkflowConstruct):
+                    classify_runner([label], "a", self.POLICY)
+
+    def test_a_multi_image_label_set_raises(self) -> None:
+        # The round-6 hole. GitHub routes an array to a runner matching EVERY
+        # label, so no GitHub-hosted runner can satisfy two image labels at once;
+        # the only machine that can is a self-hosted one carrying both as custom
+        # labels. Round 6 answered "github-hosted", which dropped such a job out
+        # of `self_hosted_jobs()` -- no fork-guard check, no README check.
+        for labels in (
+            ["ubuntu-latest", "windows-2022"],
+            ["ubuntu-latest", "ubuntu-24.04"],
+            ["ubuntu-latest", "macos-14"],
+        ):
+            with self.subTest(labels=labels):
+                with self.assertRaises(UnmodelledWorkflowConstruct):
+                    classify_runner(labels, "a", self.POLICY)
+
+    def test_a_multi_image_label_job_cannot_slip_past_the_sweep(self) -> None:
+        # End to end: a job with no fork guard and no README entry must make the
+        # sweep raise rather than quietly omit it.
+        lines = [
+            "jobs:",
+            "  sneaky:",
+            "    runs-on: [ubuntu-latest, windows-2022]",
+            "  real:",
+            "    runs-on: [self-hosted, Windows, X64, godotgs]",
+            "    if: github.event_name != 'pull_request'",
+        ]
+        jobs = parse_jobs(lines)
+        self.assertIsNone(classify_guard(jobs["sneaky"]["if"]))
+        with self.assertRaises(UnmodelledWorkflowConstruct):
+            self_hosted_jobs(jobs, self.POLICY)
+
+    def test_an_image_shaped_custom_label_job_cannot_slip_past_the_sweep(self) -> None:
+        lines = [
+            "jobs:",
+            "  sneaky:",
+            "    runs-on: windows-2022",
+            "  real:",
+            "    runs-on: [self-hosted, Windows, X64, godotgs]",
+            "    if: github.event_name != 'pull_request'",
+        ]
+        jobs = parse_jobs(lines)
+        self.assertIsNone(classify_guard(jobs["sneaky"]["if"]))
+        with self.assertRaises(UnmodelledWorkflowConstruct):
+            self_hosted_jobs(jobs, self.POLICY)
 
     def test_an_unknown_label_raises_instead_of_being_called_hosted(self) -> None:
-        # Fail closed: a label never seen next to `self-hosted` and not a hosted
-        # image might route anywhere, and "might" is not "no".
+        # Fail closed: a label never seen next to `self-hosted` and not declared
+        # GitHub-hosted might route anywhere, and "might" is not "no".
         for labels in (["mystery-rig"], ["godotgs", "mystery-rig"], ["Windows", "arm64"]):
             with self.subTest(labels=labels):
                 with self.assertRaises(UnmodelledWorkflowConstruct):
-                    classify_runner(labels, "a", self.VOCABULARY)
+                    classify_runner(labels, "a", self.POLICY)
+
+    def test_a_declared_hosted_label_combined_with_anything_raises(self) -> None:
+        # `[ubuntu-latest, godotgs]` needs a machine carrying both; the persistent
+        # runner carries `godotgs`, so this must not be waved through as hosted.
+        for labels in (["ubuntu-latest", "godotgs"], ["ubuntu-latest", "mystery-rig"]):
+            with self.subTest(labels=labels):
+                with self.assertRaises(UnmodelledWorkflowConstruct):
+                    classify_runner(labels, "a", self.POLICY)
 
     def test_an_empty_label_set_raises(self) -> None:
         with self.assertRaises(UnmodelledWorkflowConstruct):
-            classify_runner([], "a", self.VOCABULARY)
+            classify_runner([], "a", self.POLICY)
+
+
+class RunnerLabelPolicyTests(unittest.TestCase):
+    """The declared policy is only useful if it is cross-checked against the workflows."""
+
+    DECLARED_PERSISTENT = ["self-hosted", "Windows", "X64", "godotgs", "gpu"]
+    DECLARED_HOSTED = ["ubuntu-latest"]
+
+    def _corpus(self, text: str) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name) / "w.yml"
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def test_the_real_readme_declares_a_policy_that_covers_the_real_workflows(self) -> None:
+        policy = runner_label_policy()
+        self.assertIn("godotgs", policy.persistent)
+        self.assertNotIn(SELF_HOSTED_LABEL, policy.persistent)
+        self.assertIn("ubuntu-latest", policy.github_hosted)
+        self.assertFalse(
+            policy.persistent & policy.github_hosted,
+            "the declared hosted labels overlap the persistent-runner inventory",
+        )
+
+    def test_the_real_readme_policy_classifies_the_real_workflow(self) -> None:
+        # Not vacuous: the declared policy has to actually decide every job in
+        # release_builds.yml, in both directions.
+        jobs = parse_jobs()
+        self_hosted = self_hosted_jobs(jobs)
+        self.assertTrue(self_hosted)
+        self.assertTrue(set(jobs) - set(self_hosted))
+
+    def test_a_persistent_label_missing_from_the_declaration_raises(self) -> None:
+        # A new label bolted onto the runner shows up in the derived vocabulary
+        # first; until a human declares it, the guard refuses to classify.
+        corpus = self._corpus("jobs:\n  a:\n    runs-on: [self-hosted, Windows, brand-new-rig]\n")
+        with self.assertRaises(UnmodelledWorkflowConstruct):
+            runner_label_policy([corpus])
+
+    def test_declaring_the_new_label_makes_the_policy_valid_again(self) -> None:
+        corpus = self._corpus("jobs:\n  a:\n    runs-on: [self-hosted, Windows, brand-new-rig]\n")
+        policy = runner_label_policy(
+            [corpus], (self.DECLARED_PERSISTENT + ["brand-new-rig"], self.DECLARED_HOSTED)
+        )
+        self.assertIn("brand-new-rig", policy.persistent)
+
+    def test_a_hosted_label_that_is_also_a_persistent_label_raises(self) -> None:
+        # The disjointness the shape-based fallback assumed without evidence.
+        with self.assertRaises(UnmodelledWorkflowConstruct):
+            build_runner_label_policy(self.DECLARED_PERSISTENT, ["godotgs"], ["godotgs"])
+        with self.assertRaises(UnmodelledWorkflowConstruct):
+            build_runner_label_policy(self.DECLARED_PERSISTENT, ["self-hosted"], ["godotgs"])
+
+    def test_an_empty_declared_set_raises(self) -> None:
+        with self.assertRaises(UnmodelledWorkflowConstruct):
+            build_runner_label_policy([], self.DECLARED_HOSTED, [])
+        with self.assertRaises(UnmodelledWorkflowConstruct):
+            build_runner_label_policy(self.DECLARED_PERSISTENT, [], ["godotgs"])
+
+    def test_the_readme_policy_bullets_are_parsed_not_guessed(self) -> None:
+        persistent, hosted = declared_runner_labels()
+        self.assertIn("godotgs", persistent)
+        self.assertIn("ubuntu-latest", hosted)
+        self.assertNotIn("ubuntu-latest", persistent)
+
+    def test_a_missing_policy_bullet_raises(self) -> None:
+        section = "## Runner Trust Boundary\n\n- Nothing declared here.\n"
+        with self.assertRaises(UnmodelledWorkflowConstruct):
+            _declared_labels_from_section(section, README_PERSISTENT_LABELS_MARKER)
+
+    def test_a_duplicated_policy_bullet_raises(self) -> None:
+        # Two declarations are two policies; the guard will not pick one.
+        section = (
+            "## Runner Trust Boundary\n"
+            f"- {README_GITHUB_HOSTED_LABELS_MARKER} `ubuntu-latest`\n"
+            f"- {README_GITHUB_HOSTED_LABELS_MARKER} `windows-2022`\n"
+        )
+        with self.assertRaises(UnmodelledWorkflowConstruct):
+            _declared_labels_from_section(section, README_GITHUB_HOSTED_LABELS_MARKER)
+
+    def test_a_policy_bullet_with_no_labels_raises(self) -> None:
+        section = f"## Runner Trust Boundary\n- {README_PERSISTENT_LABELS_MARKER} none.\n"
+        with self.assertRaises(UnmodelledWorkflowConstruct):
+            _declared_labels_from_section(section, README_PERSISTENT_LABELS_MARKER)
+
+
+class GuardFormCrossCheckTests(unittest.TestCase):
+    """End-to-end on a *mixed-form* workflow, which the real files cannot produce.
+
+    Both real self-hosted jobs carry the `strict` form and both README tags say
+    `strict`, so on the real repository a set-membership check
+    (``{forms in README} == {forms in workflow}``) and a per-job check agree.
+    Rewriting the production comparison back to set membership would therefore
+    stay green against `release_builds.yml`. These cases build a synthetic
+    workflow with one `strict` job and one `standard` job and swap the README
+    tags between them: the multiset of forms is identical, so only a per-job
+    comparison can fail.
+    """
+
+    POLICY = RunnerLabelPolicy(
+        persistent=frozenset({"windows", "x64", "godotgs", "gpu"}),
+        github_hosted=frozenset({"ubuntu-latest"}),
+    )
+    LINES = [
+        "jobs:",
+        "  build_strict:",
+        "    runs-on: [self-hosted, Windows, X64, godotgs]",
+        f"    if: {STRICT_NO_PULL_REQUEST_GUARD}",
+        "  build_standard:",
+        "    runs-on: [self-hosted, Windows, X64, godotgs]",
+        f"    if: ${{{{ {STANDARD_FORK_GUARD} }}}}",
+    ]
+    MATCHING_BULLET = (
+        "- `release_builds.yml` — self-hosted jobs `build_standard` (standard), "
+        "`build_strict` (strict). They run on `push` only."
+    )
+    SWAPPED_BULLET = (
+        "- `release_builds.yml` — self-hosted jobs `build_standard` (strict), "
+        "`build_strict` (standard). They run on `push` only."
+    )
+
+    def _self_hosted(self):
+        return self_hosted_jobs(parse_jobs(self.LINES), self.POLICY)
+
+    def test_the_synthetic_workflow_really_is_mixed_form(self) -> None:
+        # Guard the guard: if both synthetic jobs ended up on the same form, the
+        # swap below would be a no-op and the discrimination test would be
+        # vacuous.
+        forms = {name: classify_guard(d["if"]) for name, d in self._self_hosted().items()}
+        self.assertEqual(forms, {"build_strict": "strict", "build_standard": "standard"})
+
+    def test_matching_annotations_pass(self) -> None:
+        self.assertEqual(
+            guard_form_violations(
+                self._self_hosted(), extract_declared_job_forms(self.MATCHING_BULLET)
+            ),
+            [],
+        )
+
+    def test_swapped_annotations_fail(self) -> None:
+        declared = extract_declared_job_forms(self.SWAPPED_BULLET)
+        # The multiset of forms is unchanged by the swap, so a set-membership
+        # comparison cannot see this.
+        self.assertEqual(
+            sorted(declared.values()),
+            sorted(
+                classify_guard(d["if"]) for d in self._self_hosted().values()
+            ),
+        )
+        violations = guard_form_violations(self._self_hosted(), declared)
+        self.assertEqual(len(violations), 2, violations)
+        self.assertTrue(any("build_strict" in v for v in violations), violations)
+        self.assertTrue(any("build_standard" in v for v in violations), violations)
+
+    def test_an_undocumented_self_hosted_job_is_a_violation(self) -> None:
+        bullet = "- `release_builds.yml` — self-hosted jobs `build_strict` (strict). On `push`."
+        violations = guard_form_violations(self._self_hosted(), extract_declared_job_forms(bullet))
+        self.assertEqual(len(violations), 1, violations)
+        self.assertIn("build_standard", violations[0])
 
 
 class ParserFailClosedTests(unittest.TestCase):

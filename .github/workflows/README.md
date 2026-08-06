@@ -157,6 +157,43 @@ if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.re
 - `release_ci_runtime.yml` — `runtime-release-ci` (form above). This workflow has no `pull_request` trigger (schedule + `workflow_dispatch` only), so the guard is trivially satisfied; it is carried explicitly to keep the self-hosted job fail-closed if a `pull_request` trigger is ever added.
 - `release_builds.yml` — self-hosted jobs `build_windows` (strict), `build_windows_export_template` (strict). The tag after each job is the guard form that job actually carries, and `tests/ci/test_release_builds_runner_trust.py` compares it against the workflow **per job**, so this line cannot go on claiming a form one of them has stopped using. **strict** = `if: github.event_name != 'pull_request'`, which skips **all** pull requests (fork *and* same-repo); **standard** = the repository-standard fork guard in the code block above, under which trusted same-repo PRs still run. Both Windows release lanes therefore run on `push`/tag/schedule/dispatch only. The deviation is *narrower* than the standard form, never wider — it cannot admit fork code — but it does cost pull-request coverage, and that cost is accepted deliberately rather than overlooked: Windows-only packaging steps (PowerShell staging, zip, checksum) are first exercised after the branch reaches `master`, or on the nightly/dispatch run. Two things bound the exposure. The Windows-specific *naming* logic — the part that actually broke (#825, the `.console.exe` wrapper name) — lives in `tests/ci/resolve_export_template.py` and is unit-covered on every PR by `tests/ci/test_resolve_export_template.py`; and `build_linux_export_template` is GitHub-hosted, runs on pull requests, and drives the same resolver and the same package/checksum/upload shape. Moving these jobs to the standard guard would place a multi-hour template build on the single shared self-hosted runner ahead of the GPU gates on every same-repo PR, so it is a maintainer trade-off rather than a default. Kept in sync with the workflow by `tests/ci/test_release_builds_runner_trust.py`, which derives the self-hosted job set from `release_builds.yml` — by label routing, so a job that reaches the persistent runner through its custom labels alone (`runs-on: [Windows, X64, godotgs]`, no `self-hosted` label) is caught too — and fails if a job here is undocumented, documented but nonexistent, carrying neither accepted guard form, or carrying a different form than the tag above claims.
 
+### Runner label policy
+
+Which jobs sit inside the trust boundary is decided by **label routing**: GitHub
+sends a job to any runner carrying *all* of its `runs-on:` labels, and the
+`self-hosted` label is conventional, not required. So the guard needs to know
+which labels reach the persistent runner and which do not — and that is a fact
+about the runner inventory, not something that can be read out of the workflow
+text. It is therefore **declared here** and reviewed by a maintainer:
+
+- Persistent self-hosted runner labels: `self-hosted`, `Windows`, `X64`, `godotgs`, `gpu`
+- GitHub-hosted runner labels: `ubuntu-latest`
+
+`tests/ci/test_release_builds_runner_trust.py` parses both bullets and
+cross-checks them: every label that appears next to `self-hosted` in any
+`.github/workflows/*.yml` must be listed above (so a label newly added to the
+runner fails the guard until it is declared), and the two lists must be
+**disjoint**. A `runs-on:` whose labels are neither a subset of the persistent
+list nor a *single* label from the GitHub-hosted list is a hard failure, not an
+assumption of safety.
+
+Two label shapes are deliberately **not** treated as GitHub-hosted, because
+earlier versions of the guard inferred hosting from the shape of the label text
+and were wrong:
+
+- an image-*looking* label that is not declared above (`windows-2022`,
+  `macos-14`, …). Nothing stops a self-hosted runner from carrying such a label
+  as a custom label — `windows-2022` is the natural one for a self-hosted Windows
+  Server 2022 machine — so the string tells you nothing about where the job lands;
+- **any** multi-label set of image-looking labels, e.g.
+  `runs-on: [ubuntu-latest, windows-2022]`. No GitHub-hosted runner carries two
+  image labels, so the only machine that can match all of them is a self-hosted
+  one. A job in that shape used to be classified GitHub-hosted and therefore
+  received neither the fork-guard check nor the documentation checks below.
+
+Adding a label to this list is the point at which a human asserts it is absent
+from the self-hosted runner inventory. Do not add one to make a check pass.
+
 `pull_request_target` is not used by any workflow, so fork PRs never get a privileged
 checkout. A fork PR's GPU/Windows validation happens only after a maintainer reviews
 the change and moves it onto a same-repo branch.
