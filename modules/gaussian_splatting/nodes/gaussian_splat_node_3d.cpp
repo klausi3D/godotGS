@@ -2218,8 +2218,16 @@ void GaussianSplatNode3D::_update_debug_hud_visibility() {
         // GaussianSplatNodeDebugHelper::push_debug_overlay_union), so every node
         // bound to a shared renderer would otherwise spawn its own control and
         // stack N identical overlays in the same corner. The renderer's HUD is
-        // renderer-wide state, so exactly one node draws it: the settings-owner
-        // lease holder, which is already unique per renderer.
+        // renderer-wide state, so exactly one node draws it.
+        //
+        // #839 round 4, thread 1: that "one node" used to be the settings-owner
+        // lease holder. On a renderer that a GaussianSplatWorld3D submission also
+        // feeds there is no such holder -- the world installs its own GaussianData
+        // as the renderer's scene data, so can_apply_renderer_settings() rejects
+        // every node -- and the HUD flags then went true on the renderer with no
+        // node willing to draw them, permanently. The uniqueness now comes from a
+        // HUD-specific election that does not require owning the scene data; see
+        // GaussianSplatNodeDebugHelper::can_own_debug_hud().
         //
         // #832: show_device_boundaries / show_texture_states emit their own HUD
         // sections now that they are no longer nested inside the performance-HUD
@@ -2231,8 +2239,11 @@ void GaussianSplatNode3D::_update_debug_hud_visibility() {
         // renderer-side setters also use to decide when to notify this node
         // (thread C). One predicate, so "renderer thinks a HUD is wanted" and
         // "node draws a HUD" cannot disagree.
+        // Short-circuit order matters: can_own_debug_hud() walks the renderer's
+        // node set, so it must not run on the (overwhelmingly common) frame where
+        // no HUD source is active at all.
         should_show_hud = renderer->is_debug_hud_source_active() &&
-                renderer_helper.can_apply_renderer_settings();
+                debug_helper.can_own_debug_hud();
     }
     if (!should_show_hud) {
         _destroy_debug_hud_control();
@@ -2642,16 +2653,17 @@ void GaussianSplatNode3D::_converge_shared_renderer_state() {
     // re-enter this node through the director, and the updated cache makes that
     // re-entry a no-op instead of unbounded recursion.
     shared_renderer_multi_instance_state = shared_renderer_multi_instance;
-    // #831: the shared/not-shared state just flipped, so the overlay union this
-    // node last pushed may be stale even though its own four flags did not move.
-    // Drop the edge-trigger memo so the re-apply below recomputes and writes it.
-    //
-    // #839 round 2: this covers the shared-ness flips that are NOT peer-set
-    // changes (a world submission appearing or disappearing on this renderer).
-    // Peer-set changes are handled up front and unconditionally in
-    // `_on_renderer_peer_set_changed`, which is where the invalidation belongs —
-    // this boolean does not move when the set goes 2 -> 3 or 3 -> 2.
-    debug_helper.invalidate_debug_overlay_push_cache();
+    // #839 round 4, thread 2: this used to drop the per-renderer edge-trigger
+    // memo. It must not. The overlay union is a function of the NODE SET only, and
+    // a shared-ness flip here is a GaussianSplatWorld3D submission appearing or
+    // disappearing — which does not change that set, so there is nothing stale to
+    // recompute. Dropping the memo did have an effect, just not a wanted one: it
+    // turned the re-apply below into an UNCONDITIONAL write of the node-only
+    // union, silently reverting any GaussianSplatRenderer::set_debug_show_*()
+    // call made through the bound script API. That is the same clobber #831
+    // part 2 removed from the per-frame path, re-entered through the world hook.
+    // The memo compare in push_debug_overlay_union() writes when (and only when)
+    // the union actually moves, which is the correct trigger here too.
     _apply_renderer_settings();
     notify_property_list_changed();
 }
@@ -2706,16 +2718,28 @@ void GaussianSplatNode3D::_notify_renderer_peers_shared_state_changed(const Ref<
 }
 
 // #839 round 2: the ONE place that reacts to "the node set bound to p_renderer
-// changed". The memo is dropped once, up front, addressed by renderer rather
-// than by node, because the observer may be the node that is leaving and is
-// therefore no longer allowed to push. Every remaining peer then recomputes; the
-// first one to do so writes the fresh union and the rest memoize against it, so
-// this costs exactly one renderer write.
+// changed". Every peer recomputes; the first one to do so writes the fresh union
+// and the rest memoize against it, so this costs exactly one renderer write.
+//
+// #839 round 4, thread 2: this used to drop the per-renderer edge-trigger memo
+// first. That was wrong and it is what made renderer-side writes disappear. The
+// memo is not a cache of "the union we think is current" — it is the record of
+// what the union machinery last AUTHORED on this renderer, and that record stays
+// true across a peer-set change. Dropping it turned the recompute below into an
+// unconditional write, so a bound-API GaussianSplatRenderer::set_debug_show_*()
+// call was overwritten by the node-only union the next time any node joined or
+// left. Concretely: a world-held renderer with set_debug_show_density_heatmap(true)
+// lost the overlay when its last false-requesting node exited, although the
+// renderer and the world submission stayed alive and nobody disabled the flag.
+//
+// Keeping the memo does not weaken the round-2 (3 -> 2) or round-3 (1 -> 0)
+// convergence: in both of those the recomputed union genuinely DIFFERS from the
+// authored record, so the compare still writes. It only suppresses the writes
+// that would have re-asserted an UNCHANGED union over somebody else's value.
 void GaussianSplatNode3D::_on_renderer_peer_set_changed(const Ref<GaussianSplatRenderer> &p_renderer, bool p_include_self) {
     if (!p_renderer.is_valid()) {
         return;
     }
-    GaussianSplatNodeDebugHelper::invalidate_debug_overlay_push_cache_for_renderer(p_renderer.ptr());
     if (p_include_self) {
         // Cheap and edge-triggered; only a genuine shared/not-shared flip
         // re-applies the renderer-wide settings this node owns.
@@ -2730,12 +2754,15 @@ void GaussianSplatNode3D::_on_renderer_peer_set_changed(const Ref<GaussianSplatR
     // flags are no longer part of the union and push_debug_overlay_union() would
     // refuse it anyway, being out of tree). The peer walk above covers every
     // remaining node -- but when there is none left it walked nothing, and the
-    // renderer can still be alive on a GaussianSplatWorld3D submission. That
-    // 1 -> 0 case is the one where dropping the memo is not enough: no later push
-    // is coming to consult it, so the departed node's overlay request would stay
-    // rendered on the world submission indefinitely. Write the empty union from
-    // the renderer's own (now empty) node set. Memoized, so when peers DO remain
-    // and have already pushed the identical union this costs one comparison.
+    // renderer can still be alive on a GaussianSplatWorld3D submission. In that
+    // 1 -> 0 case no later push is coming at all, so the departed node's overlay
+    // request would stay rendered on the world submission indefinitely. Write the
+    // empty union from the renderer's own (now empty) node set. Memoized against
+    // the authored record, so when peers DO remain and have already pushed the
+    // identical union this costs one comparison -- and when the record already
+    // matches the empty union (nobody ever asked for an overlay) it writes
+    // nothing, which is what leaves a renderer-side write alone (round 4,
+    // thread 2).
     GaussianSplatNodeDebugHelper::reconcile_debug_overlay_union_for_renderer(p_renderer.ptr());
 }
 
@@ -2762,9 +2789,10 @@ void GaussianSplatNode3D::_notify_renderer_peers_debug_hud_dirty() {
 // Renderer-addressed rather than node-addressed because the trigger is a write
 // to the RENDERER (GaussianSplatRenderer::set_debug_show_device_boundaries and
 // its three siblings), which has no node to speak of. Every node bound to the
-// renderer re-evaluates; the settings-owner lease holder among them is the one
-// that actually ends up with the control, so this stays "exactly one HUD per
-// renderer" (see _update_debug_hud_visibility).
+// renderer re-evaluates; the elected HUD owner among them is the one that
+// actually ends up with the control, so this stays "exactly one HUD per
+// renderer" (see _update_debug_hud_visibility and
+// GaussianSplatNodeDebugHelper::can_own_debug_hud).
 void GaussianSplatNode3D::_notify_debug_hud_dirty_for_renderer(GaussianSplatRenderer *p_renderer) {
     if (!p_renderer) {
         return;

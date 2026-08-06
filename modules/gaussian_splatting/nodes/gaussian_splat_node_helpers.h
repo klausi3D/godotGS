@@ -64,19 +64,17 @@ public:
     //
     // When the union actually CHANGES, this also fans HUD-control reconciliation
     // out to the renderer's peers: the flags are renderer-wide but the control is
-    // drawn by exactly one node (the settings-owner lease holder), so a non-owner
-    // peer flipping show_performance_hud / show_residency_hud has to reach the
+    // drawn by exactly one node (the HUD owner elected by can_own_debug_hud), so a
+    // peer flipping show_performance_hud / show_residency_hud has to reach that
     // owner or the flag is enabled with no HUD on screen (#839 round 2,
     // finding 1). Unchanged pushes stay free.
     void push_debug_overlay_union();
-    // Drop the edge-trigger memo for this node's renderer so the next push
-    // writes unconditionally. Called when the peer set changes.
-    void invalidate_debug_overlay_push_cache();
-    // Same, addressed by renderer rather than by node. The peer-set change that
-    // makes the memo stale is observed by a node that may be LEAVING (and is
-    // therefore no longer allowed to push), so the invalidation cannot be tied
-    // to a node that is still bound to the renderer (#839 round 2, finding 2).
-    static void invalidate_debug_overlay_push_cache_for_renderer(const GaussianSplatRenderer *p_renderer);
+    // #839 round 4, thread 1: is this node the ONE node that draws its renderer's
+    // debug HUD? Weaker than GaussianSplatNodeRendererHelper::can_apply_renderer_settings()
+    // on purpose -- hosting a CanvasLayer of renderer-wide stats does not require
+    // owning the renderer's scene data, and requiring it left a world-backed
+    // shared renderer with NO eligible node at all.
+    bool can_own_debug_hud() const;
     // #839 round 3, thread B: recompute and push the union from the renderer's
     // CURRENT registered node set, with no "self" seed. push_debug_overlay_union()
     // cannot do this job when the observing node is the one that just left: it

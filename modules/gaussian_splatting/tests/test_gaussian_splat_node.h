@@ -1630,6 +1630,298 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Manual-mode node dr
     memdelete(node);
 }
 
+// #839 round 4, thread 1: a world-backed shared renderer had NO eligible HUD owner.
+//
+// Rounds 2 and 3 made the HUD control unique per renderer by giving it to the
+// settings-owner lease holder. That predicate
+// (GaussianSplatNodeRendererHelper::can_apply_renderer_settings) refuses any node
+// whose data is not the renderer's scene data -- and
+// GaussianSplatRenderer::apply_world_submission_contract() installs the WORLD's
+// GaussianData as exactly that. So on a renderer that a GaussianSplatWorld3D
+// submission feeds, every node was refused: enabling performance / residency /
+// device-boundary / texture-state HUD flags succeeded on the renderer and every
+// node then refused or destroyed the control. Flag on, screen empty, forever.
+//
+// UPDATE_MODE_MANUAL is the non-self-healing case, as in rounds 2 and 3: the
+// node's per-frame apply is the only other thing that re-evaluates the control.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] World-backed shared renderer still has a node that draws the HUD") {
+    // #656: REQUIRE does not abort in this build (disable_exceptions=True), so
+    // guard-then-return rather than dereferencing after a REQUIRE.
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    if (!project_settings) {
+        FAIL("ProjectSettings singleton required");
+        return;
+    }
+    ProjectSettingGuard hud_guard(project_settings, "rendering/gaussian_splatting/debug/show_performance_hud");
+
+    Ref<GaussianSplatWorld> world;
+    world.instantiate();
+    world->set_gaussian_data(make_test_gaussian_data(2, 50.0f));
+
+    GaussianSplatWorld3D *world_node = memnew(GaussianSplatWorld3D);
+    world_node->set_world(world);
+    root->add_child(world_node);
+    tree->process(0.0);
+    world_node->apply_world();
+
+    GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+    // Deliberately NOT the world's data: that mismatch is the whole point.
+    node->set_splat_asset(make_single_splat_asset(0.0f));
+    node->set_show_performance_hud(false);
+    node->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    root->add_child(node);
+    tree->process(0.0);
+
+    Ref<GaussianSplatRenderer> renderer = node->get_renderer();
+    // #595: no environment skip -- a skip is scored as a PASS.
+    if (!renderer.is_valid() || world_node->get_renderer() != renderer) {
+        FAIL("shared renderer required: the node and the world submission must resolve the same GaussianSplatRenderer");
+        root->remove_child(node);
+        root->remove_child(world_node);
+        memdelete(node);
+        memdelete(world_node);
+        return;
+    }
+
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    if (!director) {
+        FAIL("GaussianSplatSceneDirector singleton required");
+        root->remove_child(node);
+        root->remove_child(world_node);
+        memdelete(node);
+        memdelete(world_node);
+        return;
+    }
+    // The precondition that makes this case different from every round-2/3 case:
+    // a world submission is live on the same renderer, so the renderer's scene
+    // data belongs to the world and not to any node.
+    if (!director->has_world_submission_for_renderer(renderer.ptr())) {
+        FAIL("world submission required on the shared renderer: without it the settings-owner lease is claimable and the case is vacuous");
+        root->remove_child(node);
+        root->remove_child(world_node);
+        memdelete(node);
+        memdelete(world_node);
+        return;
+    }
+
+    CHECK_FALSE(renderer->is_debug_hud_source_active());
+    CHECK_FALSE(node_has_debug_hud_control(node));
+
+    // Node-driven HUD request.
+    node->set_show_performance_hud(true);
+    CHECK(renderer->is_debug_show_performance_hud());
+    // Pre-fix this was false here and stayed false forever.
+    CHECK(node_has_debug_hud_control(node));
+
+    // MANUAL: no amount of frames reconciles this on its own.
+    for (int i = 0; i < 5; i++) {
+        tree->process(0.0);
+    }
+    CHECK(node_has_debug_hud_control(node));
+
+    node->set_show_performance_hud(false);
+    CHECK_FALSE(renderer->is_debug_hud_source_active());
+    CHECK_FALSE(node_has_debug_hud_control(node));
+
+    // The renderer-side write route (round 3, thread C) has the same problem on a
+    // world-backed renderer: the notification reached the node, and the node then
+    // refused the control.
+    renderer->set_debug_show_device_boundaries(true);
+    CHECK(renderer->is_debug_hud_source_active());
+    CHECK(node_has_debug_hud_control(node));
+
+    // A SECOND node must not add a second HUD: the election has to stay unique
+    // even though neither node owns the renderer's scene data.
+    GaussianSplatNode3D *node_b = memnew(GaussianSplatNode3D);
+    node_b->set_splat_asset(make_single_splat_asset(10.0f));
+    node_b->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    root->add_child(node_b);
+    tree->process(0.0);
+    if (node_b->get_renderer() != renderer) {
+        FAIL("shared renderer required: the second node must resolve the same GaussianSplatRenderer");
+        root->remove_child(node_b);
+        root->remove_child(node);
+        root->remove_child(world_node);
+        memdelete(node_b);
+        memdelete(node);
+        memdelete(world_node);
+        return;
+    }
+    const int hud_controls = (node_has_debug_hud_control(node) ? 1 : 0) +
+            (node_has_debug_hud_control(node_b) ? 1 : 0);
+    CHECK(hud_controls == 1);
+
+    // ...and it stays exactly one when the current owner leaves: the election
+    // re-runs and the remaining node picks the HUD up rather than nobody doing it.
+    root->remove_child(node);
+    memdelete(node);
+    tree->process(0.0);
+    CHECK(renderer->is_debug_hud_source_active());
+    CHECK(node_has_debug_hud_control(node_b));
+
+    renderer->set_debug_show_device_boundaries(false);
+    CHECK_FALSE(node_has_debug_hud_control(node_b));
+
+    root->remove_child(node_b);
+    root->remove_child(world_node);
+    memdelete(node_b);
+    memdelete(world_node);
+}
+
+// #839 round 4, thread 2: a renderer-side overlay write must survive peer
+// reconciliation. Introduced by round 3's own fix.
+//
+// The per-renderer memo is the record of what the node-union machinery last
+// AUTHORED. _on_renderer_peer_set_changed() dropped it up front, which turned the
+// following recompute into an unconditional write of the node-only union. A
+// GaussianSplatRenderer::set_debug_show_density_heatmap(true) taken through the
+// bound script API -- while every node's own request is false -- was therefore
+// overwritten by the next join or leave, even though the renderer and the world
+// submission stayed alive and nobody disabled the flag. #831 part 2 removed this
+// exact clobber from the per-frame path; the peer-set hook re-entered it.
+//
+// The 1 -> 0 leave below is the round-3 path (reconcile_debug_overlay_union_for_renderer);
+// the join afterwards is the round-2 path (the peer walk). Both had to be fixed,
+// so both are asserted. UPDATE_MODE_MANUAL again removes the per-frame apply as an
+// alternative explanation.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Renderer-side overlay write survives peer-set changes on a world-held renderer") {
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    if (!project_settings) {
+        FAIL("ProjectSettings singleton required");
+        return;
+    }
+    ProjectSettingGuard heatmap_guard(project_settings, "rendering/gaussian_splatting/debug/show_density_heatmap");
+
+    Ref<GaussianSplatWorld> world;
+    world.instantiate();
+    world->set_gaussian_data(make_test_gaussian_data(2, 50.0f));
+
+    GaussianSplatWorld3D *world_node = memnew(GaussianSplatWorld3D);
+    world_node->set_world(world);
+    root->add_child(world_node);
+    tree->process(0.0);
+    world_node->apply_world();
+
+    GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+    node->set_splat_asset(make_single_splat_asset(0.0f));
+    // The node union stays false throughout: nobody but the renderer API asks
+    // for this overlay, which is the configuration the clobber lived in.
+    node->set_show_density_heatmap(false);
+    node->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    root->add_child(node);
+    tree->process(0.0);
+
+    Ref<GaussianSplatRenderer> renderer = node->get_renderer();
+    // #595: no environment skip -- a skip is scored as a PASS.
+    if (!renderer.is_valid() || world_node->get_renderer() != renderer) {
+        FAIL("shared renderer required: the node and the world submission must resolve the same GaussianSplatRenderer");
+        root->remove_child(node);
+        root->remove_child(world_node);
+        memdelete(node);
+        memdelete(world_node);
+        return;
+    }
+
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    if (!director) {
+        FAIL("GaussianSplatSceneDirector singleton required");
+        root->remove_child(node);
+        root->remove_child(world_node);
+        memdelete(node);
+        memdelete(world_node);
+        return;
+    }
+    if (director->get_instance_count_for_renderer(renderer.ptr()) != 1u ||
+            !director->has_world_submission_for_renderer(renderer.ptr())) {
+        FAIL("precondition: exactly one node plus a world submission that outlives it");
+        root->remove_child(node);
+        root->remove_child(world_node);
+        memdelete(node);
+        memdelete(world_node);
+        return;
+    }
+
+    // The renderer-side write, exactly as script reaches it.
+    CHECK_FALSE(node->is_showing_density_heatmap());
+    renderer->set_debug_show_density_heatmap(true);
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // 1 -> 0 nodes. The renderer and the world submission both stay alive, and
+    // nobody disabled anything, so the overlay must still be there.
+    // Pre-fix: the memo was dropped and the empty node union was written over it.
+    root->remove_child(node);
+    memdelete(node);
+    node = nullptr;
+    tree->process(0.0);
+
+    CHECK(director->get_instance_count_for_renderer(renderer.ptr()) == 0u);
+    CHECK(director->has_world_submission_for_renderer(renderer.ptr()));
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    for (int i = 0; i < 5; i++) {
+        tree->process(0.0);
+    }
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // 0 -> 1 -> 2 nodes: a JOIN is a peer-set change too, and it went through the
+    // round-2 peer walk rather than the round-3 renderer-addressed reconcile.
+    GaussianSplatNode3D *node_b = memnew(GaussianSplatNode3D);
+    GaussianSplatNode3D *node_c = memnew(GaussianSplatNode3D);
+    node_b->set_splat_asset(make_single_splat_asset(10.0f));
+    node_c->set_splat_asset(make_single_splat_asset(20.0f));
+    node_b->set_show_density_heatmap(false);
+    node_c->set_show_density_heatmap(false);
+    node_b->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    node_c->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+
+    root->add_child(node_b);
+    tree->process(0.0);
+    CHECK(renderer->is_debug_show_density_heatmap());
+    root->add_child(node_c);
+    tree->process(0.0);
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // 2 -> 1 with a peer still present exercises the round-2 walk on the way down.
+    root->remove_child(node_c);
+    memdelete(node_c);
+    node_c = nullptr;
+    tree->process(0.0);
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // The node union is still authoritative when it ACTUALLY moves -- this fix
+    // must not turn the overlay into something no node can control. Turning it on
+    // and off again from a node writes both edges.
+    node_b->set_show_density_heatmap(true);
+    CHECK(renderer->is_debug_show_density_heatmap());
+    node_b->set_show_density_heatmap(false);
+    CHECK_FALSE(renderer->is_debug_show_density_heatmap());
+
+    root->remove_child(node_b);
+    memdelete(node_b);
+    root->remove_child(world_node);
+    memdelete(world_node);
+}
+
 TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Detached node reclaims retained renderer debug settings on re-entry") {
     SceneTree *tree = SceneTree::get_singleton();
     REQUIRE_MESSAGE(tree != nullptr, "SceneTree singleton required");

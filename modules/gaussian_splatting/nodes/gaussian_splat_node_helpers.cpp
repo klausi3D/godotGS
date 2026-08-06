@@ -121,6 +121,95 @@ static void _release_renderer_settings_owner(ObjectID p_renderer_id, ObjectID p_
     }
 }
 
+// Read the settings-owner lease WITHOUT claiming it. _claim_renderer_settings_owner
+// takes the lease when it is free, which is exactly what a read-only observer must
+// not do; the HUD election below only wants to know whether a settings owner
+// already exists so it can prefer that node.
+static ObjectID _peek_renderer_settings_owner(ObjectID p_renderer_id) {
+    if (p_renderer_id == ObjectID()) {
+        return ObjectID();
+    }
+
+    MutexLock lock(g_renderer_settings_owner_mutex);
+    const ObjectID *existing_owner = g_renderer_settings_owner_lookup.getptr(p_renderer_id);
+    if (!existing_owner || !_settings_owner_is_live(*existing_owner)) {
+        return ObjectID();
+    }
+    return *existing_owner;
+}
+
+// #839 round 4, thread 1: can this node host the renderer's debug HUD control?
+//
+// Deliberately weaker than GaussianSplatNodeRendererHelper::can_apply_renderer_settings():
+// drawing a CanvasLayer of renderer-wide statistics needs a node that is in the
+// tree and bound to the renderer, and nothing else. It does NOT need the node to
+// own the renderer's scene data, and it does NOT need the node to have local
+// source data of its own.
+static bool _node_can_host_debug_hud(GaussianSplatNode3D *p_node, const GaussianSplatRenderer *p_renderer) {
+    if (!p_node || !p_renderer) {
+        return false;
+    }
+    if (!p_node->is_inside_tree() || !p_node->is_inside_world()) {
+        return false;
+    }
+    return p_node->get_renderer().ptr() == p_renderer;
+}
+
+// #839 round 4, thread 1: elect the ONE node that draws p_renderer's debug HUD.
+//
+// The four renderer-wide HUD flags are unioned over the renderer's peers (#831),
+// so without a unique owner N peers would stack N identical overlays in the same
+// corner. Round 2 used the settings-owner lease for that uniqueness, because it
+// is already unique per renderer. That predicate is wrong for a renderer that a
+// GaussianSplatWorld3D submission also feeds: apply_world_submission_contract()
+// installs the WORLD's GaussianData as the renderer's scene data, so
+// can_apply_renderer_settings() rejects every node whose data does not match it
+// (render_data_orchestrator.cpp::apply_world_submission_contract ->
+// gaussian_splat_node_helpers.cpp::can_apply_renderer_settings). There is then no
+// eligible node at all: the flags go true on the renderer and every node refuses
+// or destroys the control, so enabling a HUD renders nothing, permanently.
+//
+// This is a HUD-specific election, not a second lease, so there is no lifetime to
+// manage and no claim to release: it is a pure function of (settings owner,
+// director registration order, eligibility), evaluated identically by every node
+// that asks. Whoever evaluates first therefore gets the same answer as whoever
+// evaluates last, which is what makes "exactly one HUD" hold.
+//
+// The settings owner is PREFERRED rather than required, so on a renderer that has
+// one the HUD stays on the same node it was on before this change; the first
+// eligible registered node is the fallback for the world-backed case where the
+// lease is unowned.
+static ObjectID _elect_debug_hud_owner(const GaussianSplatRenderer *p_renderer) {
+    if (!p_renderer) {
+        return ObjectID();
+    }
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    if (!director) {
+        return ObjectID();
+    }
+
+    // Same locking contract as push_debug_overlay_union(): every caller reaches
+    // this holding no director lock.
+    LocalVector<ObjectID> peer_ids;
+    director->collect_instance_node_ids_for_renderer(p_renderer, peer_ids);
+
+    const ObjectID settings_owner = _peek_renderer_settings_owner(p_renderer->get_instance_id());
+    ObjectID first_eligible;
+    for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        GaussianSplatNode3D *peer = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(peer_ids[i]));
+        if (!_node_can_host_debug_hud(peer, p_renderer)) {
+            continue;
+        }
+        if (peer_ids[i] == settings_owner) {
+            return settings_owner;
+        }
+        if (first_eligible == ObjectID()) {
+            first_eligible = peer_ids[i];
+        }
+    }
+    return first_eligible;
+}
+
 static GaussianSplatRenderer::DebugPreviewMode _node_debug_draw_to_renderer_preview_mode(GaussianSplatNode3D::DebugDrawMode p_mode) {
     switch (p_mode) {
         case GaussianSplatNode3D::DEBUG_DRAW_OFF:
@@ -638,16 +727,16 @@ void GaussianSplatNodeViewportHelper::on_observed_viewport_exited() {
     disconnect_viewport_observers();
 }
 
-void GaussianSplatNodeDebugHelper::invalidate_debug_overlay_push_cache() {
-    invalidate_debug_overlay_push_cache_for_renderer(owner.renderer.ptr());
-}
-
-void GaussianSplatNodeDebugHelper::invalidate_debug_overlay_push_cache_for_renderer(const GaussianSplatRenderer *p_renderer) {
-    if (!p_renderer) {
-        return;
+// #839 round 4, thread 1. See _elect_debug_hud_owner() for why this is a
+// HUD-specific election rather than the settings-owner lease.
+bool GaussianSplatNodeDebugHelper::can_own_debug_hud() const {
+    if (!owner.renderer.is_valid()) {
+        return false;
     }
-    MutexLock lock(g_debug_overlay_push_mutex);
-    g_debug_overlay_last_push.erase(p_renderer->get_instance_id());
+    if (!owner.is_inside_tree() || !owner.is_inside_world()) {
+        return false;
+    }
+    return _elect_debug_hud_owner(owner.renderer.ptr()) == owner.get_instance_id();
 }
 
 // #831: push the four renderer-wide screen-space overlay flags (tile grid,
@@ -733,8 +822,10 @@ void GaussianSplatNodeDebugHelper::push_debug_overlay_union() {
     owner.renderer->set_debug_show_residency_hud(request.show_residency_hud);
 
     // #839 round 2, finding 1: the flags are renderer-wide, but the HUD control
-    // is drawn by exactly ONE node -- the settings-owner lease holder (see
-    // GaussianSplatNode3D::_update_debug_hud_visibility). A non-owner peer that
+    // is drawn by exactly ONE node -- the elected HUD owner (see
+    // can_own_debug_hud; round 2 used the settings-owner lease here, which
+    // round 4 replaced because it has no holder on a world-backed renderer). A
+    // non-owner peer that
     // enables show_performance_hud / show_residency_hud therefore sets the
     // renderer flag and is then refused the control by the ownership check,
     // while the owner is never told anything changed. If the owner runs with
