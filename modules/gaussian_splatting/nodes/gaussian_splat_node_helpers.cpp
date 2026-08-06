@@ -77,6 +77,75 @@ static void _prune_dead_debug_overlay_push_records() {
     }
 }
 
+// #839 round 5: commit a computed union to the renderer PER COMPONENT.
+//
+// The memo is the record of what the union machinery last AUTHORED on this
+// renderer (rounds 3/4), and it is authored one flag at a time: these four are
+// independent renderer-wide diagnostics, not one value. Rounds 2-4 compared the
+// whole GSDebugOverlayRequest but wrote all four flags, so ANY component moving
+// re-asserted the node union over the other three. A
+// GaussianSplatRenderer::set_debug_show_density_heatmap(true) taken through the
+// bound API -- while every node's heatmap request is false -- was therefore
+// reverted as collateral the moment some node toggled its tile grid: #831 part 2's
+// clobber, one component over. Compare and write each component against its own
+// last authored value instead, so a component the union never moved is left
+// exactly as its last writer set it.
+//
+// An ABSENT record is an all-false authored record, not "unknown": the renderer's
+// own defaults for all four are false (RenderDebugState), so a renderer nobody has
+// pushed to has been authored all-false by construction. That makes the very first
+// push write only the components it actually turns on, which closes the same hole
+// at the memo-establishment boundary -- a renderer-side write made before any node
+// ever pushed is no longer clobbered by that first push either.
+//
+// This does not make the flags uncontrollable from a node: a component the nodes
+// DID author is still written on both edges, including the retraction to false
+// when the last requesting node leaves (round 3's 1 -> 0 convergence).
+//
+// Returns true when at least one component was actually written, which is also the
+// condition for the HUD fan-out: an unchanged union has nothing to tell peers.
+static bool _commit_debug_overlay_union(GaussianSplatRenderer *p_renderer, const GSDebugOverlayRequest &p_request) {
+    if (!p_renderer) {
+        return false;
+    }
+
+    const ObjectID renderer_id = p_renderer->get_instance_id();
+    GSDebugOverlayRequest authored;
+    {
+        MutexLock lock(g_debug_overlay_push_mutex);
+        const GSDebugOverlayRequest *last = g_debug_overlay_last_push.getptr(renderer_id);
+        if (last) {
+            authored = *last;
+        } else {
+            _prune_dead_debug_overlay_push_records();
+        }
+        g_debug_overlay_last_push[renderer_id] = p_request;
+    }
+
+    if (authored == p_request) {
+        return false;
+    }
+
+    bool wrote_any = false;
+    if (p_request.show_tile_grid != authored.show_tile_grid) {
+        p_renderer->set_debug_show_tile_grid(p_request.show_tile_grid);
+        wrote_any = true;
+    }
+    if (p_request.show_density_heatmap != authored.show_density_heatmap) {
+        p_renderer->set_debug_show_density_heatmap(p_request.show_density_heatmap);
+        wrote_any = true;
+    }
+    if (p_request.show_performance_hud != authored.show_performance_hud) {
+        p_renderer->set_debug_show_performance_hud(p_request.show_performance_hud);
+        wrote_any = true;
+    }
+    if (p_request.show_residency_hud != authored.show_residency_hud) {
+        p_renderer->set_debug_show_residency_hud(p_request.show_residency_hud);
+        wrote_any = true;
+    }
+    return wrote_any;
+}
+
 static bool _settings_owner_is_live(ObjectID p_owner_id) {
     if (p_owner_id == ObjectID()) {
         return false;
@@ -762,7 +831,8 @@ bool GaussianSplatNodeDebugHelper::can_own_debug_hud() const {
 // The memo has to be per-RENDERER because the state is per-renderer: a per-node
 // memo goes stale the moment a peer (or this node's own re-entry after a detach)
 // writes a different union, and would then suppress a push that is genuinely
-// needed.
+// needed. Round 5 made the compare-and-write per COMPONENT -- see
+// _commit_debug_overlay_union().
 void GaussianSplatNodeDebugHelper::push_debug_overlay_union() {
     if (!owner.renderer.is_valid()) {
         return;
@@ -803,23 +873,9 @@ void GaussianSplatNodeDebugHelper::push_debug_overlay_union() {
         }
     }
 
-    const ObjectID renderer_id = owner.renderer->get_instance_id();
-    {
-        MutexLock lock(g_debug_overlay_push_mutex);
-        const GSDebugOverlayRequest *last = g_debug_overlay_last_push.getptr(renderer_id);
-        if (last && *last == request) {
-            return;
-        }
-        if (!last) {
-            _prune_dead_debug_overlay_push_records();
-        }
-        g_debug_overlay_last_push[renderer_id] = request;
+    if (!_commit_debug_overlay_union(owner.renderer.ptr(), request)) {
+        return;
     }
-
-    owner.renderer->set_debug_show_tile_grid(request.show_tile_grid);
-    owner.renderer->set_debug_show_density_heatmap(request.show_density_heatmap);
-    owner.renderer->set_debug_show_performance_hud(request.show_performance_hud);
-    owner.renderer->set_debug_show_residency_hud(request.show_residency_hud);
 
     // #839 round 2, finding 1: the flags are renderer-wide, but the HUD control
     // is drawn by exactly ONE node -- the elected HUD owner (see
@@ -879,23 +935,12 @@ void GaussianSplatNodeDebugHelper::reconcile_debug_overlay_union_for_renderer(Ga
         }
     }
 
-    const ObjectID renderer_id = p_renderer->get_instance_id();
-    {
-        MutexLock lock(g_debug_overlay_push_mutex);
-        const GSDebugOverlayRequest *last = g_debug_overlay_last_push.getptr(renderer_id);
-        if (last && *last == request) {
-            return;
-        }
-        if (!last) {
-            _prune_dead_debug_overlay_push_records();
-        }
-        g_debug_overlay_last_push[renderer_id] = request;
+    // Per-component, exactly as on the push path: the empty node set retracts what
+    // the nodes authored and only what they authored, so a renderer-side write on
+    // a component no node ever requested outlives the last node (round 5).
+    if (!_commit_debug_overlay_union(p_renderer, request)) {
+        return;
     }
-
-    p_renderer->set_debug_show_tile_grid(request.show_tile_grid);
-    p_renderer->set_debug_show_density_heatmap(request.show_density_heatmap);
-    p_renderer->set_debug_show_performance_hud(request.show_performance_hud);
-    p_renderer->set_debug_show_residency_hud(request.show_residency_hud);
 
     // Whatever nodes remain must reconcile their HUD control against the union
     // that was just written -- same reason as the fan-out in

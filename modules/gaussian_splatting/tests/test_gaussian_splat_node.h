@@ -1922,6 +1922,238 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Renderer-side overl
     memdelete(world_node);
 }
 
+// #839 round 5: the authored record is per-COMPONENT, not per-request.
+//
+// Rounds 2-4 converged on "the memo is the record of what the union machinery
+// last AUTHORED on this renderer, so only write when it moves". The compare was
+// still made on the whole GSDebugOverlayRequest while the write block rewrote all
+// four flags, so ANY component moving re-asserted the node union over the other
+// three -- including components whose authored value had not changed at all.
+//
+// Concretely: renderer->set_debug_show_density_heatmap(true) while every node's
+// heatmap request is false, then a node toggles show_tile_grid. The request
+// differs from the memo (tile grid moved), so the aggregate compare fell through
+// and set_debug_show_density_heatmap(false) ran as collateral. That is the #831
+// part 2 clobber again, one component over.
+//
+// UPDATE_MODE_MANUAL removes the per-frame apply as an alternative explanation,
+// and the frame loops prove the state is settled rather than merely early.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Renderer-side overlay flag survives a node toggling a different overlay flag") {
+    // #656: REQUIRE does not abort in this build (disable_exceptions=True), so
+    // guard-then-return rather than dereferencing after a REQUIRE.
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    if (!project_settings) {
+        FAIL("ProjectSettings singleton required");
+        return;
+    }
+    // The node setters write these in an editor build and every later node seeds
+    // its node-local default from them.
+    ProjectSettingGuard heatmap_guard(project_settings, "rendering/gaussian_splatting/debug/show_density_heatmap");
+    ProjectSettingGuard tile_guard(project_settings, "rendering/gaussian_splatting/debug/show_tile_grid");
+    ProjectSettingGuard residency_guard(project_settings, "rendering/gaussian_splatting/debug/show_residency_hud");
+
+    GaussianSplatNode3D *node_a = memnew(GaussianSplatNode3D);
+    node_a->set_splat_asset(make_single_splat_asset(0.0f));
+    node_a->set_show_density_heatmap(false);
+    node_a->set_show_tile_grid(false);
+    node_a->set_show_residency_hud(false);
+    node_a->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+
+    root->add_child(node_a);
+    tree->process(0.0);
+
+    Ref<GaussianSplatRenderer> renderer = node_a->get_renderer();
+    // #595: no environment skip -- a skip is scored as a PASS, and this case
+    // exists precisely to prove the untouched component survives.
+    if (!renderer.is_valid()) {
+        FAIL("renderer required: this case runs only in the [RequiresGPU] harness");
+        root->remove_child(node_a);
+        memdelete(node_a);
+        return;
+    }
+
+    CHECK_FALSE(renderer->is_debug_show_density_heatmap());
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+
+    // A renderer-side write on a component NO node asks for.
+    renderer->set_debug_show_density_heatmap(true);
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // The discriminating move: a node toggles a DIFFERENT component. The union
+    // for tile grid genuinely moves false -> true and must be written; the union
+    // for the heatmap did not move, so it must not be written.
+    node_a->set_show_tile_grid(true);
+    CHECK(renderer->is_debug_show_tile_grid());
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    for (int i = 0; i < 5; i++) {
+        tree->process(0.0);
+    }
+    CHECK(renderer->is_debug_show_tile_grid());
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // The other edge of the same toggle: true -> false on tile grid is also a
+    // move of one component only.
+    node_a->set_show_tile_grid(false);
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // A second peer joining and toggling its own component must not clobber it
+    // either -- the join runs the round-2 peer walk with a different seed node.
+    GaussianSplatNode3D *node_b = memnew(GaussianSplatNode3D);
+    node_b->set_splat_asset(make_single_splat_asset(10.0f));
+    node_b->set_show_density_heatmap(false);
+    node_b->set_show_residency_hud(false);
+    node_b->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    root->add_child(node_b);
+    tree->process(0.0);
+
+    if (node_b->get_renderer() != renderer) {
+        FAIL("shared renderer required: both nodes must resolve the same GaussianSplatRenderer");
+        root->remove_child(node_b);
+        root->remove_child(node_a);
+        memdelete(node_b);
+        memdelete(node_a);
+        return;
+    }
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    node_b->set_show_residency_hud(true);
+    CHECK(renderer->is_debug_show_residency_hud());
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    node_b->set_show_residency_hud(false);
+    CHECK_FALSE(renderer->is_debug_show_residency_hud());
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // Preserving an unauthored component must not make it uncontrollable: once a
+    // node actually authors the heatmap, both of its edges still land.
+    node_a->set_show_density_heatmap(true);
+    CHECK(renderer->is_debug_show_density_heatmap());
+    node_a->set_show_density_heatmap(false);
+    CHECK_FALSE(renderer->is_debug_show_density_heatmap());
+
+    root->remove_child(node_b);
+    memdelete(node_b);
+    root->remove_child(node_a);
+    memdelete(node_a);
+}
+
+// #839 round 5, the same per-component contract on the renderer-addressed
+// reconcile path (round 3's 1 -> 0 transition).
+//
+// This one is a two-sided assertion on a single event, which is why it is worth
+// its own case: at the moment the last node leaves, the union machinery has
+// authored tile_grid = true and has authored nothing about the residency HUD.
+// The single reconcile that follows must retract the tile grid (round 3's fix,
+// which must not regress) and leave the renderer-side residency HUD alone
+// (round 5's fix). A whole-request write can only do one of the two.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Union reconcile at the last node retracts only what the nodes authored") {
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    if (!project_settings) {
+        FAIL("ProjectSettings singleton required");
+        return;
+    }
+    ProjectSettingGuard tile_guard(project_settings, "rendering/gaussian_splatting/debug/show_tile_grid");
+    ProjectSettingGuard residency_guard(project_settings, "rendering/gaussian_splatting/debug/show_residency_hud");
+
+    Ref<GaussianSplatWorld> world;
+    world.instantiate();
+    world->set_gaussian_data(make_test_gaussian_data(2, 50.0f));
+
+    GaussianSplatWorld3D *world_node = memnew(GaussianSplatWorld3D);
+    world_node->set_world(world);
+    root->add_child(world_node);
+    tree->process(0.0);
+    world_node->apply_world();
+
+    GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+    node->set_splat_asset(make_single_splat_asset(0.0f));
+    node->set_show_tile_grid(false);
+    node->set_show_residency_hud(false);
+    node->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    root->add_child(node);
+    tree->process(0.0);
+
+    Ref<GaussianSplatRenderer> renderer = node->get_renderer();
+    // #595: no environment skip -- a skip is scored as a PASS.
+    if (!renderer.is_valid() || world_node->get_renderer() != renderer) {
+        FAIL("shared renderer required: the node and the world submission must resolve the same GaussianSplatRenderer");
+        root->remove_child(node);
+        root->remove_child(world_node);
+        memdelete(node);
+        memdelete(world_node);
+        return;
+    }
+
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    if (!director) {
+        FAIL("GaussianSplatSceneDirector singleton required");
+        root->remove_child(node);
+        root->remove_child(world_node);
+        memdelete(node);
+        memdelete(world_node);
+        return;
+    }
+    if (director->get_instance_count_for_renderer(renderer.ptr()) != 1u ||
+            !director->has_world_submission_for_renderer(renderer.ptr())) {
+        FAIL("precondition: exactly one node plus a world submission that outlives it");
+        root->remove_child(node);
+        root->remove_child(world_node);
+        memdelete(node);
+        memdelete(world_node);
+        return;
+    }
+
+    // The node authors the tile grid; the renderer API authors the residency HUD.
+    node->set_show_tile_grid(true);
+    renderer->set_debug_show_residency_hud(true);
+    CHECK(renderer->is_debug_show_tile_grid());
+    CHECK(renderer->is_debug_show_residency_hud());
+
+    // 1 -> 0 nodes, with the world submission keeping the renderer alive.
+    root->remove_child(node);
+    memdelete(node);
+    node = nullptr;
+    tree->process(0.0);
+
+    CHECK(director->get_instance_count_for_renderer(renderer.ptr()) == 0u);
+    CHECK(director->has_world_submission_for_renderer(renderer.ptr()));
+    // Round 3 must not regress: the departed node's request is dropped.
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+    // Round 5: the component the nodes never authored is not collateral.
+    CHECK(renderer->is_debug_show_residency_hud());
+
+    for (int i = 0; i < 5; i++) {
+        tree->process(0.0);
+    }
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+    CHECK(renderer->is_debug_show_residency_hud());
+
+    root->remove_child(world_node);
+    memdelete(world_node);
+}
+
 TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Detached node reclaims retained renderer debug settings on re-entry") {
     SceneTree *tree = SceneTree::get_singleton();
     REQUIRE_MESSAGE(tree != nullptr, "SceneTree singleton required");
