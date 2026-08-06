@@ -2106,6 +2106,23 @@ void GaussianSplatSceneDirector::collect_instance_node_ids_for_renderer(const Ga
 	}
 }
 
+// #839 round 3, thread C. Plain function pointer, installed once from
+// register_types.cpp and cleared at module shutdown, so there is no lifetime
+// question: it points at a static member of GaussianSplatNode3D, not at any
+// instance. Null (no node layer registered, or post-teardown) is a no-op.
+static GaussianSplatSceneDirector::RendererDebugHudSourcesChangedCallback g_renderer_debug_hud_sources_changed_callback = nullptr;
+
+void GaussianSplatSceneDirector::set_renderer_debug_hud_sources_changed_callback(RendererDebugHudSourcesChangedCallback p_callback) {
+	g_renderer_debug_hud_sources_changed_callback = p_callback;
+}
+
+void GaussianSplatSceneDirector::notify_renderer_debug_hud_sources_changed(GaussianSplatRenderer *p_renderer) {
+	if (!p_renderer || !g_renderer_debug_hud_sources_changed_callback) {
+		return;
+	}
+	g_renderer_debug_hud_sources_changed_callback(p_renderer);
+}
+
 uint64_t GaussianSplatSceneDirector::get_instance_generation_for_renderer(const GaussianSplatRenderer *p_renderer) const {
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	const SharedWorld *world = _find_world_for_renderer(p_renderer);

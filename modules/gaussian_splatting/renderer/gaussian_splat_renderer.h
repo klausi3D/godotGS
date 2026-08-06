@@ -1801,6 +1801,25 @@ public:
     void set_debug_compute_raster_policy(int p_policy);
     int get_debug_compute_raster_policy() const;
 
+    // #832 / #839 round 3: THE predicate for "this renderer wants an on-screen
+    // debug HUD". Every flag that can produce a HUD section is OR-ed here exactly
+    // once, and both consumers read it rather than restating it:
+    //
+    //   - GaussianSplatNode3D::_update_debug_hud_visibility() decides whether to
+    //     create or tear down the GaussianSplatDebugHUDLayer control.
+    //   - the four setters above compare it before and after their write, and fire
+    //     GaussianSplatSceneDirector::notify_renderer_debug_hud_sources_changed()
+    //     when it flips, so a direct renderer-side write through the bound script
+    //     API reaches the node that has to draw the thing.
+    //
+    // A new HUD source therefore has to be added in one place; forgetting it makes
+    // the section invisible in BOTH consumers consistently, instead of enabling a
+    // flag that renders nothing.
+    bool is_debug_hud_source_active() const {
+        return is_debug_show_performance_hud() || is_debug_show_residency_hud() ||
+                is_debug_show_device_boundaries() || is_debug_show_texture_states();
+    }
+
     /**
      * @brief Returns a comprehensive runtime diagnostics snapshot.
      * @return Dictionary with error stats, timing history, and device info.

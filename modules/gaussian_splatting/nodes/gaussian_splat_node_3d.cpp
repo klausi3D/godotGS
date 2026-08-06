@@ -2225,10 +2225,13 @@ void GaussianSplatNode3D::_update_debug_hud_visibility() {
         // sections now that they are no longer nested inside the performance-HUD
         // block, so they also have to be able to bring the control up — without
         // this they would still render nothing when enabled on their own.
-        should_show_hud = (renderer->is_debug_show_performance_hud() ||
-                                  renderer->is_debug_show_residency_hud() ||
-                                  renderer->is_debug_show_device_boundaries() ||
-                                  renderer->is_debug_show_texture_states()) &&
+        //
+        // #839 round 3: the OR is not spelled out here any more. It lives in
+        // GaussianSplatRenderer::is_debug_hud_source_active(), which the four
+        // renderer-side setters also use to decide when to notify this node
+        // (thread C). One predicate, so "renderer thinks a HUD is wanted" and
+        // "node draws a HUD" cannot disagree.
+        should_show_hud = renderer->is_debug_hud_source_active() &&
                 renderer_helper.can_apply_renderer_settings();
     }
     if (!should_show_hud) {
@@ -2721,7 +2724,19 @@ void GaussianSplatNode3D::_on_renderer_peer_set_changed(const Ref<GaussianSplatR
     _notify_renderer_peers_shared_state_changed(p_renderer);
     if (p_include_self) {
         _reconcile_debug_overlay_state();
+        return;
     }
+    // #839 round 3, thread B: this node is LEAVING, so it may not push (its own
+    // flags are no longer part of the union and push_debug_overlay_union() would
+    // refuse it anyway, being out of tree). The peer walk above covers every
+    // remaining node -- but when there is none left it walked nothing, and the
+    // renderer can still be alive on a GaussianSplatWorld3D submission. That
+    // 1 -> 0 case is the one where dropping the memo is not enough: no later push
+    // is coming to consult it, so the departed node's overlay request would stay
+    // rendered on the world submission indefinitely. Write the empty union from
+    // the renderer's own (now empty) node set. Memoized, so when peers DO remain
+    // and have already pushed the identical union this costs one comparison.
+    GaussianSplatNodeDebugHelper::reconcile_debug_overlay_union_for_renderer(p_renderer.ptr());
 }
 
 void GaussianSplatNode3D::_reconcile_debug_overlay_state() {
@@ -2734,6 +2749,26 @@ void GaussianSplatNode3D::_notify_renderer_peers_debug_hud_dirty() {
     if (!renderer.is_valid()) {
         return;
     }
+    // The renderer-addressed walk covers this node too; reconciling it twice is
+    // idempotent, and doing it up front keeps the notifier correct even for a
+    // node that is not (yet) registered with the director.
+    _notify_debug_hud_dirty_for_renderer(renderer.ptr());
+}
+
+// #839 round 3, thread C: the callback the renderer layer reaches this node
+// layer through. Installed on GaussianSplatSceneDirector at module init
+// (register_types.cpp) and cleared at shutdown.
+//
+// Renderer-addressed rather than node-addressed because the trigger is a write
+// to the RENDERER (GaussianSplatRenderer::set_debug_show_device_boundaries and
+// its three siblings), which has no node to speak of. Every node bound to the
+// renderer re-evaluates; the settings-owner lease holder among them is the one
+// that actually ends up with the control, so this stays "exactly one HUD per
+// renderer" (see _update_debug_hud_visibility).
+void GaussianSplatNode3D::_notify_debug_hud_dirty_for_renderer(GaussianSplatRenderer *p_renderer) {
+    if (!p_renderer) {
+        return;
+    }
     GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
     if (!director) {
         return;
@@ -2742,12 +2777,8 @@ void GaussianSplatNode3D::_notify_renderer_peers_debug_hud_dirty() {
     // collect_instance_node_ids_for_renderer takes world_mutex and returns
     // ObjectIDs, and this runs with no director lock held.
     LocalVector<ObjectID> peer_ids;
-    director->collect_instance_node_ids_for_renderer(renderer.ptr(), peer_ids);
-    const ObjectID self_id = get_instance_id();
+    director->collect_instance_node_ids_for_renderer(p_renderer, peer_ids);
     for (uint32_t i = 0; i < peer_ids.size(); i++) {
-        if (peer_ids[i] == self_id) {
-            continue;
-        }
         GaussianSplatNode3D *peer = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(peer_ids[i]));
         if (!peer) {
             continue;

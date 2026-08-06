@@ -356,6 +356,16 @@ private:
     // control is drawn only by the settings-owner lease holder, so a peer that
     // changes a HUD flag must notify the holder.
     void _notify_renderer_peers_debug_hud_dirty();
+
+public:
+    // #839 round 3, thread C: renderer-addressed HUD reconciliation. Public and
+    // static because it is installed as
+    // GaussianSplatSceneDirector::set_renderer_debug_hud_sources_changed_callback()
+    // from register_types.cpp -- the renderer layer cannot call into nodes/
+    // directly, and the trigger (a write on GaussianSplatRenderer) has no node.
+    static void _notify_debug_hud_dirty_for_renderer(GaussianSplatRenderer *p_renderer);
+
+private:
     void _update_shared_transform();
     bool _resolve_is_2d_mode() const;
     uint32_t _get_instance_flags() const;

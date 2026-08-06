@@ -24,6 +24,7 @@
 #include "core/math/math_funcs.h"
 #include "core/config/project_settings.h"
 #include "core/error/error_list.h"
+#include "core/templates/hash_set.h"
 #include "core/templates/local_vector.h"
 #include "core/templates/list.h"
 #include "core/variant/variant.h"
@@ -1436,6 +1437,197 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Manual-mode peers r
     root->remove_child(node_b);
     memdelete(node_c);
     memdelete(node_b);
+}
+
+// #839 round 3, thread B: the 1 -> 0 node transition.
+//
+// Distinct from the 3 -> 2 case above. There, at least one peer remained, so
+// _notify_renderer_peers_shared_state_changed() had somebody to delegate the
+// recompute to. Here the LAST GaussianSplatNode3D leaves while a
+// GaussianSplatWorld3D submission keeps the shared renderer alive: the peer walk
+// iterates nothing, p_include_self is false so the departing node may not push,
+// and _on_renderer_peer_set_changed() only dropped the memo. A memo is consulted
+// by the next push -- and there is no next push -- so the departed node's tile
+// grid stayed rendered on the world submission until some unrelated node
+// happened to register.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Overlay union clears when the last node leaves a world-held renderer") {
+    // #656: REQUIRE does not abort in this build (disable_exceptions=True), so
+    // guard-then-return rather than dereferencing after a REQUIRE.
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    if (!project_settings) {
+        FAIL("ProjectSettings singleton required");
+        return;
+    }
+    ProjectSettingGuard tile_guard(project_settings, "rendering/gaussian_splatting/debug/show_tile_grid");
+
+    // The non-node content that keeps the renderer alive after the node leaves.
+    Ref<GaussianSplatWorld> world;
+    world.instantiate();
+    world->set_gaussian_data(make_test_gaussian_data(2, 50.0f));
+
+    GaussianSplatWorld3D *world_node = memnew(GaussianSplatWorld3D);
+    world_node->set_world(world);
+    root->add_child(world_node);
+    tree->process(0.0);
+    world_node->apply_world();
+
+    GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+    node->set_splat_asset(make_single_splat_asset(0.0f));
+    node->set_show_tile_grid(false);
+    // The per-frame apply must not be what rescues this.
+    node->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    root->add_child(node);
+    tree->process(0.0);
+
+    // Hold the renderer locally so the assertions below survive the node's
+    // departure -- the world submission is what keeps it alive in production.
+    Ref<GaussianSplatRenderer> renderer = node->get_renderer();
+    // #595: no environment skip -- a skip is scored as a PASS.
+    if (!renderer.is_valid() || world_node->get_renderer() != renderer) {
+        FAIL("shared renderer required: the node and the world submission must resolve the same GaussianSplatRenderer");
+        root->remove_child(node);
+        root->remove_child(world_node);
+        memdelete(node);
+        memdelete(world_node);
+        return;
+    }
+
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    if (!director) {
+        FAIL("GaussianSplatSceneDirector singleton required");
+        root->remove_child(node);
+        root->remove_child(world_node);
+        memdelete(node);
+        memdelete(world_node);
+        return;
+    }
+    // Precondition for the whole case: exactly one node, plus a world submission
+    // that will outlive it. Without the submission the renderer would simply be
+    // released and there would be nothing to leave stale.
+    CHECK(director->get_instance_count_for_renderer(renderer.ptr()) == 1u);
+    CHECK(director->has_world_submission_for_renderer(renderer.ptr()));
+
+    // The lone node is the sole requester.
+    node->set_show_tile_grid(true);
+    CHECK(renderer->is_debug_show_tile_grid());
+
+    // 1 -> 0 nodes. The renderer stays alive on the world submission.
+    root->remove_child(node);
+    memdelete(node);
+    tree->process(0.0);
+
+    CHECK(director->get_instance_count_for_renderer(renderer.ptr()) == 0u);
+    CHECK(director->has_world_submission_for_renderer(renderer.ptr()));
+
+    // The requester is gone, so the renderer-wide overlay must be gone with it.
+    // Pre-fix this stayed true.
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+
+    // ...and it is not merely deferred: no node is left to run a per-frame apply
+    // at all, so if it were not written above nothing would ever write it.
+    for (int i = 0; i < 5; i++) {
+        tree->process(0.0);
+    }
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+
+    root->remove_child(world_node);
+    memdelete(world_node);
+}
+
+// #839 round 3, thread C: a renderer-side HUD write has to reach the node.
+//
+// GaussianSplatRenderer::set_debug_show_device_boundaries() and
+// set_debug_show_texture_states() are bound to script
+// (gaussian_splat_renderer_bindings.cpp:139-141), so
+// `node.get_renderer().set_debug_show_device_boundaries(true)` is a supported way
+// to turn those HUD sections on. The flag landed in the renderer's DebugState and
+// stopped there: no node callback exists on those setters, and the node is what
+// creates the GaussianSplatDebugHUDLayer. Distinct from the round-2 peer fan-out,
+// which only runs through the four node-local union setters.
+//
+// UPDATE_MODE_MANUAL is again the non-self-healing case: the node's per-frame
+// apply is the only other thing that would have reconciled the control, and
+// MANUAL never runs update_splats().
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Manual-mode node draws the HUD for a renderer-side debug flag write") {
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+
+    GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+    node->set_splat_asset(make_single_splat_asset(0.0f));
+    node->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    root->add_child(node);
+    tree->process(0.0);
+
+    Ref<GaussianSplatRenderer> renderer = node->get_renderer();
+    // #595: no environment skip -- a skip is scored as a PASS.
+    if (!renderer.is_valid()) {
+        FAIL("renderer required: this case runs only in the [RequiresGPU] harness");
+        root->remove_child(node);
+        memdelete(node);
+        return;
+    }
+
+    CHECK_FALSE(renderer->is_debug_hud_source_active());
+    CHECK_FALSE(node_has_debug_hud_control(node));
+
+    // The renderer-side write, exactly as script reaches it.
+    renderer->set_debug_show_device_boundaries(true);
+    CHECK(renderer->is_debug_show_device_boundaries());
+    CHECK(renderer->is_debug_hud_source_active());
+    // Pre-fix this was false here and stayed false forever: the HUD lines existed
+    // in renderer stats with no layer to draw them.
+    CHECK(node_has_debug_hud_control(node));
+
+    // MANUAL: no amount of frames reconciles this on its own, so the assertion
+    // above is not merely early.
+    for (int i = 0; i < 5; i++) {
+        tree->process(0.0);
+    }
+    CHECK(node_has_debug_hud_control(node));
+
+    // Turning it back off tears the control down again.
+    renderer->set_debug_show_device_boundaries(false);
+    CHECK_FALSE(renderer->is_debug_hud_source_active());
+    CHECK_FALSE(node_has_debug_hud_control(node));
+
+    // The sibling flag behaves the same way -- this is not a one-flag patch.
+    renderer->set_debug_show_texture_states(true);
+    CHECK(renderer->is_debug_hud_source_active());
+    CHECK(node_has_debug_hud_control(node));
+
+    // Two sources on: dropping one must NOT tear the control down, because the
+    // notification is gated on is_debug_hud_source_active() flipping, not on the
+    // individual flag.
+    renderer->set_debug_show_device_boundaries(true);
+    CHECK(node_has_debug_hud_control(node));
+    renderer->set_debug_show_device_boundaries(false);
+    CHECK(renderer->is_debug_show_texture_states());
+    CHECK(node_has_debug_hud_control(node));
+
+    renderer->set_debug_show_texture_states(false);
+    CHECK_FALSE(renderer->is_debug_hud_source_active());
+    CHECK_FALSE(node_has_debug_hud_control(node));
+
+    root->remove_child(node);
+    memdelete(node);
 }
 
 TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Detached node reclaims retained renderer debug settings on re-entry") {
@@ -3460,16 +3652,49 @@ TEST_CASE("[GaussianSplatting][Editor] GaussianSplatAsset bulk arrays are storag
 
 #ifdef TOOLS_ENABLED
 
-TEST_CASE("[GaussianSplatting][Editor] Inspector suppresses every debug/ property except overlay_opacity") {
+namespace {
+
+// Collect every debug/* property path that has a real replacement control in the
+// tree parse_begin() just built, by reading GS_DEBUG_REPLACEMENT_META off the
+// controls themselves. This is deliberately an observation of the CONSTRUCTED UI,
+// not of the plugin's suppression registry: the point of the case below is to
+// cross-check the two against each other, which a test that read the registry
+// (or restated the code's name predicate) could not do.
+void collect_debug_replacement_controls(Node *p_control, HashSet<String> &r_paths) {
+	if (p_control == nullptr) {
+		return;
+	}
+	if (p_control->has_meta(GS_DEBUG_REPLACEMENT_META)) {
+		r_paths.insert(String(p_control->get_meta(GS_DEBUG_REPLACEMENT_META)));
+	}
+	for (int i = 0; i < p_control->get_child_count(true); i++) {
+		collect_debug_replacement_controls(p_control->get_child(i, true), r_paths);
+	}
+}
+
+} // namespace
+
+TEST_CASE("[GaussianSplatting][Editor] Inspector suppresses a debug/ property only when it built a replacement control") {
 	// GaussianSplatNodeInspectorPlugin::parse_property() suppresses the default editor
-	// for debug/* because parse_begin() already draws a custom control for those
-	// properties. debug/overlay_opacity is the one property with NO custom control, so
-	// suppressing it removes the only inspector-side way to tune the overlay blend.
+	// for a debug/* property because parse_begin() already draws a custom control for
+	// it. That relationship is the whole contract, and it has now been broken twice by
+	// guards that asserted it from the property's NAME instead of from the control:
 	//
-	// The expected sets are derived from the node's own property list, not restated
-	// here, so a debug property added later is checked automatically: everything with
-	// the debug/ prefix must be suppressed, except the single named exception, which
-	// must survive.
+	//   - the original hand-written list of 11 names drifted and missed
+	//     debug/overlay_opacity, orphaning it in the "Debug" group (#836);
+	//   - #838 round 1 replaced it with a bare `begins_with("debug/")` prefix check,
+	//     which ATE debug/overlay_opacity -- it has no replacement control, so
+	//     suppressing it deleted the only way to tune the overlay blend;
+	//   - #838 round 2 special-cased that one name. The instance was fixed; the shape
+	//     was not. A 13th debug/* property would silently lose its inspector UI, and
+	//     #838's test would still have passed, because that test encoded the same name
+	//     predicate the code did.
+	//
+	// So this case does not name any property. It derives BOTH sides independently --
+	// the property set from the node's own property list, the control set from the
+	// metadata on the controls parse_begin() actually constructed -- and asserts they
+	// agree. Mutation-proof: with a 13th debug/* property declared and no control for
+	// it, this is RED under the #838 predicate and GREEN under the registry.
 	Ref<GaussianSplatNodeInspectorPlugin> plugin;
 	plugin.instantiate();
 	if (plugin.is_null()) {
@@ -3483,12 +3708,21 @@ TEST_CASE("[GaussianSplatting][Editor] Inspector suppresses every debug/ propert
 		return;
 	}
 
+	// Real ordering: EditorInspector calls parse_begin() (editor_inspector.cpp:3754)
+	// before any parse_property() (:4350) for the same object.
+	plugin->parse_begin(node);
+
+	HashSet<String> controls_built;
+	for (const EditorInspectorPlugin::AddedEditor &added : plugin->added_editors) {
+		collect_debug_replacement_controls(added.property_editor, controls_built);
+	}
+
 	List<PropertyInfo> property_list;
 	node->get_property_list(&property_list);
 
 	int debug_properties = 0;
 	int suppressed = 0;
-	bool saw_overlay_opacity = false;
+	int kept_visible = 0;
 	bool saw_non_debug_property = false;
 
 	for (const List<PropertyInfo>::Element *E = property_list.front(); E; E = E->next()) {
@@ -3507,22 +3741,54 @@ TEST_CASE("[GaussianSplatting][Editor] Inspector suppresses every debug/ propert
 		}
 
 		debug_properties++;
-		if (path == "debug/overlay_opacity") {
-			saw_overlay_opacity = true;
-			// The exception: no custom replacement exists, so the default slider must
-			// still be rendered. Reverting the exception makes this CHECK fail.
-			CHECK_MESSAGE(!handled, "debug/overlay_opacity keeps its default slider");
-		} else {
-			CHECK_MESSAGE(handled, "suppressed in favour of the custom control: ", path);
+		const bool has_control = controls_built.has(path);
+		if (has_control) {
+			// A replacement exists, so the default editor would be a duplicate.
+			CHECK_MESSAGE(handled, "suppressed in favour of its custom control: ", path);
 			suppressed++;
+		} else {
+			// THE fail-safe assertion. Suppressing a property that parse_begin()
+			// built nothing for deletes a user-facing control with no replacement.
+			CHECK_MESSAGE(!handled, "no replacement control was built, so it must keep its default editor: ", path);
+			kept_visible++;
 		}
 	}
 
-	// Guard against a vacuous pass: the loop must actually have seen the properties.
+	// Every control that was built must correspond to a live debug/* property --
+	// otherwise the block draws a control for something the node no longer exposes.
+	for (const String &built : controls_built) {
+		bool found = false;
+		for (const List<PropertyInfo>::Element *E = property_list.front(); E; E = E->next()) {
+			if (String(E->get().name) == built) {
+				found = true;
+				break;
+			}
+		}
+		CHECK_MESSAGE(found, "replacement control targets a property the node declares: ", built);
+	}
+
+	// Guard against a vacuous pass: the loop must actually have seen properties, and
+	// both arms of the contract must have been exercised at least once.
 	CHECK(saw_non_debug_property);
-	CHECK(saw_overlay_opacity);
 	CHECK(debug_properties >= 2);
-	CHECK(suppressed == debug_properties - 1);
+	CHECK(suppressed + kept_visible == debug_properties);
+#ifdef DEBUG_ENABLED
+	// The Debug Visualization block is compiled under DEBUG_ENABLED only. When it is
+	// present, both arms must be non-empty -- controls exist, and at least
+	// debug/overlay_opacity has none -- so neither CHECK above can pass vacuously.
+	CHECK(suppressed > 0);
+	CHECK(kept_visible > 0);
+	CHECK(controls_built.size() == (uint32_t)suppressed);
+#endif
+
+	// parse_begin() hands ownership of its controls to EditorInspector, which is not
+	// running here.
+	for (const EditorInspectorPlugin::AddedEditor &added : plugin->added_editors) {
+		if (added.property_editor) {
+			memdelete(added.property_editor);
+		}
+	}
+	plugin->added_editors.clear();
 
 	memdelete(node);
 }

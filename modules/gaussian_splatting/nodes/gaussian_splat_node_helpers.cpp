@@ -746,6 +746,80 @@ void GaussianSplatNodeDebugHelper::push_debug_overlay_union() {
     owner._notify_renderer_peers_debug_hud_dirty();
 }
 
+// #839 round 3, thread B: the 1 -> 0 node transition.
+//
+// push_debug_overlay_union() is node-relative -- it seeds the union with its
+// owner's own four flags and requires that owner to be in the tree and in a
+// world. Neither holds for the node that is leaving, and after it leaves there
+// may be NO node left to delegate to, while the renderer itself is still alive
+// because a GaussianSplatWorld3D submission holds it. In that state
+// _on_renderer_peer_set_changed() previously only dropped the memo: the memo is
+// consulted by the next push, and there was no next push, so the departed node's
+// tile grid / heatmap / HUD request stayed enabled on the world submission until
+// some unrelated node happened to register.
+//
+// This variant is addressed by RENDERER and seeded from nothing, so the union is
+// exactly "what the nodes currently registered for this renderer ask for" -- the
+// empty set gives all-false, which is the correct answer for 1 -> 0. It is
+// idempotent with the per-peer route: when peers do remain they have already
+// pushed the same union, and the memo compare below turns this into a no-op.
+void GaussianSplatNodeDebugHelper::reconcile_debug_overlay_union_for_renderer(GaussianSplatRenderer *p_renderer) {
+    if (!p_renderer) {
+        return;
+    }
+
+    // Seeded all-false on purpose: there is no "self" here.
+    GSDebugOverlayRequest request;
+
+    LocalVector<ObjectID> peer_ids;
+    if (GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton()) {
+        // Same locking contract as push_debug_overlay_union(): every caller
+        // reaches this holding no director lock.
+        director->collect_instance_node_ids_for_renderer(p_renderer, peer_ids);
+        for (uint32_t i = 0; i < peer_ids.size(); i++) {
+            const GaussianSplatNode3D *peer = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(peer_ids[i]));
+            if (!peer) {
+                continue;
+            }
+            request.show_tile_grid = request.show_tile_grid || peer->is_showing_tile_grid();
+            request.show_density_heatmap = request.show_density_heatmap || peer->is_showing_density_heatmap();
+            request.show_performance_hud = request.show_performance_hud || peer->is_showing_performance_hud();
+            request.show_residency_hud = request.show_residency_hud || peer->is_showing_residency_hud();
+        }
+    }
+
+    const ObjectID renderer_id = p_renderer->get_instance_id();
+    {
+        MutexLock lock(g_debug_overlay_push_mutex);
+        const GSDebugOverlayRequest *last = g_debug_overlay_last_push.getptr(renderer_id);
+        if (last && *last == request) {
+            return;
+        }
+        if (!last) {
+            _prune_dead_debug_overlay_push_records();
+        }
+        g_debug_overlay_last_push[renderer_id] = request;
+    }
+
+    p_renderer->set_debug_show_tile_grid(request.show_tile_grid);
+    p_renderer->set_debug_show_density_heatmap(request.show_density_heatmap);
+    p_renderer->set_debug_show_performance_hud(request.show_performance_hud);
+    p_renderer->set_debug_show_residency_hud(request.show_residency_hud);
+
+    // Whatever nodes remain must reconcile their HUD control against the union
+    // that was just written -- same reason as the fan-out in
+    // push_debug_overlay_union(). With zero remaining nodes this loop is empty,
+    // which is the whole point: nobody is left to be told, so the write above had
+    // to happen here rather than being delegated.
+    for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        GaussianSplatNode3D *peer = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(peer_ids[i]));
+        if (!peer) {
+            continue;
+        }
+        peer->_update_debug_hud_visibility();
+    }
+}
+
 void GaussianSplatNodeDebugHelper::apply_renderer_debug_settings() {
     if (!owner.renderer.is_valid()) {
         return;

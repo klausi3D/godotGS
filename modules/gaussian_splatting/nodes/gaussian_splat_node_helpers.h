@@ -77,6 +77,16 @@ public:
     // therefore no longer allowed to push), so the invalidation cannot be tied
     // to a node that is still bound to the renderer (#839 round 2, finding 2).
     static void invalidate_debug_overlay_push_cache_for_renderer(const GaussianSplatRenderer *p_renderer);
+    // #839 round 3, thread B: recompute and push the union from the renderer's
+    // CURRENT registered node set, with no "self" seed. push_debug_overlay_union()
+    // cannot do this job when the observing node is the one that just left: it
+    // early-returns on the out-of-tree owner, and even if it did not it would
+    // contribute the departed node's own flags. Needed for the 1 -> 0 transition,
+    // where the peer walk in _notify_renderer_peers_shared_state_changed() has
+    // nobody left to delegate to but the renderer is still alive on a
+    // GaussianSplatWorld3D submission, so the departed node's tile-grid or
+    // heatmap request would stay enabled forever.
+    static void reconcile_debug_overlay_union_for_renderer(GaussianSplatRenderer *p_renderer);
 
 private:
     GaussianSplatNode3D &owner;
