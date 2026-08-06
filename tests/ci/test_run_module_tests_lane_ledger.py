@@ -603,15 +603,20 @@ def _files_discussing_the_ledger(
     Round 10 puts the enumeration itself under the same rule.
 
     Round 11 puts the EXISTENCE test under it too. The loop opened with
-    `if not path.is_file(): continue`, and `Path.is_file()` does two different
-    wrong things with a candidate the OS will not describe: it swallows
-    ENOENT/ENOTDIR/EBADF/ELOOP AND every ValueError into a plain False - so a
-    symlink loop or a path the platform cannot encode was a silent skip, exactly
-    the shape removed one line below - and it RE-RAISES everything else, so a
-    permission or an I/O error aborted the whole scan with an unhandled exception
-    instead of being reported as one candidate's problem. Neither is "look at
-    this file and say what you found". Only a genuinely absent path is a skip
-    now; anything else the OS refuses to answer is a problem.
+    `if not path.is_file(): continue`, and `Path.is_file()` cannot report: its
+    whole answer is a bool, so a candidate the OS will not describe comes back
+    indistinguishable from one that is simply absent. Exactly WHICH wrong answer
+    it gives is a CPython implementation detail and has already changed once -
+    up to 3.13 `Path.is_file()` calls `self.stat()` and swallows
+    ENOENT/ENOTDIR/EBADF/ELOOP and every ValueError into False while RE-RAISING
+    the rest (so a permission or I/O error aborted the whole scan with an
+    unhandled exception); from 3.14 it delegates to `os.path.isfile()`, which
+    swallows every OSError and ValueError into False. A silent skip and a
+    torn-down scan are different failures, but neither is "look at this file and
+    say what you found", and no version of the line can produce the third answer
+    the scan needs: "this candidate is a problem". `path.stat()` can. Only a
+    genuinely absent path is a skip now; anything else the OS refuses to answer
+    is a problem.
 
     `candidates` is a parameter so the scanner can be exercised against a planted
     set of files without faking the repository. The guard passes nothing and gets
@@ -656,23 +661,38 @@ def _files_discussing_the_ledger(
     return sorted(found, key=lambda pair: pair[0]), sorted(problems)
 
 
-def _is_file_verdict(refusal: BaseException) -> str:
-    """What `Path.is_file()` answers when the underlying stat raises `refusal`.
+# A candidate the OS refuses to describe, with no mock and no special filesystem:
+# a NUL byte cannot be encoded into a path anywhere, so the refusal happens in the
+# argument conversion UNDERNEATH every implementation of `Path.is_file()` - below
+# `Path.stat` (CPython <= 3.13) and below `os.path.isfile` (3.14+, and on Windows
+# that is the C `nt._path_isfile`, which has no Python-level seam at all). It is
+# therefore the one refusal that can be injected into `is_file()` on any
+# interpreter, which is what makes the measurement below portable.
+UNENCODABLE_CANDIDATE = Path("unstattable\x00.md")
 
-    Observed on the running interpreter, so the round-11 claim about the code
-    that was replaced ("it swallows some refusals into False and re-raises the
-    rest") is measured rather than quoted from pathlib's private errno table.
+
+def _is_file_verdict(path: Path) -> str:
+    """What `Path.is_file()` answers for a candidate the OS refuses to describe.
+
+    Measured on the running interpreter THROUGH THE OS, so the round-11 claim
+    about the code that was replaced ("a refusal comes back as a plain bool, so
+    the candidate is never reported") is a fact here rather than a quotation from
+    pathlib's private errno table - and stays one on every CPython.
+
+    Mocking `Path.stat` would not do this, which is what #822 round 12 caught.
+    `Path.is_file()` reaches the OS through `Path.stat` up to CPython 3.13 and
+    through `os.path.isfile()` from 3.14 on, so a `Path.stat` mock measures one
+    implementation and is silently bypassed by the other: on 3.14 the probe path
+    really exists, `is_file()` never consults the mock, and the measurement comes
+    back "True" - a verdict about nothing. Pinning it would pin a removed
+    implementation detail. The scan's own `path.stat()` call IS mockable on both,
+    which is why the planted-refusal proofs below still use a mock and only this
+    measurement of `is_file()` goes to the real OS.
     """
-    probe = Path(__file__)
-
-    def stub(_self, *_args, **_kwargs):
-        raise refusal
-
-    with mock.patch.object(Path, "stat", stub):
-        try:
-            return "True" if probe.is_file() else "False"
-        except (OSError, ValueError) as exc:
-            return f"raised {type(exc).__name__}"
+    try:
+        return "True" if path.is_file() else "False"
+    except (OSError, ValueError) as exc:
+        return f"raised {type(exc).__name__}"
 
 
 def _claim_scan_errors(candidates: Iterable[Path] | None = None) -> list[str]:
@@ -3120,21 +3140,29 @@ class DocConsistencyTests(unittest.TestCase):
         )
 
     def test_a_candidate_the_os_refuses_to_describe_fails_the_scan(self) -> None:
-        """`Path.is_file()` was answering two different wrong things (#822 round 11).
+        """`Path.is_file()` cannot report a refusal, only answer one (#822 round 11).
 
-        The loop opened with `if not path.is_file(): continue`. `is_file()`
-        swallows ENOENT/ENOTDIR/EBADF/ELOOP - and, unconditionally, every
-        ValueError - into a plain False, so a candidate behind a symlink loop or
-        a path the platform cannot encode was dropped with nothing added to
-        `problems`: the same silent skip round 9 removed one line further down.
-        Everything else it RE-RAISES, so a permission or an I/O error tore the
-        whole scan down with an unhandled exception rather than being reported as
-        one candidate's problem.
+        The loop opened with `if not path.is_file(): continue`. Whatever the
+        running CPython makes of a candidate the OS will not describe - a plain
+        False, which is the same silent skip round 9 removed one line further
+        down, or a re-raise that tears the whole scan down with an unhandled
+        exception - it is never "this candidate is a problem", because the
+        function's entire vocabulary is a bool. Three refusals are planted below
+        and all three must come back as exactly one reported problem.
 
-        Both are asserted, because they are the two distinct pre-fix behaviours
-        and a fix for one is not a fix for the other. A genuinely absent path
-        stays a skip: git lists cached paths, and a locally deleted file holds no
-        text to have missed.
+        The refusals are injected at `Path.stat`, the call the fixed scan makes
+        itself, so these proofs hold on every interpreter. What they deliberately
+        do NOT do is pin what `is_file()` would have done with them: that routes
+        through `Path.stat` up to CPython 3.13 and through `os.path.isfile()`
+        from 3.14 on, so a `Path.stat` patch measures one implementation and is
+        bypassed by the other (#822 round 12 - the pinned dict failed on 3.14,
+        which the repository's documented "Python 3.10+" support includes). The
+        one characterization kept is measured against the real OS instead.
+
+        A genuinely absent path stays a skip: git lists cached paths, and a
+        locally deleted file holds no text to have missed. That distinction is
+        the whole point, and it is the distinction `is_file()` destroys - which
+        the first assertion measures rather than asserts.
         """
         # Factories, so every raise is a fresh exception rather than one object
         # accumulating tracebacks across the subtests.
@@ -3147,22 +3175,26 @@ class DocConsistencyTests(unittest.TestCase):
             ),
             "swallowed ValueError": lambda: ValueError("embedded null character"),
         }
-        # What `is_file()` ACTUALLY does with each of these, observed on this
-        # interpreter rather than read off pathlib's private errno table: the
-        # pre-fix behaviour these cases stand for has to be a fact, not a claim.
-        observed = {
-            label: _is_file_verdict(make()) for label, make in refusals.items()
-        }
-        self.assertEqual(
-            observed,
-            {
-                "swallowed-into-False": "False",
-                "raised-out-of-the-scan": "raised PermissionError",
-                "swallowed ValueError": "False",
-            },
-            "sanity: these cases exist to stand for is_file()'s two wrong answers; "
-            "if it no longer gives them, this proof is about nothing",
-        )
+        # What `is_file()` ACTUALLY does with a candidate the OS refuses - measured
+        # through the OS, not through a mock, so this is the running interpreter's
+        # real behaviour whichever pathlib it ships (see `_is_file_verdict`). The
+        # point is not which bool comes back. It is that the SAME bool comes back
+        # for a candidate the OS refused to describe and for one that simply is not
+        # there: `is_file()` destroys the distinction the scan is built on, while
+        # `path.stat()` preserves it, which is exactly why the loop below can report
+        # the first and skip the second. Kept as a hard equality rather than a
+        # tolerance, so an interpreter that starts answering differently fails here
+        # loudly instead of quietly making this proof about nothing.
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(
+                (
+                    _is_file_verdict(UNENCODABLE_CANDIDATE),
+                    _is_file_verdict(Path(tmp) / "never-existed.md"),
+                ),
+                ("False", "False"),
+                "sanity: this stands for a refusal `is_file()` reports as an ordinary "
+                "absence; if it no longer does, this proof is about nothing",
+            )
         for label, make_refusal in refusals.items():
             with self.subTest(refusal=label), tempfile.TemporaryDirectory() as tmp:
                 readable = Path(tmp) / "readable.md"
@@ -3206,6 +3238,36 @@ class DocConsistencyTests(unittest.TestCase):
                     _claim_scan_errors_from(scanned, problems),
                     "a candidate the OS would not describe must make the scan RED",
                 )
+
+        # The same defect once more with NO mock anywhere: the refusal comes from
+        # the OS itself, so this half of the proof cannot be affected by which
+        # pathlib implementation is running or by what a `Path.stat` patch does and
+        # does not intercept. Restore `if not path.is_file(): continue` and this
+        # candidate goes back to being silently skipped on every interpreter.
+        with self.subTest(refusal="unencodable path, unmocked"), \
+                tempfile.TemporaryDirectory() as tmp:
+            readable = Path(tmp) / "readable.md"
+            readable.write_text("This documents the lane-ledger.\n", encoding="utf-8")
+
+            scanned, problems = _files_discussing_the_ledger(
+                [readable, UNENCODABLE_CANDIDATE]
+            )
+
+            self.assertEqual(
+                [path for path, _text in scanned],
+                [readable],
+                "sanity: the describable candidate is still scanned",
+            )
+            self.assertEqual(
+                len(problems),
+                1,
+                f"the unstattable candidate is the one problem: {problems!r}",
+            )
+            self.assertIn(str(UNENCODABLE_CANDIDATE), problems[0])
+            self.assertTrue(
+                _claim_scan_errors_from(scanned, problems),
+                "a candidate the OS would not describe must make the scan RED",
+            )
 
     def test_documented_json_shape_matches_the_emitted_shape(self) -> None:
         """The report's documented object is DERIVED from to_json() (#822 round 10).
