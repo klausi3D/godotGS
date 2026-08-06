@@ -18,9 +18,11 @@ Three properties are asserted here, and the order matters:
    every outcome path. A lane that is absent from the ledger is the same class
    of defect as the bug being fixed - "did not run" reading as "passed" - so the
    ledger is pre-seeded and a lane can only ever be visibly NOT-RUN, never gone.
-   Completeness is asserted mechanically against `MODULE_TEST_FILTERS` itself,
-   not against a hand-written list of lane names, because a hand-maintained list
-   of the things a guard must cover is an invariant that is already broken.
+   Completeness is asserted mechanically against the lane declaration tables
+   themselves - `MODULE_TEST_FILTERS`, and `REQUIRES_RD_TEST_FILTERS` whenever
+   `run_gpu` says those lanes are built - not against a hand-written list of lane
+   names, because a hand-maintained list of the things a guard must cover is an
+   invariant that is already broken.
 
 3. **UNKNOWN != ZERO.** A lane that crashed before printing a doctest summary
    records -1, never 0. `_parse_doctest_results()` returns 0 for a missing
@@ -42,6 +44,7 @@ whose local green says nothing about CI.
 from __future__ import annotations
 
 import contextlib
+import errno
 import importlib.util
 import inspect
 import io
@@ -168,6 +171,21 @@ CAPTURED_SKIP_MARKERS = 3
 # doctest's `N skipped` column = numTestCases - numTestCasesPassingFilters, i.e.
 # cases the filter excluded. Read from the capture, not chosen.
 CAPTURED_FILTERED_OUT = 2063
+# The binary's REGISTERED case count, which is what the skipped column is
+# computed against (ConsoleReporter::test_run_end,
+# `const int numSkipped = p.numTestCases - p.numTestCasesPassingFilters;`).
+# It does not move with the filter; the SELECTED count does, and the skipped
+# column moves with it. Every summary this file renders claims to come from a
+# binary of this size, so `filtered_out` is derived from it rather than pinned:
+# until #822 round 11 `_summary()` defaulted `filtered_out` to the capture's
+# 2063 for every fixture, so `_summary(5, 0, 120, 0)` announced 5 selected +
+# 2063 skipped = a 2068-case binary in the same file that asserts the binary has
+# 2072. `_parse_doctest_results()` ignores the column, so the fixtures stayed
+# green while emitting a line the real producer cannot emit - a fixture certified
+# by nothing but itself.
+CAPTURED_TOTAL_CASES = (
+    CAPTURED_PASSED_TESTS + CAPTURED_FAILED_TESTS + CAPTURED_FILTERED_OUT
+)
 
 
 def _captured_line(prefix: str) -> str:
@@ -233,7 +251,7 @@ def _summary(
     failed_tests: int,
     passed_asserts: int,
     failed_asserts: int,
-    filtered_out: int = 2063,
+    filtered_out: int | None = None,
 ) -> str:
     """Render a doctest summary the way doctest renders one.
 
@@ -249,9 +267,24 @@ def _summary(
     this function; the framing and the widths are the producer's rule, the counts
     are the test's. Capturing a failing run would be strictly better and needs a
     lane sweep this change was told not to do.
+
+    `filtered_out` DERIVES from the selected count by default (#822 round 11).
+    doctest computes the column as `numTestCases - numTestCasesPassingFilters`,
+    so for a given binary it is the registered total minus whatever this lane's
+    filter selected - it cannot stand still while the selected count changes.
+    Round 10 defaulted it to the capture's own 2063 for every fixture, which
+    described a differently-sized binary in each one. Pass it explicitly only to
+    assert a specific captured line.
     """
     total_tests = passed_tests + failed_tests
     total_asserts = passed_asserts + failed_asserts
+    if filtered_out is None:
+        filtered_out = CAPTURED_TOTAL_CASES - total_tests
+    if filtered_out < 0:
+        raise ValueError(
+            f"a lane cannot select {total_tests} cases from a {CAPTURED_TOTAL_CASES}-case "
+            f"binary; doctest could never emit this summary"
+        )
     totwidth = _doctest_column_width(total_tests, total_asserts)
     passwidth = _doctest_column_width(passed_tests, passed_asserts)
     failwidth = _doctest_column_width(failed_tests, failed_asserts)
@@ -467,14 +500,62 @@ def _is_upstream(relative: str) -> bool:
     )
 
 
+def _decode_git_names(stdout: bytes) -> tuple[list[str], list[str]]:
+    """`git ls-files -z` output as usable filenames, and every name that is not.
+
+    Returns `(names, problems)` with the invariant that EVERY NUL-separated
+    record git emitted is accounted for in exactly one of them.
+
+    Round 10 decoded the whole stream with `errors="replace"`, which is a silent
+    data-loss codec: a filename that is not valid UTF-8 - legal on POSIX, where a
+    path is bytes - came back with U+FFFD substituted for the offending bytes.
+    That `Path` then named nothing on disk, `is_file()` was False, and the
+    scanner dropped it with no entry in `problems`. The result was a claim scan
+    reporting clean over a file it had been told about and could not look at:
+    the exact silent-skip shape round 9 closed for unreadable files, reopened one
+    level up at enumeration.
+
+    So the bytes are decoded with `os.fsdecode()`, which is the OS's own filename
+    representation (surrogateescape on POSIX, surrogatepass on Windows) and
+    therefore round-trips back to the bytes the kernel will be handed. The round
+    trip is then VERIFIED rather than assumed, and any name that cannot decode or
+    cannot round-trip is returned as a problem, so a future change back to a lossy
+    codec fails the scan instead of shortening it.
+    """
+    names: list[str] = []
+    problems: list[str] = []
+    for raw in stdout.split(b"\0"):
+        if not raw:
+            continue
+        try:
+            name = os.fsdecode(raw)
+        except (UnicodeDecodeError, ValueError) as exc:
+            problems.append(
+                f"git listed a path this platform cannot decode into a filename "
+                f"({raw!r}: {type(exc).__name__}: {exc}); the claim scan cannot "
+                f"open it and must not report clean over it"
+            )
+            continue
+        if os.fsencode(name) != raw:
+            problems.append(
+                f"git listed a path that does not survive decoding ({raw!r} became "
+                f"{name!r}); the scan would look for a file that does not exist and "
+                f"report clean over the one that does"
+            )
+            continue
+        names.append(name)
+    return names, problems
+
+
 def _project_files() -> tuple[list[Path], list[str]]:
     """Every project-owned file in the working tree, and why the list may be short.
 
     Returns `(paths, problems)`. `problems` is non-empty only when the list could
-    not be built - git missing, git failing, or an empty listing in a tree that
-    self-evidently has files. Each entry makes the scan RED. A guard that cannot
-    enumerate what it must examine has not found nothing; it has found out
-    nothing, and the two must never print the same.
+    not be built - git missing, git failing, an empty listing in a tree that
+    self-evidently has files, or a listed name that cannot be turned back into the
+    path git meant. Each entry makes the scan RED. A guard that cannot enumerate
+    what it must examine has not found nothing; it has found out nothing, and the
+    two must never print the same.
     """
     try:
         completed = subprocess.run(
@@ -494,17 +575,13 @@ def _project_files() -> tuple[list[Path], list[str]]:
             f"`git {' '.join(GIT_LS_FILES)}` failed with exit {completed.returncode} "
             f"({detail}); the claim scan has no candidate list and cannot report clean"
         ]
-    names = [
-        name
-        for name in completed.stdout.decode("utf-8", errors="replace").split("\0")
-        if name
-    ]
-    if not names:
+    names, problems = _decode_git_names(completed.stdout)
+    if not names and not problems:
         return [], [
             "git listed no files at all for the claim scan; an empty candidate list "
             "in a non-empty repository is a broken scan, not a clean one"
         ]
-    return [ROOT / name for name in names if not _is_upstream(name)], []
+    return [ROOT / name for name in names if not _is_upstream(name)], problems
 
 
 def _files_discussing_the_ledger(
@@ -525,6 +602,17 @@ def _files_discussing_the_ledger(
     file that cannot be read is an unknown, and an unknown is never a pass.
     Round 10 puts the enumeration itself under the same rule.
 
+    Round 11 puts the EXISTENCE test under it too. The loop opened with
+    `if not path.is_file(): continue`, and `Path.is_file()` does two different
+    wrong things with a candidate the OS will not describe: it swallows
+    ENOENT/ENOTDIR/EBADF/ELOOP AND every ValueError into a plain False - so a
+    symlink loop or a path the platform cannot encode was a silent skip, exactly
+    the shape removed one line below - and it RE-RAISES everything else, so a
+    permission or an I/O error aborted the whole scan with an unhandled exception
+    instead of being reported as one candidate's problem. Neither is "look at
+    this file and say what you found". Only a genuinely absent path is a skip
+    now; anything else the OS refuses to answer is a problem.
+
     `candidates` is a parameter so the scanner can be exercised against a planted
     set of files without faking the repository. The guard passes nothing and gets
     the real project-owned tree.
@@ -539,9 +627,22 @@ def _files_discussing_the_ledger(
     self_path = Path(__file__).resolve()
     found: list[tuple[Path, str]] = []
     for path in sorted(candidates):
-        if not path.is_file():
-            # A path git listed that is gone, or a directory handed in by a
-            # caller: neither is evidence that was skipped.
+        try:
+            status = path.stat()
+        except (FileNotFoundError, NotADirectoryError):
+            # A path git listed that is gone from the working tree, or one a
+            # caller invented: there is no text here that was skipped.
+            continue
+        except (OSError, ValueError) as exc:
+            # Everything else: a symlink loop or a bad descriptor, which
+            # `is_file()` reported as a plain False; a permission, sharing lock
+            # or I/O error, which it raised out of the scan entirely; and a path
+            # the platform cannot encode, which it swallowed unconditionally.
+            problems.append(f"{path}: cannot stat: {type(exc).__name__}: {exc}")
+            continue
+        if not stat.S_ISREG(status.st_mode):
+            # A directory (a submodule gitlink, or one handed in by a caller):
+            # its contents are somebody else's tree, not unread evidence.
             continue
         if path.resolve() == self_path:
             continue
@@ -553,6 +654,25 @@ def _files_discussing_the_ledger(
         if text is not None:
             found.append((path, text))
     return sorted(found, key=lambda pair: pair[0]), sorted(problems)
+
+
+def _is_file_verdict(refusal: BaseException) -> str:
+    """What `Path.is_file()` answers when the underlying stat raises `refusal`.
+
+    Observed on the running interpreter, so the round-11 claim about the code
+    that was replaced ("it swallows some refusals into False and re-raises the
+    rest") is measured rather than quoted from pathlib's private errno table.
+    """
+    probe = Path(__file__)
+
+    def stub(_self, *_args, **_kwargs):
+        raise refusal
+
+    with mock.patch.object(Path, "stat", stub):
+        try:
+            return "True" if probe.is_file() else "False"
+        except (OSError, ValueError) as exc:
+            return f"raised {type(exc).__name__}"
 
 
 def _claim_scan_errors(candidates: Iterable[Path] | None = None) -> list[str]:
@@ -1725,9 +1845,9 @@ class LaneLedgerTotalityTests(unittest.TestCase):
 
     def test_declared_lanes_absent_from_the_run_list_are_reported(self) -> None:
         full = [(name, [], strict) for name, _f, _e, strict in harness.MODULE_TEST_FILTERS]
-        self.assertEqual(harness._lane_runs_missing_from_module_filters(full), [])
+        self.assertEqual(harness._lane_runs_missing_from_module_filters(full, False), [])
         dropped = full[1:]
-        errors = harness._lane_runs_missing_from_module_filters(dropped)
+        errors = harness._lane_runs_missing_from_module_filters(dropped, False)
         self.assertTrue(errors, "a lane that vanished from the run list must be reported")
         self.assertIn(harness.MODULE_TEST_FILTERS[0][0], errors[0])
         # Drive the loop as well, so this method cannot pass with the lane loop
@@ -1735,6 +1855,82 @@ class LaneLedgerTotalityTests(unittest.TestCase):
         rc, output = _drive([("PassLane", True)], _godot(True, False, PASS_OUTPUT, 0))
         self.assertEqual(_records(output)["PassLane"]["outcome"], "PASS")
         self.assertEqual(rc, BASELINE_RC_PASS)
+
+    def test_the_gpu_lanes_are_covered_by_the_same_totality_check(self) -> None:
+        """The GPU lanes escaped the check they exist inside (#822 round 11).
+
+        `_build_module_test_runs(run_gpu=True)` appends REQUIRES_RD_TEST_FILTERS,
+        but the coverage check only ever iterated MODULE_TEST_FILTERS - so
+        deleting or breaking that append left the "every declared lane is in the
+        run list" verdict GREEN on exactly the configuration where those lanes
+        are supposed to run. The totality guarantee this whole change exists to
+        build was unenforced for a quarter of the lane surface's entry points.
+
+        The mutation is the append being removed, which is precisely
+        `_build_module_test_runs(False)` evaluated where `run_gpu` is True.
+        """
+        self.assertTrue(
+            harness.REQUIRES_RD_TEST_FILTERS,
+            "sanity: there must be GPU lanes for this to be about anything",
+        )
+        gpu_names = {name for name, *_ in harness.REQUIRES_RD_TEST_FILTERS}
+        headless_names = {name for name, *_ in harness.MODULE_TEST_FILTERS}
+        self.assertFalse(
+            gpu_names & headless_names,
+            "sanity: a GPU lane that is also a headless lane would be covered by "
+            "accident, which would make this proof vacuous",
+        )
+
+        with_gpu = harness._build_module_test_runs(True)
+        self.assertEqual(
+            harness._lane_runs_missing_from_module_filters(with_gpu, True),
+            [],
+            "the unmutated GPU run list must be complete",
+        )
+
+        # THE MUTATION: the `if run_gpu:` append is gone. Before round 11 this
+        # assertion read `[]`.
+        without_the_append = harness._build_module_test_runs(False)
+        errors = harness._lane_runs_missing_from_module_filters(without_the_append, True)
+        self.assertTrue(
+            errors,
+            "a GPU run that stopped building the requires-RD lanes must be an "
+            "integrity failure, not a silently shorter run",
+        )
+        for name in sorted(gpu_names):
+            self.assertIn(name, errors[0])
+
+        # ... and the headless run must NOT be made red by the same list: the
+        # requirement follows run_gpu, so this cannot be "fixed" by demanding the
+        # GPU lanes unconditionally.
+        self.assertEqual(
+            harness._lane_runs_missing_from_module_filters(without_the_append, False),
+            [],
+            "a headless run does not build the GPU lanes and must not be failed "
+            "for their absence",
+        )
+
+    def test_main_fails_when_a_gpu_run_loses_the_requires_rd_lanes(self) -> None:
+        """End to end through main(), because the call site is what passes run_gpu.
+
+        A check that takes the flag is worthless if main() forgets to hand it
+        over, so the mutation is driven through the real entry point with
+        `--gpu`: `_build_module_test_runs` is replaced by one that never appends
+        the GPU lanes, exactly as deleting the `if run_gpu:` block would.
+        """
+        original = harness._build_module_test_runs
+        with mock.patch.object(
+            harness, "_build_module_test_runs", lambda _gpu: original(False)
+        ):
+            rc_gpu = _run_main(
+                ["run_module_tests.py", "--godot-binary", "fake", "--gpu"]
+            )
+        self.assertEqual(
+            rc_gpu,
+            1,
+            "a --gpu run whose requires-RD lanes vanished must fail the integrity "
+            "check instead of reporting a complete 26-lane ledger",
+        )
 
 
 class LaneReportTests(unittest.TestCase):
@@ -2276,7 +2472,7 @@ class CapturedFixtureContractTests(unittest.TestCase):
         """
         # max(5, 120) + 1 -> 3 columns, where the capture uses 2.
         wide = _summary(5, 0, 120, 0).splitlines()
-        self.assertEqual(wide[0], "[doctest] test cases:   5 |   5 passed | 0 failed | 2063 skipped")
+        self.assertEqual(wide[0], "[doctest] test cases:   5 |   5 passed | 0 failed | 2067 skipped")
         self.assertEqual(wide[1], "[doctest] assertions: 120 | 120 passed | 0 failed |")
         self.assertNotEqual(
             _grammar_padding(wide[0]),
@@ -2285,7 +2481,7 @@ class CapturedFixtureContractTests(unittest.TestCase):
         )
         # A failing shape widens the third column, which is 0-wide in the capture.
         mixed = _summary(2, 1, 9, 1).splitlines()
-        self.assertEqual(mixed[0], "[doctest] test cases:  3 | 2 passed | 1 failed | 2063 skipped")
+        self.assertEqual(mixed[0], "[doctest] test cases:  3 | 2 passed | 1 failed | 2069 skipped")
         self.assertEqual(mixed[1], "[doctest] assertions: 10 | 9 passed | 1 failed |")
 
     def test_generated_summaries_carry_the_counts_they_were_asked_for(self) -> None:
@@ -2294,6 +2490,66 @@ class CapturedFixtureContractTests(unittest.TestCase):
         self.assertEqual(parsed[:5], (2, 1, 9, 1, 0))
         parsed_empty = harness._parse_doctest_results(_summary(1, 0, 0, 0))
         self.assertEqual(parsed_empty[:5], (1, 0, 0, 0, 0))
+
+    def test_the_skipped_column_moves_with_the_selected_count(self) -> None:
+        """A fixture must describe ONE binary, not a different one per shape.
+
+        `_summary()` defaulted `filtered_out` to the capture's 2063 for every
+        fixture, so `PASS_OUTPUT` reported 5 selected + 2063 skipped while the
+        capture in the same file reports 9 + 2063. doctest computes the column as
+        `numTestCases - numTestCasesPassingFilters`, so those two lines cannot
+        both come from the same binary - and no real binary emits the first at
+        all. `_parse_doctest_results()` ignores the column, so nothing here could
+        go red over it: a fixture whose only certificate was itself.
+
+        Asserted over the shipped fixtures, not over freshly built ones, because
+        the shipped fixtures are what every outcome test in this file feeds the
+        runner. Against round 10 every one of these fails.
+        """
+        self.assertEqual(
+            CAPTURED_TOTAL_CASES,
+            2072,
+            "sanity: the capture's own 9 selected + 2063 skipped",
+        )
+        selected_re = re.compile(
+            r"\[doctest\] test cases:\s*(\d+) \|\s*\d+ passed \|\s*\d+ failed \|"
+            r"\s*(\d+) skipped"
+        )
+        shapes = {
+            "PASS_OUTPUT": PASS_OUTPUT,
+            "FAIL_OUTPUT": FAIL_OUTPUT,
+            "NO_COVERAGE_OUTPUT": NO_COVERAGE_OUTPUT,
+            "ALL_FAILING_OUTPUT": ALL_FAILING_OUTPUT,
+            "PASS_WITH_SKIP_OUTPUT": PASS_WITH_SKIP_OUTPUT,
+        }
+        seen_selected = set()
+        for label, text in shapes.items():
+            with self.subTest(fixture=label):
+                match = selected_re.search(text)
+                self.assertIsNotNone(
+                    match, f"{label} has no parseable test-cases line"
+                )
+                selected, skipped = int(match.group(1)), int(match.group(2))
+                seen_selected.add(selected)
+                self.assertEqual(
+                    selected + skipped,
+                    CAPTURED_TOTAL_CASES,
+                    f"{label} claims a {selected + skipped}-case binary while the "
+                    f"capture reports {CAPTURED_TOTAL_CASES}; doctest's skipped "
+                    f"column is numTestCases - numTestCasesPassingFilters, so it "
+                    f"MUST move with the selected count",
+                )
+        self.assertGreater(
+            len(seen_selected),
+            1,
+            "sanity: the fixtures must select different numbers of cases, or a "
+            "constant skipped column would satisfy this vacuously",
+        )
+
+    def test_a_summary_cannot_select_more_cases_than_the_binary_has(self) -> None:
+        """The derivation fails closed rather than printing a negative column."""
+        with self.assertRaises(ValueError):
+            _summary(CAPTURED_TOTAL_CASES + 1, 0, 1, 0)
 
     def test_the_verbatim_capture_drives_the_skip_marker_path(self) -> None:
         """PASS_WITH_SKIP_OUTPUT is the capture itself, not a reconstruction."""
@@ -2480,6 +2736,31 @@ class ProducerContractTests(unittest.TestCase):
             "std::setw(totwidth)",
             source,
             "the computed width is no longer applied with std::setw",
+        )
+
+    def test_reporter_still_derives_skipped_from_registered_minus_selected(self) -> None:
+        """The rule `CAPTURED_TOTAL_CASES` rests on, read from the producer.
+
+        `_summary()` now derives the skipped column as
+        `CAPTURED_TOTAL_CASES - selected`. That is only right while doctest
+        computes it as `numTestCases - numTestCasesPassingFilters`; if the
+        reporter starts reporting something else in that column, the derivation
+        is wrong in a way no fixture assertion in this file could see.
+        """
+        source = self._reporter_source()
+        self.assertRegex(
+            source,
+            r"numSkipped\s*=\s*p\.numTestCases\s*-\s*p\.numTestCasesPassingFilters",
+            f"ConsoleReporter no longer computes the skipped column as "
+            f"registered-minus-selected; CAPTURED_TOTAL_CASES and _summary()'s "
+            f"derivation are written against that rule. "
+            f"Recapture with: {CAPTURE_COMMAND}",
+        )
+        self.assertRegex(
+            source,
+            r"<<\s*numSkipped\s*\n?\s*<<\s*\" skipped\"",
+            "the computed numSkipped is no longer what precedes the ' skipped' "
+            "literal on the test-cases line",
         )
 
 
@@ -2788,6 +3069,142 @@ class DocConsistencyTests(unittest.TestCase):
                 self.assertTrue(
                     _claim_scan_errors_from([], problems),
                     f"{label} left the guard green over a scan that examined nothing",
+                )
+
+    def test_every_name_git_lists_is_either_usable_or_reported(self) -> None:
+        """The lossy-decode hole, proven shut (#822 round 11).
+
+        Round 10 decoded `git ls-files -z` with `errors="replace"`. A filename
+        that is not valid UTF-8 - ordinary on POSIX, where a path is bytes - came
+        back with U+FFFD in place of the offending bytes, so the `Path` named
+        nothing on disk, `is_file()` was False, and the candidate vanished with
+        NOTHING added to `problems`. The scan then reported the project clean
+        over a file it had been handed and never opened.
+
+        The property asserted is the one that closes it regardless of platform:
+        every NUL-separated record git emits is accounted for exactly once, and
+        every name that survives must re-encode to the exact bytes it came from.
+        Against round 10 the corrupted record appears in neither list.
+        """
+        good = b"docs/reference/build-test-ci.md"
+        # Latin-1 'e-acute' as a bare byte: a legal POSIX filename, not UTF-8.
+        undecodable = b"modules/gaussian_splatting/caf\xe9_notes.md"
+        names, problems = _decode_git_names(good + b"\0" + undecodable + b"\0")
+
+        self.assertIn(good.decode("ascii"), names, "sanity: a plain name still lists")
+        for name in names:
+            self.assertEqual(
+                os.fsencode(name),
+                good if name == good.decode("ascii") else undecodable,
+                "a name the scan keeps must re-encode to the bytes git emitted, or "
+                "it names a different file than the one git meant",
+            )
+        accounted = {os.fsencode(name) for name in names}
+        reported = [problem for problem in problems if "caf" in problem]
+        self.assertTrue(
+            undecodable in accounted or reported,
+            f"the non-UTF-8 record was neither kept intact nor reported: "
+            f"names={names!r} problems={problems!r}",
+        )
+        if undecodable not in accounted:
+            self.assertTrue(
+                _claim_scan_errors_from([], problems),
+                "a candidate the enumeration could not represent must make the scan "
+                "RED; dropping it reports clean over a file that was never read",
+            )
+        self.assertNotIn(
+            "�",
+            "".join(names),
+            "a replacement character in a candidate name means the decode was lossy "
+            "and the path no longer refers to the file git listed",
+        )
+
+    def test_a_candidate_the_os_refuses_to_describe_fails_the_scan(self) -> None:
+        """`Path.is_file()` was answering two different wrong things (#822 round 11).
+
+        The loop opened with `if not path.is_file(): continue`. `is_file()`
+        swallows ENOENT/ENOTDIR/EBADF/ELOOP - and, unconditionally, every
+        ValueError - into a plain False, so a candidate behind a symlink loop or
+        a path the platform cannot encode was dropped with nothing added to
+        `problems`: the same silent skip round 9 removed one line further down.
+        Everything else it RE-RAISES, so a permission or an I/O error tore the
+        whole scan down with an unhandled exception rather than being reported as
+        one candidate's problem.
+
+        Both are asserted, because they are the two distinct pre-fix behaviours
+        and a fix for one is not a fix for the other. A genuinely absent path
+        stays a skip: git lists cached paths, and a locally deleted file holds no
+        text to have missed.
+        """
+        # Factories, so every raise is a fresh exception rather than one object
+        # accumulating tracebacks across the subtests.
+        refusals = {
+            "swallowed-into-False": lambda: OSError(
+                errno.ELOOP, "Too many symbolic links"
+            ),
+            "raised-out-of-the-scan": lambda: PermissionError(
+                errno.EACCES, "Permission denied"
+            ),
+            "swallowed ValueError": lambda: ValueError("embedded null character"),
+        }
+        # What `is_file()` ACTUALLY does with each of these, observed on this
+        # interpreter rather than read off pathlib's private errno table: the
+        # pre-fix behaviour these cases stand for has to be a fact, not a claim.
+        observed = {
+            label: _is_file_verdict(make()) for label, make in refusals.items()
+        }
+        self.assertEqual(
+            observed,
+            {
+                "swallowed-into-False": "False",
+                "raised-out-of-the-scan": "raised PermissionError",
+                "swallowed ValueError": "False",
+            },
+            "sanity: these cases exist to stand for is_file()'s two wrong answers; "
+            "if it no longer gives them, this proof is about nothing",
+        )
+        for label, make_refusal in refusals.items():
+            with self.subTest(refusal=label), tempfile.TemporaryDirectory() as tmp:
+                readable = Path(tmp) / "readable.md"
+                readable.write_text("This documents the lane-ledger.\n", encoding="utf-8")
+                opaque = Path(tmp) / "opaque.md"
+                opaque.write_text(
+                    "This also documents the lane-ledger.\n", encoding="utf-8"
+                )
+                absent = Path(tmp) / "deleted-since-git-listed-it.md"
+
+                real_stat = Path.stat
+
+                def refuse_one(self, *args, _make=make_refusal, _target=opaque, **kwargs):
+                    if self == _target:
+                        raise _make()
+                    return real_stat(self, *args, **kwargs)
+
+                with mock.patch.object(Path, "stat", refuse_one):
+                    scanned, problems = _files_discussing_the_ledger(
+                        [readable, opaque, absent]
+                    )
+
+                self.assertEqual(
+                    [path for path, _text in scanned],
+                    [readable],
+                    "sanity: the describable candidate is still scanned",
+                )
+                self.assertEqual(
+                    len(problems),
+                    1,
+                    f"exactly the unstattable candidate is a problem: {problems!r}",
+                )
+                self.assertIn(str(opaque), problems[0])
+                self.assertNotIn(
+                    str(absent),
+                    "".join(problems),
+                    "a path that is genuinely gone holds no evidence and must not be "
+                    "a problem, or every locally deleted file turns the guard red",
+                )
+                self.assertTrue(
+                    _claim_scan_errors_from(scanned, problems),
+                    "a candidate the OS would not describe must make the scan RED",
                 )
 
     def test_documented_json_shape_matches_the_emitted_shape(self) -> None:

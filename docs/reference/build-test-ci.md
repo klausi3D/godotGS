@@ -188,7 +188,8 @@ either the previous report or the complete new one, never empty or partial.
 
 The ledger's own unit test (`tests/ci/test_run_module_tests_lane_ledger.py`) runs in the
 `--guard-only` lane; it asserts exit-code parity per outcome class and ledger completeness
-against `MODULE_TEST_FILTERS`.
+against `MODULE_TEST_FILTERS` — plus, on a `--gpu` run, `REQUIRES_RD_TEST_FILTERS`, so the
+opt-in GPU lanes are covered by the same totality check rather than escaping it.
 
 ## GPU Test Harness and Visual Gate
 

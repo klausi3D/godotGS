@@ -2528,20 +2528,50 @@ def _preflight_lane_report_path(path: Path) -> list[str]:
     return []
 
 
-def _lane_runs_missing_from_module_filters(test_runs: Iterable[TestRun]) -> list[str]:
-    """Assert the built run list covers MODULE_TEST_FILTERS itself.
+def _declared_lane_names(run_gpu: bool) -> list[str]:
+    """Every lane `_build_module_test_runs()` is required to produce, in order.
+
+    Derived from the SAME two tables and the SAME `run_gpu` flag the builder
+    reads, so the expectation cannot drift from the construction. `run_gpu` is
+    required rather than defaulted: a default would let a caller silently ask
+    for the weaker headless-only expectation on a GPU run, which is the hole
+    this function exists to close.
+    """
+    names = [name for name, *_ in MODULE_TEST_FILTERS]
+    if run_gpu:
+        names.extend(name for name, *_ in REQUIRES_RD_TEST_FILTERS)
+    return names
+
+
+def _lane_runs_missing_from_module_filters(
+    test_runs: Iterable[TestRun], run_gpu: bool
+) -> list[str]:
+    """Assert the built run list covers the lane declaration tables themselves.
 
     The ledger's totality guarantee is only worth as much as the list it is
     seeded from. A lane that disappears between the declaration table and the
     loop would produce a complete-looking ledger for an incomplete run, which is
     the same "absence reads as success" defect one level up.
+
+    Both tables are checked. Until #822 round 11 only MODULE_TEST_FILTERS was,
+    so on a GPU run - the one configuration where REQUIRES_RD_TEST_FILTERS is
+    supposed to execute - deleting or breaking the `if run_gpu:` append in
+    `_build_module_test_runs()` left this check GREEN over a run that had
+    silently stopped attempting the GPU lanes. `run_gpu` is exactly what decides
+    whether those lanes are appended, and it is known at the call site, so it is
+    what decides whether they are required here.
     """
     run_names = {name for name, _args, _strict in test_runs}
-    missing = [name for name, *_ in MODULE_TEST_FILTERS if name not in run_names]
+    missing = [name for name in _declared_lane_names(run_gpu) if name not in run_names]
     if not missing:
         return []
+    table = (
+        "MODULE_TEST_FILTERS/REQUIRES_RD_TEST_FILTERS"
+        if run_gpu
+        else "MODULE_TEST_FILTERS"
+    )
     return [
-        "lane(s) declared in MODULE_TEST_FILTERS are absent from the built run list: "
+        f"lane(s) declared in {table} are absent from the built run list: "
         + ", ".join(missing)
     ]
 
@@ -3955,7 +3985,7 @@ def main() -> int:
 
     run_gpu = os.environ.get(GS_RUN_GPU_TESTS_ENV, "0") == "1" or cli_args.gpu
     test_runs = _build_module_test_runs(run_gpu)
-    coverage_errors = _lane_runs_missing_from_module_filters(test_runs)
+    coverage_errors = _lane_runs_missing_from_module_filters(test_runs, run_gpu)
     if coverage_errors:
         for message in coverage_errors:
             print(f"[module-tests][lane-ledger][INTEGRITY] {message}")

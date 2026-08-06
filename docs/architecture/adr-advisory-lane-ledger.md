@@ -125,8 +125,12 @@ Mechanically:
   `return 1` is a loud unpacking error rather than a silent omission;
 - `LaneLedger.record()` refuses to overwrite an already-recorded lane (an overwrite is how
   a FAIL would become a PASS) and reports the attempt as an integrity error;
-- `main()` asserts that the built run list covers `MODULE_TEST_FILTERS` itself, so a lane
-  that disappears between the table and the loop fails rather than vanishing.
+- `main()` asserts that the built run list covers the lane declaration tables themselves, so
+  a lane that disappears between a table and the loop fails rather than vanishing. Both
+  tables are checked, and which ones are required follows the same `run_gpu` flag
+  `_build_module_test_runs()` reads: on a `--gpu` run `REQUIRES_RD_TEST_FILTERS` is
+  required too, so removing or breaking the `if run_gpu:` append is an integrity failure
+  instead of a quietly shorter run that still reports a complete ledger.
 
 ### 3. Unknown is `-1`, never `0`
 
