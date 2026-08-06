@@ -425,7 +425,9 @@ BATCHES: tuple[BatchSpec, ...] = (
 # gate too, so a regression that silently emptied a case would fail loudly.
 #
 # NodeSceneTree is DELIBERATELY NOT promoted (#724). It is the largest batch (22 cases /
-# 285 assertions) and its wall time swings hard on this shared, self-hosted runner:
+# 281 assertions; was 285 before #708/PR #843 converted four size-then-index sites to
+# guard-then-FAIL, which record nothing on the success path) and its wall time swings
+# hard on this shared, self-hosted runner:
 # 76.5 s (quiet, run 29806293610), 134.8 s (run 29818964659), and 189.2 s in the run
 # #724 cites — the last is only 1.59x under the 300 s budget, right at the 1.5x floor,
 # and #630 has PROVEN ~2x timing swings on this box under concurrent builds. Promoting a
