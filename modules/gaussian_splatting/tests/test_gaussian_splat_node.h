@@ -16,6 +16,7 @@
 #include "../resources/color_grading_resource.h"
 #ifdef TOOLS_ENABLED
 #include "../editor/gaussian_editor_services.h"
+#include "../editor/gaussian_inspector_plugins.h"
 #endif
 #include "core/math/math_funcs.h"
 #include "core/config/project_settings.h"
@@ -2907,5 +2908,180 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree] Two nodes with separate asset Re
 	memdelete(node_a);
 	memdelete(node_b);
 }
+
+// --- Inspector surface contracts (#836 / #834) -------------------------------
+//
+// These lock in the two property-declaration fixes that shrink the Gaussian
+// inspector. They are pure ClassDB/PropertyInfo checks, so they need no GPU and
+// no editor.
+
+namespace {
+
+bool find_property_info(Object *p_object, const StringName &p_name, PropertyInfo &r_info) {
+	if (p_object == nullptr) {
+		return false;
+	}
+	List<PropertyInfo> property_list;
+	p_object->get_property_list(&property_list);
+	for (const List<PropertyInfo>::Element *E = property_list.front(); E; E = E->next()) {
+		if (E->get().name == p_name) {
+			r_info = E->get();
+			return true;
+		}
+	}
+	return false;
+}
+
+} // namespace
+
+TEST_CASE("[GaussianSplatting][Editor] Effector layer masks use the compact 3D-render layer grid") {
+	// PROPERTY_HINT_FLAGS with an explicit "Layer 1,...,Layer 16" list renders as a
+	// 16-row vertical checkbox column (~700 px in the inspector). Godot's
+	// PROPERTY_HINT_LAYERS_3D_RENDER renders the same bitmask as a 4x5 grid, which is
+	// what VisualInstance3D::layers uses (scene/3d/visual_instance_3d.cpp:188).
+	GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+	if (!node) {
+		FAIL("could not allocate GaussianSplatNode3D");
+		return;
+	}
+	// The mask is only editor-visible while scene effectors are enabled.
+	node->set_scene_effectors_enabled(true);
+
+	PropertyInfo node_mask;
+	CHECK(find_property_info(node, StringName("rendering/scene_effector_layer_mask"), node_mask));
+	CHECK(node_mask.hint == PROPERTY_HINT_LAYERS_3D_RENDER);
+	CHECK(node_mask.hint_string.is_empty());
+	memdelete(node);
+
+	SphereEffector3D *effector = memnew(SphereEffector3D);
+	if (!effector) {
+		FAIL("could not allocate SphereEffector3D");
+		return;
+	}
+	PropertyInfo effector_mask;
+	CHECK(find_property_info(effector, StringName("layer_mask"), effector_mask));
+	CHECK(effector_mask.hint == PROPERTY_HINT_LAYERS_3D_RENDER);
+	CHECK(effector_mask.hint_string.is_empty());
+	memdelete(effector);
+}
+
+TEST_CASE("[GaussianSplatting][Editor] GaussianSplatAsset bulk arrays are storage-only, not removed") {
+	// #834: the editor enumerates the property list and calls every getter, so having
+	// these multi-million-element arrays carry PROPERTY_USAGE_EDITOR is what produced
+	// the "get_*() called on unloaded asset" warning stack. They must stay STORAGE
+	// (serialization + script access preserved) and lose only editor display - #712 is
+	// this repo's precedent for a removed ClassDB property breaking saved scenes.
+	const char *bulk_arrays[] = {
+		"data/positions",
+		"data/colors",
+		"data/scales",
+		"data/rotations",
+		"data/sh_dc",
+		"data/sh_first_order",
+		"data/sh_high_order",
+		"data/opacity_logits",
+		"data/palette_ids",
+		"data/painterly_flags",
+		"data/normals",
+		"data/brush_axes",
+		"data/stroke_ages",
+	};
+
+	Ref<GaussianSplatAsset> asset;
+	asset.instantiate();
+	if (asset.is_null()) {
+		FAIL("could not instantiate GaussianSplatAsset");
+		return;
+	}
+
+	for (const char *name : bulk_arrays) {
+		// doctest prints a bare `const char *` as a pointer; String has a StringMaker.
+		const String label(name);
+		const StringName property_name(name);
+		PropertyInfo info;
+		const bool present = find_property_info(asset.ptr(), property_name, info);
+		CHECK_MESSAGE(present, "property still declared: ", label);
+		if (!present) {
+			continue;
+		}
+		CHECK_MESSAGE((info.usage & PROPERTY_USAGE_STORAGE) != 0, "still serialized: ", label);
+		CHECK_MESSAGE((info.usage & PROPERTY_USAGE_EDITOR) == 0, "no longer editor-visible: ", label);
+		// Still reachable from script through ClassDB (Object::get / Object::set).
+		bool valid = false;
+		asset->get(property_name, &valid);
+		CHECK_MESSAGE(valid, "still readable via Object::get(): ", label);
+	}
+}
+
+#ifdef TOOLS_ENABLED
+
+TEST_CASE("[GaussianSplatting][Editor] Inspector suppresses every debug/ property except overlay_opacity") {
+	// GaussianSplatNodeInspectorPlugin::parse_property() suppresses the default editor
+	// for debug/* because parse_begin() already draws a custom control for those
+	// properties. debug/overlay_opacity is the one property with NO custom control, so
+	// suppressing it removes the only inspector-side way to tune the overlay blend.
+	//
+	// The expected sets are derived from the node's own property list, not restated
+	// here, so a debug property added later is checked automatically: everything with
+	// the debug/ prefix must be suppressed, except the single named exception, which
+	// must survive.
+	Ref<GaussianSplatNodeInspectorPlugin> plugin;
+	plugin.instantiate();
+	if (plugin.is_null()) {
+		FAIL("could not instantiate GaussianSplatNodeInspectorPlugin");
+		return;
+	}
+
+	GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+	if (!node) {
+		FAIL("could not allocate GaussianSplatNode3D");
+		return;
+	}
+
+	List<PropertyInfo> property_list;
+	node->get_property_list(&property_list);
+
+	int debug_properties = 0;
+	int suppressed = 0;
+	bool saw_overlay_opacity = false;
+	bool saw_non_debug_property = false;
+
+	for (const List<PropertyInfo>::Element *E = property_list.front(); E; E = E->next()) {
+		const PropertyInfo &info = E->get();
+		if ((info.usage & PROPERTY_USAGE_EDITOR) == 0) {
+			continue; // Category/group separators and storage-only entries.
+		}
+		const String path(info.name);
+		const bool handled = plugin->parse_property(node, info.type, path, info.hint, info.hint_string, info.usage, false);
+
+		if (!path.begins_with("debug/")) {
+			// Nothing outside the group may be consumed by the plugin.
+			CHECK_MESSAGE(!handled, "non-debug property keeps its default editor: ", path);
+			saw_non_debug_property = true;
+			continue;
+		}
+
+		debug_properties++;
+		if (path == "debug/overlay_opacity") {
+			saw_overlay_opacity = true;
+			// The exception: no custom replacement exists, so the default slider must
+			// still be rendered. Reverting the exception makes this CHECK fail.
+			CHECK_MESSAGE(!handled, "debug/overlay_opacity keeps its default slider");
+		} else {
+			CHECK_MESSAGE(handled, "suppressed in favour of the custom control: ", path);
+			suppressed++;
+		}
+	}
+
+	// Guard against a vacuous pass: the loop must actually have seen the properties.
+	CHECK(saw_non_debug_property);
+	CHECK(saw_overlay_opacity);
+	CHECK(debug_properties >= 2);
+	CHECK(suppressed == debug_properties - 1);
+
+	memdelete(node);
+}
+
+#endif // TOOLS_ENABLED
 
 #endif // TESTS_ENABLED || TOOLS_ENABLED

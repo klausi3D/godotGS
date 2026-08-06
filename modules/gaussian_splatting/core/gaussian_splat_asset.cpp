@@ -148,19 +148,26 @@ void GaussianSplatAsset::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::DICTIONARY, "import/metadata"), "set_import_metadata", "get_import_metadata");
     ADD_PROPERTY(PropertyInfo(Variant::STRING, "import/source_path", PROPERTY_HINT_FILE, "*.ply,*.spz"),
             "set_source_path", "get_source_path");
-    ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "data/positions"), "set_positions", "get_positions");
-    ADD_PROPERTY(PropertyInfo(Variant::PACKED_COLOR_ARRAY, "data/colors"), "set_colors", "get_colors");
-    ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "data/scales"), "set_scales", "get_scales");
-    ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "data/rotations"), "set_rotations", "get_rotations");
-    ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "data/sh_dc"), "set_sh_dc_coefficients", "get_sh_dc_coefficients");
-    ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "data/sh_first_order"), "set_sh_first_order_coefficients", "get_sh_first_order_coefficients");
-    ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "data/sh_high_order"), "set_sh_high_order_coefficients", "get_sh_high_order_coefficients");
-    ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "data/opacity_logits"), "set_opacity_logits", "get_opacity_logits");
-    ADD_PROPERTY(PropertyInfo(Variant::PACKED_INT32_ARRAY, "data/palette_ids"), "set_palette_ids", "get_palette_ids");
-    ADD_PROPERTY(PropertyInfo(Variant::PACKED_INT32_ARRAY, "data/painterly_flags"), "set_painterly_flags", "get_painterly_flags");
-    ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "data/normals"), "set_normals", "get_normals");
-    ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "data/brush_axes"), "set_brush_axes", "get_brush_axes");
-    ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "data/stroke_ages"), "set_stroke_ages", "get_stroke_ages");
+    // The data/* bulk arrays are storage-only, exactly like the data/streaming_* siblings
+    // below. They still serialize and are still readable/writable from script (bound
+    // getters/setters plus Object::get()/set()); PROPERTY_USAGE_STORAGE only removes them
+    // from the editor's property list. That matters because the inspector enumerates the
+    // property list and calls every getter - including on an unloaded asset, which is what
+    // produced the "get_*() called on unloaded asset" warning stack on scene load (#834).
+    // These are multi-million-element arrays; there is no useful editor widget for them.
+    ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "data/positions", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE), "set_positions", "get_positions");
+    ADD_PROPERTY(PropertyInfo(Variant::PACKED_COLOR_ARRAY, "data/colors", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE), "set_colors", "get_colors");
+    ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "data/scales", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE), "set_scales", "get_scales");
+    ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "data/rotations", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE), "set_rotations", "get_rotations");
+    ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "data/sh_dc", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE), "set_sh_dc_coefficients", "get_sh_dc_coefficients");
+    ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "data/sh_first_order", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE), "set_sh_first_order_coefficients", "get_sh_first_order_coefficients");
+    ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "data/sh_high_order", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE), "set_sh_high_order_coefficients", "get_sh_high_order_coefficients");
+    ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "data/opacity_logits", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE), "set_opacity_logits", "get_opacity_logits");
+    ADD_PROPERTY(PropertyInfo(Variant::PACKED_INT32_ARRAY, "data/palette_ids", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE), "set_palette_ids", "get_palette_ids");
+    ADD_PROPERTY(PropertyInfo(Variant::PACKED_INT32_ARRAY, "data/painterly_flags", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE), "set_painterly_flags", "get_painterly_flags");
+    ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "data/normals", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE), "set_normals", "get_normals");
+    ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "data/brush_axes", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE), "set_brush_axes", "get_brush_axes");
+    ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "data/stroke_ages", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE), "set_stroke_ages", "get_stroke_ages");
     ADD_PROPERTY(PropertyInfo(Variant::PACKED_BYTE_ARRAY, "data/streaming_chunk_records", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE),
             "set_streaming_chunk_records", "get_streaming_chunk_records");
     ADD_PROPERTY(PropertyInfo(Variant::PACKED_INT32_ARRAY, "data/streaming_primary_source_indices", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE),

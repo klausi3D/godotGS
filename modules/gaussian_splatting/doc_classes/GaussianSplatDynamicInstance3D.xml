@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<class name="GaussianSplatDynamicInstance3D" inherits="GaussianSplatNode3D" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+<class name="GaussianSplatDynamicInstance3D" inherits="GaussianSplatNode3D" deprecated="Use [GaussianSplatNode3D] instead. This class is a load-compatibility shim for scenes saved before the dynamic instance node was folded into [GaussianSplatNode3D]; it adds nothing and will be removed in a future release." xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
 	<brief_description>
 		Deprecated alias of [GaussianSplatNode3D].
 	</brief_description>
