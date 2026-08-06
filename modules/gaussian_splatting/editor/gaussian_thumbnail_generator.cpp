@@ -214,9 +214,10 @@ void GaussianThumbnailGenerator::_save_to_disk_cache(uint64_t p_fingerprint, int
     p_image->save_png(path);
 }
 
-Dictionary GaussianThumbnailGenerator::_project_to_canvas(const GaussianSplatAsset::PayloadSnapshot &p_snapshot, int p_size,
-        Vector<int> &r_hits, Vector<Color> &r_accum) const {
-    Dictionary result;
+bool GaussianThumbnailGenerator::_project_to_canvas(const GaussianSplatAsset::PayloadSnapshot &p_snapshot, int p_size,
+        Vector<int> &r_hits, Vector<Color> &r_accum, Dictionary &r_projection) const {
+    Dictionary &result = r_projection;
+    result.clear();
     r_hits.clear();
     r_accum.clear();
 
@@ -225,15 +226,23 @@ Dictionary GaussianThumbnailGenerator::_project_to_canvas(const GaussianSplatAss
     // ptrw() null and the first store is a wild write. Clear BOTH on failure, not just the
     // one that failed: every caller loops on hits.size() while indexing accum with the same
     // i, so a sized `hits` next to an empty `accum` would turn into a null-pointer READ in
-    // _generate_color_thumbnail. Empty-both is a state the callers already tolerate -- their
-    // loops simply do not run -- and it degrades to a flat thumbnail rather than a crash.
+    // _generate_color_thumbnail.
+    //
+    // #798 review round 3: clearing both is necessary but NOT sufficient, and returning an
+    // empty projection was actively harmful. Every caller tolerated it by producing a flat
+    // image, and generate_thumbnail_image() cannot tell a flat image from a good one: it
+    // stores any valid Ref<Image> in the in-memory cache AND writes it to the disk cache
+    // keyed by the asset fingerprint (:550-559). One transient allocation failure therefore
+    // pinned a blank preview for that asset across editor sessions, with no retry. So the
+    // status is now RETURNED, and the four generators turn it into a null Ref<Image> --
+    // which generate_thumbnail_image() already treats as "do not cache".
     if (!gs_resize_or_fail(r_hits, int64_t(p_size) * int64_t(p_size),
                 "GaussianThumbnailGenerator::_project_to_canvas hits") ||
             !gs_resize_or_fail(r_accum, int64_t(p_size) * int64_t(p_size),
                     "GaussianThumbnailGenerator::_project_to_canvas accum")) {
         r_hits.clear();
         r_accum.clear();
-        return result;
+        return false;
     }
 
     int *hits_ptr = r_hits.ptrw();
@@ -313,13 +322,19 @@ Dictionary GaussianThumbnailGenerator::_project_to_canvas(const GaussianSplatAss
         result[StringName("average_scale")] = avg_scale;
     }
 
-    return result;
+    return true;
 }
 
 Ref<Image> GaussianThumbnailGenerator::_generate_color_thumbnail(const GaussianSplatAsset::PayloadSnapshot &p_snapshot, int p_size) const {
     Vector<int> hits;
     Vector<Color> accum;
-    _project_to_canvas(p_snapshot, p_size, hits, accum);
+    Dictionary projection;
+    // #798 round 3: a null Ref, not a flat image -- generate_thumbnail_image() caches any
+    // valid image it gets back, in memory and on disk, so a degraded result would outlive
+    // the allocation failure that produced it.
+    if (!_project_to_canvas(p_snapshot, p_size, hits, accum, projection)) {
+        return Ref<Image>();
+    }
 
     Ref<Image> image = Image::create_empty(p_size, p_size, false, Image::FORMAT_RGBA8);
     image->fill(Color(0.08f, 0.08f, 0.08f, 1.0f));
@@ -342,7 +357,11 @@ Ref<Image> GaussianThumbnailGenerator::_generate_color_thumbnail(const GaussianS
 Ref<Image> GaussianThumbnailGenerator::_generate_density_thumbnail(const GaussianSplatAsset::PayloadSnapshot &p_snapshot, int p_size) const {
     Vector<int> hits;
     Vector<Color> accum;
-    _project_to_canvas(p_snapshot, p_size, hits, accum);
+    Dictionary projection;
+    // #798 round 3: see _generate_color_thumbnail -- do not hand back a cacheable blank.
+    if (!_project_to_canvas(p_snapshot, p_size, hits, accum, projection)) {
+        return Ref<Image>();
+    }
 
     int max_hit = 1;
     const int *hits_ptr = hits.ptr();
@@ -368,7 +387,15 @@ Ref<Image> GaussianThumbnailGenerator::_generate_density_thumbnail(const Gaussia
 Ref<Image> GaussianThumbnailGenerator::_generate_normals_thumbnail(const GaussianSplatAsset::PayloadSnapshot &p_snapshot, int p_size) const {
     Vector<int> hits;
     Vector<Color> accum;
-    Dictionary projection = _project_to_canvas(p_snapshot, p_size, hits, accum);
+    Dictionary projection;
+    // #798 round 3: see _generate_color_thumbnail -- do not hand back a cacheable blank.
+    // This also subsumes the round-1 `hits.is_empty()` bail that used to sit after the
+    // image was created: on success hits.size() == p_size * p_size (and p_size > 0 is
+    // enforced by generate_thumbnail_image()), so the only way it could be empty was this
+    // allocation failure, and we now return before allocating anything at all.
+    if (!_project_to_canvas(p_snapshot, p_size, hits, accum, projection)) {
+        return Ref<Image>();
+    }
 
     Ref<Image> image = Image::create_empty(p_size, p_size, false, Image::FORMAT_RGBA8);
     image->fill(Color(0.3f, 0.3f, 0.4f, 1.0f));
@@ -389,11 +416,12 @@ Ref<Image> GaussianThumbnailGenerator::_generate_normals_thumbnail(const Gaussia
     // #798: the accumulate loop below is bounded by splat_count and scatters into
     // normal_ptr[idx] for idx < p_size * p_size -- it never consults normal_accum.size().
     // So an EMPTY canvas is not benign here the way it is in the other three styles: with
-    // hits empty, normal_ptr is null and that loop writes straight through it. Bail out
-    // before the resizes; `image` is already flat-filled and the read loop at the bottom is
-    // bounded by hits.size(), so returning here yields byte-identical output.
+    // hits empty, normal_ptr is null and that loop writes straight through it. The
+    // fail-closed return above is what keeps that from happening; this assert pins the
+    // invariant it relies on rather than leaving it implicit.
     if (hits.is_empty()) {
-        return image;
+        ERR_FAIL_V_MSG(Ref<Image>(),
+                "GaussianThumbnailGenerator::_generate_normals_thumbnail: canvas reported success with an empty hit buffer.");
     }
 
     Vector<Vector3> normal_accum;
@@ -464,7 +492,11 @@ Ref<Image> GaussianThumbnailGenerator::_generate_normals_thumbnail(const Gaussia
 Ref<Image> GaussianThumbnailGenerator::_generate_heatmap_thumbnail(const GaussianSplatAsset::PayloadSnapshot &p_snapshot, int p_size) const {
     Vector<int> hits;
     Vector<Color> accum;
-    _project_to_canvas(p_snapshot, p_size, hits, accum);
+    Dictionary projection;
+    // #798 round 3: see _generate_color_thumbnail -- do not hand back a cacheable blank.
+    if (!_project_to_canvas(p_snapshot, p_size, hits, accum, projection)) {
+        return Ref<Image>();
+    }
 
     int max_hit = 1;
     const int *hits_ptr = hits.ptr();

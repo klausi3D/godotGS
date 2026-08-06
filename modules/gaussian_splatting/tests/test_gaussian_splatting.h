@@ -71,6 +71,7 @@
 #include "test_scene_director_renderer_contract_lock.h"
 #include "test_sentinel_tier_defaults.h"
 #include "test_manager_singleton_guard.h"
+#include "test_gaussian_thumbnail_generator.h"
 #include "generate_synthetic_ply_fixtures.h"
 
 	extern "C" int test_gpu_streaming_cpp_force_link();

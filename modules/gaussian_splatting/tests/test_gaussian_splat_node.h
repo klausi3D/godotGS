@@ -11,6 +11,9 @@
 #include "../core/gaussian_splat_world.h"
 #include "../core/gaussian_splat_scene_director.h"
 #include "../core/gaussian_splat_source_path.h"
+// #798 round 3: the TESTS_ENABLED failure-injection seam used by the failed-set_splat_data
+// case below (gs_vector_alloc_force_failure_at / _is_armed / _clear).
+#include "../core/gs_vector_alloc.h"
 #include "../renderer/gaussian_splat_renderer.h"
 #include "../renderer/sh_config.h"
 #include "../resources/color_grading_resource.h"
@@ -3129,20 +3132,30 @@ TEST_CASE("[GaussianSplatting][Editor] Inspector suppresses every debug/ propert
 // Written as a contract: the node must publish either the NEW payload or
 // nothing, and in neither case the stale previous payload.
 //
-// HONEST STATUS: in this build the case cannot reach that contract. set_splat_data()
-// gates on _ensure_renderer_for_manual_data() (:742), and headless the SceneDirector
-// returns no shared renderer, so it bails before touching runtime_asset --
-// renderer_data is instantiated ONLY at :861, reachable ONLY from set_splat_data().
-// The case therefore takes the no-renderer leg below (1 assertion) and does NOT
-// exercise the fix. Measured, not assumed: with and without --headless.
+// ── #798 review round 3: the case now FORCES the failure ────────────────
 //
-// So runtime_asset.unref() here rests on cited inspection, not on a passing
-// mutation: populate_from_gaussian_data() bails at its `count <= 0` check
-// (gaussian_splat_asset.cpp:1751) BEFORE overwriting splat_count, so a
-// runtime_asset holding the previous payload keeps it, and
-// _register_instance_in_director() assigns `asset = runtime_asset` at :2467
-// regardless of the error it just logged. The PR body states this rather than
-// counting this case as coverage.
+// Two things were wrong with the round-2 version of this case, and the second was
+// only visible once the first was fixed:
+//
+//  1. It never failed. It submitted seven ordinary elements and no injection, so both
+//     derived allocations succeeded, the node published 7, and both assertions passed
+//     with the whole rollback branch deleted. Payload size cannot fix that: any count
+//     large enough to exhaust the allocator is rejected by _validate_splat_data_inputs()
+//     first. It now arms the TESTS_ENABLED seam in core/gs_vector_alloc.h at the exact
+//     `p_where` label of the sh_dc resize, and asserts the seam actually fired.
+//
+//  2. Reaching the branch showed the ROLLBACK was still incomplete. published == 0 was
+//     never the fail-closed state it looked like: with renderer_data left valid-but-empty
+//     the node re-registers with a fresh, zero-splat runtime_asset and keeps reporting
+//     "has data" to the editor. The count-only assertions could not see that, which is
+//     why the fix needed renderer_data.unref() and why the assertions below now cover
+//     the registration itself and the configuration warning, not just the count.
+//
+// Two legs remain. Headless the SceneDirector returns no shared renderer, so
+// set_splat_data() bails at _ensure_renderer_for_manual_data() (:742) before any payload
+// is published; that leg asserts exactly that and is honest about proving nothing else.
+// Under the GPU harness (NodeSceneTree batch) a renderer exists and the full contract
+// above runs.
 TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] A failed set_splat_data must not republish the previous payload") {
 	SceneTree *tree = SceneTree::get_singleton();
 	if (tree == nullptr) {
@@ -3234,16 +3247,46 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] A failed set_splat_
 		opacities_b.push_back(1.0f);
 		rotations_b.push_back(Quaternion());
 	}
+	// #798 review round 3: the second call MUST actually fail, and nothing about the payload
+	// can make it. `opacities_b` is non-empty, so the opacity_from_color allocation is skipped;
+	// `sh` is empty and `colors_b` is not, so _apply_optional_splat_arrays() takes the sh_dc
+	// branch (gaussian_splat_node_3d.cpp:912-929) -- and that resize succeeds for 7 splats, as
+	// it would for any count _validate_splat_data_inputs() lets through. The previous revision
+	// of this case submitted exactly these arrays with no injection: both derived resizes
+	// succeeded, the node published 7, and both CHECKs below passed with the entire rollback
+	// branch deleted. Arm the sh_dc site so the real gs_resize_or_fail() takes its real
+	// failure branch.
+	gs_vector_alloc_force_failure_at("GaussianSplatNode3D::set_splat_data sh_dc");
 	{
-		// The mutation arm emits the expected allocation ERR_PRINT; keep the log clean.
+		// The failure arm emits the expected allocation ERR_PRINT; keep the log clean.
 		ERR_PRINT_OFF;
 		node->set_splat_data(positions_b, colors_b, scales_b, opacities_b, rotations_b,
 				sh, palette_ids, painterly_flags, normals, brush_axes, stroke_ages, false);
 		ERR_PRINT_ON;
 	}
+	// Assert the injection FIRED before asserting anything about its consequences. The arm is
+	// cleared by the firing, so a still-armed seam means set_splat_data() never reached that
+	// allocation -- the case would otherwise silently go back to measuring the success path,
+	// which is precisely the vacuity being fixed here. Disarm either way so a failure here
+	// cannot leak into a later case.
+	//
+	// This guard covers a RENAMED or unreached site, not a deleted arm: measured by deleting
+	// the arm above, the seam is simply never armed and this reads "fired". That case is
+	// covered instead by the assertions themselves, which then see the SUCCESS path and go
+	// red 4-of-5 (published==7, has_after, no warning, count==7) rather than passing. Both
+	// arms were run.
+	const bool injection_fired = !gs_vector_alloc_forced_failure_is_armed();
+	gs_vector_alloc_clear_forced_failure();
+	if (!injection_fired) {
+		FAIL("the injected sh_dc allocation failure never fired -- set_splat_data() did not reach _apply_optional_splat_arrays()'s sh_dc resize, so this case proves nothing");
+		root->remove_child(node);
+		memdelete(node);
+		tree->process(0.0);
+		return;
+	}
 	tree->process(0.0);
 
-	// Force the tree/world re-entry that rebuilds `asset` from runtime_asset.
+	// Force the tree/world re-entry that rebuilds `asset` from renderer_data / runtime_asset.
 	root->remove_child(node);
 	root->add_child(node);
 	tree->process(0.0);
@@ -3256,10 +3299,30 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] A failed set_splat_
 
 	CHECK_MESSAGE(published != 5,
 			"After set_splat_data() fails, a tree re-entry must NOT republish the previous 5-splat payload.");
-	// Extra parens are load-bearing: a top-level || inside CHECK trips doctest's
-	// expression decomposition ("Expression Too Complex", doctest.h:1545).
-	CHECK_MESSAGE((published == 7 || published == 0),
-			"The node must publish either the new payload or nothing -- never a stale or mixed one.");
+	CHECK_MESSAGE(published != 7,
+			"After set_splat_data() fails, the node must NOT publish the payload whose derived allocation failed.");
+	// The registration itself, not just its splat count. runtime_asset.unref() alone leaves
+	// renderer_data a valid-but-empty Ref, and _register_instance_in_director() then builds a
+	// FRESH runtime_asset out of it and registers that zero-splat asset -- published == 0 while
+	// the node is still permanently in the director. This is the assertion that the round-3
+	// renderer_data.unref() is needed for; the count-only assertions above cannot see it.
+	CHECK_MESSAGE(!has_after,
+			"After a failed set_splat_data(), a tree re-entry must not re-register the node at all -- not even with an empty asset.");
+	// Same failure seen from the editor side: a node with no renderable payload must say so.
+	const PackedStringArray warnings = node->get_configuration_warnings();
+	bool warns_no_data = false;
+	for (int i = 0; i < warnings.size(); i++) {
+		if (warnings[i].contains("No Gaussian splat asset or runtime data assigned")) {
+			warns_no_data = true;
+			break;
+		}
+	}
+	CHECK_MESSAGE(warns_no_data,
+			"After a failed set_splat_data(), the node must report the no-data configuration warning.");
+	// The counters are maintained by _finalize_manual_splat_setup(), which this branch skips,
+	// so without an explicit reset they keep describing the previous 5-splat payload.
+	CHECK_MESSAGE(node->get_total_splat_count() == 0u,
+			"After a failed set_splat_data(), the node must not still report the previous payload's splat count.");
 
 	root->remove_child(node);
 	memdelete(node);

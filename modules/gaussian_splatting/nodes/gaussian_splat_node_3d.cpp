@@ -772,7 +772,40 @@ void GaussianSplatNode3D::set_splat_data(const PackedVector3Array &p_positions,
         // set_splat_data() failed. Drop the cached asset too, so a later registration has nothing
         // stale to fall back to.
         runtime_asset.unref();
+        // #798 review round 3: resize(0) + runtime_asset.unref() STILL is not failed-closed,
+        // and the test that was supposed to prove otherwise never reached this branch (it
+        // submitted arrays that allocate fine, so it passed with the whole branch deleted).
+        // With renderer_data left as a valid-but-empty Ref, the node keeps a source:
+        //   * _register_shared_renderer() (:2643) early-returns only when ALL THREE of
+        //     splat_asset / renderer_data / runtime_asset are null, so it proceeds;
+        //   * _register_instance_in_director() (:2460) then sees `renderer_data.is_valid()`,
+        //     instantiates a FRESH runtime_asset, populates it from the empty data, logs the
+        //     error, CONTINUES, and hands that empty asset to register_instance();
+        //   * _has_local_source_data() (:1915) and get_configuration_warnings() (:1761) both
+        //     stay "has data", so the editor shows no no-data warning for a node that has none.
+        // MEASURED with this line mutated out (RTX 3090, --gs-gpu-test): the director itself
+        // rejects the empty asset ("[GaussianSplatSceneDirector] Failed to build GaussianData
+        // from asset"), so no submission survives -- the visible damage is not a rendered
+        // zero-splat instance but a node that lies about having data and re-attempts, and
+        // re-logs, that failed population on every tree/world re-entry. That is what the
+        // configuration-warning assertion in the test catches, and it is RED without this
+        // line. Unref the source too: with all three null the re-entry path early-returns
+        // before any of it, and the warning tells the truth again. resize(0) above
+        // is kept deliberately -- it clears the half-overwritten payload for any other holder
+        // of this GaussianData before we drop our own reference.
+        renderer_data.unref();
+        // The counters and bounds are the last thing still describing the PREVIOUS payload:
+        // _finalize_manual_splat_setup() (:1017-1020) is what maintains them, and it is
+        // exactly what this branch skips. Leaving them would report "5 splats, N MB" on a
+        // node that now has no data at all -- the stats/* inspector rows and
+        // get_total_splat_count() read these fields directly.
+        total_splat_count = 0;
+        visible_splat_count = 0;
+        gpu_memory_mb = 0.0f;
+        local_aabb = AABB();
+        bounds_dirty = true;
         _unregister_shared_renderer();
+        update_configuration_warnings();
         return;
     }
     renderer_data->set_2d_mode(p_is_2d_mode);
