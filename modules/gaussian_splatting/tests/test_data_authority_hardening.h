@@ -957,4 +957,128 @@ TEST_CASE("[GaussianSplatting][DataAuthority] Merge either preserves every sourc
     }
 }
 
+TEST_CASE("[GaussianSplatting][DataAuthority] A failed lane SHRINK that leaves the lane oversized fails closed") {
+    // #798 review round 5. The two existing injection shapes (EMPTY, SHORT) are both
+    // "lane too small". A resize can also fail while SHRINKING: CowData::_fork_allocate()
+    // takes its in-place branch, calls _realloc() with the smaller alloc size, and on
+    // failure returns BEFORE `*_get_size() = p_size` ("Out of memory; the current array is
+    // still valid though", core/templates/cowdata.h) -- so the lane survives at its old,
+    // LARGER length. populate_from_gaussian_data() is the asset REWRITE path, so shrinking
+    // an existing asset to fewer splats is an ordinary thing for it to do.
+    //
+    // On sh_high_order_coefficients that shape was worse than a stale length, because the
+    // length is not just data -- _ensure_buffer_sizes() ends in
+    // _recalculate_sh_component_counts(), which DERIVES sh_high_order_terms from
+    // `lane.size() / (splat_count * 3)`. An oversized lane therefore INFLATES the term
+    // count, the inflated count reproduces the oversized length exactly as "the required
+    // length", and the write loop then uses it as the stride into the SOURCE GaussianData's
+    // high-order array -- which is correctly sized, i.e. shorter. Out-of-bounds READ, on the
+    // way to sealing and version-bumping a corrupted asset.
+    //
+    // Numbers below are chosen so the pre-fix `size() < required` test is provably blind:
+    //   seed    4 splats x 2 terms -> lane 4*2*3 = 24 floats
+    //   rewrite 2 splats x 2 terms -> lane must become 2*2*3 = 12 floats
+    //   failed shrink leaves 24 -> derived terms = 24 / (2*3) = 4 -> "required" = 2*4*3 = 24
+    // 24 < 24 is false, so the lane was accepted, and the loop then strode the source's
+    // 2*2 = 4 Vector3s with a stride of 4, reading up to index 8.
+    Ref<GaussianSplatAsset> asset;
+    asset.instantiate();
+
+    LocalVector<Vector3> seed_high_order;
+    seed_high_order.resize(4 * 2);
+    for (uint32_t i = 0; i < seed_high_order.size(); i++) {
+        seed_high_order[i] = Vector3(float(i), float(i), float(i));
+    }
+    Ref<::GaussianData> seed;
+    seed.instantiate();
+    seed->set_gaussian_payload(_make_failure_contract_cloud(4), seed_high_order, 0, 2, false);
+    if (seed->get_sh_high_order_count() != 2u) {
+        // set_gaussian_payload() silently drops a mismatched SH block; without high-order
+        // SH the whole term-count derivation this case guards is unreachable.
+        FAIL("seed GaussianData must carry 2 high-order SH terms per splat");
+        return;
+    }
+    if (asset->populate_from_gaussian_data(seed) != OK) {
+        FAIL("seed populate_from_gaussian_data() must succeed");
+        return;
+    }
+    if (asset->get_splat_count() != 4u) {
+        FAIL("seed populate must yield 4 splats");
+        return;
+    }
+    if (asset->get_sh_high_order_coefficients().size() != 4 * 2 * 3) {
+        FAIL("seed populate must leave a 24-float high-order lane (premise for the shrink)");
+        return;
+    }
+    const uint32_t seeded_version = asset->get_payload_version();
+
+    // The rewrite: same term count, FEWER splats, so every lane must shrink.
+    LocalVector<Vector3> rewrite_high_order;
+    rewrite_high_order.resize(2 * 2);
+    for (uint32_t i = 0; i < rewrite_high_order.size(); i++) {
+        rewrite_high_order[i] = Vector3(float(i) + 100.0f, 0, 0);
+    }
+    Ref<::GaussianData> rewrite;
+    rewrite.instantiate();
+    rewrite->set_gaussian_payload(_make_failure_contract_cloud(2), rewrite_high_order, 0, 2, false);
+    if (rewrite->get_count() != 2 || rewrite->get_sh_high_order_count() != 2u) {
+        FAIL("rewrite GaussianData must be 2 splats x 2 high-order terms");
+        return;
+    }
+
+    SUBCASE("an unforced shrink still succeeds") {
+        // Keeps the injection honest in the other direction: the identical call with
+        // nothing armed must take the success path and land on the SHRUNK lengths, so the
+        // exact-equality requirement is not just rejecting every shrink.
+        const Error err = asset->populate_from_gaussian_data(rewrite);
+        CHECK(err == OK);
+        CHECK(asset->get_splat_count() == 2u);
+        CHECK(asset->get_positions().size() == 2 * 3);
+        CHECK_MESSAGE(asset->get_sh_high_order_coefficients().size() == 2 * 2 * 3,
+                "A successful shrink must leave the high-order lane at exactly count * terms * 3.");
+        CHECK(asset->get_payload_version() != seeded_version);
+    }
+
+    SUBCASE("a failed shrink that leaves the lane OVERSIZED resets the asset instead of striding the source out of bounds") {
+        // Premises, asserted BEFORE arming so they hold on a pre-fix binary too: the lane
+        // really is longer than the rewrite needs, which is the whole precondition for the
+        // inflated-term-count read.
+        if (asset->get_sh_high_order_coefficients().size() != 24) {
+            FAIL("premise: the armed rewrite must start from a 24-float high-order lane");
+            return;
+        }
+        if (rewrite->get_count() * int(rewrite->get_sh_high_order_count()) * 3 != 12) {
+            FAIL("premise: the rewrite must need exactly 12 high-order floats");
+            return;
+        }
+
+        asset->_test_force_next_populate_lane_failure(GaussianSplatAsset::TEST_LANE_FAILURE_OVERSIZED);
+
+        Error err;
+        {
+            ERR_PRINT_OFF;
+            err = asset->populate_from_gaussian_data(rewrite);
+            ERR_PRINT_ON;
+        }
+
+        CHECK_MESSAGE(err == ERR_OUT_OF_MEMORY,
+                "An oversized lane left by a failed shrink must reach the ERR_OUT_OF_MEMORY branch, "
+                "not be accepted because it merely holds 'enough' elements.");
+        CHECK_MESSAGE(asset->get_splat_count() == 0u,
+                "A failed populate must reset to an empty asset, not seal the oversized payload.");
+        CHECK_MESSAGE(asset->get_sh_high_order_coefficients().is_empty(),
+                "The oversized high-order lane must not survive the failed populate.");
+        CHECK(asset->get_positions().is_empty());
+        CHECK_MESSAGE(asset->get_payload_version() != seeded_version,
+                "A failed populate must bump payload_version so version-gated consumers rebuild.");
+        {
+            const Dictionary reset_metadata = asset->get_import_metadata();
+            CHECK_MESSAGE((bool)reset_metadata.get(StringName("bounds_dirty"), false),
+                    "A failed populate must mark bounds dirty, or consumers keep the pre-reset AABB.");
+            CHECK_MESSAGE(!reset_metadata.has(StringName("bounds")),
+                    "A failed populate must drop the stale cached bounds AABB.");
+        }
+    }
+}
+
 } // namespace TestGaussianSplatting

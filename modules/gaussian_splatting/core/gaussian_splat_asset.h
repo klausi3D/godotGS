@@ -55,6 +55,16 @@ public:
         // A failed GROW of an already-populated lane: the lane keeps its previous,
         // shorter size. This is the shape that would silently overflow the heap.
         TEST_LANE_FAILURE_SHORT,
+        // A failed SHRINK of an already-populated lane: CowData::_fork_allocate()
+        // returns before writing the new size when _realloc() fails, so the lane keeps
+        // its previous, LARGER size. Applied to sh_high_order_coefficients, because that
+        // lane's LENGTH is what _recalculate_sh_component_counts() derives the SH term
+        // count from -- an oversized lane therefore inflates the term count, which the
+        // write loop uses as the stride into the SOURCE GaussianData's (correctly sized,
+        // hence shorter) high-order array. That is an out-of-bounds READ on the way to
+        // sealing a corrupted asset, and unlike the SHORT shape a `size() < required`
+        // test cannot see it.
+        TEST_LANE_FAILURE_OVERSIZED,
     };
     enum TestGetterFailure {
         TEST_GETTER_FAILURE_NONE,
@@ -323,8 +333,9 @@ public:
     }
 
 #ifdef TESTS_ENABLED
-    // Arms the NEXT populate_from_gaussian_data() to see p_mode's buffer shape on the
-    // `positions` lane, then clears itself. See TestLaneFailure.
+    // Arms the NEXT populate_from_gaussian_data() to see p_mode's buffer shape, then
+    // clears itself. EMPTY/SHORT are applied to the `positions` lane; OVERSIZED to
+    // `sh_high_order_coefficients` (see TestLaneFailure for why the lane differs).
     void _test_force_next_populate_lane_failure(TestLaneFailure p_mode) { test_lane_failure = p_mode; }
     // Arms the NEXT matching structured getter to return its allocation-failure result
     // (the empty array), then clears itself. See TestGetterFailure.

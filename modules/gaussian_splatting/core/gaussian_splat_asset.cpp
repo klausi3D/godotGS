@@ -1701,6 +1701,18 @@ namespace {
 //                         failed outright (a fresh/CoW-forked lane whose _alloc failed leaves
 //                         _ptr null, hence empty rather than short), so fail closed.
 //
+// #798 review round 5: the test is EXACT EQUALITY, not ">= required". A resize that SHRINKS
+// can fail too, and CowData::_fork_allocate() bails out of its in-place branch before writing
+// the new size when _realloc() fails ("Out of memory; the current array is still valid though",
+// core/templates/cowdata.h) -- so a failed shrink leaves the lane at its previous, LARGER
+// length. `size() < required` waves that through and populate_from_gaussian_data() seals an
+// asset whose lane lengths contradict its own splat_count: the has_normals / has_palette_ids /
+// has_brush_axes metadata flags below are written as `lane.size() == splat_count * stride` and
+// silently flip to false, dropping fields that are physically still there, and the oversized
+// lane is what gets serialized. There is no legitimate over-length lane here --
+// _ensure_buffer_sizes() sizes every lane to exactly the length the write loop indexes it to --
+// so "longer than required" is an allocation failure just as much as "shorter" is.
+//
 // Without that second case a failed allocation of a required lane returned nullptr with r_ok
 // still true, and populate_from_gaussian_data() went on to seal the asset, bump its version
 // and return OK with a nonzero splat_count and no payload for that lane.
@@ -1716,11 +1728,12 @@ T *_gs_lane_ptrw_or_fail(Vector<T> &p_lane, int64_t p_required, const char *p_na
         }
         return nullptr;
     }
-    if (int64_t(p_lane.size()) < p_required) {
+    if (int64_t(p_lane.size()) != p_required) {
         r_ok = false;
-        ERR_PRINT(vformat("[GaussianSplatAsset] populate_from_gaussian_data: lane '%s' holds %d of "
-                          "the %d elements this payload needs, so its buffer allocation failed. "
-                          "Aborting the population instead of writing past the end of the lane.",
+        ERR_PRINT(vformat("[GaussianSplatAsset] populate_from_gaussian_data: lane '%s' holds %d "
+                          "elements but this payload needs exactly %d, so its buffer resize failed. "
+                          "Aborting the population instead of sealing an asset whose lane lengths "
+                          "disagree with its splat count.",
                 String(p_name), int64_t(p_lane.size()), p_required));
         return nullptr;
     }
@@ -1764,27 +1777,64 @@ Error GaussianSplatAsset::populate_from_gaussian_data(const Ref<::GaussianData> 
     }
 
     splat_count = count;
-    sh_first_order_terms = MIN<uint32_t>(p_gaussian_data->get_sh_first_order_count(), 3u);
-    sh_high_order_terms = p_gaussian_data->get_sh_high_order_count();
+    // #798 review round 5: keep the REQUESTED term counts in locals. `sh_*_terms` are about
+    // to become untrustworthy: _ensure_buffer_sizes() ends in _recalculate_sh_component_counts(),
+    // which DERIVES both counts back out of the lane SIZES. That derivation is only equal to
+    // what was asked for when the resize actually landed -- on a failed resize it reports the
+    // term count of the SURVIVING lane, so every length derived from it afterwards describes
+    // the corrupted lane instead of the payload. The source's own counts are the ground truth
+    // for both the lane requirements and the stride into p_gaussian_data's arrays.
+    const uint32_t requested_first_order_terms = MIN<uint32_t>(p_gaussian_data->get_sh_first_order_count(), 3u);
+    const uint32_t requested_high_order_terms = p_gaussian_data->get_sh_high_order_count();
+    sh_first_order_terms = requested_first_order_terms;
+    sh_high_order_terms = requested_high_order_terms;
+#ifdef TESTS_ENABLED
+    // Snapshot for TEST_LANE_FAILURE_OVERSIZED below: a failed shrink leaves the lane at
+    // exactly its PREVIOUS length, so the injection has to know that length.
+    const int test_prev_high_order_size = sh_high_order_coefficients.size();
+#endif
     _ensure_buffer_sizes();
 
 #ifdef TESTS_ENABLED
     // Arm-once allocation-failure injection; see GaussianSplatAsset::TestLaneFailure.
     // _ensure_buffer_sizes() ignores every resize() return, so a failure there is visible
-    // ONLY as the lane's resulting size. Reproducing that size is therefore a complete
-    // simulation of the failure, not an approximation of it.
+    // ONLY as the lane's resulting size (plus whatever _recalculate_sh_component_counts()
+    // then derives from it). Reproducing that state is therefore a complete simulation of
+    // the failure, not an approximation of it.
     if (test_lane_failure != TEST_LANE_FAILURE_NONE) {
         const TestLaneFailure mode = test_lane_failure;
         test_lane_failure = TEST_LANE_FAILURE_NONE;
         if (mode == TEST_LANE_FAILURE_EMPTY) {
             positions.clear();
-        } else {
+        } else if (mode == TEST_LANE_FAILURE_SHORT) {
             // Non-empty but short: keep one splat's worth, which is < count * 3 for any
             // count > 1. Shrinking never allocates, so this cannot itself fail.
             positions.resize(3);
+        } else {
+            // TEST_LANE_FAILURE_OVERSIZED: a failed SHRINK. CowData::_fork_allocate()
+            // returns early when _realloc() fails and never writes the new size, so the
+            // lane keeps its previous, LARGER length with its previous contents
+            // (core/templates/cowdata.h). Deliberately applied to
+            // sh_high_order_coefficients, the one lane whose length feeds a derived term
+            // count -- restore its pre-resize length and re-run the derivation exactly as
+            // _ensure_buffer_sizes() would have on the real failure.
+            if (test_prev_high_order_size > sh_high_order_coefficients.size()) {
+                sh_high_order_coefficients.resize_initialized(test_prev_high_order_size);
+            }
+            _recalculate_sh_component_counts();
         }
     }
 #endif
+
+    // #798 review round 5: undo any lane-derived term count before it can be used. Placed
+    // AFTER the injection block on purpose, so an injected shape gets exactly the same
+    // treatment a real failure would. On the success path this is a no-op --
+    // _recalculate_sh_component_counts() reproduces the requested counts exactly from a lane
+    // of length count * terms * 3 -- but on a failed shrink it is what stops the inflated
+    // count from (a) being accepted as the lane's own requirement below and (b) becoming the
+    // stride used to walk p_gaussian_data's SHORTER high-order array in the write loop.
+    sh_first_order_terms = requested_first_order_terms;
+    sh_high_order_terms = requested_high_order_terms;
 
     const Vector3 *high_order_ptr = p_gaussian_data->get_sh_high_order_coefficients_ptr();
 
