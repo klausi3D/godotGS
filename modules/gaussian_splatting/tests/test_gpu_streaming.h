@@ -910,43 +910,44 @@ TEST_CASE("[GaussianSplatting][Streaming] A stride flip drops an ASYNC-packed pe
 	CHECK(chunks_after[0].buffer_slot == UINT32_MAX);
 }
 
-// ── #798 review round 2: a failed coalesced upload must report zero bytes ──
+// ── #798 review round 3: the claim window in GaussianMemoryStream ────────────
 //
-// _stream_internal() claims a slot (BUFFER_UPLOADING) BEFORE attempting the
-// coalesced upload. When the scratch allocation fails, that slot still carries
-// `used` from whatever it last held, and _wait_for_buffer_complete() can publish
-// it BUFFER_READY without ever taking buffer_mutex -- so get_current_gpu_buffer()
-// could hand the renderer a slot advertising the PREVIOUS frame's byte count.
-// The round-2 fix clears `used` FIRST, before attempting the release, so a slot
-// that does get published reports zero bytes rather than stale contents.
+// Both cases below drive the same structural hazard from opposite ends.
+// _stream_internal() CLAIMS a stream slot (BUFFER_FREE -> BUFFER_UPLOADING) before
+// the upload is submitted, so in that window the slot is BUFFER_UPLOADING with
+// upload_fence == 0 -- which _wait_for_buffer_complete() reads as "already
+// complete" and publishes BUFFER_READY, lock-free, from the render thread.
 //
-// The three buffers rotate, so cycling all of them and then failing makes the
-// aggregate byte count discriminating: clearing the claimed slot must drop the
-// total, whereas leaving it stale keeps the total unchanged.
+// WHY THE ROUND-2 VERSION OF THIS TEST WAS VACUOUS (the review was right): it
+// uploaded the SAME payload size three times as warm-up, so coalesced_upload_scratch
+// was already large enough and the failure attempt never entered the grow branch at
+// all. It returned OK, took the success arm, and asserted only that a successful
+// upload reports nonzero bytes -- true with or without the production fix. Deleting
+// the fix left it green.
 //
-// NOT COVERED, deliberately: the lost-CAS arm. Proving it needs the lock-free
-// poller to publish the slot between the claim and the cleanup, which cannot be
-// scheduled deterministically without making the polling path take buffer_mutex
-// -- the wider change this fix explicitly declines to make. The window is
-// narrowed, not closed, and no assertion here claims otherwise.
-// HONEST STATUS: this case does not currently execute. In this build neither
-// RenderingDevice::get_singleton() nor create_local_rendering_device() yields a
-// device under --test, with or without --headless and with or without a
-// [SceneTree] tag (all four measured), so it takes the skip below with ZERO
-// assertions. That is not specific to this case: the existing
-// "GPU Memory Streaming" cases in this same file skip identically (2 passed, 0
-// assertions), and run_module_tests.py already documents RequiresGPU cases
-// "vacuously passing" the corpus the lane claims to cover -- which is why the
-// requires-RD lane is strict=False.
+// Two things were needed to make it discriminating, and only together:
+//   1. a LARGER payload on the failure attempt, so the grow branch is entered, and
+//   2. deterministic failure injection, because the grow itself will not fail: every
+//      payload big enough to exhaust the allocator is rejected earlier by
+//      _stream_internal()'s `data_size > buffer.capacity` check. See
+//      GaussianMemoryStream::ScratchGrowInjection for why (1) alone is not enough.
 //
-// It is kept because the contract it pins is real and it becomes a live proof
-// the moment the GPU harness can produce a device. It is NOT evidence today, and
-// the PR body says so rather than counting it as coverage.
-// The [MemoryStream] tag is required, not stylistic: without it this case matches
-// NO BatchSpec in run_gpu_harness.py and lands in unbatched_requires_gpu_backlog,
-// which test_gpu_harness_deferred_contract.py enforces as a shrink-only ratchet
-// ("If you ADDED entries, stop: put the test in a batch instead").
-TEST_CASE("[GaussianSplatting][MemoryStream][RequiresGPU] A failed coalesced upload leaves no stale bytes reported as used") {
+// Both cases run for real: `--gs-gpu-test` bootstraps an offscreen RenderingDevice
+// (gs_gpu_test_runner.cpp:_bootstrap_rd) and RenderingDevice::get_singleton() returns
+// it, so these execute and assert on an actual GPU. The round-2 note claiming this
+// file's [RequiresGPU] cases "do not currently execute" was measured under `--test`,
+// which is a different runner and never bootstraps a device; it was wrong, and the
+// manifest note has been corrected with it.
+
+// Zero-count uploads are a legitimate request, not an allocation failure.
+//
+// Vector<T>::ptr() is null for an empty vector, so stream_gaussians_async() on an
+// empty LocalVector -- including the default count == UINT32_MAX range call, which
+// resolves to 0 -- reaches _upload_buffer_coalesced() as (nullptr, 0). Making that
+// function report status turned its unconditional ERR_FAIL_NULL into a hard failure
+// for that legitimate call: ERR_OUT_OF_MEMORY plus a slot release, instead of the
+// zero-byte publish the zero-count branch right below it implements.
+TEST_CASE("[GaussianSplatting][MemoryStream][RequiresGPU] An empty gaussian range publishes a zero-byte upload (#798)") {
 	RenderingDevice *rd = RenderingDevice::get_singleton();
 	if (!rd) {
 		RenderingServer *rs = RenderingServer::get_singleton();
@@ -955,28 +956,79 @@ TEST_CASE("[GaussianSplatting][MemoryStream][RequiresGPU] A failed coalesced upl
 		}
 	}
 	if (!rd) {
-		MESSAGE("Skipping - no RenderingDevice available");
+		FAIL("no RenderingDevice: run this case via --gs-gpu-test, not --test");
 		return;
 	}
 
-	// Sized so a single upload is comfortably more than 1 MB: get_used_memory_mb()
-	// truncates to whole megabytes, so a small payload would read 0 either way and
-	// the assertion would be vacuous.
-	const uint32_t kSplats = 150000;
-
 	Ref<GaussianMemoryStream> stream;
 	stream.instantiate();
-	Error init_err = stream->initialize(rd, kSplats, 64);
-	if (init_err != OK) {
-		MESSAGE("Skipping - stream initialize failed");
+	if (stream->initialize(rd, 4096, 8) != OK) {
+		FAIL("stream initialize failed");
 		return;
 	}
 	stream->set_async_upload(true);
 
-	LocalVector<Gaussian> splats;
-	splats.resize(kSplats);
-	for (uint32_t i = 0; i < kSplats; i++) {
-		Gaussian &g = splats[i];
+	const LocalVector<Gaussian> empty;
+	stream->begin_frame(1);
+	Error err = stream->stream_gaussians_async(empty);
+
+	CHECK_MESSAGE(err == OK,
+			"An empty range is a legitimate zero-byte upload; rejecting the null data pointer "
+			"before the zero-count branch turns it into a spurious allocation failure.");
+	CHECK_MESSAGE(stream->get_current_gpu_buffer().is_valid(),
+			"The zero-count branch publishes the slot BUFFER_READY with used == 0; a rejected "
+			"call releases it instead and leaves nothing for the renderer.");
+
+	stream->shutdown();
+}
+
+// A failed coalesced upload must never publish the claimed slot -- not even when the
+// lock-free poller runs inside the claim window.
+//
+// SCRATCH_GROW_INJECT_FAIL_AND_POLL makes exactly that interleaving deterministic: at
+// the failure point it runs _poll_uploads() on this thread, which is precisely what a
+// concurrent render thread would do. Without the upload_submitted claim/submit flag
+// the poller publishes the never-written slot BUFFER_READY, the cleanup CAS in
+// _stream_internal() then loses, and get_current_gpu_buffer() -- which selects purely
+// by state and never reads `used` -- serves the PREVIOUS upload's GPU bytes as if the
+// failed upload had succeeded.
+//
+// Mutation-proved: with the `upload_submitted` early-return removed from
+// _wait_for_buffer_complete(), the two CHECKs below fail (a slot is left BUFFER_READY
+// and a valid RID is served). No thread scheduling is involved, so it is repeatable.
+TEST_CASE("[GaussianSplatting][MemoryStream][RequiresGPU] A failed coalesced upload never publishes the claimed slot (#798)") {
+	RenderingDevice *rd = RenderingDevice::get_singleton();
+	if (!rd) {
+		RenderingServer *rs = RenderingServer::get_singleton();
+		if (rs) {
+			rd = rs->create_local_rendering_device();
+		}
+	}
+	if (!rd) {
+		FAIL("no RenderingDevice: run this case via --gs-gpu-test, not --test");
+		return;
+	}
+
+	// The failure attempt must be LARGER than the warm-up so it enters the scratch grow
+	// branch; anything smaller reuses the existing scratch and never reaches the
+	// injection point (that is the round-2 defect this case exists to not repeat).
+	const uint32_t kWarmSplats = 4096;
+	const uint32_t kBigSplats = 65536;
+
+	Ref<GaussianMemoryStream> stream;
+	stream.instantiate();
+	if (stream->initialize(rd, kBigSplats, 64) != OK) {
+		FAIL("stream initialize failed");
+		return;
+	}
+	stream->set_async_upload(true);
+
+	LocalVector<Gaussian> warm;
+	warm.resize(kWarmSplats);
+	LocalVector<Gaussian> big;
+	big.resize(kBigSplats);
+	for (uint32_t i = 0; i < kBigSplats; i++) {
+		Gaussian &g = big[i];
 		g.position = Vector3(float(i % 100), 0.0f, 0.0f);
 		g.scale = Vector3(0.5f, 0.5f, 0.5f);
 		g.rotation = Quaternion();
@@ -984,46 +1036,78 @@ TEST_CASE("[GaussianSplatting][MemoryStream][RequiresGPU] A failed coalesced upl
 		g.sh_dc = Color(1, 1, 1, 1);
 		g.normal = Vector3(0, 1, 0);
 		g.area = 0.785f;
-	}
-
-	// Cycle every slot so each one carries a nonzero `used`.
-	for (int i = 0; i < 3; i++) {
-		stream->begin_frame(uint64_t(i));
-		if (stream->stream_gaussians_async(splats) != OK) {
-			MESSAGE("Skipping - warm-up upload did not succeed on this device");
-			stream->shutdown();
-			return;
+		if (i < kWarmSplats) {
+			warm[i] = g;
 		}
-		stream->wait_for_all_uploads();
-		stream->swap_buffers();
 	}
 
-	const uint32_t used_before = stream->get_used_memory_mb();
-	if (used_before == 0) {
-		FAIL("warm-up uploads must leave a nonzero used-byte total for this case to discriminate");
+	// Warm-up: one real upload, consumed and released, so the scratch exists at the
+	// small size and every slot ends BUFFER_FREE.
+	stream->begin_frame(1);
+	if (stream->stream_gaussians_async(warm) != OK) {
+		FAIL("warm-up upload failed; the rest of this case would not discriminate");
+		stream->shutdown();
+		return;
+	}
+	stream->wait_for_all_uploads();
+	if (!stream->get_current_gpu_buffer().is_valid()) {
+		FAIL("warm-up upload was never published; the rest of this case would not discriminate");
+		stream->shutdown();
+		return;
+	}
+	stream->swap_buffers();
+
+	// Precondition: nothing is published, so anything the failing call publishes is
+	// unambiguously attributable to it.
+	if (stream->get_current_gpu_buffer().is_valid()) {
+		FAIL("a slot is still published after swap_buffers(); precondition not met");
 		stream->shutdown();
 		return;
 	}
 
-	stream->begin_frame(99);
+	stream->test_inject_scratch_grow_failure(GaussianMemoryStream::SCRATCH_GROW_INJECT_FAIL_AND_POLL);
+	stream->begin_frame(2);
 	Error err;
 	{
 		ERR_PRINT_OFF;
-		err = stream->stream_gaussians_async(splats);
+		err = stream->stream_gaussians_async(big);
 		ERR_PRINT_ON;
 	}
-	const uint32_t used_after = stream->get_used_memory_mb();
 
+	// If this is OK the injection was never consumed, i.e. the grow branch was not
+	// entered -- the exact way the round-2 case went vacuous. Fail loudly rather than
+	// asserting anything downstream.
 	if (err == OK) {
-		// Success arm: a completed upload must still account for its bytes.
-		CHECK_MESSAGE(used_after > 0,
-				"A successful upload must report its bytes as used.");
-	} else {
-		// Failure arm -- the round-2 contract.
-		CHECK_MESSAGE(used_after < used_before,
-				"A failed coalesced upload must clear the claimed slot's byte count, so a slot "
-				"published by the lock-free poller reports zero bytes instead of stale contents.");
+		FAIL("the failure injection was not consumed: the payload did not enter the scratch grow "
+			 "branch, so this case proved nothing");
+		stream->shutdown();
+		return;
 	}
+
+	// The claimed slot must be back to BUFFER_FREE, not published.
+	stream->wait_for_all_uploads();
+
+	int published = 0;
+	int uploading = 0;
+	for (int i = 0; i < GaussianMemoryStream::test_buffer_count(); i++) {
+		const GaussianMemoryStream::BufferState state = stream->test_buffer_state(i);
+		if (state == GaussianMemoryStream::BUFFER_READY || state == GaussianMemoryStream::BUFFER_RENDERING) {
+			published++;
+		} else if (state == GaussianMemoryStream::BUFFER_UPLOADING) {
+			uploading++;
+		}
+		CHECK_MESSAGE(!stream->test_buffer_upload_submitted(i),
+				"No slot may still claim a submitted upload after the failure was reported.");
+	}
+
+	CHECK_MESSAGE(published == 0,
+			"A failed coalesced upload published the claimed slot: the lock-free poller ran inside "
+			"the claim window and treated upload_fence == 0 as a completed upload.");
+	CHECK_MESSAGE(uploading == 0,
+			"The claimed slot was left stranded in BUFFER_UPLOADING instead of being released.");
+	CHECK_MESSAGE(!stream->get_current_gpu_buffer().is_valid(),
+			"get_current_gpu_buffer() served a slot after the upload that claimed it failed; it "
+			"selects purely by state, so that slot hands the renderer the PREVIOUS upload's bytes.");
 
 	stream->shutdown();
 }

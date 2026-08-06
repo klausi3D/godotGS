@@ -55,6 +55,24 @@ public:
         uint32_t capacity = 0;
         uint32_t used = 0;
         std::atomic<BufferState> state{BUFFER_FREE};
+        // #798 review round 3: BUFFER_UPLOADING alone does NOT mean "an upload is in flight".
+        // _get_next_write_buffer() flips a slot to BUFFER_UPLOADING to CLAIM it, and the actual
+        // buffer_update()/submit() happens later, so between those two points the slot is
+        // UPLOADING with upload_fence == 0. _wait_for_buffer_complete() runs lock-free from the
+        // render thread and treats fence == 0 as "already complete", so it would publish that
+        // never-written slot BUFFER_READY -- and get_current_gpu_buffer() selects purely by
+        // state, so the renderer then gets the slot's PREVIOUS GPU contents.
+        //
+        // This flag is the claim/submit distinction the state machine was missing: false from
+        // the moment the slot is claimed, true only once an upload has actually been submitted
+        // and the fence fields are written. _wait_for_buffer_complete() refuses to publish while
+        // it is false, which makes the failure cleanup in _stream_internal() race-free instead of
+        // merely narrow: the poller can no longer win, in either interleaving.
+        //
+        // Release/acquire, not relaxed: the store below is the release edge that publishes
+        // upload_fence / upload_submit_frame / upload_frame_delay (all plain scalars) to the
+        // lock-free poller, which acquires here before reading them.
+        std::atomic<bool> upload_submitted{false};
         uint64_t frame_last_used = 0;
 
         // Memory pool info
@@ -153,7 +171,8 @@ private:
     // void: _stream_internal() has already claimed the slot (BUFFER_UPLOADING) by this point,
     // and the #787 comment there spells out the consequence of returning early after that --
     // the slot strands with upload_fence == 0, _wait_for_buffer_complete() publishes it
-    // BUFFER_READY, and get_current_gpu_buffer() hands stale or empty data to the renderer.
+    // BUFFER_READY, and get_current_gpu_buffer() hands the PREVIOUS upload's GPU bytes to the
+    // renderer (round 3: not "empty" -- the render path selects by state and never reads `used`).
     [[nodiscard]] bool _upload_buffer_coalesced(int buffer_index, const PackedGaussian *data, uint32_t count);
     void _validate_and_copy_gaussians(const PackedGaussian *src, PackedGaussian *dst, uint32_t count);
     float _measure_transfer_bandwidth(uint32_t bytes, uint64_t start_time, uint64_t end_time);
@@ -161,6 +180,51 @@ private:
 
     // Reusable staging buffers
     Vector<PackedGaussian> coalesced_upload_scratch;
+
+#ifdef TESTS_ENABLED
+    // #798 review round 3: deterministic failure injection for the coalescing-scratch grow.
+    //
+    // Why a hook at all: the scratch grow only fails when memalloc() fails, and every payload
+    // that could realistically exhaust the allocator is rejected earlier by the
+    // `data_size > buffer.capacity` check in _stream_internal(). (The sibling
+    // `aligned_size > buffer.capacity` bail inside _upload_buffer_coalesced() is likewise
+    // unreachable from there: capacity is always a multiple of kUploadAlignmentBytes, so
+    // align(data_size) > capacity implies data_size > capacity.) There is therefore no payload a
+    // test can pass that reaches the failure -- which is exactly why the round-2 regression test
+    // was vacuous, and why "request a bigger payload" alone does not fix it: a bigger payload
+    // enters the grow branch but the grow still succeeds.
+    //
+    // Gated on TESTS_ENABLED (defined only by modules/gaussian_splatting/SCsub under
+    // `tests=yes`, see the same gate on the GaussianSplatRenderer test helpers) so this is
+    // absent from export-template builds -- #725 shipped test hooks in release once; not again.
+public:
+    enum ScratchGrowInjection {
+        SCRATCH_GROW_INJECT_NONE = 0,
+        SCRATCH_GROW_INJECT_FAIL = 1,
+        // Fail AND run the poller at the failure point, on this thread. That is a faithful,
+        // deterministic stand-in for the race in the review finding: the poller observes the
+        // claimed slot as BUFFER_UPLOADING with upload_fence == 0 in exactly the window between
+        // the claim and the cleanup. Nothing about it is thread-timing dependent.
+        SCRATCH_GROW_INJECT_FAIL_AND_POLL = 2,
+    };
+
+private:
+    ScratchGrowInjection scratch_grow_injection = SCRATCH_GROW_INJECT_NONE;
+
+public:
+    // One-shot: consumed by the next coalesced upload that needs to grow the scratch.
+    void test_inject_scratch_grow_failure(ScratchGrowInjection p_mode) { scratch_grow_injection = p_mode; }
+    // Test-only observation of the claim/submit flag documented on StreamBuffer.
+    bool test_buffer_upload_submitted(int p_index) const {
+        return p_index >= 0 && p_index < BUFFER_COUNT && buffers[p_index].upload_submitted.load(std::memory_order_acquire);
+    }
+    BufferState test_buffer_state(int p_index) const {
+        return (p_index >= 0 && p_index < BUFFER_COUNT) ? buffers[p_index].state.load() : BUFFER_FREE;
+    }
+    static constexpr int test_buffer_count() { return BUFFER_COUNT; }
+
+private:
+#endif // TESTS_ENABLED
 
 protected:
     static void _bind_methods();
