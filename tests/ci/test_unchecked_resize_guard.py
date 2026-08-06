@@ -42,6 +42,39 @@ plus two regression tests for defects found while fixing the above:
 
   test_consumer_does_not_leak_across_functions   <- namespace-as-span over-scanned
   test_namespaced_functions_resolve_by_name      <- `namespace {` swallowed a file
+
+and a third round, five more evasions reported against the masked/context-keyed guard.
+Three are the same shape yet again -- a BOUND on how far the scanner looks, which reads
+as "found nothing" when it means "stopped looking":
+
+  test_prefixed_char_literal_does_not_hide_a_site  <- U'}' read as a digit separator
+  test_declaration_beyond_the_old_lookback_is_resolved  <- 70-line type lookback
+  test_long_statement_is_assembled                 <- 12-line statement assembly cap
+  test_unterminated_resize_fails_the_guard         <- ...and the residue must fail closed
+  test_fixing_one_duplicate_keeps_the_survivor     <- a repair read as a NEW site, and
+                                                      --regenerate refused to record it,
+                                                      so the ratchet could not shrink
+  test_identical_blocks_are_separated_without_an_ordinal  <- the ordinal that survived
+                                                      round 2 still renumbered with its
+                                                      group, so fix-one-add-one passed
+
+and the P1 that made all of the above conditional -- the baseline was read out of the
+commit being graded, so a change could add a site and its own key together:
+
+  test_baseline_growth_relative_to_base_is_rejected
+  test_growth_without_a_detector_change_is_rejected_outright
+  test_ledger_entry_without_a_reason_is_rejected
+  test_unresolvable_review_base_fails_closed
+  test_documented_detector_change_is_accepted     <- the sanctioned route must WORK, or
+                                                     it gets bypassed rather than obeyed
+  test_baseline_absent_at_base_is_reported_not_failed
+
+Measured: all fourteen of the round-3 cases (including the tightened assertion in
+test_swapped_duplicate_is_reported_as_new) are RED against 2642f8405fc and green here.
+One control passes on both sides and is named as such:
+
+  test_digit_separators_are_still_not_char_literals  pins the OTHER direction of the
+                                                     masking decision above.
 """
 from __future__ import annotations
 
@@ -79,8 +112,16 @@ class UncheckedResizeGuardTest(unittest.TestCase):
 
     def _sites(self) -> list[str]:
         sites, errors = self.guard.find_sites()
-        self.assertEqual(errors, [], "fixture sources must all be readable")
+        self.assertEqual(errors, [], "fixture sources must all be scannable")
         return sites
+
+    def _main(self, *argv: str) -> int:
+        saved = sys.argv
+        sys.argv = ["check_unchecked_resize.py", *argv]
+        try:
+            return self.guard.main()
+        finally:
+            sys.argv = saved
 
     # -- P1: key collision -------------------------------------------------
     def test_distinct_functions_get_distinct_keys(self):
@@ -356,16 +397,31 @@ Error Dup::build() {
         self._write("a.cpp", swapped)
         after = self._sites()
         self.assertEqual(len(after), 2, f"expected two live sites after the swap: {after}")
-        new_sites = [s for s in after if s not in baseline]
-        self.assertEqual(
-            len(new_sites), 1,
+        new_sites, _ = self.guard.partition_sites(after, baseline)
+        self.assertTrue(
+            new_sites,
             f"the newly added duplicate must read as NEW against the baseline: "
-            f"baseline={baseline} after={after} new={new_sites}",
+            f"baseline={baseline} after={after}",
         )
-        survivor = [s for s in after if s in baseline]
+
+        # The survivor is re-identified here too, and that is deliberate rather than a
+        # regression against the round-2 assertion that it kept its identity. The
+        # context window is three statements per side (CONTEXT_STATEMENTS), so the
+        # in-place fix above the survivor and the block added below it are both INSIDE
+        # its context -- one neighbour per side was not enough, because for repeated
+        # blocks the immediate neighbours belong to the repeated block itself and match
+        # by construction.
+        #
+        # It costs nothing in the case that actually matters. A plain FIX shrinks the
+        # group to one, the survivor becomes a unique key, and partition_sites() matches
+        # it against its recorded duplicate entry -- asserted in
+        # test_fixing_one_duplicate_keeps_the_survivor. The survivor is only ever
+        # re-identified when the group size was HELD UP by an addition, which is exactly
+        # when the guard is supposed to fire.
         self.assertEqual(
-            len(survivor), 1,
-            f"the untouched duplicate must keep its identity: baseline={baseline} after={after}",
+            len(new_sites), 2,
+            f"a rearranged duplicate group must be reported whole: "
+            f"baseline={baseline} after={after} new={new_sites}",
         )
 
     def test_unique_keys_carry_no_context_suffix(self):
@@ -386,6 +442,273 @@ Error Solo::build() {
         sites = self._sites()
         self.assertEqual(len(sites), 1, f"expected one site: {sites}")
         self.assertNotIn("@", sites[0], f"a unique key must stay context-free: {sites}")
+
+    # -- P2 (round 3): prefixed character literals --------------------------
+    def test_prefixed_char_literal_does_not_hide_a_site(self):
+        """`U'}'` is a char literal, not a digit separator.
+
+        Pre-fix the mask asked only whether the character BEFORE the quote was
+        alphanumeric, which is true of `1` in `1'000` and equally true of the `U`, `L`,
+        `u` and `u8` prefixes. The literal was left unmasked, its `}` closed the
+        function span early in _function_spans(), and the ptrw() below the resize was
+        never reached.
+        """
+        self._write("a.cpp", """
+Error Prefixed::build() {
+    Vector<float> values;
+    values.resize(runtime_count);
+    char32_t brace = U'}';
+    float *w = values.ptrw();
+    return OK;
+}
+""")
+        sites = self._sites()
+        self.assertEqual(len(sites), 1, f"a prefixed char literal must not truncate scope: {sites}")
+
+    def test_digit_separators_are_still_not_char_literals(self):
+        """The control for the case above: `1'000'000` must stay a number.
+
+        Masking a digit separator as a literal would blank the rest of the line, so this
+        pins both directions of the same decision rather than only the one that was
+        broken.
+        """
+        self.assertFalse(
+            self.guard._is_digit_separator("    char32_t brace = U'}';", 22),
+            "a prefixed char literal must not read as a digit separator",
+        )
+        self.assertTrue(
+            self.guard._is_digit_separator("    int limit = 1'000'000;", 21),
+            "a digit separator must not read as a char literal",
+        )
+
+    # -- P2 (round 3): declaration lookback ---------------------------------
+    def test_declaration_beyond_the_old_lookback_is_resolved(self):
+        """A Vector declared far above its resize() must still resolve as CoW.
+
+        Pre-fix the type lookback stopped after 70 lines and returned "unknown", which
+        find_sites() DISCARDS -- so a long function could carry the exact unchecked
+        allocation this guard ratchets and produce no finding at all. Same shape as the
+        forward window that _function_spans() removed, pointing the other way.
+        """
+        filler = "\n".join(f"    int pad{i} = {i};" for i in range(120))
+        self._write("a.cpp", f"""
+Error Long::build() {{
+    Vector<float> values;
+{filler}
+    values.resize(runtime_count);
+    float *w = values.ptrw();
+    return OK;
+}}
+""")
+        sites = self._sites()
+        self.assertEqual(len(sites), 1, f"a declaration 120 lines up must still resolve: {sites}")
+
+    # -- P2 (round 3): statement assembly cap -------------------------------
+    def test_long_statement_is_assembled(self):
+        """A resize() call spanning more than a dozen lines is still one statement.
+
+        Pre-fix MAX_STATEMENT_LINES = 12 returned nothing for it, the consumer below was
+        never examined, and the guard passed with no signal that anything was skipped --
+        the same silent-window defect one size larger.
+        """
+        terms = "\n".join(f"            + term{i}" for i in range(20))
+        self._write("a.cpp", f"""
+Error Wide::build() {{
+    Vector<float> values;
+    values.resize(runtime_count
+{terms}
+            );
+    float *w = values.ptrw();
+    return OK;
+}}
+""")
+        sites = self._sites()
+        self.assertEqual(len(sites), 1, f"a 20-line resize() call must be assembled: {sites}")
+
+    def test_unterminated_resize_fails_the_guard(self):
+        """A resize( that never closes is a PARSE failure, not an absence of findings.
+
+        Removing the assembly cap leaves exactly one way to fail: input the scanner
+        cannot parse. That must fail closed for the same reason an unreadable file does
+        -- "could not look" and "looked and found nothing" are different answers.
+        """
+        self._write("a.cpp", """
+Error Broken::build() {
+    Vector<float> values;
+    values.resize(runtime_count
+    float *w = values.ptrw();
+""")
+        sites, errors = self.guard.find_sites()
+        self.assertEqual(sites, [])
+        self.assertTrue(errors, "an unassemblable resize() must be reported, not skipped")
+
+        self.guard.BASELINE_PATH.write_text(
+            json.dumps({"schema_version": 2, "sites": []}), encoding="utf-8"
+        )
+        self.assertEqual(self._main(), 1, "an incomplete scan must fail the guard")
+
+    # -- P2 (round 3): duplicate identity across a fix ----------------------
+    def test_fixing_one_duplicate_keeps_the_survivor(self):
+        """Fixing one of two duplicates must let the ratchet SHRINK.
+
+        The suffix is attached only while a key repeats, so fixing one duplicate leaves
+        a unique key that is emitted plain. Compared by exact string that read as a NEW
+        site -- the guard failed on a repair -- and --regenerate then refused to record
+        the replacement key, so the ratchet could not shrink at all.
+        """
+        both = """
+Error Dup::build() {
+    Vector<float> v;
+    int head = 1;
+    v.resize(n);
+    float *a = v.ptrw();
+    int tail = 2;
+    v.resize(n);
+    float *b = v.ptrw();
+    return OK;
+}
+"""
+        self._write("a.cpp", both)
+        baseline = self._sites()
+        self.assertEqual(len(baseline), 2, f"fixture must produce two duplicates: {baseline}")
+
+        self._write("a.cpp", both.replace(
+            "    v.resize(n);\n    float *a = v.ptrw();",
+            "    ERR_FAIL_COND_V(gs_resize_or_fail(v, n) != OK, ERR_OUT_OF_MEMORY);\n"
+            "    float *a = v.ptrw();", 1))
+        after = self._sites()
+        self.assertEqual(len(after), 1, f"one site must remain after the fix: {after}")
+        new_sites, fixed = self.guard.partition_sites(after, baseline)
+        self.assertEqual(new_sites, [], f"a repair must not read as a new site: {after} vs {baseline}")
+        self.assertEqual(len(fixed), 1, f"the ratchet must record one fix: {fixed}")
+
+    def test_identical_blocks_are_separated_without_an_ordinal(self):
+        """Duplicates whose whole context matches must still be told apart.
+
+        The residual an occurrence ordinal left behind: two blocks that are identical
+        including their surroundings were keyed `k@d` and `k@d#2`, so fixing one and
+        adding another renumbered to the same pair and the ratchet passed. The
+        replacement discriminator is the statement OFFSET in the function, which the
+        added block cannot share with the one it replaced.
+        """
+        block = """    for (int i = 0; i < 2; i++) {
+        v.resize(n);
+        float *w = v.ptrw();
+    }
+"""
+        head = "\nError Dup::build() {\n    Vector<float> v;\n"
+        self._write("a.cpp", head + block + block + "    return OK;\n}\n")
+        baseline = self._sites()
+        self.assertEqual(len(set(baseline)), 2, f"identical blocks must stay distinct: {baseline}")
+        self.assertTrue(all("#" not in s for s in baseline), f"ordinal fallback used: {baseline}")
+
+        fixed_block = block.replace(
+            "v.resize(n);", "ERR_FAIL_COND_V(gs_resize_or_fail(v, n) != OK, ERR_OUT_OF_MEMORY);")
+        self._write("a.cpp", head + fixed_block + block + block + "    return OK;\n}\n")
+        after = self._sites()
+        self.assertEqual(len(after), 2, f"two live sites expected: {after}")
+        new_sites, _ = self.guard.partition_sites(after, baseline)
+        self.assertTrue(
+            new_sites,
+            f"fixing one identical block and adding another must fire: "
+            f"baseline={baseline} after={after}",
+        )
+
+    # -- P1 (round 3): the baseline itself must be anchored -----------------
+    def _stub_base(self, base_sites, detector_differs=True, base_sha="feedfacecafe"):
+        """Answer the three git questions the base comparison asks, without a repo."""
+        self.guard.resolve_review_base = lambda base_ref=None: (base_sha, [])
+        self.guard.detector_differs_from_base = lambda sha: (detector_differs, [])
+
+        def _blob(sha, path):
+            if base_sites is None:
+                return self.guard.ABSENT_AT_BASE, []
+            return json.dumps({"schema_version": 2, "sites": base_sites}), []
+
+        self.guard._blob_at_base = _blob
+
+    def test_baseline_growth_relative_to_base_is_rejected(self):
+        """Adding a site AND its baseline key in one change must not pass.
+
+        The hole this closes: every check above reads the baseline out of the PROPOSED
+        commit, so a change that writes the new key into the file it is grading itself
+        against produces an empty new_sites and exits 0. Both sides moved together,
+        which is not a ratchet.
+        """
+        self._stub_base(["modules/gaussian_splatting/a.cpp::Fresh::build::old.resize(n)"])
+        document = {"sites": [
+            "modules/gaussian_splatting/a.cpp::Fresh::build::old.resize(n)",
+            "modules/gaussian_splatting/a.cpp::Fresh::build::values.resize(runtime_count)",
+        ]}
+        failures = self.guard.check_baseline_against_base(document)
+        self.assertTrue(failures, "a baseline that grew against the review base must fail")
+        self.assertIn("values.resize(runtime_count)", "\n".join(failures))
+
+    def test_growth_without_a_detector_change_is_rejected_outright(self):
+        """The ledger cannot license growth when the DETECTOR did not change.
+
+        A reason is self-attested and only a reviewer can grade it; "this script differs
+        from the base" is a fact git settles. It denies the whole route to a change that
+        touches no detector code, which is what stops the ledger being a second way to
+        write anything into the baseline.
+        """
+        self._stub_base(["modules/gaussian_splatting/a.cpp::Fresh::build::old.resize(n)"],
+                        detector_differs=False)
+        document = {
+            "sites": [
+                "modules/gaussian_splatting/a.cpp::Fresh::build::old.resize(n)",
+                "modules/gaussian_splatting/a.cpp::Fresh::build::values.resize(n)",
+            ],
+            "detector_change_ledger": [
+                {"site": "modules/gaussian_splatting/a.cpp::Fresh::build::values.resize(n)",
+                 "reason": "claims a widened predicate"},
+            ],
+        }
+        failures = self.guard.check_baseline_against_base(document)
+        self.assertTrue(failures, "a ledger entry must not license growth on an unchanged detector")
+        self.assertIn("byte-identical", "\n".join(failures))
+
+    def test_documented_detector_change_is_accepted(self):
+        """The one sanctioned route must actually work, or it gets bypassed."""
+        self._stub_base(["modules/gaussian_splatting/a.cpp::Fresh::build::old.resize(n)"])
+        document = {
+            "sites": [
+                "modules/gaussian_splatting/a.cpp::Fresh::build::old.resize(n)",
+                "modules/gaussian_splatting/a.cpp::Fresh::build::values.resize(n)",
+            ],
+            "detector_change_ledger": [
+                {"site": "modules/gaussian_splatting/a.cpp::Fresh::build::values.resize(n)",
+                 "reason": "revealed by comment masking; predates this change"},
+            ],
+        }
+        self.assertEqual(self.guard.check_baseline_against_base(document), [])
+
+    def test_ledger_entry_without_a_reason_is_rejected(self):
+        """An addition with no stated reason is indistinguishable from a blessed defect."""
+        self._stub_base(["modules/gaussian_splatting/a.cpp::Fresh::build::old.resize(n)"])
+        document = {
+            "sites": [
+                "modules/gaussian_splatting/a.cpp::Fresh::build::old.resize(n)",
+                "modules/gaussian_splatting/a.cpp::Fresh::build::values.resize(n)",
+            ],
+            "detector_change_ledger": [
+                {"site": "modules/gaussian_splatting/a.cpp::Fresh::build::values.resize(n)",
+                 "reason": "   "},
+            ],
+        }
+        self.assertTrue(self.guard.check_baseline_against_base(document))
+
+    def test_unresolvable_review_base_fails_closed(self):
+        """No base means no reference. It must never degrade to grading HEAD."""
+        self.guard.resolve_review_base = lambda base_ref=None: (None, ["no base"])
+        failures = self.guard.check_baseline_against_base({"sites": []})
+        self.assertTrue(failures, "an unresolvable review base must fail, not pass")
+
+    def test_baseline_absent_at_base_is_reported_not_failed(self):
+        """A change that INTRODUCES the baseline has no shrink reference; say so."""
+        self._stub_base(None)
+        self.assertEqual(
+            self.guard.check_baseline_against_base({"sites": ["anything"]}), [])
 
     # -- regressions found while fixing the above --------------------------
     def test_consumer_does_not_leak_across_functions(self):

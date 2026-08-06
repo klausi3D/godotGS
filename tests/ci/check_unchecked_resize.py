@@ -98,6 +98,12 @@ Stated plainly, because an undocumented blind spot invites false confidence:
    live source. Comments and string literals no longer are -- they are masked out
    before any analysis (`_mask_source`) -- but the preprocessor is not evaluated, so
    braces in a disabled region can still miscount function depth.
+7. **Whether a recorded baseline entry is the statement it was recorded for**, once a
+   key repeats in one function. Duplicates are identified by their surrounding
+   statements plus, for a run of identical blocks, their statement offset in the
+   function. Both are textual: an edit inside a duplicate's context re-identifies it and
+   the guard fires. That is the safe direction -- it reports for review rather than
+   missing -- but it is a false positive, not a defect found.
 
 Reliable detection of 1-3 needs type and dataflow information, i.e. a clang-tidy check
 or a compiler plugin. This is a ratchet against the pattern spreading, not a proof that
@@ -115,25 +121,67 @@ silently re-baselined.
 There is exactly one other way the recorded set may grow, and it is not a defect being
 blessed: when THE DETECTOR changes -- a new key format, or a widened predicate that
 reveals sites which were always in the tree and merely invisible. That path is
-`--accept-detector-change`, it is never run by CI, and it prints the full delta so each
-addition is reviewed against the diff. Widening detection and then declining to record
-what it finds would leave the guard permanently red; recording it silently would be
-indistinguishable from blessing a new defect. Printing it and naming the reason is the
-only honest option, and the reason is a claim a reviewer must check, not a fact this
-script can prove.
+`--accept-detector-change --reason "..."`, it is never run by CI, and it prints the full
+delta so each addition is reviewed against the diff. Widening detection and then
+declining to record what it finds would leave the guard permanently red; recording it
+silently would be indistinguishable from blessing a new defect. Printing it and naming
+the reason is the only honest option, and the reason is a claim a reviewer must check,
+not a fact this script can prove.
+
+## Why the baseline is graded against the REVIEW BASE
+
+Everything above reads the baseline out of the proposed commit, so on its own it cannot
+see the one shape that defeats every ratchet: a change that adds an unsafe site AND
+writes that site's key into `unchecked_resize_baseline.json`. `new_sites` is then empty
+and the run exits 0, because both sides moved together.
+
+So the committed baseline is compared against the baseline as committed at the review
+base (`--base-ref`, else `GS_CI_BASE_REF` / `GITHUB_BASE_REF` / ..., else
+`origin/master` -- the same resolver `tests/ci/check_environment_skip_marker.py` uses,
+imported rather than copied), and it may only SHRINK. If the base cannot be resolved the
+guard FAILS: with no immutable reference there is nothing to ratchet against, and
+"cannot determine the base" must never share an outcome with "nothing changed".
+
+Growth relative to the base needs BOTH of:
+
+* a `detector_change_ledger` entry naming the added key with a reason, and
+* this script actually differing from its form at the review base.
+
+The second is the load-bearing one. A reason is self-attested and only a reviewer can
+grade it; "the detector changed" is a fact git settles, and it denies the growth route
+entirely to any change that does not touch the detector.
 """
 from __future__ import annotations
 
 import argparse
+import collections
 import hashlib
+import importlib.util
 import json
 import pathlib
 import re
+import subprocess
 import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 MODULE_ROOT = REPO_ROOT / "modules" / "gaussian_splatting"
 BASELINE_PATH = REPO_ROOT / "tests" / "ci" / "unchecked_resize_baseline.json"
+
+# Resolved from __file__, never from REPO_ROOT: the self-tests repoint REPO_ROOT at a
+# temporary fixture tree, and git must still be asked about the real repository.
+SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
+SCRIPT_ROOT = SCRIPT_DIR.parents[1]
+# The review base resolver is SHARED with tests/ci/check_environment_skip_marker.py
+# rather than copied. That guard already resolves the PR base (--base-ref, then
+# GS_CI_BASE_REF / GITHUB_BASE_REF / ..., then origin/master) and every workflow step
+# that runs this lane already exports GS_CI_BASE_REF for it, so the plumbing exists;
+# a second copy of a security-relevant resolver would only drift from it.
+BASE_RESOLVER_PATH = SCRIPT_DIR / "check_environment_skip_marker.py"
+# The baseline as committed at the review base did not exist there -- this change
+# introduces it. A fact about history, distinct from "the base could not be resolved",
+# which is a hard failure.
+ABSENT_AT_BASE = "absent-at-base"
+LEDGER_KEY = "detector_change_ledger"
 
 # Applied to an ASSEMBLED, COMMENT-MASKED statement, never to a raw line.
 #
@@ -186,10 +234,29 @@ LOCAL_VECTOR_RE = re.compile(r"\bLocalVector\s*<")
 # A count that cannot scale with scene/asset/file data.
 CONST_COUNT_RE = re.compile(r"^(\d+|[A-Z][A-Z0-9_]{2,}|sizeof\s*\(.*\)|\d+\s*[*+]\s*sizeof\s*\(.*\))$")
 
-DECL_LOOKBACK = 70
-# How many physical lines a single statement may span before assembly gives up.
-# This bounds only STATEMENT assembly, never function scope -- see _function_spans().
-MAX_STATEMENT_LINES = 12
+# How many neighbouring statements on each side form a duplicate's context identity.
+# One neighbour per side was too little: fixing one duplicate while adding another whose
+# single neighbours matched left the identity set unchanged. See _context_digest().
+CONTEXT_STATEMENTS = 3
+
+
+def _is_digit_separator(line: str, index: int) -> bool:
+    """True when the `'` at `index` is a C++14 digit separator, not a char literal.
+
+    What decides this is the TOKEN the quote belongs to, not merely the character in
+    front of it. `1'000'000` separates digits, but `U'}'`, `L'}'`, `u'}'` and `u8'}'`
+    are ordinary character literals whose PREFIX is alphanumeric as well. Testing only
+    `line[i - 1].isalnum()` classified every prefixed literal as a separator, so its
+    contents were left unmasked -- and a `}` inside one still closed a function span
+    early in _function_spans(), which drops the resize's consumer silently.
+
+    A numeric literal always begins with a DIGIT and every char-literal prefix begins
+    with a letter, so walking back to the start of the token settles it.
+    """
+    k = index - 1
+    while k >= 0 and (line[k].isalnum() or line[k] in "_'"):
+        k -= 1
+    return k + 1 < index and line[k + 1].isdigit()
 
 
 def _mask_source(lines: list[str]) -> list[str]:
@@ -213,8 +280,11 @@ def _mask_source(lines: list[str]) -> list[str]:
 
     Handled: `//`, `/* */` (including multi-line), `"..."` and `'...'` with escapes, and
     raw strings `R"delim(...)delim"`. Digit separators (`1'000'000`) are NOT treated as
-    char literals. Not handled, and stated rather than hidden: `#if 0` blocks are still
-    counted as live code, so braces inside a disabled region can still miscount depth.
+    char literals, while PREFIXED character literals (`U'}'`, `L'}'`, `u'}'`, `u8'}'`)
+    are -- see _is_digit_separator(), which decides by the token rather than by the one
+    character in front of the quote. Not handled, and stated rather than hidden: `#if 0`
+    blocks are still counted as live code, so braces inside a disabled region can still
+    miscount depth.
     """
     out: list[str] = []
     in_block = False
@@ -266,7 +336,7 @@ def _mask_source(lines: list[str]) -> list[str]:
                         buf[k] = " "
                     i = j + 1
                     continue
-            if ch == "'" and i > 0 and (line[i - 1].isalnum() or line[i - 1] == "_"):
+            if ch == "'" and _is_digit_separator(line, i):
                 i += 1  # digit separator such as 1'000'000, not a char literal
                 continue
             if ch in ('"', "'"):
@@ -299,10 +369,23 @@ def _module_sources() -> list[pathlib.Path]:
     return out
 
 
-def _declared_container(lines: list[str], index: int, var: str) -> str:
-    """Resolve the container kind by scanning back for a mention of the symbol."""
+def _declared_container(lines: list[str], index: int, var: str, floor: int) -> str:
+    """Resolve the container kind by scanning back for a mention of the symbol.
+
+    `floor` is the first line of the ENCLOSING FUNCTION, not a fixed line count. The
+    fixed 70-line lookback it replaces was a silent drop: a `Vector` declared 70+ lines
+    above its `resize()` resolved as "unknown", and find_sites() discards unknowns, so a
+    long function could carry exactly the unchecked allocation this guard ratchets and
+    produce no finding at all. Any cap on a backward scan is the same window-length
+    evasion that _function_spans() removed on the forward side; the enclosing function
+    is the real boundary in both directions.
+
+    Scanning to the function's first line also brings the SIGNATURE into range, so a
+    `Vector<T> &r_out` parameter now resolves instead of reading as unknown. That
+    narrows -- it does not close -- blind spot 1 in the module docstring.
+    """
     base = re.escape(var.split(".")[-1])
-    for k in range(index, max(-1, index - DECL_LOOKBACK), -1):
+    for k in range(index, max(-1, floor - 1), -1):
         if re.search(rf"\b{base}\b", lines[k]):
             if LOCAL_VECTOR_RE.search(lines[k]):
                 return "local_vector"
@@ -319,13 +402,21 @@ def _normalise(expr: str) -> str:
 def _assemble_statement(lines: list[str], start: int) -> tuple[str, int]:
     """Join physical lines from `start` into one logical statement.
 
-    Returns (text, last_line_index). A resize call split across lines is a single
-    statement; matching per physical line missed it entirely, which let a new
-    unsafe allocation through. Assembly stops when the parentheses opened by the
-    call have balanced AND a ';' has been seen after the closing paren.
+    Returns (text, last_line_index), or ("", start) when the call never terminates
+    before end of file -- which the caller treats as a PARSE FAILURE, not as "nothing
+    here". A resize call split across lines is a single statement; matching per physical
+    line missed it entirely, which let a new unsafe allocation through.
+
+    Assembly stops when the parentheses opened by the call have balanced AND a ';' has
+    been seen after the closing paren. It is deliberately UNBOUNDED. The previous
+    12-physical-line cap reinstated the very hole it was added to fix, one size larger:
+    a `resize(` whose closing paren sat on line 13 returned nothing, the consumer below
+    it was never examined, and the guard passed -- with no signal that anything had been
+    skipped. A cap on statement assembly is a silent miss; running to the end of the
+    file and failing closed on the residue is not.
     """
     text = ""
-    for j in range(start, min(start + MAX_STATEMENT_LINES, len(lines))):
+    for j in range(start, len(lines)):
         text = lines[j].strip() if not text else f"{text} {lines[j].strip()}"
         depth = 0
         opened = False
@@ -420,6 +511,20 @@ def _function_name_at(index: int, spans: list[tuple[int, int, str]]) -> str:
     return "<file-scope>"
 
 
+def _span_start_at(index: int, spans: list[tuple[int, int, str]]) -> int:
+    """First line of the enclosing function, or the top of the file.
+
+    The backward floor for declaration lookup, mirroring _consumer_scan_end() on the
+    forward side. Falling back to line 0 rather than to a fixed window keeps the
+    unresolved-span case OVER-scanning: a guard that over-scans reports a site for
+    review, one that under-scans misses a defect.
+    """
+    for start, end, _ in spans:
+        if start <= index <= end:
+            return start
+    return 0
+
+
 def _context_digest(lines: list[str], start: int, last: int) -> str:
     """A stable identity for one of several IDENTICAL statements in one function.
 
@@ -429,35 +534,71 @@ def _context_digest(lines: list[str], start: int, last: int) -> str:
     the ratchet passes over a real new site. That is the same "cardinality is not
     identity" hole the function name fixed one level up.
 
-    The identity used instead is the nearest preceding and nearest following statement
-    (whitespace-collapsed, braces skipped), which distinguishes two copies that sit in
-    different places while staying stable under line shifts elsewhere in the file.
+    The identity used instead is the CONTEXT_STATEMENTS nearest preceding and following
+    statements (whitespace-collapsed, braces skipped), which distinguishes two copies
+    that sit in different places while staying stable under line shifts elsewhere in the
+    file.
+
+    One neighbour per side was NOT enough, and the difference is the reported evasion
+    rather than a theoretical one: for two repeated blocks the immediately adjacent
+    statements are part of the repeated block itself, so they are identical by
+    construction. Fixing one block and appending another then reproduced the same digest
+    and the ratchet passed. Widening the window to three reaches PAST the repeated block
+    into what surrounds it, where the fix and the addition are both visible.
 
     Deliberately narrow: this suffix is only attached to keys that actually REPEAT
     within a file (see find_sites). A unique key keeps its plain, context-free form, so
-    an edit next to a normal site can never make it look new. Two duplicates whose
-    surrounding statements are also identical remain indistinguishable by any textual
-    identity; they fall back to an ordinal, which at least preserves their COUNT.
+    an edit next to a normal site can never make it look new.
     """
-    def _neighbour(rng) -> str:
+    def _neighbours(rng) -> list[str]:
+        found: list[str] = []
         for k in rng:
             text = _normalise(lines[k])
             if text and text not in ("{", "}", "{}"):
-                return text
-        return ""
+                found.append(text)
+                if len(found) == CONTEXT_STATEMENTS:
+                    break
+        return found
 
-    before = _neighbour(range(start - 1, -1, -1))
-    after = _neighbour(range(last + 1, len(lines)))
-    return hashlib.sha1(f"{before}|{after}".encode("utf-8")).hexdigest()[:8]
+    before = _neighbours(range(start - 1, -1, -1))
+    after = _neighbours(range(last + 1, len(lines)))
+    payload = "|".join(before) + "@@" + "|".join(after)
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:8]
+
+
+def _statement_offset(lines: list[str], index: int, span_start: int) -> int:
+    """How many non-trivial statements precede `index` inside its function.
+
+    Used ONLY to separate duplicates whose full context digests still collide -- a run
+    of identical adjacent blocks long enough that even the widened window sees the same
+    text on both sides. An occurrence ordinal cannot separate those in a useful way: it
+    renumbers with the group, so fixing one member and adding another elsewhere yields
+    the same numbers and the ratchet passes. A statement offset is a position in the
+    function, so the added member necessarily gets an identity the baseline does not
+    contain.
+
+    It moves when statements are inserted ABOVE it in the same function, which reads as
+    a new site and fails the guard. That is the safe direction and it can only ever
+    affect true duplicates -- there are none in the tree today.
+    """
+    count = 0
+    for k in range(span_start, index):
+        text = _normalise(lines[k])
+        if text and text not in ("{", "}", "{}"):
+            count += 1
+    return count
 
 
 def find_sites() -> tuple[list[str], list[str]]:
-    """Return (sites, read_errors).
+    """Return (sites, scan_errors).
 
-    read_errors is NOT cosmetic: an unreadable source used to be skipped with
+    scan_errors is NOT cosmetic: an unreadable source used to be skipped with
     `continue`, which dropped every site in that file and still let the run exit 0,
     reporting the file's baseline entries as "fixed". Incomplete scanning must never
     be accepted as evidence that no new site exists, so the caller fails on it.
+
+    The same rule now covers a `resize(` the scanner cannot ASSEMBLE into a statement.
+    Both conditions mean the scan did not look; neither may read as "found nothing".
     """
     sites: list[str] = []
     errors: list[str] = []
@@ -474,12 +615,20 @@ def find_sites() -> tuple[list[str], list[str]]:
         lines = _mask_source(raw_lines)
         rel = path.relative_to(REPO_ROOT).as_posix()
         spans = _function_spans(lines)
-        candidates: list[tuple[str, str]] = []
+        candidates: list[tuple[str, str, int]] = []
         for i, line in enumerate(lines):
             if not RESIZE_HEAD_RE.match(line):
                 continue
             statement, last = _assemble_statement(lines, i)
             if not statement:
+                # Assembly is unbounded, so the only way to get here is a `resize(`
+                # whose call never closes before end of file. That is malformed input
+                # to this scanner, and the one thing it must not do is treat it as an
+                # absence of findings -- the consumer below it was never examined.
+                errors.append(
+                    f"{rel}:{i + 1}: could not assemble the resize() statement "
+                    f"(unterminated call); the scan of this site is incomplete."
+                )
                 continue
             match = RESIZE_RE.match(statement)
             if not match or CONSUMED_RE.search(statement):
@@ -487,7 +636,8 @@ def find_sites() -> tuple[list[str], list[str]]:
             var, count = match.group(1), match.group(2)
             if CONST_COUNT_RE.match(count):
                 continue  # exclusion rule: compile-time-constant count
-            kind = _declared_container(lines, i, var)
+            span_start = _span_start_at(i, spans)
+            kind = _declared_container(lines, i, var, span_start)
             if kind == "local_vector":
                 continue  # out of class: LocalVector::resize() returns void
             if kind != "cow":
@@ -508,36 +658,130 @@ def find_sites() -> tuple[list[str], list[str]]:
                 # by _context_digest() below -- NOT by an occurrence ordinal, which
                 # counts statements without identifying them.
                 key = f"{rel}::{_function_name_at(i, spans)}::{var}.resize({_normalise(count)})"
-                candidates.append((key, _context_digest(lines, i, last)))
+                candidates.append((key, _context_digest(lines, i, last),
+                                   _statement_offset(lines, i, span_start)))
 
         # Second pass: only keys that actually REPEAT in this file carry a contextual
         # suffix. Unique keys -- every entry in the baseline as recorded today -- keep
         # their plain form, so context sensitivity cannot churn them.
-        repeated = {key for key in {k for k, _ in candidates}
-                    if sum(1 for k, _ in candidates if k == key) > 1}
-        used: dict[str, int] = {}
-        for key, digest in candidates:
-            if key not in repeated:
-                sites.append(key)
-                continue
-            identity = f"{key}@{digest}"
-            nth = used.get(identity, 0) + 1
-            used[identity] = nth
-            # Ordinal only for the residual case of two duplicates with IDENTICAL
-            # surrounding statements, which no textual identity can tell apart. It
-            # preserves the count, so adding a third still fails the ratchet.
-            sites.append(identity if nth == 1 else f"{identity}#{nth}")
+        repeated = {key for key in {k for k, _, _ in candidates}
+                    if sum(1 for k, _, _ in candidates if k == key) > 1}
+        identities = [(f"{key}@{digest}" if key in repeated else key, offset)
+                      for key, digest, offset in candidates]
+        # Residual: duplicates whose WIDENED context still matches, i.e. a run of
+        # identical adjacent blocks. Every member of such a group takes a statement
+        # offset -- a position in the function, not an occurrence ordinal. The ordinal
+        # this replaces renumbered with the group, so fixing one member and adding
+        # another produced the identical key set and the ratchet passed; an offset
+        # cannot, because the added member sits somewhere the baseline never recorded.
+        colliding = {identity for identity in {i for i, _ in identities}
+                     if sum(1 for i, _ in identities if i == identity) > 1}
+        for identity, offset in identities:
+            sites.append(f"{identity}~{offset}" if identity in colliding else identity)
     return sorted(sites), errors
 
 
-def load_baseline() -> list[str]:
+def _base_key(site: str) -> str:
+    """A site identity stripped of its duplicate-disambiguation suffix.
+
+    `@digest` and `@digest~offset` are attached only while a key REPEATS in its file
+    (see find_sites), so the same statement is recorded one way as a duplicate and
+    another way once its sibling is gone. `@` cannot occur in a path, a C++ qualified
+    name or an expression, so splitting on it recovers the underlying key exactly.
+    """
+    return site.split("@", 1)[0]
+
+
+def partition_sites(sites: list[str], baseline: list[str]) -> tuple[list[str], list[str]]:
+    """Classify the scan against the baseline: (new_sites, no_longer_present).
+
+    Exact matches are consumed first; only then may a currently-UNIQUE key claim a
+    baseline entry recorded under the same base key with a duplicate suffix.
+
+    That second step is not a relaxation, it is what makes a legitimate FIX possible.
+    Two duplicates are baselined as `k@d1` and `k@d2`; fixing one leaves a single
+    statement, which is no longer a duplicate and so is emitted as plain `k`. Compared
+    by exact string, the untouched survivor read as a NEW site -- the guard failed on a
+    repair -- and `--regenerate` then refused to record the replacement key, so the
+    ratchet could not shrink at all. Measured, not argued: that pair is
+    test_fixing_one_duplicate_keeps_the_survivor.
+
+    It cannot bless an addition. A plain key is emitted only when the key occurs ONCE
+    in the file, so the group did not grow; and a unique key has been context-free
+    since the digest was introduced, which is the same identity granularity every
+    non-duplicate baseline entry already has. When a group GROWS, its members are all
+    suffixed, none of them is plain, and every unmatched one is reported.
+    """
+    remaining = list(baseline)
+    unmatched: list[str] = []
+    for site in sites:
+        if site in remaining:
+            remaining.remove(site)
+        else:
+            unmatched.append(site)
+
+    new_sites: list[str] = []
+    for site in unmatched:
+        if "@" in site:
+            new_sites.append(site)
+            continue
+        recorded = next((b for b in remaining if _base_key(b) == site), None)
+        if recorded is None:
+            new_sites.append(site)
+        else:
+            remaining.remove(recorded)
+    return new_sites, remaining
+
+
+def load_baseline_document() -> tuple[dict, list[str]]:
+    """The baseline file as a document. Unreadable or malformed is a FAILURE.
+
+    A missing file yields an empty document, which makes every scanned site read as
+    new -- loud, and in the safe direction. Malformed JSON used to raise out of the
+    previous `load_baseline()` as an unhandled traceback; it is reported as a guard
+    failure now so the reason is legible in the CI log.
+    """
     if not BASELINE_PATH.exists():
-        return []
-    data = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
-    return sorted(data.get("sites", []))
+        return {}, []
+    try:
+        data = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return {}, [f"baseline {BASELINE_PATH} is not readable JSON: {exc}"]
+    if not isinstance(data, dict):
+        return {}, [f"baseline {BASELINE_PATH} is not a JSON object."]
+    if not isinstance(data.get("sites", []), list):
+        return {}, [f"baseline {BASELINE_PATH} has a malformed 'sites' list."]
+    return data, []
 
 
-def write_baseline(sites: list[str]) -> None:
+def load_ledger(document: dict) -> tuple[dict[str, str], list[str]]:
+    """The detector-change ledger: site -> the reason recorded for adding it.
+
+    Malformed entries FAIL rather than being ignored: an ignored entry is a claim the
+    guard silently declined to evaluate, and the only thing this ledger does is license
+    an addition.
+    """
+    raw = document.get(LEDGER_KEY, [])
+    if not isinstance(raw, list):
+        return {}, [f"'{LEDGER_KEY}' must be a list of objects."]
+    ledger: dict[str, str] = {}
+    failures: list[str] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            failures.append(f"'{LEDGER_KEY}' entry is not an object: {entry!r}")
+            continue
+        site, reason = entry.get("site"), entry.get("reason")
+        if not isinstance(site, str) or not site.strip():
+            failures.append(f"'{LEDGER_KEY}' entry needs a non-empty 'site': {entry!r}")
+            continue
+        if not isinstance(reason, str) or not reason.strip():
+            failures.append(f"'{LEDGER_KEY}' entry for '{site}' needs a non-empty 'reason'.")
+            continue
+        ledger[site] = reason.strip()
+    return ledger, failures
+
+
+def write_baseline(sites: list[str], ledger: dict[str, str] | None = None) -> None:
     BASELINE_PATH.write_text(
         json.dumps(
             {
@@ -559,15 +803,233 @@ def write_baseline(sites: list[str]) -> None:
                     "delta reviewed in the PR. The render_resource_orchestrator.cpp "
                     "vertex_data entry arrived that way: comment masking made a site that had "
                     "always been there visible for the first time. It is NOT newly introduced "
-                    "and is NOT blessed as safe -- it is tracked for a fix under #798."
+                    "and is NOT blessed as safe -- it is tracked for a fix under #798. Every "
+                    "such addition is recorded in detector_change_ledger with a reason, and "
+                    "the guard rejects an addition relative to the REVIEW BASE unless the "
+                    "ledger covers it AND this script itself differs from the base."
                 ),
                 "sites": sites,
+                LEDGER_KEY: [
+                    {"site": site, "reason": reason}
+                    for site, reason in sorted((ledger or {}).items())
+                    if site in set(sites)
+                ],
             },
             indent=2,
         )
         + "\n",
         encoding="utf-8",
     )
+
+
+def _git(args: list[str]) -> tuple[int, str, str]:
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=SCRIPT_ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except (OSError, ValueError) as exc:
+        return 1, "", str(exc)
+    return result.returncode, result.stdout, result.stderr
+
+
+def resolve_review_base(base_ref: str | None = None) -> tuple[str | None, list[str]]:
+    """The immutable review base, delegated to the shared resolver.
+
+    Importing the environment-skip guard for this is deliberate. It is the same
+    repository, the same lane and the same question, it has already been through three
+    review rounds on exactly this resolution order, and every workflow step that runs
+    `run_module_tests.py --guard-only` exports GS_CI_BASE_REF for it. A private copy
+    would answer the question differently the first time either was edited.
+
+    An import failure is a FAILURE, not a fallback: without a base there is nothing
+    immutable to compare the baseline against, and "could not look" must never be
+    reported as "found nothing".
+
+    One consequence of sharing it, stated rather than discovered later: the resolver's
+    first environment variable is GS_CI_ENV_SKIP_BASE_REF, so overriding the base for
+    the environment-skip guard moves this guard's base too. They are two ratchets on one
+    diff and there is only one review base, so answering differently would be the bug.
+    """
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "_gs_review_base_resolver", BASE_RESOLVER_PATH
+        )
+        if spec is None or spec.loader is None:
+            raise ImportError(f"no loader for {BASE_RESOLVER_PATH}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        resolve = module.resolve_base_sha
+    except Exception as exc:  # noqa: BLE001 -- any failure here must fail closed
+        return None, [
+            f"cannot load the shared review-base resolver from {BASE_RESOLVER_PATH}: {exc}. "
+            f"The baseline can only be graded against the review base, so this run has no "
+            f"reference and fails rather than passing on an unanchored comparison."
+        ]
+    return resolve(base_ref)
+
+
+def _blob_at_base(base_sha: str, path: pathlib.Path) -> tuple[str | None, list[str]]:
+    """File content at the review base, or ABSENT_AT_BASE, or a failure.
+
+    Absence is established with `ls-tree` BEFORE `show` is attempted, deliberately.
+    `git show <sha>:<path>` exits non-zero both when the path is not in that tree and
+    when git could not answer at all -- a corrupt object store, an unfetched base, no
+    git on PATH. Mapping both onto "the file did not exist at the base" would turn every
+    such breakage into the ABSENT_AT_BASE branch, which passes the comparison; the
+    ratchet would then be disabled by anything that broke git, silently and in exactly
+    the conditions where nobody is looking. `ls-tree` separates them: it exits 0 with no
+    output for a path that is genuinely absent, and non-zero when git failed.
+    """
+    try:
+        rel = path.resolve().relative_to(SCRIPT_ROOT).as_posix()
+    except ValueError:
+        return None, [f"{path} is outside {SCRIPT_ROOT}; cannot locate it at the review base."]
+    code, listing, err = _git(["ls-tree", "-r", "--name-only", base_sha, "--", rel])
+    if code != 0:
+        return None, [
+            f"git could not read the tree at review base {base_sha[:12]} for '{rel}' "
+            f"(exit {code}): {err.strip() or 'no stderr'}. Refusing to read that as the "
+            f"file being absent -- the two are different answers."
+        ]
+    if not listing.strip():
+        return ABSENT_AT_BASE, []
+    code, out, err = _git(["show", f"{base_sha}:{rel}"])
+    if code != 0:
+        return None, [
+            f"'{rel}' is present in the tree at review base {base_sha[:12]} but could not "
+            f"be read (exit {code}): {err.strip() or 'no stderr'}."
+        ]
+    return out, []
+
+
+def detector_differs_from_base(base_sha: str) -> tuple[bool, list[str]]:
+    """Whether THIS SCRIPT differs from its committed form at the review base.
+
+    This is what makes the detector-change ledger something other than a second way to
+    write whatever you like into the baseline. A ledger entry is a CLAIM that the
+    addition comes from the detector changing rather than from new code; if the detector
+    is byte-identical to the base, the claim is false on its face and no ledger entry can
+    rescue it. A change that only touches C++ therefore has no route to add a key at all.
+    """
+    content, failures = _blob_at_base(base_sha, pathlib.Path(__file__).resolve())
+    if failures:
+        return False, failures
+    if content is ABSENT_AT_BASE:
+        return True, []  # this change introduces the detector
+    try:
+        current = pathlib.Path(__file__).resolve().read_text(encoding="utf-8")
+    except OSError as exc:
+        return False, [f"cannot read this script to compare it against the review base: {exc}"]
+    return current != content, []
+
+
+def _additions_against_base(sites: list[str], base_ref: str | None = None) -> tuple[list[str], list[str]]:
+    """Sites the write path is about to record that the review base does not have.
+
+    Best effort by design, and only ever used to SEED the ledger. If the base cannot be
+    read here the write still happens and the omission is reported, because the verify
+    path re-derives the same set and fails on anything the ledger does not cover -- the
+    guard's answer must not depend on a local tool having had network or a fetched base.
+    """
+    base_sha, failures = resolve_review_base(base_ref)
+    if failures or base_sha is None:
+        return [], failures or ["the review base did not resolve."]
+    raw, failures = _blob_at_base(base_sha, BASELINE_PATH)
+    if failures:
+        return [], failures
+    if raw is ABSENT_AT_BASE:
+        # The change introduces the baseline. check_baseline_against_base() has no
+        # shrink-only reference in that case and demands no ledger, so seeding one with
+        # all 81 sites under a single reason would be noise, not evidence.
+        return [], []
+    try:
+        base_document = json.loads(raw)
+        base_sites = [str(s) for s in base_document["sites"]]
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        return [], [f"baseline at review base {base_sha[:12]} is unusable: {exc}"]
+    added = collections.Counter(sites) - collections.Counter(base_sites)
+    return sorted(added.elements()), []
+
+
+def check_baseline_against_base(document: dict, base_ref: str | None = None) -> list[str]:
+    """The COMMITTED baseline may only shrink relative to the review base.
+
+    Without this the ratchet grades the change against itself. `load_baseline_document()` reads
+    the baseline out of the proposed commit, so a change that adds an unsafe site AND
+    writes its key into `unchecked_resize_baseline.json` -- by hand, or through
+    `--accept-detector-change` -- produces an empty `new_sites` and exits 0. Both sides
+    moved together, which is not a ratchet; this repo has already recorded that exact
+    lesson twice (tests/ci/test_gpu_harness_deferred_contract.py, and #595 round 3 in
+    check_environment_skip_marker.py, whose resolver this reuses).
+
+    Growth is permitted on exactly one route, and it has two independent locks:
+
+    * every added key is named in `detector_change_ledger` with a reason, and
+    * this script DIFFERS from its form at the review base.
+
+    The second lock is the load-bearing one. A reason is self-attested and a reviewer
+    must judge it; "the detector actually changed" is a fact git can settle, and it
+    denies the whole route to any change that does not touch the detector.
+    """
+    base_sha, failures = resolve_review_base(base_ref)
+    if failures or base_sha is None:
+        return failures or ["the review base did not resolve."]
+
+    raw, failures = _blob_at_base(base_sha, BASELINE_PATH)
+    if failures:
+        return failures
+    if raw is ABSENT_AT_BASE:
+        print("[unchecked-resize] NOTE the baseline does not exist at the review base "
+              f"{base_sha[:12]}, so this change introduces it; there is no shrink-only "
+              "reference this run. Review the whole file, not a diff.")
+        return []
+    try:
+        base_document = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        return [f"baseline at review base {base_sha[:12]} is not valid JSON: {exc}"]
+    if not isinstance(base_document, dict) or not isinstance(base_document.get("sites"), list):
+        return [f"baseline at review base {base_sha[:12]} has no 'sites' list; refusing to compare."]
+
+    current = collections.Counter(str(s) for s in document.get("sites", []))
+    previous = collections.Counter(str(s) for s in base_document["sites"])
+    added = sorted((current - previous).elements())
+    if not added:
+        return []
+
+    ledger, ledger_failures = load_ledger(document)
+    if ledger_failures:
+        return ledger_failures
+
+    differs, failures = detector_differs_from_base(base_sha)
+    if failures:
+        return failures
+    if not differs:
+        return [
+            f"the BASELINE FILE gained {len(added)} site(s) relative to the review base "
+            f"{base_sha[:12]} while {pathlib.Path(__file__).name} is byte-identical to the "
+            f"base. The only sanctioned growth is a DETECTOR change, and the detector did "
+            f"not change, so these keys record new unchecked sites:",
+        ] + [f"    + {site}" for site in added]
+
+    uncovered = [site for site in added if site not in ledger]
+    if uncovered:
+        return [
+            f"the BASELINE FILE gained {len(added)} site(s) relative to the review base "
+            f"{base_sha[:12]}, and {len(uncovered)} of them are not recorded in "
+            f"'{LEDGER_KEY}'. An addition has to say why it is not a new defect:",
+        ] + [f"    + {site}" for site in uncovered]
+
+    print(f"[unchecked-resize] NOTE {len(added)} baseline addition(s) relative to the review "
+          f"base {base_sha[:12]}, each attributed to a DETECTOR change and each a claim to "
+          f"check against the diff:")
+    for site in added:
+        print(f"    + {site}\n      reason: {ledger[site]}")
+    return []
 
 
 def main() -> int:
@@ -581,23 +1043,52 @@ def main() -> int:
                              "sites which were always present but previously invisible. Prints "
                              "the full added/removed sets, which must be reviewed in the PR. "
                              "Never used by CI, and never a way to record a NEW defect.")
+    parser.add_argument("--reason", default="",
+                        help="required with --accept-detector-change: why each added key was "
+                             "not already visible. Recorded per site in the baseline's "
+                             f"'{LEDGER_KEY}' and printed by the guard for review.")
+    parser.add_argument("--base-ref", dest="base_ref", default=None,
+                        help="the review base to grade the committed baseline against. "
+                             "Defaults to the same resolution order as the environment-skip "
+                             "guard (GS_CI_BASE_REF / GITHUB_BASE_REF / ..., then origin/master).")
     args = parser.parse_args()
 
-    sites, read_errors = find_sites()
+    sites, scan_errors = find_sites()
 
-    # Fail closed on unreadable sources. A partial scan cannot distinguish "no new
-    # site" from "did not look", and the old code returned success either way.
-    if read_errors:
-        print("[unchecked-resize] FAILED: could not read module source(s); the scan is "
-              "incomplete and its result cannot be trusted.\n")
-        for item in read_errors:
+    # Fail closed on an incomplete scan -- an unreadable source, or a resize() call the
+    # scanner could not assemble. A partial scan cannot distinguish "no new site" from
+    # "did not look", and the old code returned success either way.
+    if scan_errors:
+        print("[unchecked-resize] FAILED: the module scan is incomplete, so its result "
+              "cannot be trusted.\n")
+        for item in scan_errors:
+            print(f"  {item}")
+        return 1
+
+    document, document_failures = load_baseline_document()
+    if document_failures:
+        print("[unchecked-resize] FAILED: the baseline cannot be read.\n")
+        for item in document_failures:
             print(f"  {item}")
         return 1
 
     if args.regenerate or args.accept_detector_change:
-        previous = load_baseline()
-        added = sorted(set(sites) - set(previous))
-        removed = sorted(set(previous) - set(sites))
+        if args.accept_detector_change and not args.reason.strip():
+            print("[unchecked-resize] REFUSED: --accept-detector-change requires --reason, "
+                  "which is recorded per added site and is what a reviewer grades. An "
+                  "addition with no stated reason is indistinguishable from a blessed defect.")
+            return 1
+
+        previous = sorted(str(s) for s in document.get("sites", []))
+        added, removed = partition_sites(sites, previous)
+
+        ledger, ledger_failures = load_ledger(document)
+        if ledger_failures:
+            print("[unchecked-resize] FAILED: the baseline's detector-change ledger is "
+                  "malformed.\n")
+            for item in ledger_failures:
+                print(f"  {item}")
+            return 1
 
         if added and not args.accept_detector_change:
             # Set inclusion, NOT a net count. Fixing one old site while introducing a
@@ -612,24 +1103,50 @@ def main() -> int:
                   "--accept-detector-change and have the full delta reviewed in the PR.")
             return 1
 
-        write_baseline(sites)
+        # The ledger records what this CHANGE adds, so it is computed against the review
+        # base rather than against the working-tree baseline. Recording additions
+        # relative to the file being overwritten would leave a key added by an earlier
+        # --accept-detector-change in the same branch uncovered, and the verify path
+        # would then reject the branch's own baseline.
+        base_added, base_failures = _additions_against_base(sites, args.base_ref)
+        if base_failures:
+            print("[unchecked-resize] NOTE could not read the baseline at the review base, so "
+                  "the ledger below covers only what changed against the working-tree "
+                  "baseline. The verify run will re-check this and fail if it is short:")
+            for item in base_failures:
+                print(f"  {item}")
+        if args.accept_detector_change:
+            for site in sorted(set(added) | set(base_added)):
+                ledger[site] = args.reason.strip()
+
+        write_baseline(sites, ledger)
         print(f"[unchecked-resize] baseline written: {len(sites)} site(s) "
               f"(previous {len(previous)}; -{len(removed)} removed, +{len(added)} added).")
         for site in removed:
             print(f"  - {site}")
         for site in added:
             print(f"  + {site}")
-        if added:
+        if added or base_added:
             print("\n[unchecked-resize] DETECTOR CHANGE: the additions above are attributed to a "
                   "changed key format or a widened predicate, NOT to newly written code. That "
                   "attribution is a claim, not a fact this script can verify -- review each "
-                  "addition against the diff before committing, and record why it was not "
-                  "already visible.")
+                  "addition against the diff before committing. The guard re-checks it against "
+                  "the review base and rejects it outright unless this script itself changed.")
         return 0
 
-    baseline = load_baseline()
-    new_sites = [s for s in sites if s not in baseline]
-    fixed_sites = [s for s in baseline if s not in sites]
+    baseline = sorted(str(s) for s in document.get("sites", []))
+    new_sites, fixed_sites = partition_sites(sites, baseline)
+
+    # The committed baseline is graded against the REVIEW BASE, not against itself.
+    # Everything above reads the baseline out of the proposed commit, so on its own it
+    # cannot see a change that adds an unsafe site and its key in the same diff.
+    base_failures = check_baseline_against_base(document, args.base_ref)
+    if base_failures:
+        print("[unchecked-resize] FAILED: the committed baseline did not survive comparison "
+              "with the review base.\n")
+        for item in base_failures:
+            print(f"  {item}")
+        return 1
 
     if new_sites:
         print("[unchecked-resize] FAILED: new unchecked resize()->raw-write site(s) found.\n")
