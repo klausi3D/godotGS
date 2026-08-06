@@ -103,7 +103,10 @@ Stated plainly, because an undocumented blind spot invites false confidence:
    statements plus, for a run of identical blocks, their statement offset in the
    function. Both are textual: an edit inside a duplicate's context re-identifies it and
    the guard fires. That is the safe direction -- it reports for review rather than
-   missing -- but it is a false positive, not a defect found.
+   missing -- but it is a false positive, not a defect found. The one case running the
+   other way -- a whole recorded duplicate group repaired and a fresh statement written
+   at the same base key -- is undecidable here, so it is not decided here: it FAILS the
+   run unless `duplicate_repair_ledger` records it with a reason (see below).
 
 Reliable detection of 1-3 needs type and dataflow information, i.e. a clang-tidy check
 or a compiler plugin. This is a ratchet against the pattern spreading, not a proof that
@@ -142,14 +145,56 @@ imported rather than copied), and it may only SHRINK. If the base cannot be reso
 guard FAILS: with no immutable reference there is nothing to ratchet against, and
 "cannot determine the base" must never share an outcome with "nothing changed".
 
-Growth relative to the base needs BOTH of:
+Growth relative to the base needs ALL THREE of:
 
-* a `detector_change_ledger` entry naming the added key with a reason, and
-* this script actually differing from its form at the review base.
+* a `detector_change_ledger` entry naming the added key with a reason,
+* this script actually differing from its form at the review base, and
+* **THIS detector, run over the source AS IT WAS at the review base, finding that exact
+  site there.**
 
-The second is the load-bearing one. A reason is self-attested and only a reviewer can
-grade it; "the detector changed" is a fact git settles, and it denies the growth route
-entirely to any change that does not touch the detector.
+The third is the load-bearing one, and it replaces a proxy that did not hold. "Any byte
+of this script differs" was being read as "the detector legitimately finds more", and
+those are not the same statement: a docstring edit makes the first true and says nothing
+about the second. A change could therefore reword a comment in this file, add an
+unchecked C++ site together with its baseline key and any non-empty reason, and CI would
+return success. Re-running the CURRENT detector against the IMMUTABLE base source
+settles the actual question -- was this site already in the tree, merely invisible? -- as
+a fact rather than as a self-attestation. A genuinely new site is not in the base source,
+so no ledger entry and no amount of editing this file can license it.
+
+The first two locks are kept anyway. A reason is what a reviewer grades, and "the
+detector changed" denies the route outright to any change that does not touch the
+detector, so an accidental widening cannot slip through on the base-source proof alone.
+
+If the base source cannot be scanned, the run FAILS. "Could not look" must never share
+an outcome with "looked and the site was already there".
+
+## The second growth route: a repaired duplicate group
+
+There is one addition the base-source proof above cannot license, because it is real and
+routine. Two identical statements in one function are baselined as `k@d1` and `k@d2`;
+repairing one leaves a single statement, which is no longer a duplicate and is therefore
+emitted as plain `k`. Recording that fix ADDS `k` to the baseline while removing two
+entries -- and `k` is not what the detector emits for the base source, where the pair
+still exists.
+
+That route is `duplicate_repair_ledger`, it is written by `--accept-duplicate-repair
+--reason "..."`, and it is bounded to a shape that can only ever reduce the recorded
+count at a base key:
+
+* the added key is plain (carries no `@` suffix),
+* the base baseline recorded a GROUP -- two or more suffixed entries -- at that base key,
+* the committed baseline now holds exactly ONE entry at that base key, and
+* this detector, run over the base source, finds two or more sites at that base key,
+  which is what makes "a group really was there" a fact rather than a claim.
+
+It exists because the alternative is worse. Inside a group that shrank to one statement,
+the SURVIVOR and a statement newly written at the same base key after every recorded
+member was repaired produce byte-identical input -- see `partition_sites()`. The guard
+used to accept that silently and exit 0, which let the set of unchecked sites grow while
+reporting that the ratchet had improved. It cannot decide the case, so it now refuses to
+decide it alone: unacknowledged, the run FAILS; acknowledged, the reason is in the diff,
+printed by the guard, and graded by a reviewer.
 """
 from __future__ import annotations
 
@@ -157,13 +202,19 @@ import argparse
 import collections
 import hashlib
 import importlib.util
+import io
 import json
 import pathlib
 import re
 import subprocess
 import sys
+import tarfile
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+# The module path as git spells it. MODULE_ROOT is repointed at a fixture tree by the
+# self-tests; this one addresses the REAL repository, which is what the review-base scan
+# reads through git, and must stay independent of it for the same reason SCRIPT_ROOT is.
+MODULE_REL = "modules/gaussian_splatting"
 MODULE_ROOT = REPO_ROOT / "modules" / "gaussian_splatting"
 BASELINE_PATH = REPO_ROOT / "tests" / "ci" / "unchecked_resize_baseline.json"
 
@@ -182,6 +233,12 @@ BASE_RESOLVER_PATH = SCRIPT_DIR / "check_environment_skip_marker.py"
 # which is a hard failure.
 ABSENT_AT_BASE = "absent-at-base"
 LEDGER_KEY = "detector_change_ledger"
+# The second, narrower growth route: a baselined duplicate GROUP that was repaired down
+# to a single statement, whose surviving plain key the base baseline cannot contain. Kept
+# separate from LEDGER_KEY because the two license different shapes and carry different
+# preconditions -- a repair is a C++-only change and must NOT require a detector edit,
+# while a detector-change entry must.
+REPAIR_LEDGER_KEY = "duplicate_repair_ledger"
 
 # Applied to an ASSEMBLED, COMMENT-MASKED statement, never to a raw line.
 #
@@ -589,31 +646,24 @@ def _statement_offset(lines: list[str], index: int, span_start: int) -> int:
     return count
 
 
-def find_sites() -> tuple[list[str], list[str]]:
-    """Return (sites, scan_errors).
+def scan_sources(sources: list[tuple[str, str]]) -> tuple[list[str], list[str]]:
+    """Run the detector over (relative path, file text) pairs. Returns (sites, errors).
 
-    scan_errors is NOT cosmetic: an unreadable source used to be skipped with
-    `continue`, which dropped every site in that file and still let the run exit 0,
-    reporting the file's baseline entries as "fixed". Incomplete scanning must never
-    be accepted as evidence that no new site exists, so the caller fails on it.
-
-    The same rule now covers a `resize(` the scanner cannot ASSEMBLE into a statement.
-    Both conditions mean the scan did not look; neither may read as "found nothing".
+    Split out of find_sites() so the SAME detector can be pointed at source that is not
+    on disk -- specifically the tree at the review base, read through git. That is what
+    turns "this script changed" into "this script finds the site in code that already
+    existed"; see check_baseline_against_base(). A second, base-only implementation of
+    the predicate would answer the question differently the first time either was edited,
+    which is the same argument that made resolve_review_base() a shared import.
     """
     sites: list[str] = []
     errors: list[str] = []
-    for path in _module_sources():
-        try:
-            raw_lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError as exc:
-            errors.append(f"{path.relative_to(REPO_ROOT).as_posix()}: {exc}")
-            continue
+    for rel, text in sources:
         # Analyse the MASKED source throughout -- statement matching, type lookback,
         # brace depth and consumer search alike. Comments and string literals are not
         # code, and letting them steer any of those four is what produced three of the
         # reported evasions.
-        lines = _mask_source(raw_lines)
-        rel = path.relative_to(REPO_ROOT).as_posix()
+        lines = _mask_source(text.splitlines())
         spans = _function_spans(lines)
         candidates: list[tuple[str, str, int]] = []
         for i, line in enumerate(lines):
@@ -681,6 +731,90 @@ def find_sites() -> tuple[list[str], list[str]]:
     return sorted(sites), errors
 
 
+def find_sites() -> tuple[list[str], list[str]]:
+    """Scan the WORKING TREE. Returns (sites, scan_errors).
+
+    scan_errors is NOT cosmetic: an unreadable source used to be skipped with
+    `continue`, which dropped every site in that file and still let the run exit 0,
+    reporting the file's baseline entries as "fixed". Incomplete scanning must never
+    be accepted as evidence that no new site exists, so the caller fails on it.
+
+    The same rule covers a `resize(` the scanner cannot ASSEMBLE into a statement (in
+    scan_sources). Both conditions mean the scan did not look; neither may read as
+    "found nothing".
+    """
+    sources: list[tuple[str, str]] = []
+    errors: list[str] = []
+    for path in _module_sources():
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            errors.append(f"{path.relative_to(REPO_ROOT).as_posix()}: {exc}")
+            continue
+        sources.append((path.relative_to(REPO_ROOT).as_posix(), text))
+    sites, scan_errors = scan_sources(sources)
+    return sites, errors + scan_errors
+
+
+def find_sites_at_base(base_sha: str) -> tuple[list[str], list[str]]:
+    """Run THIS detector over the module source as it stood at the review base.
+
+    The point of the exercise, spelled out because it is easy to mistake for a
+    redundant second opinion: `detector_differs_from_base()` answers "did this file
+    change", which is a proxy for "does this detector legitimately find more" and a bad
+    one -- a docstring edit satisfies it. This answers the real question. A key added to
+    the baseline is sanctioned only if the CURRENT predicate finds that exact site in
+    IMMUTABLE source, i.e. the site predates the change and was merely invisible.
+
+    Every failure path returns an error rather than an empty site list. An empty list
+    reads as "the base contained no such site", which is the exact conclusion that
+    REJECTS an addition -- so a git failure would silently harden the guard here rather
+    than weaken it, and the run would fail with a misleading reason. Saying "could not
+    scan" keeps the two answers apart, which is this guard's whole discipline.
+    """
+    code, blob, err = _git_bytes(["archive", "--format=tar", base_sha, "--", MODULE_REL])
+    if code != 0:
+        return [], [
+            f"could not read the module source at review base {base_sha[:12]} "
+            f"(git archive exit {code}): {err.strip() or 'no stderr'}."
+        ]
+    sources: list[tuple[str, str]] = []
+    try:
+        with tarfile.open(fileobj=io.BytesIO(blob), mode="r|") as archive:
+            for member in archive:
+                if not member.isfile():
+                    continue
+                rel = member.name.replace("\\", "/")
+                if not rel.endswith((".cpp", ".h")):
+                    continue
+                if "tests" in rel.split("/"):
+                    continue  # mirrors _module_sources()
+                handle = archive.extractfile(member)
+                if handle is None:
+                    return [], [
+                        f"'{rel}' at review base {base_sha[:12]} could not be extracted "
+                        f"from the archive; the base scan is incomplete."
+                    ]
+                sources.append((rel, handle.read().decode("utf-8", errors="replace")))
+    except (tarfile.TarError, OSError) as exc:
+        return [], [
+            f"the module source archive at review base {base_sha[:12]} is unreadable: {exc}"
+        ]
+    if not sources:
+        return [], [
+            f"review base {base_sha[:12]} yielded no module sources under '{MODULE_REL}'. "
+            f"Refusing to read that as 'the base contained no sites' -- an empty scan and "
+            f"an unscanned base are different answers."
+        ]
+    sites, errors = scan_sources(sorted(sources))
+    if errors:
+        return [], [
+            f"the module source at review base {base_sha[:12]} did not scan cleanly, so it "
+            f"cannot establish what was already there:",
+        ] + [f"    {item}" for item in errors]
+    return sites, []
+
+
 def _base_key(site: str) -> str:
     """A site identity stripped of its duplicate-disambiguation suffix.
 
@@ -734,15 +868,21 @@ def partition_sites(
     `[k@d1, k@d2]`, byte for byte. No comparison of the two string lists can separate
     them, and the context digest cannot either -- it is unstable across exactly the
     edit that creates the situation (repairing a sibling rewrites the survivor's
-    context window; see test_fixing_one_duplicate_adds_another). A check strong enough
-    to reject the addition therefore also rejects the repair, which is the regression
-    the claim exists to prevent. So the claim is REPORTED instead: `claims` carries it
-    out and main() prints it, because an undecidable case that leaves no trace in the
-    output is the one shape this guard must never produce.
+    context window; see test_swapped_duplicate_is_reported_as_new). A check strong
+    enough to reject the addition therefore also rejects the repair, which is the
+    regression the claim exists to prevent.
+
+    So this function still MODELS the claim -- the repair has to remain representable --
+    and hands it out through `claims` for the caller to dispose of. The disposition is
+    no longer silent success: main() FAILS on an unacknowledged claim, and a genuine
+    repair is recorded through `--accept-duplicate-repair --reason`, which is graded by
+    a reviewer. Reporting it while exiting 0 was itself a decision, and the wrong one:
+    the set of unchecked sites could grow behind a line saying the ratchet improved.
+    See base_key_claim_failures().
 
     Note this residual needs the whole recorded group to disappear first. Repairing one
     duplicate and adding another leaves two live sites at the key, so both are suffixed,
-    both are unmatched, and both are reported -- test_fixing_one_duplicate_adds_another.
+    both are unmatched, and both are reported -- test_swapped_duplicate_is_reported_as_new.
     """
     remaining = list(baseline)
     unmatched: list[str] = []
@@ -772,28 +912,52 @@ def partition_sites(
     return new_sites, remaining
 
 
-def _report_base_key_claims(claims: list[tuple[str, str]]) -> None:
-    """Print every duplicate entry that was matched by BASE KEY rather than exactly.
+def base_key_claim_failures(claims: list[tuple[str, str]]) -> list[str]:
+    """Turn every base-key claim into a FAILURE. Returns the lines, empty when there are none.
 
     The one case partition_sites() cannot decide (see its docstring): inside a duplicate
     group that shrank to a single statement, the survivor and a statement newly written
     at the same base key after every recorded member was repaired produce identical
-    input. The guard has to accept the claim, or every legitimate repair fails; what it
-    must not do is accept it SILENTLY, because then the only trace of an undecided
-    question is a line saying the ratchet got better.
+    input.
+
+    This used to be REPORTED and the run exited 0, on the reasoning that any check strong
+    enough to reject the addition also rejects every legitimate repair. That reasoning is
+    sound about the CHECK and wrong about the DISPOSITION. Exit 0 is a decision -- it is
+    the decision "this is a repair" -- and it let the set of unchecked sites grow while
+    the summary line said the ratchet had improved. This guard already refuses that trade
+    elsewhere in the plainest terms ("set inclusion, NOT a net count"), and a note nobody
+    is required to read is not an exception to it.
+
+    So the undecidable case FAILS, and a genuine repair is recorded DELIBERATELY instead:
+    `--regenerate --accept-duplicate-repair --reason "..."` writes the surviving key into
+    the baseline with a reason, and check_baseline_against_base() then admits that one
+    addition through `duplicate_repair_ledger` -- bounded to shapes that reduce the count
+    at the base key, corroborated against the base source, and printed for review. The
+    repair stays possible; what stops is deciding it in silence.
     """
     if not claims:
-        return
-    print(f"[unchecked-resize] NOTE: {len(claims)} site(s) matched a recorded DUPLICATE entry "
-          "by base key, not exactly:")
+        return []
+    lines = [
+        f"{len(claims)} scanned site(s) matched a recorded DUPLICATE entry by BASE KEY, not "
+        f"exactly, and that match cannot be decided here:",
+    ]
     for site, recorded in claims:
-        print(f"    assumed survivor: {site}")
-        print(f"      claimed entry:  {recorded}")
-    print("  Each is assumed to be the surviving statement of a duplicate group whose other\n"
-          "  member(s) were repaired. This script cannot verify that -- a statement newly\n"
-          "  written at the same file/function/variable/count after the whole recorded group\n"
-          "  was repaired is indistinguishable from it. Check the diff before trusting the\n"
-          "  reduction.")
+        lines.append(f"    site:          {site}")
+        lines.append(f"    claimed entry: {recorded}")
+    lines.append(
+        "  Each would be the surviving statement of a duplicate group whose other member(s)\n"
+        "  were repaired -- but a statement newly written at the same file/function/variable/\n"
+        "  count AFTER the whole recorded group was repaired produces byte-identical input.\n"
+        "  Passing on that would let the set of unchecked sites grow while reporting a\n"
+        f"  reduction, so it fails instead.\n\n"
+        "  If it IS a repair, record it deliberately:\n"
+        "      python tests/ci/check_unchecked_resize.py --regenerate \\\n"
+        "          --accept-duplicate-repair --reason \"which statement was repaired, and why\n"
+        "          the survivor is the one that was already baselined\"\n"
+        f"  That writes the surviving key with its reason into '{REPAIR_LEDGER_KEY}', where a\n"
+        "  reviewer grades it against the diff."
+    )
+    return lines
 
 
 def load_baseline_document() -> tuple[dict, list[str]]:
@@ -817,34 +981,42 @@ def load_baseline_document() -> tuple[dict, list[str]]:
     return data, []
 
 
-def load_ledger(document: dict) -> tuple[dict[str, str], list[str]]:
-    """The detector-change ledger: site -> the reason recorded for adding it.
+def load_ledger(document: dict, key: str = LEDGER_KEY) -> tuple[dict[str, str], list[str]]:
+    """A ledger: site -> the reason recorded for adding it.
+
+    Shared by both growth routes -- `detector_change_ledger` and
+    `duplicate_repair_ledger` -- which differ in what they license, not in how they are
+    written or validated.
 
     Malformed entries FAIL rather than being ignored: an ignored entry is a claim the
-    guard silently declined to evaluate, and the only thing this ledger does is license
+    guard silently declined to evaluate, and the only thing a ledger does is license
     an addition.
     """
-    raw = document.get(LEDGER_KEY, [])
+    raw = document.get(key, [])
     if not isinstance(raw, list):
-        return {}, [f"'{LEDGER_KEY}' must be a list of objects."]
+        return {}, [f"'{key}' must be a list of objects."]
     ledger: dict[str, str] = {}
     failures: list[str] = []
     for entry in raw:
         if not isinstance(entry, dict):
-            failures.append(f"'{LEDGER_KEY}' entry is not an object: {entry!r}")
+            failures.append(f"'{key}' entry is not an object: {entry!r}")
             continue
         site, reason = entry.get("site"), entry.get("reason")
         if not isinstance(site, str) or not site.strip():
-            failures.append(f"'{LEDGER_KEY}' entry needs a non-empty 'site': {entry!r}")
+            failures.append(f"'{key}' entry needs a non-empty 'site': {entry!r}")
             continue
         if not isinstance(reason, str) or not reason.strip():
-            failures.append(f"'{LEDGER_KEY}' entry for '{site}' needs a non-empty 'reason'.")
+            failures.append(f"'{key}' entry for '{site}' needs a non-empty 'reason'.")
             continue
         ledger[site] = reason.strip()
     return ledger, failures
 
 
-def write_baseline(sites: list[str], ledger: dict[str, str] | None = None) -> None:
+def write_baseline(
+    sites: list[str],
+    ledger: dict[str, str] | None = None,
+    repair_ledger: dict[str, str] | None = None,
+) -> None:
     BASELINE_PATH.write_text(
         json.dumps(
             {
@@ -869,12 +1041,22 @@ def write_baseline(sites: list[str], ledger: dict[str, str] | None = None) -> No
                     "and is NOT blessed as safe -- it is tracked for a fix under #798. Every "
                     "such addition is recorded in detector_change_ledger with a reason, and "
                     "the guard rejects an addition relative to the REVIEW BASE unless the "
-                    "ledger covers it AND this script itself differs from the base."
+                    "ledger covers it AND this script itself differs from the base AND this "
+                    "detector, re-run over the source at the review base, finds that exact "
+                    "site there. The one addition that proof cannot cover -- a baselined "
+                    "duplicate GROUP repaired down to a single plain key -- is recorded in "
+                    "duplicate_repair_ledger instead, and is bounded to shapes that reduce "
+                    "the recorded count at that base key."
                 ),
                 "sites": sites,
                 LEDGER_KEY: [
                     {"site": site, "reason": reason}
                     for site, reason in sorted((ledger or {}).items())
+                    if site in set(sites)
+                ],
+                REPAIR_LEDGER_KEY: [
+                    {"site": site, "reason": reason}
+                    for site, reason in sorted((repair_ledger or {}).items())
                     if site in set(sites)
                 ],
             },
@@ -898,6 +1080,19 @@ def _git(args: list[str]) -> tuple[int, str, str]:
     except (OSError, ValueError) as exc:
         return 1, "", str(exc)
     return result.returncode, result.stdout, result.stderr
+
+
+def _git_bytes(args: list[str]) -> tuple[int, bytes, str]:
+    """As _git(), but returns stdout UNDECODED.
+
+    `git archive` emits a tar stream. Decoding it as text would corrupt the archive and
+    the failure would surface as an unreadable-tar error rather than as what it is.
+    """
+    try:
+        result = subprocess.run(["git", *args], cwd=SCRIPT_ROOT, capture_output=True)
+    except (OSError, ValueError) as exc:
+        return 1, b"", str(exc)
+    return result.returncode, result.stdout, result.stderr.decode("utf-8", errors="replace")
 
 
 def resolve_review_base(base_ref: str | None = None) -> tuple[str | None, list[str]]:
@@ -1030,14 +1225,38 @@ def check_baseline_against_base(document: dict, base_ref: str | None = None) -> 
     lesson twice (tests/ci/test_gpu_harness_deferred_contract.py, and #595 round 3 in
     check_environment_skip_marker.py, whose resolver this reuses).
 
-    Growth is permitted on exactly one route, and it has two independent locks:
+    Growth is permitted on two bounded routes.
 
-    * every added key is named in `detector_change_ledger` with a reason, and
-    * this script DIFFERS from its form at the review base.
+    **A DETECTOR CHANGE**, with three independent locks:
 
-    The second lock is the load-bearing one. A reason is self-attested and a reviewer
-    must judge it; "the detector actually changed" is a fact git can settle, and it
-    denies the whole route to any change that does not touch the detector.
+    * every added key is named in `detector_change_ledger` with a reason,
+    * this script DIFFERS from its form at the review base, and
+    * THIS detector, re-run over the source at the review base, finds that exact site
+      there.
+
+    The third lock is the load-bearing one, and the first two are not sufficient without
+    it. "This script differs" is satisfied by editing a docstring, so it was standing in
+    for "the detector legitimately finds more" without establishing it: a change could
+    reword a comment here, add an unchecked C++ site with its key and any reason, and CI
+    returned success. Re-scanning the immutable base source answers the real question --
+    was the site already there? -- with a fact. The other two locks stay because a reason
+    is what a reviewer grades, and an unchanged detector has no business adding keys at
+    all.
+
+    **A REPAIRED DUPLICATE GROUP**, named in `duplicate_repair_ledger` with a reason, and
+    bounded by `_is_repaired_duplicate_group()` to a shape that can only reduce the
+    recorded count at a base key. It exists because repairing one of two baselined
+    duplicates legitimately adds the survivor's plain key -- which the base-source proof
+    above can never cover, since the base source still holds the pair. It deliberately
+    does NOT require a detector change: a repair is a C++-only change.
+
+    That second route is an acknowledgement, not a proof. Within a group that shrank to
+    one statement, the survivor and a statement newly written at the same base key after
+    every recorded member was repaired are byte-identical inputs (see partition_sites()).
+    The guard cannot separate them, so it does not pretend to: unacknowledged the run
+    FAILS, and acknowledged the reason is in the diff, printed here, and graded by a
+    reviewer. What it must never do is what it used to -- accept the reduction silently
+    and report that the ratchet improved.
     """
     base_sha, failures = resolve_review_base(base_ref)
     if failures or base_sha is None:
@@ -1065,34 +1284,130 @@ def check_baseline_against_base(document: dict, base_ref: str | None = None) -> 
         return []
 
     ledger, ledger_failures = load_ledger(document)
-    if ledger_failures:
-        return ledger_failures
+    repair_ledger, repair_failures = load_ledger(document, REPAIR_LEDGER_KEY)
+    if ledger_failures or repair_failures:
+        return ledger_failures + repair_failures
 
-    differs, failures = detector_differs_from_base(base_sha)
-    if failures:
-        return failures
-    if not differs:
+    # Route 2 is settled entirely from the two baseline files: which added keys have the
+    # shape of a duplicate group that shrank. Separating them FIRST matters, because
+    # route 1's detector-change lock must not be applied to a repair -- a repair touches
+    # no Python at all.
+    repair_route = [site for site in added
+                    if site in repair_ledger
+                    and _is_repaired_duplicate_group(site, previous, current)]
+    detector_route = list(added)
+    for site in repair_route:
+        detector_route.remove(site)
+
+    if detector_route:
+        differs, failures = detector_differs_from_base(base_sha)
+        if failures:
+            return failures
+        if not differs:
+            return [
+                f"the BASELINE FILE gained {len(detector_route)} site(s) relative to the "
+                f"review base {base_sha[:12]} while {pathlib.Path(__file__).name} is "
+                f"byte-identical to the base. The only sanctioned growth is a DETECTOR "
+                f"change, and the detector did not change, so these keys record new "
+                f"unchecked sites:",
+            ] + [f"    + {site}" for site in detector_route]
+
+        uncovered = [site for site in detector_route if site not in ledger]
+        if uncovered:
+            return [
+                f"the BASELINE FILE gained {len(detector_route)} site(s) relative to the "
+                f"review base {base_sha[:12]}, and {len(uncovered)} of them are not "
+                f"recorded in '{LEDGER_KEY}'. An addition has to say why it is not a new "
+                f"defect:",
+            ] + [f"    + {site}" for site in uncovered]
+
+    # Both routes now need the same fact, so it is established once: what does THIS
+    # detector find in the source as it stood at the review base?
+    base_scan, scan_failures = find_sites_at_base(base_sha)
+    if scan_failures:
         return [
             f"the BASELINE FILE gained {len(added)} site(s) relative to the review base "
-            f"{base_sha[:12]} while {pathlib.Path(__file__).name} is byte-identical to the "
-            f"base. The only sanctioned growth is a DETECTOR change, and the detector did "
-            f"not change, so these keys record new unchecked sites:",
-        ] + [f"    + {site}" for site in added]
+            f"{base_sha[:12]}, and whether they were already present there could not be "
+            f"established. An addition is sanctioned by EVIDENCE from the base source, "
+            f"never by the absence of it:",
+        ] + scan_failures
 
-    uncovered = [site for site in added if site not in ledger]
-    if uncovered:
+    base_found = collections.Counter(base_scan)
+    # A ledger entry claims the site was ALREADY in the tree and merely invisible. That
+    # is checkable, and this is where it gets checked: run the current predicate over the
+    # base source and require the exact key to come back. An edit to this file's prose
+    # cannot satisfy it; only source that genuinely predates the change can.
+    unproven: list[str] = []
+    for site in detector_route:
+        if base_found[site] > 0:
+            base_found[site] -= 1
+        else:
+            unproven.append(site)
+    if unproven:
         return [
-            f"the BASELINE FILE gained {len(added)} site(s) relative to the review base "
-            f"{base_sha[:12]}, and {len(uncovered)} of them are not recorded in "
-            f"'{LEDGER_KEY}'. An addition has to say why it is not a new defect:",
-        ] + [f"    + {site}" for site in uncovered]
+            f"{len(unproven)} baseline addition(s) are attributed to a DETECTOR change, but "
+            f"re-running THIS detector over the module source at review base "
+            f"{base_sha[:12]} does not find them there. A detector change reveals sites that "
+            f"were ALREADY in the tree; a site the base source does not contain is new code, "
+            f"whatever the ledger says:",
+        ] + [f"    + {site}\n      reason on file: {ledger[site]}" for site in unproven]
 
-    print(f"[unchecked-resize] NOTE {len(added)} baseline addition(s) relative to the review "
-          f"base {base_sha[:12]}, each attributed to a DETECTOR change and each a claim to "
-          f"check against the diff:")
-    for site in added:
-        print(f"    + {site}\n      reason: {ledger[site]}")
+    # The repair route's own corroboration: the base source must really have held a
+    # duplicate GROUP at this base key. Without it, "a group shrank" is a story told by
+    # the baseline file about itself.
+    ungrouped = [site for site in repair_route
+                 if sum(1 for entry in base_scan if _base_key(entry) == site) < 2]
+    if ungrouped:
+        return [
+            f"{len(ungrouped)} baseline addition(s) are attributed to a repaired DUPLICATE "
+            f"GROUP, but the module source at review base {base_sha[:12]} does not hold two "
+            f"or more sites at that base key, so there was no group to shrink:",
+        ] + [f"    + {site}" for site in ungrouped]
+
+    if detector_route:
+        print(f"[unchecked-resize] NOTE {len(detector_route)} baseline addition(s) relative to "
+              f"the review base {base_sha[:12]}, each attributed to a DETECTOR change, each "
+              f"found by this detector in the base source, and each a claim to check against "
+              f"the diff:")
+        for site in detector_route:
+            print(f"    + {site}\n      reason: {ledger[site]}")
+    if repair_route:
+        print(f"[unchecked-resize] NOTE {len(repair_route)} baseline addition(s) relative to "
+              f"the review base {base_sha[:12]} are ACKNOWLEDGED repairs of a duplicate group "
+              f"shrinking to one statement. This script cannot tell the surviving statement "
+              f"from one newly written at the same base key after the whole group was "
+              f"repaired -- that is why each carries a reason for a reviewer to grade:")
+        for site in repair_route:
+            print(f"    + {site}\n      reason: {repair_ledger[site]}")
     return []
+
+
+def _is_repaired_duplicate_group(
+    site: str,
+    previous: collections.Counter,
+    current: collections.Counter,
+) -> bool:
+    """Does `site` have the shape of a duplicate group repaired down to one statement?
+
+    Bounds the acknowledgement route so it cannot become a general "add anything" lever.
+    All four conditions are read off the two baseline files, none is self-attested:
+
+    * the added key is PLAIN. A suffix is emitted only while a key repeats, so a
+      suffixed addition is a live duplicate, not a survivor;
+    * the base baseline recorded two or more entries at that base key, and
+    * every one of them was SUFFIXED, which is the recorded shape of a duplicate group;
+    * the committed baseline now holds exactly ONE entry at that base key.
+
+    Together those force the recorded count at the base key strictly DOWN (>=2 to 1), so
+    the route cannot be used to grow the ratchet -- only to record a reduction whose
+    attribution a reviewer has to grade.
+    """
+    if "@" in site:
+        return False
+    group = [entry for entry in previous.elements() if _base_key(entry) == site]
+    if len(group) < 2 or any(entry == site for entry in group):
+        return False
+    return sum(1 for entry in current.elements() if _base_key(entry) == site) == 1
 
 
 def main() -> int:
@@ -1106,10 +1421,21 @@ def main() -> int:
                              "sites which were always present but previously invisible. Prints "
                              "the full added/removed sets, which must be reviewed in the PR. "
                              "Never used by CI, and never a way to record a NEW defect.")
+    parser.add_argument("--accept-duplicate-repair", dest="accept_duplicate_repair",
+                        action="store_true",
+                        help="rewrite the baseline when a recorded DUPLICATE GROUP was "
+                             "repaired down to a single statement, whose surviving key is "
+                             "emitted plain and so is an addition the base baseline cannot "
+                             "contain. This script cannot tell that survivor from a statement "
+                             "newly written at the same base key after the whole group was "
+                             "repaired, so the acknowledgement is explicit and carries a "
+                             f"--reason, recorded in '{REPAIR_LEDGER_KEY}' for review.")
     parser.add_argument("--reason", default="",
-                        help="required with --accept-detector-change: why each added key was "
-                             "not already visible. Recorded per site in the baseline's "
-                             f"'{LEDGER_KEY}' and printed by the guard for review.")
+                        help="required with --accept-detector-change or "
+                             "--accept-duplicate-repair: why the added key is not a new "
+                             "defect. Recorded per site in the baseline's "
+                             f"'{LEDGER_KEY}' / '{REPAIR_LEDGER_KEY}' and printed by the "
+                             "guard for review.")
     parser.add_argument("--base-ref", dest="base_ref", default=None,
                         help="the review base to grade the committed baseline against. "
                              "Defaults to the same resolution order as the environment-skip "
@@ -1135,11 +1461,12 @@ def main() -> int:
             print(f"  {item}")
         return 1
 
-    if args.regenerate or args.accept_detector_change:
-        if args.accept_detector_change and not args.reason.strip():
-            print("[unchecked-resize] REFUSED: --accept-detector-change requires --reason, "
-                  "which is recorded per added site and is what a reviewer grades. An "
-                  "addition with no stated reason is indistinguishable from a blessed defect.")
+    if args.regenerate or args.accept_detector_change or args.accept_duplicate_repair:
+        if (args.accept_detector_change or args.accept_duplicate_repair) and not args.reason.strip():
+            print("[unchecked-resize] REFUSED: --accept-detector-change and "
+                  "--accept-duplicate-repair each require --reason, which is recorded per "
+                  "added site and is what a reviewer grades. An addition with no stated "
+                  "reason is indistinguishable from a blessed defect.")
             return 1
 
         previous = sorted(str(s) for s in document.get("sites", []))
@@ -1147,10 +1474,22 @@ def main() -> int:
         added, removed = partition_sites(sites, previous, claims)
 
         ledger, ledger_failures = load_ledger(document)
-        if ledger_failures:
-            print("[unchecked-resize] FAILED: the baseline's detector-change ledger is "
-                  "malformed.\n")
-            for item in ledger_failures:
+        repair_ledger, repair_failures = load_ledger(document, REPAIR_LEDGER_KEY)
+        if ledger_failures or repair_failures:
+            print("[unchecked-resize] FAILED: a baseline ledger is malformed.\n")
+            for item in ledger_failures + repair_failures:
+                print(f"  {item}")
+            return 1
+
+        # A base-key claim is the undecidable duplicate-group case. Writing the survivor's
+        # plain key on the strength of it is exactly the silent decision this guard must
+        # not make, so the write is REFUSED unless it is acknowledged. Note the claim
+        # cannot be seen from the delta -- `added` is empty here, because the claim
+        # consumed the recorded entry.
+        if claims and not args.accept_duplicate_repair:
+            print("[unchecked-resize] REFUSED: regeneration would record a duplicate-group "
+                  "reduction this script cannot verify.\n")
+            for item in base_key_claim_failures(claims):
                 print(f"  {item}")
             return 1
 
@@ -1179,24 +1518,43 @@ def main() -> int:
                   "baseline. The verify run will re-check this and fail if it is short:")
             for item in base_failures:
                 print(f"  {item}")
+        # A claimed survivor is an addition against the BASE baseline (which holds the
+        # suffixed group) even though `added` is empty against the working tree's, so it
+        # shows up in base_added -- but it belongs to the REPAIR route, not the detector
+        # one. Split it out before either ledger is seeded, or the same key would be
+        # licensed twice under two different stories.
+        claimed = {site for site, _ in claims}
+        detector_added = sorted(set(added) | (set(base_added) - claimed))
+        if args.accept_duplicate_repair:
+            for site in claimed:
+                repair_ledger[site] = args.reason.strip()
         if args.accept_detector_change:
-            for site in sorted(set(added) | set(base_added)):
+            for site in detector_added:
                 ledger[site] = args.reason.strip()
 
-        write_baseline(sites, ledger)
+        write_baseline(sites, ledger, repair_ledger)
         print(f"[unchecked-resize] baseline written: {len(sites)} site(s) "
               f"(previous {len(previous)}; -{len(removed)} removed, +{len(added)} added).")
         for site in removed:
             print(f"  - {site}")
         for site in added:
             print(f"  + {site}")
-        _report_base_key_claims(claims)
-        if added or base_added:
+        if claims:
+            print(f"\n[unchecked-resize] DUPLICATE REPAIR acknowledged for {len(claims)} "
+                  f"site(s), recorded in '{REPAIR_LEDGER_KEY}':")
+            for site, recorded in claims:
+                print(f"  + {site}\n      replaces: {recorded}\n      reason: {args.reason.strip()}")
+            print("  This script cannot distinguish that survivor from a statement newly "
+                  "written\n  at the same base key after the whole group was repaired. The "
+                  "reason above is\n  what a reviewer grades against the diff.")
+        if detector_added:
             print("\n[unchecked-resize] DETECTOR CHANGE: the additions above are attributed to a "
                   "changed key format or a widened predicate, NOT to newly written code. That "
                   "attribution is a claim, not a fact this script can verify -- review each "
                   "addition against the diff before committing. The guard re-checks it against "
-                  "the review base and rejects it outright unless this script itself changed.")
+                  "the review base and rejects it outright unless this script itself changed "
+                  "AND this detector, re-run over the base source, finds each added site "
+                  "there.")
         return 0
 
     baseline = sorted(str(s) for s in document.get("sites", []))
@@ -1214,7 +1572,17 @@ def main() -> int:
             print(f"  {item}")
         return 1
 
-    _report_base_key_claims(claims)
+    # An undecidable base-key claim is a FAILURE, not a note. Reporting it while exiting
+    # 0 decided it -- in favour of "this is a repair" -- and let the set of unchecked
+    # sites grow behind a line saying the ratchet had improved. The sanctioned route for
+    # a real repair is --regenerate --accept-duplicate-repair --reason, printed below.
+    claim_failures = base_key_claim_failures(claims)
+    if claim_failures:
+        print("[unchecked-resize] FAILED: a baseline entry was claimed by BASE KEY, and this "
+              "script cannot verify the claim.\n")
+        for item in claim_failures:
+            print(f"  {item}")
+        return 1
 
     if new_sites:
         print("[unchecked-resize] FAILED: new unchecked resize()->raw-write site(s) found.\n")

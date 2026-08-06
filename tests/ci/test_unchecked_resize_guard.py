@@ -87,11 +87,11 @@ that a group was there to shrink:
                                                       no trace in the output at all
   test_two_plain_sites_cannot_each_claim_a_duplicate_entry  <- two plain sites consumed
                                                       one recorded entry each
-  test_a_replaced_duplicate_group_is_reported_not_silent  <- repairing the WHOLE group
+  test_a_replaced_duplicate_group_fails_until_acknowledged  <- repairing the WHOLE group
                                                       and adding a site at the same base
                                                       key is indistinguishable from a
-                                                      real repair, so it is reported
-                                                      rather than decided silently
+                                                      real repair (round 5 changed its
+                                                      DISPOSITION; see below)
 
 Measured: those three are RED against 1c71501dba6 and green here. Its control passes on
 both sides and is named as such:
@@ -99,6 +99,49 @@ both sides and is named as such:
   test_an_exactly_matched_run_reports_no_claim       keeps the new note attached to the
                                                      undecided case; pre-fix it passes
                                                      trivially, since no note existed.
+
+and a fifth round on the two things a growth route was being allowed to assert about
+itself. Both are the same shape: a PROXY was standing in for the fact it was supposed to
+establish.
+
+  test_a_docstring_edit_does_not_license_a_new_site  <- "this script differs from the
+                                                       base" was the licence for a
+                                                       baseline addition, and a comment
+                                                       edit satisfies it. The current
+                                                       detector is now re-run over the
+                                                       BASE SOURCE and the addition must
+                                                       be found there
+  test_an_unscannable_base_source_fails_closed       <- ...and when that scan cannot run,
+                                                       the run fails; "could not look" is
+                                                       not "the site was already there"
+  test_a_replaced_duplicate_group_fails_until_acknowledged  <- round 4 reported the
+                                                       undecidable duplicate-group case
+                                                       and exited 0. Exit 0 IS a
+                                                       decision, and it let the set of
+                                                       unchecked sites grow behind a line
+                                                       saying the ratchet improved
+  test_regenerate_refuses_an_unacknowledged_duplicate_repair  <- the write path is where
+                                                       the question actually gets
+                                                       answered, so it refuses too
+  test_an_acknowledged_duplicate_repair_is_recorded_and_accepted  <- and the deliberate
+                                                       route must work end to end, or a
+                                                       real repair becomes unrecordable
+                                                       and the reversal is unshippable
+  test_a_repair_needs_a_real_group_in_the_base_SOURCE  <- the recorded group is
+                                                       corroborated against the base
+                                                       source, not just asserted by the
+                                                       baseline the diff also wrote
+
+Measured: those six are RED against 0d51a69659a and green here. One round-5 control
+passes on both sides and is named as such -- but it is not vacuous: it is RED against a
+mutation that removes the shape check in _is_repaired_duplicate_group().
+
+  test_a_repair_acknowledgement_cannot_launder_an_unrelated_key  bounds the new repair
+                                                     route so it cannot become the
+                                                     stronger free-write lever (it needs
+                                                     no detector change). Pre-fix it
+                                                     passes trivially, since the route
+                                                     did not exist.
 """
 from __future__ import annotations
 
@@ -667,21 +710,33 @@ Error Dup::build() {
         self.assertEqual(new_sites, ["k", "k"], "neither site is the sole entry at its base key")
         self.assertEqual(missing, ["k@d1", "k@d2"], "no entry may be consumed by an ambiguous claim")
 
-    def test_a_replaced_duplicate_group_is_reported_not_silent(self):
+    def test_a_replaced_duplicate_group_fails_until_acknowledged(self):
         """Repair the WHOLE group and add a new site at the same base key.
 
         This is the residual the claim cannot decide: the scan is a single plain `k`
         against `[k@d1, k@d2]`, byte for byte identical to a legitimate repair of one
         duplicate. The context digest cannot separate them either -- repairing a sibling
         rewrites the survivor's context window, which is why the survivor is emitted
-        plain in the first place. So the guard accepts the claim (rejecting it would
-        fail every real repair) but must not accept it SILENTLY: pre-fix the entire
-        output was "1 baseline entry no longer present", i.e. a report that the ratchet
-        got BETTER, on a change that introduced an unchecked site.
+        plain in the first place.
+
+        Round 4 concluded from that undecidability that the guard must ACCEPT the claim
+        (rejecting it also rejects every real repair) and merely print a note. Round 5
+        reversed the disposition, and the reversal is the point of this test: exit 0 is
+        itself a decision -- "this is a repair" -- and it let the set of unchecked sites
+        grow while the summary said the ratchet had improved. This guard refuses that
+        trade everywhere else ("set inclusion, NOT a net count"), and a note nobody has
+        to read is not an exception to it.
+
+        The undecidability is real, so the fix is not a stronger check; it is an explicit
+        acknowledgement. Unacknowledged, the run FAILS and names the sanctioned route.
+        Acknowledged, the reason lands in the diff for a reviewer --
+        test_an_acknowledged_duplicate_repair_is_recorded_and_accepted.
+
+        Measured: exit 0 against 0d51a69659a, exit 1 here.
 
         Note the narrower path is already covered and does fire: repairing one duplicate
         and adding another leaves two live sites at the key, so both are suffixed and
-        both are reported (test_fixing_one_duplicate_adds_another).
+        both are reported (test_swapped_duplicate_is_reported_as_new).
         """
         both = """
 Error Dup::build() {
@@ -719,13 +774,13 @@ Error Dup::build() {
         self.assertEqual(len(after), 1, f"the added site is the only live one: {after}")
         self.assertNotIn("@", after[0], "a unique key is emitted plain, which is what enables the claim")
 
+        # partition_sites() must still MODEL the claim -- the repair has to stay
+        # representable, or --regenerate cannot record it at all. What changes is the
+        # DISPOSITION in main(), below.
         new_sites, missing = self.guard.partition_sites(after, baseline)
         self.assertEqual(new_sites, [], "undecidable: this is byte-identical to a real repair")
         self.assertEqual(len(missing), 1, f"one entry stays unclaimed: {missing}")
 
-        # The assertion that fails against the pre-fix guard: the run must SAY that it
-        # decided this by base key. Pre-fix its entire output was "1 baseline entry no
-        # longer present" -- a report that the ratchet got better.
         self.guard.BASELINE_PATH.write_text(
             json.dumps({"schema_version": 2, "sites": baseline}), encoding="utf-8")
         self._stub_base(baseline, detector_differs=False)
@@ -733,10 +788,143 @@ Error Dup::build() {
         with contextlib.redirect_stdout(buffer):
             code = self._main()
         output = buffer.getvalue()
-        self.assertEqual(code, 0, f"a shrunk group must still pass: {output}")
-        self.assertIn("matched a recorded DUPLICATE entry by base key", output,
-                      f"the claim was accepted silently: {output}")
+        self.assertEqual(code, 1, f"an unverifiable base-key claim must FAIL: {output}")
+        self.assertIn("matched a recorded DUPLICATE entry by BASE KEY", output,
+                      f"the failure must say what it could not decide: {output}")
         self.assertIn(after[0], output, f"the claiming site must be named: {output}")
+        self.assertIn("--accept-duplicate-repair", output,
+                      f"a failing guard must name the sanctioned route: {output}")
+
+    def test_regenerate_refuses_an_unacknowledged_duplicate_repair(self):
+        """--regenerate must not WRITE the survivor's key on an unverifiable claim either.
+
+        Closing only the verify path would leave the obvious workaround: regenerate, and
+        the plain key lands in the baseline with `added` empty (the claim consumed the
+        recorded entry), so nothing in the delta shows it happened. The write is the
+        moment the undecided question gets answered, so that is where the acknowledgement
+        has to be demanded.
+        """
+        baseline = [
+            "modules/gaussian_splatting/a.cpp::Dup::build::v.resize(n)@d1",
+            "modules/gaussian_splatting/a.cpp::Dup::build::v.resize(n)@d2",
+        ]
+        self.guard.BASELINE_PATH.write_text(
+            json.dumps({"schema_version": 2, "sites": baseline}), encoding="utf-8")
+        before = self.guard.BASELINE_PATH.read_text(encoding="utf-8")
+        self._write("a.cpp", """
+Error Dup::build() {
+    Vector<float> v;
+    v.resize(n);
+    float *w = v.ptrw();
+    return OK;
+}
+""")
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            code = self._main("--regenerate")
+        output = buffer.getvalue()
+        self.assertEqual(code, 1, f"an unacknowledged claim must refuse the write: {output}")
+        self.assertEqual(self.guard.BASELINE_PATH.read_text(encoding="utf-8"), before,
+                         "a refused regeneration must not have written the baseline")
+        self.assertIn("--accept-duplicate-repair", output, output)
+
+    def test_an_acknowledged_duplicate_repair_is_recorded_and_accepted(self):
+        """The sanctioned route must WORK end to end, or it gets bypassed rather than obeyed.
+
+        Regenerating with --accept-duplicate-repair --reason writes the survivor's plain
+        key plus a `duplicate_repair_ledger` entry, and the verify path then accepts that
+        one addition against the review base. Without this the reversal above would make
+        every real repair permanently unrecordable, which is the objection that produced
+        the round-4 decision in the first place -- it has to be answered, not ignored.
+        """
+        baseline = [
+            "modules/gaussian_splatting/a.cpp::Dup::build::v.resize(n)@d1",
+            "modules/gaussian_splatting/a.cpp::Dup::build::v.resize(n)@d2",
+        ]
+        survivor = "modules/gaussian_splatting/a.cpp::Dup::build::v.resize(n)"
+        self.guard.BASELINE_PATH.write_text(
+            json.dumps({"schema_version": 2, "sites": baseline}), encoding="utf-8")
+        self._write("a.cpp", """
+Error Dup::build() {
+    Vector<float> v;
+    v.resize(n);
+    float *w = v.ptrw();
+    return OK;
+}
+""")
+        self._stub_base(baseline, detector_differs=False, base_scan=baseline)
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            code = self._main("--regenerate", "--accept-duplicate-repair",
+                              "--reason", "repaired the first of two; survivor is the second")
+        output = buffer.getvalue()
+        self.assertEqual(code, 0, f"the acknowledged route must succeed: {output}")
+        written = json.loads(self.guard.BASELINE_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(written["sites"], [survivor], written)
+        self.assertEqual(
+            written[self.guard.REPAIR_LEDGER_KEY],
+            [{"site": survivor, "reason": "repaired the first of two; survivor is the second"}],
+            written,
+        )
+
+        # ...and the verify path accepts the committed result. Note the detector is
+        # UNCHANGED here (detector_differs=False): a repair is a C++-only change, so
+        # requiring a detector edit for it would make the route unusable.
+        self.assertEqual(self.guard.check_baseline_against_base(written), [])
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            code = self._main()
+        output = buffer.getvalue()
+        self.assertEqual(code, 0, f"the recorded repair must verify: {output}")
+        self.assertIn("ACKNOWLEDGED repairs", output, f"the acknowledgement must be printed: {output}")
+
+    def test_a_repair_acknowledgement_cannot_launder_an_unrelated_key(self):
+        """The repair route is bounded to a shrinking group, not a second free-write lever.
+
+        Control against the round-5 diff -- pre-fix the route did not exist, so this
+        passes there trivially. It is NOT vacuous: measured RED against a mutant whose
+        _is_repaired_duplicate_group() returns True unconditionally, which is the way the
+        bound would realistically be lost.
+
+        Without the shape check a `duplicate_repair_ledger` entry would be strictly
+        stronger than the detector-change one -- it needs no detector edit -- so it would
+        become the way to add anything. Here the base baseline records no duplicate group
+        at the added key, so the story "a group shrank" is contradicted by the file it is
+        told about.
+        """
+        old = "modules/gaussian_splatting/a.cpp::Fresh::build::old.resize(n)"
+        brand_new = "modules/gaussian_splatting/a.cpp::Fresh::build::brand_new.resize(n)"
+        self._stub_base([old], detector_differs=False)
+        document = {
+            "sites": [old, brand_new],
+            "duplicate_repair_ledger": [{"site": brand_new, "reason": "a repair, honest"}],
+        }
+        failures = self.guard.check_baseline_against_base(document)
+        self.assertTrue(failures, "a repair ledger must not license an unrelated key")
+        self.assertIn("byte-identical", "\n".join(failures),
+                      "an unshaped entry falls through to the detector route, which denies it")
+
+    def test_a_repair_needs_a_real_group_in_the_base_SOURCE(self):
+        """The recorded group must be corroborated by the base source, not just asserted.
+
+        The baseline is part of the diff under review, so "the base baseline recorded two
+        entries here" is a story the change could have written itself in an earlier
+        commit on the same branch. Re-scanning the base SOURCE settles whether two
+        statements were really there.
+        """
+        baseline = [
+            "modules/gaussian_splatting/a.cpp::Dup::build::v.resize(n)@d1",
+            "modules/gaussian_splatting/a.cpp::Dup::build::v.resize(n)@d2",
+        ]
+        survivor = "modules/gaussian_splatting/a.cpp::Dup::build::v.resize(n)"
+        self._stub_base(baseline, detector_differs=False, base_scan=[baseline[0]])
+        document = {
+            "sites": [survivor],
+            "duplicate_repair_ledger": [{"site": survivor, "reason": "a repair, honest"}],
+        }
+        failures = self.guard.check_baseline_against_base(document)
+        self.assertTrue(failures, "an uncorroborated group must fail")
+        self.assertIn("no group to shrink", "\n".join(failures))
 
     def test_an_exactly_matched_run_reports_no_claim(self):
         """Control: the note must DISCRIMINATE, not decorate every run.
@@ -765,8 +953,15 @@ Error Solo::build() {
         self.assertNotIn("by base key", output, f"an exact match is not a claim: {output}")
 
     # -- P1 (round 3): the baseline itself must be anchored -----------------
-    def _stub_base(self, base_sites, detector_differs=True, base_sha="feedfacecafe"):
-        """Answer the three git questions the base comparison asks, without a repo."""
+    def _stub_base(self, base_sites, detector_differs=True, base_sha="feedfacecafe",
+                   base_scan=None, base_scan_failures=None):
+        """Answer the four git questions the base comparison asks, without a repo.
+
+        `base_scan` is what THIS detector finds when re-run over the source at the review
+        base. It defaults to `base_sites`, i.e. the truthful case where the recorded
+        baseline is exactly what the base source contained -- so a test that adds a key
+        must SAY the base source held it, which is the whole point of the check.
+        """
         self.guard.resolve_review_base = lambda base_ref=None: (base_sha, [])
         self.guard.detector_differs_from_base = lambda sha: (detector_differs, [])
 
@@ -776,6 +971,9 @@ Error Solo::build() {
             return json.dumps({"schema_version": 2, "sites": base_sites}), []
 
         self.guard._blob_at_base = _blob
+        scanned = list(base_sites or []) if base_scan is None else list(base_scan)
+        self.guard.find_sites_at_base = lambda sha: (
+            [] if base_scan_failures else scanned, list(base_scan_failures or []))
 
     def test_baseline_growth_relative_to_base_is_rejected(self):
         """Adding a site AND its baseline key in one change must not pass.
@@ -819,19 +1017,78 @@ Error Solo::build() {
         self.assertIn("byte-identical", "\n".join(failures))
 
     def test_documented_detector_change_is_accepted(self):
-        """The one sanctioned route must actually work, or it gets bypassed."""
-        self._stub_base(["modules/gaussian_splatting/a.cpp::Fresh::build::old.resize(n)"])
+        """The one sanctioned route must actually work, or it gets bypassed.
+
+        Note what the fixture now has to assert to get through: `base_scan` says the
+        CURRENT detector finds `values.resize(n)` in the source at the review base. That
+        is precisely the claim a detector-change ledger entry makes, and it is now
+        checked rather than taken on trust.
+        """
+        old = "modules/gaussian_splatting/a.cpp::Fresh::build::old.resize(n)"
+        revealed = "modules/gaussian_splatting/a.cpp::Fresh::build::values.resize(n)"
+        self._stub_base([old], base_scan=[old, revealed])
         document = {
-            "sites": [
-                "modules/gaussian_splatting/a.cpp::Fresh::build::old.resize(n)",
-                "modules/gaussian_splatting/a.cpp::Fresh::build::values.resize(n)",
-            ],
+            "sites": [old, revealed],
             "detector_change_ledger": [
-                {"site": "modules/gaussian_splatting/a.cpp::Fresh::build::values.resize(n)",
+                {"site": revealed,
                  "reason": "revealed by comment masking; predates this change"},
             ],
         }
         self.assertEqual(self.guard.check_baseline_against_base(document), [])
+
+    # -- P1 (round 5): "the script changed" is not "the detector finds more" --
+    def test_a_docstring_edit_does_not_license_a_new_site(self):
+        """Editing a COMMENT in the detector must not sanction a new unchecked site.
+
+        The evasion, in full: reword a docstring here, add an unchecked C++ site, add its
+        key to the baseline, add a `detector_change_ledger` entry with any non-empty
+        reason. `detector_differs_from_base()` compares bytes, so a prose edit satisfies
+        it; the ledger reason is self-attested; nothing else looked. Normal CI returned
+        SUCCESS over a real new defect.
+
+        What separates the two cases is not how much of this file changed but whether the
+        site was ALREADY THERE -- so the current detector is re-run over the source at
+        the review base and the addition must appear in that scan. Here it does not: the
+        base source is `[old]` and the added key is genuinely new code.
+
+        Measured: GREEN against 0d51a69659a (check_baseline_against_base returned []),
+        RED here.
+        """
+        old = "modules/gaussian_splatting/a.cpp::Fresh::build::old.resize(n)"
+        brand_new = "modules/gaussian_splatting/a.cpp::Fresh::build::brand_new.resize(n)"
+        # detector_differs=True is the docstring edit. base_scan defaults to base_sites,
+        # i.e. the base source does NOT contain the added site.
+        self._stub_base([old], detector_differs=True)
+        document = {
+            "sites": [old, brand_new],
+            "detector_change_ledger": [
+                {"site": brand_new, "reason": "totally legitimate, honest"},
+            ],
+        }
+        failures = self.guard.check_baseline_against_base(document)
+        self.assertTrue(failures, "a prose edit must not license a site the base never had")
+        joined = "\n".join(failures)
+        self.assertIn(brand_new, joined, joined)
+        self.assertIn("does not find them there", joined, joined)
+
+    def test_an_unscannable_base_source_fails_closed(self):
+        """"Could not scan the base" must never read as "the site was already there".
+
+        Nor as its opposite by accident: find_sites_at_base() returns a failure rather
+        than an empty list precisely because an empty list is the answer that REJECTS an
+        addition, which would fail the run for the wrong stated reason. The message has
+        to say the evidence is missing.
+        """
+        old = "modules/gaussian_splatting/a.cpp::Fresh::build::old.resize(n)"
+        revealed = "modules/gaussian_splatting/a.cpp::Fresh::build::values.resize(n)"
+        self._stub_base([old], base_scan_failures=["git archive exit 128: no such object"])
+        document = {
+            "sites": [old, revealed],
+            "detector_change_ledger": [{"site": revealed, "reason": "revealed by masking"}],
+        }
+        failures = self.guard.check_baseline_against_base(document)
+        self.assertTrue(failures, "an unscannable base source must fail the run")
+        self.assertIn("could not be established", "\n".join(failures))
 
     def test_ledger_entry_without_a_reason_is_rejected(self):
         """An addition with no stated reason is indistinguishable from a blessed defect."""

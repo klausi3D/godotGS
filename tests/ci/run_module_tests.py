@@ -885,7 +885,14 @@ BASE_BEARING_EVENTS: frozenset[str] = frozenset(
 
 
 def _environment_skip_base_ref() -> tuple[str | None, list[str]]:
-    """The review base to hand the env-skip guard, or a hard failure.
+    """The review base to hand every base-anchored guard, or a hard failure.
+
+    Shared, not per-guard: there is ONE review base for a diff. The env-skip marker
+    ratchet and the unchecked-resize ratchet both grade their baseline against it, and
+    the second used to resolve its own -- so `--guard-only --base-ref X` reached one of
+    them and not the other, and on a stacked PR they graded different branches. Worse for
+    the resize guard than for this one, because an older base can predate its baseline
+    file entirely and "absent at base" is that guard's permissive branch.
 
     For a base-bearing event this MUST be explicit. The guard's own fallback
     chain ends at origin/master, which is correct only for PRs that target
@@ -914,7 +921,7 @@ def _environment_skip_base_ref() -> tuple[str | None, list[str]]:
         return None, []
     if _is_ci():
         return None, [
-            "Environment-skip guard: no review base available in CI. Set one of "
+            "Base-anchored guards: no review base available in CI. Set one of "
             f"{', '.join(ENVIRONMENT_SKIP_BASE_ENV_VARS)} (the workflow has "
             "github.event.pull_request.base.sha) or pass --base-ref. Refusing to let the "
             "guard fall back to origin/master: on a PR stacked on a feature branch that "
@@ -982,9 +989,25 @@ def _run_unchecked_resize_guard() -> tuple[bool, list[str]]:
     diagnostic at all. This compares the tree against a GENERATED baseline and fails
     only on sites that are not already recorded, so it cannot silently bless a new
     defect while also not claiming the existing set is proven safe.
+
+    Like the environment-skip guard above, its baseline is graded against the REVIEW
+    BASE, so the base must reach it. `_environment_skip_base_ref()` is the one resolver
+    for both -- there is one review base per diff, and two guards answering that question
+    differently would be the bug.
     """
     if not UNCHECKED_RESIZE_GUARD_SCRIPT.is_file():
         return False, [f"Missing unchecked-resize guard: {UNCHECKED_RESIZE_GUARD_SCRIPT.relative_to(ROOT)}"]
+
+    # The base MUST reach the guard, for the same reason it must reach the env-skip
+    # guard: this one's own fallback chain also ends at origin/master, and a PR stacked
+    # on a feature branch is exactly the case the ratchet exists to police. Worse here
+    # than there, because an older wrong base can predate the baseline file entirely --
+    # and "absent at base" is this guard's PERMISSIVE branch (no shrink-only reference,
+    # so no addition is rejected). Defaulting silently would therefore not merely grade
+    # the wrong branch, it would disable the base comparison and still report green.
+    base_ref, base_failures = _environment_skip_base_ref()
+    if base_failures:
+        return False, base_failures
 
     # Run the guard's OWN self-tests in the same lane, and FIRST. Two review rounds
     # found EIGHT distinct ways to evade this guard: key collision, --regenerate
@@ -1010,7 +1033,8 @@ def _run_unchecked_resize_guard() -> tuple[bool, list[str]]:
     ran = re.search(r"^Ran (\d+) tests?", out + err, re.MULTILINE)
     case_count = f"{ran.group(1)} cases" if ran else "case count not reported"
 
-    code, out, err = _run_command([sys.executable, str(UNCHECKED_RESIZE_GUARD_SCRIPT)])
+    extra = ["--base-ref", base_ref] if base_ref else []
+    code, out, err = _run_command([sys.executable, str(UNCHECKED_RESIZE_GUARD_SCRIPT), *extra])
     output_lines = [line for line in (out + err).splitlines() if line.strip()]
     if code != 0:
         if not output_lines:
