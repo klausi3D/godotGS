@@ -261,6 +261,12 @@ def persistent_runner_labels(paths: Optional[List[Path]] = None) -> frozenset:
     :func:`build_runner_label_policy`. A label sitting on the persistent runner
     could then remain declared GitHub-hosted, which drops an unguarded job out of
     :func:`self_hosted_jobs` entirely.
+
+    Block-form `runs-on:` (labels on the following lines) is the same hole with a
+    different cause: the inline value is empty, so no substring pre-filter -- case
+    -insensitive or not -- can ever see `self-hosted` in it. It therefore raises
+    here exactly as it does in :func:`_parse_runs_on`, rather than contributing no
+    labels while the other declarations keep the scan non-empty.
     """
     if paths is None:
         paths = sorted(WORKFLOW_DIR.glob("*.yml")) + sorted(WORKFLOW_DIR.glob("*.yaml"))
@@ -270,12 +276,29 @@ def persistent_runner_labels(paths: Optional[List[Path]] = None) -> frozenset:
     for path in paths:
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             match = RUNS_ON_LINE.match(line)
+            if not match:
+                continue
+            site = f"{path.name}:{number}"
+            if not _strip_comment(match.group(1)):
+                # Block form (`runs-on:` with the labels on the following lines).
+                # The inline value is empty, so the substring pre-filter below can
+                # never see `self-hosted` in it -- the declaration would drop out
+                # of the derived vocabulary with nothing raised, which is exactly
+                # the "the sweep found nothing" == "there is nothing to find"
+                # confusion this module refuses to make. `_parse_runs_on` already
+                # rejects this shape for `release_builds.yml`; the scan must not be
+                # more permissive than the parser it shares a corpus with, because
+                # the vocabulary it derives *is* the trust boundary.
+                _parse_runs_on(match.group(1), site)
+                raise UnmodelledWorkflowConstruct(  # pragma: no cover - defensive
+                    f"`runs-on:` at {site} has no inline value and was not rejected."
+                )
             # Normalize before detecting: routing is case-insensitive, so the
             # pre-filter must be too, or a valid mixed-case declaration is
             # silently dropped from the derived vocabulary.
-            if not match or SELF_HOSTED_LABEL not in match.group(1).lower():
+            if SELF_HOSTED_LABEL not in match.group(1).lower():
                 continue
-            parsed = _parse_runs_on(match.group(1), f"{path.name}:{number}")
+            parsed = _parse_runs_on(match.group(1), site)
             lowered = {str(label).lower() for label in parsed}
             if SELF_HOSTED_LABEL not in lowered:
                 # e.g. a label that merely contains the substring.
@@ -834,6 +857,41 @@ class RunnerLabelClassificationTests(unittest.TestCase):
         # spelling of the declaration and its companions belong in the vocabulary.
         corpus = self._corpus("jobs:\n  a:\n    runs-on: [Self-Hosted, Windows, Brand-New-Rig]\n")
         self.assertEqual(persistent_runner_labels([corpus]), frozenset({"windows", "brand-new-rig"}))
+
+    def test_a_block_form_declaration_raises_instead_of_vanishing(self) -> None:
+        # `runs-on:` with the labels on following lines: the inline value is
+        # empty, so a substring pre-filter can never see `self-hosted` in it. The
+        # scan must reject the shape the way `_parse_runs_on` does, not skip it.
+        #
+        # The message is asserted, not just the exception type: a corpus whose
+        # only declaration is block-form also trips the "no declarations at all"
+        # guard at the end of the sweep, so a bare `assertRaises` here would pass
+        # against the unfixed scan -- the right exception for the wrong reason.
+        corpus = self._corpus(
+            "jobs:\n  a:\n    runs-on:\n      - self-hosted\n      - brand-new-rig\n"
+        )
+        with self.assertRaisesRegex(UnmodelledWorkflowConstruct, "block value"):
+            persistent_runner_labels([corpus])
+
+    def test_a_block_form_declaration_cannot_hide_behind_a_flow_form_one(self) -> None:
+        # The dangerous arrangement: one ordinary flow-form declaration keeps the
+        # scan non-empty, so `declarations` is non-zero and nothing raises at the
+        # end -- while a second, block-form declaration contributes no labels at
+        # all. The derived vocabulary would then be silently partial, and a label
+        # that really does sit on the persistent runner could stay classified
+        # GitHub-hosted, dropping an unguarded job out of `self_hosted_jobs`.
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name)
+        flow = root / "flow.yml"
+        flow.write_text("jobs:\n  a:\n    runs-on: [self-hosted, Windows, godotgs]\n", encoding="utf-8")
+        block = root / "block.yml"
+        block.write_text(
+            "jobs:\n  b:\n    runs-on:\n      - Self-Hosted\n      - brand-new-rig\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(UnmodelledWorkflowConstruct, "block value"):
+            persistent_runner_labels([flow, block])
 
     def test_custom_labels_without_the_self_hosted_label_are_self_hosted(self) -> None:
         # The hole this class exists for: GitHub routes `[Windows, X64, godotgs]`
