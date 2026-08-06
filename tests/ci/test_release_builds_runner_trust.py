@@ -217,8 +217,35 @@ def _strip_comment(value: str) -> str:
     return value.split("#", 1)[0].strip() if "#" in value else value.strip()
 
 
-def _parse_runs_on(raw: str, job: str) -> List[str]:
-    value = _strip_comment(raw)
+def _reject_runs_on_that_continues_off_this_line(value: str, job: str) -> None:
+    """Raise unless `value` is the *whole* `runs-on:` value, readable on this line.
+
+    Both callers see one line at a time and both then decide something about it:
+    :func:`_parse_runs_on` splits it into labels, and :func:`persistent_runner_labels`
+    runs a `self-hosted` substring pre-filter over it. A value that continues onto
+    the following lines makes those decisions on a *fragment*, and a fragment
+    answers "no" to every question -- which is why this is a rejection and not a
+    best-effort parse.
+
+    Refused, once, for every caller:
+
+    * an empty inline value -- the block sequence form (`runs-on:` with
+      `- self-hosted` on the following lines);
+    * an unbalanced flow collection -- `runs-on: [` or `runs-on: [self-hosted,`
+      with the closing `]` on a later line. This is ordinary valid YAML and its
+      inline value is *non-empty*, so the empty-value check cannot see it: the
+      pre-filter finds no `self-hosted` in `[`, skips the declaration, and the
+      other declarations keep `declarations` non-zero, so the derived vocabulary
+      is silently partial and nothing raises. Same hole as the block form, one
+      YAML shape over;
+    * a folded or literal block scalar (`>`, `|`) -- the value is on the next line;
+    * a flow mapping, an anchor or an alias (`{`, `&`, `*`) -- not a label list
+      that can be resolved without following it somewhere else.
+
+    Expressions (`${{ ... }}`) are deliberately *not* rejected here: they are a
+    complete inline value, so the scan can honestly conclude they spell no literal
+    `self-hosted` label. `_parse_runs_on` still refuses to classify a job by one.
+    """
     if not value:
         raise UnmodelledWorkflowConstruct(
             f"Job {job!r} declares `runs-on:` with a block value. This guard models "
@@ -226,6 +253,27 @@ def _parse_runs_on(raw: str, job: str) -> List[str]:
             "(`runs-on: [self-hosted, ...]`). Extend the parser rather than "
             "leaving the job unchecked."
         )
+    # Ordered: an anchored sequence (`&name [a, b]`) ends with `]` without
+    # starting with `[`, so the balance check below would reject it for the wrong
+    # stated reason. Both answers are a refusal -- this only keeps the message true.
+    if value.startswith(("{", "&", "*", ">", "|")):
+        raise UnmodelledWorkflowConstruct(
+            f"Job {job!r} uses an unmodelled `runs-on:` form ({value!r})."
+        )
+    if value.startswith("[") != value.endswith("]"):
+        raise UnmodelledWorkflowConstruct(
+            f"Job {job!r} declares `runs-on:` as a multiline flow sequence ({value!r}); "
+            "the labels continue on the following lines. This guard reads the value off "
+            "the `runs-on:` line, so it would decide on a fragment -- and a fragment "
+            "never contains `self-hosted`, which is precisely how a persistent-runner "
+            "declaration goes missing without anything failing. Put the labels on one "
+            "line (`runs-on: [self-hosted, ...]`), or extend the parser."
+        )
+
+
+def _parse_runs_on(raw: str, job: str) -> List[str]:
+    value = _strip_comment(raw)
+    _reject_runs_on_that_continues_off_this_line(value, job)
     if "${{" in value:
         raise UnmodelledWorkflowConstruct(
             f"Job {job!r} computes its `runs-on:` from an expression ({value!r}); this "
@@ -235,10 +283,8 @@ def _parse_runs_on(raw: str, job: str) -> List[str]:
     if value.startswith("[") and value.endswith("]"):
         labels = [label.strip().strip("\"'") for label in value[1:-1].split(",")]
         return [label for label in labels if label]
-    if value.startswith(("{", "&", "*")):
-        raise UnmodelledWorkflowConstruct(
-            f"Job {job!r} uses an unmodelled `runs-on:` form ({value!r})."
-        )
+    # Anchors, aliases, flow mappings and block scalars were already refused by
+    # `_reject_runs_on_that_continues_off_this_line`, so what is left is a scalar.
     return [value.strip("\"'")]
 
 
@@ -262,11 +308,16 @@ def persistent_runner_labels(paths: Optional[List[Path]] = None) -> frozenset:
     could then remain declared GitHub-hosted, which drops an unguarded job out of
     :func:`self_hosted_jobs` entirely.
 
-    Block-form `runs-on:` (labels on the following lines) is the same hole with a
-    different cause: the inline value is empty, so no substring pre-filter -- case
-    -insensitive or not -- can ever see `self-hosted` in it. It therefore raises
-    here exactly as it does in :func:`_parse_runs_on`, rather than contributing no
-    labels while the other declarations keep the scan non-empty.
+    A `runs-on:` whose value continues onto the following lines is the same hole
+    with a different cause, and it has two shapes, not one. The block sequence
+    leaves the inline value *empty*. The multiline flow sequence (`runs-on: [`, or
+    `runs-on: [self-hosted,` with the `]` further down) leaves it **non-empty** --
+    so an empty-value check cannot see it, and the substring pre-filter decides on
+    `[` and skips the declaration while every ordinary declaration keeps
+    `declarations` non-zero. Both are refused by
+    :func:`_reject_runs_on_that_continues_off_this_line`, called on every
+    `runs-on:` line *before* the pre-filter, rather than contributing no labels to
+    a vocabulary that then looks complete.
     """
     if paths is None:
         paths = sorted(WORKFLOW_DIR.glob("*.yml")) + sorted(WORKFLOW_DIR.glob("*.yaml"))
@@ -279,20 +330,22 @@ def persistent_runner_labels(paths: Optional[List[Path]] = None) -> frozenset:
             if not match:
                 continue
             site = f"{path.name}:{number}"
-            if not _strip_comment(match.group(1)):
-                # Block form (`runs-on:` with the labels on the following lines).
-                # The inline value is empty, so the substring pre-filter below can
-                # never see `self-hosted` in it -- the declaration would drop out
-                # of the derived vocabulary with nothing raised, which is exactly
-                # the "the sweep found nothing" == "there is nothing to find"
-                # confusion this module refuses to make. `_parse_runs_on` already
-                # rejects this shape for `release_builds.yml`; the scan must not be
-                # more permissive than the parser it shares a corpus with, because
-                # the vocabulary it derives *is* the trust boundary.
-                _parse_runs_on(match.group(1), site)
-                raise UnmodelledWorkflowConstruct(  # pragma: no cover - defensive
-                    f"`runs-on:` at {site} has no inline value and was not rejected."
-                )
+            # Every `runs-on:` line, before anything is concluded from it: the
+            # substring pre-filter below is only allowed to run against a value
+            # that is entirely present on this line. A block sequence (empty
+            # inline value), a flow collection still open at end of line
+            # (`runs-on: [`, `runs-on: [self-hosted,`), a block scalar, an anchor
+            # or an alias would all be filtered on a fragment, and a fragment
+            # never contains `self-hosted` -- so the declaration would drop out of
+            # the derived vocabulary with nothing raised, while the other
+            # declarations keep `declarations` non-zero. That is exactly the
+            # "the sweep found nothing" == "there is nothing to find" confusion
+            # this module refuses to make. The scan must never be more permissive
+            # than the parser it shares a corpus with, because the vocabulary it
+            # derives *is* the trust boundary.
+            _reject_runs_on_that_continues_off_this_line(
+                _strip_comment(match.group(1)), site
+            )
             # Normalize before detecting: routing is case-insensitive, so the
             # pre-filter must be too, or a valid mixed-case declaration is
             # silently dropped from the derived vocabulary.
@@ -892,6 +945,104 @@ class RunnerLabelClassificationTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(UnmodelledWorkflowConstruct, "block value"):
             persistent_runner_labels([flow, block])
+
+    def test_a_multiline_flow_declaration_cannot_hide_behind_an_ordinary_one(self) -> None:
+        # The block form leaves the inline value EMPTY, so an empty-value check
+        # catches it. The multiline flow form does not: `runs-on: [` is valid YAML
+        # with a NON-empty inline value, so it walks straight past that check and
+        # into the `self-hosted` substring pre-filter, which sees `[`, finds no
+        # `self-hosted` in it, and skips the declaration. Meanwhile the ordinary
+        # declaration next to it keeps `declarations` non-zero, so the sweep ends
+        # without raising and `brand-new-rig` -- a label that really is on the
+        # persistent runner -- never reaches the cross-check in
+        # `build_runner_label_policy`. It could then stay declared GitHub-hosted,
+        # dropping an unguarded `release_builds.yml` job out of `self_hosted_jobs`.
+        #
+        # Both spellings are exercised: `[` alone, and `[self-hosted,` -- the
+        # second one gets *past* the pre-filter and is then dropped one step later
+        # because the fragment `[self-hosted,` is not the label `self-hosted`.
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name)
+        ordinary = root / "flow.yml"
+        ordinary.write_text(
+            "jobs:\n  a:\n    runs-on: [self-hosted, Windows, godotgs]\n", encoding="utf-8"
+        )
+        for name, text in (
+            ("open-bracket", "jobs:\n  b:\n    runs-on: [\n      self-hosted,\n      brand-new-rig,\n    ]\n"),
+            ("first-label", "jobs:\n  b:\n    runs-on: [self-hosted,\n      brand-new-rig]\n"),
+        ):
+            with self.subTest(spelling=name):
+                multiline = root / f"{name}.yml"
+                multiline.write_text(text, encoding="utf-8")
+                # The message is asserted, not just the type: a corpus can trip the
+                # "no declarations at all" guard at the end of the sweep for an
+                # entirely different reason, and that would be the right exception
+                # for the wrong reason. `ordinary` rules that out here anyway, but
+                # the assertion says which rejection is being proved.
+                with self.assertRaisesRegex(
+                    UnmodelledWorkflowConstruct, "multiline flow sequence"
+                ):
+                    persistent_runner_labels([ordinary, multiline])
+                # And the shape must be rejected, not half-parsed: before this was
+                # fixed the parser answered `['[']` / `['[self-hosted,']` -- bogus
+                # labels invented from a fragment.
+                with self.assertRaisesRegex(
+                    UnmodelledWorkflowConstruct, "multiline flow sequence"
+                ):
+                    _parse_runs_on(text.splitlines()[2].split("runs-on:", 1)[1], "b")
+
+    def test_a_runs_on_whose_value_is_elsewhere_is_rejected_not_skipped(self) -> None:
+        # The same fail-open shape reached through the other YAML constructs whose
+        # value is not on the `runs-on:` line. Each has a non-empty inline value
+        # that does not contain `self-hosted`, so each was silently skipped by the
+        # pre-filter while the ordinary declaration kept the sweep non-empty.
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name)
+        ordinary = root / "flow.yml"
+        ordinary.write_text(
+            "jobs:\n  a:\n    runs-on: [self-hosted, Windows, godotgs]\n", encoding="utf-8"
+        )
+        for name, value in (
+            ("alias", "*persistent_runner"),
+            ("anchor", "&persistent_runner [self-hosted, brand-new-rig]"),
+            ("folded-scalar", ">-"),
+            ("literal-scalar", "|"),
+            ("flow-mapping", "{"),
+        ):
+            with self.subTest(form=name):
+                path = root / f"{name}.yml"
+                path.write_text(f"jobs:\n  b:\n    runs-on: {value}\n", encoding="utf-8")
+                with self.assertRaisesRegex(
+                    UnmodelledWorkflowConstruct, "unmodelled `runs-on:` form"
+                ):
+                    persistent_runner_labels([ordinary, path])
+
+    def test_an_expression_runs_on_is_still_tolerated_by_the_sweep(self) -> None:
+        # The counterweight to the two tests above: `${{ ... }}` IS a complete
+        # inline value, so the sweep can honestly conclude it declares no literal
+        # `self-hosted` label and move on. Tightening the sweep must not turn every
+        # upstream matrix workflow into a hard failure of this guard -- only
+        # `_parse_runs_on`, reached when such a job is actually being classified,
+        # refuses it.
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name)
+        ordinary = root / "flow.yml"
+        ordinary.write_text(
+            "jobs:\n  a:\n    runs-on: [self-hosted, Windows, godotgs]\n", encoding="utf-8"
+        )
+        computed = root / "matrix.yml"
+        computed.write_text(
+            "jobs:\n  b:\n    runs-on: ${{ matrix.runner }}\n", encoding="utf-8"
+        )
+        self.assertEqual(
+            persistent_runner_labels([ordinary, computed]),
+            frozenset({"windows", "godotgs"}),
+        )
+        with self.assertRaisesRegex(UnmodelledWorkflowConstruct, "expression"):
+            _parse_runs_on(" ${{ matrix.runner }}", "b")
 
     def test_custom_labels_without_the_self_hosted_label_are_self_hosted(self) -> None:
         # The hole this class exists for: GitHub routes `[Windows, X64, godotgs]`
