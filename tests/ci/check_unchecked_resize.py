@@ -692,11 +692,17 @@ def _base_key(site: str) -> str:
     return site.split("@", 1)[0]
 
 
-def partition_sites(sites: list[str], baseline: list[str]) -> tuple[list[str], list[str]]:
+def partition_sites(
+    sites: list[str],
+    baseline: list[str],
+    claims: list[tuple[str, str]] | None = None,
+) -> tuple[list[str], list[str]]:
     """Classify the scan against the baseline: (new_sites, no_longer_present).
 
     Exact matches are consumed first; only then may a currently-UNIQUE key claim a
-    baseline entry recorded under the same base key with a duplicate suffix.
+    baseline entry recorded under the same base key with a duplicate suffix. Pass
+    `claims` to collect every such (site, claimed entry) pair -- see the residual at
+    the bottom of this docstring, which is why the caller must be able to say so.
 
     That second step is not a relaxation, it is what makes a legitimate FIX possible.
     Two duplicates are baselined as `k@d1` and `k@d2`; fixing one leaves a single
@@ -706,11 +712,37 @@ def partition_sites(sites: list[str], baseline: list[str]) -> tuple[list[str], l
     ratchet could not shrink at all. Measured, not argued: that pair is
     test_fixing_one_duplicate_keeps_the_survivor.
 
-    It cannot bless an addition. A plain key is emitted only when the key occurs ONCE
-    in the file, so the group did not grow; and a unique key has been context-free
-    since the digest was introduced, which is the same identity granularity every
-    non-duplicate baseline entry already has. When a group GROWS, its members are all
-    suffixed, none of them is plain, and every unmatched one is reported.
+    Two conditions bound the claim, because "the base key matches" on its own is not
+    evidence that the plain site IS one of the recorded statements:
+
+    * **it must be the sole scan entry at that base key.** The plain form means the key
+      occurs exactly once in its file, so a second scan entry sharing the base key --
+      plain or suffixed -- contradicts the premise the claim rests on. Unenforced, two
+      plain `k`s consumed one recorded entry EACH and both vanished silently
+      (`partition_sites(["k", "k"], ["k@d1", "k@d2"]) -> ([], [])`);
+    * **the baseline must record a duplicate GROUP -- two or more entries -- at that
+      base key.** A shrink is the only story the claim models, and a lone `k@d1` is not
+      a group that could shrink: a suffix is emitted only while a key REPEATS, so a
+      single suffixed entry cannot have come from a scan of its own file. Unenforced,
+      `partition_sites(["k"], ["k@d1"]) -> ([], [])` -- a new site consumed the entry
+      and `no_longer_present` was empty too, so the run printed "no new ones" and the
+      site left no trace anywhere in the output.
+
+    Residual, stated rather than papered over. Within a group that really did shrink,
+    this cannot tell the SURVIVOR from a statement newly written at the same base key
+    after every recorded member was repaired: both produce a single plain `k` against
+    `[k@d1, k@d2]`, byte for byte. No comparison of the two string lists can separate
+    them, and the context digest cannot either -- it is unstable across exactly the
+    edit that creates the situation (repairing a sibling rewrites the survivor's
+    context window; see test_fixing_one_duplicate_adds_another). A check strong enough
+    to reject the addition therefore also rejects the repair, which is the regression
+    the claim exists to prevent. So the claim is REPORTED instead: `claims` carries it
+    out and main() prints it, because an undecidable case that leaves no trace in the
+    output is the one shape this guard must never produce.
+
+    Note this residual needs the whole recorded group to disappear first. Repairing one
+    duplicate and adding another leaves two live sites at the key, so both are suffixed,
+    both are unmatched, and both are reported -- test_fixing_one_duplicate_adds_another.
     """
     remaining = list(baseline)
     unmatched: list[str] = []
@@ -725,12 +757,43 @@ def partition_sites(sites: list[str], baseline: list[str]) -> tuple[list[str], l
         if "@" in site:
             new_sites.append(site)
             continue
-        recorded = next((b for b in remaining if _base_key(b) == site), None)
-        if recorded is None:
+        if sum(1 for other in sites if _base_key(other) == site) != 1:
+            # Not the sole scan entry at this base key, so "the group shrank to this
+            # one statement" is not what the scan says. Report it.
             new_sites.append(site)
-        else:
-            remaining.remove(recorded)
+            continue
+        group = [entry for entry in remaining if _base_key(entry) == site]
+        if len(group) < 2:
+            new_sites.append(site)
+            continue
+        remaining.remove(group[0])
+        if claims is not None:
+            claims.append((site, group[0]))
     return new_sites, remaining
+
+
+def _report_base_key_claims(claims: list[tuple[str, str]]) -> None:
+    """Print every duplicate entry that was matched by BASE KEY rather than exactly.
+
+    The one case partition_sites() cannot decide (see its docstring): inside a duplicate
+    group that shrank to a single statement, the survivor and a statement newly written
+    at the same base key after every recorded member was repaired produce identical
+    input. The guard has to accept the claim, or every legitimate repair fails; what it
+    must not do is accept it SILENTLY, because then the only trace of an undecided
+    question is a line saying the ratchet got better.
+    """
+    if not claims:
+        return
+    print(f"[unchecked-resize] NOTE: {len(claims)} site(s) matched a recorded DUPLICATE entry "
+          "by base key, not exactly:")
+    for site, recorded in claims:
+        print(f"    assumed survivor: {site}")
+        print(f"      claimed entry:  {recorded}")
+    print("  Each is assumed to be the surviving statement of a duplicate group whose other\n"
+          "  member(s) were repaired. This script cannot verify that -- a statement newly\n"
+          "  written at the same file/function/variable/count after the whole recorded group\n"
+          "  was repaired is indistinguishable from it. Check the diff before trusting the\n"
+          "  reduction.")
 
 
 def load_baseline_document() -> tuple[dict, list[str]]:
@@ -1080,7 +1143,8 @@ def main() -> int:
             return 1
 
         previous = sorted(str(s) for s in document.get("sites", []))
-        added, removed = partition_sites(sites, previous)
+        claims: list[tuple[str, str]] = []
+        added, removed = partition_sites(sites, previous, claims)
 
         ledger, ledger_failures = load_ledger(document)
         if ledger_failures:
@@ -1126,6 +1190,7 @@ def main() -> int:
             print(f"  - {site}")
         for site in added:
             print(f"  + {site}")
+        _report_base_key_claims(claims)
         if added or base_added:
             print("\n[unchecked-resize] DETECTOR CHANGE: the additions above are attributed to a "
                   "changed key format or a widened predicate, NOT to newly written code. That "
@@ -1135,7 +1200,8 @@ def main() -> int:
         return 0
 
     baseline = sorted(str(s) for s in document.get("sites", []))
-    new_sites, fixed_sites = partition_sites(sites, baseline)
+    claims = []
+    new_sites, fixed_sites = partition_sites(sites, baseline, claims)
 
     # The committed baseline is graded against the REVIEW BASE, not against itself.
     # Everything above reads the baseline out of the proposed commit, so on its own it
@@ -1147,6 +1213,8 @@ def main() -> int:
         for item in base_failures:
             print(f"  {item}")
         return 1
+
+    _report_base_key_claims(claims)
 
     if new_sites:
         print("[unchecked-resize] FAILED: new unchecked resize()->raw-write site(s) found.\n")

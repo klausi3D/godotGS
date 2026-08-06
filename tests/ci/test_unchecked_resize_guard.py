@@ -75,10 +75,36 @@ One control passes on both sides and is named as such:
 
   test_digit_separators_are_still_not_char_literals  pins the OTHER direction of the
                                                      masking decision above.
+
+and a fourth round on what a base-key claim may consume -- the fallback that lets a
+repaired duplicate group shrink matched on the base key ALONE, with nothing checking
+that a group was there to shrink:
+
+  test_a_lone_recorded_duplicate_cannot_be_claimed_by_base_key  <- a single recorded
+                                                      `k@d1` was consumed by a plain
+                                                      `k`, and `no_longer_present` came
+                                                      back empty too, so the site left
+                                                      no trace in the output at all
+  test_two_plain_sites_cannot_each_claim_a_duplicate_entry  <- two plain sites consumed
+                                                      one recorded entry each
+  test_a_replaced_duplicate_group_is_reported_not_silent  <- repairing the WHOLE group
+                                                      and adding a site at the same base
+                                                      key is indistinguishable from a
+                                                      real repair, so it is reported
+                                                      rather than decided silently
+
+Measured: those three are RED against 1c71501dba6 and green here. Its control passes on
+both sides and is named as such:
+
+  test_an_exactly_matched_run_reports_no_claim       keeps the new note attached to the
+                                                     undecided case; pre-fix it passes
+                                                     trivially, since no note existed.
 """
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import pathlib
 import sys
@@ -613,6 +639,130 @@ Error Dup::build() {
             f"fixing one identical block and adding another must fire: "
             f"baseline={baseline} after={after}",
         )
+
+    # -- P1 (round 4): what a base-key claim may and may not consume ---------
+    def test_a_lone_recorded_duplicate_cannot_be_claimed_by_base_key(self):
+        """A claim models a duplicate group SHRINKING. One entry is not a group.
+
+        A suffix is emitted only while a key REPEATS in its file, so a baseline holding
+        exactly one `k@d1` at that base key cannot have come from a scan of it -- there
+        is no recorded sibling that could have been repaired. Pre-fix the plain scan
+        site claimed it anyway, on the base key alone, and `no_longer_present` came back
+        EMPTY too: the run printed "no new ones" and the site left no trace anywhere in
+        the output.
+        """
+        new_sites, missing = self.guard.partition_sites(["k"], ["k@d1"])
+        self.assertEqual(new_sites, ["k"], "a lone recorded duplicate is not a group to shrink")
+        self.assertEqual(missing, ["k@d1"], "the unclaimed entry must still be reported")
+
+    def test_two_plain_sites_cannot_each_claim_a_duplicate_entry(self):
+        """The claim's premise is that the key now occurs ONCE. Enforce it.
+
+        The plain form is emitted only for a key that is unique in its file, so a second
+        scan entry sharing the base key contradicts the premise the claim rests on.
+        Pre-fix nothing checked it and each plain site consumed one recorded entry, so
+        two sites disappeared into a `([], [])` -- the quietest possible pass.
+        """
+        new_sites, missing = self.guard.partition_sites(["k", "k"], ["k@d1", "k@d2"])
+        self.assertEqual(new_sites, ["k", "k"], "neither site is the sole entry at its base key")
+        self.assertEqual(missing, ["k@d1", "k@d2"], "no entry may be consumed by an ambiguous claim")
+
+    def test_a_replaced_duplicate_group_is_reported_not_silent(self):
+        """Repair the WHOLE group and add a new site at the same base key.
+
+        This is the residual the claim cannot decide: the scan is a single plain `k`
+        against `[k@d1, k@d2]`, byte for byte identical to a legitimate repair of one
+        duplicate. The context digest cannot separate them either -- repairing a sibling
+        rewrites the survivor's context window, which is why the survivor is emitted
+        plain in the first place. So the guard accepts the claim (rejecting it would
+        fail every real repair) but must not accept it SILENTLY: pre-fix the entire
+        output was "1 baseline entry no longer present", i.e. a report that the ratchet
+        got BETTER, on a change that introduced an unchecked site.
+
+        Note the narrower path is already covered and does fire: repairing one duplicate
+        and adding another leaves two live sites at the key, so both are suffixed and
+        both are reported (test_fixing_one_duplicate_adds_another).
+        """
+        both = """
+Error Dup::build() {
+    Vector<float> v;
+    int head = 1;
+    v.resize(n);
+    float *a = v.ptrw();
+    int tail = 2;
+    v.resize(n);
+    float *b = v.ptrw();
+    return OK;
+}
+"""
+        self._write("a.cpp", both)
+        baseline = self._sites()
+        self.assertEqual(len(baseline), 2, f"fixture must produce two duplicates: {baseline}")
+
+        fix = "ERR_FAIL_COND_V(gs_resize_or_fail(v, n) != OK, ERR_OUT_OF_MEMORY);"
+        self._write("a.cpp", """
+Error Dup::build() {
+    Vector<float> v;
+    int head = 1;
+    %s
+    float *a = v.ptrw();
+    int tail = 2;
+    %s
+    float *b = v.ptrw();
+    int extra = 3;
+    v.resize(n);
+    float *c = v.ptrw();
+    return OK;
+}
+""" % (fix, fix))
+        after = self._sites()
+        self.assertEqual(len(after), 1, f"the added site is the only live one: {after}")
+        self.assertNotIn("@", after[0], "a unique key is emitted plain, which is what enables the claim")
+
+        new_sites, missing = self.guard.partition_sites(after, baseline)
+        self.assertEqual(new_sites, [], "undecidable: this is byte-identical to a real repair")
+        self.assertEqual(len(missing), 1, f"one entry stays unclaimed: {missing}")
+
+        # The assertion that fails against the pre-fix guard: the run must SAY that it
+        # decided this by base key. Pre-fix its entire output was "1 baseline entry no
+        # longer present" -- a report that the ratchet got better.
+        self.guard.BASELINE_PATH.write_text(
+            json.dumps({"schema_version": 2, "sites": baseline}), encoding="utf-8")
+        self._stub_base(baseline, detector_differs=False)
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            code = self._main()
+        output = buffer.getvalue()
+        self.assertEqual(code, 0, f"a shrunk group must still pass: {output}")
+        self.assertIn("matched a recorded DUPLICATE entry by base key", output,
+                      f"the claim was accepted silently: {output}")
+        self.assertIn(after[0], output, f"the claiming site must be named: {output}")
+
+    def test_an_exactly_matched_run_reports_no_claim(self):
+        """Control: the note must DISCRIMINATE, not decorate every run.
+
+        Passes on both sides of the fix and is named as such -- pre-fix trivially,
+        because no note existed. Its job is to keep the note attached to the undecided
+        case, since a warning printed unconditionally is one nobody reads.
+        """
+        self._write("a.cpp", """
+Error Solo::build() {
+    Vector<float> v;
+    v.resize(n);
+    float *w = v.ptrw();
+    return OK;
+}
+""")
+        sites = self._sites()
+        self.guard.BASELINE_PATH.write_text(
+            json.dumps({"schema_version": 2, "sites": sites}), encoding="utf-8")
+        self._stub_base(sites, detector_differs=False)
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            code = self._main()
+        output = buffer.getvalue()
+        self.assertEqual(code, 0, output)
+        self.assertNotIn("by base key", output, f"an exact match is not a claim: {output}")
 
     # -- P1 (round 3): the baseline itself must be anchored -----------------
     def _stub_base(self, base_sites, detector_differs=True, base_sha="feedfacecafe"):
