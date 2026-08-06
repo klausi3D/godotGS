@@ -1303,6 +1303,34 @@ def _run_release_builds_path_filter_guard() -> tuple[bool, list[str]]:
     return True, ["Release builds path filter guard passed."]
 
 
+def _run_release_builds_runner_trust_guard() -> tuple[bool, list[str]]:
+    """Guard (#825): every self-hosted release_builds.yml job is guarded and documented.
+
+    Static, headless, no GPU, no PyYAML. `.github/workflows/AGENTS.md` requires
+    self-hosted jobs to carry a fork guard, and requires `README.md` to stay in
+    sync with the runner trust policy. The second requirement was carried by a
+    hand-written prose list, so when #825 added a second self-hosted job to
+    `release_builds.yml` the documented trust boundary silently became partial
+    while every check stayed green.
+
+    This guard derives the self-hosted job set from the workflow and checks both
+    directions against README, and fails closed on any `runs-on:`/job-level
+    `if:` form it cannot model -- an unreadable job must not read as a clean one.
+    """
+    script = ROOT / "tests" / "ci" / "test_release_builds_runner_trust.py"
+    if not script.is_file():
+        return False, [f"Missing release builds runner trust test: {script.relative_to(ROOT)}"]
+
+    code, out, err = _run_command([sys.executable, str(script)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"Release builds runner trust guard failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["Release builds runner trust guard passed."]
+
+
 def _run_export_smoke_preset_state_guard() -> tuple[bool, list[str]]:
     """Guard (#825): the export smoke test never destroys a preset it did not create.
 
@@ -2146,6 +2174,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_release_builds_path_filter_guard,
             "Release builds path filter guard failed.",
             "Release builds path filter guard passed.",
+        ),
+        (
+            True,
+            _run_release_builds_runner_trust_guard,
+            "Release builds runner trust guard failed.",
+            "Release builds runner trust guard passed.",
         ),
     ]
     for enabled, runner, failure_summary, success_summary in optional_message_guards:

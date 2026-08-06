@@ -712,8 +712,14 @@ jobs:
     # `release_candidate_gate` or `publish_release`.
     runs-on: [self-hosted, Windows, X64, godotgs]
     needs: release_metadata
-    # Never run self-hosted Windows job on untrusted PR code, same as the editor
-    # job above.
+    # Never run a self-hosted Windows job on untrusted PR code. This is the
+    # STRICTER of the two accepted forms (see .github/workflows/README.md,
+    # "Runner Trust Boundary"): it skips every pull request, not just fork ones,
+    # matching `build_windows` above. Narrower than the repository-standard fork
+    # guard, never wider. The cost -- Windows-only packaging is not exercised by
+    # a PR -- is stated and bounded in that README bullet, and the whole
+    # arrangement is enforced by tests/ci/test_release_builds_runner_trust.py,
+    # which fails if a self-hosted job here is undocumented or unguarded.
     if: github.event_name != 'pull_request'
     timeout-minutes: 120
     defaults:

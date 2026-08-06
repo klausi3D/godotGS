@@ -19,6 +19,19 @@ extends SceneTree
 ## `gaussian_splatting module missing from export template` failure instead of
 ## dying with an unrelated parse error.
 ##
+## `splat_node` is still annotated `Node3D` even though the GS-only methods it
+## calls (`set_splat_asset`, `force_update`, `get_visible_splat_count`) are not
+## on `Node3D`, and that is safe. GDScript only raises "Function not found in
+## base" when the base is `self` or a BUILTIN Variant type
+## (`modules/gdscript/gdscript_analyzer.cpp`, `reduce_call`); for a NATIVE
+## Object-derived base it emits the `UNSAFE_METHOD_ACCESS` warning instead --
+## which defaults to `IGNORE` (`gdscript_warning.h`) and is compiled out
+## entirely in a `template_release` build, where `DEBUG_ENABLED` is off. Verified
+## empirically: this file passes `--check-only` under a stock Godot 4.5.2 with no
+## gaussian_splatting module, and the equivalent typed/dynamic pair both reach
+## the `ClassDB.instantiate() == null` branch and report EXIT_MODULE_MISSING.
+## Do not "fix" the annotation away on the theory that it breaks parsing.
+##
 ## The camera orbits. With a perfectly static camera the renderer legitimately
 ## takes the INSTANCE.RASTER.CACHED route and reports
 ## `stage_raster_status="skipped" (reused cached render)`, so a still camera
