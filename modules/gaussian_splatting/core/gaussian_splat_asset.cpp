@@ -1848,6 +1848,21 @@ Error GaussianSplatAsset::populate_from_gaussian_data(const Ref<::GaussianData> 
         brush_axes.clear();
         stroke_ages.clear();
         _recalculate_sh_component_counts();
+
+        // #798 review round 4: the reset has to invalidate the DERIVED bounds too, not
+        // just the lanes. The success path below writes import_metadata["bounds"] from
+        // the freshly accumulated min/max and clears "bounds_dirty"; clearing positions
+        // without touching either leaves the PRE-reset AABB behind, still flagged clean.
+        // GaussianSplatNodeHelpers::update_asset() reads exactly that pair
+        // (gaussian_splat_node_helpers.cpp): a false "bounds_dirty" plus a non-degenerate
+        // cached AABB sets used_cached_bounds = true and SKIPS the recompute from
+        // `positions` -- which is now empty -- so the node and the editor keep reporting
+        // the old asset's extents for a zero-splat asset. Culling, the LOD distance
+        // metric and the editor gizmo all read that AABB. Every other lane-clearing
+        // mutator on this class already invalidates here (set_splat_count(),
+        // set_positions(), set_scales(), prune) -- this branch was the one that did not.
+        _invalidate_bounds_metadata();
+
         payload_sealed = previous_seal;
 
         // #798 review round 3: the reset above is a PAYLOAD CHANGE, so it has to be

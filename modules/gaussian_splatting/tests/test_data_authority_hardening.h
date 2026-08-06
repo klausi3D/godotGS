@@ -744,6 +744,30 @@ TEST_CASE("[GaussianSplatting][DataAuthority] A failed populate_from_gaussian_da
     }
     const uint32_t seeded_version = asset->get_payload_version();
 
+    // Premise for the round-4 bounds assertions in the failure subcases below: the
+    // seed must leave a CLEAN, non-degenerate cached AABB, because that is exactly the
+    // state GaussianSplatNodeHelpers::update_asset() short-circuits on. Snapshot the
+    // AABB by value -- get_import_metadata() hands back a Dictionary that shares the
+    // asset's storage, so a held handle would silently track the reset.
+    {
+        const Dictionary seeded_metadata = asset->get_import_metadata();
+        if (!seeded_metadata.has(StringName("bounds"))) {
+            FAIL("seed populate must cache a bounds AABB (premise for the bounds assertions)");
+            return;
+        }
+        if ((bool)seeded_metadata.get(StringName("bounds_dirty"), true)) {
+            FAIL("seed populate must leave bounds_dirty == false (premise for the bounds assertions)");
+            return;
+        }
+        const Variant seeded_bounds = seeded_metadata[StringName("bounds")];
+        if (seeded_bounds.get_type() != Variant::AABB || ((AABB)seeded_bounds).size == Vector3()) {
+            // A degenerate AABB is ignored by update_asset(), which would make the
+            // "stale bounds survive" defect unobservable and the assertions vacuous.
+            FAIL("the seeded bounds AABB must be non-degenerate (premise for the bounds assertions)");
+            return;
+        }
+    }
+
     // Rewrite with a DIFFERENT count, so a surviving "new count + unwritten
     // lanes" mixed state is distinguishable from both the old and the new one.
     Ref<::GaussianData> rewrite;
@@ -791,6 +815,22 @@ TEST_CASE("[GaussianSplatting][DataAuthority] A failed populate_from_gaussian_da
         // the renderer keeps drawing the geometry this asset no longer has.
         CHECK_MESSAGE(asset->get_payload_version() != seeded_version,
                 "A failed populate must bump payload_version so version-gated consumers rebuild.");
+
+        // Round-4 contract: the reset must invalidate the DERIVED bounds too, not just
+        // the lanes. GaussianSplatNodeHelpers::update_asset()
+        // (gaussian_splat_node_helpers.cpp) branches on exactly this pair: a false
+        // "bounds_dirty" plus a non-degenerate cached "bounds" sets
+        // used_cached_bounds = true and SKIPS the recompute from `positions` -- which
+        // the reset just emptied -- so the node and the editor gizmo keep reporting the
+        // PRE-reset extents for a zero-splat asset.
+        {
+            const Dictionary reset_metadata = asset->get_import_metadata();
+            CHECK_MESSAGE((bool)reset_metadata.get(StringName("bounds_dirty"), false),
+                    "A failed populate must mark bounds dirty, or consumers keep the pre-reset AABB.");
+            CHECK_MESSAGE(!reset_metadata.has(StringName("bounds")),
+                    "A failed populate must drop the stale cached bounds AABB.");
+        }
+
         Array expected_changed;
         expected_changed.push_back(Array());
         SIGNAL_CHECK("changed", expected_changed);
@@ -818,6 +858,14 @@ TEST_CASE("[GaussianSplatting][DataAuthority] A failed populate_from_gaussian_da
         CHECK(asset->get_positions().is_empty());
         CHECK_MESSAGE(asset->get_payload_version() != seeded_version,
                 "A failed populate must bump payload_version so version-gated consumers rebuild.");
+        {
+            // Round-4 contract, same as the empty-lane subcase above.
+            const Dictionary reset_metadata = asset->get_import_metadata();
+            CHECK_MESSAGE((bool)reset_metadata.get(StringName("bounds_dirty"), false),
+                    "A failed populate must mark bounds dirty, or consumers keep the pre-reset AABB.");
+            CHECK_MESSAGE(!reset_metadata.has(StringName("bounds")),
+                    "A failed populate must drop the stale cached bounds AABB.");
+        }
         Array expected_changed;
         expected_changed.push_back(Array());
         SIGNAL_CHECK("changed", expected_changed);
