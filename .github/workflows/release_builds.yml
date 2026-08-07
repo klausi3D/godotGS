@@ -425,6 +425,12 @@ jobs:
 
       - name: Set up MSVC build env
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+        with:
+          # Pinned: the runner otherwise resolves 14.34.31933, whose
+          # link.exe aborts with STATUS_ILLEGAL_INSTRUCTION (0xC000001D)
+          # while emitting debug info. 14.44 is what this install's own
+          # Microsoft.VCToolsVersion.default.txt already declares.
+          toolset: '14.44'
 
       - name: Install SCons
         shell: pwsh
