@@ -43,6 +43,8 @@ ENVIRONMENT_SKIP_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_environment_s
 SKIP_MARKER_DETECTOR_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_run_module_tests_skip_marker.py"
 LANE_LEDGER_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_run_module_tests_lane_ledger.py"
 ENVIRONMENT_SKIP_BASELINE_PATH = ROOT / "tests" / "ci" / "environment_skip_baseline.json"
+
+UNCHECKED_RESIZE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_unchecked_resize.py"
 TEST_LANE_COVERAGE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_test_lane_coverage.py"
 TEST_LANE_COVERAGE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_test_lane_coverage.py"
 GPU_SORTING_ORDER_COVERAGE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_gpu_sorting_order_coverage.py"
@@ -886,7 +888,14 @@ BASE_BEARING_EVENTS: frozenset[str] = frozenset(
 
 
 def _environment_skip_base_ref() -> tuple[str | None, list[str]]:
-    """The review base to hand the env-skip guard, or a hard failure.
+    """The review base to hand every base-anchored guard, or a hard failure.
+
+    Shared, not per-guard: there is ONE review base for a diff. The env-skip marker
+    ratchet and the unchecked-resize ratchet both grade their baseline against it, and
+    the second used to resolve its own -- so `--guard-only --base-ref X` reached one of
+    them and not the other, and on a stacked PR they graded different branches. Worse for
+    the resize guard than for this one, because an older base can predate its baseline
+    file entirely and "absent at base" is that guard's permissive branch.
 
     For a base-bearing event this MUST be explicit. The guard's own fallback
     chain ends at origin/master, which is correct only for PRs that target
@@ -915,7 +924,7 @@ def _environment_skip_base_ref() -> tuple[str | None, list[str]]:
         return None, []
     if _is_ci():
         return None, [
-            "Environment-skip guard: no review base available in CI. Set one of "
+            "Base-anchored guards: no review base available in CI. Set one of "
             f"{', '.join(ENVIRONMENT_SKIP_BASE_ENV_VARS)} (the workflow has "
             "github.event.pull_request.base.sha) or pass --base-ref. Refusing to let the "
             "guard fall back to origin/master: on a PR stacked on a feature branch that "
@@ -975,6 +984,66 @@ def _run_environment_skip_marker_guard() -> tuple[bool, list[str]]:
         # is exactly the vacuous-pass shape this module keeps eliminating.
         reported.extend([f"{label} passed."] if quiet_on_success else output_lines)
     return True, reported
+def _run_unchecked_resize_guard() -> tuple[bool, list[str]]:
+    """Ratchet: no NEW unchecked `Vector::resize()` feeding a raw write (#794, #798).
+
+    A failed resize leaves the vector at its PREVIOUS size, so a later `write[]` traps
+    in CRASH_BAD_INDEX and a later `ptrw()` write runs past a live allocation with no
+    diagnostic at all. This compares the tree against a GENERATED baseline and fails
+    only on sites that are not already recorded, so it cannot silently bless a new
+    defect while also not claiming the existing set is proven safe.
+
+    Like the environment-skip guard above, its baseline is graded against the REVIEW
+    BASE, so the base must reach it. `_environment_skip_base_ref()` is the one resolver
+    for both -- there is one review base per diff, and two guards answering that question
+    differently would be the bug.
+    """
+    if not UNCHECKED_RESIZE_GUARD_SCRIPT.is_file():
+        return False, [f"Missing unchecked-resize guard: {UNCHECKED_RESIZE_GUARD_SCRIPT.relative_to(ROOT)}"]
+
+    # The base MUST reach the guard, for the same reason it must reach the env-skip
+    # guard: this one's own fallback chain also ends at origin/master, and a PR stacked
+    # on a feature branch is exactly the case the ratchet exists to police. Worse here
+    # than there, because an older wrong base can predate the baseline file entirely --
+    # and "absent at base" is this guard's PERMISSIVE branch (no shrink-only reference,
+    # so no addition is rejected). Defaulting silently would therefore not merely grade
+    # the wrong branch, it would disable the base comparison and still report green.
+    base_ref, base_failures = _environment_skip_base_ref()
+    if base_failures:
+        return False, base_failures
+
+    # Run the guard's OWN self-tests in the same lane, and FIRST. Two review rounds
+    # found EIGHT distinct ways to evade this guard: key collision, --regenerate
+    # blessing a new site on a net-zero delta, a fixed-window function-scope cap,
+    # line-anchored matching missing wrapped calls, an unreadable source passing
+    # silently, a trailing comment hiding a statement, a '}' inside a comment or string
+    # truncating the function span, and an occurrence ordinal that counted duplicate
+    # sites without identifying them. Each is now a self-test. Wiring them here rather
+    # than into a separate lane is
+    # deliberate: this file already documents a guard that "existed but was wired into
+    # NO lane and no runner ... therefore never executed once", and a self-test that
+    # does not run is worth exactly nothing.
+    self_test = ROOT / "tests" / "ci" / "test_unchecked_resize_guard.py"
+    if not self_test.is_file():
+        return False, [f"Missing unchecked-resize guard self-test: {self_test.relative_to(ROOT)}"]
+    code, out, err = _run_command([sys.executable, str(self_test)])
+    if code != 0:
+        lines = [line for line in (out + err).splitlines() if line.strip()]
+        return False, lines or [f"Unchecked-resize guard self-test failed with exit code {code}."]
+    # Report the case count unittest actually ran, never a number typed by hand: the
+    # previous literal ("7 cases") was already stale, and a hand-maintained count is a
+    # claim about coverage that nothing checks.
+    ran = re.search(r"^Ran (\d+) tests?", out + err, re.MULTILINE)
+    case_count = f"{ran.group(1)} cases" if ran else "case count not reported"
+
+    extra = ["--base-ref", base_ref] if base_ref else []
+    code, out, err = _run_command([sys.executable, str(UNCHECKED_RESIZE_GUARD_SCRIPT), *extra])
+    output_lines = [line for line in (out + err).splitlines() if line.strip()]
+    if code != 0:
+        if not output_lines:
+            output_lines = [f"Unchecked-resize guard failed with exit code {code}."]
+        return False, output_lines
+    return True, [f"Unchecked-resize guard self-test passed ({case_count})."] + output_lines
 
 
 def _run_require_null_deref_guard() -> tuple[bool, list[str]]:
@@ -2916,6 +2985,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_environment_skip_marker_guard,
             "Environment-skip marker guard failed.",
             "Environment-skip marker guard passed.",
+        ),
+        (
+            True,
+            _run_unchecked_resize_guard,
+            "Unchecked-resize guard failed.",
+            "Unchecked-resize guard passed.",
         ),
         (
             True,

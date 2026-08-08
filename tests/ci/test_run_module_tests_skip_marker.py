@@ -626,6 +626,58 @@ class BaseForwardingTests(IsolatedTestCase):
         self.assertNotIn("--base-ref", command)
 
 
+class UncheckedResizeBaseForwardingTests(BaseForwardingTests):
+    """The SAME forwarding, for the second base-anchored guard in this file.
+
+    `--guard-only --base-ref X` reached the env-skip guard and not the
+    unchecked-resize one, which resolved its own base and fell back to
+    origin/master. On a stacked PR that grades the resize ratchet against the
+    wrong branch -- and if that branch predates the baseline file, the guard
+    takes its ABSENT-AT-BASE path, which is the permissive one: no shrink-only
+    reference, so no baseline addition is rejected at all. The wrong base does
+    not merely mis-grade there, it disables the comparison and still reports
+    green.
+
+    Subclasses BaseForwardingTests so all four cases -- forwarded, override
+    wins, CI-without-a-base fails closed, local run allowed -- are re-run
+    against this guard rather than restated. A copied set is how the two drift.
+
+    Measured: three of the four are RED against 0d51a69659a. The fourth
+    (test_local_run_without_a_base_is_allowed) passes on both sides and is a
+    control -- pre-fix no --base-ref was ever passed, so "not in command" held
+    trivially.
+    """
+
+    def _capture(self, env: dict[str, str], override: str | None = None):
+        calls: list[list[str]] = []
+
+        def fake_run(command, *args, **kwargs):
+            calls.append(list(command))
+            return 0, "", ""
+
+        saved_override = harness._GUARD_BASE_REF_OVERRIDE
+        harness._GUARD_BASE_REF_OVERRIDE = override
+        with mock.patch.object(harness, "_run_command", fake_run):
+            with mock.patch.dict(os.environ, env, clear=False):
+                for name in harness.ENVIRONMENT_SKIP_BASE_ENV_VARS:
+                    if name not in env:
+                        os.environ.pop(name, None)
+                if "GITHUB_EVENT_NAME" not in env:
+                    os.environ["GITHUB_EVENT_NAME"] = "pull_request"
+                try:
+                    ok, output = harness._run_unchecked_resize_guard()
+                finally:
+                    harness._GUARD_BASE_REF_OVERRIDE = saved_override
+        return ok, output, calls
+
+    def _guard_call(self, calls: list[list[str]]) -> list[str]:
+        guard_script = str(harness.UNCHECKED_RESIZE_GUARD_SCRIPT)
+        for command in calls:
+            if guard_script in command:
+                return command
+        self.fail(f"unchecked-resize guard was never invoked; calls={calls}")
+
+
 class WorkflowBaseExportTests(IsolatedTestCase):
     """Every base-bearing event the gate triggers on must be given a base.
 
