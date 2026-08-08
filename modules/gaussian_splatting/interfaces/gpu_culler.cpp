@@ -1185,6 +1185,8 @@ CullResult GPUCuller::cull(const CullParams &p_params, const CullInputBuffers &p
     params.orthographic = p_params.orthographic ? 1 : 0;
 
     // Upload parameters
+    // #798 exclusion rule 2: sizeof(FrustumCullParamsGPU) is a compile-time constant that
+    // does not scale with scene, asset or file data.
     if (param_bytes.size() != sizeof(FrustumCullParamsGPU)) {
         param_bytes.resize(sizeof(FrustumCullParamsGPU));
     }
@@ -1483,6 +1485,8 @@ bool GPUCuller::_gpu_frustum_cull_instance(const CullParams &p_params, const Ins
 
     params.enable_frustum = p_params.frustum_culling_enabled ? 1u : 0u;
 
+    // #798 exclusion rule 2: sizeof(InstanceCullParamsGPU) is a compile-time constant that
+    // does not scale with scene, asset or file data.
     if (instance_param_bytes.size() != sizeof(InstanceCullParamsGPU)) {
         instance_param_bytes.resize(sizeof(InstanceCullParamsGPU));
     }

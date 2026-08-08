@@ -6,6 +6,7 @@
 #include "../core/gaussian_splat_settings_manager.h"
 #include "../core/gaussian_splat_scene_director.h"
 #include "../core/gaussian_splat_source_path.h"
+#include "../core/gs_vector_alloc.h"
 #include "../core/quality_tier_config.h"
 #include "../renderer/gaussian_splat_renderer.h"
 #include "../logger/gs_debug_trace.h"
@@ -746,8 +747,67 @@ void GaussianSplatNode3D::set_splat_data(const PackedVector3Array &p_positions,
 
     _reset_manual_splat_state();
     _ensure_renderer_data_for_splats(splat_count, p_positions);
-    _apply_optional_splat_arrays(splat_count, p_colors, p_scales, p_opacities, p_rotations,
-            p_spherical_harmonics, p_palette_ids, p_painterly_flags, p_normals, p_brush_axes, p_stroke_ages);
+    // #798: stop before _populate_runtime_asset_from_renderer_data() /
+    // _finalize_manual_splat_setup(), which are what publish, upload and cache this data,
+    // rather than rendering splats whose opacity or SH silently failed to allocate.
+    //
+    // #798 review correction: a bare `return` here is NOT enough, and an earlier revision of
+    // this comment wrongly claimed it left the node with "no splats rendered".
+    // _reset_manual_splat_state() only unrefs splat_asset and disconnects its `changed`
+    // signal -- it does NOT unregister the renderer. By this point
+    // _ensure_renderer_data_for_splats() has already resized the REUSABLE renderer_data and
+    // written the new positions into it, so on an already-registered node the previous render
+    // registration would stay live alongside half-overwritten CPU data: stale splats or a
+    // count mismatch, not an empty node. Clear the partial data and drop the registration.
+    if (!_apply_optional_splat_arrays(splat_count, p_colors, p_scales, p_opacities, p_rotations,
+                p_spherical_harmonics, p_palette_ids, p_painterly_flags, p_normals, p_brush_axes, p_stroke_ages)) {
+        if (renderer_data.is_valid()) {
+            renderer_data->resize(0);
+        }
+        // #798 review round 2: clearing renderer_data and dropping the registration is still not
+        // failed-closed. runtime_asset keeps the PREVIOUS payload, and
+        // _register_instance_in_director() (~:2451-2461) re-populates from renderer_data,
+        // CONTINUES past the resulting error, and then assigns `asset = runtime_asset` regardless
+        // -- so on the next tree/world re-entry the old splats reappear on a node whose
+        // set_splat_data() failed. Drop the cached asset too, so a later registration has nothing
+        // stale to fall back to.
+        runtime_asset.unref();
+        // #798 review round 3: resize(0) + runtime_asset.unref() STILL is not failed-closed,
+        // and the test that was supposed to prove otherwise never reached this branch (it
+        // submitted arrays that allocate fine, so it passed with the whole branch deleted).
+        // With renderer_data left as a valid-but-empty Ref, the node keeps a source:
+        //   * _register_shared_renderer() (:2643) early-returns only when ALL THREE of
+        //     splat_asset / renderer_data / runtime_asset are null, so it proceeds;
+        //   * _register_instance_in_director() (:2460) then sees `renderer_data.is_valid()`,
+        //     instantiates a FRESH runtime_asset, populates it from the empty data, logs the
+        //     error, CONTINUES, and hands that empty asset to register_instance();
+        //   * _has_local_source_data() (:1915) and get_configuration_warnings() (:1761) both
+        //     stay "has data", so the editor shows no no-data warning for a node that has none.
+        // MEASURED with this line mutated out (RTX 3090, --gs-gpu-test): the director itself
+        // rejects the empty asset ("[GaussianSplatSceneDirector] Failed to build GaussianData
+        // from asset"), so no submission survives -- the visible damage is not a rendered
+        // zero-splat instance but a node that lies about having data and re-attempts, and
+        // re-logs, that failed population on every tree/world re-entry. That is what the
+        // configuration-warning assertion in the test catches, and it is RED without this
+        // line. Unref the source too: with all three null the re-entry path early-returns
+        // before any of it, and the warning tells the truth again. resize(0) above
+        // is kept deliberately -- it clears the half-overwritten payload for any other holder
+        // of this GaussianData before we drop our own reference.
+        renderer_data.unref();
+        // The counters and bounds are the last thing still describing the PREVIOUS payload:
+        // _finalize_manual_splat_setup() (:1017-1020) is what maintains them, and it is
+        // exactly what this branch skips. Leaving them would report "5 splats, N MB" on a
+        // node that now has no data at all -- the stats/* inspector rows and
+        // get_total_splat_count() read these fields directly.
+        total_splat_count = 0;
+        visible_splat_count = 0;
+        gpu_memory_mb = 0.0f;
+        local_aabb = AABB();
+        bounds_dirty = true;
+        _unregister_shared_renderer();
+        update_configuration_warnings();
+        return;
+    }
     renderer_data->set_2d_mode(p_is_2d_mode);
     _populate_runtime_asset_from_renderer_data();
     _compute_manual_splat_bounds(splat_count, p_positions, p_scales);
@@ -840,7 +900,12 @@ void GaussianSplatNode3D::_ensure_renderer_data_for_splats(int splat_count, cons
     renderer_data->set_positions(p_positions);
 }
 
-void GaussianSplatNode3D::_apply_optional_splat_arrays(int splat_count,
+// #798: returns a status rather than void. Two of the derived arrays below are allocated at
+// splat_count and filled through raw ptrw() pointers; failing closed while returning void
+// would let set_splat_data() go on to _populate_runtime_asset_from_renderer_data() and
+// _finalize_manual_splat_setup(), publishing and caching a node whose opacity or SH is
+// silently absent -- indistinguishable from data the caller never supplied.
+bool GaussianSplatNode3D::_apply_optional_splat_arrays(int splat_count,
         const PackedColorArray &p_colors,
         const PackedVector3Array &p_scales,
         const PackedFloat32Array &p_opacities,
@@ -863,7 +928,12 @@ void GaussianSplatNode3D::_apply_optional_splat_arrays(int splat_count,
         renderer_data->set_opacities(p_opacities);
     } else if (p_colors.size() == splat_count) {
         PackedFloat32Array opacity_from_color;
-        opacity_from_color.resize(splat_count);
+        // #798: the fill loop is bounded by splat_count, not by opacity_from_color.size(),
+        // and writes through a raw ptrw() pointer that a failed resize leaves null.
+        if (!gs_resize_or_fail(opacity_from_color, splat_count,
+                    "GaussianSplatNode3D::set_splat_data opacity_from_color")) {
+            return false;
+        }
         float *opacity_ptr = opacity_from_color.ptrw();
         for (int i = 0; i < splat_count; i++) {
             opacity_ptr[i] = CLAMP(p_colors[i].a, 0.0f, 1.0f);
@@ -875,7 +945,13 @@ void GaussianSplatNode3D::_apply_optional_splat_arrays(int splat_count,
         renderer_data->set_spherical_harmonics(p_spherical_harmonics);
     } else if (!p_colors.is_empty()) {
         PackedFloat32Array sh_dc;
-        sh_dc.resize(splat_count * 3);
+        // #798: same shape -- the loop is bounded by splat_count and indexes sh_ptr up to
+        // splat_count * 3 - 1, never consulting sh_dc.size(). int64_t so the count expression
+        // itself cannot overflow before the check sees it.
+        if (!gs_resize_or_fail(sh_dc, int64_t(splat_count) * 3,
+                    "GaussianSplatNode3D::set_splat_data sh_dc")) {
+            return false;
+        }
         float *sh_ptr = sh_dc.ptrw();
         for (int i = 0; i < splat_count; i++) {
             const Color color = p_colors[i];
@@ -905,6 +981,8 @@ void GaussianSplatNode3D::_apply_optional_splat_arrays(int splat_count,
     if (!p_stroke_ages.is_empty()) {
         renderer_data->set_stroke_ages(p_stroke_ages);
     }
+
+    return true;
 }
 
 void GaussianSplatNode3D::_populate_runtime_asset_from_renderer_data() {

@@ -350,11 +350,20 @@ static bool _resize_sort_byte_vectors(Vector<uint8_t> &r_key_bytes, Vector<uint8
 
 	const int key_bytes = int(key_bytes_u64);
 	const int index_bytes = int(index_bytes_u64);
-	if (r_key_bytes.size() != key_bytes) {
-		r_key_bytes.resize(key_bytes);
-	}
-	if (r_index_bytes.size() != index_bytes) {
-		r_index_bytes.resize(index_bytes);
+	// #798: the check above is a POLICY ceiling, not an allocation guard -- it rejects an
+	// oversized request but says nothing about whether the allocation succeeded, and both
+	// resizes then ignored their return value while this function still reported success.
+	// The identity-index loop in ensure_buffers() is bounded by sort_buffer_capacity, not by
+	// r_index_bytes.size(), and writes through a reinterpret_cast of ptrw(): after a failed
+	// resize that is a wild write when the vector was empty, and a HEAP OVERFLOW when it was
+	// not (CowData's sole-owner path leaves the shorter buffer valid on realloc failure).
+	// Capacity is the splat count, so this is a multi-MB scene-driven allocation. Report it
+	// through the bool contract both call sites already handle with release_buffers().
+	if (!gs_resize_or_fail(r_key_bytes, key_bytes, "GPUSortingPipeline sort key bytes") ||
+			!gs_resize_or_fail(r_index_bytes, index_bytes, "GPUSortingPipeline sort index bytes")) {
+		r_key_bytes.clear();
+		r_index_bytes.clear();
+		return false;
 	}
 	return true;
 }
@@ -2044,7 +2053,14 @@ bool GPUSortingPipeline::populate_gpu_positions(RID p_buffer, uint32_t p_total_g
     }
 
     Vector<uint32_t> source_indices;
-    source_indices.resize(p_visible_splats);
+    // #798: the fill loop below is bounded by p_visible_splats -- the visible splat count for
+    // this frame, so scene-sized -- and not by source_indices.size(). A failed resize leaves
+    // ptrw() null and source_indices_ptr[0] is a wild write. Fail closed via this function's
+    // own bool contract, exactly as the out-of-range-index rejection inside the loop does.
+    if (!gs_resize_or_fail(source_indices, int64_t(p_visible_splats),
+                "GPUSortingPipeline source_indices")) {
+        return false;
+    }
     uint32_t *source_indices_ptr = source_indices.ptrw();
 
     uint32_t min_index = UINT32_MAX;
@@ -2180,7 +2196,15 @@ bool GPUSortingPipeline::populate_gpu_positions(RID p_buffer, uint32_t p_total_g
                 return false;
             }
 
-            run_data.resize(count);
+            // #798: `run_data` is declared outside this lambda and reused across runs, so on
+            // the second and later calls it is NON-EMPTY and this takes CowData's sole-owner
+            // realloc path -- which on failure keeps the SHORTER buffer valid. The memcpy of
+            // byte_size bytes would then overflow the heap silently rather than trap on null.
+            // `count` comes from the GPU index range, i.e. scene data. Fail closed through the
+            // lambda's bool contract; every caller turns `false` into `return false`.
+            if (!gs_resize_or_fail(run_data, int64_t(count), "GPUSortingPipeline fetch_run")) {
+                return false;
+            }
             memcpy(run_data.ptrw(), gpu_bytes.ptr(), byte_size);
             for (uint32_t j = 0; j < count; j++) {
                 fetched_gaussians.insert(p_start + j, run_data[j]);
@@ -2588,6 +2612,8 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
     }
 
     Vector<uint8_t> param_bytes;
+    // #798 exclusion rule 2: sizeof(InstanceDepthParamsGPU) is a compile-time constant that
+    // does not scale with scene, asset or file data.
     param_bytes.resize(sizeof(InstanceDepthParamsGPU));
     std::memcpy(param_bytes.ptrw(), &params, sizeof(InstanceDepthParamsGPU));
     bool param_dirty = !instance_param_cache_valid ||
