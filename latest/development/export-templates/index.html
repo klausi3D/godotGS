@@ -7,9 +7,13 @@
       
       
       
-        <link rel="canonical" href="https://klausi3d.github.io/godotGS/latest/architecture/gaussian-pipeline-deprecation-deletion-plan/">
+        <link rel="canonical" href="https://klausi3d.github.io/godotGS/latest/development/export-templates/">
       
       
+        <link rel="prev" href="../../governance/contribution-standards/">
+      
+      
+        <link rel="next" href="../docs-site/">
       
       
         
@@ -20,7 +24,7 @@
     
     
       
-        <title>Gaussian Pipeline Deprecation And Deletion Plan - Godot Gaussian Splatting Docs</title>
+        <title>Export Templates - Godot Gaussian Splatting Docs</title>
       
     
     
@@ -83,7 +87,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#gaussian-pipeline-deprecation-and-deletion-plan" class="md-skip">
+        <a href="#export-templates" class="md-skip">
           Skip to content
         </a>
       
@@ -122,7 +126,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Gaussian Pipeline Deprecation And Deletion Plan
+              Export Templates
             
           </span>
         </div>
@@ -293,10 +297,12 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
+      <li class="md-tabs__item md-tabs__item--active">
         <a href="../../contributor/" class="md-tabs__link">
           
   
@@ -1247,6 +1253,8 @@
       
   
   
+    
+  
   
   
     
@@ -1282,16 +1290,19 @@
     
     
       
+        
+        
+      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4">
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked="">
         
           
           <div class="md-nav__link md-nav__container">
@@ -1313,13 +1324,13 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1507,7 +1518,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../overview/" class="md-nav__link">
+      <a href="../../architecture/overview/" class="md-nav__link">
         
   
   
@@ -1560,10 +1571,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../development/export-templates/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Export Templates
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1579,6 +1617,114 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+      
+        <li class="md-nav__item">
+  <a href="#purpose" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Purpose
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-one-thing-you-must-not-skip" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The one thing you must not skip
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-to-get-templates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where to get templates
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scope-release-templates-only-for-now" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope: release templates only, for now
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-godot-expects-the-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where Godot expects the files
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-file-names-differ-per-platform" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The file names differ per platform
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verifying-an-export" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verifying an export
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1591,7 +1737,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../development/docs-site/" class="md-nav__link">
+      <a href="../docs-site/" class="md-nav__link">
         
   
   
@@ -1685,10 +1831,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-the-refactor-already-consolidated" class="md-nav__link">
+  <a href="#the-one-thing-you-must-not-skip" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What The Refactor Already Consolidated
+        The one thing you must not skip
       
     </span>
   </a>
@@ -1696,10 +1842,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#cleanup-principles" class="md-nav__link">
+  <a href="#where-to-get-templates" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Cleanup Principles
+        Where to get templates
       
     </span>
   </a>
@@ -1707,10 +1853,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#inventory-summary" class="md-nav__link">
+  <a href="#scope-release-templates-only-for-now" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Inventory Summary
+        Scope: release templates only, for now
       
     </span>
   </a>
@@ -1718,165 +1864,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#deletion-buckets" class="md-nav__link">
+  <a href="#where-godot-expects-the-files" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Deletion Buckets
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Deletion Buckets">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#bucket-a-safe-cleanup-and-narrowing" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Bucket A: Safe Cleanup And Narrowing
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#bucket-b-compatibility-surface-removal" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Bucket B: Compatibility Surface Removal
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#bucket-c-product-workflow-deprecation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Bucket C: Product Workflow Deprecation
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#detailed-surfaces" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Detailed Surfaces
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Detailed Surfaces">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#1-legacy-streamingenabled" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        1. Legacy streaming/enabled
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#2-upsert_world_submission-unregister_world_submission" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        2. upsert_world_submission() / unregister_world_submission()
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#3-editor-preview-direct-upload" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3. Editor Preview Direct Upload
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#4-gaussiansplatdynamicinstance3dply_file_path" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        4. GaussianSplatDynamicInstance3D::ply_file_path
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#5-gaussiansplatnode3dply_file_path" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        5. GaussianSplatNode3D::ply_file_path
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#6-gaussiansplatrendererset_gaussian_data" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        6. GaussianSplatRenderer::set_gaussian_data()
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#7-duplicated-source-path-resolution" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        7. Duplicated Source-Path Resolution
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#8-explicit-resident-legacy-fallback" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        8. Explicit-Resident Legacy Fallback
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#tests-that-currently-block-deletion" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Tests That Currently Block Deletion
+        Where Godot expects the files
       
     </span>
   </a>
@@ -1884,71 +1875,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#recommended-execution-order" class="md-nav__link">
+  <a href="#the-file-names-differ-per-platform" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Recommended Execution Order
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Recommended Execution Order">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#pass-1-safe-consolidation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Pass 1: Safe Consolidation
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pass-2-remove-easy-compatibility-debt" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Pass 2: Remove Easy Compatibility Debt
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pass-3-product-workflow-deprecation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Pass 3: Product Workflow Deprecation
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pass-4-optional-further-narrowing" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Pass 4: Optional Further Narrowing
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#completion-criteria" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Completion Criteria
+        The file names differ per platform
       
     </span>
   </a>
@@ -1956,10 +1886,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#relationship-to-existing-docs" class="md-nav__link">
+  <a href="#verifying-an-export" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Relationship To Existing Docs
+        Verifying an export
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related
       
     </span>
   </a>
@@ -1992,421 +1933,155 @@
   
 
 
-<h1 id="gaussian-pipeline-deprecation-and-deletion-plan">Gaussian Pipeline Deprecation And Deletion Plan<a class="headerlink" href="#gaussian-pipeline-deprecation-and-deletion-plan" title="Permanent link">¶</a></h1>
-<p>Status: living post-refactor cleanup plan<br>
-Scope: compatibility removal, route consolidation, and API narrowing after Stages 0-3<br>
-Audience: rendering, tools, editor, and test engineers</p>
+<h1 id="export-templates">Export Templates<a class="headerlink" href="#export-templates" title="Permanent link">¶</a></h1>
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
-<p>The refactor achieved the main architectural goal:</p>
-<p><code>source asset or baked world -&gt; shared renderer contract -&gt; resident or streaming backend -&gt; sort/render</code></p>
-<p>But it did not finish the aggressive cleanup pass.</p>
-<p>This document tracks what still exists only for compatibility, migration, tests, or editor convenience, and defines what should be:</p>
-<ul>
-<li>kept as a supported feature</li>
-<li>narrowed and explicitly marked low-level</li>
-<li>deprecated with a replacement workflow</li>
-<li>deleted once preconditions are met</li>
-</ul>
-<p>This is not a new architecture proposal. It is the closeout plan for code and route consolidation that the refactor intentionally deferred.</p>
-<h2 id="what-the-refactor-already-consolidated">What The Refactor Already Consolidated<a class="headerlink" href="#what-the-refactor-already-consolidated" title="Permanent link">¶</a></h2>
-<p>The main structural split is already fixed:</p>
-<ul>
-<li><code>GaussianSplatWorld3D</code> no longer owns the runtime render route. It submits through the director in <a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp">gaussian_splat_world_3d.cpp</a>.</li>
-<li>The shared instance renderer can now run resident data without a <code>GaussianStreamingSystem</code>, with backend choice resolved through <a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/core/gs_project_settings.h">gs_project_settings.h</a> and the resident atlas publisher.</li>
-<li>Route/debug/effective-settings surfaces now explain the active path and provenance through existing HUD/editor/diagnostics surfaces.</li>
-<li>The editor no longer dual-writes <code>splat_asset</code> and <code>ply_file_path</code> during normal import flows.</li>
-</ul>
-<p>That means the remaining cleanup work is concentrated in compatibility seams, not the core render architecture.</p>
-<h2 id="cleanup-principles">Cleanup Principles<a class="headerlink" href="#cleanup-principles" title="Permanent link">¶</a></h2>
-<ol>
-<li>Do not reopen the accepted architecture.</li>
-<li>Do not delete real runtime features until replacement workflows exist.</li>
-<li>Prefer narrowing a surface before deleting it outright.</li>
-<li>Migrate tests before removing the hook they rely on.</li>
-<li>Keep one canonical editor workflow:
-   imported <code>GaussianSplatAsset</code> -&gt; shared renderer registration.</li>
-<li>Keep one canonical backend policy surface:
-   resolved <code>route_policy</code>, not overlapping booleans.</li>
-</ol>
-<h2 id="inventory-summary">Inventory Summary<a class="headerlink" href="#inventory-summary" title="Permanent link">¶</a></h2>
+<p>Explain how to export a playable game from this fork, and why an export can
+succeed and still produce a binary that renders no splats.</p>
+<h2 id="the-one-thing-you-must-not-skip">The one thing you must not skip<a class="headerlink" href="#the-one-thing-you-must-not-skip" title="Permanent link">¶</a></h2>
+<p><strong>Set <code>custom_template/release</code> explicitly in your export preset.</strong> If you leave
+it empty, Godot falls back to a stock (upstream) export template, which contains
+no Gaussian Splatting module. <strong>The export still succeeds. The resulting binary
+silently renders nothing.</strong> There is no error, no warning, and no missing-file
+dialog — the game just runs with your splat nodes doing nothing.</p>
+<p>This is not hypothetical. A <code>GrandmasHouse</code> export made on 2026-01-21 with
+<code>custom_template/release=""</code> produced an <code>.exe</code> containing zero <code>GaussianSplat</code>
+symbols (issue #825). A correct export made on 2026-07-01 —
+<code>exhibition/splat_kabinett</code>, with <code>custom_template/release</code> pointed at a locally
+built template — produced a binary that does contain them.</p>
+<p>Check any export you make:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Should print matches. Zero matches means a stock template was used.</span>
+grep<span class="w"> </span>-a<span class="w"> </span>-c<span class="w"> </span>GaussianSplat<span class="w"> </span>path/to/your_game.exe
+</code></pre></div>
+<h2 id="where-to-get-templates">Where to get templates<a class="headerlink" href="#where-to-get-templates" title="Permanent link">¶</a></h2>
+<p>Templates are built by the <code>Release Builds</code> workflow
+(<code>.github/workflows/release_builds.yml</code>) and uploaded as <strong>CI artifacts</strong>:</p>
 <table>
 <thead>
 <tr>
-<th>Surface</th>
-<th>Current role</th>
-<th>Category</th>
-<th>Recommended action</th>
-<th>Earliest bucket</th>
+<th>Job</th>
+<th>Artifact</th>
+<th>Contains</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>rendering/gaussian_splatting/streaming/enabled</code></td>
-<td>Removed legacy compatibility toggle</td>
-<td>Removed in Bucket B</td>
-<td>Route policy is now the sole supported backend-policy setting</td>
-<td>Complete</td>
+<td><code>build_windows_export_template</code></td>
+<td><code>godotgs-export-template-windows-&lt;channel&gt;-&lt;run&gt;</code></td>
+<td><code>windows_release_x86_64.exe</code>, <code>windows_release_x86_64.console.exe</code></td>
 </tr>
 <tr>
-<td><code>upsert_world_submission()</code> / <code>unregister_world_submission()</code></td>
-<td>Removed scaffolding-only storage helpers</td>
-<td>Removed in follow-up cleanup</td>
-<td>Runtime world submission now goes through <code>submit_world_submission()</code> / <code>release_world_submission()</code> only</td>
-<td>Complete</td>
-</tr>
-<tr>
-<td>Editor preview direct <code>renderer-&gt;set_gaussian_data()</code></td>
-<td>Editor-only bypass of canonical submission path</td>
-<td>Editor compatibility route</td>
-<td>Keep as the single accepted editor-only preview exception</td>
-<td>Bucket A</td>
-</tr>
-<tr>
-<td><code>GaussianSplatNode3D::ply_file_path</code></td>
-<td>Raw file load, auto-load, drag/drop, validation</td>
-<td>Runtime and editor compatibility route</td>
-<td>Demote from editor-primary path first; later decide whether runtime raw-load survives</td>
-<td>Bucket C</td>
-</tr>
-<tr>
-<td><code>GaussianSplatRenderer::set_gaussian_data()</code></td>
-<td>Low-level renderer/test/tool hook</td>
-<td>Public low-level API</td>
-<td>Keep for now, narrow usage contract, remove only after replacements exist</td>
-<td>Bucket C</td>
-</tr>
-<tr>
-<td><code>GaussianSplatContainer::apply_to_renderer()</code></td>
-<td>Container-level direct renderer bypass</td>
-<td>Removed in Wave 1 cleanup</td>
-<td>Delete outright; keep <code>apply_to_node()</code> / export workflows only</td>
-<td>Complete</td>
-</tr>
-<tr>
-<td>Duplicated source-path resolution helpers</td>
-<td>Same logic in node/editor code</td>
-<td>Internal duplication</td>
-<td>Consolidate into one shared helper</td>
-<td>Bucket A</td>
-</tr>
-<tr>
-<td>Explicit-resident legacy resident fallback</td>
-<td>Accepted runtime fallback when resident atlas publish is infeasible</td>
-<td>Runtime compatibility behavior</td>
-<td>Keep until resident atlas covers explicit-resident edge cases or the fallback is intentionally retired</td>
-<td>Bucket C</td>
+<td><code>build_linux_export_template</code></td>
+<td><code>godotgs-export-template-linux-&lt;channel&gt;-&lt;run&gt;</code></td>
+<td><code>linux_release.x86_64</code></td>
 </tr>
 </tbody>
 </table>
-<h2 id="deletion-buckets">Deletion Buckets<a class="headerlink" href="#deletion-buckets" title="Permanent link">¶</a></h2>
-<h3 id="bucket-a-safe-cleanup-and-narrowing">Bucket A: Safe Cleanup And Narrowing<a class="headerlink" href="#bucket-a-safe-cleanup-and-narrowing" title="Permanent link">¶</a></h3>
-<p>These changes are low-risk and should not change user-visible behavior.</p>
+<p>Both artifacts also carry a <code>.sha256</code> checksum and an <code>EXPORT-TEMPLATE-INFO.txt</code>
+recording the channel, commit and build flags.</p>
+<p>To build one yourself instead:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Windows</span>
+scons<span class="w"> </span><span class="nv">platform</span><span class="o">=</span>windows<span class="w"> </span><span class="nv">target</span><span class="o">=</span>template_release<span class="w"> </span><span class="nv">arch</span><span class="o">=</span>x86_64<span class="w"> </span><span class="nv">gs_native_arch</span><span class="o">=</span>no
+<span class="c1"># Linux</span>
+scons<span class="w"> </span><span class="nv">platform</span><span class="o">=</span>linuxbsd<span class="w"> </span><span class="nv">target</span><span class="o">=</span>template_release<span class="w"> </span><span class="nv">arch</span><span class="o">=</span>x86_64<span class="w"> </span><span class="nv">gs_native_arch</span><span class="o">=</span>no
+</code></pre></div>
+<p>Do <strong>not</strong> add <code>dev_build=yes</code>. A <code>dev_build</code> template compiles at <code>-O0</code> and is
+not shippable.</p>
+<h2 id="scope-release-templates-only-for-now">Scope: release templates only, for now<a class="headerlink" href="#scope-release-templates-only-for-now" title="Permanent link">¶</a></h2>
+<p>Only <code>target=template_release</code> is built and published. <code>template_debug</code> is a
+follow-up; until it lands:</p>
 <ul>
-<li>Clarify public-vs-scaffolding API boundaries in the director.</li>
-<li>Consolidate duplicated source-path helper logic.</li>
-<li>Keep the direct preview upload as the single accepted editor-only exception.</li>
-<li>Remove dead preview-submission scaffolding.</li>
+<li>Leave <code>custom_template/debug</code> empty and export with the <strong>release</strong> preset.</li>
+<li>"Deploy with remote debug" / one-click debug runs from the editor are not
+  covered by a published template.</li>
 </ul>
-<h3 id="bucket-b-compatibility-surface-removal">Bucket B: Compatibility Surface Removal<a class="headerlink" href="#bucket-b-compatibility-surface-removal" title="Permanent link">¶</a></h3>
-<p>These changes are structurally safe but require test and project migration.</p>
+<h2 id="where-godot-expects-the-files">Where Godot expects the files<a class="headerlink" href="#where-godot-expects-the-files" title="Permanent link">¶</a></h2>
+<p>Godot resolves a template in one of two ways.</p>
+<p><strong>1. Custom template path (recommended here).</strong> Set the absolute path in the
+preset. This is what the smoke test and the <code>splat_kabinett</code> reference preset
+do:</p>
+<div class="highlight"><pre><span></span><code><span class="k">[preset.0.options]</span>
+
+<span class="na">custom_template/debug</span><span class="o">=</span><span class="s">""</span>
+<span class="na">custom_template/release</span><span class="o">=</span><span class="s">"C:/projects/godotgs-clean/bin/godot.windows.template_release.x86_64.exe"</span>
+</code></pre></div>
+<p>On Windows, if <code>debug/export_console_wrapper</code> is enabled, the exporter also
+looks for a <code>&lt;template basename&gt;.console.exe</code> next to the template
+(<code>EditorExportPlatformWindows::modify_template</code>). Keep the two files together.</p>
+<p><strong>2. Installed export templates directory.</strong> If <code>custom_template/release</code> is
+empty, Godot looks up a file <strong>by name</strong> in its export templates directory
+(<code>%APPDATA%/Godot/export_templates/&lt;version&gt;/</code> on Windows,
+<code>~/.local/share/godot/export_templates/&lt;version&gt;/</code> on Linux). Dropping the
+artifacts there under the expected names also works — but it is easy to end up
+with an upstream Godot template of the same version already installed, which is
+exactly the silent failure above. Prefer the explicit custom path.</p>
+<h2 id="the-file-names-differ-per-platform">The file names differ per platform<a class="headerlink" href="#the-file-names-differ-per-platform" title="Permanent link">¶</a></h2>
+<p>The expected names come from each platform's export plugin and are <strong>not</strong>
+consistent with each other:</p>
+<table>
+<thead>
+<tr>
+<th>Platform</th>
+<th>Expected name</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Windows</td>
+<td><code>windows_release_x86_64.exe</code> (+ <code>windows_release_x86_64.console.exe</code>)</td>
+<td><code>EditorExportPlatformWindows::get_template_file_name()</code> — <code>"windows_" + target + "_" + arch + ".exe"</code></td>
+</tr>
+<tr>
+<td>Linux</td>
+<td><code>linux_release.x86_64</code></td>
+<td><code>EditorExportPlatformLinuxBSD::get_template_file_name()</code> — <code>"linux_" + target + "." + arch</code></td>
+</tr>
+</tbody>
+</table>
+<p>Windows separates the architecture with <code>_</code>, Linux with <code>.</code>. That is upstream
+Godot behaviour. Do not "normalise" it — renaming makes the template invisible
+to the exporter.</p>
+<h2 id="verifying-an-export">Verifying an export<a class="headerlink" href="#verifying-an-export" title="Permanent link">¶</a></h2>
+<p><code>tests/runtime/run_export_smoke.py</code> exports
+<code>tests/examples/godot/test_project</code> against a locally built template, runs the
+result, and asserts that splats actually render in the exported binary:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>tests/runtime/run_export_smoke.py<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--editor-binary<span class="w"> </span>bin/godot.windows.editor.x86_64.exe<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--template<span class="w"> </span>bin/godot.windows.template_release.x86_64.exe
+</code></pre></div>
+<p>The run generates an <code>export_presets.cfg</code> in that project. If you already have
+one there, the run <strong>refuses to start</strong> rather than overwriting a file that is
+gitignored and would therefore vanish without showing up in <code>git status</code>. Pass
+<code>--overwrite-preset</code> to let it move yours to <code>export_presets.cfg.smoke-backup</code>
+and put it back afterwards.</p>
+<p>If a run is interrupted, a <code>export_presets.cfg.smoke-backup</code> may be left behind.
+The next run <strong>refuses to start</strong> in that case, with or without
+<code>--overwrite-preset</code>: one of the two files is your original and the tool cannot
+tell which. Inspect them, keep the one you want as <code>export_presets.cfg</code>, delete
+the backup, and re-run.</p>
+<p>It fails fast if the exported binary carries no <code>GaussianSplat</code> symbols. Treat
+that scan as a <strong>pre-check only</strong>: their absence rules a stock template out,
+but their presence proves nothing on its own — any file containing those
+literals would pass it. What actually proves the module is present and working
+is the next step, inside the exported binary: the probe resolves the GS types
+through <code>ClassDB</code> and then requires a live <code>RenderingDevice</code>, a renderer,
+visible splats and a successful GPU raster pass. The game is therefore run with
+a real Vulkan rendering device rather than <code>--headless</code> — a headless run has no
+<code>RenderingDevice</code>, which would make any "it rendered" assertion vacuous.</p>
+<p>The final assertion reads pixels back from the game window, so it needs an
+interactive desktop session — the same requirement as the in-repo
+<code>Canonical Node Asset Render</code> proof. In a session without a composited desktop
+the window reads back blank; that is reported as its own status
+(<code>failed_visual_evidence</code>, probe exit code 4) and can be downgraded with
+<code>--allow-blank-viewport</code>. That flag downgrades <strong>only</strong> that one case: the
+module check, the <code>RenderingDevice</code> check and the "a GPU raster pass actually
+ran over the fixture" check all still have to pass.</p>
+<h2 id="related">Related<a class="headerlink" href="#related" title="Permanent link">¶</a></h2>
 <ul>
-<li>Remove legacy <code>streaming/enabled</code> compatibility once projects/tests stop depending on it. Completed in Bucket B.</li>
-<li>Remove world-submission scaffolding APIs once tests stop relying on them.</li>
+<li><a href="../release-channels/">Release channels</a></li>
+<li><a href="../../BUILDING/">Build from source</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/.github/workflows/README.md">Workflow overview</a></li>
 </ul>
-<h3 id="bucket-c-product-workflow-deprecation">Bucket C: Product Workflow Deprecation<a class="headerlink" href="#bucket-c-product-workflow-deprecation" title="Permanent link">¶</a></h3>
-<p>These are the risky removals because they still back real workflows.</p>
-<ul>
-<li>Demote or remove <code>GaussianSplatNode3D::ply_file_path</code> as an editor-primary route.</li>
-<li>Decide the long-term fate of <code>GaussianSplatRenderer::set_gaussian_data()</code>.</li>
-<li>Decide whether explicit-resident legacy fallback should remain supported.</li>
-</ul>
-<h2 id="detailed-surfaces">Detailed Surfaces<a class="headerlink" href="#detailed-surfaces" title="Permanent link">¶</a></h2>
-<h3 id="1-legacy-streamingenabled">1. Legacy <code>streaming/enabled</code><a class="headerlink" href="#1-legacy-streamingenabled" title="Permanent link">¶</a></h3>
-<p>Canonical files:</p>
-<ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/core/gs_project_settings.h">gs_project_settings.h</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/core/gaussian_splat_manager.cpp">gaussian_splat_manager.cpp</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/core/effective_config_snapshot.h">effective_config_snapshot.h</a></li>
-</ul>
-<p>Current state:</p>
-<ul>
-<li>Renderer/orchestrator code consumes the resolved enum from <code>gs::settings::get_streaming_route_policy()</code>.</li>
-<li><code>rendering/gaussian_splatting/streaming/enabled</code> has been removed from module settings registration and no longer participates in route resolution.</li>
-</ul>
-<p>Bucket B result:</p>
-<ol>
-<li>Tests now assert enum <code>route_policy</code> behavior directly.</li>
-<li>The bool has been removed from project settings registration.</li>
-<li><code>get_streaming_route_policy()</code> and <code>get_streaming_route_policy_source()</code> no longer translate or label a legacy bool path.</li>
-<li>Diagnostics no longer expose <code>legacy_streaming_enabled_forced_resident</code>.</li>
-</ol>
-<p>Deletion criteria:</p>
-<ul>
-<li>No tests rely on <code>streaming/enabled</code>.</li>
-<li>No shipped project configs rely on the bool.</li>
-<li>Diagnostics no longer need to distinguish the legacy source.</li>
-</ul>
-<h3 id="2-upsert_world_submission-unregister_world_submission">2. <code>upsert_world_submission()</code> / <code>unregister_world_submission()</code><a class="headerlink" href="#2-upsert_world_submission-unregister_world_submission" title="Permanent link">¶</a></h3>
-<p>Canonical files:</p>
-<ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/core/gaussian_splat_scene_director.h">gaussian_splat_scene_director.h</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/core/gaussian_splat_scene_director.cpp">gaussian_splat_scene_director.cpp</a></li>
-</ul>
-<p>Current state:</p>
-<ul>
-<li><code>submit_world_submission()</code> / <code>release_world_submission()</code> are now the only public world-submission entrypoints.</li>
-<li>The scaffolding-only <code>upsert_*</code> / <code>unregister_*</code> helpers have been removed.</li>
-</ul>
-<p>Result:</p>
-<ol>
-<li>Runtime world submission remains covered through <code>submit_*</code> / <code>release_*</code> tests.</li>
-<li>The director no longer exposes a metadata-only world-submission path on the public tools/test surface.</li>
-</ol>
-<p>Deletion criteria:</p>
-<ul>
-<li>Complete.</li>
-</ul>
-<h3 id="3-editor-preview-direct-upload">3. Editor Preview Direct Upload<a class="headerlink" href="#3-editor-preview-direct-upload" title="Permanent link">¶</a></h3>
-<p>Canonical files:</p>
-<ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp">gaussian_editor_plugin.cpp</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/core/gaussian_splat_scene_director.h">gaussian_splat_scene_director.h</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/core/gaussian_splat_scene_director.cpp">gaussian_splat_scene_director.cpp</a></li>
-</ul>
-<p>Current state:</p>
-<ul>
-<li>Editor preview still does direct bare-renderer upload through <code>current_renderer-&gt;set_gaussian_data(...)</code>.</li>
-<li>The unused director preview-submission scaffolding has been removed.</li>
-</ul>
-<p>Decision:</p>
-<ul>
-<li>Direct preview upload remains the single supported preview path.</li>
-</ul>
-<p>Rationale:</p>
-<ul>
-<li>No runtime bug currently requires preview migration.</li>
-<li>Preview-submission scaffolding had no production caller and only added a second competing preview path.</li>
-</ul>
-<p>Future reconsideration:</p>
-<ul>
-<li>If preview ever moves into the director, it should be introduced as a dedicated runtime preview path rather than by reviving the old scaffolding API unchanged.</li>
-</ul>
-<h3 id="4-gaussiansplatdynamicinstance3dply_file_path">4. <code>GaussianSplatDynamicInstance3D::ply_file_path</code><a class="headerlink" href="#4-gaussiansplatdynamicinstance3dply_file_path" title="Permanent link">¶</a></h3>
-<p>Wave 3 removed <code>GaussianSplatDynamicInstance3D</code> outright. This compatibility
-path no longer exists and should not be reintroduced.</p>
-<p>Removal plan:</p>
-<ol>
-<li>Deprecate <code>ply_file_path</code> in docs and class comments.</li>
-<li>Emit a deprecation warning when the property is set.</li>
-<li>Keep <code>set_gaussian_data()</code> and <code>set_splat_asset()</code> as supported alternatives.</li>
-<li>Remove <code>_load_from_file()</code> and the <code>ply_file_path</code> property once tests/docs migrate.</li>
-</ol>
-<p>Deletion criteria:</p>
-<ul>
-<li>All supported workflows can use <code>splat_asset</code> or explicit <code>gaussian_data</code>.</li>
-<li>No product flow depends on dynamic-instance raw file loading.</li>
-</ul>
-<h3 id="5-gaussiansplatnode3dply_file_path">5. <code>GaussianSplatNode3D::ply_file_path</code><a class="headerlink" href="#5-gaussiansplatnode3dply_file_path" title="Permanent link">¶</a></h3>
-<p>Canonical files:</p>
-<ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/nodes/gaussian_splat_node_3d.h">gaussian_splat_node_3d.h</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp">gaussian_splat_node_3d.cpp</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/nodes/gaussian_splat_node_helpers.cpp">gaussian_splat_node_helpers.cpp</a></li>
-</ul>
-<p>Current state:</p>
-<ul>
-<li><code>ply_file_path</code> is still a real public runtime and editor route.</li>
-<li>It still powers:</li>
-<li>auto-load on enter tree</li>
-<li>direct runtime loading</li>
-<li>validation/warnings</li>
-<li>Raw drag-and-drop now prefers asset-backed assignment and only falls back to <code>ply_file_path</code> if the asset-backed load fails.</li>
-</ul>
-<p>Why it cannot simply be deleted now:</p>
-<ul>
-<li>The replacement workflow is not fully designed.</li>
-<li>The accepted refactor plan explicitly deferred this until replacements exist.</li>
-</ul>
-<p>Recommended deprecation sequence:</p>
-<ol>
-<li>Remove editor-primary behaviors first:</li>
-<li>keep drag-and-drop asset-first and avoid reintroducing <code>ply_file_path</code> as the primary editor assignment path</li>
-<li>steer users toward imported assets or explicit import tools</li>
-<li>Keep runtime/script loading temporarily.</li>
-<li>Introduce a clearer external-file workflow if runtime direct loading remains important.</li>
-<li>Only then decide whether <code>ply_file_path</code> becomes:</li>
-<li>metadata only, or</li>
-<li>a supported runtime-only escape hatch</li>
-</ol>
-<p>Blockers:</p>
-<ul>
-<li>Tests in <a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/tests/test_gaussian_splat_node.h">test_gaussian_splat_node.h</a> still treat it as supported behavior.</li>
-<li>Class docs and examples still show <code>ply_file_path</code>.</li>
-</ul>
-<p>Deletion criteria:</p>
-<ul>
-<li>Drag/drop, runtime load, auto-load, and validation all have replacement workflows.</li>
-<li>Class docs no longer present <code>ply_file_path</code> as the normal workflow.</li>
-<li>Tests are migrated away from direct-file-as-primary-authoring-path assumptions.</li>
-</ul>
-<h3 id="6-gaussiansplatrendererset_gaussian_data">6. <code>GaussianSplatRenderer::set_gaussian_data()</code><a class="headerlink" href="#6-gaussiansplatrendererset_gaussian_data" title="Permanent link">¶</a></h3>
-<p>Canonical files:</p>
-<ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/renderer/gaussian_splat_renderer.h">gaussian_splat_renderer.h</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/renderer/render_data_orchestrator.cpp">render_data_orchestrator.cpp</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/core/gaussian_splat_scene_director.cpp">gaussian_splat_scene_director.cpp</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/renderer/render_streaming_orchestrator.cpp">render_streaming_orchestrator.cpp</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/interfaces/gpu_culler.cpp">gpu_culler.cpp</a></li>
-</ul>
-<p>Current state:</p>
-<ul>
-<li>The public low-level setter still exists and is still used by tests, tools, helpers, and editor preview.</li>
-<li>The underlying non-instance <code>gaussian_data</code> route is also still load-bearing in production runtime flows.</li>
-</ul>
-<p>Investigation result:</p>
-<ul>
-<li>Do not remove the direct non-instance <code>gaussian_data</code> route yet.</li>
-<li>The correct near-term action is to narrow callers and document the remaining blockers, not to delete the route.</li>
-</ul>
-<p>Verified blockers:</p>
-<ul>
-<li>World-backed runtime still realizes submissions through primary scene data and static chunks in the director.</li>
-<li>Streaming bootstrap for world/static/no-instance scenes still depends on primary <code>scene_state.gaussian_data</code>.</li>
-<li>The accepted explicit-resident legacy fallback still depends on the legacy primary-data route when resident atlas publication is rejected.</li>
-<li>The legacy non-instance cull/sort path is therefore still live in <code>GPUCuller</code> and sorting, even though normal node and dynamic-instance flows already use the shared instance/director path.</li>
-</ul>
-<p>Secondary callers that should not drive the keep/remove decision by themselves:</p>
-<ul>
-<li>Editor preview direct upload in <a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp">gaussian_editor_plugin.cpp</a></li>
-<li><code>GaussianSplatContainer::apply_to_renderer()</code> was removed in Wave 1 cleanup; container tooling now hands off through <code>apply_to_node()</code> or world export only.</li>
-</ul>
-<p>Why it still exists:</p>
-<ul>
-<li>It is still required by real runtime behavior, not just tests.</li>
-<li>It remains useful for focused low-level validation while the runtime route still exists.</li>
-</ul>
-<p>Recommended action:</p>
-<ul>
-<li>Do not delete it yet.</li>
-<li>Narrow its contract instead:</li>
-<li>document <code>set_gaussian_data()</code> as a low-level/test/tool/editor-preview API, not the canonical high-level scene path</li>
-<li>migrate or explicitly bless editor preview</li>
-<li>keep high-level scene code off it</li>
-<li>remove the underlying runtime route only after world submission realization, streaming bootstrap, and explicit-resident fallback no longer depend on primary <code>gaussian_data</code></li>
-</ul>
-<p>Longer-term options:</p>
-<ul>
-<li>keep it permanently as the renderer's low-level data hook, or</li>
-<li>replace it with a more explicitly named test/tool upload API later</li>
-</ul>
-<p>Deletion criteria:</p>
-<ul>
-<li>World-backed runtime no longer realizes submissions through primary <code>gaussian_data</code>.</li>
-<li>Streaming bootstrap no longer depends on primary raw scene data or synthetic primary fallback instances.</li>
-<li>Explicit-resident fallback no longer needs the legacy non-instance route.</li>
-<li>Editor preview no longer depends on it directly.</li>
-<li>Low-level tests have replacement helpers or intentionally keep this as a supported low-level API.</li>
-</ul>
-<h3 id="7-duplicated-source-path-resolution">7. Duplicated Source-Path Resolution<a class="headerlink" href="#7-duplicated-source-path-resolution" title="Permanent link">¶</a></h3>
-<p>Canonical files:</p>
-<ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp">gaussian_editor_plugin.cpp</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp">gaussian_splat_node_3d.cpp</a></li>
-</ul>
-<p>Current state:</p>
-<ul>
-<li>Source-path resolution logic exists in more than one place.</li>
-<li>The accepted plan already tracked this as a consolidation candidate.</li>
-</ul>
-<p>Recommended action:</p>
-<ul>
-<li>Extract one shared helper for:</li>
-<li>asset source metadata lookup</li>
-<li>node source selection precedence</li>
-</ul>
-<p>Deletion criteria:</p>
-<ul>
-<li>One helper owns source-path precedence.</li>
-<li>Editor and node warnings/origin labels share the same rules.</li>
-</ul>
-<h3 id="8-explicit-resident-legacy-fallback">8. Explicit-Resident Legacy Fallback<a class="headerlink" href="#8-explicit-resident-legacy-fallback" title="Permanent link">¶</a></h3>
-<p>Canonical files:</p>
-<ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp">gaussian_splat_renderer.cpp</a></li>
-<li><a href="../gaussian-resident-instanced-contract/">gaussian-resident-instanced-contract.md</a></li>
-</ul>
-<p>Current state:</p>
-<ul>
-<li>If resident atlas publication is rejected for explicit-resident requests, the renderer may still fall back to the legacy resident path.</li>
-<li>This is accepted current behavior, not a bug.</li>
-</ul>
-<p>Why it is not a deletion target yet:</p>
-<ul>
-<li>Removing it would change runtime behavior for explicit resident requests.</li>
-<li>The resident atlas publisher still intentionally rejects some cases, including per-chunk quantization.</li>
-</ul>
-<p>Recommended action:</p>
-<ul>
-<li>Keep it for now.</li>
-<li>Keep the explicit-resident quantization fallback test as baseline coverage.</li>
-<li>Revisit only after resident atlas coverage is wider and the legacy resident path is truly redundant.</li>
-</ul>
-<p>Deletion criteria:</p>
-<ul>
-<li>Explicit-resident use cases no longer need the fallback.</li>
-<li>The fallback has dedicated coverage proving it is safe to remove or intentionally preserve.</li>
-</ul>
-<h2 id="tests-that-currently-block-deletion">Tests That Currently Block Deletion<a class="headerlink" href="#tests-that-currently-block-deletion" title="Permanent link">¶</a></h2>
-<p>The current test suite still locks in several compatibility surfaces:</p>
-<ul>
-<li><code>ply_file_path</code> as a supported node workflow:
-  <a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/tests/test_gaussian_splat_node.h">test_gaussian_splat_node.h</a></li>
-<li>diagnostic chaining and mixed-hint behavior:
-  <a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/tests/test_integration.cpp">test_integration.cpp</a>,
-  <a href="https://github.com/klausi3D/godotGS/blob/af88a0ac61f6346743d439f8edbd08ffb94d2d9e/modules/gaussian_splatting/tests/test_scene_director_submission_scaffolding.h">test_scene_director_submission_scaffolding.h</a></li>
-</ul>
-<p>This is useful: it tells us exactly what must migrate before deletion is honest rather than accidental.</p>
-<h2 id="recommended-execution-order">Recommended Execution Order<a class="headerlink" href="#recommended-execution-order" title="Permanent link">¶</a></h2>
-<h3 id="pass-1-safe-consolidation">Pass 1: Safe Consolidation<a class="headerlink" href="#pass-1-safe-consolidation" title="Permanent link">¶</a></h3>
-<ul>
-<li>consolidate source-path helper logic</li>
-<li>keep world scaffolding APIs behind tools/test-only compilation</li>
-<li>keep direct preview as the documented editor-only exception</li>
-</ul>
-<h3 id="pass-2-remove-easy-compatibility-debt">Pass 2: Remove Easy Compatibility Debt<a class="headerlink" href="#pass-2-remove-easy-compatibility-debt" title="Permanent link">¶</a></h3>
-<ul>
-<li>remove legacy <code>streaming/enabled</code> after settings/test migration</li>
-<li>update docs and diagnostics labels accordingly</li>
-<li>narrow world scaffolding to test-only compilation</li>
-</ul>
-<h3 id="pass-3-product-workflow-deprecation">Pass 3: Product Workflow Deprecation<a class="headerlink" href="#pass-3-product-workflow-deprecation" title="Permanent link">¶</a></h3>
-<ul>
-<li>demote <code>GaussianSplatNode3D::ply_file_path</code> from editor-primary path</li>
-<li>remove raw drag-and-drop to <code>ply_file_path</code></li>
-<li>decide whether runtime raw loading remains supported or is replaced</li>
-</ul>
-<h3 id="pass-4-optional-further-narrowing">Pass 4: Optional Further Narrowing<a class="headerlink" href="#pass-4-optional-further-narrowing" title="Permanent link">¶</a></h3>
-<ul>
-<li>decide whether <code>GaussianSplatRenderer::set_gaussian_data()</code> stays as a supported low-level API</li>
-<li>decide whether explicit-resident legacy fallback remains a supported compatibility behavior</li>
-</ul>
-<h2 id="completion-criteria">Completion Criteria<a class="headerlink" href="#completion-criteria" title="Permanent link">¶</a></h2>
-<p>The original consolidation goal should be considered complete only when:</p>
-<ul>
-<li>no legacy boolean and enum route knobs overlap</li>
-<li>no public scaffolding APIs remain in the director without a real runtime purpose</li>
-<li>editor preview has exactly one intentional submission path</li>
-<li>imported assets are the only normal editor authoring route</li>
-<li>raw-file workflows are either explicitly runtime-only or fully replaced</li>
-<li>the low-level renderer upload surface is either intentionally kept or intentionally removed</li>
-</ul>
-<h2 id="relationship-to-existing-docs">Relationship To Existing Docs<a class="headerlink" href="#relationship-to-existing-docs" title="Permanent link">¶</a></h2>
-<p>This document is the concrete closeout companion to:</p>
-<ul>
-<li><a href="../gaussian-pipeline-unification-plan/">Unified Gaussian pipeline refactor plan</a></li>
-<li><a href="../gaussian-resident-instanced-contract/">Resident-instanced renderer contract</a></li>
-</ul>
-<p>Those documents explain how the architecture was unified. This document explains how the remaining compatibility seams should be retired.</p>
 
 
 
@@ -2427,7 +2102,7 @@ path no longer exists and should not be reintroduced.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 8, 2026 15:52:44 UTC">August 8, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 8, 2026 15:52:46 UTC">August 8, 2026</span>
   </span>
 
     
@@ -2458,6 +2133,44 @@ path no longer exists and should not be reintroduced.</p>
       
         <footer class="md-footer">
   
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer">
+        
+          
+          <a href="../../governance/contribution-standards/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Contribution Standards">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Contribution Standards
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../docs-site/" class="md-footer__link md-footer__link--next" aria-label="Next: Versioned Docs Site">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Versioned Docs Site
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"></path></svg>
+            </div>
+          </a>
+        
+      </nav>
     
   
   <div class="md-footer-meta md-typeset">
