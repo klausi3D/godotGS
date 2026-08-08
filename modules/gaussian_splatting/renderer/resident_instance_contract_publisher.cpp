@@ -95,7 +95,15 @@ static bool _upload_typed_storage_buffer(GaussianSplatRenderer *p_renderer, Rend
 	}
 	const uint32_t required_size = uint32_t(required_size_u64);
 	Vector<uint8_t> upload_bytes;
-	upload_bytes.resize(required_size);
+	// #798: the memcpy length is required_size (the REQUESTED count), not
+	// upload_bytes.size(), so an ignored resize failure would memcpy into a null
+	// destination. Fail closed exactly like the staging-limit branch above: return false
+	// and leave the existing buffer/size alone (do NOT free it — the caller decides, and
+	// it already clears the instance-pipeline buffers on false).
+	if (!gs_resize_or_fail(upload_bytes, (int64_t)required_size,
+				"ResidentInstanceContractPublisher::_upload_typed_storage_buffer")) {
+		return false;
+	}
 	memcpy(upload_bytes.ptrw(), p_data.ptr(), required_size);
 
 	if (!r_buffer.is_valid() || r_buffer_size != required_size) {

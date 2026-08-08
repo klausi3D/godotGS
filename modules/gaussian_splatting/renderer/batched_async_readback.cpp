@@ -1,4 +1,5 @@
 #include "batched_async_readback.h"
+#include "../core/gs_vector_alloc.h" // #798: gs_resize_or_fail() for resize-then-ptrw() outputs
 #include "../logger/gs_logger.h"
 #include "../interfaces/sync_policy.h"
 
@@ -189,9 +190,17 @@ void BatchedAsyncReadback::_on_batch_readback(const Vector<uint8_t> &p_data) {
 			continue;
 		}
 
-		// Extract the slice of data for this request
+		// Extract the slice of data for this request.
+		// #798: the memcpy length is request.size (the REQUESTED count), not slice.size(),
+		// so an ignored resize failure would memcpy into a null/short destination. Fail
+		// closed the same way the bounds-exceeded branch above does: skip this callback,
+		// count it as a failed request, and keep dispatching the rest of the batch.
 		Vector<uint8_t> slice;
-		slice.resize(request.size);
+		if (!gs_resize_or_fail(slice, (int64_t)request.size,
+					"BatchedAsyncReadback::_on_batch_readback")) {
+			total_failed_requests++;
+			continue;
+		}
 		memcpy(slice.ptrw(), p_data.ptr() + request.staging_offset, request.size);
 
 		// Call the user callback

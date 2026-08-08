@@ -661,6 +661,7 @@ private:
 		}
 
 		Vector<uint8_t> param_data;
+		// #798: unchecked by the compile-time-constant-count rule (gs_vector_alloc.h).
 		param_data.resize(sizeof(TileRenderParamsGPU));
 		std::memcpy(param_data.ptrw(), &params_gpu, sizeof(TileRenderParamsGPU));
 
@@ -3465,8 +3466,18 @@ TileRenderer::RenderStats TileRenderer::_build_render_stats_from_cached_counts()
 
 	uint32_t *density_write = nullptr;
 	if (diagnostics.capture_tile_density_snapshot) {
-		diagnostics.tile_density_snapshot.resize(grid_state.total_tiles);
-		if (!diagnostics.tile_density_snapshot.is_empty()) {
+		// #798: the is_empty() check alone is NOT sufficient here. tile_density_snapshot is a
+		// PERSISTENT diagnostic buffer, so a failed grow (the tile grid grew on a viewport
+		// resize) leaves it non-empty at its old, too-short size with a still-valid ptrw() --
+		// is_empty() is false and _compute_density_metrics() writes p_density_write[i] bounded
+		// by p_total_tiles (grid_state.total_tiles, the REQUESTED count), silently overflowing
+		// a live heap block. Check the resize instead; on failure gs_resize_or_fail() clear()s
+		// the vector and density_write stays null, which is exactly the documented
+		// "snapshot disabled" state produced by the else branch below.
+		if (!gs_resize_or_fail(diagnostics.tile_density_snapshot, (int64_t)grid_state.total_tiles,
+					"TileRenderer::_build_render_stats_from_cached_counts tile_density_snapshot")) {
+			density_write = nullptr;
+		} else if (!diagnostics.tile_density_snapshot.is_empty()) {
 			density_write = diagnostics.tile_density_snapshot.ptrw();
 		}
 	} else {

@@ -1652,6 +1652,7 @@ RID TileUniformBuffers::get_default_state_uniform(RenderingDevice *p_device) {
 
 	InteractiveStateUniforms default_state;
 	Vector<uint8_t> state_data;
+	// #798: unchecked by the compile-time-constant-count rule (gs_vector_alloc.h).
 	state_data.resize(sizeof(InteractiveStateUniforms));
 	std::memcpy(state_data.ptrw(), &default_state, sizeof(InteractiveStateUniforms));
 	default_state_uniform_buffer = p_device->uniform_buffer_create(state_data.size(), state_data);

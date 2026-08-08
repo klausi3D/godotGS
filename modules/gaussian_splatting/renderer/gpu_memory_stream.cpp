@@ -1,4 +1,5 @@
 #include "gpu_memory_stream.h"
+#include "../core/gs_vector_alloc.h" // #798: gs_resize_or_fail() for resize-then-ptrw() outputs
 #include "core/error/error_macros.h"
 #include "core/math/math_funcs.h"
 #include "core/object/object.h"
@@ -230,6 +231,7 @@ void GaussianMemoryStream::_create_buffer(StreamBuffer &buffer, uint32_t size) {
     buffer.upload_fence = 0;
     buffer.upload_submit_frame = 0;
     buffer.upload_frame_delay = 0;
+    buffer.upload_submitted.store(false, std::memory_order_release);
     buffer.state = BUFFER_FREE;
     buffer.frame_last_used = 0;
 
@@ -276,6 +278,7 @@ void GaussianMemoryStream::_destroy_buffer(StreamBuffer &buffer) {
     buffer.upload_fence = 0;
     buffer.upload_submit_frame = 0;
     buffer.upload_frame_delay = 0;
+    buffer.upload_submitted.store(false, std::memory_order_release);
     buffer.state = BUFFER_FREE;
     buffer.from_pool = false;
     buffer.pool_offset = UINT32_MAX;
@@ -283,6 +286,19 @@ void GaussianMemoryStream::_destroy_buffer(StreamBuffer &buffer) {
     buffer.gpu_allocation_device_id = ObjectID();
 }
 
+// #798 review round 3: the claim sites below do NOT clear upload_submitted before their CAS, and
+// that is deliberate -- doing so would be a bug. A CAS that FAILS here can fail precisely because
+// the slot is BUFFER_UPLOADING with a real upload in flight; clearing another tenant's flag would
+// then wedge that upload as unpublishable forever. The invariant is maintained on the way OUT of
+// the upload phase instead, where the slot is exclusively owned:
+//
+//   * _wait_for_buffer_complete() clears it when it publishes UPLOADING -> READY (the only exit
+//     that ever had it set),
+//   * _create_buffer()/_destroy_buffer() clear it when a slot is (re)initialised to FREE.
+//
+// Every other transition into a claimable state (READY/FREE) comes from a path that never set the
+// flag, so a claim always inherits `false` with no window at all. The defensive clear after a
+// SUCCESSFUL claim below is a backstop for any future exit path that forgets, not the mechanism.
 int GaussianMemoryStream::_get_next_write_buffer() {
     // Find next free buffer using atomic operations
     for (int attempts = 0; attempts < BUFFER_COUNT * 2; attempts++) {
@@ -290,6 +306,7 @@ int GaussianMemoryStream::_get_next_write_buffer() {
         BufferState expected = BUFFER_FREE;
 
         if (buffers[idx].state.compare_exchange_weak(expected, BUFFER_UPLOADING)) {
+            buffers[idx].upload_submitted.store(false, std::memory_order_release);
             write_index = (idx + 1) % BUFFER_COUNT;
             return idx;
         }
@@ -309,6 +326,7 @@ int GaussianMemoryStream::_get_next_write_buffer() {
         int idx = write_index.load() % BUFFER_COUNT;
         BufferState expected = BUFFER_FREE;
         if (buffers[idx].state.compare_exchange_weak(expected, BUFFER_UPLOADING)) {
+            buffers[idx].upload_submitted.store(false, std::memory_order_release);
             write_index = (idx + 1) % BUFFER_COUNT;
             return idx;
         }
@@ -326,6 +344,7 @@ int GaussianMemoryStream::_get_next_write_buffer() {
     if (ready_idx >= 0) {
         BufferState expected = BUFFER_READY;
         if (buffers[ready_idx].state.compare_exchange_weak(expected, BUFFER_UPLOADING)) {
+            buffers[ready_idx].upload_submitted.store(false, std::memory_order_release);
             stats.reused_ready_buffers++;
             if (stats.reused_ready_buffers == 1 || stats.reused_ready_buffers % 100 == 0) {
                 GS_LOG_GPU_MEMORY_WARN(vformat(
@@ -449,7 +468,45 @@ Error GaussianMemoryStream::_stream_internal(const LocalVector<Gaussian> &gaussi
             vformat("Data size (%d bytes) exceeds buffer capacity (%d bytes)", data_size, buffer.capacity));
 
     if (async_mode && enable_async_upload) {
-        _upload_buffer_coalesced(buffer_idx, packed_gaussians.ptr(), packed_gaussians.size());
+        if (!_upload_buffer_coalesced(buffer_idx, packed_gaussians.ptr(), packed_gaussians.size())) {
+            // #798 review: the slot is already BUFFER_UPLOADING at this point. Per the #787
+            // note above, abandoning it here would strand it with upload_fence == 0, and
+            // _wait_for_buffer_complete() would publish that never-written slot BUFFER_READY --
+            // handing stale data to the renderer as a successful upload. Release it back to
+            // BUFFER_FREE (the same transition wait_for_all_uploads() performs) and report the
+            // failure instead of returning OK.
+            //
+            // #798 review round 3. Round 2 tried to make this safe from HERE, and could not:
+            // _wait_for_buffer_complete() takes no lock, so holding buffer_mutex does not exclude
+            // it, and it could publish the slot before or after this CAS either way. Round 2 also
+            // claimed that clearing `used` first made a published slot harmless -- that was WRONG,
+            // and the review was right to reject it: get_current_gpu_buffer() selects a slot
+            // purely by `state` and returns its RID. `used` is read only by get_used_memory_mb()
+            // and get_memory_efficiency(); no render path consults it. A published slot therefore
+            // still serves the PREVIOUS upload's GPU bytes no matter what `used` says.
+            //
+            // The race is now closed at its source instead: the slot's upload_submitted flag is
+            // still false (nothing was ever submitted), and _wait_for_buffer_complete() refuses to
+            // publish an unsubmitted slot. So the poller cannot move this slot in either
+            // interleaving, and this CAS cannot lose. `used` is still cleared -- the slot really
+            // does hold no valid bytes and the memory stats should not count them -- but it is
+            // bookkeeping now, not a safety claim.
+            buffer.used = 0;
+            BufferState expected = BUFFER_UPLOADING;
+            if (buffer.state.compare_exchange_strong(expected, BUFFER_FREE)) {
+                ERR_FAIL_V_MSG(ERR_OUT_OF_MEMORY,
+                        "Coalesced upload scratch allocation failed; released the claimed stream buffer.");
+            }
+            // Unreachable given the guard above -- no other transition out of an unsubmitted
+            // BUFFER_UPLOADING slot exists (_get_next_write_buffer() runs under buffer_mutex,
+            // get_current_gpu_buffer() only takes READY -> RENDERING, swap_buffers() only
+            // RENDERING -> FREE). Kept, and kept honest, rather than asserting a release that did
+            // not happen: if a future path does move the slot, this says so.
+            ERR_FAIL_V_MSG(ERR_OUT_OF_MEMORY,
+                    vformat("Coalesced upload scratch allocation failed and the stream buffer moved to "
+                            "state %d before it could be released; the slot was NOT reclaimed.",
+                            int(expected)));
+        }
     } else {
         uint32_t dst_offset = 0;
         if (!buffer.from_pool && buffer.pool_offset != UINT32_MAX) {
@@ -505,6 +562,10 @@ void GaussianMemoryStream::_upload_buffer_async(int buffer_index, const uint8_t 
     buffer.upload_frame_delay = _get_frame_fence_delay(transfer_rd);
 
     buffer.used = size;
+    // #798 review round 3: release-store LAST. The slot is already BUFFER_UPLOADING (claimed), so
+    // this flag -- not the state store below -- is what actually authorises the lock-free poller
+    // to publish, and it is the release edge that hands it the fence fields written above.
+    buffer.upload_submitted.store(true, std::memory_order_release);
     buffer.state = BUFFER_UPLOADING;
 }
 
@@ -512,9 +573,16 @@ void GaussianMemoryStream::_upload_buffer_async(int buffer_index, const uint8_t 
 // MEMORY ACCESS PATTERN OPTIMIZATION (Issue #108)
 // ======================================================================
 
-void GaussianMemoryStream::_upload_buffer_coalesced(int buffer_index, const PackedGaussian *data, uint32_t count) {
-    ERR_FAIL_INDEX_MSG(buffer_index, BUFFER_COUNT, "Invalid buffer index");
-    ERR_FAIL_NULL_MSG(data, "Data pointer is null");
+bool GaussianMemoryStream::_upload_buffer_coalesced(int buffer_index, const PackedGaussian *data, uint32_t count) {
+    ERR_FAIL_INDEX_V_MSG(buffer_index, BUFFER_COUNT, false, "Invalid buffer index");
+    // #798 review: null is LEGITIMATE when count == 0. Vector<T>::ptr() returns nullptr for an
+    // empty vector, so stream_gaussians_async() on an empty LocalVector -- including the default
+    // count == UINT32_MAX range call, which resolves to 0 -- arrives here as (nullptr, 0). The
+    // unconditional ERR_FAIL_NULL rejected it before the zero-count completion branch below could
+    // run; harmless while this function was void, but now that the result is propagated it turned
+    // a legitimate empty upload into ERR_OUT_OF_MEMORY plus a slot release. Validate the pointer
+    // only when there is something to copy.
+    ERR_FAIL_COND_V_MSG(count > 0 && data == nullptr, false, "Data pointer is null");
 
     StreamBuffer &buffer = buffers[buffer_index];
     RenderingDevice *transfer_rd = buffer.gpu_allocation_device;
@@ -522,7 +590,7 @@ void GaussianMemoryStream::_upload_buffer_coalesced(int buffer_index, const Pack
     if (GaussianSplatManager *manager = GaussianSplatManager::get_singleton()) {
         transfer_rd = manager->acquire_submission_device(buffer.gpu_allocation_device, submission_lock);
     }
-    ERR_FAIL_NULL_MSG(transfer_rd, "RenderingDevice unavailable for GPU transfer");
+    ERR_FAIL_NULL_V_MSG(transfer_rd, false, "RenderingDevice unavailable for GPU transfer");
 
     if (count == 0) {
         buffer.used = 0;
@@ -530,7 +598,8 @@ void GaussianMemoryStream::_upload_buffer_coalesced(int buffer_index, const Pack
         buffer.upload_submit_frame = 0;
         buffer.upload_frame_delay = 0;
         buffer.state = BUFFER_READY;
-        return;
+        // Legitimate completion, not a failure: the slot is published READY with used == 0.
+        return true;
     }
 
     uint32_t size = count * sizeof(PackedGaussian);
@@ -539,7 +608,12 @@ void GaussianMemoryStream::_upload_buffer_coalesced(int buffer_index, const Pack
 
     uint32_t aligned_size = (size + alignment - 1) & ~(alignment - 1);
 
-    ERR_FAIL_COND_MSG(aligned_size > buffer.capacity,
+    // #798 review: now that this function reports status, this pre-existing bail returns
+    // false too, so the caller releases the claimed slot instead of stranding it in
+    // BUFFER_UPLOADING with upload_fence == 0. That also closes the same #787 strand on this
+    // older path -- a scope widening beyond the allocation fix, called out deliberately
+    // rather than slipped in: returning true here would assert a success that did not happen.
+    ERR_FAIL_COND_V_MSG(aligned_size > buffer.capacity, false,
             vformat("Upload size (%d) exceeds buffer capacity (%d)", aligned_size, buffer.capacity));
 
     uint32_t aligned_count = aligned_size / sizeof(PackedGaussian);
@@ -552,7 +626,42 @@ void GaussianMemoryStream::_upload_buffer_coalesced(int buffer_index, const Pack
     if (scratch_size < aligned_count) {
         uint32_t grown = scratch_size > 0 ? (scratch_size + scratch_size / 2) : aligned_count;
         uint32_t new_size = MAX(aligned_count, grown);
-        coalesced_upload_scratch.resize(new_size);
+        // #798: this is the #787 shape verbatim -- a PERSISTENT Vector<PackedGaussian> that
+        // grows across calls. A failed grow leaves it non-empty at its old, too-short size
+        // with a still-valid ptrw() (CowData::_fork_allocate() only nulls _ptr when shrinking
+        // to zero), and _validate_and_copy_gaussians() below writes `count` entries -- the
+        // REQUESTED count, not the vector's own size() -- so it would silently overflow a
+        // live heap block. Fail closed with this function's own contract: the sibling
+        // ERR_FAIL_COND_V_MSG(aligned_size > buffer.capacity) path above also returns without
+        // touching buffer.state/buffer.used, so the buffer keeps its previous state and the
+        // next stream request re-uploads. gs_resize_or_fail() already reports the failing
+        // count/element size/total bytes and names this function, so no second message here.
+        bool grow_ok = gs_resize_or_fail(coalesced_upload_scratch, int64_t(new_size),
+                "GaussianMemoryStream::_upload_buffer_coalesced scratch");
+#ifdef TESTS_ENABLED
+        // #798 review round 3: deterministic injection (see ScratchGrowInjection in the header
+        // for why a hook is unavoidable here). It reproduces gs_resize_or_fail()'s failure
+        // post-state exactly -- output cleared, false returned -- so the code below runs against
+        // the same state a real allocation failure produces, not an approximation of it.
+        if (grow_ok && scratch_grow_injection != SCRATCH_GROW_INJECT_NONE) {
+            const bool poll_at_failure = (scratch_grow_injection == SCRATCH_GROW_INJECT_FAIL_AND_POLL);
+            scratch_grow_injection = SCRATCH_GROW_INJECT_NONE; // one-shot
+            coalesced_upload_scratch.clear();
+            grow_ok = false;
+            if (poll_at_failure) {
+                // Run the poller inside the claim window, on this thread. This is the race the
+                // round-2 fix could not exclude, made deterministic: without the upload_submitted
+                // guard this call publishes the claimed slot BUFFER_READY, the cleanup CAS in
+                // _stream_internal() then loses, and get_current_gpu_buffer() serves the previous
+                // upload's GPU contents.
+                _poll_uploads();
+            }
+            WARN_PRINT("[TEST INJECTION] Forcing a coalesced-upload scratch grow failure.");
+        }
+#endif
+        if (!grow_ok) {
+            return false;
+        }
     }
 
     PackedGaussian *scratch_ptr = coalesced_upload_scratch.ptrw();
@@ -576,6 +685,8 @@ void GaussianMemoryStream::_upload_buffer_coalesced(int buffer_index, const Pack
     buffer.upload_submit_frame = current_frame;
     buffer.upload_frame_delay = _get_frame_fence_delay(transfer_rd);
     buffer.used = count * sizeof(PackedGaussian);
+    // #798 review round 3: release-store LAST, after the fence fields. See _upload_buffer_async().
+    buffer.upload_submitted.store(true, std::memory_order_release);
     buffer.state = BUFFER_UPLOADING;
 
     // Measure and update bandwidth statistics (CPU submit path only).
@@ -584,6 +695,7 @@ void GaussianMemoryStream::_upload_buffer_coalesced(int buffer_index, const Pack
         float bandwidth_mbps = _measure_transfer_bandwidth(aligned_size, submit_start, submit_end);
         _update_bandwidth_stats(buffer_index, aligned_size, bandwidth_mbps);
     }
+    return true;
 }
 
 void GaussianMemoryStream::_validate_and_copy_gaussians(const PackedGaussian *src, PackedGaussian *dst, uint32_t count) {
@@ -680,6 +792,23 @@ void GaussianMemoryStream::_wait_for_buffer_complete(int buffer_index, bool p_bl
         return;
     }
 
+    // #798 review round 3: BUFFER_UPLOADING is not proof that an upload exists. _stream_internal()
+    // claims the slot before packing/uploading, so in the claim window the slot is UPLOADING with
+    // upload_fence == 0 -- and `fence_value == 0` is read below as "already complete". Publishing
+    // that slot BUFFER_READY hands get_current_gpu_buffer() a slot whose GPU contents are whatever
+    // the PREVIOUS upload left there; clearing `used` does not help, because the render-buffer
+    // selection path consults only `state` (`used` is read solely by get_used_memory_mb() /
+    // get_memory_efficiency()).
+    //
+    // This is the fix for the round-2 finding: with the claim/submit distinction explicit, BOTH
+    // interleavings of the allocation-failure cleanup are safe. If this poller runs first it
+    // returns here and publishes nothing, so the cleanup's CAS cannot lose the race; if the
+    // cleanup runs first the slot is already BUFFER_FREE and the check above returns. The window
+    // is closed, not narrowed -- and this function still takes no lock.
+    if (!buffer.upload_submitted.load(std::memory_order_acquire)) {
+        return;
+    }
+
     uint64_t fence_value = buffer.upload_fence;
     bool completed = (fence_value == 0);
 
@@ -725,6 +854,12 @@ void GaussianMemoryStream::_wait_for_buffer_complete(int buffer_index, bool p_bl
     }
 
     if (completed) {
+        // Clear upload_submitted BEFORE publishing: this is the only exit from the upload phase
+        // that ever had it set, and the slot must be back to "no upload in flight" by the time it
+        // becomes claimable again (READY -> UPLOADING reuse, or READY -> RENDERING -> FREE).
+        // Ordering matters -- the state store is what makes the slot visible to a claimer, so the
+        // flag must already be false when that store lands.
+        buffer.upload_submitted.store(false, std::memory_order_release);
         buffer.state = BUFFER_READY;
         buffer.upload_fence = 0;
         buffer.upload_submit_frame = 0;
