@@ -1,0 +1,75 @@
+; Template for the export smoke test's generated `export_presets.cfg` (#825).
+;
+; `tests/runtime/run_export_smoke.py` substitutes the placeholders below and
+; writes the result into the exported project's root, then deletes it again.
+; The file is NOT committed with a real path because `custom_template/release`
+; must be an absolute path to a locally built template, which is machine
+; specific.
+;
+; Modelled on the working reference preset that produced
+; `exhibition/splat_kabinett/build/splat_kabinett.exe` (see issue #825).
+
+[preset.0]
+
+name="@PRESET_NAME@"
+platform="Windows Desktop"
+runnable=true
+advanced_options=false
+dedicated_server=false
+custom_features=""
+export_filter="all_resources"
+include_filter=""
+exclude_filter=""
+export_path=""
+patches=PackedStringArray()
+encryption_include_filters=""
+encryption_exclude_filters=""
+seed=0
+encrypt_pck=false
+encrypt_directory=false
+; MODE_SCRIPT_TEXT (editor/export/editor_export_preset.h). The smoke probe is
+; launched by `res://` path with `--script`, so keep the script in the pack as
+; plain text rather than binary tokens.
+script_export_mode=0
+
+[preset.0.options]
+
+; CRITICAL (this is the whole point of the smoke test): without an explicit
+; `custom_template/release`, Godot falls back to the stock export template,
+; which has no gaussian_splatting module in it. The export still SUCCEEDS and
+; produces a binary that renders no splats. See
+; docs/development/export-templates.md.
+custom_template/debug=""
+custom_template/release="@CUSTOM_TEMPLATE_RELEASE@"
+debug/export_console_wrapper=0
+binary_format/embed_pck=false
+texture_format/s3tc_bptc=true
+texture_format/etc2_astc=false
+binary_format/architecture="x86_64"
+codesign/enable=false
+codesign/timestamp=false
+codesign/timestamp_server_url=""
+codesign/digest_algorithm=1
+codesign/description=""
+codesign/custom_options=PackedStringArray()
+application/modify_resources=false
+application/icon=""
+application/console_wrapper_icon=""
+application/icon_interpolation=4
+application/file_version=""
+application/product_version=""
+application/company_name="godotgs"
+application/product_name="GodotGS Export Smoke"
+application/file_description="GodotGS export smoke test build"
+application/copyright=""
+application/trademarks=""
+application/export_angle=0
+application/export_d3d12=0
+application/d3d12_agility_sdk_multiarch=true
+ssh_remote_deploy/enabled=false
+ssh_remote_deploy/host="user@host_ip"
+ssh_remote_deploy/port="22"
+ssh_remote_deploy/extra_args_ssh=""
+ssh_remote_deploy/extra_args_scp=""
+ssh_remote_deploy/run_script=""
+ssh_remote_deploy/cleanup_script=""

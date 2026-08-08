@@ -1522,6 +1522,119 @@ def _run_gpu_harness_deferred_contract_guard() -> tuple[bool, list[str]]:
     return True, ["GPU harness deferred contract guard passed."]
 
 
+def _run_export_template_naming_guard() -> tuple[bool, list[str]]:
+    """Guard (#825): the export-template jobs resolve the names SConstruct emits.
+
+    Static, headless, no GPU, no build. The first version of
+    `build_windows_export_template` globbed `godot.windows.template_release*.x86_64.exe`
+    and then demanded one `*.console.exe` among the matches -- but SConstruct
+    appends `.console` AFTER the architecture, so the wrapper
+    (`godot.windows.template_release.x86_64.console.exe`) never matched, the
+    count check threw, and the job could not upload an artifact on any run.
+
+    The failure mode this protects against is the one that hid it: the guard was
+    right and its INPUT was wrong, and nothing checked the matching against the
+    file names the producer actually writes.
+    """
+    script = ROOT / "tests" / "ci" / "test_resolve_export_template.py"
+    if not script.is_file():
+        return False, [f"Missing export template naming test: {script.relative_to(ROOT)}"]
+
+    code, out, err = _run_command([sys.executable, str(script)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"Export template naming guard failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["Export template naming guard passed."]
+
+
+def _run_release_builds_path_filter_guard() -> tuple[bool, list[str]]:
+    """Guard (#825): every script release_builds.yml runs also triggers it.
+
+    Static, headless, no GPU, no PyYAML. The workflow's `paths:` filters list
+    root-level `"*.py"`, and a single `*` does not span `/`, so a change to
+    `tests/ci/resolve_export_template.py` -- which BOTH export-template jobs
+    execute -- skipped the workflow entirely. The resolver's unit tests would
+    pass while neither real packaging path ran.
+
+    The general hazard: moving logic out of a workflow into a helper module
+    improves testability and silently reduces integration coverage, because the
+    helper lands outside the paths the workflow watches. This guard derives the
+    executed-script set from the workflow rather than trusting the filter list,
+    so the next helper cannot reopen the gap unnoticed.
+    """
+    script = ROOT / "tests" / "ci" / "test_release_builds_path_filters.py"
+    if not script.is_file():
+        return False, [f"Missing release builds path filter test: {script.relative_to(ROOT)}"]
+
+    code, out, err = _run_command([sys.executable, str(script)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"Release builds path filter guard failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["Release builds path filter guard passed."]
+
+
+def _run_release_builds_runner_trust_guard() -> tuple[bool, list[str]]:
+    """Guard (#825): every self-hosted release_builds.yml job is guarded and documented.
+
+    Static, headless, no GPU, no PyYAML. `.github/workflows/AGENTS.md` requires
+    self-hosted jobs to carry a fork guard, and requires `README.md` to stay in
+    sync with the runner trust policy. The second requirement was carried by a
+    hand-written prose list, so when #825 added a second self-hosted job to
+    `release_builds.yml` the documented trust boundary silently became partial
+    while every check stayed green.
+
+    This guard derives the self-hosted job set from the workflow and checks both
+    directions against README, and fails closed on any `runs-on:`/job-level
+    `if:` form it cannot model -- an unreadable job must not read as a clean one.
+    """
+    script = ROOT / "tests" / "ci" / "test_release_builds_runner_trust.py"
+    if not script.is_file():
+        return False, [f"Missing release builds runner trust test: {script.relative_to(ROOT)}"]
+
+    code, out, err = _run_command([sys.executable, str(script)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"Release builds runner trust guard failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["Release builds runner trust guard passed."]
+
+
+def _run_export_smoke_preset_state_guard() -> tuple[bool, list[str]]:
+    """Guard (#825): the export smoke test never destroys a preset it did not create.
+
+    Static, headless, no GPU, no engine binary -- it drives the preset/backup
+    state machine over a temp directory.
+
+    `test_project/export_presets.cfg` is gitignored, so losing a developer's own
+    copy is *invisible* to `git status`. The first fix moved the file aside
+    instead of truncating it, which made the happy path safe and left the
+    recovery path worse: with a backup already on disk from a crashed run, the
+    unconditional `unlink()` deleted the only surviving original. This guard
+    pins all three backup states (absent / present-with-preset /
+    present-without-preset) and that a refusal rewrites nothing.
+    """
+    script = ROOT / "tests" / "runtime" / "test_export_smoke_preset_state.py"
+    if not script.is_file():
+        return False, [f"Missing export smoke preset state test: {script.relative_to(ROOT)}"]
+
+    code, out, err = _run_command([sys.executable, str(script)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"Export smoke preset state guard failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["Export smoke preset state guard passed."]
+
+
 def _run_runtime_validation_contract_guard() -> tuple[bool, list[str]]:
     """Guard (#787): the runtime summary keeps the diagnostic a crashed scenario emits.
 
@@ -3069,6 +3182,30 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_runtime_validation_contract_guard,
             "Runtime validation contract guard failed.",
             "Runtime validation contract guard passed.",
+        ),
+        (
+            True,
+            _run_export_template_naming_guard,
+            "Export template naming guard failed.",
+            "Export template naming guard passed.",
+        ),
+        (
+            True,
+            _run_export_smoke_preset_state_guard,
+            "Export smoke preset state guard failed.",
+            "Export smoke preset state guard passed.",
+        ),
+        (
+            True,
+            _run_release_builds_path_filter_guard,
+            "Release builds path filter guard failed.",
+            "Release builds path filter guard passed.",
+        ),
+        (
+            True,
+            _run_release_builds_runner_trust_guard,
+            "Release builds runner trust guard failed.",
+            "Release builds runner trust guard passed.",
         ),
     ]
     for enabled, runner, failure_summary, success_summary in optional_message_guards:
