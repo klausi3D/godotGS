@@ -1242,4 +1242,165 @@ TEST_CASE("[GaussianSplatting][DataAuthority] A failed getter allocation refuses
     }
 }
 
+// ---------------------------------------------------------------------------
+// #798 review round 7 -- the materialization failure must be TRANSACTIONAL, not
+// merely reported.
+//
+// Round 6 (the case above) proved populate_gaussian_data() REPORTS a failed getter
+// allocation. It did not prove the failure is free of side effects. The lanes are
+// materialized in sequence, so set_positions()/set_scales()/set_rotations() land
+// BEFORE the SH getter is validated, and the destination used to be the caller's own
+// object (the out-param is an in/out Ref, and a non-null one was reused in place).
+// Clearing r_data on the failure path drops only the callee's reference: anything
+// else still holding a Ref to that payload keeps observing it resized to the asset's
+// splat count and rewritten with three asset lanes over GaussianData::resize()'s
+// defaults for the other seven -- a half-built payload delivered by a call that
+// returned false.
+//
+// The observer here is a SECOND Ref. Asserting only `ok == false` would pass with and
+// without the fix and prove nothing; every discriminating assertion below is made on
+// the alias, not on the out-param.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Deliberately unlike BOTH of the things that could overwrite it, so "untouched" is
+// distinguishable from either kind of damage: position (-7,-7,-7) is neither the
+// asset's splat-0 position (0,1,2) that set_positions() would write nor the (0,0,0)
+// GaussianData::resize() defaults to; sh_dc 0.125 is neither the asset's 0.25 nor
+// resize()'s (1,1,1,1); scale (3,3,3) is neither the asset's (1,1,1) nor resize()'s
+// (1,1,1). The count (2) differs from the asset's splat_count (4) as well, so a bare
+// resize() with no lane writes at all is caught too.
+LocalVector<Gaussian> _make_alias_probe_cloud() {
+    LocalVector<Gaussian> splats;
+    splats.resize(2);
+    for (int i = 0; i < 2; i++) {
+        Gaussian g;
+        g.position = Vector3(-7.0f, -7.0f, -7.0f);
+        g.scale = Vector3(3.0f, 3.0f, 3.0f);
+        g.rotation = Quaternion();
+        g.opacity = 0.5f;
+        g.sh_dc = Color(0.125f, 0.375f, 0.625f, 1.0f);
+        g.normal = Vector3(0, 0, 1);
+        g.area = 1.0f;
+        g.brush_axes = Vector2(1.0f, 1.0f);
+        g.stroke_age = 0.0f;
+        g.painterly_meta = 0;
+        g.render_meta = 0;
+        splats[i] = g;
+    }
+    return splats;
+}
+
+} // namespace
+
+TEST_CASE("[GaussianSplatting][DataAuthority] A refused materialization leaves an aliased caller payload untouched") {
+    Ref<GaussianSplatAsset> asset;
+    asset.instantiate();
+
+    Ref<::GaussianData> seed;
+    seed.instantiate();
+    seed->set_gaussians(_make_materialization_probe_cloud(4));
+    if (asset->populate_from_gaussian_data(seed) != OK) {
+        FAIL("seed populate_from_gaussian_data() must succeed");
+        return;
+    }
+    if (asset->get_splat_count() != 4u) {
+        FAIL("seed populate must yield 4 splats");
+        return;
+    }
+
+    // The caller's pre-existing payload, plus a SECOND live Ref to the very same object.
+    // The alias is the observer: it survives whatever the callee does to its own out-param
+    // reference, which is precisely the reference that a `r_data = Ref()` clear releases.
+    Ref<::GaussianData> caller_payload;
+    caller_payload.instantiate();
+    caller_payload->set_gaussians(_make_alias_probe_cloud());
+    Ref<::GaussianData> alias = caller_payload;
+
+    // Premise 1: the alias really does observe the same object, and that object really does
+    // carry the probe. Asserted before anything is armed, so it holds on a pre-fix binary.
+    if (alias.ptr() != caller_payload.ptr()) {
+        FAIL("premise: the alias must reference the caller's payload, or it observes nothing");
+        return;
+    }
+    if (alias->get_count() != 2) {
+        FAIL("premise: the caller's payload must start at 2 splats, distinct from the asset's 4");
+        return;
+    }
+    if (!alias->get_gaussian(0).position.is_equal_approx(Vector3(-7.0f, -7.0f, -7.0f))) {
+        FAIL("premise: the probe position must be readable through the alias");
+        return;
+    }
+
+    // Premise 2: the injection reproduces the getter's real allocation-failure result and is
+    // arm-once, so what follows is about ONE forced failure.
+    asset->_test_force_next_getter_failure(GaussianSplatAsset::TEST_GETTER_FAILURE_SPHERICAL_HARMONICS);
+    if (!asset->get_spherical_harmonics_buffer().is_empty()) {
+        FAIL("premise: the armed getter must return the empty allocation-failure result");
+        return;
+    }
+    if (asset->get_spherical_harmonics_buffer().size() != 4 * 3) {
+        FAIL("premise: the injection must be arm-once, so the next call rebuilds the full buffer");
+        return;
+    }
+
+    SUBCASE("the failed lane must not have been written through the caller's Ref") {
+        asset->_test_force_next_getter_failure(GaussianSplatAsset::TEST_GETTER_FAILURE_SPHERICAL_HARMONICS);
+
+        bool ok;
+        {
+            ERR_PRINT_OFF;
+            ok = asset->populate_gaussian_data(caller_payload);
+            ERR_PRINT_ON;
+        }
+        CHECK_MESSAGE(!ok, "populate_gaussian_data() must still report the failed SH allocation.");
+
+        // THE discriminating assertions. Pre-fix every one of these fails: resize(4) had
+        // already run on the caller's object and three asset lanes had already been written
+        // into it when the SH getter was validated, and the clear that followed released only
+        // the callee's reference.
+        CHECK_MESSAGE(alias->get_count() == 2,
+                "A refused materialization resized the caller's payload to the asset's splat "
+                "count. The alias observes a payload that was never successfully built.");
+        if (alias->get_count() >= 1) {
+            CHECK_MESSAGE(alias->get_gaussian(0).position.is_equal_approx(Vector3(-7.0f, -7.0f, -7.0f)),
+                    "set_positions() ran on the caller's payload before the SH getter was "
+                    "validated, so the alias sees the asset's positions over a payload whose "
+                    "SH, opacity, normal and brush lanes never landed.");
+            CHECK_MESSAGE(alias->get_gaussian(0).scale.is_equal_approx(Vector3(3.0f, 3.0f, 3.0f)),
+                    "set_scales() ran on the caller's payload before the failure.");
+            CHECK_MESSAGE(Math::is_equal_approx(alias->get_gaussian(0).sh_dc.r, 0.125f),
+                    "The alias' DC was reset -- either by resize()'s (1,1,1,1) default or by a "
+                    "partial SH write.");
+        }
+
+        // The caller's own reference is left alone too: with nothing half-written to hide,
+        // clearing it would be the one mutation the failure path still performed.
+        CHECK_MESSAGE(caller_payload.ptr() == alias.ptr(),
+                "A failure must leave the out-param exactly as the caller passed it.");
+    }
+
+    SUBCASE("a successful materialization still delivers the asset's payload through the out-param") {
+        // The non-failure path is unchanged where it is observable: the out-param comes back
+        // holding a complete payload built from the asset. What it does NOT do any more is
+        // rewrite a caller-supplied payload in place -- it replaces it -- so the alias keeps
+        // the object it was given. No in-tree caller passes a non-null payload, so this is a
+        // contract statement, not a behaviour change at any call site.
+        Ref<::GaussianData> out = caller_payload;
+        const bool ok = asset->populate_gaussian_data(out);
+        CHECK(ok);
+        if (out.is_null()) {
+            FAIL("a successful materialization must produce GaussianData");
+            return;
+        }
+        CHECK(out->get_count() == 4);
+        CHECK_MESSAGE(Math::is_equal_approx(out->get_gaussian(0).sh_dc.r, 0.25f),
+                "A successful materialization must install the asset's DC, not the resize() default.");
+        CHECK_MESSAGE(alias->get_count() == 2,
+                "The caller-supplied payload is replaced, not rewritten in place.");
+        CHECK(alias->get_gaussian(0).position.is_equal_approx(Vector3(-7.0f, -7.0f, -7.0f)));
+    }
+}
+
 } // namespace TestGaussianSplatting

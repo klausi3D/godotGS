@@ -296,6 +296,11 @@ public:
 
     Error load_from_file(const String &p_path);
     Ref<::GaussianData> get_gaussian_data() const;
+    // Materializes the asset's SoA lanes into an AoS payload. `r_data` is an OUTPUT:
+    // it is assigned a freshly built payload on success and left untouched on every
+    // failure path (#798 round 7 -- the build is staged, so a failure has no write set
+    // at all, not even on a payload the caller still holds another Ref to). A non-null
+    // `r_data` is therefore replaced, not rewritten in place. Gate on the bool return.
     bool populate_gaussian_data(Ref<::GaussianData> &r_data) const;
     // True iff get_gaussian_data() would return immediately from cache. Used by the
     // parallel prefetch path to skip already-materialized assets.

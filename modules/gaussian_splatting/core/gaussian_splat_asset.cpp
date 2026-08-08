@@ -1649,9 +1649,34 @@ bool GaussianSplatAsset::populate_gaussian_data(Ref<::GaussianData> &r_data) con
         return false;
     }
 
-    if (r_data.is_null()) {
-        r_data.instantiate();
-    }
+    // #798 review round 7: build into a payload the caller cannot reach, and PUBLISH it
+    // only once every lane has landed.
+    //
+    // Round 6 made the failure loud; it did not make it transactional. The lanes below are
+    // materialized in sequence, so set_positions()/set_scales()/set_rotations() have already
+    // rewritten the destination by the time the SH getter is validated. When the destination
+    // was the caller's own object -- this is an in/out Ref, and the previous code reused a
+    // non-null one in place -- clearing r_data on failure dropped only THIS function's
+    // reference: any other live Ref to the same payload kept observing it resized to
+    // splat_count and rewritten with three asset lanes over GaussianData::resize()'s defaults
+    // for the other seven. That is a half-built payload handed out through the back door of a
+    // call that returned false.
+    //
+    // Staging removes the failure paths' write set entirely: on every `return false` below,
+    // `staged` is the only reference and dies with the frame, and r_data is left EXACTLY as
+    // the caller passed it. Note this replaces round 6's "clear r_data on failure" -- with
+    // nothing half-written to hide, clearing would itself be the one mutation the failure path
+    // still performed. Callers gate on the bool return (get_gaussian_data(),
+    // prune_by_importance(), InstanceStore::_populate_gaussian_data_from_asset()), never on
+    // the out-param's nullity, so the observable behaviour of every in-tree call site -- all
+    // of which pass a fresh, null Ref -- is unchanged: null in, null out on failure.
+    //
+    // Consequence on SUCCESS: a caller-supplied non-null payload is no longer rewritten in
+    // place, it is REPLACED. No in-tree caller passes one -- the three named above are the only
+    // ones, and each declares a fresh local Ref -- and the out-param is documented as an output,
+    // so nothing depends on that identity.
+    Ref<::GaussianData> staged;
+    staged.instantiate();
 
     // #798 review round 6: MATERIALIZATION must fail closed too, exactly like the merge
     // and rewrite paths already do.
@@ -1677,17 +1702,16 @@ bool GaussianSplatAsset::populate_gaussian_data(Ref<::GaussianData> &r_data) con
     // SHRINK leaves a CowData at its previous, LARGER length (cowdata.h), which a `>=` test
     // waves through.
     //
-    // On failure r_data is cleared rather than left half-written, so no caller can mistake a
-    // non-null out-param for a usable payload; get_gaussian_data() consequently caches
-    // nothing and the next call retries the build.
-    r_data->resize(splat_count);
+    // On failure nothing is published, so no caller can mistake an out-param for a usable
+    // payload; get_gaussian_data() consequently caches nothing and the next call retries the
+    // build.
+    staged->resize(splat_count);
     // resize() is void and ERR_FAIL_CONDs on a negative count -- splat_count is file-derived
     // and unbounded, so a value past INT_MAX truncates negative and leaves the storage at its
     // previous length, after which every setter below would reject its (correctly sized) input
     // and this function would again report success over an untouched payload.
-    if (int64_t(r_data->get_count()) != int64_t(splat_count)) {
-        const int64_t got = int64_t(r_data->get_count());
-        r_data = Ref<::GaussianData>();
+    if (int64_t(staged->get_count()) != int64_t(splat_count)) {
+        const int64_t got = int64_t(staged->get_count());
         ERR_FAIL_V_MSG(false, vformat("[GaussianSplatAsset] populate_gaussian_data: GaussianData::resize(%d) "
                                       "left %d gaussians, so the payload storage could not be sized. "
                                       "Refusing to materialize.",
@@ -1703,7 +1727,6 @@ bool GaussianSplatAsset::populate_gaussian_data(Ref<::GaussianData> &r_data) con
         auto lane = m_getter();                                                                          \
         if (int64_t(lane.size()) != expected_size) {                                                     \
             const int64_t got_size = int64_t(lane.size());                                               \
-            r_data = Ref<::GaussianData>();                                                              \
             ERR_FAIL_V_MSG(false, vformat("[GaussianSplatAsset] populate_gaussian_data: " #m_getter      \
                                           "() returned %d elements but this payload needs exactly %d, "  \
                                           "so its output allocation failed. Refusing to materialize "    \
@@ -1711,7 +1734,7 @@ bool GaussianSplatAsset::populate_gaussian_data(Ref<::GaussianData> &r_data) con
                                           "default-initialized payload.",                                \
                                           got_size, expected_size));                                     \
         }                                                                                                \
-        r_data->m_setter(lane);                                                                          \
+        staged->m_setter(lane);                                                                          \
     }
 
     GS_MATERIALIZE_LANE(get_position_vectors, splat_count, set_positions)
@@ -1729,20 +1752,23 @@ bool GaussianSplatAsset::populate_gaussian_data(Ref<::GaussianData> &r_data) con
 
     Dictionary asset_metadata = get_import_metadata();
     if (asset_metadata.has(StringName("gaussian_2d_mode"))) {
-        r_data->set_2d_mode((bool)asset_metadata[StringName("gaussian_2d_mode")]);
+        staged->set_2d_mode((bool)asset_metadata[StringName("gaussian_2d_mode")]);
     }
     const GaussianDCEncoding staged_dc_encoding = _resolve_dc_encoding_from_metadata(asset_metadata);
-    for (int i = 0; i < r_data->get_count(); i++) {
-        Gaussian g = r_data->get_gaussian(i);
+    for (int i = 0; i < staged->get_count(); i++) {
+        Gaussian g = staged->get_gaussian(i);
         g.render_meta = gaussian_set_dc_encoding(g.render_meta, staged_dc_encoding);
-        r_data->set_gaussian(i, g);
+        staged->set_gaussian(i, g);
     }
 
-    r_data->set_streaming_chunk_bake(streaming_chunk_records,
+    staged->set_streaming_chunk_bake(streaming_chunk_records,
             streaming_primary_source_indices,
             streaming_quantization_records,
             streaming_chunk_size_used);
 
+    // Publish. This is the ONLY write to r_data in the whole function, and it is
+    // unreachable from every failure path above.
+    r_data = staged;
     return true;
 }
 
