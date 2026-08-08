@@ -26,6 +26,7 @@ scons platform=<platform> target=editor dev_build=yes tests=yes -j<jobs>
   - `python3 tests/ci/run_module_tests.py --guard-only`
   - `python3 tests/ci/run_module_tests.py --godot-binary <module-built-binary>`
   - `--guard-only` includes the renderer release-gate contract check.
+  - `--lane-report <path>` additionally writes the per-lane ledger below as JSON (see [Per-lane result ledger](#per-lane-result-ledger)).
 - Runtime validation:
   - `python3 tests/runtime/run_runtime_validation.py --godot-binary <module-built-binary> --gd-mode headless`
 - Benchmark suite:
@@ -35,6 +36,160 @@ scons platform=<platform> target=editor dev_build=yes tests=yes -j<jobs>
   - Direct doctest invocation: `<module-built-binary> --gs-gpu-test --test-case="*HazardRepro*"`
 
 For module-only build commands and SCons targets, see [Gaussian Splatting Build and Test Guide](../../modules/gaussian_splatting/docs/BUILD_AND_TEST.md). For test-runner overviews, see [Tests Overview](../../tests/README.md).
+
+## Per-lane result ledger
+
+`tests/ci/run_module_tests.py` declares 26 doctest lanes in `MODULE_TEST_FILTERS`:
+**20 strict, 6 advisory** (`strict=False`).
+
+When an advisory lane fails the ordinary way — the lane process exits nonzero, or crashes —
+the failure is **tolerated and does not itself fail the run**. The same holds when it executes
+nothing or self-skips its coverage. Since doctest exits nonzero whenever a test fails, that
+covers the normal shape of an advisory failure.
+
+**Two outcomes still fail the run for _any_ lane, `strict` or not**, and the claim above
+does not extend to them: a lane that exits 0 while its doctest summary reports failures, and
+a lane that exits 0 with no doctest summary at all. Both are harness anomalies rather than
+ordinary test failures, and both are recorded as `FAIL` (see the table). Read "advisory" as
+"failures of the ordinary shape are tolerated", not as an unconditional exemption.
+
+Since #705 the runner records what each lane actually did. **The ledger reports; it gates
+nothing** — see [`docs/architecture/adr-advisory-lane-ledger.md`](../architecture/adr-advisory-lane-ledger.md).
+
+One line per lane, in lane order:
+
+```
+[module-tests][lane-result] lane=<name> strict=<0|1> outcome=<OUTCOME> passed_tests=<n> passed_assertions=<n> failed_tests=<n> failed_assertions=<n> skipped_markers=<n> exit_code=<n> exit_code_reported=<0|1> summary_reported=<0|1> zero_coverage=<0|1|-1>
+```
+
+`exit_code_reported=0` means **no return code exists** for that lane — it was never
+attempted, or the process could not be launched — and `exit_code` is then the `-1`
+placeholder. Read `exit_code` only when `exit_code_reported=1`, because `-1` is also a return
+code a real process produces: `subprocess` reports a POSIX `SIGHUP` termination as `-1`. The
+`-1`-means-unknown convention is safe for the *counts* (no count can be negative) and unsafe
+for an exit code, which is why the availability is carried beside the value (#822 round 10).
+
+`summary_reported=1` means doctest printed a summary — **not** that anything ran; a
+`0 passed | 0 failed` summary is reported and executes nothing. (It was called `executed`
+until #822 round 4; renamed rather than redefined, because a rename breaks a parser loudly
+while a silent change of meaning does not.)
+
+`zero_coverage=1` means the lane executed no coverage, derived from **passed + failed**
+counts. A lane in which every test fails has both *passed* counts at zero while having
+executed the most coverage of any shape there is, so a passed-only derivation would file
+the maximally-informative case under "nothing ran" — the exact inverse of what this field
+exists to expose. `zero_coverage=1` together with a nonzero failed count is a
+self-contradictory record and is reported as a harness-integrity failure.
+
+| `OUTCOME` | Meaning | Exit code effect |
+| --- | --- | --- |
+| `PASS` | exit 0 with real executed coverage | none |
+| `FAIL` | strict lane failed/crashed, or any lane exited 0 with a missing/failing summary | run fails |
+| `ADVISORY-FAIL` | advisory lane failed or crashed | **none — does not itself fail the run** |
+| `ADVISORY-NO-COVERAGE` | advisory lane executed nothing (0 passed tests or 0 passed assertions — this path is only reached once failures are known to be 0, so passed *is* the executed total here) | **none — does not itself fail the run** |
+| `UNAVAILABLE` | binary has no `--test` support | fails only in strict tests-unavailable mode |
+| `QUARANTINE-TOLERATED` | known failure tolerated per `tests/ci/quarantine_manifest.json` | none |
+| `QUARANTINE-REJECTED` | quarantine entry stale/misconfigured | run fails |
+| `NOT-RUN` | the runner never reached this lane (an earlier lane aborted the run) | none |
+
+A count of `-1` means **not known** (the lane produced no doctest summary), never zero.
+`NOT-RUN` lanes are printed rather than omitted: an absent lane reading as a passed lane is
+the defect this ledger exists to remove.
+
+After the per-lane block, printed unconditionally — including when `advisory_failures=0`, so
+that absence of output can never be read as absence of failures:
+
+```
+[module-tests][lane-ledger] lanes=<n> strict_lanes=<n> advisory_lanes=<n> advisory_failures=<n> advisory_zero_coverage=<n> quarantine_tolerated=<n> unavailable=<n> quarantine_rejected=<n> fail_outcomes=<n> run_ending_outcomes=<n> passed=<n> not_run=<n>
+[module-tests][lane-ledger] ADVISORY-RED lane=<name> reason=<failed|no-coverage|nonzero-exit-no-test-failures|crashed>
+```
+
+`fail_outcomes` counts lanes whose outcome was `FAIL` — that and nothing more. It is
+deliberately **not** called `strict_failures`: an advisory lane also records `FAIL` when it
+exits 0 with a missing or failing summary, so counting `FAIL` outcomes as strict failures
+could print `strict_lanes=0 strict_failures=1` and charge an advisory harness anomaly to a
+strict lane. The strict/advisory split is derived from each lane's declared `strict` flag
+and is in the JSON as `fail_outcomes_on_strict_lanes` / `fail_outcomes_on_advisory_lanes`.
+
+`run_ending_outcomes` counts lanes whose outcome **ended the run**, whatever that outcome
+was. Read this one, not `fail_outcomes`, for "did a lane stop this run": `UNAVAILABLE` under
+strict tests-unavailable mode and `QUARANTINE-REJECTED` both abort the lane loop and set the
+exit code while recording no `FAIL`, so a gated run can legitimately report
+`fail_outcomes=0`. It is derived from each record's `ended_run` — the flag the loop sets from
+the value it actually broke on — so a future abort path is counted the day it is added. (The
+field was called `gating_failures` until #822 round 10 and counted only `FAIL`; it was
+renamed rather than widened in place, so a stale consumer breaks loudly instead of silently
+reading a number whose meaning changed. `schema_version` is now `2`.)
+
+`advisory_zero_coverage` counts advisory lanes whose `zero_coverage` is 1, **whatever their
+outcome**. It is not tied to the `ADVISORY-NO-COVERAGE` outcome, because a lane can execute
+nothing while its outcome is `ADVISORY-FAIL`, `QUARANTINE-TOLERATED` or `FAIL`; counting it
+from the outcome alone under-reported the very thing the field exists to expose. A lane that
+produced no doctest summary has `zero_coverage=-1` (not knowable) and is never counted.
+
+**An `ADVISORY-RED` line means that lane failed, crashed, or executed nothing, and that
+outcome did not itself fail the run.** (It does *not* mean the run passed: the loop
+continues after an advisory failure, so a later strict lane can still fail — read
+`run_ending_outcomes` for that.) It is not a warning about a future problem; it is a lane
+outcome that nothing gates on today, and `reason=` says which kind:
+
+| `reason=` | What was observed |
+| --- | --- |
+| `failed` | the doctest summary reports failed tests or assertions |
+| `no-coverage` | the lane executed nothing — whatever its outcome or exit code |
+| `nonzero-exit-no-test-failures` | tests **ran** and passed, and the process still exited nonzero (teardown/harness failure, not a test failure) |
+| `crashed` | no doctest summary at all — the lane died before reporting |
+
+**The rows are in evaluation order**, first match wins, and the row order is asserted
+against the order of the `return` statements in `advisory_red_reason()` — a table that
+merely *claims* to be the evaluation order is a copy that drifts. `no-coverage` is checked
+**before** `nonzero-exit-no-test-failures`: a lane that exits nonzero after printing a
+summary in which nothing ran is a no-coverage lane, and reporting it as a teardown failure
+would tell a reader that tests ran and passed when none ran. `crashed` is last because it is
+the fallback for "there was no summary to read at all": `no-coverage` requires
+`zero_coverage=1` exactly, and `-1` ("not knowable", no summary) reports `crashed`.
+
+`nonzero-exit-no-test-failures` exists because "a summary was printed, therefore tests
+failed" is wrong, and reporting it as `failed` would announce a test failure where none
+occurred. `_classify_quarantined_lane_outcome()` already draws the same distinction.
+
+Arming those lanes is #705 / #519, and must be done against the measured values this ledger
+produces — not a guessed threshold. The first full measured run (2026-08-03) reported
+`advisory_failures=0` with one `ADVISORY-RED … reason=no-coverage`; see the ADR for what
+that does and does not license.
+
+`--lane-report <path>` writes the same records as JSON
+(`{schema_version, baseline_note, generated_utc, lane_loop_exit_code, lanes, totals}`).
+`lane_loop_exit_code` is narrowly named on purpose: it is what the **lane loop** returned,
+which is not the same claim as "the process that wrote this file exited with it". The order
+is run the lanes → print the block → check ledger integrity → write, so a ledger that fails
+its integrity check is never written, and a write that fails leaves the *previous* report on
+disk — in both cases the process exits nonzero while the path holds an older report
+describing a different run. After a successful write nothing else changes the exit code, so a
+freshly written report and its process do agree; a consumer that cannot tell the two cases
+apart must read `generated_utc` rather than assume the file is this run's. The file is a build
+output and must stay untracked. It is rejected together with `--guard-only`, where it could
+only produce an empty report. An unwritable path fails the run rather than being skipped —
+checked before the lanes run, using a sibling probe file so an existing report is never
+truncated. The preflight additionally rejects the destination classes the sibling probe
+structurally cannot see, because "can I create a file next to this path" is a different
+question from "can I replace this path": an existing **directory** (or any other non-regular
+file), and an existing file this process may not write (the Windows read-only attribute, a
+POSIX mode without write permission). Without those checks the run executes all 26 lanes
+before `os.replace()` finally raises. What the preflight deliberately does **not** claim is
+that the write will succeed: a destination can be opened by another process without delete
+sharing, have its permissions changed, or lose its parent directory afterwards — unavoidable
+time-of-check/time-of-use races that no probe can rule out, which is why the end-of-run write
+still fails closed on its own. A ledger that fails its own integrity check is **not written at all**, so a
+known-untrustworthy report can never replace the last valid measurement; the refusal is
+printed and the full block is on stdout regardless. The write itself is
+serialize-then-temp-then-`os.replace`, so the destination is
+either the previous report or the complete new one, never empty or partial.
+
+The ledger's own unit test (`tests/ci/test_run_module_tests_lane_ledger.py`) runs in the
+`--guard-only` lane; it asserts exit-code parity per outcome class and ledger completeness
+against `MODULE_TEST_FILTERS` — plus, on a `--gpu` run, `REQUIRES_RD_TEST_FILTERS`, so the
+opt-in GPU lanes are covered by the same totality check rather than escaping it.
 
 ## GPU Test Harness and Visual Gate
 

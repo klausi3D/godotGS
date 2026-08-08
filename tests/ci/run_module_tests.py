@@ -8,6 +8,7 @@ strict/warn-only policy (strict fails, warn-only skips).
 from __future__ import annotations
 
 import argparse
+import contextlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import importlib.util
@@ -17,6 +18,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -39,6 +41,7 @@ REQUIRE_NULL_DEREF_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_require_nul
 ENVIRONMENT_SKIP_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_environment_skip_marker.py"
 ENVIRONMENT_SKIP_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_environment_skip_marker.py"
 SKIP_MARKER_DETECTOR_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_run_module_tests_skip_marker.py"
+LANE_LEDGER_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_run_module_tests_lane_ledger.py"
 ENVIRONMENT_SKIP_BASELINE_PATH = ROOT / "tests" / "ci" / "environment_skip_baseline.json"
 TEST_LANE_COVERAGE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_test_lane_coverage.py"
 TEST_LANE_COVERAGE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_test_lane_coverage.py"
@@ -1517,6 +1520,27 @@ def _run_quarantine_manifest_guard() -> tuple[bool, list[str]]:
     return test_ok, messages + test_messages
 
 
+def _run_lane_ledger_guard() -> tuple[bool, list[str]]:
+    """Run the per-lane ledger's own unit test in the fast --guard-only lane (#705).
+
+    Mirrors the skip-marker detector pin test: a test wired into no lane is the
+    same defect as an advisory lane wired into no gate. The ledger's exit-code
+    PARITY assertions are the coverage that stops this reporting slice from
+    quietly becoming a gate, so they must actually run somewhere.
+    """
+    if not LANE_LEDGER_TEST_SCRIPT.is_file():
+        return False, [
+            f"Missing lane-ledger unit test: {_display_path(LANE_LEDGER_TEST_SCRIPT)}"
+        ]
+    code, out, err = _run_command([sys.executable, str(LANE_LEDGER_TEST_SCRIPT)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"Lane-ledger unit test failed with exit code {code}."]
+        return False, ["Lane-ledger unit test FAILED:"] + output_lines
+    return True, ["Lane-ledger unit test passed."]
+
+
 def _tests_unavailable(output: str) -> bool:
     normalized_output = " ".join(output.lower().split())
     markers = (
@@ -1658,13 +1682,35 @@ def _run_benchmark_asset_guard() -> tuple[bool, list[str]]:
     return True, output_lines
 
 
+class GodotRunResult(tuple):
+    """`(ok, skipped, output)` plus the raw process exit code (#705).
+
+    Deliberately a 3-tuple SUBCLASS rather than a 4-field NamedTuple: every
+    existing caller and every test stub unpacks exactly three values, and the
+    lane ledger must not be bought with a signature break in the one function
+    the whole runner funnels through. A stub that returns a plain tuple simply
+    has no `returncode` attribute, which the ledger records as UNKNOWN (-1)
+    rather than as a fabricated 0.
+    """
+
+    # No __slots__: a variable-length built-in subtype (tuple) cannot carry a
+    # non-empty __slots__, so the attribute lives in the instance __dict__.
+
+    def __new__(cls, ok: bool, skipped: bool, output: str, returncode: int | None):
+        self = super().__new__(cls, (ok, skipped, output))
+        self.returncode = returncode
+        return self
+
+
 def _run_godot(godot: str, args: Iterable[str]) -> tuple[bool, bool, str]:
     normalized_godot = _normalize_process_arg(godot)
     command = [normalized_godot]
     command.extend(_normalize_process_arg(arg) for arg in args)
 
     if not command[0]:
-        return False, False, "ValueError: empty Godot binary path after normalization"
+        return GodotRunResult(
+            False, False, "ValueError: empty Godot binary path after normalization", None
+        )
 
     try:
         result = subprocess.run(
@@ -1676,12 +1722,14 @@ def _run_godot(godot: str, args: Iterable[str]) -> tuple[bool, bool, str]:
             errors="replace",
         )
     except (FileNotFoundError, PermissionError, OSError) as exc:
-        return False, False, f"{type(exc).__name__}: {exc} (command={command!r})"
+        return GodotRunResult(
+            False, False, f"{type(exc).__name__}: {exc} (command={command!r})", None
+        )
 
     output = (result.stdout or "") + (result.stderr or "")
     if result.returncode != 0 and _tests_unavailable(output):
-        return True, True, output
-    return result.returncode == 0, False, output
+        return GodotRunResult(True, True, output, result.returncode)
+    return GodotRunResult(result.returncode == 0, False, output, result.returncode)
 
 
 def _parse_doctest_results(output: str) -> tuple[int, int, int, int, int, bool]:
@@ -1839,6 +1887,693 @@ class DoctestTotals:
             self.lanes_with_skip_markers += 1
         if stats.has_executed_coverage:
             self.lanes_with_executed_coverage += 1
+
+
+# --------------------------------------------------------------------------
+# Per-lane result ledger (#705, slice 1).
+#
+# It REPORTS; it gates nothing. See docs/architecture/adr-advisory-lane-ledger.md.
+#
+# On an advisory (strict=False) lane, a nonzero exit, a crash, zero coverage and
+# self-skipped coverage are all TOLERATED - that lane's own outcome does not fail
+# the run - and since doctest exits nonzero whenever a test fails, that covers the
+# normal shape of an advisory failure. Two outcomes still fail the run for ANY
+# lane regardless of strict: exit 0 while the doctest summary reports failures,
+# and exit 0 with no doctest summary at all. "Advisory" is not an unconditional
+# exemption from the exit code.
+#
+# The ledger records what happened per lane so #705/#519 can be armed later
+# against a MEASURED value instead of a guessed one.
+# --------------------------------------------------------------------------
+
+# 2 (#822 round 10): `gating_failures` -> `fail_outcomes` plus the new
+# `run_ending_outcomes` and `exit_code_reported` fields. A rename plus a version
+# bump breaks a stale consumer loudly; a silently redefined field does not.
+LANE_LEDGER_SCHEMA_VERSION = 2
+# "Not known", as distinct from "zero". _parse_doctest_results() returns 0 for
+# every count when no doctest summary was found, which makes a crash before any
+# output indistinguishable from a lane that ran and passed nothing. The ledger
+# never propagates that ambiguity.
+#
+# COUNTS ONLY. -1 is outside the range of every count, so it cannot collide with
+# a real one. It IS inside the range of a process exit code: `subprocess` reports
+# a POSIX SIGHUP termination as returncode -1, so "no return code was reported"
+# and "the process was killed by signal 1" would be the same value in the
+# exit_code field. That is what `exit_code_reported` exists to separate; see
+# LaneResult.
+LANE_COUNT_UNKNOWN = -1
+
+LANE_OUTCOME_PASS = "PASS"
+LANE_OUTCOME_FAIL = "FAIL"
+LANE_OUTCOME_ADVISORY_FAIL = "ADVISORY-FAIL"
+LANE_OUTCOME_ADVISORY_NO_COVERAGE = "ADVISORY-NO-COVERAGE"
+LANE_OUTCOME_UNAVAILABLE = "UNAVAILABLE"
+LANE_OUTCOME_QUARANTINE_TOLERATED = "QUARANTINE-TOLERATED"
+LANE_OUTCOME_QUARANTINE_REJECTED = "QUARANTINE-REJECTED"
+# Additive: a lane the runner never reached because an earlier strict lane
+# aborted the run. Printed rather than omitted -- an absent lane reading as a
+# passed lane is the very defect this ledger exists to remove.
+LANE_OUTCOME_NOT_RUN = "NOT-RUN"
+LANE_OUTCOMES: tuple[str, ...] = (
+    LANE_OUTCOME_PASS,
+    LANE_OUTCOME_FAIL,
+    LANE_OUTCOME_ADVISORY_FAIL,
+    LANE_OUTCOME_ADVISORY_NO_COVERAGE,
+    LANE_OUTCOME_UNAVAILABLE,
+    LANE_OUTCOME_QUARANTINE_TOLERATED,
+    LANE_OUTCOME_QUARANTINE_REJECTED,
+    LANE_OUTCOME_NOT_RUN,
+)
+# Says what is true of the ADVISORY RESULT, not what the whole run did. "CI
+# exited 0" is a run-wide claim this record cannot make: the loop continues past
+# an ADVISORY-FAIL, so a LATER strict lane can still fail the run while this
+# report sits in the same file asserting success. See totals.run_ending_outcomes
+# and lane_loop_exit_code for what the run actually did.
+LANE_LEDGER_BASELINE_NOTE = (
+    "Reporting only (#705 slice 1): this ledger observes lane outcomes and changes no "
+    "exit code. An ADVISORY-RED lane failed, crashed or executed nothing, and that "
+    "outcome did not itself fail the run; the run's exit code is decided elsewhere and "
+    "may still be nonzero for another lane's reason."
+)
+
+
+@dataclass
+class LaneResult:
+    """What one lane did, as observed by _execute_lane()."""
+
+    outcome: str
+    exit_code: int = LANE_COUNT_UNKNOWN
+    # "the subprocess reported a return code at all", NOT "the return code was
+    # nonzero" (#822 round 10). Without it, `exit_code=-1` is ambiguous: it is
+    # what the ledger records when no return code is available (a lane that was
+    # never attempted, a `GodotRunResult` carrying returncode=None because the
+    # process could not be launched, or a stub that returns a bare 3-tuple), and
+    # it is ALSO the genuine value `subprocess` reports for a POSIX process
+    # killed by SIGHUP. Those are different facts about a lane, and the field
+    # whose whole purpose is telling a crash from a pass may not conflate them.
+    # Read exit_code ONLY when exit_code_reported is true.
+    exit_code_reported: bool = False
+    # "doctest printed a summary", NOT "something ran". A summary of
+    # `0 passed | 0 failed` is reported and executed nothing; the field is named
+    # for the observation so the two are never confused. Whether anything
+    # actually ran is zero_coverage's job.
+    summary_reported: bool = False
+    # None == not knowable (no doctest summary), never silently False.
+    # Derived from passed + FAILED counts: see _execute_lane().
+    zero_coverage: bool | None = None
+    passed_tests: int = LANE_COUNT_UNKNOWN
+    failed_tests: int = LANE_COUNT_UNKNOWN
+    passed_assertions: int = LANE_COUNT_UNKNOWN
+    failed_assertions: int = LANE_COUNT_UNKNOWN
+    skipped_markers: int = LANE_COUNT_UNKNOWN
+    detail: str = ""
+
+
+@dataclass
+class LaneLedgerRecord:
+    lane: str
+    strict: bool
+    outcome: str = LANE_OUTCOME_NOT_RUN
+    exit_code: int = LANE_COUNT_UNKNOWN
+    # False on a seeded, never-attempted lane, which is exactly right: no
+    # process ran, so no return code was reported. See LaneResult.
+    exit_code_reported: bool = False
+    summary_reported: bool = False
+    zero_coverage: bool | None = None
+    passed_tests: int = LANE_COUNT_UNKNOWN
+    failed_tests: int = LANE_COUNT_UNKNOWN
+    passed_assertions: int = LANE_COUNT_UNKNOWN
+    failed_assertions: int = LANE_COUNT_UNKNOWN
+    skipped_markers: int = LANE_COUNT_UNKNOWN
+    # True when this lane's outcome is the one that ended the run.
+    ended_run: bool = False
+    detail: str = "lane was not attempted"
+
+    @property
+    def is_advisory_red(self) -> bool:
+        return not self.strict and self.outcome in (
+            LANE_OUTCOME_ADVISORY_FAIL,
+            LANE_OUTCOME_ADVISORY_NO_COVERAGE,
+        )
+
+    @property
+    def advisory_red_reason(self) -> str:
+        """Why this advisory lane is red, named from what was actually observed.
+
+        "A summary exists, therefore tests failed" is WRONG, and the repo
+        already knows it is wrong: _classify_quarantined_lane_outcome() treats a
+        clean all-pass summary followed by a nonzero exit as a teardown/harness
+        failure, not a test failure. Reporting that shape as reason=failed would
+        have this ledger announce "an advisory lane is failing tests" when
+        nothing failed - a confidently wrong claim someone would then quote.
+
+        So the reason is derived from the failed COUNTS, the executed coverage
+        and the exit status:
+        - failed                         the summary reports failed tests/assertions
+        - no-coverage                    nothing executed, whatever the outcome or
+                                         the exit code
+        - nonzero-exit-no-test-failures  tests RAN and passed, yet the process still
+                                         exited nonzero (teardown/harness crash);
+                                         named for the observation, not a guessed cause
+        - crashed                        no doctest summary at all
+
+        The zero-coverage check has to come BEFORE the teardown fallback. A lane
+        that exits nonzero after printing a summary in which nothing ran is a
+        no-coverage lane; reporting it as `nonzero-exit-no-test-failures` because
+        a summary merely exists tells a stdout consumer that tests ran and passed
+        when none ran at all - and the aggregate is meanwhile counting it under
+        advisory_zero_coverage, so the two would disagree in the same block.
+
+        `is True`, not truthiness: `None` means "not knowable" (no summary) and
+        must never be read as zero.
+        """
+        if self.failed_tests > 0 or self.failed_assertions > 0:
+            return "failed"
+        if self.outcome == LANE_OUTCOME_ADVISORY_NO_COVERAGE or self.zero_coverage is True:
+            return "no-coverage"
+        if self.summary_reported:
+            # A summary was printed, it reported no failures, and something DID
+            # run - yet the lane is red, so it exited nonzero after passing.
+            return "nonzero-exit-no-test-failures"
+        return "crashed"
+
+    def to_json(self) -> dict:
+        return {
+            "lane": self.lane,
+            "strict": self.strict,
+            "outcome": self.outcome,
+            "exit_code": self.exit_code,
+            "exit_code_reported": self.exit_code_reported,
+            "summary_reported": self.summary_reported,
+            "zero_coverage": self.zero_coverage,
+            "passed_tests": self.passed_tests,
+            "failed_tests": self.failed_tests,
+            "passed_assertions": self.passed_assertions,
+            "failed_assertions": self.failed_assertions,
+            "skipped_markers": self.skipped_markers,
+            "ended_run": self.ended_run,
+            "advisory_red": self.is_advisory_red,
+            "detail": self.detail,
+        }
+
+
+@dataclass
+class LaneLedgerTotals:
+    lanes: int = 0
+    strict_lanes: int = 0
+    advisory_lanes: int = 0
+    advisory_failures: int = 0
+    advisory_zero_coverage: int = 0
+    quarantine_tolerated: int = 0
+    unavailable: int = 0
+    quarantine_rejected: int = 0
+    # Lanes whose outcome was FAIL. Deliberately NOT called strict_failures: an
+    # ADVISORY lane also records FAIL when it exits 0 with a missing or failing
+    # doctest summary, so counting FAIL outcomes as "strict failures" could print
+    # `strict_lanes=0 strict_failures=1` and attribute an advisory harness
+    # anomaly to a strict lane. The field is named for what it counts, and the
+    # strict/advisory split below is derived from record.strict rather than from
+    # the outcome.
+    #
+    # It was called `gating_failures` until #822 round 10, and that name was the
+    # same over-claim one rung up: FAIL is not the only outcome that ends the
+    # run. A strict tests-unavailable lane aborts with UNAVAILABLE, and a stale
+    # or invalid quarantine aborts with QUARANTINE-REJECTED; both stop the loop
+    # and decide the exit code while recording no FAIL at all, so a run that was
+    # gated could publish `gating_failures=0`. Counting them under the old name
+    # would have changed its meaning silently, which is how a consumer's parser
+    # stays green while its numbers stop being true - so the field is renamed to
+    # the narrow thing it measures and the broader question gets its own count
+    # below.
+    fail_outcomes: int = 0
+    fail_outcomes_on_strict_lanes: int = 0
+    fail_outcomes_on_advisory_lanes: int = 0
+    # Lanes whose outcome ENDED the run, whatever that outcome was: FAIL,
+    # UNAVAILABLE under strict tests-unavailable mode, or QUARANTINE-REJECTED.
+    # Derived from the record's own `ended_run`, which the lane loop sets from
+    # the value it actually broke on, so a future abort path is counted here the
+    # day it is added rather than the day someone remembers to list its outcome.
+    # This is the field to read for "did a lane stop this run", and the field
+    # #705/#519's ratchet must consult.
+    run_ending_outcomes: int = 0
+    passed: int = 0
+    not_run: int = 0
+
+    def to_json(self) -> dict:
+        return {
+            "lanes": self.lanes,
+            "strict_lanes": self.strict_lanes,
+            "advisory_lanes": self.advisory_lanes,
+            "advisory_failures": self.advisory_failures,
+            "advisory_zero_coverage": self.advisory_zero_coverage,
+            "quarantine_tolerated": self.quarantine_tolerated,
+            "unavailable": self.unavailable,
+            "quarantine_rejected": self.quarantine_rejected,
+            "fail_outcomes": self.fail_outcomes,
+            "fail_outcomes_on_strict_lanes": self.fail_outcomes_on_strict_lanes,
+            "fail_outcomes_on_advisory_lanes": self.fail_outcomes_on_advisory_lanes,
+            "run_ending_outcomes": self.run_ending_outcomes,
+            "passed": self.passed,
+            "not_run": self.not_run,
+        }
+
+
+def _self_contradictory_records(records: Iterable[LaneLedgerRecord]) -> list[str]:
+    """The INVARIANT behind zero_coverage, checked as a property of every record.
+
+    A record may not simultaneously report "no coverage executed" and a nonzero
+    failed count. Failures are proof that coverage executed, so the two together
+    mean the ledger is contradicting itself, and a reader (or a future ratchet)
+    would have to guess which half to believe.
+
+    This is stated as an invariant rather than as a test of one formula on
+    purpose: the passed-count derivation that #822 round 4 removed satisfied
+    every case-by-case test written for it while violating this property for the
+    single most informative shape there is - a lane in which everything failed.
+
+    `failed_tests > 0` is included, not just `failed_assertions > 0`. Under
+    DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS a case is failed IFF it
+    recorded a failed assertion, so a failed test with zero executed assertions
+    should be impossible; if it ever appears, that model of doctest is wrong and
+    surfacing it loudly is worth more than tolerating it quietly.
+    """
+    errors: list[str] = []
+    for record in records:
+        if record.zero_coverage is not True:
+            continue
+        if record.failed_tests > 0 or record.failed_assertions > 0:
+            errors.append(
+                f"lane '{record.lane}' reports zero_coverage=1 together with "
+                f"failed_tests={record.failed_tests} / "
+                f"failed_assertions={record.failed_assertions}. Executed failures are "
+                f"proof that coverage ran; a record cannot say both 'nothing ran' and "
+                f"'these ran and failed'."
+            )
+    return errors
+
+
+def _format_zero_coverage(value: bool | None) -> str:
+    if value is None:
+        return str(LANE_COUNT_UNKNOWN)
+    return "1" if value else "0"
+
+
+def _format_lane_result_line(record: LaneLedgerRecord) -> str:
+    """The stable per-lane grammar.
+
+    The first eight fields are the contracted grammar; `exit_code`,
+    `exit_code_reported`, `summary_reported` and `zero_coverage` are an additive
+    suffix (a superset is not a weakening). They are what lets a reader tell a
+    crash from a pass from an empty lane.
+
+    `exit_code_reported` is not decoration and not redundant with `exit_code`:
+    `exit_code=-1` means "unknown" for every count in this ledger, but -1 is a
+    return code `subprocess` really does report (POSIX SIGHUP), so the two facts
+    are only separable by carrying the availability alongside the value.
+
+    `summary_reported` was called `executed` until #822 round 4. It never meant
+    "something ran" - a `0 passed | 0 failed` summary is reported and executes
+    nothing - and a field whose name overstates what it observes is the same
+    defect as a count derived across a boundary the data does not cross. Renamed
+    rather than redefined, deliberately: a rename breaks a parser loudly, a
+    silent change of meaning does not.
+    """
+    return (
+        f"[module-tests][lane-result] lane={record.lane} "
+        f"strict={1 if record.strict else 0} "
+        f"outcome={record.outcome} "
+        f"passed_tests={record.passed_tests} "
+        f"passed_assertions={record.passed_assertions} "
+        f"failed_tests={record.failed_tests} "
+        f"failed_assertions={record.failed_assertions} "
+        f"skipped_markers={record.skipped_markers} "
+        f"exit_code={record.exit_code} "
+        f"exit_code_reported={1 if record.exit_code_reported else 0} "
+        f"summary_reported={1 if record.summary_reported else 0} "
+        f"zero_coverage={_format_zero_coverage(record.zero_coverage)}"
+    )
+
+
+class LaneLedger:
+    """One record per configured lane, seeded up front.
+
+    Seeding is the totality mechanism: a control-flow path that forgets to
+    record cannot make a lane DISAPPEAR, only leave it visibly NOT-RUN, which
+    the integrity check turns into a failure when the run was not aborted.
+    """
+
+    def __init__(self, lanes: Iterable[tuple[str, bool]]) -> None:
+        self.records: list[LaneLedgerRecord] = [
+            LaneLedgerRecord(lane=name, strict=strict) for name, strict in lanes
+        ]
+        self.integrity_errors: list[str] = []
+
+    def record(self, index: int, result: LaneResult, *, ended_run: bool) -> None:
+        if index < 0 or index >= len(self.records):
+            self.integrity_errors.append(
+                f"lane index {index} is outside the seeded ledger of "
+                f"{len(self.records)} lane(s); a lane result was produced for a lane "
+                f"that was never seeded."
+            )
+            return
+        record = self.records[index]
+        if record.outcome != LANE_OUTCOME_NOT_RUN:
+            # Never overwrite: an overwrite is exactly how a FAIL becomes a PASS.
+            self.integrity_errors.append(
+                f"lane '{record.lane}' was recorded twice (kept "
+                f"outcome={record.outcome}, refused outcome={result.outcome})."
+            )
+            return
+        if result.outcome not in LANE_OUTCOMES:
+            self.integrity_errors.append(
+                f"lane '{record.lane}' produced unknown outcome {result.outcome!r}."
+            )
+        record.outcome = result.outcome
+        record.exit_code = result.exit_code
+        record.exit_code_reported = result.exit_code_reported
+        record.summary_reported = result.summary_reported
+        record.zero_coverage = result.zero_coverage
+        record.passed_tests = result.passed_tests
+        record.failed_tests = result.failed_tests
+        record.passed_assertions = result.passed_assertions
+        record.failed_assertions = result.failed_assertions
+        record.skipped_markers = result.skipped_markers
+        record.ended_run = ended_run
+        record.detail = result.detail
+
+    def totals(self) -> LaneLedgerTotals:
+        totals = LaneLedgerTotals(lanes=len(self.records))
+        for record in self.records:
+            if record.strict:
+                totals.strict_lanes += 1
+            else:
+                totals.advisory_lanes += 1
+            # Zero coverage is a PROPERTY of the record, not one bucket in a
+            # mutually-exclusive outcome chain: an advisory lane can execute
+            # nothing while its outcome is ADVISORY-FAIL (a crash whose summary
+            # reported 0|0), QUARANTINE-TOLERATED or FAIL. Counting it from the
+            # ADVISORY-NO-COVERAGE outcome alone under-reported exactly the thing
+            # this ledger exists to expose, and it is the field GS-705-2 is meant
+            # to ratchet on. `is True` on purpose: None means "not knowable"
+            # (no doctest summary) and must never be silently read as zero.
+            if not record.strict and record.zero_coverage is True:
+                totals.advisory_zero_coverage += 1
+            # Also a PROPERTY, not an outcome bucket, and for the same reason:
+            # three different outcomes end the run, and one more may be added.
+            if record.ended_run:
+                totals.run_ending_outcomes += 1
+            if record.outcome == LANE_OUTCOME_PASS:
+                totals.passed += 1
+            elif record.outcome == LANE_OUTCOME_ADVISORY_FAIL:
+                totals.advisory_failures += 1
+            elif record.outcome == LANE_OUTCOME_ADVISORY_NO_COVERAGE:
+                pass  # counted above, by property
+            elif record.outcome == LANE_OUTCOME_QUARANTINE_TOLERATED:
+                totals.quarantine_tolerated += 1
+            elif record.outcome == LANE_OUTCOME_QUARANTINE_REJECTED:
+                totals.quarantine_rejected += 1
+            elif record.outcome == LANE_OUTCOME_UNAVAILABLE:
+                totals.unavailable += 1
+            elif record.outcome == LANE_OUTCOME_FAIL:
+                totals.fail_outcomes += 1
+                # Split by the lane's DECLARED strictness, never by the outcome:
+                # an advisory lane can record FAIL (exit 0 with a missing or
+                # failing summary), and charging that to a strict lane would make
+                # the published aggregate quotably wrong.
+                if record.strict:
+                    totals.fail_outcomes_on_strict_lanes += 1
+                else:
+                    totals.fail_outcomes_on_advisory_lanes += 1
+            elif record.outcome == LANE_OUTCOME_NOT_RUN:
+                totals.not_run += 1
+        return totals
+
+    def check_integrity(self, *, attempted_lanes: int) -> list[str]:
+        """Validate every lane the runner ATTEMPTED, abort or no abort.
+
+        `attempted_lanes` is how many lanes the loop reached, so only the lanes
+        AFTER an aborting one may legitimately be NOT-RUN. The previous version
+        took an `aborted` flag and skipped the whole check whenever it was set,
+        which meant a lane whose record went missing BEFORE the abort escaped
+        validation entirely - the same "did not run reads as passed" hole this
+        ledger exists to close, reopened for exactly the runs where a lane
+        already failed.
+        """
+        errors = list(self.integrity_errors)
+        for index, record in enumerate(self.records):
+            if index < attempted_lanes and record.outcome == LANE_OUTCOME_NOT_RUN:
+                errors.append(
+                    f"lane '{record.lane}' was attempted but produced no ledger "
+                    f"record (outcome stayed {LANE_OUTCOME_NOT_RUN}); an unrecorded "
+                    f"lane reads as a passed lane."
+                )
+        errors.extend(_self_contradictory_records(self.records))
+        return errors
+
+    def print_block(self) -> LaneLedgerTotals:
+        for record in self.records:
+            print(_format_lane_result_line(record))
+        totals = self.totals()
+        # Printed UNCONDITIONALLY, including when advisory_failures=0, so that
+        # absence of output can never be read as absence of failures.
+        print(
+            f"[module-tests][lane-ledger] lanes={totals.lanes} "
+            f"strict_lanes={totals.strict_lanes} "
+            f"advisory_lanes={totals.advisory_lanes} "
+            f"advisory_failures={totals.advisory_failures} "
+            f"advisory_zero_coverage={totals.advisory_zero_coverage} "
+            f"quarantine_tolerated={totals.quarantine_tolerated} "
+            f"unavailable={totals.unavailable} "
+            f"quarantine_rejected={totals.quarantine_rejected} "
+            f"fail_outcomes={totals.fail_outcomes} "
+            f"run_ending_outcomes={totals.run_ending_outcomes} "
+            f"passed={totals.passed} "
+            f"not_run={totals.not_run}"
+        )
+        for record in self.records:
+            if record.is_advisory_red:
+                print(
+                    f"[module-tests][lane-ledger] ADVISORY-RED lane={record.lane} "
+                    f"reason={record.advisory_red_reason}"
+                )
+        return totals
+
+    def to_json(self, totals: LaneLedgerTotals, *, lane_loop_exit_code: int) -> dict:
+        return {
+            "schema_version": LANE_LEDGER_SCHEMA_VERSION,
+            "baseline_note": LANE_LEDGER_BASELINE_NOTE,
+            "generated_utc": datetime.now(timezone.utc).isoformat(),
+            # The value the LANE LOOP produced. Named narrowly on purpose, and
+            # the reason is about the FILE, not about this run's ordering
+            # (#822 round 10 corrected the earlier claim here, which had the
+            # order backwards): the integrity check runs BEFORE the write, so a
+            # ledger that fails it is never written, and a write that fails
+            # leaves the previous report in place. In both cases the process
+            # exits nonzero while this path holds an OLDER report whose
+            # lane_loop_exit_code describes a different run - so a reader must
+            # check generated_utc before treating any report as this run's.
+            # When the write does succeed, main() returns the lane loop's value
+            # unchanged. Calling the field "the run's exit code" would be the
+            # same over-claim as asserting CI exited 0.
+            "lane_loop_exit_code": lane_loop_exit_code,
+            "lanes": [record.to_json() for record in self.records],
+            "totals": totals.to_json(),
+        }
+
+
+def _lane_report_probe(path: Path, suffix: str) -> tuple[int, str]:
+    """Create a uniquely-named sibling of `path` in the SAME directory.
+
+    Sibling, not the destination itself, and same directory so the eventual
+    os.replace() stays on one filesystem. The caller owns the returned fd/name.
+    """
+    return tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=suffix)
+
+
+def _write_lane_report(path: Path, payload: dict) -> list[str]:
+    """Write the JSON ledger atomically. Returns integrity errors (never silent).
+
+    Serialize first, write to a sibling temp file, then os.replace() onto the
+    destination. Three failure modes are ruled out by that order:
+
+    - a payload that will not serialize never touches the filesystem at all;
+    - a write that dies half-way leaves the temp file, not a truncated report;
+    - the destination is either the OLD report or the NEW one, never an empty or
+      partial file.
+
+    That matters more here than for an ordinary output file: this report IS the
+    evidence, and the runner elsewhere treats an empty report as a red flag. A
+    writer that can replace a good measurement with an empty file manufactures
+    exactly that red flag while destroying the thing it was meant to preserve.
+
+    os.replace (NOT os.rename) is used deliberately: it is atomic on Windows and
+    overwrites an existing destination. The recorded non-atomic-rename hazard in
+    this repo is Godot's DirAccess::rename (remove-then-move); that is engine
+    code and does not apply to Python's os.replace.
+    """
+    try:
+        text = json.dumps(payload, indent=2, sort_keys=False) + "\n"
+    except (TypeError, ValueError) as exc:
+        return [
+            f"--lane-report payload for {path} is not serializable: "
+            f"{type(exc).__name__}: {exc}. The previous report (if any) was left "
+            f"untouched; refusing to report success for a run whose ledger was not "
+            f"persisted."
+        ]
+
+    handle = None
+    temp_name = None
+    try:
+        handle, temp_name = _lane_report_probe(path, ".tmp")
+        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+            handle = None  # now owned by the context manager
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp_name, str(path))
+        temp_name = None
+    except (OSError, ValueError) as exc:
+        return [
+            f"--lane-report could not be written to {path}: "
+            f"{type(exc).__name__}: {exc}. Refusing to report success for a run whose "
+            f"ledger was not persisted."
+        ]
+    finally:
+        if handle is not None:
+            with contextlib.suppress(OSError):
+                os.close(handle)
+        if temp_name is not None:
+            # The replace never happened; do not leave scratch beside the report.
+            with contextlib.suppress(OSError):
+                os.unlink(temp_name)
+
+    print(f"[module-tests][lane-ledger] wrote lane report to {path}")
+    return []
+
+
+def _preflight_lane_report_path(path: Path) -> list[str]:
+    """Refuse an unwritable --lane-report path BEFORE spending a full lane run on it.
+
+    NON-DESTRUCTIVE: the probe is a sibling temp file, never the destination. An
+    earlier version opened the destination itself in "w" mode, which truncated
+    the previous report at second zero -- so a run that was then interrupted, or
+    that failed the run-list integrity check before the write, replaced the last
+    valid measurement with an empty file. For a tool whose whole purpose is
+    producing trustworthy evidence, destroying good evidence to check that we
+    could have written some is the worst available failure mode.
+
+    The end-of-run write still fails closed on its own; this only moves the
+    diagnosis to second zero instead of after 26 lanes.
+    """
+    # WHAT THIS RULES OUT - and, just as importantly, what it does not.
+    #
+    # The sibling probe answers "can I create a file NEXT TO this path", which is
+    # a neighbouring question, not the one being asked. Two destination classes
+    # are invalid ALREADY and the probe structurally cannot observe either, so
+    # both used to surface only from os.replace() after every lane had run,
+    # defeating the entire purpose of a preflight:
+    #
+    #   - the destination is an existing directory (or any other non-regular
+    #     file): os.replace() onto it raises;
+    #   - the destination is an existing file this process may not write (the
+    #     Windows read-only attribute, a POSIX mode without write permission):
+    #     os.replace() onto a read-only file raises PermissionError on Windows.
+    #
+    # DELIBERATELY NOT CLAIMED: that a clean preflight means the write will
+    # succeed. A destination can be opened by another process without delete
+    # sharing (normal on Windows), have its permissions changed, or lose its
+    # parent directory between this check and the end-of-run write. Those are
+    # unavoidable time-of-check/time-of-use races; no probe can rule them out,
+    # and a preflight that implied otherwise would be making a false promise in
+    # exactly the cases someone relies on it. This rejects what is KNOWABLY
+    # invalid at second zero; the end-of-run write still fails closed for the
+    # rest, and both halves are needed.
+    if path.is_dir():
+        return [
+            f"--lane-report path is a directory: {path}. Name the JSON file to "
+            f"write, not the directory to write it into."
+        ]
+    if path.exists() and not path.is_file():
+        return [
+            f"--lane-report path exists and is not a regular file: {path}. "
+            f"os.replace() cannot replace it; name a regular file."
+        ]
+    # Rejected on EVERY platform, on purpose. On POSIX the rename could still
+    # succeed through the parent directory's permissions, so this is stricter
+    # than the OS: writing this run's evidence over a file the process is not
+    # permitted to write is not something to do silently, and naming the wrong
+    # destination is far cheaper to diagnose now than after 26 lanes.
+    if path.is_file() and not os.access(path, os.W_OK):
+        return [
+            f"--lane-report destination exists and is not writable: {path}. "
+            f"Replacing it would fail only after every lane had run; remove the "
+            f"read-only attribute or name a different file."
+        ]
+    handle = None
+    temp_name = None
+    try:
+        handle, temp_name = _lane_report_probe(path, ".probe")
+    except (OSError, ValueError) as exc:
+        return [
+            f"--lane-report path is not writable: {path} "
+            f"({type(exc).__name__}: {exc})."
+        ]
+    finally:
+        if handle is not None:
+            with contextlib.suppress(OSError):
+                os.close(handle)
+        if temp_name is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(temp_name)
+    return []
+
+
+def _declared_lane_names(run_gpu: bool) -> list[str]:
+    """Every lane `_build_module_test_runs()` is required to produce, in order.
+
+    Derived from the SAME two tables and the SAME `run_gpu` flag the builder
+    reads, so the expectation cannot drift from the construction. `run_gpu` is
+    required rather than defaulted: a default would let a caller silently ask
+    for the weaker headless-only expectation on a GPU run, which is the hole
+    this function exists to close.
+    """
+    names = [name for name, *_ in MODULE_TEST_FILTERS]
+    if run_gpu:
+        names.extend(name for name, *_ in REQUIRES_RD_TEST_FILTERS)
+    return names
+
+
+def _lane_runs_missing_from_module_filters(
+    test_runs: Iterable[TestRun], run_gpu: bool
+) -> list[str]:
+    """Assert the built run list covers the lane declaration tables themselves.
+
+    The ledger's totality guarantee is only worth as much as the list it is
+    seeded from. A lane that disappears between the declaration table and the
+    loop would produce a complete-looking ledger for an incomplete run, which is
+    the same "absence reads as success" defect one level up.
+
+    Both tables are checked. Until #822 round 11 only MODULE_TEST_FILTERS was,
+    so on a GPU run - the one configuration where REQUIRES_RD_TEST_FILTERS is
+    supposed to execute - deleting or breaking the `if run_gpu:` append in
+    `_build_module_test_runs()` left this check GREEN over a run that had
+    silently stopped attempting the GPU lanes. `run_gpu` is exactly what decides
+    whether those lanes are appended, and it is known at the call site, so it is
+    what decides whether they are required here.
+    """
+    run_names = {name for name, _args, _strict in test_runs}
+    missing = [name for name in _declared_lane_names(run_gpu) if name not in run_names]
+    if not missing:
+        return []
+    table = (
+        "MODULE_TEST_FILTERS/REQUIRES_RD_TEST_FILTERS"
+        if run_gpu
+        else "MODULE_TEST_FILTERS"
+    )
+    return [
+        f"lane(s) declared in {table} are absent from the built run list: "
+        + ", ".join(missing)
+    ]
 
 
 def _print_module_messages(messages: Iterable[str]) -> None:
@@ -2223,6 +2958,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_quarantine_manifest_guard,
             "Quarantine manifest guard failed.",
             "Quarantine manifest guard passed.",
+        ),
+        (
+            True,
+            _run_lane_ledger_guard,
+            "Lane-ledger guard failed.",
+            "Lane-ledger guard passed.",
         ),
         (
             True,
@@ -2928,46 +3669,221 @@ def _handle_quarantined_lane(
     )
 
 
+def _lane_counts_from_output(output: str) -> tuple[int, int, int, int, int, bool]:
+    """Doctest counts for the ledger, with UNKNOWN kept distinct from zero.
+
+    `_parse_doctest_results()` reports 0 for every count when it found no
+    summary. Passing that on would make "crashed before printing anything"
+    indistinguishable from "ran and passed nothing" -- the same
+    absence-reads-as-success confusion the ledger exists to remove. The skipped
+    marker count is a direct scan of the output and stays exact either way.
+    """
+    (
+        passed_tests,
+        failed_tests,
+        passed_asserts,
+        failed_asserts,
+        skipped_markers,
+        summary_found,
+    ) = _parse_doctest_results(output)
+    if not summary_found:
+        return (
+            LANE_COUNT_UNKNOWN,
+            LANE_COUNT_UNKNOWN,
+            LANE_COUNT_UNKNOWN,
+            LANE_COUNT_UNKNOWN,
+            skipped_markers,
+            False,
+        )
+    return passed_tests, failed_tests, passed_asserts, failed_asserts, skipped_markers, True
+
+
+def _execute_lane(
+    godot: str,
+    name: str,
+    run_args: list[str],
+    strict: bool,
+    tests_unavailable_mode: str,
+    allow_tests_unavailable: bool,
+    quarantine: dict[str, list[dict]],
+    totals: DoctestTotals,
+) -> tuple[int | None, LaneResult]:
+    """Run ONE lane. Returns (exit code to abort on or None, ledger result).
+
+    The return type is the totality mechanism: every control-flow path must
+    hand back a LaneResult, so a future `return 1` that forgets the ledger is a
+    loud unpacking error rather than a silently missing lane. Baseline
+    behaviour -- every printed message and every exit code -- is unchanged; this
+    function only *observes* what the baseline already decided.
+    """
+    run_result = _run_godot(godot, run_args)
+    ok, skipped, output = run_result
+    raw_returncode = getattr(run_result, "returncode", None)
+    # The availability is carried, not encoded into the value: -1 is a return
+    # code POSIX processes really produce (SIGHUP), so a lane whose process was
+    # signalled and a lane for which no return code exists would otherwise be
+    # the same record. See LaneResult.exit_code_reported.
+    exit_code_reported = raw_returncode is not None
+    lane_exit_code = LANE_COUNT_UNKNOWN if raw_returncode is None else int(raw_returncode)
+    (
+        passed_tests,
+        failed_tests,
+        passed_asserts,
+        failed_asserts,
+        skipped_markers,
+        summary_found,
+    ) = _lane_counts_from_output(output)
+
+    # EXECUTED coverage is passed + failed, never passed alone. A lane in which
+    # every test fails has both PASSED counts at zero while having executed the
+    # most coverage of any shape there is; deriving "nothing ran" from the passed
+    # counts would file the maximally-informative case under "no coverage" - the
+    # exact inverse of what this field exists to expose, and it would read as an
+    # improvement to any future ratchet armed on it (#822 round 4).
+    executed_tests = LANE_COUNT_UNKNOWN if not summary_found else passed_tests + failed_tests
+    executed_assertions = (
+        LANE_COUNT_UNKNOWN if not summary_found else passed_asserts + failed_asserts
+    )
+
+    def result(outcome: str, detail: str) -> LaneResult:
+        return LaneResult(
+            outcome=outcome,
+            exit_code=lane_exit_code,
+            exit_code_reported=exit_code_reported,
+            summary_reported=summary_found,
+            zero_coverage=(
+                None
+                if not summary_found
+                else not (executed_tests > 0 and executed_assertions > 0)
+            ),
+            passed_tests=passed_tests,
+            failed_tests=failed_tests,
+            passed_assertions=passed_asserts,
+            failed_assertions=failed_asserts,
+            skipped_markers=skipped_markers,
+            detail=detail,
+        )
+
+    if skipped:
+        if not _report_unavailable_lane(name, output, tests_unavailable_mode, allow_tests_unavailable):
+            return 1, result(
+                LANE_OUTCOME_UNAVAILABLE,
+                "binary does not support --test and strict tests-unavailable mode failed the run",
+            )
+        totals.lanes_unavailable += 1
+        return None, result(
+            LANE_OUTCOME_UNAVAILABLE, "binary does not support --test; lane skipped"
+        )
+
+    lane_entries = quarantine.get(name)
+    if lane_entries:
+        exit_code = _handle_quarantined_lane(name, strict, ok, output, lane_entries, totals)
+        if exit_code is not None:
+            return exit_code, result(
+                LANE_OUTCOME_QUARANTINE_REJECTED,
+                "quarantine entry not honoured; see the [module-tests][QUARANTINE*] line above",
+            )
+        return None, result(
+            LANE_OUTCOME_QUARANTINE_TOLERATED,
+            "known failure tolerated by tests/ci/quarantine_manifest.json",
+        )
+
+    if not ok:
+        if _report_failed_lane(name, strict, output):
+            return None, result(
+                LANE_OUTCOME_ADVISORY_FAIL,
+                "advisory lane failed or crashed; this outcome did not itself fail the run",
+            )
+        return 1, result(LANE_OUTCOME_FAIL, "strict lane failed or crashed")
+
+    stats = _validate_successful_lane(name, strict, output)
+    if stats is None:
+        return 1, result(
+            LANE_OUTCOME_FAIL,
+            "exit 0, but the doctest summary was missing, reported failures, or the lane "
+            "violated the strict-CI skipped-marker policy",
+        )
+    totals.add_lane_stats(stats)
+    if stats.has_executed_coverage:
+        _print_lane_passed(name, stats)
+        return None, result(LANE_OUTCOME_PASS, "passed with executed coverage")
+    # Only an advisory lane can reach here: _handle_no_executed_coverage()
+    # returns None (-> FAIL above) for a strict lane with no executed coverage.
+    return None, result(
+        LANE_OUTCOME_ADVISORY_NO_COVERAGE,
+        # Passed counts are the right basis HERE and only here: this path is
+        # reached solely when _validate_successful_lane() has already
+        # established failed_tests == failed_assertions == 0, so passed IS the
+        # executed total. The ledger's own zero_coverage field cannot make that
+        # assumption, because it also describes failing lanes.
+        "advisory lane executed no coverage (0 passed tests or 0 passed assertions, "
+        "with no failures on this path)",
+    )
+
+
 def _run_doctest_lanes(
     godot: str,
     test_runs: Iterable[TestRun],
     tests_unavailable_mode: str,
     allow_tests_unavailable: bool,
+    lane_report_path: Path | None = None,
 ) -> int:
+    runs = list(test_runs)
     totals = DoctestTotals()
+    ledger = LaneLedger((name, strict) for name, _run_args, strict in runs)
     quarantine = _load_quarantine()
-    for name, run_args, strict in test_runs:
+    exit_code = 0
+    attempted_lanes = 0
+    for index, (name, run_args, strict) in enumerate(runs):
         totals.lanes += 1
-        ok, skipped, output = _run_godot(godot, run_args)
-        if skipped:
-            if not _report_unavailable_lane(name, output, tests_unavailable_mode, allow_tests_unavailable):
-                return 1
-            totals.lanes_unavailable += 1
-            continue
+        attempted_lanes += 1
+        lane_exit_code, lane_result = _execute_lane(
+            godot,
+            name,
+            run_args,
+            strict,
+            tests_unavailable_mode,
+            allow_tests_unavailable,
+            quarantine,
+            totals,
+        )
+        ledger.record(index, lane_result, ended_run=lane_exit_code is not None)
+        if lane_exit_code is not None:
+            exit_code = lane_exit_code
+            break
+    else:
+        _print_doctest_totals(totals)
 
-        lane_entries = quarantine.get(name)
-        if lane_entries:
-            exit_code = _handle_quarantined_lane(
-                name, strict, ok, output, lane_entries, totals
+    ledger_totals = ledger.print_block()
+    integrity_errors = ledger.check_integrity(attempted_lanes=attempted_lanes)
+    if lane_report_path is not None:
+        if integrity_errors:
+            # The atomic write guarantees the destination is never empty or
+            # partial; it does NOT decide whether this ledger is worth keeping.
+            # A ledger that failed its own integrity check is known-untrustworthy,
+            # so overwriting the last valid measurement with it destroys good
+            # evidence in favour of bad - the same trade the round-2 preflight fix
+            # refused. The full block is on stdout above either way.
+            print(
+                f"[module-tests][lane-ledger][INTEGRITY] refusing to write "
+                f"{lane_report_path}: this ledger failed its own integrity check "
+                f"(see the lines below). Any previous report at that path is left "
+                f"untouched; the full block is on stdout above."
             )
-            if exit_code is not None:
-                return exit_code
-            continue
-
-        if not ok:
-            if _report_failed_lane(name, strict, output):
-                continue
-            return 1
-
-        stats = _validate_successful_lane(name, strict, output)
-        if stats is None:
-            return 1
-        totals.add_lane_stats(stats)
-        if stats.has_executed_coverage:
-            _print_lane_passed(name, stats)
-
-    _print_doctest_totals(totals)
-    return 0
+        else:
+            integrity_errors.extend(
+                _write_lane_report(
+                    lane_report_path,
+                    ledger.to_json(ledger_totals, lane_loop_exit_code=exit_code),
+                )
+            )
+    if integrity_errors:
+        # The ledger gates no TEST outcome, but it must not report success for a
+        # run whose own record is incomplete or unpersisted.
+        for message in integrity_errors:
+            print(f"[module-tests][lane-ledger][INTEGRITY] {message}")
+        return exit_code if exit_code != 0 else 1
+    return exit_code
 
 
 def _parse_args() -> argparse.Namespace:
@@ -3012,7 +3928,23 @@ def _parse_args() -> argparse.Namespace:
             f"Equivalent to setting {GS_RUN_GPU_TESTS_ENV}=1."
         ),
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--lane-report",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Write the per-lane result ledger (#705) as JSON to PATH. Optional; "
+            "omitting it changes nothing. The file is a build output and must stay "
+            "untracked. Rejected together with --guard-only, where it could only "
+            "produce an empty report."
+        ),
+    )
+    args = parser.parse_args()
+    if args.lane_report is not None and args.guard_only:
+        # An empty ledger from a run that executed no lane reads as "no lane
+        # failed". Refuse rather than emit it.
+        parser.error("--lane-report cannot be combined with --guard-only: no lane runs.")
+    return args
 
 
 def main() -> int:
@@ -3042,12 +3974,29 @@ def main() -> int:
         f"{' (explicit override enabled)' if allow_tests_unavailable else ''}."
     )
 
+    lane_report_path: Path | None = None
+    if cli_args.lane_report is not None:
+        lane_report_path = Path(cli_args.lane_report)
+        preflight_errors = _preflight_lane_report_path(lane_report_path)
+        if preflight_errors:
+            for message in preflight_errors:
+                print(f"[module-tests][lane-ledger][INTEGRITY] {message}")
+            return 1
+
     run_gpu = os.environ.get(GS_RUN_GPU_TESTS_ENV, "0") == "1" or cli_args.gpu
+    test_runs = _build_module_test_runs(run_gpu)
+    coverage_errors = _lane_runs_missing_from_module_filters(test_runs, run_gpu)
+    if coverage_errors:
+        for message in coverage_errors:
+            print(f"[module-tests][lane-ledger][INTEGRITY] {message}")
+        return 1
+
     return _run_doctest_lanes(
         godot,
-        _build_module_test_runs(run_gpu),
+        test_runs,
         tests_unavailable_mode,
         allow_tests_unavailable,
+        lane_report_path,
     )
 
 
