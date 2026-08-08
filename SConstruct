@@ -768,7 +768,18 @@ elif methods.using_clang(env) or methods.using_emcc(env):
 env.AppendUnique(CCFLAGS=["$OPTIMIZELEVEL"])
 if env.msvc:
     if env["debug_symbols"]:
-        env.AppendUnique(CCFLAGS=["/Zi", "/FS"])
+        # /Z7 keeps debug info INSIDE each .obj instead of writing it to a
+        # separate .pdb (/Zi). That matters for cached builds: SCons caches the
+        # object but not the PDB it points at, so a /Zi object restored from the
+        # cache references a PDB that does not exist on that machine. The link
+        # then emits LNK4099 for every such object and aborts with
+        # STATUS_ILLEGAL_INSTRUCTION (0xC000001D) while assembling debug info.
+        # Linux is unaffected because DWARF already lives in the object, which is
+        # why only the Windows cached lanes broke. /Z7 gives MSVC the same
+        # property; the linker still produces a PDB from the embedded info, so
+        # /DEBUG:FULL and symbolized crash dumps are unchanged.
+        # /FS is unnecessary with /Z7 (nothing serializes to a shared PDB).
+        env.AppendUnique(CCFLAGS=["/Z7"])
         env.AppendUnique(LINKFLAGS=["/DEBUG:FULL"])
     else:
         env.AppendUnique(LINKFLAGS=["/DEBUG:NONE"])
