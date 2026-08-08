@@ -267,6 +267,11 @@ private:
         GaussianSplatDebugHUD *control = nullptr;
     };
     HashMap<ObjectID, ProjectedDebugHUD> projected_debug_huds;
+    // #839 round 10 (finding 1): the projected CanvasLayers hang off this
+    // dedicated child instead of off the node itself, because the node itself is
+    // BLOCKED (Node::data.blocked) exactly when the teardown callbacks fire. See
+    // the block comment on _ensure_projected_debug_hud_host().
+    Node *projected_debug_hud_host = nullptr;
 
     GaussianSplatNodeAssetHelper asset_helper;
     GaussianSplatNodeViewportHelper viewport_helper;
@@ -348,6 +353,10 @@ private:
     void _create_projected_debug_hud(ObjectID p_viewport_id);
     void _destroy_projected_debug_hud(ObjectID p_viewport_id);
     void _destroy_projected_debug_huds();
+    // #839 round 10 (finding 1): the parent that projected layers are added to
+    // and removed from. Never `this`: see the block comment at the definition.
+    Node *_ensure_projected_debug_hud_host();
+    void _destroy_projected_debug_hud_host();
     // A projected HUD's CanvasLayer holds a raw Viewport* (CanvasLayer::vp) that
     // it dereferences on its own NOTIFICATION_EXIT_TREE, so the layer MUST be
     // torn down while its target viewport is still alive. Node::tree_exiting

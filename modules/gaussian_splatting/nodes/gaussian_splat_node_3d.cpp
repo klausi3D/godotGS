@@ -394,6 +394,12 @@ void GaussianSplatNode3D::_notification_exit_tree() {
     // dereference on its own EXIT_TREE, and leaving the tree is the point at
     // which this node stops being anybody's projector.
     _destroy_projected_debug_huds();
+    // #839 round 10 (finding 1): the host is added to and removed from THIS node,
+    // and this is the one callback where that is provably safe --
+    // Node::_propagate_exit_tree() lowers data.blocked before it notifies
+    // NOTIFICATION_EXIT_TREE, so `this` is never blocked here (a strict ancestor
+    // may be, which is irrelevant: we only touch our own children).
+    _destroy_projected_debug_hud_host();
     visible_in_viewport = false;
     _update_visibility();
     _clear_parent_visibility_tracking();
@@ -2189,6 +2195,36 @@ void GaussianSplatNode3D::_ensure_renderer() {
     renderer_helper.ensure_renderer();
 }
 
+// #839 round 10 (finding 1): never memdelete a debug-HUD node whose parent
+// refused to unparent it.
+//
+// Node::remove_child() ERR_FAIL_CONDs while the parent has data.blocked > 0
+// (scene/main/node.cpp), and so does the remove_child() that
+// NOTIFICATION_PREDELETE performs on memdelete()'s behalf -- so freeing anyway
+// leaves the parent's data.children holding a pointer to freed memory, which the
+// rest of the teardown can traverse (_propagate_exit_tree walks that same map) or
+// memdelete a second time (PREDELETE's "kill children as cleanly as possible"
+// loop). That is a use-after-free, and it is silent.
+//
+// The callers below are structured so the refusal cannot happen (see
+// _ensure_projected_debug_hud_host()). This is the fail-safe that keeps a mistake
+// in that structure a loud leak instead of a use-after-free.
+static bool _detach_and_free_debug_hud_node(Node *p_node) {
+    if (!p_node) {
+        return false;
+    }
+    if (Node *parent = p_node->get_parent()) {
+        parent->remove_child(p_node);
+        if (p_node->get_parent() != nullptr) {
+            ERR_PRINT("GaussianSplatNode3D: a debug HUD node could not be unparented (parent is blocked); "
+                      "leaking it rather than leaving a dangling child entry behind.");
+            return false;
+        }
+    }
+    memdelete(p_node);
+    return true;
+}
+
 void GaussianSplatNode3D::_ensure_debug_hud_control() {
     if (debug_hud_control) {
         return;
@@ -2215,20 +2251,18 @@ void GaussianSplatNode3D::_destroy_debug_hud_control() {
         debug_hud_control->set_splat_node(nullptr);
         debug_hud_control->set_visible(false);
         debug_hud_control->set_process(false);
-        Node *parent = debug_hud_control->get_parent();
-        if (parent) {
-            parent->remove_child(debug_hud_control);
-        }
-        memdelete(debug_hud_control);
+        // #839 round 10 (finding 1): this path is also reached from a PEER's
+        // exit-time reconcile fan-out (_notify_debug_hud_dirty_for_renderer,
+        // GaussianSplatNodeDebugHelper::reconcile_debug_overlay_union_for_renderer),
+        // where `this` can be a strict ancestor of the peer that is leaving and is
+        // therefore blocked. The layer's own parent is `this`, so the free must
+        // not proceed on a refused unparent.
+        _detach_and_free_debug_hud_node(debug_hud_control);
         debug_hud_control = nullptr;
     }
 
     if (debug_hud_layer) {
-        Node *parent = debug_hud_layer->get_parent();
-        if (parent) {
-            parent->remove_child(debug_hud_layer);
-        }
-        memdelete(debug_hud_layer);
+        _detach_and_free_debug_hud_node(debug_hud_layer);
         debug_hud_layer = nullptr;
     }
 }
@@ -2364,6 +2398,14 @@ void GaussianSplatNode3D::_create_projected_debug_hud(ObjectID p_viewport_id) {
         return;
     }
 
+    // #839 round 10 (finding 1): resolved BEFORE anything is allocated, so a
+    // refused host add leaks nothing and simply leaves the HUD to the next
+    // reconcile.
+    Node *host = _ensure_projected_debug_hud_host();
+    if (!host) {
+        return;
+    }
+
     ProjectedDebugHUD projected;
     projected.layer = memnew(CanvasLayer);
     // Deliberately NOT "GaussianSplatDebugHUDLayer": that name is the observable
@@ -2380,7 +2422,8 @@ void GaussianSplatNode3D::_create_projected_debug_hud(ObjectID p_viewport_id) {
     projected.control->set_splat_node(this);
     projected.control->set_anchors_and_offsets_preset(Control::PRESET_FULL_RECT);
 
-    add_child(projected.layer);
+    // #839 round 10 (finding 1): the host, never `this`.
+    host->add_child(projected.layer);
     projected.layer->add_child(projected.control);
     projected.control->set_visible(true);
     projected.control->set_process(true);
@@ -2416,17 +2459,11 @@ void GaussianSplatNode3D::_destroy_projected_debug_hud(ObjectID p_viewport_id) {
         projected->control->set_splat_node(nullptr);
         projected->control->set_visible(false);
         projected->control->set_process(false);
-        if (Node *parent = projected->control->get_parent()) {
-            parent->remove_child(projected->control);
-        }
-        memdelete(projected->control);
+        _detach_and_free_debug_hud_node(projected->control);
         projected->control = nullptr;
     }
     if (projected->layer) {
-        if (Node *parent = projected->layer->get_parent()) {
-            parent->remove_child(projected->layer);
-        }
-        memdelete(projected->layer);
+        _detach_and_free_debug_hud_node(projected->layer);
         projected->layer = nullptr;
     }
 
@@ -2443,6 +2480,70 @@ void GaussianSplatNode3D::_destroy_projected_debug_huds() {
     }
     for (uint32_t i = 0; i < viewport_ids.size(); i++) {
         _destroy_projected_debug_hud(viewport_ids[i]);
+    }
+}
+
+// #839 round 10 (finding 1): WHY the projected layers hang off a dedicated child
+// of this node instead of off this node directly.
+//
+// Node::_propagate_exit_tree() (scene/main/node.cpp) raises data.blocked on a
+// node BEFORE recursing into its children and lowers it only after that loop, so
+// at the instant a node emits `tree_exiting` every STRICT ANCESTOR of it is
+// blocked -- itself is not, and neither is anything outside its ancestor chain.
+// Node::remove_child() ERR_FAIL_CONDs on data.blocked > 0, and so does the
+// remove_child() that NOTIFICATION_PREDELETE performs on memdelete()'s behalf.
+//
+// _destroy_projected_debug_hud() runs from exactly such callbacks:
+//   - the target viewport's own `tree_exiting`, and that SubViewport may well be
+//     a DESCENDANT of this node (a minimap/secondary camera parented under the
+//     splat node is the ordinary case), which makes this node a strict ancestor;
+//   - a peer's exit-time reconcile fan-out
+//     (_notify_debug_hud_dirty_for_renderer,
+//     GaussianSplatNodeDebugHelper::reconcile_debug_overlay_union_for_renderer),
+//     where this node can be a strict ancestor of the peer that is leaving.
+// With the layer parented to this node, both unparent AND free would be refused
+// while the free happened anyway, leaving a dangling pointer in this node's
+// data.children for the rest of the teardown to traverse or free twice.
+//
+// The host removes the hazard by CONSTRUCTION rather than by ordering: its only
+// children are CanvasLayers this node creates, so no Viewport and no peer node
+// can ever be its descendant, so it is never a strict ancestor of anything whose
+// `tree_exiting` reaches here, so it is never blocked when those callbacks fire.
+// The one operation that does touch `this` -- adding and removing the host -- is
+// confined to a creation path that checks whether it was refused, and to
+// NOTIFICATION_EXIT_TREE, where `this` is provably unblocked.
+Node *GaussianSplatNode3D::_ensure_projected_debug_hud_host() {
+    if (projected_debug_hud_host) {
+        return projected_debug_hud_host;
+    }
+    if (!is_inside_tree()) {
+        return nullptr;
+    }
+
+    Node *host = memnew(Node);
+    host->set_name("GaussianSplatProjectedDebugHUDs");
+    add_child(host);
+    if (host->get_parent() != this) {
+        // add_child() refuses while this node is blocked. Record nothing: a
+        // half-created projection would never be retried, because the reconcile
+        // treats a present map entry as "already done".
+        memdelete(host);
+        return nullptr;
+    }
+
+    projected_debug_hud_host = host;
+    return projected_debug_hud_host;
+}
+
+void GaussianSplatNode3D::_destroy_projected_debug_hud_host() {
+    if (!projected_debug_hud_host) {
+        return;
+    }
+    // Keep the pointer when the free was refused: the host is still parented and
+    // still usable, and it goes down with this node in any case. Dropping it would
+    // leak a second one on the next projection.
+    if (_detach_and_free_debug_hud_node(projected_debug_hud_host)) {
+        projected_debug_hud_host = nullptr;
     }
 }
 

@@ -25,6 +25,9 @@
 #include "core/math/math_funcs.h"
 #include "core/config/project_settings.h"
 #include "core/error/error_list.h"
+// #839 round 10 (finding 1): ErrorHandlerList / add_error_handler, used by
+// ScopedEngineErrorCapture below to observe a refused Node::remove_child().
+#include "core/error/error_macros.h"
 #include "core/templates/hash_set.h"
 #include "core/templates/local_vector.h"
 #include "core/templates/list.h"
@@ -231,6 +234,89 @@ int count_debug_hud_controls_in_viewport(Node *p_search_root, const Viewport *p_
     }
     return count;
 }
+
+// #839 round 10 (finding 1): the CanvasLayer that draws a debug HUD into
+// p_viewport, found the same viewport-side way count_debug_hud_controls_in_viewport()
+// counts them, so the caller can inspect WHERE it is parented without the test
+// having to know how the module chose to parent it.
+CanvasLayer *find_debug_hud_layer_in_viewport(Node *p_search_root, const Viewport *p_viewport) {
+    if (p_search_root == nullptr || p_viewport == nullptr) {
+        return nullptr;
+    }
+    const RID viewport_rid = p_viewport->get_viewport_rid();
+    if (!viewport_rid.is_valid()) {
+        return nullptr;
+    }
+    List<Node *> pending;
+    pending.push_back(p_search_root);
+    while (!pending.is_empty()) {
+        Node *node = pending.front()->get();
+        pending.pop_front();
+        if (node == nullptr) {
+            continue;
+        }
+        for (int i = 0; i < node->get_child_count(); i++) {
+            pending.push_back(node->get_child(i));
+        }
+        CanvasLayer *layer = Object::cast_to<CanvasLayer>(node);
+        if (layer == nullptr || layer->get_viewport() != viewport_rid) {
+            continue;
+        }
+        for (int i = 0; i < layer->get_child_count(); i++) {
+            if (Object::cast_to<GaussianSplatDebugHUD>(layer->get_child(i)) != nullptr) {
+                return layer;
+            }
+        }
+    }
+    return nullptr;
+}
+
+// #839 round 10 (finding 1): counts engine ERRORS emitted while it is in scope.
+//
+// The defect it discriminates is a refused Node::remove_child() -- an
+// ERR_FAIL_COND_MSG, which reports through Godot's ErrorHandlerList and returns
+// rather than crashing at the call site. So the emission itself is the
+// observable, and it is one that can be read without touching the freed memory
+// the refusal leaves behind. Warnings are excluded: only ERR_HANDLER_ERROR.
+struct ScopedEngineErrorCapture : public ErrorHandlerList {
+    Vector<String> messages;
+
+    static void _handler(void *p_userdata, const char *, const char *, int, const char *p_error,
+            const char *p_message, bool, ErrorHandlerType p_type) {
+        if (p_type != ERR_HANDLER_ERROR) {
+            return;
+        }
+        ScopedEngineErrorCapture *self = static_cast<ScopedEngineErrorCapture *>(p_userdata);
+        String message;
+        if (p_error && p_error[0]) {
+            message = String::utf8(p_error);
+        }
+        if (p_message && p_message[0]) {
+            message += String(" | ") + String::utf8(p_message);
+        }
+        self->messages.push_back(message);
+    }
+
+    ScopedEngineErrorCapture() {
+        errfunc = _handler;
+        userdata = this;
+        add_error_handler(this);
+    }
+    ~ScopedEngineErrorCapture() {
+        remove_error_handler(this);
+    }
+
+    String joined() const {
+        String out;
+        for (int i = 0; i < messages.size(); i++) {
+            if (i > 0) {
+                out += " // ";
+            }
+            out += messages[i];
+        }
+        return out;
+    }
+};
 
 Ref<ColorGradingResource> make_color_grading_resource() {
     Ref<ColorGradingResource> grading;
@@ -2891,6 +2977,166 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] A camera-only SubVi
     memdelete(node_a2);
     memdelete(node_a1);
     memdelete(viewport_hosted);
+}
+
+// #839 round 10, finding 1: a projected HUD whose target SubViewport is a
+// DESCENDANT of the projector node.
+//
+// scene/main/node.cpp Node::_propagate_exit_tree() raises data.blocked on a node
+// BEFORE recursing into its children and lowers it only after that loop, so at
+// the instant a node emits `tree_exiting` every STRICT ANCESTOR of it is blocked.
+// Node::remove_child() ERR_FAIL_CONDs on data.blocked > 0, and so does the
+// remove_child() that NOTIFICATION_PREDELETE performs on memdelete()'s behalf.
+//
+// Round 9 tears the projected layer down from the target viewport's
+// `tree_exiting` and parented that layer to the projector itself, so a
+// SubViewport nested under the projector -- the ordinary minimap /
+// secondary-camera parenting -- made the unparent AND the free fail while the
+// layer was freed anyway, leaving the projector's data.children holding a pointer
+// to freed memory that the remaining teardown traverses (_propagate_exit_tree
+// walks that same map) or frees a second time (PREDELETE's kill-children loop).
+//
+// Two discriminators, in this order:
+//   1. structural, taken while everything is alive: the parent that
+//      remove_child() will be called on must not be an ancestor of the target
+//      viewport, since that is exactly the condition under which it is blocked.
+//      This states the safety property, not the implementation: any parenting
+//      that satisfies it is safe.
+//   2. behavioural: taking the nested viewport out of the tree must emit no
+//      engine error. A refused remove_child() is an ERR_FAIL_COND_MSG, so its
+//      emission is the observable -- and unlike the corrupted child list it
+//      leaves behind, it can be read without touching freed memory.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] A projected debug HUD unparents safely when its target SubViewport is nested under the projector") {
+    // #656: REQUIRE does not abort in this build (disable_exceptions=True), so
+    // guard-then-return rather than dereferencing after a REQUIRE.
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    if (!project_settings) {
+        FAIL("ProjectSettings singleton required");
+        return;
+    }
+    ProjectSettingGuard hud_guard(project_settings, "rendering/gaussian_splatting/debug/show_performance_hud");
+
+    SubViewport *viewport_hosted = memnew(SubViewport);
+    viewport_hosted->set_size(Size2i(64, 64));
+    root->add_child(viewport_hosted);
+
+    GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+    node->set_splat_asset(make_single_splat_asset(0.0f));
+    node->set_show_performance_hud(false);
+    node->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    viewport_hosted->add_child(node);
+
+    // The discriminating topology: the projection TARGET is a descendant of the
+    // projector, which is what makes the projector blocked while the target emits
+    // `tree_exiting`.
+    SubViewport *nested = memnew(SubViewport);
+    nested->set_size(Size2i(64, 64));
+    node->add_child(nested);
+    Camera3D *camera = memnew(Camera3D);
+    nested->add_child(camera);
+    tree->process(0.0);
+
+    // Round-8 vacuity trap: get_renderer() runs _ensure_renderer(), which can
+    // repair the very state the discriminators observe, so every resolve happens
+    // HERE, before the HUD is asked for.
+    Ref<GaussianSplatRenderer> renderer = node->get_renderer();
+    const Ref<World3D> node_world = node->get_world_3d();
+    // #595: no environment skip -- a skip is scored as a PASS.
+    const bool renderer_ok = renderer.is_valid();
+    const bool same_world = node_world.is_valid() && nested->find_world_3d().ptr() == node_world.ptr();
+    const bool camera_is_active = nested->get_camera_3d() == camera;
+    const bool nested_under_node = node->is_ancestor_of(nested);
+    const bool camera_only = nested->get_child_count() == 1;
+
+    auto teardown = [&]() {
+        if (nested) {
+            node->remove_child(nested);
+            memdelete(nested);
+            nested = nullptr;
+            camera = nullptr;
+        }
+        viewport_hosted->remove_child(node);
+        root->remove_child(viewport_hosted);
+        memdelete(node);
+        memdelete(viewport_hosted);
+    };
+
+    if (!renderer_ok || !same_world || !camera_is_active || !nested_under_node || !camera_only) {
+        FAIL("premise: the splat node must resolve a renderer, and the nested SubViewport must be its descendant, inherit its World3D and have an active Camera3D as its only child");
+        teardown();
+        return;
+    }
+
+    CHECK_FALSE(renderer->is_debug_hud_source_active());
+    CHECK(count_debug_hud_controls_in_viewport(root, nested) == 0);
+
+    node->set_show_performance_hud(true);
+
+    const int hud_in_nested = count_debug_hud_controls_in_viewport(root, nested);
+    const int hud_in_hosted = count_debug_hud_controls_in_viewport(root, viewport_hosted);
+    // Premises, re-checked at the moment the counts were taken so the RED run
+    // demonstrably reaches the branch under test: the renderer is asking for a
+    // HUD, the nested viewport really has a projected one to tear down, and the
+    // round-6 "exactly one per viewport" invariant still holds.
+    CHECK(renderer->is_debug_hud_source_active());
+    CHECK(hud_in_nested == 1);
+    CHECK(hud_in_hosted == 1);
+
+    // Discriminator 1: structural, and no freed memory is involved in reading it.
+    CanvasLayer *projected_layer = find_debug_hud_layer_in_viewport(root, nested);
+    if (!projected_layer) {
+        FAIL("premise: a CanvasLayer must be attached to the nested viewport while the HUD is on");
+        teardown();
+        return;
+    }
+    Node *layer_parent = projected_layer->get_parent();
+    if (!layer_parent) {
+        FAIL("premise: the projected layer must be inside the tree");
+        teardown();
+        return;
+    }
+    CHECK_FALSE(layer_parent->is_ancestor_of(nested));
+    // Ownership is unchanged from round 9: the layer still lives in the
+    // projector's own subtree, just not directly under the projector.
+    CHECK(node->is_ancestor_of(projected_layer));
+    projected_layer = nullptr;
+    layer_parent = nullptr;
+
+    // Discriminator 2: behavioural. This is the call that blocks the projector.
+    int errors_during_teardown = 0;
+    String error_text;
+    {
+        ScopedEngineErrorCapture errors;
+        node->remove_child(nested);
+        errors_during_teardown = errors.messages.size();
+        error_text = errors.joined();
+    }
+    CHECK_MESSAGE(errors_during_teardown == 0,
+            "removing the nested target viewport must emit no engine error, got: ",
+            error_text);
+
+    memdelete(nested); // takes the Camera3D with it
+    nested = nullptr;
+    camera = nullptr;
+
+    // The projection went down with its viewport, and the native HUD in the
+    // hosting viewport is untouched.
+    CHECK(count_debug_hud_controls_in_viewport(root, viewport_hosted) == 1);
+
+    node->set_show_performance_hud(false);
+    CHECK(count_debug_hud_controls_in_viewport(root, viewport_hosted) == 0);
+
+    teardown();
 }
 
 TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Detached node reclaims retained renderer debug settings on re-entry") {

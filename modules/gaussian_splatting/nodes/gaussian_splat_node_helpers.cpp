@@ -1049,6 +1049,20 @@ bool GaussianSplatNodeDebugHelper::can_own_debug_hud() const {
 // active: GaussianSplatNode3D::_update_projected_debug_huds() checks
 // GaussianSplatRenderer::is_debug_hud_source_active() before calling, the same
 // short-circuit _update_debug_hud_visibility() uses for can_own_debug_hud().
+//
+// KNOWN LIMITATION, tracked as #848 (#839 round 10, finding 2): WHEN this runs is
+// the reach the #831 overlay reconcile already had -- node setters, renderer-side
+// debug writes, tree/world entry and exit, and the peer fan-out those trigger.
+// None of those observe VIEWPORT topology, so while a HUD is already up and every
+// splat node is in UPDATE_MODE_MANUAL, adding a camera-only SubViewport, changing
+// a viewport's resolved World3D, or removing/replacing its Camera3D does not
+// re-run this collection: a newly eligible viewport stays without a HUD and an
+// ineligible one keeps the HUD it has until anything else pokes the overlay
+// system. Diagnostics-only, and it converges on the next reconcile of any kind.
+// Not fixed here because the obvious trigger, SceneTree::tree_changed, is emitted
+// from INSIDE Node::_propagate_enter_tree()/_propagate_exit_tree() -- exactly the
+// data.blocked windows that round 10 had to make the teardown path safe against
+// -- so it needs a deferred, coalesced reconcile point rather than a new signal.
 void GaussianSplatNodeDebugHelper::collect_debug_hud_projection_viewports(LocalVector<ObjectID> &r_viewport_ids) const {
     r_viewport_ids.clear();
     if (!owner.renderer.is_valid()) {
