@@ -73,6 +73,13 @@ public:
         // result can only mean OOM -- the case the merge guard must refuse rather
         // than paper over with the (0,1,0) default.
         TEST_GETTER_FAILURE_NORMALS,
+        // get_spherical_harmonics_buffer() output allocation failed. This is the
+        // LARGEST output of the structured-getter family -- splat_count * (1 +
+        // first_order + high_order) * 3 floats -- so it is the one that realistically
+        // fails first, and it is the only member whose expected length is not simply
+        // splat_count. populate_gaussian_data() must therefore size its check off the
+        // SH term counts, not off the splat count, which this shape is what proves.
+        TEST_GETTER_FAILURE_SPHERICAL_HARMONICS,
     };
 #endif
 

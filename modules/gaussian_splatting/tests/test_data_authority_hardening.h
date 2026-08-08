@@ -1081,4 +1081,165 @@ TEST_CASE("[GaussianSplatting][DataAuthority] A failed lane SHRINK that leaves t
     }
 }
 
+// ---------------------------------------------------------------------------
+// #798 review round 6 -- the MATERIALIZATION path's failure contract.
+//
+// Rounds 2-5 closed this defect shape on the merge path and on the asset REWRITE
+// path. populate_gaussian_data() -- the read path that get_gaussian_data() caches
+// and that the scene director's DYNAMIC branch installs -- had the same hole: the
+// structured getters report an allocation failure by returning the EMPTY array,
+// every GaussianData setter that consumes them is `void` and rejects a size
+// mismatch with a bare ERR_FAIL_COND, and the function returned true regardless.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// sh_dc is deliberately NOT the Color(1, 1, 1, 1) that GaussianData::resize()
+// writes into a fresh gaussian. That difference is the whole point: it is what
+// makes "materialization reported success but the SH lane never landed" observable
+// instead of invisible. Same role the (1,0,0) normal plays for the merge case.
+LocalVector<Gaussian> _make_materialization_probe_cloud(int p_count) {
+    LocalVector<Gaussian> splats;
+    splats.resize(p_count);
+    for (int i = 0; i < p_count; i++) {
+        Gaussian g;
+        g.position = Vector3(float(i), 1.0f, 2.0f);
+        g.scale = Vector3(1, 1, 1);
+        g.rotation = Quaternion();
+        g.opacity = 0.75f;
+        g.sh_dc = Color(0.25f, 0.5f, 0.75f, 1.0f);
+        g.normal = Vector3(1, 0, 0);
+        g.area = 1.0f;
+        g.brush_axes = Vector2(1.0f, 1.0f);
+        g.stroke_age = 0.0f;
+        g.painterly_meta = 0;
+        g.render_meta = 0;
+        splats[i] = g;
+    }
+    return splats;
+}
+
+} // namespace
+
+TEST_CASE("[GaussianSplatting][DataAuthority] A failed getter allocation refuses materialization instead of caching a defaulted payload") {
+    Ref<GaussianSplatAsset> asset;
+    asset.instantiate();
+
+    Ref<::GaussianData> seed;
+    seed.instantiate();
+    seed->set_gaussians(_make_materialization_probe_cloud(4));
+    if (asset->populate_from_gaussian_data(seed) != OK) {
+        FAIL("seed populate_from_gaussian_data() must succeed");
+        return;
+    }
+    if (asset->get_splat_count() != 4u) {
+        FAIL("seed populate must yield 4 splats");
+        return;
+    }
+
+    // Premise 1: the asset's SH buffer really is splat_count * (1 DC term) * 3 floats
+    // and really carries the probe DC, so a payload built from it is distinguishable
+    // from one left at GaussianData::resize()'s Color(1, 1, 1, 1) default. Asserted
+    // BEFORE anything is armed, so it holds on a pre-fix binary too.
+    {
+        const PackedFloat32Array intact_sh = asset->get_spherical_harmonics_buffer();
+        if (intact_sh.size() != 4 * 3) {
+            FAIL("premise: the intact SH buffer must hold splat_count * 1 term * 3 floats");
+            return;
+        }
+        if (!Math::is_equal_approx(intact_sh[0], 0.25f)) {
+            FAIL("premise: the probe DC must reach the SH buffer, or nothing below can discriminate");
+            return;
+        }
+    }
+
+    // Premise 2: the injection reproduces the getter's real allocation-failure result
+    // -- the empty array -- and it is arm-once, so the assertions in the subcases below
+    // are about ONE forced failure and not about a permanently broken getter.
+    asset->_test_force_next_getter_failure(GaussianSplatAsset::TEST_GETTER_FAILURE_SPHERICAL_HARMONICS);
+    if (!asset->get_spherical_harmonics_buffer().is_empty()) {
+        FAIL("premise: the armed getter must return the empty allocation-failure result");
+        return;
+    }
+    if (asset->get_spherical_harmonics_buffer().size() != 4 * 3) {
+        FAIL("premise: the injection must be arm-once, so the next call rebuilds the full buffer");
+        return;
+    }
+
+    SUBCASE("an unarmed materialization still succeeds and carries the DC through") {
+        // Keeps the injection honest in the other direction: with nothing armed the very
+        // same call must take the success path, so the refusals below are not just a
+        // populate that fails unconditionally.
+        Ref<::GaussianData> data;
+        const bool ok = asset->populate_gaussian_data(data);
+        CHECK(ok);
+        if (data.is_null()) {
+            FAIL("a successful materialization must produce GaussianData");
+            return;
+        }
+        CHECK(data->get_count() == 4);
+        CHECK_MESSAGE(Math::is_equal_approx(data->get_gaussian(0).sh_dc.r, 0.25f),
+                "A successful materialization must install the asset's DC, not the resize() default.");
+        CHECK(Math::is_equal_approx(data->get_gaussian(0).sh_dc.g, 0.5f));
+    }
+
+    SUBCASE("a failed SH allocation refuses to materialize rather than reporting success") {
+        asset->_test_force_next_getter_failure(GaussianSplatAsset::TEST_GETTER_FAILURE_SPHERICAL_HARMONICS);
+
+        Ref<::GaussianData> data;
+        bool ok;
+        {
+            ERR_PRINT_OFF;
+            ok = asset->populate_gaussian_data(data);
+            ERR_PRINT_ON;
+        }
+
+        CHECK_MESSAGE(!ok,
+                "populate_gaussian_data() must report the failed SH allocation instead of returning true.");
+        // The discriminating assertion is the PAYLOAD, not the return code: pre-fix this
+        // handed back a full 4-splat GaussianData whose every sh_dc had silently fallen
+        // back to resize()'s (1, 1, 1, 1), because set_spherical_harmonics() is void and
+        // just ERR_FAIL_CONDs out on the empty input.
+        CHECK_MESSAGE(data.is_null(),
+                "A refused materialization must not hand back a payload at all.");
+        if (data.is_valid()) {
+            CHECK_MESSAGE(data->get_count() == 0,
+                    "A refused materialization must not leave partially default-initialized gaussians behind.");
+            CHECK_MESSAGE(!Math::is_equal_approx(data->get_gaussian(0).sh_dc.r, 1.0f),
+                    "The returned payload carries the default DC, i.e. the SH lane never landed.");
+        }
+    }
+
+    SUBCASE("a failed SH allocation is not memoized by get_gaussian_data()") {
+        asset->_test_force_next_getter_failure(GaussianSplatAsset::TEST_GETTER_FAILURE_SPHERICAL_HARMONICS);
+
+        Ref<::GaussianData> first;
+        {
+            ERR_PRINT_OFF;
+            first = asset->get_gaussian_data();
+            ERR_PRINT_ON;
+        }
+
+        CHECK_MESSAGE(first.is_null(),
+                "get_gaussian_data() must return nothing when the build failed.");
+        CHECK_MESSAGE(!asset->has_gaussian_data_cached(),
+                "A failed build must not be cached -- gaussian_data_cache is returned unconditionally "
+                "by every later call, so a cached defaulted payload is permanent.");
+
+        // The consequence that matters, and the one a fix that only stopped the population
+        // would still get wrong: the NEXT call has to rebuild the real payload. Pre-fix the
+        // cache held a 4-splat payload whose SH lane never landed, so this returned the
+        // (1, 1, 1, 1) default forever, with no further chance to retry.
+        Ref<::GaussianData> retried = asset->get_gaussian_data();
+        if (retried.is_null()) {
+            FAIL("the retry after a failed build must materialize the asset");
+            return;
+        }
+        CHECK(retried->get_count() == 4);
+        CHECK_MESSAGE(Math::is_equal_approx(retried->get_gaussian(0).sh_dc.r, 0.25f),
+                "The retry must return the asset's own DC; the default means the failed build was cached.");
+        CHECK(Math::is_equal_approx(retried->get_gaussian(0).sh_dc.g, 0.5f));
+    }
+}
+
 } // namespace TestGaussianSplatting

@@ -609,6 +609,15 @@ PackedFloat32Array GaussianSplatAsset::get_spherical_harmonics_buffer() const {
     const uint32_t high_terms = sh_high_order_terms;
     const uint32_t total_terms = 1 + first_terms + high_terms;
 
+#ifdef TESTS_ENABLED
+    // Arm-once allocation-failure injection; see GaussianSplatAsset::TestGetterFailure.
+    // Placed exactly where the real gs_resize_or_fail() failure returns below, so the
+    // injected result is byte-identical to the production one.
+    if (test_getter_failure == TEST_GETTER_FAILURE_SPHERICAL_HARMONICS) {
+        test_getter_failure = TEST_GETTER_FAILURE_NONE;
+        return result;
+    }
+#endif
     // #798: splat_count * total_terms * 3 is the largest output of this family (SH bands
     // multiply the splat count), so it is the most likely to fail and the write loop is
     // bounded by splat_count/total_terms rather than result.size().
@@ -1644,17 +1653,79 @@ bool GaussianSplatAsset::populate_gaussian_data(Ref<::GaussianData> &r_data) con
         r_data.instantiate();
     }
 
+    // #798 review round 6: MATERIALIZATION must fail closed too, exactly like the merge
+    // and rewrite paths already do.
+    //
+    // Every structured getter called below reports its own allocation failure by returning
+    // the EMPTY array (see the block comment above get_position_vectors()). Every
+    // GaussianData setter it feeds is `void` and rejects a size mismatch with a bare
+    // ERR_FAIL_COND -- gaussian_data.cpp:789/799/809/819/834/862, and set_spherical_harmonics()
+    // bails at `floats_per_gaussian < 3` for the empty input. So the setter simply returns,
+    // the next one runs, and this function used to return true at the bottom regardless.
+    // The result was a payload still carrying GaussianData::resize()'s defaults for the
+    // failed lane -- sh_dc = Color(1,1,1,1), normal = (0,1,0), scale = (1,1,1) -- reported
+    // as a SUCCESS. get_gaussian_data() then CACHES it (so every later call returns the
+    // defaulted payload without retrying) and the scene director's DYNAMIC path installs it
+    // as the record's data. The SH buffer is the one to worry about first: it is the largest
+    // output here (splat_count * total_terms * 3 floats), hence the first to fail.
+    //
+    // The check is derived, not a hand-maintained list: each getter sizes its output to
+    // splat_count, or -- for the SH buffer alone -- to splat_count * total_terms * 3, and it
+    // does so unconditionally, padding with per-field defaults when the SOURCE lane is short.
+    // So on any successful call the size is exactly that, and anything else is an allocation
+    // failure. EXACT equality, for the same reason the lane guard below uses it: a failed
+    // SHRINK leaves a CowData at its previous, LARGER length (cowdata.h), which a `>=` test
+    // waves through.
+    //
+    // On failure r_data is cleared rather than left half-written, so no caller can mistake a
+    // non-null out-param for a usable payload; get_gaussian_data() consequently caches
+    // nothing and the next call retries the build.
     r_data->resize(splat_count);
-    r_data->set_positions(get_position_vectors());
-    r_data->set_scales(get_scale_vectors());
-    r_data->set_rotations(get_rotation_quaternions());
-    r_data->set_spherical_harmonics(get_spherical_harmonics_buffer());
-    r_data->set_opacities(get_opacities());
-    r_data->set_palette_ids(get_palette_ids_buffer());
-    r_data->set_brush_override_ids(get_brush_override_ids_buffer());
-    r_data->set_normals(get_normal_vectors());
-    r_data->set_brush_axes(get_brush_axes_vector2());
-    r_data->set_stroke_ages(get_stroke_ages_buffer());
+    // resize() is void and ERR_FAIL_CONDs on a negative count -- splat_count is file-derived
+    // and unbounded, so a value past INT_MAX truncates negative and leaves the storage at its
+    // previous length, after which every setter below would reject its (correctly sized) input
+    // and this function would again report success over an untouched payload.
+    if (int64_t(r_data->get_count()) != int64_t(splat_count)) {
+        const int64_t got = int64_t(r_data->get_count());
+        r_data = Ref<::GaussianData>();
+        ERR_FAIL_V_MSG(false, vformat("[GaussianSplatAsset] populate_gaussian_data: GaussianData::resize(%d) "
+                                      "left %d gaussians, so the payload storage could not be sized. "
+                                      "Refusing to materialize.",
+                                      int64_t(splat_count), got));
+    }
+
+    const int64_t sh_expected = int64_t(splat_count) *
+            int64_t(1u + sh_first_order_terms + sh_high_order_terms) * 3;
+
+#define GS_MATERIALIZE_LANE(m_getter, m_expected, m_setter)                                              \
+    {                                                                                                    \
+        const int64_t expected_size = int64_t(m_expected);                                               \
+        auto lane = m_getter();                                                                          \
+        if (int64_t(lane.size()) != expected_size) {                                                     \
+            const int64_t got_size = int64_t(lane.size());                                               \
+            r_data = Ref<::GaussianData>();                                                              \
+            ERR_FAIL_V_MSG(false, vformat("[GaussianSplatAsset] populate_gaussian_data: " #m_getter      \
+                                          "() returned %d elements but this payload needs exactly %d, "  \
+                                          "so its output allocation failed. Refusing to materialize "    \
+                                          "instead of reporting success over a partially "               \
+                                          "default-initialized payload.",                                \
+                                          got_size, expected_size));                                     \
+        }                                                                                                \
+        r_data->m_setter(lane);                                                                          \
+    }
+
+    GS_MATERIALIZE_LANE(get_position_vectors, splat_count, set_positions)
+    GS_MATERIALIZE_LANE(get_scale_vectors, splat_count, set_scales)
+    GS_MATERIALIZE_LANE(get_rotation_quaternions, splat_count, set_rotations)
+    GS_MATERIALIZE_LANE(get_spherical_harmonics_buffer, sh_expected, set_spherical_harmonics)
+    GS_MATERIALIZE_LANE(get_opacities, splat_count, set_opacities)
+    GS_MATERIALIZE_LANE(get_palette_ids_buffer, splat_count, set_palette_ids)
+    GS_MATERIALIZE_LANE(get_brush_override_ids_buffer, splat_count, set_brush_override_ids)
+    GS_MATERIALIZE_LANE(get_normal_vectors, splat_count, set_normals)
+    GS_MATERIALIZE_LANE(get_brush_axes_vector2, splat_count, set_brush_axes)
+    GS_MATERIALIZE_LANE(get_stroke_ages_buffer, splat_count, set_stroke_ages)
+
+#undef GS_MATERIALIZE_LANE
 
     Dictionary asset_metadata = get_import_metadata();
     if (asset_metadata.has(StringName("gaussian_2d_mode"))) {
