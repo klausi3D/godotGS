@@ -1,6 +1,7 @@
 #pragma once
 
 #include "test_macros.h"
+#include "../nodes/gaussian_splat_debug_hud.h"
 #include "../nodes/gaussian_splat_node_3d.h"
 #include "../nodes/sphere_effector_3d.h"
 #include "../nodes/gaussian_splat_world_3d.h"
@@ -28,9 +29,12 @@
 #include "core/templates/local_vector.h"
 #include "core/templates/list.h"
 #include "core/variant/variant.h"
+#include "scene/3d/camera_3d.h"
+#include "scene/main/canvas_layer.h"
 #include "scene/main/scene_tree.h"
 #include "scene/main/viewport.h"
 #include "scene/main/window.h"
+#include "scene/resources/3d/world_3d.h"
 
 #include <cstring>
 #include <limits>
@@ -182,6 +186,50 @@ bool node_has_debug_hud_control(GaussianSplatNode3D *p_node) {
         return false;
     }
     return p_node->get_node_or_null(NodePath("GaussianSplatDebugHUDLayer")) != nullptr;
+}
+
+// #839 round 9 (#847): how many debug HUDs are actually attached to p_viewport,
+// counted from the VIEWPORT's side rather than from any node's.
+//
+// node_has_debug_hud_control() above answers "does this node host its own
+// viewport-local HUD", which cannot see a HUD projected into a viewport by a node
+// that lives somewhere else (CanvasLayer::set_custom_viewport). This walks the
+// whole tree and asks each CanvasLayer which viewport it is attached to --
+// CanvasLayer::get_viewport() returns the RID it bound on ENTER_TREE, which is
+// the ground truth for "this overlay draws in that viewport" and is independent
+// of how the module chose to parent it. It is also side-effect free: no renderer
+// is resolved and no node state is touched.
+int count_debug_hud_controls_in_viewport(Node *p_search_root, const Viewport *p_viewport) {
+    if (p_search_root == nullptr || p_viewport == nullptr) {
+        return 0;
+    }
+    const RID viewport_rid = p_viewport->get_viewport_rid();
+    if (!viewport_rid.is_valid()) {
+        return 0;
+    }
+    int count = 0;
+    List<Node *> pending;
+    pending.push_back(p_search_root);
+    while (!pending.is_empty()) {
+        Node *node = pending.front()->get();
+        pending.pop_front();
+        if (node == nullptr) {
+            continue;
+        }
+        for (int i = 0; i < node->get_child_count(); i++) {
+            pending.push_back(node->get_child(i));
+        }
+        CanvasLayer *layer = Object::cast_to<CanvasLayer>(node);
+        if (layer == nullptr || layer->get_viewport() != viewport_rid) {
+            continue;
+        }
+        for (int i = 0; i < layer->get_child_count(); i++) {
+            if (Object::cast_to<GaussianSplatDebugHUD>(layer->get_child(i)) != nullptr) {
+                count++;
+            }
+        }
+    }
+    return count;
 }
 
 Ref<ColorGradingResource> make_color_grading_resource() {
@@ -2651,6 +2699,198 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Each viewport shari
     memdelete(remaining);
     memdelete(viewport_b);
     memdelete(viewport_a);
+}
+
+// #839 round 9 / #847: a viewport that renders the shared world but contains no
+// splat node.
+//
+// Round 6 keyed the HUD election by (renderer, viewport) so that every viewport
+// on a shared World3D gets its own owner. But the candidate set it elects from is
+// `director->collect_instance_node_ids_for_renderer()` -- the renderer's SPLAT
+// NODES -- and it only ever considers a node for the viewport that node lives in.
+// A SubViewport that inherits its parent's World3D (Viewport::find_world_3d()
+// walks to the parent) and holds only a Camera3D therefore renders the splats,
+// because their render instances live in the world's scenario and any camera on
+// that world sees them, while electing ObjectID() for its own HUD. That is the
+// secondary-camera / minimap case, and pre-fix it had no HUD and no way to ask
+// for one.
+//
+// Both halves are asserted, because widening the reach must not widen it twice:
+//   - the camera-only viewport HAS a HUD                (round 9; RED before it)
+//   - no viewport has more than one                     (rounds 2-6)
+// The second is the one at risk: the fix adds HUDs to viewports, and the elected
+// owner of the hosted viewport is very likely the same node that projects into
+// the camera-only one.
+//
+// The count is taken from the VIEWPORT's side (count_debug_hud_controls_in_viewport)
+// rather than from any node, because a projected HUD is parented under a node in
+// a DIFFERENT viewport and node_has_debug_hud_control() cannot see it.
+// UPDATE_MODE_MANUAL again removes the per-frame apply as an alternative
+// explanation.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] A camera-only SubViewport sharing the world gets a debug HUD and no viewport gets two") {
+    // #656: REQUIRE does not abort in this build (disable_exceptions=True), so
+    // guard-then-return rather than dereferencing after a REQUIRE.
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    if (!project_settings) {
+        FAIL("ProjectSettings singleton required");
+        return;
+    }
+    ProjectSettingGuard hud_guard(project_settings, "rendering/gaussian_splatting/debug/show_performance_hud");
+
+    SubViewport *viewport_hosted = memnew(SubViewport);
+    SubViewport *viewport_camera_only = memnew(SubViewport);
+    viewport_hosted->set_size(Size2i(64, 64));
+    viewport_camera_only->set_size(Size2i(64, 64));
+    root->add_child(viewport_hosted);
+    root->add_child(viewport_camera_only);
+
+    // The whole point: this viewport gets a camera and NOTHING else. It renders
+    // the same world, so it renders the same splats.
+    Camera3D *camera = memnew(Camera3D);
+    viewport_camera_only->add_child(camera);
+
+    // Two nodes in the hosted viewport, so "exactly one there" is a real
+    // constraint and not trivially satisfied by a single candidate.
+    GaussianSplatNode3D *node_a1 = memnew(GaussianSplatNode3D);
+    GaussianSplatNode3D *node_a2 = memnew(GaussianSplatNode3D);
+    node_a1->set_splat_asset(make_single_splat_asset(0.0f));
+    node_a2->set_splat_asset(make_single_splat_asset(10.0f));
+    node_a1->set_show_performance_hud(false);
+    node_a2->set_show_performance_hud(false);
+    node_a1->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    node_a2->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    viewport_hosted->add_child(node_a1);
+    viewport_hosted->add_child(node_a2);
+    tree->process(0.0);
+
+    // Everything that resolves a renderer happens HERE, before the HUD is asked
+    // for. get_renderer() runs _ensure_renderer(), which can repair exactly the
+    // state the discriminator below is trying to observe (the round-8 vacuity
+    // trap), so it must not appear between enabling the HUD and counting.
+    Ref<GaussianSplatRenderer> renderer = node_a1->get_renderer();
+    // #595: no environment skip -- a skip is scored as a PASS. If the premises do
+    // not hold the case proves nothing, so it must FAIL rather than pass quietly.
+    const bool shared = renderer.is_valid() && node_a2->get_renderer() == renderer;
+    const Ref<World3D> node_world = node_a1->get_world_3d();
+    const bool same_world = node_world.is_valid() &&
+            viewport_camera_only->find_world_3d().ptr() == node_world.ptr();
+    const bool camera_is_active = viewport_camera_only->get_camera_3d() == camera;
+    const bool nodes_are_hosted = node_a1->get_viewport() == viewport_hosted &&
+            node_a2->get_viewport() == viewport_hosted;
+    // One child, the camera: no splat node for the round-6 election to find.
+    const bool camera_only = viewport_camera_only->get_child_count() == 1;
+
+    // memdelete on a Node frees its children (scene/main/node.cpp,
+    // NOTIFICATION_PREDELETE), so the camera goes with its viewport.
+    auto teardown = [&]() {
+        viewport_hosted->remove_child(node_a2);
+        viewport_hosted->remove_child(node_a1);
+        memdelete(node_a2);
+        memdelete(node_a1);
+        root->remove_child(viewport_camera_only);
+        root->remove_child(viewport_hosted);
+        memdelete(viewport_camera_only);
+        memdelete(viewport_hosted);
+    };
+
+    if (!shared || !same_world || !camera_is_active || !nodes_are_hosted || !camera_only) {
+        FAIL("premise: both nodes must share one renderer inside viewport_hosted, and viewport_camera_only must inherit the same World3D with an active Camera3D as its only child");
+        teardown();
+        return;
+    }
+
+    CHECK_FALSE(renderer->is_debug_hud_source_active());
+    CHECK(count_debug_hud_controls_in_viewport(root, viewport_camera_only) == 0);
+    CHECK(count_debug_hud_controls_in_viewport(root, viewport_hosted) == 0);
+
+    // One node asks. The flag is renderer-wide (the #831 union), so the whole
+    // world's renderer now wants a HUD -- in every viewport that renders it.
+    node_a1->set_show_performance_hud(true);
+
+    // Discriminator FIRST, before anything that could resolve or repair state.
+    const int hud_in_camera_only = count_debug_hud_controls_in_viewport(root, viewport_camera_only);
+    const int hud_in_hosted = count_debug_hud_controls_in_viewport(root, viewport_hosted);
+    const int hud_in_root = count_debug_hud_controls_in_viewport(root, root);
+
+    // Premise, re-checked so the RED run demonstrably reaches the branch: the
+    // renderer really is asking for a HUD at the moment the counts were taken.
+    CHECK(renderer->is_debug_show_performance_hud());
+    CHECK(renderer->is_debug_hud_source_active());
+    // Rounds 2-6: no stacking within a viewport.
+    CHECK(hud_in_hosted == 1);
+    // Round 9: pre-fix this was 0 and stayed 0 forever.
+    CHECK(hud_in_camera_only == 1);
+    // The root window shares the world too. Whether it gets a HUD depends on
+    // whether it has an active Camera3D, which this case does not control, so the
+    // assertion is the invariant that must hold either way.
+    CHECK(hud_in_root <= 1);
+
+    // MANUAL: nothing reconciles this on its own, so the counts above are settled
+    // state and not a transient.
+    for (int i = 0; i < 5; i++) {
+        tree->process(0.0);
+    }
+    CHECK(count_debug_hud_controls_in_viewport(root, viewport_camera_only) == 1);
+    CHECK(count_debug_hud_controls_in_viewport(root, viewport_hosted) == 1);
+
+    // Down again, and the projected HUD goes with it.
+    node_a1->set_show_performance_hud(false);
+    CHECK_FALSE(renderer->is_debug_hud_source_active());
+    CHECK(count_debug_hud_controls_in_viewport(root, viewport_camera_only) == 0);
+    CHECK(count_debug_hud_controls_in_viewport(root, viewport_hosted) == 0);
+
+    // The renderer-side write route (round 3, thread C) has to reach the
+    // camera-only viewport too: it notifies the renderer's peers, and the
+    // projector is one of them.
+    renderer->set_debug_show_device_boundaries(true);
+    CHECK(renderer->is_debug_hud_source_active());
+    CHECK(count_debug_hud_controls_in_viewport(root, viewport_camera_only) == 1);
+    CHECK(count_debug_hud_controls_in_viewport(root, viewport_hosted) == 1);
+
+    // Lifetime: the projected CanvasLayer holds a raw Viewport* it dereferences on
+    // its own EXIT_TREE, so the target viewport disappearing while a HUD is
+    // projected into it must tear the layer down rather than leave it dangling.
+    // Counting the CanvasLayer children left on the two nodes is what proves the
+    // layer was destroyed rather than merely detached.
+    root->remove_child(viewport_camera_only);
+    memdelete(viewport_camera_only); // takes the Camera3D with it
+    viewport_camera_only = nullptr;
+    camera = nullptr;
+    tree->process(0.0);
+
+    int canvas_layers_on_nodes = 0;
+    for (int i = 0; i < node_a1->get_child_count(); i++) {
+        if (Object::cast_to<CanvasLayer>(node_a1->get_child(i)) != nullptr) {
+            canvas_layers_on_nodes++;
+        }
+    }
+    for (int i = 0; i < node_a2->get_child_count(); i++) {
+        if (Object::cast_to<CanvasLayer>(node_a2->get_child(i)) != nullptr) {
+            canvas_layers_on_nodes++;
+        }
+    }
+    CHECK(canvas_layers_on_nodes == 1);
+    CHECK(count_debug_hud_controls_in_viewport(root, viewport_hosted) == 1);
+
+    renderer->set_debug_show_device_boundaries(false);
+    CHECK(count_debug_hud_controls_in_viewport(root, viewport_hosted) == 0);
+
+    viewport_hosted->remove_child(node_a2);
+    viewport_hosted->remove_child(node_a1);
+    root->remove_child(viewport_hosted);
+    memdelete(node_a2);
+    memdelete(node_a1);
+    memdelete(viewport_hosted);
 }
 
 TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Detached node reclaims retained renderer debug settings on re-entry") {

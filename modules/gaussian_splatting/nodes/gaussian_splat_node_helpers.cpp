@@ -26,7 +26,10 @@
 #include "../lod/lod_config.h"
 #include "scene/3d/camera_3d.h"
 #include "scene/main/node.h"
+#include "scene/main/scene_tree.h"
 #include "scene/main/viewport.h"
+#include "scene/main/window.h"
+#include "scene/resources/3d/world_3d.h"
 #include "servers/rendering_server.h"
 
 #include <cmath>
@@ -380,15 +383,20 @@ static ObjectID _peek_renderer_settings_owner(ObjectID p_renderer_id) {
 // attaches itself to Node::get_viewport() (scene/main/canvas_layer.cpp), so the
 // control is only ever visible in the hosting node's own viewport. A peer in a
 // different viewport therefore cannot host "the" HUD on that viewport's behalf.
+//
+// #839 round 9 (#847): p_viewport == nullptr asks the viewport-independent
+// question "could this node host a HUD at all", which is what elects the single
+// PROJECTOR that serves viewports with no splat node of their own. See
+// _elect_debug_hud_owner() and collect_debug_hud_projection_viewports().
 static bool _node_can_host_debug_hud(GaussianSplatNode3D *p_node, const GaussianSplatRenderer *p_renderer,
         const Viewport *p_viewport) {
-    if (!p_node || !p_renderer || !p_viewport) {
+    if (!p_node || !p_renderer) {
         return false;
     }
     if (!p_node->is_inside_tree() || !p_node->is_inside_world()) {
         return false;
     }
-    if (p_node->get_viewport() != p_viewport) {
+    if (p_viewport && p_node->get_viewport() != p_viewport) {
         return false;
     }
     return p_node->get_renderer().ptr() == p_renderer;
@@ -434,8 +442,16 @@ static bool _node_can_host_debug_hud(GaussianSplatNode3D *p_node, const Gaussian
 // eligible registered node is the fallback for the world-backed case where the
 // lease is unowned, and also for every viewport the (renderer-wide, hence single)
 // settings owner does not live in.
+//
+// #839 round 9 (#847): p_viewport == nullptr drops the viewport constraint and
+// elects the renderer-wide PROJECTOR instead -- the one node that owns the HUDs
+// of every viewport on this renderer's world that has no splat node to elect.
+// Same function, same tie-breaks, so the projector is as unique and as
+// order-independent as a per-viewport owner is. can_own_debug_hud() still
+// null-checks its viewport before calling, so "no viewport" never silently
+// degrades into "any viewport" on the per-viewport path.
 static ObjectID _elect_debug_hud_owner(const GaussianSplatRenderer *p_renderer, const Viewport *p_viewport) {
-    if (!p_renderer || !p_viewport) {
+    if (!p_renderer) {
         return ObjectID();
     }
     GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
@@ -1001,6 +1017,92 @@ bool GaussianSplatNodeDebugHelper::can_own_debug_hud() const {
         return false;
     }
     return _elect_debug_hud_owner(owner.renderer.ptr(), viewport) == owner.get_instance_id();
+}
+
+// #839 round 9 (#847): the viewports on this renderer's world that render it but
+// contain no splat node, so the per-viewport election of round 6 has nobody to
+// elect and they can never show a HUD.
+//
+// The typical case is a secondary-camera or minimap SubViewport: it inherits its
+// parent's World3D (Viewport::find_world_3d() walks to the parent), so it renders
+// the same scenario -- and therefore the same splats -- while every splat node
+// lives in some other viewport. Round 6 keyed the election by (renderer,
+// viewport) and enumerated only the renderer's splat-node peers, so such a
+// viewport elects ObjectID() and shows nothing.
+//
+// The fix keeps that election exactly as it is and only fills the gap it leaves:
+//   - a viewport that HAS an eligible splat node keeps its own elected owner and
+//     is never projected into. That is what preserves "exactly one HUD per
+//     viewport" -- native and projected HUDs are mutually exclusive per viewport
+//     BY CONSTRUCTION, because a non-empty election is the skip condition here.
+//   - a viewport with none gets a HUD from the single renderer-wide PROJECTOR,
+//     elected by the same function with the viewport constraint dropped. One
+//     projector, one HUD per projected viewport.
+//
+// "Renders the world" is required to mean "has an active Camera3D on it", not
+// merely "resolves that World3D". Every default-configured SubViewport in the
+// scene inherits the parent's World3D, including the ones used purely to render
+// 2D/UI into a texture; those draw no splats at all and must not sprout a splat
+// diagnostic overlay. Viewport::get_camera_3d() is exactly the 3D-content test.
+//
+// The tree walk is bounded to the frames on which a HUD source is actually
+// active: GaussianSplatNode3D::_update_projected_debug_huds() checks
+// GaussianSplatRenderer::is_debug_hud_source_active() before calling, the same
+// short-circuit _update_debug_hud_visibility() uses for can_own_debug_hud().
+void GaussianSplatNodeDebugHelper::collect_debug_hud_projection_viewports(LocalVector<ObjectID> &r_viewport_ids) const {
+    r_viewport_ids.clear();
+    if (!owner.renderer.is_valid()) {
+        return;
+    }
+    if (!owner.is_inside_tree() || !owner.is_inside_world()) {
+        return;
+    }
+    GaussianSplatRenderer *renderer = owner.renderer.ptr();
+    // Only the projector does this work; every other peer computes the same
+    // answer and declines, which is what keeps the projected HUDs unique.
+    if (_elect_debug_hud_owner(renderer, nullptr) != owner.get_instance_id()) {
+        return;
+    }
+    SceneTree *tree = owner.get_tree();
+    if (!tree) {
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        return;
+    }
+    Ref<World3D> world = owner.get_world_3d();
+    if (world.is_null()) {
+        return;
+    }
+
+    LocalVector<Node *> pending;
+    pending.push_back(root);
+    while (!pending.is_empty()) {
+        Node *node = pending[pending.size() - 1];
+        pending.remove_at(pending.size() - 1);
+        if (!node) {
+            continue;
+        }
+        for (int i = 0; i < node->get_child_count(); i++) {
+            pending.push_back(node->get_child(i));
+        }
+        Viewport *viewport = Object::cast_to<Viewport>(node);
+        if (!viewport) {
+            continue;
+        }
+        if (viewport->find_world_3d().ptr() != world.ptr()) {
+            continue;
+        }
+        if (!viewport->get_camera_3d()) {
+            continue;
+        }
+        if (_elect_debug_hud_owner(renderer, viewport) != ObjectID()) {
+            // Has a splat node of its own: round 6 already gives it one HUD.
+            continue;
+        }
+        r_viewport_ids.push_back(viewport->get_instance_id());
+    }
 }
 
 // #831: push the four renderer-wide screen-space overlay flags (tile grid,

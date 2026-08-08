@@ -26,6 +26,7 @@
 #include "scene/main/canvas_layer.h"
 #include "scene/main/viewport.h"
 #include "scene/resources/3d/world_3d.h"
+#include "scene/scene_string_names.h"
 #include "servers/rendering/renderer_scene_cull.h"
 #include "servers/rendering/renderer_rd/storage_rd/gaussian_splat_storage.h"
 #include "servers/rendering/renderer_rd/storage_rd/texture_storage.h"
@@ -389,6 +390,10 @@ void GaussianSplatNode3D::_notification_enter_world() {
 
 void GaussianSplatNode3D::_notification_exit_tree() {
     _destroy_debug_hud_control();
+    // #839 round 9 (#847): a projected layer holds a raw Viewport* it will
+    // dereference on its own EXIT_TREE, and leaving the tree is the point at
+    // which this node stops being anybody's projector.
+    _destroy_projected_debug_huds();
     visible_in_viewport = false;
     _update_visibility();
     _clear_parent_visibility_tracking();
@@ -2262,6 +2267,13 @@ void GaussianSplatNode3D::_update_debug_hud_visibility() {
         should_show_hud = renderer->is_debug_hud_source_active() &&
                 debug_helper.can_own_debug_hud();
     }
+
+    // #839 round 9 (#847): unconditionally, and BEFORE the early return below --
+    // "this node is not its own viewport's HUD owner" says nothing about whether
+    // it is the renderer's projector, and a node that stops being the projector
+    // still has to take its projected HUDs down.
+    _update_projected_debug_huds();
+
     if (!should_show_hud) {
         _destroy_debug_hud_control();
         return;
@@ -2276,6 +2288,166 @@ void GaussianSplatNode3D::_update_debug_hud_visibility() {
     debug_hud_control->set_process(true);
     debug_hud_control->set_splat_node(this);
     debug_hud_control->refresh_stats();
+}
+
+// #839 round 9 (#847): a SubViewport that shares a World3D with the splat nodes
+// renders their splats -- the render instances live in the world's scenario, so
+// any camera on that world sees them -- but could never show a debug HUD, because
+// the round-6 election only ever considers the renderer's splat-node peers and
+// such a viewport has none.
+//
+// The HUD is projected rather than re-homed: CanvasLayer::set_custom_viewport()
+// (scene/main/canvas_layer.cpp) lets a layer that is parented under THIS node
+// attach itself to a different viewport's canvas. So the ownership model of
+// rounds 2-8 is untouched -- HUD controls are still owned, updated and destroyed
+// by a GaussianSplatNode3D -- and no node is added to anybody else's subtree.
+//
+// The alternative shape, moving HUD ownership onto the renderer or the viewport,
+// was rejected: GaussianSplatRenderer is a RefCounted with no place in the scene
+// tree, so it would still need a node-side agent to host the CanvasLayer, and it
+// would have to re-derive the per-viewport uniqueness that round 6 already
+// establishes. That is a strictly larger diff for the same result.
+void GaussianSplatNode3D::_update_projected_debug_huds() {
+    // Same short-circuit as _update_debug_hud_visibility(): the collection below
+    // walks the scene tree, so it must not run on frames where nothing wants a
+    // HUD at all. The tree/world test mirrors can_own_debug_hud()'s own
+    // precondition, so a node on its way out of the tree can only ever REMOVE
+    // projected HUDs here, never create one.
+    if (!is_inside_tree() || !is_inside_world() || !renderer.is_valid() ||
+            !renderer->is_debug_hud_source_active()) {
+        _destroy_projected_debug_huds();
+        return;
+    }
+
+    LocalVector<ObjectID> wanted;
+    debug_helper.collect_debug_hud_projection_viewports(wanted);
+
+    // Drop the ones that are no longer wanted first, so a viewport that just
+    // gained a splat node of its own loses the projected HUD before that node's
+    // own election hands it a native one.
+    LocalVector<ObjectID> stale;
+    for (const KeyValue<ObjectID, ProjectedDebugHUD> &entry : projected_debug_huds) {
+        bool still_wanted = false;
+        for (uint32_t i = 0; i < wanted.size(); i++) {
+            if (wanted[i] == entry.key) {
+                still_wanted = true;
+                break;
+            }
+        }
+        if (!still_wanted) {
+            stale.push_back(entry.key);
+        }
+    }
+    for (uint32_t i = 0; i < stale.size(); i++) {
+        _destroy_projected_debug_hud(stale[i]);
+    }
+
+    for (uint32_t i = 0; i < wanted.size(); i++) {
+        ProjectedDebugHUD *existing = projected_debug_huds.getptr(wanted[i]);
+        if (!existing) {
+            _create_projected_debug_hud(wanted[i]);
+            continue;
+        }
+        if (existing->control) {
+            existing->control->set_splat_node(this);
+            existing->control->refresh_stats();
+        }
+    }
+}
+
+void GaussianSplatNode3D::_create_projected_debug_hud(ObjectID p_viewport_id) {
+    if (projected_debug_huds.has(p_viewport_id)) {
+        return;
+    }
+    Viewport *viewport = Object::cast_to<Viewport>(ObjectDB::get_instance(p_viewport_id));
+    if (!viewport) {
+        return;
+    }
+
+    ProjectedDebugHUD projected;
+    projected.layer = memnew(CanvasLayer);
+    // Deliberately NOT "GaussianSplatDebugHUDLayer": that name is the observable
+    // identity of the node's OWN, viewport-local HUD (rounds 2-8 assert on it),
+    // and a projected HUD is not that.
+    projected.layer->set_name("GaussianSplatProjectedDebugHUDLayer" + itos((uint64_t)p_viewport_id));
+    // Before add_child(): CanvasLayer binds itself on NOTIFICATION_ENTER_TREE and
+    // prefers custom_viewport over Node::get_viewport() there, so setting it first
+    // means the layer is never briefly attached to this node's own viewport.
+    projected.layer->set_custom_viewport(viewport);
+
+    projected.control = memnew(GaussianSplatDebugHUD);
+    projected.control->set_name("GaussianSplatDebugHUD");
+    projected.control->set_splat_node(this);
+    projected.control->set_anchors_and_offsets_preset(Control::PRESET_FULL_RECT);
+
+    add_child(projected.layer);
+    projected.layer->add_child(projected.control);
+    projected.control->set_visible(true);
+    projected.control->set_process(true);
+    projected.control->refresh_stats();
+
+    // See the declaration: the layer must go down while the viewport is alive.
+    const Callable on_exiting = callable_mp(this, &GaussianSplatNode3D::_on_projected_hud_viewport_exiting)
+                                        .bind(p_viewport_id);
+    if (!viewport->is_connected(SceneStringName(tree_exiting), on_exiting)) {
+        viewport->connect(SceneStringName(tree_exiting), on_exiting, Object::CONNECT_ONE_SHOT);
+    }
+
+    projected_debug_huds[p_viewport_id] = projected;
+}
+
+void GaussianSplatNode3D::_destroy_projected_debug_hud(ObjectID p_viewport_id) {
+    ProjectedDebugHUD *projected = projected_debug_huds.getptr(p_viewport_id);
+    if (!projected) {
+        return;
+    }
+
+    if (Viewport *viewport = Object::cast_to<Viewport>(ObjectDB::get_instance(p_viewport_id))) {
+        const Callable on_exiting = callable_mp(this, &GaussianSplatNode3D::_on_projected_hud_viewport_exiting)
+                                            .bind(p_viewport_id);
+        // CONNECT_ONE_SHOT already disconnected it when the viewport is the thing
+        // that triggered this teardown.
+        if (viewport->is_connected(SceneStringName(tree_exiting), on_exiting)) {
+            viewport->disconnect(SceneStringName(tree_exiting), on_exiting);
+        }
+    }
+
+    if (projected->control) {
+        projected->control->set_splat_node(nullptr);
+        projected->control->set_visible(false);
+        projected->control->set_process(false);
+        if (Node *parent = projected->control->get_parent()) {
+            parent->remove_child(projected->control);
+        }
+        memdelete(projected->control);
+        projected->control = nullptr;
+    }
+    if (projected->layer) {
+        if (Node *parent = projected->layer->get_parent()) {
+            parent->remove_child(projected->layer);
+        }
+        memdelete(projected->layer);
+        projected->layer = nullptr;
+    }
+
+    projected_debug_huds.erase(p_viewport_id);
+}
+
+void GaussianSplatNode3D::_destroy_projected_debug_huds() {
+    if (projected_debug_huds.is_empty()) {
+        return;
+    }
+    LocalVector<ObjectID> viewport_ids;
+    for (const KeyValue<ObjectID, ProjectedDebugHUD> &entry : projected_debug_huds) {
+        viewport_ids.push_back(entry.key);
+    }
+    for (uint32_t i = 0; i < viewport_ids.size(); i++) {
+        _destroy_projected_debug_hud(viewport_ids[i]);
+    }
+}
+
+void GaussianSplatNode3D::_on_projected_hud_viewport_exiting(ObjectID p_viewport_id) {
+    _destroy_projected_debug_hud(p_viewport_id);
 }
 
 void GaussianSplatNode3D::_apply_renderer_settings() {

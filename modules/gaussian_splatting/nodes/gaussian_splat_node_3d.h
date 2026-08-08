@@ -18,6 +18,7 @@
 #include "core/math/vector2i.h"
 #include "core/object/object_id.h"
 #include "core/string/node_path.h"
+#include "core/templates/hash_map.h"
 #include "core/templates/rid.h"
 #include "core/variant/dictionary.h"
 #include "core/variant/typed_array.h"
@@ -256,6 +257,17 @@ private:
     CanvasLayer *debug_hud_layer = nullptr;
     GaussianSplatDebugHUD *debug_hud_control = nullptr;
 
+    // #839 round 9 (#847): HUDs this node PROJECTS into viewports that render its
+    // renderer's world but hold no splat node of their own, keyed by the target
+    // viewport's ObjectID. Only ever populated on the renderer-wide projector,
+    // and only for viewports whose own election is empty -- see
+    // GaussianSplatNodeDebugHelper::collect_debug_hud_projection_viewports().
+    struct ProjectedDebugHUD {
+        CanvasLayer *layer = nullptr;
+        GaussianSplatDebugHUD *control = nullptr;
+    };
+    HashMap<ObjectID, ProjectedDebugHUD> projected_debug_huds;
+
     GaussianSplatNodeAssetHelper asset_helper;
     GaussianSplatNodeViewportHelper viewport_helper;
     GaussianSplatNodeDebugHelper debug_helper;
@@ -327,6 +339,21 @@ private:
     void _ensure_debug_hud_control();
     void _destroy_debug_hud_control();
     void _update_debug_hud_visibility();
+    // #839 round 9 (#847): reconcile the HUDs projected into splat-node-less
+    // viewports on this renderer's world. Separate from
+    // _update_debug_hud_visibility()'s own control because the two answer
+    // different questions -- "am I this viewport's elected owner" vs "am I the
+    // renderer's projector" -- and a node can be either, both, or neither.
+    void _update_projected_debug_huds();
+    void _create_projected_debug_hud(ObjectID p_viewport_id);
+    void _destroy_projected_debug_hud(ObjectID p_viewport_id);
+    void _destroy_projected_debug_huds();
+    // A projected HUD's CanvasLayer holds a raw Viewport* (CanvasLayer::vp) that
+    // it dereferences on its own NOTIFICATION_EXIT_TREE, so the layer MUST be
+    // torn down while its target viewport is still alive. Node::tree_exiting
+    // fires before the viewport's own EXIT_TREE (scene/main/node.cpp
+    // _propagate_exit_tree), which is the last moment that is true.
+    void _on_projected_hud_viewport_exiting(ObjectID p_viewport_id);
 
     void _ensure_renderer();
     void _apply_renderer_settings();
