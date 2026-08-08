@@ -2845,6 +2845,15 @@ void GaussianSplatNode3D::_unregister_shared_renderer() {
     // renderer this node is leaving.
     const Ref<GaussianSplatRenderer> departing_renderer = renderer;
     _unregister_instance_in_director();
+    // #839 round 7: and drop the node-layer binding record too, for the same
+    // reason and in the same order -- the recompute below must not see this node.
+    // The director's instance record is removed above; the binding record is what
+    // makes a DATA-LESS node visible to the overlay union at all (it never had an
+    // instance record to remove), and it cannot be filtered out implicitly: during
+    // NOTIFICATION_EXIT_TREE this node still reports is_inside_tree() == true,
+    // because Node::_propagate_exit_tree clears that flag only after the
+    // notification returns.
+    GaussianSplatNodeDebugHelper::unregister_renderer_bound_node(departing_renderer.ptr(), this);
     // The set just shrank; a remaining node may now be alone again and is owed
     // the restore of its node-local debug / painterly state. It is also owed the
     // recomputed overlay union whether or not it is alone again: if the node

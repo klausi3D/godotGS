@@ -85,6 +85,21 @@ public:
     // GaussianSplatWorld3D submission, so the departed node's tile-grid or
     // heatmap request would stay enabled forever.
     static void reconcile_debug_overlay_union_for_renderer(GaussianSplatRenderer *p_renderer);
+    // #839 round 7: the overlay union's peer set is "every node BOUND to the
+    // renderer", which is strictly larger than "every node the scene director has
+    // an instance record for": GaussianSplatNode3D::_register_shared_renderer()
+    // returns before registering when the node has no splat asset, no
+    // renderer_data and no runtime asset, yet such a node still resolves and
+    // holds the world's shared renderer and still owns the four overlay
+    // properties. Two of them therefore each saw an empty peer list and the last
+    // one to push retracted the other's request -- last-writer-wins, the very
+    // defect #831 removes. Called from
+    // GaussianSplatNodeRendererHelper::ensure_renderer() (bind) and
+    // GaussianSplatNode3D::_unregister_shared_renderer() (unbind); the unbind
+    // must be explicit because a node is still is_inside_tree() while its
+    // NOTIFICATION_EXIT_TREE runs.
+    static void register_renderer_bound_node(GaussianSplatRenderer *p_renderer, GaussianSplatNode3D *p_node);
+    static void unregister_renderer_bound_node(GaussianSplatRenderer *p_renderer, GaussianSplatNode3D *p_node);
 
 private:
     GaussianSplatNode3D &owner;

@@ -1188,6 +1188,135 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer uni
     memdelete(node_b);
 }
 
+// #839 round 7: the overlay union has to cover every node BOUND to the renderer,
+// not only the ones the SCENE DIRECTOR knows about.
+//
+// GaussianSplatNode3D::_register_shared_renderer() returns BEFORE
+// _register_instance_in_director() when the node has no splat asset, no
+// renderer_data and no runtime asset. Such a node still binds the world's shared
+// renderer -- GaussianSplatNodeRendererHelper::ensure_renderer() only needs
+// is_inside_world(), and director->get_shared_renderer() creates the renderer
+// lazily with no data -- and it still exposes the four renderer-wide overlay
+// properties. Sourcing the union solely from
+// collect_instance_node_ids_for_renderer() therefore handed every data-less node
+// an EMPTY peer list: each one seeded the union from its own four flags alone,
+// and whichever pushed last retracted the other's request. That is
+// last-writer-wins, i.e. exactly the defect #831 exists to remove, surviving in
+// the one node shape the director cannot see.
+//
+// The discriminator is the pair of assertions after node_b's push: asserting only
+// node_b's own flag would pass with or without the fix.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Overlay union covers data-less peers the director never registered") {
+    // #656: REQUIRE does not abort in this build (disable_exceptions=True), so
+    // guard-then-return rather than dereferencing after a REQUIRE.
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    if (!director) {
+        FAIL("GaussianSplatSceneDirector singleton required");
+        return;
+    }
+
+    // Deliberately NO splat asset, NO renderer data, NO runtime asset on either
+    // node: that is the whole point of the case.
+    GaussianSplatNode3D *node_a = memnew(GaussianSplatNode3D);
+    GaussianSplatNode3D *node_b = memnew(GaussianSplatNode3D);
+
+    root->add_child(node_a);
+    root->add_child(node_b);
+    tree->process(0.0);
+
+    Ref<GaussianSplatRenderer> renderer = node_a->get_renderer();
+    // #595: this case only runs in the [RequiresGPU] harness, where the shared
+    // renderer is always reachable. An environment skip would be scored as a PASS
+    // and would silently drop the contract, so the precondition FAILS instead.
+    if (!renderer.is_valid() || node_b->get_renderer() != renderer) {
+        FAIL("shared renderer required: both data-less nodes must resolve the same GaussianSplatRenderer");
+        root->remove_child(node_b);
+        root->remove_child(node_a);
+        memdelete(node_b);
+        memdelete(node_a);
+        return;
+    }
+
+    // PREMISE, not the contract: this is the UNREGISTERED shape. If the director
+    // ever starts registering data-less nodes, this case stops discriminating and
+    // must fail loudly rather than pass vacuously.
+    CHECK(director->get_instance_count_for_renderer(renderer.ptr()) == 0u);
+
+    // The node setters write their value back into the project setting the node
+    // defaults are read from, so a leaked `true` would change the DEFAULT every
+    // later-constructed node in this batch starts from.
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    ProjectSettingGuard tile_grid_guard(project_settings, "rendering/gaussian_splatting/debug/show_tile_grid");
+    ProjectSettingGuard heatmap_guard(project_settings, "rendering/gaussian_splatting/debug/show_density_heatmap");
+
+    // PREMISE: the flags start clear on both nodes and on the renderer, so the
+    // writes below are the only source of a true.
+    CHECK_FALSE(node_a->is_showing_tile_grid());
+    CHECK_FALSE(node_b->is_showing_density_heatmap());
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+    CHECK_FALSE(renderer->is_debug_show_density_heatmap());
+
+    node_a->set_show_tile_grid(true);
+    // PREMISE: a data-less node CAN drive the renderer at all -- it seeds the
+    // union from its own flags. Without this the scenario would never reach the
+    // union and the discriminator below would be meaningless.
+    CHECK(node_a->is_showing_tile_grid());
+    CHECK(renderer->is_debug_show_tile_grid());
+
+    node_b->set_show_density_heatmap(true);
+    CHECK(node_b->is_showing_density_heatmap());
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // THE DISCRIMINATOR: node_a never withdrew its request, so node_b's push must
+    // have unioned it in. Pre-fix node_b saw an empty peer list and wrote
+    // tile_grid=false as collateral.
+    CHECK(node_a->is_showing_tile_grid());
+    CHECK(renderer->is_debug_show_tile_grid());
+
+    // ...and the union stays a union in the other direction: node_a pushing again
+    // must not retract node_b's heatmap.
+    node_a->set_show_tile_grid(false);
+    node_a->set_show_tile_grid(true);
+    CHECK(renderer->is_debug_show_tile_grid());
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // Retraction is still per-requester, so the completed peer set does not turn
+    // into a latch: dropping node_a's request clears only the tile grid.
+    node_a->set_show_tile_grid(false);
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // A data-less peer that LEAVES the tree stops contributing, exactly as a
+    // registered one does. node_a is still is_inside_tree() while
+    // NOTIFICATION_EXIT_TREE runs, so an in-tree filter alone would not do this.
+    node_a->set_show_tile_grid(true);
+    CHECK(renderer->is_debug_show_tile_grid());
+    root->remove_child(node_a);
+    tree->process(0.0);
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // Leave the renderer -- and the project settings the guards restore -- clean
+    // for the rest of the batch.
+    node_a->set_show_tile_grid(false);
+    node_b->set_show_density_heatmap(false);
+    CHECK_FALSE(renderer->is_debug_show_density_heatmap());
+
+    root->remove_child(node_b);
+    memdelete(node_b);
+    memdelete(node_a);
+}
+
 // #831 part 2: the node re-asserted its own four debug overlay flags from
 // update_splats() on every frame, so a GaussianSplatRenderer::set_debug_show_*()
 // call taken through the bound GDScript API was silently reverted one frame
