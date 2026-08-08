@@ -93,11 +93,17 @@ public:
     // holds the world's shared renderer and still owns the four overlay
     // properties. Two of them therefore each saw an empty peer list and the last
     // one to push retracted the other's request -- last-writer-wins, the very
-    // defect #831 removes. Called from
-    // GaussianSplatNodeRendererHelper::ensure_renderer() (bind) and
-    // GaussianSplatNode3D::_unregister_shared_renderer() (unbind); the unbind
-    // must be explicit because a node is still is_inside_tree() while its
-    // NOTIFICATION_EXIT_TREE runs.
+    // defect #831 removes.
+    //
+    // #839 round 8: the record's lifetime tracks the node's `renderer` Ref and is
+    // INDEPENDENT of whether the node has content -- register from
+    // GaussianSplatNodeRendererHelper::ensure_renderer() (bind), unregister ONLY
+    // from GaussianSplatNode3D::_unbind_renderer_binding_record() (unbind: Ref
+    // dropped / left the tree / left the world). Do NOT call unregister from a
+    // content path; `set_splat_asset(null)` on an in-tree node is not an unbind.
+    // The full invariant, and why the unbind must be explicit rather than derived
+    // from is_inside_tree(), is stated at `g_renderer_bound_nodes` in
+    // gaussian_splat_node_helpers.cpp.
     static void register_renderer_bound_node(GaussianSplatRenderer *p_renderer, GaussianSplatNode3D *p_node);
     static void unregister_renderer_bound_node(GaussianSplatRenderer *p_renderer, GaussianSplatNode3D *p_node);
 

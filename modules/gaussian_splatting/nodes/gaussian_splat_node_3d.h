@@ -335,6 +335,17 @@ private:
     void _mark_render_state_dirty();
     void _register_shared_renderer();
     void _unregister_shared_renderer();
+    // #839 round 8: DROP the renderer BINDING record. Deliberately NOT part of
+    // `_unregister_shared_renderer()`, which removes the director's CONTENT
+    // record and is reached from content-lifecycle paths (clear_asset,
+    // upload_asset_to_renderer with nothing to upload) where this node keeps its
+    // `renderer` Ref and stays in the tree and the world. The binding record's
+    // lifetime tracks that Ref, not the content -- see the invariant stated at
+    // `g_renderer_bound_nodes` in gaussian_splat_node_helpers.cpp. Call this only
+    // where the node genuinely stops being bound: EXIT_TREE, EXIT_WORLD,
+    // PREDELETE (before `renderer.unref()`, while the Ref still names the
+    // renderer to forget).
+    void _unbind_renderer_binding_record();
     // #329: P2 shared-renderer convergence. `_converge_shared_renderer_state` is
     // edge-triggered on this node; `_notify_renderer_peers_shared_state_changed`
     // fans it out to the other nodes sharing `p_renderer`, which is the direction

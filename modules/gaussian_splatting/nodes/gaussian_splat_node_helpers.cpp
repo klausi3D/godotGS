@@ -170,13 +170,51 @@ static bool _commit_debug_overlay_union(GaussianSplatRenderer *p_renderer, const
 // behaviour far outside this contract. The binding such a node DOES have is its
 // `renderer` Ref, and that -- nothing more -- is what this records.
 //
-// Maintained at the two points that move that Ref: ensure_renderer() when the
-// node binds one, and GaussianSplatNode3D::_unregister_shared_renderer() when it
-// leaves. The explicit un-registration is not an optimisation: during
-// NOTIFICATION_EXIT_TREE the departing node still reports is_inside_tree() ==
-// true (Node::_propagate_exit_tree clears the flag only after the notification
-// returns), so the eligibility filter below cannot recognise it on its own --
-// exactly the reason the director's own walk removes the instance record first.
+// ===========================================================================
+// INVARIANT (#839 round 8) -- read this before adding or moving any write.
+//
+//   A node has a record in g_renderer_bound_nodes for exactly as long as it is
+//   BOUND to that renderer. The record's lifetime tracks the node's `renderer`
+//   Ref and NOTHING ELSE. It is created when the node binds a renderer, and
+//   removed ONLY when the node unbinds: it drops the Ref, leaves the tree,
+//   leaves the world, or rebinds to a different renderer.
+//
+//   It is entirely INDEPENDENT of whether the node currently has content. A
+//   node with no splat asset, no renderer_data and no runtime asset is bound
+//   just as much as a loaded one -- that is the whole reason this map exists --
+//   so gaining, losing or swapping content must never add or remove a record.
+//
+// The writes that satisfy it, and the complete set of them:
+//
+//   BIND   GaussianSplatNodeRendererHelper::ensure_renderer() -- the only place
+//          `owner.renderer` is ever assigned. Idempotent, and re-reached on
+//          every enter-tree / enter-world, so a node that detached and came
+//          back re-registers itself.
+//   UNBIND GaussianSplatNode3D::_unbind_renderer_binding_record(), called from
+//          NOTIFICATION_EXIT_TREE, NOTIFICATION_EXIT_WORLD and
+//          NOTIFICATION_PREDELETE (before `renderer.unref()`, the only place
+//          the Ref is ever released) -- and from nowhere else.
+//
+// Round 7 hung the UNBIND off GaussianSplatNode3D::_unregister_shared_renderer()
+// instead. That was wrong, and the reviewer caught it: that function removes the
+// DIRECTOR'S CONTENT RECORD, and content-lifecycle paths call it on a node that
+// is still bound and still in the tree -- GaussianSplatNodeAssetHelper::clear_asset()
+// and GaussianSplatNodeRendererHelper::upload_asset_to_renderer() with nothing
+// to upload, i.e. `set_splat_asset(null)`. Coupling the two erased the node from
+// BOTH halves of the union (the director dropped its instance record, this map
+// dropped its binding record) while it was still a legitimate overlay
+// requester, and ensure_renderer() does not re-run on that path -- so the next
+// peer's completed walk reported the vanished node's component false and the
+// per-component authored memo legitimately cleared it on the renderer.
+//
+// The UNBIND has to be an explicit call and cannot be derived from node state:
+// during NOTIFICATION_EXIT_TREE the departing node still reports
+// is_inside_tree() == true (Node::_propagate_exit_tree clears the flag only
+// after the notification returns), so the eligibility filter below cannot
+// recognise it on its own -- exactly the reason the director's own walk removes
+// the instance record explicitly too. The filter below is therefore a safety
+// net for stale entries, not the mechanism.
+// ===========================================================================
 Mutex g_renderer_bound_nodes_mutex;
 HashMap<ObjectID, LocalVector<ObjectID>> g_renderer_bound_nodes;
 

@@ -394,6 +394,10 @@ void GaussianSplatNode3D::_notification_exit_tree() {
     _clear_parent_visibility_tracking();
     _update_cached_render_target(nullptr);
     renderer_helper.release_renderer_settings_ownership();
+    // #839 round 8: leaving the tree is a genuine unbind, so drop the binding
+    // record here -- before the recompute inside _unregister_shared_renderer(),
+    // which must not see this node.
+    _unbind_renderer_binding_record();
     _unregister_shared_renderer();
 
     // NOTE: do NOT reset grading_pushed_for_current_data here. The
@@ -450,6 +454,12 @@ void GaussianSplatNode3D::_notification(int p_what) {
             // belt-and-braces safety against stale records — `register_instance`
             // also migrates on its own, but an unregister here keeps the
             // lifecycle deterministic for tooling and diagnostics.
+            //
+            // #839 round 8: leaving the world is a genuine unbind too (the node
+            // stops resolving this World3D's shared renderer), so drop the
+            // binding record first -- ENTER_WORLD re-runs ensure_renderer() and
+            // re-registers it.
+            _unbind_renderer_binding_record();
             _unregister_shared_renderer();
         } break;
 
@@ -494,6 +504,13 @@ void GaussianSplatNode3D::_notification(int p_what) {
             // SharedWorld lingers across reload cycles holding the
             // renderer/data lifetime anchor, defeating the F6-reload-leak
             // fix that motivated the per-node teardown originally.
+            //
+            // #839 round 8: dropping the `renderer` Ref IS the unbind, so the
+            // binding record goes first -- after the unref() there is no Ref
+            // left to name the renderer to forget. Normally redundant (EXIT_TREE
+            // already ran), but the record must not be able to outlive the node
+            // on any path, and this is the one that is unconditionally last.
+            _unbind_renderer_binding_record();
             renderer.unref();
             _unregister_shared_renderer();
             if (GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton()) {
@@ -2845,15 +2862,17 @@ void GaussianSplatNode3D::_unregister_shared_renderer() {
     // renderer this node is leaving.
     const Ref<GaussianSplatRenderer> departing_renderer = renderer;
     _unregister_instance_in_director();
-    // #839 round 7: and drop the node-layer binding record too, for the same
-    // reason and in the same order -- the recompute below must not see this node.
-    // The director's instance record is removed above; the binding record is what
-    // makes a DATA-LESS node visible to the overlay union at all (it never had an
-    // instance record to remove), and it cannot be filtered out implicitly: during
-    // NOTIFICATION_EXIT_TREE this node still reports is_inside_tree() == true,
-    // because Node::_propagate_exit_tree clears that flag only after the
-    // notification returns.
-    GaussianSplatNodeDebugHelper::unregister_renderer_bound_node(departing_renderer.ptr(), this);
+    // #839 round 8: this function removes the director's CONTENT record ONLY. It
+    // deliberately does NOT touch the node-layer binding record (round 7 did, and
+    // that was the bug): `_unregister_shared_renderer()` is reached from
+    // content-lifecycle paths -- GaussianSplatNodeAssetHelper::clear_asset() and
+    // GaussianSplatNodeRendererHelper::upload_asset_to_renderer() with nothing to
+    // upload, i.e. `set_splat_asset(null)` on an in-tree node -- after which the
+    // node still holds the same `renderer` Ref and is still in the tree and the
+    // world. Dropping the binding record there removed the node from BOTH halves
+    // of the overlay union while it was still a legitimate requester. The record
+    // is dropped by `_unbind_renderer_binding_record()` at the three sites where
+    // the node actually unbinds; see the invariant at `g_renderer_bound_nodes`.
     // The set just shrank; a remaining node may now be alone again and is owed
     // the restore of its node-local debug / painterly state. It is also owed the
     // recomputed overlay union whether or not it is alone again: if the node
@@ -2861,6 +2880,29 @@ void GaussianSplatNode3D::_unregister_shared_renderer() {
     // (#839 round 2, finding 2). `p_include_self` is false — this node is no
     // longer part of the set and must not push to the renderer it is leaving.
     _on_renderer_peer_set_changed(departing_renderer, /*p_include_self=*/false);
+}
+
+// #839 round 8: the UNBIND half of the binding-record invariant (stated in full
+// at `g_renderer_bound_nodes` in gaussian_splat_node_helpers.cpp). Reached from
+// NOTIFICATION_EXIT_TREE, NOTIFICATION_EXIT_WORLD and NOTIFICATION_PREDELETE and
+// from nowhere else -- those are the only transitions after which this node no
+// longer holds a live binding to `renderer`.
+//
+// It has to be explicit rather than derived: during NOTIFICATION_EXIT_TREE the
+// departing node still reports is_inside_tree() == true, because
+// Node::_propagate_exit_tree clears that flag only after the notification
+// returns, so the eligibility filter in _collect_overlay_union_peer_ids() cannot
+// recognise it on its own -- exactly the reason the director's own walk removes
+// the instance record explicitly too.
+//
+// Every call site must run this BEFORE the peer-set recompute that follows it,
+// so the recompute does not see this node, and in PREDELETE before
+// `renderer.unref()`, while the Ref still names the renderer to forget.
+void GaussianSplatNode3D::_unbind_renderer_binding_record() {
+    if (!renderer.is_valid()) {
+        return;
+    }
+    GaussianSplatNodeDebugHelper::unregister_renderer_bound_node(renderer.ptr(), this);
 }
 
 void GaussianSplatNode3D::_update_shared_transform() {
