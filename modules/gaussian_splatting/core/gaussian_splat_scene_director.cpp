@@ -652,6 +652,43 @@ bool GaussianSplatSceneDirector::InstanceStore::_populate_gaussian_data_from_ass
 	return true;
 }
 
+// #798 review round 4: drop a record's cached payload after a FAILED rebuild.
+//
+// retain_asset()/refresh_asset() used to `return false` straight out of the failed
+// _populate_gaussian_data_from_asset() call, leaving `record->data` holding the
+// PREVIOUS, still-valid GaussianData. Their sole caller, register_instance(), only
+// early-returns on that false -- it neither retries nor unregisters -- so the record
+// stayed in the store with its stale payload and every render-path builder kept
+// consuming it. The asset then read splat_count == 0 while the renderer went on
+// drawing the geometry the asset no longer had: exactly the divergence the
+// payload_version bump added to populate_from_gaussian_data()'s failure branch was
+// meant to end. That bump only makes the failure *reachable* here; without this
+// eviction it does not make it *observable*, because the rebuild it triggers fails
+// and the old data survives the failure untouched.
+//
+// Clearing the Ref is the whole fix: every consumer of an AssetRecord already treats
+// `data.is_null()` as "skip this instance"
+// (build_instance_buffer_for_renderer/_build_instance_grading_rows/
+// _mix_instance_grading_seed/collect_instance_asset_registrations all share the same
+// null check), so an evicted record drops out of the instance buffer, the grading rows
+// and the asset registrations coherently and 1:1 -- no new shape is introduced.
+//
+// The version fields are deliberately NOT advanced to the payload that failed to
+// build. Leaving them behind keeps the record honest ("what I cached was built for
+// version X, and it is gone"), and the null `data` alone already defeats the
+// short-circuit at the top of refresh_asset(), so the next retain/refresh retries the
+// rebuild instead of concluding it is current.
+void GaussianSplatSceneDirector::InstanceStore::_evict_asset_data(AssetRecord &r_record) {
+	if (r_record.data.is_null()) {
+		// Already evicted (or never built). Bumping here would emit a cache-invalidation
+		// signal for a state change that did not happen.
+		return;
+	}
+	r_record.data = Ref<GaussianData>();
+	_bump_instance_generation(instance_generation);
+	_bump_instance_asset_generation(instance_asset_generation);
+}
+
 void GaussianSplatSceneDirector::InstanceStore::bump_generation() {
 	_bump_instance_generation(instance_generation);
 }
@@ -717,6 +754,10 @@ bool GaussianSplatSceneDirector::InstanceStore::retain_asset(const Ref<GaussianS
 		Ref<GaussianData> refreshed_data;
 		if (!_populate_gaussian_data_from_asset(p_asset, refreshed_data)) {
 			GS_LOG_WARN_DEFAULT("[GaussianSplatSceneDirector] Failed to rebuild GaussianData from asset.");
+			// #798 review round 4: a failed rebuild must EVICT, not preserve. See
+			// _evict_asset_data() for why returning with the previous payload still
+			// installed is the worse of the two outcomes.
+			_evict_asset_data(*record);
 			return false;
 		}
 		record->data = refreshed_data;
@@ -750,6 +791,8 @@ bool GaussianSplatSceneDirector::InstanceStore::refresh_asset(const Ref<Gaussian
 	Ref<GaussianData> refreshed_data;
 	if (!_populate_gaussian_data_from_asset(p_asset, refreshed_data)) {
 		GS_LOG_WARN_DEFAULT("[GaussianSplatSceneDirector] Failed to refresh GaussianData from asset.");
+		// #798 review round 4: same eviction contract as retain_asset() above.
+		_evict_asset_data(*record);
 		return false;
 	}
 	record->asset = p_asset;

@@ -538,6 +538,10 @@ private:
 
     private:
         static bool _populate_gaussian_data_from_asset(const Ref<GaussianSplatAsset> &p_asset, Ref<GaussianData> &r_data);
+        // #798 review round 4: drop a record's cached payload after a FAILED rebuild,
+        // so a failed retain/refresh evicts the stale GaussianData instead of leaving
+        // the render path drawing it. See the .cpp definition for the full rationale.
+        void _evict_asset_data(AssetRecord &r_record);
 
         LocalVector<InstanceRecord> instances;
         HashMap<ObjectID, uint32_t> instance_lookup;

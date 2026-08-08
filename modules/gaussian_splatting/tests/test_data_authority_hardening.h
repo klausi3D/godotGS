@@ -21,6 +21,7 @@
 #include "../animation/animation_state_machine.h"
 #include "../core/gaussian_data.h"
 #include "../core/gaussian_splat_asset.h"
+#include "../core/gaussian_splat_merge_utils.h"
 #include "core/io/resource.h"
 #include "core/os/semaphore.h"
 #include "core/os/thread.h"
@@ -668,6 +669,738 @@ TEST_CASE("[GaussianSplatting][DataAuthority] Raw storage accessors compile-surv
     const Gaussian *ptr = data->get_gaussians();
     REQUIRE(ptr != nullptr);
     CHECK(ptr[0].position.is_equal_approx(Vector3(-2, 0, 0)));
+}
+
+// ---------------------------------------------------------------------------
+// #798 review round 2 -- failure-path contracts.
+//
+// Both cases below sit on branches that are reachable ONLY when an allocation
+// fails, so they are written as CONTRACTS with two arms rather than as tests
+// that assert a failure they cannot provoke. Each arm carries a real assertion,
+// so neither is vacuous: the success arm verifies the normal payload, and the
+// failure arm verifies the fail-closed state. The failure arm is what a narrow
+// mutation (forcing the corresponding allocation to fail) exercises, exactly as
+// #799 mutation-proved build_hierarchy().
+//
+// NOTE: guard-and-return, never REQUIRE-then-use. disable_exceptions=True means
+// DOCTEST_CONFIG_NO_EXCEPTIONS, so REQUIRE does NOT abort the case; #799 hit
+// 602 CrashHandlerExceptions that way.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Distinct from _make_authority_test_splat(): the normal is (1,0,0), NOT the
+// (0,1,0) that gaussian_splat_merge_sources() substitutes when a source's
+// normal lane is short. That difference is the whole point -- it is what makes
+// "the merge silently defaulted this lane" observable instead of invisible.
+LocalVector<Gaussian> _make_failure_contract_cloud(int p_count) {
+    LocalVector<Gaussian> splats;
+    splats.resize(p_count);
+    for (int i = 0; i < p_count; i++) {
+        Gaussian g;
+        g.position = Vector3(float(i), 0, 0);
+        g.scale = Vector3(1, 1, 1);
+        g.rotation = Quaternion();
+        g.opacity = 1.0f;
+        g.sh_dc = Color(1, 1, 1, 1);
+        g.normal = Vector3(1, 0, 0);
+        g.area = 1.0f;
+        g.brush_axes = Vector2(1.0f, 1.0f);
+        g.stroke_age = 0.0f;
+        g.painterly_meta = 0;
+        g.render_meta = 0;
+        splats[i] = g;
+    }
+    return splats;
+}
+
+} // namespace
+
+TEST_CASE("[GaussianSplatting][DataAuthority] A failed populate_from_gaussian_data resets coherently AND announces the reset") {
+    // #798 review round 3. The previous revision of this case asserted its failure
+    // contract inside an `if (err != OK)` arm that NOTHING could enter: a 6-splat
+    // rewrite never runs out of memory, so every failure assertion below was dead
+    // code and the case passed without executing a single line of the branch it
+    // claims to guard. GaussianSplatAsset::_test_force_next_populate_lane_failure()
+    // now reproduces the exact buffer shape a failed Vector::resize() leaves behind,
+    // so the branch runs for real and `err == ERR_OUT_OF_MEMORY` proves it did.
+    Ref<GaussianSplatAsset> asset;
+    asset.instantiate();
+
+    // Seed a payload first, so a failed REWRITE has a previous state it could
+    // leak. This is the case that matters: populate_from_gaussian_data() has
+    // already replaced splat_count and the SH term counts and re-run
+    // _ensure_buffer_sizes() over every lane before the lane pointers are taken.
+    Ref<::GaussianData> seed;
+    seed.instantiate();
+    seed->set_gaussians(_make_failure_contract_cloud(4));
+    if (asset->populate_from_gaussian_data(seed) != OK) {
+        FAIL("seed populate_from_gaussian_data() must succeed");
+        return;
+    }
+    if (asset->get_splat_count() != 4u) {
+        FAIL("seed populate must yield 4 splats");
+        return;
+    }
+    const uint32_t seeded_version = asset->get_payload_version();
+
+    // Premise for the round-4 bounds assertions in the failure subcases below: the
+    // seed must leave a CLEAN, non-degenerate cached AABB, because that is exactly the
+    // state GaussianSplatNodeHelpers::update_asset() short-circuits on. Snapshot the
+    // AABB by value -- get_import_metadata() hands back a Dictionary that shares the
+    // asset's storage, so a held handle would silently track the reset.
+    {
+        const Dictionary seeded_metadata = asset->get_import_metadata();
+        if (!seeded_metadata.has(StringName("bounds"))) {
+            FAIL("seed populate must cache a bounds AABB (premise for the bounds assertions)");
+            return;
+        }
+        if ((bool)seeded_metadata.get(StringName("bounds_dirty"), true)) {
+            FAIL("seed populate must leave bounds_dirty == false (premise for the bounds assertions)");
+            return;
+        }
+        const Variant seeded_bounds = seeded_metadata[StringName("bounds")];
+        if (seeded_bounds.get_type() != Variant::AABB || ((AABB)seeded_bounds).size == Vector3()) {
+            // A degenerate AABB is ignored by update_asset(), which would make the
+            // "stale bounds survive" defect unobservable and the assertions vacuous.
+            FAIL("the seeded bounds AABB must be non-degenerate (premise for the bounds assertions)");
+            return;
+        }
+    }
+
+    // Rewrite with a DIFFERENT count, so a surviving "new count + unwritten
+    // lanes" mixed state is distinguishable from both the old and the new one.
+    Ref<::GaussianData> rewrite;
+    rewrite.instantiate();
+    rewrite->set_gaussians(_make_failure_contract_cloud(6));
+
+    SUBCASE("an unforced rewrite still succeeds") {
+        // Keeps the injection honest: with nothing armed, the very same call must
+        // take the success path. A hook that failed unconditionally would make the
+        // failure subcases below vacuous in the opposite direction.
+        const Error err = asset->populate_from_gaussian_data(rewrite);
+        CHECK(err == OK);
+        CHECK(asset->get_splat_count() == 6u);
+        CHECK(asset->get_positions().size() == 6 * 3);
+        CHECK(asset->get_opacities().size() == 6);
+        CHECK(asset->get_payload_version() != seeded_version);
+    }
+
+    SUBCASE("a lane whose fresh allocation failed (empty) resets the asset and bumps the version") {
+        SIGNAL_WATCH(asset.ptr(), "changed");
+        SIGNAL_DISCARD("changed");
+        asset->_test_force_next_populate_lane_failure(GaussianSplatAsset::TEST_LANE_FAILURE_EMPTY);
+
+        Error err;
+        {
+            ERR_PRINT_OFF;
+            err = asset->populate_from_gaussian_data(rewrite);
+            ERR_PRINT_ON;
+        }
+
+        // Proves the guarded branch actually ran. Without this the assertions below
+        // would also be satisfied by a populate that never failed at all.
+        CHECK_MESSAGE(err == ERR_OUT_OF_MEMORY,
+                "the forced lane failure must reach the ERR_OUT_OF_MEMORY branch");
+
+        // Round-2 contract: coherently EMPTY, never mixed.
+        CHECK_MESSAGE(asset->get_splat_count() == 0u,
+                "A failed populate_from_gaussian_data() must reset to an empty asset, not leave a mixed one.");
+        CHECK(asset->get_positions().is_empty());
+        CHECK(asset->get_opacities().is_empty());
+        CHECK(asset->get_spherical_harmonics_buffer().is_empty());
+
+        // Round-3 contract: the reset is a payload change and must be announced, or
+        // InstanceStore::refresh_asset() short-circuits on the unchanged version and
+        // the renderer keeps drawing the geometry this asset no longer has.
+        CHECK_MESSAGE(asset->get_payload_version() != seeded_version,
+                "A failed populate must bump payload_version so version-gated consumers rebuild.");
+
+        // Round-4 contract: the reset must invalidate the DERIVED bounds too, not just
+        // the lanes. GaussianSplatNodeHelpers::update_asset()
+        // (gaussian_splat_node_helpers.cpp) branches on exactly this pair: a false
+        // "bounds_dirty" plus a non-degenerate cached "bounds" sets
+        // used_cached_bounds = true and SKIPS the recompute from `positions` -- which
+        // the reset just emptied -- so the node and the editor gizmo keep reporting the
+        // PRE-reset extents for a zero-splat asset.
+        {
+            const Dictionary reset_metadata = asset->get_import_metadata();
+            CHECK_MESSAGE((bool)reset_metadata.get(StringName("bounds_dirty"), false),
+                    "A failed populate must mark bounds dirty, or consumers keep the pre-reset AABB.");
+            CHECK_MESSAGE(!reset_metadata.has(StringName("bounds")),
+                    "A failed populate must drop the stale cached bounds AABB.");
+        }
+
+        Array expected_changed;
+        expected_changed.push_back(Array());
+        SIGNAL_CHECK("changed", expected_changed);
+        SIGNAL_UNWATCH(asset.ptr(), "changed");
+    }
+
+    SUBCASE("a lane whose grow failed (short, non-empty) resets the asset and bumps the version") {
+        // The nastier of the two shapes: the lane is live and non-empty, just too
+        // short, so an is_empty()-only guard would wave it through and the write
+        // loop would run off the end of a real allocation.
+        SIGNAL_WATCH(asset.ptr(), "changed");
+        SIGNAL_DISCARD("changed");
+        asset->_test_force_next_populate_lane_failure(GaussianSplatAsset::TEST_LANE_FAILURE_SHORT);
+
+        Error err;
+        {
+            ERR_PRINT_OFF;
+            err = asset->populate_from_gaussian_data(rewrite);
+            ERR_PRINT_ON;
+        }
+
+        CHECK_MESSAGE(err == ERR_OUT_OF_MEMORY,
+                "the forced short lane must reach the ERR_OUT_OF_MEMORY branch");
+        CHECK(asset->get_splat_count() == 0u);
+        CHECK(asset->get_positions().is_empty());
+        CHECK_MESSAGE(asset->get_payload_version() != seeded_version,
+                "A failed populate must bump payload_version so version-gated consumers rebuild.");
+        {
+            // Round-4 contract, same as the empty-lane subcase above.
+            const Dictionary reset_metadata = asset->get_import_metadata();
+            CHECK_MESSAGE((bool)reset_metadata.get(StringName("bounds_dirty"), false),
+                    "A failed populate must mark bounds dirty, or consumers keep the pre-reset AABB.");
+            CHECK_MESSAGE(!reset_metadata.has(StringName("bounds")),
+                    "A failed populate must drop the stale cached bounds AABB.");
+        }
+        Array expected_changed;
+        expected_changed.push_back(Array());
+        SIGNAL_CHECK("changed", expected_changed);
+        SIGNAL_UNWATCH(asset.ptr(), "changed");
+    }
+}
+
+TEST_CASE("[GaussianSplatting][DataAuthority] Merge either preserves every source lane or refuses the merge") {
+    // #798 review round 3: as above, the refusal arm of this case used to be
+    // unreachable -- a 3-splat getter never OOMs -- so the round-2 widening of the
+    // merge guard beyond positions/scales was asserted but never exercised.
+    // _test_force_next_getter_failure() makes get_normal_vectors() return the exact
+    // empty array its gs_resize_or_fail() failure path returns.
+    Vector<GaussianSplatMergeSource> sources;
+    Vector<Ref<GaussianSplatAsset>> source_assets;
+    for (int s = 0; s < 2; s++) {
+        Ref<GaussianSplatAsset> asset;
+        asset.instantiate();
+        Ref<::GaussianData> data;
+        data.instantiate();
+        data->set_gaussians(_make_failure_contract_cloud(3));
+        if (asset->populate_from_gaussian_data(data) != OK) {
+            FAIL("merge source populate_from_gaussian_data() must succeed");
+            return;
+        }
+        GaussianSplatMergeSource src;
+        src.asset = asset;
+        src.transform = Transform3D(); // identity: world normal == local normal
+        sources.push_back(src);
+        source_assets.push_back(asset);
+    }
+    if (source_assets.size() != 2) {
+        FAIL("test setup must build 2 merge sources");
+        return;
+    }
+
+    SUBCASE("an intact merge carries every source lane through") {
+        GaussianSplatMergeResult out;
+        const bool merged = gaussian_splat_merge_sources(sources, 10.0f, out);
+        if (!merged) {
+            FAIL("a merge over intact sources must succeed");
+            return;
+        }
+        if (out.data.is_null()) {
+            FAIL("a successful merge must produce GaussianData");
+            return;
+        }
+        if (out.data->get_count() != 6) {
+            FAIL("a successful merge of 2x3 splats must produce 6 splats");
+            return;
+        }
+        const Gaussian *merged_splats = out.data->get_gaussians();
+        if (merged_splats == nullptr) {
+            FAIL("a successful merge must expose splat storage");
+            return;
+        }
+        bool normals_preserved = true;
+        for (int i = 0; i < 6; i++) {
+            if (!merged_splats[i].normal.is_equal_approx(Vector3(1, 0, 0))) {
+                normals_preserved = false;
+                break;
+            }
+        }
+        CHECK_MESSAGE(normals_preserved,
+                "A merge reporting success must carry each source's normals through, "
+                "not substitute the (0,1,0) default for a lane whose allocation failed.");
+    }
+
+    SUBCASE("a source whose normals getter OOMs is refused, not defaulted") {
+        // normals is the discriminating lane: the pre-round-2 guard checked only
+        // positions and scales, so this exact input produced a "successful" merge
+        // whose every splat carried the (0,1,0) fallback instead of (1,0,0).
+        source_assets.write[0]->_test_force_next_getter_failure(GaussianSplatAsset::TEST_GETTER_FAILURE_NORMALS);
+
+        GaussianSplatMergeResult out;
+        bool merged;
+        {
+            ERR_PRINT_OFF;
+            merged = gaussian_splat_merge_sources(sources, 10.0f, out);
+            ERR_PRINT_ON;
+        }
+
+        CHECK_MESSAGE(!merged,
+                "A source whose normals allocation failed must be refused, not merged with defaults.");
+        // Extra parens are load-bearing: a top-level || inside CHECK trips doctest's
+        // expression decomposition ("Expression Too Complex", doctest.h:1545).
+        CHECK_MESSAGE((out.data.is_null() || out.data->get_count() == 0),
+                "A refused merge must not hand back partially-defaulted geometry.");
+    }
+}
+
+TEST_CASE("[GaussianSplatting][DataAuthority] A failed lane SHRINK that leaves the lane oversized fails closed") {
+    // #798 review round 5. The two existing injection shapes (EMPTY, SHORT) are both
+    // "lane too small". A resize can also fail while SHRINKING: CowData::_fork_allocate()
+    // takes its in-place branch, calls _realloc() with the smaller alloc size, and on
+    // failure returns BEFORE `*_get_size() = p_size` ("Out of memory; the current array is
+    // still valid though", core/templates/cowdata.h) -- so the lane survives at its old,
+    // LARGER length. populate_from_gaussian_data() is the asset REWRITE path, so shrinking
+    // an existing asset to fewer splats is an ordinary thing for it to do.
+    //
+    // On sh_high_order_coefficients that shape was worse than a stale length, because the
+    // length is not just data -- _ensure_buffer_sizes() ends in
+    // _recalculate_sh_component_counts(), which DERIVES sh_high_order_terms from
+    // `lane.size() / (splat_count * 3)`. An oversized lane therefore INFLATES the term
+    // count, the inflated count reproduces the oversized length exactly as "the required
+    // length", and the write loop then uses it as the stride into the SOURCE GaussianData's
+    // high-order array -- which is correctly sized, i.e. shorter. Out-of-bounds READ, on the
+    // way to sealing and version-bumping a corrupted asset.
+    //
+    // Numbers below are chosen so the pre-fix `size() < required` test is provably blind:
+    //   seed    4 splats x 2 terms -> lane 4*2*3 = 24 floats
+    //   rewrite 2 splats x 2 terms -> lane must become 2*2*3 = 12 floats
+    //   failed shrink leaves 24 -> derived terms = 24 / (2*3) = 4 -> "required" = 2*4*3 = 24
+    // 24 < 24 is false, so the lane was accepted, and the loop then strode the source's
+    // 2*2 = 4 Vector3s with a stride of 4, reading up to index 8.
+    Ref<GaussianSplatAsset> asset;
+    asset.instantiate();
+
+    LocalVector<Vector3> seed_high_order;
+    seed_high_order.resize(4 * 2);
+    for (uint32_t i = 0; i < seed_high_order.size(); i++) {
+        seed_high_order[i] = Vector3(float(i), float(i), float(i));
+    }
+    Ref<::GaussianData> seed;
+    seed.instantiate();
+    seed->set_gaussian_payload(_make_failure_contract_cloud(4), seed_high_order, 0, 2, false);
+    if (seed->get_sh_high_order_count() != 2u) {
+        // set_gaussian_payload() silently drops a mismatched SH block; without high-order
+        // SH the whole term-count derivation this case guards is unreachable.
+        FAIL("seed GaussianData must carry 2 high-order SH terms per splat");
+        return;
+    }
+    if (asset->populate_from_gaussian_data(seed) != OK) {
+        FAIL("seed populate_from_gaussian_data() must succeed");
+        return;
+    }
+    if (asset->get_splat_count() != 4u) {
+        FAIL("seed populate must yield 4 splats");
+        return;
+    }
+    if (asset->get_sh_high_order_coefficients().size() != 4 * 2 * 3) {
+        FAIL("seed populate must leave a 24-float high-order lane (premise for the shrink)");
+        return;
+    }
+    const uint32_t seeded_version = asset->get_payload_version();
+
+    // The rewrite: same term count, FEWER splats, so every lane must shrink.
+    LocalVector<Vector3> rewrite_high_order;
+    rewrite_high_order.resize(2 * 2);
+    for (uint32_t i = 0; i < rewrite_high_order.size(); i++) {
+        rewrite_high_order[i] = Vector3(float(i) + 100.0f, 0, 0);
+    }
+    Ref<::GaussianData> rewrite;
+    rewrite.instantiate();
+    rewrite->set_gaussian_payload(_make_failure_contract_cloud(2), rewrite_high_order, 0, 2, false);
+    if (rewrite->get_count() != 2 || rewrite->get_sh_high_order_count() != 2u) {
+        FAIL("rewrite GaussianData must be 2 splats x 2 high-order terms");
+        return;
+    }
+
+    SUBCASE("an unforced shrink still succeeds") {
+        // Keeps the injection honest in the other direction: the identical call with
+        // nothing armed must take the success path and land on the SHRUNK lengths, so the
+        // exact-equality requirement is not just rejecting every shrink.
+        const Error err = asset->populate_from_gaussian_data(rewrite);
+        CHECK(err == OK);
+        CHECK(asset->get_splat_count() == 2u);
+        CHECK(asset->get_positions().size() == 2 * 3);
+        CHECK_MESSAGE(asset->get_sh_high_order_coefficients().size() == 2 * 2 * 3,
+                "A successful shrink must leave the high-order lane at exactly count * terms * 3.");
+        CHECK(asset->get_payload_version() != seeded_version);
+    }
+
+    SUBCASE("a failed shrink that leaves the lane OVERSIZED resets the asset instead of striding the source out of bounds") {
+        // Premises, asserted BEFORE arming so they hold on a pre-fix binary too: the lane
+        // really is longer than the rewrite needs, which is the whole precondition for the
+        // inflated-term-count read.
+        if (asset->get_sh_high_order_coefficients().size() != 24) {
+            FAIL("premise: the armed rewrite must start from a 24-float high-order lane");
+            return;
+        }
+        if (rewrite->get_count() * int(rewrite->get_sh_high_order_count()) * 3 != 12) {
+            FAIL("premise: the rewrite must need exactly 12 high-order floats");
+            return;
+        }
+
+        asset->_test_force_next_populate_lane_failure(GaussianSplatAsset::TEST_LANE_FAILURE_OVERSIZED);
+
+        Error err;
+        {
+            ERR_PRINT_OFF;
+            err = asset->populate_from_gaussian_data(rewrite);
+            ERR_PRINT_ON;
+        }
+
+        CHECK_MESSAGE(err == ERR_OUT_OF_MEMORY,
+                "An oversized lane left by a failed shrink must reach the ERR_OUT_OF_MEMORY branch, "
+                "not be accepted because it merely holds 'enough' elements.");
+        CHECK_MESSAGE(asset->get_splat_count() == 0u,
+                "A failed populate must reset to an empty asset, not seal the oversized payload.");
+        CHECK_MESSAGE(asset->get_sh_high_order_coefficients().is_empty(),
+                "The oversized high-order lane must not survive the failed populate.");
+        CHECK(asset->get_positions().is_empty());
+        CHECK_MESSAGE(asset->get_payload_version() != seeded_version,
+                "A failed populate must bump payload_version so version-gated consumers rebuild.");
+        {
+            const Dictionary reset_metadata = asset->get_import_metadata();
+            CHECK_MESSAGE((bool)reset_metadata.get(StringName("bounds_dirty"), false),
+                    "A failed populate must mark bounds dirty, or consumers keep the pre-reset AABB.");
+            CHECK_MESSAGE(!reset_metadata.has(StringName("bounds")),
+                    "A failed populate must drop the stale cached bounds AABB.");
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// #798 review round 6 -- the MATERIALIZATION path's failure contract.
+//
+// Rounds 2-5 closed this defect shape on the merge path and on the asset REWRITE
+// path. populate_gaussian_data() -- the read path that get_gaussian_data() caches
+// and that the scene director's DYNAMIC branch installs -- had the same hole: the
+// structured getters report an allocation failure by returning the EMPTY array,
+// every GaussianData setter that consumes them is `void` and rejects a size
+// mismatch with a bare ERR_FAIL_COND, and the function returned true regardless.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// sh_dc is deliberately NOT the Color(1, 1, 1, 1) that GaussianData::resize()
+// writes into a fresh gaussian. That difference is the whole point: it is what
+// makes "materialization reported success but the SH lane never landed" observable
+// instead of invisible. Same role the (1,0,0) normal plays for the merge case.
+LocalVector<Gaussian> _make_materialization_probe_cloud(int p_count) {
+    LocalVector<Gaussian> splats;
+    splats.resize(p_count);
+    for (int i = 0; i < p_count; i++) {
+        Gaussian g;
+        g.position = Vector3(float(i), 1.0f, 2.0f);
+        g.scale = Vector3(1, 1, 1);
+        g.rotation = Quaternion();
+        g.opacity = 0.75f;
+        g.sh_dc = Color(0.25f, 0.5f, 0.75f, 1.0f);
+        g.normal = Vector3(1, 0, 0);
+        g.area = 1.0f;
+        g.brush_axes = Vector2(1.0f, 1.0f);
+        g.stroke_age = 0.0f;
+        g.painterly_meta = 0;
+        g.render_meta = 0;
+        splats[i] = g;
+    }
+    return splats;
+}
+
+} // namespace
+
+TEST_CASE("[GaussianSplatting][DataAuthority] A failed getter allocation refuses materialization instead of caching a defaulted payload") {
+    Ref<GaussianSplatAsset> asset;
+    asset.instantiate();
+
+    Ref<::GaussianData> seed;
+    seed.instantiate();
+    seed->set_gaussians(_make_materialization_probe_cloud(4));
+    if (asset->populate_from_gaussian_data(seed) != OK) {
+        FAIL("seed populate_from_gaussian_data() must succeed");
+        return;
+    }
+    if (asset->get_splat_count() != 4u) {
+        FAIL("seed populate must yield 4 splats");
+        return;
+    }
+
+    // Premise 1: the asset's SH buffer really is splat_count * (1 DC term) * 3 floats
+    // and really carries the probe DC, so a payload built from it is distinguishable
+    // from one left at GaussianData::resize()'s Color(1, 1, 1, 1) default. Asserted
+    // BEFORE anything is armed, so it holds on a pre-fix binary too.
+    {
+        const PackedFloat32Array intact_sh = asset->get_spherical_harmonics_buffer();
+        if (intact_sh.size() != 4 * 3) {
+            FAIL("premise: the intact SH buffer must hold splat_count * 1 term * 3 floats");
+            return;
+        }
+        if (!Math::is_equal_approx(intact_sh[0], 0.25f)) {
+            FAIL("premise: the probe DC must reach the SH buffer, or nothing below can discriminate");
+            return;
+        }
+    }
+
+    // Premise 2: the injection reproduces the getter's real allocation-failure result
+    // -- the empty array -- and it is arm-once, so the assertions in the subcases below
+    // are about ONE forced failure and not about a permanently broken getter.
+    asset->_test_force_next_getter_failure(GaussianSplatAsset::TEST_GETTER_FAILURE_SPHERICAL_HARMONICS);
+    if (!asset->get_spherical_harmonics_buffer().is_empty()) {
+        FAIL("premise: the armed getter must return the empty allocation-failure result");
+        return;
+    }
+    if (asset->get_spherical_harmonics_buffer().size() != 4 * 3) {
+        FAIL("premise: the injection must be arm-once, so the next call rebuilds the full buffer");
+        return;
+    }
+
+    SUBCASE("an unarmed materialization still succeeds and carries the DC through") {
+        // Keeps the injection honest in the other direction: with nothing armed the very
+        // same call must take the success path, so the refusals below are not just a
+        // populate that fails unconditionally.
+        Ref<::GaussianData> data;
+        const bool ok = asset->populate_gaussian_data(data);
+        CHECK(ok);
+        if (data.is_null()) {
+            FAIL("a successful materialization must produce GaussianData");
+            return;
+        }
+        CHECK(data->get_count() == 4);
+        CHECK_MESSAGE(Math::is_equal_approx(data->get_gaussian(0).sh_dc.r, 0.25f),
+                "A successful materialization must install the asset's DC, not the resize() default.");
+        CHECK(Math::is_equal_approx(data->get_gaussian(0).sh_dc.g, 0.5f));
+    }
+
+    SUBCASE("a failed SH allocation refuses to materialize rather than reporting success") {
+        asset->_test_force_next_getter_failure(GaussianSplatAsset::TEST_GETTER_FAILURE_SPHERICAL_HARMONICS);
+
+        Ref<::GaussianData> data;
+        bool ok;
+        {
+            ERR_PRINT_OFF;
+            ok = asset->populate_gaussian_data(data);
+            ERR_PRINT_ON;
+        }
+
+        CHECK_MESSAGE(!ok,
+                "populate_gaussian_data() must report the failed SH allocation instead of returning true.");
+        // The discriminating assertion is the PAYLOAD, not the return code: pre-fix this
+        // handed back a full 4-splat GaussianData whose every sh_dc had silently fallen
+        // back to resize()'s (1, 1, 1, 1), because set_spherical_harmonics() is void and
+        // just ERR_FAIL_CONDs out on the empty input.
+        CHECK_MESSAGE(data.is_null(),
+                "A refused materialization must not hand back a payload at all.");
+        if (data.is_valid()) {
+            CHECK_MESSAGE(data->get_count() == 0,
+                    "A refused materialization must not leave partially default-initialized gaussians behind.");
+            CHECK_MESSAGE(!Math::is_equal_approx(data->get_gaussian(0).sh_dc.r, 1.0f),
+                    "The returned payload carries the default DC, i.e. the SH lane never landed.");
+        }
+    }
+
+    SUBCASE("a failed SH allocation is not memoized by get_gaussian_data()") {
+        asset->_test_force_next_getter_failure(GaussianSplatAsset::TEST_GETTER_FAILURE_SPHERICAL_HARMONICS);
+
+        Ref<::GaussianData> first;
+        {
+            ERR_PRINT_OFF;
+            first = asset->get_gaussian_data();
+            ERR_PRINT_ON;
+        }
+
+        CHECK_MESSAGE(first.is_null(),
+                "get_gaussian_data() must return nothing when the build failed.");
+        CHECK_MESSAGE(!asset->has_gaussian_data_cached(),
+                "A failed build must not be cached -- gaussian_data_cache is returned unconditionally "
+                "by every later call, so a cached defaulted payload is permanent.");
+
+        // The consequence that matters, and the one a fix that only stopped the population
+        // would still get wrong: the NEXT call has to rebuild the real payload. Pre-fix the
+        // cache held a 4-splat payload whose SH lane never landed, so this returned the
+        // (1, 1, 1, 1) default forever, with no further chance to retry.
+        Ref<::GaussianData> retried = asset->get_gaussian_data();
+        if (retried.is_null()) {
+            FAIL("the retry after a failed build must materialize the asset");
+            return;
+        }
+        CHECK(retried->get_count() == 4);
+        CHECK_MESSAGE(Math::is_equal_approx(retried->get_gaussian(0).sh_dc.r, 0.25f),
+                "The retry must return the asset's own DC; the default means the failed build was cached.");
+        CHECK(Math::is_equal_approx(retried->get_gaussian(0).sh_dc.g, 0.5f));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// #798 review round 7 -- the materialization failure must be TRANSACTIONAL, not
+// merely reported.
+//
+// Round 6 (the case above) proved populate_gaussian_data() REPORTS a failed getter
+// allocation. It did not prove the failure is free of side effects. The lanes are
+// materialized in sequence, so set_positions()/set_scales()/set_rotations() land
+// BEFORE the SH getter is validated, and the destination used to be the caller's own
+// object (the out-param is an in/out Ref, and a non-null one was reused in place).
+// Clearing r_data on the failure path drops only the callee's reference: anything
+// else still holding a Ref to that payload keeps observing it resized to the asset's
+// splat count and rewritten with three asset lanes over GaussianData::resize()'s
+// defaults for the other seven -- a half-built payload delivered by a call that
+// returned false.
+//
+// The observer here is a SECOND Ref. Asserting only `ok == false` would pass with and
+// without the fix and prove nothing; every discriminating assertion below is made on
+// the alias, not on the out-param.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Deliberately unlike BOTH of the things that could overwrite it, so "untouched" is
+// distinguishable from either kind of damage: position (-7,-7,-7) is neither the
+// asset's splat-0 position (0,1,2) that set_positions() would write nor the (0,0,0)
+// GaussianData::resize() defaults to; sh_dc 0.125 is neither the asset's 0.25 nor
+// resize()'s (1,1,1,1); scale (3,3,3) is neither the asset's (1,1,1) nor resize()'s
+// (1,1,1). The count (2) differs from the asset's splat_count (4) as well, so a bare
+// resize() with no lane writes at all is caught too.
+LocalVector<Gaussian> _make_alias_probe_cloud() {
+    LocalVector<Gaussian> splats;
+    splats.resize(2);
+    for (int i = 0; i < 2; i++) {
+        Gaussian g;
+        g.position = Vector3(-7.0f, -7.0f, -7.0f);
+        g.scale = Vector3(3.0f, 3.0f, 3.0f);
+        g.rotation = Quaternion();
+        g.opacity = 0.5f;
+        g.sh_dc = Color(0.125f, 0.375f, 0.625f, 1.0f);
+        g.normal = Vector3(0, 0, 1);
+        g.area = 1.0f;
+        g.brush_axes = Vector2(1.0f, 1.0f);
+        g.stroke_age = 0.0f;
+        g.painterly_meta = 0;
+        g.render_meta = 0;
+        splats[i] = g;
+    }
+    return splats;
+}
+
+} // namespace
+
+TEST_CASE("[GaussianSplatting][DataAuthority] A refused materialization leaves an aliased caller payload untouched") {
+    Ref<GaussianSplatAsset> asset;
+    asset.instantiate();
+
+    Ref<::GaussianData> seed;
+    seed.instantiate();
+    seed->set_gaussians(_make_materialization_probe_cloud(4));
+    if (asset->populate_from_gaussian_data(seed) != OK) {
+        FAIL("seed populate_from_gaussian_data() must succeed");
+        return;
+    }
+    if (asset->get_splat_count() != 4u) {
+        FAIL("seed populate must yield 4 splats");
+        return;
+    }
+
+    // The caller's pre-existing payload, plus a SECOND live Ref to the very same object.
+    // The alias is the observer: it survives whatever the callee does to its own out-param
+    // reference, which is precisely the reference that a `r_data = Ref()` clear releases.
+    Ref<::GaussianData> caller_payload;
+    caller_payload.instantiate();
+    caller_payload->set_gaussians(_make_alias_probe_cloud());
+    Ref<::GaussianData> alias = caller_payload;
+
+    // Premise 1: the alias really does observe the same object, and that object really does
+    // carry the probe. Asserted before anything is armed, so it holds on a pre-fix binary.
+    if (alias.ptr() != caller_payload.ptr()) {
+        FAIL("premise: the alias must reference the caller's payload, or it observes nothing");
+        return;
+    }
+    if (alias->get_count() != 2) {
+        FAIL("premise: the caller's payload must start at 2 splats, distinct from the asset's 4");
+        return;
+    }
+    if (!alias->get_gaussian(0).position.is_equal_approx(Vector3(-7.0f, -7.0f, -7.0f))) {
+        FAIL("premise: the probe position must be readable through the alias");
+        return;
+    }
+
+    // Premise 2: the injection reproduces the getter's real allocation-failure result and is
+    // arm-once, so what follows is about ONE forced failure.
+    asset->_test_force_next_getter_failure(GaussianSplatAsset::TEST_GETTER_FAILURE_SPHERICAL_HARMONICS);
+    if (!asset->get_spherical_harmonics_buffer().is_empty()) {
+        FAIL("premise: the armed getter must return the empty allocation-failure result");
+        return;
+    }
+    if (asset->get_spherical_harmonics_buffer().size() != 4 * 3) {
+        FAIL("premise: the injection must be arm-once, so the next call rebuilds the full buffer");
+        return;
+    }
+
+    SUBCASE("the failed lane must not have been written through the caller's Ref") {
+        asset->_test_force_next_getter_failure(GaussianSplatAsset::TEST_GETTER_FAILURE_SPHERICAL_HARMONICS);
+
+        bool ok;
+        {
+            ERR_PRINT_OFF;
+            ok = asset->populate_gaussian_data(caller_payload);
+            ERR_PRINT_ON;
+        }
+        CHECK_MESSAGE(!ok, "populate_gaussian_data() must still report the failed SH allocation.");
+
+        // THE discriminating assertions. Pre-fix every one of these fails: resize(4) had
+        // already run on the caller's object and three asset lanes had already been written
+        // into it when the SH getter was validated, and the clear that followed released only
+        // the callee's reference.
+        CHECK_MESSAGE(alias->get_count() == 2,
+                "A refused materialization resized the caller's payload to the asset's splat "
+                "count. The alias observes a payload that was never successfully built.");
+        if (alias->get_count() >= 1) {
+            CHECK_MESSAGE(alias->get_gaussian(0).position.is_equal_approx(Vector3(-7.0f, -7.0f, -7.0f)),
+                    "set_positions() ran on the caller's payload before the SH getter was "
+                    "validated, so the alias sees the asset's positions over a payload whose "
+                    "SH, opacity, normal and brush lanes never landed.");
+            CHECK_MESSAGE(alias->get_gaussian(0).scale.is_equal_approx(Vector3(3.0f, 3.0f, 3.0f)),
+                    "set_scales() ran on the caller's payload before the failure.");
+            CHECK_MESSAGE(Math::is_equal_approx(alias->get_gaussian(0).sh_dc.r, 0.125f),
+                    "The alias' DC was reset -- either by resize()'s (1,1,1,1) default or by a "
+                    "partial SH write.");
+        }
+
+        // The caller's own reference is left alone too: with nothing half-written to hide,
+        // clearing it would be the one mutation the failure path still performed.
+        CHECK_MESSAGE(caller_payload.ptr() == alias.ptr(),
+                "A failure must leave the out-param exactly as the caller passed it.");
+    }
+
+    SUBCASE("a successful materialization still delivers the asset's payload through the out-param") {
+        // The non-failure path is unchanged where it is observable: the out-param comes back
+        // holding a complete payload built from the asset. What it does NOT do any more is
+        // rewrite a caller-supplied payload in place -- it replaces it -- so the alias keeps
+        // the object it was given. No in-tree caller passes a non-null payload, so this is a
+        // contract statement, not a behaviour change at any call site.
+        Ref<::GaussianData> out = caller_payload;
+        const bool ok = asset->populate_gaussian_data(out);
+        CHECK(ok);
+        if (out.is_null()) {
+            FAIL("a successful materialization must produce GaussianData");
+            return;
+        }
+        CHECK(out->get_count() == 4);
+        CHECK_MESSAGE(Math::is_equal_approx(out->get_gaussian(0).sh_dc.r, 0.25f),
+                "A successful materialization must install the asset's DC, not the resize() default.");
+        CHECK_MESSAGE(alias->get_count() == 2,
+                "The caller-supplied payload is replaced, not rewritten in place.");
+        CHECK(alias->get_gaussian(0).position.is_equal_approx(Vector3(-7.0f, -7.0f, -7.0f)));
+    }
 }
 
 } // namespace TestGaussianSplatting

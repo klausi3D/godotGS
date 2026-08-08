@@ -3,6 +3,7 @@
 #include "../io/spz_loader.h"
 #include "../core/gaussian_data.h"
 #include "../core/gaussian_importance.h" // ResidentAtlasBudget::gaussian_importance / select_top_k_indices (prune ranking)
+#include "../core/gs_vector_alloc.h" // #798: gs_resize_or_fail() for resize-then-ptrw() outputs
 #include "core/error/error_macros.h"
 #include "core/io/file_access.h"
 #include "core/io/image.h"
@@ -489,6 +490,17 @@ PackedFloat32Array GaussianSplatAsset::get_stroke_ages() const {
 // Structured getters: these convert raw data into higher-level types and
 // silently fill fallback values when individual splat data is missing.
 // They use WARN_PRINT_ONCE for the "asset not loaded at all" case.
+//
+// #798: every one of these sizes its output to splat_count (or a multiple of it)
+// and then writes through a raw ptrw() with the loop bounded by splat_count, NOT
+// by result.size(). Vector::resize() reports OOM only through its return value and
+// leaves the vector empty, so ptrw() would hand back nullptr and the loop would
+// write the whole asset through address 0 -- no CRASH_BAD_INDEX, no diagnostic.
+// splat_count is file-derived and unbounded, so these are exactly the allocations
+// that can realistically fail. The failure result is the empty array each getter
+// already returns for an unloaded asset (the splat_count == 0 branch above it);
+// consumers such as gaussian_splat_merge_sources() already index these defensively
+// against the returned size() and substitute per-field defaults.
 // ---------------------------------------------------------------------------
 
 PackedVector3Array GaussianSplatAsset::get_position_vectors() const {
@@ -499,7 +511,9 @@ PackedVector3Array GaussianSplatAsset::get_position_vectors() const {
         return result;
     }
 
-    result.resize(splat_count);
+    if (!gs_resize_or_fail(result, splat_count, "GaussianSplatAsset::get_position_vectors")) {
+        return result; // #798: empty == the unloaded-asset result; see the block comment above.
+    }
     Vector3 *write = result.ptrw();
     const float *read = positions.ptr();
     const int available = positions.size();
@@ -532,7 +546,9 @@ PackedVector3Array GaussianSplatAsset::get_scale_vectors() const {
         return result;
     }
 
-    result.resize(splat_count);
+    if (!gs_resize_or_fail(result, splat_count, "GaussianSplatAsset::get_scale_vectors")) {
+        return result; // #798: empty == the unloaded-asset result; see the block comment above.
+    }
     Vector3 *write = result.ptrw();
     const float *read = scales.ptr();
     const int available = scales.size();
@@ -600,7 +616,22 @@ PackedFloat32Array GaussianSplatAsset::get_spherical_harmonics_buffer() const {
     const uint32_t high_terms = sh_high_order_terms;
     const uint32_t total_terms = 1 + first_terms + high_terms;
 
-    result.resize(int64_t(splat_count) * int64_t(total_terms) * 3);
+#ifdef TESTS_ENABLED
+    // Arm-once allocation-failure injection; see GaussianSplatAsset::TestGetterFailure.
+    // Placed exactly where the real gs_resize_or_fail() failure returns below, so the
+    // injected result is byte-identical to the production one.
+    if (test_getter_failure == TEST_GETTER_FAILURE_SPHERICAL_HARMONICS) {
+        test_getter_failure = TEST_GETTER_FAILURE_NONE;
+        return result;
+    }
+#endif
+    // #798: splat_count * total_terms * 3 is the largest output of this family (SH bands
+    // multiply the splat count), so it is the most likely to fail and the write loop is
+    // bounded by splat_count/total_terms rather than result.size().
+    if (!gs_resize_or_fail(result, int64_t(splat_count) * int64_t(total_terms) * 3,
+                "GaussianSplatAsset::get_spherical_harmonics_buffer")) {
+        return result; // empty == the unloaded-asset result; see the block comment above.
+    }
     float *write = result.ptrw();
     const float *dc_read = has_sh_dc_coefficients ? sh_dc_coefficients.ptr() : nullptr;
     const float *first_read = sh_first_order_coefficients.ptr();
@@ -677,7 +708,9 @@ PackedFloat32Array GaussianSplatAsset::get_opacities() const {
         return result;
     }
 
-    result.resize(splat_count);
+    if (!gs_resize_or_fail(result, splat_count, "GaussianSplatAsset::get_opacities")) {
+        return result; // #798: empty == the unloaded-asset result; see the block comment above.
+    }
     float *write = result.ptrw();
     const float *logit_read = opacity_logits.ptr();
     const Color *color_read = colors.ptr();
@@ -708,7 +741,9 @@ PackedInt32Array GaussianSplatAsset::get_palette_ids_buffer() const {
         return result;
     }
 
-    result.resize(splat_count);
+    if (!gs_resize_or_fail(result, splat_count, "GaussianSplatAsset::get_palette_ids_buffer")) {
+        return result; // #798: empty == the unloaded-asset result; see the block comment above.
+    }
     int32_t *write = result.ptrw();
     const int available = palette_ids.size();
 
@@ -728,7 +763,9 @@ PackedInt32Array GaussianSplatAsset::get_painterly_flags_buffer() const {
         return result;
     }
 
-    result.resize(splat_count);
+    if (!gs_resize_or_fail(result, splat_count, "GaussianSplatAsset::get_painterly_flags_buffer")) {
+        return result; // #798: empty == the unloaded-asset result; see the block comment above.
+    }
     int32_t *write = result.ptrw();
     const int available = painterly_flags.size();
 
@@ -752,7 +789,18 @@ PackedVector3Array GaussianSplatAsset::get_normal_vectors() const {
         return result;
     }
 
-    result.resize(splat_count);
+#ifdef TESTS_ENABLED
+    // Arm-once allocation-failure injection; see GaussianSplatAsset::TestGetterFailure.
+    // Placed exactly where the real gs_resize_or_fail() failure returns, so the injected
+    // result is byte-identical to the production one.
+    if (test_getter_failure == TEST_GETTER_FAILURE_NORMALS) {
+        test_getter_failure = TEST_GETTER_FAILURE_NONE;
+        return result;
+    }
+#endif
+    if (!gs_resize_or_fail(result, splat_count, "GaussianSplatAsset::get_normal_vectors")) {
+        return result; // #798: empty == the unloaded-asset result; see the block comment above.
+    }
     Vector3 *write = result.ptrw();
     const float *read = normals.ptr();
     const int available = normals.size();
@@ -776,7 +824,9 @@ PackedVector2Array GaussianSplatAsset::get_brush_axes_vector2() const {
         return result;
     }
 
-    result.resize(splat_count);
+    if (!gs_resize_or_fail(result, splat_count, "GaussianSplatAsset::get_brush_axes_vector2")) {
+        return result; // #798: empty == the unloaded-asset result; see the block comment above.
+    }
     Vector2 *write = result.ptrw();
     const float *read = brush_axes.ptr();
     const int available = brush_axes.size();
@@ -800,7 +850,9 @@ PackedFloat32Array GaussianSplatAsset::get_stroke_ages_buffer() const {
         return result;
     }
 
-    result.resize(splat_count);
+    if (!gs_resize_or_fail(result, splat_count, "GaussianSplatAsset::get_stroke_ages_buffer")) {
+        return result; // #798: empty == the unloaded-asset result; see the block comment above.
+    }
     float *write = result.ptrw();
     const int available = stroke_ages.size();
 
@@ -1139,6 +1191,9 @@ void GaussianSplatAsset::_ensure_buffer_sizes() {
     const uint32_t count = splat_count;
     const int old_scale_size = scales.size();
     const int old_rotation_size = rotations.size();
+    // #798: unchecked by the own-size rule. Every write below is bounded by the vector's
+    // OWN size() and gated on size() > old_size, so a failed resize (which leaves size()
+    // at the old value) skips the fill entirely instead of walking off a null ptrw().
     positions.resize(count * 3);
     colors.resize(count);
     scales.resize(count * 3);
@@ -1601,40 +1656,194 @@ bool GaussianSplatAsset::populate_gaussian_data(Ref<::GaussianData> &r_data) con
         return false;
     }
 
-    if (r_data.is_null()) {
-        r_data.instantiate();
+    // #798 review round 7: build into a payload the caller cannot reach, and PUBLISH it
+    // only once every lane has landed.
+    //
+    // Round 6 made the failure loud; it did not make it transactional. The lanes below are
+    // materialized in sequence, so set_positions()/set_scales()/set_rotations() have already
+    // rewritten the destination by the time the SH getter is validated. When the destination
+    // was the caller's own object -- this is an in/out Ref, and the previous code reused a
+    // non-null one in place -- clearing r_data on failure dropped only THIS function's
+    // reference: any other live Ref to the same payload kept observing it resized to
+    // splat_count and rewritten with three asset lanes over GaussianData::resize()'s defaults
+    // for the other seven. That is a half-built payload handed out through the back door of a
+    // call that returned false.
+    //
+    // Staging removes the failure paths' write set entirely: on every `return false` below,
+    // `staged` is the only reference and dies with the frame, and r_data is left EXACTLY as
+    // the caller passed it. Note this replaces round 6's "clear r_data on failure" -- with
+    // nothing half-written to hide, clearing would itself be the one mutation the failure path
+    // still performed. Callers gate on the bool return (get_gaussian_data(),
+    // prune_by_importance(), InstanceStore::_populate_gaussian_data_from_asset()), never on
+    // the out-param's nullity, so the observable behaviour of every in-tree call site -- all
+    // of which pass a fresh, null Ref -- is unchanged: null in, null out on failure.
+    //
+    // Consequence on SUCCESS: a caller-supplied non-null payload is no longer rewritten in
+    // place, it is REPLACED. No in-tree caller passes one -- the three named above are the only
+    // ones, and each declares a fresh local Ref -- and the out-param is documented as an output,
+    // so nothing depends on that identity.
+    Ref<::GaussianData> staged;
+    staged.instantiate();
+
+    // #798 review round 6: MATERIALIZATION must fail closed too, exactly like the merge
+    // and rewrite paths already do.
+    //
+    // Every structured getter called below reports its own allocation failure by returning
+    // the EMPTY array (see the block comment above get_position_vectors()). Every
+    // GaussianData setter it feeds is `void` and rejects a size mismatch with a bare
+    // ERR_FAIL_COND -- gaussian_data.cpp:789/799/809/819/834/862, and set_spherical_harmonics()
+    // bails at `floats_per_gaussian < 3` for the empty input. So the setter simply returns,
+    // the next one runs, and this function used to return true at the bottom regardless.
+    // The result was a payload still carrying GaussianData::resize()'s defaults for the
+    // failed lane -- sh_dc = Color(1,1,1,1), normal = (0,1,0), scale = (1,1,1) -- reported
+    // as a SUCCESS. get_gaussian_data() then CACHES it (so every later call returns the
+    // defaulted payload without retrying) and the scene director's DYNAMIC path installs it
+    // as the record's data. The SH buffer is the one to worry about first: it is the largest
+    // output here (splat_count * total_terms * 3 floats), hence the first to fail.
+    //
+    // The check is derived, not a hand-maintained list: each getter sizes its output to
+    // splat_count, or -- for the SH buffer alone -- to splat_count * total_terms * 3, and it
+    // does so unconditionally, padding with per-field defaults when the SOURCE lane is short.
+    // So on any successful call the size is exactly that, and anything else is an allocation
+    // failure. EXACT equality, for the same reason the lane guard below uses it: a failed
+    // SHRINK leaves a CowData at its previous, LARGER length (cowdata.h), which a `>=` test
+    // waves through.
+    //
+    // On failure nothing is published, so no caller can mistake an out-param for a usable
+    // payload; get_gaussian_data() consequently caches nothing and the next call retries the
+    // build.
+    staged->resize(splat_count);
+    // resize() is void and ERR_FAIL_CONDs on a negative count -- splat_count is file-derived
+    // and unbounded, so a value past INT_MAX truncates negative and leaves the storage at its
+    // previous length, after which every setter below would reject its (correctly sized) input
+    // and this function would again report success over an untouched payload.
+    if (int64_t(staged->get_count()) != int64_t(splat_count)) {
+        const int64_t got = int64_t(staged->get_count());
+        ERR_FAIL_V_MSG(false, vformat("[GaussianSplatAsset] populate_gaussian_data: GaussianData::resize(%d) "
+                                      "left %d gaussians, so the payload storage could not be sized. "
+                                      "Refusing to materialize.",
+                                      int64_t(splat_count), got));
     }
 
-    r_data->resize(splat_count);
-    r_data->set_positions(get_position_vectors());
-    r_data->set_scales(get_scale_vectors());
-    r_data->set_rotations(get_rotation_quaternions());
-    r_data->set_spherical_harmonics(get_spherical_harmonics_buffer());
-    r_data->set_opacities(get_opacities());
-    r_data->set_palette_ids(get_palette_ids_buffer());
-    r_data->set_brush_override_ids(get_brush_override_ids_buffer());
-    r_data->set_normals(get_normal_vectors());
-    r_data->set_brush_axes(get_brush_axes_vector2());
-    r_data->set_stroke_ages(get_stroke_ages_buffer());
+    const int64_t sh_expected = int64_t(splat_count) *
+            int64_t(1u + sh_first_order_terms + sh_high_order_terms) * 3;
+
+#define GS_MATERIALIZE_LANE(m_getter, m_expected, m_setter)                                              \
+    {                                                                                                    \
+        const int64_t expected_size = int64_t(m_expected);                                               \
+        auto lane = m_getter();                                                                          \
+        if (int64_t(lane.size()) != expected_size) {                                                     \
+            const int64_t got_size = int64_t(lane.size());                                               \
+            ERR_FAIL_V_MSG(false, vformat("[GaussianSplatAsset] populate_gaussian_data: " #m_getter      \
+                                          "() returned %d elements but this payload needs exactly %d, "  \
+                                          "so its output allocation failed. Refusing to materialize "    \
+                                          "instead of reporting success over a partially "               \
+                                          "default-initialized payload.",                                \
+                                          got_size, expected_size));                                     \
+        }                                                                                                \
+        staged->m_setter(lane);                                                                          \
+    }
+
+    GS_MATERIALIZE_LANE(get_position_vectors, splat_count, set_positions)
+    GS_MATERIALIZE_LANE(get_scale_vectors, splat_count, set_scales)
+    GS_MATERIALIZE_LANE(get_rotation_quaternions, splat_count, set_rotations)
+    GS_MATERIALIZE_LANE(get_spherical_harmonics_buffer, sh_expected, set_spherical_harmonics)
+    GS_MATERIALIZE_LANE(get_opacities, splat_count, set_opacities)
+    GS_MATERIALIZE_LANE(get_palette_ids_buffer, splat_count, set_palette_ids)
+    GS_MATERIALIZE_LANE(get_brush_override_ids_buffer, splat_count, set_brush_override_ids)
+    GS_MATERIALIZE_LANE(get_normal_vectors, splat_count, set_normals)
+    GS_MATERIALIZE_LANE(get_brush_axes_vector2, splat_count, set_brush_axes)
+    GS_MATERIALIZE_LANE(get_stroke_ages_buffer, splat_count, set_stroke_ages)
+
+#undef GS_MATERIALIZE_LANE
 
     Dictionary asset_metadata = get_import_metadata();
     if (asset_metadata.has(StringName("gaussian_2d_mode"))) {
-        r_data->set_2d_mode((bool)asset_metadata[StringName("gaussian_2d_mode")]);
+        staged->set_2d_mode((bool)asset_metadata[StringName("gaussian_2d_mode")]);
     }
     const GaussianDCEncoding staged_dc_encoding = _resolve_dc_encoding_from_metadata(asset_metadata);
-    for (int i = 0; i < r_data->get_count(); i++) {
-        Gaussian g = r_data->get_gaussian(i);
+    for (int i = 0; i < staged->get_count(); i++) {
+        Gaussian g = staged->get_gaussian(i);
         g.render_meta = gaussian_set_dc_encoding(g.render_meta, staged_dc_encoding);
-        r_data->set_gaussian(i, g);
+        staged->set_gaussian(i, g);
     }
 
-    r_data->set_streaming_chunk_bake(streaming_chunk_records,
+    staged->set_streaming_chunk_bake(streaming_chunk_records,
             streaming_primary_source_indices,
             streaming_quantization_records,
             streaming_chunk_size_used);
 
+    // Publish. This is the ONLY write to r_data in the whole function, and it is
+    // unreachable from every failure path above.
+    r_data = staged;
     return true;
 }
+
+namespace {
+// #798: a lane pointer that fails closed on a SHORT lane.
+//
+// _ensure_buffer_sizes() sizes every SoA lane with a bare Vector::resize(), which reports
+// OOM only through its return value and -- crucially -- leaves the vector at its PREVIOUS
+// size rather than empty. populate_from_gaussian_data() is the asset REWRITE path, so that
+// previous size is routinely non-zero: a failed grow leaves a live, non-empty, TOO SHORT
+// heap block. `is_empty() ? nullptr : ptrw()` does not catch that, and the write loop
+// indexes by the NEW splat count, so it would run past the end of a real allocation -- a
+// silent heap overflow, strictly worse than the null-ptrw case this class of bug usually
+// produces. Separate the two cases: an EMPTY lane is a legitimately absent optional lane
+// (nullptr, skipped by the has_* flags), while a short non-empty lane is an allocation
+// failure and clears r_ok so the caller aborts the whole population. Degrading a short
+// lane to "absent" is deliberately NOT an option -- that would silently drop a field
+// (the opacity_logits class of data-loss bug) instead of reporting it.
+//
+// #798 review: an EMPTY lane is only legitimately absent when NOTHING was supposed to be
+// allocated for it. _ensure_buffer_sizes() sizes each lane to exactly the length the write
+// loop indexes it to, so callers pass that same length here -- which makes the test derivable
+// rather than a hand-maintained required/optional list:
+//
+//     p_required == 0  -> the lane is genuinely absent (nullptr, skipped by its has_* flag)
+//     p_required  > 0  -> the lane MUST hold p_required elements; empty means the sizing
+//                         failed outright (a fresh/CoW-forked lane whose _alloc failed leaves
+//                         _ptr null, hence empty rather than short), so fail closed.
+//
+// #798 review round 5: the test is EXACT EQUALITY, not ">= required". A resize that SHRINKS
+// can fail too, and CowData::_fork_allocate() bails out of its in-place branch before writing
+// the new size when _realloc() fails ("Out of memory; the current array is still valid though",
+// core/templates/cowdata.h) -- so a failed shrink leaves the lane at its previous, LARGER
+// length. `size() < required` waves that through and populate_from_gaussian_data() seals an
+// asset whose lane lengths contradict its own splat_count: the has_normals / has_palette_ids /
+// has_brush_axes metadata flags below are written as `lane.size() == splat_count * stride` and
+// silently flip to false, dropping fields that are physically still there, and the oversized
+// lane is what gets serialized. There is no legitimate over-length lane here --
+// _ensure_buffer_sizes() sizes every lane to exactly the length the write loop indexes it to --
+// so "longer than required" is an allocation failure just as much as "shorter" is.
+//
+// Without that second case a failed allocation of a required lane returned nullptr with r_ok
+// still true, and populate_from_gaussian_data() went on to seal the asset, bump its version
+// and return OK with a nonzero splat_count and no payload for that lane.
+template <typename T>
+T *_gs_lane_ptrw_or_fail(Vector<T> &p_lane, int64_t p_required, const char *p_name, bool &r_ok) {
+    if (p_lane.is_empty()) {
+        if (p_required > 0) {
+            r_ok = false;
+            ERR_PRINT(vformat("[GaussianSplatAsset] populate_from_gaussian_data: lane '%s' is empty "
+                              "but this payload needs %d elements, so its buffer allocation failed. "
+                              "Aborting the population instead of sealing an asset with a missing lane.",
+                    String(p_name), p_required));
+        }
+        return nullptr;
+    }
+    if (int64_t(p_lane.size()) != p_required) {
+        r_ok = false;
+        ERR_PRINT(vformat("[GaussianSplatAsset] populate_from_gaussian_data: lane '%s' holds %d "
+                          "elements but this payload needs exactly %d, so its buffer resize failed. "
+                          "Aborting the population instead of sealing an asset whose lane lengths "
+                          "disagree with its splat count.",
+                String(p_name), int64_t(p_lane.size()), p_required));
+        return nullptr;
+    }
+    return p_lane.ptrw();
+}
+} // namespace
 
 Error GaussianSplatAsset::populate_from_gaussian_data(const Ref<::GaussianData> &p_gaussian_data) {
     if (p_gaussian_data.is_null()) {
@@ -1672,25 +1881,163 @@ Error GaussianSplatAsset::populate_from_gaussian_data(const Ref<::GaussianData> 
     }
 
     splat_count = count;
-    sh_first_order_terms = MIN<uint32_t>(p_gaussian_data->get_sh_first_order_count(), 3u);
-    sh_high_order_terms = p_gaussian_data->get_sh_high_order_count();
+    // #798 review round 5: keep the REQUESTED term counts in locals. `sh_*_terms` are about
+    // to become untrustworthy: _ensure_buffer_sizes() ends in _recalculate_sh_component_counts(),
+    // which DERIVES both counts back out of the lane SIZES. That derivation is only equal to
+    // what was asked for when the resize actually landed -- on a failed resize it reports the
+    // term count of the SURVIVING lane, so every length derived from it afterwards describes
+    // the corrupted lane instead of the payload. The source's own counts are the ground truth
+    // for both the lane requirements and the stride into p_gaussian_data's arrays.
+    const uint32_t requested_first_order_terms = MIN<uint32_t>(p_gaussian_data->get_sh_first_order_count(), 3u);
+    const uint32_t requested_high_order_terms = p_gaussian_data->get_sh_high_order_count();
+    sh_first_order_terms = requested_first_order_terms;
+    sh_high_order_terms = requested_high_order_terms;
+#ifdef TESTS_ENABLED
+    // Snapshot for TEST_LANE_FAILURE_OVERSIZED below: a failed shrink leaves the lane at
+    // exactly its PREVIOUS length, so the injection has to know that length.
+    const int test_prev_high_order_size = sh_high_order_coefficients.size();
+#endif
     _ensure_buffer_sizes();
+
+#ifdef TESTS_ENABLED
+    // Arm-once allocation-failure injection; see GaussianSplatAsset::TestLaneFailure.
+    // _ensure_buffer_sizes() ignores every resize() return, so a failure there is visible
+    // ONLY as the lane's resulting size (plus whatever _recalculate_sh_component_counts()
+    // then derives from it). Reproducing that state is therefore a complete simulation of
+    // the failure, not an approximation of it.
+    if (test_lane_failure != TEST_LANE_FAILURE_NONE) {
+        const TestLaneFailure mode = test_lane_failure;
+        test_lane_failure = TEST_LANE_FAILURE_NONE;
+        if (mode == TEST_LANE_FAILURE_EMPTY) {
+            positions.clear();
+        } else if (mode == TEST_LANE_FAILURE_SHORT) {
+            // Non-empty but short: keep one splat's worth, which is < count * 3 for any
+            // count > 1. Shrinking never allocates, so this cannot itself fail.
+            positions.resize(3);
+        } else {
+            // TEST_LANE_FAILURE_OVERSIZED: a failed SHRINK. CowData::_fork_allocate()
+            // returns early when _realloc() fails and never writes the new size, so the
+            // lane keeps its previous, LARGER length with its previous contents
+            // (core/templates/cowdata.h). Deliberately applied to
+            // sh_high_order_coefficients, the one lane whose length feeds a derived term
+            // count -- restore its pre-resize length and re-run the derivation exactly as
+            // _ensure_buffer_sizes() would have on the real failure.
+            if (test_prev_high_order_size > sh_high_order_coefficients.size()) {
+                sh_high_order_coefficients.resize_initialized(test_prev_high_order_size);
+            }
+            _recalculate_sh_component_counts();
+        }
+    }
+#endif
+
+    // #798 review round 5: undo any lane-derived term count before it can be used. Placed
+    // AFTER the injection block on purpose, so an injected shape gets exactly the same
+    // treatment a real failure would. On the success path this is a no-op --
+    // _recalculate_sh_component_counts() reproduces the requested counts exactly from a lane
+    // of length count * terms * 3 -- but on a failed shrink it is what stops the inflated
+    // count from (a) being accepted as the lane's own requirement below and (b) becoming the
+    // stride used to walk p_gaussian_data's SHORTER high-order array in the write loop.
+    sh_first_order_terms = requested_first_order_terms;
+    sh_high_order_terms = requested_high_order_terms;
 
     const Vector3 *high_order_ptr = p_gaussian_data->get_sh_high_order_coefficients_ptr();
 
-    float *positions_ptr = positions.is_empty() ? nullptr : positions.ptrw();
-    Color *colors_ptr = colors.is_empty() ? nullptr : colors.ptrw();
-    float *scales_ptr = scales.is_empty() ? nullptr : scales.ptrw();
-    float *rotations_ptr = rotations.is_empty() ? nullptr : rotations.ptrw();
-    float *sh_dc_ptr = sh_dc_coefficients.is_empty() ? nullptr : sh_dc_coefficients.ptrw();
-    float *sh_first_order_ptr = sh_first_order_coefficients.is_empty() ? nullptr : sh_first_order_coefficients.ptrw();
-    float *sh_high_order_ptr = sh_high_order_coefficients.is_empty() ? nullptr : sh_high_order_coefficients.ptrw();
-    float *opacity_logits_ptr = opacity_logits.is_empty() ? nullptr : opacity_logits.ptrw();
-    int32_t *palette_ids_ptr = palette_ids.is_empty() ? nullptr : palette_ids.ptrw();
-    int32_t *painterly_flags_ptr = painterly_flags.is_empty() ? nullptr : painterly_flags.ptrw();
-    float *normals_ptr = normals.is_empty() ? nullptr : normals.ptrw();
-    float *brush_axes_ptr = brush_axes.is_empty() ? nullptr : brush_axes.ptrw();
-    float *stroke_ages_ptr = stroke_ages.is_empty() ? nullptr : stroke_ages.ptrw();
+    // #798: each lane states the length the write loop below will index it to, right where
+    // its pointer is produced, so the requirement cannot drift away from the indexing.
+    // See _gs_lane_ptrw_or_fail() for why is_empty() alone is not a sufficient guard here.
+    const int64_t need_1 = int64_t(count);
+    const int64_t need_2 = int64_t(count) * 2;
+    const int64_t need_3 = int64_t(count) * 3;
+    const int64_t need_4 = int64_t(count) * 4;
+    bool lanes_ok = true;
+    float *positions_ptr = _gs_lane_ptrw_or_fail(positions, need_3, "positions", lanes_ok);
+    Color *colors_ptr = _gs_lane_ptrw_or_fail(colors, need_1, "colors", lanes_ok);
+    float *scales_ptr = _gs_lane_ptrw_or_fail(scales, need_3, "scales", lanes_ok);
+    float *rotations_ptr = _gs_lane_ptrw_or_fail(rotations, need_4, "rotations", lanes_ok);
+    // _ensure_buffer_sizes() sizes this lane to 0 when the asset has no DC coefficients, so
+    // pass the length IT produces -- not need_3 -- or a legitimate absence reads as a failure.
+    const int64_t need_sh_dc = has_sh_dc_coefficients ? need_3 : int64_t(0);
+    float *sh_dc_ptr = _gs_lane_ptrw_or_fail(sh_dc_coefficients, need_sh_dc, "sh_dc_coefficients", lanes_ok);
+    float *sh_first_order_ptr = _gs_lane_ptrw_or_fail(sh_first_order_coefficients,
+            int64_t(count) * int64_t(sh_first_order_terms) * 3, "sh_first_order_coefficients", lanes_ok);
+    float *sh_high_order_ptr = _gs_lane_ptrw_or_fail(sh_high_order_coefficients,
+            int64_t(count) * int64_t(sh_high_order_terms) * 3, "sh_high_order_coefficients", lanes_ok);
+    float *opacity_logits_ptr = _gs_lane_ptrw_or_fail(opacity_logits, need_1, "opacity_logits", lanes_ok);
+    int32_t *palette_ids_ptr = _gs_lane_ptrw_or_fail(palette_ids, need_1, "palette_ids", lanes_ok);
+    int32_t *painterly_flags_ptr = _gs_lane_ptrw_or_fail(painterly_flags, need_1, "painterly_flags", lanes_ok);
+    float *normals_ptr = _gs_lane_ptrw_or_fail(normals, need_3, "normals", lanes_ok);
+    float *brush_axes_ptr = _gs_lane_ptrw_or_fail(brush_axes, need_2, "brush_axes", lanes_ok);
+    float *stroke_ages_ptr = _gs_lane_ptrw_or_fail(stroke_ages, need_1, "stroke_ages", lanes_ok);
+    if (!lanes_ok) {
+        // #798 review round 2: restoring only `payload_sealed` was not enough. By this point the
+        // function has already replaced splat_count and the SH term counts, invalidated the
+        // gaussian-data cache and the streaming bake, and run _ensure_buffer_sizes() over every
+        // lane -- so a bare return leaves a MIXED asset: a new count, new term layout, and lanes
+        // at a mixture of old, newly-sized and empty lengths. That is observable, because callers
+        // such as _register_instance_in_director() log the Error and then register runtime_asset
+        // anyway.
+        //
+        // Reset to a coherent EMPTY state instead: splat_count 0 with cleared lanes is exactly
+        // the shape every consumer already handles (each getter early-outs on splat_count == 0),
+        // whereas "mixed" is a shape none of them handle.
+        //
+        // A true transactional rollback is deliberately NOT attempted. Preserving the previous
+        // payload would mean snapshotting every lane BEFORE the rewrite, i.e. allocating a full
+        // copy of the asset on the path whose whole premise is that allocation is failing. Losing
+        // the payload is the honest outcome here; silently keeping half of it is not.
+        splat_count = 0;
+        sh_first_order_terms = 0;
+        sh_high_order_terms = 0;
+        positions.clear();
+        colors.clear();
+        scales.clear();
+        rotations.clear();
+        sh_dc_coefficients.clear();
+        sh_first_order_coefficients.clear();
+        sh_high_order_coefficients.clear();
+        opacity_logits.clear();
+        palette_ids.clear();
+        painterly_flags.clear();
+        normals.clear();
+        brush_axes.clear();
+        stroke_ages.clear();
+        _recalculate_sh_component_counts();
+
+        // #798 review round 4: the reset has to invalidate the DERIVED bounds too, not
+        // just the lanes. The success path below writes import_metadata["bounds"] from
+        // the freshly accumulated min/max and clears "bounds_dirty"; clearing positions
+        // without touching either leaves the PRE-reset AABB behind, still flagged clean.
+        // GaussianSplatNodeHelpers::update_asset() reads exactly that pair
+        // (gaussian_splat_node_helpers.cpp): a false "bounds_dirty" plus a non-degenerate
+        // cached AABB sets used_cached_bounds = true and SKIPS the recompute from
+        // `positions` -- which is now empty -- so the node and the editor keep reporting
+        // the old asset's extents for a zero-splat asset. Culling, the LOD distance
+        // metric and the editor gizmo all read that AABB. Every other lane-clearing
+        // mutator on this class already invalidates here (set_splat_count(),
+        // set_positions(), set_scales(), prune) -- this branch was the one that did not.
+        _invalidate_bounds_metadata();
+
+        payload_sealed = previous_seal;
+
+        // #798 review round 3: the reset above is a PAYLOAD CHANGE, so it has to be
+        // announced exactly like the success path announces one. Without this, the reset
+        // is invisible to every consumer that caches a materialized copy and gates the
+        // rebuild on payload_version: InstanceStore::refresh_asset() returns true
+        // unconditionally when the version has not moved
+        // (gaussian_splat_scene_director.cpp), and retain_asset() likewise skips the
+        // rebuild -- so the renderer keeps drawing the OLD geometry from its cached
+        // GaussianData while every direct reader of the asset sees splat_count == 0.
+        // "Empty here, old geometry there" is a worse divergence than the mixed state
+        // this branch was added to prevent.
+        //
+        // Bumping instead makes the next retain/refresh attempt the rebuild, which then
+        // fails loudly (_populate_gaussian_data_from_asset() returns false on
+        // splat_count == 0) and propagates false to its caller -- the failure becoming
+        // observable is the point.
+        payload_version++;
+        emit_changed();
+        return ERR_OUT_OF_MEMORY;
+    }
 
     const bool has_positions = positions_ptr != nullptr;
     const bool has_colors = colors_ptr != nullptr;

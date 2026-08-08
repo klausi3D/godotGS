@@ -1,6 +1,7 @@
 #include "gaussian_splat_merge_utils.h"
 
 #include "gs_project_settings.h"
+#include "gs_vector_alloc.h" // #798: gs_resize_or_fail() for resize-then-ptrw() outputs
 #include "core/error/error_macros.h"
 #include "core/math/math_funcs.h"
 #include "core/config/project_settings.h"
@@ -205,14 +206,28 @@ bool gaussian_splat_merge_sources(const Vector<GaussianSplatMergeSource> &source
     PackedInt32Array brush_override_ids;
     TypedArray<Quaternion> rotations;
 
-    positions.resize(total_splats);
-    scales.resize(total_splats);
-    normals.resize(total_splats);
-    brush_axes.resize(total_splats);
-    opacities.resize(total_splats);
-    stroke_ages.resize(total_splats);
-    palette_ids.resize(total_splats);
-    brush_override_ids.resize(total_splats);
+    // #798: every lane below is written as `lane_ptr[write_offset + splat]`, bounded by the
+    // summed source splat counts -- never by the destination's own size(). Vector::resize()
+    // reports OOM only through its return value and leaves the vector EMPTY, so an ignored
+    // failure makes ptrw() return nullptr and the merge loop writes total_splats elements
+    // through address 0 with no CRASH_BAD_INDEX to name it. total_splats is the sum of every
+    // source asset's splat count, so this is the largest and least bounded allocation in the
+    // module's merge path. All eight Vector-backed lanes are folded into ONE check so a partial
+    // success can never leave the lanes at mismatched sizes; the failure path is this function's own
+    // `return false` contract (used above for "no sources" / "no splats"), which leaves the
+    // already-cleared `out` untouched so the caller sees no merged result.
+    if (!gs_resize_or_fail(positions, total_splats, "gaussian_splat_merge_sources positions") ||
+            !gs_resize_or_fail(scales, total_splats, "gaussian_splat_merge_sources scales") ||
+            !gs_resize_or_fail(normals, total_splats, "gaussian_splat_merge_sources normals") ||
+            !gs_resize_or_fail(brush_axes, total_splats, "gaussian_splat_merge_sources brush_axes") ||
+            !gs_resize_or_fail(opacities, total_splats, "gaussian_splat_merge_sources opacities") ||
+            !gs_resize_or_fail(stroke_ages, total_splats, "gaussian_splat_merge_sources stroke_ages") ||
+            !gs_resize_or_fail(palette_ids, total_splats, "gaussian_splat_merge_sources palette_ids") ||
+            !gs_resize_or_fail(brush_override_ids, total_splats, "gaussian_splat_merge_sources brush_override_ids")) {
+        return false;
+    }
+    // rotations is a TypedArray (Array-backed): Array::set() below is ERR_FAIL_INDEX-guarded,
+    // so it cannot wild-write and is out of the #798 class.
     rotations.resize(total_splats);
 
     Vector3 *position_ptr = positions.ptrw();
@@ -231,8 +246,14 @@ bool gaussian_splat_merge_sources(const Vector<GaussianSplatMergeSource> &source
 
     Vector<PackedFloat32Array> sh_buffers;
     Vector<uint32_t> sh_offsets;
-    sh_buffers.resize(sources.size());
-    sh_offsets.resize(sources.size());
+    // #798 (adjacent, read side): these are indexed by source_index < sources.size(), i.e. by
+    // the REQUESTED count, not by their own size(). set() below is ERR_FAIL_INDEX-guarded, but
+    // the later `sh_buffers[source_index]` read is CowData::get() -> CRASH_BAD_INDEX, which
+    // hard-traps the process. Same `return false` contract as the lane allocations above.
+    if (!gs_resize_or_fail(sh_buffers, sources.size(), "gaussian_splat_merge_sources sh_buffers") ||
+            !gs_resize_or_fail(sh_offsets, sources.size(), "gaussian_splat_merge_sources sh_offsets")) {
+        return false;
+    }
 
     uint32_t write_offset = 0;
     for (int source_index = 0; source_index < sources.size(); source_index++) {
@@ -256,6 +277,69 @@ bool gaussian_splat_merge_sources(const Vector<GaussianSplatMergeSource> &source
         PackedInt32Array asset_palette_ids = asset->get_palette_ids_buffer();
         PackedInt32Array asset_brush_override_ids = asset->get_brush_override_ids_buffer();
         PackedFloat32Array asset_sh = asset->get_spherical_harmonics_buffer();
+
+        // #798 review: those getters return an EMPTY array when their own output allocation
+        // fails, which is indistinguishable here from an unloaded asset. The write loop below
+        // substitutes defaults for any short array -- Vector3() for a missing position,
+        // Vector3(1,1,1) for a missing scale -- and the merge still reports success. So an OOM
+        // in a getter would silently collapse every splat of this source to the ORIGIN at unit
+        // scale and hand back a "successful" merge over destroyed geometry.
+        //
+        // REVIEW CORRECTION: an earlier revision checked only positions and scales, on the
+        // reasoning that the painterly lanes "have meaningful defaults and are legitimately
+        // absent on non-painterly assets". That reasoning was WRONG, and
+        // GaussianSplatAsset::_ensure_buffer_sizes() disproves it: opacity_logits, palette_ids,
+        // painterly_flags, normals, brush_axes and stroke_ages are every one of them sized
+        // UNCONDITIONALLY to `count`. So for an asset reporting splat_count > 0 they are never
+        // legitimately short -- an undersized result can ONLY mean that getter's own allocation
+        // failed, and defaulting it silently rewrites the source's appearance.
+        //
+        // The SH lanes are the genuine exception: sh_dc is sized to 0 when the asset has no DC
+        // coefficients, and the order lanes scale with term counts that may be 0. They are
+        // therefore checked against what the asset itself declares, not against splat_count.
+        struct RequiredLane {
+            const char *name;
+            int64_t have;
+            int64_t need;
+        };
+        const int64_t need_n = int64_t(splat_count);
+        const RequiredLane required_lanes[] = {
+            {"positions", asset_positions.size(), need_n},
+            {"scales", asset_scales.size(), need_n},
+            {"rotations", asset_rotations.size(), need_n},
+            {"normals", asset_normals.size(), need_n},
+            {"brush_axes", asset_brush_axes.size(), need_n},
+            {"opacities", asset_opacities.size(), need_n},
+            {"stroke_ages", asset_stroke_ages.size(), need_n},
+            {"palette_ids", asset_palette_ids.size(), need_n},
+            {"brush_override_ids", asset_brush_override_ids.size(), need_n},
+        };
+        bool lanes_complete = true;
+        for (const RequiredLane &lane : required_lanes) {
+            if (lane.have < lane.need) {
+                ERR_PRINT(vformat("[GaussianSplatMerge] source %d reports %d splats but its '%s' buffer holds "
+                                  "%d; that getter's allocation failed. Refusing to merge rather than "
+                                  "substituting defaults for missing data.",
+                        int64_t(source_index), need_n, String(lane.name), lane.have));
+                lanes_complete = false;
+            }
+        }
+        // SH: expected size is the asset's own declared term layout, so a legitimately
+        // DC-only or SH-less asset is not treated as a failure.
+        // Mirrors get_spherical_harmonics_buffer(): splat_count * (1 + first + high) * 3.
+        const int64_t sh_terms_total =
+                int64_t(1) + int64_t(asset->get_sh_first_order_terms()) + int64_t(asset->get_sh_high_order_terms());
+        const int64_t expected_sh = int64_t(splat_count) * sh_terms_total * 3;
+        if (expected_sh > 0 && int64_t(asset_sh.size()) < expected_sh) {
+            ERR_PRINT(vformat("[GaussianSplatMerge] source %d declares %d SH terms per splat (%d floats total) but "
+                              "supplied %d; that getter's allocation failed. Refusing to merge rather than "
+                              "zero-filling the coefficients.",
+                    int64_t(source_index), sh_terms_total, expected_sh, int64_t(asset_sh.size())));
+            lanes_complete = false;
+        }
+        if (!lanes_complete) {
+            return false;
+        }
 
         sh_buffers.set(source_index, asset_sh);
         sh_offsets.set(source_index, write_offset);
@@ -342,7 +426,17 @@ bool gaussian_splat_merge_sources(const Vector<GaussianSplatMergeSource> &source
     }
 
     PackedFloat32Array sh_combined;
-    sh_combined.resize(total_splats * sh_terms_per_gaussian);
+    // #798: sh_ptr is written at `(base_offset + splat) * target_stride` (and memcpy'd into at
+    // the same offsets), bounded by total_splats * sh_terms_per_gaussian rather than by
+    // sh_combined.size() -- a null ptrw() would take a std::memcpy destination directly. The
+    // count is computed in int64_t because the original `uint32_t * int` product could wrap and
+    // under-allocate, which turns the same memcpy into a heap overflow instead of a clean OOM;
+    // an over-large request now fails here and takes this function's own `return false` path,
+    // leaving the already-cleared `out` untouched.
+    if (!gs_resize_or_fail(sh_combined, int64_t(total_splats) * int64_t(sh_terms_per_gaussian),
+                "gaussian_splat_merge_sources sh_combined")) {
+        return false;
+    }
     float *sh_ptr = sh_combined.ptrw();
     for (int source_index = 0; source_index < sources.size(); source_index++) {
         const GaussianSplatMergeSource &source = sources[source_index];
