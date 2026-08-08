@@ -894,6 +894,19 @@
     },
     {
       "deletion_commit": null,
+      "display_path": "SConstruct",
+      "last_touch_commit": "1b0a1c48dd1ce9a41603b1533a56127ec32cd2b3",
+      "lines_added": 12,
+      "lines_deleted": 1,
+      "new_path": "SConstruct",
+      "old_path": "SConstruct",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "SConstruct",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
       "display_path": "core/config/engine.cpp",
       "last_touch_commit": "aeeb1475cb347fc9724490e410733b50f59c9003",
       "lines_added": 4,
@@ -2417,7 +2430,7 @@
       ]
     },
     "fork_base_commit": "876b290332ec6f2e6d173d08162a02aa7e6ca46d",
-    "head_commit": "993a945bd4b29f30ac540bc88cc3335953fa5f2b",
+    "head_commit": "ee0baa3226108ae553777389536a1005dbe3bd25",
     "head_ref": "HEAD",
     "label": "Godot 4.5 stable fork-point commit",
     "rename_threshold": "70%",
@@ -2455,6 +2468,10 @@
     {
       "count": 1,
       "name": "README.md"
+    },
+    {
+      "count": 1,
+      "name": "SConstruct"
     },
     {
       "count": 3,
@@ -2523,9 +2540,9 @@
   ],
   "summary": {
     "deleted": 37,
-    "modified": 106,
+    "modified": 107,
     "renamed": 0,
-    "total_files": 143
+    "total_files": 144
   },
   "warnings": []
 }
