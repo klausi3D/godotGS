@@ -1514,6 +1514,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#per-lane-result-ledger" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-lane result ledger
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#gpu-test-harness-and-visual-gate" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1779,6 +1790,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#per-lane-result-ledger" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-lane result ledger
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#gpu-test-harness-and-visual-gate" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1861,6 +1883,7 @@ For example, Windows produces <code>bin/godot.windows.editor.dev.x86_64.exe</cod
 <li><code>python3 tests/ci/run_module_tests.py --guard-only</code></li>
 <li><code>python3 tests/ci/run_module_tests.py --godot-binary &lt;module-built-binary&gt;</code></li>
 <li><code>--guard-only</code> includes the renderer release-gate contract check.</li>
+<li><code>--lane-report &lt;path&gt;</code> additionally writes the per-lane ledger below as JSON (see <a href="#per-lane-result-ledger">Per-lane result ledger</a>).</li>
 <li>Runtime validation:</li>
 <li><code>python3 tests/runtime/run_runtime_validation.py --godot-binary &lt;module-built-binary&gt; --gd-mode headless</code></li>
 <li>Benchmark suite:</li>
@@ -1869,21 +1892,210 @@ For example, Windows produces <code>bin/godot.windows.editor.dev.x86_64.exe</cod
 <li><code>python3 tests/ci/run_gpu_harness.py --batch CompositorHazard --godot &lt;module-built-binary&gt;</code></li>
 <li>Direct doctest invocation: <code>&lt;module-built-binary&gt; --gs-gpu-test --test-case="*HazardRepro*"</code></li>
 </ul>
-<p>For module-only build commands and SCons targets, see <a href="https://github.com/klausi3D/godotGS/blob/ee0baa3226108ae553777389536a1005dbe3bd25/modules/gaussian_splatting/docs/BUILD_AND_TEST.md">Gaussian Splatting Build and Test Guide</a>. For test-runner overviews, see <a href="https://github.com/klausi3D/godotGS/blob/ee0baa3226108ae553777389536a1005dbe3bd25/tests/README.md">Tests Overview</a>.</p>
+<p>For module-only build commands and SCons targets, see <a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/docs/BUILD_AND_TEST.md">Gaussian Splatting Build and Test Guide</a>. For test-runner overviews, see <a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/tests/README.md">Tests Overview</a>.</p>
+<h2 id="per-lane-result-ledger">Per-lane result ledger<a class="headerlink" href="#per-lane-result-ledger" title="Permanent link">¶</a></h2>
+<p><code>tests/ci/run_module_tests.py</code> declares 26 doctest lanes in <code>MODULE_TEST_FILTERS</code>:
+<strong>20 strict, 6 advisory</strong> (<code>strict=False</code>).</p>
+<p>When an advisory lane fails the ordinary way — the lane process exits nonzero, or crashes —
+the failure is <strong>tolerated and does not itself fail the run</strong>. The same holds when it executes
+nothing or self-skips its coverage. Since doctest exits nonzero whenever a test fails, that
+covers the normal shape of an advisory failure.</p>
+<p><strong>Two outcomes still fail the run for <em>any</em> lane, <code>strict</code> or not</strong>, and the claim above
+does not extend to them: a lane that exits 0 while its doctest summary reports failures, and
+a lane that exits 0 with no doctest summary at all. Both are harness anomalies rather than
+ordinary test failures, and both are recorded as <code>FAIL</code> (see the table). Read "advisory" as
+"failures of the ordinary shape are tolerated", not as an unconditional exemption.</p>
+<p>Since #705 the runner records what each lane actually did. <strong>The ledger reports; it gates
+nothing</strong> — see <a href="../../architecture/adr-advisory-lane-ledger/"><code>docs/architecture/adr-advisory-lane-ledger.md</code></a>.</p>
+<p>One line per lane, in lane order:</p>
+<div class="highlight"><pre><span></span><code>[module-tests][lane-result] lane=&lt;name&gt; strict=&lt;0|1&gt; outcome=&lt;OUTCOME&gt; passed_tests=&lt;n&gt; passed_assertions=&lt;n&gt; failed_tests=&lt;n&gt; failed_assertions=&lt;n&gt; skipped_markers=&lt;n&gt; exit_code=&lt;n&gt; exit_code_reported=&lt;0|1&gt; summary_reported=&lt;0|1&gt; zero_coverage=&lt;0|1|-1&gt;
+</code></pre></div>
+<p><code>exit_code_reported=0</code> means <strong>no return code exists</strong> for that lane — it was never
+attempted, or the process could not be launched — and <code>exit_code</code> is then the <code>-1</code>
+placeholder. Read <code>exit_code</code> only when <code>exit_code_reported=1</code>, because <code>-1</code> is also a return
+code a real process produces: <code>subprocess</code> reports a POSIX <code>SIGHUP</code> termination as <code>-1</code>. The
+<code>-1</code>-means-unknown convention is safe for the <em>counts</em> (no count can be negative) and unsafe
+for an exit code, which is why the availability is carried beside the value (#822 round 10).</p>
+<p><code>summary_reported=1</code> means doctest printed a summary — <strong>not</strong> that anything ran; a
+<code>0 passed | 0 failed</code> summary is reported and executes nothing. (It was called <code>executed</code>
+until #822 round 4; renamed rather than redefined, because a rename breaks a parser loudly
+while a silent change of meaning does not.)</p>
+<p><code>zero_coverage=1</code> means the lane executed no coverage, derived from <strong>passed + failed</strong>
+counts. A lane in which every test fails has both <em>passed</em> counts at zero while having
+executed the most coverage of any shape there is, so a passed-only derivation would file
+the maximally-informative case under "nothing ran" — the exact inverse of what this field
+exists to expose. <code>zero_coverage=1</code> together with a nonzero failed count is a
+self-contradictory record and is reported as a harness-integrity failure.</p>
+<table>
+<thead>
+<tr>
+<th><code>OUTCOME</code></th>
+<th>Meaning</th>
+<th>Exit code effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PASS</code></td>
+<td>exit 0 with real executed coverage</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>FAIL</code></td>
+<td>strict lane failed/crashed, or any lane exited 0 with a missing/failing summary</td>
+<td>run fails</td>
+</tr>
+<tr>
+<td><code>ADVISORY-FAIL</code></td>
+<td>advisory lane failed or crashed</td>
+<td><strong>none — does not itself fail the run</strong></td>
+</tr>
+<tr>
+<td><code>ADVISORY-NO-COVERAGE</code></td>
+<td>advisory lane executed nothing (0 passed tests or 0 passed assertions — this path is only reached once failures are known to be 0, so passed <em>is</em> the executed total here)</td>
+<td><strong>none — does not itself fail the run</strong></td>
+</tr>
+<tr>
+<td><code>UNAVAILABLE</code></td>
+<td>binary has no <code>--test</code> support</td>
+<td>fails only in strict tests-unavailable mode</td>
+</tr>
+<tr>
+<td><code>QUARANTINE-TOLERATED</code></td>
+<td>known failure tolerated per <code>tests/ci/quarantine_manifest.json</code></td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>QUARANTINE-REJECTED</code></td>
+<td>quarantine entry stale/misconfigured</td>
+<td>run fails</td>
+</tr>
+<tr>
+<td><code>NOT-RUN</code></td>
+<td>the runner never reached this lane (an earlier lane aborted the run)</td>
+<td>none</td>
+</tr>
+</tbody>
+</table>
+<p>A count of <code>-1</code> means <strong>not known</strong> (the lane produced no doctest summary), never zero.
+<code>NOT-RUN</code> lanes are printed rather than omitted: an absent lane reading as a passed lane is
+the defect this ledger exists to remove.</p>
+<p>After the per-lane block, printed unconditionally — including when <code>advisory_failures=0</code>, so
+that absence of output can never be read as absence of failures:</p>
+<div class="highlight"><pre><span></span><code>[module-tests][lane-ledger] lanes=&lt;n&gt; strict_lanes=&lt;n&gt; advisory_lanes=&lt;n&gt; advisory_failures=&lt;n&gt; advisory_zero_coverage=&lt;n&gt; quarantine_tolerated=&lt;n&gt; unavailable=&lt;n&gt; quarantine_rejected=&lt;n&gt; fail_outcomes=&lt;n&gt; run_ending_outcomes=&lt;n&gt; passed=&lt;n&gt; not_run=&lt;n&gt;
+[module-tests][lane-ledger] ADVISORY-RED lane=&lt;name&gt; reason=&lt;failed|no-coverage|nonzero-exit-no-test-failures|crashed&gt;
+</code></pre></div>
+<p><code>fail_outcomes</code> counts lanes whose outcome was <code>FAIL</code> — that and nothing more. It is
+deliberately <strong>not</strong> called <code>strict_failures</code>: an advisory lane also records <code>FAIL</code> when it
+exits 0 with a missing or failing summary, so counting <code>FAIL</code> outcomes as strict failures
+could print <code>strict_lanes=0 strict_failures=1</code> and charge an advisory harness anomaly to a
+strict lane. The strict/advisory split is derived from each lane's declared <code>strict</code> flag
+and is in the JSON as <code>fail_outcomes_on_strict_lanes</code> / <code>fail_outcomes_on_advisory_lanes</code>.</p>
+<p><code>run_ending_outcomes</code> counts lanes whose outcome <strong>ended the run</strong>, whatever that outcome
+was. Read this one, not <code>fail_outcomes</code>, for "did a lane stop this run": <code>UNAVAILABLE</code> under
+strict tests-unavailable mode and <code>QUARANTINE-REJECTED</code> both abort the lane loop and set the
+exit code while recording no <code>FAIL</code>, so a gated run can legitimately report
+<code>fail_outcomes=0</code>. It is derived from each record's <code>ended_run</code> — the flag the loop sets from
+the value it actually broke on — so a future abort path is counted the day it is added. (The
+field was called <code>gating_failures</code> until #822 round 10 and counted only <code>FAIL</code>; it was
+renamed rather than widened in place, so a stale consumer breaks loudly instead of silently
+reading a number whose meaning changed. <code>schema_version</code> is now <code>2</code>.)</p>
+<p><code>advisory_zero_coverage</code> counts advisory lanes whose <code>zero_coverage</code> is 1, <strong>whatever their
+outcome</strong>. It is not tied to the <code>ADVISORY-NO-COVERAGE</code> outcome, because a lane can execute
+nothing while its outcome is <code>ADVISORY-FAIL</code>, <code>QUARANTINE-TOLERATED</code> or <code>FAIL</code>; counting it
+from the outcome alone under-reported the very thing the field exists to expose. A lane that
+produced no doctest summary has <code>zero_coverage=-1</code> (not knowable) and is never counted.</p>
+<p><strong>An <code>ADVISORY-RED</code> line means that lane failed, crashed, or executed nothing, and that
+outcome did not itself fail the run.</strong> (It does <em>not</em> mean the run passed: the loop
+continues after an advisory failure, so a later strict lane can still fail — read
+<code>run_ending_outcomes</code> for that.) It is not a warning about a future problem; it is a lane
+outcome that nothing gates on today, and <code>reason=</code> says which kind:</p>
+<table>
+<thead>
+<tr>
+<th><code>reason=</code></th>
+<th>What was observed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>failed</code></td>
+<td>the doctest summary reports failed tests or assertions</td>
+</tr>
+<tr>
+<td><code>no-coverage</code></td>
+<td>the lane executed nothing — whatever its outcome or exit code</td>
+</tr>
+<tr>
+<td><code>nonzero-exit-no-test-failures</code></td>
+<td>tests <strong>ran</strong> and passed, and the process still exited nonzero (teardown/harness failure, not a test failure)</td>
+</tr>
+<tr>
+<td><code>crashed</code></td>
+<td>no doctest summary at all — the lane died before reporting</td>
+</tr>
+</tbody>
+</table>
+<p><strong>The rows are in evaluation order</strong>, first match wins, and the row order is asserted
+against the order of the <code>return</code> statements in <code>advisory_red_reason()</code> — a table that
+merely <em>claims</em> to be the evaluation order is a copy that drifts. <code>no-coverage</code> is checked
+<strong>before</strong> <code>nonzero-exit-no-test-failures</code>: a lane that exits nonzero after printing a
+summary in which nothing ran is a no-coverage lane, and reporting it as a teardown failure
+would tell a reader that tests ran and passed when none ran. <code>crashed</code> is last because it is
+the fallback for "there was no summary to read at all": <code>no-coverage</code> requires
+<code>zero_coverage=1</code> exactly, and <code>-1</code> ("not knowable", no summary) reports <code>crashed</code>.</p>
+<p><code>nonzero-exit-no-test-failures</code> exists because "a summary was printed, therefore tests
+failed" is wrong, and reporting it as <code>failed</code> would announce a test failure where none
+occurred. <code>_classify_quarantined_lane_outcome()</code> already draws the same distinction.</p>
+<p>Arming those lanes is #705 / #519, and must be done against the measured values this ledger
+produces — not a guessed threshold. The first full measured run (2026-08-03) reported
+<code>advisory_failures=0</code> with one <code>ADVISORY-RED … reason=no-coverage</code>; see the ADR for what
+that does and does not license.</p>
+<p><code>--lane-report &lt;path&gt;</code> writes the same records as JSON
+(<code>{schema_version, baseline_note, generated_utc, lane_loop_exit_code, lanes, totals}</code>).
+<code>lane_loop_exit_code</code> is narrowly named on purpose: it is what the <strong>lane loop</strong> returned,
+which is not the same claim as "the process that wrote this file exited with it". The order
+is run the lanes → print the block → check ledger integrity → write, so a ledger that fails
+its integrity check is never written, and a write that fails leaves the <em>previous</em> report on
+disk — in both cases the process exits nonzero while the path holds an older report
+describing a different run. After a successful write nothing else changes the exit code, so a
+freshly written report and its process do agree; a consumer that cannot tell the two cases
+apart must read <code>generated_utc</code> rather than assume the file is this run's. The file is a build
+output and must stay untracked. It is rejected together with <code>--guard-only</code>, where it could
+only produce an empty report. An unwritable path fails the run rather than being skipped —
+checked before the lanes run, using a sibling probe file so an existing report is never
+truncated. The preflight additionally rejects the destination classes the sibling probe
+structurally cannot see, because "can I create a file next to this path" is a different
+question from "can I replace this path": an existing <strong>directory</strong> (or any other non-regular
+file), and an existing file this process may not write (the Windows read-only attribute, a
+POSIX mode without write permission). Without those checks the run executes all 26 lanes
+before <code>os.replace()</code> finally raises. What the preflight deliberately does <strong>not</strong> claim is
+that the write will succeed: a destination can be opened by another process without delete
+sharing, have its permissions changed, or lose its parent directory afterwards — unavoidable
+time-of-check/time-of-use races that no probe can rule out, which is why the end-of-run write
+still fails closed on its own. A ledger that fails its own integrity check is <strong>not written at all</strong>, so a
+known-untrustworthy report can never replace the last valid measurement; the refusal is
+printed and the full block is on stdout regardless. The write itself is
+serialize-then-temp-then-<code>os.replace</code>, so the destination is
+either the previous report or the complete new one, never empty or partial.</p>
+<p>The ledger's own unit test (<code>tests/ci/test_run_module_tests_lane_ledger.py</code>) runs in the
+<code>--guard-only</code> lane; it asserts exit-code parity per outcome class and ledger completeness
+against <code>MODULE_TEST_FILTERS</code> — plus, on a <code>--gpu</code> run, <code>REQUIRES_RD_TEST_FILTERS</code>, so the
+opt-in GPU lanes are covered by the same totality check rather than escaping it.</p>
 <h2 id="gpu-test-harness-and-visual-gate">GPU Test Harness and Visual Gate<a class="headerlink" href="#gpu-test-harness-and-visual-gate" title="Permanent link">¶</a></h2>
 <p>The <code>--gs-gpu-test</code> entrypoint in <code>main/main.cpp</code> is a second doctest runner that boots <code>RenderingDevice</code> offscreen (no window) for tests tagged <code>[RequiresGPU]</code>. <code>tests/ci/run_gpu_harness.py</code> is the Python supervisor that drives it in per-batch subprocesses so a driver hang or GPU OOM in one batch can't corrupt the next.</p>
 <p>Since #329 the harness also registers the mock <code>DisplayServer</code> driver, so <code>[SceneTree]</code>-tagged <code>[RequiresGPU]</code> cases <strong>do</strong> get a full <code>SceneTree</code> — they run in the <code>NodeSceneTree</code> / <code>WorldSceneTree</code> / <code>SceneDirectorSceneTree</code> batches, which pass explicit <code>--test-case=</code> filters. (A bare <code>--gs-gpu-test</code> with no filter still excludes <code>*[SceneTree]*</code> as a conservative convenience default, which is why the harness can look <code>SceneTree</code>-less when invoked by hand.) This page previously said the harness has "no <code>SceneTree</code>"; that has not been true since #329, and the stale line was cited as evidence that a device-plus-<code>SceneTree</code> lane still had to be built (#675).</p>
 <ul>
 <li>Canonical detail (per-batch table, contracts, troubleshooting): <a href="../../testing/setup-guide/#gpu-test-harness-gs-gpu-test">Testing Setup Guide — GPU Test Harness</a>.</li>
-<li>Per-batch filter table and listener semantics: <a href="https://github.com/klausi3D/godotGS/blob/ee0baa3226108ae553777389536a1005dbe3bd25/modules/gaussian_splatting/tests/README.md"><code>modules/gaussian_splatting/tests/README.md</code></a>.</li>
-<li>Seeded golden captures and recapture workflow: <a href="https://github.com/klausi3D/godotGS/blob/ee0baa3226108ae553777389536a1005dbe3bd25/tests/visual_baselines/README.md"><code>tests/visual_baselines/README.md</code></a>.</li>
+<li>Per-batch filter table and listener semantics: <a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/tests/README.md"><code>modules/gaussian_splatting/tests/README.md</code></a>.</li>
+<li>Seeded golden captures and recapture workflow: <a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/tests/visual_baselines/README.md"><code>tests/visual_baselines/README.md</code></a>.</li>
 </ul>
 <p>Required-batch contract: <code>REQUIRED_BATCHES = {"CompositorHazard", "RendererPipeline", "Lifetime", "OutputCompositor", "RendererSceneTree", "WorldSceneTree", "SceneDirectorSceneTree"}</code> is asserted at import in <code>tests/ci/run_gpu_harness.py</code>. A required batch whose doctest filter matches zero test cases fails the gate — this prevents a silently-green CI when a rename empties the canonical <code>#256</code> regression batch, <code>#351</code>'s route/stage cascade coverage, <code>#352</code>'s GPU-resource lifetime proof, or the SceneTree/OutputCompositor coverage promoted in #724. <code>NodeSceneTree</code> is deliberately NOT required — its wall time is only ~1.6× under budget on the shared self-hosted runner and #630's contention variance would make it a flaky gate; it stays advisory until #630 is resolved.</p>
 <h2 id="ci-source-of-truth">CI Source of Truth<a class="headerlink" href="#ci-source-of-truth" title="Permanent link">¶</a></h2>
 <ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/ee0baa3226108ae553777389536a1005dbe3bd25/.github/workflows/README.md">Workflow overview</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/ee0baa3226108ae553777389536a1005dbe3bd25/.github/workflows/gaussian_production_gates.yml">Production gate workflow</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/ee0baa3226108ae553777389536a1005dbe3bd25/.github/workflows/baseline_qa.yml">Baseline QA workflow (gpu-tests + gpu-harness visual gate)</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/.github/workflows/README.md">Workflow overview</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/.github/workflows/gaussian_production_gates.yml">Production gate workflow</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/.github/workflows/baseline_qa.yml">Baseline QA workflow (gpu-tests + gpu-harness visual gate)</a></li>
 <li><a href="../renderer-release-gates/">Renderer release gate contract</a></li>
 </ul>
 <p>Fork-PR safety gate: the <code>gpu-tests</code> and <code>gpu-harness</code> jobs in <code>baseline_qa.yml</code> both guard on <code>github.event.pull_request.head.repo.full_name == github.repository</code>, so untrusted fork-PR code never executes on the self-hosted Windows GPU runner. Same-repo branch PRs and the merge queue still exercise the visual gate.</p>
@@ -1922,7 +2134,7 @@ is changed to require it.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 8, 2026 11:04:13 UTC">August 8, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 8, 2026 11:54:21 UTC">August 8, 2026</span>
   </span>
 
     

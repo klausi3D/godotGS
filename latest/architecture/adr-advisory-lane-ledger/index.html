@@ -7,7 +7,7 @@
       
       
       
-        <link rel="canonical" href="https://klausi3d.github.io/godotGS/latest/architecture/gaussian-pipeline-deprecation-deletion-plan/">
+        <link rel="canonical" href="https://klausi3d.github.io/godotGS/latest/architecture/adr-advisory-lane-ledger/">
       
       
       
@@ -20,7 +20,7 @@
     
     
       
-        <title>Gaussian Pipeline Deprecation And Deletion Plan - Godot Gaussian Splatting Docs</title>
+        <title>ADR: Per-lane result ledger for run_module_tests.py (#705, slice 1) - Godot Gaussian Splatting Docs</title>
       
     
     
@@ -83,7 +83,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#gaussian-pipeline-deprecation-and-deletion-plan" class="md-skip">
+        <a href="#adr-per-lane-result-ledger-for-run_module_testspy-705-slice-1" class="md-skip">
           Skip to content
         </a>
       
@@ -122,7 +122,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Gaussian Pipeline Deprecation And Deletion Plan
+              ADR: Per-lane result ledger for run_module_tests.py (#705, slice 1)
             
           </span>
         </div>
@@ -1644,10 +1644,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
       
         <li class="md-nav__item">
-  <a href="#purpose" class="md-nav__link">
+  <a href="#status-note-the-measurement-falsified-the-motivating-hypothesis" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Purpose
+        Status note: the measurement falsified the motivating hypothesis
       
     </span>
   </a>
@@ -1655,281 +1655,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-the-refactor-already-consolidated" class="md-nav__link">
+  <a href="#context" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What The Refactor Already Consolidated
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#cleanup-principles" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Cleanup Principles
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#inventory-summary" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Inventory Summary
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#deletion-buckets" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Deletion Buckets
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Deletion Buckets">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#bucket-a-safe-cleanup-and-narrowing" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Bucket A: Safe Cleanup And Narrowing
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#bucket-b-compatibility-surface-removal" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Bucket B: Compatibility Surface Removal
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#bucket-c-product-workflow-deprecation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Bucket C: Product Workflow Deprecation
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#detailed-surfaces" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Detailed Surfaces
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Detailed Surfaces">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#1-legacy-streamingenabled" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        1. Legacy streaming/enabled
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#2-upsert_world_submission-unregister_world_submission" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        2. upsert_world_submission() / unregister_world_submission()
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#3-editor-preview-direct-upload" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3. Editor Preview Direct Upload
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#4-gaussiansplatdynamicinstance3dply_file_path" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        4. GaussianSplatDynamicInstance3D::ply_file_path
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#5-gaussiansplatnode3dply_file_path" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        5. GaussianSplatNode3D::ply_file_path
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#6-gaussiansplatrendererset_gaussian_data" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        6. GaussianSplatRenderer::set_gaussian_data()
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#7-duplicated-source-path-resolution" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        7. Duplicated Source-Path Resolution
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#8-explicit-resident-legacy-fallback" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        8. Explicit-Resident Legacy Fallback
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#tests-that-currently-block-deletion" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Tests That Currently Block Deletion
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#recommended-execution-order" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Recommended Execution Order
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Recommended Execution Order">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#pass-1-safe-consolidation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Pass 1: Safe Consolidation
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pass-2-remove-easy-compatibility-debt" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Pass 2: Remove Easy Compatibility Debt
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pass-3-product-workflow-deprecation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Pass 3: Product Workflow Deprecation
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pass-4-optional-further-narrowing" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Pass 4: Optional Further Narrowing
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#completion-criteria" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Completion Criteria
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#relationship-to-existing-docs" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Relationship To Existing Docs
+        Context
       
     </span>
   </a>
@@ -1962,421 +1691,296 @@
   
 
 
-<h1 id="gaussian-pipeline-deprecation-and-deletion-plan">Gaussian Pipeline Deprecation And Deletion Plan<a class="headerlink" href="#gaussian-pipeline-deprecation-and-deletion-plan" title="Permanent link">¶</a></h1>
-<p>Status: living post-refactor cleanup plan<br>
-Scope: compatibility removal, route consolidation, and API narrowing after Stages 0-3<br>
-Audience: rendering, tools, editor, and test engineers</p>
-<h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
-<p>The refactor achieved the main architectural goal:</p>
-<p><code>source asset or baked world -&gt; shared renderer contract -&gt; resident or streaming backend -&gt; sort/render</code></p>
-<p>But it did not finish the aggressive cleanup pass.</p>
-<p>This document tracks what still exists only for compatibility, migration, tests, or editor convenience, and defines what should be:</p>
+<h1 id="adr-per-lane-result-ledger-for-run_module_testspy-705-slice-1">ADR: Per-lane result ledger for <code>run_module_tests.py</code> (#705, slice 1)<a class="headerlink" href="#adr-per-lane-result-ledger-for-run_module_testspy-705-slice-1" title="Permanent link">¶</a></h1>
 <ul>
-<li>kept as a supported feature</li>
-<li>narrowed and explicitly marked low-level</li>
-<li>deprecated with a replacement workflow</li>
-<li>deleted once preconditions are met</li>
+<li><strong>Status:</strong> Proposed (filed before implementation, as required for R3). Slice 1 is the
+  <em>measurement</em> slice: it reports and gates nothing.</li>
+<li><strong>Risk class:</strong> R3 — the change edits <code>tests/ci/run_module_tests.py</code> lane-execution
+  logic, which <code>.agentic/policy.json</code> classifies as CI deterministic-check machinery
+  (<code>adr_required = true</code>).</li>
+<li><strong>Tracking:</strong> #705 (advisory lanes claim coverage they do not gate), #519 (streaming
+  lifecycle lanes are advisory). <strong>Precedent:</strong>
+  <a href="../adr-test-quarantine-manifest/"><code>adr-test-quarantine-manifest.md</code></a>.</li>
 </ul>
-<p>This is not a new architecture proposal. It is the closeout plan for code and route consolidation that the refactor intentionally deferred.</p>
-<h2 id="what-the-refactor-already-consolidated">What The Refactor Already Consolidated<a class="headerlink" href="#what-the-refactor-already-consolidated" title="Permanent link">¶</a></h2>
-<p>The main structural split is already fixed:</p>
+<h2 id="status-note-the-measurement-falsified-the-motivating-hypothesis">Status note: the measurement falsified the motivating hypothesis<a class="headerlink" href="#status-note-the-measurement-falsified-the-motivating-hypothesis" title="Permanent link">¶</a></h2>
+<p>A full lane run has since been executed against a <code>tests=yes</code> binary on the self-hosted
+runner. <strong>It recorded no advisory failures</strong>, so the premise this slice was built on —
+that advisory lanes are swallowing red — is <strong>not supported by the measurement</strong>. That
+finding stands on the record rather than being quietly dropped for being inconvenient.</p>
+<p>What the run did surface is <strong>absent coverage, not concealed failure</strong>: one advisory lane
+(<code>GPU Memory Stream</code>) reporting green while executing zero assertions, and a substantial
+block of self-skipped coverage concentrated in one lane (<code>Streaming Pipeline</code>).</p>
+<p>That changes what GS-705-2 should arm:</p>
 <ul>
-<li><code>GaussianSplatWorld3D</code> no longer owns the runtime render route. It submits through the director in <a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp">gaussian_splat_world_3d.cpp</a>.</li>
-<li>The shared instance renderer can now run resident data without a <code>GaussianStreamingSystem</code>, with backend choice resolved through <a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/core/gs_project_settings.h">gs_project_settings.h</a> and the resident atlas publisher.</li>
-<li>Route/debug/effective-settings surfaces now explain the active path and provenance through existing HUD/editor/diagnostics surfaces.</li>
-<li>The editor no longer dual-writes <code>splat_asset</code> and <code>ply_file_path</code> during normal import flows.</li>
+<li>a gate on advisory <em>failures</em> would pin zero and defend nothing, because there is nothing
+  there to defend against;</li>
+<li>the defensible ratchets are on <strong>executed coverage</strong> (a lane with 0 assertions must not
+  count as green) and on the <strong>skip-marker counts</strong> (shrink-only), each pinned at the value
+  the ledger measures at arming time;</li>
+<li>flipping the six lanes to <code>strict</code>, as #705 literally proposes, is cheap for most of them
+  and would immediately fail the zero-coverage lane. That is the correct outcome, to be
+  resolved by giving that lane real coverage — never by re-hiding it.</li>
 </ul>
-<p>That means the remaining cleanup work is concentrated in compatibility seams, not the core render architecture.</p>
-<h2 id="cleanup-principles">Cleanup Principles<a class="headerlink" href="#cleanup-principles" title="Permanent link">¶</a></h2>
-<ol>
-<li>Do not reopen the accepted architecture.</li>
-<li>Do not delete real runtime features until replacement workflows exist.</li>
-<li>Prefer narrowing a surface before deleting it outright.</li>
-<li>Migrate tests before removing the hook they rely on.</li>
-<li>Keep one canonical editor workflow:
-   imported <code>GaussianSplatAsset</code> -&gt; shared renderer registration.</li>
-<li>Keep one canonical backend policy surface:
-   resolved <code>route_policy</code>, not overlapping booleans.</li>
-</ol>
-<h2 id="inventory-summary">Inventory Summary<a class="headerlink" href="#inventory-summary" title="Permanent link">¶</a></h2>
-<table>
-<thead>
-<tr>
-<th>Surface</th>
-<th>Current role</th>
-<th>Category</th>
-<th>Recommended action</th>
-<th>Earliest bucket</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>rendering/gaussian_splatting/streaming/enabled</code></td>
-<td>Removed legacy compatibility toggle</td>
-<td>Removed in Bucket B</td>
-<td>Route policy is now the sole supported backend-policy setting</td>
-<td>Complete</td>
-</tr>
-<tr>
-<td><code>upsert_world_submission()</code> / <code>unregister_world_submission()</code></td>
-<td>Removed scaffolding-only storage helpers</td>
-<td>Removed in follow-up cleanup</td>
-<td>Runtime world submission now goes through <code>submit_world_submission()</code> / <code>release_world_submission()</code> only</td>
-<td>Complete</td>
-</tr>
-<tr>
-<td>Editor preview direct <code>renderer-&gt;set_gaussian_data()</code></td>
-<td>Editor-only bypass of canonical submission path</td>
-<td>Editor compatibility route</td>
-<td>Keep as the single accepted editor-only preview exception</td>
-<td>Bucket A</td>
-</tr>
-<tr>
-<td><code>GaussianSplatNode3D::ply_file_path</code></td>
-<td>Raw file load, auto-load, drag/drop, validation</td>
-<td>Runtime and editor compatibility route</td>
-<td>Demote from editor-primary path first; later decide whether runtime raw-load survives</td>
-<td>Bucket C</td>
-</tr>
-<tr>
-<td><code>GaussianSplatRenderer::set_gaussian_data()</code></td>
-<td>Low-level renderer/test/tool hook</td>
-<td>Public low-level API</td>
-<td>Keep for now, narrow usage contract, remove only after replacements exist</td>
-<td>Bucket C</td>
-</tr>
-<tr>
-<td><code>GaussianSplatContainer::apply_to_renderer()</code></td>
-<td>Container-level direct renderer bypass</td>
-<td>Removed in Wave 1 cleanup</td>
-<td>Delete outright; keep <code>apply_to_node()</code> / export workflows only</td>
-<td>Complete</td>
-</tr>
-<tr>
-<td>Duplicated source-path resolution helpers</td>
-<td>Same logic in node/editor code</td>
-<td>Internal duplication</td>
-<td>Consolidate into one shared helper</td>
-<td>Bucket A</td>
-</tr>
-<tr>
-<td>Explicit-resident legacy resident fallback</td>
-<td>Accepted runtime fallback when resident atlas publish is infeasible</td>
-<td>Runtime compatibility behavior</td>
-<td>Keep until resident atlas covers explicit-resident edge cases or the fallback is intentionally retired</td>
-<td>Bucket C</td>
-</tr>
-</tbody>
-</table>
-<h2 id="deletion-buckets">Deletion Buckets<a class="headerlink" href="#deletion-buckets" title="Permanent link">¶</a></h2>
-<h3 id="bucket-a-safe-cleanup-and-narrowing">Bucket A: Safe Cleanup And Narrowing<a class="headerlink" href="#bucket-a-safe-cleanup-and-narrowing" title="Permanent link">¶</a></h3>
-<p>These changes are low-risk and should not change user-visible behavior.</p>
+<p><strong>The coverage ratchet depends on the round-4 <code>zero_coverage</code> definition (§4a).</strong> Armed on
+the superseded passed-count formula, a lane in which every test failed would have reported
+<code>zero_coverage=1</code>, indistinguishable from a lane that ran nothing, and the ratchet would
+have read that catastrophe as improvement. GS-705-2 must pin against <code>zero_coverage</code> as
+defined in §4a, and — for "did a lane stop this run" — against <code>run_ending_outcomes</code>, never
+against the <code>FAIL</code>-outcome count alone. Two abort paths (a strict tests-unavailable lane, a
+rejected quarantine) end the run without recording <code>FAIL</code>. The field has been renamed twice
+(<code>strict_failures</code> → <code>gating_failures</code> in round 3 → <code>fail_outcomes</code> in round 10), so any
+older transcript uses field names that no longer exist.</p>
+<p>Neither the round-3 renames nor the round-4 <code>zero_coverage</code> fix changes the numbers that run
+measured: it recorded no failing lane at all, and the superseded formulas differ from the
+current ones only where failed counts are nonzero.</p>
+<blockquote>
+<p>The per-lane transcript, exact invocation and binary provenance for that run live in the
+pull request, not here. An ADR records <em>why</em> a decision was made and <em>what would change
+it</em>; evidence valid for one machine on one afternoon belongs with the change that produced
+it (<code>AGENTS.md</code> — no ephemeral agent artifacts in the repository).</p>
+</blockquote>
+<h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">¶</a></h2>
+<p><code>MODULE_TEST_FILTERS</code> declares 26 lanes: <strong>20 strict, 6 advisory</strong> (<code>GaussianSplatting
+[Synthetic]</code>, <code>GaussianSplatting [untagged]</code>, <code>GaussianSplatting [Renderer]</code>,
+<code>TileRenderer</code>, <code>GPU Memory Stream</code>, <code>Streaming Pipeline</code>).</p>
+<p>For an advisory lane, <code>_run_doctest_lanes()</code> routes a nonzero exit or a crash into
+<code>_report_failed_lane()</code>, which prints one free-text line and returns <code>True</code>, so the loop
+continues and <code>main()</code> still returns 0. <code>_handle_no_executed_coverage()</code> /
+<code>_report_advisory_no_coverage()</code> do the same for a lane that executed nothing. <strong>On an
+advisory lane, a nonzero exit, a crash, zero coverage and self-skipped coverage are all
+tolerated</strong>, and since doctest exits nonzero whenever a test fails, that covers the normal
+shape of an advisory failure.</p>
+<p>Two outcomes are <strong>not</strong> tolerated, on any lane, <code>strict</code> or not, and it is worth being
+exact about them rather than writing the tidier absolute claim: a lane that exits 0 while
+its doctest summary <strong>reports failures</strong>, and a lane that exits 0 with <strong>no doctest summary
+at all</strong>, both go through <code>_validate_successful_lane()</code> → <code>_report_lane_failure()</code> → <code>return
+1</code>. Both are harness anomalies rather than ordinary test failures. "Advisory" is therefore
+not an unconditional exemption from the exit code, and this ADR's own first draft summarised
+it as though it were, while the accompanying table and test had it right.</p>
+<p>The end-of-run summary <code>_print_doctest_totals()</code> reports <code>lanes</code>,
+<code>lanes_with_coverage</code>, <code>lanes_with_skips</code>, <code>lanes_unavailable</code>, <code>quarantined_failing</code> and
+<code>skipped_markers</code>, but has <strong>no field for advisory failures</strong>. Nothing in the repository
+records, per lane, what happened.</p>
+<p>Two consequences are already measurable at the branch base:</p>
 <ul>
-<li>Clarify public-vs-scaffolding API boundaries in the director.</li>
-<li>Consolidate duplicated source-path helper logic.</li>
-<li>Keep the direct preview upload as the single accepted editor-only exception.</li>
-<li>Remove dead preview-submission scaffolding.</li>
+<li><code>tests/ci/check_test_lane_coverage.py</code> reports, un-gated, that <strong>387 registered cases
+  reach no strict module lane and no GPU batch</strong> (59 <code>[RequiresGPU]</code>, 328 ordinary).</li>
+<li>The <code>GPU Memory Stream</code> lane reports <code>1 passed | 0 failed</code> with <strong>0 assertions</strong> — one
+  case selected, nothing executed, lane green. <code>Streaming Pipeline</code> runs 62 tests /
+  213 assertions with <strong>38 skip markers</strong>.</li>
 </ul>
-<h3 id="bucket-b-compatibility-surface-removal">Bucket B: Compatibility Surface Removal<a class="headerlink" href="#bucket-b-compatibility-surface-removal" title="Permanent link">¶</a></h3>
-<p>These changes are structurally safe but require test and project migration.</p>
+<h1 id="705-asks-for-these-lanes-to-be-made-strict-at-the-time-this-adr-was-filed-that-flip-could">705 asks for these lanes to be made strict. At the time this ADR was filed that flip could<a class="headerlink" href="#705-asks-for-these-lanes-to-be-made-strict-at-the-time-this-adr-was-filed-that-flip-could" title="Permanent link">¶</a></h1>
+<p>not be made responsibly, because <strong>no run of this repository had ever recorded whether an
+advisory lane passed, failed, crashed or executed nothing.</strong> Arming a gate on a guessed
+number is as bad as having no gate. The status note above records what the first such run
+actually measured, and it is not what this section predicted.</p>
+<h2 id="decision">Decision<a class="headerlink" href="#decision" title="Permanent link">¶</a></h2>
+<p>Add a <strong>per-lane result ledger</strong> to <code>run_module_tests.py</code>, plus an optional
+<code>--lane-report &lt;path&gt;</code> JSON output. It <strong>reports; it gates nothing.</strong></p>
+<h3 id="1-exit-code-parity-is-the-primary-invariant">1. Exit-code parity is the primary invariant<a class="headerlink" href="#1-exit-code-parity-is-the-primary-invariant" title="Permanent link">¶</a></h3>
+<p>For every reachable lane outcome, the value returned by <code>main()</code> is identical to the
+baseline. The ledger observes; it never decides. This is asserted directly, per outcome
+class, in <code>tests/ci/test_run_module_tests_lane_ledger.py</code> — and asserted <em>structurally</em>,
+by running each scenario a second time with the ledger neutered and requiring the two exit
+codes to be equal. A pinned constant alone would only prove that the code still does what
+it does; the neutered-run comparison proves the ledger changed no decision.</p>
+<p>The single exception is a <strong>harness-integrity failure</strong> (below), which is unreachable in a
+correct build.</p>
+<h3 id="2-totality-a-lane-missing-from-the-ledger-is-impossible-by-construction">2. Totality: a lane missing from the ledger is impossible by construction<a class="headerlink" href="#2-totality-a-lane-missing-from-the-ledger-is-impossible-by-construction" title="Permanent link">¶</a></h3>
+<p>The ledger is <strong>pre-seeded</strong> from the lane list before the first lane runs: every lane
+starts with outcome <code>NOT-RUN</code> and unknown (<code>-1</code>) counts. A control-flow path that forgets
+to record therefore cannot produce an <em>absent</em> lane — only a visibly <code>NOT-RUN</code> one, which
+the integrity check turns into a failure when the run was not aborted earlier.</p>
+<p>This is deliberate: "did not run" silently reading as "passed" is the exact defect class
+this whole phase exists to remove, and the ledger must not reproduce it in miniature.</p>
+<p>Mechanically:</p>
 <ul>
-<li>Remove legacy <code>streaming/enabled</code> compatibility once projects/tests stop depending on it. Completed in Bucket B.</li>
-<li>Remove world-submission scaffolding APIs once tests stop relying on them.</li>
+<li>the per-lane body is extracted into <code>_execute_lane()</code>, whose return type is
+  <code>tuple[int | None, LaneResult]</code> — every <code>return</code> must carry a result, and a bare
+  <code>return 1</code> is a loud unpacking error rather than a silent omission;</li>
+<li><code>LaneLedger.record()</code> refuses to overwrite an already-recorded lane (an overwrite is how
+  a FAIL would become a PASS) and reports the attempt as an integrity error;</li>
+<li><code>main()</code> asserts that the built run list covers the lane declaration tables themselves, so
+  a lane that disappears between a table and the loop fails rather than vanishing. Both
+  tables are checked, and which ones are required follows the same <code>run_gpu</code> flag
+  <code>_build_module_test_runs()</code> reads: on a <code>--gpu</code> run <code>REQUIRES_RD_TEST_FILTERS</code> is
+  required too, so removing or breaking the <code>if run_gpu:</code> append is an integrity failure
+  instead of a quietly shorter run that still reports a complete ledger.</li>
 </ul>
-<h3 id="bucket-c-product-workflow-deprecation">Bucket C: Product Workflow Deprecation<a class="headerlink" href="#bucket-c-product-workflow-deprecation" title="Permanent link">¶</a></h3>
-<p>These are the risky removals because they still back real workflows.</p>
+<h3 id="3-unknown-is-1-never-0">3. Unknown is <code>-1</code>, never <code>0</code><a class="headerlink" href="#3-unknown-is-1-never-0" title="Permanent link">¶</a></h3>
+<p><code>_parse_doctest_results()</code> returns <code>0</code> for every count when no doctest summary was found,
+which makes "the binary crashed before printing anything" indistinguishable from "the lane
+ran and passed nothing". The ledger records <code>-1</code> for all four counts whenever the summary
+is absent. <code>skipped_markers</code> is counted directly from the output and is <code>-1</code> only for a
+lane that was never attempted.</p>
+<h3 id="4-record-grammar-is-a-stable-contract">4. Record grammar is a stable contract<a class="headerlink" href="#4-record-grammar-is-a-stable-contract" title="Permanent link">¶</a></h3>
+<p>Per lane, one line in lane order:</p>
+<div class="highlight"><pre><span></span><code>[module-tests][lane-result] lane=&lt;name&gt; strict=&lt;0|1&gt; outcome=&lt;OUTCOME&gt; passed_tests=&lt;n&gt; passed_assertions=&lt;n&gt; failed_tests=&lt;n&gt; failed_assertions=&lt;n&gt; skipped_markers=&lt;n&gt; exit_code=&lt;n&gt; exit_code_reported=&lt;0|1&gt; summary_reported=&lt;0|1&gt; zero_coverage=&lt;0|1|-1&gt;
+</code></pre></div>
+<p><code>OUTCOME</code> is one of <code>PASS</code>, <code>FAIL</code>, <code>ADVISORY-FAIL</code>, <code>ADVISORY-NO-COVERAGE</code>,
+<code>UNAVAILABLE</code>, <code>QUARANTINE-TOLERATED</code>, <code>QUARANTINE-REJECTED</code>, <code>NOT-RUN</code>.</p>
+<p>The first eight fields are the grammar named in the task contract. <code>exit_code</code>,
+<code>exit_code_reported</code>, <code>summary_reported</code> and <code>zero_coverage</code> are an <strong>additive suffix</strong>: the
+contract's prefix is unchanged, and a superset is not a weakening. They are present because
+the process exit code, "was an exit code reported at all", "did doctest report at all" and
+"did the lane execute any coverage" are the facts a reader needs to tell a crash from a pass
+from an empty lane, and dropping them would make the ledger unable to answer the question it
+was built for.</p>
+<p><code>exit_code_reported</code> was added in round 10 because <code>-1</code> cannot carry two meanings at once.
+Every <em>count</em> in this ledger uses <code>-1</code> for "not known" (§3), which is safe because no count
+can be negative — but <code>-1</code> is a return code <code>subprocess</code> genuinely reports, for a POSIX
+process killed by <code>SIGHUP</code>. Without the companion flag, "this lane was signalled" and "no
+return code exists for this lane" are the same record, in the one field whose purpose is
+distinguishing how a lane ended. <strong>Read <code>exit_code</code> only when <code>exit_code_reported=1</code>.</strong></p>
+<p><code>summary_reported</code> was called <code>executed</code> until round 4 (§4a). The rename is recorded <strong>in
+this grammar</strong>, not only in the code: renaming a field so that a stale parser breaks loudly
+accomplishes nothing if the documented grammar still advertises the old name.</p>
+<p><code>NOT-RUN</code> is likewise additive. When a strict lane aborts the run, the remaining lanes are
+printed as <code>NOT-RUN</code> rather than omitted, for the same reason as §2.</p>
+<p>After the lane block, unconditionally — including when <code>advisory_failures=0</code>, so that
+absence of output can never be read as absence of failures:</p>
+<div class="highlight"><pre><span></span><code>[module-tests][lane-ledger] lanes=&lt;n&gt; strict_lanes=&lt;n&gt; advisory_lanes=&lt;n&gt; advisory_failures=&lt;n&gt; advisory_zero_coverage=&lt;n&gt; quarantine_tolerated=&lt;n&gt; unavailable=&lt;n&gt; quarantine_rejected=&lt;n&gt; fail_outcomes=&lt;n&gt; run_ending_outcomes=&lt;n&gt; passed=&lt;n&gt; not_run=&lt;n&gt;
+[module-tests][lane-ledger] ADVISORY-RED lane=&lt;name&gt; reason=&lt;failed|no-coverage|nonzero-exit-no-test-failures|crashed&gt;
+</code></pre></div>
+<h3 id="4a-every-field-names-only-what-it-can-support">4a. Every field names only what it can support<a class="headerlink" href="#4a-every-field-names-only-what-it-can-support" title="Permanent link">¶</a></h3>
+<p>Four fields were reworked because each over-claimed, and for a measurement tool
+<strong>a confidently wrong field is worse than an absent one — someone will quote it.</strong> The rule
+adopted here: prefer the narrower claim the data actually supports. Every one of these was a
+field summarising across a boundary the data does not cross — outcome → lane class,
+summary-exists → tests-failed, this-lane → whole-run, and passed-count → executed-at-all.</p>
 <ul>
-<li>Demote or remove <code>GaussianSplatNode3D::ply_file_path</code> as an editor-primary route.</li>
-<li>Decide the long-term fate of <code>GaussianSplatRenderer::set_gaussian_data()</code>.</li>
-<li>Decide whether explicit-resident legacy fallback should remain supported.</li>
+<li><code>strict_failures</code> → <code>gating_failures</code> → <strong><code>fail_outcomes</code></strong>, plus a new
+  <strong><code>run_ending_outcomes</code></strong>. The original field counted <code>FAIL</code> outcomes, but an <em>advisory</em>
+  lane also records <code>FAIL</code> (exit 0 with a missing or failing summary), so the aggregate could
+  read <code>strict_lanes=0 strict_failures=1</code> — an advisory harness anomaly charged to a strict
+  lane. Round 3 fixed the <em>class</em> half of that name and left the <em>gating</em> half over-claiming:
+  <code>FAIL</code> is not the only outcome that ends the run. A strict tests-unavailable lane aborts as
+  <code>UNAVAILABLE</code>, and a stale or invalid quarantine aborts as <code>QUARANTINE-REJECTED</code>; both stop
+  the loop and set the exit code while recording no <code>FAIL</code>, so a gated run could publish
+  <code>gating_failures=0</code>. Round 10 therefore renames the field to the narrow thing it counts and
+  gives the broader question its own count, derived from each record's <code>ended_run</code> — the flag
+  the loop sets from the value it actually broke on, so a future abort path is counted the day
+  it is added, not the day someone remembers to list its outcome. Widening the old field in
+  place was rejected for the reason <code>executed</code> was renamed rather than redefined: a stale
+  consumer must break loudly, not keep parsing a number that changed meaning. The
+  strict/advisory split is still derived from <code>record.strict</code>, never from the outcome
+  (<code>fail_outcomes_on_strict_lanes</code> / <code>fail_outcomes_on_advisory_lanes</code>, JSON), and the schema
+  version is bumped to 2.</li>
+<li><strong><code>reason=</code></strong> is derived from the failed counts <em>and</em> the exit status, not from "did a
+  summary exist". A clean all-pass summary followed by a nonzero exit is a teardown/harness
+  failure — <code>_classify_quarantined_lane_outcome()</code> has always known this — and calling it
+  <code>failed</code> would report a test failure where no test failed. It is now
+  <code>nonzero-exit-no-test-failures</code>, named for the observation rather than a guessed cause.</li>
+<li><strong><code>baseline_note</code></strong> no longer asserts that CI exited 0. The loop continues past an
+  <code>ADVISORY-FAIL</code>, so a <em>later</em> strict lane can fail the run while the same report claims
+  success. The note now describes the advisory <em>result</em> ("did not itself fail the run"),
+  which is true and stable, and the JSON carries <code>lane_loop_exit_code</code> — narrowly named
+  because it is the value the <strong>lane loop</strong> produced, which is not necessarily the exit code
+  of the process that left the file you are reading. See §5 for the ordering that makes those
+  differ.</li>
+<li><strong><code>zero_coverage</code></strong> is derived from <strong>passed + failed</strong>, not from the passed counts alone
+  (round 4), and <strong><code>executed</code> → <code>summary_reported</code></strong>. The old formula emitted
+  <code>zero_coverage=1</code> for a lane in which <em>every</em> test failed — both passed counts are zero
+  there — so the same record said "nothing ran" and "these ran and failed". That is the
+  inverse of the defect this ledger exists to expose, in the one field that exposes it, and
+  it mattered strategically: the ratchet this ADR recommends below is armed on <strong>executed
+  coverage</strong>, so a catastrophically failing lane would have registered as <em>improvement</em>.
+  <code>executed</code> was renamed in the same pass because it only ever meant "doctest printed a
+  summary" — a <code>0 passed | 0 failed</code> summary is reported and executes nothing.</li>
 </ul>
-<h2 id="detailed-surfaces">Detailed Surfaces<a class="headerlink" href="#detailed-surfaces" title="Permanent link">¶</a></h2>
-<h3 id="1-legacy-streamingenabled">1. Legacy <code>streaming/enabled</code><a class="headerlink" href="#1-legacy-streamingenabled" title="Permanent link">¶</a></h3>
-<p>Canonical files:</p>
+<p>The invariant now stands on its own, checked over every record rather than case by case:
+  <strong><code>zero_coverage=1</code> and a nonzero failed count are mutually exclusive</strong>, and a record
+  holding both is a harness-integrity failure. The removed formula passed every case-by-case
+  test written for it while violating that property, which is the argument for stating
+  invariants rather than examples.</p>
+<p>One place still derives coverage from passed counts, correctly:
+  <code>_handle_no_executed_coverage()</code> decides the <code>ADVISORY-NO-COVERAGE</code> <em>outcome</em>, and it is
+  reached only after <code>_validate_successful_lane()</code> has established zero failures — so passed
+  <em>is</em> the executed total there. That is baseline gating logic and changing it would break
+  exit-code parity.</p>
+<h3 id="5-lane-report-path-writes-the-same-records-as-json">5. <code>--lane-report &lt;path&gt;</code> writes the same records as JSON<a class="headerlink" href="#5-lane-report-path-writes-the-same-records-as-json" title="Permanent link">¶</a></h3>
+<p><code>{schema_version, baseline_note, generated_utc, lane_loop_exit_code, lanes: [...],
+totals: {...}}</code>. The option is optional; omitting it changes nothing. The file is a build
+output and stays <strong>untracked</strong>.</p>
+<p><strong><code>lane_loop_exit_code</code> is the lane loop's result, not proof of the process's.</strong> The order in
+<code>_run_doctest_lanes()</code> is: run the lanes → print the block → check ledger integrity → write.
+A ledger that fails its integrity check is therefore <strong>not written at all</strong>, and a write that
+fails leaves the previous report untouched; in both cases the process exits nonzero while the
+path still holds an <em>older</em> report describing a different run. After a write that succeeds,
+<code>main()</code> returns the lane loop's value unchanged, so a freshly written report and its process
+agree. A consumer that cannot tell which case it is holding must read <code>generated_utc</code> — the
+file's existence is not evidence that it came from the run just observed.
+It is rejected in combination with <code>--guard-only</code>, where it could only ever produce an
+empty report that a reader would mistake for "no lanes failed".</p>
+<p><strong>The report is evidence, so writing it must never destroy evidence.</strong> The writability
+preflight probes a <strong>sibling</strong> temp file, never the destination, and the write is
+serialize → temp file → <code>os.replace()</code>. The destination is therefore always either the
+previous report or the complete new one — never empty, never partial. The first
+implementation of the preflight opened the destination in <code>"w"</code> mode, which truncated the
+last valid measurement at second zero; a run interrupted after that point left behind
+exactly the empty report the rest of the runner treats as a red flag, with the real
+measurement gone. (<code>os.replace</code>, not <code>os.rename</code>: it is atomic on Windows and overwrites.
+The repo's recorded non-atomic-rename hazard is Godot's <code>DirAccess::rename</code>, which is
+engine code and does not apply here.)</p>
+<p><strong>The preflight rejects what is knowably invalid; it does not promise the write will
+succeed.</strong> A sibling probe answers "can I create a file <em>next to</em> this path", so it is blind
+to the destination itself: an existing directory (or other non-regular file), and an existing
+file this process may not write, both pass the probe and then fail in <code>os.replace()</code> after
+every lane has run. Those two classes are checked explicitly. The residual classes are
+genuine time-of-check/time-of-use races — another process opening the destination without
+delete sharing, a permission change, the parent directory disappearing — and are qualified as
+such rather than papered over: no probe can rule them out, so the end-of-run write fails
+closed on its own and both halves are load-bearing.</p>
+<h3 id="6-fail-closed-on-anything-the-ledger-cannot-determine">6. Fail closed on anything the ledger cannot determine<a class="headerlink" href="#6-fail-closed-on-anything-the-ledger-cannot-determine" title="Permanent link">¶</a></h3>
+<p>An unwritable report path, a lane recorded twice, a self-contradictory record, or a lane the
+runner <strong>attempted</strong> that was left <code>NOT-RUN</code> is a <strong>harness-integrity failure</strong>: the runner
+prints <code>[module-tests][lane-ledger][INTEGRITY] ...</code> and returns nonzero. This is not a test
+gate — it cannot be reached by any test outcome — but silently omitting a lane would recreate
+the bug being fixed, so it must be loud.</p>
+<p>"Attempted" is counted, not inferred from an abort flag. Validation used to be skipped
+entirely whenever the run aborted, which excused every record collected <em>before</em> the abort —
+reopening the "did not run reads as passed" hole for exactly the runs where something had
+already gone wrong. Only lanes after the aborting one may be <code>NOT-RUN</code>.</p>
+<p><strong>A ledger that fails its own integrity check is not written to <code>--lane-report</code>.</strong> The
+atomic write guarantees the destination is never empty or partial; it does not decide
+whether the content deserves to replace what is there. Overwriting the last valid
+measurement with a known-untrustworthy one destroys good evidence in favour of bad — the
+same trade the preflight fix in §5 refused — and the full block is on stdout regardless. The
+refusal is printed, so a missing report is never silent.</p>
+<h2 id="explicitly-not-decided-here">Explicitly not decided here<a class="headerlink" href="#explicitly-not-decided-here" title="Permanent link">¶</a></h2>
 <ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/core/gs_project_settings.h">gs_project_settings.h</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/core/gaussian_splat_manager.cpp">gaussian_splat_manager.cpp</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/core/effective_config_snapshot.h">effective_config_snapshot.h</a></li>
+<li><strong>No lane's <code>strict</code> flag changes.</strong> No lane is promoted or demoted.</li>
+<li><strong>No entry, include or exclude pattern in <code>MODULE_TEST_FILTERS</code> / <code>REQUIRES_RD_TEST_FILTERS</code>
+  changes.</strong></li>
+<li><strong>No gate is armed.</strong> No threshold, ratchet or new failure condition on lane outcomes is
+  introduced. Arming is GS-705-2, and it must be a <strong>shrink-only ratchet pinned at a
+  measured value</strong> taken from this ledger — never a guessed number.</li>
+<li><strong>No test case is added, deleted, renamed, retagged, excluded or quarantined.</strong> Reducing
+  a stranded or no-strict-lane count by removing tests is prohibited.</li>
+<li><strong>No workflow change.</strong> Uploading the JSON as a CI artifact is out of scope; stdout is
+  sufficient for this slice.</li>
 </ul>
-<p>Current state:</p>
+<h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">¶</a></h2>
 <ul>
-<li>Renderer/orchestrator code consumes the resolved enum from <code>gs::settings::get_streaming_route_policy()</code>.</li>
-<li><code>rendering/gaussian_splatting/streaming/enabled</code> has been removed from module settings registration and no longer participates in route resolution.</li>
+<li>The first honest, per-lane measurement of which advisory lanes are red becomes available
+  from a single run, and is the pinned input for GS-705-2. It has now been taken, and it
+  redirected GS-705-2 from "gate advisory failures" (measured 0, would defend nothing) to
+  "gate executed coverage and skip counts" — see the status note.</li>
+<li>CI output grows by ~30 lines per run.</li>
+<li>Turning previously hidden state visibly RED is an accepted and expected outcome. The red
+  must <strong>not</strong> be resolved by reverting this change, by re-hiding the lane, or by removing
+  the affected tests.</li>
 </ul>
-<p>Bucket B result:</p>
-<ol>
-<li>Tests now assert enum <code>route_policy</code> behavior directly.</li>
-<li>The bool has been removed from project settings registration.</li>
-<li><code>get_streaming_route_policy()</code> and <code>get_streaming_route_policy_source()</code> no longer translate or label a legacy bool path.</li>
-<li>Diagnostics no longer expose <code>legacy_streaming_enabled_forced_resident</code>.</li>
-</ol>
-<p>Deletion criteria:</p>
+<h2 id="alternatives-rejected">Alternatives rejected<a class="headerlink" href="#alternatives-rejected" title="Permanent link">¶</a></h2>
 <ul>
-<li>No tests rely on <code>streaming/enabled</code>.</li>
-<li>No shipped project configs rely on the bool.</li>
-<li>Diagnostics no longer need to distinguish the legacy source.</li>
+<li><strong>Flip the six advisory lanes to strict now (#705 as literally filed).</strong> Rejected: with
+  no measurement, this either breaks CI for an unknown number of unrelated reasons or, if
+  it happens to pass, proves nothing about the other outcome classes. Measure first.</li>
+<li><strong>Report only failures.</strong> Rejected: it makes an empty ledger ambiguous between "no
+  failures" and "the ledger stopped running", which is the same silent-absence bug.</li>
+<li><strong>Append to the existing <code>_print_doctest_totals()</code> line.</strong> Rejected: the aggregate cannot
+  express per-lane outcomes, and #705 needs the per-lane record.</li>
 </ul>
-<h3 id="2-upsert_world_submission-unregister_world_submission">2. <code>upsert_world_submission()</code> / <code>unregister_world_submission()</code><a class="headerlink" href="#2-upsert_world_submission-unregister_world_submission" title="Permanent link">¶</a></h3>
-<p>Canonical files:</p>
-<ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/core/gaussian_splat_scene_director.h">gaussian_splat_scene_director.h</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/core/gaussian_splat_scene_director.cpp">gaussian_splat_scene_director.cpp</a></li>
-</ul>
-<p>Current state:</p>
-<ul>
-<li><code>submit_world_submission()</code> / <code>release_world_submission()</code> are now the only public world-submission entrypoints.</li>
-<li>The scaffolding-only <code>upsert_*</code> / <code>unregister_*</code> helpers have been removed.</li>
-</ul>
-<p>Result:</p>
-<ol>
-<li>Runtime world submission remains covered through <code>submit_*</code> / <code>release_*</code> tests.</li>
-<li>The director no longer exposes a metadata-only world-submission path on the public tools/test surface.</li>
-</ol>
-<p>Deletion criteria:</p>
-<ul>
-<li>Complete.</li>
-</ul>
-<h3 id="3-editor-preview-direct-upload">3. Editor Preview Direct Upload<a class="headerlink" href="#3-editor-preview-direct-upload" title="Permanent link">¶</a></h3>
-<p>Canonical files:</p>
-<ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp">gaussian_editor_plugin.cpp</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/core/gaussian_splat_scene_director.h">gaussian_splat_scene_director.h</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/core/gaussian_splat_scene_director.cpp">gaussian_splat_scene_director.cpp</a></li>
-</ul>
-<p>Current state:</p>
-<ul>
-<li>Editor preview still does direct bare-renderer upload through <code>current_renderer-&gt;set_gaussian_data(...)</code>.</li>
-<li>The unused director preview-submission scaffolding has been removed.</li>
-</ul>
-<p>Decision:</p>
-<ul>
-<li>Direct preview upload remains the single supported preview path.</li>
-</ul>
-<p>Rationale:</p>
-<ul>
-<li>No runtime bug currently requires preview migration.</li>
-<li>Preview-submission scaffolding had no production caller and only added a second competing preview path.</li>
-</ul>
-<p>Future reconsideration:</p>
-<ul>
-<li>If preview ever moves into the director, it should be introduced as a dedicated runtime preview path rather than by reviving the old scaffolding API unchanged.</li>
-</ul>
-<h3 id="4-gaussiansplatdynamicinstance3dply_file_path">4. <code>GaussianSplatDynamicInstance3D::ply_file_path</code><a class="headerlink" href="#4-gaussiansplatdynamicinstance3dply_file_path" title="Permanent link">¶</a></h3>
-<p>Wave 3 removed <code>GaussianSplatDynamicInstance3D</code> outright. This compatibility
-path no longer exists and should not be reintroduced.</p>
-<p>Removal plan:</p>
-<ol>
-<li>Deprecate <code>ply_file_path</code> in docs and class comments.</li>
-<li>Emit a deprecation warning when the property is set.</li>
-<li>Keep <code>set_gaussian_data()</code> and <code>set_splat_asset()</code> as supported alternatives.</li>
-<li>Remove <code>_load_from_file()</code> and the <code>ply_file_path</code> property once tests/docs migrate.</li>
-</ol>
-<p>Deletion criteria:</p>
-<ul>
-<li>All supported workflows can use <code>splat_asset</code> or explicit <code>gaussian_data</code>.</li>
-<li>No product flow depends on dynamic-instance raw file loading.</li>
-</ul>
-<h3 id="5-gaussiansplatnode3dply_file_path">5. <code>GaussianSplatNode3D::ply_file_path</code><a class="headerlink" href="#5-gaussiansplatnode3dply_file_path" title="Permanent link">¶</a></h3>
-<p>Canonical files:</p>
-<ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/nodes/gaussian_splat_node_3d.h">gaussian_splat_node_3d.h</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp">gaussian_splat_node_3d.cpp</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/nodes/gaussian_splat_node_helpers.cpp">gaussian_splat_node_helpers.cpp</a></li>
-</ul>
-<p>Current state:</p>
-<ul>
-<li><code>ply_file_path</code> is still a real public runtime and editor route.</li>
-<li>It still powers:</li>
-<li>auto-load on enter tree</li>
-<li>direct runtime loading</li>
-<li>validation/warnings</li>
-<li>Raw drag-and-drop now prefers asset-backed assignment and only falls back to <code>ply_file_path</code> if the asset-backed load fails.</li>
-</ul>
-<p>Why it cannot simply be deleted now:</p>
-<ul>
-<li>The replacement workflow is not fully designed.</li>
-<li>The accepted refactor plan explicitly deferred this until replacements exist.</li>
-</ul>
-<p>Recommended deprecation sequence:</p>
-<ol>
-<li>Remove editor-primary behaviors first:</li>
-<li>keep drag-and-drop asset-first and avoid reintroducing <code>ply_file_path</code> as the primary editor assignment path</li>
-<li>steer users toward imported assets or explicit import tools</li>
-<li>Keep runtime/script loading temporarily.</li>
-<li>Introduce a clearer external-file workflow if runtime direct loading remains important.</li>
-<li>Only then decide whether <code>ply_file_path</code> becomes:</li>
-<li>metadata only, or</li>
-<li>a supported runtime-only escape hatch</li>
-</ol>
-<p>Blockers:</p>
-<ul>
-<li>Tests in <a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/tests/test_gaussian_splat_node.h">test_gaussian_splat_node.h</a> still treat it as supported behavior.</li>
-<li>Class docs and examples still show <code>ply_file_path</code>.</li>
-</ul>
-<p>Deletion criteria:</p>
-<ul>
-<li>Drag/drop, runtime load, auto-load, and validation all have replacement workflows.</li>
-<li>Class docs no longer present <code>ply_file_path</code> as the normal workflow.</li>
-<li>Tests are migrated away from direct-file-as-primary-authoring-path assumptions.</li>
-</ul>
-<h3 id="6-gaussiansplatrendererset_gaussian_data">6. <code>GaussianSplatRenderer::set_gaussian_data()</code><a class="headerlink" href="#6-gaussiansplatrendererset_gaussian_data" title="Permanent link">¶</a></h3>
-<p>Canonical files:</p>
-<ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/renderer/gaussian_splat_renderer.h">gaussian_splat_renderer.h</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/renderer/render_data_orchestrator.cpp">render_data_orchestrator.cpp</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/core/gaussian_splat_scene_director.cpp">gaussian_splat_scene_director.cpp</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/renderer/render_streaming_orchestrator.cpp">render_streaming_orchestrator.cpp</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/interfaces/gpu_culler.cpp">gpu_culler.cpp</a></li>
-</ul>
-<p>Current state:</p>
-<ul>
-<li>The public low-level setter still exists and is still used by tests, tools, helpers, and editor preview.</li>
-<li>The underlying non-instance <code>gaussian_data</code> route is also still load-bearing in production runtime flows.</li>
-</ul>
-<p>Investigation result:</p>
-<ul>
-<li>Do not remove the direct non-instance <code>gaussian_data</code> route yet.</li>
-<li>The correct near-term action is to narrow callers and document the remaining blockers, not to delete the route.</li>
-</ul>
-<p>Verified blockers:</p>
-<ul>
-<li>World-backed runtime still realizes submissions through primary scene data and static chunks in the director.</li>
-<li>Streaming bootstrap for world/static/no-instance scenes still depends on primary <code>scene_state.gaussian_data</code>.</li>
-<li>The accepted explicit-resident legacy fallback still depends on the legacy primary-data route when resident atlas publication is rejected.</li>
-<li>The legacy non-instance cull/sort path is therefore still live in <code>GPUCuller</code> and sorting, even though normal node and dynamic-instance flows already use the shared instance/director path.</li>
-</ul>
-<p>Secondary callers that should not drive the keep/remove decision by themselves:</p>
-<ul>
-<li>Editor preview direct upload in <a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp">gaussian_editor_plugin.cpp</a></li>
-<li><code>GaussianSplatContainer::apply_to_renderer()</code> was removed in Wave 1 cleanup; container tooling now hands off through <code>apply_to_node()</code> or world export only.</li>
-</ul>
-<p>Why it still exists:</p>
-<ul>
-<li>It is still required by real runtime behavior, not just tests.</li>
-<li>It remains useful for focused low-level validation while the runtime route still exists.</li>
-</ul>
-<p>Recommended action:</p>
-<ul>
-<li>Do not delete it yet.</li>
-<li>Narrow its contract instead:</li>
-<li>document <code>set_gaussian_data()</code> as a low-level/test/tool/editor-preview API, not the canonical high-level scene path</li>
-<li>migrate or explicitly bless editor preview</li>
-<li>keep high-level scene code off it</li>
-<li>remove the underlying runtime route only after world submission realization, streaming bootstrap, and explicit-resident fallback no longer depend on primary <code>gaussian_data</code></li>
-</ul>
-<p>Longer-term options:</p>
-<ul>
-<li>keep it permanently as the renderer's low-level data hook, or</li>
-<li>replace it with a more explicitly named test/tool upload API later</li>
-</ul>
-<p>Deletion criteria:</p>
-<ul>
-<li>World-backed runtime no longer realizes submissions through primary <code>gaussian_data</code>.</li>
-<li>Streaming bootstrap no longer depends on primary raw scene data or synthetic primary fallback instances.</li>
-<li>Explicit-resident fallback no longer needs the legacy non-instance route.</li>
-<li>Editor preview no longer depends on it directly.</li>
-<li>Low-level tests have replacement helpers or intentionally keep this as a supported low-level API.</li>
-</ul>
-<h3 id="7-duplicated-source-path-resolution">7. Duplicated Source-Path Resolution<a class="headerlink" href="#7-duplicated-source-path-resolution" title="Permanent link">¶</a></h3>
-<p>Canonical files:</p>
-<ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp">gaussian_editor_plugin.cpp</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp">gaussian_splat_node_3d.cpp</a></li>
-</ul>
-<p>Current state:</p>
-<ul>
-<li>Source-path resolution logic exists in more than one place.</li>
-<li>The accepted plan already tracked this as a consolidation candidate.</li>
-</ul>
-<p>Recommended action:</p>
-<ul>
-<li>Extract one shared helper for:</li>
-<li>asset source metadata lookup</li>
-<li>node source selection precedence</li>
-</ul>
-<p>Deletion criteria:</p>
-<ul>
-<li>One helper owns source-path precedence.</li>
-<li>Editor and node warnings/origin labels share the same rules.</li>
-</ul>
-<h3 id="8-explicit-resident-legacy-fallback">8. Explicit-Resident Legacy Fallback<a class="headerlink" href="#8-explicit-resident-legacy-fallback" title="Permanent link">¶</a></h3>
-<p>Canonical files:</p>
-<ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp">gaussian_splat_renderer.cpp</a></li>
-<li><a href="../gaussian-resident-instanced-contract/">gaussian-resident-instanced-contract.md</a></li>
-</ul>
-<p>Current state:</p>
-<ul>
-<li>If resident atlas publication is rejected for explicit-resident requests, the renderer may still fall back to the legacy resident path.</li>
-<li>This is accepted current behavior, not a bug.</li>
-</ul>
-<p>Why it is not a deletion target yet:</p>
-<ul>
-<li>Removing it would change runtime behavior for explicit resident requests.</li>
-<li>The resident atlas publisher still intentionally rejects some cases, including per-chunk quantization.</li>
-</ul>
-<p>Recommended action:</p>
-<ul>
-<li>Keep it for now.</li>
-<li>Keep the explicit-resident quantization fallback test as baseline coverage.</li>
-<li>Revisit only after resident atlas coverage is wider and the legacy resident path is truly redundant.</li>
-</ul>
-<p>Deletion criteria:</p>
-<ul>
-<li>Explicit-resident use cases no longer need the fallback.</li>
-<li>The fallback has dedicated coverage proving it is safe to remove or intentionally preserve.</li>
-</ul>
-<h2 id="tests-that-currently-block-deletion">Tests That Currently Block Deletion<a class="headerlink" href="#tests-that-currently-block-deletion" title="Permanent link">¶</a></h2>
-<p>The current test suite still locks in several compatibility surfaces:</p>
-<ul>
-<li><code>ply_file_path</code> as a supported node workflow:
-  <a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/tests/test_gaussian_splat_node.h">test_gaussian_splat_node.h</a></li>
-<li>diagnostic chaining and mixed-hint behavior:
-  <a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/tests/test_integration.cpp">test_integration.cpp</a>,
-  <a href="https://github.com/klausi3D/godotGS/blob/b222fa2210f4e528f2a4ac3e63c98708c1de0188/modules/gaussian_splatting/tests/test_scene_director_submission_scaffolding.h">test_scene_director_submission_scaffolding.h</a></li>
-</ul>
-<p>This is useful: it tells us exactly what must migrate before deletion is honest rather than accidental.</p>
-<h2 id="recommended-execution-order">Recommended Execution Order<a class="headerlink" href="#recommended-execution-order" title="Permanent link">¶</a></h2>
-<h3 id="pass-1-safe-consolidation">Pass 1: Safe Consolidation<a class="headerlink" href="#pass-1-safe-consolidation" title="Permanent link">¶</a></h3>
-<ul>
-<li>consolidate source-path helper logic</li>
-<li>keep world scaffolding APIs behind tools/test-only compilation</li>
-<li>keep direct preview as the documented editor-only exception</li>
-</ul>
-<h3 id="pass-2-remove-easy-compatibility-debt">Pass 2: Remove Easy Compatibility Debt<a class="headerlink" href="#pass-2-remove-easy-compatibility-debt" title="Permanent link">¶</a></h3>
-<ul>
-<li>remove legacy <code>streaming/enabled</code> after settings/test migration</li>
-<li>update docs and diagnostics labels accordingly</li>
-<li>narrow world scaffolding to test-only compilation</li>
-</ul>
-<h3 id="pass-3-product-workflow-deprecation">Pass 3: Product Workflow Deprecation<a class="headerlink" href="#pass-3-product-workflow-deprecation" title="Permanent link">¶</a></h3>
-<ul>
-<li>demote <code>GaussianSplatNode3D::ply_file_path</code> from editor-primary path</li>
-<li>remove raw drag-and-drop to <code>ply_file_path</code></li>
-<li>decide whether runtime raw loading remains supported or is replaced</li>
-</ul>
-<h3 id="pass-4-optional-further-narrowing">Pass 4: Optional Further Narrowing<a class="headerlink" href="#pass-4-optional-further-narrowing" title="Permanent link">¶</a></h3>
-<ul>
-<li>decide whether <code>GaussianSplatRenderer::set_gaussian_data()</code> stays as a supported low-level API</li>
-<li>decide whether explicit-resident legacy fallback remains a supported compatibility behavior</li>
-</ul>
-<h2 id="completion-criteria">Completion Criteria<a class="headerlink" href="#completion-criteria" title="Permanent link">¶</a></h2>
-<p>The original consolidation goal should be considered complete only when:</p>
-<ul>
-<li>no legacy boolean and enum route knobs overlap</li>
-<li>no public scaffolding APIs remain in the director without a real runtime purpose</li>
-<li>editor preview has exactly one intentional submission path</li>
-<li>imported assets are the only normal editor authoring route</li>
-<li>raw-file workflows are either explicitly runtime-only or fully replaced</li>
-<li>the low-level renderer upload surface is either intentionally kept or intentionally removed</li>
-</ul>
-<h2 id="relationship-to-existing-docs">Relationship To Existing Docs<a class="headerlink" href="#relationship-to-existing-docs" title="Permanent link">¶</a></h2>
-<p>This document is the concrete closeout companion to:</p>
-<ul>
-<li><a href="../gaussian-pipeline-unification-plan/">Unified Gaussian pipeline refactor plan</a></li>
-<li><a href="../gaussian-resident-instanced-contract/">Resident-instanced renderer contract</a></li>
-</ul>
-<p>Those documents explain how the architecture was unified. This document explains how the remaining compatibility seams should be retired.</p>
 
 
 
@@ -2397,7 +2001,7 @@ path no longer exists and should not be reintroduced.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 8, 2026 11:54:18 UTC">August 8, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 8, 2026 11:54:17 UTC">August 8, 2026</span>
   </span>
 
     
