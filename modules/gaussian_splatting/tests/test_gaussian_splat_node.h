@@ -233,6 +233,125 @@ void set_single_splat_rotation(const Ref<GaussianSplatAsset> &p_asset, const Qua
     p_asset->set_rotations(rotations);
 }
 
+// ── Return-safe teardown for test nodes attached to the shared SceneTree ────────
+//
+// #806 review: this file's [SceneTree] cases build nodes with memnew(), parent them
+// to the ONE root Window that every case in a doctest batch shares, and tear them
+// down with a hand-written `remove_child(); memdelete();` pair repeated before every
+// exit. That teardown is correct only for as long as every exit remembers it.
+//
+// It stopped being correct once #656/#843 replaced bare `REQUIRE` with
+// `if (!x) { FAIL(); return; }`. That idiom is REQUIRED here -- doctest is built with
+// disable_exceptions=True, so a failed REQUIRE does not abort and the following
+// dereference crashes the whole run -- but its `return` skips whatever teardown
+// followed. Three exits in "A failed set_splat_data must not republish the previous
+// payload" did exactly that: they returned with the node still parented to the root
+// window and, in two of the three, still registered with the SceneDirector. The
+// NodeSceneTree GPU-harness batch runs as ONE doctest process
+// (tests/ci/run_gpu_harness.py: BatchSpec("NodeSceneTree",
+// ("*[Node][SceneTree][RequiresGPU]*",), timeout_seconds=300)), so the survivor is
+// visible to every later case in that batch -- as an extra root child, an extra
+// director instance row, and retained renderer state.
+//
+// Repeating the teardown before each new `FAIL` would fix the three known exits and
+// leave the shape intact: the next exit added is one forgotten line away from the same
+// bug. So the teardown is made structural instead. The destructor runs on EVERY exit
+// from the scope -- fallthrough, early `return`, or a `return` added later by someone
+// who never reads this comment -- which is the property the hand-written version cannot
+// have.
+//
+// Deliberately parent-agnostic: it detaches from whatever parent the node has AT
+// DESTRUCTION time, not the one it was added to, so a case that re-parents (the
+// remove_child/add_child tree re-entry the set_splat_data case performs) still tears
+// down correctly. A node that is already detached is simply freed.
+template <typename T>
+class ScopedTestNode {
+public:
+    explicit ScopedTestNode(T *p_node) :
+            node(p_node) {}
+    ~ScopedTestNode() { reset(); }
+
+    ScopedTestNode(const ScopedTestNode &) = delete;
+    ScopedTestNode &operator=(const ScopedTestNode &) = delete;
+
+    T *get() const { return node; }
+    T *operator->() const { return node; }
+    explicit operator bool() const { return node != nullptr; }
+
+    // Hand the node back to the caller; the guard stops owning it.
+    T *release() {
+        T *released = node;
+        node = nullptr;
+        return released;
+    }
+
+    void reset() {
+        if (node == nullptr) {
+            return;
+        }
+        Node *parent = node->get_parent();
+        if (parent != nullptr) {
+            parent->remove_child(node);
+        }
+        memdelete(node);
+        node = nullptr;
+        // Matches the hand-written teardown this replaces: let the tree settle so the
+        // director observes the exit before the next case runs.
+        SceneTree *tree = SceneTree::get_singleton();
+        if (tree != nullptr) {
+            tree->process(0.0);
+        }
+    }
+
+private:
+    T *node = nullptr;
+};
+
+// What the helper below observed from INSIDE the scope, i.e. before the guard ran.
+//
+// These are the non-vacuity witnesses. Once ~ScopedTestNode() has done its job there is
+// nothing left in the tree to look at, so "the tree is back to baseline" afterwards is
+// indistinguishable from "the helper never attached anything" unless the helper itself
+// reports what it saw while the node was still alive.
+struct ScopedTestNodeExitObservation {
+    bool took_early_exit = false;
+    ObjectID instance_id;
+    int child_count_while_attached = -1;
+    bool registered_while_attached = false;
+};
+
+// The exact exit shape the guard exists for, factored out so a test case can OBSERVE
+// it. Attaches a node to `p_root`, records the observation above, and then -- when
+// `p_take_setup_failure_exit` is set -- returns early from the middle of the scope with
+// no teardown statement of any kind after it, exactly as the
+// `if (!x) { FAIL(); return; }` branches in the set_splat_data case do.
+ScopedTestNodeExitObservation take_scoped_test_node_setup_failure_exit(Window *p_root, bool p_take_setup_failure_exit) {
+    ScopedTestNodeExitObservation observation;
+
+    ScopedTestNode<GaussianSplatNode3D> node(memnew(GaussianSplatNode3D));
+    node->set_splat_asset(make_single_splat_asset(3.0f));
+    p_root->add_child(node.get());
+    observation.instance_id = node->get_instance_id();
+    SceneTree *tree = SceneTree::get_singleton();
+    if (tree != nullptr) {
+        tree->process(0.0);
+    }
+
+    observation.child_count_while_attached = p_root->get_child_count();
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    if (director != nullptr) {
+        GaussianSplatSceneDirector::InstanceSubmission submission;
+        observation.registered_while_attached = director->get_instance_submission(observation.instance_id, &submission);
+    }
+
+    if (p_take_setup_failure_exit) {
+        observation.took_early_exit = true;
+        return observation;
+    }
+
+    return observation;
+}
+
 } // namespace
 
 TEST_CASE("[GaussianSplatting][Node] Debug flag persistence mirrors project settings") {
@@ -3118,6 +3237,95 @@ TEST_CASE("[GaussianSplatting][Editor] Inspector suppresses every debug/ propert
 }
 
 #endif // TOOLS_ENABLED
+
+// ── #806 review: the setup-failure exit must not strand a node in the tree ──────
+//
+// This is the regression test for the ScopedTestNode guard, and it measures the
+// property the finding is actually about: not that a failed setup REPORTS failure, but
+// that after taking a setup-failure early exit the shared SceneTree is back to the
+// state it was in before the case ran.
+//
+// The failing shape it pins is `if (!x) { FAIL(); return; }` returning from the middle
+// of a case that has already parented a node to the root window. That idiom is not
+// optional here -- doctest is built with disable_exceptions=True, so a bare REQUIRE
+// does not abort -- so the leak cannot be fixed by removing the early return; the
+// teardown has to survive it. take_scoped_test_node_setup_failure_exit() reproduces
+// exactly that shape (see the anonymous namespace above) with NO teardown statement
+// after the early `return`.
+//
+// Mutation proof (run, not asserted): change the `ScopedTestNode<GaussianSplatNode3D>
+// node` in that helper back to a raw `GaussianSplatNode3D *node =
+// memnew(GaussianSplatNode3D)` -- the code as it stood before this change -- rebuild,
+// and this case goes 5 of 10 assertions RED: `root->get_child_count() == baseline`
+// reports 1 == 0 after the early exit, the director still returns an instance
+// submission for the supposedly-gone node, and the SECOND leg then sees 2 children,
+// which is the cross-case accumulation the finding is about. Restoring the guard puts
+// all 10 back to green. Both arms were run.
+//
+// Deliberately NOT [RequiresGPU]: the leak is a SceneTree/lifetime property with no
+// device dependency, and the exit it measures is reached in the headless lane too.
+TEST_CASE("[GaussianSplatting][Node][SceneTree] A setup-failure early exit must leave no node attached to the shared tree") {
+	SceneTree *tree = SceneTree::get_singleton();
+	if (tree == nullptr) {
+		FAIL("SceneTree must exist (provided by [SceneTree] tag)");
+		return;
+	}
+	Window *root = tree->get_root();
+	if (root == nullptr) {
+		FAIL("SceneTree root window must exist");
+		return;
+	}
+	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+	if (director == nullptr) {
+		FAIL("GaussianSplatSceneDirector singleton must exist");
+		return;
+	}
+
+	tree->process(0.0);
+	const int baseline_children = root->get_child_count();
+
+	// ---- the exit under test: early `return` from the middle of the scope ----
+	const ScopedTestNodeExitObservation failed_setup = take_scoped_test_node_setup_failure_exit(root, true);
+	// Assert the branch being measured actually ran. Without this the case would pass
+	// just as happily while measuring the fallthrough path.
+	CHECK_MESSAGE(failed_setup.took_early_exit,
+			"the helper must have taken the setup-failure early exit, otherwise this case measures the wrong path");
+	CHECK_MESSAGE(failed_setup.instance_id.is_valid(),
+			"the helper must have reported the node's ObjectID, otherwise the director assertion below is vacuous");
+	// Non-vacuity: there was something to strand. Measured from inside the scope, because
+	// by the time control returns here the guard has already removed it.
+	CHECK_MESSAGE(failed_setup.child_count_while_attached == baseline_children + 1,
+			"the helper must actually have attached its node to the shared root before exiting; saw ",
+			failed_setup.child_count_while_attached, " children vs baseline ", baseline_children);
+	// Same non-vacuity question for the director leg: "no stranded record afterwards" only
+	// means something if a record existed while the node was attached.
+	CHECK_MESSAGE(failed_setup.registered_while_attached,
+			"the helper's node must have been registered with the SceneDirector while attached, otherwise the stranded-record assertion below proves nothing");
+	tree->process(0.0);
+
+	CHECK_MESSAGE(root->get_child_count() == baseline_children,
+			"After a setup-failure early exit the shared SceneTree must be back to its pre-case child count; got ",
+			root->get_child_count(), " vs baseline ", baseline_children);
+	GaussianSplatSceneDirector::InstanceSubmission stranded;
+	CHECK_MESSAGE(!director->get_instance_submission(failed_setup.instance_id, &stranded),
+			"After a setup-failure early exit the node must no longer be registered with the SceneDirector.");
+
+	// ---- and the ordinary fallthrough exit, so the guard is not proven on one arm only ----
+	const ScopedTestNodeExitObservation normal_exit = take_scoped_test_node_setup_failure_exit(root, false);
+	CHECK_MESSAGE(!normal_exit.took_early_exit,
+			"the helper must have taken the fallthrough exit on this leg");
+	CHECK_MESSAGE(normal_exit.child_count_while_attached == baseline_children + 1,
+			"the fallthrough leg must also have attached its node; saw ",
+			normal_exit.child_count_while_attached, " children vs baseline ", baseline_children);
+	tree->process(0.0);
+	CHECK_MESSAGE(root->get_child_count() == baseline_children,
+			"After the ordinary fallthrough exit the shared SceneTree must also be back to its pre-case child count; got ",
+			root->get_child_count(), " vs baseline ", baseline_children);
+	GaussianSplatSceneDirector::InstanceSubmission stranded_normal;
+	CHECK_MESSAGE(!director->get_instance_submission(normal_exit.instance_id, &stranded_normal),
+			"After the ordinary fallthrough exit the node must no longer be registered with the SceneDirector.");
+}
+
 // ── #798 review round 2: a failed set_splat_data() must fail CLOSED ──────
 //
 // set_splat_data() returns void, so the only honest observable is what the node
@@ -3173,8 +3381,13 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] A failed set_splat_
 		return;
 	}
 
-	GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
-	root->add_child(node);
+	// #806 review: scoped, not hand-repeated. Several exits below are
+	// `if (!x) { FAIL(); return; }` -- the idiom this build requires (#656/#843) -- and
+	// three of them used to return with this node still parented to the shared root
+	// window and still registered with the director, leaking it into every later case
+	// in the single-process NodeSceneTree batch. See ScopedTestNode above.
+	ScopedTestNode<GaussianSplatNode3D> node(memnew(GaussianSplatNode3D));
+	root->add_child(node.get());
 	tree->process(0.0);
 
 	// ---- first payload: 5 splats ----
@@ -3214,9 +3427,6 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] A failed set_splat_
 				headless_sub.asset.is_valid() && headless_sub.asset->get_splat_count() > 0;
 		CHECK_MESSAGE(!headless_published,
 				"With no renderer, set_splat_data() must publish no payload at all.");
-		root->remove_child(node);
-		memdelete(node);
-		tree->process(0.0);
 		return;
 	}
 
@@ -3279,16 +3489,15 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] A failed set_splat_
 	gs_vector_alloc_clear_forced_failure();
 	if (!injection_fired) {
 		FAIL("the injected sh_dc allocation failure never fired -- set_splat_data() did not reach _apply_optional_splat_arrays()'s sh_dc resize, so this case proves nothing");
-		root->remove_child(node);
-		memdelete(node);
-		tree->process(0.0);
 		return;
 	}
 	tree->process(0.0);
 
 	// Force the tree/world re-entry that rebuilds `asset` from renderer_data / runtime_asset.
-	root->remove_child(node);
-	root->add_child(node);
+	// ScopedTestNode detaches from whatever parent the node has at destruction time, so
+	// re-parenting here does not disturb the teardown.
+	root->remove_child(node.get());
+	root->add_child(node.get());
 	tree->process(0.0);
 
 	GaussianSplatSceneDirector::InstanceSubmission after;
@@ -3324,9 +3533,8 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] A failed set_splat_
 	CHECK_MESSAGE(node->get_total_splat_count() == 0u,
 			"After a failed set_splat_data(), the node must not still report the previous payload's splat count.");
 
-	root->remove_child(node);
-	memdelete(node);
-	tree->process(0.0);
+	// No teardown statement here: ~ScopedTestNode() detaches and frees the node on this
+	// exit and on every early one above.
 }
 
 #endif // TESTS_ENABLED || TOOLS_ENABLED
