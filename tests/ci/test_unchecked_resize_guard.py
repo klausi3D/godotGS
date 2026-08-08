@@ -142,6 +142,33 @@ mutation that removes the shape check in _is_repaired_duplicate_group().
                                                      no detector change). Pre-fix it
                                                      passes trivially, since the route
                                                      did not exist.
+
+and a sixth round on the round-5 proof itself, which is the SAME identity mistake one
+layer up: the base-source scan established that the added KEY existed at the review base
+and that was read as "this statement existed at the review base". A key is shared by
+every statement of its shape in its function, so it is not.
+
+  test_a_repaired_and_replaced_statement_is_not_licensed_by_its_key  <- change the
+                                                     detector and the C++ together:
+                                                     repair the statement the base held
+                                                     and write another at the same key in
+                                                     the same function. Both scans emit
+                                                     the identical string and the base
+                                                     proof licensed the newcomer
+  test_an_unscannable_working_tree_fails_the_survival_proof  <- ...and the other side of
+                                                     the comparison fails closed too
+
+Measured: both are RED against a3ed5a7c675 (check_baseline_against_base returned [], i.e.
+the addition was LICENSED) and green here. One round-6 control passes on both sides and
+is named as such -- it is not vacuous:
+
+  test_documented_detector_change_is_accepted        rewritten to run the REAL detector
+                                                     over a real base source and a real
+                                                     working tree, so the sanctioned
+                                                     route now exercises the survival
+                                                     proof positively. Measured RED
+                                                     against a mutant whose _body_digest()
+                                                     returns a fresh value per call.
 """
 from __future__ import annotations
 
@@ -954,13 +981,21 @@ Error Solo::build() {
 
     # -- P1 (round 3): the baseline itself must be anchored -----------------
     def _stub_base(self, base_sites, detector_differs=True, base_sha="feedfacecafe",
-                   base_scan=None, base_scan_failures=None):
+                   base_scan=None, base_scan_failures=None, base_source=None):
         """Answer the four git questions the base comparison asks, without a repo.
 
         `base_scan` is what THIS detector finds when re-run over the source at the review
         base. It defaults to `base_sites`, i.e. the truthful case where the recorded
         baseline is exactly what the base source contained -- so a test that adds a key
         must SAY the base source held it, which is the whole point of the check.
+
+        `base_source` is the stronger form and the one a DETECTOR-ROUTE test needs:
+        `{relative path: text}` run through the REAL detector, so the scan carries real
+        enclosing-function digests and the survival check has something to compare the
+        working tree against. Given as a list of keys instead, the stub can only invent
+        digests that match nothing, which rejects every detector-route addition -- so the
+        two positive detector-route cases below supply source, and every other caller
+        here is asserting about a route that never reaches the survival check.
         """
         self.guard.resolve_review_base = lambda base_ref=None: (base_sha, [])
         self.guard.detector_differs_from_base = lambda sha: (detector_differs, [])
@@ -972,8 +1007,23 @@ Error Solo::build() {
 
         self.guard._blob_at_base = _blob
         scanned = list(base_sites or []) if base_scan is None else list(base_scan)
-        self.guard.find_sites_at_base = lambda sha: (
-            [] if base_scan_failures else scanned, list(base_scan_failures or []))
+
+        def _at_base(sha, bodies=None):
+            if base_scan_failures:
+                return [], list(base_scan_failures)
+            if base_source is not None:
+                # `bodies is None` is the pre-fix guard, which calls this with one
+                # argument -- kept working so the round-6 cases can be MEASURED against
+                # a3ed5a7c675 rather than asserted to be red.
+                if bodies is None:
+                    return self.guard.scan_sources(sorted(base_source.items()))
+                return self.guard.scan_sources(sorted(base_source.items()), bodies)
+            if bodies is not None:
+                for site in scanned:
+                    bodies.setdefault(site, []).append(f"stub-body::{site}")
+            return list(scanned), []
+
+        self.guard.find_sites_at_base = _at_base
 
     def test_baseline_growth_relative_to_base_is_rejected(self):
         """Adding a site AND its baseline key in one change must not pass.
@@ -1019,14 +1069,29 @@ Error Solo::build() {
     def test_documented_detector_change_is_accepted(self):
         """The one sanctioned route must actually work, or it gets bypassed.
 
-        Note what the fixture now has to assert to get through: `base_scan` says the
-        CURRENT detector finds `values.resize(n)` in the source at the review base. That
-        is precisely the claim a detector-change ledger entry makes, and it is now
-        checked rather than taken on trust.
+        Note what the fixture has to assert to get through: the source at the review base
+        really contains `values.resize(n)` in `Fresh::build`, and the working tree still
+        contains THAT statement -- which is what a real detector change looks like, since
+        it edits Python and leaves the C++ alone. Both are checked rather than taken on
+        trust.
         """
-        old = "modules/gaussian_splatting/a.cpp::Fresh::build::old.resize(n)"
-        revealed = "modules/gaussian_splatting/a.cpp::Fresh::build::values.resize(n)"
-        self._stub_base([old], base_scan=[old, revealed])
+        source = """
+Error Fresh::build() {
+    Vector<float> old;
+    old.resize(n);
+    float *o = old.ptrw();
+    Vector<float> values;
+    values.resize(n);
+    float *w = values.ptrw();
+    return OK;
+}
+"""
+        rel = "modules/gaussian_splatting/a.cpp"
+        old = f"{rel}::Fresh::build::old.resize(n)"
+        revealed = f"{rel}::Fresh::build::values.resize(n)"
+        self._write("a.cpp", source)
+        self.assertEqual(self._sites(), [old, revealed])
+        self._stub_base([old], base_source={rel: source})
         document = {
             "sites": [old, revealed],
             "detector_change_ledger": [
@@ -1035,6 +1100,114 @@ Error Solo::build() {
             ],
         }
         self.assertEqual(self.guard.check_baseline_against_base(document), [])
+
+    # -- P1 (round 6): the base proof must be bound to the same STATEMENT ----
+    def test_a_repaired_and_replaced_statement_is_not_licensed_by_its_key(self):
+        """Repair the statement the base held, add another at the same key, in one diff.
+
+        The evasion in full. A key is file + enclosing function + symbol + count, so
+        every statement of that shape in that function generates it. Change the detector
+        (which the ledger route already requires) AND the C++ together: repair the
+        `values.resize(n)` the base source held, write a fresh unchecked
+        `values.resize(n)` further down the SAME function, and add that key with a
+        reason. The base scan and the current scan then emit the identical string, so
+        `base_found[site]` vouches for a statement that never existed at the review base.
+
+        This is the fix-one/add-one hole the SCAN-level identity work closed
+        (test_swapped_duplicate_is_reported_as_new,
+        test_identical_blocks_are_separated_without_an_ordinal) reappearing one layer up,
+        between the two scans instead of within one -- and the same rule settles it: a
+        generated key is not proof of statement identity, so the occurrence found at the
+        base must be shown to survive.
+
+        Measured: check_baseline_against_base() returned [] against a3ed5a7c675 (the
+        addition was LICENSED), and fails here.
+        """
+        rel = "modules/gaussian_splatting/a.cpp"
+        base_source = """
+Error Fresh::build() {
+    Vector<float> old;
+    old.resize(n);
+    float *o = old.ptrw();
+    Vector<float> values;
+    values.resize(n);
+    float *w = values.ptrw();
+    return OK;
+}
+"""
+        # The diff repairs that statement and writes a NEW unchecked one below it.
+        self._write("a.cpp", """
+Error Fresh::build() {
+    Vector<float> old;
+    old.resize(n);
+    float *o = old.ptrw();
+    Vector<float> values;
+    ERR_FAIL_COND_V(gs_resize_or_fail(values, n) != OK, ERR_OUT_OF_MEMORY);
+    float *w = values.ptrw();
+    int extra = 3;
+    values.resize(n);
+    float *v2 = values.ptrw();
+    return OK;
+}
+""")
+        old = f"{rel}::Fresh::build::old.resize(n)"
+        replacement = f"{rel}::Fresh::build::values.resize(n)"
+        self.assertEqual(self._sites(), [old, replacement],
+                         "the replacement must generate the SAME key as the base statement")
+
+        self._stub_base([old], base_source={rel: base_source})
+        document = {
+            "sites": [old, replacement],
+            "detector_change_ledger": [
+                {"site": replacement,
+                 "reason": "revealed by a widened predicate; predates this change"},
+            ],
+        }
+        failures = self.guard.check_baseline_against_base(document)
+        self.assertTrue(failures, "a replaced statement must not be licensed by its key")
+        joined = "\n".join(failures)
+        self.assertIn(replacement, joined, joined)
+        self.assertIn("does not survive into the current source", joined, joined)
+
+    def test_an_unscannable_working_tree_fails_the_survival_proof(self):
+        """"Could not read the current tree" is not "the base occurrence is still there".
+
+        Same rule as test_an_unscannable_base_source_fails_closed, on the other side of
+        the comparison. An unreadable source drops every site in that file, and an empty
+        current scan would otherwise reject the addition for a misleading stated reason
+        instead of saying the evidence is missing.
+        """
+        rel = "modules/gaussian_splatting/a.cpp"
+        source = """
+Error Fresh::build() {
+    Vector<float> values;
+    values.resize(n);
+    float *w = values.ptrw();
+    return OK;
+}
+"""
+        self._write("a.cpp", source)
+        revealed = f"{rel}::Fresh::build::values.resize(n)"
+        self._stub_base([], base_source={rel: source})
+        document = {
+            "sites": [revealed],
+            "detector_change_ledger": [{"site": revealed, "reason": "revealed by masking"}],
+        }
+        # The scan sees the file in the listing and then cannot read it.
+        real_read = pathlib.Path.read_text
+
+        def _explode(self_path, *args, **kwargs):
+            if self_path.name == "a.cpp":
+                raise OSError("simulated unreadable source")
+            return real_read(self_path, *args, **kwargs)
+
+        pathlib.Path.read_text = _explode
+        try:
+            failures = self.guard.check_baseline_against_base(document)
+        finally:
+            pathlib.Path.read_text = real_read
+        self.assertTrue(failures, "an unscannable working tree must fail the run")
+        self.assertIn("did not scan cleanly", "\n".join(failures), "\n".join(failures))
 
     # -- P1 (round 5): "the script changed" is not "the detector finds more" --
     def test_a_docstring_edit_does_not_license_a_new_site(self):

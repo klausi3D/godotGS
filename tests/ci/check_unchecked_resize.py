@@ -145,12 +145,14 @@ imported rather than copied), and it may only SHRINK. If the base cannot be reso
 guard FAILS: with no immutable reference there is nothing to ratchet against, and
 "cannot determine the base" must never share an outcome with "nothing changed".
 
-Growth relative to the base needs ALL THREE of:
+Growth relative to the base needs ALL FOUR of:
 
 * a `detector_change_ledger` entry naming the added key with a reason,
-* this script actually differing from its form at the review base, and
+* this script actually differing from its form at the review base,
 * **THIS detector, run over the source AS IT WAS at the review base, finding that exact
-  site there.**
+  site there**, and
+* **that occurrence still being there** -- the enclosing function's code unchanged
+  between the base and the current tree.
 
 The third is the load-bearing one, and it replaces a proxy that did not hold. "Any byte
 of this script differs" was being read as "the detector legitimately finds more", and
@@ -162,12 +164,31 @@ settles the actual question -- was this site already in the tree, merely invisib
 a fact rather than as a self-attestation. A genuinely new site is not in the base source,
 so no ledger entry and no amount of editing this file can license it.
 
+The fourth exists because the third is itself a proxy one layer up, and it fails in the
+same shape. A key is file + enclosing function + symbol + count, so it is shared by every
+statement of that shape in that function; "the base scan emitted this key" is therefore
+not "the statement that is live today was in the base". A change that edits the detector
+AND the C++ together can repair or delete the `values.resize(n)` the base held and write
+a fresh one in the same function: both scans emit the identical key, and the base proof
+licenses a statement that never existed at the base. That is the fix-one/add-one evasion
+the SCAN-level identity work already closed (`_context_digest`, `_statement_offset`),
+recreated between the two scans instead of within one. So the occurrence must be shown
+to SURVIVE: the enclosing function's code -- masked and whitespace-normalised, so comment
+and formatting edits are irrelevant -- must be unchanged between the base and the current
+tree, which makes the base occurrence demonstrably the live one.
+
+It is blunt on purpose. Repairing an unrelated site in the same function also breaks the
+proof and rejects the addition; the remedy is to land the detector change with that
+function untouched. A guard that cannot establish statement identity must refuse, not
+assume.
+
 The first two locks are kept anyway. A reason is what a reviewer grades, and "the
 detector changed" denies the route outright to any change that does not touch the
 detector, so an accidental widening cannot slip through on the base-source proof alone.
 
-If the base source cannot be scanned, the run FAILS. "Could not look" must never share
-an outcome with "looked and the site was already there".
+If the base source cannot be scanned -- or the working tree cannot -- the run FAILS.
+"Could not look" must never share an outcome with "looked and the site was already
+there".
 
 ## The second growth route: a repaired duplicate group
 
@@ -568,18 +589,42 @@ def _function_name_at(index: int, spans: list[tuple[int, int, str]]) -> str:
     return "<file-scope>"
 
 
-def _span_start_at(index: int, spans: list[tuple[int, int, str]]) -> int:
-    """First line of the enclosing function, or the top of the file.
+def _span_bounds(index: int, spans: list[tuple[int, int, str]], total: int) -> tuple[int, int]:
+    """First and last line of the enclosing function, or the whole file.
 
-    The backward floor for declaration lookup, mirroring _consumer_scan_end() on the
-    forward side. Falling back to line 0 rather than to a fixed window keeps the
-    unresolved-span case OVER-scanning: a guard that over-scans reports a site for
-    review, one that under-scans misses a defect.
+    The start is the backward floor for declaration lookup, mirroring
+    _consumer_scan_end() on the forward side. Falling back to the WHOLE FILE rather than
+    to a fixed window keeps the unresolved-span case OVER-scanning: a guard that
+    over-scans reports a site for review, one that under-scans misses a defect. The same
+    fallback makes _body_digest() cover the whole file when no span resolves, so an
+    unresolved span demands MORE be unchanged, not less.
     """
     for start, end, _ in spans:
         if start <= index <= end:
-            return start
-    return 0
+            return start, end
+    return 0, max(total - 1, 0)
+
+
+def _body_digest(lines: list[str], start: int, end: int) -> str:
+    """A stable identity for the CODE of one enclosing function.
+
+    This is what turns "the base scan emitted the same key" into "the statement the base
+    scan found is still there". A key is generated from file + function + symbol + count,
+    so it is shared by every statement of that shape in that function -- including one
+    written to REPLACE the statement the base actually held. Comparing a base occurrence
+    and a current occurrence by key therefore proves nothing about statement identity;
+    comparing the enclosing function's code does, because an identical function body
+    contains an identical set of statements. See check_baseline_against_base().
+
+    Computed over MASKED, whitespace-normalised lines: comment and string-literal edits
+    and reindentation do not invalidate the proof, since neither can change which
+    statements the detector finds. Anything else does, and that is the safe direction --
+    an unrecognised body means no proof, which rejects the addition.
+    """
+    payload = "\n".join(
+        text for text in (_normalise(line) for line in lines[start:end + 1]) if text
+    )
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
 
 
 def _context_digest(lines: list[str], start: int, last: int) -> str:
@@ -646,7 +691,10 @@ def _statement_offset(lines: list[str], index: int, span_start: int) -> int:
     return count
 
 
-def scan_sources(sources: list[tuple[str, str]]) -> tuple[list[str], list[str]]:
+def scan_sources(
+    sources: list[tuple[str, str]],
+    bodies: dict[str, list[str]] | None = None,
+) -> tuple[list[str], list[str]]:
     """Run the detector over (relative path, file text) pairs. Returns (sites, errors).
 
     Split out of find_sites() so the SAME detector can be pointed at source that is not
@@ -655,6 +703,13 @@ def scan_sources(sources: list[tuple[str, str]]) -> tuple[list[str], list[str]]:
     existed"; see check_baseline_against_base(). A second, base-only implementation of
     the predicate would answer the question differently the first time either was edited,
     which is the same argument that made resolve_review_base() a shared import.
+
+    Pass `bodies` to collect, per emitted site, the digest of the ENCLOSING FUNCTION's
+    code (_body_digest). Two scans of two different trees can then be compared by
+    STATEMENT rather than by key: a key is shared by every statement of that shape in
+    that function, so key equality across the base and the current tree is not evidence
+    that the two scans are talking about the same statement. See
+    check_baseline_against_base().
     """
     sites: list[str] = []
     errors: list[str] = []
@@ -665,7 +720,8 @@ def scan_sources(sources: list[tuple[str, str]]) -> tuple[list[str], list[str]]:
         # reported evasions.
         lines = _mask_source(text.splitlines())
         spans = _function_spans(lines)
-        candidates: list[tuple[str, str, int]] = []
+        candidates: list[tuple[str, str, int, str]] = []
+        body_cache: dict[tuple[int, int], str] = {}
         for i, line in enumerate(lines):
             if not RESIZE_HEAD_RE.match(line):
                 continue
@@ -686,7 +742,7 @@ def scan_sources(sources: list[tuple[str, str]]) -> tuple[list[str], list[str]]:
             var, count = match.group(1), match.group(2)
             if CONST_COUNT_RE.match(count):
                 continue  # exclusion rule: compile-time-constant count
-            span_start = _span_start_at(i, spans)
+            span_start, span_end = _span_bounds(i, spans, len(lines))
             kind = _declared_container(lines, i, var, span_start)
             if kind == "local_vector":
                 continue  # out of class: LocalVector::resize() returns void
@@ -708,30 +764,36 @@ def scan_sources(sources: list[tuple[str, str]]) -> tuple[list[str], list[str]]:
                 # by _context_digest() below -- NOT by an occurrence ordinal, which
                 # counts statements without identifying them.
                 key = f"{rel}::{_function_name_at(i, spans)}::{var}.resize({_normalise(count)})"
+                if (span_start, span_end) not in body_cache:
+                    body_cache[(span_start, span_end)] = _body_digest(lines, span_start, span_end)
                 candidates.append((key, _context_digest(lines, i, last),
-                                   _statement_offset(lines, i, span_start)))
+                                   _statement_offset(lines, i, span_start),
+                                   body_cache[(span_start, span_end)]))
 
         # Second pass: only keys that actually REPEAT in this file carry a contextual
         # suffix. Unique keys -- every entry in the baseline as recorded today -- keep
         # their plain form, so context sensitivity cannot churn them.
-        repeated = {key for key in {k for k, _, _ in candidates}
-                    if sum(1 for k, _, _ in candidates if k == key) > 1}
-        identities = [(f"{key}@{digest}" if key in repeated else key, offset)
-                      for key, digest, offset in candidates]
+        repeated = {key for key in {c[0] for c in candidates}
+                    if sum(1 for c in candidates if c[0] == key) > 1}
+        identities = [(f"{key}@{digest}" if key in repeated else key, offset, body)
+                      for key, digest, offset, body in candidates]
         # Residual: duplicates whose WIDENED context still matches, i.e. a run of
         # identical adjacent blocks. Every member of such a group takes a statement
         # offset -- a position in the function, not an occurrence ordinal. The ordinal
         # this replaces renumbered with the group, so fixing one member and adding
         # another produced the identical key set and the ratchet passed; an offset
         # cannot, because the added member sits somewhere the baseline never recorded.
-        colliding = {identity for identity in {i for i, _ in identities}
-                     if sum(1 for i, _ in identities if i == identity) > 1}
-        for identity, offset in identities:
-            sites.append(f"{identity}~{offset}" if identity in colliding else identity)
+        colliding = {identity for identity in {i for i, _, _ in identities}
+                     if sum(1 for i, _, _ in identities if i == identity) > 1}
+        for identity, offset, body in identities:
+            site = f"{identity}~{offset}" if identity in colliding else identity
+            sites.append(site)
+            if bodies is not None:
+                bodies.setdefault(site, []).append(body)
     return sorted(sites), errors
 
 
-def find_sites() -> tuple[list[str], list[str]]:
+def find_sites(bodies: dict[str, list[str]] | None = None) -> tuple[list[str], list[str]]:
     """Scan the WORKING TREE. Returns (sites, scan_errors).
 
     scan_errors is NOT cosmetic: an unreadable source used to be skipped with
@@ -752,11 +814,14 @@ def find_sites() -> tuple[list[str], list[str]]:
             errors.append(f"{path.relative_to(REPO_ROOT).as_posix()}: {exc}")
             continue
         sources.append((path.relative_to(REPO_ROOT).as_posix(), text))
-    sites, scan_errors = scan_sources(sources)
+    sites, scan_errors = scan_sources(sources, bodies)
     return sites, errors + scan_errors
 
 
-def find_sites_at_base(base_sha: str) -> tuple[list[str], list[str]]:
+def find_sites_at_base(
+    base_sha: str,
+    bodies: dict[str, list[str]] | None = None,
+) -> tuple[list[str], list[str]]:
     """Run THIS detector over the module source as it stood at the review base.
 
     The point of the exercise, spelled out because it is easy to mistake for a
@@ -806,7 +871,7 @@ def find_sites_at_base(base_sha: str) -> tuple[list[str], list[str]]:
             f"Refusing to read that as 'the base contained no sites' -- an empty scan and "
             f"an unscanned base are different answers."
         ]
-    sites, errors = scan_sources(sorted(sources))
+    sites, errors = scan_sources(sorted(sources), bodies)
     if errors:
         return [], [
             f"the module source at review base {base_sha[:12]} did not scan cleanly, so it "
@@ -1043,7 +1108,11 @@ def write_baseline(
                     "the guard rejects an addition relative to the REVIEW BASE unless the "
                     "ledger covers it AND this script itself differs from the base AND this "
                     "detector, re-run over the source at the review base, finds that exact "
-                    "site there. The one addition that proof cannot cover -- a baselined "
+                    "site there AND the occurrence it finds there survives into the current "
+                    "source (the enclosing function's code unchanged), since a key is shared "
+                    "by every statement of its shape in its function and so cannot by itself "
+                    "prove which statement is live. The one addition that proof cannot cover "
+                    "-- a baselined "
                     "duplicate GROUP repaired down to a single plain key -- is recorded in "
                     "duplicate_repair_ledger instead, and is bounded to shapes that reduce "
                     "the recorded count at that base key."
@@ -1230,18 +1299,30 @@ def check_baseline_against_base(document: dict, base_ref: str | None = None) -> 
     **A DETECTOR CHANGE**, with three independent locks:
 
     * every added key is named in `detector_change_ledger` with a reason,
-    * this script DIFFERS from its form at the review base, and
+    * this script DIFFERS from its form at the review base,
     * THIS detector, re-run over the source at the review base, finds that exact site
-      there.
+      there, and
+    * the occurrence it finds there SURVIVES into the current source -- the enclosing
+      function's code is unchanged.
 
-    The third lock is the load-bearing one, and the first two are not sufficient without
-    it. "This script differs" is satisfied by editing a docstring, so it was standing in
+    The last two are the load-bearing ones, and the first two are not sufficient without
+    them. "This script differs" is satisfied by editing a docstring, so it was standing in
     for "the detector legitimately finds more" without establishing it: a change could
     reword a comment here, add an unchecked C++ site with its key and any reason, and CI
     returned success. Re-scanning the immutable base source answers the real question --
     was the site already there? -- with a fact. The other two locks stay because a reason
     is what a reviewer grades, and an unchanged detector has no business adding keys at
     all.
+
+    The survival lock exists because "the base scan emitted this key" is itself a proxy,
+    one layer up: a key is file + function + symbol + count, so every statement of that
+    shape in that function generates it. A change that edits the detector AND the C++
+    together can therefore repair or delete the statement the base held and write another
+    at the same key, and the base scan would still vouch for the addition -- fix-one/
+    add-one again, this time between the two SCANS rather than within one. Requiring the
+    enclosing function's code to be unchanged makes the base occurrence demonstrably the
+    live one. Where that cannot be established the addition is refused, per this guard's
+    standing rule that an undecided question is not a passing one.
 
     **A REPAIRED DUPLICATE GROUP**, named in `duplicate_repair_ledger` with a reason, and
     bounded by `_is_repaired_duplicate_group()` to a shape that can only reduce the
@@ -1323,7 +1404,8 @@ def check_baseline_against_base(document: dict, base_ref: str | None = None) -> 
 
     # Both routes now need the same fact, so it is established once: what does THIS
     # detector find in the source as it stood at the review base?
-    base_scan, scan_failures = find_sites_at_base(base_sha)
+    base_bodies: dict[str, list[str]] = {}
+    base_scan, scan_failures = find_sites_at_base(base_sha, base_bodies)
     if scan_failures:
         return [
             f"the BASELINE FILE gained {len(added)} site(s) relative to the review base "
@@ -1351,6 +1433,64 @@ def check_baseline_against_base(document: dict, base_ref: str | None = None) -> 
             f"were ALREADY in the tree; a site the base source does not contain is new code, "
             f"whatever the ledger says:",
         ] + [f"    + {site}\n      reason on file: {ledger[site]}" for site in unproven]
+
+    # ...and the occurrence the base scan found must be the one that is LIVE now.
+    #
+    # The check above compares generated keys, and a key is not a statement: it is
+    # file + enclosing function + symbol + count, which every statement of that shape in
+    # that function shares. When a change edits the detector AND the C++ together, the
+    # two scans can therefore emit the same key for different statements -- the diff
+    # repairs or deletes the `values.resize(n)` the base held and writes another
+    # `values.resize(n)` in the same function, and `base_found[site]` licenses the
+    # addition even though the live statement never existed at the base. That is the
+    # fix-one/add-one evasion this guard closed at the SCAN level (_context_digest,
+    # _statement_offset), reappearing one layer up in the base proof.
+    #
+    # It is settled by the same rule used everywhere else here: identity, not equality of
+    # a generated name. A base occurrence survives when the code of its enclosing
+    # function is unchanged, which is checkable and is what _body_digest() records --
+    # an identical function body holds an identical set of statements, so the occurrence
+    # the base scan found is demonstrably still there. Consumed one-for-one, like
+    # base_found above, so N added copies need N surviving base occurrences.
+    #
+    # Deliberately fail-closed and deliberately blunt: repairing an unrelated site in the
+    # same function also breaks the proof and rejects the addition. The remedy is to land
+    # the detector change separately from the C++ edit, which is cheap; the alternative is
+    # licensing a live statement nobody established the age of.
+    current_bodies: dict[str, list[str]] = {}
+    if detector_route:
+        _, current_errors = find_sites(current_bodies)
+        if current_errors:
+            return [
+                f"the BASELINE FILE gained {len(detector_route)} site(s) attributed to a "
+                f"DETECTOR change, but the WORKING TREE did not scan cleanly, so whether "
+                f"the occurrence found at review base {base_sha[:12]} is the one live "
+                f"today could not be established:",
+            ] + [f"    {item}" for item in current_errors]
+    surviving = collections.Counter()
+    for site in set(detector_route):
+        surviving[site] = sum(
+            (collections.Counter(base_bodies.get(site, []))
+             & collections.Counter(current_bodies.get(site, []))).values()
+        )
+    replaced: list[str] = []
+    for site in detector_route:
+        if surviving[site] > 0:
+            surviving[site] -= 1
+        else:
+            replaced.append(site)
+    if replaced:
+        return [
+            f"{len(replaced)} baseline addition(s) are attributed to a DETECTOR change and "
+            f"the base source does contain that KEY, but the occurrence found there does "
+            f"not survive into the current source: the enclosing function's code changed "
+            f"in this diff. A key is shared by every statement of that shape in that "
+            f"function, so matching it proves nothing about the statement that is live "
+            f"now -- a repaired-and-replaced statement produces the identical key:",
+        ] + [f"    + {site}\n      reason on file: {ledger[site]}" for site in replaced] + [
+            "  Land the detector change on its own, with the enclosing function untouched, "
+            "so\n  the addition is provably a site that was already there.",
+        ]
 
     # The repair route's own corroboration: the base source must really have held a
     # duplicate GROUP at this base key. Without it, "a group shrank" is a story told by
