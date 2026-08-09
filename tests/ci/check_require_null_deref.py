@@ -164,6 +164,21 @@ index `container[...]` that nothing between them bounds.
 * **The `size()` call must be a direct argument of the assertion macro** (depth 1
   inside its parentheses). `REQUIRE(cpu_results.resize(ground_truth.size()) == OK)`
   constrains the *resize result*, not `ground_truth`, and is not a site.
+* **The same direction test everywhere.** A control-flow header and a
+  short-circuit operand are judged by the same `_bound_direction` as the
+  assertion. Until #849's round-2 review they were judged by weaker rules of their
+  own - any mention of the container's cardinality bounded a body, and any
+  relational operator made an operand a guard - so `if (v.is_empty()) { v[0]; }`,
+  `if (i >= v.size()) { v[i]; }` and `CHECK(v.size() == 0 && v[0]);` were all
+  reported clean. Those are false NEGATIVES over live crash sites, which is the
+  one failure this detector cannot afford.
+* **The container is resolved by walking BACKWARD over a balanced expression**,
+  so `chunks[order[0]].indices`, `importer->get_preset_name(i)` and
+  `Path::get_source(asset)` are each ONE symbol at any nesting depth. A forward
+  regex has to pick a nesting limit, and past it Python backtracks to the longest
+  tail it can consume - the bare member name `indices` - which then matches an
+  unrelated `other.indices[0]`. An object that is not an expression at all
+  (`(a + b).size()`) is a ScanError, never an assertion with no size predicate.
 * **Loop-bounded indexes are safe and are not flagged.** An index inside a loop
   or `if` whose header bounds by the indexed container's OWN `size()` /
   `is_empty()` cannot go out of bounds no matter how the assertion failed:
@@ -195,15 +210,26 @@ index `container[...]` that nothing between them bounds.
 1. **An index further than `_SIZE_SCAN_STATEMENTS` statements away.** This is not
    hypothetical: the fourth site #843 fixed
    (`test_gaussian_splat_node.h:1415`, `REQUIRE(payload.size() == 4)` indexed
-   ~20 statements later) is NOT found at the shipped window. Raising the window
-   to 30 finds it plus two more real sites in
-   `test_gaussian_splat_asset_prune.h` - and one false positive that only the
-   short-circuit handling above suppresses. Widening is deliberately left as
-   follow-up under #844 rather than bundled here; it changes the baseline and
-   needs its own delta review. The other three #843 sites (`:1288`, `:1323`,
-   `:1424`) ARE found by this detector at the shipped window - verified by
-   running it against `test_gaussian_splat_node.h` at #843's base SHA
-   `d9d2dfd2842`.
+   ~20 statements later) is NOT found at the shipped window - re-verified by
+   scanning that file at #843's base SHA `d9d2dfd2842`, where a window of 30 does
+   find it. The other three #843 sites (`:1288`, `:1323`, `:1424`) ARE found at
+   the shipped window, verified the same way.
+
+   Measured on the CURRENT corpus, raising the window to 30 adds exactly **three**
+   sites, all real, and no false positive:
+
+       test_gaussian_splat_asset_prune.h:77  out_scales   -> :92   (literal-bounded loop)
+       test_gaussian_splat_asset_prune.h:78  out_colors   -> :93   (literal-bounded loop)
+       test_projection_math.cpp:69           gpu_results  -> :88   (cross-container)
+
+   A fourth would appear without the short-circuit handling above -
+   `test_gaussian_splat_world_io.h:364`, `chunks.size() >= 2 && ...chunks[i]` -
+   and is correctly suppressed.
+
+   #849's round-2 fixes did NOT change this delta: the window-30 scan is
+   site-for-site identical before and after them, so widening is neither made safe
+   nor unsafe by them and remains follow-up under #844. It changes the baseline
+   (+3) and needs its own delta review. **This blind spot is open, not covered.**
 2. **Indexes through an alias** (`const T &e = v[0]` then `e`), through
    `.ptr()[i]` or `.get(i)`. Neither of the latter two occurs in the corpus.
 3. **An index whose value is itself asserted elsewhere.** The detector never
@@ -414,7 +440,15 @@ class ScanError(Exception):
 # A C++ raw string literal, including its optional encoding prefix. The delimiter
 # is bounded by the standard's 16 characters and excludes the characters the
 # standard already forbids in it.
-_RAW_STRING_OPEN_RE = re.compile(r"(?<![A-Za-z0-9_])(?:u8|u|U|L)?R\"([^ ()\\\t\v\f\n]{0,16})\(")
+_RAW_STRING_OPEN = r"(?<![A-Za-z0-9_])(?:u8|u|U|L)?R\"([^ ()\\\t\v\f\n]{0,16})\("
+_RAW_STRING_OPEN_RE = re.compile(_RAW_STRING_OPEN)
+
+# ONE token regex for the whole lexical pass below. `re.search` returns the
+# LEFTMOST match, which is exactly C++'s rule: whichever of `//`, `/*`, a raw
+# string opener or an ordinary quote comes FIRST wins, and the others inside it
+# are just characters. Alternation order only breaks ties at the same offset,
+# where the raw opener must precede the bare quote because it starts at the `R`.
+_LEX_TOKEN_RE = re.compile(rf"//|/\*|{_RAW_STRING_OPEN}|\"|'")
 
 
 def _blank_raw_strings(name: str, text: str) -> str:
@@ -426,30 +460,78 @@ def _blank_raw_strings(name: str, text: str) -> str:
     - before comments are stripped, which is the order the C++ lexer uses - means
     nothing downstream ever reads fixture text as source.
 
+    Comments and ordinary literals are recognised in the SAME pass, not by a later
+    line-oriented function, because C++ has one lexer and not two. Searching for
+    raw-string openers first read the `R"(` inside a `// explain R"(` comment as a
+    real literal and blanked everything up to the next `)"` - which could be another
+    comment many lines later, swallowing real code and reporting the file clean;
+    without that later `)"` the same file was rejected as unterminated. Both are
+    gone once the pass skips a comment as a comment (Codex, PR #849 round 2).
+
     The literal is replaced by `""` followed by exactly as many newlines as it
     spanned, so every later line keeps its number. An UNTERMINATED raw string is a
     ScanError: it means the rest of the file cannot be lexed, and guessing is how
-    a guard starts reporting on text it does not understand.
+    a guard starts reporting on text it does not understand. Comments and ordinary
+    literals are left VERBATIM here; `_strip_comments` still removes them, and it
+    can now do so line by line safely because nothing multi-line is left.
     """
     out: list[str] = []
     position = 0
+    cursor = 0
     while True:
-        match = _RAW_STRING_OPEN_RE.search(text, position)
-        if match is None:
+        token = _LEX_TOKEN_RE.search(text, cursor)
+        if token is None:
             out.append(text[position:])
             return "".join(out)
-        terminator = f"){match.group(1)}\""
-        end = text.find(terminator, match.end())
+        lexeme = token.group(0)
+        if lexeme == "//":
+            end = text.find("\n", token.end())
+            cursor = len(text) if end == -1 else end
+            continue
+        if lexeme == "/*":
+            end = text.find("*/", token.end())
+            # An unterminated block comment swallows the rest of the file for the
+            # real compiler too, and `_strip_comments` agrees, so this is not a
+            # guess about unlexable text.
+            cursor = len(text) if end == -1 else end + 2
+            continue
+        if lexeme in ('"', "'"):
+            cursor = _skip_plain_literal(text, token.start())
+            continue
+        terminator = f"){token.group(1)}\""
+        end = text.find(terminator, token.end())
         if end == -1:
-            line_no = text.count("\n", 0, match.start()) + 1
+            line_no = text.count("\n", 0, token.start()) + 1
             raise ScanError(
                 f"{name}:{line_no}: unterminated raw string literal "
                 f"(no closing `{terminator}`). Refusing to scan a file this cannot lex."
             )
         end += len(terminator)
-        out.append(text[position : match.start()])
-        out.append('""' + "\n" * text.count("\n", match.start(), end))
+        out.append(text[position : token.start()])
+        out.append('""' + "\n" * text.count("\n", token.start(), end))
         position = end
+        cursor = end
+
+
+def _skip_plain_literal(text: str, at: int) -> int:
+    """Offset just past the ordinary `"..."` / `'...'` literal opening at `at`.
+
+    Mirrors `_strip_comments` exactly: the closing quote is looked for on the SAME
+    line only, and when there is none the quote was not a literal opener at all
+    (a digit separator like `1'000`, a stray apostrophe) so only that one character
+    is consumed. Keeping the two functions on the same rule is deliberate - they
+    must agree on what a literal is, or one of them blanks text the other reads.
+    """
+    quote = text[at]
+    i = at + 1
+    while i < len(text) and text[i] != "\n":
+        if text[i] == "\\":
+            i += 2
+            continue
+        if text[i] == quote:
+            return i + 1
+        i += 1
+    return at + 1
 
 
 def _read_source(path: Path) -> str:
@@ -999,25 +1081,30 @@ def _scan_forward(
 # 1) and changes the baseline, so it is a separate, reviewable change.
 _SIZE_SCAN_STATEMENTS = 6
 
-# Detector 2's symbol grammar extends _SYMBOL with ONE subscript per segment, so
-# `chunks[0].indices` is a single symbol. Without it the scanner would extract the
-# bare tail `indices` from `chunks[0].indices.size()` and then match `.indices[`
-# on any other object in the window - comparing names instead of tracking one
-# container.
-_SIZE_SEGMENT = r"[A-Za-z_]\w*(?:\s*\(\s*\))?(?:\s*\[[^\[\]]*\])?"
-_SIZE_SYMBOL = rf"{_SIZE_SEGMENT}(?:\s*(?:\.|->)\s*{_SIZE_SEGMENT})*"
+# A symbol may not START in the middle of a member chain. Used by every FORWARD
+# search for an already-resolved symbol; the resolver below never needs it because
+# a backward walk always lands on a real expression start.
+_SYMBOL_START = r"(?<![\w.])(?<!->)"
 
 # REQUIRE* and CHECK* both. CHECK is not the weaker case here: it never aborts
 # under ANY doctest configuration, so it is strictly worse than a REQUIRE that
 # merely does not abort in THIS build. One of the four sites #843 fixed was a
 # CHECK.
 _SIZE_ASSERT_HEAD_RE = re.compile(r"^\s*((?:REQUIRE|CHECK)\w*)\s*\(")
-_CARDINALITY_RE = re.compile(
-    rf"({_SIZE_SYMBOL})\s*(?:\.|->)\s*(size|is_empty|empty)\s*\(\s*\)"
-)
-_ANY_CARDINALITY_RE = re.compile(
-    rf"{_SIZE_SYMBOL}\s*(?:\.|->)\s*(?:size|is_empty|empty)\s*\(\s*\)"
-)
+# The cardinality CALL. Its OBJECT is resolved by walking backward over a balanced
+# expression (`_object_start`), not by a forward regex.
+#
+# The forward regex it replaced could not describe C++: with a bounded grammar of
+# one subscript per segment it failed on `chunks[order[0]].indices.size()`, and
+# Python's regex engine responded by BACKTRACKING to the longest tail it could
+# consume - the bare member name `indices` - which then matched an unrelated
+# `other.indices[0]` and reported it as an index of the asserted container. Raising
+# the nesting limit only moves the cliff; a balanced walk removes it, and it also
+# resolves the call-with-arguments objects (`importer->get_preset_name(i)`,
+# `(uint32_t)splats.size()`) the regex grammar had to give up on (Codex, PR #849
+# round 2).
+_CARDINALITY_CALL_RE = re.compile(r"(?:\.|->)\s*(size|is_empty|empty)\s*\(\s*\)")
+_IDENTIFIER_TAIL_RE = re.compile(r"[A-Za-z_]\w*$")
 # A relational comparison macro carries the operator in its NAME.
 _COMPARISON_MACRO_SUFFIXES: tuple[tuple[str, str], ...] = (
     ("_EQ", "=="), ("_NE", "!="), ("_GE", ">="), ("_LE", "<="), ("_GT", ">"), ("_LT", "<"),
@@ -1044,21 +1131,130 @@ _CLASS_STRAIGHT_LINE = "straight-line"
 _CLASS_OTHER_BOUND = "loop-bounded-by-another-container"
 
 
+def _matching_open(text: str, at: int, lo: int) -> int:
+    """Offset of the `(`/`[` matching the closer at `at`, or -1 within [lo, at]."""
+    closer = text[at]
+    opener = "(" if closer == ")" else "["
+    depth = 0
+    for i in range(at, lo - 1, -1):
+        if text[i] == closer:
+            depth += 1
+        elif text[i] == opener:
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
+
+
+def _object_start(text: str, at: int, lo: int = 0) -> int | None:
+    """Start of the object expression that ends at `at`, or None if there is none.
+
+    Walks BACKWARD over a balanced expression: trailing `(...)`/`[...]` groups, then
+    an identifier (with any `::` qualification), then the same again across each
+    `.`/`->`. A backward walk is what makes the grammar closed - it handles calls
+    with arguments and any nesting depth, where a forward regex has to pick a
+    nesting limit and then silently backtracks past it.
+
+    None means the expression is genuinely not an object (`(a + b).size()`), which
+    callers must treat as a FAILURE to parse, never as "no container here".
+    """
+    i = at
+    while True:
+        j = i
+        while j > lo and text[j - 1].isspace():
+            j -= 1
+        while j > lo and text[j - 1] in ")]":
+            open_at = _matching_open(text, j - 1, lo)
+            if open_at < 0:
+                return None
+            j = open_at
+            while j > lo and text[j - 1].isspace():
+                j -= 1
+        name = _IDENTIFIER_TAIL_RE.search(text[lo:j])
+        if name is None:
+            return None
+        j = lo + name.start()
+        while j - 2 >= lo and text[j - 2 : j] == "::":
+            qualifier = _IDENTIFIER_TAIL_RE.search(text[lo : j - 2])
+            if qualifier is None:
+                return None
+            j = lo + qualifier.start()
+        i = j
+        k = i
+        while k > lo and text[k - 1].isspace():
+            k -= 1
+        if k - 2 >= lo and text[k - 2 : k] == "->":
+            i = k - 2
+            continue
+        if k - 1 >= lo and text[k - 1] == ".":
+            i = k - 1
+            continue
+        return i
+
+
+def _cardinality_calls(
+    text: str, lo: int, hi: int, name: str, strict: bool
+) -> list[tuple[str, str, int, int]]:
+    """(symbol, kind, symbol_start, call_end) for each cardinality call in [lo, hi).
+
+    `strict` decides what an unresolvable object means. Where a missed symbol makes
+    the scanner report clean over an assertion it did not understand, it is a
+    ScanError; where the result only labels an already-reported site, it is skipped.
+    """
+    found: list[tuple[str, str, int, int]] = []
+    for call in _CARDINALITY_CALL_RE.finditer(text, lo, hi):
+        start = _object_start(text, call.start(), lo)
+        if start is None:
+            if not strict:
+                continue
+            raise ScanError(
+                f"{name}: cannot parse the container in `{_elide(text[lo:hi].strip(), 90)}` - "
+                f"the object of `{call.group(0).strip()}` is not an object expression. "
+                f"Refusing to call this assertion clean."
+            )
+        found.append((text[start : call.start()].strip(), call.group(1), start, call.end()))
+    return found
+
+
+def _split_symbol_segments(symbol: str) -> list[str]:
+    """Split a symbol at `.`/`->` that are OUTSIDE any bracket or parenthesis.
+
+    `re.split` on the accessors cannot be used: it shreds `chunks[a.b].indices` and
+    `f(a.b).items` into nonsense parts and builds a regex matching nothing.
+    """
+    parts: list[str] = []
+    depth = 0
+    start = 0
+    i = 0
+    while i < len(symbol):
+        ch = symbol[i]
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth -= 1
+        elif depth == 0 and (ch == "." or symbol.startswith("->", i)):
+            parts.append(symbol[start:i])
+            i += 1 if ch == "." else 2
+            start = i
+            continue
+        i += 1
+    parts.append(symbol[start:])
+    return [part.strip() for part in parts if part.strip()]
+
+
 def _size_symbol_regex(symbol: str) -> str:
-    """Like _symbol_regex, but each segment may carry one `[...]` subscript."""
-    parts = [part for part in re.split(r"\s*(?:\.|->)\s*", symbol) if part]
-    rendered = []
-    for part in parts:
-        subscript = ""
-        match = re.search(r"\[([^\[\]]*)\]\s*$", part)
-        if match:
-            subscript = r"\s*\[\s*" + re.escape(match.group(1).strip()) + r"\s*\]"
-            part = part[: match.start()].strip()
-        if part.endswith(")"):
-            rendered.append(re.escape(part.split("(", 1)[0].strip()) + r"\s*\(\s*\)" + subscript)
-        else:
-            rendered.append(re.escape(part) + subscript)
-    return r"\s*(?:\.|->)\s*".join(rendered)
+    """A regex matching `symbol` again elsewhere in the window.
+
+    Each segment is rendered token by token with `\\s*` between, so the same
+    expression written `[i + 1]` and `[i+1]` is one symbol; segments are joined so
+    `.` and `->` stay interchangeable, since a chain written either way is the same
+    object. Whitespace is the ONLY difference tolerated - anything else would start
+    comparing expressions instead of tracking one container.
+    """
+    return r"\s*(?:\.|->)\s*".join(
+        r"\s*".join(re.escape(token) for token in re.findall(r"\w+|\S", part))
+        for part in _split_symbol_segments(symbol)
+    )
 
 
 def _macro_argument_span(fragment: str, name: str) -> tuple[int, int]:
@@ -1114,27 +1310,48 @@ def _split_macro_arguments(text: str) -> list[str]:
     return parts
 
 
-def _establishes_lower_bound(
-    macro: str, fragment: str, span: tuple[int, int], match: re.Match[str]
+def _bound_direction(
+    text: str, span: tuple[int, int], kind: str, start: int, end: int, macro: str = ""
 ) -> bool:
-    """True when the assertion HOLDING implies the container is long enough to index.
+    """True when this `size()`/`is_empty()` occurrence, HELD TRUE, bounds the length below.
 
-    The point is the contrapositive: only then does the assertion FAILING make a
-    following index unsafe. `CHECK(v.size() == 0)` and `CHECK(v.is_empty())` fail
-    by the container being LONGER than claimed, so an index after them is not made
-    unsafe by the failure and must not be reported.
+    The single place the DIRECTION of a cardinality test is decided. It answers one
+    question for three callers that used to answer it three different ways:
+
+    * the assertion (`_establishes_lower_bound`) - decided it correctly;
+    * a control-flow header (`_bounds_iteration`) - accepted ANY mention of the
+      container's size, so `if (v.is_empty()) { v[0]; }` and
+      `if (i >= v.size()) { v[i]; }` marked their bodies safe although both select
+      exactly the out-of-bounds case;
+    * a short-circuit operand (`_size_positive_test`) - matched on the OPERATOR
+      alone, so `v.size() == 0 && v[0]` and `v.size() != 4 && v[0]` counted as
+      guarded although `v[0]` is evaluated precisely when `v` is empty.
+
+    Both were false NEGATIVES: the guard reported clean over a real crash site
+    (Codex, PR #849 round 2). Having one implementation is the point - the operand
+    and the assertion cannot drift apart again.
+
+    `macro` is empty for plain expressions; only an assertion can carry its relation
+    in its name (`REQUIRE_EQ(v.size(), 4)`).
     """
     lo, hi = span
-    kind = match.group(2)
-    before = fragment[lo : match.start()]
-    after = fragment[match.end() : hi]
+    if _is_call_argument(text, start, lo):
+        # `resize(other.size())`, `a[v.size()]`: the call is being handed to
+        # something else, so the enclosing expression's truth says nothing about
+        # this container's length.
+        return False
+    before = text[lo:start]
+    # Any `)` immediately after the call closes a group opened BEFORE the symbol,
+    # so the relation of `(v.size()) == 0` sits past it. Not peeling them read the
+    # expression as a bare truthiness test with the wrong answer.
+    after = re.sub(r"^[\s)]+", " ", text[end:hi])
     if kind in ("is_empty", "empty"):
         # `!v.is_empty()`, `REQUIRE_FALSE(v.is_empty())`, `REQUIRE_UNARY_FALSE(...)`.
         return bool(re.search(r"!\s*$", before)) or macro.endswith("_FALSE")
 
     relation = re.match(r"\s*(==|!=|>=|<=|>|<)\s*(.*)$", after, re.S)
     if relation:
-        operator, other, flipped = relation.group(1), relation.group(2), False
+        operator, other, flipped = relation.group(1), _operand_before(relation.group(2)), False
     else:
         # A C-style cast sits between the operator and the `size()` call in
         # `CHECK(idx < (uint32_t)splats.size())` (test_lod_system.cpp:933), which
@@ -1145,7 +1362,7 @@ def _establishes_lower_bound(
         reversed_relation = re.search(r"(==|!=|>=|<=|>|<)\s*$", left)
         if reversed_relation:
             operator = reversed_relation.group(1)
-            other = left[: reversed_relation.start()]
+            other = _operand_after(left[: reversed_relation.start()])
             flipped = True
         else:
             # No adjacent operator: the relation may be carried by the macro NAME
@@ -1156,14 +1373,18 @@ def _establishes_lower_bound(
                     operator = symbol
                     break
             if not operator:
-                return False
-            arguments = _split_macro_arguments(fragment[lo:hi])
+                # No relation anywhere: the call stands alone as a truthiness test.
+                # `if (v.size()) { v[0]; }` and `REQUIRE(v.size())` both bound the
+                # length below. (`is_empty()` already returned above - untested, it
+                # is the WRONG direction.)
+                return True
+            arguments = _split_macro_arguments(text[lo:hi])
             if len(arguments) < 2:
                 return False
             first_argument_end = lo + len(arguments[0])
-            flipped = match.start() >= first_argument_end
+            flipped = start >= first_argument_end
             other = arguments[0] if flipped else arguments[1]
-    other = other.split(",")[0].strip()
+    other = other.strip()
     if flipped:
         operator = {"<": ">", ">": "<", "<=": ">=", ">=": "<="}.get(operator, operator)
     against_zero = bool(_LITERAL_ZERO_RE.match(other))
@@ -1178,8 +1399,117 @@ def _establishes_lower_bound(
     return False                         # `<` / `<=`: an UPPER bound only
 
 
+# Keywords that take a parenthesised operand without being a call.
+_CONDITION_KEYWORDS = frozenset({"if", "while", "for", "switch", "do", "return", "else"})
+
+
+def _is_call_argument(text: str, at: int, lo: int = 0) -> bool:
+    """True when the expression at `at` is an ARGUMENT rather than an operand.
+
+    Walks out to the innermost group that is still open at `at`. A `[` means a
+    subscript (`a[v.size()]`); a `(` preceded by an identifier that is not a
+    control-flow keyword means a call (`out.resize(other.size())`). Either way the
+    enclosing expression's truth constrains the call's RESULT, not the container -
+    `REQUIRE(out.resize(g.size()) == OK)` says nothing about `g`.
+    """
+    depth = 0
+    for i in range(at - 1, lo - 1, -1):
+        ch = text[i]
+        if ch in ")]":
+            depth += 1
+        elif ch in "([":
+            if depth:
+                depth -= 1
+                continue
+            if ch == "[":
+                return True
+            head = text[lo:i].rstrip()
+            name = re.search(r"(\w+)$", head)
+            if name is not None:
+                return name.group(1) not in _CONDITION_KEYWORDS
+            return bool(re.search(r"[\]\)]$", head))  # `f(a)(...)`, `fns[i](...)`
+    return False
+
+
+# `,` `;` `?` `:` and the two short-circuit operators all end an operand.
+_OPERAND_BREAK = ("&&", "||")
+
+
+def _operand_before(text: str) -> str:
+    """`text` up to the first top-level separator or the first UNMATCHED `)`.
+
+    Isolates the value a relation is compared against, so `v.size() == 0 && flag`
+    compares against `0` and not against `0 && flag` - which is not the literal zero
+    and so read as a NON-empty assertion, the exact inversion this guard must not make.
+    """
+    depth = 0
+    for i, ch in enumerate(text):
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            if depth == 0:
+                return text[:i]
+            depth -= 1
+        elif depth == 0 and (ch in ",;?:" or any(text.startswith(op, i) for op in _OPERAND_BREAK)):
+            return text[:i]
+    return text
+
+
+def _operand_after(text: str) -> str:
+    """`text` after the last top-level separator or the last UNMATCHED `(`.
+
+    The mirror of `_operand_before` for a REVERSED relation (`flag && 0 != v.size()`).
+    """
+    depth = 0
+    for i in range(len(text) - 1, -1, -1):
+        ch = text[i]
+        if ch in ")]":
+            depth += 1
+        elif ch in "([":
+            if depth == 0:
+                return text[i + 1 :]
+            depth -= 1
+        elif depth == 0:
+            for op in _OPERAND_BREAK:
+                if text.startswith(op, i):
+                    return text[i + len(op) :]
+            if ch in ",;?:":
+                return text[i + 1 :]
+    return text
+
+
+def _expression_lower_bound(symbol: str, expr: str) -> bool:
+    """True when `expr` being TRUE bounds `symbol`'s length from below."""
+    sym = _size_symbol_regex(symbol)
+    pattern = rf"{_SYMBOL_START}{sym}\s*(?:\.|->)\s*(size|is_empty|empty)\s*\(\s*\)"
+    return any(
+        _bound_direction(expr, (0, len(expr)), match.group(1), match.start(), match.end())
+        for match in re.finditer(pattern, expr)
+    )
+
+
+def _condition_lower_bounds(expr: str) -> bool:
+    """True when `expr` being TRUE bounds SOME container's length from below.
+
+    Used only to classify a reported site as loop-bounded-by-another-container, so
+    the two counts stay reconcilable against #844's sweep. It is direction-aware for
+    the same reason `_expression_lower_bound` is: a header that merely mentions a
+    `size()` has not bounded anything. Non-strict for the same reason: it can only
+    change the LABEL on a site that is already reported, never hide one.
+    """
+    return any(
+        _bound_direction(expr, (0, len(expr)), kind, start, end)
+        for _, kind, start, end in _cardinality_calls(expr, 0, len(expr), "", strict=False)
+    )
+
+
 def _size_assertions(fragment: str, name: str) -> list[tuple[str, str]]:
-    """(container symbol, macro name) for each lower bound this assertion asserts."""
+    """(container symbol, macro name) for each lower bound this assertion asserts.
+
+    STRICT: a cardinality call whose object cannot be resolved is a ScanError, not
+    an assertion with no size predicate. The scanner would otherwise go quiet over
+    an assertion it did not understand and the statements that follow it.
+    """
     head = _SIZE_ASSERT_HEAD_RE.match(fragment)
     if head is None:
         return []
@@ -1188,17 +1518,14 @@ def _size_assertions(fragment: str, name: str) -> list[tuple[str, str]]:
     lo, hi = span
     found: list[tuple[str, str]] = []
     seen: set[str] = set()
-    for match in _CARDINALITY_RE.finditer(fragment, lo, hi):
-        # Depth 1 relative to the macro: a DIRECT argument. Nested deeper it is an
+    for symbol, kind, start, end in _cardinality_calls(fragment, lo, hi, name, strict=True):
+        # Depth 0 relative to the macro: a DIRECT argument. Nested deeper it is an
         # argument to some other call, e.g.
         # `REQUIRE(cpu_results.resize(ground_truth.size()) == OK)`, which
         # constrains the resize result and says nothing about `ground_truth`.
-        if _paren_depth(fragment, lo, match.start()) != 0:
+        if _paren_depth(fragment, lo, start) != 0 or symbol in seen:
             continue
-        symbol = match.group(1).strip()
-        if symbol in seen:
-            continue
-        if not _establishes_lower_bound(macro, fragment, span, match):
+        if not _bound_direction(fragment, span, kind, start, end, macro):
             continue
         seen.add(symbol)
         found.append((symbol, macro))
@@ -1212,17 +1539,16 @@ def _index_positions(symbol: str, text: str) -> list[int]:
 
 
 def _size_positive_test(symbol: str, expr: str) -> bool:
-    """`expr` being TRUE constrains `symbol`'s length from below."""
-    sym = _size_symbol_regex(symbol)
-    body = _strip_outer_parens(expr.strip())[0].strip()
-    return any(
-        re.search(pattern, body)
-        for pattern in (
-            rf"(?<![\w)\]]){sym}\s*(?:\.|->)\s*size\s*\(\s*\)\s*(?:==|!=|>=|>)",
-            rf"(?:<|<=|==|!=)\s*{sym}\s*(?:\.|->)\s*size\s*\(\s*\)",
-            rf"!\s*{sym}\s*(?:\.|->)\s*(?:is_empty|empty)\s*\(\s*\)",
-        )
-    )
+    """`expr` being TRUE constrains `symbol`'s length from below.
+
+    Delegates to `_bound_direction` rather than pattern-matching the operator.
+    The three regexes this replaced asked only WHICH operator appeared and never
+    which VALUE it compared against, so `v.size() == 0 && v[0]` and
+    `v.size() != 4 && v[0]` both read as short-circuit guarded - while `v[0]` is
+    evaluated in exactly the case where the container is empty (Codex, PR #849
+    round 2).
+    """
+    return _expression_lower_bound(symbol, _strip_outer_parens(expr.strip())[0].strip())
 
 
 def _size_negative_test(symbol: str, expr: str) -> bool:
@@ -1248,11 +1574,52 @@ def _unguarded_index(symbol: str, text: str) -> bool:
     )
 
 
+_CONTROL_HEAD_RE = re.compile(r"\s*(?:\}\s*)?(?:else\s+)?(if|while|switch|for|do)\b")
+
+
+def _control_condition(header: str) -> str:
+    """The CONDITION of a control-flow header - what its true branch actually tests.
+
+    `for` yields its middle clause, since the initializer and the increment bound
+    nothing. `switch` and `do` yield nothing: neither carries a boolean condition,
+    so neither can bound an index, and pretending otherwise is how
+    `switch (v.size()) { case 0: v[0]; }` would be called safe.
+    """
+    head = _CONTROL_HEAD_RE.match(header)
+    if head is None:
+        return header
+    keyword = head.group(1)
+    if keyword in ("switch", "do"):
+        return ""
+    open_at = header.find("(", head.end())
+    if open_at < 0:
+        return ""  # `else {` - no condition at all
+    depth = 0
+    for i in range(open_at, len(header)):
+        if header[i] == "(":
+            depth += 1
+        elif header[i] == ")":
+            depth -= 1
+            if depth == 0:
+                inner = header[open_at + 1 : i]
+                break
+    else:
+        inner = header[open_at + 1 :]  # never closes; use what there is
+    if keyword == "for":
+        clauses = _split_top_level(inner, ";")
+        return inner[clauses[1][0] : clauses[1][1]] if len(clauses) >= 2 else ""
+    return inner
+
+
 def _bounds_iteration(symbol: str, header: str) -> bool:
-    """True when a control-flow header bounds by the indexed container's OWN length."""
-    sym = _size_symbol_regex(symbol)
-    pattern = rf"(?<![\w)\]]){sym}\s*(?:\.|->)\s*(?:size|is_empty|empty)\s*\(\s*\)"
-    return re.search(pattern, header) is not None
+    """True when a control-flow header bounds by the indexed container's OWN length.
+
+    DIRECTION-aware. Accepting any mention of the container's cardinality made the
+    unsafe body of `if (v.is_empty()) { CHECK(v[0]); }` and
+    `if (i >= v.size()) { CHECK(v[i]); }` invisible: both conditions select exactly
+    the out-of-bounds case, and both were reported clean (Codex, PR #849 round 2).
+    """
+    return _expression_lower_bound(symbol, _control_condition(header))
 
 
 def _changes_length(symbol: str, statement: str) -> bool:
@@ -1300,7 +1667,7 @@ def _first_unbounded_index(
                 )
             frame = (
                 own_bound or _bounds_iteration(symbol, header),
-                other_bound or bool(_ANY_CARDINALITY_RE.search(header)),
+                other_bound or _condition_lower_bounds(_control_condition(header)),
             )
             if opens_block:
                 stack.append(frame)
