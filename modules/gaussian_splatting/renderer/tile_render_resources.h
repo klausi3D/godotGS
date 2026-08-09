@@ -196,6 +196,19 @@ struct TileGlobalSortResources {
 	TileRenderer &owner;
 	Ref<IGPUSorter> sorter;
 	bool sorter_available = true;
+	// Is the unavailability a PERMANENT capability failure (this device/config cannot
+	// run the indirect radix sort) or a TRANSIENT recreation/allocation failure that a
+	// later attempt can recover from? Only meaningful while sorter_available == false.
+	// Classified by GaussianSplatting::sorter_creation_failure_is_permanent(); see the
+	// SorterCreationFailure block in sort_fallback_policy.h for why each site lands
+	// where it does. Without this split, one failed buffer allocation during a capacity
+	// growth black-screened a capable GPU for the rest of the session.
+	bool sorter_unavailable_permanent = false;
+	// Exponential backoff for retrying a TRANSIENT failure, in ensure_resources() calls.
+	// delay is monotone non-decreasing (see next_sorter_retry_delay_calls); countdown is
+	// the remaining calls before the next recreation attempt. Both zero while healthy.
+	uint32_t sorter_retry_delay_calls = 0;
+	uint32_t sorter_retry_countdown_calls = 0;
 	bool sorter_missing_logged = false;
 	uint64_t sorter_device_id = 0;
 	uint32_t capacity = 0;

@@ -334,4 +334,174 @@ TEST_CASE("[GaussianSplatting][SortFallback] rejected frames and presented-unsor
 	}
 }
 
+// Round-1 review of #586: making SORTER_UNAVAILABLE reject the frame converted one
+// permanent failure mode (wrong pixels forever) into another (no pixels forever),
+// because disable_sorter() latched for EVERY recreation failure — including a transient
+// buffer allocation that failed while a capacity growth had already shut the working
+// sorter down. This locks the classification that makes the latch recoverable exactly
+// when the cause can recover, and NOT otherwise.
+TEST_CASE("[GaussianSplatting][SortFallback] permanent capability failure latches, transient recreation failure does not (#586 round-1)") {
+	// Capability: RadixSort::is_supported() is a device-limits + static-config query
+	// that allocates nothing, so its answer cannot change. Latch it.
+	CHECK(sorter_creation_failure_is_permanent(SorterCreationFailure::INDIRECT_CAPABILITY_UNSUPPORTED));
+	// supports_indirect() is a compile-time constant of the sorter class. Latch it.
+	CHECK(sorter_creation_failure_is_permanent(SorterCreationFailure::CREATED_SORTER_LACKS_INDIRECT));
+
+	// THE FINDING: creation failure is an allocation/initialization failure at this call
+	// site (the capability probe has already passed), so it must be retryable. If this
+	// flips to true, one transient VRAM blip black-screens a capable GPU for the session.
+	CHECK_FALSE(sorter_creation_failure_is_permanent(SorterCreationFailure::CREATION_FAILED));
+
+	// Both directions must be represented, otherwise a classifier that answers a constant
+	// would satisfy the case above.
+	bool saw_permanent = false;
+	bool saw_transient = false;
+	for (SorterCreationFailure failure : {
+				 SorterCreationFailure::INDIRECT_CAPABILITY_UNSUPPORTED,
+				 SorterCreationFailure::CREATION_FAILED,
+				 SorterCreationFailure::CREATED_SORTER_LACKS_INDIRECT,
+		 }) {
+		if (sorter_creation_failure_is_permanent(failure)) {
+			saw_permanent = true;
+		} else {
+			saw_transient = true;
+		}
+	}
+	CHECK(saw_permanent);
+	CHECK(saw_transient);
+}
+
+// The retry schedule has to dodge two traps at once: a per-frame allocation storm on a
+// device that genuinely cannot allocate, and an attempt cap that re-creates the permanent
+// latch it was meant to remove. The contract is "always eventually retries, never more
+// often than the saturated backoff".
+TEST_CASE("[GaussianSplatting][SortFallback] transient-failure retry backs off but never gives up (#586 round-1)") {
+	// First failure schedules the soonest possible retry: a one-off blip costs one frame.
+	CHECK_EQ(next_sorter_retry_delay_calls(0), SORTER_RETRY_MIN_DELAY_CALLS);
+	CHECK(SORTER_RETRY_MIN_DELAY_CALLS >= 1u); // a zero delay would be a same-call retry loop.
+
+	// It doubles...
+	CHECK_EQ(next_sorter_retry_delay_calls(1), 2u);
+	CHECK_EQ(next_sorter_retry_delay_calls(2), 4u);
+	CHECK_EQ(next_sorter_retry_delay_calls(64), 128u);
+
+	// ...and saturates rather than overflowing or growing without bound.
+	CHECK_EQ(next_sorter_retry_delay_calls(256), SORTER_RETRY_MAX_DELAY_CALLS);
+	CHECK_EQ(next_sorter_retry_delay_calls(SORTER_RETRY_MAX_DELAY_CALLS), SORTER_RETRY_MAX_DELAY_CALLS);
+	CHECK_EQ(next_sorter_retry_delay_calls(UINT32_MAX), SORTER_RETRY_MAX_DELAY_CALLS);
+
+	// NEVER-GIVES-UP: whatever the failure history, the next delay is finite and non-zero,
+	// so a recovery (VRAM freed, or demand shrinking back) is always eventually retried.
+	uint32_t delay = 0;
+	for (int failure = 0; failure < 64; failure++) {
+		delay = next_sorter_retry_delay_calls(delay);
+		CHECK(delay >= SORTER_RETRY_MIN_DELAY_CALLS);
+		CHECK(delay <= SORTER_RETRY_MAX_DELAY_CALLS);
+	}
+	CHECK_EQ(delay, SORTER_RETRY_MAX_DELAY_CALLS); // sustained failure settles at the cap.
+}
+
+// End-to-end simulation of ensure_resources()'s countdown, both directions. This is the
+// CPU-side mirror of the on-GPU case; it proves the schedule as a state machine rather
+// than as three isolated function calls.
+TEST_CASE("[GaussianSplatting][SortFallback] retry state machine recovers transient failures and leaves permanent ones latched (#586 round-1)") {
+	struct Sim {
+		bool available = true;
+		bool permanent = false;
+		uint32_t delay = 0;
+		uint32_t countdown = 0;
+		uint32_t creation_attempts = 0;
+		uint32_t rejected_calls = 0;
+
+		// Mirrors disable_sorter().
+		void fail(SorterCreationFailure p_failure) {
+			available = false;
+			permanent = sorter_creation_failure_is_permanent(p_failure);
+			if (permanent) {
+				delay = 0;
+				countdown = 0;
+			} else {
+				delay = next_sorter_retry_delay_calls(delay);
+				countdown = delay;
+			}
+		}
+
+		// Mirrors one ensure_resources() call. p_device_healthy models whether a retried
+		// create_sorter() would now succeed.
+		void tick(bool p_device_healthy) {
+			bool retry_due = false;
+			if (!available && !permanent) {
+				if (countdown > 0) {
+					countdown--;
+				}
+				retry_due = (countdown == 0);
+			}
+			if (!available && retry_due) {
+				creation_attempts++;
+				if (p_device_healthy) {
+					available = true;
+					permanent = false;
+					countdown = 0; // delay deliberately kept (monotone).
+					return;
+				}
+				fail(SorterCreationFailure::CREATION_FAILED);
+			}
+			if (!available) {
+				rejected_calls++; // #586: the frame publishes nothing.
+			}
+		}
+	};
+
+	SUBCASE("transient failure on a device that recovers resumes publishing") {
+		Sim sim;
+		sim.fail(SorterCreationFailure::CREATION_FAILED);
+		CHECK_FALSE(sim.available); // the failing call itself rejects.
+		for (int call = 0; call < 32; call++) {
+			sim.tick(/*p_device_healthy=*/true);
+		}
+		CHECK(sim.available); // THE FIX: it comes back.
+		CHECK_EQ(sim.creation_attempts, 1u); // and does not keep re-creating once healthy.
+		CHECK_EQ(sim.rejected_calls, 0u); // recovery landed on the very first retry.
+	}
+
+	SUBCASE("transient failure on a device that stays broken retries forever but rarely") {
+		Sim sim;
+		sim.fail(SorterCreationFailure::CREATION_FAILED);
+		const uint32_t calls = SORTER_RETRY_MAX_DELAY_CALLS * 8u;
+		for (uint32_t call = 0; call < calls; call++) {
+			sim.tick(/*p_device_healthy=*/false);
+		}
+		CHECK_FALSE(sim.available);
+		// Never gives up...
+		CHECK(sim.creation_attempts > 1u);
+		// ...but is nowhere near per-call: the backoff saturates, so attempts are bounded
+		// by roughly calls / MAX_DELAY plus the short doubling ramp.
+		CHECK(sim.creation_attempts < calls / 8u);
+		CHECK_EQ(sim.delay, SORTER_RETRY_MAX_DELAY_CALLS);
+		// A recovery arriving late still lands.
+		sim.countdown = 0;
+		sim.tick(/*p_device_healthy=*/true);
+		CHECK(sim.available);
+	}
+
+	SUBCASE("permanent capability failure never retries and never publishes") {
+		for (SorterCreationFailure failure : {
+					 SorterCreationFailure::INDIRECT_CAPABILITY_UNSUPPORTED,
+					 SorterCreationFailure::CREATED_SORTER_LACKS_INDIRECT,
+			 }) {
+			Sim sim;
+			sim.fail(failure);
+			const uint32_t calls = SORTER_RETRY_MAX_DELAY_CALLS * 8u;
+			for (uint32_t call = 0; call < calls; call++) {
+				// Even with a "healthy" device the permanent latch must not rebuild: the
+				// capability answer cannot change, and #586's protection must hold.
+				sim.tick(/*p_device_healthy=*/true);
+			}
+			CHECK_FALSE(sim.available);
+			CHECK_EQ(sim.creation_attempts, 0u); // no allocation storm.
+			CHECK_EQ(sim.rejected_calls, calls); // #586 protection intact: nothing published.
+		}
+	}
+}
+
 } // namespace TestGaussianSplatting

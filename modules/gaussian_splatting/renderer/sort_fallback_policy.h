@@ -145,14 +145,20 @@ static inline UnsortedCompositeReason classify_unsorted_composite(
 // UnsortedCompositeReason forces an explicit fatal/non-fatal choice here (the
 // switch has no default label, so a new enumerator is a compiler warning).
 //
-// SORTER_UNAVAILABLE is FATAL. It is the permanent class: no sorter could be
-// constructed at all (indirect-capability probe false, creation failed, or the
-// created sorter has no indirect entry point). The state LATCHES —
-// TileGlobalSortResources::sorter_available only returns to true on a device change
-// or a reset_state teardown (tile_render_resources.cpp, `if (!sorter_available)`
-// branch) — so once it trips, EVERY remaining frame of the session would composite
-// translucent splats in the wrong order. Presenting nothing is honest; presenting
-// wrong alpha ordering that looks like a normal render is not.
+// SORTER_UNAVAILABLE is FATAL for the frame that observes it. It is the class where
+// no sorter could be constructed at all (indirect-capability probe false, creation
+// failed, or the created sorter has no indirect entry point), so EVERY frame that
+// reaches the composite in this state would order translucent splats by atomic-append
+// order. Presenting nothing is honest; presenting wrong alpha ordering that looks like
+// a normal render is not.
+//
+// This is a PER-FRAME verdict, not a session verdict. Whether the state persists is
+// decided by `SorterCreationFailure` / `sorter_creation_failure_is_permanent()` below:
+// a permanent capability failure latches for good, a transient recreation failure is
+// retried on a bounded backoff. See that block for why the distinction is load-bearing
+// (`TileGlobalSortResources::sorter_available` returns to true only on a successful
+// (re)creation or a reset_state() teardown — there is no device-change reset on that
+// struct, so without the retry a single failed allocation was permanent).
 //
 // The two TRANSIENT reasons are deliberately NOT fatal:
 //   * SORT_DISPATCH_FAILED   — the sorter EXISTS and the hardware is capable; the
@@ -175,6 +181,101 @@ static inline bool unsorted_composite_must_reject_frame(UnsortedCompositeReason 
 			return false;
 	}
 	return false;
+}
+
+// ---------------------------------------------------------------------------
+// Sorter-recreation failure: permanent capability vs transient allocation
+// ---------------------------------------------------------------------------
+//
+// Making SORTER_UNAVAILABLE reject the frame (above) is only defensible if
+// "unavailable" can end. It could not: TileGlobalSortResources::ensure_resources'
+// disable_sorter() latched sorter_available=false for EVERY recreation failure,
+// including a transient one — and a capacity growth or key-config change shuts the
+// WORKING sorter down BEFORE building its replacement (tile_render_resources.cpp,
+// `must_recreate` branch). So one failed buffer allocation, at one instant of VRAM
+// pressure, left an otherwise capable GPU with no sorter for the rest of the session.
+// Before the reject that meant wrong pixels forever; after it, no pixels forever. Both
+// are unacceptable, so the fix is not to soften the reject — it is to make the state
+// recoverable exactly when the cause can recover.
+//
+// These are the three failure sites, classified by what actually produces them (read
+// from the callees, not inferred from the identifiers — `probe_supports_indirect` in
+// particular is a misnomer):
+enum class SorterCreationFailure : uint8_t {
+	// GPUSorterFactory::probe_supports_indirect(ALGORITHM_RADIX, device) == false.
+	// Resolves to RadixSort::is_supported(device) && a constant caps.supports_indirect.
+	// RadixSort::is_supported is a COMPUTE-LIMITS check (max workgroup size, storage
+	// buffers per set, shared memory) against the configured radix_bits/workgroup_size.
+	// It queries device limits and static config and allocates nothing, so it cannot
+	// fail transiently: same device + same config => same answer forever. PERMANENT.
+	INDIRECT_CAPABILITY_UNSUPPORTED = 0,
+	// GPUSorterFactory::create_sorter() returned an invalid Ref. At this call site the
+	// algorithm is RADIX explicitly and the capability probe above has already passed,
+	// which makes create_sorter()'s two pre-instantiation policy rejects unreachable
+	// (_algorithm_meets_requirements and .supported both hold for RADIX once the probe
+	// is true). The only remaining cause is RadixSort::initialize() != OK: shader-variant
+	// creation, or one of the >=8 storage_buffer_create() calls returning an invalid RID
+	// (ERR_CANT_CREATE), or the capacity-dependent >UINT32_MAX size refusal
+	// (ERR_INVALID_PARAMETER). Those depend on momentary VRAM pressure or on the
+	// requested capacity — and the requested capacity can shrink back. TRANSIENT.
+	CREATION_FAILED = 1,
+	// The created sorter reports supports_indirect() == false. That is a compile-time
+	// constant of the sorter class (RadixSort::supports_indirect() is a literal `true`),
+	// so it cannot change at runtime; the branch is purely defensive. PERMANENT.
+	CREATED_SORTER_LACKS_INDIRECT = 2,
+};
+
+// No default label, so a new failure site must make an explicit permanent/transient
+// choice here rather than silently inheriting one.
+static inline bool sorter_creation_failure_is_permanent(SorterCreationFailure p_failure) {
+	switch (p_failure) {
+		case SorterCreationFailure::INDIRECT_CAPABILITY_UNSUPPORTED:
+		case SorterCreationFailure::CREATED_SORTER_LACKS_INDIRECT:
+			return true;
+		case SorterCreationFailure::CREATION_FAILED:
+			return false;
+	}
+	// Unknown cause: treat as permanent. That is the fail-closed direction here — it
+	// costs recoverability, never a retry storm on a device that cannot sort.
+	return true;
+}
+
+// Retry schedule for a TRANSIENT sorter-recreation failure.
+//
+// Both obvious designs are traps:
+//   * retry every frame — on a device that is genuinely out of VRAM this is an
+//     allocation storm forever (create_sorter compiles shader variants and allocates
+//     >=8 buffers per attempt).
+//   * give up after N attempts — that is the permanent latch again, only delayed, and
+//     a REAL recovery (VRAM freed, or overlap demand shrinking back below the capacity
+//     that failed) could then never take effect. There is no defensible N.
+// So there is no attempt cap at all. The retry is RATE-limited by an exponential
+// backoff that saturates: a one-off blip costs a single rejected frame, and a device
+// that stays broken costs one creation attempt per SORTER_RETRY_MAX_DELAY_CALLS.
+//
+// The unit is ensure_resources() CALLS, not frames. TileRenderer calls it 1-3 times per
+// composited frame (tile_renderer.cpp: the async auto-resize path, the per-frame sizing
+// path, and the post-count grow path), so the saturated delay is ~100-300 frames, i.e.
+// roughly 1.7-5 s at 60 fps. Counting calls rather than frames is deliberate: the
+// countdown lives where the failure lives and needs no frame-boundary hook.
+static constexpr uint32_t SORTER_RETRY_MIN_DELAY_CALLS = 1;
+static constexpr uint32_t SORTER_RETRY_MAX_DELAY_CALLS = 300;
+
+// Next backoff length after a transient failure. Monotone non-decreasing: the caller
+// deliberately does NOT reset it on a successful recreation. If it reset, a device that
+// flaps (succeed, fail, succeed, fail) would restart at the minimum delay and re-pay the
+// full creation cost plus a log line every other call. Keeping it monotone for the
+// lifetime of the resource state bounds the flapping cost too; reset_state() teardown
+// clears it, which is the same event that clears the availability latch.
+static inline uint32_t next_sorter_retry_delay_calls(uint32_t p_current_delay_calls) {
+	if (p_current_delay_calls == 0) {
+		return SORTER_RETRY_MIN_DELAY_CALLS;
+	}
+	if (p_current_delay_calls >= SORTER_RETRY_MAX_DELAY_CALLS) {
+		return SORTER_RETRY_MAX_DELAY_CALLS;
+	}
+	const uint32_t doubled = p_current_delay_calls * 2u;
+	return doubled >= SORTER_RETRY_MAX_DELAY_CALLS ? SORTER_RETRY_MAX_DELAY_CALLS : doubled;
 }
 
 // Warning throttle for the unsorted global-composite fallback.

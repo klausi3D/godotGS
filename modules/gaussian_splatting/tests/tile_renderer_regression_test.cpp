@@ -1666,6 +1666,16 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
     //      Pre-fix this phase publishes a valid RID and increments unsorted_composite_frames.
     //   3. RECOVERY CONTROL — clear the latch, render again: the frame publishes once more, so
     //      the reject is a per-frame decision and not a permanent kill of the renderer.
+    //   4. TRANSIENT FAILURE (round-1 review of #586) — install the OTHER end state
+    //      disable_sorter() can leave: unavailable but NOT permanent, with a pending retry
+    //      backoff. The frame must still be rejected while the backoff is outstanding, and
+    //      then, once the backoff expires, the renderer must REBUILD the sorter by itself and
+    //      resume publishing. Pre-change this phase never publishes again: every recreation
+    //      failure latched permanently, so one transient buffer-allocation failure during a
+    //      capacity growth black-screened a capable GPU for the rest of the session.
+    //
+    // Phases 2 and 4 are the two halves of the same contract and neither is sufficient alone:
+    // 2 without 4 is a permanent black screen, 4 without 2 ships unsorted output.
     //
     // Premise assertions guard every link, so a RED run shows the branch was actually reached
     // rather than the test having quietly missed it.
@@ -1732,13 +1742,18 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
             return r;
         }
 
-        // ---- Phase 2: inject the post-disable_sorter() state and render the same scene. ----
-        // Mirrors TileGlobalSortResources::ensure_resources' disable_sorter() lambda: shut the
-        // sorter down, drop the reference, and latch sorter_available false so ensure_resources
-        // takes its `if (!sorter_available)` branch and does NOT rebuild one.
+        // ---- Phase 2: inject the post-disable_sorter() PERMANENT state and render. ----
+        // Mirrors TileGlobalSortResources::ensure_resources' disable_sorter() lambda called with
+        // a permanent SorterCreationFailure (indirect capability unsupported / created sorter
+        // lacks indirect): shut the sorter down, drop the reference, latch sorter_available
+        // false and mark the cause permanent with no retry pending, so ensure_resources takes
+        // its `if (!sorter_available && !sorter_retry_due)` branch and does NOT rebuild one.
         sort_resources.sorter->shutdown();
         sort_resources.sorter.unref();
         sort_resources.sorter_available = false;
+        sort_resources.sorter_unavailable_permanent = true;
+        sort_resources.sorter_retry_delay_calls = 0;
+        sort_resources.sorter_retry_countdown_calls = 0;
 
         const uint64_t rejected_before = tile_renderer->get_global_composite_rejected_frames();
         const uint64_t unsorted_before = tile_renderer->get_unsorted_composite_frames();
@@ -1799,10 +1814,39 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
             return r;
         }
 
+        // A PERMANENT cause must stay latched across frames: no retry, nothing published.
+        // This is #586's protection, and it is what the round-1 retry work must not weaken.
+        for (int frame = 0; frame < 3; frame++) {
+            const uint64_t rejected_pre = tile_renderer->get_global_composite_rejected_frames();
+            RID still_rejected = tile_renderer->render(p_rd, params);
+            if (still_rejected.is_valid()) {
+                r.error_message = vformat(
+                        "#586 REGRESSION: a PERMANENT sorter-unavailable latch published a frame on repeat frame %d. "
+                        "The capability answer cannot change at runtime, so retrying it can only ship unsorted output.",
+                        frame);
+                return r;
+            }
+            if (sort_resources.sorter.is_valid()) {
+                r.error_message = vformat(
+                        "A PERMANENT sorter-unavailable latch rebuilt the sorter on repeat frame %d. Permanent "
+                        "capability failures must never be retried (per-frame create_sorter storm on a device that "
+                        "cannot sort).",
+                        frame);
+                return r;
+            }
+            if (tile_renderer->get_global_composite_rejected_frames() != rejected_pre + 1u) {
+                r.error_message = vformat(
+                        "Repeat rejected frame %d did not increment global_composite_rejected_frames.", frame);
+                return r;
+            }
+        }
+        const uint64_t rejected_after_permanent = tile_renderer->get_global_composite_rejected_frames();
+
         // ---- Phase 3: recovery control. Clearing the latch must publish frames again. ----
         // Proves the reject is a per-frame decision driven by sorter availability, not a
         // one-way kill switch that would black-screen the renderer for good.
         sort_resources.sorter_available = true;
+        sort_resources.sorter_unavailable_permanent = false;
         RID recovered_output = tile_renderer->render(p_rd, params);
         if (!recovered_output.is_valid()) {
             r.error_message = "Recovery control failed: with sorter_available restored, render() still published "
@@ -1814,10 +1858,104 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
                               "prove the sorted path came back.";
             return r;
         }
-        if (tile_renderer->get_global_composite_rejected_frames() != rejected_after) {
+        if (tile_renderer->get_global_composite_rejected_frames() != rejected_after_permanent) {
             r.error_message = vformat(
                     "The recovered frame was ALSO counted as rejected (%d -> %d) even though it published.",
-                    int(rejected_after), int(tile_renderer->get_global_composite_rejected_frames()));
+                    int(rejected_after_permanent), int(tile_renderer->get_global_composite_rejected_frames()));
+            return r;
+        }
+
+        // ---- Phase 4: TRANSIENT failure must recover on its own (round-1 review of #586). ----
+        // Install the OTHER state disable_sorter() can leave: sorter shut down and unref'd,
+        // sorter_available latched false, but the cause classified TRANSIENT (create_sorter()
+        // returned invalid — an allocation/initialization failure on a GPU whose capability
+        // probe passed) with a retry backoff pending. Nothing else about the scene changes.
+        //
+        // SIMULATED, NOT REPRODUCED, exactly as phase 2 is: create_sorter() does not fail on a
+        // healthy desktop GPU, so the state is installed rather than provoked. What phase 4
+        // proves is the RECOVERY POLICY around that state, which is where the defect was.
+        if (!sort_resources.sorter.is_valid()) {
+            r.error_message = "Premise failed: phase 4 needs a live sorter to retire before injecting the transient "
+                              "failure state.";
+            return r;
+        }
+        sort_resources.sorter->shutdown();
+        sort_resources.sorter.unref();
+        sort_resources.sorter_available = false;
+        sort_resources.sorter_unavailable_permanent = false;
+        // Saturated backoff: far more ensure_resources() calls than one render() can consume
+        // (render() calls it at most a handful of times), so "the frame was rejected" here is
+        // unambiguously the outstanding backoff and not an instant, storm-y retry.
+        sort_resources.sorter_retry_delay_calls = GaussianSplatting::SORTER_RETRY_MAX_DELAY_CALLS;
+        sort_resources.sorter_retry_countdown_calls = GaussianSplatting::SORTER_RETRY_MAX_DELAY_CALLS;
+
+        const uint64_t rejected_before_transient = tile_renderer->get_global_composite_rejected_frames();
+        RID backoff_output = tile_renderer->render(p_rd, params);
+        if (backoff_output.is_valid()) {
+            r.error_message = "A transient sorter failure with an outstanding retry backoff PUBLISHED the frame. "
+                              "Until the sorter is actually rebuilt the output would still be unsorted, so #586's "
+                              "reject must hold for transient causes too while they are unresolved.";
+            return r;
+        }
+        if (sort_resources.sorter.is_valid()) {
+            r.error_message = "The retry fired immediately despite an outstanding backoff. That is the per-frame "
+                              "create_sorter() storm the backoff exists to prevent.";
+            return r;
+        }
+        if (tile_renderer->get_global_composite_rejected_frames() != rejected_before_transient + 1u) {
+            r.error_message = "The backoff frame was not counted as rejected.";
+            return r;
+        }
+        // Premise: the countdown is actually ticking, so the retry is scheduled rather than
+        // dead. Without this, a permanently-latched state would satisfy the assertions above.
+        if (sort_resources.sorter_retry_countdown_calls == 0u ||
+                sort_resources.sorter_retry_countdown_calls >= GaussianSplatting::SORTER_RETRY_MAX_DELAY_CALLS) {
+            r.error_message = vformat(
+                    "Premise failed: the retry countdown did not tick during the rejected frame (%d, expected "
+                    "0 < n < %d). The retry would never arrive.",
+                    int(sort_resources.sorter_retry_countdown_calls),
+                    int(GaussianSplatting::SORTER_RETRY_MAX_DELAY_CALLS));
+            return r;
+        }
+
+        // Backoff expires: the renderer must rebuild the sorter ITSELF (no test poking of
+        // sorter_available, unlike phase 3) and resume publishing.
+        //
+        // DISCRIMINATING ASSERTION for the round-1 finding. Pre-change there was no
+        // permanent/transient split and no retry at all: sorter_available stayed false, so
+        // this frame — and every later frame of the session — rejected.
+        sort_resources.sorter_retry_countdown_calls = 1u;
+        RID retried_output = tile_renderer->render(p_rd, params);
+        if (!sort_resources.sorter.is_valid() || !sort_resources.sorter_available) {
+            r.error_message = vformat(
+                    "ROUND-1 REGRESSION: after a TRANSIENT sorter-creation failure and an expired retry backoff, the "
+                    "renderer did not rebuild the global-composite sorter (sorter_valid=%s sorter_available=%s) on a "
+                    "device that had just built one successfully. One transient allocation failure therefore disables "
+                    "translucent output for the rest of the session.",
+                    sort_resources.sorter.is_valid() ? "true" : "false",
+                    sort_resources.sorter_available ? "true" : "false");
+            return r;
+        }
+        if (!retried_output.is_valid()) {
+            r.error_message = "ROUND-1 REGRESSION: the retry rebuilt the sorter but render() still published nothing. "
+                              "A recovered device must resume presenting frames.";
+            return r;
+        }
+        if (sort_resources.sorter_unavailable_permanent) {
+            r.error_message = "A successful rebuild left sorter_unavailable_permanent set, so the next transient "
+                              "failure would latch forever.";
+            return r;
+        }
+
+        // ...and the recovered renderer is not stuck rejecting: one more ordinary frame.
+        const uint64_t rejected_after_retry = tile_renderer->get_global_composite_rejected_frames();
+        RID steady_output = tile_renderer->render(p_rd, params);
+        if (!steady_output.is_valid() ||
+                tile_renderer->get_global_composite_rejected_frames() != rejected_after_retry) {
+            r.error_message = vformat(
+                    "After recovery the next frame did not publish cleanly (valid=%s rejected %d -> %d).",
+                    steady_output.is_valid() ? "true" : "false", int(rejected_after_retry),
+                    int(tile_renderer->get_global_composite_rejected_frames()));
             return r;
         }
 
@@ -1916,6 +2054,12 @@ TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] Overflow-record drop r
 // recovery control (clearing the latch must publish again), so it cannot pass by rejecting
 // everything. The discriminating assertion is the observable consequence — the validity of
 // the RID render() returns and the per-frame reject counter — never a log line.
+//
+// Round-1 review of #586 added the other half of the contract: a PERMANENT capability failure
+// must stay latched across frames (no retry, nothing published), while a TRANSIENT
+// creation/allocation failure must be retried on a backoff and, once the device is capable
+// again, must rebuild the sorter by itself and resume publishing. Both halves live in this one
+// case so neither can pass by answering a constant.
 //
 // The hardware trigger (indirect-capability probe false / sorter creation failure) is
 // SIMULATED by installing disable_sorter()'s end state through the TESTS_ENABLED-only

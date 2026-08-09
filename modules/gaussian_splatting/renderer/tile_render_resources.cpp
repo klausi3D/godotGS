@@ -5,6 +5,7 @@
 #include "gaussian_gpu_layout.h"
 #include "pipeline_io_contracts.h"
 #include "gpu_sorting_config.h"
+#include "sort_fallback_policy.h"
 #include "../interfaces/render_device_manager.h"
 #include "../interfaces/sync_policy.h"
 #include "../logger/gs_logger.h"
@@ -1093,6 +1094,9 @@ void TileGlobalSortResources::reset_state(bool p_clear_sorter) {
 		sorter.unref();
 	}
 	sorter_available = true;
+	sorter_unavailable_permanent = false;
+	sorter_retry_delay_calls = 0;
+	sorter_retry_countdown_calls = 0;
 	sorter_missing_logged = false;
 	sorter_device_id = 0;
 	capacity = 0;
@@ -1176,6 +1180,19 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 		}
 	}
 	bool attempted_fallback = false;
+
+	// A TRANSIENT recreation failure must not be a permanent black screen. Tick the
+	// backoff once per ensure_resources() call (outside the retry loop below, so the
+	// buffer-allocation `continue` cannot double-tick it) and, when it expires, let this
+	// call fall through into the recreation branch again. A PERMANENT capability failure
+	// never retries: its answer cannot change and create_sorter() is expensive.
+	bool sorter_retry_due = false;
+	if (!sorter_available && !sorter_unavailable_permanent) {
+		if (sorter_retry_countdown_calls > 0) {
+			sorter_retry_countdown_calls--;
+		}
+		sorter_retry_due = (sorter_retry_countdown_calls == 0);
+	}
 
 	auto free_global_sort_buffers = [&](RenderingDevice *p_owner, bool p_clear_owner) {
 		if (p_owner) {
@@ -1267,9 +1284,10 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 		bool wants_shrink = false;
 		// The shrink is gated on a live sorter because it reclaims by RECREATING the sorter
 		// at the lower capacity. On a GPU that lacks RadixSort indirect support the sorter is
-		// disabled and the global sort degrades to unsorted tiles; the key/value buffers then
-		// stay at their high-water capacity and are not reclaimed by this path. That is an
-		// accepted limitation of the opt-in shrink on an already-degraded (unsorted) fallback —
+		// disabled and (since #586) translucent global-composite frames are REJECTED rather
+		// than rasterized unsorted; the key/value buffers then stay at their high-water
+		// capacity and are not reclaimed by this path. That is an accepted limitation of the
+		// opt-in shrink on an already-degraded (nothing-published) fallback —
 		// reclaiming there would need a separate sorter-less buffer-resize path, which is not
 		// worth the added complexity for that narrow, low-capability-GPU case.
 		if (g_gpu_sorting_config.bounded_buffer_shrink_enabled && sorter_available && sorter.is_valid() &&
@@ -1296,12 +1314,20 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 			shrink_candidate_frames = 0;
 		}
 
-		auto disable_sorter = [&](const char *p_reason) {
+		auto disable_sorter = [&](const char *p_reason, GaussianSplatting::SorterCreationFailure p_failure) {
 			if (sorter.is_valid()) {
 				sorter->shutdown();
 				sorter.unref();
 			}
 			sorter_available = false;
+			sorter_unavailable_permanent = GaussianSplatting::sorter_creation_failure_is_permanent(p_failure);
+			if (sorter_unavailable_permanent) {
+				sorter_retry_delay_calls = 0;
+				sorter_retry_countdown_calls = 0;
+			} else {
+				sorter_retry_delay_calls = GaussianSplatting::next_sorter_retry_delay_calls(sorter_retry_delay_calls);
+				sorter_retry_countdown_calls = sorter_retry_delay_calls;
+			}
 			key_config = desired_key_config;
 			capacity = MAX<uint32_t>(attempt_elements, 1u);
 			sorter_recreated = true;
@@ -1311,7 +1337,7 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 			}
 		};
 
-		if (!sorter_available) {
+		if (!sorter_available && !sorter_retry_due) {
 			if (capacity < attempt_elements || key_config_changed) {
 				key_config = desired_key_config;
 				capacity = MAX<uint32_t>(attempt_elements, 1u);
@@ -1345,25 +1371,37 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 
 			// must_recreate failures render unsorted; an optional-shrink failure keeps
 			// the working sorter untouched and simply skips the reclaim this frame.
-			auto handle_recreate_failure = [&](const char *p_reason) {
+			auto handle_recreate_failure = [&](const char *p_reason, GaussianSplatting::SorterCreationFailure p_failure) {
 				if (must_recreate) {
-					disable_sorter(p_reason);
+					disable_sorter(p_reason, p_failure);
 				} else {
 					WARN_PRINT_ONCE("[TileRenderer] Bounded overlap shrink could not build a smaller sorter; keeping the current sort capacity");
 				}
 			};
 
+			// The three failure sites, each tagged with the SorterCreationFailure that says
+			// whether the resulting unavailability is permanent or retryable. The tags are
+			// derived from what the callee can actually fail on — see the enum's comments in
+			// sort_fallback_policy.h. The log lines no longer say "rendering unsorted tiles":
+			// since #586 the frame is REJECTED, not rasterized unsorted.
+
 			// Global composite sort requires indirect support for GPU-driven element count.
 			if (!GPUSorterFactory::probe_supports_indirect(GPUSorterFactory::ALGORITHM_RADIX, device)) {
-				handle_recreate_failure("[TileRenderer] Global composite sort requires RadixSort indirect support; rendering unsorted tiles");
+				handle_recreate_failure(
+						"[TileRenderer] Global composite sort requires RadixSort indirect support, which this device/config does not provide; translucent global-composite frames will be REJECTED (nothing presented) until the device or sort configuration changes",
+						GaussianSplatting::SorterCreationFailure::INDIRECT_CAPABILITY_UNSUPPORTED);
 			} else {
 				Ref<IGPUSorter> created_sorter = GPUSorterFactory::create_sorter(
 						GPUSorterFactory::ALGORITHM_RADIX, device, resize_elements, config_to_use);
 				if (!created_sorter.is_valid()) {
-					handle_recreate_failure("[TileRenderer] Failed to create global composite GPU sorter; rendering unsorted tiles");
+					handle_recreate_failure(
+							"[TileRenderer] Failed to create the global composite GPU sorter (allocation/initialization); translucent global-composite frames are REJECTED until a retry succeeds",
+							GaussianSplatting::SorterCreationFailure::CREATION_FAILED);
 				} else if (!created_sorter->supports_indirect()) {
 					created_sorter->shutdown();
-					handle_recreate_failure("[TileRenderer] Created sorter does not support indirect sorting; rendering unsorted tiles");
+					handle_recreate_failure(
+							"[TileRenderer] Created sorter does not support indirect sorting; translucent global-composite frames will be REJECTED (nothing presented)",
+							GaussianSplatting::SorterCreationFailure::CREATED_SORTER_LACKS_INDIRECT);
 				} else {
 					// Replacement is good. For a pure shrink the old sorter is still live;
 					// retire it now that the smaller one is known to initialize.
@@ -1375,6 +1413,20 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 					key_config = desired_key_config;
 					capacity = sorter->get_max_elements();
 					sorter_available = true;
+					// A successful build clears the unavailability latch and its pending
+					// retry. sorter_retry_delay_calls is deliberately NOT reset: keeping the
+					// backoff monotone bounds the cost of a device that flaps between success
+					// and failure (see next_sorter_retry_delay_calls). reset_state() clears it.
+					sorter_unavailable_permanent = false;
+					sorter_retry_countdown_calls = 0;
+					if (sorter_missing_logged) {
+						// Recovery is as operationally important as the failure, and the
+						// failure line said frames were being rejected. Re-arming the one-shot
+						// also lets a LATER failure log its own root cause instead of being
+						// swallowed by the first one.
+						GS_LOG_WARN_DEFAULT("[TileRenderer] Global composite GPU sorter rebuilt after a transient failure; sorted output restored");
+						sorter_missing_logged = false;
+					}
 					GS_LOG_INFO_DEFAULT(vformat("[TileRenderer] Global sort capacity initialized: %d (config max_overlap_records=%d)",
 						int(capacity), int(g_gpu_sorting_config.max_overlap_records)));
 					if (capacity < resize_elements) {
@@ -1385,6 +1437,10 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 				}
 			}
 		}
+		// One retry attempt per ensure_resources() call: the buffer-allocation fallback
+		// below can `continue` this loop, and that second iteration must not fire another
+		// create_sorter() in the same call.
+		sorter_retry_due = false;
 
 		if (capacity == 0) {
 			return;
