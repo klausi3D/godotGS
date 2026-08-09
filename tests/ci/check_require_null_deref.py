@@ -110,13 +110,135 @@ exactly the false confidence #656 is about:
    `REQUIRE(!v.is_empty())`).
 7. **Any REQUIRE whose failure is harmful for a non-dereference reason** - e.g.
    `REQUIRE(count == 3);` followed by code that indexes past the end.
+   *One shape of (7) - a cardinality assertion followed by an index of the SAME
+   container - is now covered by the second detector below (#844). The rest of
+   (7) remains uncovered.*
 
-Reliable detection of (2), (4) and (7) needs real type and dataflow information, i.e.
+Reliable detection of (2) and (4) needs real type and dataflow information, i.e.
 a compiler plugin or a clang-tidy check, not a source scan. This guard is scoped
 to the highest-confidence shape on purpose. It is a ratchet against the pattern
 spreading, not a proof that the corpus is free of it: of the ~800 `REQUIRE*`
 usages in the module tests, the null-ish subset alone is ~460, and most of those
 are followed by something this guard cannot and should not judge.
+
+## Second detector: size-assert-then-index (#844)
+
+Same mechanism, different payload. `LocalVector::operator[]`
+(`CRASH_BAD_UNSIGNED_INDEX`) and `CowData::get` (`CRASH_BAD_INDEX`) abort
+unconditionally - not DEV-only - so:
+
+    REQUIRE(payload.size() == 2);
+    CHECK(payload[0].target_opacity == doctest::Approx(0.35f));   // runs anyway
+
+is not a failing test, it is a process kill. Measured on PR #843 by perturbing a
+fixture so one payload came back short, same machine, same `NodeSceneTree` batch:
+
+| | cases reported | assertions | result |
+| --- | ---: | ---: | --- |
+| unguarded | **0 / 0** | **0 / 0** | `0xC0000409`, `Index p_index = 2 is out of bounds (size() = 2)` |
+| guarded | 21 / 22 | 265 / 266 | one readable `FATAL ERROR`, all 22 cases ran |
+
+**Zero cases reported** is what makes this P1: one short container silently
+deletes an entire batch's results, and reads as an infrastructure hiccup rather
+than a failure.
+
+`CHECK` is covered as well as `REQUIRE`. `CHECK` never aborts under *any* doctest
+configuration, so it is strictly worse, and one of the four sites #843 fixed
+(`test_gaussian_splat_node.h:1323`) was a `CHECK`.
+
+### What detector 2 flags
+
+A `REQUIRE*`/`CHECK*` assertion whose predicate establishes a **lower bound** on
+some container's length, followed - within the same short forward window - by an
+index `container[...]` that nothing between them bounds.
+
+* **Lower bound, not any mention of `size()`.** `size() == N` (N != 0), `size() >
+  N`, `size() >= N` (N != 0), `size() != 0`, `!is_empty()`, `idx < size()` and the
+  `_EQ/_NE/_GT/_GE/_LT/_LE` macro forms all qualify, and a C-style cast between
+  the operator and the call (`idx < (uint32_t)splats.size()`) is peeled. `size() == 0`,
+  `size() <= N`, `size() < N` and a positively asserted `is_empty()` do **not**:
+  when those fail the container is LONGER than claimed, so a following index is
+  not made unsafe by the failure. (`CHECK(state.cached_counts.is_empty())` in
+  `test_tile_async_readback_freshness.cpp` is precisely that case, five statements
+  above a real violation - counting it would have named the wrong assertion.)
+* **The `size()` call must be a direct argument of the assertion macro** (depth 1
+  inside its parentheses). `REQUIRE(cpu_results.resize(ground_truth.size()) == OK)`
+  constrains the *resize result*, not `ground_truth`, and is not a site.
+* **Loop-bounded indexes are safe and are not flagged.** An index inside a loop
+  or `if` whose header bounds by the indexed container's OWN `size()` /
+  `is_empty()` cannot go out of bounds no matter how the assertion failed:
+
+      REQUIRE(opacities.size() == 4);
+      for (uint32_t i = 0; i < opacities.size(); i++) {
+          CHECK(Math::is_equal_approx(opacities[i], expected));   // NOT flagged
+      }
+
+  This is tracked with a block stack, not by stopping at the first control-flow
+  statement, so the bound applies to the loop BODY and expires at its closing
+  brace - `REQUIRE(a.size() == 3); for (i < a.size()) { a[i]; } CHECK(a[0]);` is
+  still flagged on the post-loop `a[0]`.
+* **A bound from a DIFFERENT container does not count.** In
+  `for (i < a.size()) { CHECK(a[i] == b[i]); }` after `REQUIRE(b.size() == 3)`,
+  `b[i]` crashes whenever `b` is the short one. Seven such sites exist; they are
+  flagged, and reported separately from the straight-line ones so the two
+  populations stay auditable (see "Reconciliation" below).
+* **Short-circuiting is honoured**, reusing the same dominance decomposition as
+  the null-deref detector with size-aware predicates, so
+  `chunks.size() >= 2 && f(chunks[0])` is not flagged. No site in the corpus
+  needs this today; it is here so widening the window later cannot introduce a
+  false positive silently.
+* The scan stops at a statement that can change the container's length
+  (assignment, `resize`, `clear`, `push_back`, ...), and at a depth-0 `return`.
+
+### What detector 2 deliberately does NOT catch
+
+1. **An index further than `_SIZE_SCAN_STATEMENTS` statements away.** This is not
+   hypothetical: the fourth site #843 fixed
+   (`test_gaussian_splat_node.h:1415`, `REQUIRE(payload.size() == 4)` indexed
+   ~20 statements later) is NOT found at the shipped window. Raising the window
+   to 30 finds it plus two more real sites in
+   `test_gaussian_splat_asset_prune.h` - and one false positive that only the
+   short-circuit handling above suppresses. Widening is deliberately left as
+   follow-up under #844 rather than bundled here; it changes the baseline and
+   needs its own delta review. The other three #843 sites (`:1288`, `:1323`,
+   `:1424`) ARE found by this detector at the shipped window - verified by
+   running it against `test_gaussian_splat_node.h` at #843's base SHA
+   `d9d2dfd2842`.
+2. **Indexes through an alias** (`const T &e = v[0]` then `e`), through
+   `.ptr()[i]` or `.get(i)`. Neither of the latter two occurs in the corpus.
+3. **An index whose value is itself asserted elsewhere.** The detector never
+   reasons about the index expression, only about the bound.
+4. **Non-container `size()`** - anything named `size()` is treated as a length.
+
+### Reconciliation of the count
+
+#844's sweep of the corpus reported 60 size-shape sites, 14 loop-bounded, 46
+dangerous, 4 fixed by #843 -> **42 remaining**. This detector reports **50**:
+**43 straight-line** and **7 bounded only by another container's `size()`**. Both
+figures are printed on every run so the split cannot quietly drift, and both are
+pinned by a unit test.
+
+The delta against 42 is +1 straight-line and +7 cross-container, and neither is
+the baseline being tuned to fit:
+
+* The **7** cross-container sites (e.g. `CHECK(a[i] == b[i])` inside
+  `for (i < a.size())`, after `REQUIRE(b.size() == 3)`) sit inside a loop, so
+  #844's sweep counted them with its 14 loop-bounded ones. The bound is on the
+  WRONG container: `b[i]` crashes whenever `b` is the short one. They are real,
+  so this detector is deliberately the stricter of the two.
+* The **1** extra straight-line site is `test_lod_system.cpp:933`
+  (`CHECK(idx < (uint32_t)splats.size());` then `splats[idx]`). It needs C-style
+  cast handling to be recognised at all - an earlier revision of this detector
+  missed it for exactly that reason - and it also sits inside a `for` bounded by
+  a *different* container's `size()`, so a sweep would naturally have filed it
+  under loop-bounded.
+
+The three per-file concentrations #844 names reconcile **exactly** against the
+straight-line population: `test_renderer_pipeline.h` 7, `test_resident_atlas_budget.h`
+7, `test_gaussian_importance.h` 5 (its 6th site is one of the cross-container
+seven). That agreement across three independent files is the evidence that the
+43 is the same population as #844's 42 plus the one site above, not a different
+set of the same size.
 
 ## Scope boundary
 
@@ -150,6 +272,35 @@ the ratchet. Truncation is a display concern only (see `_elide`).
 The ratchet only turns one way. A **removed** fingerprint also fails, with an
 instruction to delete it from the baseline - so fixing sites tightens the guard
 permanently instead of leaving slack for new ones to occupy.
+
+Detector 2 has its **own, separate** baseline (`size_then_index_baseline.json`),
+with the same per-site fingerprint scheme and the same one-way ratchet. It is
+**shrink-only**: the only legitimate edit to that file is a deletion. An added
+fingerprint fails as a new violation; a fingerprint that no longer matches the
+corpus also fails, and its only fix is to delete the entry, which shrinks the
+baseline. `--regenerate-size-index-baseline` rewrites the file and REFUSES to
+write it if that would add an entry, so the shrink-only property is mechanical
+rather than a convention. The 42 conversions are deliberately NOT part of this
+guard's landing: #844 records two hand-checked counter-examples
+(`test_memory_leak_detection.h:165`, where an early `return` would skip
+`track_resource_free` and poison every later `SUBCASE`; and
+`test_resident_atlas_budget.h:109`, where three further independent assertions
+follow, so the correct shape is an `else` branch) proving the conversion is not
+mechanical. Converting blind trades a loud failure for quiet wrong results.
+
+## Failing closed
+
+A guard that cannot read or cannot parse must FAIL, never report "clean":
+
+* a source file that cannot be read or decoded is a scan error, not an empty file;
+* an assertion macro whose parentheses never balance within the continuation
+  bound is a scan error, not an assertion with no size predicate;
+* an unterminated raw string literal is a scan error;
+* a missing or malformed baseline is a failure, for both baselines;
+* an empty source list is a failure.
+
+Scan errors fail the run before any baseline comparison, because a partial scan
+cannot tell "no new site" from "did not look".
 """
 
 from __future__ import annotations
@@ -158,6 +309,7 @@ import hashlib
 import json
 import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -187,6 +339,24 @@ ENGINE_TESTS_DIR = ROOT / "tests"
 # prevent.
 BASELINE_PATH = Path(__file__).resolve().parent / "require_null_deref_baseline.json"
 BASELINE_ISSUE = "https://github.com/klausi3D/godotGS/issues/656"
+
+# Detector 2 (#844) keeps its OWN baseline. Separate file, separate ratchet: the
+# two detectors find different shapes with different conversion recipes, and
+# folding them together would make either detector's delta unreadable in review.
+SIZE_INDEX_BASELINE_PATH = Path(__file__).resolve().parent / "size_then_index_baseline.json"
+SIZE_INDEX_ISSUE = "https://github.com/klausi3D/godotGS/issues/844"
+SIZE_INDEX_REGENERATE_FLAG = "--regenerate-size-index-baseline"
+_SIZE_INDEX_BASELINE_NOTE = (
+    "Per-site fingerprints of pre-existing size-assert-then-index sites, generated by "
+    "tests/ci/check_require_null_deref.py --regenerate-size-index-baseline (#844). This "
+    "list is a RATCHET, not an assertion that these sites are safe: each one can still "
+    "kill a whole test batch. It is SHRINK-ONLY -- the only legitimate edit is a "
+    "deletion, made when the site is converted to `if (...) { FAIL(...); return; }` or "
+    "to an `else` branch. Regeneration REFUSES to add an entry. #844 keeps the 42 "
+    "conversions open deliberately: they are not mechanical (see "
+    "test_memory_leak_detection.h:165 and test_resident_atlas_budget.h:109), and "
+    "converting blind trades a loud failure for quiet wrong results."
+)
 
 # How many statements to look ahead after the REQUIRE before giving up.
 _SCAN_STATEMENTS = 6
@@ -228,6 +398,73 @@ _NULLISH_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("REQUIRE_NE nullptr", re.compile(rf"^\s*REQUIRE_NE\s*\(\s*({_SYMBOL})\s*,\s*nullptr\s*\)")),
     ("REQUIRE_NE nullptr", re.compile(rf"^\s*REQUIRE_NE\s*\(\s*nullptr\s*,\s*({_SYMBOL})\s*\)")),
 )
+
+
+class ScanError(Exception):
+    """A source could not be read or lexed.
+
+    Raised, never swallowed: a file the scanner cannot process is not a file with
+    no violations. Callers collect these and FAIL the run before comparing
+    anything to a baseline, because a partial scan cannot tell "no new site" from
+    "did not look". Three separate guards in this repo have shipped that same
+    fail-open hole; this one does not.
+    """
+
+
+# A C++ raw string literal, including its optional encoding prefix. The delimiter
+# is bounded by the standard's 16 characters and excludes the characters the
+# standard already forbids in it.
+_RAW_STRING_OPEN_RE = re.compile(r"(?<![A-Za-z0-9_])(?:u8|u|U|L)?R\"([^ ()\\\t\v\f\n]{0,16})\(")
+
+
+def _blank_raw_strings(name: str, text: str) -> str:
+    """Replace every raw string literal's BODY with nothing, preserving line count.
+
+    `_strip_comments` is deliberately line-oriented, so a MULTI-LINE raw string
+    (the PLY fixtures in `test_ply_importer.h` and friends are written that way)
+    would otherwise be handed to the scanners as if it were code. Blanking it here
+    - before comments are stripped, which is the order the C++ lexer uses - means
+    nothing downstream ever reads fixture text as source.
+
+    The literal is replaced by `""` followed by exactly as many newlines as it
+    spanned, so every later line keeps its number. An UNTERMINATED raw string is a
+    ScanError: it means the rest of the file cannot be lexed, and guessing is how
+    a guard starts reporting on text it does not understand.
+    """
+    out: list[str] = []
+    position = 0
+    while True:
+        match = _RAW_STRING_OPEN_RE.search(text, position)
+        if match is None:
+            out.append(text[position:])
+            return "".join(out)
+        terminator = f"){match.group(1)}\""
+        end = text.find(terminator, match.end())
+        if end == -1:
+            line_no = text.count("\n", 0, match.start()) + 1
+            raise ScanError(
+                f"{name}:{line_no}: unterminated raw string literal "
+                f"(no closing `{terminator}`). Refusing to scan a file this cannot lex."
+            )
+        end += len(terminator)
+        out.append(text[position : match.start()])
+        out.append('""' + "\n" * text.count("\n", match.start(), end))
+        position = end
+
+
+def _read_source(path: Path) -> str:
+    """Read one test source, failing closed on anything unreadable or unlexable."""
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise ScanError(f"{path.name}: cannot be read ({exc}).") from exc
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        # Deliberately NOT errors="replace": a replacement character silently
+        # rewrites the source the scanner then reasons about.
+        raise ScanError(f"{path.name}: is not valid UTF-8 ({exc}).") from exc
+    return _blank_raw_strings(path.name, text)
 
 
 def _strip_comments(text: str) -> str:
@@ -479,7 +716,13 @@ def _condition_tail(expr: str) -> str:
     return expr[last + 1 :] if last >= 0 else expr
 
 
-def _short_circuit_guarded(symbol: str, text: str, deref_at: int) -> bool:
+def _short_circuit_guarded(
+    symbol: str,
+    text: str,
+    deref_at: int,
+    positive: Callable[[str, str], bool] | None = None,
+    negative: Callable[[str, str], bool] | None = None,
+) -> bool:
     """True when C++ short-circuiting prevents reaching the dereference.
 
     A guard must DOMINATE the dereference, not merely precede it textually. An
@@ -499,13 +742,23 @@ def _short_circuit_guarded(symbol: str, text: str, deref_at: int) -> bool:
     Recursion descends into whichever part contains the dereference, so an outer
     guard still counts (`ptr && (a || ptr->f())`). Anything it cannot parse
     unambiguously is reported as unguarded.
+
+    `positive` / `negative` are the two predicates that decide what "guarded"
+    MEANS, and default to the null-ish pair. Detector 2 (#844) passes the
+    size-aware pair instead, so `chunks.size() >= 2 && f(chunks[0])` is not
+    reported. The dominance logic itself is the same either way, which is the
+    point of injecting them rather than writing a second copy of it: the
+    `(a && b) || c` false-negative that took a review round to find (PR #659) is
+    fixed once, for both detectors.
     """
+    positive = _positive_test if positive is None else positive
+    negative = _negative_test if negative is None else negative
     if deref_at < 0 or deref_at > len(text):
         return False
 
     inner, offset = _strip_outer_parens(text)
     if offset:
-        return _short_circuit_guarded(symbol, inner, deref_at - offset)
+        return _short_circuit_guarded(symbol, inner, deref_at - offset, positive, negative)
 
     def contains(span: tuple[int, int]) -> bool:
         return span[0] <= deref_at < span[1]
@@ -514,18 +767,18 @@ def _short_circuit_guarded(symbol: str, text: str, deref_at: int) -> bool:
     if ternary:
         cond, when_true, when_false = ternary
         condition = _condition_tail(text[cond[0] : cond[1]])
-        if contains(when_true) and _positive_test(symbol, condition):
+        if contains(when_true) and positive(symbol, condition):
             return True
-        if contains(when_false) and _negative_test(symbol, condition):
+        if contains(when_false) and negative(symbol, condition):
             return True
         for span in (cond, when_true, when_false):
             if contains(span):
                 return _short_circuit_guarded(
-                    symbol, text[span[0] : span[1]], deref_at - span[0]
+                    symbol, text[span[0] : span[1]], deref_at - span[0], positive, negative
                 )
         return False
 
-    for op, test in (("||", _negative_test), ("&&", _positive_test)):
+    for op, test in (("||", negative), ("&&", positive)):
         spans = _split_top_level(text, op)
         if len(spans) == 1:
             continue
@@ -534,7 +787,9 @@ def _short_circuit_guarded(symbol: str, text: str, deref_at: int) -> bool:
                 continue
             if any(test(symbol, text[s[0] : s[1]]) for s in spans[:position]):
                 return True
-            return _short_circuit_guarded(symbol, text[span[0] : span[1]], deref_at - span[0])
+            return _short_circuit_guarded(
+                symbol, text[span[0] : span[1]], deref_at - span[0], positive, negative
+            )
         return False
 
     # No top-level operator applies, so the dereference sits inside a call's
@@ -543,7 +798,9 @@ def _short_circuit_guarded(symbol: str, text: str, deref_at: int) -> bool:
     # wins: `ptr && (a || ptr->f())` is decided by the outer `&&`.
     group = _enclosing_group(text, deref_at)
     if group:
-        return _short_circuit_guarded(symbol, text[group[0] : group[1]], deref_at - group[0])
+        return _short_circuit_guarded(
+            symbol, text[group[0] : group[1]], deref_at - group[0], positive, negative
+        )
     return False
 
 
@@ -602,11 +859,18 @@ def _line_fragments(line: str) -> list[str]:
     return fragments
 
 
-def _statements(lines: list[str], start_index: int) -> list[tuple[int, str]]:
+def _statements(
+    lines: list[str], start_index: int, limit: int = _SCAN_STATEMENTS
+) -> list[tuple[int, str]]:
     """Yield (line_number, statement_text) for statements after start_index.
 
     A statement is accumulated until a ';' at depth 0, or until a line that opens
     or closes a block, which is emitted on its own so the caller can stop there.
+
+    `limit` is the caller's scan window. It is a PARAMETER because the two
+    detectors own their windows independently: slicing the result afterwards
+    cannot widen it, and a caller that assumed it could would silently get six
+    statements while believing it had asked for thirty.
     """
     statements: list[tuple[int, str]] = []
     buffer = ""
@@ -633,7 +897,7 @@ def _statements(lines: list[str], start_index: int) -> list[tuple[int, str]]:
         ):
             statements.append((buffer_line, buffer))
             buffer = ""
-            if len(statements) >= _SCAN_STATEMENTS:
+            if len(statements) >= limit:
                 break
     return statements
 
@@ -656,7 +920,7 @@ def _logical_line(lines: list[str], index: int) -> tuple[str, int]:
 
 def _scan_file(path: Path) -> list[tuple[int, str, str, str]]:
     """Return (line, symbol, form, statement) for each violation in the file."""
-    text = _strip_comments(path.read_text(encoding="utf-8", errors="replace"))
+    text = _strip_comments(_read_source(path))
     lines = text.splitlines()
     violations: list[tuple[int, str, str, str]] = []
 
@@ -725,11 +989,414 @@ def _scan_forward(
             return
 
 
+# ---------------------------------------------------------------------------
+# Detector 2: a cardinality assertion followed by an index of the same container
+# (#844). See the module docstring for the mechanism, the shape and the count.
+# ---------------------------------------------------------------------------
+
+# How many statements to look ahead after the size assertion. Same window as the
+# null-deref detector. Raising it finds more REAL sites (see docstring blind spot
+# 1) and changes the baseline, so it is a separate, reviewable change.
+_SIZE_SCAN_STATEMENTS = 6
+
+# Detector 2's symbol grammar extends _SYMBOL with ONE subscript per segment, so
+# `chunks[0].indices` is a single symbol. Without it the scanner would extract the
+# bare tail `indices` from `chunks[0].indices.size()` and then match `.indices[`
+# on any other object in the window - comparing names instead of tracking one
+# container.
+_SIZE_SEGMENT = r"[A-Za-z_]\w*(?:\s*\(\s*\))?(?:\s*\[[^\[\]]*\])?"
+_SIZE_SYMBOL = rf"{_SIZE_SEGMENT}(?:\s*(?:\.|->)\s*{_SIZE_SEGMENT})*"
+
+# REQUIRE* and CHECK* both. CHECK is not the weaker case here: it never aborts
+# under ANY doctest configuration, so it is strictly worse than a REQUIRE that
+# merely does not abort in THIS build. One of the four sites #843 fixed was a
+# CHECK.
+_SIZE_ASSERT_HEAD_RE = re.compile(r"^\s*((?:REQUIRE|CHECK)\w*)\s*\(")
+_CARDINALITY_RE = re.compile(
+    rf"({_SIZE_SYMBOL})\s*(?:\.|->)\s*(size|is_empty|empty)\s*\(\s*\)"
+)
+_ANY_CARDINALITY_RE = re.compile(
+    rf"{_SIZE_SYMBOL}\s*(?:\.|->)\s*(?:size|is_empty|empty)\s*\(\s*\)"
+)
+# A relational comparison macro carries the operator in its NAME.
+_COMPARISON_MACRO_SUFFIXES: tuple[tuple[str, str], ...] = (
+    ("_EQ", "=="), ("_NE", "!="), ("_GE", ">="), ("_LE", "<="), ("_GT", ">"), ("_LT", "<"),
+)
+_LITERAL_ZERO_RE = re.compile(r"^\(*\s*0[uUlL]*\s*\)*$")
+# A trailing C-style cast, e.g. the `(uint32_t)` in `idx < (uint32_t)v.size()`.
+_CAST_SUFFIX_RE = re.compile(r"\(\s*(?:const\s+)?[A-Za-z_][\w:]*(?:\s*[*&]+)?\s*\)\s*$")
+
+# Control flow whose HEADER may bound the loop/branch. `case`/`default` are not
+# here: they do not carry a condition that could bound anything.
+_SIZE_CONTROL_FLOW_RE = re.compile(r"^\s*(?:\}\s*)?(?:if\b|else\b|for\b|while\b|do\b|switch\b)")
+# Leaving the enclosing test case entirely: nothing after it is the same scope.
+_SIZE_SCAN_STOP_RE = re.compile(r"^\s*(?:TEST_CASE\b|TEST_SUITE\b)")
+_RETURN_RE = re.compile(r"^\s*return\b")
+# Calls that can change a container's length, invalidating the asserted bound.
+_LENGTH_MUTATORS = (
+    "resize", "clear", "push_back", "append", "append_array", "insert", "remove_at",
+    "remove", "erase", "pop_back", "ordered_insert", "reserve", "set_size", "fill_with",
+)
+
+# Reported classes. Both are baselined; they are distinguished only so the count
+# stays reconcilable against #844's sweep (42 + 7 = 49).
+_CLASS_STRAIGHT_LINE = "straight-line"
+_CLASS_OTHER_BOUND = "loop-bounded-by-another-container"
+
+
+def _size_symbol_regex(symbol: str) -> str:
+    """Like _symbol_regex, but each segment may carry one `[...]` subscript."""
+    parts = [part for part in re.split(r"\s*(?:\.|->)\s*", symbol) if part]
+    rendered = []
+    for part in parts:
+        subscript = ""
+        match = re.search(r"\[([^\[\]]*)\]\s*$", part)
+        if match:
+            subscript = r"\s*\[\s*" + re.escape(match.group(1).strip()) + r"\s*\]"
+            part = part[: match.start()].strip()
+        if part.endswith(")"):
+            rendered.append(re.escape(part.split("(", 1)[0].strip()) + r"\s*\(\s*\)" + subscript)
+        else:
+            rendered.append(re.escape(part) + subscript)
+    return r"\s*(?:\.|->)\s*".join(rendered)
+
+
+def _macro_argument_span(fragment: str, name: str) -> tuple[int, int]:
+    """(start, end) of the assertion macro's argument list, exclusive of its parens.
+
+    Raises ScanError when the parentheses never balance. That is NOT "an assertion
+    with no size predicate": it means the scanner does not know where the
+    assertion ends, and reporting it clean would be a guess.
+    """
+    open_at = fragment.find("(")
+    if open_at < 0:
+        raise ScanError(
+            f"{name}: assertion `{_elide(fragment.strip(), 90)}` has no argument list."
+        )
+    depth = 0
+    for i in range(open_at, len(fragment)):
+        if fragment[i] == "(":
+            depth += 1
+        elif fragment[i] == ")":
+            depth -= 1
+            if depth == 0:
+                return open_at + 1, i
+    raise ScanError(
+        f"{name}: unbalanced parentheses in assertion `{_elide(fragment.strip(), 90)}` - "
+        f"cannot tell where the assertion ends, refusing to call it clean."
+    )
+
+
+def _paren_depth(text: str, start: int, at: int) -> int:
+    depth = 0
+    for i in range(start, at):
+        if text[i] == "(":
+            depth += 1
+        elif text[i] == ")":
+            depth -= 1
+    return depth
+
+
+def _split_macro_arguments(text: str) -> list[str]:
+    """Split a macro argument list at depth-0 ',' (parens AND brackets count)."""
+    parts: list[str] = []
+    depth = 0
+    start = 0
+    for i, ch in enumerate(text):
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            parts.append(text[start:i])
+            start = i + 1
+    parts.append(text[start:])
+    return parts
+
+
+def _establishes_lower_bound(
+    macro: str, fragment: str, span: tuple[int, int], match: re.Match[str]
+) -> bool:
+    """True when the assertion HOLDING implies the container is long enough to index.
+
+    The point is the contrapositive: only then does the assertion FAILING make a
+    following index unsafe. `CHECK(v.size() == 0)` and `CHECK(v.is_empty())` fail
+    by the container being LONGER than claimed, so an index after them is not made
+    unsafe by the failure and must not be reported.
+    """
+    lo, hi = span
+    kind = match.group(2)
+    before = fragment[lo : match.start()]
+    after = fragment[match.end() : hi]
+    if kind in ("is_empty", "empty"):
+        # `!v.is_empty()`, `REQUIRE_FALSE(v.is_empty())`, `REQUIRE_UNARY_FALSE(...)`.
+        return bool(re.search(r"!\s*$", before)) or macro.endswith("_FALSE")
+
+    relation = re.match(r"\s*(==|!=|>=|<=|>|<)\s*(.*)$", after, re.S)
+    if relation:
+        operator, other, flipped = relation.group(1), relation.group(2), False
+    else:
+        # A C-style cast sits between the operator and the `size()` call in
+        # `CHECK(idx < (uint32_t)splats.size())` (test_lod_system.cpp:933), which
+        # is a real site. Peel casts off the tail before looking for the operator.
+        left = _CAST_SUFFIX_RE.sub("", before)
+        while left != before:
+            before, left = left, _CAST_SUFFIX_RE.sub("", left)
+        reversed_relation = re.search(r"(==|!=|>=|<=|>|<)\s*$", left)
+        if reversed_relation:
+            operator = reversed_relation.group(1)
+            other = left[: reversed_relation.start()]
+            flipped = True
+        else:
+            # No adjacent operator: the relation may be carried by the macro NAME
+            # (`REQUIRE_EQ(v.size(), 4)`).
+            operator = ""
+            for suffix, symbol in _COMPARISON_MACRO_SUFFIXES:
+                if macro.endswith(suffix) or macro.endswith(f"{suffix}_MESSAGE"):
+                    operator = symbol
+                    break
+            if not operator:
+                return False
+            arguments = _split_macro_arguments(fragment[lo:hi])
+            if len(arguments) < 2:
+                return False
+            first_argument_end = lo + len(arguments[0])
+            flipped = match.start() >= first_argument_end
+            other = arguments[0] if flipped else arguments[1]
+    other = other.split(",")[0].strip()
+    if flipped:
+        operator = {"<": ">", ">": "<", "<=": ">=", ">=": "<="}.get(operator, operator)
+    against_zero = bool(_LITERAL_ZERO_RE.match(other))
+    if operator == "==":
+        return not against_zero          # `size() == 0` asserts EMPTY
+    if operator == "!=":
+        return against_zero              # `size() != 0` asserts NON-EMPTY
+    if operator == ">":
+        return True                      # `size() > n` and `idx < size()`
+    if operator == ">=":
+        return not against_zero          # `size() >= 0` is vacuous
+    return False                         # `<` / `<=`: an UPPER bound only
+
+
+def _size_assertions(fragment: str, name: str) -> list[tuple[str, str]]:
+    """(container symbol, macro name) for each lower bound this assertion asserts."""
+    head = _SIZE_ASSERT_HEAD_RE.match(fragment)
+    if head is None:
+        return []
+    macro = head.group(1)
+    span = _macro_argument_span(fragment, name)
+    lo, hi = span
+    found: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for match in _CARDINALITY_RE.finditer(fragment, lo, hi):
+        # Depth 1 relative to the macro: a DIRECT argument. Nested deeper it is an
+        # argument to some other call, e.g.
+        # `REQUIRE(cpu_results.resize(ground_truth.size()) == OK)`, which
+        # constrains the resize result and says nothing about `ground_truth`.
+        if _paren_depth(fragment, lo, match.start()) != 0:
+            continue
+        symbol = match.group(1).strip()
+        if symbol in seen:
+            continue
+        if not _establishes_lower_bound(macro, fragment, span, match):
+            continue
+        seen.add(symbol)
+        found.append((symbol, macro))
+    return found
+
+
+def _index_positions(symbol: str, text: str) -> list[int]:
+    """Offsets in `text` where `symbol` is subscripted."""
+    pattern = rf"(?<![\w)\]]){_size_symbol_regex(symbol)}\s*\["
+    return [match.start() for match in re.finditer(pattern, text)]
+
+
+def _size_positive_test(symbol: str, expr: str) -> bool:
+    """`expr` being TRUE constrains `symbol`'s length from below."""
+    sym = _size_symbol_regex(symbol)
+    body = _strip_outer_parens(expr.strip())[0].strip()
+    return any(
+        re.search(pattern, body)
+        for pattern in (
+            rf"(?<![\w)\]]){sym}\s*(?:\.|->)\s*size\s*\(\s*\)\s*(?:==|!=|>=|>)",
+            rf"(?:<|<=|==|!=)\s*{sym}\s*(?:\.|->)\s*size\s*\(\s*\)",
+            rf"!\s*{sym}\s*(?:\.|->)\s*(?:is_empty|empty)\s*\(\s*\)",
+        )
+    )
+
+
+def _size_negative_test(symbol: str, expr: str) -> bool:
+    """`expr` being FALSE implies `symbol` is non-empty."""
+    sym = _size_symbol_regex(symbol)
+    body = _strip_outer_parens(expr.strip())[0].strip()
+    return any(
+        re.fullmatch(pattern, body)
+        for pattern in (
+            rf"{sym}\s*(?:\.|->)\s*(?:is_empty|empty)\s*\(\s*\)",
+            rf"{sym}\s*(?:\.|->)\s*size\s*\(\s*\)\s*==\s*0[uUlL]*",
+        )
+    )
+
+
+def _unguarded_index(symbol: str, text: str) -> bool:
+    """True when `text` subscripts `symbol` somewhere short-circuiting can reach."""
+    return any(
+        not _short_circuit_guarded(
+            symbol, text, at, positive=_size_positive_test, negative=_size_negative_test
+        )
+        for at in _index_positions(symbol, text)
+    )
+
+
+def _bounds_iteration(symbol: str, header: str) -> bool:
+    """True when a control-flow header bounds by the indexed container's OWN length."""
+    sym = _size_symbol_regex(symbol)
+    pattern = rf"(?<![\w)\]]){sym}\s*(?:\.|->)\s*(?:size|is_empty|empty)\s*\(\s*\)"
+    return re.search(pattern, header) is not None
+
+
+def _changes_length(symbol: str, statement: str) -> bool:
+    """True when the statement can rebind `symbol` or change its length."""
+    sym = _size_symbol_regex(symbol)
+    if re.search(rf"(?<![\w.>)\]]){sym}\s*=(?!=)", statement):
+        return True
+    mutators = "|".join(_LENGTH_MUTATORS)
+    return re.search(rf"(?<![\w)\]]){sym}\s*(?:\.|->)\s*(?:{mutators})\s*\(", statement) is not None
+
+
+def _first_unbounded_index(
+    symbol: str, following: list[tuple[int, str]]
+) -> tuple[int, str, str] | None:
+    """(line, statement, class) of the first index of `symbol` nothing bounds.
+
+    A block STACK, not a stop-at-the-first-control-flow rule: a loop bounded by
+    the container's own `size()` makes its BODY safe and nothing after it, so
+    `for (i < a.size()) { a[i]; } CHECK(a[0]);` is still reported on `a[0]`.
+    Each frame records two facts - bounded by THIS container's length, and bounded
+    by ANY container's length - because only the first makes the index safe, while
+    the second is what #844's sweep counted as loop-bounded and is reported
+    separately so the two counts stay reconcilable.
+    """
+    stack: list[tuple[bool, bool]] = []
+    pending: tuple[bool, bool] | None = None
+    for line_no, statement in following:
+        if _SIZE_SCAN_STOP_RE.match(statement):
+            return None
+        if _RETURN_RE.match(statement) and not stack:
+            return None
+        if statement.lstrip().startswith("}") and stack:
+            stack.pop()
+        own_bound = any(frame[0] for frame in stack) or bool(pending and pending[0])
+        other_bound = any(frame[1] for frame in stack) or bool(pending and pending[1])
+        header = statement.split("{", 1)[0]
+        opens_block = statement.rstrip().endswith("{")
+        if _SIZE_CONTROL_FLOW_RE.match(statement):
+            # A header's own bound guards its BODY, never itself: in
+            # `while (v[i] && i < v.size())` the subscript is evaluated first. So
+            # the header is judged against the ENCLOSING bound only.
+            if not own_bound and _unguarded_index(symbol, header):
+                return line_no, header.strip(), (
+                    _CLASS_OTHER_BOUND if other_bound else _CLASS_STRAIGHT_LINE
+                )
+            frame = (
+                own_bound or _bounds_iteration(symbol, header),
+                other_bound or bool(_ANY_CARDINALITY_RE.search(header)),
+            )
+            if opens_block:
+                stack.append(frame)
+                pending = None
+            else:
+                pending = frame  # brace-less body: applies to the next statement
+            continue
+        if not own_bound and _unguarded_index(symbol, statement):
+            return line_no, statement.strip(), (
+                _CLASS_OTHER_BOUND if other_bound else _CLASS_STRAIGHT_LINE
+            )
+        if _changes_length(symbol, statement):
+            return None
+        if opens_block:
+            stack.append((own_bound, other_bound))
+        pending = None
+    return None
+
+
+def _scan_file_size_index(path: Path) -> list[tuple[int, str, str, str, int, str, str]]:
+    """(line, symbol, macro, assertion, index_line, index_statement, class) per site.
+
+    At most one entry per (container, index site): when several assertions
+    constrain the same container above the same index, the NEAREST one is
+    reported, because that is the assertion whose failure reaches the index and
+    the one a conversion has to rewrite.
+    """
+    text = _strip_comments(_read_source(path))
+    lines = text.splitlines()
+    nearest: dict[tuple[str, int, str], tuple[int, str, str, str, int, str, str]] = {}
+
+    for index, _ in enumerate(lines):
+        line, last_index = _logical_line(lines, index)
+        fragments = _line_fragments(line)
+        for position, fragment in enumerate(fragments):
+            for symbol, macro in _size_assertions(fragment, path.name):
+                following = [(index + 1, f) for f in fragments[position + 1 :]]
+                following += _statements(lines, last_index + 1, _SIZE_SCAN_STATEMENTS)
+                hit = _first_unbounded_index(symbol, following[:_SIZE_SCAN_STATEMENTS])
+                if hit is None:
+                    continue
+                index_line, index_statement, klass = hit
+                nearest[(symbol, index_line, index_statement)] = (
+                    index + 1, symbol, macro, fragment.strip(),
+                    index_line, index_statement, klass,
+                )
+    return sorted(nearest.values())
+
+
 def _test_sources() -> list[Path]:
     return sorted(
         list(MODULE_TESTS_DIR.glob("*.h"))
         + list(MODULE_TESTS_DIR.glob("*.cpp"))
         + list(ENGINE_TESTS_DIR.glob("test_*.cpp"))
+    )
+
+
+def scan_all_size_index() -> tuple[dict[str, list[tuple[int, str, str, str, int, str, str]]], list[str]]:
+    """(basename -> size-then-index sites, scan errors). Errors are never violations."""
+    results: dict[str, list[tuple[int, str, str, str, int, str, str]]] = {}
+    errors: list[str] = []
+    for path in _test_sources():
+        try:
+            sites = _scan_file_size_index(path)
+        except ScanError as exc:
+            errors.append(str(exc))
+            continue
+        if sites:
+            results[path.name] = sites
+    return results, errors
+
+
+def size_index_fingerprint(
+    symbol: str, macro: str, assertion: str, index_statement: str
+) -> str:
+    """Stable identity for one size-then-index site, independent of line numbers.
+
+    BOTH statements are hashed. Hashing only the index would collapse two sites
+    that index the same container from different assertions onto one identity, and
+    hashing only the assertion would miss a second index added under an existing
+    assertion - either way the ratchet would stop distinguishing sites it must.
+    """
+    return fingerprint(symbol, macro, f"{assertion} >>> {index_statement}")
+
+
+def scan_size_index_fingerprints() -> tuple[dict[str, list[str]], list[str]]:
+    found, errors = scan_all_size_index()
+    return (
+        {
+            name: sorted(
+                size_index_fingerprint(symbol, macro, assertion, statement)
+                for _, symbol, macro, assertion, _, statement, _ in sites
+            )
+            for name, sites in found.items()
+        },
+        errors,
     )
 
 
@@ -782,32 +1449,188 @@ def scan_fingerprints() -> dict[str, list[str]]:
     }
 
 
-def load_baseline() -> tuple[dict[str, list[str]], list[str]]:
-    """Read the fingerprint baseline. A missing or malformed file is a FAILURE, never a pass."""
-    if not BASELINE_PATH.is_file():
+def _load_fingerprint_baseline(path: Path) -> tuple[dict[str, list[str]], list[str]]:
+    """Read a per-site fingerprint baseline. Missing or malformed is a FAILURE, never a pass."""
+    if not path.is_file():
         return {}, [
-            f"Baseline file missing: {BASELINE_PATH.name}. Refusing to treat an absent "
+            f"Baseline file missing: {path.name}. Refusing to treat an absent "
             f"baseline as 'nothing to report'."
         ]
     try:
-        data = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
-        return {}, [f"Baseline file is not valid JSON: {exc}"]
+        return {}, [f"Baseline file {path.name} is not valid JSON: {exc}"]
     if not isinstance(data, dict) or not isinstance(data.get("files"), dict):
-        return {}, ["Baseline file must be an object with a 'files' object."]
+        return {}, [f"Baseline file {path.name} must be an object with a 'files' object."]
     out: dict[str, list[str]] = {}
     for name, prints in data["files"].items():
         if not isinstance(prints, list) or not all(isinstance(p, str) for p in prints):
-            return {}, [f"Baseline entry '{name}' must be a list of fingerprint strings."]
+            return {}, [
+                f"Baseline entry '{name}' in {path.name} must be a list of fingerprint strings."
+            ]
         out[name] = sorted(prints)
     return out, []
 
 
-def main() -> int:
+def load_baseline() -> tuple[dict[str, list[str]], list[str]]:
+    """Read the null-deref fingerprint baseline."""
+    return _load_fingerprint_baseline(BASELINE_PATH)
+
+
+def load_size_index_baseline() -> tuple[dict[str, list[str]], list[str]]:
+    """Read the size-then-index fingerprint baseline (#844)."""
+    return _load_fingerprint_baseline(SIZE_INDEX_BASELINE_PATH)
+
+
+def _preflight_sources(files: list[Path]) -> list[str]:
+    """Read every source once, so an unreadable or unlexable file fails the RUN.
+
+    Deliberately before any scanning: a scan that silently skipped a file would
+    report "0 new" for it, which is the fail-open hole this repo has now found in
+    three separate guards.
+    """
+    errors: list[str] = []
+    for path in files:
+        try:
+            _read_source(path)
+        except ScanError as exc:
+            errors.append(str(exc))
+    return errors
+
+
+def _check_size_index() -> tuple[int, list[str], str]:
+    """Run detector 2. Returns (exit code, report lines, one-line summary)."""
+    found, scan_errors = scan_all_size_index()
+    found_prints, _ = scan_size_index_fingerprints()
+    baseline, failures = load_size_index_baseline()
+    total = sum(len(sites) for sites in found.values())
+    straight = sum(
+        1 for sites in found.values() for site in sites if site[6] == _CLASS_STRAIGHT_LINE
+    )
+    summary = (
+        f"{total} baselined site(s) across {len(found)} file(s) "
+        f"({straight} {_CLASS_STRAIGHT_LINE}, {total - straight} {_CLASS_OTHER_BOUND})"
+    )
+    if scan_errors:
+        report = ["the scan is INCOMPLETE, so its result cannot be trusted:"]
+        report += [f"    {error}" for error in scan_errors]
+        return 1, report, summary
+
+    # Line lookup so a report can point at the source even though the baseline
+    # itself is line-independent.
+    where: dict[str, dict[str, tuple[int, str, str, str, int, str, str]]] = {}
+    for name, sites in found.items():
+        where[name] = {
+            size_index_fingerprint(site[1], site[2], site[3], site[5]): site for site in sites
+        }
+
+    any_added = False
+    for name in sorted(set(found_prints) | set(baseline)):
+        actual = found_prints.get(name, [])
+        allowed = baseline.get(name, [])
+        added = _multiset_difference(actual, allowed)
+        removed = _multiset_difference(allowed, actual)
+        if added:
+            any_added = True
+            failures.append(f"{name}: {len(added)} NEW size-assert-then-index site(s):")
+            for print_ in added:
+                line_no, _symbol, _macro, assertion, index_line, statement, _klass = (
+                    where[name][print_]
+                )
+                failures.append(f"    line {line_no}: {_elide(assertion, 90)}")
+                failures.append(f"    line {index_line}: {_elide(statement, 90)}")
+        if removed:
+            failures.append(
+                f"{name}: {len(removed)} baselined site(s) no longer found. This baseline is "
+                f"SHRINK-ONLY: delete these entries from {SIZE_INDEX_BASELINE_PATH.name} so the "
+                f"slack cannot be reoccupied by a new violation."
+            )
+            for print_ in removed:
+                failures.append(f"    {print_}")
+    if any_added:
+        failures.append(
+            "Neither REQUIRE (DOCTEST_CONFIG_NO_EXCEPTIONS in this build) nor CHECK (in any "
+            "build) aborts: on failure they report and CONTINUE, so the index runs out of "
+            "bounds. LocalVector::operator[] and CowData::get abort UNCONDITIONALLY, killing "
+            "the process before doctest prints its summary - the batch then reports "
+            "cases=0/0, not a red test. Write instead: "
+            "if (c.size() != N) { FAIL(\"... got \", c.size()); return; } - or an `else` "
+            f"branch where independent assertions follow it. ({SIZE_INDEX_ISSUE})"
+        )
+    return (1 if failures else 0), failures, summary
+
+
+def _regenerate_size_index_baseline() -> int:
+    """Rewrite detector 2's baseline, REFUSING to add an entry.
+
+    Shrink-only is enforced here mechanically rather than left to review: the
+    whole point of the baseline is that a new site cannot be absorbed into it.
+    """
+    found_prints, scan_errors = scan_size_index_fingerprints()
+    if scan_errors:
+        print("[size-then-index] REFUSED: the scan is incomplete.")
+        for error in scan_errors:
+            print(f"    {error}")
+        return 1
+    baseline, problems = load_size_index_baseline()
+    if problems:
+        print("[size-then-index] REFUSED: the existing baseline cannot be read.")
+        for problem in problems:
+            print(f"    {problem}")
+        return 1
+    additions = {
+        name: _multiset_difference(prints, baseline.get(name, []))
+        for name, prints in found_prints.items()
+    }
+    additions = {name: added for name, added in additions.items() if added}
+    if additions:
+        print(
+            f"[size-then-index] REFUSED: regeneration would ADD "
+            f"{sum(len(v) for v in additions.values())} entr(ies). This baseline may only "
+            f"shrink - a new site is a new crash, not a new baseline line. Fix the site."
+        )
+        for name in sorted(additions):
+            for print_ in additions[name]:
+                print(f"    {name}: {print_}")
+        return 1
+    document = {
+        "schema_version": 1,
+        "issue_url": SIZE_INDEX_ISSUE,
+        "note": _SIZE_INDEX_BASELINE_NOTE,
+        "files": {name: found_prints[name] for name in sorted(found_prints)},
+    }
+    SIZE_INDEX_BASELINE_PATH.write_text(
+        json.dumps(document, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    total = sum(len(v) for v in found_prints.values())
+    print(f"[size-then-index] baseline rewritten: {total} site(s) across {len(found_prints)} file(s).")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    # Deliberately not argparse: main() is called with no arguments by the unit
+    # test and by run_module_tests.py, and argparse would then parse THEIR argv.
+    arguments = list(argv or [])
+    regenerate = SIZE_INDEX_REGENERATE_FLAG in arguments
+    unknown = [a for a in arguments if a != SIZE_INDEX_REGENERATE_FLAG]
+    if unknown:
+        print(f"[require-null-deref] FAIL unknown argument(s): {' '.join(unknown)}")
+        return 1
+
     files = _test_sources()
     if not files:
         print("[require-null-deref] FAIL no test sources found - the scan is broken.")
         return 1
+
+    read_errors = _preflight_sources(files)
+    if read_errors:
+        print(f"[require-null-deref] FAIL {len(read_errors)} test source(s) could not be scanned.")
+        for error in read_errors:
+            print(f"  - {error}")
+        return 1
+
+    if regenerate:
+        return _regenerate_size_index_baseline()
 
     found = scan_all()
     found_prints = scan_fingerprints()
@@ -854,14 +1677,28 @@ def main() -> int:
         print(f"[require-null-deref] FAIL {total} site(s) found across {len(found)} file(s).")
         for failure in failures:
             print(f"  - {failure}" if not failure.startswith("    ") else failure)
-        return 1
+        status = 1
+    else:
+        print(
+            f"[require-null-deref] PASS {len(files)} test source(s) scanned; "
+            f"{total} baselined site(s) across {len(found)} file(s), 0 new, 0 stale."
+        )
+        status = 0
 
-    print(
-        f"[require-null-deref] PASS {len(files)} test source(s) scanned; "
-        f"{total} baselined site(s) across {len(found)} file(s), 0 new, 0 stale."
-    )
-    return 0
+    # Detector 2 always runs, even when detector 1 already failed: one guard
+    # masking the other's report is how a second defect ships behind a first.
+    size_status, size_report, size_summary = _check_size_index()
+    if size_status:
+        print(f"[size-then-index] FAIL {size_summary}.")
+        for line in size_report:
+            print(f"  - {line}" if not line.startswith("    ") else line)
+    else:
+        print(
+            f"[size-then-index] PASS {len(files)} test source(s) scanned; "
+            f"{size_summary}, 0 new, 0 stale."
+        )
+    return status or size_status
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv[1:]))

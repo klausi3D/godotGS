@@ -38,9 +38,23 @@ Full command reference: `docs/reference/build-test-ci.md`.
   }
   ```
 
-  `tests/ci/check_require_null_deref.py` catches the common shape, but it is
-  deliberately narrow (see its docstring) — it will not catch a dereference
-  through an alias or a non-null precondition. Write the guard, do not rely on
+  The same applies to a **cardinality** precondition. `LocalVector::operator[]`
+  and `CowData::get` abort unconditionally, so `REQUIRE(v.size() == 2); v[0];`
+  kills the process before doctest prints its summary — the batch then reports
+  `cases=0/0`, not a red test (#844, measured on #843). `CHECK` is worse: it
+  never aborts under *any* doctest configuration. Guard those explicitly too:
+
+  ```cpp
+  if (v.size() != 2) {
+      FAIL("expected 2 entries, got ", v.size());
+      return;   // or an `else` branch, where independent assertions follow
+  }
+  ```
+
+  `tests/ci/check_require_null_deref.py` carries two detectors — the null-ish
+  one and the size-then-index one (#844) — but both are deliberately narrow (see
+  its docstring): neither catches a dereference through an alias, and the
+  size detector's window is a few statements. Write the guard, do not rely on
   the checker.
 - **A green check must be able to fail.** Governing rules and the catalogue of
   recurring shapes: [evidence integrity](../docs/governance/evidence-integrity.md).

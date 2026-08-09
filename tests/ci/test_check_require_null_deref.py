@@ -745,6 +745,386 @@ class SwapDetection(unittest.TestCase):
         self.assertEqual(len(GUARD._multiset_difference(both, both[:1])), 1)
 
 
+class SizeIndexScanTestCase(unittest.TestCase):
+    """Base for detector 2 (#844): size-assert-then-index."""
+
+    def sites(self, body: str) -> list[tuple[int, str, str, str, int, str, str]]:
+        source = 'TEST_CASE("[Synthetic] case") {\n' + body + "\n}\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "test_synthetic.h"
+            path.write_text(source, encoding="utf-8")
+            return GUARD._scan_file_size_index(path)
+
+    def null_deref_sites(self, body: str) -> list[tuple[int, str, str, str]]:
+        source = 'TEST_CASE("[Synthetic] case") {\n' + body + "\n}\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "test_synthetic.h"
+            path.write_text(source, encoding="utf-8")
+            return GUARD._scan_file(path)
+
+    def assertSized(self, body: str, symbol: str) -> None:
+        found = self.sites(body)
+        self.assertTrue(found, f"expected a size-then-index site for {symbol!r}, got none")
+        self.assertIn(symbol, [site[1] for site in found])
+
+    def assertNotSized(self, body: str) -> None:
+        found = self.sites(body)
+        self.assertEqual(found, [], f"expected no size-then-index site, got {found}")
+
+
+class SizeThenIndexIsTheNullDerefGuardsBlindSpot(SizeIndexScanTestCase):
+    """The whole reason detector 2 exists: detector 1 cannot see this shape.
+
+    Pinned as a test rather than asserted in prose, because "the other guard does
+    not cover it" is exactly the claim that rots silently. If detector 1 ever does
+    start reporting these, this test fails and the two detectors' scopes get
+    re-decided deliberately instead of by accident.
+    """
+
+    SHAPES = (
+        "  REQUIRE(payload.size() == 2);\n  CHECK(payload[0].target_opacity == 0.35f);",
+        "  CHECK(selected_names.size() == 1);\n  CHECK(selected_names[0] == String());",
+        "  REQUIRE_EQ(out_logits.size(), 4);\n  CHECK(out_logits[3] == 1.0f);",
+        "  REQUIRE(!chunks.is_empty());\n  StreamingChunk &c = chunks[0];",
+    )
+
+    def test_detector_one_is_green_on_every_shape(self):
+        for body in self.SHAPES:
+            with self.subTest(body=body):
+                self.assertEqual(
+                    self.null_deref_sites(body),
+                    [],
+                    "detector 1 (null-deref) must stay GREEN here - this is its blind spot #7",
+                )
+
+    def test_detector_two_is_red_on_every_shape(self):
+        for body in self.SHAPES:
+            with self.subTest(body=body):
+                self.assertTrue(
+                    self.sites(body), "detector 2 must flag the size-then-index shape"
+                )
+
+    def test_check_is_covered_not_only_require(self):
+        """#843's `:1323` site was a CHECK, which never aborts under ANY config."""
+        require_form = self.sites("  REQUIRE(names.size() == 1);\n  CHECK(names[0] == 1);")
+        check_form = self.sites("  CHECK(names.size() == 1);\n  CHECK(names[0] == 1);")
+        self.assertEqual(len(require_form), 1)
+        self.assertEqual(len(check_form), 1)
+        self.assertEqual(require_form[0][2], "REQUIRE")
+        self.assertEqual(check_form[0][2], "CHECK")
+
+
+class SizeThenIndexTruePositives(SizeIndexScanTestCase):
+    def test_equality_then_index(self):
+        self.assertSized("  REQUIRE(v.size() == 2);\n  CHECK(v[0] == 1);", "v")
+
+    def test_greater_than_zero_then_index(self):
+        self.assertSized("  REQUIRE(v.size() > 0);\n  auto &c = v[0];", "v")
+
+    def test_not_equal_zero_then_index(self):
+        self.assertSized("  REQUIRE(v.size() != 0);\n  CHECK(v[0] == 1);", "v")
+
+    def test_not_is_empty_then_index(self):
+        self.assertSized("  REQUIRE(!v.is_empty());\n  CHECK(v[0] == 1);", "v")
+
+    def test_require_false_is_empty_then_index(self):
+        self.assertSized("  REQUIRE_FALSE(v.is_empty());\n  CHECK(v[0] == 1);", "v")
+
+    def test_comparison_macro_form(self):
+        self.assertSized("  REQUIRE_EQ(v.size(), 4);\n  CHECK(v[3] == 1);", "v")
+
+    def test_index_bound_assertion_then_index(self):
+        """`CHECK(idx < splats.size()); splats[idx]` - test_lod_system.cpp:933."""
+        self.assertSized("  CHECK(idx < (uint32_t)v.size());\n  const float d = v[idx].x;", "v")
+
+    def test_member_chain(self):
+        self.assertSized(
+            "  REQUIRE(state.cached_counts.size() == 2);\n  CHECK(state.cached_counts[0] == 5);",
+            "state.cached_counts",
+        )
+
+    def test_subscripted_chain_is_one_symbol(self):
+        self.assertSized(
+            "  CHECK_EQ(chunks[0].indices.size(), 2);\n  CHECK_EQ(chunks[0].indices[0], 0);",
+            "chunks[0].indices",
+        )
+
+    def test_getter_call_chain(self):
+        self.assertSized(
+            "  CHECK_EQ(asset->get_ids().size(), n);\n  CHECK_EQ(asset->get_ids()[0], 7);",
+            "asset->get_ids()",
+        )
+
+    def test_loop_bounded_by_a_LITERAL_is_still_dangerous(self):
+        """`REQUIRE(v.size() == 4); for (i < 4) v[i]` crashes when the REQUIRE fails."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 4);\n"
+            "  for (uint32_t i = 0; i < 4; i++) {\n"
+            "    CHECK(v[i] == i);\n"
+            "  }",
+            "v",
+        )
+
+    def test_index_after_an_own_size_bounded_loop_is_still_flagged(self):
+        """The bound expires at the loop's closing brace - a stop-at-control-flow
+        scanner would miss this, which is why a block STACK is used."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n"
+            "    CHECK(v[i] == i);\n"
+            "  }\n"
+            "  CHECK(v[0] == 1u);",
+            "v",
+        )
+
+    def test_bound_from_a_different_container_does_not_make_it_safe(self):
+        found = self.sites(
+            "  REQUIRE(a.size() == 3);\n"
+            "  REQUIRE(b.size() == 3);\n"
+            "  for (uint32_t i = 0; i < a.size(); i++) {\n"
+            "    CHECK(a[i] == b[i]);\n"
+            "  }"
+        )
+        symbols = {site[1]: site[6] for site in found}
+        self.assertIn("b", symbols, "b[i] crashes whenever b is the short one")
+        self.assertEqual(symbols["b"], GUARD._CLASS_OTHER_BOUND)
+
+    def test_index_inside_an_unrelated_if_is_flagged(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n  if (other) {\n    CHECK(v[0] == 1);\n  }", "v"
+        )
+
+    def test_index_in_a_control_flow_header_is_flagged(self):
+        self.assertSized("  REQUIRE(v.size() == 2);\n  if (v[0] == 1) {\n    f();\n  }", "v")
+
+
+class SizeThenIndexTrueNegatives(SizeIndexScanTestCase):
+    """A detector that flags the SAFE loop-bounded sites is worse than none.
+
+    #844 counts 14 sites in the corpus whose index is bounded by the container's
+    own size(). Every one of them must stay green, or the backlog becomes
+    unreadable and the guard gets regenerated instead of read.
+    """
+
+    def test_loop_bounded_by_its_own_size_is_safe(self):
+        self.assertNotSized(
+            "  REQUIRE(opacities.size() == 4);\n"
+            "  for (uint32_t i = 0; i < opacities.size(); i++) {\n"
+            "    CHECK(Math::is_equal_approx(opacities[i], expected));\n"
+            "  }"
+        )
+
+    def test_brace_less_loop_body_bounded_by_its_own_size_is_safe(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 4);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++)\n"
+            "    CHECK(v[i] == i);"
+        )
+
+    def test_nested_block_inside_an_own_size_bounded_loop_is_safe(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 4);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n"
+            "    if (other) {\n"
+            "      CHECK(v[i] == i);\n"
+            "    }\n"
+            "  }"
+        )
+
+    def test_if_guarded_by_its_own_size_is_safe(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 2);\n  if (v.size() > 0) {\n    CHECK(v[0] == 1);\n  }"
+        )
+
+    def test_asserting_empty_is_not_a_lower_bound(self):
+        """`CHECK(v.is_empty())` failing makes v LONGER, not shorter."""
+        self.assertNotSized("  CHECK(v.is_empty());\n  CHECK(v[0] == 5);")
+
+    def test_asserting_size_zero_is_not_a_lower_bound(self):
+        self.assertNotSized("  CHECK(v.size() == 0);\n  CHECK(v[0] == 5);")
+
+    def test_upper_bound_only_is_not_a_lower_bound(self):
+        self.assertNotSized("  CHECK(v.size() <= 256);\n  CHECK(v[0] == 5);")
+
+    def test_vacuous_ge_zero_is_not_a_lower_bound(self):
+        self.assertNotSized("  CHECK(v.size() >= 0);\n  CHECK(v[0] == 5);")
+
+    def test_size_nested_in_another_call_is_not_a_predicate_on_it(self):
+        """`REQUIRE(out.resize(ground_truth.size()) == OK)` says nothing about
+        ground_truth's length."""
+        self.assertNotSized(
+            "  REQUIRE(out.resize(ground_truth.size()) == OK);\n"
+            "  const Input &c = ground_truth[i];"
+        )
+
+    def test_a_different_container_is_not_the_asserted_one(self):
+        self.assertNotSized("  REQUIRE(v.size() == 2);\n  CHECK(other[0] == 1);")
+
+    def test_a_longer_name_is_not_the_asserted_one(self):
+        self.assertNotSized("  REQUIRE(keep.size() == 2);\n  CHECK(keep2[0] == 1);")
+
+    def test_short_circuit_guard_dominates(self):
+        self.assertNotSized(
+            "  CHECK_EQ(chunks.size(), 2);\n  const bool ok = chunks.size() >= 2 && f(chunks[0]);"
+        )
+
+    def test_a_length_change_between_ends_the_scan(self):
+        self.assertNotSized("  REQUIRE(v.size() == 2);\n  v.clear();\n  CHECK(v[0] == 1);")
+
+    def test_a_reassignment_between_ends_the_scan(self):
+        self.assertNotSized("  REQUIRE(v.size() == 2);\n  v = rebuild();\n  CHECK(v[0] == 1);")
+
+    def test_no_index_at_all(self):
+        self.assertNotSized("  REQUIRE(v.size() == 2);\n  CHECK(v.get_total() == 4);")
+
+
+class SizeIndexFailsClosed(unittest.TestCase):
+    """Unreadable or unlexable input must FAIL, never read as 'no violations'."""
+
+    def _scan(self, text: str, name: str = "test_synthetic.h"):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / name
+            path.write_bytes(text.encode("utf-8") if isinstance(text, str) else text)
+            return GUARD._scan_file_size_index(path)
+
+    def test_missing_file_is_a_scan_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(GUARD.ScanError):
+                GUARD._scan_file_size_index(Path(tmp) / "absent.h")
+
+    def test_invalid_utf8_is_a_scan_error_not_a_replacement_character(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "test_synthetic.h"
+            path.write_bytes(b'TEST_CASE("x") { REQUIRE(v.size() == 2); \xff\xfe }')
+            with self.assertRaises(GUARD.ScanError):
+                GUARD._scan_file_size_index(path)
+            with self.assertRaises(GUARD.ScanError):
+                GUARD._scan_file(path)
+
+    def test_unterminated_raw_string_is_a_scan_error(self):
+        with self.assertRaises(GUARD.ScanError):
+            self._scan('const char *p = R"delim(never closed\nREQUIRE(v.size() == 2);\n')
+
+    def test_terminated_raw_string_is_blanked_and_keeps_line_numbers(self):
+        sites = self._scan(
+            'const char *p = R"(ply\nformat ascii\nend_header\n)";\n'
+            "TEST_CASE(\"x\") {\n  REQUIRE(v.size() == 2);\n  CHECK(v[0] == 1);\n}\n"
+        )
+        self.assertEqual(len(sites), 1)
+        self.assertEqual(sites[0][0], 6, "the assertion is on line 6 of the original file")
+
+    def test_unbalanced_assertion_parens_are_a_scan_error(self):
+        with self.assertRaises(GUARD.ScanError):
+            GUARD._size_assertions("REQUIRE(v.size() == 2;", "test_synthetic.h")
+
+    def test_scan_errors_fail_the_run_rather_than_reporting_clean(self):
+        found, errors = GUARD.scan_all_size_index()
+        self.assertEqual(errors, [], "the shipped corpus must scan cleanly")
+        self.assertTrue(found)
+
+
+class SizeIndexRatchet(unittest.TestCase):
+    """The baseline is shrink-only: an addition fails, and so does a stale entry."""
+
+    def _prints(self, body: str) -> list[str]:
+        source = 'TEST_CASE("[Synthetic] case") {\n' + body + "\n}\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "test_synthetic.h"
+            path.write_text(source, encoding="utf-8")
+            return sorted(
+                GUARD.size_index_fingerprint(site[1], site[2], site[3], site[5])
+                for site in GUARD._scan_file_size_index(path)
+            )
+
+    def test_swap_keeps_the_count_but_changes_the_fingerprints(self):
+        before = self._prints("  REQUIRE(alpha.size() == 2);\n  CHECK(alpha[0] == 1);")
+        after = self._prints("  REQUIRE(beta.size() == 2);\n  CHECK(beta[0] == 1);")
+        self.assertEqual(len(before), 1)
+        self.assertEqual(len(after), 1, "count is unchanged - this is the hole")
+        self.assertNotEqual(before, after)
+
+    def test_fingerprint_is_independent_of_line_number(self):
+        plain = self._prints("  REQUIRE(v.size() == 2);\n  CHECK(v[0] == 1);")
+        shifted = self._prints(
+            "  int filler = 0;\n  (void)filler;\n  REQUIRE(v.size() == 2);\n  CHECK(v[0] == 1);"
+        )
+        self.assertEqual(plain, shifted)
+
+    def test_a_second_index_under_the_same_assertion_is_a_new_fingerprint(self):
+        one = self._prints("  REQUIRE(v.size() == 2);\n  CHECK(v[0] == 1);")
+        two = self._prints("  REQUIRE(v.size() == 2);\n  CHECK(v[1] == 1);")
+        self.assertNotEqual(one, two, "hashing only the assertion would collapse these")
+
+    def test_a_new_site_is_reported_as_added_against_the_shipped_baseline(self):
+        baseline, _ = GUARD.load_size_index_baseline()
+        added = self._prints("  REQUIRE(brand_new_vec.size() == 9);\n  CHECK(brand_new_vec[0]);")
+        self.assertEqual(len(added), 1)
+        self.assertEqual(
+            GUARD._multiset_difference(added, baseline.get("test_synthetic.h", [])), added
+        )
+
+
+class SizeIndexBaselineIntegrity(unittest.TestCase):
+    def test_baseline_loads(self):
+        baseline, problems = GUARD.load_size_index_baseline()
+        self.assertEqual(problems, [])
+        self.assertTrue(baseline)
+
+    def test_baseline_entries_are_non_empty(self):
+        baseline, _ = GUARD.load_size_index_baseline()
+        for name, prints in baseline.items():
+            self.assertTrue(prints, f"{name}: an empty baseline entry should be removed")
+
+    def test_baseline_matches_the_corpus(self):
+        prints, errors = GUARD.scan_size_index_fingerprints()
+        self.assertEqual(errors, [])
+        baseline, _ = GUARD.load_size_index_baseline()
+        self.assertEqual(
+            prints, baseline, "baseline has drifted from the corpus; run the guard for the diff."
+        )
+
+    def test_missing_baseline_file_is_a_failure_not_a_pass(self):
+        original = GUARD.SIZE_INDEX_BASELINE_PATH
+        try:
+            GUARD.SIZE_INDEX_BASELINE_PATH = original.with_name("does_not_exist.json")
+            _, problems = GUARD.load_size_index_baseline()
+            self.assertTrue(problems)
+        finally:
+            GUARD.SIZE_INDEX_BASELINE_PATH = original
+
+    def test_the_count_reconciles_with_issue_844(self):
+        """#844's sweep: 46 dangerous, 4 fixed by #843 -> 42 remaining.
+
+        This detector reports 50 = 43 straight-line + 7 bounded only by ANOTHER
+        container's size(). See the guard's docstring for the +1/+7 reconciliation;
+        pinned here so the split cannot drift without someone re-deciding it.
+        """
+        found, errors = GUARD.scan_all_size_index()
+        self.assertEqual(errors, [])
+        sites = [site for file_sites in found.values() for site in file_sites]
+        straight = [s for s in sites if s[6] == GUARD._CLASS_STRAIGHT_LINE]
+        other = [s for s in sites if s[6] == GUARD._CLASS_OTHER_BOUND]
+        self.assertEqual(len(straight), 43)
+        self.assertEqual(len(other), 7)
+        self.assertEqual(len(sites), 50)
+
+    def test_the_named_concentrations_in_issue_844_reconcile_exactly(self):
+        """#844 names three files by count. All three match the straight-line
+        population, which is the evidence that this is the same set of sites and
+        not a different set of similar size."""
+        found, _ = GUARD.scan_all_size_index()
+        expected = {
+            "test_renderer_pipeline.h": 7,
+            "test_resident_atlas_budget.h": 7,
+            "test_gaussian_importance.h": 5,
+        }
+        for name, count in expected.items():
+            straight = [
+                s for s in found.get(name, []) if s[6] == GUARD._CLASS_STRAIGHT_LINE
+            ]
+            self.assertEqual(len(straight), count, name)
+
+
 class BaselineIntegrity(unittest.TestCase):
     def test_baseline_loads(self):
         baseline, problems = GUARD.load_baseline()
