@@ -67,6 +67,7 @@ HEADLESS_GAUSSIAN_SCOPED_TAGS: tuple[str, ...] = (
     "ComputeInfra",
     "Config",
     "Container",
+    "DataAuthority",  # #846: promoted from the advisory [untagged] lane to a strict blocking lane.
     "Editor",
     "Importer",
     "MalformedCorpus",  # G2: the aggregate malformed-input gate (WorldIO/PLY/SPZ/Persistence).
@@ -130,6 +131,24 @@ MODULE_TEST_FILTERS: tuple[tuple[str, tuple[str, ...], tuple[str, ...], bool], .
     ("GaussianSplatting [MalformedCorpus]", ("*GaussianSplatting*][MalformedCorpus]*",), ("*][RequiresGPU]*",), True),
     ("GaussianSplatting [SPZ]", ("*GaussianSplatting*][SPZ]*",), ("*][RequiresGPU]*",), True),
     ("GaussianSplatting [AtomicWrite]", ("*GaussianSplatting*][AtomicWrite]*",), ("*][RequiresGPU]*",), True),
+    # #846: same promotion, same reason. The 11 [DataAuthority] cases ran only in
+    # the advisory [untagged] lane, where _report_failed_lane() returns True
+    # ("advisory lane, continuing"), so a failure could not fail the runner. Five
+    # of them are the ONLY executable proof of the defects fixed in #805 (the
+    # coherent reset that bumps payload_version and emits `changed`; the failed
+    # lane SHRINK that left the lane oversized -- an actual OOB read captured
+    # under cdb as c0000005; the getter-allocation refusal that stops a defaulted
+    # payload being cached; the transactional materialization; and the merge that
+    # refuses rather than substituting defaults). Fail-closed persistence proofs
+    # that cannot fail CI are not proofs, so this lane blocks.
+    #
+    # Promotion gated on measured stability, not on one green run (the reason
+    # #805 did not do it): 25 full-lane runs (11/11 cases, 190/190 assertions,
+    # zero variance) plus 100 dedicated runs of the one threaded case, "Animated
+    # accessors tolerate concurrent payload mutation" -- 60 on a quiet box and 40
+    # under 4-way self-contention to shift the interleaving -- all 98/98 with no
+    # crash and no assertion-count drift. 125 runs, zero failures.
+    ("GaussianSplatting [DataAuthority]", ("*GaussianSplatting*][DataAuthority]*",), ("*][RequiresGPU]*",), True),
     # Safety-net lane for unscoped [GaussianSplatting] tests.  Advisory because
     # doctest's --test-case-exclude parsing is unreliable beyond ~10 repeated
     # flags, so the exclude list cannot guarantee precise filtering.  Real
