@@ -2206,9 +2206,15 @@ void GaussianSplatNode3D::_ensure_renderer() {
 // memdelete a second time (PREDELETE's "kill children as cleanly as possible"
 // loop). That is a use-after-free, and it is silent.
 //
-// The callers below are structured so the refusal cannot happen (see
-// _ensure_projected_debug_hud_host()). This is the fail-safe that keeps a mistake
-// in that structure a loud leak instead of a use-after-free.
+// The projected callers below are structured so the refusal cannot happen (see
+// _ensure_projected_debug_hud_host()); the node's own HUD layer is parented to
+// the node itself and CAN be refused. This is the fail-safe that keeps both a
+// loud, recoverable refusal instead of a use-after-free.
+//
+// #839 round 11: `false` means "still parented, still yours". EVERY caller keeps
+// its pointer on false, so the refused node is reused by the next enable and the
+// next unblocked teardown frees it. Dropping the pointer instead would strand a
+// node nobody owns and grow the residue once per blocked teardown.
 static bool _detach_and_free_debug_hud_node(Node *p_node) {
     if (!p_node) {
         return false;
@@ -2217,7 +2223,8 @@ static bool _detach_and_free_debug_hud_node(Node *p_node) {
         parent->remove_child(p_node);
         if (p_node->get_parent() != nullptr) {
             ERR_PRINT("GaussianSplatNode3D: a debug HUD node could not be unparented (parent is blocked); "
-                      "leaking it rather than leaving a dangling child entry behind.");
+                      "keeping it parented and retained for a later retry rather than leaving a dangling "
+                      "child entry behind.");
             return false;
         }
     }
@@ -2257,13 +2264,28 @@ void GaussianSplatNode3D::_destroy_debug_hud_control() {
         // where `this` can be a strict ancestor of the peer that is leaving and is
         // therefore blocked. The layer's own parent is `this`, so the free must
         // not proceed on a refused unparent.
-        _detach_and_free_debug_hud_node(debug_hud_control);
-        debug_hud_control = nullptr;
+        //
+        // #839 round 11: and the pointer is KEPT when it is refused, exactly as
+        // _destroy_projected_debug_hud_host() already does. Dropping it strands a
+        // still-parented node with no owner: _ensure_debug_hud_control() then
+        // builds a second one on the next enable, Node::_validate_child_name()
+        // silently renames it, and every blocked teardown adds one more. Keeping
+        // it makes the residue a single reusable node instead, and the next
+        // reconcile that runs unblocked retries the free.
+        if (_detach_and_free_debug_hud_node(debug_hud_control)) {
+            debug_hud_control = nullptr;
+        }
     }
 
-    if (debug_hud_layer) {
-        _detach_and_free_debug_hud_node(debug_hud_layer);
-        debug_hud_layer = nullptr;
+    // Strictly after the control is gone: the control is parented UNDER the
+    // layer, so freeing the layer while a refused control is still its child
+    // would free that control through NOTIFICATION_PREDELETE's kill-children loop
+    // and leave debug_hud_control dangling. Retaining a pointer is only safe if
+    // nothing above it in the tree is freed out from under it.
+    if (debug_hud_layer && !debug_hud_control) {
+        if (_detach_and_free_debug_hud_node(debug_hud_layer)) {
+            debug_hud_layer = nullptr;
+        }
     }
 }
 
@@ -2378,12 +2400,28 @@ void GaussianSplatNode3D::_update_projected_debug_huds() {
 
     for (uint32_t i = 0; i < wanted.size(); i++) {
         ProjectedDebugHUD *existing = projected_debug_huds.getptr(wanted[i]);
+        // #839 round 11: an entry with no control is one a refused teardown
+        // retained (creation always sets both). Retry the teardown here -- this
+        // reconcile is not inside the data.blocked window that refused it -- and
+        // let the erase below re-enter the normal create path. Never re-arm on top
+        // of the leftovers: the refused pass already dropped the layer's
+        // tree_exiting connection, so the record is no longer self-sufficient.
+        if (existing && existing->control == nullptr) {
+            _destroy_projected_debug_hud(wanted[i]);
+            existing = projected_debug_huds.getptr(wanted[i]);
+        }
         if (!existing) {
             _create_projected_debug_hud(wanted[i]);
             continue;
         }
         if (existing->control) {
             existing->control->set_splat_node(this);
+            // #839 round 11: visible/process are re-armed, not assumed. A record
+            // whose teardown was refused kept a control that teardown had already
+            // hidden and stopped, and this is the path that has to bring it back.
+            // Idempotent on the ordinary record, which is already both.
+            existing->control->set_visible(true);
+            existing->control->set_process(true);
             existing->control->refresh_stats();
         }
     }
@@ -2459,15 +2497,34 @@ void GaussianSplatNode3D::_destroy_projected_debug_hud(ObjectID p_viewport_id) {
         projected->control->set_splat_node(nullptr);
         projected->control->set_visible(false);
         projected->control->set_process(false);
-        _detach_and_free_debug_hud_node(projected->control);
-        projected->control = nullptr;
+        // #839 round 11: same preserve-on-refusal contract as
+        // _destroy_debug_hud_control() and _destroy_projected_debug_hud_host().
+        // The host makes a refusal unreachable here BY CONSTRUCTION (see
+        // _ensure_projected_debug_hud_host()), but the whole point of the round-10
+        // fail-safe is that a mistake in that construction must not compound: if
+        // the free is ever refused, the record has to keep pointing at the node
+        // that is still parented.
+        if (_detach_and_free_debug_hud_node(projected->control)) {
+            projected->control = nullptr;
+        }
     }
-    if (projected->layer) {
-        _detach_and_free_debug_hud_node(projected->layer);
-        projected->layer = nullptr;
+    // Strictly after the control: it is parented under the layer (see
+    // _destroy_debug_hud_control() for the same ordering constraint).
+    if (projected->layer && !projected->control) {
+        if (_detach_and_free_debug_hud_node(projected->layer)) {
+            projected->layer = nullptr;
+        }
     }
 
-    projected_debug_huds.erase(p_viewport_id);
+    // Only forget the projection once nothing survived it. A retained record is
+    // what makes the retry possible at all: _update_projected_debug_huds() drives
+    // both directions off this map, so an entry whose viewport is no longer wanted
+    // comes back through here on the next reconcile -- unblocked by then -- and an
+    // entry whose viewport is still wanted is re-armed there instead of being
+    // rebuilt on top of the leftovers.
+    if (projected->control == nullptr && projected->layer == nullptr) {
+        projected_debug_huds.erase(p_viewport_id);
+    }
 }
 
 void GaussianSplatNode3D::_destroy_projected_debug_huds() {
@@ -2537,6 +2594,16 @@ Node *GaussianSplatNode3D::_ensure_projected_debug_hud_host() {
 
 void GaussianSplatNode3D::_destroy_projected_debug_hud_host() {
     if (!projected_debug_hud_host) {
+        return;
+    }
+    // #839 round 11: the projected layers are the host's children, so freeing it
+    // while _destroy_projected_debug_hud() retained one would take that layer down
+    // through PREDELETE's kill-children loop and leave the map pointing at freed
+    // memory -- the exact failure the retention exists to avoid. A non-empty map
+    // here means a teardown was refused; the host then goes down with this node
+    // like the layer it still parents. In the ordinary case the callers above have
+    // already emptied the map, so this changes nothing.
+    if (!projected_debug_huds.is_empty()) {
         return;
     }
     // Keep the pointer when the free was refused: the host is still parented and

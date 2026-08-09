@@ -271,6 +271,54 @@ CanvasLayer *find_debug_hud_layer_in_viewport(Node *p_search_root, const Viewpor
     return nullptr;
 }
 
+// #839 round 11: every CanvasLayer p_node has parented into p_viewport, EMPTY
+// ONES INCLUDED.
+//
+// count_debug_hud_controls_in_viewport() above only counts a layer that still
+// carries a GaussianSplatDebugHUD child, and node_has_debug_hud_control() only
+// asks whether SOME child answers to the name "GaussianSplatDebugHUDLayer" --
+// neither can see a layer that was emptied out and abandoned, and an abandoned
+// layer is precisely the residue this round is about. Worse, both would report
+// the leak as healthy: Node::_validate_child_name() renames the duplicate that
+// the next enable adds to "@GaussianSplatDebugHUDLayer@N", so the original stays
+// findable under its own name while a second one draws the HUD.
+//
+// Read from the VIEWPORT's side like its neighbours: CanvasLayer::get_viewport()
+// is the RID the layer bound on ENTER_TREE, which is what "this overlay occupies
+// that viewport" actually means. The parent filter is what makes it specific to
+// the node's OWN, viewport-local HUD -- the projected layers of round 9 hang off
+// the host and bind a different viewport.
+int count_node_canvas_layers_in_viewport(Node *p_search_root, const Node *p_node, const Viewport *p_viewport) {
+    if (p_search_root == nullptr || p_node == nullptr || p_viewport == nullptr) {
+        return 0;
+    }
+    const RID viewport_rid = p_viewport->get_viewport_rid();
+    if (!viewport_rid.is_valid()) {
+        return 0;
+    }
+    int count = 0;
+    List<Node *> pending;
+    pending.push_back(p_search_root);
+    while (!pending.is_empty()) {
+        Node *node = pending.front()->get();
+        pending.pop_front();
+        if (node == nullptr) {
+            continue;
+        }
+        for (int i = 0; i < node->get_child_count(); i++) {
+            pending.push_back(node->get_child(i));
+        }
+        CanvasLayer *layer = Object::cast_to<CanvasLayer>(node);
+        if (layer == nullptr || layer->get_parent() != p_node) {
+            continue;
+        }
+        if (layer->get_viewport() == viewport_rid) {
+            count++;
+        }
+    }
+    return count;
+}
+
 // #839 round 10 (finding 1): counts engine ERRORS emitted while it is in scope.
 //
 // The defect it discriminates is a refused Node::remove_child() -- an
@@ -3135,6 +3183,199 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] A projected debug H
 
     node->set_show_performance_hud(false);
     CHECK(count_debug_hud_controls_in_viewport(root, viewport_hosted) == 0);
+
+    teardown();
+}
+
+// #839 round 11: the CALLER side of round 10's fail-safe.
+//
+// _detach_and_free_debug_hud_node() refuses to free a node whose parent refused
+// to unparent it, which is what turns a use-after-free into a leak. But
+// _destroy_debug_hud_control() then assigned `debug_hud_layer = nullptr`
+// unconditionally, discarding the only pointer to a node that is still parented
+// and still bound to the viewport's canvas. The next enable therefore built a
+// SECOND GaussianSplatDebugHUDLayer, and every blocked teardown added one more.
+// _destroy_projected_debug_hud_host() already kept its pointer on refusal, so
+// this was an internal inconsistency rather than an open design question.
+//
+// The blocked window, exactly: Node::remove_child() (scene/main/node.cpp) does
+// `data.blocked++; p_child->_set_tree(nullptr); ... data.blocked--`, so the
+// PARENT is blocked for the whole of the child's _propagate_exit_tree() --
+// including the NOTIFICATION_EXIT_TREE in which the departing node runs
+// _unregister_shared_renderer() ->
+// GaussianSplatNodeDebugHelper::reconcile_debug_overlay_union_for_renderer() ->
+// _update_debug_hud_visibility() on every remaining peer. When the remaining peer
+// is the departing node's own PARENT and the departing node was the only thing
+// holding the HUD on, that reconcile destroys the parent's HUD while the parent
+// cannot unparent anything. The layer's parent is that node, so the unparent is
+// refused; the control's parent is the layer, which is not blocked, so the
+// control goes down normally and the layer is left EMPTY.
+//
+// Which is why the counting helper matters: an emptied-out layer is invisible to
+// count_debug_hud_controls_in_viewport() (no HUD child left) and, because
+// Node::_validate_child_name() renames the duplicate to
+// "@GaussianSplatDebugHUDLayer@N", it is also invisible to
+// node_has_debug_hud_control() -- the abandoned one keeps the readable name. The
+// leak is only observable by counting the node's CanvasLayers on that viewport.
+//
+// The peer is deliberately DATA-LESS. The director never registers such a node
+// (round 7), and _elect_debug_hud_owner() enumerates the director's instances, so
+// the peer can never win the HUD election while it still counts in the overlay
+// union -- which pins "the peer requests, the parent draws" without depending on
+// the director's iteration order.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] A refused native HUD teardown reuses its layer instead of accumulating abandoned ones") {
+    // #656: REQUIRE does not abort in this build (disable_exceptions=True), so
+    // guard-then-return rather than dereferencing after a REQUIRE.
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    if (!project_settings) {
+        FAIL("ProjectSettings singleton required");
+        return;
+    }
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    if (!director) {
+        FAIL("GaussianSplatSceneDirector singleton required");
+        return;
+    }
+    ProjectSettingGuard hud_guard(project_settings, "rendering/gaussian_splatting/debug/show_performance_hud");
+
+    GaussianSplatNode3D *owner_node = memnew(GaussianSplatNode3D);
+    owner_node->set_splat_asset(make_single_splat_asset(0.0f));
+    owner_node->set_show_performance_hud(false);
+    owner_node->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    root->add_child(owner_node);
+    tree->process(0.0);
+
+    GaussianSplatNode3D *peer = memnew(GaussianSplatNode3D);
+    peer->set_show_performance_hud(false);
+    peer->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    owner_node->add_child(peer);
+    tree->process(0.0);
+
+    GaussianSplatNode3D *second_peer = nullptr;
+
+    auto teardown = [&]() {
+        if (peer) {
+            owner_node->remove_child(peer);
+            memdelete(peer);
+            peer = nullptr;
+        }
+        if (second_peer) {
+            owner_node->remove_child(second_peer);
+            memdelete(second_peer);
+            second_peer = nullptr;
+        }
+        root->remove_child(owner_node);
+        memdelete(owner_node);
+    };
+
+    // Round-8 vacuity trap: get_renderer() runs _ensure_renderer(), which can
+    // repair the very state the discriminators observe, so every resolve happens
+    // HERE, before the HUD is asked for.
+    Ref<GaussianSplatRenderer> renderer = owner_node->get_renderer();
+    Viewport *viewport = owner_node->get_viewport();
+    // #595: no environment skip -- a skip is scored as a PASS.
+    const bool renderer_ok = renderer.is_valid();
+    const bool peer_shares = renderer_ok && peer->get_renderer() == renderer;
+    const bool peer_nested = owner_node->is_ancestor_of(peer);
+    const bool same_viewport = viewport != nullptr && peer->get_viewport() == viewport;
+    // PREMISE, not the contract: only owner_node is registered, so it is the only
+    // node the HUD election can pick.
+    const uint32_t registered = renderer_ok ? director->get_instance_count_for_renderer(renderer.ptr()) : 0u;
+
+    if (!renderer_ok || !peer_shares || !peer_nested || !same_viewport || registered != 1u) {
+        FAIL("premise: both nodes must share one renderer and one viewport, the peer must be a CHILD of the owner, and the data-less peer must be the unregistered one");
+        teardown();
+        return;
+    }
+
+    CHECK_FALSE(renderer->is_debug_hud_source_active());
+    CHECK(count_node_canvas_layers_in_viewport(root, owner_node, viewport) == 0);
+
+    // ---- cycle 1: the refusal ------------------------------------------------
+    peer->set_show_performance_hud(true);
+    // Premises, taken where the counts are taken so the RED run demonstrably
+    // reaches the branch: the renderer wants a HUD, the PARENT is the one drawing
+    // it, and round 6's "exactly one HUD per viewport" still holds.
+    CHECK(renderer->is_debug_hud_source_active());
+    CHECK(count_debug_hud_controls_in_viewport(root, viewport) == 1);
+    CHECK(count_node_canvas_layers_in_viewport(root, owner_node, viewport) == 1);
+    CHECK(count_node_canvas_layers_in_viewport(root, peer, viewport) == 0);
+
+    int refusals = 0;
+    String refusal_text;
+    {
+        ScopedEngineErrorCapture errors;
+        owner_node->remove_child(peer);
+        refusal_text = errors.joined();
+        for (int i = 0; i < errors.messages.size(); i++) {
+            if (errors.messages[i].find("could not be unparented") >= 0) {
+                refusals++;
+            }
+        }
+    }
+    memdelete(peer);
+    peer = nullptr;
+
+    // PREMISE that must also pass in the RED run: without a refused unparent the
+    // branch under test is never entered and everything below is vacuous. Counted
+    // as ">= 1" on purpose -- how many times the exit fan-out reconciles the owner
+    // is not part of this contract.
+    CHECK_MESSAGE(refusals >= 1,
+            "the departing child's exit must refuse at least one HUD unparent, got: ", refusal_text);
+    CHECK(count_debug_hud_controls_in_viewport(root, viewport) == 0);
+
+    // ---- cycle 2: does the refusal ACCUMULATE? -------------------------------
+    second_peer = memnew(GaussianSplatNode3D);
+    second_peer->set_show_performance_hud(false);
+    second_peer->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    owner_node->add_child(second_peer);
+    tree->process(0.0);
+    if (second_peer->get_renderer() != renderer) {
+        FAIL("premise: the second data-less peer must bind the same shared renderer");
+        teardown();
+        return;
+    }
+
+    second_peer->set_show_performance_hud(true);
+    CHECK(renderer->is_debug_hud_source_active());
+    CHECK(count_debug_hud_controls_in_viewport(root, viewport) == 1);
+
+    // DISCRIMINATOR 1: the HUD is back, on ONE layer. Pre-fix the refused teardown
+    // abandoned the first layer -- still parented, still bound to this viewport --
+    // and _ensure_debug_hud_control() built a second one beside it.
+    CHECK(count_node_canvas_layers_in_viewport(root, owner_node, viewport) == 1);
+
+    {
+        ScopedEngineErrorCapture errors;
+        owner_node->remove_child(second_peer);
+    }
+    memdelete(second_peer);
+    second_peer = nullptr;
+
+    // ---- and once more, driven by the owner's own flag -----------------------
+    owner_node->set_show_performance_hud(true);
+    CHECK(renderer->is_debug_hud_source_active());
+    CHECK(count_debug_hud_controls_in_viewport(root, viewport) == 1);
+    // DISCRIMINATOR 2: two refused teardowns later, still one layer. Pre-fix: three.
+    CHECK(count_node_canvas_layers_in_viewport(root, owner_node, viewport) == 1);
+
+    // DISCRIMINATOR 3: the retained layer is not immortal either. This disable runs
+    // OUTSIDE any blocked window, so the retry that keeping the pointer makes
+    // possible at all actually completes. Pre-fix the abandoned layers stayed for
+    // the lifetime of the node.
+    owner_node->set_show_performance_hud(false);
+    CHECK(count_debug_hud_controls_in_viewport(root, viewport) == 0);
+    CHECK(count_node_canvas_layers_in_viewport(root, owner_node, viewport) == 0);
 
     teardown();
 }
