@@ -1,9 +1,6 @@
 #ifndef GAUSSIAN_SPLAT_NODE_HELPERS_H
 #define GAUSSIAN_SPLAT_NODE_HELPERS_H
 
-#include "core/object/object_id.h"
-#include "core/templates/local_vector.h"
-
 #include <cstdint>
 
 class Dictionary;
@@ -78,16 +75,6 @@ public:
     // owning the renderer's scene data, and requiring it left a world-backed
     // shared renderer with NO eligible node at all.
     bool can_own_debug_hud() const;
-    // #839 round 9 (#847): the viewports this node must PROJECT a HUD into --
-    // viewports that render this renderer's World3D (they resolve it AND have an
-    // active Camera3D) but contain no splat node, so can_own_debug_hud() elects
-    // nobody for them and they could never show a HUD at all.
-    //
-    // Returns empty unless this node is the renderer-wide projector, and never
-    // lists a viewport that already has an elected owner -- so a viewport gets a
-    // native HUD or a projected one, never both. See the definition in
-    // gaussian_splat_node_helpers.cpp.
-    void collect_debug_hud_projection_viewports(LocalVector<ObjectID> &r_viewport_ids) const;
     // #839 round 3, thread B: recompute and push the union from the renderer's
     // CURRENT registered node set, with no "self" seed. push_debug_overlay_union()
     // cannot do this job when the observing node is the one that just left: it

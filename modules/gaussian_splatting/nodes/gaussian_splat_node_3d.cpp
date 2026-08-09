@@ -26,7 +26,6 @@
 #include "scene/main/canvas_layer.h"
 #include "scene/main/viewport.h"
 #include "scene/resources/3d/world_3d.h"
-#include "scene/scene_string_names.h"
 #include "servers/rendering/renderer_scene_cull.h"
 #include "servers/rendering/renderer_rd/storage_rd/gaussian_splat_storage.h"
 #include "servers/rendering/renderer_rd/storage_rd/texture_storage.h"
@@ -390,16 +389,6 @@ void GaussianSplatNode3D::_notification_enter_world() {
 
 void GaussianSplatNode3D::_notification_exit_tree() {
     _destroy_debug_hud_control();
-    // #839 round 9 (#847): a projected layer holds a raw Viewport* it will
-    // dereference on its own EXIT_TREE, and leaving the tree is the point at
-    // which this node stops being anybody's projector.
-    _destroy_projected_debug_huds();
-    // #839 round 10 (finding 1): the host is added to and removed from THIS node,
-    // and this is the one callback where that is provably safe --
-    // Node::_propagate_exit_tree() lowers data.blocked before it notifies
-    // NOTIFICATION_EXIT_TREE, so `this` is never blocked here (a strict ancestor
-    // may be, which is irrelevant: we only touch our own children).
-    _destroy_projected_debug_hud_host();
     visible_in_viewport = false;
     _update_visibility();
     _clear_parent_visibility_tracking();
@@ -2206,9 +2195,13 @@ void GaussianSplatNode3D::_ensure_renderer() {
 // memdelete a second time (PREDELETE's "kill children as cleanly as possible"
 // loop). That is a use-after-free, and it is silent.
 //
-// The projected callers below are structured so the refusal cannot happen (see
-// _ensure_projected_debug_hud_host()); the node's own HUD layer is parented to
-// the node itself and CAN be refused. This is the fail-safe that keeps both a
+// The node's own HUD layer is parented to the node itself, so the refusal is
+// REACHABLE: _destroy_debug_hud_control() runs from a peer's exit-time reconcile
+// fan-out (_notify_debug_hud_dirty_for_renderer ->
+// GaussianSplatNodeDebugHelper::reconcile_debug_overlay_union_for_renderer ->
+// peer->_update_debug_hud_visibility()), and the departing peer may be a
+// descendant of this node -- Node::remove_child() blocks the parent for the whole
+// of the child's _propagate_exit_tree(). This is the fail-safe that keeps that a
 // loud, recoverable refusal instead of a use-after-free.
 //
 // #839 round 11: `false` means "still parented, still yours". EVERY caller keeps
@@ -2265,9 +2258,8 @@ void GaussianSplatNode3D::_destroy_debug_hud_control() {
         // therefore blocked. The layer's own parent is `this`, so the free must
         // not proceed on a refused unparent.
         //
-        // #839 round 11: and the pointer is KEPT when it is refused, exactly as
-        // _destroy_projected_debug_hud_host() already does. Dropping it strands a
-        // still-parented node with no owner: _ensure_debug_hud_control() then
+        // #839 round 11: and the pointer is KEPT when it is refused. Dropping it
+        // strands a still-parented node with no owner: _ensure_debug_hud_control() then
         // builds a second one on the next enable, Node::_validate_child_name()
         // silently renames it, and every blocked teardown adds one more. Keeping
         // it makes the residue a single reusable node instead, and the next
@@ -2323,13 +2315,6 @@ void GaussianSplatNode3D::_update_debug_hud_visibility() {
         should_show_hud = renderer->is_debug_hud_source_active() &&
                 debug_helper.can_own_debug_hud();
     }
-
-    // #839 round 9 (#847): unconditionally, and BEFORE the early return below --
-    // "this node is not its own viewport's HUD owner" says nothing about whether
-    // it is the renderer's projector, and a node that stops being the projector
-    // still has to take its projected HUDs down.
-    _update_projected_debug_huds();
-
     if (!should_show_hud) {
         _destroy_debug_hud_control();
         return;
@@ -2344,278 +2329,6 @@ void GaussianSplatNode3D::_update_debug_hud_visibility() {
     debug_hud_control->set_process(true);
     debug_hud_control->set_splat_node(this);
     debug_hud_control->refresh_stats();
-}
-
-// #839 round 9 (#847): a SubViewport that shares a World3D with the splat nodes
-// renders their splats -- the render instances live in the world's scenario, so
-// any camera on that world sees them -- but could never show a debug HUD, because
-// the round-6 election only ever considers the renderer's splat-node peers and
-// such a viewport has none.
-//
-// The HUD is projected rather than re-homed: CanvasLayer::set_custom_viewport()
-// (scene/main/canvas_layer.cpp) lets a layer that is parented under THIS node
-// attach itself to a different viewport's canvas. So the ownership model of
-// rounds 2-8 is untouched -- HUD controls are still owned, updated and destroyed
-// by a GaussianSplatNode3D -- and no node is added to anybody else's subtree.
-//
-// The alternative shape, moving HUD ownership onto the renderer or the viewport,
-// was rejected: GaussianSplatRenderer is a RefCounted with no place in the scene
-// tree, so it would still need a node-side agent to host the CanvasLayer, and it
-// would have to re-derive the per-viewport uniqueness that round 6 already
-// establishes. That is a strictly larger diff for the same result.
-void GaussianSplatNode3D::_update_projected_debug_huds() {
-    // Same short-circuit as _update_debug_hud_visibility(): the collection below
-    // walks the scene tree, so it must not run on frames where nothing wants a
-    // HUD at all. The tree/world test mirrors can_own_debug_hud()'s own
-    // precondition, so a node on its way out of the tree can only ever REMOVE
-    // projected HUDs here, never create one.
-    if (!is_inside_tree() || !is_inside_world() || !renderer.is_valid() ||
-            !renderer->is_debug_hud_source_active()) {
-        _destroy_projected_debug_huds();
-        return;
-    }
-
-    LocalVector<ObjectID> wanted;
-    debug_helper.collect_debug_hud_projection_viewports(wanted);
-
-    // Drop the ones that are no longer wanted first, so a viewport that just
-    // gained a splat node of its own loses the projected HUD before that node's
-    // own election hands it a native one.
-    LocalVector<ObjectID> stale;
-    for (const KeyValue<ObjectID, ProjectedDebugHUD> &entry : projected_debug_huds) {
-        bool still_wanted = false;
-        for (uint32_t i = 0; i < wanted.size(); i++) {
-            if (wanted[i] == entry.key) {
-                still_wanted = true;
-                break;
-            }
-        }
-        if (!still_wanted) {
-            stale.push_back(entry.key);
-        }
-    }
-    for (uint32_t i = 0; i < stale.size(); i++) {
-        _destroy_projected_debug_hud(stale[i]);
-    }
-
-    for (uint32_t i = 0; i < wanted.size(); i++) {
-        ProjectedDebugHUD *existing = projected_debug_huds.getptr(wanted[i]);
-        // #839 round 11: an entry with no control is one a refused teardown
-        // retained (creation always sets both). Retry the teardown here -- this
-        // reconcile is not inside the data.blocked window that refused it -- and
-        // let the erase below re-enter the normal create path. Never re-arm on top
-        // of the leftovers: the refused pass already dropped the layer's
-        // tree_exiting connection, so the record is no longer self-sufficient.
-        if (existing && existing->control == nullptr) {
-            _destroy_projected_debug_hud(wanted[i]);
-            existing = projected_debug_huds.getptr(wanted[i]);
-        }
-        if (!existing) {
-            _create_projected_debug_hud(wanted[i]);
-            continue;
-        }
-        if (existing->control) {
-            existing->control->set_splat_node(this);
-            // #839 round 11: visible/process are re-armed, not assumed. A record
-            // whose teardown was refused kept a control that teardown had already
-            // hidden and stopped, and this is the path that has to bring it back.
-            // Idempotent on the ordinary record, which is already both.
-            existing->control->set_visible(true);
-            existing->control->set_process(true);
-            existing->control->refresh_stats();
-        }
-    }
-}
-
-void GaussianSplatNode3D::_create_projected_debug_hud(ObjectID p_viewport_id) {
-    if (projected_debug_huds.has(p_viewport_id)) {
-        return;
-    }
-    Viewport *viewport = Object::cast_to<Viewport>(ObjectDB::get_instance(p_viewport_id));
-    if (!viewport) {
-        return;
-    }
-
-    // #839 round 10 (finding 1): resolved BEFORE anything is allocated, so a
-    // refused host add leaks nothing and simply leaves the HUD to the next
-    // reconcile.
-    Node *host = _ensure_projected_debug_hud_host();
-    if (!host) {
-        return;
-    }
-
-    ProjectedDebugHUD projected;
-    projected.layer = memnew(CanvasLayer);
-    // Deliberately NOT "GaussianSplatDebugHUDLayer": that name is the observable
-    // identity of the node's OWN, viewport-local HUD (rounds 2-8 assert on it),
-    // and a projected HUD is not that.
-    projected.layer->set_name("GaussianSplatProjectedDebugHUDLayer" + itos((uint64_t)p_viewport_id));
-    // Before add_child(): CanvasLayer binds itself on NOTIFICATION_ENTER_TREE and
-    // prefers custom_viewport over Node::get_viewport() there, so setting it first
-    // means the layer is never briefly attached to this node's own viewport.
-    projected.layer->set_custom_viewport(viewport);
-
-    projected.control = memnew(GaussianSplatDebugHUD);
-    projected.control->set_name("GaussianSplatDebugHUD");
-    projected.control->set_splat_node(this);
-    projected.control->set_anchors_and_offsets_preset(Control::PRESET_FULL_RECT);
-
-    // #839 round 10 (finding 1): the host, never `this`.
-    host->add_child(projected.layer);
-    projected.layer->add_child(projected.control);
-    projected.control->set_visible(true);
-    projected.control->set_process(true);
-    projected.control->refresh_stats();
-
-    // See the declaration: the layer must go down while the viewport is alive.
-    const Callable on_exiting = callable_mp(this, &GaussianSplatNode3D::_on_projected_hud_viewport_exiting)
-                                        .bind(p_viewport_id);
-    if (!viewport->is_connected(SceneStringName(tree_exiting), on_exiting)) {
-        viewport->connect(SceneStringName(tree_exiting), on_exiting, Object::CONNECT_ONE_SHOT);
-    }
-
-    projected_debug_huds[p_viewport_id] = projected;
-}
-
-void GaussianSplatNode3D::_destroy_projected_debug_hud(ObjectID p_viewport_id) {
-    ProjectedDebugHUD *projected = projected_debug_huds.getptr(p_viewport_id);
-    if (!projected) {
-        return;
-    }
-
-    if (Viewport *viewport = Object::cast_to<Viewport>(ObjectDB::get_instance(p_viewport_id))) {
-        const Callable on_exiting = callable_mp(this, &GaussianSplatNode3D::_on_projected_hud_viewport_exiting)
-                                            .bind(p_viewport_id);
-        // CONNECT_ONE_SHOT already disconnected it when the viewport is the thing
-        // that triggered this teardown.
-        if (viewport->is_connected(SceneStringName(tree_exiting), on_exiting)) {
-            viewport->disconnect(SceneStringName(tree_exiting), on_exiting);
-        }
-    }
-
-    if (projected->control) {
-        projected->control->set_splat_node(nullptr);
-        projected->control->set_visible(false);
-        projected->control->set_process(false);
-        // #839 round 11: same preserve-on-refusal contract as
-        // _destroy_debug_hud_control() and _destroy_projected_debug_hud_host().
-        // The host makes a refusal unreachable here BY CONSTRUCTION (see
-        // _ensure_projected_debug_hud_host()), but the whole point of the round-10
-        // fail-safe is that a mistake in that construction must not compound: if
-        // the free is ever refused, the record has to keep pointing at the node
-        // that is still parented.
-        if (_detach_and_free_debug_hud_node(projected->control)) {
-            projected->control = nullptr;
-        }
-    }
-    // Strictly after the control: it is parented under the layer (see
-    // _destroy_debug_hud_control() for the same ordering constraint).
-    if (projected->layer && !projected->control) {
-        if (_detach_and_free_debug_hud_node(projected->layer)) {
-            projected->layer = nullptr;
-        }
-    }
-
-    // Only forget the projection once nothing survived it. A retained record is
-    // what makes the retry possible at all: _update_projected_debug_huds() drives
-    // both directions off this map, so an entry whose viewport is no longer wanted
-    // comes back through here on the next reconcile -- unblocked by then -- and an
-    // entry whose viewport is still wanted is re-armed there instead of being
-    // rebuilt on top of the leftovers.
-    if (projected->control == nullptr && projected->layer == nullptr) {
-        projected_debug_huds.erase(p_viewport_id);
-    }
-}
-
-void GaussianSplatNode3D::_destroy_projected_debug_huds() {
-    if (projected_debug_huds.is_empty()) {
-        return;
-    }
-    LocalVector<ObjectID> viewport_ids;
-    for (const KeyValue<ObjectID, ProjectedDebugHUD> &entry : projected_debug_huds) {
-        viewport_ids.push_back(entry.key);
-    }
-    for (uint32_t i = 0; i < viewport_ids.size(); i++) {
-        _destroy_projected_debug_hud(viewport_ids[i]);
-    }
-}
-
-// #839 round 10 (finding 1): WHY the projected layers hang off a dedicated child
-// of this node instead of off this node directly.
-//
-// Node::_propagate_exit_tree() (scene/main/node.cpp) raises data.blocked on a
-// node BEFORE recursing into its children and lowers it only after that loop, so
-// at the instant a node emits `tree_exiting` every STRICT ANCESTOR of it is
-// blocked -- itself is not, and neither is anything outside its ancestor chain.
-// Node::remove_child() ERR_FAIL_CONDs on data.blocked > 0, and so does the
-// remove_child() that NOTIFICATION_PREDELETE performs on memdelete()'s behalf.
-//
-// _destroy_projected_debug_hud() runs from exactly such callbacks:
-//   - the target viewport's own `tree_exiting`, and that SubViewport may well be
-//     a DESCENDANT of this node (a minimap/secondary camera parented under the
-//     splat node is the ordinary case), which makes this node a strict ancestor;
-//   - a peer's exit-time reconcile fan-out
-//     (_notify_debug_hud_dirty_for_renderer,
-//     GaussianSplatNodeDebugHelper::reconcile_debug_overlay_union_for_renderer),
-//     where this node can be a strict ancestor of the peer that is leaving.
-// With the layer parented to this node, both unparent AND free would be refused
-// while the free happened anyway, leaving a dangling pointer in this node's
-// data.children for the rest of the teardown to traverse or free twice.
-//
-// The host removes the hazard by CONSTRUCTION rather than by ordering: its only
-// children are CanvasLayers this node creates, so no Viewport and no peer node
-// can ever be its descendant, so it is never a strict ancestor of anything whose
-// `tree_exiting` reaches here, so it is never blocked when those callbacks fire.
-// The one operation that does touch `this` -- adding and removing the host -- is
-// confined to a creation path that checks whether it was refused, and to
-// NOTIFICATION_EXIT_TREE, where `this` is provably unblocked.
-Node *GaussianSplatNode3D::_ensure_projected_debug_hud_host() {
-    if (projected_debug_hud_host) {
-        return projected_debug_hud_host;
-    }
-    if (!is_inside_tree()) {
-        return nullptr;
-    }
-
-    Node *host = memnew(Node);
-    host->set_name("GaussianSplatProjectedDebugHUDs");
-    add_child(host);
-    if (host->get_parent() != this) {
-        // add_child() refuses while this node is blocked. Record nothing: a
-        // half-created projection would never be retried, because the reconcile
-        // treats a present map entry as "already done".
-        memdelete(host);
-        return nullptr;
-    }
-
-    projected_debug_hud_host = host;
-    return projected_debug_hud_host;
-}
-
-void GaussianSplatNode3D::_destroy_projected_debug_hud_host() {
-    if (!projected_debug_hud_host) {
-        return;
-    }
-    // #839 round 11: the projected layers are the host's children, so freeing it
-    // while _destroy_projected_debug_hud() retained one would take that layer down
-    // through PREDELETE's kill-children loop and leave the map pointing at freed
-    // memory -- the exact failure the retention exists to avoid. A non-empty map
-    // here means a teardown was refused; the host then goes down with this node
-    // like the layer it still parents. In the ordinary case the callers above have
-    // already emptied the map, so this changes nothing.
-    if (!projected_debug_huds.is_empty()) {
-        return;
-    }
-    // Keep the pointer when the free was refused: the host is still parented and
-    // still usable, and it goes down with this node in any case. Dropping it would
-    // leak a second one on the next projection.
-    if (_detach_and_free_debug_hud_node(projected_debug_hud_host)) {
-        projected_debug_hud_host = nullptr;
-    }
-}
-
-void GaussianSplatNode3D::_on_projected_hud_viewport_exiting(ObjectID p_viewport_id) {
-    _destroy_projected_debug_hud(p_viewport_id);
 }
 
 void GaussianSplatNode3D::_apply_renderer_settings() {
