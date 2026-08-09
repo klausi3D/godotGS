@@ -335,12 +335,48 @@ private:
     void _mark_render_state_dirty();
     void _register_shared_renderer();
     void _unregister_shared_renderer();
+    // #839 round 8: DROP the renderer BINDING record. Deliberately NOT part of
+    // `_unregister_shared_renderer()`, which removes the director's CONTENT
+    // record and is reached from content-lifecycle paths (clear_asset,
+    // upload_asset_to_renderer with nothing to upload) where this node keeps its
+    // `renderer` Ref and stays in the tree and the world. The binding record's
+    // lifetime tracks that Ref, not the content -- see the invariant stated at
+    // `g_renderer_bound_nodes` in gaussian_splat_node_helpers.cpp. Call this only
+    // where the node genuinely stops being bound: EXIT_TREE, EXIT_WORLD,
+    // PREDELETE (before `renderer.unref()`, while the Ref still names the
+    // renderer to forget).
+    void _unbind_renderer_binding_record();
     // #329: P2 shared-renderer convergence. `_converge_shared_renderer_state` is
     // edge-triggered on this node; `_notify_renderer_peers_shared_state_changed`
     // fans it out to the other nodes sharing `p_renderer`, which is the direction
     // the P1 lease blocks.
     void _converge_shared_renderer_state();
     void _notify_renderer_peers_shared_state_changed(const Ref<GaussianSplatRenderer> &p_renderer);
+    // #839 round 2: single entry point for "the set of nodes bound to
+    // p_renderer just changed". The debug-overlay union is a function of that
+    // set, so it must be recomputed on EVERY peer-set change, not only when the
+    // set crosses the 1<->2 shared/not-shared boundary that
+    // `_converge_shared_renderer_state` is edge-triggered on. `p_include_self`
+    // is false when this node is the one leaving.
+    void _on_renderer_peer_set_changed(const Ref<GaussianSplatRenderer> &p_renderer, bool p_include_self);
+    // Recompute this node's contribution to the renderer-wide overlay union and
+    // reconcile its own HUD control against the result.
+    void _reconcile_debug_overlay_state();
+    // Fan HUD-control reconciliation out to every node bound to this node's
+    // renderer, including this one. The overlay flags are renderer-wide but the
+    // control is drawn only by the settings-owner lease holder, so a peer that
+    // changes a HUD flag must notify the holder.
+    void _notify_renderer_peers_debug_hud_dirty();
+
+public:
+    // #839 round 3, thread C: renderer-addressed HUD reconciliation. Public and
+    // static because it is installed as
+    // GaussianSplatSceneDirector::set_renderer_debug_hud_sources_changed_callback()
+    // from register_types.cpp -- the renderer layer cannot call into nodes/
+    // directly, and the trigger (a write on GaussianSplatRenderer) has no node.
+    static void _notify_debug_hud_dirty_for_renderer(GaussianSplatRenderer *p_renderer);
+
+private:
     void _update_shared_transform();
     bool _resolve_is_2d_mode() const;
     uint32_t _get_instance_flags() const;

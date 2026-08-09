@@ -204,6 +204,27 @@ public:
 	void collect_instance_node_ids_for_renderer(const GaussianSplatRenderer *p_renderer,
 			LocalVector<ObjectID> &r_node_ids) const;
 	uint64_t get_instance_generation_for_renderer(const GaussianSplatRenderer *p_renderer) const;
+
+	// #839 round 3, thread C: renderer -> node notification for "a debug HUD
+	// source flag on this renderer changed".
+	//
+	// GaussianSplatRenderer::set_debug_show_performance_hud() and friends are bound
+	// to script, so `node.get_renderer().set_debug_show_device_boundaries(true)` is
+	// a supported way to turn a HUD line on. That write reaches the renderer's own
+	// state, but nothing tells the NODES — and the node is what actually creates the
+	// GaussianSplatDebugHUDLayer control. Under UPDATE_MODE_MANUAL the node's
+	// per-frame apply never runs either, so the flag was enabled with no HUD on
+	// screen, permanently.
+	//
+	// The listener lives here rather than being a direct call because renderer/
+	// deliberately does not include nodes/ — the director is the only layer that
+	// already maps a renderer to its nodes. The node layer installs the callback at
+	// module init (register_types.cpp) and clears it at shutdown; a null callback
+	// (no node layer, or after teardown) makes notify a no-op.
+	typedef void (*RendererDebugHudSourcesChangedCallback)(GaussianSplatRenderer *p_renderer);
+	static void set_renderer_debug_hud_sources_changed_callback(RendererDebugHudSourcesChangedCallback p_callback);
+	static void notify_renderer_debug_hud_sources_changed(GaussianSplatRenderer *p_renderer);
+
     uint64_t get_instance_asset_generation_for_renderer(const GaussianSplatRenderer *p_renderer) const;
     void register_sphere_effector(ObjectID p_effector_id, const Transform3D &p_transform,
             float p_radius, float p_strength, float p_falloff, float p_frequency,

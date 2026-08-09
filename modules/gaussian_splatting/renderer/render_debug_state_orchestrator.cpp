@@ -1,5 +1,6 @@
 #include "render_debug_state_orchestrator.h"
 
+#include "../core/gaussian_splat_scene_director.h"
 #include "../core/gs_project_settings.h"
 #include "core/config/project_settings.h"
 #include "core/error/error_macros.h"
@@ -1232,20 +1233,51 @@ void GaussianSplatRenderer::set_debug_show_density_heatmap(bool p_enabled) {
 	debug_state_orchestrator->set_debug_show_density_heatmap(p_enabled);
 }
 
+// #839 round 3, thread C: the four setters that can flip
+// is_debug_hud_source_active().
+//
+// All four are bound to script (gaussian_splat_renderer_bindings.cpp:139-141,
+// :251-252), so `node.get_renderer().set_debug_show_device_boundaries(true)` is a
+// supported way to turn a HUD line on. Before this, that write landed in the
+// renderer's DebugState and stopped there: the node -- which is the thing that
+// creates the GaussianSplatDebugHUDLayer -- was never told. Its per-frame apply
+// would have reconciled eventually, but UPDATE_MODE_MANUAL never runs one, so the
+// flag stayed on with nothing on screen.
+//
+// Gated on the PREDICATE flipping, not on the individual flag, so enabling a
+// second HUD source while one is already on costs nothing. See
+// GaussianSplatRenderer::is_debug_hud_source_active() for why the predicate is
+// shared with the node rather than restated here.
 void GaussianSplatRenderer::set_debug_show_performance_hud(bool p_enabled) {
+	const bool hud_active_before = is_debug_hud_source_active();
 	debug_state_orchestrator->set_debug_show_performance_hud(p_enabled);
+	if (is_debug_hud_source_active() != hud_active_before) {
+		GaussianSplatSceneDirector::notify_renderer_debug_hud_sources_changed(this);
+	}
 }
 
 void GaussianSplatRenderer::set_debug_show_residency_hud(bool p_enabled) {
+	const bool hud_active_before = is_debug_hud_source_active();
 	debug_state_orchestrator->set_debug_show_residency_hud(p_enabled);
+	if (is_debug_hud_source_active() != hud_active_before) {
+		GaussianSplatSceneDirector::notify_renderer_debug_hud_sources_changed(this);
+	}
 }
 
 void GaussianSplatRenderer::set_debug_show_device_boundaries(bool p_enabled) {
+	const bool hud_active_before = is_debug_hud_source_active();
 	debug_state_orchestrator->set_debug_show_device_boundaries(p_enabled);
+	if (is_debug_hud_source_active() != hud_active_before) {
+		GaussianSplatSceneDirector::notify_renderer_debug_hud_sources_changed(this);
+	}
 }
 
 void GaussianSplatRenderer::set_debug_show_texture_states(bool p_enabled) {
+	const bool hud_active_before = is_debug_hud_source_active();
 	debug_state_orchestrator->set_debug_show_texture_states(p_enabled);
+	if (is_debug_hud_source_active() != hud_active_before) {
+		GaussianSplatSceneDirector::notify_renderer_debug_hud_sources_changed(this);
+	}
 }
 
 void GaussianSplatRenderer::set_debug_compute_raster_policy(int p_policy) {

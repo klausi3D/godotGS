@@ -1377,7 +1377,9 @@ class RealTreeTests(IsolatedTestCase):
     def test_committed_inventory_is_the_declared_number(self) -> None:
         real = _load_guard()
         found = real.scan_all()
-        self.assertEqual(383, sum(len(v) for v in found.values()))
+        # 383 -> 382 (#831): one environment skip in test_gaussian_splat_node.h
+        # became a FAIL, which is the direction this ratchet is allowed to move.
+        self.assertEqual(382, sum(len(v) for v in found.values()))
         self.assertEqual(27, len(found))
 
     def test_derived_macro_set_matches_the_headers_actual_macros(self) -> None:

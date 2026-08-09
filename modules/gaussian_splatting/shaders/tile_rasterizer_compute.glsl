@@ -288,8 +288,21 @@ void main() {
     // Debug overlay paths (same as gs_rasterize_pixel finalization)
     bool debug_tile_grid = params.debug_flags.x > 0.5;
     bool debug_tiles = params.debug_flags.z > 0.5;
+    bool debug_projection = params.debug_flags.w > 0.5;
     bool debug_density_heatmap = params.debug_overlay_flags.x > 0.5;
     bool debug_depth_visualization = params.debug_overlay_flags.y > 0.5;
+
+    // #832: debug_flags.w (show_projection_issues) was never read here even
+    // though compute raster is the default path, so the flag reached the UBO
+    // and produced nothing. Same precedence as gs_rasterize_pixel: the tile
+    // debug overlay wins when both are enabled.
+    if (!debug_tiles && debug_projection) {
+        imageStore(out_color_image, pixel,
+                vec4(gs_projection_debug_color(frag_coord, max(params.viewport_size, vec2(1.0))), 1.0));
+        imageStore(out_depth_image, pixel, vec4(0.0, 0.0, 0.0, 0.0));
+        imageStore(out_normal_image, pixel, vec4(0.0));
+        return;
+    }
 
     if (debug_tiles) {
         vec3 debug_color = vec3(0.0, 0.0, 0.3);

@@ -885,15 +885,21 @@ class GpuHarnessBatchTimeoutBudgetTests(unittest.TestCase):
     re-hide half the batch.
 
     RE-MEASURED after the #329 waiver-reduction pass un-quarantined the last four
-    NodeSceneTree cases: the batch is now 22 executing cases / 281 assertions and
-    measured 127.7 s, 133.8 s and 153.3 s wall across three consecutive runs on an
-    RTX 3090 (run-to-run variance is large here -- device bring-up dominates).
-    (285 -> 281: #708 replaced four success-path `REQUIRE`/`CHECK` size assertions
-    with `if (...) { FAIL(...); return; }` guards, which record no assertion when
-    the size is correct. The conditions are still enforced -- see #708 for the
-    mutation proof. Case count is unchanged.)
-    The constant tracks the SLOWEST observed run, not the mean, because the failure
-    mode being guarded is truncation on a runner slower than this box.
+    NodeSceneTree cases: the batch measured 127.7 s, 133.8 s and 153.3 s wall across
+    three consecutive runs on an RTX 3090 (run-to-run variance is large here --
+    device bring-up dominates). The constant tracks the SLOWEST observed run, not
+    the mean, because the failure mode being guarded is truncation on a runner
+    slower than this box.
+
+    The batch has since grown to 25 executing cases / 311 assertions (#831 +1,
+    #839 round 2 +2 cases; +30 assertions on top of the 281 master reports after
+    #708/PR #843 converted four success-path `REQUIRE`/`CHECK` size assertions to
+    `if (...) { FAIL(...); return; }` guards, which record no assertion when the
+    size is correct -- the conditions are still enforced, see #708 for the mutation
+    proof), most recently measured at 113.0 s wall on the same box -- BELOW the
+    153 s constant, so the constant is deliberately left where it is rather than
+    being lowered to the newest number: lowering it would weaken this guard's own
+    headroom requirement.
 
     The 82 s constant was left stale by the growth from 18 to 22 cases, which is
     the same silent-drift failure #329 was filed about. Against 153 s the previous
