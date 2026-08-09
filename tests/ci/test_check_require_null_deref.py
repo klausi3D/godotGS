@@ -141,6 +141,7 @@ class StripCommentsPreservesLineNumbers(unittest.TestCase):
             "int x = 1'000;\nd();\n",  # digit separator, not a char literal
             "char c = '\\'';\ne();\n",
             'a(); /* trailing */ b();\nf();\n',
+            "a();\n// spliced comment \\\nstill_comment();\ng();\n",
         ]
         for sample in samples:
             with self.subTest(sample=sample[:24]):
@@ -1072,6 +1073,137 @@ class SizeThenIndexShortCircuitDirection(SizeIndexScanTestCase):
         self.assertNotSized("  REQUIRE(v.size() == 2);\n  CHECK(v.is_empty() || v[0]);")
 
 
+class SizeThenIndexCompoundConditions(SizeIndexScanTestCase):
+    """A bound must be implied by the condition AS A WHOLE, not appear inside it.
+
+    Round 3 (Codex, PR #849): `_expression_lower_bound` scanned for ANY cardinality
+    test pointing the right way, so a bound sitting inside an `||` counted as one -
+    although the other disjunct admits the index on an EMPTY container. Every
+    `assertSized` below was reported clean before the expression was decomposed.
+    """
+
+    def test_or_with_an_unrelated_disjunct_does_not_bound_a_body(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  if (v.size() > 0 || fallback) {\n    CHECK(v[0] == 1);\n  }",
+            "v",
+        )
+
+    def test_or_with_an_unrelated_disjunct_is_not_a_short_circuit_guard(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n  CHECK((v.size() > 0 || fallback) && v[0]);", "v"
+        )
+
+    def test_every_disjunct_bounding_still_bounds(self):
+        """`||` is not banned - it just has to bound on EVERY side."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  if (v.size() > 4 || v.size() == 2) {\n    CHECK(v[0] == 1);\n  }"
+        )
+
+    def test_one_bounding_conjunct_is_enough(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  if (fallback && v.size() > 0) {\n    CHECK(v[0] == 1);\n  }"
+        )
+
+    def test_a_ternary_condition_bounds_only_when_both_arms_do(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  if (fallback ? v.size() > 0 : other) {\n    CHECK(v[0] == 1);\n  }",
+            "v",
+        )
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  if (fallback ? v.size() > 0 : !v.is_empty()) {\n    CHECK(v[0] == 1);\n  }"
+        )
+
+    def test_a_negated_size_is_an_EMPTY_test(self):
+        """`if (!v.size())` is entered exactly when the container is empty."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n  if (!v.size()) {\n    CHECK(v[0] == 1);\n  }", "v"
+        )
+
+    def test_a_negated_emptiness_test_still_bounds(self):
+        for condition in ("!v.is_empty()", "!(v.size() == 0)", "!(v.is_empty())"):
+            with self.subTest(condition=condition):
+                self.assertNotSized(
+                    "  REQUIRE(v.size() == 2);\n"
+                    f"  if ({condition}) {{\n    CHECK(v[0] == 1);\n  }}"
+                )
+
+
+class SizeThenIndexEqualityOperandMustBeProven(SizeIndexScanTestCase):
+    """`size() == n` bounds a BODY only when `n` is provably non-zero.
+
+    Round 3 (Codex, PR #849): a non-literal operand was assumed non-zero, so
+    `if (v.size() == expected) { CHECK(v[0]); }` scanned clean - yet with
+    `expected == 0` that branch is entered exactly when `v` is empty.
+    """
+
+    def test_equality_against_an_unknown_does_not_bound_a_body(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  if (v.size() == expected) {\n    CHECK(v[0] == 1);\n  }",
+            "v",
+        )
+
+    def test_at_least_an_unknown_does_not_bound_a_body(self):
+        """`size() >= n` is vacuous at `n == 0`, the same hole as `==`."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  if (v.size() >= expected) {\n    CHECK(v[0] == 1);\n  }",
+            "v",
+        )
+
+    def test_equality_against_an_unknown_is_not_a_short_circuit_guard(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n  CHECK(v.size() == expected && v[0]);", "v"
+        )
+
+    def test_a_provable_operand_still_bounds(self):
+        for condition in ("v.size() == 2", "v.size() == 2u", "v.size() == 0x2", "v.size() >= 1"):
+            with self.subTest(condition=condition):
+                self.assertNotSized(
+                    "  REQUIRE(v.size() == 2);\n"
+                    f"  if ({condition}) {{\n    CHECK(v[0] == 1);\n  }}"
+                )
+
+    def test_a_strictly_greater_comparison_needs_no_proof(self):
+        """A length strictly above an unsigned count is at least 1, whatever it is."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  if (v.size() > expected) {\n    CHECK(v[0] == 1);\n  }"
+        )
+
+    def test_an_assertion_against_an_unknown_is_still_a_size_assertion(self):
+        """The asymmetry is the point: unproven REPORTS as an assertion and must
+        not SUPPRESS as a guard. Both directions are fail-closed."""
+        self.assertSized("  CHECK_EQ(v.size(), n);\n  CHECK(v[0] == 1);", "v")
+
+    def test_a_sibling_conjunct_can_prove_the_operand(self):
+        """test_gaussian_importer.h:2930 - the equality is proven by its neighbour."""
+        self.assertNotSized(
+            "  CHECK_EQ(v.size(), a.size());\n"
+            "  if (!a.is_empty() && v.size() == a.size()) {\n    CHECK(v[0] == a[0]);\n  }"
+        )
+
+    def test_without_the_sibling_the_same_equality_proves_nothing(self):
+        self.assertSized(
+            "  CHECK_EQ(v.size(), a.size());\n"
+            "  if (v.size() == a.size()) {\n    CHECK(v[0] == a[0]);\n  }",
+            "v",
+        )
+
+    def test_an_offset_equality_is_not_a_transfer(self):
+        """`v.size() == a.size() - 1` says nothing about `v` even when `a` is bounded."""
+        self.assertSized(
+            "  CHECK_EQ(v.size(), a.size());\n"
+            "  if (!a.is_empty() && v.size() == a.size() - 1) {\n    CHECK(v[0] == a[0]);\n  }",
+            "v",
+        )
+
+
 class SizeThenIndexObjectResolution(SizeIndexScanTestCase):
     """Which CONTAINER a `.size()` belongs to.
 
@@ -1220,6 +1352,65 @@ class SizeIndexFailsClosed(unittest.TestCase):
     def test_an_apostrophe_in_a_comment_does_not_eat_a_later_raw_string(self):
         with self.assertRaises(GUARD.ScanError):
             self._scan("// don't\nconst char *p = R\"delim(never closed\n")
+
+    def test_a_spliced_line_comment_does_not_end_at_the_physical_newline(self):
+        """C++ removes `\\`-newline BEFORE recognising comments (Codex, PR #849 r3).
+
+        So the `R"(` on the continuation line is COMMENT, not a raw-string opener.
+        Reading it as one blanked everything up to the later `// )"` - the real
+        assertion and index between them included - and reported the file clean.
+        """
+        sites = self._scan(
+            'TEST_CASE("x") {\n'
+            "  // continued comment \\\n"
+            '  const char *p = R"(\n'
+            "  REQUIRE(v.size() == 2);\n"
+            "  CHECK(v[0] == 1);\n"
+            '  // )"\n'
+            "}\n"
+        )
+        self.assertEqual(len(sites), 1, "the assertion and index between the comments are code")
+        self.assertEqual(sites[0][0], 4)
+        self.assertEqual(sites[0][4], 5)
+
+    def test_a_spliced_line_comment_comments_out_the_next_line(self):
+        """`_strip_comments` must apply the same rule, or it reads what the raw-string
+        pass skipped. The continuation line is emitted EMPTY, keeping line numbers."""
+        stripped = GUARD._strip_comments("a();\n// note \\\nREQUIRE(x);\nb();\n").split("\n")
+        self.assertEqual(stripped[2], "")
+        self.assertEqual(stripped[3], "b();")
+        self.assertEqual(len(stripped), 5)
+
+    def test_a_chain_of_splices_continues_the_comment(self):
+        stripped = GUARD._strip_comments("// a \\\nb(); \\\nc();\nd();\n").split("\n")
+        self.assertEqual(stripped[:3], ["", "", ""])
+        self.assertEqual(stripped[3], "d();")
+
+    def test_a_backslash_before_a_space_does_not_splice(self):
+        """Non-conforming spelling: compilers warn and this pass keeps the next line
+        as CODE, which is the fail-closed answer (it can only ADD reports)."""
+        sites = self._scan(
+            'TEST_CASE("x") {\n'
+            "  // note \\ \n"
+            "  REQUIRE(v.size() == 2);\n"
+            "  CHECK(v[0] == 1);\n"
+            "}\n"
+        )
+        self.assertEqual(len(sites), 1)
+
+    def test_crlf_line_endings_splice_the_same_way(self):
+        """A CRLF file must lex like an LF one: `\\r` belongs to the line terminator."""
+        sites = self._scan(
+            'TEST_CASE("x") {\r\n'
+            "  // continued comment \\\r\n"
+            '  const char *p = R"(\r\n'
+            "  REQUIRE(v.size() == 2);\r\n"
+            "  CHECK(v[0] == 1);\r\n"
+            '  // )"\r\n'
+            "}\r\n"
+        )
+        self.assertEqual(len(sites), 1)
+        self.assertEqual(sites[0][4], 5)
 
     def test_unbalanced_assertion_parens_are_a_scan_error(self):
         with self.assertRaises(GUARD.ScanError):

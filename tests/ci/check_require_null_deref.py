@@ -451,6 +451,42 @@ _RAW_STRING_OPEN_RE = re.compile(_RAW_STRING_OPEN)
 _LEX_TOKEN_RE = re.compile(rf"//|/\*|{_RAW_STRING_OPEN}|\"|'")
 
 
+def _splices_at(text: str, newline_at: int) -> bool:
+    """True when the newline at `newline_at` is DELETED in translation phase 2.
+
+    C++ splices a line whose last character is a backslash into the next one before
+    anything else is recognised - comments included. `\\r` counts as part of the
+    line terminator (a CRLF file must behave like an LF one), but any other trailing
+    character does not: a space between the backslash and the newline is the
+    non-conforming spelling that compilers merely warn about, and guessing that it
+    splices would let this pass skip real code.
+    """
+    i = newline_at
+    while i > 0 and text[i - 1] == "\r":
+        i -= 1
+    return i > 0 and text[i - 1] == "\\"
+
+
+def _line_comment_end(text: str, at: int) -> int:
+    """Offset of the newline that ends the `//` comment running from `at`.
+
+    Not simply the next newline: because splicing happens BEFORE comments are
+    recognised, `// comment \\` continues the comment onto the next physical line.
+    Ending it at the physical newline made the continuation line read as code, so an
+    `R"(` there opened a raw string that never existed and everything up to a later
+    `)"` - real assertions and indexes included - was blanked away, reporting a
+    genuine violation clean (Codex, PR #849 round 3).
+    """
+    cursor = at
+    while True:
+        end = text.find("\n", cursor)
+        if end == -1:
+            return len(text)
+        if not _splices_at(text, end):
+            return end
+        cursor = end + 1
+
+
 def _blank_raw_strings(name: str, text: str) -> str:
     """Replace every raw string literal's BODY with nothing, preserving line count.
 
@@ -485,8 +521,7 @@ def _blank_raw_strings(name: str, text: str) -> str:
             return "".join(out)
         lexeme = token.group(0)
         if lexeme == "//":
-            end = text.find("\n", token.end())
-            cursor = len(text) if end == -1 else end
+            cursor = _line_comment_end(text, token.end())
             continue
         if lexeme == "/*":
             end = text.find("*/", token.end())
@@ -560,10 +595,23 @@ def _strip_comments(text: str) -> str:
 
     Literals are replaced by empty ones rather than deleted so a `->` inside a
     message string cannot read as a dereference.
+
+    A `//` comment ending in a backslash CONTINUES onto the next physical line -
+    splicing happens before comments are recognised - so that line is emitted empty
+    rather than scanned as code. `_blank_raw_strings` applies the same rule on the
+    same test (`_splices_at`); if the two disagreed, one of them would blank text
+    the other reads.
     """
     lines_out: list[str] = []
     in_block = False
+    in_line_comment = False
     for line in text.split("\n"):
+        if in_line_comment:
+            # Still inside a spliced `//` comment: the whole line is comment, and it
+            # continues again if IT ends in a backslash.
+            in_line_comment = _splices_at(line + "\n", len(line))
+            lines_out.append("")
+            continue
         out: list[str] = []
         i = 0
         n = len(line)
@@ -577,6 +625,7 @@ def _strip_comments(text: str) -> str:
                     i = end + 2
                 continue
             if line.startswith("//", i):
+                in_line_comment = _splices_at(line + "\n", len(line))
                 break
             if line.startswith("/*", i):
                 in_block = True
@@ -1110,6 +1159,10 @@ _COMPARISON_MACRO_SUFFIXES: tuple[tuple[str, str], ...] = (
     ("_EQ", "=="), ("_NE", "!="), ("_GE", ">="), ("_LE", "<="), ("_GT", ">"), ("_LT", "<"),
 )
 _LITERAL_ZERO_RE = re.compile(r"^\(*\s*0[uUlL]*\s*\)*$")
+# An INTEGER literal in any C++ base, digit separators included. Only a literal can
+# be evaluated here; a named constant, a `sizeof`, or any other runtime expression
+# is deliberately not matched, because its value is not knowable from this file.
+_INTEGER_LITERAL_RE = re.compile(r"^\(*\s*([0-9][0-9a-fA-FxXbB']*)[uUlL]*\s*\)*$")
 # A trailing C-style cast, e.g. the `(uint32_t)` in `idx < (uint32_t)v.size()`.
 _CAST_SUFFIX_RE = re.compile(r"\(\s*(?:const\s+)?[A-Za-z_][\w:]*(?:\s*[*&]+)?\s*\)\s*$")
 
@@ -1310,8 +1363,35 @@ def _split_macro_arguments(text: str) -> list[str]:
     return parts
 
 
+def _literal_is_nonzero(text: str) -> bool:
+    """True when `text` is an integer literal whose value is PROVABLY not zero.
+
+    Anything else - a named constant, a `sizeof`, a parameter, any runtime
+    expression - is False, because this file cannot know its value. That matters
+    for `==` and `>=`, whose direction depends entirely on the operand: as a GUARD,
+    `if (v.size() == expected) { v[0]; }` selects the empty case exactly when
+    `expected == 0`, so an unknown operand must not count as a lower bound
+    (Codex, PR #849 round 3).
+    """
+    literal = _INTEGER_LITERAL_RE.match(text.strip())
+    if literal is None:
+        return False
+    try:
+        # base 0 is C++'s own spelling rule: `0x10` hex, `0b1` binary, `010` octal.
+        return int(literal.group(1).replace("'", ""), 0) != 0
+    except ValueError:
+        return False  # not a well-formed literal after all: unproven, so False
+
+
 def _bound_direction(
-    text: str, span: tuple[int, int], kind: str, start: int, end: int, macro: str = ""
+    text: str,
+    span: tuple[int, int],
+    kind: str,
+    start: int,
+    end: int,
+    macro: str = "",
+    *,
+    guard: bool = False,
 ) -> bool:
     """True when this `size()`/`is_empty()` occurrence, HELD TRUE, bounds the length below.
 
@@ -1333,6 +1413,17 @@ def _bound_direction(
 
     `macro` is empty for plain expressions; only an assertion can carry its relation
     in its name (`REQUIRE_EQ(v.size(), 4)`).
+
+    `guard` says which way to fail when the compared-against operand is NOT a
+    literal, because the safe answer is opposite for the two callers:
+
+    * an ASSERTION (`guard=False`): `REQUIRE(v.size() == expected)` asserts a
+      cardinality the following statements then index into, and whether `expected`
+      is 2 or 0 the index still runs after the assertion fails. Answering True
+      REPORTS the site, which is the fail-closed direction here.
+    * a GUARD (`guard=True`): `if (v.size() == expected) { v[0]; }` SUPPRESSES the
+      report, and with `expected == 0` the branch is entered exactly when `v` is
+      empty. So only a provably non-zero operand may bound (Codex, PR #849 round 3).
     """
     lo, hi = span
     if _is_call_argument(text, start, lo):
@@ -1388,14 +1479,17 @@ def _bound_direction(
     if flipped:
         operator = {"<": ">", ">": "<", "<=": ">=", ">=": "<="}.get(operator, operator)
     against_zero = bool(_LITERAL_ZERO_RE.match(other))
-    if operator == "==":
-        return not against_zero          # `size() == 0` asserts EMPTY
+    if operator in ("==", ">="):
+        # `size() == 0` / `size() >= 0`: EMPTY and vacuous respectively. Above zero
+        # the bound holds only if the operand is KNOWN to be above zero, which as a
+        # guard has to be proven and as an assertion is assumed - see `guard`.
+        return _literal_is_nonzero(other) if guard else not against_zero
     if operator == "!=":
         return against_zero              # `size() != 0` asserts NON-EMPTY
     if operator == ">":
-        return True                      # `size() > n` and `idx < size()`
-    if operator == ">=":
-        return not against_zero          # `size() >= 0` is vacuous
+        # `size() > n` and `idx < size()`: a length strictly above an unsigned
+        # count is at least 1 whatever `n` is, so no proof of `n` is needed.
+        return True
     return False                         # `<` / `<=`: an UPPER bound only
 
 
@@ -1478,13 +1572,111 @@ def _operand_after(text: str) -> str:
     return text
 
 
+def _strip_all_outer_parens(expr: str) -> str:
+    """`expr` with every wrapping paren pair removed - `((a && b))` is `a && b`."""
+    body = expr.strip()
+    while True:
+        inner, offset = _strip_outer_parens(body)
+        if not offset:
+            return body
+        body = inner.strip()
+
+
+def _equal_cardinality_partner(symbol: str, expr: str) -> str | None:
+    """The container `expr` equates `symbol`'s LENGTH to, when that is all it says.
+
+    `reloaded.size() == original.size()` carries a lower bound from `original` to
+    `reloaded`, but only half of one: the caller still has to bound `original`, and
+    only a conjunction can do that (see `_expression_lower_bound`). Both sides must
+    be exactly a `size()` call and nothing else, so `a.size() == b.size() - 1` and
+    `a.size() == b.size() + n` do not qualify.
+    """
+    body = _strip_all_outer_parens(expr)
+    sides = _split_top_level(body, "==")
+    if len(sides) != 2:
+        return None
+    left, right = (body[span[0] : span[1]].strip() for span in sides)
+    own = rf"{_size_symbol_regex(symbol)}\s*(?:\.|->)\s*size\s*\(\s*\)"
+    for mine, theirs in ((left, right), (right, left)):
+        if re.fullmatch(own, mine) is None:
+            continue
+        calls = _cardinality_calls(theirs, 0, len(theirs), "", strict=False)
+        if len(calls) != 1:
+            continue
+        other, kind, start, end = calls[0]
+        if other and kind == "size" and start == 0 and end == len(theirs):
+            return other
+    return None
+
+
 def _expression_lower_bound(symbol: str, expr: str) -> bool:
-    """True when `expr` being TRUE bounds `symbol`'s length from below."""
+    """True when `expr` being TRUE **as a whole** bounds `symbol`'s length from below.
+
+    The expression is DECOMPOSED by precedence rather than scanned for a qualifying
+    subexpression. Scanning accepted any single `size()` test pointing the right
+    way, so `if (v.size() > 0 || fallback) { CHECK(v[0]); }` and
+    `CHECK((v.size() > 0 || fallback) && v[0]);` both read as bounded although
+    `fallback == true` admits the index on an EMPTY container (Codex, PR #849
+    round 3). What matters is not that a bound appears somewhere but that the
+    expression cannot be true without it:
+
+    * `c ? a : b` - both arms must bound, since either may be the one taken;
+    * `A || B`    - EVERY disjunct must bound, since any one of them may be the
+                    only true one;
+    * `A && B`    - ONE conjunct suffices: all of them hold, and one of them may
+                    also supply what ANOTHER needs (`_equal_cardinality_partner`).
+
+    Whatever is left is an atom, and an atom the analysis cannot read as a bound is
+    NOT a bound. Negation is answered by `_size_negative_test`, the only thing that
+    knows which tests imply non-emptiness when FALSE, so `!v.is_empty()` still
+    bounds while `!v.size()` (true exactly when empty) no longer does.
+    """
+    body = _strip_all_outer_parens(expr)
+    if not body:
+        return False
+
+    ternary = _ternary_spans(body)
+    if ternary:
+        return all(
+            _expression_lower_bound(symbol, body[span[0] : span[1]])
+            for span in ternary[1:]
+        )
+    disjuncts = _split_top_level(body, "||")
+    if len(disjuncts) > 1:
+        return all(
+            _expression_lower_bound(symbol, body[span[0] : span[1]]) for span in disjuncts
+        )
+    conjuncts = _split_top_level(body, "&&")
+    if len(conjuncts) > 1:
+        parts = [body[span[0] : span[1]] for span in conjuncts]
+        if any(_expression_lower_bound(symbol, part) for part in parts):
+            return True
+        # All conjuncts hold together, so one of them may prove what another needs:
+        # `!a.is_empty() && b.size() == a.size()` bounds `b` even though neither
+        # half does alone (test_gaussian_importer.h:2930).
+        for position, part in enumerate(parts):
+            partner = _equal_cardinality_partner(symbol, part)
+            if partner is None:
+                continue
+            siblings = parts[:position] + parts[position + 1 :]
+            if any(_expression_lower_bound(partner, sibling) for sibling in siblings):
+                return True
+        return False
+
+    negated = False
+    while body.startswith("!") and not body.startswith("!="):
+        negated = not negated
+        body = _strip_all_outer_parens(body[1:])
+    if negated:
+        return _size_negative_test(symbol, body)
+
     sym = _size_symbol_regex(symbol)
     pattern = rf"{_SYMBOL_START}{sym}\s*(?:\.|->)\s*(size|is_empty|empty)\s*\(\s*\)"
     return any(
-        _bound_direction(expr, (0, len(expr)), match.group(1), match.start(), match.end())
-        for match in re.finditer(pattern, expr)
+        _bound_direction(
+            body, (0, len(body)), match.group(1), match.start(), match.end(), guard=True
+        )
+        for match in re.finditer(pattern, body)
     )
 
 
@@ -1494,8 +1686,9 @@ def _condition_lower_bounds(expr: str) -> bool:
     Used only to classify a reported site as loop-bounded-by-another-container, so
     the two counts stay reconcilable against #844's sweep. It is direction-aware for
     the same reason `_expression_lower_bound` is: a header that merely mentions a
-    `size()` has not bounded anything. Non-strict for the same reason: it can only
-    change the LABEL on a site that is already reported, never hide one.
+    `size()` has not bounded anything. It is deliberately NOT decomposed and not
+    `guard=True` strict the way `_expression_lower_bound` is, because its answer can
+    only change the LABEL on a site that is already reported, never hide one.
     """
     return any(
         _bound_direction(expr, (0, len(expr)), kind, start, end)
