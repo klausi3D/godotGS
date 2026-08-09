@@ -528,12 +528,20 @@ Dictionary RenderDebugStateOrchestrator::get_binning_debug_counters() const {
 	out["total_32bit_sorts"] = (int64_t)tr->get_sorter_metrics().total_32bit_sorts;
 
 	// Unsorted global-composite telemetry (#586, "no silent degradation"): persistent count
-	// of frames rasterized in UNSORTED order — sorter unavailable, sync sort dispatch
-	// failed, or async sort not submitted — across both CPU-counted and GPU-driven/indirect
+	// of frames PRESENTED in UNSORTED order across both CPU-counted and GPU-driven/indirect
 	// work. Non-zero => INCORRECT alpha compositing was presented on that many frames.
+	// Post-#586-fix only the transient causes can land here (sync sort dispatch failed,
+	// async sort not submitted); the permanent "sorter unavailable" cause rejects the frame
+	// instead and is reported by the two _rejected_ keys below.
 	// The reason code is the last GaussianSplatting::UnsortedCompositeReason (0 == NONE).
 	out["unsorted_composite_frames"] = (int64_t)tr->get_unsorted_composite_frames();
 	out["unsorted_composite_last_reason"] = (int64_t)tr->get_unsorted_composite_last_reason();
+	// #586 FIX: frames REJECTED (nothing published) rather than composited unsorted, plus the
+	// UnsortedCompositeReason of the most recent rejection. Non-zero => the global-composite
+	// sorter is unavailable (a permanent, latched state) and the renderer is deliberately
+	// presenting nothing. This is the telemetry signal for that degradation.
+	out["global_composite_rejected_frames"] = (int64_t)tr->get_global_composite_rejected_frames();
+	out["global_composite_last_reject_reason"] = (int64_t)tr->get_global_composite_last_reject_reason();
 
 	// Overflow-drop telemetry (C4b, "no silent degradation"). Channel A: overlap-record drops
 	// in the tile-binning EMIT pass, surfaced via the always-on resident-signal readback.

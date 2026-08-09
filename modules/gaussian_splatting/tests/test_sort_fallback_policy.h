@@ -157,7 +157,9 @@ TEST_CASE("[GaussianSplatting][SortFallback] unsorted counter fires on the indir
 	const UnsortedCompositeReason reason =
 			classify_unsorted_composite(has_work, GlobalSortAttemptOutcome::NOT_ATTEMPTED);
 	CHECK(reason == UnsortedCompositeReason::SORTER_UNAVAILABLE);
-	CHECK(reason != UnsortedCompositeReason::NONE); // i.e. the counter increments.
+	// i.e. the choke point acts on this frame. Post-#586-fix the action is a REJECT rather
+	// than an increment-and-present; the reject decision itself is locked in its own case below.
+	CHECK(reason != UnsortedCompositeReason::NONE);
 
 	// Proof the OLD predicate would have missed exactly this frame: the superseded
 	// `splat_count > 0` test is false here, so the old code took no branch at all.
@@ -239,6 +241,97 @@ TEST_CASE("[GaussianSplatting][SortFallback] sort-dispatch failures are counted,
 		}
 	}
 	CHECK_EQ(ok_counter, 0u);
+}
+
+// #586 FIX. The correctness decision itself: which unsorted-composite reasons must make
+// the renderer REJECT the frame instead of presenting incorrect alpha compositing.
+//
+// This locks BOTH directions, because either one alone is a bug:
+//   * SORTER_UNAVAILABLE must be fatal        -> otherwise the wrong output still ships.
+//   * the transient reasons must NOT be fatal -> otherwise a one-frame async blip on a
+//     perfectly healthy desktop GPU turns into a dropped frame (a healthy-path regression).
+TEST_CASE("[GaussianSplatting][SortFallback] the permanent sorter-unavailable cause rejects the frame, transient causes do not (#586)") {
+	// The permanent, latched class: no sorter could be built at all.
+	CHECK(unsorted_composite_must_reject_frame(UnsortedCompositeReason::SORTER_UNAVAILABLE));
+
+	// Transient classes, reachable on capable hardware; presented, counted, recovered next frame.
+	CHECK_FALSE(unsorted_composite_must_reject_frame(UnsortedCompositeReason::SORT_DISPATCH_FAILED));
+	CHECK_FALSE(unsorted_composite_must_reject_frame(UnsortedCompositeReason::ASYNC_SORT_NOT_SUBMITTED));
+
+	// A correctly sorted frame is never rejected — this is the healthy-path control, and it
+	// is what keeps the fix from passing by rejecting everything.
+	CHECK_FALSE(unsorted_composite_must_reject_frame(UnsortedCompositeReason::NONE));
+
+	// End-to-end through the choke point, on the GPU-driven indirect path (splat_count == 0,
+	// work described only by the indirect dispatch buffer) so the reject cannot be reached by
+	// a stale CPU-side splat count either.
+	const bool has_work = global_composite_has_translucent_work(
+			/*allow_sync_readback=*/false, /*overlap_record_count=*/0,
+			/*splat_count=*/0, /*has_instance_indirect=*/true);
+	if (!has_work) {
+		FAIL("premise: the indirect-work path must report translucent work");
+		return;
+	}
+	CHECK(unsorted_composite_must_reject_frame(
+			classify_unsorted_composite(has_work, GlobalSortAttemptOutcome::NOT_ATTEMPTED)));
+	CHECK_FALSE(unsorted_composite_must_reject_frame(
+			classify_unsorted_composite(has_work, GlobalSortAttemptOutcome::SUBMITTED)));
+	CHECK_FALSE(unsorted_composite_must_reject_frame(
+			classify_unsorted_composite(has_work, GlobalSortAttemptOutcome::SYNC_FALLBACK_OK)));
+
+	// No translucent work => nothing is composited => no frame is ever rejected. A renderer
+	// that rejected empty frames would black-screen an empty scene.
+	for (GlobalSortAttemptOutcome outcome : {
+				 GlobalSortAttemptOutcome::NOT_ATTEMPTED,
+				 GlobalSortAttemptOutcome::SUBMITTED,
+				 GlobalSortAttemptOutcome::SYNC_FALLBACK_OK,
+				 GlobalSortAttemptOutcome::SYNC_FALLBACK_FAILED,
+				 GlobalSortAttemptOutcome::NOT_SUBMITTED,
+		 }) {
+		CHECK_FALSE(unsorted_composite_must_reject_frame(classify_unsorted_composite(false, outcome)));
+	}
+}
+
+// #586 FIX, counter split. The renderer keeps two distinct persistent counters and a frame
+// must land in exactly one of them: rejected (nothing published) or presented-unsorted
+// (wrong pixels shipped). Mirrors the choke-point bookkeeping so a future edit that folds
+// them back together, or that double-counts a rejected frame as also-presented, fails here.
+TEST_CASE("[GaussianSplatting][SortFallback] rejected frames and presented-unsorted frames are counted separately (#586)") {
+	struct Case {
+		GlobalSortAttemptOutcome outcome;
+		uint64_t expect_rejected;
+		uint64_t expect_presented_unsorted;
+	};
+	const Case cases[] = {
+		{ GlobalSortAttemptOutcome::NOT_ATTEMPTED, 3u, 0u }, // permanent -> rejected, never presented
+		{ GlobalSortAttemptOutcome::SYNC_FALLBACK_FAILED, 0u, 3u }, // transient -> presented, counted
+		{ GlobalSortAttemptOutcome::NOT_SUBMITTED, 0u, 3u }, // transient -> presented, counted
+		{ GlobalSortAttemptOutcome::SUBMITTED, 0u, 0u }, // healthy control -> neither
+		{ GlobalSortAttemptOutcome::SYNC_FALLBACK_OK, 0u, 0u }, // healthy control -> neither
+	};
+
+	for (const Case &c : cases) {
+		uint64_t rejected = 0;
+		uint64_t presented_unsorted = 0;
+		uint8_t last_reject_reason = 0;
+		for (int frame = 0; frame < 3; frame++) {
+			const bool has_work = global_composite_has_translucent_work(false, 0, 0, true);
+			const UnsortedCompositeReason reason = classify_unsorted_composite(has_work, c.outcome);
+			if (unsorted_composite_must_reject_frame(reason)) {
+				rejected++;
+				last_reject_reason = uint8_t(reason);
+				continue; // the renderer returns here; the frame is NOT presented.
+			}
+			if (reason != UnsortedCompositeReason::NONE) {
+				presented_unsorted++;
+			}
+		}
+		CHECK_EQ(rejected, c.expect_rejected);
+		CHECK_EQ(presented_unsorted, c.expect_presented_unsorted);
+		if (c.expect_rejected > 0) {
+			CHECK_EQ(last_reject_reason, uint8_t(UnsortedCompositeReason::SORTER_UNAVAILABLE));
+		}
+	}
 }
 
 } // namespace TestGaussianSplatting

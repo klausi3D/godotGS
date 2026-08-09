@@ -52,7 +52,7 @@ current ones only where failed counts are nonzero.
 
 ## Context
 
-`MODULE_TEST_FILTERS` declares 26 lanes: **20 strict, 6 advisory** (`GaussianSplatting
+`MODULE_TEST_FILTERS` declares 27 lanes: **21 strict, 6 advisory** (`GaussianSplatting
 [Synthetic]`, `GaussianSplatting [untagged]`, `GaussianSplatting [Renderer]`,
 `TileRenderer`, `GPU Memory Stream`, `Streaming Pipeline`).
 

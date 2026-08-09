@@ -1055,7 +1055,7 @@ private:
 			}
 
 			// ---------------------------------------------------------------------
-			// SINGLE CHOKE POINT for unsorted-output accounting (#586).
+			// SINGLE CHOKE POINT for the unsorted-output decision (#586).
 			//
 			// Every way this frame can end up compositing translucent splats in the
 			// wrong order funnels through here, because the decision is derived from
@@ -1064,15 +1064,44 @@ private:
 			// increment anywhere else: add a GlobalSortAttemptOutcome instead, which
 			// classify_unsorted_composite() then forces you to classify.
 			//
-			// IMPORTANT — this is observability, NOT a fix. When the reason is not
-			// NONE this frame is presented with mathematically incorrect alpha
-			// compositing. #586 (make unsorted compositing impossible) stays OPEN.
+			// #586 FIX: this is no longer observability-only. A FATAL reason (the
+			// permanent, latched "no sorter could be built" class — see
+			// unsorted_composite_must_reject_frame in sort_fallback_policy.h) now
+			// REJECTS the frame: we return false, run() returns an invalid RID and
+			// the caller publishes nothing this frame (the same "output is disabled
+			// for this frame" contract already used by the output-ownership reject in
+			// render_with_contract / TileRasterizer). Presenting nothing is honest;
+			// presenting wrong alpha ordering dressed as a normal render is not.
+			//
+			// Non-fatal reasons keep the previous behaviour (counter + throttled WARN,
+			// frame still presented) — they are transient and recoverable on capable
+			// hardware, and dropping those frames would regress the healthy path.
+			//
+			// The reject happens HERE rather than before binning on purpose: this is
+			// the only point where the authoritative `has_translucent_work` predicate
+			// exists (in sync-readback mode it needs the post-count overlap-record
+			// total). Bailing earlier would require a second, drifting copy of that
+			// predicate — the exact defect the choke-point design exists to prevent.
+			// The cost is one wasted binning/emit dispatch on a frame that is not
+			// presented, and only in the already-degraded state.
+			//
 			// sorter_missing_logged is deliberately untouched: it belongs to
 			// disable_sorter as the one-shot guard for the ROOT-CAUSE line emitted at
 			// sorter-enable time.
 			// ---------------------------------------------------------------------
 			const GaussianSplatting::UnsortedCompositeReason unsorted_reason =
 					GaussianSplatting::classify_unsorted_composite(has_translucent_work, sort_outcome);
+			if (GaussianSplatting::unsorted_composite_must_reject_frame(unsorted_reason)) {
+				const uint64_t rejected_frames = ++renderer.perf_metrics.global_composite_rejected_frames;
+				renderer.perf_metrics.global_composite_last_reject_reason = uint8_t(unsorted_reason);
+				if (GaussianSplatting::should_warn_unsorted_composite(rejected_frames)) {
+					GS_LOG_WARN_DEFAULT(vformat(
+							"[TileRenderer] Global composite frame REJECTED (nothing presented) instead of rasterizing UNSORTED tiles: %s — %d frame(s) so far",
+							GaussianSplatting::unsorted_composite_reason_name(unsorted_reason),
+							int(rejected_frames)));
+				}
+				return false;
+			}
 			if (unsorted_reason != GaussianSplatting::UnsortedCompositeReason::NONE) {
 				const uint64_t unsorted_frames = ++renderer.perf_metrics.unsorted_composite_frames;
 				renderer.perf_metrics.unsorted_composite_last_reason = uint8_t(unsorted_reason);

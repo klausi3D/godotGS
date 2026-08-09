@@ -76,6 +76,7 @@ HEADLESS_GAUSSIAN_SCOPED_TAGS: tuple[str, ...] = (
     "SPZ",  # G2: promoted from the advisory [untagged] lane to a strict blocking lane.
     "SceneTree",
     "SortBenchmark",
+    "SortFallback",  # #586: promoted from the advisory [untagged] lane to a strict blocking lane.
     "Synthetic",
     "VRAMBudgetRegulator",
     "ViewTransform",
@@ -119,6 +120,10 @@ MODULE_TEST_FILTERS: tuple[tuple[str, tuple[str, ...], tuple[str, ...], bool], .
         True,
     ),
     ("GaussianSplatting [SortBenchmark]", ("*GaussianSplatting*][SortBenchmark]*",), ("*][RequiresGPU]*",), True),
+    # #586: the sort-fallback policy decides whether a frame is presented with incorrect alpha
+    # compositing or rejected. Those cases previously reached only the advisory [untagged] lane,
+    # so a regression in the reject decision could not fail CI. Strict blocking lane.
+    ("GaussianSplatting [SortFallback]", ("*GaussianSplatting*][SortFallback]*",), ("*][RequiresGPU]*",), True),
     ("GaussianSplatting [Synthetic]", ("*GaussianSplatting*][Synthetic]*",), ("*][RequiresGPU]*",), False),
     ("GaussianSplatting [VRAMBudgetRegulator]", ("*GaussianSplatting*][VRAMBudgetRegulator]*",), ("*][RequiresGPU]*",), True),
     ("GaussianSplatting [ViewTransform]", ("*GaussianSplatting*][ViewTransform]*",), ("*][RequiresGPU]*",), True),
