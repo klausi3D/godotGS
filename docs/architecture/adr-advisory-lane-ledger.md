@@ -52,7 +52,7 @@ current ones only where failed counts are nonzero.
 
 ## Context
 
-`MODULE_TEST_FILTERS` declares 26 lanes: **20 strict, 6 advisory** (`GaussianSplatting
+`MODULE_TEST_FILTERS` declares 27 lanes: **21 strict, 6 advisory** (`GaussianSplatting
 [Synthetic]`, `GaussianSplatting [untagged]`, `GaussianSplatting [Renderer]`,
 `TileRenderer`, `GPU Memory Stream`, `Streaming Pipeline`).
 
@@ -300,9 +300,13 @@ refusal is printed, so a missing report is never silent.
 
 ## Explicitly not decided here
 
-- **No lane's `strict` flag changes.** No lane is promoted or demoted.
-- **No entry, include or exclude pattern in `MODULE_TEST_FILTERS` / `REQUIRES_RD_TEST_FILTERS`
-  changes.**
+This section scopes **this ADR's own decision**. It is not a standing prohibition on the
+rest of the repository, and it does not freeze `MODULE_TEST_FILTERS` for later changes —
+see the note below the list.
+
+- **This slice changes no lane's `strict` flag.** It promotes and demotes nothing.
+- **This slice changes no entry, include or exclude pattern in `MODULE_TEST_FILTERS` /
+  `REQUIRES_RD_TEST_FILTERS`.**
 - **No gate is armed.** No threshold, ratchet or new failure condition on lane outcomes is
   introduced. Arming is GS-705-2, and it must be a **shrink-only ratchet pinned at a
   measured value** taken from this ledger — never a guessed number.
@@ -310,6 +314,15 @@ refusal is printed, so a missing report is never silent.
   a stranded or no-strict-lane count by removing tests is prohibited.
 - **No workflow change.** Uploading the JSON as a CI artifact is out of scope; stdout is
   sufficient for this slice.
+
+> **Superseded in part by #846.** The first two items above are scope statements about this
+> slice, not standing invariants — later changes may and do promote lanes. #846 promoted
+> `[DataAuthority]` from the advisory `[untagged]` safety net to its own strict lane, on the
+> `[AtomicWrite]` / `[SPZ]` precedent and gated on 125 measured runs, taking the counts in
+> *Context* above from 26 lanes / 20 strict to **27 lanes / 21 strict**. The advisory set is
+> unchanged at 6, so every conclusion this ADR draws about advisory-lane semantics still
+> holds. This is the promotion the status note above anticipated ("flipping the six lanes to
+> `strict` … is cheap for most of them"), done deliberately and one lane at a time.
 
 ## Consequences
 

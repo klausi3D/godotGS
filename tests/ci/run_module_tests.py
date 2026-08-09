@@ -2664,7 +2664,7 @@ def _preflight_lane_report_path(path: Path) -> list[str]:
     could have written some is the worst available failure mode.
 
     The end-of-run write still fails closed on its own; this only moves the
-    diagnosis to second zero instead of after 26 lanes.
+    diagnosis to second zero instead of after every lane has run.
     """
     # WHAT THIS RULES OUT - and, just as importantly, what it does not.
     #
@@ -2703,7 +2703,7 @@ def _preflight_lane_report_path(path: Path) -> list[str]:
     # succeed through the parent directory's permissions, so this is stricter
     # than the OS: writing this run's evidence over a file the process is not
     # permitted to write is not something to do silently, and naming the wrong
-    # destination is far cheaper to diagnose now than after 26 lanes.
+    # destination is far cheaper to diagnose now than after every lane has run.
     if path.is_file() and not os.access(path, os.W_OK):
         return [
             f"--lane-report destination exists and is not writable: {path}. "
