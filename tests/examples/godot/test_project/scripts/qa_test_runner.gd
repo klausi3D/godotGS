@@ -6,12 +6,23 @@ extends SceneTree
 
 const QA_TEST_BASE = preload("res://scripts/qa_test_base.gd")
 
+## ORDER IS PART OF THE CONTRACT for the route-comparison pairs.
+##
+## The world-route ("_world") scene of a pair must run BEFORE the instance-route
+## ("_instance") scene: the first renders one route and writes its captures, the
+## second renders the other route and scores SSIM against them. The candidate
+## fails closed when the reference did not run in the same process (#785), so a
+## reordering that separates a pair goes red instead of quietly scoring nothing.
 var test_scenes: Array[String] = [
 	"res://scenes/qa/qa_scale_validation.tscn",
 	"res://scenes/qa/qa_static_fast_path.tscn",
 	"res://scenes/qa/qa_sort_depth_order.tscn",
 	"res://scenes/qa/qa_sort_tie_breaker.tscn",
 	"res://scenes/qa/qa_sort_multi_instance.tscn",
+	"res://scenes/qa/qa_visual_diff_world.tscn",
+	"res://scenes/qa/qa_visual_diff_instance.tscn",
+	"res://scenes/qa/qa_sh_rotation_world.tscn",
+	"res://scenes/qa/qa_sh_rotation_instance.tscn",
 ]
 
 ## Scenes deliberately not run, and why.
@@ -25,18 +36,6 @@ var test_scenes: Array[String] = [
 ## Removing an entry is the whole fix for that scene — it starts gating again
 ## the moment the reason stops being true.
 const QUARANTINED_SCENES := {
-	"res://scenes/qa/qa_visual_diff.tscn":
-		"#785: compares GaussianSplatWorld3D against GaussianSplatNode3D in ONE scene, "
-		+ "but the renderer commits to a single route per frame and the node always "
-		+ "publishes RESIDENT, so the world submission is skipped "
-		+ "(route_uid COMMON.SKIP.RESIDENT_NOT_FEASIBLE.RESIDENT_NO_INSTANCES) and its "
-		+ "capture is the clear colour. Scored SSIM 1.0000 blank-vs-blank and stayed "
-		+ "green with one node displaced 3 world units. Also: the two fixtures hold "
-		+ "10 vs 10000 splats.",
-	"res://scenes/qa/qa_sh_rotation.tscn":
-		"#785: same invalid two-routes-in-one-scene design as qa_visual_diff; the world "
-		+ "path is blank at every camera angle, so the SSIM measured the instance path "
-		+ "against the clear colour.",
 	"res://scenes/qa/qa_stream_visual_smoke.tscn":
 		"#786: streaming/visual readiness is never reached (luma variance 0.00009 vs the "
 		+ "0.0002 gate) reproducibly across runs. Likely the same subsystem as #787, "
