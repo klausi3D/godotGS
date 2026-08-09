@@ -148,6 +148,14 @@ MODULE_TEST_FILTERS: tuple[tuple[str, tuple[str, ...], tuple[str, ...], bool], .
     # accessors tolerate concurrent payload mutation" -- 60 on a quiet box and 40
     # under 4-way self-contention to shift the interleaving -- all 98/98 with no
     # crash and no assertion-count drift. 125 runs, zero failures.
+    #
+    # HELD IN PLACE BY A GUARD, not by this comment: the promotion is two coupled
+    # edits (this tuple plus the HEADLESS_GAUSSIAN_SCOPED_TAGS entry above), and
+    # undoing BOTH -- or retagging only some of the cases -- would drop them back
+    # into the advisory net without stranding anything. `STRICT_COVERAGE_CONTRACTS`
+    # in tests/ci/check_test_lane_coverage.py asserts the property instead: every
+    # case in this corpus must reach some strict lane. Deleting this line without
+    # retiring that contract fails the guard batch.
     ("GaussianSplatting [DataAuthority]", ("*GaussianSplatting*][DataAuthority]*",), ("*][RequiresGPU]*",), True),
     # Safety-net lane for unscoped [GaussianSplatting] tests.  Advisory because
     # doctest's --test-case-exclude parsing is unreliable beyond ~10 repeated
