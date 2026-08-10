@@ -110,23 +110,45 @@ present the renderer commits to RESIDENT". The precedence in
 The reason string recorded on #788 is `submission_hint_resident:instance_submission`. That
 string is only reachable through the **fallback** branch, and only when
 `route_policy != RESIDENT`. So the measured failure proves something sharper than the issue
-states: **the world submission did not supply the hint even though the world node was
-present in the scene** — it was either not yet active for that renderer or its payload was
-not yet renderable at the moment the route was decided.
+states: **at the moment the route was decided the world submission failed the
+`is_active() && record_has_renderable_payload() && has_desired_residency_hint` gate
+(`:2819-2820`), even though the world node was present in the scene.** The world node sets
+`has_desired_residency_hint = true` unconditionally on every submission it publishes
+(`nodes/gaussian_splat_world_3d.cpp:510`), so the gate failed on `is_active()` or on
+`record_has_renderable_payload()` — that is, on **submission state**.
 
-Which of those two it was is **not determined here** and cannot be without a runtime run
-(see §8). It matters, because it means the mixed scene is *doubly* broken:
+**The cause of that state is not established, and this ADR does not name one.** Several
+steady, non-transient states produce the same reason string:
 
-- if the world payload is not ready at hint time, the instance hint decides and the world
-  is skipped (`resident_no_instances` when the instance content is also unavailable, e.g.
-  hidden or empty);
-- if the world payload *is* ready, the world hint decides and the **instance** node's
-  content is the one silently dropped — which is exactly the symmetry #788 reports
-  ("forcing `route_policy=1` makes the instance node's capture render the *world's*
-  splats").
+- **the submission was never committed.** `submit_world_submission()` rejects when a live
+  world already owns that scenario (`core/gaussian_splat_scene_director.cpp:2390-2399`), and
+  the node then returns without marking itself active
+  (`nodes/gaussian_splat_world_3d.cpp:516-522`). Persistent for as long as both worlds exist.
+- **the record was reset** by release, cross-scenario eviction or teardown
+  (`SubmissionStore::reset()`, `core/gaussian_splat_scene_director.h:752`).
+- **the payload is not renderable at all.** `record_has_renderable_payload()`
+  (`:843-851`) requires `gaussian_data` with `get_count() > 0` **or** a valid
+  `payload_source` with `get_count() > 0`; a world satisfying neither fails the gate for the
+  whole session, not for a startup window.
 
-**Which node type disappears therefore depends on load timing.** That is worse than a fixed
-precedence and is a first-class reason not to leave the combination silent.
+A load-timing race is one further candidate, not the measured cause. Nothing in this repo
+distinguishes them; §8 records what capture would. The user-facing text in §6.2 therefore
+names **no** cause.
+
+What *is* established is the precedence and its two consequences, and they are asymmetric:
+
+- when the world submission passes the gate, the **world's** hint wins deterministically
+  (`:2819-2825`) and the **instance** node's content is silently dropped — which is exactly
+  the symmetry #788 reports ("forcing `route_policy=1` makes the instance node's capture
+  render the *world's* splats");
+- when it fails the gate, the instance hint decides (`:2846-2851`) and the **world** is the
+  one skipped (`resident_no_instances` when the instance content is also unavailable, e.g.
+  hidden or empty) — the configuration reported on #788.
+
+**Which node type disappears therefore depends on the world submission's state at the moment
+the route is decided — a state the user cannot see and this ADR cannot attribute.** That is
+worse than a fixed precedence and is a first-class reason not to leave the combination
+silent.
 
 ### 3.3 Why hiding a node does not help
 
@@ -149,9 +171,11 @@ visibility-independent so that it does not quietly depend on it.
 Setting `route_policy = 0` (`GS_ROUTE_RESIDENT`) makes `should_prefer_resident_backend()`
 return true at step 1 (`:2847-2851`). The resident route then renders whatever instances
 the director builds — the `GaussianSplatNode3D` content — and the world's streaming payload
-is not drawn. Setting it to `1` gives the world the frame and drops the instance content.
-**Neither value renders both.** The conflict is `route_policy`-independent, which is why
-the warning specified in §6 does not read `route_policy` at all.
+is not drawn. Setting it to `1` does not restore symmetry: if the world submission passes the
+hint gate the world takes the frame and the instance content is dropped; if it does not, the
+instance hint takes the frame and the world is dropped (§3.2).
+**No value of `route_policy` renders both.** The conflict is `route_policy`-independent,
+which is why the warning specified in §6 does not read `route_policy` at all.
 
 ## 4. Why this is a decision and not just a bug
 
@@ -205,10 +229,11 @@ Hard-reject the combination with an error naming both nodes.
 Evaluated honestly, and rejected:
 
 - **It breaks scenes that exist, on upgrade.** Today the combination is not uniformly
-  black: per §3.2, one of the two node types *does* render, and which one depends on load
-  timing. A user whose scene currently shows their instance content would, on upgrading,
-  get a hard error and nothing at all. A diagnostic that turns partial output into no
-  output is a regression, and the module has no scene-migration mechanism to soften it.
+  black: per §3.2, one of the two node types *does* render, and which one depends on the
+  world submission's state. A user whose scene currently shows their instance content
+  would, on upgrading, get a hard error and nothing at all. A diagnostic that turns partial
+  output into no output is a regression, and the module has no scene-migration mechanism to
+  soften it.
 - **There is nothing to reject at the point it would matter.** The nodes are already in the
   user's saved `.tscn`. A runtime `ERR_FAIL` cannot un-author the scene; it can only make
   the same failure louder and less recoverable than the warning Option 1 already gives.
@@ -366,17 +391,20 @@ work in §9, next to the `visible` one; they are the same defect shape.
 
 ### 6.2 Warning text
 
-Exact strings. Both name **both** class names and the observable consequence.
+Exact strings. Both name **both** class names and the observable consequence — and **neither
+names a cause**, because §3.2 has not established one.
 
 On `GaussianSplatWorld3D`:
 
 ```text
 A GaussianSplatNode3D shares this node's World3D. The renderer commits to a single
 render route per frame, so only one of the two node types is drawn and the other
-renders nothing — which one depends on load timing. Hiding either node does not
-restore the other. Until per-submission routing lands (issue #788), keep
-GaussianSplatWorld3D content and GaussianSplatNode3D content in separate scenes or
-separate viewports (a SubViewport with its own World3D).
+renders nothing. Hiding either node does not restore the other. Until per-submission
+routing lands (issue #788), keep GaussianSplatWorld3D content and GaussianSplatNode3D
+content in separate World3Ds: put one under a SubViewport with its own World3D, or run
+the two as separate scenes one at a time. Splitting them into separate .tscn files that
+are then instantiated under the same viewport does NOT help — they still resolve the
+same World3D.
 ```
 
 On `GaussianSplatNode3D`:
@@ -384,11 +412,24 @@ On `GaussianSplatNode3D`:
 ```text
 A GaussianSplatWorld3D shares this node's World3D. The renderer commits to a single
 render route per frame, so only one of the two node types is drawn and the other
-renders nothing — which one depends on load timing. Hiding either node does not
-restore the other. Until per-submission routing lands (issue #788), keep
-GaussianSplatNode3D content and GaussianSplatWorld3D content in separate scenes or
-separate viewports (a SubViewport with its own World3D).
+renders nothing. Hiding either node does not restore the other. Until per-submission
+routing lands (issue #788), keep GaussianSplatNode3D content and GaussianSplatWorld3D
+content in separate World3Ds: put one under a SubViewport with its own World3D, or run
+the two as separate scenes one at a time. Splitting them into separate .tscn files that
+are then instantiated under the same viewport does NOT help — they still resolve the
+same World3D.
 ```
+
+**Why the workaround is phrased as a `World3D` separation and not as "separate scenes".**
+The conflict is keyed by scenario RID (§6.1), and a scene file is not a scenario.
+`Node3D::get_world_3d()` forwards to `Viewport::find_world_3d()`
+(`scene/3d/node_3d.cpp:1054-1060`), which returns `own_world_3d`, else the viewport's
+`world_3d`, else **recurses into the parent viewport** (`scene/main/viewport.cpp:4670-4681`).
+Two `PackedScene`s instantiated under the same viewport therefore resolve the *same*
+`World3D` and the same scenario, and the conflict is unchanged — so "put them in separate
+scene files" on its own is not a workaround and must not be advertised as one. Only a
+viewport that supplies its own world, or not having both scenes in the tree at the same
+time, changes the key.
 
 The phrase **"renders nothing"** and both literal class names are load-bearing: §6.4 asserts
 on them, and the assertion is specified here rather than derived from the implementation
@@ -627,12 +668,19 @@ below was executed.
   `route_policy` — is #785's and #788's measured evidence, reproduced here as reported, not
   re-measured.
 - **Unresolved (§3.2): why the world submission failed the
-  `is_active() && record_has_renderable_payload()` test** in the reported run — whether the
-  world submission was not yet active for that renderer, or its payload was not yet
-  renderable when the route was decided. Both are consistent with the recorded reason
-  string. Distinguishing them needs a run with the director state logged at hint time. It
-  does not change this decision (the conflict exists either way, §3.4) but it does determine
-  whether Option 2 also has to fix a startup ordering race.
+  `is_active() && record_has_renderable_payload()` test** in the reported run. §3.2
+  enumerates the candidate states — an arbitration-rejected submission, a record reset by
+  release/eviction/teardown, a payload that is never renderable, or a load-timing race — and
+  the recorded reason string is consistent with **all** of them. **No measurement in this
+  repo distinguishes them, so neither this ADR nor the §6.2 warning attributes the outcome
+  to any one cause, and in particular neither claims load timing.** The capture that would
+  settle it: run the mixed scene with `is_active()`, `record_has_renderable_payload()` and
+  `has_desired_residency_hint` logged from inside
+  `get_submission_residency_hint_for_renderer()` (`core/gaussian_splat_scene_director.cpp:2811`)
+  on every frame from the first frame to steady state — a gate that fails early and passes
+  later is timing; a gate that never passes is state. That run needs a build and was not
+  performed here. It does not change this decision (the conflict exists either way, §3.4)
+  but it does determine whether Option 2 also has to fix a startup ordering race.
 - **The Option 1 spec compiles/behaves as written is unproven.** Group registration from a
   constructor, `get_world_3d()` validity inside the editor's edited-scene viewport, and the
   peer-notification ordering are all read from source, not run.
@@ -682,6 +730,9 @@ below was executed.
   record of why the interim existed.
 - **Evidence that users ship the broken combination despite the warning** → revisit Option 3
   as an *export-time* check (§5.3), never as a runtime error.
-- **A measurement showing which node disappears is in fact deterministic**, not
-  load-timing-dependent (§3.2) → the warning text's "which one depends on load timing" must
-  be corrected to say which one, because a vaguer warning than the truth is its own defect.
+- **A measurement establishing why the world submission failed the hint gate** (§3.2, §8) →
+  if it shows the outcome is deterministic for an authored scene, the §6.2 warning must be
+  tightened to name *which* node type renders nothing, because a warning vaguer than the
+  measured truth is its own defect. Until such a run exists the warning states the outcome
+  and no cause — the reverse error, shipping an unmeasured causal claim to users, is the one
+  this ADR already made once and corrected.
