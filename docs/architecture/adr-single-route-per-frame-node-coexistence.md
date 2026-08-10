@@ -41,6 +41,20 @@
   revisions did not enumerate. §6.1 now records all the write sites, and §6.4 was re-derived
   in full against the corrected reading — which moved **T8d** off the deliberately-unkilled
   list and turned "drop conjunct P entirely" from an unkilled row into a killed one.
+  **Round 8 re-anchored the whole document.** `origin/master` has since moved to
+  **`924bef76b9b`**; every one of the seventeen files this ADR cites (both node `.cpp`/`.h`s,
+  `core/gaussian_splat_scene_director.cpp`/`.h`, `core/gaussian_splat_world.cpp`,
+  `core/gaussian_splat_asset.cpp`, `core/gs_project_settings.h`,
+  `core/gaussian_splat_manager.cpp`, `renderer/gaussian_splat_renderer.cpp`,
+  `renderer/resident_instance_contract_publisher.cpp`, `scene/3d/node_3d.cpp`,
+  `scene/main/viewport.cpp`, `scene/main/node.cpp`, `scene/main/scene_tree.cpp`,
+  `core/object/object.h`) was blob-compared `a04472a82cf:<path>` vs `924bef76b9b:<path>` and is
+  **byte-identical**, so every line number below holds at current master. Round 8 also found a
+  **third** product bug in the class this spec describes, **#869**: `last_known_scenario` (S) is
+  written *before* `submit_world_submission()` can reject, so a previously-applied world node
+  that loses arbitration on a re-apply ends up with S naming a scenario it holds no submission
+  in **while I stays `true`**. §6.1 records the bounded false negative that produces;
+  **#869 is not a prerequisite** and §9 justifies why, against the same test that made #862 one.
 
 ## 1. What a user sees
 
@@ -257,8 +271,19 @@ route later) is unchanged by rounds 5 and 6; what those rounds established is th
   released, not duplicated. §6.2's text therefore names that step. #863 turns a one-step
   workaround into a two-step one; it does not make the warning wrong.
 
-Neither fix is in scope for the Option 1 PR — both change what the renderer draws, and this
-one changes only what the editor says (§9).
+- **#869 is not a hard prerequisite either, and the reasoning is neither #862's nor #863's.**
+  Found in round 8: `last_known_scenario` (conjunct S) is written before
+  `submit_world_submission()` can reject, so a previously-applied world node re-applied into a
+  scenario another live world owns keeps **I = `true`** while **S** names a scenario it holds no
+  submission in. That is a false negative of the #862 kind — the warning goes quiet while the
+  stale submission still steers — but it is **not reachable in the scene this warning targets**:
+  the rejection requires a *second* live world node owning the destination scenario, so the
+  state needs two world nodes, a `World3D` migration and a re-apply. §9 works the comparison
+  through against the same test that made #862 a blocker, and records the two further checks
+  (#869 does not break the §6.2 remedy, and it does not change §6.1 when it lands).
+
+None of the three fixes is in scope for the Option 1 PR — all three change what the renderer
+draws or when it draws it, and this one changes only what the editor says (§9).
 
 ### 5.2 Option 2 — make it work (**accepted as target, deferred**)
 
@@ -386,7 +411,7 @@ it; a warning on only one is a coin-flip on which node they inspect first.
   | --- | --- | --- |
   | R1 | `_register_shared_renderer()` returns early when `!is_inside_tree()` (`nodes/gaussian_splat_world_3d.cpp:475-477`) | `_register_instance_in_director()` returns early when `!in_tree` (`nodes/gaussian_splat_node_3d.cpp:2590-2592`) |
   | R2 | (no direct guard — `_register_shared_renderer()` gates only on the tree; see S) | `_register_instance_in_director()` returns early when `!in_world` (`nodes/gaussian_splat_node_3d.cpp:2590-2592`) |
-  | S | `last_known_scenario`, written at `_register_shared_renderer()` (`nodes/gaussian_splat_world_3d.cpp:488-493`) **and** at `_ensure_renderer()` (`:326-328`) — see the write-site list below | `last_known_scenario`, written only inside `_register_instance_in_director()` (`nodes/gaussian_splat_node_3d.cpp:2622-2625`), after its asset-null early-return at `:2606-2609` |
+  | S | `last_known_scenario`, written at `_register_shared_renderer()` (`nodes/gaussian_splat_world_3d.cpp:488-493`) **and** at `_ensure_renderer()` (`:326-328`) — see the write-site list below | `last_known_scenario`, written only inside `_register_instance_in_director()` (`nodes/gaussian_splat_node_3d.cpp:2622-2625`), after its asset-null early-return at `:2607-2609` |
   | P | `SubmissionStore::record_has_renderable_payload()` (below) | the asset resolution in `_register_instance_in_director()` (below) |
   | I | `was_world_submission_active` (below) | **constant true** — the class has no apply gate (below) |
 
@@ -420,15 +445,16 @@ it; a warning on only one is a coin-flip on which node they inspect first.
 
   | Class | Site | Value written | Reached from |
   | --- | --- | --- | --- |
-  | `GaussianSplatWorld3D` | `_register_shared_renderer()` `:491-493` | the **submitted** scenario (`:488`) | `_apply_world_internal()` `:452`, `_resubmit_world_submission_if_registered()` `:414` |
+  | `GaussianSplatWorld3D` | `_register_shared_renderer()` `:491-493` | the scenario being **submitted to** (`:488`) — written *before* `submit_world_submission()` at `:516` and **not** rolled back when it rejects at `:521` (#869, round 8) | `_apply_world_internal()` `:452`, `_resubmit_world_submission_if_registered()` `:414` |
   | `GaussianSplatWorld3D` | `_ensure_renderer()` `:326-328` | the **resolved** scenario (`get_world_3d()`) | `NOTIFICATION_READY` `:104`, `apply_world()` `:302`, the tail of `_register_shared_renderer()` `:525`, and `_notification_process()` `:223` |
-  | `GaussianSplatNode3D` | `_register_instance_in_director()` `:2622-2625` | the **resolved** scenario | `_notification_enter_world()` `:383` → `_register_shared_renderer()` `:2903`, and only past that function's own no-data early-return at `:2897-2901` and this one's asset-null early-return at `:2606-2609` |
+  | `GaussianSplatNode3D` | `_register_instance_in_director()` `:2622-2625` | the **resolved** scenario | `_notification_enter_world()` `:383` → `_register_shared_renderer()` `:2903`, and only past that function's own no-data early-return at `:2897-2901` and this one's asset-null early-return at `:2607-2609` |
 
   Both classes clear it only at `NOTIFICATION_PREDELETE`
   (`nodes/gaussian_splat_world_3d.cpp:186`, `nodes/gaussian_splat_node_3d.cpp:519`).
 
-  **S is still never stale in the direction that produces a false positive** — the property
-  that has to hold for a latched field — but the derivation is now the following, and two of
+  **S is never stale in the direction that produces a false positive *except* in the one state
+  round 8 found (#869), which is enumerated as the last item below** — that "never" was stated
+  unqualified for four rounds and was wrong. The derivation is now the following, and three of
   its steps are new:
   - It survives tree exit, which releases the submission but leaves the cache — and R1
     excludes that state.
@@ -451,6 +477,33 @@ it; a warning on only one is a coin-flip on which node they inspect first.
     the old one, which turns the conflict invisible. That is a false *negative*, never a false
     positive — and it is why §6.4's T10b carries an explicit "do not call `tree->process()`"
     setup constraint.
+  - **New in round 8, and the one state where S *is* stale in the false-positive direction —
+    filed as #869.** S is written at `:491-493` **before** `submit_world_submission()` runs at
+    `:516`, and the arbitration rejection returns at `:521` without rolling it back. (On the
+    `apply_world()` path S has in fact already moved one step earlier still: `apply_world()`
+    `:301-303` calls `_ensure_renderer()` *first*, which writes S from the resolved world at
+    `:326-328` before `_apply_world_internal()` is even entered.) So take a world node that
+    applied successfully in scenario A, then comes to resolve scenario B — a viewport world
+    switch (#863) — and re-apply it. If B's submission slot is already held by **another live
+    world node**, the director rejects at
+    `core/gaussian_splat_scene_director.cpp:2392-2401`, and phase 3's
+    `previous_world->submission_store.reset()` (`:2509-2517`) is on the **commit** path only, so
+    A's submission is left installed. The node ends with **S = B, I still `true`** (I is set at
+    `:524`, past the rejection's return, and cleared only by `clear_world()` at `:312`), and its
+    submission still steering **A**. Both directions follow: **false negative in A** — an
+    instance node registered in A is genuinely being dropped by this node's submission, the
+    scenario equality fails, and neither node warns; and a **misattributed fire in B** — the
+    node warns against a peer in B whose content is in fact being dropped by the *incumbent*
+    world node, not by this one. The predicate cannot close this from node-side state: after the
+    rejection nothing on the node distinguishes "registered in the scenario I last resolved"
+    from "registered where I was last *accepted*", and the only alternative input is the live
+    director query §6.1 rejects two bullets down. **It is therefore a product bug, fixed in
+    #869, not a predicate change here.** It is bounded, and the bound is what keeps it off the
+    prerequisite list (§9): the rejection at `:2392-2401` fires *only* when a second, live
+    `GaussianSplatWorld3D` already owns the destination scenario, so the state needs **two**
+    world nodes plus the instance node plus a world migration plus a re-apply — and in that
+    scene the user's undiagnosed problem is already two world nodes in one scenario, which §6.1
+    states below that this ADR does not diagnose at all.
 
   `is_inside_world()` (R2) **stays**, and now for a different reason than the previous revision
   gave. It is no longer a guard against `get_world_3d()` printing an engine error, because the
@@ -582,12 +635,27 @@ it; a warning on only one is a coin-flip on which node they inspect first.
   deliberate.** `was_world_submission_active` is node-side and *latched*: it moves only when
   this node applies or clears. It is not a live query and does not track peer churn. It does
   inherit one dependency from the director — `submit_world_submission()` returns false when
-  another world already owns the scenario (`nodes/gaussian_splat_world_3d.cpp:516-522`), so a
-  world node that lost world-vs-world arbitration reads I = false and stays silent. **Recorded,
-  not hidden:** that silence is correct for *this* warning (a rejected submission does not
-  steer the route), but the user's actual problem in that scene is two world nodes in one
-  scenario, which this ADR does not diagnose. §8 records the measurement that has to confirm I
-  latches at all in the editor, and the fallback if it does not.
+  another world already owns the scenario (`nodes/gaussian_splat_world_3d.cpp:516-522`).
+
+  **What that dependency does to I is not uniform, and the previous revision stated only the
+  half that is harmless (round-8 correction).** The claim it made — "a world node that lost
+  world-vs-world arbitration reads I = false and stays silent" — is true **only of a node that
+  has never successfully applied**. `was_world_submission_active` is set `true` at `:524`,
+  which the rejection's `return` at `:521` never reaches, and set `false` **only** in
+  `clear_world()` at `:312` (both write sites enumerated from the source, per rule 5 of §6.4).
+  So a node whose *first* apply is rejected does read I = false — and for that node the silence
+  is correct, while the user's actual problem in that scene is two world nodes in one scenario,
+  which this ADR does not diagnose. But a node that applied successfully in one scenario and is
+  then **re-applied into a scenario another live world already owns keeps I = `true`**, because
+  nothing on the reject path clears it — and S has already moved to the rejected scenario
+  (`:491-493`, written before the submit at `:516`). That state is #869; its two consequences,
+  and the reason it is a product bug rather than something the predicate can close, are
+  derived in full in the S write-site discussion above. It is recorded here as an accepted,
+  bounded false negative rather than fixed, and §9 states why it is not a prerequisite the way
+  #862 is.
+
+  §8 records the measurement that has to confirm I latches at all in the editor, and the
+  fallback if it does not.
 
 **Why the count and not the assignment — the proof.** A valid-but-empty asset never reaches
 the instance store, so it never steers the route. `InstanceStore::retain_asset()`
@@ -877,7 +945,19 @@ not a safety margin: it is an unkillable duplicate, and §6.4 must not pretend o
 - **The property setters that call `_resubmit_world_submission_if_registered()`**
   (`nodes/gaussian_splat_world_3d.cpp:261-299`) are omitted because they **cannot** flip I:
   that helper returns early unless the director already holds a submission for this node
-  (`:410-412`), i.e. unless I is already true, and it never sets it false.
+  (`:410-412`), i.e. unless I is already true, and it never sets it false. **They can, however,
+  rewrite S** — the helper reaches `_register_shared_renderer()` at `:414`, which writes
+  `last_known_scenario` at `:491-493` — and round 8 records the bound rather than leaving "cannot
+  flip I" to imply more than it says. In every state this ADR's cases construct the rewrite is to
+  the value S already holds, so it changes no answer. It changes an answer in exactly one state:
+  a node whose resolved and registered scenarios have come apart, which is #863's stranding. If
+  the destination slot is free the setter genuinely *migrates* the submission (director phase 3,
+  `core/gaussian_splat_scene_director.cpp:2509-2517`) and both scenarios' answers change with no
+  refresh issued; if it is owned, the submission does not move but S does (#869). **Neither gets
+  a trigger here**, deliberately: both states exist only because #863 is unfixed, both are
+  cleared by that fix, and adding a trigger for them would be an unkillable duplicate by the
+  standard of the two bullets above — no case in §6.4 reaches a rejected or migrating submit
+  (see "the table is coupled to the predicate"). Recorded as a residual in §8.
 
 **Two further triggers named in the brief are deliberately excluded, and each is pinned by a
 test:**
@@ -926,7 +1006,7 @@ recorded is not a control — it is a case that happens to be green.
 | **T5** | control — visibility is irrelevant | T1 setup, then `set_visible(false)` on the instance node, then on the world node | warning **still present on *both* nodes in both configurations** (pins §6.3). Asserting both nodes is what makes the case indifferent to whether the mutation adds the conjunct to the self test or to the peer test | adding `&& is_visible_in_tree()` to the condition |
 | **T6** | control — `route_policy` is irrelevant | T1 setup, run once with `route_policy = 0` and once with `= 1`, restoring the setting via the existing `ProjectSettingGuard` pattern (`tests/test_node_surface_cleanup.h:184`) | warning **present at both values** (pins §3.4/§6.3) | making the condition read `gs::settings::get_streaming_route_policy()`, in the polarity that agrees with the **project default** (`== GS_ROUTE_STREAMING`, §3.1) — the opposite polarity would take T1 down with it, see the Run B row |
 | **T7** | control — different `World3D` | world node in the main tree, instance node inside a `SubViewport` with `own_world_3d = true` | warning **absent in both**. This is the control that proves the scenario scoping is real rather than a global "is there a world node anywhere" check | dropping the registered-scenario comparison (S, §6.1) from the condition |
-| **T8** | control — no content at all | both node types present, neither has any resource assigned | warning **absent** — the user's actionable problem is "no asset", which the existing warning already states | **nothing — deliberately unkilled.** With no resource assigned, this state fails **S, P and I at once** on both nodes (`_register_shared_renderer()` returns at `nodes/gaussian_splat_world_3d.cpp:478-480`, before S is written at `:491-492` and before I is set at `:524`; the instance node's `_register_shared_renderer()` returns at `nodes/gaussian_splat_node_3d.cpp:2897-2901`, before `_register_instance_in_director()` writes S at `:2622-2624`). Dropping P alone therefore leaves S and I still excluding both nodes. T8 is kept as a **regression control** against the naive "two GS node types in one scene" implementation; the individually killable weakenings of P are T8b and T8c |
+| **T8** | control — no content at all | both node types present, neither has any resource assigned | warning **absent** — the user's actionable problem is "no asset", which the existing warning already states | **nothing — deliberately unkilled.** With no resource assigned the two nodes are excluded by **different** conjuncts, and neither by P alone. **Round-8 correction: this cell said both nodes fail "S, P and I at once", which round 6 had already refuted in the corrected derivation under "Deliberately unkilled" below — two incompatible explanations of the same row were left on the page.** The **world** node fails **P and I** only: `NOTIFICATION_READY` runs `_ensure_renderer()` (`nodes/gaussian_splat_world_3d.cpp:104`), which writes S at `:326-328` before any submission exists, and `auto_apply_on_ready` then reaches `_apply_world_internal()`, which sees a null `world`, calls `clear_world()` at `:423` and returns at `:424` — so `_register_shared_renderer()` is never entered at all (not, as this cell used to say, entered and returned at `:478-480`) and I is never set at `:524`. The **instance** node fails **S and P**: its `_register_shared_renderer()` returns at `nodes/gaussian_splat_node_3d.cpp:2897-2901` before it can reach `_register_instance_in_director()` at `:2903`, so the S write at `:2622-2625` never runs. Dropping P alone therefore still leaves each node excluded — **the world node by I, the instance node by S** — which is the same outcome the old cell claimed, reached by the correct route. T8 is kept as a **regression control** against the naive "two GS node types in one scene" implementation; the individually killable weakenings of P are T8b and T8c |
 | **T8b** | control — **empty instance resource** | world node with ≥1 splat **and** instance node whose `splat_asset` is a valid `GaussianSplatAsset` with `get_splat_count() == 0` | warning **absent on both**, and the world node gains no other new warning. The world route renders in this configuration (§6.1 proof), so a warning here would be a lie | weakening the instance predicate to `splat_asset.is_valid()` — i.e. the "content assigned" spec this ADR shipped in round 1 |
 | **T8c** | control — **empty world resource** | instance node with ≥1 splat of runtime data **and** world node whose `GaussianSplatWorld` has a null-or-zero-count `gaussian_data` *and* `chunk_payload_source` | warning **absent on both** | weakening the world payload test (P) to `get_world().is_valid()` |
 | **T8d** | control — **world never applied** | T1 setup, except the world node has `auto_apply_on_ready = false` set *before* it enters the tree. Payload is fully renderable; `apply_world()` is never called (`nodes/gaussian_splat_world_3d.cpp:108-113`). **Setup constraint:** the `GaussianSplatWorld` must be assigned *before* tree entry — `set_world()` applies immediately when already in-tree (`:252-254`), which would make the world node active and T8d RED on the unmutated build | warning **absent on both** — the instance route renders in this configuration | **dropping conjunct I** — T8d shares that mutation with T8e. **Round-6 correction; this cell said "deliberately unkilled" for two rounds and was wrong.** The reasoning was that `apply_world()` never runs here, so `_register_shared_renderer()` is never reached and S is invalid as well as I false. S *is* valid: `NOTIFICATION_READY` calls `_ensure_renderer()` at `nodes/gaussian_splat_world_3d.cpp:104`, **before** the `auto_apply_on_ready` test at `:108`, and `_ensure_renderer()` writes `last_known_scenario` from the resolved world at `:326-328`. T8d's world node is therefore R1 ✓ R2 ✓ S ✓ P ✓ I ✗ — I is the sole false conjunct, exactly like T8e. **T8e is still not redundant:** it is the only case that also kills the `is_auto_apply_on_ready()` misreading of I, which T8d agrees with by accident (its flag is `false` and so is the real I) |
@@ -1118,6 +1198,29 @@ against a predicate that had since moved.**
   - a headless process tick can move S without moving the submission, which is a setup
     constraint on T10b rather than a table correction.
 
+- **Round 8: one stale row, and a full re-derivation that changed no expectation — recorded
+  because "nothing changed" is a result only if the check was actually run.** The stale row was
+  **T8**, whose "Killed by" cell still carried round 5's "fails S, P and I at once" reading
+  after round 6 had corrected the same claim two sections lower. The expected outcome was
+  unaffected, and that is precisely why it survived a round: **the generator here is neither a
+  moved predicate nor a misread of the code, but a correction applied at one of the two places
+  that stated the same fact.** Rule 6 below is the response.
+  Round 8 also re-derived every row against the #869 finding (S can outlive a rejected submit,
+  §6.1) and against the corrected account of I under arbitration rejection. **No row's setup,
+  assertion or RED set changes**, and the reason is single and checkable rather than
+  row-by-row optimism: **no case in this list ever drives a `submit_world_submission()` that
+  the director rejects.** T1–T8e stand up one world node per scenario, so arbitration never
+  fires; T9/T9b/T10 move the *instance* node, which does not arbitrate a world slot at all;
+  T10b moves the world node's viewport but §6.3 specifies its new `ENTER_WORLD`/`EXIT_WORLD`
+  cases as **refresh-only**, so no re-apply and no submit occurs; T11/T12/T13 drive the
+  resource `changed` handler, specified refresh-only for the same reason. **The arbitration
+  state is therefore deliberately not covered by any case**, and adding one is rejected on the
+  ADR's own rules: its correct end state only becomes true of the running system after #869,
+  so a case written now would assert an outcome the build cannot produce — the fourth
+  unachievable expectation, written knowingly. It is recorded as a bounded false negative in
+  §6.1 and §8 instead, which is the same disposition #862's and #863's divergences already
+  have in T11 and T10b.
+
 **The rules this leaves behind.**
 
 1. **Before writing a "Killed by" entry, enumerate which notifications the trigger actually
@@ -1153,6 +1256,14 @@ against a predicate that had since moved.**
    because the predicate reads correctly and only its mirror-of-the-code column is wrong — so
    the enumeration has to be explicit, and it has to be re-run whenever a "Killed by" entry
    depends on a field *not* having been written.
+6. **When a correction lands, grep for every other place that states the corrected fact and fix
+   them in the same edit.** (Round 8's rule.) Round 6 corrected the "S is invalid in the
+   never-applied state" misreading in §6.1, in T8d and in the deliberately-unkilled derivation,
+   and left the *same* claim standing in T8's "Killed by" cell — where it survived a round
+   because the row's expected outcome was unchanged by it. **An outcome that is still right is
+   not evidence the reasoning is:** a mutation table whose rows are read as attributions is
+   wrong the moment two rows explain the same state incompatibly, whatever the expectations say.
+   The check is mechanical — grep the corrected claim, not the corrected row.
 
 #### The mutation runs — what they must actually produce
 
@@ -1209,7 +1320,7 @@ it attributes nothing on its own.
 | condition reads `get_streaming_route_policy()`, **in the polarity that agrees with the project default** (`== GS_ROUTE_STREAMING`; default is `1`, §3.1) | T6 | T6 is the only case that runs one setup at both policy values; the added conjunct is false at `route_policy = 0`. **The polarity is load-bearing:** `== GS_ROUTE_RESIDENT` would be false at the default and take T1, T5, T9–T12 down with it, destroying the attribution |
 | drop the `registered_scenario(M) == registered_scenario(N)` equality | T7 **and** T10 | T7 — its two nodes are in different scenarios from the start, so the equality is the only conjunct excluding them. T10 — after the switch the mover's S is the *new* scenario, and the equality is precisely what makes T10's expected end state clean; without it the post-flush snapshot still warns. T7 pins it statically, T10 across a transition; a condition that is right until something migrates passes T7 |
 | compare `get_world_3d()->get_scenario()` instead of the registered scenario | T10b **only** | Only T10b puts registered and resolved in conflict — the world node resolves the new scenario while its submission stays registered in the old one (#863). T1, T7, T9, T9b, T10, T11 and T12 all leave the two in agreement and stay GREEN |
-| drop conjunct P entirely | T8b, T8c, T11, T12 **and** T13 — **round-6 correction; this row said "nothing — deliberately unkilled"** | Three states in the list have P as their *sole* false conjunct, and round 5 checked the row against the one state that does not. **T8b** — its instance node holds a valid empty `splat_asset`, so `_register_instance_in_director()` clears its asset-null early-return at `nodes/gaussian_splat_node_3d.cpp:2606-2609` and **writes S at `:2622-2625`** before `register_instance()` declines to append a record; S valid, I constant-true, P alone false. **T8c** — the world node's empty-but-assigned `GaussianSplatWorld` is still accepted, so S is valid and I is true (the same fact the "weaken P on the world side" row already stated). **T13** — after the payload removal the world node is R1 ✓ R2 ✓ S ✓ I ✓ P ✗. **T11 and T12** fail on the absence *preconditions* they inherit from T8c and T8b. GREEN: **T8** (its world node also has I false and its instance node never reaches the S write, stopping at `:2606-2609`), **T8d** and **T8e** (I false), **T7** (scenario equality) |
+| drop conjunct P entirely | T8b, T8c, T11, T12 **and** T13 — **round-6 correction; this row said "nothing — deliberately unkilled"** | Three states in the list have P as their *sole* false conjunct, and round 5 checked the row against the one state that does not. **T8b** — its instance node holds a valid empty `splat_asset`, so `_register_instance_in_director()` clears its asset-null early-return at `nodes/gaussian_splat_node_3d.cpp:2607-2609` and **writes S at `:2622-2625`** before `register_instance()` declines to append a record; S valid, I constant-true, P alone false. **T8c** — the world node's empty-but-assigned `GaussianSplatWorld` is still accepted, so S is valid and I is true (the same fact the "weaken P on the world side" row already stated). **T13** — after the payload removal the world node is R1 ✓ R2 ✓ S ✓ I ✓ P ✗. **T11 and T12** fail on the absence *preconditions* they inherit from T8c and T8b. GREEN: **T8** (its world node also has I false, and its instance node never reaches the S write — it stops one function earlier, at `_register_shared_renderer()`'s no-data return `:2897-2901`, so the asset-null guard at `:2607-2609` is not even reached), **T8d** and **T8e** (I false), **T7** (scenario equality) |
 | weaken P on the instance side to `splat_asset.is_valid()` | T8b **and** T12 | T8b is built for it. T12 inherits T8b's setup and asserts the warning's **absence** as its step-3 precondition, so it fails before its trigger runs |
 | weaken P on the world side to `get_world().is_valid()` | T8c, T11 **and** T13 | T11 inherits T8c's setup and its absence precondition. Both depend on an assigned-but-empty `GaussianSplatWorld` still being **accepted** — `submit_world_submission()` rejects only on arbitration (`core/gaussian_splat_scene_director.cpp:2390-2399`), never on an empty payload — so I is true, S is valid, and P is the only false conjunct. **T13 reaches the same state from the other direction:** `clear_world()` is never called, so `get_world()` is still valid after `set_gaussian_data(null)` and the mutant keeps the world node qualifying where T13 requires it to stop |
 | drop conjunct I | T8d **and** T8e | Both are states with S valid and P true while I is false — T8d because `NOTIFICATION_READY` writes S through `_ensure_renderer()` (`nodes/gaussian_splat_world_3d.cpp:104` → `:326-328`) before the `auto_apply_on_ready` test at `:108` skips the apply; T8e because `clear_world()` releases the submission but leaves the payload `Ref` and `last_known_scenario` (`:306-317`). **T8d's listing here is the round-6 correction** — round 5 moved it to the deliberately-unkilled list on the incorrect reading that S is invalid in the never-applied state |
@@ -1237,7 +1348,7 @@ result, not an omission (rule 4 above):
   - the **instance** node fails **S and P**: with `splat_asset`, `renderer_data` and
     `runtime_asset` all null, `_register_shared_renderer()` returns at
     `nodes/gaussian_splat_node_3d.cpp:2897-2901`, and `_register_instance_in_director()`
-    would in any case return at its asset-null check `:2606-2609`, which precedes the S write
+    would in any case return at its asset-null check `:2607-2609`, which precedes the S write
     at `:2622-2625`.
 
   So every single-conjunct mutation leaves at least one node excluded on both sides, and only a
@@ -1349,6 +1460,17 @@ below was executed.
   unverified is only that an edited-scene node reaches `READY` and resolves a valid `World3D`
   in the editor — a weaker claim than the one this bullet used to make, and it is settled by
   the same editor run as the I bullet.
+- **The #869 false negative is derived from source, not run, and it is a recorded residual
+  rather than a covered case.** That a re-apply into a scenario owned by another live world
+  node leaves S on the rejected scenario while I stays `true` (§6.1) is read from
+  `nodes/gaussian_splat_world_3d.cpp:491-493`/`:516-524` and
+  `core/gaussian_splat_scene_director.cpp:2392-2401`/`:2509-2517`. No case in §6.4 constructs
+  it, by the derivation recorded there, so **nothing in the mutation suite would notice if this
+  reading were wrong in either direction.** The same applies to the migration variant in §6.3's
+  omitted-triggers list — a renderer-parity setter moving the submission between scenarios with
+  no refresh issued. Both are cleared by #869 and #863 respectively; until then they are the
+  two states in which this warning is knowingly not correct, and neither is reachable in the
+  one-world-node scene the warning targets.
 - **T10b's scenario arithmetic is read, not executed.** That a `SubViewport` which does *not*
   own its world resolves the *same* scenario RID as the main tree
   (`Viewport::find_world_3d()` recursing into the parent viewport,
@@ -1419,11 +1541,46 @@ below was executed.
   `NOTIFICATION_PREDELETE` then calls `try_prune_world_if_unused()` on the wrong scenario
   (`:184`) and the old `SharedWorld` is never pruned. It is worth attaching to #863's fix as a
   test, not a separate issue.
+- **#869 — `GaussianSplatWorld3D` writes `last_known_scenario` before
+  `submit_world_submission()` can reject it.** The cache is assigned at
+  `nodes/gaussian_splat_world_3d.cpp:491-493` (and, on the `apply_world()` path, earlier still
+  at `:326-328` via `_ensure_renderer()`), the submit runs at `:516`, and the arbitration
+  rejection returns at `:521` without rolling either the cache or
+  `was_world_submission_active` back. A previously-applied node re-applied into a scenario
+  another live world owns therefore ends with **S naming B while its submission still steers
+  A, and I still `true`** (§6.1). **Not** to be folded into the Option 1 PR — it is a write
+  ordering fix in the node with a lifetime consequence of its own (PREDELETE prunes the wrong
+  scenario at `:184`, so the `SharedWorld` for A is never reclaimed — the PR-4-of-#352 leak
+  through a different door), and it needs the two-direction proof filed with it.
+
+  **Why this is *not* a prerequisite, when #862 is — the test applied, not a blanket answer.**
+  #862 blocks because its false negative is reachable **in the exact scene the warning
+  targets**: one world node, one instance node, one `World3D`, one inspector write to an
+  already-assigned resource, no other defect present. That is T1's setup, so the diagnostic
+  goes silent in the configuration it exists for. #869's false negative is not reachable in
+  that scene at all. The rejection at
+  `core/gaussian_splat_scene_director.cpp:2392-2401` fires **only** when a second, live
+  `GaussianSplatWorld3D` already owns the destination scenario, so the state needs two world
+  nodes *plus* the instance node *plus* a `World3D` migration *plus* a re-apply — and in that
+  scene the user's undiagnosed problem is already two world nodes in one scenario, which §6.1
+  states this ADR does not diagnose. The warning going quiet there removes a diagnosis this
+  ADR never promised for that configuration; #862's removes one it does.
+
+  Two further checks, because "less reachable" alone is not the standard round 7 set. **It does
+  not break the §6.2 remedy**, which is what kept #863 off the prerequisite list: §6.2 tells
+  the user to put one node under a `SubViewport` with its **own** `World3D`, and a freshly
+  created own-world scenario has no incumbent owner, so the re-apply is accepted and the
+  migration path round 6 verified (`:2509-2517`) runs unchanged. And **it does not make the
+  predicate unimplementable**: unlike #862, where no wording and no conjunct reaches the
+  divergence, #869 is closed by the fix landing later without any change to §6.1 — S simply
+  stops moving on a rejected submit. Option 1 can ship, and the residual is recorded in §6.1
+  and §8 rather than hidden.
 - **#855 must be root-caused before Option 2 is scheduled** (§5.2, reason 3).
 
-Both #862 and #863 were found *through* this ADR rather than by it: each round of review on the
-spec has turned up a product defect in the class the spec describes. That is worth recording as
-a property of the exercise — a diagnostic that has to state, conjunct by conjunct, when a node
+#862, #863 and #869 were all found *through* this ADR rather than by it: each round of review on
+the spec has turned up a product defect in the class the spec describes, and all three are the
+same shape — **a node-side field written optimistically, before the director operation that
+decides whether the field is true.** That is worth recording as a property of the exercise — a diagnostic that has to state, conjunct by conjunct, when a node
 "would steer the route" is an audit of the registration path whether or not it was meant to be.
 
 ## 10. What would change this decision
