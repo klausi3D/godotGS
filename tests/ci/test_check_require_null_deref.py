@@ -1349,6 +1349,98 @@ class SizeThenIndexObjectResolution(SizeIndexScanTestCase):
             self.sites("  REQUIRE((a + b).size() == 2);\n  CHECK(v[0] == 1);")
 
 
+class SizeThenIndexSameLineBlockBodies(SizeIndexScanTestCase):
+    """A body that shares its header's line is still a body (Codex, PR #849 round 5).
+
+    `_statements()` emits `if (v.is_empty()) { CHECK(v[0]); }` as ONE statement, and
+    the analyser truncated it at `{` to get the header - discarding the body and
+    never revisiting it. So the branch that indexes PRECISELY when the container is
+    empty, the exact shape this detector exists to catch, was reported clean. A
+    one-line block must produce the same verdict as the same code with a line break.
+    """
+
+    def test_a_one_line_if_body_is_scanned(self):
+        for eol in ("\n", "\r\n"):
+            with self.subTest(eol=eol):
+                body = "  REQUIRE(v.size() == 2);\n  if (v.is_empty()) { CHECK(v[0]); }"
+                self.assertSized(body.replace("\n", eol) if eol != "\n" else body, "v")
+
+    def test_a_one_line_body_matches_the_multi_line_spelling(self):
+        one = self.sites("  REQUIRE(v.size() == 2);\n  if (flag) { CHECK(v[0]); }")
+        many = self.sites("  REQUIRE(v.size() == 2);\n  if (flag) {\n    CHECK(v[0]);\n  }")
+        self.assertEqual(len(one), len(many), "the line break must not change the verdict")
+        self.assertEqual(one[0][1:4], many[0][1:4])
+        self.assertEqual(one[0][5], many[0][5])
+        self.assertEqual(one[0][6], many[0][6])
+
+    def test_a_one_line_loop_bounded_by_the_container_stays_clean(self):
+        """The sound transfer still applies: the header's own bound guards the body."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 2);\n  for (int i = 0; i < v.size(); i++) { CHECK(v[i]); }"
+        )
+
+    def test_a_one_line_loop_bounded_by_another_container_is_classified(self):
+        found = self.sites(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0; i < other.size(); i++) { CHECK(v[i]); }"
+        )
+        self.assertEqual([site[6] for site in found], [GUARD._CLASS_OTHER_BOUND])
+
+    def test_a_one_line_block_does_not_leak_its_bound_to_the_next_statement(self):
+        """The other half of the same defect: a one-line block never opened a frame,
+        so its bound was applied as `pending` to whatever came AFTER it."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0; i < v.size(); i++) { use(i); }\n"
+            "  CHECK(v[0]);",
+            "v",
+        )
+
+    def test_nested_one_line_blocks(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  if (flag) { for (int i = 0; i < n; i++) { CHECK(v[i]); } }",
+            "v",
+        )
+
+    def test_a_one_line_else_branch_is_scanned(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n  if (flag) { use(); } else { CHECK(v[0]); }", "v"
+        )
+
+    def test_a_one_line_while_body_is_scanned(self):
+        self.assertSized("  REQUIRE(v.size() == 2);\n  while (busy) { CHECK(v[0]); }", "v")
+
+    def test_an_initializer_list_in_the_body_does_not_unbalance_the_stack(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  if (flag) { Vector<int> t = { 1, 2 }; CHECK(v[0]); }",
+            "v",
+        )
+
+    def test_a_lambda_in_the_body_does_not_unbalance_the_stack(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n  if (flag) { run([&]{ use(); }); CHECK(v[0]); }",
+            "v",
+        )
+
+    def test_a_bare_initializer_statement_is_not_split(self):
+        """Only control flow is expanded. Splitting every `{` would push a frame for
+        an aggregate initializer, and the next `}` would then pop the wrong block."""
+        self.assertEqual(GUARD._inline_pieces("Vector<int> t = { 1, 2 };"), ["Vector<int> t = { 1, 2 };"])
+
+    def test_the_scan_window_still_counts_source_statements(self):
+        """Expanding at the CALL site would spend the six-statement window on the
+        pieces of one line: five one-line blocks would hide the sixth statement."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  if (a) { p(); }\n  if (b) { p(); }\n  if (c) { p(); }\n"
+            "  if (d) { p(); }\n  if (e) { p(); }\n"
+            "  CHECK(v[0]);",
+            "v",
+        )
+
+
 class SizeIndexFailsClosed(unittest.TestCase):
     """Unreadable or unlexable input must FAIL, never read as 'no violations'."""
 
@@ -1553,6 +1645,145 @@ class SizeIndexFailsClosed(unittest.TestCase):
         )
         self.assertEqual(len(sites), 1)
         self.assertEqual(sites[0][0], 4)
+
+    def test_splice_is_applied_once_for_every_recogniser(self):
+        """The map `_splice` returns is what lets a spliced token be recognised.
+
+        Rounds 3, 4 and 5 each found splicing missing from ONE lexical context. The
+        rule is not a property of any token - phase 2 runs before tokens exist - so
+        it is applied once here and every recogniser reads the result.
+        """
+        for label, text, expected in (
+            ("lf", "a\\\nb", "ab"),
+            ("crlf", "a\\\r\nb", "ab"),
+            ("backslash then space does not splice", "a\\ \nb", "a\\ \nb"),
+            # Phase 2 is a single pass: the backslash left behind by deleting
+            # `\\`-newline does not splice the newline after it, and neither does
+            # the compiler.
+            ("no re-splicing of its own output", "a\\\\\n\nb", "a\\\nb"),
+        ):
+            with self.subTest(label=label):
+                logical, offsets = GUARD._splice(text)
+                self.assertEqual(logical, expected)
+                self.assertEqual(len(offsets), len(logical) + 1)
+                self.assertEqual(offsets[-1], len(text), "sentinel maps the end offset")
+                self.assertEqual(offsets, sorted(set(offsets)), "strictly increasing")
+                for i, ch in enumerate(logical):
+                    self.assertEqual(text[offsets[i]], ch)
+
+    def test_a_comment_opener_formed_by_splicing_is_a_comment(self):
+        """`/` + backslash-newline + `/ explain R"(` IS a `//` comment in C++.
+
+        This pass scanned the UNSPLICED text, so it read the marker as a raw-string
+        opener and blanked everything to a later `)"` - the assertion and the index
+        between them included - and reported the file clean (Codex, PR #849 round 5).
+        """
+        for eol in ("\n", "\r\n"):
+            with self.subTest(eol=eol):
+                sites = self._scan(
+                    eol.join(
+                        [
+                            'TEST_CASE("x") {',
+                            "  /\\",
+                            '/ explain R"(',
+                            "  REQUIRE(v.size() == 2);",
+                            "  CHECK(v[0] == 1);",
+                            '  const char *tail = ")";',
+                            "}",
+                            "",
+                        ]
+                    )
+                )
+                self.assertEqual(len(sites), 1, "the assertion and index are code")
+                self.assertEqual(sites[0][0], 4, "line numbers survive the blanking")
+                self.assertEqual(sites[0][4], 5)
+
+    def test_a_spliced_comment_is_erased_so_the_line_pass_cannot_reopen_it(self):
+        """`_strip_comments` is line-oriented and cannot see a spliced opener.
+
+        Left in place, its `/*` reads as a block comment that is not in the source,
+        blanking every assertion to the next `*/` or to EOF. So the spliced comment
+        is removed by the pass that CAN see it, and the two passes agree by
+        construction rather than by both implementing the same rule.
+        """
+        for eol in ("\n", "\r\n"):
+            with self.subTest(eol=eol):
+                sites = self._scan(
+                    eol.join(
+                        [
+                            'TEST_CASE("x") {',
+                            "  /\\",
+                            "/ explain /*",
+                            "  REQUIRE(v.size() == 2);",
+                            "  CHECK(v[0] == 1);",
+                            "}",
+                            "",
+                        ]
+                    )
+                )
+                self.assertEqual(len(sites), 1)
+                self.assertEqual(sites[0][0], 4)
+
+    def test_a_block_comment_opener_formed_by_splicing_is_a_comment(self):
+        sites = self._scan(
+            'TEST_CASE("x") {\n'
+            "  /\\\n"
+            '* explain R"(\n'
+            "  still comment */\n"
+            "  REQUIRE(v.size() == 2);\n"
+            "  CHECK(v[0] == 1);\n"
+            "}\n"
+        )
+        self.assertEqual(len(sites), 1)
+        self.assertEqual(sites[0][0], 5)
+
+    def test_a_block_comment_closer_formed_by_splicing_ends_the_comment(self):
+        """`*` + splice + `/` closes the comment, so what follows is CODE.
+
+        Missing it kept the comment open and blanked the assertion and the index.
+        """
+        sites = self._scan(
+            'TEST_CASE("x") {\n'
+            "  /* explain *\\\n"
+            "/\n"
+            "  REQUIRE(v.size() == 2);\n"
+            "  CHECK(v[0] == 1);\n"
+            "}\n"
+        )
+        self.assertEqual(len(sites), 1)
+        self.assertEqual(sites[0][0], 4)
+
+    def test_a_raw_string_opener_formed_by_splicing_is_a_raw_string(self):
+        """`R` + splice + `"(` opens a raw string; its BODY must not read as code."""
+        source = (
+            'TEST_CASE("x") {\n'
+            "  const char *p = R\\\n"
+            '"(\n'
+            "  REQUIRE(inside.size() == 9);\n"
+            '  )";\n'
+            "  REQUIRE(v.size() == 2);\n"
+            "  CHECK(v[0] == 1);\n"
+            "}\n"
+        )
+        lexed = GUARD._blank_raw_strings("test_synthetic.h", source)
+        self.assertNotIn("inside.size()", lexed, "the raw body is not code")
+        self.assertEqual(len(lexed.split("\n")), len(source.split("\n")))
+        sites = self._scan(source)
+        self.assertEqual(len(sites), 1)
+        self.assertEqual(sites[0][0], 6)
+
+    def test_a_spliced_comment_does_not_invent_an_unterminated_raw_string(self):
+        """The other half of round 5: with no later `)"` the same misreading
+        REJECTED the file instead of blanking it. Both directions are wrong."""
+        sites = self._scan(
+            'TEST_CASE("x") {\n'
+            "  /\\\n"
+            '/ explain R"(\n'
+            "  REQUIRE(v.size() == 2);\n"
+            "  CHECK(v[0] == 1);\n"
+            "}\n"
+        )
+        self.assertEqual(len(sites), 1)
 
     def test_unbalanced_assertion_parens_are_a_scan_error(self):
         with self.assertRaises(GUARD.ScanError):

@@ -191,7 +191,10 @@ index `container[...]` that nothing between them bounds.
   This is tracked with a block stack, not by stopping at the first control-flow
   statement, so the bound applies to the loop BODY and expires at its closing
   brace - `REQUIRE(a.size() == 3); for (i < a.size()) { a[i]; } CHECK(a[0]);` is
-  still flagged on the post-loop `a[0]`.
+  still flagged on the post-loop `a[0]`. A body that shares its header's LINE is
+  expanded into the same pieces first, so `if (v.is_empty()) { CHECK(v[0]); }` -
+  which indexes precisely when the container is empty - is flagged exactly as the
+  multi-line spelling is.
 * **A bound from a DIFFERENT container does not count.** In
   `for (i < a.size()) { CHECK(a[i] == b[i]); }` after `REQUIRE(b.size() == 3)`,
   `b[i]` crashes whenever `b` is the short one. Seven such sites exist; they are
@@ -331,6 +334,7 @@ cannot tell "no new site" from "did not look".
 
 from __future__ import annotations
 
+import bisect
 import hashlib
 import json
 import re
@@ -467,24 +471,43 @@ def _splices_at(text: str, newline_at: int) -> bool:
     return i > 0 and text[i - 1] == "\\"
 
 
-def _line_comment_end(text: str, at: int) -> int:
-    """Offset of the newline that ends the `//` comment running from `at`.
+def _splice(text: str) -> tuple[str, list[int]]:
+    """Translation phase 2, applied ONCE: `(spliced text, logical -> physical)`.
 
-    Not simply the next newline: because splicing happens BEFORE comments are
-    recognised, `// comment \\` continues the comment onto the next physical line.
-    Ending it at the physical newline made the continuation line read as code, so an
-    `R"(` there opened a raw string that never existed and everything up to a later
-    `)"` - real assertions and indexes included - was blanked away, reporting a
-    genuine violation clean (Codex, PR #849 round 3).
+    Every backslash-newline is deleted, exactly as the compiler does before a single
+    token is recognised. The returned map has one entry per logical character plus a
+    trailing sentinel, so a logical [start, end) span converts to a physical one and
+    the caller can still count the PHYSICAL newlines it covers - which is how the
+    line-count contract survives a pass that lexes text the file does not literally
+    contain.
+
+    This exists because splicing was being handled per token. Rounds 3 and 4 each
+    taught ONE lexical context about it - the `//` body, then the ordinary literal -
+    and round 5 found a third (a `//` opener spelled `/` + splice + `/`, which this
+    pass read as code and whose `R"(` then blanked real assertions). Splicing is not
+    a property of any one token; it happens before tokens exist. So it is done here,
+    once, and every recogniser below reads the spliced view instead of the file.
+    Deletion is a single left-to-right pass and is deliberately NOT re-applied to
+    its own output: `\\\\` + newline + newline leaves a backslash-newline behind in
+    the result, and the compiler does not re-splice it either.
     """
-    cursor = at
-    while True:
-        end = text.find("\n", cursor)
-        if end == -1:
-            return len(text)
-        if not _splices_at(text, end):
-            return end
-        cursor = end + 1
+    out: list[str] = []
+    offsets: list[int] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        if text[i] == "\\":
+            j = i + 1
+            while j < n and text[j] == "\r":
+                j += 1
+            if j < n and text[j] == "\n":
+                i = j + 1
+                continue
+        out.append(text[i])
+        offsets.append(i)
+        i += 1
+    offsets.append(n)
+    return "".join(out), offsets
 
 
 def _blank_raw_strings(name: str, text: str) -> str:
@@ -504,101 +527,134 @@ def _blank_raw_strings(name: str, text: str) -> str:
     without that later `)"` the same file was rejected as unterminated. Both are
     gone once the pass skips a comment as a comment (Codex, PR #849 round 2).
 
+    Every token below is recognised in the SPLICED view (`_splice`), never in the
+    physical text, because translation phase 2 runs before phase 3 and a token can
+    therefore be spelled across a backslash-newline. Recognising them physically let
+    `/` + splice + `/ explain R"(` - a real `//` comment - read as code, so its
+    `R"(` opened a raw string that blanked every assertion and index up to a later
+    `)"` and the file scanned clean (Codex, PR #849 round 5). That was the THIRD
+    splice defect in three rounds, each in a different lexical context, so the rule
+    now lives in one place rather than at each recogniser.
+
+    The one deliberate exception is a raw string's own body and closing delimiter:
+    [lex.pptoken]/3 REVERTS phases 1-2 between the initial and final quote, so the
+    terminator is searched in the physical text.
+
     The literal is replaced by `""` followed by exactly as many newlines as it
     spanned, so every later line keeps its number. An UNTERMINATED raw string is a
     ScanError: it means the rest of the file cannot be lexed, and guessing is how
-    a guard starts reporting on text it does not understand. Comments and ordinary
-    literals are left VERBATIM here unless they SPAN lines; `_strip_comments` still
-    removes them, and it can do so line by line safely because nothing multi-line
-    is left - which is why a backslash-spliced ordinary literal is collapsed here
-    too (Codex, PR #849 round 4).
+    a guard starts reporting on text it does not understand.
+
+    Comments and ordinary literals are left VERBATIM unless they SPAN lines or exist
+    only BECAUSE of a splice; `_strip_comments` still removes them, and it can do so
+    line by line safely because nothing multi-line and nothing spliced is left. That
+    second condition is what keeps the two passes from disagreeing: `_strip_comments`
+    reads physical lines and cannot see a spliced comment, so it would read the
+    comment's text as code - and a `/*` in there opens a block comment that blanks
+    every later assertion to the next `*/` or to EOF.
     """
+    logical, to_physical = _splice(text)
     out: list[str] = []
     position = 0
     cursor = 0
+
+    def blank_if_spliced(start_l: int, end_l: int) -> None:
+        """Erase a comment the line-oriented pass could not have recognised."""
+        nonlocal position
+        start_p, end_p = to_physical[start_l], to_physical[end_l]
+        if end_p - start_p == end_l - start_l:
+            return  # no splice inside it; `_strip_comments` sees the same comment
+        out.append(text[position:start_p])
+        out.append("\n" * text.count("\n", start_p, end_p))
+        position = end_p
+
     while True:
-        token = _LEX_TOKEN_RE.search(text, cursor)
+        token = _LEX_TOKEN_RE.search(logical, cursor)
         if token is None:
             out.append(text[position:])
             return "".join(out)
         lexeme = token.group(0)
         if lexeme == "//":
-            cursor = _line_comment_end(text, token.end())
+            end = logical.find("\n", token.end())
+            end = len(logical) if end == -1 else end
+            blank_if_spliced(token.start(), end)
+            cursor = end
             continue
         if lexeme == "/*":
-            end = text.find("*/", token.end())
+            end = logical.find("*/", token.end())
             # An unterminated block comment swallows the rest of the file for the
             # real compiler too, and `_strip_comments` agrees, so this is not a
             # guess about unlexable text.
-            cursor = len(text) if end == -1 else end + 2
+            end = len(logical) if end == -1 else end + 2
+            blank_if_spliced(token.start(), end)
+            cursor = end
             continue
         if lexeme in ('"', "'"):
-            end = _skip_plain_literal(text, token.start())
-            spanned = text.count("\n", token.start(), end)
+            end = _skip_plain_literal(logical, token.start())
+            start_p, end_p = to_physical[token.start()], to_physical[end]
+            spanned = text.count("\n", start_p, end_p)
             if spanned:
                 # An ordinary literal continued with backslash-newline. C++ splices
-                # it into ONE line before tokenising; `_strip_comments` cannot,
+                # it into ONE literal before tokenising; `_strip_comments` cannot,
                 # being line-oriented, so it read the continuation as code - and a
                 # continuation opening with `/*` started a block comment there that
                 # blanked every later assertion, to the next `*/` or to EOF, and the
                 # file scanned clean (Codex, PR #849 round 4). Collapsing it here,
                 # exactly like a raw string, keeps the invariant this pass exists
                 # for: nothing multi-line is left for the line-oriented pass.
-                out.append(text[position : token.start()])
+                out.append(text[position:start_p])
                 out.append('""' + "\n" * spanned)
-                position = end
+                position = end_p
             cursor = end
             continue
         terminator = f"){token.group(1)}\""
-        end = text.find(terminator, token.end())
-        if end == -1:
-            line_no = text.count("\n", 0, token.start()) + 1
+        start_p = to_physical[token.start()]
+        end_p = text.find(terminator, to_physical[token.end()])
+        if end_p == -1:
+            line_no = text.count("\n", 0, start_p) + 1
             raise ScanError(
                 f"{name}:{line_no}: unterminated raw string literal "
                 f"(no closing `{terminator}`). Refusing to scan a file this cannot lex."
             )
-        end += len(terminator)
-        out.append(text[position : token.start()])
-        out.append('""' + "\n" * text.count("\n", token.start(), end))
-        position = end
-        cursor = end
+        end_p += len(terminator)
+        out.append(text[position:start_p])
+        out.append('""' + "\n" * text.count("\n", start_p, end_p))
+        position = end_p
+        # Resume in the spliced view at the first character that survives at or
+        # after the physical end: `to_physical` is strictly increasing, so this is
+        # the only lookup the reverse direction needs.
+        cursor = bisect.bisect_left(to_physical, end_p)
 
 
 def _skip_plain_literal(text: str, at: int) -> int:
     """Offset just past the ordinary `"..."` / `'...'` literal opening at `at`.
 
-    The closing quote is looked for on the same LOGICAL line: a backslash-newline
-    is deleted in translation phase 2, before any token is recognised, so
-    `"abc \\` continued on the next physical line is one literal and not an
-    unterminated one (Codex, PR #849 round 4). Stopping at the physical newline
-    made this pass resume lexing INSIDE the string, where a `R"(` or a quote is
-    not a token at all.
+    `text` is the SPLICED view, so `"abc \\` continued on the next physical line has
+    already become one line here and is one literal, not an unterminated one (Codex,
+    PR #849 round 4). Splicing is no longer this function's business; it is applied
+    once, for every recogniser, in `_splice`.
 
-    When the literal does not close on that logical line the quote was not a
-    literal opener at all (a digit separator like `1'000`, a stray apostrophe), so
-    only that one character is consumed - the same answer as before, on a longer
-    line. `_blank_raw_strings` collapses whatever this spans across newlines, so
-    the line-oriented `_strip_comments` never has to know about splices here.
+    When the literal does not close on that line the quote was not a literal opener
+    at all (a digit separator like `1'000`, a stray apostrophe), so only that one
+    character is consumed. `_blank_raw_strings` collapses whatever this spans across
+    physical newlines, so the line-oriented `_strip_comments` never sees a literal
+    that is not contained in one physical line.
     """
     quote = text[at]
     i = at + 1
     while i < len(text):
         ch = text[i]
         if ch == "\n":
-            # Reached without a closing quote: only a SPLICED newline continues the
-            # literal, and an unspliced one ends the logical line (and the search).
-            if not _splices_at(text, i):
-                return at + 1
-            i += 1
-            continue
+            # Reached without a closing quote: the literal does not close on this
+            # line, and nothing continues it (every splice is already gone).
+            return at + 1
         if ch == "\\":
-            # A backslash before the line terminator IS the splice, not an escape:
-            # consuming two characters would swallow the `\n` of a `\r\n` file and
-            # leave the pass reading the continuation as code.
-            j = i + 1
-            while j < len(text) and text[j] == "\r":
-                j += 1
-            i = i + 1 if j < len(text) and text[j] == "\n" else i + 2
+            # An escape. A backslash immediately before the line terminator cannot
+            # appear here - that was the splice - so a trailing one is a malformed
+            # literal and ends the search rather than swallowing the newline.
+            if i + 1 >= len(text) or text[i + 1] in ("\n", "\r"):
+                return at + 1
+            i += 2
             continue
         if ch == quote:
             return i + 1
@@ -638,6 +694,13 @@ def _strip_comments(text: str) -> str:
     rather than scanned as code. `_blank_raw_strings` applies the same rule on the
     same test (`_splices_at`); if the two disagreed, one of them would blank text
     the other reads.
+
+    That agreement is only reachable for a comment whose OPENER is physically
+    contiguous, which is the whole reason this function can stay line-oriented:
+    `_blank_raw_strings` erases any comment that exists only because of a splice
+    before this ever sees it. Without that, `/` + splice + `/ note /*` reached here
+    as two lines of apparent code, the `/*` opened a block comment that is not in
+    the source at all, and every assertion to the next `*/` or to EOF was blanked.
     """
     lines_out: list[str] = []
     in_block = False
@@ -2101,6 +2164,91 @@ def _changes_length(symbol: str, statement: str) -> bool:
     return re.search(rf"(?<![\w)\]]){sym}\s*(?:\.|->)\s*(?:{mutators})\s*\(", statement) is not None
 
 
+def _top_level_brace(statement: str) -> int:
+    """Offset of the first `{` outside parentheses, or -1.
+
+    Outside parentheses only, so the braces of `for (auto x : {1, 2})` and of a
+    lambda passed as an argument are not mistaken for the body's.
+    """
+    depth = 0
+    for i, ch in enumerate(statement):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "{" and depth <= 0:
+            return i
+    return -1
+
+
+def _block_body_pieces(text: str) -> list[str]:
+    """Split the text after a block's `{` into statements plus its closing `}`.
+
+    Splits at `;` and at the `}` that closes the block, both at paren AND brace
+    depth zero. Depth matters: an initializer list (`Vector<int> v = {1, 2};`), a
+    lambda body and a nested block all carry braces that do not close this one, and
+    treating any of them as the closer would unbalance the caller's stack.
+    """
+    pieces: list[str] = []
+    parens = 0
+    braces = 0
+    start = 0
+    for i, ch in enumerate(text):
+        if ch == "(":
+            parens += 1
+        elif ch == ")":
+            parens -= 1
+        elif parens > 0:
+            continue
+        elif ch == "{":
+            braces += 1
+        elif ch == "}":
+            if braces:
+                braces -= 1
+                continue
+            piece = text[start:i].strip()
+            if piece:
+                pieces.append(piece)
+            pieces.append("}")
+            start = i + 1
+        elif ch == ";" and not braces:
+            piece = text[start : i + 1].strip()
+            if piece:
+                pieces.append(piece)
+            start = i + 1
+    tail = text[start:].strip()
+    if tail:
+        pieces.append(tail)
+    return pieces
+
+
+def _inline_pieces(statement: str) -> list[str]:
+    """A control-flow statement whose BODY shares its line, split into pieces.
+
+    `if (v.is_empty()) { CHECK(v[0]); }` is one statement to `_statements()`, and
+    truncating it at `{` to get the header DISCARDED the body - so the branch that
+    indexes precisely when the container is empty, the exact shape this detector
+    exists to catch, was reported clean (Codex, PR #849 round 5). Emitting the
+    header, the body's statements and the closing `}` as separate pieces lets the
+    block stack handle a one-line body exactly as it handles a multi-line one: the
+    header's bound guards the body and is popped at the `}` rather than leaking on
+    to whatever follows.
+
+    Only control flow is split. A bare `{` at statement level would otherwise catch
+    every aggregate initializer, and pushing a frame for one would make the next `}`
+    pop the wrong block.
+    """
+    if not _SIZE_CONTROL_FLOW_RE.match(statement):
+        return [statement]
+    brace = _top_level_brace(statement)
+    if brace == -1 or not statement[brace + 1 :].strip():
+        return [statement]
+    pieces = [statement[: brace + 1].strip()]
+    for piece in _block_body_pieces(statement[brace + 1 :]):
+        pieces.extend(_inline_pieces(piece))
+    return pieces
+
+
 def _first_unbounded_index(
     symbol: str, following: list[tuple[int, str]]
 ) -> tuple[int, str, str] | None:
@@ -2113,10 +2261,21 @@ def _first_unbounded_index(
     by ANY container's length - because only the first makes the index safe, while
     the second is what #844's sweep counted as loop-bounded and is reported
     separately so the two counts stay reconcilable.
+
+    A body that shares its header's line is expanded first (`_inline_pieces`), so
+    the stack sees the same pieces whether or not the author used a line break. The
+    expansion happens HERE and not at the call site so the caller's scan window
+    still counts SOURCE statements: a one-line block must not consume three of the
+    six statements this detector is allowed to look ahead.
     """
     stack: list[tuple[bool, bool]] = []
     pending: tuple[bool, bool] | None = None
-    for line_no, statement in following:
+    expanded = [
+        (line_no, piece)
+        for line_no, statement in following
+        for piece in _inline_pieces(statement)
+    ]
+    for line_no, statement in expanded:
         if _SIZE_SCAN_STOP_RE.match(statement):
             return None
         if _RETURN_RE.match(statement) and not stack:
