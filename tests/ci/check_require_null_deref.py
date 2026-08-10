@@ -508,8 +508,10 @@ def _blank_raw_strings(name: str, text: str) -> str:
     spanned, so every later line keeps its number. An UNTERMINATED raw string is a
     ScanError: it means the rest of the file cannot be lexed, and guessing is how
     a guard starts reporting on text it does not understand. Comments and ordinary
-    literals are left VERBATIM here; `_strip_comments` still removes them, and it
-    can now do so line by line safely because nothing multi-line is left.
+    literals are left VERBATIM here unless they SPAN lines; `_strip_comments` still
+    removes them, and it can do so line by line safely because nothing multi-line
+    is left - which is why a backslash-spliced ordinary literal is collapsed here
+    too (Codex, PR #849 round 4).
     """
     out: list[str] = []
     position = 0
@@ -531,7 +533,21 @@ def _blank_raw_strings(name: str, text: str) -> str:
             cursor = len(text) if end == -1 else end + 2
             continue
         if lexeme in ('"', "'"):
-            cursor = _skip_plain_literal(text, token.start())
+            end = _skip_plain_literal(text, token.start())
+            spanned = text.count("\n", token.start(), end)
+            if spanned:
+                # An ordinary literal continued with backslash-newline. C++ splices
+                # it into ONE line before tokenising; `_strip_comments` cannot,
+                # being line-oriented, so it read the continuation as code - and a
+                # continuation opening with `/*` started a block comment there that
+                # blanked every later assertion, to the next `*/` or to EOF, and the
+                # file scanned clean (Codex, PR #849 round 4). Collapsing it here,
+                # exactly like a raw string, keeps the invariant this pass exists
+                # for: nothing multi-line is left for the line-oriented pass.
+                out.append(text[position : token.start()])
+                out.append('""' + "\n" * spanned)
+                position = end
+            cursor = end
             continue
         terminator = f"){token.group(1)}\""
         end = text.find(terminator, token.end())
@@ -551,19 +567,40 @@ def _blank_raw_strings(name: str, text: str) -> str:
 def _skip_plain_literal(text: str, at: int) -> int:
     """Offset just past the ordinary `"..."` / `'...'` literal opening at `at`.
 
-    Mirrors `_strip_comments` exactly: the closing quote is looked for on the SAME
-    line only, and when there is none the quote was not a literal opener at all
-    (a digit separator like `1'000`, a stray apostrophe) so only that one character
-    is consumed. Keeping the two functions on the same rule is deliberate - they
-    must agree on what a literal is, or one of them blanks text the other reads.
+    The closing quote is looked for on the same LOGICAL line: a backslash-newline
+    is deleted in translation phase 2, before any token is recognised, so
+    `"abc \\` continued on the next physical line is one literal and not an
+    unterminated one (Codex, PR #849 round 4). Stopping at the physical newline
+    made this pass resume lexing INSIDE the string, where a `R"(` or a quote is
+    not a token at all.
+
+    When the literal does not close on that logical line the quote was not a
+    literal opener at all (a digit separator like `1'000`, a stray apostrophe), so
+    only that one character is consumed - the same answer as before, on a longer
+    line. `_blank_raw_strings` collapses whatever this spans across newlines, so
+    the line-oriented `_strip_comments` never has to know about splices here.
     """
     quote = text[at]
     i = at + 1
-    while i < len(text) and text[i] != "\n":
-        if text[i] == "\\":
-            i += 2
+    while i < len(text):
+        ch = text[i]
+        if ch == "\n":
+            # Reached without a closing quote: only a SPLICED newline continues the
+            # literal, and an unspliced one ends the logical line (and the search).
+            if not _splices_at(text, i):
+                return at + 1
+            i += 1
             continue
-        if text[i] == quote:
+        if ch == "\\":
+            # A backslash before the line terminator IS the splice, not an escape:
+            # consuming two characters would swallow the `\n` of a `\r\n` file and
+            # leave the pass reading the continuation as code.
+            j = i + 1
+            while j < len(text) and text[j] == "\r":
+                j += 1
+            i = i + 1 if j < len(text) and text[j] == "\n" else i + 2
+            continue
+        if ch == quote:
             return i + 1
         i += 1
     return at + 1
@@ -1373,14 +1410,38 @@ def _literal_is_nonzero(text: str) -> bool:
     `expected == 0`, so an unknown operand must not count as a lower bound
     (Codex, PR #849 round 3).
     """
+    value = _literal_value(text)
+    return value is not None and value != 0
+
+
+def _literal_value(text: str) -> int | None:
+    """`text` as an integer literal's value, or None when it is not one."""
     literal = _INTEGER_LITERAL_RE.match(text.strip())
     if literal is None:
-        return False
+        return None
     try:
         # base 0 is C++'s own spelling rule: `0x10` hex, `0b1` binary, `010` octal.
-        return int(literal.group(1).replace("'", ""), 0) != 0
+        return int(literal.group(1).replace("'", ""), 0)
     except ValueError:
-        return False  # not a well-formed literal after all: unproven, so False
+        return None  # not a well-formed literal after all: unproven, so None
+
+
+def _operand_is_nonnegative(text: str, nonnegative: frozenset[str]) -> bool:
+    """True when the operand `text` is PROVABLY at least zero.
+
+    `size() > n` bounds a length below only when `n` is not negative, and Godot's
+    containers do not make that free: `Vector::size()` returns `CowData`'s
+    `int64_t`, so `v.size() > -1` is true for an EMPTY container and would let
+    `v[0]` through as guarded (Codex, PR #849 round 4).
+
+    Two things prove it. An integer literal - the grammar `_INTEGER_LITERAL_RE`
+    accepts has no sign at all, so matching it IS the proof, `-1` simply not being
+    a literal here. Or a name in `nonnegative`, which a caller has established
+    from a declaration it can see (`for (uint32_t i = 0; i < v.size(); ...)`).
+    Everything else is unproven and therefore not a bound.
+    """
+    body = _strip_all_outer_parens(text)
+    return _literal_value(body) is not None or body in nonnegative
 
 
 def _bound_direction(
@@ -1392,6 +1453,7 @@ def _bound_direction(
     macro: str = "",
     *,
     guard: bool = False,
+    nonnegative: frozenset[str] = frozenset(),
 ) -> bool:
     """True when this `size()`/`is_empty()` occurrence, HELD TRUE, bounds the length below.
 
@@ -1424,6 +1486,10 @@ def _bound_direction(
     * a GUARD (`guard=True`): `if (v.size() == expected) { v[0]; }` SUPPRESSES the
       report, and with `expected == 0` the branch is entered exactly when `v` is
       empty. So only a provably non-zero operand may bound (Codex, PR #849 round 3).
+
+    `nonnegative` names the identifiers a guard's caller has PROVED to be at least
+    zero (see `_operand_is_nonnegative`); it is meaningless for an assertion, whose
+    unproven operands report anyway.
     """
     lo, hi = span
     if _is_call_argument(text, start, lo):
@@ -1487,9 +1553,12 @@ def _bound_direction(
     if operator == "!=":
         return against_zero              # `size() != 0` asserts NON-EMPTY
     if operator == ">":
-        # `size() > n` and `idx < size()`: a length strictly above an unsigned
-        # count is at least 1 whatever `n` is, so no proof of `n` is needed.
-        return True
+        # `size() > n` and `idx < size()` put the length at 1 or more only when `n`
+        # is itself 0 or more, and Godot's `size()` is SIGNED (`CowData::Size` is
+        # int64_t): `if (v.size() > -1) { v[0]; }` is entered on an EMPTY container
+        # and suppressed the report (Codex, PR #849 round 4). As an ASSERTION the
+        # unproven operand still reports, which is the fail-closed direction there.
+        return _operand_is_nonnegative(other, nonnegative) if guard else True
     return False                         # `<` / `<=`: an UPPER bound only
 
 
@@ -1609,7 +1678,145 @@ def _equal_cardinality_partner(symbol: str, expr: str) -> str | None:
     return None
 
 
-def _expression_lower_bound(symbol: str, expr: str) -> bool:
+# The relations an atom may consist of. `<=>` is NOT here: three-way comparison
+# yields an ordering, not a truth, and reading it as one would be a guess.
+_ATOM_RELATIONS = ("==", "!=", ">=", "<=", ">", "<")
+_CAST_PREFIX_RE = re.compile(r"^\(\s*(?:const\s+)?[A-Za-z_][\w:]*(?:\s*[*&]+)?\s*\)\s*")
+
+
+def _split_atom_relation(text: str) -> tuple[str, str, str] | None:
+    """`(left, operator, right)` when `text` is ONE top-level comparison, else None.
+
+    None means "this atom is not a plain comparison", and the caller must then
+    treat it as no bound at all. Everything unmodelled lands there deliberately:
+    a second comparison (`a < b < c`), a three-way `<=>`, a comma operator whose
+    value is its LAST operand, the angle brackets of `static_cast<int>(...)`.
+    `->` and the shift operators are stepped over rather than read as `>`/`<`.
+    """
+    depth = 0
+    found: tuple[int, int] | None = None
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch in "([{":
+            depth += 1
+            i += 1
+            continue
+        if ch in ")]}":
+            depth -= 1
+            i += 1
+            continue
+        if depth == 0:
+            if text.startswith("<=>", i):
+                return None
+            if text.startswith("->", i) or text.startswith("<<", i) or text.startswith(">>", i):
+                i += 2
+                continue
+            if ch == ",":
+                return None
+            for operator in _ATOM_RELATIONS:
+                if text.startswith(operator, i):
+                    if found is not None:
+                        return None
+                    found = (i, i + len(operator))
+                    i += len(operator)
+                    break
+            else:
+                i += 1
+            continue
+        i += 1
+    if found is None:
+        return None
+    lo, hi = found
+    return text[:lo], text[lo:hi], text[hi:]
+
+
+def _strip_assignment_prefix(text: str) -> str:
+    """`text` with any leading `lhs =` chain removed.
+
+    `const bool ok = v.size() >= 2` is true exactly when `v.size() >= 2` is, so the
+    declaration in front of an operand is noise rather than structure. Only a PLAIN
+    `=` is dropped: a compound assignment (`n += v.size()`) yields the result of the
+    operation, whose truth is not the right-hand side's.
+    """
+    depth = 0
+    cut: int | None = None
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif depth == 0 and ch == "=":
+            if text.startswith("==", i):
+                i += 2
+                continue
+            if i and text[i - 1] in "=!<>+-*/%&|^":
+                i += 1
+                continue
+            cut = i + 1
+        i += 1
+    return text if cut is None else text[cut:]
+
+
+def _bare_cardinality(symbol: str, text: str) -> tuple[str, str] | None:
+    """`(kind, call text)` when `text` is EXACTLY `symbol`'s cardinality call.
+
+    Wrapping parens and C-style casts are peeled - `(uint32_t)v.size()` is still
+    just the length - but nothing else is: `v.size() - 1` and `f(v.size())` are
+    values built FROM the length, and a relation over them says nothing about it.
+    """
+    body = _strip_all_outer_parens(text)
+    while True:
+        peeled = _strip_all_outer_parens(_CAST_PREFIX_RE.sub("", body, count=1))
+        if peeled == body:
+            break
+        body = peeled
+    match = re.fullmatch(
+        rf"\s*{_size_symbol_regex(symbol)}\s*(?:\.|->)\s*(size|is_empty|empty)\s*\(\s*\)\s*",
+        body,
+    )
+    return (match.group(1), body.strip()) if match else None
+
+
+def _atom_cardinality(symbol: str, body: str) -> tuple[str, str, str, str] | None:
+    """`(kind, call, operator, operand)` when the atom's WHOLE truth is that test.
+
+    An atom has no `&&`, `||` or `?:` left in it, but it can still be built out of
+    a cardinality test rather than BE one, and then its truth does not follow the
+    test's. `(v.size() > 0) == expected_nonempty` is the case Codex found in round
+    3's fix (PR #849 round 4): the inner `> 0` points the right way, so scanning
+    the atom for a qualifying subexpression accepted it - while with
+    `expected_nonempty == false` the atom is true exactly when `v` is EMPTY.
+
+    So one side of the comparison must be the cardinality call and NOTHING else,
+    and with no comparison at all the atom must be the bare call (`if (v.size())`).
+    Anything else returns None, which the caller reads as "not a bound" - the
+    fail-closed answer, since being wrong here suppresses a report.
+    """
+    body = _strip_all_outer_parens(_strip_assignment_prefix(_strip_all_outer_parens(body)))
+    relation = _split_atom_relation(body)
+    if relation is None:
+        bare = _bare_cardinality(symbol, body)
+        return (bare[0], bare[1], "", "") if bare else None
+    left, operator, right = relation
+    bare = _bare_cardinality(symbol, left)
+    if bare is not None:
+        return bare[0], bare[1], operator, right.strip()
+    bare = _bare_cardinality(symbol, right)
+    if bare is None:
+        return None
+    return bare[0], bare[1], _FLIPPED_RELATION[operator], left.strip()
+
+
+_FLIPPED_RELATION = {"<": ">", ">": "<", "<=": ">=", ">=": "<=", "==": "==", "!=": "!="}
+
+
+def _expression_lower_bound(
+    symbol: str, expr: str, nonnegative: frozenset[str] = frozenset()
+) -> bool:
     """True when `expr` being TRUE **as a whole** bounds `symbol`'s length from below.
 
     The expression is DECOMPOSED by precedence rather than scanned for a qualifying
@@ -1626,10 +1833,18 @@ def _expression_lower_bound(symbol: str, expr: str) -> bool:
     * `A && B`    - ONE conjunct suffices: all of them hold, and one of them may
                     also supply what ANOTHER needs (`_equal_cardinality_partner`).
 
-    Whatever is left is an atom, and an atom the analysis cannot read as a bound is
-    NOT a bound. Negation is answered by `_size_negative_test`, the only thing that
-    knows which tests imply non-emptiness when FALSE, so `!v.is_empty()` still
-    bounds while `!v.size()` (true exactly when empty) no longer does.
+    Whatever is left is an atom, and an atom is a bound only when its WHOLE truth
+    is the cardinality test - `_atom_cardinality` decides that, because scanning
+    the atom for a nested test accepted `(v.size() > 0) == expected_nonempty`,
+    which with `expected_nonempty == false` is true exactly when `v` is EMPTY
+    (Codex, PR #849 round 4). Negation is answered by `_size_negative_test`, the
+    only thing that knows which tests imply non-emptiness when FALSE, so
+    `!v.is_empty()` still bounds while `!v.size()` (true exactly when empty) does
+    not.
+
+    `nonnegative` carries the identifiers the CALLER has proved to be at least
+    zero, which is what makes `for (uint32_t i = 0; i < v.size(); ++i)` bound its
+    body while a bare `if (i < v.size())` does not (see `_operand_is_nonnegative`).
     """
     body = _strip_all_outer_parens(expr)
     if not body:
@@ -1638,18 +1853,19 @@ def _expression_lower_bound(symbol: str, expr: str) -> bool:
     ternary = _ternary_spans(body)
     if ternary:
         return all(
-            _expression_lower_bound(symbol, body[span[0] : span[1]])
+            _expression_lower_bound(symbol, body[span[0] : span[1]], nonnegative)
             for span in ternary[1:]
         )
     disjuncts = _split_top_level(body, "||")
     if len(disjuncts) > 1:
         return all(
-            _expression_lower_bound(symbol, body[span[0] : span[1]]) for span in disjuncts
+            _expression_lower_bound(symbol, body[span[0] : span[1]], nonnegative)
+            for span in disjuncts
         )
     conjuncts = _split_top_level(body, "&&")
     if len(conjuncts) > 1:
         parts = [body[span[0] : span[1]] for span in conjuncts]
-        if any(_expression_lower_bound(symbol, part) for part in parts):
+        if any(_expression_lower_bound(symbol, part, nonnegative) for part in parts):
             return True
         # All conjuncts hold together, so one of them may prove what another needs:
         # `!a.is_empty() && b.size() == a.size()` bounds `b` even though neither
@@ -1659,7 +1875,10 @@ def _expression_lower_bound(symbol: str, expr: str) -> bool:
             if partner is None:
                 continue
             siblings = parts[:position] + parts[position + 1 :]
-            if any(_expression_lower_bound(partner, sibling) for sibling in siblings):
+            if any(
+                _expression_lower_bound(partner, sibling, nonnegative)
+                for sibling in siblings
+            ):
                 return True
         return False
 
@@ -1670,13 +1889,22 @@ def _expression_lower_bound(symbol: str, expr: str) -> bool:
     if negated:
         return _size_negative_test(symbol, body)
 
-    sym = _size_symbol_regex(symbol)
-    pattern = rf"{_SYMBOL_START}{sym}\s*(?:\.|->)\s*(size|is_empty|empty)\s*\(\s*\)"
-    return any(
-        _bound_direction(
-            body, (0, len(body)), match.group(1), match.start(), match.end(), guard=True
-        )
-        for match in re.finditer(pattern, body)
+    atom = _atom_cardinality(symbol, body)
+    if atom is None:
+        return False
+    kind, call, operator, other = atom
+    # Re-rendered in the one canonical spelling `size() <op> <operand>` so that
+    # `_bound_direction` - still the single place a DIRECTION is decided - reads
+    # the same relation whichever side of the atom the call sat on.
+    rendered = call if not operator else f"{call} {operator} {other}"
+    return _bound_direction(
+        rendered,
+        (0, len(rendered)),
+        kind,
+        0,
+        len(call),
+        guard=True,
+        nonnegative=nonnegative,
     )
 
 
@@ -1784,9 +2012,20 @@ def _control_condition(header: str) -> str:
     keyword = head.group(1)
     if keyword in ("switch", "do"):
         return ""
-    open_at = header.find("(", head.end())
-    if open_at < 0:
+    inner = _control_operand(header, head.end())
+    if inner is None:
         return ""  # `else {` - no condition at all
+    if keyword == "for":
+        clauses = _split_top_level(inner, ";")
+        return inner[clauses[1][0] : clauses[1][1]] if len(clauses) >= 2 else ""
+    return inner
+
+
+def _control_operand(header: str, at: int) -> str | None:
+    """The text inside the parentheses a control-flow keyword opens after `at`."""
+    open_at = header.find("(", at)
+    if open_at < 0:
+        return None
     depth = 0
     for i in range(open_at, len(header)):
         if header[i] == "(":
@@ -1794,14 +2033,50 @@ def _control_condition(header: str) -> str:
         elif header[i] == ")":
             depth -= 1
             if depth == 0:
-                inner = header[open_at + 1 : i]
-                break
-    else:
-        inner = header[open_at + 1 :]  # never closes; use what there is
-    if keyword == "for":
-        clauses = _split_top_level(inner, ";")
-        return inner[clauses[1][0] : clauses[1][1]] if len(clauses) >= 2 else ""
-    return inner
+                return header[open_at + 1 : i]
+    return header[open_at + 1 :]  # never closes; use what there is
+
+
+_FOR_INITIALIZER_RE = re.compile(r"^\s*(?:[A-Za-z_][\w:]*\s+)*([A-Za-z_]\w*)\s*=\s*(.+)$", re.S)
+
+
+def _nonnegative_loop_indices(header: str) -> frozenset[str]:
+    """Names a `for` header proves are at least zero when its condition is tested.
+
+    `for (uint32_t i = 0; i < v.size(); i++)` DOES bound its body by `v`'s length:
+    the condition is first evaluated with `i` at 0, so entering the body means the
+    length is at least 1. A bare `if (i < v.size())` proves nothing of the sort -
+    `size()` is signed here, so a negative `i` satisfies it on an EMPTY container -
+    and that is the difference this set carries (Codex, PR #849 round 4).
+
+    Limits, stated rather than hidden: the initialiser must be a nonnegative
+    integer literal, and the increment clause must not decrease the same name, so
+    `for (int i = v.size() - 1; i >= 0; i--)` qualifies on neither count. A loop
+    BODY that drives the variable negative is not modelled.
+    """
+    head = _CONTROL_HEAD_RE.match(header)
+    if head is None or head.group(1) != "for":
+        return frozenset()
+    inner = _control_operand(header, head.end())
+    if inner is None:
+        return frozenset()
+    clauses = _split_top_level(inner, ";")
+    if len(clauses) < 2:
+        return frozenset()
+    initializer = inner[clauses[0][0] : clauses[0][1]]
+    increment = inner[clauses[2][0] : clauses[2][1]] if len(clauses) >= 3 else ""
+    names: set[str] = set()
+    for part in _split_macro_arguments(initializer):
+        declaration = _FOR_INITIALIZER_RE.match(part)
+        if declaration is None or _literal_value(declaration.group(2)) is None:
+            continue
+        name = declaration.group(1)
+        if re.search(rf"(?<![\w.>]){re.escape(name)}\s*(?:--|-=)", increment) or re.search(
+            rf"--\s*{re.escape(name)}(?![\w])", increment
+        ):
+            continue
+        names.add(name)
+    return frozenset(names)
 
 
 def _bounds_iteration(symbol: str, header: str) -> bool:
@@ -1812,7 +2087,9 @@ def _bounds_iteration(symbol: str, header: str) -> bool:
     `if (i >= v.size()) { CHECK(v[i]); }` invisible: both conditions select exactly
     the out-of-bounds case, and both were reported clean (Codex, PR #849 round 2).
     """
-    return _expression_lower_bound(symbol, _control_condition(header))
+    return _expression_lower_bound(
+        symbol, _control_condition(header), _nonnegative_loop_indices(header)
+    )
 
 
 def _changes_length(symbol: str, statement: str) -> bool:

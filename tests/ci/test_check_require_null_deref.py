@@ -1006,9 +1006,42 @@ class SizeThenIndexBoundDirection(SizeIndexScanTestCase):
             "  REQUIRE(v.size() == 2);\n  if (i >= v.size()) {\n    CHECK(v[i] == 1);\n  }", "v"
         )
 
-    def test_index_below_size_header_still_bounds_its_body(self):
-        self.assertNotSized(
-            "  REQUIRE(v.size() == 2);\n  if (i < v.size()) {\n    CHECK(v[i] == 1);\n  }"
+    def test_index_below_size_header_alone_does_not_bound_its_body(self):
+        """`if (i < v.size()) { v[i]; }` bounds nothing until `i` is known to be >= 0.
+
+        Godot's `size()` is SIGNED (`CowData::Size` is int64_t), so a negative `i`
+        satisfies this on an EMPTY container and the body indexes out of range
+        (Codex, PR #849 round 4). Round 3 pinned the opposite - it assumed an
+        unsigned count - which is why this case is spelled out on both sides.
+        """
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n  if (i < v.size()) {\n    CHECK(v[i] == 1);\n  }", "v"
+        )
+
+    def test_a_for_loop_starting_at_zero_still_bounds_its_body(self):
+        """The counterpart: the initialiser is the proof `i` is not negative."""
+        for header in (
+            "for (uint32_t i = 0; i < v.size(); i++)",
+            "for (int i = 0; i < v.size(); ++i)",
+            "for (int i = 0; i < v.size(); i += 1)",
+        ):
+            with self.subTest(header=header):
+                self.assertNotSized(
+                    f"  REQUIRE(v.size() == 2);\n  {header} {{\n    CHECK(v[i] == 1);\n  }}"
+                )
+
+    def test_a_loop_counting_down_is_not_proven_nonnegative(self):
+        """`i = v.size() - 1` is not a literal, and `i--` does not keep it >= 0."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = v.size() - 1; i >= 0; i--) {\n    CHECK(v[i] == 1);\n  }",
+            "v",
+        )
+
+    def test_a_loop_index_declared_elsewhere_is_not_proven_nonnegative(self):
+        """Only the `for` initialiser is visible proof; a `while` header carries none."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n  while (i < v.size()) {\n    CHECK(v[i] == 1);\n  }", "v"
         )
 
     def test_size_equal_zero_header_does_not_bound_its_body(self):
@@ -1132,6 +1165,43 @@ class SizeThenIndexCompoundConditions(SizeIndexScanTestCase):
                     f"  if ({condition}) {{\n    CHECK(v[0] == 1);\n  }}"
                 )
 
+    def test_an_atom_built_from_a_bound_is_not_a_bound(self):
+        """Round 3 decomposed `&&`, `||` and `?:` - and then scanned whatever was
+        left for a qualifying `size()` test. An atom can still be BUILT from one
+        without following its truth: `(v.size() > 0) == expected_nonempty` is true
+        exactly when `v` is EMPTY once `expected_nonempty` is false (Codex, PR #849
+        round 4). Each of these scanned clean before the atom was read as a whole.
+        """
+        for condition in (
+            "(v.size() > 0) == expected_nonempty",
+            "(v.size() > 0) != expected_empty",
+            "expected_nonempty == (v.size() > 0)",
+            "flag ^ (v.size() > 0)",
+            "static_cast<int>(v.size() > 0) + offset",
+            "v.size() - 1 > 0",
+            "count(v.size()) > 0",
+        ):
+            with self.subTest(condition=condition):
+                self.assertSized(
+                    "  REQUIRE(v.size() == 2);\n"
+                    f"  if ({condition}) {{\n    CHECK(v[0] == 1);\n  }}",
+                    "v",
+                )
+
+    def test_an_atom_built_from_a_bound_is_not_a_short_circuit_guard(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  CHECK(((v.size() > 0) == expected_nonempty) && v[0]);",
+            "v",
+        )
+
+    def test_a_declaration_in_front_of_a_bound_is_not_structure(self):
+        """`ok = A` is true exactly when `A` is, so the assignment must not hide it."""
+        self.assertNotSized(
+            "  CHECK_EQ(chunks.size(), 2);\n"
+            "  const bool ok = chunks.size() >= 2 && f(chunks[0]);"
+        )
+
 
 class SizeThenIndexEqualityOperandMustBeProven(SizeIndexScanTestCase):
     """`size() == n` bounds a BODY only when `n` is provably non-zero.
@@ -1169,12 +1239,34 @@ class SizeThenIndexEqualityOperandMustBeProven(SizeIndexScanTestCase):
                     f"  if ({condition}) {{\n    CHECK(v[0] == 1);\n  }}"
                 )
 
-    def test_a_strictly_greater_comparison_needs_no_proof(self):
-        """A length strictly above an unsigned count is at least 1, whatever it is."""
-        self.assertNotSized(
-            "  REQUIRE(v.size() == 2);\n"
-            "  if (v.size() > expected) {\n    CHECK(v[0] == 1);\n  }"
-        )
+    def test_a_strictly_greater_comparison_needs_a_nonnegative_operand(self):
+        """`size() > n` is a lower bound only when `n` itself is at least zero.
+
+        Round 3 accepted any `>`, reasoning that a length above a count is at least
+        one. The count is not unsigned: `Vector::size()` returns `CowData`'s
+        int64_t, so `if (v.size() > -1) { v[0]; }` is entered on an EMPTY container
+        and scanned clean (Codex, PR #849 round 4).
+        """
+        for condition in ("v.size() > expected", "v.size() > -1", "v.size() > kOffset - 1"):
+            with self.subTest(condition=condition):
+                self.assertSized(
+                    "  REQUIRE(v.size() == 2);\n"
+                    f"  if ({condition}) {{\n    CHECK(v[0] == 1);\n  }}",
+                    "v",
+                )
+
+    def test_a_nonnegative_literal_still_bounds_strictly_greater(self):
+        for condition in ("v.size() > 0", "v.size() > 1", "v.size() > 0x0", "0 < v.size()"):
+            with self.subTest(condition=condition):
+                self.assertNotSized(
+                    "  REQUIRE(v.size() == 2);\n"
+                    f"  if ({condition}) {{\n    CHECK(v[0] == 1);\n  }}"
+                )
+
+    def test_an_unproven_strict_comparison_still_asserts_as_an_assertion(self):
+        """The same asymmetry as `==`: unproven REPORTS, and only SUPPRESSING needs
+        the proof. `REQUIRE(v.size() > n)` is still a size assertion above `v[0]`."""
+        self.assertSized("  REQUIRE(v.size() > n);\n  CHECK(v[0] == 1);", "v")
 
     def test_an_assertion_against_an_unknown_is_still_a_size_assertion(self):
         """The asymmetry is the point: unproven REPORTS as an assertion and must
@@ -1411,6 +1503,56 @@ class SizeIndexFailsClosed(unittest.TestCase):
         )
         self.assertEqual(len(sites), 1)
         self.assertEqual(sites[0][4], 5)
+
+    def test_a_spliced_ordinary_literal_is_still_one_literal(self):
+        """An ordinary string continued with backslash-newline is spliced BEFORE
+        tokenising, so a `/*` on the continuation is string content and not a
+        comment opener. Reading it as one opened a block comment that blanked the
+        assertion, the index and everything to EOF, and the file scanned clean
+        (Codex, PR #849 round 4). The same holds for a `//` or an `R"(` there."""
+        for continuation in ("/*", "//", 'R"(', "plain"):
+            for eol in ("\n", "\r\n"):
+                with self.subTest(continuation=continuation, eol=eol):
+                    sites = self._scan(
+                        eol.join(
+                            [
+                                'TEST_CASE("x") {',
+                                '  const char *p = "abc \\',
+                                f'{continuation} still inside the string";',
+                                "  REQUIRE(v.size() == 2);",
+                                "  CHECK(v[0] == 1);",
+                                "}",
+                                "",
+                            ]
+                        )
+                    )
+                    self.assertEqual(len(sites), 1, "the assertion and index are code")
+                    self.assertEqual(sites[0][0], 4, "line numbers must survive blanking")
+                    self.assertEqual(sites[0][4], 5)
+
+    def test_nothing_multi_line_survives_the_raw_string_pass(self):
+        """The invariant `_strip_comments` relies on to stay line-oriented: after
+        `_read_source`, no ordinary literal spans a newline either."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "test_synthetic.h"
+            path.write_bytes(b'const char *p = "abc \\\n/* still string";\nCHECK(v[0]);\n')
+            lexed = GUARD._read_source(path)
+        self.assertEqual(len(lexed.split("\n")), 4, "line count is preserved")
+        self.assertNotIn("/*", lexed, "the continuation was string content, not a comment")
+
+    def test_a_digit_separator_before_a_splice_is_not_a_literal(self):
+        """`1'000` is not an opener, and a line continuation after it must not turn
+        it into one - that would blank the code that follows."""
+        sites = self._scan(
+            "TEST_CASE(\"x\") {\n"
+            "  const int big = 1'000; \\\n"
+            "  const int other = 2;\n"
+            "  REQUIRE(v.size() == 2);\n"
+            "  CHECK(v[0] == 1);\n"
+            "}\n"
+        )
+        self.assertEqual(len(sites), 1)
+        self.assertEqual(sites[0][0], 4)
 
     def test_unbalanced_assertion_parens_are_a_scan_error(self):
         with self.assertRaises(GUARD.ScanError):
