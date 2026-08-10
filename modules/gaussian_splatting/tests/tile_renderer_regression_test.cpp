@@ -2284,6 +2284,84 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
                 return r;
             }
 
+            // ---- ROUND-4 CONTROL: capture REAL CPU fallback timings from a healthy frame. ----
+            // Round-4 review finding. Round 3 invalidated the timings it knew about and argued
+            // the invalidation was "complete by construction" because every reject now funnels
+            // through _reject_frame(). Centralizing the EXITS did not make the set of FIELDS
+            // complete — that was still a hand-written list of assignments — and two CPU-measured
+            // pairs were missing from it:
+            //
+            //   last_overlap_sort_cpu_dispatch_ms / overlap_sort_cpu_dispatch_valid
+            //   last_prefix_cpu_sync_fallback_ms  / prefix_cpu_sync_fallback_valid
+            //
+            // Both are reset by their PRODUCING stage rather than at the top of run(), and this
+            // phase-6 reject happens strictly before both of those stages (the pre-binning
+            // resource check is upstream of the binning COUNT dispatch and of the prefix scan),
+            // so the rejected frame kept publishing the previous SUCCESSFUL frame's CPU cost.
+            // That is why the assertion belongs HERE and not in phase 2: the choke-point reject
+            // is downstream of both resets, so it could not have exposed this.
+            //
+            // PREMISE — without this the whole round-4 assertion is vacuous. _reset_timestamp_tracking()
+            // clears these pairs at the top of run(), but ONLY when GPU timestamp capture is OFF;
+            // with it ON (the default, and the configuration anyone profiling is in) it
+            // deliberately preserves timings across frames. With capture off, the fields would
+            // read 0 on a rejected frame whether or not _reject_frame() clears them, and the
+            // test would pass against the unfixed renderer.
+            if (!tile_renderer->is_gpu_timestamp_capture_enabled()) {
+                r.error_message = "Premise failed: GPU stage timestamp capture is disabled, so _reset_timestamp_tracking() "
+                                  "zeroes the CPU fallback timings at the top of every frame and the round-4 assertion "
+                                  "below would hold even against the unfixed renderer.";
+                return r;
+            }
+            // The prefix CPU sync fallback is only MEASURED on the deterministic sync-readback
+            // path, which the async default does not take. Forcing it is what gives the control
+            // a real, non-zero value to go stale — restored on every exit from this scope.
+            struct PrefixValidateGuard {
+                bool saved;
+                PrefixValidateGuard() : saved(g_gpu_sorting_config.debug_validate_prefix) {
+                    g_gpu_sorting_config.debug_validate_prefix = true;
+                }
+                ~PrefixValidateGuard() { g_gpu_sorting_config.debug_validate_prefix = saved; }
+            } prefix_validate_guard;
+
+            // A few frames, because the sync-readback path and the sort dispatch have to actually
+            // run once under the forced configuration before either pair reports anything.
+            for (int frame = 0; frame < 5; frame++) {
+                if (tile_renderer->is_last_overlap_sort_cpu_dispatch_time_valid() &&
+                        tile_renderer->is_last_prefix_cpu_sync_fallback_time_valid() &&
+                        tile_renderer->get_last_overlap_sort_cpu_dispatch_time_ms() > 0.0f &&
+                        tile_renderer->get_last_prefix_cpu_sync_fallback_time_ms() > 0.0f) {
+                    break;
+                }
+                RID cpu_timing_warm_output = tile_renderer->render(p_rd, params);
+                if (!cpu_timing_warm_output.is_valid()) {
+                    r.error_message = vformat(
+                            "Round-4 control frame %d did not publish, so no healthy CPU fallback timing could be "
+                            "captured to go stale.",
+                            frame);
+                    return r;
+                }
+            }
+            const float healthy_sort_dispatch_ms = tile_renderer->get_last_overlap_sort_cpu_dispatch_time_ms();
+            const float healthy_prefix_sync_ms = tile_renderer->get_last_prefix_cpu_sync_fallback_time_ms();
+            // This is the control that stops the fix from passing by zeroing everything always:
+            // a healthy frame must report REAL, VALID CPU fallback work. If it did not, the
+            // "a rejected frame reports invalid/0" assertion below would be satisfied by a
+            // renderer that reports invalid/0 forever, which measures nothing.
+            if (!tile_renderer->is_last_overlap_sort_cpu_dispatch_time_valid() ||
+                    !tile_renderer->is_last_prefix_cpu_sync_fallback_time_valid() ||
+                    !(healthy_sort_dispatch_ms > 0.0f) || !(healthy_prefix_sync_ms > 0.0f)) {
+                r.error_message = vformat(
+                        "Premise failed: a healthy, published frame reported no measurable CPU fallback work "
+                        "(sort_dispatch=%f valid=%s prefix_sync=%f valid=%s). The round-4 'a rejected frame reports "
+                        "invalid/0' assertion would then be vacuous.",
+                        double(healthy_sort_dispatch_ms),
+                        tile_renderer->is_last_overlap_sort_cpu_dispatch_time_valid() ? "yes" : "no",
+                        double(healthy_prefix_sync_ms),
+                        tile_renderer->is_last_prefix_cpu_sync_fallback_time_valid() ? "yes" : "no");
+                return r;
+            }
+
             const RID stashed_keys_buffer = sort_resources.keys_buffer;
             const uint32_t stashed_capacity = sort_resources.capacity;
             if (!stashed_keys_buffer.is_valid()) {
@@ -2377,6 +2455,83 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
                         double(tile_renderer->get_tile_assignment_time()),
                         double(tile_renderer->get_rasterization_time()),
                         double(tile_renderer->get_last_setup_cpu_ms()));
+                return r;
+            }
+            // ---- ROUND-4 DISCRIMINATING ASSERTION: CPU fallback timings must not survive. ----
+            // Pre-fix, both pairs still held the control values asserted non-zero above, and
+            // tile_rasterizer.cpp copies all four into RasterPerformance, so every consumer of
+            // the perf surface — HUD, diagnostics dictionary, profiling lanes — was told the
+            // renderer had just done sort-dispatch and prefix-sync work on a frame that did
+            // nothing at all and published nothing.
+            //
+            // The VALIDITY FLAG is asserted, not just the millisecond value. The flags exist so a
+            // consumer can distinguish "this stage did not run" from "it ran and cost ~0 ms"; a
+            // rejected frame is the former, and clearing the value while leaving the flag true
+            // would report a measured 0 ms — a different lie, not a fix.
+            if (tile_renderer->is_last_overlap_sort_cpu_dispatch_time_valid() ||
+                    tile_renderer->get_last_overlap_sort_cpu_dispatch_time_ms() != 0.0f) {
+                r.error_message = vformat(
+                        "ROUND-4 REGRESSION: after a REJECTED frame the overlap-sort CPU dispatch timing is still "
+                        "valid=%s at %f ms (the last successful frame reported %f). The frame never reached the sort "
+                        "dispatch, so this describes work that did not happen.",
+                        tile_renderer->is_last_overlap_sort_cpu_dispatch_time_valid() ? "yes" : "no",
+                        double(tile_renderer->get_last_overlap_sort_cpu_dispatch_time_ms()),
+                        double(healthy_sort_dispatch_ms));
+                return r;
+            }
+            if (tile_renderer->is_last_prefix_cpu_sync_fallback_time_valid() ||
+                    tile_renderer->get_last_prefix_cpu_sync_fallback_time_ms() != 0.0f) {
+                r.error_message = vformat(
+                        "ROUND-4 REGRESSION: after a REJECTED frame the prefix CPU sync-fallback timing is still "
+                        "valid=%s at %f ms (the last successful frame reported %f). The frame never reached the prefix "
+                        "scan, so this describes work that did not happen.",
+                        tile_renderer->is_last_prefix_cpu_sync_fallback_time_valid() ? "yes" : "no",
+                        double(tile_renderer->get_last_prefix_cpu_sync_fallback_time_ms()),
+                        double(healthy_prefix_sync_ms));
+                return r;
+            }
+            // NON-DISCRIMINATING TODAY — stated plainly rather than presented as evidence.
+            // submission_cpu_ms is the third field in the same category (per-frame, CPU, copied
+            // into RasterPerformance), and _reject_frame() now clears it. But last_submission_cpu_ms
+            // is ONLY EVER ASSIGNED ZERO in the whole module — the resolve path and the reject
+            // boundary are its only two writers, both writing 0.0f — so RasterPerformance
+            // .submission_cpu_ms is structurally always 0 and this check CANNOT fail as the code
+            // stands. It is a tripwire for the day submission timing is actually implemented, not
+            // proof of anything; the mutation evidence for round 4 is the two pairs above. (That
+            // the field is dead telemetry is a separate, pre-existing issue and is deliberately
+            // NOT fixed here — fixing it means implementing the measurement.)
+            if (tile_renderer->get_last_submission_cpu_ms() != 0.0f) {
+                r.error_message = vformat(
+                        "after a REJECTED frame get_last_submission_cpu_ms() returns %f. Nothing was submitted.",
+                        double(tile_renderer->get_last_submission_cpu_ms()));
+                return r;
+            }
+
+            // ROUND-4 RECOVERY CONTROL, in the only direction the assertion above cannot cover.
+            // The injection was already undone a few lines up, so this frame publishes; it must
+            // report REAL CPU fallback work again. Without this, "a rejected frame reports
+            // invalid/0" would also be satisfied by permanently wedging both pairs at invalid,
+            // which would destroy the perf surface the fix exists to protect. It runs inside this
+            // scope on purpose — prefix_validate_guard is still alive, so the prefix sync path is
+            // still the one being measured, exactly as in the control above.
+            RID cpu_timing_recovered_output = tile_renderer->render(p_rd, params);
+            if (!cpu_timing_recovered_output.is_valid()) {
+                r.error_message = "The round-4 recovery frame did not publish, so the CPU fallback timings could not be "
+                                  "shown to come back.";
+                return r;
+            }
+            if (!tile_renderer->is_last_overlap_sort_cpu_dispatch_time_valid() ||
+                    !(tile_renderer->get_last_overlap_sort_cpu_dispatch_time_ms() > 0.0f) ||
+                    !tile_renderer->is_last_prefix_cpu_sync_fallback_time_valid() ||
+                    !(tile_renderer->get_last_prefix_cpu_sync_fallback_time_ms() > 0.0f)) {
+                r.error_message = vformat(
+                        "The recovered, PUBLISHED frame reports no CPU fallback work (sort_dispatch=%f valid=%s "
+                        "prefix_sync=%f valid=%s). The reject-time invalidation must clear these for rejected frames "
+                        "only, not wedge them at invalid.",
+                        double(tile_renderer->get_last_overlap_sort_cpu_dispatch_time_ms()),
+                        tile_renderer->is_last_overlap_sort_cpu_dispatch_time_valid() ? "yes" : "no",
+                        double(tile_renderer->get_last_prefix_cpu_sync_fallback_time_ms()),
+                        tile_renderer->is_last_prefix_cpu_sync_fallback_time_valid() ? "yes" : "no");
                 return r;
             }
         }

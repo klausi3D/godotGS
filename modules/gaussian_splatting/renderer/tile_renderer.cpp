@@ -368,9 +368,45 @@ private:
 	//    "did the renderer run at all this frame" is answered by rejected_frames, not by a
 	//    timing. The raster-choice fields are cleared with the same rationale and to mirror
 	//    the no-work branch of run() exactly.
+	//
+	// #586 round-4. Round 3 claimed this invalidation was "complete by construction". It was
+	// not: centralizing the EXITS makes the accounting complete, but the set of FIELDS was
+	// still a hand-written list, and two CPU-measured pairs were missing from it. They are the
+	// worst kind to miss, because they are reset by their own producing stage rather than at
+	// the top of run():
+	//
+	//   * last_overlap_sort_cpu_dispatch_ms / overlap_sort_cpu_dispatch_valid, reset only at
+	//     the sort dispatch site further down this file, and
+	//   * last_prefix_cpu_sync_fallback_ms / prefix_cpu_sync_fallback_valid, reset only at the
+	//     top of TilePrefixScanStage::update_global_tile_ranges().
+	//
+	// A frame rejected BEFORE those stages — the pre-binning resource check is exactly such an
+	// exit, and it is the likeliest one in the field — never runs either reset, so both pairs
+	// keep reporting the last SUCCESSFUL frame's CPU work. _reset_timestamp_tracking() does
+	// clear them at the top of run(), but ONLY when gpu_timestamp_capture_enabled is false; with
+	// stage timestamps ON (the default) it deliberately preserves timing across frames, so the
+	// stale pair survives precisely in the configuration an operator profiles with.
+	//
+	// These are CPU-measured, so unlike the GPU-timestamp fields they can only ever describe
+	// THIS frame: a GPU timestamp legitimately resolves several frames late (that is why
+	// _reset_timestamp_tracking keeps it, why it ages out after GPU_PASS_STALE_FRAMES, and why
+	// timing_frame_serial/timing_frames_behind are published alongside it to say how old it is),
+	// whereas a CPU dispatch duration is measured inline and has no such alibi. That distinction
+	// is the rule this function implements, and tests/ci/check_reject_telemetry_parity.py
+	// enforces it over the whole RasterPerformance struct so the next missing field fails CI
+	// instead of waiting for the next review round.
+	//
+	// The valid flags are cleared rather than merely zeroing the millisecond values: they exist
+	// so a consumer can distinguish "this stage did not run" from "it ran and cost ~0 ms", and a
+	// rejected frame is the former.
 	RID _reject_frame(GaussianSplatting::FrameRejectStage p_stage) {
 		renderer.perf_metrics.tile_assignment_ms = 0.0f;
 		renderer.timing_state.last_setup_cpu_ms = 0.0f;
+		renderer.timing_state.last_submission_cpu_ms = 0.0f;
+		renderer.timing_state.last_overlap_sort_cpu_dispatch_ms = 0.0f;
+		renderer.timing_state.overlap_sort_cpu_dispatch_valid = false;
+		renderer.timing_state.last_prefix_cpu_sync_fallback_ms = 0.0f;
+		renderer.timing_state.prefix_cpu_sync_fallback_valid = false;
 		renderer.perf_metrics.rasterization_ms = 0.0f;
 		renderer.perf_metrics.last_raster_used_compute = false;
 		renderer.perf_metrics.last_raster_choice_initialized = true;

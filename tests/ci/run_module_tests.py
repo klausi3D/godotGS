@@ -34,6 +34,8 @@ CULL_SIGNATURE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_cull_signature_pari
 CULL_SIGNATURE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_cull_signature_parity.py"
 METRIC_RESET_PARITY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_metric_reset_parity.py"
 METRIC_RESET_PARITY_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_metric_reset_parity.py"
+REJECT_TELEMETRY_PARITY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_reject_telemetry_parity.py"
+REJECT_TELEMETRY_PARITY_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_reject_telemetry_parity.py"
 DOC_CLASSES_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_doc_classes_complete.py"
 TEST_LINKAGE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_test_linkage.py"
 REQUIRE_NULL_DEREF_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_require_null_deref.py"
@@ -1243,6 +1245,39 @@ def _run_metric_reset_parity_guard() -> tuple[bool, list[str]]:
         if code != 0:
             if not output_lines:
                 output_lines = [f"Metric-reset parity guard failed with exit code {code}."]
+            return False, output_lines
+
+    return True, output_lines
+
+
+def _run_reject_telemetry_parity_guard() -> tuple[bool, list[str]]:
+    # #586 round-4. Sibling of _run_metric_reset_parity_guard, for the OTHER telemetry
+    # struct: check_metric_reset_parity.py covers PerformanceMetrics' per-frame reset,
+    # this one covers RasterPerformance's per-REJECT invalidation. Two consecutive
+    # review rounds found a field missing from _reject_frame()'s hand-written list, so
+    # the guard derives the covered set from the real
+    # struct -> get_performance() -> getter -> _reject_frame() chain and fails closed on
+    # anything it cannot resolve. Its unit test runs too, so a future regex change is
+    # caught even if it happens not to flag anything on today's tree.
+    missing = [
+        path.relative_to(ROOT)
+        for path in (REJECT_TELEMETRY_PARITY_GUARD_SCRIPT, REJECT_TELEMETRY_PARITY_TEST_SCRIPT)
+        if not path.is_file()
+    ]
+    if missing:
+        return False, [f"Missing reject-telemetry parity guard file: {path}" for path in missing]
+
+    output_lines: list[str] = []
+    commands = (
+        [sys.executable, str(REJECT_TELEMETRY_PARITY_GUARD_SCRIPT)],
+        [sys.executable, str(REJECT_TELEMETRY_PARITY_TEST_SCRIPT)],
+    )
+    for args in commands:
+        code, out, err = _run_command(args)
+        output_lines.extend(line for line in (out + err).splitlines() if line.strip())
+        if code != 0:
+            if not output_lines:
+                output_lines = [f"Reject-telemetry parity guard failed with exit code {code}."]
             return False, output_lines
 
     return True, output_lines
@@ -3079,6 +3114,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_metric_reset_parity_guard,
             "Metric-reset parity guard failed.",
             "Metric-reset parity guard passed.",
+        ),
+        (
+            True,
+            _run_reject_telemetry_parity_guard,
+            "Reject-telemetry parity guard failed.",
+            "Reject-telemetry parity guard passed.",
         ),
         (
             True,
