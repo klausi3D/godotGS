@@ -41,9 +41,20 @@ The correct pattern is an explicit guard:
 
 ## What this guard flags (deliberately narrow)
 
-Precision over recall. A null-ish `REQUIRE*` on a symbol, followed - within a
+Precision over recall. A null-ish assertion on a symbol, followed - within a
 short forward window - by a statement that **dereferences that same symbol**,
 where nothing in between could have made the dereference safe.
+
+* **Which macro counts as an assertion is DERIVED, not spelled here.** The
+  accepted names come from `_doctest_assert_macros()`, so `CHECK`, `WARN`, the
+  `_MESSAGE` / `_UNARY` / `_FALSE` / `_NE` forms, the `FAST_*` aliases and the
+  `DOCTEST_*` spellings are all the same assertions as `REQUIRE`. Until #849's
+  round 9 this detector spelled `REQUIRE` and its suffixes by hand, and `CHECK`
+  is not the weaker case - it never aborts under ANY doctest configuration,
+  where `REQUIRE` merely does not abort in THIS build. That hand-written
+  spelling hid **18 real sites** across 7 corpus files; they are pre-existing,
+  so they enter the baseline (319 -> 337) rather than being rewritten, which
+  #656 rules out.
 
 * Null-ish predicates: `x != nullptr`, `x != NULL`, `x.is_valid()`,
   `x->is_valid()`, `REQUIRE_FALSE(x.is_null())`, `REQUIRE_UNARY_FALSE(x.is_null())`,
@@ -231,6 +242,18 @@ index `container[...]` that nothing between them bounds.
   PROPERTY rather than a list of layouts - decomposition is idempotent over every
   group the real corpus produces (420,814 atoms), so anything still splittable in
   what a consumer is handed fails a test rather than waiting for a review round.
+
+  Totality is about the PIECES, though, not about what each piece MEANS, and
+  round 9 found the difference. `} while (v.size() >= 2);` atomises correctly,
+  into `"}"` and `while (...);` - and the `while` was then read as a brace-less
+  loop head whose condition bounded the NEXT statement, so
+  `REQUIRE(v.size() == 3); do { … } while (v.size() >= 2); CHECK(v[1]);` reported
+  nothing: at a real length of 1 the assertion fails, the loop exits, and `v[1]`
+  kills the batch, suppressed by the bound of a body that does not exist. A
+  control-flow atom with no body (`_guards_no_body`: a `do` terminator, or a
+  deliberately empty `while (poll());`) now creates no frame at all. It is
+  recognised by SHAPE rather than by finding the matching `do`, because the scan
+  starts at the assertion and a `do` opened above it is not in the window.
 * **A bound from a DIFFERENT container does not count.** In
   `for (i < a.size()) { CHECK(a[i] == b[i]); }` after `REQUIRE(b.size() == 3)`,
   `b[i]` crashes whenever `b` is the short one. Seven such sites exist; they are
@@ -347,21 +370,25 @@ index `container[...]` that nothing between them bounds.
    positives, not silence. Legacy octal was in that None bucket until round 7 and
    made the guard OVER-report on valid code, which is its own failure: a ratchet
    that fails on correct input gets waived.
-7. **An assertion that is not spelled `REQUIRE*` or `CHECK*`.** `_SIZE_ASSERT_HEAD_RE`
-   admits those two prefixes only, so doctest's `WARN*` family - which reports and
-   continues exactly like `CHECK`, and is therefore just as capable of running a
-   short container into an aborting index - is not scanned. Surfaced by round 8's
-   derivation of the macro family, and left open on evidence rather than on
-   assumption: the corpus contains **zero** doctest `WARN` assertions today (the
-   only `WARN` tokens in it are Godot's `WARN_PRINT` and a test-case title), so
-   widening the head would add no site and could only mis-read `WARN_PRINT`.
-   Widening it is a one-line change the day a `WARN` assertion is written.
+7. ~~**An assertion that is not spelled `REQUIRE*` or `CHECK*`.**~~ **RETIRED in
+   round 9.** The accepted head is now the DERIVED macro family (see
+   `_assertion_vocabulary`), so doctest's `WARN*` family, the `FAST_*` aliases and
+   the `DOCTEST_*` spellings are all scanned. Round 8 left this open on the
+   evidence that the corpus contains zero doctest `WARN` assertions and that a
+   `WARN\\w*` prefix could only mis-read Godot's `WARN_PRINT` - both still true,
+   and both beside the point: the fix is not a wider prefix but an EXACT derived
+   name set, under which `WARN` is an assertion and `WARN_PRINT` is not. It still
+   adds no corpus site. What round 9 showed is that leaving it as a documented
+   limit meant keeping a second, hand-written source of truth for a vocabulary
+   this file already derives, and that second source was wrong in a direction
+   nobody had measured: it also rejected `DOCTEST_REQUIRE`.
 
-Round 8 retires no item on this list, and that is worth saying plainly: all three
+Round 8 retired no item on this list, and that is worth saying plainly: all three
 of its findings were shapes this section did not know it was missing - a macro
 spelling, a grouping pair, a brace placement - not limits anyone had chosen. The
 list is what the model KNOWS it cannot do; it has never been the boundary of what
-the model gets wrong. See "Convergence" below.
+the model gets wrong. Round 9 retires item 7 and refutes the reason it was left
+standing. See "Convergence" below.
 
 ### Reconciliation of the count
 
@@ -371,7 +398,9 @@ dangerous, 4 fixed by #843 -> **42 remaining**. This detector reports **50**:
 **0 bounded below the index** (round 6's population - the right container, too
 small a bound). All three figures are printed on every run, including the zero, so
 that a population cannot arrive unremarked, and all three are pinned by a unit
-test.
+test. Round 9 left all three unchanged: neither the `do` terminator nor the wider
+macro vocabulary adds a site to THIS detector, which is the measured statement
+that both of its shapes occur zero times in the corpus.
 
 The delta against 42 is +1 straight-line and +7 cross-container, and neither is
 the baseline being tuned to fit:
@@ -397,10 +426,10 @@ set of the same size.
 
 ## Convergence
 
-Eight review rounds have landed on this one file, and two earlier claims that the
-remaining gap was bounded were refuted by the next round. So the state is recorded
-here rather than asserted again. Sorting all eight rounds' findings by WHERE they
-came from:
+Nine review rounds have landed on this one file, and **three** claims that the
+remaining gap was bounded have now been refuted by the next round. So the state is
+recorded here rather than asserted again. Sorting all nine rounds' findings by
+WHERE they came from:
 
 * **the inputs to the rules** - the text handed to a recogniser was not the
   statement it assumed: a `REQUIRE` split over lines and several compacted onto
@@ -410,41 +439,66 @@ came from:
 * **an external vocabulary spelled by hand** - a doctest macro name that does not
   exist and a real one that was missed (rounds 1 and 8), a relational suffix table
   naming a macro family doctest never defined (round 8), C++ integer-literal
-  spellings the reader did not implement (round 7);
+  spellings the reader did not implement (round 7), a head regex that rejected
+  doctest's own `DOCTEST_*` spellings before the derived family was consulted
+  (round 9);
 * **the semantic model itself** - the bound's DIRECTION (round 2), the asymmetry
   between what a guard may assume and what an assertion may (round 3), `size()`
   being signed (round 4), a bound on the container not being a bound on a specific
   subscript (round 6), a `for` update clause that must be proven nondecreasing
-  (round 7).
+  (round 7), a `do` terminator read as a loop head (round 9).
 
-The first two categories now have a STRUCTURAL answer rather than another rule.
-Statement shape is one total decomposition shared by both detectors, whose
-totality is a machine-checked property over the whole corpus, not a list of
-layouts. The doctest vocabulary is read out of the header the fork compiles
-against, so it cannot be missing a spelling that exists or naming one that does
-not, and it re-derives on a doctest upgrade.
+**Round 8 claimed the first two categories had a structural answer, and predicted
+round 9 would be semantic. Both of round 9's findings refute that.** The second
+category's answer was not structural: the family WAS derived, for negation and
+relation semantics - and a separate hard-coded regex still decided, before the
+family was ever reached, which names got to be assertions at all. A derivation
+that is not consulted at the decision point is not one source of truth, it is two.
+There were in fact FOUR such spellings in the file, and looking for the third is
+what found the largest defect of the round: detector 1's hand-spelled `REQUIRE`
+heads had been hiding 18 real corpus sites, because `CHECK` - which never aborts
+in any build - was not in them.
 
-The third category has no such answer and is not going to get one here. It is a
-textual approximation of a dataflow question, its rule set is open-ended, and each
-rule is a new place to be wrong. The honest prediction is therefore that a ninth
-round would find something, and that it would be a semantic finding rather than
-another layout or spelling one.
+What is structural now, and what is not:
+
+* statement SHAPE - one total decomposition shared by both detectors, its
+  totality machine-checked over the corpus. Round 9 did not dent this. `} while
+  (…);` decomposed correctly; the atoms were then MISREAD. Totality of the pieces
+  is not totality of their meaning, and the property as stated never claimed to be;
+* macro VOCABULARY - now genuinely single-sourced: `_assertion_vocabulary()` is
+  the only accepted-name test in the file, and a unit test parses this module's
+  own AST to fail if a fifth hand-written spelling is ever added. That test is the
+  actual structural answer; the derivation alone was not;
+* the semantic MODEL - still no structural answer, still a textual approximation
+  of a dataflow question with an open-ended rule set.
+
+The prediction record is what it is: three convergence claims, three refutations.
+So this section states no fourth prediction. Rounds 5, 8 and 9 each found a defect
+in a mechanism the previous round had just called closed, and the only pattern
+that has held across all nine is that the file gets a finding whenever someone
+looks at it.
 
 What that is worth is bounded by what this guard IS. It is a **ratchet over a
 frozen baseline**, not a proof that the corpus is safe - the docstring says so
-above, and the 42 conversions are deliberately still open under #844. A false
-negative of the round-5-to-8 kind therefore costs nothing on the current tree:
-every one of those shapes was measured to occur ZERO times in it, so every fix
-since round 5 has changed the reported set by exactly zero sites. They buy recall
-against code nobody has written yet, at a review cost that has been rising for
-four rounds over a file that is now past 3,000 lines. That trade has turned.
+above, and the 42 conversions are deliberately still open under #844. The
+corpus-occurrence test is what separates the two kinds of round-9 finding, and it
+separated them cleanly:
+
+* the shapes fixed in rounds 5-8, and the `do` terminator of round 9, occur
+  **zero** times in the corpus (measured: 9 `do`/`while` terminators, none with a
+  cardinality condition; 0 `DOCTEST_*` invocations). Every one of those fixes has
+  changed the reported set by exactly zero sites. They buy recall against code
+  nobody has written yet;
+* the hand-spelled `REQUIRE` heads in detector 1 occurred **18** times, and were
+  worth the round on their own.
 
 The disposition this file is landed under: further findings of this class are
 triaged by whether the shape OCCURS in the corpus. If it does, it is a bug and it
-gets fixed. If it does not, it is a follow-up issue against #844 - together with
+gets fixed - round 9's 18 sites are what that rule looks like when it fires. If it
+does not, it is a follow-up issue against #844 (tracked in #865) - together with
 the limits already enumerated above, of which the window (blind spot 1, +3 real
-sites at a window of 30) and the `WARN*` head (blind spot 7) are the two concrete
-ones - and not a merge blocker.
+sites at a window of 30) is now the one concrete remaining example, blind spot 7
+having been retired here - and not a merge blocker.
 
 ## Scope boundary
 
@@ -459,9 +513,21 @@ covered.
 
 ## Baseline
 
-The pattern predates the guard: 325 sites across 32 files match it today. #656 is
-explicit that they must not be mass-rewritten, so `require_null_deref_baseline.json`
-records a **fingerprint per site** and the guard fails on any change to that set.
+The pattern predates the guard: **337 sites across 33 files** match it today. #656
+is explicit that they must not be mass-rewritten, so
+`require_null_deref_baseline.json` records a **fingerprint per site** and the
+guard fails on any change to that set.
+
+That number has moved once for a reason other than the corpus changing. Round 9
+derived the accepted assertion-macro names instead of spelling them, and the
+`CHECK`/`WARN` spellings of a null-ish assertion became visible: 319 -> 337, all
+18 pre-existing, none new code, enumerated in the baseline diff of that commit
+(`test_integration.cpp` 6, `test_gaussian_data.h` 4, `test_gaussian_splat_node.h`
+2, `test_gaussian_splat_world_io.h` 2, `test_renderer_pipeline.h` 2,
+`test_node_bootstrap.h` 1, `test_persistence_roundtrip.h` 1). A baseline that
+grows because the GUARD got sharper is the only legitimate growth there is, and
+it is called out here so it cannot be confused with the growth this file exists
+to prevent.
 
 A count-only baseline is not enough. It licenses a swap: fix one site the
 prescribed way and add a brand-new one in the same file, and the count is
@@ -579,10 +645,11 @@ _SIZE_INDEX_BASELINE_NOTE = (
 # How many statements to look ahead after the REQUIRE before giving up.
 _SCAN_STATEMENTS = 6
 
-# A doctest assertion macro that we scan THROUGH (it does not change reachability).
-_ASSERT_MACRO_RE = re.compile(
-    r"^\s*(?:REQUIRE|CHECK|WARN|INFO|MESSAGE|CAPTURE)\w*\s*\(", re.IGNORECASE
-)
+# Every question of the form "is this NAME an assertion macro?" is answered by
+# `_assertion_vocabulary()` below, from the family derived out of doctest's own
+# header. There is deliberately no regex here spelling those names by hand: this
+# file used to carry FOUR independent spellings of that one decision, and #849's
+# round 9 found two of them wrong in opposite directions.
 # Statements that change reachability or scope: stop the scan (fail-safe: we
 # would rather miss a violation than report a guarded dereference).
 _CONTROL_FLOW_RE = re.compile(
@@ -601,21 +668,8 @@ _CONTROL_FLOW_RE = re.compile(
 # `.is_valid()` / `.is_null()` back off in the predicate patterns below.
 _SYMBOL = r"[A-Za-z_]\w*(?:\s*\(\s*\))?(?:\s*(?:\.|->)\s*[A-Za-z_]\w*(?:\s*\(\s*\))?)*"
 
-# Null-ish REQUIRE forms. Each yields the symbol asserted to be non-null.
-_NULLISH_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("!= nullptr", re.compile(rf"^\s*REQUIRE(?:_MESSAGE)?\s*\(\s*({_SYMBOL})\s*!=\s*nullptr\b")),
-    ("!= NULL", re.compile(rf"^\s*REQUIRE(?:_MESSAGE)?\s*\(\s*({_SYMBOL})\s*!=\s*NULL\b")),
-    ("nullptr !=", re.compile(rf"^\s*REQUIRE(?:_MESSAGE)?\s*\(\s*nullptr\s*!=\s*({_SYMBOL})\b")),
-    ("is_valid()", re.compile(rf"^\s*REQUIRE(?:_MESSAGE|_UNARY)?\s*\(\s*({_SYMBOL})\s*(?:\.|->)\s*is_valid\s*\(\s*\)")),
-    # doctest exposes REQUIRE_FALSE, REQUIRE_FALSE_MESSAGE and REQUIRE_UNARY_FALSE.
-    # An earlier `REQUIRE_FALSE(?:_MESSAGE|_UNARY_FALSE)?` put the alternation on
-    # the wrong side of the prefix: it accepted the NONEXISTENT
-    # REQUIRE_FALSE_UNARY_FALSE and missed the real REQUIRE_UNARY_FALSE
-    # (Codex, PR #659).
-    ("!is_null()", re.compile(rf"^\s*(?:REQUIRE_FALSE(?:_MESSAGE)?|REQUIRE_UNARY_FALSE)\s*\(\s*({_SYMBOL})\s*(?:\.|->)\s*is_null\s*\(\s*\)")),
-    ("REQUIRE_NE nullptr", re.compile(rf"^\s*REQUIRE_NE\s*\(\s*({_SYMBOL})\s*,\s*nullptr\s*\)")),
-    ("REQUIRE_NE nullptr", re.compile(rf"^\s*REQUIRE_NE\s*\(\s*nullptr\s*,\s*({_SYMBOL})\s*\)")),
-)
+# The null-ish PREDICATE forms. The macro NAME in front of each of them is not
+# spelled here; it comes from the derived family, in `_assertion_vocabulary()`.
 
 
 class ScanError(Exception):
@@ -764,12 +818,122 @@ def _macro_semantics(macro: str) -> _MacroSemantics:
     """Semantics of `macro`, or the plain reading for a name doctest does not define.
 
     The corpus also writes project-local wrappers (`REQUIRE_GPU_DEVICE()`,
-    `CHECK_PERFORMANCE(...)` in `test_macros.h`), which `_SIZE_ASSERT_HEAD_RE`
-    matches because they start with `REQUIRE`/`CHECK`. They carry neither a
+    `CHECK_PERFORMANCE(...)` in `test_macros.h`), which the size-assertion head
+    admits because they start with `REQUIRE`/`CHECK`. They carry neither a
     relation nor a negation, so reading them as plain is both correct for them and
     the REPORTING direction for anything else unrecognised.
     """
     return _doctest_assert_macros().get(macro, _PLAIN_MACRO)
+
+
+class _Vocabulary(NamedTuple):
+    """Every place this file decides whether a NAME is an assertion macro.
+
+    One object, one derivation. Before #849's round 9 this decision was made in
+    FOUR places from four hand-written spellings, and the round-8 claim that the
+    vocabulary class had a "structural answer" was false in exactly the way a
+    second source of truth always is: the family WAS derived, and then a separate
+    hard-coded head regex decided, before the family was ever consulted, which
+    names got to reach it. Two of the four were measurably wrong:
+
+    * `_SIZE_ASSERT_HEAD_RE` accepted only short names starting `REQUIRE`/`CHECK`,
+      so `DOCTEST_REQUIRE(v.size() == 2); CHECK(v[0]);` produced no site although
+      the prefixed spelling is the same macro (Codex, PR #849 round 9);
+    * the null-ish predicate patterns spelled `REQUIRE` and its `_MESSAGE` /
+      `_UNARY` / `_FALSE` / `_NE` suffixes by hand, so every `CHECK`, `WARN`,
+      `FAST_*` and `DOCTEST_*` spelling of the same assertion was invisible to
+      detector 1. That is not a hypothetical: it hid **18 real sites** in the
+      corpus, and `CHECK` is the WORSE case - it never aborts under ANY doctest
+      configuration, where `REQUIRE` merely does not abort in this build.
+
+    The three members below are the only accepted-name tests in the file.
+    """
+
+    nullish: tuple[tuple[str, re.Pattern[str]], ...]
+    scan_through: re.Pattern[str]
+    size_head: re.Pattern[str]
+
+
+def _macro_alternation(select: Callable[[_MacroSemantics], bool], what: str) -> str:
+    """Regex alternation over the DERIVED macro names whose semantics `select` accepts.
+
+    Longest name first. Python's alternation is leftmost-first, so `REQUIRE` would
+    otherwise be tried before `REQUIRE_MESSAGE` on every pattern; the trailing
+    `\\s*\\(` makes that recoverable by backtracking, but only by accident, and an
+    ordering that does not depend on the tail is one less thing to be wrong about.
+
+    An EMPTY selection is a ScanError. Deriving no negating macro, or no `!=`
+    macro, is the answer that would silently stop recognising a whole family and
+    unreport every site under it - the same fail-open direction the degeneracy
+    floor in `_doctest_assert_macros()` refuses.
+    """
+    names = sorted(
+        (name for name, semantics in _doctest_assert_macros().items() if select(semantics)),
+        key=lambda name: (-len(name), name),
+    )
+    if not names:
+        raise ScanError(
+            f"{DOCTEST_HEADER}: derived no {what} assertion macro - the assertion-macro "
+            "block this guard reads has moved or changed shape"
+        )
+    return "|".join(re.escape(name) for name in names)
+
+
+@functools.lru_cache(maxsize=1)
+def _assertion_vocabulary() -> _Vocabulary:
+    """The accepted assertion-macro names, built from the derived family.
+
+    The three semantic buckets map one-to-one onto the three null-ish predicate
+    shapes, so the macro half of each pattern is DERIVED and only the predicate
+    half is written here:
+
+    * PLAIN - asserts its argument true (`REQUIRE`, `CHECK_MESSAGE`,
+      `REQUIRE_UNARY`, `WARN`, `FAST_CHECK_UNARY`, ...): `ptr != nullptr` and
+      `ref.is_valid()` are non-null claims under it;
+    * NEGATING - asserts its argument false (`REQUIRE_FALSE`,
+      `CHECK_FALSE_MESSAGE`, `REQUIRE_UNARY_FALSE`, ...): `ref.is_null()` under it
+      is the non-null claim;
+    * `!=` - the relation is in the NAME (`REQUIRE_NE`, `CHECK_NE`, ...), so the
+      arguments are compared against `nullptr` positionally.
+
+    A relational macro that is NOT `!=` is in none of them, and must not be:
+    `CHECK_EQ(ptr, nullptr)` asserts the pointer IS null.
+    """
+    plain = _macro_alternation(lambda s: not s.negated and not s.relation, "plain")
+    negating = _macro_alternation(lambda s: s.negated, "negating")
+    not_equal = _macro_alternation(lambda s: s.relation == "!=" and not s.negated, "`!=`")
+    any_assertion = _macro_alternation(lambda s: True, "any")
+    return _Vocabulary(
+        nullish=(
+            ("!= nullptr", re.compile(rf"^\s*(?:{plain})\s*\(\s*({_SYMBOL})\s*!=\s*nullptr\b")),
+            ("!= NULL", re.compile(rf"^\s*(?:{plain})\s*\(\s*({_SYMBOL})\s*!=\s*NULL\b")),
+            ("nullptr !=", re.compile(rf"^\s*(?:{plain})\s*\(\s*nullptr\s*!=\s*({_SYMBOL})\b")),
+            ("is_valid()", re.compile(rf"^\s*(?:{plain})\s*\(\s*({_SYMBOL})\s*(?:\.|->)\s*is_valid\s*\(\s*\)")),
+            ("!is_null()", re.compile(rf"^\s*(?:{negating})\s*\(\s*({_SYMBOL})\s*(?:\.|->)\s*is_null\s*\(\s*\)")),
+            ("_NE nullptr", re.compile(rf"^\s*(?:{not_equal})\s*\(\s*({_SYMBOL})\s*,\s*nullptr\s*\)")),
+            ("_NE nullptr", re.compile(rf"^\s*(?:{not_equal})\s*\(\s*nullptr\s*,\s*({_SYMBOL})\s*\)")),
+        ),
+        # Scanned THROUGH: an assertion does not change reachability. The legacy
+        # alternation is kept as a UNION member rather than replaced, because
+        # `INFO`, `MESSAGE` and `CAPTURE` are doctest context macros that the
+        # assertion derivation does not (and should not) produce, and because
+        # project-local `REQUIRE_*`/`CHECK_*` wrappers must keep scanning through.
+        # Widening this only ever lets the scan continue, which is the REPORTING
+        # direction.
+        scan_through=re.compile(
+            rf"^\s*(?:(?:{any_assertion})|(?:REQUIRE|CHECK|WARN|INFO|MESSAGE|CAPTURE)\w*)\s*\(",
+            re.IGNORECASE,
+        ),
+        # Detector 2's head. Union again: the derived family adds the `DOCTEST_*`,
+        # `WARN*` and `FAST_*` spellings, and the prefix branch keeps the
+        # project-local wrappers (`CHECK_PERFORMANCE`, `REQUIRE_GPU_DEVICE`) that
+        # `_macro_semantics()` then reads as plain. Because the derived half is an
+        # EXACT name set, `WARN_PRINT` - Godot's, not doctest's - is still not an
+        # assertion, which a `WARN\w*` prefix could not have expressed.
+        size_head=re.compile(
+            rf"^\s*((?:{any_assertion})|(?:DOCTEST_)?(?:REQUIRE|CHECK)\w*)\s*\("
+        ),
+    )
 
 
 # `!` applied to a relation. Used to fold a negating macro into the operator, so
@@ -1507,7 +1671,7 @@ def _scan_file(path: Path) -> list[tuple[int, str, str, str]]:
         for position, fragment in enumerate(fragments):
             symbol = None
             form = ""
-            for form_name, pattern in _NULLISH_PATTERNS:
+            for form_name, pattern in _assertion_vocabulary().nullish:
                 match = pattern.match(fragment)
                 if match:
                     symbol = match.group(1)
@@ -1565,7 +1729,7 @@ def _scan_forward(
         if _derefs(symbol, statement):
             violations.append((index + 1, symbol, form, statement.strip()))
             return
-        if _ASSERT_MACRO_RE.match(statement):
+        if _assertion_vocabulary().scan_through.match(statement):
             continue
         if _reassigns(symbol, statement):
             return
@@ -1586,11 +1750,11 @@ _SIZE_SCAN_STATEMENTS = 6
 # a backward walk always lands on a real expression start.
 _SYMBOL_START = r"(?<![\w.])(?<!->)"
 
-# REQUIRE* and CHECK* both. CHECK is not the weaker case here: it never aborts
+# The accepted assertion-macro NAME is `_assertion_vocabulary().size_head`, derived
+# from doctest's own header. CHECK is not the weaker case here: it never aborts
 # under ANY doctest configuration, so it is strictly worse than a REQUIRE that
 # merely does not abort in THIS build. One of the four sites #843 fixed was a
 # CHECK.
-_SIZE_ASSERT_HEAD_RE = re.compile(r"^\s*((?:REQUIRE|CHECK)\w*)\s*\(")
 # The cardinality CALL. Its OBJECT is resolved by walking backward over a balanced
 # expression (`_object_start`), not by a forward regex.
 #
@@ -2558,7 +2722,7 @@ def _size_assertions(fragment: str, name: str) -> list[tuple[str, str]]:
     assertion with no size predicate and the `v[0]` after it was not a site
     (Codex, PR #849 round 8).
     """
-    head = _SIZE_ASSERT_HEAD_RE.match(fragment)
+    head = _assertion_vocabulary().size_head.match(fragment)
     if head is None:
         return []
     macro = head.group(1)
@@ -2697,6 +2861,50 @@ def _control_operand(header: str, at: int) -> str | None:
             if depth == 0:
                 return header[open_at + 1 : i]
     return header[open_at + 1 :]  # never closes; use what there is
+
+
+def _guards_no_body(statement: str) -> bool:
+    """True when this control-flow atom has NO body for its condition to guard.
+
+    Two shapes reach here, and pushing a frame for either is fail-OPEN:
+
+    * the TERMINATOR of a `do` loop - `} while (v.size() >= 2);`. Atomisation
+      splits that into `"}"` and `while (...);`, and the `while` was then read as
+      a brace-less loop HEAD whose bound was carried into the next statement. So
+
+          REQUIRE(v.size() == 3);
+          do { ... } while (v.size() >= 2);
+          CHECK(v[1]);
+
+      reported NO site: at an actual size of 1 the assertion fails, the loop
+      exits, and `v[1]` kills the batch - while the nonexistent `while` body's
+      bound suppressed exactly that subscript (Codex, PR #849 round 9);
+    * a deliberately EMPTY body - `while (poll());`, `for (init; cond; step);`.
+      There is nothing after the header for the condition to hold over there
+      either.
+
+    Recognised by SHAPE, not by finding the matching `do`. The scan window starts
+    at the assertion, so a `do` opened ABOVE it is not visible, and a rule that
+    needed to see it would still be fail-open for the case that matters most - an
+    assertion inside the loop body. A genuine brace-less loop is `while (c) stmt;`
+    (text after the condition) or `while (c)` with its body in a later atom
+    (nothing after the condition). Neither is a lone `;`.
+    """
+    head = _CONTROL_HEAD_RE.match(statement)
+    if head is None or head.group(1) == "do":
+        return False
+    open_at = statement.find("(", head.end())
+    if open_at < 0:
+        return False
+    depth = 0
+    for i in range(open_at, len(statement)):
+        if statement[i] == "(":
+            depth += 1
+        elif statement[i] == ")":
+            depth -= 1
+            if depth == 0:
+                return statement[i + 1 :].strip() == ";"
+    return False
 
 
 _FOR_INITIALIZER_RE = re.compile(r"^\s*(?:[A-Za-z_][\w:]*\s+)*([A-Za-z_]\w*)\s*=\s*(.+)$", re.S)
@@ -3081,6 +3289,12 @@ def _first_unbounded_index(
             # the header is judged against the ENCLOSING bound only.
             if _unguarded_index(symbol, header, own_bound):
                 return line_no, header.strip(), _classify(own_bound, other_bound)
+            if _guards_no_body(statement):
+                # A `do` terminator or an empty body: the condition guards nothing
+                # that FOLLOWS it, so no frame is created and any pending one has
+                # just expired on this statement.
+                pending = None
+                continue
             frame = (
                 _bound_union(own_bound, _bounds_iteration(symbol, header)),
                 other_bound or _condition_lower_bounds(_control_condition(header)),
@@ -3435,14 +3649,19 @@ def main(argv: list[str] | None = None) -> int:
         added = _multiset_difference(actual, allowed)
         removed = _multiset_difference(allowed, actual)
         if added:
-            failures.append(f"{name}: {len(added)} NEW REQUIRE-then-dereference site(s):")
+            failures.append(f"{name}: {len(added)} NEW assert-then-dereference site(s):")
             for print_ in added:
                 line_no, symbol, form, statement = where[name][print_]
+                # Deliberately not "REQUIRE(...)": since #849 round 9 the accepted
+                # macro names are derived from doctest, so the assertion may be a
+                # CHECK or a WARN, and naming the wrong macro in a failure report
+                # sends the reader to the wrong line.
                 failures.append(
-                    f"    line {line_no}: REQUIRE({symbol} {form}) then `{_elide(statement, 90)}`"
+                    f"    line {line_no}: asserted `{symbol} {form}`, then `{_elide(statement, 90)}`"
                 )
             failures.append(
-                f"    REQUIRE does not abort in this build (DOCTEST_CONFIG_NO_EXCEPTIONS): on "
+                f"    Neither REQUIRE (DOCTEST_CONFIG_NO_EXCEPTIONS in this build) nor CHECK/WARN "
+                f"(in any build) aborts: on "
                 f"failure it reports and CONTINUES, so the dereference runs on null and crashes "
                 f"the whole test binary, taking every later case with it. Write instead: "
                 f"if (!<symbol>) {{ FAIL(\"...\"); return; }}  ({BASELINE_ISSUE})"

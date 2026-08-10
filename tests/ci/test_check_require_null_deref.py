@@ -2784,6 +2784,223 @@ class SizeIndexBaselineIntegrity(unittest.TestCase):
             self.assertEqual(len(straight), count, name)
 
 
+class DoWhileTerminatorIsNotALoopHead(SizeIndexScanTestCase):
+    """`} while (cond);` ends a loop; it does not start one (#849 round 9).
+
+    Atomisation splits the terminator into `"}"` and `while (...);`, and the
+    `while` was read as a brace-less loop HEAD, so its condition was stored as the
+    `pending` frame and bounded the NEXT statement. With an actual size of 1 the
+    assertion fails, the loop exits, and the subscript aborts the process - while
+    the nonexistent `while` body's bound suppressed the report.
+    """
+
+    def test_do_while_bound_does_not_reach_the_following_statement(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  do {\n"
+            "    consume(v);\n"
+            "  } while (v.size() >= 2);\n"
+            "  CHECK(v[1]);",
+            "v",
+        )
+
+    def test_the_do_may_be_above_the_assertion_and_therefore_invisible(self):
+        """The scan starts at the assertion, so the matching `do` is often not in
+        the window at all. The terminator is recognised by SHAPE for that reason."""
+        self.assertSized(
+            "  do {\n"
+            "    REQUIRE(v.size() == 3);\n"
+            "    consume(v);\n"
+            "  } while (v.size() >= 2);\n"
+            "  CHECK(v[1]);",
+            "v",
+        )
+
+    def test_a_deliberately_empty_body_bounds_nothing_after_it(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n  while (v.size() >= 2);\n  CHECK(v[1]);", "v"
+        )
+
+    def test_a_real_block_body_is_still_bounded_by_its_header(self):
+        """The fix must not turn every loop into a reported site."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n"
+            "    CHECK(v[i]);\n"
+            "  }"
+        )
+
+    def test_a_do_body_is_still_scanned(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n  do {\n    CHECK(v[1]);\n  } while (again());",
+            "v",
+        )
+
+    def test_the_terminator_condition_is_itself_judged(self):
+        """`} while (v[5] > 0);` evaluates the subscript; it is not a header whose
+        body might be guarded, so it must be reported like any other statement."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n  do {\n    step();\n  } while (v[5] > 0);", "v"
+        )
+
+    def test_layout_does_not_change_the_verdict(self):
+        """Same code, terminator compacted onto the body's line."""
+        compact = self.sites(
+            "  REQUIRE(v.size() == 3);\n  do { consume(v); } while (v.size() >= 2);\n  CHECK(v[1]);"
+        )
+        self.assertEqual(len(compact), 1, compact)
+
+
+class AssertionVocabularyIsDerived(SizeIndexScanTestCase):
+    """One derivation decides what a NAME means AND whether it is accepted (round 9).
+
+    Round 8 derived doctest's macro family for its NEGATION and RELATION
+    semantics, and then left a separate hard-coded head regex deciding, before the
+    family was ever consulted, which names got to reach it. That is a second source
+    of truth, and it was wrong in two directions at once: it rejected doctest's own
+    `DOCTEST_*` spellings, and - in detector 1 - it rejected every `CHECK`/`WARN`
+    spelling of a null-ish assertion, hiding 18 real corpus sites.
+    """
+
+    def test_the_prefixed_spelling_is_the_same_macro(self):
+        self.assertSized("  DOCTEST_REQUIRE(v.size() == 2);\n  CHECK(v[0]);", "v")
+        self.assertSized("  DOCTEST_CHECK(v.size() == 2);\n  CHECK(v[0]);", "v")
+
+    def test_the_prefixed_spelling_keeps_its_negation(self):
+        """Derived, not spelled: `DOCTEST_REQUIRE_FALSE(v.size() == 0)` is the lower
+        bound `size() != 0`, and `DOCTEST_REQUIRE_FALSE(v.size())` asserts EMPTY."""
+        self.assertSized("  DOCTEST_REQUIRE_FALSE(v.size() == 0);\n  CHECK(v[0]);", "v")
+        self.assertNotSized("  DOCTEST_REQUIRE_FALSE(v.size());\n  CHECK(v[0]);")
+
+    def test_the_WARN_family_is_scanned(self):
+        """Retires blind spot 7. `WARN` reports and continues exactly like `CHECK`,
+        so a short container runs into the same aborting index."""
+        self.assertSized("  WARN(v.size() == 2);\n  CHECK(v[0]);", "v")
+        self.assertSized("  WARN_FALSE(v.is_empty());\n  CHECK(v[0]);", "v")
+
+    def test_godots_WARN_PRINT_is_not_an_assertion(self):
+        """An EXACT derived name set is what a `WARN\\w*` prefix could not express.
+        `WARN_PRINT` is Godot's, not doctest's, and reading it as an assertion would
+        invent a bound nobody wrote."""
+        self.assertIsNone(
+            GUARD._assertion_vocabulary().size_head.match('WARN_PRINT("v.size() == 2");')
+        )
+        self.assertNotSized('  WARN_PRINT("short");\n  CHECK(v[0]);')
+
+    def test_project_local_wrappers_still_reach_the_scan(self):
+        """The derived half is a union member, not a replacement: `test_macros.h`
+        wrappers must keep being scanned and read as plain."""
+        self.assertSized("  CHECK_SIZES_EQ(v.size(), 0);\n  CHECK(v[0]);", "v")
+        self.assertIsNotNone(
+            GUARD._assertion_vocabulary().size_head.match("REQUIRE_GPU_DEVICE();")
+        )
+
+    def test_the_accepted_set_covers_the_whole_derived_family(self):
+        """The property, not a list of names: every macro doctest defines is
+        accepted as an assertion head. A future hand-written restriction fails
+        here rather than waiting for a review round."""
+        head = GUARD._assertion_vocabulary().size_head
+        for name in GUARD._doctest_assert_macros():
+            self.assertIsNotNone(head.match(f"{name}(v.size() == 2)"), name)
+            self.assertIsNotNone(
+                GUARD._assertion_vocabulary().scan_through.match(f"{name}(x);"), name
+            )
+
+    def test_the_macro_name_reported_is_the_one_written(self):
+        site = self.sites("  DOCTEST_CHECK(v.size() == 2);\n  CHECK(v[0]);")
+        self.assertEqual([s[2] for s in site], ["DOCTEST_CHECK"])
+
+
+class NullDerefVocabularyIsDerived(ScanTestCase):
+    """Detector 1's accepted heads are derived too - the THIRD spelling site.
+
+    `CHECK` is not the weaker case: it never aborts under ANY doctest
+    configuration, where `REQUIRE` merely does not abort in this build. Detector 1
+    spelled `REQUIRE` and its suffixes by hand and so could not see any of it. The
+    18 sites this exposed in the corpus are enumerated in the baseline.
+    """
+
+    def test_check_null_then_deref_is_a_site(self):
+        self.assertFlagged("  CHECK(ptr != nullptr);\n  ptr->method();", "ptr")
+
+    def test_check_message_is_valid_then_deref_is_a_site(self):
+        self.assertFlagged(
+            '  CHECK_MESSAGE(ref.is_valid(), "needed");\n  ref->f();', "ref"
+        )
+
+    def test_check_false_is_null_then_deref_is_a_site(self):
+        self.assertFlagged("  CHECK_FALSE(ref.is_null());\n  ref->f();", "ref")
+
+    def test_check_ne_nullptr_then_deref_is_a_site(self):
+        self.assertFlagged("  CHECK_NE(ptr, nullptr);\n  ptr->method();", "ptr")
+
+    def test_warn_null_then_deref_is_a_site(self):
+        self.assertFlagged("  WARN(ptr != nullptr);\n  ptr->method();", "ptr")
+
+    def test_prefixed_and_fast_spellings_are_the_same_macros(self):
+        self.assertFlagged("  DOCTEST_REQUIRE(ptr != nullptr);\n  ptr->method();", "ptr")
+        self.assertFlagged("  FAST_CHECK_UNARY(ref.is_valid());\n  ref->f();", "ref")
+
+    def test_a_relational_macro_that_is_not_NE_is_not_a_null_guard(self):
+        """`CHECK_EQ(ptr, nullptr)` asserts the pointer IS null. Reading it as a
+        guard would name the wrong assertion on a real crash."""
+        self.assertClean("  CHECK_EQ(ptr, nullptr);\n  ptr->method();")
+        self.assertClean("  CHECK_LT(ptr, nullptr);\n  ptr->method();")
+
+    def test_godots_WARN_PRINT_is_not_a_null_guard(self):
+        self.assertClean('  WARN_PRINT("ptr != nullptr");\n  ptr->method();')
+
+
+class OneSourceOfTruthForAssertionNames(unittest.TestCase):
+    """No fifth hand-written spelling may be added (round 9).
+
+    Rounds 1, 8 and 9 all produced a finding of the same shape - an external
+    vocabulary spelled by hand - and round 8's structural claim failed precisely
+    because deriving the family did not stop a second spelling from gating it.
+    So the invariant is machine-checked over this file's own source rather than
+    asserted in prose: every regex that names a doctest macro lives inside
+    `_assertion_vocabulary`.
+    """
+
+    def _module_source(self) -> str:
+        return (CI_DIR / "check_require_null_deref.py").read_text(encoding="utf-8")
+
+    def test_every_macro_naming_regex_lives_in_the_vocabulary(self):
+        import ast
+
+        source = self._module_source()
+        tree = ast.parse(source)
+        vocabulary = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "_assertion_vocabulary"
+        )
+        offenders = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            target = node.func
+            if not (isinstance(target, ast.Attribute) and target.attr == "compile"):
+                continue
+            text = ast.get_source_segment(source, node) or ""
+            if "REQUIRE" not in text and "CHECK" not in text:
+                continue
+            if vocabulary.lineno <= node.lineno <= (vocabulary.end_lineno or 0):
+                continue
+            offenders.append((node.lineno, text.splitlines()[0]))
+        self.assertEqual(
+            offenders,
+            [],
+            "a doctest macro name is spelled outside _assertion_vocabulary - that is "
+            "the second source of truth #849 round 9 was about",
+        )
+
+    def test_an_empty_semantic_bucket_fails_closed(self):
+        """Deriving no negating macro must be a ScanError, not 'there are none'."""
+        with self.assertRaises(GUARD.ScanError):
+            GUARD._macro_alternation(lambda semantics: False, "impossible")
+
+
 class BaselineIntegrity(unittest.TestCase):
     def test_baseline_loads(self):
         baseline, problems = GUARD.load_baseline()

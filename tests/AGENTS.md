@@ -28,8 +28,10 @@ Full command reference: `docs/reference/build-test-ci.md`.
   `DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS`; doctest's abort path
   (`throwException()`) compiles to nothing and `REQUIRE` becomes a louder `CHECK`.
   So `REQUIRE(ptr != nullptr); ptr->f();` does not fail one case — it crashes the
-  whole test binary and every case after it never runs. Guard a precondition
-  explicitly instead:
+  whole test binary and every case after it never runs. The same is true of
+  `CHECK(ptr != nullptr); ptr->f();` in *every* build, and of the `WARN` family;
+  the guard reads the accepted macro names out of doctest's own header, so all
+  three spellings are covered. Guard a precondition explicitly instead:
 
   ```cpp
   if (!ptr) {
