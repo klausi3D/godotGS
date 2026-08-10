@@ -559,7 +559,7 @@ it; a warning on only one is a coin-flip on which node they inspect first.
       on both nodes**;
     - the record still holds the **old** non-empty `gaussian_data` `Ref`
       (`SubmissionStore::store_submission()` copied it at
-      `core/gaussian_splat_scene_director.cpp:830`), so
+      `core/gaussian_splat_scene_director.cpp:831`), so
       `record_has_renderable_payload()` (`:843-851`) is still true and `active` is still true
       — the world hint still wins the gate at `:2818-2827` and **the stale submission is still
       steering the frame's route**, with the instance node's content still being dropped.
