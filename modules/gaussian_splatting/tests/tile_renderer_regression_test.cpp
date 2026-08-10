@@ -1742,6 +1742,45 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
             return r;
         }
 
+        // ---- Phase 1b: capture what a HEALTHY frame reports, for the round-3 timing contract. ----
+        // Round-3 review finding: a rejected frame returned before the assignment metrics were
+        // finalized and before anything reset rasterization_ms, so every timing getter kept
+        // serving the last SUCCESSFUL frame's numbers for the whole duration of the rejection.
+        // The perf HUD then reads "normal" while the renderer is drawing nothing at all — the
+        // one instrument an operator would use to notice that translucent rendering has stopped.
+        //
+        // This capture is also the control that keeps the fix from passing by zeroing always:
+        // a genuinely successful frame must report REAL, non-zero stage timings. If it does not,
+        // the phase-2 assertion below ("a rejected frame reports 0") would be satisfied by a
+        // renderer that reports 0 forever, which measures nothing.
+        //
+        // A handful of frames, because the very first render() on a fresh device pays one-time
+        // pipeline/uniform-set setup and a sub-microsecond stage would round to 0.0 ms; taking
+        // the first frame that reports a measurable cost keeps the control non-flaky without
+        // weakening it (it still has to be > 0).
+        for (int frame = 0; frame < 5; frame++) {
+            if (tile_renderer->get_tile_assignment_time() > 0.0f && tile_renderer->get_rasterization_time() > 0.0f) {
+                break;
+            }
+            RID warm_output = tile_renderer->render(p_rd, params);
+            if (!warm_output.is_valid()) {
+                r.error_message = vformat("Healthy warm-up frame %d did not publish.", frame);
+                return r;
+            }
+        }
+        const float healthy_assignment_ms = tile_renderer->get_tile_assignment_time();
+        const float healthy_raster_ms = tile_renderer->get_rasterization_time();
+        const float healthy_setup_cpu_ms = tile_renderer->get_last_setup_cpu_ms();
+        if (!(healthy_assignment_ms > 0.0f) || !(healthy_raster_ms > 0.0f) || !(healthy_setup_cpu_ms > 0.0f)) {
+            r.error_message = vformat(
+                    "Premise failed: a healthy, published frame reported no measurable stage timings "
+                    "(assignment=%f raster=%f setup_cpu=%f). The phase-2 'a rejected frame reports 0' assertion "
+                    "would then be vacuous — satisfied by a renderer that always reports 0.",
+                    double(healthy_assignment_ms), double(healthy_raster_ms), double(healthy_setup_cpu_ms));
+            return r;
+        }
+        const uint64_t rejected_frames_before_control = tile_renderer->get_rejected_frames();
+
         // ---- Phase 2: inject the post-disable_sorter() PERMANENT state and render. ----
         // Mirrors TileGlobalSortResources::ensure_resources' disable_sorter() lambda called with
         // a permanent SorterCreationFailure (indirect capability unsupported / created sorter
@@ -1830,6 +1869,56 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
                     int(unsorted_before), int(tile_renderer->get_unsorted_composite_frames()));
             return r;
         }
+        // Round-3: the reject is also visible in the stage-attributed superset counter, so an
+        // operator can tell "the renderer published nothing" from "the scene is empty" without
+        // knowing anything about sorting.
+        if (tile_renderer->get_rejected_frames() != rejected_frames_before_control + 1u) {
+            r.error_message = vformat(
+                    "The rejected frame did not raise rejected_frames (%d -> %d, expected +1).",
+                    int(rejected_frames_before_control), int(tile_renderer->get_rejected_frames()));
+            return r;
+        }
+        if (tile_renderer->get_last_reject_stage() != uint8_t(GaussianSplatting::FrameRejectStage::GLOBAL_SORT)) {
+            r.error_message = vformat(
+                    "Reject stage was %d, expected GLOBAL_SORT (%d).",
+                    int(tile_renderer->get_last_reject_stage()),
+                    int(GaussianSplatting::FrameRejectStage::GLOBAL_SORT));
+            return r;
+        }
+
+        // ---- ROUND-3 DISCRIMINATING ASSERTION (timings): the instruments must not lie. ----
+        // Pre-fix this frame returned before finish_assignment_metrics() and before anything
+        // touched rasterization_ms, so all three getters still returned the PHASE-1 values
+        // asserted non-zero above — a rejection that reads exactly like a healthy frame on
+        // every perf surface (tile_rasterizer.cpp copies both into PerformanceMetrics, which is
+        // what the HUD and the profiling lanes consume).
+        //
+        // 0 is the "this stage did not run" convention already used by the zero-work path; the
+        // partially-elapsed cost of an aborted stage is deliberately NOT reported, because a
+        // number that looks like a stage cost but is not one is the metric-aliasing failure this
+        // module has been bitten by before.
+        if (tile_renderer->get_rasterization_time() != 0.0f) {
+            r.error_message = vformat(
+                    "ROUND-3 REGRESSION: after a REJECTED frame get_rasterization_time() still returns %f "
+                    "(the last successful frame reported %f). Nothing was rasterized, so the timing describes a "
+                    "frame that was never produced, and the perf HUD reads healthy while the renderer draws nothing.",
+                    double(tile_renderer->get_rasterization_time()), double(healthy_raster_ms));
+            return r;
+        }
+        if (tile_renderer->get_tile_assignment_time() != 0.0f) {
+            r.error_message = vformat(
+                    "ROUND-3 REGRESSION: after a REJECTED frame get_tile_assignment_time() still returns %f "
+                    "(the last successful frame reported %f). The rejected frame produced no tile assignment.",
+                    double(tile_renderer->get_tile_assignment_time()), double(healthy_assignment_ms));
+            return r;
+        }
+        if (tile_renderer->get_last_setup_cpu_ms() != 0.0f) {
+            r.error_message = vformat(
+                    "ROUND-3 REGRESSION: after a REJECTED frame get_last_setup_cpu_ms() still returns %f "
+                    "(the last successful frame reported %f). performance_monitors.cpp reads this getter directly.",
+                    double(tile_renderer->get_last_setup_cpu_ms()), double(healthy_setup_cpu_ms));
+            return r;
+        }
 
         // A PERMANENT cause must stay latched across frames: no retry, nothing published.
         // This is #586's protection, and it is what the round-1 retry work must not weaken.
@@ -1879,6 +1968,21 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
             r.error_message = vformat(
                     "The recovered frame was ALSO counted as rejected (%d -> %d) even though it published.",
                     int(rejected_after_permanent), int(tile_renderer->get_global_composite_rejected_frames()));
+            return r;
+        }
+        // ROUND-3 CONTROL for the timing invalidation, in the only direction the phase-2
+        // assertion cannot cover: a frame that DOES publish must report real timings again.
+        // Without this, "a rejected frame reports 0" could be satisfied by permanently zeroing
+        // both timings, which would destroy the perf surface it was meant to protect.
+        if (!(tile_renderer->get_rasterization_time() > 0.0f) ||
+                !(tile_renderer->get_tile_assignment_time() > 0.0f) ||
+                !(tile_renderer->get_last_setup_cpu_ms() > 0.0f)) {
+            r.error_message = vformat(
+                    "The recovered, PUBLISHED frame reports no stage timings (assignment=%f raster=%f setup_cpu=%f). "
+                    "The reject-time invalidation must clear timings for rejected frames only, not wedge them at 0.",
+                    double(tile_renderer->get_tile_assignment_time()),
+                    double(tile_renderer->get_rasterization_time()),
+                    double(tile_renderer->get_last_setup_cpu_ms()));
             return r;
         }
 
@@ -2136,6 +2240,158 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
         if (!capability_steady_output.is_valid() ||
                 tile_renderer->get_global_composite_rejected_frames() != rejected_before_correction) {
             r.error_message = "After the configuration correction the next frame did not publish cleanly.";
+            return r;
+        }
+
+        // ---- Phase 6: the PRE-BINNING reject must be counted too (round-3 review of #586). ----
+        // Round-3 finding. Phases 2-5 all reject at the unsorted-composite choke point, which was
+        // the ONLY place the reject counter was incremented. But the global-composite pipeline
+        // abandons a frame at nine EARLIER exits, and the first of them — the pre-binning check
+        // that sort capacity and the key/value/tile buffers and the binning pipeline are all
+        // valid — is the exit the most probable real-world failure takes:
+        //
+        //   TileGlobalSortResources::ensure_resources() sets sorter_recreated on EVERY
+        //   disable_sorter(), and sorter_recreated FREES the key/value/tile buffers. So the VRAM
+        //   pressure that makes create_sorter() fail also has to be survived by the
+        //   storage_buffer_create() calls that immediately follow. When it is not, the frame
+        //   never reaches the choke point: it is rejected here, with the counter, the
+        //   last-reason field and the throttled WARN all untouched. The rejection was real and
+        //   completely invisible — and this is the very path the round-1 retry logic exists for.
+        //
+        // SIMULATED, NOT REPRODUCED, and by a DIFFERENT mechanism than the production one: an
+        // allocation failure cannot be provoked on the runner's GPU. What is reproduced exactly
+        // is the STATE the production failure leaves behind and the exit it drives — an
+        // ensure_resources() call that returns with keys_buffer invalid. It is installed by
+        // stashing the RID and driving ensure_resources into its "sort buffers exceed RD limits"
+        // bail (which returns before recreating anything), so no GPU resource is freed, no
+        // descriptor set is left dangling, and the injection is undone by restoring two fields.
+        {
+            // The bounded shrink would otherwise notice the oversized capacity, rebuild a
+            // smaller sorter and reallocate the buffers, i.e. repair the injected state before
+            // the frame reaches the check under test. Restored on every exit from this scope.
+            struct ShrinkGuard {
+                bool saved;
+                ShrinkGuard() : saved(g_gpu_sorting_config.bounded_buffer_shrink_enabled) {
+                    g_gpu_sorting_config.bounded_buffer_shrink_enabled = false;
+                }
+                ~ShrinkGuard() { g_gpu_sorting_config.bounded_buffer_shrink_enabled = saved; }
+            } shrink_guard;
+
+            if (!sort_resources.sorter.is_valid() || !sort_resources.sorter_available) {
+                r.error_message = "Premise failed: phase 6 needs the renderer in its RECOVERED, healthy state so that "
+                                  "the reject it provokes is attributable to the sort RESOURCES and not to a missing "
+                                  "sorter.";
+                return r;
+            }
+
+            const RID stashed_keys_buffer = sort_resources.keys_buffer;
+            const uint32_t stashed_capacity = sort_resources.capacity;
+            if (!stashed_keys_buffer.is_valid()) {
+                r.error_message = "Premise failed: there was no live overlap key buffer to take away, so phase 6 would "
+                                  "be asserting on a state the renderer was already in.";
+                return r;
+            }
+            // 2^31 elements x >=4 bytes overflows the uint32 byte size ensure_resources() checks,
+            // so it logs "sort buffers exceed RD limits" and returns BEFORE the block that would
+            // recreate keys_buffer. Stashing rather than freeing keeps the real buffer alive and
+            // owned, so nothing leaks and no cached descriptor set is left pointing at a dead RID.
+            sort_resources.keys_buffer = RID();
+            sort_resources.capacity = 0x80000000u;
+
+            const uint64_t rejected_before_resources = tile_renderer->get_global_composite_rejected_frames();
+            const uint64_t all_rejects_before_resources = tile_renderer->get_rejected_frames();
+            const uint64_t unsorted_before_resources = tile_renderer->get_unsorted_composite_frames();
+
+            RID resource_starved_output = tile_renderer->render(p_rd, params);
+
+            // Premise: the frame really did exit at the pre-binning resource check. If
+            // ensure_resources() had rebuilt the buffer, keys_buffer would be valid again and the
+            // frame would have gone somewhere else entirely.
+            const bool exit_state_held = !sort_resources.keys_buffer.is_valid();
+            // Undo the injection before asserting, so a failing assertion cannot leave the
+            // renderer wedged for the phases that follow (and so `r` returns a clean device).
+            sort_resources.keys_buffer = stashed_keys_buffer;
+            sort_resources.capacity = stashed_capacity;
+
+            if (!exit_state_held) {
+                r.error_message = "Premise failed: the overlap key buffer was rebuilt during the injected frame, so the "
+                                  "pre-binning resource check was never reached and phase 6 proves nothing.";
+                return r;
+            }
+            if (resource_starved_output.is_valid()) {
+                r.error_message = "A frame whose global-sort resources are unavailable PUBLISHED. It cannot have "
+                                  "composited translucent content in the correct order without them.";
+                return r;
+            }
+            // DISCRIMINATING ASSERTION for the round-3 finding. Pre-fix this exit incremented
+            // nothing: global_composite_rejected_frames stayed flat across a real, permanent
+            // rejection, which is the signal an operator would use to notice that translucent
+            // rendering has stopped.
+            if (tile_renderer->get_global_composite_rejected_frames() != rejected_before_resources + 1u) {
+                r.error_message = vformat(
+                        "ROUND-3 REGRESSION: a frame REJECTED at the pre-binning global-sort resource check left "
+                        "global_composite_rejected_frames at %d -> %d (expected +1). The frame was not published and "
+                        "the counter says nothing happened — a rejection nobody can observe.",
+                        int(rejected_before_resources),
+                        int(tile_renderer->get_global_composite_rejected_frames()));
+                return r;
+            }
+            if (tile_renderer->get_global_composite_last_reject_reason() !=
+                    uint8_t(GaussianSplatting::UnsortedCompositeReason::GLOBAL_SORT_RESOURCES_UNAVAILABLE)) {
+                r.error_message = vformat(
+                        "ROUND-3 REGRESSION: the pre-binning reject reported reason %d, expected "
+                        "GLOBAL_SORT_RESOURCES_UNAVAILABLE (%d). Without it the reject cannot be told apart from the "
+                        "choke-point one, which is a different failure with a different remedy.",
+                        int(tile_renderer->get_global_composite_last_reject_reason()),
+                        int(GaussianSplatting::UnsortedCompositeReason::GLOBAL_SORT_RESOURCES_UNAVAILABLE));
+                return r;
+            }
+            if (tile_renderer->get_rejected_frames() != all_rejects_before_resources + 1u ||
+                    tile_renderer->get_last_reject_stage() != uint8_t(GaussianSplatting::FrameRejectStage::GLOBAL_SORT)) {
+                r.error_message = vformat(
+                        "The pre-binning reject was not recorded at the common reject boundary (rejected_frames %d -> "
+                        "%d, stage=%d expected GLOBAL_SORT=%d).",
+                        int(all_rejects_before_resources), int(tile_renderer->get_rejected_frames()),
+                        int(tile_renderer->get_last_reject_stage()),
+                        int(GaussianSplatting::FrameRejectStage::GLOBAL_SORT));
+                return r;
+            }
+            // The round-1 split holds here too: nothing was shipped, so nothing may be counted
+            // as shipped-unsorted.
+            if (tile_renderer->get_unsorted_composite_frames() != unsorted_before_resources) {
+                r.error_message = vformat(
+                        "The pre-binning reject also incremented unsorted_composite_frames (%d -> %d). That counter "
+                        "means \"wrong pixels were shipped\"; nothing was shipped.",
+                        int(unsorted_before_resources), int(tile_renderer->get_unsorted_composite_frames()));
+                return r;
+            }
+            // Same timing contract as phase 2, on a reject that happens at a completely
+            // different point in the pipeline — before ANY binning work — so the invalidation
+            // cannot be an artefact of where the choke point happens to sit.
+            if (tile_renderer->get_rasterization_time() != 0.0f ||
+                    tile_renderer->get_tile_assignment_time() != 0.0f ||
+                    tile_renderer->get_last_setup_cpu_ms() != 0.0f) {
+                r.error_message = vformat(
+                        "ROUND-3 REGRESSION: the pre-binning reject left stale timings (assignment=%f raster=%f "
+                        "setup_cpu=%f) from the last successful frame.",
+                        double(tile_renderer->get_tile_assignment_time()),
+                        double(tile_renderer->get_rasterization_time()),
+                        double(tile_renderer->get_last_setup_cpu_ms()));
+                return r;
+            }
+        }
+
+        // Recovery control for phase 6: the injection was a stash, so putting the two fields
+        // back must restore publishing. This is what keeps phase 6 from passing on a renderer
+        // that simply died.
+        RID resources_recovered_output = tile_renderer->render(p_rd, params);
+        if (!resources_recovered_output.is_valid()) {
+            r.error_message = "After the injected resource shortage was undone, render() still published nothing.";
+            return r;
+        }
+        if (!(tile_renderer->get_rasterization_time() > 0.0f)) {
+            r.error_message = "After the injected resource shortage was undone, the published frame reported no "
+                              "rasterization time.";
             return r;
         }
 

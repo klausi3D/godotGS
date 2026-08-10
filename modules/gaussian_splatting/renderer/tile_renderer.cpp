@@ -296,22 +296,36 @@ public:
 		renderer._clear_debug_counters();
 		renderer._reset_timestamp_tracking();
 
+		// #586 round-3: THE COMMON RENDER FAILURE BOUNDARY. Every way this renderer can refuse
+		// to publish a frame is one of the `_reject_frame(...)` calls below — there is no other
+		// `return RID()` in run(), and every stage helper reports failure by returning false
+		// rather than by returning an RID itself. That is what makes the reject accounting and
+		// the per-frame timing invalidation complete BY CONSTRUCTION instead of by a list
+		// somebody has to remember to extend: a new failure exit inside any stage inherits both,
+		// and a new STAGE cannot compile without naming its FrameRejectStage here.
+		//
+		// The round-3 finding this replaces: the reject counter was incremented at ONE site
+		// inside the global-sort pipeline (the unsorted-composite choke point), so the pipeline's
+		// nine OTHER failure exits rejected frames that counted zero — including the pre-binning
+		// resource check, which is precisely the exit a VRAM-pressure sorter failure takes,
+		// because the same ensure_resources() call that fails to rebuild the sorter also frees
+		// and fails to reallocate the key/value buffers.
 		if (!_validate_and_configure_settings()) {
-			return RID();
+			return _reject_frame(GaussianSplatting::FrameRejectStage::SETTINGS);
 		}
 		_setup_frame_timestamps();
 		if (!_validate_viewport_and_resources()) {
-			return RID();
+			return _reject_frame(GaussianSplatting::FrameRejectStage::VIEWPORT_RESOURCES);
 		}
 		if (!_setup_diagnostics_and_params()) {
-			return RID();
+			return _reject_frame(GaussianSplatting::FrameRejectStage::PARAMS);
 		}
 		if (!_execute_global_sort_pipeline()) {
-			return RID();
+			return _reject_frame(GaussianSplatting::FrameRejectStage::GLOBAL_SORT);
 		}
 		if (_has_dispatch_work()) {
 			if (!_select_and_prepare_raster_path()) {
-				return RID();
+				return _reject_frame(GaussianSplatting::FrameRejectStage::RASTER_PATH);
 			}
 			_dispatch_rasterization();
 		} else {
@@ -327,6 +341,71 @@ public:
 	}
 
 private:
+	// #586 round-3. The single place a frame stops being published. Two jobs, both of which
+	// were previously done at zero or one of the exits:
+	//
+	// 1. ACCOUNT for the reject. rejected_frames + last_reject_stage always; the
+	//    global-composite pair additionally when the stage set a reason. The throttled WARN
+	//    lives here too, because the individual failure sites use ERR_PRINT_ONCE — one line
+	//    per process — so a degradation that starts on frame 50000 and never stops would
+	//    otherwise be a single log line and a flat counter.
+	//
+	// 2. INVALIDATE this frame's per-frame telemetry. A rejected frame produced no output, so
+	//    every field that describes "what this frame did" must stop describing the last
+	//    SUCCESSFUL frame. Without this, an operator polling get_tile_assignment_time() /
+	//    get_rasterization_time() / get_last_setup_cpu_ms() during a rejection sees the last
+	//    healthy frame's numbers for as long as the degradation lasts: the perf HUD reads
+	//    "normal" while nothing at all is being drawn.
+	//
+	//    Zero, not the partially-measured stage cost. The reject can happen at any point
+	//    inside the assignment stage, so the elapsed time to that point is not this frame's
+	//    tile-assignment cost — publishing it under that name would be a plausible-looking
+	//    number for a frame that does not exist, which is the metric-aliasing shape this
+	//    module has been bitten by before (last_sort_gpu_ms measuring CPU dispatch,
+	//    gpu_overlap_sort_valid being structurally false). 0 is the existing convention in
+	//    this file for "this stage did not run" — see the zero-work branch of
+	//    _finalize_frame(), which clears rasterization_ms for exactly the same reason — and
+	//    "did the renderer run at all this frame" is answered by rejected_frames, not by a
+	//    timing. The raster-choice fields are cleared with the same rationale and to mirror
+	//    the no-work branch of run() exactly.
+	RID _reject_frame(GaussianSplatting::FrameRejectStage p_stage) {
+		renderer.perf_metrics.tile_assignment_ms = 0.0f;
+		renderer.timing_state.last_setup_cpu_ms = 0.0f;
+		renderer.perf_metrics.rasterization_ms = 0.0f;
+		renderer.perf_metrics.last_raster_used_compute = false;
+		renderer.perf_metrics.last_raster_choice_initialized = true;
+		renderer.perf_metrics.last_raster_choice_compute = false;
+		renderer.perf_metrics.last_raster_choice_reason = "Frame rejected";
+		renderer.perf_metrics.sorted_indices_blend_fallback_active = false;
+		renderer.perf_metrics.sorted_indices_blend_fallback_reason = String();
+
+		const uint64_t rejected_frames = ++renderer.perf_metrics.rejected_frames;
+		renderer.perf_metrics.last_reject_stage = uint8_t(p_stage);
+
+		if (pending_reject_reason != GaussianSplatting::UnsortedCompositeReason::NONE) {
+			// #586: the global-composite subset. Kept as its own counter because "the sort
+			// path refused to ship wrong alpha ordering" is the fact #586 is about, and it
+			// must not be diluted by unrelated setup failures.
+			const uint64_t composite_rejected = ++renderer.perf_metrics.global_composite_rejected_frames;
+			renderer.perf_metrics.global_composite_last_reject_reason = uint8_t(pending_reject_reason);
+			if (GaussianSplatting::should_warn_unsorted_composite(composite_rejected)) {
+				GS_LOG_WARN_DEFAULT(vformat(
+						"[TileRenderer] Global composite frame REJECTED (nothing presented) rather than compositing translucent splats UNSORTED: %s — %d frame(s) so far",
+						GaussianSplatting::unsorted_composite_reason_name(pending_reject_reason),
+						int(composite_rejected)));
+			}
+		} else if (GaussianSplatting::should_warn_unsorted_composite(rejected_frames)) {
+			GS_LOG_WARN_DEFAULT(vformat(
+					"[TileRenderer] Frame REJECTED (nothing presented) at the %s stage — %d rejected frame(s) so far",
+					GaussianSplatting::frame_reject_stage_name(p_stage), int(rejected_frames)));
+		}
+
+		// unsorted_composite_frames is deliberately untouched: it means "wrong pixels were
+		// SHIPPED", and nothing was shipped. The two counters partition degraded frames and a
+		// frame lands in exactly one of them.
+		return RID();
+	}
+
 	bool _has_dispatch_work() const {
 		// Only consider actual splat/element counts as work. Buffer existence
 		// alone (e.g. an indirect dispatch buffer with a GPU-written count of 0)
@@ -710,7 +789,28 @@ private:
 		return _build_and_upload_params();
 	}
 
+	// #586 round-3. Wrapper, so that EVERY failure exit of the global-sort pipeline arrives at
+	// the reject boundary carrying an UnsortedCompositeReason, not just the choke point and not
+	// just the two exits a reviewer happened to name. The body below has ten `return false`
+	// sites; before this wrapper exactly one of them was counted.
+	//
+	// The umbrella reason is applied only when the body did not set a more specific one, so the
+	// specific classifications (the choke point's SORTER_UNAVAILABLE, the pre-binning
+	// GLOBAL_SORT_RESOURCES_UNAVAILABLE) win, and a NEW exit added later is attributed as
+	// GLOBAL_SORT_SETUP_FAILED rather than silently as "no reason at all". Fail-closed: an
+	// unclassified reject is still a counted reject.
+	//
+	// Reaching any of those exits implies the frame carried dispatch work — the zero-work case
+	// returns true from the body's first branch — so none of this counts idle frames.
 	bool _execute_global_sort_pipeline() {
+		const bool ok = _run_global_sort_pipeline();
+		if (!ok && pending_reject_reason == GaussianSplatting::UnsortedCompositeReason::NONE) {
+			pending_reject_reason = GaussianSplatting::UnsortedCompositeReason::GLOBAL_SORT_SETUP_FAILED;
+		}
+		return ok;
+	}
+
+	bool _run_global_sort_pipeline() {
 		uint64_t assignment_start = OS::get_singleton()->get_ticks_usec();
 		auto finish_assignment_metrics = [&]() {
 			uint64_t assignment_end = OS::get_singleton()->get_ticks_usec();
@@ -793,15 +893,30 @@ private:
 					!renderer.global_sort_resources.get_tile_counts_buffer().is_valid() || !renderer.global_sort_resources.tile_ranges_buffer.is_valid() ||
 					!renderer.shader_resources.tile_binning_count_pipeline.is_valid()) {
 				GS_LOG_ERROR_DEFAULT("[TileRenderer] Global composite sort enabled but resources are unavailable");
+				// #586 round-3 FIX. This exit REJECTS the frame — we return false, run() returns
+				// an invalid RID and nothing is published — so it must be accounted for like any
+				// other reject. It previously was not, and it is the single most likely reject in
+				// the field: TileGlobalSortResources::ensure_resources() sets sorter_recreated on
+				// every disable_sorter(), which FREES the key/value/tile buffers, so the same VRAM
+				// pressure that fails create_sorter() then fails storage_buffer_create() and the
+				// frame lands here instead of at the choke point below. The counter, its
+				// last-reason and its throttled WARN all stayed silent for exactly that case.
+				//
+				// The UNSORTED-OUTPUT accounting (unsorted_composite_frames) still does NOT live
+				// here, for the original reason: this point is before several later exits, so a
+				// missing sorter here does not yet imply the frame would have rasterized unsorted
+				// content, and there are no wrong pixels because there are no pixels. The reject
+				// accounting has no such ambiguity — the frame is unconditionally abandoned right
+				// here — which is why the two are treated differently.
+				//
+				// The reason names the RESOURCES rather than the sorter even when the sorter is
+				// also gone: this check does not test the sorter, and re-deriving "was it really
+				// the sorter?" here would be the second, drifting copy of a predicate that the
+				// choke-point design exists to prevent. The sorter's own root cause is logged
+				// once by disable_sorter() at sorter-enable time.
+				pending_reject_reason = GaussianSplatting::UnsortedCompositeReason::GLOBAL_SORT_RESOURCES_UNAVAILABLE;
 				return false;
 			}
-			// NOTE: The unsorted-composite accounting (persistent counter + throttled WARN)
-			// lives at the SINGLE CHOKE POINT below (search "SINGLE CHOKE POINT"), NOT here.
-			// This pre-binning point is BEFORE several early-returns (uniform-set acquisition,
-			// tile-range build), so a missing sorter here does not yet imply the frame will
-			// actually rasterize unsorted content; counting it here would over-report. The
-			// root cause is already logged once at sorter-enable time by
-			// TileGlobalSortResources::ensure_resources/disable_sorter.
 
 			// Pass 1: count overlaps per tile.
 			renderer.binning_stage.clear_tile_counts(resource_device);
@@ -1064,6 +1179,13 @@ private:
 			// increment anywhere else: add a GlobalSortAttemptOutcome instead, which
 			// classify_unsorted_composite() then forces you to classify.
 			//
+			// #586 round-3: this remains the single choke point for the WRONG-OUTPUT
+			// decision (unsorted_composite_frames), which is what the paragraph above is
+			// about. It is no longer the only place a frame can be REJECTED, because it
+			// never was — nine earlier exits already returned false without being counted.
+			// Reject accounting therefore lives at the common boundary in run()
+			// (_reject_frame); this site only classifies and hands the reason over.
+			//
 			// #586 FIX: this is no longer observability-only. A FATAL reason (the
 			// permanent, latched "no sorter could be built" class — see
 			// unsorted_composite_must_reject_frame in sort_fallback_policy.h) now
@@ -1092,14 +1214,10 @@ private:
 			const GaussianSplatting::UnsortedCompositeReason unsorted_reason =
 					GaussianSplatting::classify_unsorted_composite(has_translucent_work, sort_outcome);
 			if (GaussianSplatting::unsorted_composite_must_reject_frame(unsorted_reason)) {
-				const uint64_t rejected_frames = ++renderer.perf_metrics.global_composite_rejected_frames;
-				renderer.perf_metrics.global_composite_last_reject_reason = uint8_t(unsorted_reason);
-				if (GaussianSplatting::should_warn_unsorted_composite(rejected_frames)) {
-					GS_LOG_WARN_DEFAULT(vformat(
-							"[TileRenderer] Global composite frame REJECTED (nothing presented) instead of rasterizing UNSORTED tiles: %s — %d frame(s) so far",
-							GaussianSplatting::unsorted_composite_reason_name(unsorted_reason),
-							int(rejected_frames)));
-				}
+				// Hand the classification to the reject boundary (_reject_frame in run()),
+				// which owns the counter, the last-reason field, the throttled WARN and the
+				// per-frame timing invalidation for EVERY reject — not just this one.
+				pending_reject_reason = unsorted_reason;
 				return false;
 			}
 			if (unsorted_reason != GaussianSplatting::UnsortedCompositeReason::NONE) {
@@ -1355,6 +1473,11 @@ private:
 	bool use_compute_raster = false;
 	String raster_reason;
 	TileRasterizerStage::RasterUniformSets raster_sets{};
+	// #586 round-3: set by a global-sort pipeline exit, consumed once by _reject_frame().
+	// Per-frame state (the executor is constructed per render() call), so it cannot leak a
+	// reason from one frame into the next.
+	GaussianSplatting::UnsortedCompositeReason pending_reject_reason =
+			GaussianSplatting::UnsortedCompositeReason::NONE;
 };
 
 GaussianSplatting::TileRenderParams::TileRenderParams() {

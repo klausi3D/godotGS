@@ -536,12 +536,23 @@ Dictionary RenderDebugStateOrchestrator::get_binning_debug_counters() const {
 	// The reason code is the last GaussianSplatting::UnsortedCompositeReason (0 == NONE).
 	out["unsorted_composite_frames"] = (int64_t)tr->get_unsorted_composite_frames();
 	out["unsorted_composite_last_reason"] = (int64_t)tr->get_unsorted_composite_last_reason();
-	// #586 FIX: frames REJECTED (nothing published) rather than composited unsorted, plus the
+	// #586 FIX: frames REJECTED (nothing published) by the global-composite path, plus the
 	// UnsortedCompositeReason of the most recent rejection. Non-zero => the global-composite
-	// sorter is unavailable (a permanent, latched state) and the renderer is deliberately
-	// presenting nothing. This is the telemetry signal for that degradation.
+	// sort path could not produce correctly ordered output (the sorter is unavailable, or —
+	// since round 3 — its resources/setup failed before a sort outcome existed) and the
+	// renderer is deliberately presenting nothing. This is the telemetry signal for that
+	// degradation.
 	out["global_composite_rejected_frames"] = (int64_t)tr->get_global_composite_rejected_frames();
 	out["global_composite_last_reject_reason"] = (int64_t)tr->get_global_composite_last_reject_reason();
+	// #586 round-3: the SUPERSET — every frame render() refused to publish, whatever the stage,
+	// plus the GaussianSplatting::FrameRejectStage of the most recent one. Counted at the single
+	// render failure boundary, so no reject path can be silent. A non-zero rejected_frames with
+	// a zero global_composite_rejected_frames means the renderer is dropping frames for a reason
+	// that has nothing to do with sorting (read last_reject_stage), which the #586 keys alone
+	// could never tell you. Note the per-frame timings (tile assignment, rasterization) read 0
+	// on a rejected frame rather than carrying the last successful frame's values.
+	out["rejected_frames"] = (int64_t)tr->get_rejected_frames();
+	out["last_reject_stage"] = (int64_t)tr->get_last_reject_stage();
 
 	// Overflow-drop telemetry (C4b, "no silent degradation"). Channel A: overlap-record drops
 	// in the tile-binning EMIT pass, surfaced via the always-on resident-signal readback.

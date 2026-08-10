@@ -302,6 +302,41 @@ struct TileTimingState {
 	uint64_t last_resolve_resolved_serial = 0;
 };
 
+// #586 round-3: which stage of TileRenderer::RenderFrameExecutor::run() refused to publish
+// the frame. Every `return RID()` in run() names one of these, so "the renderer published
+// nothing" is always attributable without log scraping — the one-shot ERR_PRINT_ONCE at the
+// individual failure sites goes quiet after the first occurrence, which is exactly when a
+// persistent degradation needs to stay visible.
+//
+// This is an enumeration of EXITS, not of causes: it is derived from where control left
+// run(), so it cannot drift from the code the way a hand-maintained cause list would.
+enum class FrameRejectStage : uint8_t {
+	NONE = 0, // The frame was published.
+	SETTINGS = 1, // _validate_and_configure_settings: device mismatch, invalid buffers, instance-pipeline contract, history buffer.
+	VIEWPORT_RESOURCES = 2, // _validate_viewport_and_resources: viewport size, _ensure_resources, render targets, tile grid.
+	PARAMS = 3, // _setup_diagnostics_and_params: uniform device, parameter buffer allocation/upload.
+	GLOBAL_SORT = 4, // _execute_global_sort_pipeline: see UnsortedCompositeReason for which exit.
+	RASTER_PATH = 5, // _select_and_prepare_raster_path: fragment raster uniform-set acquisition.
+};
+
+static inline const char *frame_reject_stage_name(FrameRejectStage p_stage) {
+	switch (p_stage) {
+		case FrameRejectStage::NONE:
+			return "none";
+		case FrameRejectStage::SETTINGS:
+			return "settings/buffer validation";
+		case FrameRejectStage::VIEWPORT_RESOURCES:
+			return "viewport/resource preparation";
+		case FrameRejectStage::PARAMS:
+			return "parameter upload";
+		case FrameRejectStage::GLOBAL_SORT:
+			return "global composite sort";
+		case FrameRejectStage::RASTER_PATH:
+			return "raster path preparation";
+	}
+	return "unknown";
+}
+
 struct TilePerformanceMetrics {
 	float tile_assignment_ms = 0.0f;
 	float rasterization_ms = 0.0f;
@@ -334,7 +369,27 @@ struct TilePerformanceMetrics {
 	uint64_t global_composite_rejected_frames = 0;
 	// GaussianSplatting::UnsortedCompositeReason of the most recent rejection (0 == NONE),
 	// so a reject can be attributed without log scraping.
+	//
+	// #586 round-3: this is now set for EVERY global-composite reject, not only the
+	// choke-point one. The pipeline can abandon a frame before a sort outcome exists (the
+	// pre-binning resource check, uniform-set acquisition, the tile-range build), and those
+	// exits used to leave both this field and the counter below untouched — so the reject
+	// most likely to happen in the field (VRAM pressure kills the sorter AND its key/value
+	// buffers in the same ensure_resources() call) was the one that counted zero. The extra
+	// UnsortedCompositeReason values GLOBAL_SORT_RESOURCES_UNAVAILABLE and
+	// GLOBAL_SORT_SETUP_FAILED name those exits.
 	uint8_t global_composite_last_reject_reason = 0;
+	// #586 round-3: persistent count of frames render() refused to publish for ANY reason,
+	// and the FrameRejectStage of the most recent one. global_composite_rejected_frames above
+	// is the #586-relevant SUBSET (stage == GLOBAL_SORT); this pair exists so that no reject
+	// path can be silent, including the ones that have nothing to do with sorting — a frame
+	// rejected at settings/viewport/parameter/raster-path setup also publishes nothing, and
+	// those sites log ERR_PRINT_ONCE, i.e. once per process. Counting the boundary rather
+	// than each site is what makes this complete by construction: the counter lives at the
+	// single place run() can return an invalid RID.
+	uint64_t rejected_frames = 0;
+	// GaussianSplatting::FrameRejectStage of the most recent rejection (0 == NONE).
+	uint8_t last_reject_stage = 0;
 	// Counts how many times the cached graphics raster pipeline was rebuilt due to a
 	// framebuffer-format mismatch (e.g. when the eager pre-create at init used a
 	// "probable" color format that differed from the live framebuffer).

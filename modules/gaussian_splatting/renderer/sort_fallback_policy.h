@@ -71,6 +71,21 @@ enum class UnsortedCompositeReason : uint8_t {
 	SORTER_UNAVAILABLE = 1, // Capability-gated: no sorter could be built at all.
 	SORT_DISPATCH_FAILED = 2, // Sorter exists; the sync fallback dispatch returned an error.
 	ASYNC_SORT_NOT_SUBMITTED = 3, // Async submit returned timeline=0 and sync fallback is disallowed.
+	// #586 round-3. The two values below are NOT produced by classify_unsorted_composite():
+	// they describe frames the global-composite path abandons BEFORE a sort outcome can
+	// exist, so no (work, outcome) pair could name them. They exist because such a frame is
+	// still a REJECT — render() returns an invalid RID and nothing is published — and a
+	// reject nobody can attribute is close to a silent failure.
+	//
+	// Why this is not a "second copy of the work predicate" (the defect the choke-point
+	// design exists to prevent): these reasons carry no predicate at all. The choke point has
+	// to DERIVE whether a frame that IS being rasterized ships wrong pixels, which is where a
+	// drifting copy would hide. Here the frame is unconditionally not published — the exit
+	// itself is the fact — so the only thing left to record is which exit it was.
+	//
+	// Reached only after the zero-work early-return, i.e. the frame carried dispatch work.
+	GLOBAL_SORT_RESOURCES_UNAVAILABLE = 4, // Pre-binning: sort capacity/keys/values/tile buffers or the binning pipeline are invalid.
+	GLOBAL_SORT_SETUP_FAILED = 5, // Any later pipeline-setup failure: uniform sets, tile-range build, zero effective overlap capacity.
 };
 
 static inline const char *unsorted_composite_reason_name(UnsortedCompositeReason p_reason) {
@@ -83,6 +98,10 @@ static inline const char *unsorted_composite_reason_name(UnsortedCompositeReason
 			return "sync sort dispatch failed";
 		case UnsortedCompositeReason::ASYNC_SORT_NOT_SUBMITTED:
 			return "async sort not submitted (timeline=0, sync fallback disallowed)";
+		case UnsortedCompositeReason::GLOBAL_SORT_RESOURCES_UNAVAILABLE:
+			return "global sort resources unavailable (capacity/key/value/tile buffers or binning pipeline)";
+		case UnsortedCompositeReason::GLOBAL_SORT_SETUP_FAILED:
+			return "global sort setup failed (uniform sets, tile ranges or overlap capacity)";
 	}
 	return "unknown";
 }
@@ -174,6 +193,14 @@ static inline UnsortedCompositeReason classify_unsorted_composite(
 static inline bool unsorted_composite_must_reject_frame(UnsortedCompositeReason p_reason) {
 	switch (p_reason) {
 		case UnsortedCompositeReason::SORTER_UNAVAILABLE:
+			return true;
+		// #586 round-3: these two are not classifier outputs — the frame is ALREADY being
+		// abandoned when they are recorded, so "must reject" is a statement of fact about
+		// them, not a decision this function gets to make. They are listed as fatal so the
+		// predicate stays total over the enum and so a future caller that DID have a choice
+		// could not accidentally treat "we could not even bin this frame" as presentable.
+		case UnsortedCompositeReason::GLOBAL_SORT_RESOURCES_UNAVAILABLE:
+		case UnsortedCompositeReason::GLOBAL_SORT_SETUP_FAILED:
 			return true;
 		case UnsortedCompositeReason::NONE:
 		case UnsortedCompositeReason::SORT_DISPATCH_FAILED:
@@ -356,6 +383,11 @@ static inline uint32_t next_sorter_retry_delay_calls(uint32_t p_current_delay_ca
 // #586 FIX: the same throttle also rate-limits the paired REJECT warning, fed by
 // TilePerformanceMetrics::global_composite_rejected_frames. Both degraded outcomes
 // (presented-unsorted, rejected) use one throttle so neither can spam the log.
+//
+// #586 round-3: and the stage-attributed reject warning for rejects that are NOT
+// global-composite ones, fed by TilePerformanceMetrics::rejected_frames. It is the same
+// question in every case — "this degraded frame is number N; should it be logged?" — so it
+// stays one predicate rather than three copies of the same modulo.
 static constexpr uint64_t UNSORTED_COMPOSITE_WARN_INTERVAL_FRAMES = 300;
 
 static inline bool should_warn_unsorted_composite(uint64_t p_unsorted_composite_frames) {

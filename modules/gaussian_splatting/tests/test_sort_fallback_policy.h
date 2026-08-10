@@ -3,6 +3,9 @@
 #include "test_macros.h"
 
 #include "../renderer/sort_fallback_policy.h"
+#include "../renderer/tile_render_types.h"
+
+#include <string.h>
 
 namespace TestGaussianSplatting {
 
@@ -749,6 +752,94 @@ TEST_CASE("[GaussianSplatting][SortFallback] a corrected sorting configuration l
 		CHECK(sim.available); // and it does arrive.
 		CHECK_EQ(sim.creation_attempts, 1u);
 	}
+}
+
+// #586 round-3. The global-composite path abandons a frame at TEN exits, not one. Nine of
+// them are before the choke point (the pre-binning resource check, four uniform-set
+// acquisitions, two tile-range builds, the zero-effective-capacity check) and every one of
+// them makes render() return an invalid RID — a real reject. Before round 3 they carried no
+// reason at all, so the reject counter and its last-reason field stayed at zero while the
+// renderer published nothing. These two enumerators are what makes such an exit attributable.
+//
+// The load-bearing property locked here is that they are FATAL: nothing may treat "we could
+// not even bin this frame" as a presentable outcome.
+TEST_CASE("[GaussianSplatting][SortFallback] pre-outcome global-sort failures are fatal and attributable (#586 round-3)") {
+	CHECK(unsorted_composite_must_reject_frame(UnsortedCompositeReason::GLOBAL_SORT_RESOURCES_UNAVAILABLE));
+	CHECK(unsorted_composite_must_reject_frame(UnsortedCompositeReason::GLOBAL_SORT_SETUP_FAILED));
+
+	// They are NOT classifier outputs: classify_unsorted_composite() maps (work, outcome)
+	// pairs, and these describe frames abandoned before an outcome exists. If a future edit
+	// made the classifier return one, the choke point would be reporting a pre-binning exit
+	// for a frame that reached the sort dispatch — a lie about where the frame died.
+	for (bool has_work : { false, true }) {
+		for (GlobalSortAttemptOutcome outcome : {
+					 GlobalSortAttemptOutcome::NOT_ATTEMPTED,
+					 GlobalSortAttemptOutcome::SUBMITTED,
+					 GlobalSortAttemptOutcome::SYNC_FALLBACK_OK,
+					 GlobalSortAttemptOutcome::SYNC_FALLBACK_FAILED,
+					 GlobalSortAttemptOutcome::NOT_SUBMITTED,
+			 }) {
+			const UnsortedCompositeReason reason = classify_unsorted_composite(has_work, outcome);
+			CHECK(reason != UnsortedCompositeReason::GLOBAL_SORT_RESOURCES_UNAVAILABLE);
+			CHECK(reason != UnsortedCompositeReason::GLOBAL_SORT_SETUP_FAILED);
+		}
+	}
+
+	// Every reason must name itself. Totality of the switch is enforced by the compiler (no
+	// default label => -Wswitch on a new enumerator); what a compiler cannot catch is a case
+	// that falls through to a name already used by another reason, which would make telemetry
+	// unable to tell two different degradations apart.
+	const UnsortedCompositeReason all_reasons[] = {
+		UnsortedCompositeReason::NONE,
+		UnsortedCompositeReason::SORTER_UNAVAILABLE,
+		UnsortedCompositeReason::SORT_DISPATCH_FAILED,
+		UnsortedCompositeReason::ASYNC_SORT_NOT_SUBMITTED,
+		UnsortedCompositeReason::GLOBAL_SORT_RESOURCES_UNAVAILABLE,
+		UnsortedCompositeReason::GLOBAL_SORT_SETUP_FAILED,
+	};
+	for (size_t i = 0; i < sizeof(all_reasons) / sizeof(all_reasons[0]); i++) {
+		const char *name_i = unsorted_composite_reason_name(all_reasons[i]);
+		CHECK(strcmp(name_i, "unknown") != 0);
+		for (size_t j = i + 1; j < sizeof(all_reasons) / sizeof(all_reasons[0]); j++) {
+			CHECK(strcmp(name_i, unsorted_composite_reason_name(all_reasons[j])) != 0);
+		}
+	}
+	// The list above is complete for the enum as it stands; an added enumerator that is not
+	// appended here is caught by this, because the reason_name switch would still name it and
+	// the guard below would find an unnamed successor value.
+	CHECK(strcmp(unsorted_composite_reason_name(
+						  static_cast<UnsortedCompositeReason>(uint8_t(UnsortedCompositeReason::GLOBAL_SORT_SETUP_FAILED) + 1u)),
+				  "unknown") == 0);
+}
+
+// #586 round-3. Reject accounting moved to the ONE boundary where render() can return an
+// invalid RID, and FrameRejectStage is how a reject is attributed there. An operator asking
+// "why is nothing being drawn" gets a stage without log scraping — which matters because the
+// individual failure sites use ERR_PRINT_ONCE, i.e. one line per process, while the
+// degradation can persist for the rest of the session.
+TEST_CASE("[GaussianSplatting][SortFallback] every frame-reject stage is distinctly named (#586 round-3)") {
+	const FrameRejectStage all_stages[] = {
+		FrameRejectStage::NONE,
+		FrameRejectStage::SETTINGS,
+		FrameRejectStage::VIEWPORT_RESOURCES,
+		FrameRejectStage::PARAMS,
+		FrameRejectStage::GLOBAL_SORT,
+		FrameRejectStage::RASTER_PATH,
+	};
+	for (size_t i = 0; i < sizeof(all_stages) / sizeof(all_stages[0]); i++) {
+		const char *name_i = frame_reject_stage_name(all_stages[i]);
+		CHECK(strcmp(name_i, "unknown") != 0);
+		for (size_t j = i + 1; j < sizeof(all_stages) / sizeof(all_stages[0]); j++) {
+			CHECK(strcmp(name_i, frame_reject_stage_name(all_stages[j])) != 0);
+		}
+	}
+	CHECK(strcmp(frame_reject_stage_name(
+						  static_cast<FrameRejectStage>(uint8_t(FrameRejectStage::RASTER_PATH) + 1u)),
+				  "unknown") == 0);
+	// NONE is reserved for "the frame was published", so it must be the zero value: telemetry
+	// reads last_reject_stage as a raw uint8_t and a freshly constructed metrics struct must
+	// not claim a stage.
+	CHECK_EQ(uint8_t(FrameRejectStage::NONE), uint8_t(0));
 }
 
 } // namespace TestGaussianSplatting

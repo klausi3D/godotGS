@@ -170,6 +170,12 @@ public:
     const AdaptiveOverlapBudgetRuntimeState *get_adaptive_overlap_budget_runtime_state_ptr() const;
     void clear_adaptive_overlap_budget_runtime_state();
 
+    // Per-frame CPU stage timings. #586 round-3: on a REJECTED frame (render() returned an
+    // invalid RID) both read 0 — not the last successful frame's values. 0 here means "this
+    // stage produced nothing this frame", the same convention the zero-work path already
+    // uses for rasterization_ms; a partial, aborted stage cost is not the frame's stage cost
+    // and reporting it as one would be a plausible-looking number for a frame that does not
+    // exist. Pair them with get_rejected_frames() to tell "idle" from "rejected".
     float get_tile_assignment_time() const { return perf_metrics.tile_assignment_ms; }
     float get_rasterization_time() const { return perf_metrics.rasterization_ms; }
 	uint64_t get_sort_sync_fallback_count() const { return perf_metrics.sort_sync_fallback_count; }
@@ -183,6 +189,11 @@ public:
 	// rasterized unsorted, and the UnsortedCompositeReason of the most recent rejection.
 	uint64_t get_global_composite_rejected_frames() const { return perf_metrics.global_composite_rejected_frames; }
 	uint8_t get_global_composite_last_reject_reason() const { return perf_metrics.global_composite_last_reject_reason; }
+	// #586 round-3: every frame render() refused to publish, for any reason, and the
+	// GaussianSplatting::FrameRejectStage of the most recent one. Superset of
+	// get_global_composite_rejected_frames() (which is the stage == GLOBAL_SORT subset).
+	uint64_t get_rejected_frames() const { return perf_metrics.rejected_frames; }
+	uint8_t get_last_reject_stage() const { return perf_metrics.last_reject_stage; }
 	uint32_t get_raster_pipeline_reformat_count() const { return perf_metrics.raster_pipeline_reformats; }
 	float get_last_submission_cpu_ms() const { return timing_state.last_submission_cpu_ms; }
 	float get_last_gpu_frame_time_ms() const { return timing_state.last_frame_gpu_ms; }
