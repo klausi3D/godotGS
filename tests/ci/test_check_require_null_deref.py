@@ -9,10 +9,12 @@ BOTH directions: the shapes it must flag, and the shapes it must leave alone.
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 CI_DIR = Path(__file__).resolve().parent
 
@@ -141,6 +143,7 @@ class StripCommentsPreservesLineNumbers(unittest.TestCase):
             "int x = 1'000;\nd();\n",  # digit separator, not a char literal
             "char c = '\\'';\ne();\n",
             'a(); /* trailing */ b();\nf();\n',
+            "a();\n// spliced comment \\\nstill_comment();\ng();\n",
         ]
         for sample in samples:
             with self.subTest(sample=sample[:24]):
@@ -743,6 +746,2635 @@ class SwapDetection(unittest.TestCase):
         self.assertEqual(both[0], both[1])
         # Removing one of an identical pair must still register as a removal.
         self.assertEqual(len(GUARD._multiset_difference(both, both[:1])), 1)
+
+
+class SizeIndexScanTestCase(unittest.TestCase):
+    """Base for detector 2 (#844): size-assert-then-index."""
+
+    def sites(self, body: str) -> list[tuple[int, str, str, str, int, str, str]]:
+        source = 'TEST_CASE("[Synthetic] case") {\n' + body + "\n}\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "test_synthetic.h"
+            path.write_text(source, encoding="utf-8")
+            return GUARD._scan_file_size_index(path)
+
+    def null_deref_sites(self, body: str) -> list[tuple[int, str, str, str]]:
+        source = 'TEST_CASE("[Synthetic] case") {\n' + body + "\n}\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "test_synthetic.h"
+            path.write_text(source, encoding="utf-8")
+            return GUARD._scan_file(path)
+
+    def assertSized(self, body: str, symbol: str) -> None:
+        found = self.sites(body)
+        self.assertTrue(found, f"expected a size-then-index site for {symbol!r}, got none")
+        self.assertIn(symbol, [site[1] for site in found])
+
+    def assertNotSized(self, body: str) -> None:
+        found = self.sites(body)
+        self.assertEqual(found, [], f"expected no size-then-index site, got {found}")
+
+
+class SizeThenIndexIsTheNullDerefGuardsBlindSpot(SizeIndexScanTestCase):
+    """The whole reason detector 2 exists: detector 1 cannot see this shape.
+
+    Pinned as a test rather than asserted in prose, because "the other guard does
+    not cover it" is exactly the claim that rots silently. If detector 1 ever does
+    start reporting these, this test fails and the two detectors' scopes get
+    re-decided deliberately instead of by accident.
+    """
+
+    SHAPES = (
+        "  REQUIRE(payload.size() == 2);\n  CHECK(payload[0].target_opacity == 0.35f);",
+        "  CHECK(selected_names.size() == 1);\n  CHECK(selected_names[0] == String());",
+        "  REQUIRE_EQ(out_logits.size(), 4);\n  CHECK(out_logits[3] == 1.0f);",
+        "  REQUIRE(!chunks.is_empty());\n  StreamingChunk &c = chunks[0];",
+    )
+
+    def test_detector_one_is_green_on_every_shape(self):
+        for body in self.SHAPES:
+            with self.subTest(body=body):
+                self.assertEqual(
+                    self.null_deref_sites(body),
+                    [],
+                    "detector 1 (null-deref) must stay GREEN here - this is its blind spot #7",
+                )
+
+    def test_detector_two_is_red_on_every_shape(self):
+        for body in self.SHAPES:
+            with self.subTest(body=body):
+                self.assertTrue(
+                    self.sites(body), "detector 2 must flag the size-then-index shape"
+                )
+
+    def test_check_is_covered_not_only_require(self):
+        """#843's `:1323` site was a CHECK, which never aborts under ANY config."""
+        require_form = self.sites("  REQUIRE(names.size() == 1);\n  CHECK(names[0] == 1);")
+        check_form = self.sites("  CHECK(names.size() == 1);\n  CHECK(names[0] == 1);")
+        self.assertEqual(len(require_form), 1)
+        self.assertEqual(len(check_form), 1)
+        self.assertEqual(require_form[0][2], "REQUIRE")
+        self.assertEqual(check_form[0][2], "CHECK")
+
+
+class SizeThenIndexTruePositives(SizeIndexScanTestCase):
+    def test_equality_then_index(self):
+        self.assertSized("  REQUIRE(v.size() == 2);\n  CHECK(v[0] == 1);", "v")
+
+    def test_greater_than_zero_then_index(self):
+        self.assertSized("  REQUIRE(v.size() > 0);\n  auto &c = v[0];", "v")
+
+    def test_not_equal_zero_then_index(self):
+        self.assertSized("  REQUIRE(v.size() != 0);\n  CHECK(v[0] == 1);", "v")
+
+    def test_not_is_empty_then_index(self):
+        self.assertSized("  REQUIRE(!v.is_empty());\n  CHECK(v[0] == 1);", "v")
+
+    def test_require_false_is_empty_then_index(self):
+        self.assertSized("  REQUIRE_FALSE(v.is_empty());\n  CHECK(v[0] == 1);", "v")
+
+    def test_comparison_macro_form(self):
+        self.assertSized("  REQUIRE_EQ(v.size(), 4);\n  CHECK(v[3] == 1);", "v")
+
+    def test_index_bound_assertion_then_index(self):
+        """`CHECK(idx < splats.size()); splats[idx]` - test_lod_system.cpp:933."""
+        self.assertSized("  CHECK(idx < (uint32_t)v.size());\n  const float d = v[idx].x;", "v")
+
+    def test_member_chain(self):
+        self.assertSized(
+            "  REQUIRE(state.cached_counts.size() == 2);\n  CHECK(state.cached_counts[0] == 5);",
+            "state.cached_counts",
+        )
+
+    def test_subscripted_chain_is_one_symbol(self):
+        self.assertSized(
+            "  CHECK_EQ(chunks[0].indices.size(), 2);\n  CHECK_EQ(chunks[0].indices[0], 0);",
+            "chunks[0].indices",
+        )
+
+    def test_getter_call_chain(self):
+        self.assertSized(
+            "  CHECK_EQ(asset->get_ids().size(), n);\n  CHECK_EQ(asset->get_ids()[0], 7);",
+            "asset->get_ids()",
+        )
+
+    def test_loop_bounded_by_a_LITERAL_is_still_dangerous(self):
+        """`REQUIRE(v.size() == 4); for (i < 4) v[i]` crashes when the REQUIRE fails."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 4);\n"
+            "  for (uint32_t i = 0; i < 4; i++) {\n"
+            "    CHECK(v[i] == i);\n"
+            "  }",
+            "v",
+        )
+
+    def test_index_after_an_own_size_bounded_loop_is_still_flagged(self):
+        """The bound expires at the loop's closing brace - a stop-at-control-flow
+        scanner would miss this, which is why a block STACK is used."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n"
+            "    CHECK(v[i] == i);\n"
+            "  }\n"
+            "  CHECK(v[0] == 1u);",
+            "v",
+        )
+
+    def test_bound_from_a_different_container_does_not_make_it_safe(self):
+        found = self.sites(
+            "  REQUIRE(a.size() == 3);\n"
+            "  REQUIRE(b.size() == 3);\n"
+            "  for (uint32_t i = 0; i < a.size(); i++) {\n"
+            "    CHECK(a[i] == b[i]);\n"
+            "  }"
+        )
+        symbols = {site[1]: site[6] for site in found}
+        self.assertIn("b", symbols, "b[i] crashes whenever b is the short one")
+        self.assertEqual(symbols["b"], GUARD._CLASS_OTHER_BOUND)
+
+    def test_index_inside_an_unrelated_if_is_flagged(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n  if (other) {\n    CHECK(v[0] == 1);\n  }", "v"
+        )
+
+    def test_index_in_a_control_flow_header_is_flagged(self):
+        self.assertSized("  REQUIRE(v.size() == 2);\n  if (v[0] == 1) {\n    f();\n  }", "v")
+
+
+class SizeThenIndexTrueNegatives(SizeIndexScanTestCase):
+    """A detector that flags the SAFE loop-bounded sites is worse than none.
+
+    #844 counts 14 sites in the corpus whose index is bounded by the container's
+    own size(). Every one of them must stay green, or the backlog becomes
+    unreadable and the guard gets regenerated instead of read.
+    """
+
+    def test_loop_bounded_by_its_own_size_is_safe(self):
+        self.assertNotSized(
+            "  REQUIRE(opacities.size() == 4);\n"
+            "  for (uint32_t i = 0; i < opacities.size(); i++) {\n"
+            "    CHECK(Math::is_equal_approx(opacities[i], expected));\n"
+            "  }"
+        )
+
+    def test_brace_less_loop_body_bounded_by_its_own_size_is_safe(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 4);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++)\n"
+            "    CHECK(v[i] == i);"
+        )
+
+    def test_nested_block_inside_an_own_size_bounded_loop_is_safe(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 4);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n"
+            "    if (other) {\n"
+            "      CHECK(v[i] == i);\n"
+            "    }\n"
+            "  }"
+        )
+
+    def test_if_guarded_by_its_own_size_is_safe(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 2);\n  if (v.size() > 0) {\n    CHECK(v[0] == 1);\n  }"
+        )
+
+    def test_asserting_empty_is_not_a_lower_bound(self):
+        """`CHECK(v.is_empty())` failing makes v LONGER, not shorter."""
+        self.assertNotSized("  CHECK(v.is_empty());\n  CHECK(v[0] == 5);")
+
+    def test_asserting_size_zero_is_not_a_lower_bound(self):
+        self.assertNotSized("  CHECK(v.size() == 0);\n  CHECK(v[0] == 5);")
+
+    def test_upper_bound_only_is_not_a_lower_bound(self):
+        self.assertNotSized("  CHECK(v.size() <= 256);\n  CHECK(v[0] == 5);")
+
+    def test_vacuous_ge_zero_is_not_a_lower_bound(self):
+        self.assertNotSized("  CHECK(v.size() >= 0);\n  CHECK(v[0] == 5);")
+
+    def test_size_nested_in_another_call_is_not_a_predicate_on_it(self):
+        """`REQUIRE(out.resize(ground_truth.size()) == OK)` says nothing about
+        ground_truth's length."""
+        self.assertNotSized(
+            "  REQUIRE(out.resize(ground_truth.size()) == OK);\n"
+            "  const Input &c = ground_truth[i];"
+        )
+
+    def test_a_different_container_is_not_the_asserted_one(self):
+        self.assertNotSized("  REQUIRE(v.size() == 2);\n  CHECK(other[0] == 1);")
+
+    def test_a_longer_name_is_not_the_asserted_one(self):
+        self.assertNotSized("  REQUIRE(keep.size() == 2);\n  CHECK(keep2[0] == 1);")
+
+    def test_short_circuit_guard_dominates(self):
+        self.assertNotSized(
+            "  CHECK_EQ(chunks.size(), 2);\n  const bool ok = chunks.size() >= 2 && f(chunks[0]);"
+        )
+
+    def test_a_length_change_between_ends_the_scan(self):
+        self.assertNotSized("  REQUIRE(v.size() == 2);\n  v.clear();\n  CHECK(v[0] == 1);")
+
+    def test_a_reassignment_between_ends_the_scan(self):
+        self.assertNotSized("  REQUIRE(v.size() == 2);\n  v = rebuild();\n  CHECK(v[0] == 1);")
+
+    def test_no_index_at_all(self):
+        self.assertNotSized("  REQUIRE(v.size() == 2);\n  CHECK(v.get_total() == 4);")
+
+
+class SizeThenIndexBoundDirection(SizeIndexScanTestCase):
+    """A bound has a DIRECTION. Round-2 review of #849 (Codex) found three places
+    that only checked whether a cardinality test was PRESENT.
+
+    Each `assertSized` here was GREEN - reported clean - over a body that is
+    reached exactly when the container is too short. A false negative in a guard
+    whose whole purpose is finding these is the worst outcome available, so each
+    one is pinned next to the safe shape it must not swallow.
+    """
+
+    def test_is_empty_header_does_not_bound_its_body(self):
+        """`if (v.is_empty()) { v[0]; }` runs the index only when v is EMPTY."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n  if (v.is_empty()) {\n    CHECK(v[0] == 1);\n  }", "v"
+        )
+
+    def test_not_is_empty_header_still_bounds_its_body(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 2);\n  if (!v.is_empty()) {\n    CHECK(v[0] == 1);\n  }"
+        )
+
+    def test_index_beyond_size_header_does_not_bound_its_body(self):
+        """`if (i >= v.size()) { v[i]; }` selects exactly the out-of-range index."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n  if (i >= v.size()) {\n    CHECK(v[i] == 1);\n  }", "v"
+        )
+
+    def test_index_below_size_header_alone_does_not_bound_its_body(self):
+        """`if (i < v.size()) { v[i]; }` bounds nothing until `i` is known to be >= 0.
+
+        Godot's `size()` is SIGNED (`CowData::Size` is int64_t), so a negative `i`
+        satisfies this on an EMPTY container and the body indexes out of range
+        (Codex, PR #849 round 4). Round 3 pinned the opposite - it assumed an
+        unsigned count - which is why this case is spelled out on both sides.
+        """
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n  if (i < v.size()) {\n    CHECK(v[i] == 1);\n  }", "v"
+        )
+
+    def test_a_for_loop_starting_at_zero_still_bounds_its_body(self):
+        """The counterpart: the initialiser is the proof `i` is not negative."""
+        for header in (
+            "for (uint32_t i = 0; i < v.size(); i++)",
+            "for (int i = 0; i < v.size(); ++i)",
+            "for (int i = 0; i < v.size(); i += 1)",
+        ):
+            with self.subTest(header=header):
+                self.assertNotSized(
+                    f"  REQUIRE(v.size() == 2);\n  {header} {{\n    CHECK(v[i] == 1);\n  }}"
+                )
+
+    def test_a_loop_counting_down_is_not_proven_nonnegative(self):
+        """`i = v.size() - 1` is not a literal, and `i--` does not keep it >= 0."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = v.size() - 1; i >= 0; i--) {\n    CHECK(v[i] == 1);\n  }",
+            "v",
+        )
+
+    def test_a_loop_index_declared_elsewhere_is_not_proven_nonnegative(self):
+        """Only the `for` initialiser is visible proof; a `while` header carries none."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n  while (i < v.size()) {\n    CHECK(v[i] == 1);\n  }", "v"
+        )
+
+    def test_size_equal_zero_header_does_not_bound_its_body(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n  if (v.size() == 0) {\n    CHECK(v[0] == 1);\n  }", "v"
+        )
+
+    def test_truthy_size_header_bounds_its_body(self):
+        """`if (v.size())` IS a non-empty test; direction-checking must not lose it."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 2);\n  if (v.size()) {\n    CHECK(v[0] == 1);\n  }"
+        )
+
+    def test_a_size_handed_to_another_call_bounds_nothing(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n  if (compute(v.size()) > 0) {\n    CHECK(v[0] == 1);\n  }",
+            "v",
+        )
+
+    def test_switch_on_size_bounds_nothing(self):
+        """A `switch` selector is not a boolean condition and bounds no index."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n  switch (v.size()) {\n    CHECK(v[0] == 1);\n  }", "v"
+        )
+
+    def test_only_the_middle_clause_of_a_for_header_bounds(self):
+        """The initializer and the increment are not the loop's condition."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 4);\n"
+            "  for (uint32_t i = v.size() - 1; i < 4; i--) {\n"
+            "    CHECK(v[i] == i);\n"
+            "  }",
+            "v",
+        )
+
+
+class SizeThenIndexLoopUpdateMustBeProvenNondecreasing(SizeIndexScanTestCase):
+    """The `for` update clause is judged by a WHITELIST, not by "is it a `--`".
+
+    Round 4 accepted every update clause except a syntactic `--`/`-=` on the loop
+    variable, so every shape it had not enumerated - `i += delta`, `i = -1`,
+    `f(&i)` - kept the header's `i >= 0` proof and suppressed the subscript under
+    it. With an actual length of 1, `REQUIRE(v.size() == 2)` fails, execution
+    continues, `delta == -1` re-enters the body with `i == -1`, and `v[i]` aborts
+    the whole batch while the detector reports clean (Codex, PR #849 round 7).
+
+    The update clause is a path `_bound_after` never sees: round 6 closed the same
+    hole for a rebinding in the loop BODY, and this one is in the header.
+    """
+
+    def test_an_unproven_step_does_not_bound_the_body(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0; i < v.size(); i += delta) {\n    CHECK(v[i] == 1);\n  }",
+            "v",
+        )
+
+    def test_an_assignment_in_the_update_does_not_bound_the_body(self):
+        """`i = -1` matches neither `--` nor `-=`, and was accepted for that reason."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0; i < v.size(); i = -1) {\n    CHECK(v[i] == 1);\n  }",
+            "v",
+        )
+
+    def test_a_negative_literal_step_does_not_bound_the_body(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0; i < v.size(); i += -1) {\n    CHECK(v[i] == 1);\n  }",
+            "v",
+        )
+
+    def test_an_update_that_takes_the_address_does_not_bound_the_body(self):
+        """`advance(&i)` can write `i`; nothing here can see what it writes."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0; i < v.size(); advance(&i)) {\n    CHECK(v[i] == 1);\n  }",
+            "v",
+        )
+
+    def test_a_multiplying_update_is_not_on_the_whitelist(self):
+        """Sound by accident is still unproven: only the listed forms may bound."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0; i < v.size(); i *= 2) {\n    CHECK(v[i] == 1);\n  }",
+            "v",
+        )
+
+    def test_a_rebinding_from_another_name_does_not_bound_the_body(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0; i < v.size(); i = j + 1) {\n    CHECK(v[i] == 1);\n  }",
+            "v",
+        )
+
+    def test_a_self_rebinding_that_SUBTRACTS_does_not_bound_the_body(self):
+        """`i = i - 1` is `i--` spelled long; only the ADDING forms are on the list."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0; i < v.size(); i = i - 1) {\n    CHECK(v[i] == 1);\n  }",
+            "v",
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0; i < v.size(); i = 1 - i) {\n    CHECK(v[i] == 1);\n  }",
+            "v",
+        )
+
+    def test_the_proven_update_forms_still_bound_the_body(self):
+        """The whitelist must not be vacuous: every real corpus spelling is on it."""
+        for update in ("i++", "++i", "i += 1", "i += 4", "i = i + 1", "i = 1 + i", "i += 010"):
+            with self.subTest(update=update):
+                self.assertNotSized(
+                    "  REQUIRE(v.size() == 2);\n"
+                    f"  for (int i = 0; i < v.size(); {update}) {{\n    CHECK(v[i] == 1);\n  }}"
+                )
+
+    def test_a_sibling_clause_is_judged_per_name(self):
+        """`i++, j--` proves `i` and refutes `j`; one clause must not decide both."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0, j = 0; i < v.size(); i++, j--) {\n    CHECK(v[i] == 1);\n  }"
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0, j = 0; j < v.size(); i++, j--) {\n    CHECK(v[j] == 1);\n  }",
+            "v",
+        )
+
+    def test_the_whitelist_is_asked_about_the_right_name(self):
+        """Direct: only the listed forms answer True, and only for their own name."""
+        self.assertTrue(GUARD._update_is_nondecreasing("i", "i++"))
+        self.assertTrue(GUARD._update_is_nondecreasing("i", "++i"))
+        self.assertTrue(GUARD._update_is_nondecreasing("i", "i += 2"))
+        self.assertTrue(GUARD._update_is_nondecreasing("i", "j--"))  # does not touch `i`
+        self.assertTrue(GUARD._update_is_nondecreasing("i", ""))
+        self.assertFalse(GUARD._update_is_nondecreasing("i", "i--"))
+        self.assertFalse(GUARD._update_is_nondecreasing("i", "--i"))
+        self.assertFalse(GUARD._update_is_nondecreasing("i", "i -= 2"))
+        self.assertFalse(GUARD._update_is_nondecreasing("i", "i += step"))
+        self.assertFalse(GUARD._update_is_nondecreasing("i", "i = -1"))
+        self.assertFalse(GUARD._update_is_nondecreasing("i", "i = f(i)"))
+        self.assertFalse(GUARD._update_is_nondecreasing("i", "j += i"))
+        self.assertFalse(GUARD._update_is_nondecreasing("i", "i = i - 1"))
+        self.assertFalse(GUARD._update_is_nondecreasing("i", "i = 1 - i"))
+        self.assertFalse(GUARD._update_is_nondecreasing("i", "i++, i -= 3"))
+
+    def test_a_member_named_like_the_index_is_not_the_index(self):
+        """`it.i++` writes a member, not the loop variable; the name must not match."""
+        self.assertTrue(GUARD._update_is_nondecreasing("i", "it.i--"))
+        self.assertTrue(GUARD._update_is_nondecreasing("i", "p->i--"))
+
+
+class SizeThenIndexIntegerLiteralSpelling(SizeIndexScanTestCase):
+    """C++ spelling rules, including the legacy octal one Python's `int(_, 0)` rejects.
+
+    Every earlier finding on this file was the guard being too PERMISSIVE. This one
+    is the opposite: `int("010", 0)` raises, so the safe
+    `REQUIRE(v.size() == 9); if (v.size() >= 010) { CHECK(v[7]); }` was reported as
+    a new violation although the branch proves eight elements (Codex, PR #849
+    round 7). A ratchet that fails on valid input gets waived, and a waived guard
+    proves nothing - but the fix is to read the literal CORRECTLY, never to let an
+    unreadable one bound anything.
+    """
+
+    def test_a_legacy_octal_guard_bounds_its_body(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 9);\n  if (v.size() >= 010) {\n    CHECK(v[7] == 1);\n  }"
+        )
+
+    def test_a_legacy_octal_guard_bounds_only_as_far_as_its_value(self):
+        """`010` is EIGHT, not ten: `v[8]` is past what the branch proves."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 9);\n  if (v.size() >= 010) {\n    CHECK(v[8] == 1);\n  }", "v"
+        )
+
+    def test_an_ill_formed_octal_literal_bounds_nothing(self):
+        """`09` is not a literal in C++ either; unreadable must stay unproven."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 9);\n  if (v.size() >= 09) {\n    CHECK(v[7] == 1);\n  }", "v"
+        )
+
+    def test_an_octal_subscript_is_compared_by_value(self):
+        """The index side is read by the same function: `v[07]` is `v[7]`."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 9);\n  if (v.size() >= 8) {\n    CHECK(v[07] == 1);\n  }"
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 9);\n  if (v.size() >= 8) {\n    CHECK(v[010] == 1);\n  }", "v"
+        )
+
+    def test_every_base_reads_as_c_plus_plus_reads_it(self):
+        self.assertEqual(GUARD._literal_value("010"), 8)
+        self.assertEqual(GUARD._literal_value("0"), 0)
+        self.assertEqual(GUARD._literal_value("00"), 0)
+        self.assertEqual(GUARD._literal_value("0755"), 493)
+        self.assertEqual(GUARD._literal_value("010u"), 8)
+        self.assertEqual(GUARD._literal_value("0'1'0"), 8)
+        self.assertEqual(GUARD._literal_value("10"), 10)
+        self.assertEqual(GUARD._literal_value("0x10"), 16)
+        self.assertEqual(GUARD._literal_value("0X1F"), 31)
+        self.assertEqual(GUARD._literal_value("0b101"), 5)
+        self.assertEqual(GUARD._literal_value("0B11"), 3)
+        self.assertIsNone(GUARD._literal_value("09"))
+        self.assertIsNone(GUARD._literal_value("08"))
+        self.assertIsNone(GUARD._literal_value("0xZ"))
+        self.assertIsNone(GUARD._literal_value("expected"))
+        self.assertIsNone(GUARD._literal_value("-1"))
+
+
+class SizeThenIndexShortCircuitDirection(SizeIndexScanTestCase):
+    """The same direction question, asked of a short-circuit operand.
+
+    `_size_positive_test` matched on the OPERATOR and never on the VALUE, so an
+    operand asserting the container is EMPTY counted as a guard for the index that
+    follows it (Codex, PR #849 round 2).
+    """
+
+    def test_size_equals_zero_operand_is_not_a_guard(self):
+        self.assertSized("  REQUIRE(v.size() == 2);\n  CHECK(v.size() == 0 && v[0]);", "v")
+
+    def test_size_not_equal_nonzero_operand_is_not_a_guard(self):
+        """Zero satisfies `size() != 4`, so it cannot make `v[0]` reachable-only-if-safe."""
+        self.assertSized("  REQUIRE(v.size() == 2);\n  CHECK(v.size() != 4 && v[0]);", "v")
+
+    def test_size_at_most_operand_is_not_a_guard(self):
+        self.assertSized("  REQUIRE(v.size() == 2);\n  CHECK(v.size() <= 8 && v[0]);", "v")
+
+    def test_size_not_equal_zero_operand_is_a_guard(self):
+        self.assertNotSized("  REQUIRE(v.size() == 2);\n  CHECK(v.size() != 0 && v[0]);")
+
+    def test_size_at_least_operand_is_a_guard(self):
+        self.assertNotSized("  REQUIRE(v.size() == 2);\n  CHECK(v.size() >= 1 && v[0]);")
+
+    def test_negative_operand_before_an_or_is_a_guard(self):
+        self.assertNotSized("  REQUIRE(v.size() == 2);\n  CHECK(v.is_empty() || v[0]);")
+
+
+class SizeThenIndexCompoundConditions(SizeIndexScanTestCase):
+    """A bound must be implied by the condition AS A WHOLE, not appear inside it.
+
+    Round 3 (Codex, PR #849): `_expression_lower_bound` scanned for ANY cardinality
+    test pointing the right way, so a bound sitting inside an `||` counted as one -
+    although the other disjunct admits the index on an EMPTY container. Every
+    `assertSized` below was reported clean before the expression was decomposed.
+    """
+
+    def test_or_with_an_unrelated_disjunct_does_not_bound_a_body(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  if (v.size() > 0 || fallback) {\n    CHECK(v[0] == 1);\n  }",
+            "v",
+        )
+
+    def test_or_with_an_unrelated_disjunct_is_not_a_short_circuit_guard(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n  CHECK((v.size() > 0 || fallback) && v[0]);", "v"
+        )
+
+    def test_every_disjunct_bounding_still_bounds(self):
+        """`||` is not banned - it just has to bound on EVERY side."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  if (v.size() > 4 || v.size() == 2) {\n    CHECK(v[0] == 1);\n  }"
+        )
+
+    def test_one_bounding_conjunct_is_enough(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  if (fallback && v.size() > 0) {\n    CHECK(v[0] == 1);\n  }"
+        )
+
+    def test_a_ternary_condition_bounds_only_when_both_arms_do(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  if (fallback ? v.size() > 0 : other) {\n    CHECK(v[0] == 1);\n  }",
+            "v",
+        )
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  if (fallback ? v.size() > 0 : !v.is_empty()) {\n    CHECK(v[0] == 1);\n  }"
+        )
+
+    def test_a_negated_size_is_an_EMPTY_test(self):
+        """`if (!v.size())` is entered exactly when the container is empty."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n  if (!v.size()) {\n    CHECK(v[0] == 1);\n  }", "v"
+        )
+
+    def test_a_negated_emptiness_test_still_bounds(self):
+        for condition in ("!v.is_empty()", "!(v.size() == 0)", "!(v.is_empty())"):
+            with self.subTest(condition=condition):
+                self.assertNotSized(
+                    "  REQUIRE(v.size() == 2);\n"
+                    f"  if ({condition}) {{\n    CHECK(v[0] == 1);\n  }}"
+                )
+
+    def test_an_atom_built_from_a_bound_is_not_a_bound(self):
+        """Round 3 decomposed `&&`, `||` and `?:` - and then scanned whatever was
+        left for a qualifying `size()` test. An atom can still be BUILT from one
+        without following its truth: `(v.size() > 0) == expected_nonempty` is true
+        exactly when `v` is EMPTY once `expected_nonempty` is false (Codex, PR #849
+        round 4). Each of these scanned clean before the atom was read as a whole.
+        """
+        for condition in (
+            "(v.size() > 0) == expected_nonempty",
+            "(v.size() > 0) != expected_empty",
+            "expected_nonempty == (v.size() > 0)",
+            "flag ^ (v.size() > 0)",
+            "static_cast<int>(v.size() > 0) + offset",
+            "v.size() - 1 > 0",
+            "count(v.size()) > 0",
+        ):
+            with self.subTest(condition=condition):
+                self.assertSized(
+                    "  REQUIRE(v.size() == 2);\n"
+                    f"  if ({condition}) {{\n    CHECK(v[0] == 1);\n  }}",
+                    "v",
+                )
+
+    def test_an_atom_built_from_a_bound_is_not_a_short_circuit_guard(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  CHECK(((v.size() > 0) == expected_nonempty) && v[0]);",
+            "v",
+        )
+
+    def test_a_declaration_in_front_of_a_bound_is_not_structure(self):
+        """`ok = A` is true exactly when `A` is, so the assignment must not hide it."""
+        self.assertNotSized(
+            "  CHECK_EQ(chunks.size(), 2);\n"
+            "  const bool ok = chunks.size() >= 2 && f(chunks[0]);"
+        )
+
+
+class SizeThenIndexEqualityOperandMustBeProven(SizeIndexScanTestCase):
+    """`size() == n` bounds a BODY only when `n` is provably non-zero.
+
+    Round 3 (Codex, PR #849): a non-literal operand was assumed non-zero, so
+    `if (v.size() == expected) { CHECK(v[0]); }` scanned clean - yet with
+    `expected == 0` that branch is entered exactly when `v` is empty.
+    """
+
+    def test_equality_against_an_unknown_does_not_bound_a_body(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  if (v.size() == expected) {\n    CHECK(v[0] == 1);\n  }",
+            "v",
+        )
+
+    def test_at_least_an_unknown_does_not_bound_a_body(self):
+        """`size() >= n` is vacuous at `n == 0`, the same hole as `==`."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  if (v.size() >= expected) {\n    CHECK(v[0] == 1);\n  }",
+            "v",
+        )
+
+    def test_equality_against_an_unknown_is_not_a_short_circuit_guard(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n  CHECK(v.size() == expected && v[0]);", "v"
+        )
+
+    def test_a_provable_operand_still_bounds(self):
+        for condition in ("v.size() == 2", "v.size() == 2u", "v.size() == 0x2", "v.size() >= 1"):
+            with self.subTest(condition=condition):
+                self.assertNotSized(
+                    "  REQUIRE(v.size() == 2);\n"
+                    f"  if ({condition}) {{\n    CHECK(v[0] == 1);\n  }}"
+                )
+
+    def test_a_strictly_greater_comparison_needs_a_nonnegative_operand(self):
+        """`size() > n` is a lower bound only when `n` itself is at least zero.
+
+        Round 3 accepted any `>`, reasoning that a length above a count is at least
+        one. The count is not unsigned: `Vector::size()` returns `CowData`'s
+        int64_t, so `if (v.size() > -1) { v[0]; }` is entered on an EMPTY container
+        and scanned clean (Codex, PR #849 round 4).
+        """
+        for condition in ("v.size() > expected", "v.size() > -1", "v.size() > kOffset - 1"):
+            with self.subTest(condition=condition):
+                self.assertSized(
+                    "  REQUIRE(v.size() == 2);\n"
+                    f"  if ({condition}) {{\n    CHECK(v[0] == 1);\n  }}",
+                    "v",
+                )
+
+    def test_a_nonnegative_literal_still_bounds_strictly_greater(self):
+        for condition in ("v.size() > 0", "v.size() > 1", "v.size() > 0x0", "0 < v.size()"):
+            with self.subTest(condition=condition):
+                self.assertNotSized(
+                    "  REQUIRE(v.size() == 2);\n"
+                    f"  if ({condition}) {{\n    CHECK(v[0] == 1);\n  }}"
+                )
+
+    def test_an_unproven_strict_comparison_still_asserts_as_an_assertion(self):
+        """The same asymmetry as `==`: unproven REPORTS, and only SUPPRESSING needs
+        the proof. `REQUIRE(v.size() > n)` is still a size assertion above `v[0]`."""
+        self.assertSized("  REQUIRE(v.size() > n);\n  CHECK(v[0] == 1);", "v")
+
+    def test_an_assertion_against_an_unknown_is_still_a_size_assertion(self):
+        """The asymmetry is the point: unproven REPORTS as an assertion and must
+        not SUPPRESS as a guard. Both directions are fail-closed."""
+        self.assertSized("  CHECK_EQ(v.size(), n);\n  CHECK(v[0] == 1);", "v")
+
+    def test_a_sibling_conjunct_can_prove_the_operand(self):
+        """test_gaussian_importer.h:2930 - the equality is proven by its neighbour."""
+        self.assertNotSized(
+            "  CHECK_EQ(v.size(), a.size());\n"
+            "  if (!a.is_empty() && v.size() == a.size()) {\n    CHECK(v[0] == a[0]);\n  }"
+        )
+
+    def test_without_the_sibling_the_same_equality_proves_nothing(self):
+        self.assertSized(
+            "  CHECK_EQ(v.size(), a.size());\n"
+            "  if (v.size() == a.size()) {\n    CHECK(v[0] == a[0]);\n  }",
+            "v",
+        )
+
+    def test_an_offset_equality_is_not_a_transfer(self):
+        """`v.size() == a.size() - 1` says nothing about `v` even when `a` is bounded."""
+        self.assertSized(
+            "  CHECK_EQ(v.size(), a.size());\n"
+            "  if (!a.is_empty() && v.size() == a.size() - 1) {\n    CHECK(v[0] == a[0]);\n  }",
+            "v",
+        )
+
+
+class SizeThenIndexObjectResolution(SizeIndexScanTestCase):
+    """Which CONTAINER a `.size()` belongs to.
+
+    The forward regex grammar could not consume `chunks[order[0]].indices`, and
+    Python's engine answered by backtracking to the longest tail it COULD consume -
+    the bare member name `indices`. The detector then compared names instead of
+    tracking one container and reported an unrelated `other.indices[0]`
+    (Codex, PR #849 round 2).
+    """
+
+    def test_a_nested_subscript_is_not_tracked_by_its_member_name(self):
+        self.assertNotSized(
+            "  REQUIRE(chunks[order[0]].indices.size() == 2);\n  CHECK(other.indices[0] == 1);"
+        )
+
+    def test_a_nested_subscript_is_tracked_as_a_whole_symbol(self):
+        self.assertSized(
+            "  REQUIRE(chunks[order[0]].indices.size() == 2);\n"
+            "  CHECK(chunks[order[0]].indices[0] == 1);",
+            "chunks[order[0]].indices",
+        )
+
+    def test_a_call_with_arguments_is_resolved_as_the_object(self):
+        found = self.sites(
+            "  REQUIRE(!importer->get_preset_name(i).is_empty());\n"
+            "  CHECK(importer->get_preset_name(i)[0] == 'x');"
+        )
+        self.assertEqual([site[1] for site in found], ["importer->get_preset_name(i)"])
+
+    def test_a_call_with_arguments_on_an_unrelated_object_is_not_the_same_symbol(self):
+        self.assertNotSized(
+            "  REQUIRE(!importer->get_preset_name(i).is_empty());\n"
+            "  CHECK(other->get_preset_name(i)[0] == 'x');"
+        )
+
+    def test_a_cast_before_the_container_is_not_part_of_it(self):
+        """`CHECK(idx < (uint32_t)splats.size())` - test_lod_system.cpp, a real site."""
+        found = self.sites("  CHECK(idx < (uint32_t)splats.size());\n  const float d = splats[idx].x;")
+        self.assertEqual([site[1] for site in found], ["splats"])
+
+    def test_a_static_call_object_keeps_its_qualification(self):
+        found = self.sites(
+            "  REQUIRE(!Path::get_source(asset).is_empty());\n"
+            "  CHECK(Path::get_source(asset)[0] == 'r');"
+        )
+        self.assertEqual([site[1] for site in found], ["Path::get_source(asset)"])
+
+    def test_an_object_that_is_not_an_expression_is_a_scan_error(self):
+        """`(a + b).size()` has no container to track, so it cannot be called clean."""
+        with self.assertRaises(GUARD.ScanError):
+            self.sites("  REQUIRE((a + b).size() == 2);\n  CHECK(v[0] == 1);")
+
+
+class SizeThenIndexSameLineBlockBodies(SizeIndexScanTestCase):
+    """A body that shares its header's line is still a body (Codex, PR #849 round 5).
+
+    `_statements()` emits `if (v.is_empty()) { CHECK(v[0]); }` as ONE statement, and
+    the analyser truncated it at `{` to get the header - discarding the body and
+    never revisiting it. So the branch that indexes PRECISELY when the container is
+    empty, the exact shape this detector exists to catch, was reported clean. A
+    one-line block must produce the same verdict as the same code with a line break.
+    """
+
+    def test_a_one_line_if_body_is_scanned(self):
+        for eol in ("\n", "\r\n"):
+            with self.subTest(eol=eol):
+                body = "  REQUIRE(v.size() == 2);\n  if (v.is_empty()) { CHECK(v[0]); }"
+                self.assertSized(body.replace("\n", eol) if eol != "\n" else body, "v")
+
+    def test_a_one_line_body_matches_the_multi_line_spelling(self):
+        one = self.sites("  REQUIRE(v.size() == 2);\n  if (flag) { CHECK(v[0]); }")
+        many = self.sites("  REQUIRE(v.size() == 2);\n  if (flag) {\n    CHECK(v[0]);\n  }")
+        self.assertEqual(len(one), len(many), "the line break must not change the verdict")
+        self.assertEqual(one[0][1:4], many[0][1:4])
+        self.assertEqual(one[0][5], many[0][5])
+        self.assertEqual(one[0][6], many[0][6])
+
+    def test_a_one_line_loop_bounded_by_the_container_stays_clean(self):
+        """The sound transfer still applies: the header's own bound guards the body."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 2);\n  for (int i = 0; i < v.size(); i++) { CHECK(v[i]); }"
+        )
+
+    def test_a_one_line_loop_bounded_by_another_container_is_classified(self):
+        found = self.sites(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0; i < other.size(); i++) { CHECK(v[i]); }"
+        )
+        self.assertEqual([site[6] for site in found], [GUARD._CLASS_OTHER_BOUND])
+
+    def test_a_one_line_block_does_not_leak_its_bound_to_the_next_statement(self):
+        """The other half of the same defect: a one-line block never opened a frame,
+        so its bound was applied as `pending` to whatever came AFTER it."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0; i < v.size(); i++) { use(i); }\n"
+            "  CHECK(v[0]);",
+            "v",
+        )
+
+    def test_nested_one_line_blocks(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  if (flag) { for (int i = 0; i < n; i++) { CHECK(v[i]); } }",
+            "v",
+        )
+
+    def test_a_one_line_else_branch_is_scanned(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n  if (flag) { use(); } else { CHECK(v[0]); }", "v"
+        )
+
+    def test_a_one_line_while_body_is_scanned(self):
+        self.assertSized("  REQUIRE(v.size() == 2);\n  while (busy) { CHECK(v[0]); }", "v")
+
+    def test_an_initializer_list_in_the_body_does_not_unbalance_the_stack(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  if (flag) { Vector<int> t = { 1, 2 }; CHECK(v[0]); }",
+            "v",
+        )
+
+    def test_a_lambda_in_the_body_does_not_unbalance_the_stack(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n  if (flag) { run([&]{ use(); }); CHECK(v[0]); }",
+            "v",
+        )
+
+    def test_a_bare_initializer_statement_is_not_split(self):
+        """Only control flow is expanded. Splitting every `{` would push a frame for
+        an aggregate initializer, and the next `}` would then pop the wrong block."""
+        self.assertEqual(GUARD._inline_pieces("Vector<int> t = { 1, 2 };"), ["Vector<int> t = { 1, 2 };"])
+
+    def test_the_scan_window_still_counts_source_statements(self):
+        """Expanding at the CALL site would spend the six-statement window on the
+        pieces of one line: five one-line blocks would hide the sixth statement."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  if (a) { p(); }\n  if (b) { p(); }\n  if (c) { p(); }\n"
+            "  if (d) { p(); }\n  if (e) { p(); }\n"
+            "  CHECK(v[0]);",
+            "v",
+        )
+
+
+class NullDerefLayoutInvariance(ScanTestCase):
+    """Detector 1 reads the same atoms detector 2 does (round 8).
+
+    `_scan_forward` stops at a block boundary on purpose - it cannot tell what a
+    body's condition guarantees. But `_CONTROL_FLOW_RE` is a PREFIX test, and
+    `_statements()` emits groups, so a block whose close shares its last
+    statement's line (`use(); }`) did not read as a boundary and the scan walked
+    out into the enclosing scope - reaching a verdict the fully expanded spelling
+    of the same code never reaches. Layout must not change the verdict, in either
+    detector.
+    """
+
+    ONE_LINE_CLOSE = (
+        "  if (flag) {\n    REQUIRE(ptr != nullptr);\n    use(); }\n  ptr->f();"
+    )
+    EXPANDED = (
+        "  if (flag) {\n    REQUIRE(ptr != nullptr);\n    use();\n  }\n  ptr->f();"
+    )
+
+    def test_a_block_close_sharing_a_statements_line_still_ends_the_scan(self):
+        for eol in ("\n", "\r\n"):
+            with self.subTest(eol=eol):
+                compact = [v[1:] for v in self.scan(self.ONE_LINE_CLOSE.replace("\n", eol))]
+                expanded = [v[1:] for v in self.scan(self.EXPANDED.replace("\n", eol))]
+                self.assertEqual(compact, expanded)
+
+    def test_a_deref_still_inside_the_block_is_flagged_either_way(self):
+        """The scan must not become inert: the shape it exists for still reports."""
+        self.assertFlagged(
+            "  if (flag) {\n    REQUIRE(ptr != nullptr);\n    ptr->f(); }", "ptr"
+        )
+
+
+class StatementAtomsAreTotal(unittest.TestCase):
+    """`_statement_atoms` must leave nothing for a consumer to re-parse (round 8).
+
+    Rounds 5 and 8 are the same defect twice: `_statements()` emits a line-oriented
+    GROUP, a consumer re-parsed it with a prefix or suffix test, and the test did
+    not cover one layout - a body sharing its header's line (round 5), then a
+    closing brace sharing the body's last statement's line (round 8). Both went
+    SILENT over a live crash.
+
+    A third rule would have been a third guess. What is pinned instead is a
+    PROPERTY, checked over every group the real corpus produces: decomposition is
+    IDEMPOTENT. If `_statement_atoms(atom) != [atom]` for any atom, there is still
+    something splittable in what a consumer is being handed, and that is the
+    precondition for the next instance of this class. A list of layouts would have
+    to be extended for a layout nobody thought of; this property does not.
+    """
+
+    def test_decomposition_is_idempotent_over_the_real_corpus(self):
+        examined = 0
+        for path in GUARD._test_sources():
+            lines = GUARD._strip_comments(GUARD._read_source(path)).splitlines()
+            for index in range(len(lines)):
+                logical, last = GUARD._logical_line(lines, index)
+                groups = list(GUARD._line_fragments(logical))
+                groups += [text for _line, text in GUARD._statements(lines, last + 1, 6)]
+                for group in groups:
+                    for atom in GUARD._statement_atoms(group):
+                        examined += 1
+                        self.assertEqual(
+                            GUARD._statement_atoms(atom),
+                            [atom],
+                            f"{path.name}: atom {atom!r} is still splittable",
+                        )
+        self.assertGreater(examined, 10000, "the corpus sweep examined too little to mean anything")
+
+    def test_no_atom_that_creates_a_pending_frame_carries_its_own_body(self):
+        """The property that makes `pending` sound (round 10).
+
+        `pending` is a one-slot lookahead meaning "the body of this header is the
+        NEXT atom". Rounds 8, 9 and 10 each found a shape where that guess was
+        wrong, and round 10's was the shape where the body was inside the atom all
+        along: `if (v.size() >= 2) consume(v);` stored the condition's frame in
+        `pending`, which then bounded the statement AFTER the branch.
+
+        Idempotence (the test above) does not catch that - the atom really is one
+        statement, and splitting it further is what round 5's `{`-split does only
+        for BRACED bodies. So the property pinned here is the one `pending`
+        actually needs: an atom that reaches `pending = frame` holds no body of its
+        own, hence "the body is the next atom" is a fact about the decomposition
+        and not a guess about layout. If this ever fails there is a fourth shape,
+        and it fails here rather than in a review round.
+        """
+        examined = 0
+        pending_creators = 0
+        for path in GUARD._test_sources():
+            lines = GUARD._strip_comments(GUARD._read_source(path)).splitlines()
+            for index in range(len(lines)):
+                logical, last = GUARD._logical_line(lines, index)
+                groups = list(GUARD._line_fragments(logical))
+                groups += [text for _line, text in GUARD._statements(lines, last + 1, 6)]
+                for group in groups:
+                    for atom in GUARD._statement_atoms(group):
+                        examined += 1
+                        if not GUARD._SIZE_CONTROL_FLOW_RE.match(atom):
+                            continue
+                        if atom.rstrip().endswith("{") or GUARD._guards_no_body(atom):
+                            continue
+                        pending_creators += 1
+                        self.assertEqual(
+                            GUARD._split_header(atom),
+                            None,
+                            f"{path.name}: atom {atom!r} would put a frame in `pending` "
+                            f"while carrying its own body",
+                        )
+        self.assertGreater(examined, 10000, "the corpus sweep examined too little to mean anything")
+        self.assertGreater(
+            pending_creators,
+            0,
+            "no atom in the corpus reaches `pending` - this property passed vacuously",
+        )
+
+    def test_every_control_keyword_has_a_header_end_rule(self):
+        """DERIVED from `_SIZE_CONTROL_FLOW_RE`, not listed again beside it.
+
+        `_header_end` is a second reading of the same vocabulary the walker uses to
+        decide a statement is control flow. A keyword accepted there but unknown
+        here would keep its body glued to its header - exactly round 10's defect,
+        reintroduced by an edit nobody thought was risky. So the keyword set comes
+        out of the walker's own pattern.
+        """
+        keywords = re.findall(r"(\w+)\\b", GUARD._SIZE_CONTROL_FLOW_RE.pattern)
+        self.assertGreaterEqual(len(keywords), 6, keywords)
+        for keyword in keywords:
+            with self.subTest(keyword=keyword):
+                statement = f"{keyword} (cond) body();"
+                self.assertIsNotNone(GUARD._header_end(statement))
+                self.assertIsNotNone(GUARD._split_header(statement))
+                atoms = GUARD._statement_atoms(statement)
+                self.assertGreater(len(atoms), 1, atoms)
+                self.assertIsNone(GUARD._split_header(atoms[0]), atoms)
+
+    def test_a_braceless_body_splits_off_its_header(self):
+        self.assertEqual(
+            GUARD._statement_atoms("if (v.size() >= 2) consume(v);"),
+            ["if (v.size() >= 2)", "consume(v);"],
+        )
+
+    def test_a_header_with_no_body_of_its_own_is_left_whole(self):
+        self.assertEqual(GUARD._statement_atoms("if (v.size() >= 2)"), ["if (v.size() >= 2)"])
+
+    def test_an_empty_body_is_not_split_into_a_stray_semicolon(self):
+        self.assertEqual(GUARD._statement_atoms("while (poll());"), ["while (poll());"])
+        self.assertEqual(
+            GUARD._statement_atoms("} while (v.size() >= 2);"), ["}", "while (v.size() >= 2);"]
+        )
+
+    def test_a_braceless_do_body_splits_off_its_keyword(self):
+        """`do` carries no condition, so its header is the keyword alone. Without
+        that rule the first `(` in the BODY is mistaken for a condition and the body
+        stays glued on - the round-10 shape, in the one keyword whose header has no
+        parentheses."""
+        self.assertEqual(GUARD._statement_atoms("do consume(v);"), ["do", "consume(v);"])
+        self.assertEqual(GUARD._statement_atoms("do {"), ["do {"])
+
+    def test_a_nested_braceless_body_splits_all_the_way_down(self):
+        self.assertEqual(
+            GUARD._statement_atoms("if (a) if (b) consume(v);"),
+            ["if (a)", "if (b)", "consume(v);"],
+        )
+
+    def test_a_closing_brace_is_its_own_atom(self):
+        self.assertEqual(GUARD._statement_atoms("CHECK(v[0]); }"), ["CHECK(v[0]);", "}"])
+
+    def test_a_block_open_is_its_own_atom(self):
+        self.assertEqual(GUARD._statement_atoms("if (a) {"), ["if (a) {"])
+
+    def test_compacted_statements_split(self):
+        self.assertEqual(GUARD._statement_atoms("a(); b();"), ["a();", "b();"])
+
+    def test_a_balanced_initializer_is_not_split(self):
+        self.assertEqual(
+            GUARD._statement_atoms("Vector<int> t = { 1, 2 };"), ["Vector<int> t = { 1, 2 };"]
+        )
+
+    def test_a_for_header_semicolon_is_not_a_statement_boundary(self):
+        self.assertEqual(
+            GUARD._statement_atoms("for (int i = 0; i < n; i++) {"),
+            ["for (int i = 0; i < n; i++) {"],
+        )
+
+
+class SizeThenIndexTrailingBlockClose(SizeIndexScanTestCase):
+    """A `}` sharing the body's last statement's line still closes the block (round 8).
+
+    `_statements()` emits `CHECK(v[0]); }` as one group, which does not START with
+    `}`, so the block frame was never popped and the header's bound leaked onto
+    every statement after the block:
+
+        REQUIRE(v.size() == 3);
+        if (v.size() >= 2) {
+            CHECK(v[0]); }
+        CHECK(v[1]);          // reported CLEAN on the `>= 2` bound that had ended
+
+    An actual length of 1 fails the assertion, skips the branch, and aborts the
+    process at `v[1]` (Codex, PR #849 round 8).
+    """
+
+    LEAKED = (
+        "  REQUIRE(v.size() == 3);\n"
+        "  if (v.size() >= 2) {\n"
+        "    CHECK(v[0] == 1); }\n"
+        "  CHECK(v[1] == 2);"
+    )
+    EXPANDED = (
+        "  REQUIRE(v.size() == 3);\n"
+        "  if (v.size() >= 2) {\n"
+        "    CHECK(v[0] == 1);\n"
+        "  }\n"
+        "  CHECK(v[1] == 2);"
+    )
+
+    def test_the_bound_expires_at_a_trailing_brace(self):
+        for eol in ("\n", "\r\n"):
+            with self.subTest(eol=eol):
+                self.assertSized(self.LEAKED.replace("\n", eol), "v")
+
+    def test_the_verdict_matches_the_fully_expanded_spelling(self):
+        leaked = self.sites(self.LEAKED)
+        expanded = self.sites(self.EXPANDED)
+        self.assertEqual(len(leaked), len(expanded), "layout must not change the verdict")
+        self.assertEqual(leaked[0][1:4], expanded[0][1:4])
+        self.assertEqual(leaked[0][5], expanded[0][5])
+        self.assertEqual(leaked[0][6], expanded[0][6])
+
+    def test_the_bound_still_covers_the_body(self):
+        """The sound transfer must survive: inside the block, `v[0]` IS proven."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  if (v.size() >= 2) {\n"
+            "    CHECK(v[0] == 1); }"
+        )
+
+    def test_a_whole_block_closed_on_one_line_pops_once(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) { use(i); }\n"
+            "  CHECK(v[1]);",
+            "v",
+        )
+
+    def test_a_nested_block_closed_on_its_last_statement_pops_both(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 4);\n"
+            "  if (a) {\n"
+            "    if (v.size() >= 3) {\n"
+            "      use(); } }\n"
+            "  CHECK(v[2]);",
+            "v",
+        )
+
+    def test_an_initializer_ending_the_line_does_not_pop(self):
+        """`};` closes an aggregate initializer, not the enclosing block. Popping on
+        it would end the loop's bound early and REPORT a proven-safe subscript."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n"
+            "    Vector<int> t = { 1, 2 };\n"
+            "    CHECK(v[i]);\n"
+            "  }"
+        )
+
+
+class SizeThenIndexGroupingParentheses(SizeIndexScanTestCase):
+    """A grouping pair is not a nesting level (Codex, PR #849 round 8).
+
+    `_size_assertions` required the cardinality call at parenthesis DEPTH 0 inside
+    the macro, to reject `REQUIRE(out.resize(g.size()) == OK)` - which constrains
+    the resize result, not `g`. But a depth test cannot tell an argument from a
+    grouping pair, so the harmless `REQUIRE((v.size() == 2))` was read as an
+    assertion with no size predicate and the `v[0]` after it was not a site.
+
+    The distinction is pinned BOTH ways here: grouping must be peeled, a call must
+    still be rejected.
+    """
+
+    def test_a_grouped_predicate_is_still_an_assertion(self):
+        for eol in ("\n", "\r\n"):
+            with self.subTest(eol=eol):
+                self.assertSized(
+                    "  REQUIRE((v.size() == 2));\n  CHECK(v[0] == 1);".replace("\n", eol), "v"
+                )
+
+    def test_repeated_grouping_is_peeled(self):
+        self.assertSized("  REQUIRE(((v.size() == 2)));\n  CHECK(v[0] == 1);", "v")
+
+    def test_a_grouped_negated_emptiness_is_still_an_assertion(self):
+        self.assertSized("  REQUIRE((!v.is_empty()));\n  CHECK(v[0] == 1);", "v")
+
+    def test_a_size_handed_to_another_call_is_still_rejected(self):
+        self.assertNotSized("  REQUIRE(f(v.size()) == 2);\n  CHECK(v[0] == 1);")
+
+    def test_a_resize_argument_is_still_rejected(self):
+        """The shape the depth test existed for: the assertion constrains the
+        resize RESULT and says nothing about `v`."""
+        self.assertNotSized("  REQUIRE(out.resize(v.size()) == OK);\n  CHECK(v[0] == 1);")
+
+    def test_a_size_inside_a_grouped_call_argument_is_still_rejected(self):
+        self.assertNotSized("  REQUIRE((f(v.size()) == 2));\n  CHECK(v[0] == 1);")
+
+    def test_a_subscripted_size_is_still_rejected(self):
+        self.assertNotSized("  REQUIRE(table[v.size()] == 2);\n  CHECK(v[0] == 1);")
+
+    def test_a_grouped_disjunct_reports_rather_than_going_silent(self):
+        """`REQUIRE(a || (v.size() == 2))` asserts no bound on `v` at all - which is
+        the REPORTING direction for an assertion, not a reason to stay quiet."""
+        self.assertSized("  REQUIRE(a || (v.size() == 2));\n  CHECK(v[0] == 1);", "v")
+
+
+class DoctestMacroFamilyIsDerived(SizeIndexScanTestCase):
+    """The negating / relational macro family is READ from the header (round 8).
+
+    `macro.endswith("_FALSE")` is a hand-written list in disguise, and it was wrong
+    the way such a list always is: doctest's real `REQUIRE_FALSE_MESSAGE` and
+    `CHECK_FALSE_MESSAGE` do not end in `_FALSE`, so a negated `is_empty()` under
+    them established no bound and the index after it was not a site. The corpus
+    writes those two spellings 37 times.
+
+    The companion suffix table had the mirror-image defect: it consulted
+    `*_EQ_MESSAGE`, which doctest does not define at all - the same nonexistent
+    spelling mistake round 1 made with `REQUIRE_FALSE_UNARY_FALSE`.
+    """
+
+    def _header(self) -> str:
+        return GUARD.DOCTEST_HEADER.read_text(encoding="utf-8", errors="replace")
+
+    def test_every_derived_macro_is_defined_by_the_header(self):
+        header = self._header()
+        macros = GUARD._doctest_assert_macros()
+        self.assertGreater(len(macros), 20, "the derivation found implausibly few macros")
+        for name in macros:
+            self.assertIn(f"define {name}", header, f"{name} is not defined by doctest")
+
+    def test_the_derived_negating_family_is_exactly_the_header_s(self):
+        """Cross-check the semantic derivation (`return !(...)`) against the header's
+        own naming, so neither can drift without this failing."""
+        macros = GUARD._doctest_assert_macros()
+        derived = {n for n, s in macros.items() if s.negated and not n.startswith("DOCTEST_")}
+        by_name = {
+            n for n in macros
+            if not n.startswith("DOCTEST_") and ("_FALSE" in f"{n}_" or n.endswith("_FALSE"))
+        }
+        self.assertEqual(derived, by_name)
+        self.assertIn("REQUIRE_FALSE_MESSAGE", derived)
+        self.assertIn("CHECK_FALSE_MESSAGE", derived)
+        self.assertIn("REQUIRE_UNARY_FALSE", derived)
+        self.assertIn("FAST_REQUIRE_UNARY_FALSE", derived)
+
+    def test_the_message_spellings_do_not_end_in_FALSE(self):
+        """The exact reason the old spelling test failed."""
+        self.assertFalse("REQUIRE_FALSE_MESSAGE".endswith("_FALSE"))
+        self.assertTrue(GUARD._macro_semantics("REQUIRE_FALSE_MESSAGE").negated)
+
+    def test_doctest_has_no_relational_MESSAGE_macros(self):
+        """The retired suffix table consulted `*_EQ_MESSAGE`; no such macro exists."""
+        header = self._header()
+        for suffix in ("EQ", "NE", "GT", "GE", "LT", "LE"):
+            self.assertNotIn(f"define DOCTEST_REQUIRE_{suffix}_MESSAGE", header)
+        self.assertEqual(GUARD._macro_semantics("REQUIRE_EQ").relation, "==")
+        self.assertEqual(GUARD._macro_semantics("CHECK_LT").relation, "<")
+
+    def test_an_unknown_macro_reads_as_plain(self):
+        """`test_macros.h` defines project-local `REQUIRE_*` wrappers; they carry
+        neither a relation nor a negation."""
+        self.assertEqual(GUARD._macro_semantics("REQUIRE_GPU_DEVICE"), GUARD._PLAIN_MACRO)
+
+    def test_a_project_macro_merely_ENDING_in_EQ_does_not_borrow_the_relation(self):
+        """This is where the suffix table was not just untidy but SILENT.
+
+        A project-local `CHECK_SIZES_EQ(v.size(), 0)` is a macro of unknown meaning.
+        The suffix table read `_EQ` off its name, concluded `size() == 0`, and
+        suppressed the following `v[0]`. Derived, the macro is unrecognised, so the
+        predicate is a bare cardinality test and the index after it is REPORTED -
+        the fail-closed direction for something the guard cannot read.
+        """
+        self.assertSized("  CHECK_SIZES_EQ(v.size(), 0);\n  CHECK(v[0]);", "v")
+        self.assertNotSized("  CHECK_EQ(v.size(), 0);\n  CHECK(v[0]);")
+
+    def test_derivation_fails_closed_when_the_header_is_unreadable(self):
+        original = GUARD.DOCTEST_HEADER
+        GUARD._doctest_assert_macros.cache_clear()
+        try:
+            GUARD.DOCTEST_HEADER = Path(tempfile.gettempdir()) / "no_such_doctest_header.h"
+            with self.assertRaises(GUARD.ScanError):
+                GUARD._doctest_assert_macros()
+        finally:
+            GUARD.DOCTEST_HEADER = original
+            GUARD._doctest_assert_macros.cache_clear()
+
+    def test_derivation_fails_closed_when_the_block_is_gutted(self):
+        """A header that parses to no negating macro must FAIL, not answer 'doctest
+        has none' - which would quietly turn every REQUIRE_FALSE into a positive
+        assertion and unreport its sites."""
+        original = GUARD.DOCTEST_HEADER
+        GUARD._doctest_assert_macros.cache_clear()
+        with tempfile.TemporaryDirectory() as tmp:
+            gutted = Path(tmp) / "doctest.h"
+            gutted.write_text(
+                "\n".join(
+                    [
+                        "    DOCTEST_RELATIONAL_OP(eq, ==)",
+                        "    DOCTEST_RELATIONAL_OP(ne, !=)",
+                        "    DOCTEST_RELATIONAL_OP(lt, <)",
+                        "    DOCTEST_RELATIONAL_OP(gt, >)",
+                        "    DOCTEST_RELATIONAL_OP(le, <=)",
+                        "    DOCTEST_RELATIONAL_OP(ge, >=)",
+                        "#define DOCTEST_REQUIRE(...) [&] { return __VA_ARGS__; }()",
+                        "#define DOCTEST_REQUIRE_EQ(...) [&] { return doctest::detail::eq(__VA_ARGS__); }()",
+                        "#define DOCTEST_REQUIRE_NE(...) [&] { return doctest::detail::ne(__VA_ARGS__); }()",
+                        "#define DOCTEST_REQUIRE_LT(...) [&] { return doctest::detail::lt(__VA_ARGS__); }()",
+                        "#define DOCTEST_REQUIRE_GT(...) [&] { return doctest::detail::gt(__VA_ARGS__); }()",
+                        "#define DOCTEST_REQUIRE_LE(...) [&] { return doctest::detail::le(__VA_ARGS__); }()",
+                        "#define DOCTEST_REQUIRE_GE(...) [&] { return doctest::detail::ge(__VA_ARGS__); }()",
+                        "#define REQUIRE(...) DOCTEST_REQUIRE(__VA_ARGS__)",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            try:
+                GUARD.DOCTEST_HEADER = gutted
+                with self.assertRaises(GUARD.ScanError):
+                    GUARD._doctest_assert_macros()
+            finally:
+                GUARD.DOCTEST_HEADER = original
+                GUARD._doctest_assert_macros.cache_clear()
+
+
+class SizeThenIndexNegatingMacros(SizeIndexScanTestCase):
+    """A negating macro asserts the COMPLEMENT, and the direction follows (round 8).
+
+    Both directions are pinned. `REQUIRE_FALSE(v.is_empty())` and
+    `CHECK_FALSE_MESSAGE(v.is_empty(), "...")` assert NON-empty, so what follows is
+    a site; `REQUIRE_FALSE(!v.is_empty())` and `REQUIRE_FALSE(v.size())` assert
+    EMPTY, so they bound nothing and reporting them would name the wrong assertion.
+    """
+
+    def test_require_false_message_on_is_empty_is_a_bound(self):
+        for eol in ("\n", "\r\n"):
+            with self.subTest(eol=eol):
+                self.assertSized(
+                    '  REQUIRE_FALSE_MESSAGE(v.is_empty(), "must have data");\n'
+                    "  CHECK(v[0] == 1);".replace("\n", eol),
+                    "v",
+                )
+
+    def test_check_false_message_on_is_empty_is_a_bound(self):
+        self.assertSized(
+            '  CHECK_FALSE_MESSAGE(v.is_empty(), "must have data");\n  CHECK(v[0] == 1);', "v"
+        )
+
+    def test_the_message_spelling_matches_the_plain_one(self):
+        plain = self.sites("  REQUIRE_FALSE(v.is_empty());\n  CHECK(v[0] == 1);")
+        message = self.sites(
+            '  REQUIRE_FALSE_MESSAGE(v.is_empty(), "must have data");\n  CHECK(v[0] == 1);'
+        )
+        self.assertEqual(len(plain), len(message))
+        self.assertEqual(plain[0][1], message[0][1])
+        self.assertEqual(plain[0][5], message[0][5])
+
+    def test_a_doubly_negated_emptiness_bounds_nothing(self):
+        """`REQUIRE_FALSE(!v.is_empty())` asserts the container IS empty."""
+        self.assertNotSized("  REQUIRE_FALSE(!v.is_empty());\n  CHECK(v[0] == 1);")
+
+    def test_a_negated_truthiness_bounds_nothing(self):
+        """`REQUIRE_FALSE(v.size())` asserts `size() == 0`."""
+        self.assertNotSized("  REQUIRE_FALSE(v.size());\n  CHECK(v[0] == 1);")
+
+    def test_a_negated_equality_to_zero_is_a_bound(self):
+        """`CHECK_FALSE(v.size() == 0)` asserts `size() != 0` - non-empty."""
+        self.assertSized("  CHECK_FALSE(v.size() == 0);\n  CHECK(v[0] == 1);", "v")
+
+    def test_a_negated_upper_bound_is_a_bound(self):
+        """`REQUIRE_FALSE(v.size() <= 2)` asserts `size() > 2`."""
+        self.assertSized("  REQUIRE_FALSE(v.size() <= 2);\n  CHECK(v[0] == 1);", "v")
+
+    def test_a_negated_lower_bound_bounds_nothing(self):
+        """`REQUIRE_FALSE(v.size() >= 3)` asserts `size() < 3` - an UPPER bound."""
+        self.assertNotSized("  REQUIRE_FALSE(v.size() >= 3);\n  CHECK(v[0] == 1);")
+
+    def test_a_negated_nonempty_test_bounds_nothing(self):
+        """`CHECK_FALSE(v.size() != 0)` asserts the container empty."""
+        self.assertNotSized("  CHECK_FALSE(v.size() != 0);\n  CHECK(v[0] == 1);")
+
+    def test_a_plain_macro_is_unaffected(self):
+        self.assertSized("  REQUIRE(v.size() == 2);\n  CHECK(v[0] == 1);", "v")
+        self.assertNotSized("  REQUIRE(v.size() == 0);\n  CHECK(v[0] == 1);")
+
+
+class SizeThenIndexBoundMustReachTheIndex(SizeIndexScanTestCase):
+    """A bound on the CONTAINER is not a bound on every subscript of it (round 6).
+
+    Until this, a guard's answer was a boolean - "the container is non-empty" - and
+    any lower bound suppressed every index under it. So
+    `REQUIRE(v.size() == 2); if (!v.is_empty()) { CHECK(v[1]); }` reported clean
+    although a container of length 1 fails the assertion, enters the branch and
+    aborts the whole batch on `v[1]`. Every case here pins the RELATION between the
+    proven bound and the specific index expression, in both directions: the shapes
+    the magnitude must now catch, and the ones it must still leave alone.
+    """
+
+    # --- a constant subscript against a proven minimum length -------------------
+
+    def test_a_constant_subscript_above_a_nonemptiness_guard_is_flagged(self):
+        for eol in ("\n", "\r\n"):
+            with self.subTest(eol=eol):
+                body = (
+                    "  REQUIRE(v.size() == 2);\n"
+                    "  if (!v.is_empty()) {\n    CHECK(v[1] == 3);\n  }"
+                )
+                self.assertSized(body.replace("\n", eol), "v")
+
+    def test_index_zero_under_a_nonemptiness_guard_stays_clean(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 2);\n  if (!v.is_empty()) {\n    CHECK(v[0] == 3);\n  }"
+        )
+
+    def test_a_minimum_of_four_covers_index_three_and_not_index_four(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 9);\n  if (v.size() >= 4) {\n    CHECK(v[3] == 3);\n  }"
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 9);\n  if (v.size() >= 4) {\n    CHECK(v[4] == 3);\n  }",
+            "v",
+        )
+
+    def test_a_strict_greater_than_proves_one_more(self):
+        """`size() > 3` means at least four elements, so index 3 is the last safe one."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 9);\n  if (v.size() > 3) {\n    CHECK(v[3] == 3);\n  }"
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 9);\n  if (v.size() > 3) {\n    CHECK(v[4] == 3);\n  }",
+            "v",
+        )
+
+    def test_an_equality_guard_proves_exactly_its_operand(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 9);\n  if (v.size() == 2) {\n    CHECK(v[1] == 3);\n  }"
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 9);\n  if (v.size() == 2) {\n    CHECK(v[2] == 3);\n  }",
+            "v",
+        )
+
+    def test_the_literal_is_read_in_its_own_base(self):
+        """`_literal_value` parses C++ spelling, so a hex bound is a real bound."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 99);\n  if (v.size() >= 0x10) {\n    CHECK(v[15] == 3);\n  }"
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 99);\n  if (v.size() >= 0x10) {\n    CHECK(v[16] == 3);\n  }",
+            "v",
+        )
+
+    # --- a loop index against the loop's own bound -------------------------------
+
+    def test_a_loop_bounds_its_index_and_not_an_offset_of_it(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n    CHECK(v[i] == 3);\n  }"
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n    CHECK(v[i + 1] == 3);\n  }",
+            "v",
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n    CHECK(v[i - 1] == 3);\n  }",
+            "v",
+        )
+
+    def test_a_loop_does_not_bound_an_unrelated_index(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n    CHECK(v[j] == 3);\n  }",
+            "v",
+        )
+
+    def test_a_loop_over_the_container_still_proves_it_is_non_empty(self):
+        """`i >= 0` and `i < v.size()` together mean the length is at least 1, so a
+        literal `v[0]` inside the body is covered even though it is not the index."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n    CHECK(v[0] == 3);\n  }"
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n    CHECK(v[1] == 3);\n  }",
+            "v",
+        )
+
+    def test_casts_and_parentheses_do_not_change_a_subscript(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n    CHECK(v[(uint32_t)i] == 3);\n  }"
+        )
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 3);\n  if (!v.is_empty()) {\n    CHECK(v[( 0 )] == 3);\n  }"
+        )
+
+    # --- the last-element idiom ---------------------------------------------------
+
+    def test_the_last_element_idiom_is_covered_by_non_emptiness(self):
+        """`v[v.size() - 1]` is in range exactly when `v` is non-empty, which is what
+        `if (!v.is_empty())` proves. The corpus writes this at
+        test_gaussian_importer.h:2933 and it must NOT be reported."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  if (!v.is_empty()) {\n    CHECK(v[v.size() - 1] == 3);\n  }"
+        )
+
+    def test_a_deeper_offset_needs_a_bigger_minimum(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  if (!v.is_empty()) {\n    CHECK(v[v.size() - 2] == 3);\n  }",
+            "v",
+        )
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  if (v.size() >= 2) {\n    CHECK(v[v.size() - 2] == 3);\n  }"
+        )
+
+    def test_a_non_literal_offset_is_not_covered(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  if (!v.is_empty()) {\n    CHECK(v[v.size() - k] == 3);\n  }",
+            "v",
+        )
+
+    def test_the_last_element_of_a_DIFFERENT_container_is_not_covered(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  if (!v.is_empty()) {\n    CHECK(v[other.size() - 1] == 3);\n  }",
+            "v",
+        )
+
+    def test_a_length_peer_carries_the_last_element_idiom_across(self):
+        """The real corpus shape (test_gaussian_importer.h:2929-2933): the guard
+        proves `b` non-empty AND `a.size() == b.size()`, so `a[b.size() - 1]` is in
+        range - the bound and the subscript are on different containers of proven
+        equal length."""
+        self.assertNotSized(
+            "  CHECK_EQ(a.size(), b.size());\n"
+            "  if (!b.is_empty() && a.size() == b.size()) {\n"
+            "    CHECK_EQ(a[b.size() - 1], b[b.size() - 1]);\n  }"
+        )
+
+    def test_a_length_peer_does_not_grant_more_than_the_peer_proves(self):
+        self.assertSized(
+            "  CHECK_EQ(a.size(), b.size());\n"
+            "  if (!b.is_empty() && a.size() == b.size()) {\n"
+            "    CHECK_EQ(a[b.size() - 2], 0);\n  }",
+            "a",
+        )
+
+    # --- how bounds combine --------------------------------------------------------
+
+    def test_a_disjunction_keeps_only_what_every_arm_proves(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 9);\n"
+            "  if (v.size() >= 3 || v.size() >= 1) {\n    CHECK(v[0] == 3);\n  }"
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 9);\n"
+            "  if (v.size() >= 3 || v.size() >= 1) {\n    CHECK(v[2] == 3);\n  }",
+            "v",
+        )
+
+    def test_a_ternary_keeps_only_what_both_arms_prove(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 9);\n"
+            "  if (flag ? v.size() >= 3 : v.size() >= 1) {\n    CHECK(v[0] == 3);\n  }"
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 9);\n"
+            "  if (flag ? v.size() >= 3 : v.size() >= 1) {\n    CHECK(v[2] == 3);\n  }",
+            "v",
+        )
+
+    def test_a_conjunction_combines_what_its_parts_prove(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 9);\n"
+            "  if (v.size() >= 2 && ready) {\n    CHECK(v[1] == 3);\n  }"
+        )
+
+    def test_nested_blocks_combine_their_bounds(self):
+        """Every enclosing condition holds at once, so the frames are unioned: the
+        outer `>= 2` covers `v[1]` and the inner loop covers `v[i]`."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 9);\n"
+            "  if (v.size() >= 2) {\n"
+            "    for (uint32_t i = 0; i < v.size(); i++) {\n"
+            "      CHECK(v[1] == v[i]);\n    }\n  }"
+        )
+
+    def test_a_nested_block_still_does_not_reach_past_the_union(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 9);\n"
+            "  if (v.size() >= 2) {\n"
+            "    for (uint32_t i = 0; i < v.size(); i++) {\n"
+            "      CHECK(v[2] == v[i]);\n    }\n  }",
+            "v",
+        )
+
+    # --- short-circuit operands are judged the same way ----------------------------
+
+    def test_a_short_circuit_operand_must_reach_the_index_too(self):
+        self.assertSized("  REQUIRE(v.size() == 2);\n  CHECK(v.size() >= 1 && v[1] == 3);", "v")
+        self.assertNotSized("  REQUIRE(v.size() == 2);\n  CHECK(v.size() >= 2 && v[1] == 3);")
+
+    def test_a_negative_short_circuit_operand_covers_index_zero_only(self):
+        self.assertNotSized("  REQUIRE(v.size() == 2);\n  CHECK(v.is_empty() || v[0] == 3);")
+        self.assertSized("  REQUIRE(v.size() == 2);\n  CHECK(v.is_empty() || v[1] == 3);", "v")
+
+    # --- the relation must still hold where the index is written ------------------
+
+    def test_a_body_that_rebinds_the_loop_index_loses_the_bound(self):
+        """The relation is about VALUES and the model compares TEXT, so the moment a
+        statement rebinds the name the two stop agreeing. This also closes round 4's
+        recorded limit that a loop body driving the variable out of range was not
+        modelled."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n"
+            "    i += 5;\n    CHECK(v[i] == 3);\n  }",
+            "v",
+        )
+
+    def test_a_body_that_leaves_the_loop_index_alone_keeps_the_bound(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n"
+            "    use(i);\n    CHECK(v[i] == 3);\n  }"
+        )
+
+    def test_comparisons_are_not_rebindings(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n"
+            "    CHECK(i != 9);\n    CHECK(i <= 9);\n    CHECK(i >= 0);\n"
+            "    CHECK(v[i] == 3);\n  }"
+        )
+
+    def test_an_inner_loop_reusing_the_index_name_loses_the_outer_bound(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n"
+            "    for (uint32_t i = 0; i < n; i++) {\n      CHECK(v[i] == 3);\n    }\n  }",
+            "v",
+        )
+
+    def test_growing_the_length_PEER_invalidates_the_last_element_idiom(self):
+        """The indexed container's own mutators end the scan; the peer's did not, and
+        `b.push_back(x)` makes `a[b.size() - 1]` one past the end of `a`."""
+        self.assertSized(
+            "  CHECK_EQ(a.size(), b.size());\n"
+            "  if (!b.is_empty() && a.size() == b.size()) {\n"
+            "    b.push_back(x);\n    CHECK_EQ(a[b.size() - 1], 0);\n  }",
+            "a",
+        )
+
+    def test_leaving_the_length_peer_alone_keeps_the_idiom(self):
+        self.assertNotSized(
+            "  CHECK_EQ(a.size(), b.size());\n"
+            "  if (!b.is_empty() && a.size() == b.size()) {\n"
+            "    use(b);\n    CHECK_EQ(a[b.size() - 1], 0);\n  }"
+        )
+
+    # --- classification and fail-closed --------------------------------------------
+
+    def test_an_under_bounded_site_is_labelled_as_such(self):
+        """Not `loop-bounded-by-another-container`: the bound is on the RIGHT
+        container, at the wrong magnitude, and naming the wrong container would send
+        a maintainer to read the wrong line."""
+        found = self.sites(
+            "  REQUIRE(v.size() == 2);\n  if (!v.is_empty()) {\n    CHECK(v[1] == 3);\n  }"
+        )
+        self.assertEqual([site[6] for site in found], [GUARD._CLASS_UNDER_BOUND])
+
+    def test_a_cross_container_site_keeps_its_own_label(self):
+        found = self.sites(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0; i < other.size(); i++) {\n    CHECK(v[i] == 3);\n  }"
+        )
+        self.assertEqual([site[6] for site in found], [GUARD._CLASS_OTHER_BOUND])
+
+    def test_an_unreadable_subscript_is_not_covered(self):
+        """An index whose brackets do not balance is unprovable, so it is reported."""
+        self.assertEqual(GUARD._index_expressions("v", "CHECK(v[i"), [(6, None)])
+        self.assertFalse(GUARD._bound_covers(GUARD._Bound(9, frozenset()), None, "v"))
+
+    def test_an_unmodelled_index_expression_is_not_covered(self):
+        for index in ("i + 1", "n - 1", "v.size()", "f(i)", "i * 2", "-1"):
+            with self.subTest(index=index):
+                self.assertFalse(
+                    GUARD._bound_covers(GUARD._Bound(9, frozenset({"i"})), index, "v"),
+                    f"{index!r} must not be treated as proven",
+                )
+
+
+class SizeIndexFailsClosed(unittest.TestCase):
+    """Unreadable or unlexable input must FAIL, never read as 'no violations'."""
+
+    def _scan(self, text: str, name: str = "test_synthetic.h"):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / name
+            path.write_bytes(text.encode("utf-8") if isinstance(text, str) else text)
+            return GUARD._scan_file_size_index(path)
+
+    def test_missing_file_is_a_scan_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(GUARD.ScanError):
+                GUARD._scan_file_size_index(Path(tmp) / "absent.h")
+
+    def test_invalid_utf8_is_a_scan_error_not_a_replacement_character(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "test_synthetic.h"
+            path.write_bytes(b'TEST_CASE("x") { REQUIRE(v.size() == 2); \xff\xfe }')
+            with self.assertRaises(GUARD.ScanError):
+                GUARD._scan_file_size_index(path)
+            with self.assertRaises(GUARD.ScanError):
+                GUARD._scan_file(path)
+
+    def test_unterminated_raw_string_is_a_scan_error(self):
+        with self.assertRaises(GUARD.ScanError):
+            self._scan('const char *p = R"delim(never closed\nREQUIRE(v.size() == 2);\n')
+
+    def test_terminated_raw_string_is_blanked_and_keeps_line_numbers(self):
+        sites = self._scan(
+            'const char *p = R"(ply\nformat ascii\nend_header\n)";\n'
+            "TEST_CASE(\"x\") {\n  REQUIRE(v.size() == 2);\n  CHECK(v[0] == 1);\n}\n"
+        )
+        self.assertEqual(len(sites), 1)
+        self.assertEqual(sites[0][0], 6, "the assertion is on line 6 of the original file")
+
+    def test_a_raw_string_opener_inside_a_line_comment_is_not_a_raw_string(self):
+        """The false negative AND its mirror false positive, in one shape.
+
+        Searching for raw-string openers before recognising comments blanked
+        everything between a `// ... R"(` comment and a LATER `// ... )"` comment -
+        real code included - and reported the file clean; with no later `)"` the same
+        valid file was rejected as unterminated (Codex, PR #849 round 2). C++ has one
+        lexer, so the guard needs one pass.
+        """
+        with_closer = self._scan(
+            'TEST_CASE("x") {\n'
+            '  // explain R"(\n'
+            "  REQUIRE(v.size() == 2);\n"
+            "  CHECK(v[0] == 1);\n"
+            '  // closes with )"\n'
+            "}\n"
+        )
+        self.assertEqual(len(with_closer), 1, "the violation between the comments is real code")
+        self.assertEqual(with_closer[0][4], 4)
+        without_closer = self._scan(
+            'TEST_CASE("x") {\n'
+            '  // explain R"(\n'
+            "  REQUIRE(v.size() == 2);\n"
+            "  CHECK(v[0] == 1);\n"
+            "}\n"
+        )
+        self.assertEqual(len(without_closer), 1, "a comment cannot make a valid file unlexable")
+
+    def test_a_raw_string_opener_inside_a_block_comment_is_not_a_raw_string(self):
+        sites = self._scan(
+            'TEST_CASE("x") {\n'
+            '  /* explain R"( */\n'
+            "  REQUIRE(v.size() == 2);\n"
+            "  CHECK(v[0] == 1);\n"
+            "}\n"
+        )
+        self.assertEqual(len(sites), 1)
+
+    def test_a_raw_string_opener_inside_a_string_literal_is_not_a_raw_string(self):
+        sites = self._scan(
+            'TEST_CASE("x") {\n'
+            '  const char *p = "R\\"(";\n'
+            "  REQUIRE(v.size() == 2);\n"
+            "  CHECK(v[0] == 1);\n"
+            "}\n"
+        )
+        self.assertEqual(len(sites), 1)
+
+    def test_a_comment_marker_inside_a_raw_string_is_not_a_comment(self):
+        """The raw string comes FIRST here, so it wins - and it ends at the first `)\"`."""
+        sites = self._scan(
+            'const char *p = R"(// )" is not the end\n)";\n'
+            'TEST_CASE("x") {\n  REQUIRE(v.size() == 2);\n  CHECK(v[0] == 1);\n}\n'
+        )
+        self.assertEqual(len(sites), 1)
+        self.assertEqual(sites[0][0], 4, "line numbers must survive the blanking")
+
+    def test_an_apostrophe_in_a_comment_does_not_eat_a_later_raw_string(self):
+        with self.assertRaises(GUARD.ScanError):
+            self._scan("// don't\nconst char *p = R\"delim(never closed\n")
+
+    def test_a_spliced_line_comment_does_not_end_at_the_physical_newline(self):
+        """C++ removes `\\`-newline BEFORE recognising comments (Codex, PR #849 r3).
+
+        So the `R"(` on the continuation line is COMMENT, not a raw-string opener.
+        Reading it as one blanked everything up to the later `// )"` - the real
+        assertion and index between them included - and reported the file clean.
+        """
+        sites = self._scan(
+            'TEST_CASE("x") {\n'
+            "  // continued comment \\\n"
+            '  const char *p = R"(\n'
+            "  REQUIRE(v.size() == 2);\n"
+            "  CHECK(v[0] == 1);\n"
+            '  // )"\n'
+            "}\n"
+        )
+        self.assertEqual(len(sites), 1, "the assertion and index between the comments are code")
+        self.assertEqual(sites[0][0], 4)
+        self.assertEqual(sites[0][4], 5)
+
+    def test_a_spliced_line_comment_comments_out_the_next_line(self):
+        """`_strip_comments` must apply the same rule, or it reads what the raw-string
+        pass skipped. The continuation line is emitted EMPTY, keeping line numbers."""
+        stripped = GUARD._strip_comments("a();\n// note \\\nREQUIRE(x);\nb();\n").split("\n")
+        self.assertEqual(stripped[2], "")
+        self.assertEqual(stripped[3], "b();")
+        self.assertEqual(len(stripped), 5)
+
+    def test_a_chain_of_splices_continues_the_comment(self):
+        stripped = GUARD._strip_comments("// a \\\nb(); \\\nc();\nd();\n").split("\n")
+        self.assertEqual(stripped[:3], ["", "", ""])
+        self.assertEqual(stripped[3], "d();")
+
+    def test_a_backslash_before_a_space_does_not_splice(self):
+        """Non-conforming spelling: compilers warn and this pass keeps the next line
+        as CODE, which is the fail-closed answer (it can only ADD reports)."""
+        sites = self._scan(
+            'TEST_CASE("x") {\n'
+            "  // note \\ \n"
+            "  REQUIRE(v.size() == 2);\n"
+            "  CHECK(v[0] == 1);\n"
+            "}\n"
+        )
+        self.assertEqual(len(sites), 1)
+
+    def test_crlf_line_endings_splice_the_same_way(self):
+        """A CRLF file must lex like an LF one: `\\r` belongs to the line terminator."""
+        sites = self._scan(
+            'TEST_CASE("x") {\r\n'
+            "  // continued comment \\\r\n"
+            '  const char *p = R"(\r\n'
+            "  REQUIRE(v.size() == 2);\r\n"
+            "  CHECK(v[0] == 1);\r\n"
+            '  // )"\r\n'
+            "}\r\n"
+        )
+        self.assertEqual(len(sites), 1)
+        self.assertEqual(sites[0][4], 5)
+
+    def test_a_spliced_ordinary_literal_is_still_one_literal(self):
+        """An ordinary string continued with backslash-newline is spliced BEFORE
+        tokenising, so a `/*` on the continuation is string content and not a
+        comment opener. Reading it as one opened a block comment that blanked the
+        assertion, the index and everything to EOF, and the file scanned clean
+        (Codex, PR #849 round 4). The same holds for a `//` or an `R"(` there."""
+        for continuation in ("/*", "//", 'R"(', "plain"):
+            for eol in ("\n", "\r\n"):
+                with self.subTest(continuation=continuation, eol=eol):
+                    sites = self._scan(
+                        eol.join(
+                            [
+                                'TEST_CASE("x") {',
+                                '  const char *p = "abc \\',
+                                f'{continuation} still inside the string";',
+                                "  REQUIRE(v.size() == 2);",
+                                "  CHECK(v[0] == 1);",
+                                "}",
+                                "",
+                            ]
+                        )
+                    )
+                    self.assertEqual(len(sites), 1, "the assertion and index are code")
+                    self.assertEqual(sites[0][0], 4, "line numbers must survive blanking")
+                    self.assertEqual(sites[0][4], 5)
+
+    def test_nothing_multi_line_survives_the_raw_string_pass(self):
+        """The invariant `_strip_comments` relies on to stay line-oriented: after
+        `_read_source`, no ordinary literal spans a newline either."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "test_synthetic.h"
+            path.write_bytes(b'const char *p = "abc \\\n/* still string";\nCHECK(v[0]);\n')
+            lexed = GUARD._read_source(path)
+        self.assertEqual(len(lexed.split("\n")), 4, "line count is preserved")
+        self.assertNotIn("/*", lexed, "the continuation was string content, not a comment")
+
+    def test_a_digit_separator_before_a_splice_is_not_a_literal(self):
+        """`1'000` is not an opener, and a line continuation after it must not turn
+        it into one - that would blank the code that follows."""
+        sites = self._scan(
+            "TEST_CASE(\"x\") {\n"
+            "  const int big = 1'000; \\\n"
+            "  const int other = 2;\n"
+            "  REQUIRE(v.size() == 2);\n"
+            "  CHECK(v[0] == 1);\n"
+            "}\n"
+        )
+        self.assertEqual(len(sites), 1)
+        self.assertEqual(sites[0][0], 4)
+
+    def test_splice_is_applied_once_for_every_recogniser(self):
+        """The map `_splice` returns is what lets a spliced token be recognised.
+
+        Rounds 3, 4 and 5 each found splicing missing from ONE lexical context. The
+        rule is not a property of any token - phase 2 runs before tokens exist - so
+        it is applied once here and every recogniser reads the result.
+        """
+        for label, text, expected in (
+            ("lf", "a\\\nb", "ab"),
+            ("crlf", "a\\\r\nb", "ab"),
+            ("backslash then space does not splice", "a\\ \nb", "a\\ \nb"),
+            # Phase 2 is a single pass: the backslash left behind by deleting
+            # `\\`-newline does not splice the newline after it, and neither does
+            # the compiler.
+            ("no re-splicing of its own output", "a\\\\\n\nb", "a\\\nb"),
+        ):
+            with self.subTest(label=label):
+                logical, offsets = GUARD._splice(text)
+                self.assertEqual(logical, expected)
+                self.assertEqual(len(offsets), len(logical) + 1)
+                self.assertEqual(offsets[-1], len(text), "sentinel maps the end offset")
+                self.assertEqual(offsets, sorted(set(offsets)), "strictly increasing")
+                for i, ch in enumerate(logical):
+                    self.assertEqual(text[offsets[i]], ch)
+
+    def test_a_comment_opener_formed_by_splicing_is_a_comment(self):
+        """`/` + backslash-newline + `/ explain R"(` IS a `//` comment in C++.
+
+        This pass scanned the UNSPLICED text, so it read the marker as a raw-string
+        opener and blanked everything to a later `)"` - the assertion and the index
+        between them included - and reported the file clean (Codex, PR #849 round 5).
+        """
+        for eol in ("\n", "\r\n"):
+            with self.subTest(eol=eol):
+                sites = self._scan(
+                    eol.join(
+                        [
+                            'TEST_CASE("x") {',
+                            "  /\\",
+                            '/ explain R"(',
+                            "  REQUIRE(v.size() == 2);",
+                            "  CHECK(v[0] == 1);",
+                            '  const char *tail = ")";',
+                            "}",
+                            "",
+                        ]
+                    )
+                )
+                self.assertEqual(len(sites), 1, "the assertion and index are code")
+                self.assertEqual(sites[0][0], 4, "line numbers survive the blanking")
+                self.assertEqual(sites[0][4], 5)
+
+    def test_a_spliced_comment_is_erased_so_the_line_pass_cannot_reopen_it(self):
+        """`_strip_comments` is line-oriented and cannot see a spliced opener.
+
+        Left in place, its `/*` reads as a block comment that is not in the source,
+        blanking every assertion to the next `*/` or to EOF. So the spliced comment
+        is removed by the pass that CAN see it, and the two passes agree by
+        construction rather than by both implementing the same rule.
+        """
+        for eol in ("\n", "\r\n"):
+            with self.subTest(eol=eol):
+                sites = self._scan(
+                    eol.join(
+                        [
+                            'TEST_CASE("x") {',
+                            "  /\\",
+                            "/ explain /*",
+                            "  REQUIRE(v.size() == 2);",
+                            "  CHECK(v[0] == 1);",
+                            "}",
+                            "",
+                        ]
+                    )
+                )
+                self.assertEqual(len(sites), 1)
+                self.assertEqual(sites[0][0], 4)
+
+    def test_a_block_comment_opener_formed_by_splicing_is_a_comment(self):
+        sites = self._scan(
+            'TEST_CASE("x") {\n'
+            "  /\\\n"
+            '* explain R"(\n'
+            "  still comment */\n"
+            "  REQUIRE(v.size() == 2);\n"
+            "  CHECK(v[0] == 1);\n"
+            "}\n"
+        )
+        self.assertEqual(len(sites), 1)
+        self.assertEqual(sites[0][0], 5)
+
+    def test_a_block_comment_closer_formed_by_splicing_ends_the_comment(self):
+        """`*` + splice + `/` closes the comment, so what follows is CODE.
+
+        Missing it kept the comment open and blanked the assertion and the index.
+        """
+        sites = self._scan(
+            'TEST_CASE("x") {\n'
+            "  /* explain *\\\n"
+            "/\n"
+            "  REQUIRE(v.size() == 2);\n"
+            "  CHECK(v[0] == 1);\n"
+            "}\n"
+        )
+        self.assertEqual(len(sites), 1)
+        self.assertEqual(sites[0][0], 4)
+
+    def test_a_raw_string_opener_formed_by_splicing_is_a_raw_string(self):
+        """`R` + splice + `"(` opens a raw string; its BODY must not read as code."""
+        source = (
+            'TEST_CASE("x") {\n'
+            "  const char *p = R\\\n"
+            '"(\n'
+            "  REQUIRE(inside.size() == 9);\n"
+            '  )";\n'
+            "  REQUIRE(v.size() == 2);\n"
+            "  CHECK(v[0] == 1);\n"
+            "}\n"
+        )
+        lexed = GUARD._blank_raw_strings("test_synthetic.h", source)
+        self.assertNotIn("inside.size()", lexed, "the raw body is not code")
+        self.assertEqual(len(lexed.split("\n")), len(source.split("\n")))
+        sites = self._scan(source)
+        self.assertEqual(len(sites), 1)
+        self.assertEqual(sites[0][0], 6)
+
+    def test_a_spliced_comment_does_not_invent_an_unterminated_raw_string(self):
+        """The other half of round 5: with no later `)"` the same misreading
+        REJECTED the file instead of blanking it. Both directions are wrong."""
+        sites = self._scan(
+            'TEST_CASE("x") {\n'
+            "  /\\\n"
+            '/ explain R"(\n'
+            "  REQUIRE(v.size() == 2);\n"
+            "  CHECK(v[0] == 1);\n"
+            "}\n"
+        )
+        self.assertEqual(len(sites), 1)
+
+    def test_unbalanced_assertion_parens_are_a_scan_error(self):
+        with self.assertRaises(GUARD.ScanError):
+            GUARD._size_assertions("REQUIRE(v.size() == 2;", "test_synthetic.h")
+
+    def test_scan_errors_fail_the_run_rather_than_reporting_clean(self):
+        found, errors = GUARD.scan_all_size_index()
+        self.assertEqual(errors, [], "the shipped corpus must scan cleanly")
+        self.assertTrue(found)
+
+
+class SizeIndexRatchet(unittest.TestCase):
+    """The baseline is shrink-only: an addition fails, and so does a stale entry."""
+
+    def _prints(self, body: str) -> list[str]:
+        source = 'TEST_CASE("[Synthetic] case") {\n' + body + "\n}\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "test_synthetic.h"
+            path.write_text(source, encoding="utf-8")
+            return sorted(
+                GUARD.size_index_fingerprint(site[1], site[2], site[3], site[5])
+                for site in GUARD._scan_file_size_index(path)
+            )
+
+    def test_swap_keeps_the_count_but_changes_the_fingerprints(self):
+        before = self._prints("  REQUIRE(alpha.size() == 2);\n  CHECK(alpha[0] == 1);")
+        after = self._prints("  REQUIRE(beta.size() == 2);\n  CHECK(beta[0] == 1);")
+        self.assertEqual(len(before), 1)
+        self.assertEqual(len(after), 1, "count is unchanged - this is the hole")
+        self.assertNotEqual(before, after)
+
+    def test_fingerprint_is_independent_of_line_number(self):
+        plain = self._prints("  REQUIRE(v.size() == 2);\n  CHECK(v[0] == 1);")
+        shifted = self._prints(
+            "  int filler = 0;\n  (void)filler;\n  REQUIRE(v.size() == 2);\n  CHECK(v[0] == 1);"
+        )
+        self.assertEqual(plain, shifted)
+
+    def test_a_second_index_under_the_same_assertion_is_a_new_fingerprint(self):
+        one = self._prints("  REQUIRE(v.size() == 2);\n  CHECK(v[0] == 1);")
+        two = self._prints("  REQUIRE(v.size() == 2);\n  CHECK(v[1] == 1);")
+        self.assertNotEqual(one, two, "hashing only the assertion would collapse these")
+
+    def test_a_new_site_is_reported_as_added_against_the_shipped_baseline(self):
+        baseline, _ = GUARD.load_size_index_baseline()
+        added = self._prints("  REQUIRE(brand_new_vec.size() == 9);\n  CHECK(brand_new_vec[0]);")
+        self.assertEqual(len(added), 1)
+        self.assertEqual(
+            GUARD._multiset_difference(added, baseline.get("test_synthetic.h", [])), added
+        )
+
+
+class SizeIndexBaselineIntegrity(unittest.TestCase):
+    def test_baseline_loads(self):
+        baseline, problems = GUARD.load_size_index_baseline()
+        self.assertEqual(problems, [])
+        self.assertTrue(baseline)
+
+    def test_baseline_entries_are_non_empty(self):
+        baseline, _ = GUARD.load_size_index_baseline()
+        for name, prints in baseline.items():
+            self.assertTrue(prints, f"{name}: an empty baseline entry should be removed")
+
+    def test_baseline_matches_the_corpus(self):
+        prints, errors = GUARD.scan_size_index_fingerprints()
+        self.assertEqual(errors, [])
+        baseline, _ = GUARD.load_size_index_baseline()
+        self.assertEqual(
+            prints, baseline, "baseline has drifted from the corpus; run the guard for the diff."
+        )
+
+    def test_missing_baseline_file_is_a_failure_not_a_pass(self):
+        original = GUARD.SIZE_INDEX_BASELINE_PATH
+        try:
+            GUARD.SIZE_INDEX_BASELINE_PATH = original.with_name("does_not_exist.json")
+            _, problems = GUARD.load_size_index_baseline()
+            self.assertTrue(problems)
+        finally:
+            GUARD.SIZE_INDEX_BASELINE_PATH = original
+
+    def test_the_count_reconciles_with_issue_844(self):
+        """#844's sweep: 46 dangerous, 4 fixed by #843 -> 42 remaining.
+
+        This detector reports 50 = 43 straight-line + 7 bounded only by ANOTHER
+        container's size(). See the guard's docstring for the +1/+7 reconciliation;
+        pinned here so the split cannot drift without someone re-deciding it.
+        """
+        found, errors = GUARD.scan_all_size_index()
+        self.assertEqual(errors, [])
+        sites = [site for file_sites in found.values() for site in file_sites]
+        straight = [s for s in sites if s[6] == GUARD._CLASS_STRAIGHT_LINE]
+        other = [s for s in sites if s[6] == GUARD._CLASS_OTHER_BOUND]
+        under = [s for s in sites if s[6] == GUARD._CLASS_UNDER_BOUND]
+        self.assertEqual(len(straight), 43)
+        self.assertEqual(len(other), 7)
+        # Round 6's population is EMPTY on this corpus, and pinned at zero so that
+        # a site whose guard proves too small a bound cannot appear unremarked.
+        self.assertEqual(len(under), 0)
+        self.assertEqual(len(sites), 50)
+
+    def test_the_named_concentrations_in_issue_844_reconcile_exactly(self):
+        """#844 names three files by count. All three match the straight-line
+        population, which is the evidence that this is the same set of sites and
+        not a different set of similar size."""
+        found, _ = GUARD.scan_all_size_index()
+        expected = {
+            "test_renderer_pipeline.h": 7,
+            "test_resident_atlas_budget.h": 7,
+            "test_gaussian_importance.h": 5,
+        }
+        for name, count in expected.items():
+            straight = [
+                s for s in found.get(name, []) if s[6] == GUARD._CLASS_STRAIGHT_LINE
+            ]
+            self.assertEqual(len(straight), count, name)
+
+
+class DoWhileTerminatorIsNotALoopHead(SizeIndexScanTestCase):
+    """`} while (cond);` ends a loop; it does not start one (#849 round 9).
+
+    Atomisation splits the terminator into `"}"` and `while (...);`, and the
+    `while` was read as a brace-less loop HEAD, so its condition was stored as the
+    `pending` frame and bounded the NEXT statement. With an actual size of 1 the
+    assertion fails, the loop exits, and the subscript aborts the process - while
+    the nonexistent `while` body's bound suppressed the report.
+    """
+
+    def test_do_while_bound_does_not_reach_the_following_statement(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  do {\n"
+            "    consume(v);\n"
+            "  } while (v.size() >= 2);\n"
+            "  CHECK(v[1]);",
+            "v",
+        )
+
+    def test_the_do_may_be_above_the_assertion_and_therefore_invisible(self):
+        """The scan starts at the assertion, so the matching `do` is often not in
+        the window at all. The terminator is recognised by SHAPE for that reason."""
+        self.assertSized(
+            "  do {\n"
+            "    REQUIRE(v.size() == 3);\n"
+            "    consume(v);\n"
+            "  } while (v.size() >= 2);\n"
+            "  CHECK(v[1]);",
+            "v",
+        )
+
+    def test_a_deliberately_empty_body_bounds_nothing_after_it(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n  while (v.size() >= 2);\n  CHECK(v[1]);", "v"
+        )
+
+    def test_a_real_block_body_is_still_bounded_by_its_header(self):
+        """The fix must not turn every loop into a reported site."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n"
+            "    CHECK(v[i]);\n"
+            "  }"
+        )
+
+    def test_a_do_body_is_still_scanned(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n  do {\n    CHECK(v[1]);\n  } while (again());",
+            "v",
+        )
+
+    def test_the_terminator_condition_is_itself_judged(self):
+        """`} while (v[5] > 0);` evaluates the subscript; it is not a header whose
+        body might be guarded, so it must be reported like any other statement."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n  do {\n    step();\n  } while (v[5] > 0);", "v"
+        )
+
+    def test_layout_does_not_change_the_verdict(self):
+        """Same code, terminator compacted onto the body's line."""
+        compact = self.sites(
+            "  REQUIRE(v.size() == 3);\n  do { consume(v); } while (v.size() >= 2);\n  CHECK(v[1]);"
+        )
+        self.assertEqual(len(compact), 1, compact)
+
+
+class LayoutInvarianceOverTheRealCorpus(unittest.TestCase):
+    """Un-brace the real corpus and both detectors must not notice (#849 round 10).
+
+    The synthetic cases below pin the SHAPES. This pins the PROPERTY they are all
+    instances of, over real code rather than over examples: removing the braces
+    from a single-statement body is a reformat that changes no semantics, so it
+    must change no verdict. Rounds 5, 8, 9 and 10 were each a way of failing that.
+
+    Measured against HEAD when this was written: on the shipped corpus the rewrite
+    collapses 1136 real bodies, and the round-9 guard's answer moves on 18 detector-2
+    entries and 6 detector-1 entries - including reporting a bounded
+    `for (i < a.size()) CHECK(a[i] == b[i]);` as unbounded and, because the scan
+    reports the FIRST unbounded index, thereby MISSING the real `CHECK(a[0] == 1u)`
+    that follows it (`test_gaussian_importance.h:47-54`). This test is zero for the
+    guard in this file. It is the corpus-wide form of "a frame is applied only to
+    statements in its scope", which is otherwise an argument.
+    """
+
+    HEAD_RE = re.compile(r"^(\s*)((?:\}\s*)?(?:else\s+if|if|for|while)\s*\(.*\))\s*\{\s*$")
+
+    @classmethod
+    def _unbrace(cls, text: str) -> tuple[str, int]:
+        """`H (c) {\\n s;\\n }` -> `H (c) s;`. Deliberately conservative: one
+        statement, no braces of its own, `}` alone on its line, no `else` after."""
+        lines = text.splitlines()
+        out: list[str] = []
+        index = 0
+        collapsed = 0
+        while index < len(lines):
+            head = cls.HEAD_RE.match(lines[index])
+            body = lines[index + 1] if index + 1 < len(lines) else ""
+            closer = lines[index + 2].strip() if index + 2 < len(lines) else ""
+            following = lines[index + 3].strip() if index + 3 < len(lines) else ""
+            if (
+                head
+                and body.strip().endswith(";")
+                and "{" not in body
+                and "}" not in body
+                and closer == "}"
+                and not following.startswith("else")
+            ):
+                out.append(f"{head.group(1)}{head.group(2)} {body.strip()}")
+                index += 3
+                collapsed += 1
+                continue
+            out.append(lines[index])
+            index += 1
+        return "\n".join(out) + "\n", collapsed
+
+    def test_unbracing_the_corpus_changes_no_verdict(self):
+        collapsed_total = 0
+        braced2: list = []
+        braced1: list = []
+        unbraced2: list = []
+        unbraced1: list = []
+        with tempfile.TemporaryDirectory() as tmp:
+            for path in GUARD._test_sources():
+                text = GUARD._read_source(path)
+                rewritten, collapsed = self._unbrace(text)
+                if not collapsed:
+                    continue
+                collapsed_total += collapsed
+                for label, source, sink2, sink1 in (
+                    ("braced", text, braced2, braced1),
+                    ("unbraced", rewritten, unbraced2, unbraced1),
+                ):
+                    target = Path(tmp) / f"{label}_{path.name}"
+                    target.write_text(source, encoding="utf-8", newline="")
+                    sink2 += [
+                        (path.name, s[1], s[2], s[3], s[5], s[6])
+                        for s in GUARD._scan_file_size_index(target)
+                    ]
+                    sink1 += [
+                        (path.name, s[1], s[2], s[3]) for s in GUARD._scan_file(target)
+                    ]
+        self.assertGreater(collapsed_total, 100, "the rewrite did not fire enough to mean anything")
+        self.assertGreater(len(braced2), 0, "no detector-2 site in the rewritten file set")
+        self.assertGreater(len(braced1), 0, "no detector-1 site in the rewritten file set")
+        self.assertEqual(sorted(unbraced2), sorted(braced2), "detector 2 is layout-dependent")
+        self.assertEqual(sorted(unbraced1), sorted(braced1), "detector 1 is layout-dependent")
+
+
+class BracelessBodyEndsWithItsBody(SizeIndexScanTestCase):
+    """A brace-less body is ONE statement, and the frame ends there (#849 round 10).
+
+    Third instance of one mechanism. Rounds 8, 9 and 10 all found a frame applied
+    to a statement outside its scope, and all three arrived through `pending` - the
+    one-slot lookahead that means "the body of this header is the next atom":
+
+    * round 8 - a trailing `}` shared the last body statement's line, so the block
+      frame was never popped and leaked past the block;
+    * round 9 - a `do … while (c);` TERMINATOR read as a brace-less loop head, so a
+      body that does not exist bounded the next statement;
+    * round 10 - a brace-less body INSIDE the atom, so the condition's frame went
+      to `pending` and bounded the statement after the branch, while the body it
+      was supposed to guard was judged against the enclosing bound instead.
+
+    All three are one defect: a frame whose scope was inferred from surface syntax
+    rather than from structure. The repair is structural rather than a fourth
+    special case - `_statement_atoms` now splits a brace-less body off its header,
+    so the atom no longer contains its body and `pending` cannot mis-attribute it.
+    `StatementAtomsAreTotal.test_no_atom_that_creates_a_pending_frame_carries_its_own_body`
+    is what holds that down: it is checked over the corpus rather than argued.
+
+    The corpus contains 36 inline brace-less bodies (24 distinct, 10 files) and
+    NONE of them is inside a cardinality-assertion window today, so this fix moves
+    no baseline. The syntax is ordinary C++ though - `if (c) return;` is 11 of the
+    24 - so the silence is one ordinary edit away, which is why the shapes below
+    are pinned rather than left to a follow-up.
+    """
+
+    def test_the_reported_shape_is_a_site(self):
+        """Codex, PR #849 round 10. At a real length of 1 the assertion fails, the
+        branch is SKIPPED, and `v[1]` aborts the batch."""
+        for eol in ("\n", "\r\n"):
+            with self.subTest(eol=eol):
+                self.assertSized(
+                    (
+                        "  REQUIRE(v.size() == 3);\n"
+                        "  if (v.size() >= 2) consume(v);\n"
+                        "  CHECK(v[1]);"
+                    ).replace("\n", eol),
+                    "v",
+                )
+
+    def test_the_body_may_be_on_its_own_line(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  if (v.size() >= 2)\n"
+            "    consume(v);\n"
+            "  CHECK(v[1]);",
+            "v",
+        )
+
+    def test_a_braceless_loop_bound_also_ends_at_its_body(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n  while (v.size() >= 2) step(v);\n  CHECK(v[1]);", "v"
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) consume(v);\n"
+            "  CHECK(v[1]);",
+            "v",
+        )
+
+    def test_a_nested_braceless_body_is_still_scoped(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  if (ok()) if (v.size() >= 2) consume(v);\n"
+            "  CHECK(v[1]);",
+            "v",
+        )
+
+    def test_the_body_itself_is_judged_UNDER_the_frame(self):
+        """The other half of the same defect: the atom carried its body into the
+        header test, where the header's own bound deliberately does not apply, so a
+        branch that IS guarded was reported."""
+        self.assertNotSized("  REQUIRE(v.size() == 3);\n  if (v.size() >= 2) CHECK(v[1]);")
+
+    def test_an_index_the_frame_does_not_reach_is_still_reported(self):
+        """The fix must not become a blanket suppressor: `v.size() >= 2` proves
+        nothing about `v[5]`."""
+        self.assertSized("  REQUIRE(v.size() == 3);\n  if (v.size() >= 2) CHECK(v[5]);", "v")
+
+    BODIES = (
+        ("consume(v);", "CHECK(v[1]);"),
+        ("CHECK(v[1]);", "consume(v);"),
+        ("CHECK(v[5]);", "consume(v);"),
+        ("step(v);", "CHECK(v[0]);"),
+    )
+
+    def test_braced_and_braceless_spellings_agree(self):
+        """The property the three rounds were each a violation of: LAYOUT does not
+        change the verdict. Compared on everything but the line number."""
+        for body, after in self.BODIES:
+            for head in ("if (v.size() >= 2)", "while (v.size() >= 2)", "for (uint32_t i = 0; i < v.size(); i++)"):
+                with self.subTest(head=head, body=body):
+                    prefix = f"  REQUIRE(v.size() == 3);\n  {head} "
+                    braced = self.sites(f"{prefix}{{ {body} }}\n  {after}")
+                    braceless = self.sites(f"{prefix}{body}\n  {after}")
+                    self.assertEqual(
+                        [(s[1], s[5], s[6]) for s in braced],
+                        [(s[1], s[5], s[6]) for s in braceless],
+                    )
+
+    def test_a_braceless_do_body_is_scanned_like_a_braced_one(self):
+        """A `do` body runs whatever the condition says, so the round-9 rule that a
+        `do` TERMINATOR bounds nothing must still leave the site reported - and the
+        body's own statements must be reached, which they are not while the body is
+        glued to the keyword."""
+        braceless = self.sites(
+            "  REQUIRE(v.size() == 3);\n  do consume(v); while (v.size() >= 2);\n  CHECK(v[1]);"
+        )
+        braced = self.sites(
+            "  REQUIRE(v.size() == 3);\n  do { consume(v); } while (v.size() >= 2);\n  CHECK(v[1]);"
+        )
+        self.assertEqual(len(braceless), 1, braceless)
+        self.assertEqual(
+            [(s[1], s[5], s[6]) for s in braceless], [(s[1], s[5], s[6]) for s in braced]
+        )
+
+    def test_a_conditional_return_does_not_end_the_scan(self):
+        """`if (skip()) return;` is 11 of the corpus's 24 inline bodies. Splitting
+        the body off must not turn it into an unconditional `return`, which would
+        make the scan stop and the site vanish - the fail-OPEN direction."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n  if (skip()) return;\n  CHECK(v[1]);", "v"
+        )
+
+    def test_an_unconditional_return_still_ends_the_scan(self):
+        self.assertNotSized("  REQUIRE(v.size() == 3);\n  return;\n  CHECK(v[1]);")
+
+    def test_a_body_that_really_is_the_next_atom_still_gets_the_frame(self):
+        """`pending`'s genuine case, which the split must leave working: a header
+        whose atom ends without a body because the body is a later statement."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  if (v.size() >= 2)\n"
+            "    for (uint32_t i = 0; i < 3; i++)\n"
+            "      CHECK(v[1]);"
+        )
+
+    def test_detector_one_reads_the_same_atoms(self):
+        """One decomposition, both detectors. Detector 1's documented rule is that
+        a control-flow statement guards its BODY and it therefore stops at one - and
+        for a brace-less body it was breaking that rule in the reporting direction,
+        flagging `if (ptr) ptr->method();`, the shape where the deref is guarded by
+        the very null check the guard is looking for."""
+        for eol in ("\n", "\r\n"):
+            with self.subTest(eol=eol):
+                braceless = self.null_deref_sites(
+                    "  REQUIRE(ptr != nullptr);\n  if (ptr) ptr->method();".replace("\n", eol)
+                )
+                braced = self.null_deref_sites(
+                    "  REQUIRE(ptr != nullptr);\n  if (ptr) { ptr->method(); }".replace("\n", eol)
+                )
+                self.assertEqual(braceless, [])
+                self.assertEqual([v[1:] for v in braceless], [v[1:] for v in braced])
+
+    def test_a_deref_in_the_header_is_still_flagged(self):
+        """Non-inertness for detector 1: the header is evaluated before anything can
+        guard it, so a deref THERE must still report."""
+        self.assertEqual(
+            len(self.null_deref_sites("  REQUIRE(ptr != nullptr);\n  if (ptr->ready()) use();")),
+            1,
+        )
+
+    def test_the_walker_fails_closed_if_the_decomposition_regresses(self):
+        """The backstop, exercised rather than asserted in prose.
+
+        `_first_unbounded_index` refuses to put a frame in `pending` when the atom
+        it came from carries its own body. That branch is unreachable while
+        `_statement_atoms` splits, so it is checked by REMOVING the split: with the
+        decomposition regressed to its round-9 behaviour, the walker must still
+        report the shape rather than suppress it. Delete the branch and this test
+        goes silent exactly the way the guard did.
+        """
+        original = GUARD._inline_pieces
+
+        def without_the_braceless_split(statement: str) -> list[str]:
+            pieces = original(statement)
+            if len(pieces) > 1 and not pieces[0].rstrip().endswith("{"):
+                return [statement]
+            return pieces
+
+        with mock.patch.object(GUARD, "_inline_pieces", without_the_braceless_split):
+            self.assertEqual(
+                GUARD._statement_atoms("if (v.size() >= 2) consume(v);"),
+                ["if (v.size() >= 2) consume(v);"],
+                "the regression harness did not actually regress the split",
+            )
+            self.assertSized(
+                "  REQUIRE(v.size() == 3);\n"
+                "  if (v.size() >= 2) consume(v);\n"
+                "  CHECK(v[1]);",
+                "v",
+            )
+
+
+class AssertionVocabularyIsDerived(SizeIndexScanTestCase):
+    """One derivation decides what a NAME means AND whether it is accepted (round 9).
+
+    Round 8 derived doctest's macro family for its NEGATION and RELATION
+    semantics, and then left a separate hard-coded head regex deciding, before the
+    family was ever consulted, which names got to reach it. That is a second source
+    of truth, and it was wrong in two directions at once: it rejected doctest's own
+    `DOCTEST_*` spellings, and - in detector 1 - it rejected every `CHECK`/`WARN`
+    spelling of a null-ish assertion, hiding 18 real corpus sites.
+    """
+
+    def test_the_prefixed_spelling_is_the_same_macro(self):
+        self.assertSized("  DOCTEST_REQUIRE(v.size() == 2);\n  CHECK(v[0]);", "v")
+        self.assertSized("  DOCTEST_CHECK(v.size() == 2);\n  CHECK(v[0]);", "v")
+
+    def test_the_prefixed_spelling_keeps_its_negation(self):
+        """Derived, not spelled: `DOCTEST_REQUIRE_FALSE(v.size() == 0)` is the lower
+        bound `size() != 0`, and `DOCTEST_REQUIRE_FALSE(v.size())` asserts EMPTY."""
+        self.assertSized("  DOCTEST_REQUIRE_FALSE(v.size() == 0);\n  CHECK(v[0]);", "v")
+        self.assertNotSized("  DOCTEST_REQUIRE_FALSE(v.size());\n  CHECK(v[0]);")
+
+    def test_the_WARN_family_is_scanned(self):
+        """Retires blind spot 7. `WARN` reports and continues exactly like `CHECK`,
+        so a short container runs into the same aborting index."""
+        self.assertSized("  WARN(v.size() == 2);\n  CHECK(v[0]);", "v")
+        self.assertSized("  WARN_FALSE(v.is_empty());\n  CHECK(v[0]);", "v")
+
+    def test_godots_WARN_PRINT_is_not_an_assertion(self):
+        """An EXACT derived name set is what a `WARN\\w*` prefix could not express.
+        `WARN_PRINT` is Godot's, not doctest's, and reading it as an assertion would
+        invent a bound nobody wrote."""
+        self.assertIsNone(
+            GUARD._assertion_vocabulary().size_head.match('WARN_PRINT("v.size() == 2");')
+        )
+        self.assertNotSized('  WARN_PRINT("short");\n  CHECK(v[0]);')
+
+    def test_project_local_wrappers_still_reach_the_scan(self):
+        """The derived half is a union member, not a replacement: `test_macros.h`
+        wrappers must keep being scanned and read as plain."""
+        self.assertSized("  CHECK_SIZES_EQ(v.size(), 0);\n  CHECK(v[0]);", "v")
+        self.assertIsNotNone(
+            GUARD._assertion_vocabulary().size_head.match("REQUIRE_GPU_DEVICE();")
+        )
+
+    def test_the_accepted_set_covers_the_whole_derived_family(self):
+        """The property, not a list of names: every macro doctest defines is
+        accepted as an assertion head. A future hand-written restriction fails
+        here rather than waiting for a review round."""
+        head = GUARD._assertion_vocabulary().size_head
+        for name in GUARD._doctest_assert_macros():
+            self.assertIsNotNone(head.match(f"{name}(v.size() == 2)"), name)
+            self.assertIsNotNone(
+                GUARD._assertion_vocabulary().scan_through.match(f"{name}(x);"), name
+            )
+
+    def test_the_macro_name_reported_is_the_one_written(self):
+        site = self.sites("  DOCTEST_CHECK(v.size() == 2);\n  CHECK(v[0]);")
+        self.assertEqual([s[2] for s in site], ["DOCTEST_CHECK"])
+
+
+class NullDerefVocabularyIsDerived(ScanTestCase):
+    """Detector 1's accepted heads are derived too - the THIRD spelling site.
+
+    `CHECK` is not the weaker case: it never aborts under ANY doctest
+    configuration, where `REQUIRE` merely does not abort in this build. Detector 1
+    spelled `REQUIRE` and its suffixes by hand and so could not see any of it. The
+    18 sites this exposed in the corpus are enumerated in the baseline.
+    """
+
+    def test_check_null_then_deref_is_a_site(self):
+        self.assertFlagged("  CHECK(ptr != nullptr);\n  ptr->method();", "ptr")
+
+    def test_check_message_is_valid_then_deref_is_a_site(self):
+        self.assertFlagged(
+            '  CHECK_MESSAGE(ref.is_valid(), "needed");\n  ref->f();', "ref"
+        )
+
+    def test_check_false_is_null_then_deref_is_a_site(self):
+        self.assertFlagged("  CHECK_FALSE(ref.is_null());\n  ref->f();", "ref")
+
+    def test_check_ne_nullptr_then_deref_is_a_site(self):
+        self.assertFlagged("  CHECK_NE(ptr, nullptr);\n  ptr->method();", "ptr")
+
+    def test_warn_null_then_deref_is_a_site(self):
+        self.assertFlagged("  WARN(ptr != nullptr);\n  ptr->method();", "ptr")
+
+    def test_prefixed_and_fast_spellings_are_the_same_macros(self):
+        self.assertFlagged("  DOCTEST_REQUIRE(ptr != nullptr);\n  ptr->method();", "ptr")
+        self.assertFlagged("  FAST_CHECK_UNARY(ref.is_valid());\n  ref->f();", "ref")
+
+    def test_a_relational_macro_that_is_not_NE_is_not_a_null_guard(self):
+        """`CHECK_EQ(ptr, nullptr)` asserts the pointer IS null. Reading it as a
+        guard would name the wrong assertion on a real crash."""
+        self.assertClean("  CHECK_EQ(ptr, nullptr);\n  ptr->method();")
+        self.assertClean("  CHECK_LT(ptr, nullptr);\n  ptr->method();")
+
+    def test_godots_WARN_PRINT_is_not_a_null_guard(self):
+        self.assertClean('  WARN_PRINT("ptr != nullptr");\n  ptr->method();')
+
+
+class OneSourceOfTruthForAssertionNames(unittest.TestCase):
+    """No fifth hand-written spelling may be added (round 9).
+
+    Rounds 1, 8 and 9 all produced a finding of the same shape - an external
+    vocabulary spelled by hand - and round 8's structural claim failed precisely
+    because deriving the family did not stop a second spelling from gating it.
+    So the invariant is machine-checked over this file's own source rather than
+    asserted in prose: every regex that names a doctest macro lives inside
+    `_assertion_vocabulary`.
+    """
+
+    def _module_source(self) -> str:
+        return (CI_DIR / "check_require_null_deref.py").read_text(encoding="utf-8")
+
+    def test_every_macro_naming_regex_lives_in_the_vocabulary(self):
+        import ast
+
+        source = self._module_source()
+        tree = ast.parse(source)
+        vocabulary = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "_assertion_vocabulary"
+        )
+        offenders = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            target = node.func
+            if not (isinstance(target, ast.Attribute) and target.attr == "compile"):
+                continue
+            text = ast.get_source_segment(source, node) or ""
+            if "REQUIRE" not in text and "CHECK" not in text:
+                continue
+            if vocabulary.lineno <= node.lineno <= (vocabulary.end_lineno or 0):
+                continue
+            offenders.append((node.lineno, text.splitlines()[0]))
+        self.assertEqual(
+            offenders,
+            [],
+            "a doctest macro name is spelled outside _assertion_vocabulary - that is "
+            "the second source of truth #849 round 9 was about",
+        )
+
+    def test_an_empty_semantic_bucket_fails_closed(self):
+        """Deriving no negating macro must be a ScanError, not 'there are none'."""
+        with self.assertRaises(GUARD.ScanError):
+            GUARD._macro_alternation(lambda semantics: False, "impossible")
 
 
 class BaselineIntegrity(unittest.TestCase):
