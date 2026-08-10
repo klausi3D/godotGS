@@ -221,14 +221,42 @@ declares fails, naming the newcomer; an entry matching **fewer** fails with an
 instruction to lower the count so the slack cannot be reoccupied. The list can
 neither rot into a permanent amnesty nor quietly widen.
 
+### Strict-coverage contracts - a promotion cannot quietly unwind (#846)
+
+Reaching *a* lane is not the same as reaching a lane that can fail CI. Promoting
+a corpus out of the advisory `[untagged]` safety net takes **two** coupled edits
+in `run_module_tests.py` - the tag joins `HEADLESS_GAUSSIAN_SCOPED_TAGS`, and a
+`strict=True` lane joins `MODULE_TEST_FILTERS`. Undo **both** and every case
+falls back to the advisory net; retag **some** of the cases and those fall back
+while the strict lane stays green and non-empty. Neither shape strands anything,
+so neither is caught by the check above.
+
+`STRICT_COVERAGE_CONTRACTS` in `check_test_lane_coverage.py` gates the property
+directly: for each declared corpus - named by its source file(s) **and** by a tag
+pattern - every case must be executed by at least one lane whose `strict` flag is
+true. The cases are derived from the sources and the lanes from
+`MODULE_TEST_FILTERS`, so no case list or lane list is maintained by hand; the
+only thing written down is which corpora are load-bearing, which is exactly the
+fact a tree that has already lost the lane can no longer tell you.
+
+Both keys must match at least one case **on their own**. That is deliberate: a
+contract whose file was renamed, or whose tag was misspelled, would otherwise
+enumerate nothing, find nothing uncovered, and pass. An empty
+`STRICT_COVERAGE_CONTRACTS` fails for the same reason. Measured on PR #850, all
+four undo shapes are red - deleting both halves (11 uncovered), retagging four
+cases (4 uncovered, in either the new-tag or dropped-tag form), and flipping the
+lane's `strict` flag to `False` (11 uncovered) - while all four are green without
+the contract.
+
 ### What the guard does not check
 
-It does not fail on cases that reach only a **non-strict** lane. 416 of 756
-registered cases reach no strict module lane and no GPU batch, most of them
-legitimately (GPU harness, advisory safety nets). Gating that today would demand
-hundreds of declarations, turning this manifest into the rubber stamp it exists
-to prevent. The number is printed on every run so it stays visible and can be
-ratcheted deliberately.
+It does not fail on cases outside a strict-coverage contract that reach only a
+**non-strict** lane. 381 of 856 registered cases reach no strict module lane and
+no GPU batch, most of them legitimately (GPU harness, advisory safety nets).
+Gating that globally would demand hundreds of declarations, turning this manifest
+into the rubber stamp it exists to prevent. The number is printed on every run so
+it stays visible, and the contracts above are how it is ratcheted deliberately,
+one corpus at a time.
 
 It also does not detect a case that matches a lane and then early-returns past
 every assertion. That is vacuity, not stranding - a different defect that no lane
