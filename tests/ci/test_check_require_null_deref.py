@@ -1615,6 +1615,402 @@ class SizeThenIndexSameLineBlockBodies(SizeIndexScanTestCase):
         )
 
 
+class NullDerefLayoutInvariance(ScanTestCase):
+    """Detector 1 reads the same atoms detector 2 does (round 8).
+
+    `_scan_forward` stops at a block boundary on purpose - it cannot tell what a
+    body's condition guarantees. But `_CONTROL_FLOW_RE` is a PREFIX test, and
+    `_statements()` emits groups, so a block whose close shares its last
+    statement's line (`use(); }`) did not read as a boundary and the scan walked
+    out into the enclosing scope - reaching a verdict the fully expanded spelling
+    of the same code never reaches. Layout must not change the verdict, in either
+    detector.
+    """
+
+    ONE_LINE_CLOSE = (
+        "  if (flag) {\n    REQUIRE(ptr != nullptr);\n    use(); }\n  ptr->f();"
+    )
+    EXPANDED = (
+        "  if (flag) {\n    REQUIRE(ptr != nullptr);\n    use();\n  }\n  ptr->f();"
+    )
+
+    def test_a_block_close_sharing_a_statements_line_still_ends_the_scan(self):
+        for eol in ("\n", "\r\n"):
+            with self.subTest(eol=eol):
+                compact = [v[1:] for v in self.scan(self.ONE_LINE_CLOSE.replace("\n", eol))]
+                expanded = [v[1:] for v in self.scan(self.EXPANDED.replace("\n", eol))]
+                self.assertEqual(compact, expanded)
+
+    def test_a_deref_still_inside_the_block_is_flagged_either_way(self):
+        """The scan must not become inert: the shape it exists for still reports."""
+        self.assertFlagged(
+            "  if (flag) {\n    REQUIRE(ptr != nullptr);\n    ptr->f(); }", "ptr"
+        )
+
+
+class StatementAtomsAreTotal(unittest.TestCase):
+    """`_statement_atoms` must leave nothing for a consumer to re-parse (round 8).
+
+    Rounds 5 and 8 are the same defect twice: `_statements()` emits a line-oriented
+    GROUP, a consumer re-parsed it with a prefix or suffix test, and the test did
+    not cover one layout - a body sharing its header's line (round 5), then a
+    closing brace sharing the body's last statement's line (round 8). Both went
+    SILENT over a live crash.
+
+    A third rule would have been a third guess. What is pinned instead is a
+    PROPERTY, checked over every group the real corpus produces: decomposition is
+    IDEMPOTENT. If `_statement_atoms(atom) != [atom]` for any atom, there is still
+    something splittable in what a consumer is being handed, and that is the
+    precondition for the next instance of this class. A list of layouts would have
+    to be extended for a layout nobody thought of; this property does not.
+    """
+
+    def test_decomposition_is_idempotent_over_the_real_corpus(self):
+        examined = 0
+        for path in GUARD._test_sources():
+            lines = GUARD._strip_comments(GUARD._read_source(path)).splitlines()
+            for index in range(len(lines)):
+                logical, last = GUARD._logical_line(lines, index)
+                groups = list(GUARD._line_fragments(logical))
+                groups += [text for _line, text in GUARD._statements(lines, last + 1, 6)]
+                for group in groups:
+                    for atom in GUARD._statement_atoms(group):
+                        examined += 1
+                        self.assertEqual(
+                            GUARD._statement_atoms(atom),
+                            [atom],
+                            f"{path.name}: atom {atom!r} is still splittable",
+                        )
+        self.assertGreater(examined, 10000, "the corpus sweep examined too little to mean anything")
+
+    def test_a_closing_brace_is_its_own_atom(self):
+        self.assertEqual(GUARD._statement_atoms("CHECK(v[0]); }"), ["CHECK(v[0]);", "}"])
+
+    def test_a_block_open_is_its_own_atom(self):
+        self.assertEqual(GUARD._statement_atoms("if (a) {"), ["if (a) {"])
+
+    def test_compacted_statements_split(self):
+        self.assertEqual(GUARD._statement_atoms("a(); b();"), ["a();", "b();"])
+
+    def test_a_balanced_initializer_is_not_split(self):
+        self.assertEqual(
+            GUARD._statement_atoms("Vector<int> t = { 1, 2 };"), ["Vector<int> t = { 1, 2 };"]
+        )
+
+    def test_a_for_header_semicolon_is_not_a_statement_boundary(self):
+        self.assertEqual(
+            GUARD._statement_atoms("for (int i = 0; i < n; i++) {"),
+            ["for (int i = 0; i < n; i++) {"],
+        )
+
+
+class SizeThenIndexTrailingBlockClose(SizeIndexScanTestCase):
+    """A `}` sharing the body's last statement's line still closes the block (round 8).
+
+    `_statements()` emits `CHECK(v[0]); }` as one group, which does not START with
+    `}`, so the block frame was never popped and the header's bound leaked onto
+    every statement after the block:
+
+        REQUIRE(v.size() == 3);
+        if (v.size() >= 2) {
+            CHECK(v[0]); }
+        CHECK(v[1]);          // reported CLEAN on the `>= 2` bound that had ended
+
+    An actual length of 1 fails the assertion, skips the branch, and aborts the
+    process at `v[1]` (Codex, PR #849 round 8).
+    """
+
+    LEAKED = (
+        "  REQUIRE(v.size() == 3);\n"
+        "  if (v.size() >= 2) {\n"
+        "    CHECK(v[0] == 1); }\n"
+        "  CHECK(v[1] == 2);"
+    )
+    EXPANDED = (
+        "  REQUIRE(v.size() == 3);\n"
+        "  if (v.size() >= 2) {\n"
+        "    CHECK(v[0] == 1);\n"
+        "  }\n"
+        "  CHECK(v[1] == 2);"
+    )
+
+    def test_the_bound_expires_at_a_trailing_brace(self):
+        for eol in ("\n", "\r\n"):
+            with self.subTest(eol=eol):
+                self.assertSized(self.LEAKED.replace("\n", eol), "v")
+
+    def test_the_verdict_matches_the_fully_expanded_spelling(self):
+        leaked = self.sites(self.LEAKED)
+        expanded = self.sites(self.EXPANDED)
+        self.assertEqual(len(leaked), len(expanded), "layout must not change the verdict")
+        self.assertEqual(leaked[0][1:4], expanded[0][1:4])
+        self.assertEqual(leaked[0][5], expanded[0][5])
+        self.assertEqual(leaked[0][6], expanded[0][6])
+
+    def test_the_bound_still_covers_the_body(self):
+        """The sound transfer must survive: inside the block, `v[0]` IS proven."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  if (v.size() >= 2) {\n"
+            "    CHECK(v[0] == 1); }"
+        )
+
+    def test_a_whole_block_closed_on_one_line_pops_once(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) { use(i); }\n"
+            "  CHECK(v[1]);",
+            "v",
+        )
+
+    def test_a_nested_block_closed_on_its_last_statement_pops_both(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 4);\n"
+            "  if (a) {\n"
+            "    if (v.size() >= 3) {\n"
+            "      use(); } }\n"
+            "  CHECK(v[2]);",
+            "v",
+        )
+
+    def test_an_initializer_ending_the_line_does_not_pop(self):
+        """`};` closes an aggregate initializer, not the enclosing block. Popping on
+        it would end the loop's bound early and REPORT a proven-safe subscript."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n"
+            "    Vector<int> t = { 1, 2 };\n"
+            "    CHECK(v[i]);\n"
+            "  }"
+        )
+
+
+class SizeThenIndexGroupingParentheses(SizeIndexScanTestCase):
+    """A grouping pair is not a nesting level (Codex, PR #849 round 8).
+
+    `_size_assertions` required the cardinality call at parenthesis DEPTH 0 inside
+    the macro, to reject `REQUIRE(out.resize(g.size()) == OK)` - which constrains
+    the resize result, not `g`. But a depth test cannot tell an argument from a
+    grouping pair, so the harmless `REQUIRE((v.size() == 2))` was read as an
+    assertion with no size predicate and the `v[0]` after it was not a site.
+
+    The distinction is pinned BOTH ways here: grouping must be peeled, a call must
+    still be rejected.
+    """
+
+    def test_a_grouped_predicate_is_still_an_assertion(self):
+        for eol in ("\n", "\r\n"):
+            with self.subTest(eol=eol):
+                self.assertSized(
+                    "  REQUIRE((v.size() == 2));\n  CHECK(v[0] == 1);".replace("\n", eol), "v"
+                )
+
+    def test_repeated_grouping_is_peeled(self):
+        self.assertSized("  REQUIRE(((v.size() == 2)));\n  CHECK(v[0] == 1);", "v")
+
+    def test_a_grouped_negated_emptiness_is_still_an_assertion(self):
+        self.assertSized("  REQUIRE((!v.is_empty()));\n  CHECK(v[0] == 1);", "v")
+
+    def test_a_size_handed_to_another_call_is_still_rejected(self):
+        self.assertNotSized("  REQUIRE(f(v.size()) == 2);\n  CHECK(v[0] == 1);")
+
+    def test_a_resize_argument_is_still_rejected(self):
+        """The shape the depth test existed for: the assertion constrains the
+        resize RESULT and says nothing about `v`."""
+        self.assertNotSized("  REQUIRE(out.resize(v.size()) == OK);\n  CHECK(v[0] == 1);")
+
+    def test_a_size_inside_a_grouped_call_argument_is_still_rejected(self):
+        self.assertNotSized("  REQUIRE((f(v.size()) == 2));\n  CHECK(v[0] == 1);")
+
+    def test_a_subscripted_size_is_still_rejected(self):
+        self.assertNotSized("  REQUIRE(table[v.size()] == 2);\n  CHECK(v[0] == 1);")
+
+    def test_a_grouped_disjunct_reports_rather_than_going_silent(self):
+        """`REQUIRE(a || (v.size() == 2))` asserts no bound on `v` at all - which is
+        the REPORTING direction for an assertion, not a reason to stay quiet."""
+        self.assertSized("  REQUIRE(a || (v.size() == 2));\n  CHECK(v[0] == 1);", "v")
+
+
+class DoctestMacroFamilyIsDerived(SizeIndexScanTestCase):
+    """The negating / relational macro family is READ from the header (round 8).
+
+    `macro.endswith("_FALSE")` is a hand-written list in disguise, and it was wrong
+    the way such a list always is: doctest's real `REQUIRE_FALSE_MESSAGE` and
+    `CHECK_FALSE_MESSAGE` do not end in `_FALSE`, so a negated `is_empty()` under
+    them established no bound and the index after it was not a site. The corpus
+    writes those two spellings 37 times.
+
+    The companion suffix table had the mirror-image defect: it consulted
+    `*_EQ_MESSAGE`, which doctest does not define at all - the same nonexistent
+    spelling mistake round 1 made with `REQUIRE_FALSE_UNARY_FALSE`.
+    """
+
+    def _header(self) -> str:
+        return GUARD.DOCTEST_HEADER.read_text(encoding="utf-8", errors="replace")
+
+    def test_every_derived_macro_is_defined_by_the_header(self):
+        header = self._header()
+        macros = GUARD._doctest_assert_macros()
+        self.assertGreater(len(macros), 20, "the derivation found implausibly few macros")
+        for name in macros:
+            self.assertIn(f"define {name}", header, f"{name} is not defined by doctest")
+
+    def test_the_derived_negating_family_is_exactly_the_header_s(self):
+        """Cross-check the semantic derivation (`return !(...)`) against the header's
+        own naming, so neither can drift without this failing."""
+        macros = GUARD._doctest_assert_macros()
+        derived = {n for n, s in macros.items() if s.negated and not n.startswith("DOCTEST_")}
+        by_name = {
+            n for n in macros
+            if not n.startswith("DOCTEST_") and ("_FALSE" in f"{n}_" or n.endswith("_FALSE"))
+        }
+        self.assertEqual(derived, by_name)
+        self.assertIn("REQUIRE_FALSE_MESSAGE", derived)
+        self.assertIn("CHECK_FALSE_MESSAGE", derived)
+        self.assertIn("REQUIRE_UNARY_FALSE", derived)
+        self.assertIn("FAST_REQUIRE_UNARY_FALSE", derived)
+
+    def test_the_message_spellings_do_not_end_in_FALSE(self):
+        """The exact reason the old spelling test failed."""
+        self.assertFalse("REQUIRE_FALSE_MESSAGE".endswith("_FALSE"))
+        self.assertTrue(GUARD._macro_semantics("REQUIRE_FALSE_MESSAGE").negated)
+
+    def test_doctest_has_no_relational_MESSAGE_macros(self):
+        """The retired suffix table consulted `*_EQ_MESSAGE`; no such macro exists."""
+        header = self._header()
+        for suffix in ("EQ", "NE", "GT", "GE", "LT", "LE"):
+            self.assertNotIn(f"define DOCTEST_REQUIRE_{suffix}_MESSAGE", header)
+        self.assertEqual(GUARD._macro_semantics("REQUIRE_EQ").relation, "==")
+        self.assertEqual(GUARD._macro_semantics("CHECK_LT").relation, "<")
+
+    def test_an_unknown_macro_reads_as_plain(self):
+        """`test_macros.h` defines project-local `REQUIRE_*` wrappers; they carry
+        neither a relation nor a negation."""
+        self.assertEqual(GUARD._macro_semantics("REQUIRE_GPU_DEVICE"), GUARD._PLAIN_MACRO)
+
+    def test_a_project_macro_merely_ENDING_in_EQ_does_not_borrow_the_relation(self):
+        """This is where the suffix table was not just untidy but SILENT.
+
+        A project-local `CHECK_SIZES_EQ(v.size(), 0)` is a macro of unknown meaning.
+        The suffix table read `_EQ` off its name, concluded `size() == 0`, and
+        suppressed the following `v[0]`. Derived, the macro is unrecognised, so the
+        predicate is a bare cardinality test and the index after it is REPORTED -
+        the fail-closed direction for something the guard cannot read.
+        """
+        self.assertSized("  CHECK_SIZES_EQ(v.size(), 0);\n  CHECK(v[0]);", "v")
+        self.assertNotSized("  CHECK_EQ(v.size(), 0);\n  CHECK(v[0]);")
+
+    def test_derivation_fails_closed_when_the_header_is_unreadable(self):
+        original = GUARD.DOCTEST_HEADER
+        GUARD._doctest_assert_macros.cache_clear()
+        try:
+            GUARD.DOCTEST_HEADER = Path(tempfile.gettempdir()) / "no_such_doctest_header.h"
+            with self.assertRaises(GUARD.ScanError):
+                GUARD._doctest_assert_macros()
+        finally:
+            GUARD.DOCTEST_HEADER = original
+            GUARD._doctest_assert_macros.cache_clear()
+
+    def test_derivation_fails_closed_when_the_block_is_gutted(self):
+        """A header that parses to no negating macro must FAIL, not answer 'doctest
+        has none' - which would quietly turn every REQUIRE_FALSE into a positive
+        assertion and unreport its sites."""
+        original = GUARD.DOCTEST_HEADER
+        GUARD._doctest_assert_macros.cache_clear()
+        with tempfile.TemporaryDirectory() as tmp:
+            gutted = Path(tmp) / "doctest.h"
+            gutted.write_text(
+                "\n".join(
+                    [
+                        "    DOCTEST_RELATIONAL_OP(eq, ==)",
+                        "    DOCTEST_RELATIONAL_OP(ne, !=)",
+                        "    DOCTEST_RELATIONAL_OP(lt, <)",
+                        "    DOCTEST_RELATIONAL_OP(gt, >)",
+                        "    DOCTEST_RELATIONAL_OP(le, <=)",
+                        "    DOCTEST_RELATIONAL_OP(ge, >=)",
+                        "#define DOCTEST_REQUIRE(...) [&] { return __VA_ARGS__; }()",
+                        "#define DOCTEST_REQUIRE_EQ(...) [&] { return doctest::detail::eq(__VA_ARGS__); }()",
+                        "#define DOCTEST_REQUIRE_NE(...) [&] { return doctest::detail::ne(__VA_ARGS__); }()",
+                        "#define DOCTEST_REQUIRE_LT(...) [&] { return doctest::detail::lt(__VA_ARGS__); }()",
+                        "#define DOCTEST_REQUIRE_GT(...) [&] { return doctest::detail::gt(__VA_ARGS__); }()",
+                        "#define DOCTEST_REQUIRE_LE(...) [&] { return doctest::detail::le(__VA_ARGS__); }()",
+                        "#define DOCTEST_REQUIRE_GE(...) [&] { return doctest::detail::ge(__VA_ARGS__); }()",
+                        "#define REQUIRE(...) DOCTEST_REQUIRE(__VA_ARGS__)",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            try:
+                GUARD.DOCTEST_HEADER = gutted
+                with self.assertRaises(GUARD.ScanError):
+                    GUARD._doctest_assert_macros()
+            finally:
+                GUARD.DOCTEST_HEADER = original
+                GUARD._doctest_assert_macros.cache_clear()
+
+
+class SizeThenIndexNegatingMacros(SizeIndexScanTestCase):
+    """A negating macro asserts the COMPLEMENT, and the direction follows (round 8).
+
+    Both directions are pinned. `REQUIRE_FALSE(v.is_empty())` and
+    `CHECK_FALSE_MESSAGE(v.is_empty(), "...")` assert NON-empty, so what follows is
+    a site; `REQUIRE_FALSE(!v.is_empty())` and `REQUIRE_FALSE(v.size())` assert
+    EMPTY, so they bound nothing and reporting them would name the wrong assertion.
+    """
+
+    def test_require_false_message_on_is_empty_is_a_bound(self):
+        for eol in ("\n", "\r\n"):
+            with self.subTest(eol=eol):
+                self.assertSized(
+                    '  REQUIRE_FALSE_MESSAGE(v.is_empty(), "must have data");\n'
+                    "  CHECK(v[0] == 1);".replace("\n", eol),
+                    "v",
+                )
+
+    def test_check_false_message_on_is_empty_is_a_bound(self):
+        self.assertSized(
+            '  CHECK_FALSE_MESSAGE(v.is_empty(), "must have data");\n  CHECK(v[0] == 1);', "v"
+        )
+
+    def test_the_message_spelling_matches_the_plain_one(self):
+        plain = self.sites("  REQUIRE_FALSE(v.is_empty());\n  CHECK(v[0] == 1);")
+        message = self.sites(
+            '  REQUIRE_FALSE_MESSAGE(v.is_empty(), "must have data");\n  CHECK(v[0] == 1);'
+        )
+        self.assertEqual(len(plain), len(message))
+        self.assertEqual(plain[0][1], message[0][1])
+        self.assertEqual(plain[0][5], message[0][5])
+
+    def test_a_doubly_negated_emptiness_bounds_nothing(self):
+        """`REQUIRE_FALSE(!v.is_empty())` asserts the container IS empty."""
+        self.assertNotSized("  REQUIRE_FALSE(!v.is_empty());\n  CHECK(v[0] == 1);")
+
+    def test_a_negated_truthiness_bounds_nothing(self):
+        """`REQUIRE_FALSE(v.size())` asserts `size() == 0`."""
+        self.assertNotSized("  REQUIRE_FALSE(v.size());\n  CHECK(v[0] == 1);")
+
+    def test_a_negated_equality_to_zero_is_a_bound(self):
+        """`CHECK_FALSE(v.size() == 0)` asserts `size() != 0` - non-empty."""
+        self.assertSized("  CHECK_FALSE(v.size() == 0);\n  CHECK(v[0] == 1);", "v")
+
+    def test_a_negated_upper_bound_is_a_bound(self):
+        """`REQUIRE_FALSE(v.size() <= 2)` asserts `size() > 2`."""
+        self.assertSized("  REQUIRE_FALSE(v.size() <= 2);\n  CHECK(v[0] == 1);", "v")
+
+    def test_a_negated_lower_bound_bounds_nothing(self):
+        """`REQUIRE_FALSE(v.size() >= 3)` asserts `size() < 3` - an UPPER bound."""
+        self.assertNotSized("  REQUIRE_FALSE(v.size() >= 3);\n  CHECK(v[0] == 1);")
+
+    def test_a_negated_nonempty_test_bounds_nothing(self):
+        """`CHECK_FALSE(v.size() != 0)` asserts the container empty."""
+        self.assertNotSized("  CHECK_FALSE(v.size() != 0);\n  CHECK(v[0] == 1);")
+
+    def test_a_plain_macro_is_unaffected(self):
+        self.assertSized("  REQUIRE(v.size() == 2);\n  CHECK(v[0] == 1);", "v")
+        self.assertNotSized("  REQUIRE(v.size() == 0);\n  CHECK(v[0] == 1);")
+
+
 class SizeThenIndexBoundMustReachTheIndex(SizeIndexScanTestCase):
     """A bound on the CONTAINER is not a bound on every subscript of it (round 6).
 

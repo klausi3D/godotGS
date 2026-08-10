@@ -73,7 +73,12 @@ where nothing in between could have made the dereference safe.
   because a guard that under-reports is worse here than one that over-reports.
 * The forward scan stops at anything that changes reachability or the symbol:
   `if` / `for` / `while` / `switch` / `return` / `else`, a block boundary, or a
-  reassignment of the symbol. But it checks that statement's **header** before
+  reassignment of the symbol. Where those boundaries are does not depend on how
+  the author laid the source out: the window is sliced to six SOURCE statements
+  and each is then decomposed into atoms (`_statement_atoms`), so a closing brace
+  that shares the last statement's line still ends the scan. It did not until
+  #849's round 8, and the compacted spelling of a block reached a verdict its
+  expanded spelling never reached. But it checks that statement's **header** before
   stopping, because a control-flow statement guards its body, never its own
   condition:
     - `REQUIRE(x); if (x) { x->f(); }`        -> NOT flagged, the `if` makes it safe;
@@ -161,9 +166,30 @@ index `container[...]` that nothing between them bounds.
   not made unsafe by the failure. (`CHECK(state.cached_counts.is_empty())` in
   `test_tile_async_readback_freshness.cpp` is precisely that case, five statements
   above a real violation - counting it would have named the wrong assertion.)
-* **The `size()` call must be a direct argument of the assertion macro** (depth 1
-  inside its parentheses). `REQUIRE(cpu_results.resize(ground_truth.size()) == OK)`
-  constrains the *resize result*, not `ground_truth`, and is not a site.
+* **What a macro NAME means is read out of doctest, not guessed from its
+  spelling.** `_doctest_assert_macros()` parses `thirdparty/doctest/doctest.h`,
+  where the `DOCTEST_CONFIG_EVALUATE_ASSERTS_EVEN_WHEN_DISABLED` block states each
+  assertion's meaning as an expression (`[&] { return !(cond); }()`), and derives
+  both the relation a name carries (`REQUIRE_EQ` -> `==`) and whether the macro
+  NEGATES its predicate. A negating macro asserts the complement, so
+  `REQUIRE_FALSE(v.size() == 0)` is the lower bound `size() != 0`, while
+  `REQUIRE_FALSE(v.size())` and `REQUIRE_FALSE(!v.is_empty())` assert the
+  container EMPTY and bound nothing. Both questions used to be answered by
+  hand-written spelling rules and both were wrong: `macro.endswith("_FALSE")` is
+  false for doctest's real `REQUIRE_FALSE_MESSAGE` / `CHECK_FALSE_MESSAGE`, which
+  this corpus writes 37 times, and the relational suffix table consulted
+  `*_EQ_MESSAGE`, which doctest does not define at all (#849 round 8). Deriving
+  also fails CLOSED on a macro doctest does not define - a project-local
+  `CHECK_SIZES_EQ(v.size(), 0)` no longer borrows `==` off its name and suppresses
+  the index under it.
+* **The `size()` call must not be an ARGUMENT to another call.**
+  `REQUIRE(cpu_results.resize(ground_truth.size()) == OK)` constrains the *resize
+  result*, not `ground_truth`, and is not a site; neither is `REQUIRE(a[v.size()])`.
+  That is a question about what ENCLOSES the call, and it is asked once, in
+  `_bound_direction`. It used to be asked a second time in `_size_assertions` as a
+  parenthesis-DEPTH test, which cannot tell an argument from a grouping pair, so
+  the harmless `REQUIRE((v.size() == 2))` was read as an assertion with no size
+  predicate and the `v[0]` after it was silently not a site (#849 round 8).
 * **The same direction test everywhere.** A control-flow header and a
   short-circuit operand are judged by the same `_bound_direction` as the
   assertion. Until #849's round-2 review they were judged by weaker rules of their
@@ -191,10 +217,20 @@ index `container[...]` that nothing between them bounds.
   This is tracked with a block stack, not by stopping at the first control-flow
   statement, so the bound applies to the loop BODY and expires at its closing
   brace - `REQUIRE(a.size() == 3); for (i < a.size()) { a[i]; } CHECK(a[0]);` is
-  still flagged on the post-loop `a[0]`. A body that shares its header's LINE is
-  expanded into the same pieces first, so `if (v.is_empty()) { CHECK(v[0]); }` -
-  which indexes precisely when the container is empty - is flagged exactly as the
-  multi-line spelling is.
+  still flagged on the post-loop `a[0]`.
+* **Layout does not change the verdict.** `_statements()` emits a line-oriented
+  GROUP, which may hold a header and its whole body, a statement and a block
+  delimiter, or several statements at once. Every group is decomposed into ATOMS
+  (`_statement_atoms`) before either detector reads it, so a body sharing its
+  header's line (`if (v.is_empty()) { CHECK(v[0]); }`, #849 round 5) and a closing
+  brace sharing the body's last statement's line (`CHECK(v[0]); }`, #849 round 8)
+  give the same answer as the fully expanded spelling. Both of those were silent
+  over a live crash before they were fixed, and both were the same defect: a
+  consumer re-parsing a group with its own prefix or suffix test. There is now one
+  decomposition, shared by both detectors, and its totality is pinned as a
+  PROPERTY rather than a list of layouts - decomposition is idempotent over every
+  group the real corpus produces (420,814 atoms), so anything still splittable in
+  what a consumer is handed fails a test rather than waiting for a review round.
 * **A bound from a DIFFERENT container does not count.** In
   `for (i < a.size()) { CHECK(a[i] == b[i]); }` after `REQUIRE(b.size() == 3)`,
   `b[i]` crashes whenever `b` is the short one. Seven such sites exist; they are
@@ -311,6 +347,21 @@ index `container[...]` that nothing between them bounds.
    positives, not silence. Legacy octal was in that None bucket until round 7 and
    made the guard OVER-report on valid code, which is its own failure: a ratchet
    that fails on correct input gets waived.
+7. **An assertion that is not spelled `REQUIRE*` or `CHECK*`.** `_SIZE_ASSERT_HEAD_RE`
+   admits those two prefixes only, so doctest's `WARN*` family - which reports and
+   continues exactly like `CHECK`, and is therefore just as capable of running a
+   short container into an aborting index - is not scanned. Surfaced by round 8's
+   derivation of the macro family, and left open on evidence rather than on
+   assumption: the corpus contains **zero** doctest `WARN` assertions today (the
+   only `WARN` tokens in it are Godot's `WARN_PRINT` and a test-case title), so
+   widening the head would add no site and could only mis-read `WARN_PRINT`.
+   Widening it is a one-line change the day a `WARN` assertion is written.
+
+Round 8 retires no item on this list, and that is worth saying plainly: all three
+of its findings were shapes this section did not know it was missing - a macro
+spelling, a grouping pair, a brace placement - not limits anyone had chosen. The
+list is what the model KNOWS it cannot do; it has never been the boundary of what
+the model gets wrong. See "Convergence" below.
 
 ### Reconciliation of the count
 
@@ -343,6 +394,57 @@ straight-line population: `test_renderer_pipeline.h` 7, `test_resident_atlas_bud
 seven). That agreement across three independent files is the evidence that the
 43 is the same population as #844's 42 plus the one site above, not a different
 set of the same size.
+
+## Convergence
+
+Eight review rounds have landed on this one file, and two earlier claims that the
+remaining gap was bounded were refuted by the next round. So the state is recorded
+here rather than asserted again. Sorting all eight rounds' findings by WHERE they
+came from:
+
+* **the inputs to the rules** - the text handed to a recogniser was not the
+  statement it assumed: a `REQUIRE` split over lines and several compacted onto
+  one (round 1), a body sharing its header's line and unspliced line
+  continuations (round 5), a closing brace sharing the body's last statement's
+  line and a grouping pair read as a nesting level (round 8);
+* **an external vocabulary spelled by hand** - a doctest macro name that does not
+  exist and a real one that was missed (rounds 1 and 8), a relational suffix table
+  naming a macro family doctest never defined (round 8), C++ integer-literal
+  spellings the reader did not implement (round 7);
+* **the semantic model itself** - the bound's DIRECTION (round 2), the asymmetry
+  between what a guard may assume and what an assertion may (round 3), `size()`
+  being signed (round 4), a bound on the container not being a bound on a specific
+  subscript (round 6), a `for` update clause that must be proven nondecreasing
+  (round 7).
+
+The first two categories now have a STRUCTURAL answer rather than another rule.
+Statement shape is one total decomposition shared by both detectors, whose
+totality is a machine-checked property over the whole corpus, not a list of
+layouts. The doctest vocabulary is read out of the header the fork compiles
+against, so it cannot be missing a spelling that exists or naming one that does
+not, and it re-derives on a doctest upgrade.
+
+The third category has no such answer and is not going to get one here. It is a
+textual approximation of a dataflow question, its rule set is open-ended, and each
+rule is a new place to be wrong. The honest prediction is therefore that a ninth
+round would find something, and that it would be a semantic finding rather than
+another layout or spelling one.
+
+What that is worth is bounded by what this guard IS. It is a **ratchet over a
+frozen baseline**, not a proof that the corpus is safe - the docstring says so
+above, and the 42 conversions are deliberately still open under #844. A false
+negative of the round-5-to-8 kind therefore costs nothing on the current tree:
+every one of those shapes was measured to occur ZERO times in it, so every fix
+since round 5 has changed the reported set by exactly zero sites. They buy recall
+against code nobody has written yet, at a review cost that has been rising for
+four rounds over a file that is now past 3,000 lines. That trade has turned.
+
+The disposition this file is landed under: further findings of this class are
+triaged by whether the shape OCCURS in the corpus. If it does, it is a bug and it
+gets fixed. If it does not, it is a follow-up issue against #844 - together with
+the limits already enumerated above, of which the window (blind spot 1, +3 real
+sites at a window of 30) and the `WARN*` head (blind spot 7) are the two concrete
+ones - and not a merge blocker.
 
 ## Scope boundary
 
@@ -400,6 +502,11 @@ A guard that cannot read or cannot parse must FAIL, never report "clean":
 * an assertion macro whose parentheses never balance within the continuation
   bound is a scan error, not an assertion with no size predicate;
 * an unterminated raw string literal is a scan error;
+* a vendored `doctest.h` that cannot be read, or that parses to a degenerate
+  assertion-macro family - no negating macro, a missing relation, a `REQUIRE` that
+  is not a plain assertion - is a scan error. "doctest has no `REQUIRE_FALSE`" is
+  the answer that would quietly read every negated assertion as a positive one and
+  unreport the sites under it, so it is refused rather than believed;
 * a missing or malformed baseline is a failure, for both baselines;
 * an empty source list is a failure.
 
@@ -410,6 +517,7 @@ cannot tell "no new site" from "did not look".
 from __future__ import annotations
 
 import bisect
+import functools
 import hashlib
 import json
 import re
@@ -421,6 +529,10 @@ from typing import NamedTuple
 ROOT = Path(__file__).resolve().parents[2]
 MODULE_TESTS_DIR = ROOT / "modules" / "gaussian_splatting" / "tests"
 ENGINE_TESTS_DIR = ROOT / "tests"
+# The doctest this fork actually compiles against. Every question this file asks
+# about an assertion macro - does it negate its predicate, does its NAME carry a
+# relational operator - is answered from THIS file, never from a spelling rule.
+DOCTEST_HEADER = ROOT / "thirdparty" / "doctest" / "doctest.h"
 
 # Pre-existing violations, so the guard can land without the 325-site rewrite
 # #656 explicitly rules out. Tracking issue:
@@ -515,6 +627,154 @@ class ScanError(Exception):
     "did not look". Three separate guards in this repo have shipped that same
     fail-open hole; this one does not.
     """
+
+
+# ---------------------------------------------------------------------------
+# doctest's assertion-macro family, DERIVED from the vendored header
+# ---------------------------------------------------------------------------
+#
+# Two questions this file has to answer about an assertion macro:
+#
+#   * does it assert its predicate FALSE (`REQUIRE_FALSE(v.is_empty())`)?
+#   * does its NAME carry the relational operator (`REQUIRE_EQ(v.size(), 4)`)?
+#
+# Both were answered by hand-written spelling rules - `macro.endswith("_FALSE")`
+# and a tuple of `("_EQ", "==")` suffixes - and both were wrong, in the way a
+# hand-written list is always eventually wrong:
+#
+#   * `endswith("_FALSE")` is FALSE for the real `REQUIRE_FALSE_MESSAGE` and
+#     `CHECK_FALSE_MESSAGE`, which the corpus writes 37 times. A negated
+#     `is_empty()` under them established no bound, so the index after it was
+#     silently not a site (Codex, PR #849 round 8);
+#   * the suffix tuple was consulted as `_EQ` OR `_EQ_MESSAGE`, and doctest has
+#     no `*_EQ_MESSAGE` macro at all - the same nonexistent-spelling mistake
+#     round 1 made with `REQUIRE_FALSE_UNARY_FALSE`.
+#
+# So the family is not spelled out here. It is READ OUT of the header the fork
+# compiles against, from the one block where doctest states each macro's meaning
+# as an expression instead of a name: under
+# `DOCTEST_CONFIG_EVALUATE_ASSERTS_EVEN_WHEN_DISABLED` every assertion is defined
+# as a lambda returning its predicate's truth value, so
+#
+#     #define DOCTEST_REQUIRE_FALSE_MESSAGE(cond, ...) [&] { return !(cond); }()
+#     #define DOCTEST_REQUIRE_EQ(...) [&] { return doctest::detail::eq(...); }()
+#
+# say "negating" and "==" outright. `DOCTEST_RELATIONAL_OP(eq, ==)` supplies the
+# helper-name-to-operator mapping, the `#define DOCTEST_FAST_X DOCTEST_X` aliases
+# are resolved, and the public short spellings come from the
+# `#define X(...) DOCTEST_X(__VA_ARGS__)` block. Upgrading doctest re-derives.
+
+
+class _MacroSemantics(NamedTuple):
+    """What an assertion macro asserts about the expression handed to it.
+
+    `relation` is the comparison the macro NAME carries (`""` when the predicate
+    carries its own operator); `negated` is True when the macro asserts the
+    predicate is FALSE.
+    """
+
+    relation: str
+    negated: bool
+
+
+_PLAIN_MACRO = _MacroSemantics("", False)
+
+# `#define DOCTEST_<NAME>(args) [&] { return <body>; }()`
+_DOCTEST_ASSERT_DEFINE_RE = re.compile(
+    r"^#define\s+DOCTEST_(\w+)\s*\([^)]*\)\s*\[&\]\s*\{\s*return\s+(.*?);\s*\}\(\)\s*$", re.M
+)
+# `DOCTEST_RELATIONAL_OP(eq, ==)`
+_DOCTEST_RELATIONAL_OP_RE = re.compile(r"^\s*DOCTEST_RELATIONAL_OP\(\s*(\w+)\s*,\s*(\S+?)\s*\)\s*$", re.M)
+# `#define DOCTEST_FAST_WARN_EQ  DOCTEST_WARN_EQ`
+_DOCTEST_ALIAS_RE = re.compile(r"^#define\s+DOCTEST_(\w+)\s+DOCTEST_(\w+)\s*$", re.M)
+# `#define REQUIRE_EQ(...) DOCTEST_REQUIRE_EQ(__VA_ARGS__)`
+_DOCTEST_SHORT_NAME_RE = re.compile(r"^#define\s+(\w+)\s*\([^)]*\)\s+DOCTEST_(\w+)\s*\(", re.M)
+# The body of a relational assertion: `doctest::detail::eq(__VA_ARGS__)`.
+_DOCTEST_RELATIONAL_BODY_RE = re.compile(r"^!?\s*\(?\s*doctest::detail::(\w+)\s*\(")
+
+
+@functools.lru_cache(maxsize=1)
+def _doctest_assert_macros() -> dict[str, _MacroSemantics]:
+    """Public assertion-macro name -> semantics, read out of the vendored header.
+
+    FAILS CLOSED. A header that cannot be read, or that parses to something
+    degenerate, is a ScanError - not "doctest has no negating macros", which is
+    the answer that would quietly turn every `REQUIRE_FALSE` into a positive
+    assertion and unreport its sites. The degeneracy floor deliberately checks
+    STRUCTURE (all six relations present, at least one negating macro, `REQUIRE`
+    present and plain) rather than a count or an expected member list, so it
+    survives a doctest upgrade that adds macros and still fails one that guts the
+    block this derivation reads.
+    """
+    try:
+        text = DOCTEST_HEADER.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise ScanError(f"{DOCTEST_HEADER}: doctest header unreadable ({exc})") from exc
+
+    operators = dict(_DOCTEST_RELATIONAL_OP_RE.findall(text))
+    internal: dict[str, _MacroSemantics] = {}
+    for name, body in _DOCTEST_ASSERT_DEFINE_RE.findall(text):
+        body = body.strip()
+        relation = ""
+        call = _DOCTEST_RELATIONAL_BODY_RE.match(body)
+        if call is not None:
+            relation = operators.get(call.group(1), "")
+        internal[name] = _MacroSemantics(relation, body.startswith("!"))
+    # Object-like aliases (`DOCTEST_FAST_REQUIRE_UNARY_FALSE`). Iterated to a
+    # fixed point so an alias of an alias resolves too.
+    for _ in range(len(internal) + 1):
+        added = False
+        for alias, target in _DOCTEST_ALIAS_RE.findall(text):
+            if target in internal and alias not in internal:
+                internal[alias] = internal[target]
+                added = True
+        if not added:
+            break
+
+    public = {
+        short: internal[long]
+        for short, long in _DOCTEST_SHORT_NAME_RE.findall(text)
+        if long in internal
+    }
+    # Both spellings answer to the same semantics: `DOCTEST_CONFIG_NO_SHORT_MACRO_NAMES`
+    # would leave only the prefixed one, and a source may write either.
+    macros = {f"DOCTEST_{name}": semantics for name, semantics in internal.items()}
+    macros.update(public)
+
+    missing = {"==", "!=", "<", ">", "<=", ">="} - {s.relation for s in macros.values()}
+    if missing:
+        raise ScanError(
+            f"{DOCTEST_HEADER}: derived no macro for relation(s) {sorted(missing)} - "
+            "the assertion-macro block this guard reads has moved or changed shape"
+        )
+    if not any(s.negated for s in macros.values()):
+        raise ScanError(
+            f"{DOCTEST_HEADER}: derived no negating assertion macro (REQUIRE_FALSE and "
+            "friends) - the assertion-macro block this guard reads has moved or changed shape"
+        )
+    if macros.get("REQUIRE") != _PLAIN_MACRO:
+        raise ScanError(
+            f"{DOCTEST_HEADER}: derived REQUIRE as {macros.get('REQUIRE')!r}, expected a "
+            "plain non-negating assertion - the derivation is reading the wrong block"
+        )
+    return macros
+
+
+def _macro_semantics(macro: str) -> _MacroSemantics:
+    """Semantics of `macro`, or the plain reading for a name doctest does not define.
+
+    The corpus also writes project-local wrappers (`REQUIRE_GPU_DEVICE()`,
+    `CHECK_PERFORMANCE(...)` in `test_macros.h`), which `_SIZE_ASSERT_HEAD_RE`
+    matches because they start with `REQUIRE`/`CHECK`. They carry neither a
+    relation nor a negation, so reading them as plain is both correct for them and
+    the REPORTING direction for anything else unrecognised.
+    """
+    return _doctest_assert_macros().get(macro, _PLAIN_MACRO)
+
+
+# `!` applied to a relation. Used to fold a negating macro into the operator, so
+# `REQUIRE_FALSE(v.size() == 0)` is judged as the `size() != 0` it asserts.
+_NEGATED_RELATION = {"==": "!=", "!=": "==", "<": ">=", ">=": "<", ">": "<=", "<=": ">"}
 
 
 # A C++ raw string literal, including its optional encoding prefix. The delimiter
@@ -1274,8 +1534,23 @@ def _scan_forward(
 
     Appends at most one violation: the first unguarded dereference of `symbol`.
     `index` is the zero-based line of the REQUIRE, reported as `index + 1`.
+
+    The window is sliced to `_SCAN_STATEMENTS` SOURCE statements first and each of
+    those is then decomposed into atoms, so this loop never has to ask whether a
+    piece of text is really one statement. That matters for the same reason it
+    matters in `_first_unbounded_index`: `_statements()` emits a line-oriented
+    group, and `_CONTROL_FLOW_RE` is a PREFIX test, so a group whose block close
+    trails its last statement (`foo(); }`) did not read as a block boundary and the
+    scan walked out of the block into an enclosing scope. Both consumers now share
+    one decomposition (`_statement_atoms`) rather than each carrying its own
+    re-parse - the shape that produced findings in rounds 5 and 8.
     """
-    for _stmt_line, statement in following[:_SCAN_STATEMENTS]:
+    scanned = [
+        (line_no, atom)
+        for line_no, statement in following[:_SCAN_STATEMENTS]
+        for atom in _statement_atoms(statement)
+    ]
+    for _stmt_line, statement in scanned:
         if _CONTROL_FLOW_RE.match(statement):
             # A control-flow statement guards its BODY, never its own header.
             # `if (ptr) { ptr->f(); }` is safe, but `if (ptr->is_ready())`
@@ -1330,10 +1605,10 @@ _SIZE_ASSERT_HEAD_RE = re.compile(r"^\s*((?:REQUIRE|CHECK)\w*)\s*\(")
 # round 2).
 _CARDINALITY_CALL_RE = re.compile(r"(?:\.|->)\s*(size|is_empty|empty)\s*\(\s*\)")
 _IDENTIFIER_TAIL_RE = re.compile(r"[A-Za-z_]\w*$")
-# A relational comparison macro carries the operator in its NAME.
-_COMPARISON_MACRO_SUFFIXES: tuple[tuple[str, str], ...] = (
-    ("_EQ", "=="), ("_NE", "!="), ("_GE", ">="), ("_LE", "<="), ("_GT", ">"), ("_LT", "<"),
-)
+# A relational comparison macro carries the operator in its NAME - and which
+# operator that is comes from `_doctest_assert_macros()`, not from a suffix table
+# here. The table this replaced also matched `*_EQ_MESSAGE`, a macro doctest does
+# not define.
 _LITERAL_ZERO_RE = re.compile(r"^\(*\s*0[uUlL]*\s*\)*$")
 # An INTEGER literal in any C++ base, digit separators included. Only a literal can
 # be evaluated here; a named constant, a `sizeof`, or any other runtime expression
@@ -1519,16 +1794,6 @@ def _macro_argument_span(fragment: str, name: str) -> tuple[int, int]:
     )
 
 
-def _paren_depth(text: str, start: int, at: int) -> int:
-    depth = 0
-    for i in range(start, at):
-        if text[i] == "(":
-            depth += 1
-        elif text[i] == ")":
-            depth -= 1
-    return depth
-
-
 def _split_macro_arguments(text: str) -> list[str]:
     """Split a macro argument list at depth-0 ',' (parens AND brackets count)."""
     parts: list[str] = []
@@ -1634,8 +1899,22 @@ def _bound_direction(
     (Codex, PR #849 round 2). Having one implementation is the point - the operand
     and the assertion cannot drift apart again.
 
-    `macro` is empty for plain expressions; only an assertion can carry its relation
-    in its name (`REQUIRE_EQ(v.size(), 4)`).
+    `macro` is empty for plain expressions; only an assertion carries meaning in its
+    NAME, and what that name means is READ OUT of the vendored doctest header
+    (`_doctest_assert_macros`), never guessed from its spelling. Two things it can
+    carry, and both are folded into the operator here so the rest of the function
+    judges one relation:
+
+    * the relation itself - `REQUIRE_EQ(v.size(), 4)`;
+    * a NEGATION - `REQUIRE_FALSE`, `REQUIRE_FALSE_MESSAGE`, `REQUIRE_UNARY_FALSE`
+      and the `CHECK`/`WARN`/`FAST_` spellings of each. The predicate is asserted
+      false, so the relation is complemented (`REQUIRE_FALSE(v.size() == 0)`
+      asserts `size() != 0`, a lower bound; `REQUIRE_FALSE(v.size() >= 3)` asserts
+      `size() < 3`, which is not). Before round 8 negation was a
+      `macro.endswith("_FALSE")` test consulted for `is_empty()` alone: it missed
+      the `_MESSAGE` spellings the corpus writes 37 times, and it read
+      `REQUIRE_FALSE(v.size())` - which asserts the container EMPTY - as a lower
+      bound (Codex, PR #849 round 8).
 
     `guard` says which way to fail when the compared-against operand is NOT a
     literal, because the safe answer is opposite for the two callers:
@@ -1658,14 +1937,18 @@ def _bound_direction(
         # something else, so the enclosing expression's truth says nothing about
         # this container's length.
         return False
+    semantics = _macro_semantics(macro)
     before = text[lo:start]
     # Any `)` immediately after the call closes a group opened BEFORE the symbol,
     # so the relation of `(v.size()) == 0` sits past it. Not peeling them read the
     # expression as a bare truthiness test with the wrong answer.
     after = re.sub(r"^[\s)]+", " ", text[end:hi])
     if kind in ("is_empty", "empty"):
-        # `!v.is_empty()`, `REQUIRE_FALSE(v.is_empty())`, `REQUIRE_UNARY_FALSE(...)`.
-        return bool(re.search(r"!\s*$", before)) or macro.endswith("_FALSE")
+        # `!v.is_empty()`, `REQUIRE_FALSE(v.is_empty())`, `REQUIRE_UNARY_FALSE(...)`,
+        # `CHECK_FALSE_MESSAGE(v.is_empty(), "...")`. Two independent negations, so
+        # they XOR: `REQUIRE_FALSE(!v.is_empty())` asserts the container EMPTY and
+        # bounds nothing below.
+        return bool(re.search(r"!\s*$", before)) != semantics.negated
 
     relation = re.match(r"\s*(==|!=|>=|<=|>|<)\s*(.*)$", after, re.S)
     if relation:
@@ -1684,18 +1967,15 @@ def _bound_direction(
             flipped = True
         else:
             # No adjacent operator: the relation may be carried by the macro NAME
-            # (`REQUIRE_EQ(v.size(), 4)`).
-            operator = ""
-            for suffix, symbol in _COMPARISON_MACRO_SUFFIXES:
-                if macro.endswith(suffix) or macro.endswith(f"{suffix}_MESSAGE"):
-                    operator = symbol
-                    break
+            # (`REQUIRE_EQ(v.size(), 4)`), which the header states outright.
+            operator = semantics.relation
             if not operator:
                 # No relation anywhere: the call stands alone as a truthiness test.
                 # `if (v.size()) { v[0]; }` and `REQUIRE(v.size())` both bound the
-                # length below. (`is_empty()` already returned above - untested, it
-                # is the WRONG direction.)
-                return True
+                # length below - but `REQUIRE_FALSE(v.size())` asserts the container
+                # EMPTY and bounds nothing. (`is_empty()` already returned above -
+                # untested, it is the WRONG direction.)
+                return not semantics.negated
             arguments = _split_macro_arguments(text[lo:hi])
             if len(arguments) < 2:
                 return False
@@ -1705,6 +1985,11 @@ def _bound_direction(
     other = other.strip()
     if flipped:
         operator = {"<": ">", ">": "<", "<=": ">=", ">=": "<="}.get(operator, operator)
+    if semantics.negated:
+        # A negating macro asserts the COMPLEMENT of what is written. Complement and
+        # operand-order flip commute, so applying them in either order is the same
+        # relation.
+        operator = _NEGATED_RELATION.get(operator, operator)
     against_zero = bool(_LITERAL_ZERO_RE.match(other))
     if operator in ("==", ">="):
         # `size() == 0` / `size() >= 0`: EMPTY and vacuous respectively. Above zero
@@ -2260,6 +2545,18 @@ def _size_assertions(fragment: str, name: str) -> list[tuple[str, str]]:
     STRICT: a cardinality call whose object cannot be resolved is a ScanError, not
     an assertion with no size predicate. The scanner would otherwise go quiet over
     an assertion it did not understand and the statements that follow it.
+
+    A cardinality call nested as an ARGUMENT to another call constrains that call's
+    result, not the container - `REQUIRE(cpu_results.resize(ground_truth.size()) == OK)`
+    says nothing about `ground_truth`. That rule lives in `_bound_direction`
+    (`_is_call_argument`), which is where every caller's direction question is
+    already answered, and is deliberately NOT duplicated here.
+
+    Until round 8 it WAS duplicated here, as a parenthesis-DEPTH test, and the two
+    did not mean the same thing: a depth test cannot tell an argument from a
+    grouping pair, so the harmless `REQUIRE((v.size() == 2))` was read as an
+    assertion with no size predicate and the `v[0]` after it was not a site
+    (Codex, PR #849 round 8).
     """
     head = _SIZE_ASSERT_HEAD_RE.match(fragment)
     if head is None:
@@ -2270,11 +2567,7 @@ def _size_assertions(fragment: str, name: str) -> list[tuple[str, str]]:
     found: list[tuple[str, str]] = []
     seen: set[str] = set()
     for symbol, kind, start, end in _cardinality_calls(fragment, lo, hi, name, strict=True):
-        # Depth 0 relative to the macro: a DIRECT argument. Nested deeper it is an
-        # argument to some other call, e.g.
-        # `REQUIRE(cpu_results.resize(ground_truth.size()) == OK)`, which
-        # constrains the resize result and says nothing about `ground_truth`.
-        if _paren_depth(fragment, lo, start) != 0 or symbol in seen:
+        if symbol in seen:
             continue
         if not _bound_direction(fragment, span, kind, start, end, macro):
             continue
@@ -2530,6 +2823,17 @@ def _changes_length(symbol: str, statement: str) -> bool:
     return re.search(rf"(?<![\w)\]]){sym}\s*(?:\.|->)\s*(?:{mutators})\s*\(", statement) is not None
 
 
+# ---------------------------------------------------------------------------
+# Statement decomposition - SHARED by both detectors
+# ---------------------------------------------------------------------------
+#
+# `_top_level_brace` / `_block_body_pieces` / `_inline_pieces` / `_statement_atoms`
+# are not detector-2 machinery even though they live in its section: `_scan_forward`
+# (detector 1) runs its scan window through `_statement_atoms` too. They are the
+# one place a group emitted by `_statements()` is turned into genuine statements,
+# so neither detector re-parses one with a prefix or suffix test of its own.
+
+
 def _top_level_brace(statement: str) -> int:
     """Offset of the first `{` outside parentheses, or -1.
 
@@ -2548,12 +2852,14 @@ def _top_level_brace(statement: str) -> int:
 
 
 def _block_body_pieces(text: str) -> list[str]:
-    """Split the text after a block's `{` into statements plus its closing `}`.
+    """Split `text` at each depth-0 `;` and at each `}` that closes an OUTER block.
 
-    Splits at `;` and at the `}` that closes the block, both at paren AND brace
-    depth zero. Depth matters: an initializer list (`Vector<int> v = {1, 2};`), a
-    lambda body and a nested block all carry braces that do not close this one, and
-    treating any of them as the closer would unbalance the caller's stack.
+    Splits at paren AND brace depth zero. Depth matters: an initializer list
+    (`Vector<int> v = {1, 2};`), a lambda body and a nested block all carry braces
+    that do not close an enclosing one, and treating any of them as a closer would
+    unbalance the caller's stack. An UNMATCHED `}` - one with no `{` before it in
+    this text - is exactly a close of the block the caller is inside, and is
+    emitted as its own piece.
     """
     pieces: list[str] = []
     parens = 0
@@ -2600,19 +2906,56 @@ def _inline_pieces(statement: str) -> list[str]:
     header's bound guards the body and is popped at the `}` rather than leaking on
     to whatever follows.
 
-    Only control flow is split. A bare `{` at statement level would otherwise catch
-    every aggregate initializer, and pushing a frame for one would make the next `}`
-    pop the wrong block.
+    Only control flow is split HERE. A bare `{` at statement level would otherwise
+    catch every aggregate initializer, and pushing a frame for one would make the
+    next `}` pop the wrong block. Delimiters that are unambiguous - a depth-0 `;`,
+    an unmatched `}` - are split off by `_statement_atoms` before this runs.
     """
     if not _SIZE_CONTROL_FLOW_RE.match(statement):
         return [statement]
     brace = _top_level_brace(statement)
     if brace == -1 or not statement[brace + 1 :].strip():
         return [statement]
-    pieces = [statement[: brace + 1].strip()]
-    for piece in _block_body_pieces(statement[brace + 1 :]):
-        pieces.extend(_inline_pieces(piece))
-    return pieces
+    return [statement[: brace + 1].strip(), *_statement_atoms(statement[brace + 1 :])]
+
+
+def _statement_atoms(text: str) -> list[str]:
+    """`text` decomposed into GENUINE statements and block delimiters.
+
+    TOTAL, by construction: whatever `_statements()` or `_line_fragments()` hands
+    over, every atom out of here is exactly one of
+
+    * `"}"` - the close of a block the scan is inside;
+    * a control-flow HEADER, ending in `{` when it opens a block;
+    * one simple statement.
+
+    That totality is the point, and it is why this exists rather than a fourth
+    special case in `_first_unbounded_index`. `_statements()` emits a line-oriented
+    GROUP, not a statement: it ends a group at a `;`, a trailing `{` or a trailing
+    `}`, so a group can carry a statement AND a delimiter (`CHECK(v[0]); }`), a
+    header AND its whole body (`if (c) { CHECK(v[0]); }`), or several statements
+    compacted onto one line. Each consumer that re-parsed a group with its own
+    prefix/suffix heuristic got one shape wrong and stayed silent over a live
+    crash:
+
+    * round 5 - a header whose body shares its line: the body was truncated away
+      at `{`, so `if (v.is_empty()) { CHECK(v[0]); }` was reported clean;
+    * round 8 - a body's last statement sharing a line with the closing brace:
+      `CHECK(v[0]); }` does not START with `}`, so the block frame was never
+      popped and its bound leaked onto every statement after the block
+      (Codex, PR #849).
+
+    The group is NOT split inside `_statements()`, which would be the other place
+    to fix this, because `limit` there counts GROUPS and the caller slices the
+    merged same-line-plus-following list to the same number: emitting atoms would
+    silently shrink the lookahead window, which is the fail-OPEN direction (sites
+    vanish rather than appear). Splitting here keeps the window counting source
+    statements exactly as documented.
+    """
+    atoms: list[str] = []
+    for piece in _block_body_pieces(text):
+        atoms.extend(_inline_pieces(piece))
+    return atoms
 
 
 # A statement-level rebinding of a name: `i = 0`, `i += 2`, `i++`, `--i`. `==`,
@@ -2688,24 +3031,34 @@ def _first_unbounded_index(
     both subscripts. What one frame proves it proves for the whole subtree, and a
     subscript is safe only if the union covers that specific index expression.
 
-    A body that shares its header's line is expanded first (`_inline_pieces`), so
-    the stack sees the same pieces whether or not the author used a line break. The
-    expansion happens HERE and not at the call site so the caller's scan window
-    still counts SOURCE statements: a one-line block must not consume three of the
-    six statements this detector is allowed to look ahead.
+    Each scanned statement is decomposed into ATOMS first (`_statement_atoms`), so
+    the stack sees the same pieces however the author laid the source out: a body
+    on its header's line, a closing brace on the body's last statement's line, and
+    several statements compacted onto one line all reduce to the same atoms as the
+    fully expanded spelling. The prefix and suffix tests below are then reading an
+    atom, where they are exact - a block close IS the atom `"}"` and a block open
+    IS an atom ending in `{` - instead of reading a group, where each of them has
+    now been wrong about one layout. The decomposition happens HERE and not at the
+    call site so the caller's scan window still counts SOURCE statements: a
+    one-line block must not consume three of the six statements this detector is
+    allowed to look ahead.
     """
     stack: list[tuple[_Bound, bool]] = []
     pending: tuple[_Bound, bool] | None = None
     expanded = [
-        (line_no, piece)
+        (line_no, atom)
         for line_no, statement in following
-        for piece in _inline_pieces(statement)
+        for atom in _statement_atoms(statement)
     ]
     for line_no, statement in expanded:
         if _SIZE_SCAN_STOP_RE.match(statement):
             return None
         if _RETURN_RE.match(statement) and not stack:
             return None
+        # Atomisation guarantees a block close arrives as the atom `"}"` on its own.
+        # The test stays a PREFIX one anyway, because the two readings differ only
+        # if an unsplit group ever reaches here, and then `} foo();` must still pop:
+        # not popping leaks a bound that has ended, which is the fail-OPEN direction.
         if statement.lstrip().startswith("}") and stack:
             stack.pop()
         # Applied BEFORE the statement is judged, not after: `i += 5; v[i];` is two
