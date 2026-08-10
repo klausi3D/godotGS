@@ -1441,6 +1441,319 @@ class SizeThenIndexSameLineBlockBodies(SizeIndexScanTestCase):
         )
 
 
+class SizeThenIndexBoundMustReachTheIndex(SizeIndexScanTestCase):
+    """A bound on the CONTAINER is not a bound on every subscript of it (round 6).
+
+    Until this, a guard's answer was a boolean - "the container is non-empty" - and
+    any lower bound suppressed every index under it. So
+    `REQUIRE(v.size() == 2); if (!v.is_empty()) { CHECK(v[1]); }` reported clean
+    although a container of length 1 fails the assertion, enters the branch and
+    aborts the whole batch on `v[1]`. Every case here pins the RELATION between the
+    proven bound and the specific index expression, in both directions: the shapes
+    the magnitude must now catch, and the ones it must still leave alone.
+    """
+
+    # --- a constant subscript against a proven minimum length -------------------
+
+    def test_a_constant_subscript_above_a_nonemptiness_guard_is_flagged(self):
+        for eol in ("\n", "\r\n"):
+            with self.subTest(eol=eol):
+                body = (
+                    "  REQUIRE(v.size() == 2);\n"
+                    "  if (!v.is_empty()) {\n    CHECK(v[1] == 3);\n  }"
+                )
+                self.assertSized(body.replace("\n", eol), "v")
+
+    def test_index_zero_under_a_nonemptiness_guard_stays_clean(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 2);\n  if (!v.is_empty()) {\n    CHECK(v[0] == 3);\n  }"
+        )
+
+    def test_a_minimum_of_four_covers_index_three_and_not_index_four(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 9);\n  if (v.size() >= 4) {\n    CHECK(v[3] == 3);\n  }"
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 9);\n  if (v.size() >= 4) {\n    CHECK(v[4] == 3);\n  }",
+            "v",
+        )
+
+    def test_a_strict_greater_than_proves_one_more(self):
+        """`size() > 3` means at least four elements, so index 3 is the last safe one."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 9);\n  if (v.size() > 3) {\n    CHECK(v[3] == 3);\n  }"
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 9);\n  if (v.size() > 3) {\n    CHECK(v[4] == 3);\n  }",
+            "v",
+        )
+
+    def test_an_equality_guard_proves_exactly_its_operand(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 9);\n  if (v.size() == 2) {\n    CHECK(v[1] == 3);\n  }"
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 9);\n  if (v.size() == 2) {\n    CHECK(v[2] == 3);\n  }",
+            "v",
+        )
+
+    def test_the_literal_is_read_in_its_own_base(self):
+        """`_literal_value` parses C++ spelling, so a hex bound is a real bound."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 99);\n  if (v.size() >= 0x10) {\n    CHECK(v[15] == 3);\n  }"
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 99);\n  if (v.size() >= 0x10) {\n    CHECK(v[16] == 3);\n  }",
+            "v",
+        )
+
+    # --- a loop index against the loop's own bound -------------------------------
+
+    def test_a_loop_bounds_its_index_and_not_an_offset_of_it(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n    CHECK(v[i] == 3);\n  }"
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n    CHECK(v[i + 1] == 3);\n  }",
+            "v",
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n    CHECK(v[i - 1] == 3);\n  }",
+            "v",
+        )
+
+    def test_a_loop_does_not_bound_an_unrelated_index(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n    CHECK(v[j] == 3);\n  }",
+            "v",
+        )
+
+    def test_a_loop_over_the_container_still_proves_it_is_non_empty(self):
+        """`i >= 0` and `i < v.size()` together mean the length is at least 1, so a
+        literal `v[0]` inside the body is covered even though it is not the index."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n    CHECK(v[0] == 3);\n  }"
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n    CHECK(v[1] == 3);\n  }",
+            "v",
+        )
+
+    def test_casts_and_parentheses_do_not_change_a_subscript(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n    CHECK(v[(uint32_t)i] == 3);\n  }"
+        )
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 3);\n  if (!v.is_empty()) {\n    CHECK(v[( 0 )] == 3);\n  }"
+        )
+
+    # --- the last-element idiom ---------------------------------------------------
+
+    def test_the_last_element_idiom_is_covered_by_non_emptiness(self):
+        """`v[v.size() - 1]` is in range exactly when `v` is non-empty, which is what
+        `if (!v.is_empty())` proves. The corpus writes this at
+        test_gaussian_importer.h:2933 and it must NOT be reported."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  if (!v.is_empty()) {\n    CHECK(v[v.size() - 1] == 3);\n  }"
+        )
+
+    def test_a_deeper_offset_needs_a_bigger_minimum(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  if (!v.is_empty()) {\n    CHECK(v[v.size() - 2] == 3);\n  }",
+            "v",
+        )
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  if (v.size() >= 2) {\n    CHECK(v[v.size() - 2] == 3);\n  }"
+        )
+
+    def test_a_non_literal_offset_is_not_covered(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  if (!v.is_empty()) {\n    CHECK(v[v.size() - k] == 3);\n  }",
+            "v",
+        )
+
+    def test_the_last_element_of_a_DIFFERENT_container_is_not_covered(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  if (!v.is_empty()) {\n    CHECK(v[other.size() - 1] == 3);\n  }",
+            "v",
+        )
+
+    def test_a_length_peer_carries_the_last_element_idiom_across(self):
+        """The real corpus shape (test_gaussian_importer.h:2929-2933): the guard
+        proves `b` non-empty AND `a.size() == b.size()`, so `a[b.size() - 1]` is in
+        range - the bound and the subscript are on different containers of proven
+        equal length."""
+        self.assertNotSized(
+            "  CHECK_EQ(a.size(), b.size());\n"
+            "  if (!b.is_empty() && a.size() == b.size()) {\n"
+            "    CHECK_EQ(a[b.size() - 1], b[b.size() - 1]);\n  }"
+        )
+
+    def test_a_length_peer_does_not_grant_more_than_the_peer_proves(self):
+        self.assertSized(
+            "  CHECK_EQ(a.size(), b.size());\n"
+            "  if (!b.is_empty() && a.size() == b.size()) {\n"
+            "    CHECK_EQ(a[b.size() - 2], 0);\n  }",
+            "a",
+        )
+
+    # --- how bounds combine --------------------------------------------------------
+
+    def test_a_disjunction_keeps_only_what_every_arm_proves(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 9);\n"
+            "  if (v.size() >= 3 || v.size() >= 1) {\n    CHECK(v[0] == 3);\n  }"
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 9);\n"
+            "  if (v.size() >= 3 || v.size() >= 1) {\n    CHECK(v[2] == 3);\n  }",
+            "v",
+        )
+
+    def test_a_ternary_keeps_only_what_both_arms_prove(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 9);\n"
+            "  if (flag ? v.size() >= 3 : v.size() >= 1) {\n    CHECK(v[0] == 3);\n  }"
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 9);\n"
+            "  if (flag ? v.size() >= 3 : v.size() >= 1) {\n    CHECK(v[2] == 3);\n  }",
+            "v",
+        )
+
+    def test_a_conjunction_combines_what_its_parts_prove(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 9);\n"
+            "  if (v.size() >= 2 && ready) {\n    CHECK(v[1] == 3);\n  }"
+        )
+
+    def test_nested_blocks_combine_their_bounds(self):
+        """Every enclosing condition holds at once, so the frames are unioned: the
+        outer `>= 2` covers `v[1]` and the inner loop covers `v[i]`."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 9);\n"
+            "  if (v.size() >= 2) {\n"
+            "    for (uint32_t i = 0; i < v.size(); i++) {\n"
+            "      CHECK(v[1] == v[i]);\n    }\n  }"
+        )
+
+    def test_a_nested_block_still_does_not_reach_past_the_union(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 9);\n"
+            "  if (v.size() >= 2) {\n"
+            "    for (uint32_t i = 0; i < v.size(); i++) {\n"
+            "      CHECK(v[2] == v[i]);\n    }\n  }",
+            "v",
+        )
+
+    # --- short-circuit operands are judged the same way ----------------------------
+
+    def test_a_short_circuit_operand_must_reach_the_index_too(self):
+        self.assertSized("  REQUIRE(v.size() == 2);\n  CHECK(v.size() >= 1 && v[1] == 3);", "v")
+        self.assertNotSized("  REQUIRE(v.size() == 2);\n  CHECK(v.size() >= 2 && v[1] == 3);")
+
+    def test_a_negative_short_circuit_operand_covers_index_zero_only(self):
+        self.assertNotSized("  REQUIRE(v.size() == 2);\n  CHECK(v.is_empty() || v[0] == 3);")
+        self.assertSized("  REQUIRE(v.size() == 2);\n  CHECK(v.is_empty() || v[1] == 3);", "v")
+
+    # --- the relation must still hold where the index is written ------------------
+
+    def test_a_body_that_rebinds_the_loop_index_loses_the_bound(self):
+        """The relation is about VALUES and the model compares TEXT, so the moment a
+        statement rebinds the name the two stop agreeing. This also closes round 4's
+        recorded limit that a loop body driving the variable out of range was not
+        modelled."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n"
+            "    i += 5;\n    CHECK(v[i] == 3);\n  }",
+            "v",
+        )
+
+    def test_a_body_that_leaves_the_loop_index_alone_keeps_the_bound(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n"
+            "    use(i);\n    CHECK(v[i] == 3);\n  }"
+        )
+
+    def test_comparisons_are_not_rebindings(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n"
+            "    CHECK(i != 9);\n    CHECK(i <= 9);\n    CHECK(i >= 0);\n"
+            "    CHECK(v[i] == 3);\n  }"
+        )
+
+    def test_an_inner_loop_reusing_the_index_name_loses_the_outer_bound(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) {\n"
+            "    for (uint32_t i = 0; i < n; i++) {\n      CHECK(v[i] == 3);\n    }\n  }",
+            "v",
+        )
+
+    def test_growing_the_length_PEER_invalidates_the_last_element_idiom(self):
+        """The indexed container's own mutators end the scan; the peer's did not, and
+        `b.push_back(x)` makes `a[b.size() - 1]` one past the end of `a`."""
+        self.assertSized(
+            "  CHECK_EQ(a.size(), b.size());\n"
+            "  if (!b.is_empty() && a.size() == b.size()) {\n"
+            "    b.push_back(x);\n    CHECK_EQ(a[b.size() - 1], 0);\n  }",
+            "a",
+        )
+
+    def test_leaving_the_length_peer_alone_keeps_the_idiom(self):
+        self.assertNotSized(
+            "  CHECK_EQ(a.size(), b.size());\n"
+            "  if (!b.is_empty() && a.size() == b.size()) {\n"
+            "    use(b);\n    CHECK_EQ(a[b.size() - 1], 0);\n  }"
+        )
+
+    # --- classification and fail-closed --------------------------------------------
+
+    def test_an_under_bounded_site_is_labelled_as_such(self):
+        """Not `loop-bounded-by-another-container`: the bound is on the RIGHT
+        container, at the wrong magnitude, and naming the wrong container would send
+        a maintainer to read the wrong line."""
+        found = self.sites(
+            "  REQUIRE(v.size() == 2);\n  if (!v.is_empty()) {\n    CHECK(v[1] == 3);\n  }"
+        )
+        self.assertEqual([site[6] for site in found], [GUARD._CLASS_UNDER_BOUND])
+
+    def test_a_cross_container_site_keeps_its_own_label(self):
+        found = self.sites(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0; i < other.size(); i++) {\n    CHECK(v[i] == 3);\n  }"
+        )
+        self.assertEqual([site[6] for site in found], [GUARD._CLASS_OTHER_BOUND])
+
+    def test_an_unreadable_subscript_is_not_covered(self):
+        """An index whose brackets do not balance is unprovable, so it is reported."""
+        self.assertEqual(GUARD._index_expressions("v", "CHECK(v[i"), [(6, None)])
+        self.assertFalse(GUARD._bound_covers(GUARD._Bound(9, frozenset()), None, "v"))
+
+    def test_an_unmodelled_index_expression_is_not_covered(self):
+        for index in ("i + 1", "n - 1", "v.size()", "f(i)", "i * 2", "-1"):
+            with self.subTest(index=index):
+                self.assertFalse(
+                    GUARD._bound_covers(GUARD._Bound(9, frozenset({"i"})), index, "v"),
+                    f"{index!r} must not be treated as proven",
+                )
+
+
 class SizeIndexFailsClosed(unittest.TestCase):
     """Unreadable or unlexable input must FAIL, never read as 'no violations'."""
 
@@ -1876,8 +2189,12 @@ class SizeIndexBaselineIntegrity(unittest.TestCase):
         sites = [site for file_sites in found.values() for site in file_sites]
         straight = [s for s in sites if s[6] == GUARD._CLASS_STRAIGHT_LINE]
         other = [s for s in sites if s[6] == GUARD._CLASS_OTHER_BOUND]
+        under = [s for s in sites if s[6] == GUARD._CLASS_UNDER_BOUND]
         self.assertEqual(len(straight), 43)
         self.assertEqual(len(other), 7)
+        # Round 6's population is EMPTY on this corpus, and pinned at zero so that
+        # a site whose guard proves too small a bound cannot appear unremarked.
+        self.assertEqual(len(under), 0)
         self.assertEqual(len(sites), 50)
 
     def test_the_named_concentrations_in_issue_844_reconcile_exactly(self):

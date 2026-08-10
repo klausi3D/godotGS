@@ -200,11 +200,41 @@ index `container[...]` that nothing between them bounds.
   `b[i]` crashes whenever `b` is the short one. Seven such sites exist; they are
   flagged, and reported separately from the straight-line ones so the two
   populations stay auditable (see "Reconciliation" below).
+* **A bound must reach the SPECIFIC index, not merely the container.** This is a
+  relation, not a boolean, and until #849's round-6 review it was a boolean: any
+  lower bound on the container suppressed every subscript under it, so
+
+      REQUIRE(v.size() == 2);
+      if (!v.is_empty()) { CHECK(v[1]); }                      // reported CLEAN
+      for (uint32_t i = 0; i < v.size(); i++) { CHECK(v[i + 1]); }   // reported CLEAN
+
+  were both silent over a real batch-killing index - length 1 fails the assertion,
+  enters the branch, and `v[1]` aborts the process. A guard now yields a `_Bound`
+  (see the class for the model), and a subscript is suppressed by exactly three
+  rules and nothing else:
+
+  1. an integer LITERAL below the proven minimum length (`v.size() >= 4` covers
+     `v[0..3]`, `!v.is_empty()` covers `v[0]` alone);
+  2. an index EXPRESSION proven `0 <= e < size()`, matched textually modulo casts,
+     parentheses and whitespace - `for (uint32_t i = 0; i < v.size(); ++i)` covers
+     `v[i]` and `v[(uint32_t)i]`, never `v[i + 1]` or `v[j]`;
+  3. the last-element idiom `v[w.size() - k]` for a literal `k` no greater than the
+     minimum, over a `w` whose length is proven equal to `v`'s. The corpus writes
+     exactly this at `test_gaussian_importer.h:2933`, where the guard is
+     `!brush.is_empty() && reloaded.size() == brush.size()`.
+
+  Every other index expression is unproven and therefore REPORTED. On the current
+  corpus rule 1 decides 28 subscripts, rule 2 decides 21 and rule 3 decides 2.
+* **The relation must still hold where the index is written.** A proven relation is
+  about values and this file compares text, so a statement that rebinds a name drops
+  every bound mentioning it (`i += 5; CHECK(v[i]);`), and a statement that can
+  resize a length PEER drops that peer (`b.push_back(x); CHECK(a[b.size() - 1]);`).
 * **Short-circuiting is honoured**, reusing the same dominance decomposition as
   the null-deref detector with size-aware predicates, so
-  `chunks.size() >= 2 && f(chunks[0])` is not flagged. No site in the corpus
-  needs this today; it is here so widening the window later cannot introduce a
-  false positive silently.
+  `chunks.size() >= 2 && f(chunks[0])` is not flagged - while
+  `chunks.size() >= 1 && f(chunks[1])` is, by the same three rules. No site in the
+  corpus needs this today; it is here so widening the window later cannot introduce
+  a false positive silently.
 * The scan stops at a statement that can change the container's length
   (assignment, `resize`, `clear`, `push_back`, ...), and at a depth-0 `return`.
 
@@ -229,23 +259,45 @@ index `container[...]` that nothing between them bounds.
    `test_gaussian_splat_world_io.h:364`, `chunks.size() >= 2 && ...chunks[i]` -
    and is correctly suppressed.
 
-   #849's round-2 fixes did NOT change this delta: the window-30 scan is
-   site-for-site identical before and after them, so widening is neither made safe
-   nor unsafe by them and remains follow-up under #844. It changes the baseline
-   (+3) and needs its own delta review. **This blind spot is open, not covered.**
+   #849's round-2 and round-6 fixes did NOT change this delta: the window-30 scan
+   is site-for-site the same three additions before and after them, so widening is
+   neither made safe nor unsafe by them and remains follow-up under #844. It
+   changes the baseline (+3) and needs its own delta review. **This blind spot is
+   open, not covered.**
 2. **Indexes through an alias** (`const T &e = v[0]` then `e`), through
    `.ptr()[i]` or `.get(i)`. Neither of the latter two occurs in the corpus.
-3. **An index whose value is itself asserted elsewhere.** The detector never
-   reasons about the index expression, only about the bound.
+3. **An index whose value is bounded somewhere the model does not look.** Since
+   round 6 the detector DOES relate the index expression to the proven bound, but
+   only through the three rules listed above and only from a guard that dominates
+   the subscript. A bound established by an earlier statement
+   (`const uint32_t n = v.size() - 1;` then `v[n]`), by an assertion on the index
+   rather than the container (`REQUIRE(idx < v.size())` - that IS a bound, but on a
+   later `v[idx]` it is the assertion, not a guard), or by any arithmetic other than
+   `<peer>.size() - <literal>` is unproven and therefore REPORTED, never suppressed.
+   This one is a precision limit, not a soundness limit: it costs false positives,
+   not silence.
 4. **Non-container `size()`** - anything named `size()` is treated as a length.
+5. **A rebinding this file's syntax cannot see.** Round 6's bound expires when a
+   statement assigns, increments or decrements a name it depends on, or resizes a
+   length peer. It does not expire on a rebinding through a reference or pointer
+   alias, or inside a callee handed `&i` - the same dataflow blind spot detector 1
+   has for aliases (its item 2 above), for the same reason.
+
+   That is the honest edge of the model: what a guard proves is now three named
+   rules, so the surface a future review can attack is enumerable rather than
+   open-ended, and it is exactly rule 2's textual identity, rule 3's peer equality,
+   and the nonnegativity proof `_nonnegative_loop_indices` supplies to rule 2. The
+   two round-4 limits recorded there are part of the same list.
 
 ### Reconciliation of the count
 
 #844's sweep of the corpus reported 60 size-shape sites, 14 loop-bounded, 46
 dangerous, 4 fixed by #843 -> **42 remaining**. This detector reports **50**:
-**43 straight-line** and **7 bounded only by another container's `size()`**. Both
-figures are printed on every run so the split cannot quietly drift, and both are
-pinned by a unit test.
+**43 straight-line**, **7 bounded only by another container's `size()`** and
+**0 bounded below the index** (round 6's population - the right container, too
+small a bound). All three figures are printed on every run, including the zero, so
+that a population cannot arrive unremarked, and all three are pinned by a unit
+test.
 
 The delta against 42 is +1 straight-line and +7 cross-container, and neither is
 the baseline being tuned to fit:
@@ -341,6 +393,7 @@ import re
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE_TESTS_DIR = ROOT / "modules" / "gaussian_splatting" / "tests"
@@ -1278,10 +1331,17 @@ _LENGTH_MUTATORS = (
     "remove", "erase", "pop_back", "ordered_insert", "reserve", "set_size", "fill_with",
 )
 
-# Reported classes. Both are baselined; they are distinguished only so the count
-# stays reconcilable against #844's sweep (42 + 7 = 49).
+# Reported classes. All are baselined identically - the class is a LABEL and does
+# not enter the fingerprint - and they are distinguished only so the counts stay
+# reconcilable against #844's sweep (42 + 7 = 49).
 _CLASS_STRAIGHT_LINE = "straight-line"
 _CLASS_OTHER_BOUND = "loop-bounded-by-another-container"
+# Round 6's population: the container IS bounded where it is indexed, just not far
+# enough for THIS subscript (`if (!v.is_empty()) { v[1]; }`). Kept apart from the
+# cross-container class because calling it that would be a false statement about
+# the code - the bound is on the right container, at the wrong magnitude - and a
+# guard that mislabels what it found is the same defect as one that overclaims.
+_CLASS_UNDER_BOUND = "bounded-below-the-index"
 
 
 def _matching_open(text: str, at: int, lo: int) -> int:
@@ -1528,7 +1588,7 @@ def _bound_direction(
       container's size, so `if (v.is_empty()) { v[0]; }` and
       `if (i >= v.size()) { v[i]; }` marked their bodies safe although both select
       exactly the out-of-bounds case;
-    * a short-circuit operand (`_size_positive_test`) - matched on the OPERATOR
+    * a short-circuit operand (`_size_bound_tests`) - matched on the OPERATOR
       alone, so `v.size() == 0 && v[0]` and `v.size() != 4 && v[0]` counted as
       guarded although `v[0]` is evaluated precisely when `v` is empty.
 
@@ -1719,7 +1779,7 @@ def _equal_cardinality_partner(symbol: str, expr: str) -> str | None:
 
     `reloaded.size() == original.size()` carries a lower bound from `original` to
     `reloaded`, but only half of one: the caller still has to bound `original`, and
-    only a conjunction can do that (see `_expression_lower_bound`). Both sides must
+    only a conjunction can do that (see `_expression_bound`). Both sides must
     be exactly a `size()` call and nothing else, so `a.size() == b.size() - 1` and
     `a.size() == b.size() + n` do not qualify.
     """
@@ -1877,10 +1937,177 @@ def _atom_cardinality(symbol: str, body: str) -> tuple[str, str, str, str] | Non
 _FLIPPED_RELATION = {"<": ">", ">": "<", "<=": ">=", ">=": "<=", "==": "==", "!=": "!="}
 
 
-def _expression_lower_bound(
+class _Bound(NamedTuple):
+    """What a guard being TRUE proves about which subscripts of a container are safe.
+
+    A boolean "the container is non-empty" is NOT what a subscript needs. `v[1]`
+    under `if (!v.is_empty())` still runs when the length is 1, so the guard has to
+    be related to the specific index expression rather than to the container
+    (Codex, PR #849 round 6). Three facts do that, and they are the three fields:
+
+    * `minimum` - a proven lower bound on the LENGTH. It makes exactly the constant
+      subscripts `0 .. minimum - 1` safe. `!v.is_empty()` and `v.size() != 0` prove
+      1; `v.size() == 4` and `v.size() >= 4` prove 4; `v.size() > 4` proves 5.
+    * `below` - index EXPRESSIONS, normalised, proven to satisfy `0 <= e < size()`.
+      `for (uint32_t i = 0; i < v.size(); ++i)` puts `i` here, which is what makes
+      `v[i]` safe and leaves `v[i + 1]` and `v[j]` unproven.
+    * `lengths` - containers, normalised, whose length is proven EQUAL to this
+      one's. That is what makes the last-element idiom decidable: `v[w.size() - 1]`
+      is in range when `w.size() == v.size()` and `minimum >= 1`, and #844's corpus
+      writes exactly that (`test_gaussian_importer.h:2933`). The container's own
+      spelling counts implicitly, so `v[v.size() - 1]` needs no entry.
+
+    Anything the model cannot relate to one of those three facts is NOT covered, so
+    an unmodelled index expression reports rather than being suppressed.
+    """
+
+    minimum: int
+    below: frozenset[str]
+    lengths: frozenset[str] = frozenset()
+
+
+_NO_BOUND = _Bound(0, frozenset())
+# A guard that proves only non-emptiness: index 0 and nothing else.
+_NONEMPTY_BOUND = _Bound(1, frozenset())
+
+
+def _bound_union(left: _Bound, right: _Bound) -> _Bound:
+    """Both bounds hold (a conjunction), so take the STRONGER of each fact."""
+    return _Bound(
+        max(left.minimum, right.minimum),
+        left.below | right.below,
+        left.lengths | right.lengths,
+    )
+
+
+def _bound_intersection(left: _Bound, right: _Bound) -> _Bound:
+    """Either bound may be the only one that holds (a disjunction or a ternary)."""
+    return _Bound(
+        min(left.minimum, right.minimum),
+        left.below & right.below,
+        left.lengths & right.lengths,
+    )
+
+
+def _peel_casts(text: str) -> str:
+    """`text` with wrapping parens and leading C-style casts removed."""
+    body = _strip_all_outer_parens(text)
+    while True:
+        peeled = _strip_all_outer_parens(_CAST_PREFIX_RE.sub("", body, count=1))
+        if peeled == body:
+            return body
+        body = peeled
+
+
+def _normalize_index(expr: str) -> str:
+    """The spelling an index expression is compared by: no casts, parens or spaces.
+
+    Deliberately TEXTUAL. `i` and `(uint32_t)i` and `( i )` are the same subscript;
+    `i` and `i + 0` are not, and the second is simply unproven. Guessing at
+    arithmetic equivalences here would suppress reports, which is the direction
+    this detector must never be wrong in.
+    """
+    return re.sub(r"\s+", "", _peel_casts(expr))
+
+
+_LENGTH_EXPRESSION_RE = re.compile(r"(.+?)(?:\.|->)size\(\)")
+
+
+def _length_minus_literal(index: str) -> tuple[str, int] | None:
+    """`(container, k)` when `index` is `<container>.size() - k` for a literal k >= 1.
+
+    The last-element idiom, and the only arithmetic on an index this model reads.
+    `v[v.size() - 1]` is in range exactly when `v.size() >= 1`, so it is decidable
+    from `minimum` - unlike `v[i + 1]`, `v[n - 1]` or `v[v.size() - k]` for a
+    non-literal k, which are all returned as None and therefore not covered.
+    """
+    depth = 0
+    cut = -1
+    for i, ch in enumerate(index):
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif depth == 0 and ch == "-" and i and index[i + 1 : i + 2] != ">":
+            if index[i - 1] in "+-*/%<>=!&|^,(":
+                continue                      # unary minus, or part of `->` / `--`
+            cut = i
+    if cut < 0:
+        return None
+    value = _literal_value(index[cut + 1 :])
+    if value is None or value < 1:
+        return None
+    base = _LENGTH_EXPRESSION_RE.fullmatch(index[:cut])
+    return (base.group(1), value) if base else None
+
+
+def _bound_covers(bound: _Bound, index: str | None, symbol: str = "") -> bool:
+    """True when `bound` proves the subscript `index` is in range.
+
+    Three ways, one per field of `_Bound`, and nothing else: the expression is
+    listed in `below`, it is a constant literal under `minimum`, or it is the
+    last-element idiom `<peer>.size() - k` with `k <= minimum` over a container
+    whose length is proven equal to this one's.
+
+    `index` is None when the subscript's brackets do not balance, which is not
+    provable and therefore not covered. Every other unmodelled shape lands in the
+    same place: `False`, which REPORTS the site.
+    """
+    if index is None:
+        return False
+    normalized = _normalize_index(index)
+    if not normalized:
+        return False
+    if normalized in bound.below:
+        return True
+    value = _literal_value(normalized)
+    if value is not None:
+        return value < bound.minimum
+    offset = _length_minus_literal(normalized)
+    if offset is None:
+        return False
+    container, subtracted = offset
+    peers = bound.lengths | ({_normalize_index(symbol)} if symbol else frozenset())
+    return container in peers and subtracted <= bound.minimum
+
+
+def _atom_bound(
+    kind: str, call: str, operator: str, other: str, nonnegative: frozenset[str]
+) -> _Bound:
+    """How much a single cardinality atom proves, once its DIRECTION is settled.
+
+    Called only after `_bound_direction` has said the atom bounds the length below,
+    so this adds magnitude on top of that answer and can only ever narrow it. The
+    direction is still decided in exactly one place; splitting it in two is how the
+    assertion and the guard drifted apart in round 2.
+    """
+    rendered = call if not operator else f"{call} {operator} {other}"
+    if not _bound_direction(
+        rendered, (0, len(rendered)), kind, 0, len(call), guard=True, nonnegative=nonnegative
+    ):
+        return _NO_BOUND
+    operand = _peel_casts(other)
+    value = _literal_value(operand)
+    if operator in ("==", ">="):
+        # `_bound_direction` already required a non-zero LITERAL for these as a
+        # guard, so `value` is known here: `size() == 4` and `size() >= 4` each
+        # make 0..3 safe.
+        return _Bound(value, frozenset()) if value is not None else _NO_BOUND
+    if operator == ">":
+        if value is not None:
+            return _Bound(value + 1, frozenset())   # `size() > 4` makes 0..4 safe
+        # A proven-nonnegative NAME: `i < v.size()` says `v[i]` is in range, and
+        # since `i >= 0` it also says the length is at least 1. It says nothing at
+        # all about `v[i + 1]` or `v[j]`.
+        return _Bound(1, frozenset({_normalize_index(operand)}))
+    # `size() != 0` and the bare truthiness test `if (v.size())` prove non-empty.
+    return _NONEMPTY_BOUND
+
+
+def _expression_bound(
     symbol: str, expr: str, nonnegative: frozenset[str] = frozenset()
-) -> bool:
-    """True when `expr` being TRUE **as a whole** bounds `symbol`'s length from below.
+) -> _Bound:
+    """What `expr` being TRUE **as a whole** proves about `symbol`'s subscripts.
 
     The expression is DECOMPOSED by precedence rather than scanned for a qualifying
     subexpression. Scanning accepted any single `size()` test pointing the right
@@ -1890,11 +2117,13 @@ def _expression_lower_bound(
     round 3). What matters is not that a bound appears somewhere but that the
     expression cannot be true without it:
 
-    * `c ? a : b` - both arms must bound, since either may be the one taken;
+    * `c ? a : b` - both arms must bound, since either may be the one taken, so
+                    only what BOTH prove survives (`_bound_intersection`);
     * `A || B`    - EVERY disjunct must bound, since any one of them may be the
-                    only true one;
-    * `A && B`    - ONE conjunct suffices: all of them hold, and one of them may
-                    also supply what ANOTHER needs (`_equal_cardinality_partner`).
+                    only true one - again the intersection;
+    * `A && B`    - all conjuncts hold together, so their proofs COMBINE
+                    (`_bound_union`), and one of them may also supply what ANOTHER
+                    needs (`_equal_cardinality_partner`).
 
     Whatever is left is an atom, and an atom is a bound only when its WHOLE truth
     is the cardinality test - `_atom_cardinality` decides that, because scanning
@@ -1903,7 +2132,7 @@ def _expression_lower_bound(
     (Codex, PR #849 round 4). Negation is answered by `_size_negative_test`, the
     only thing that knows which tests imply non-emptiness when FALSE, so
     `!v.is_empty()` still bounds while `!v.size()` (true exactly when empty) does
-    not.
+    not - and, being a non-emptiness test, it proves index 0 and no more.
 
     `nonnegative` carries the identifiers the CALLER has proved to be at least
     zero, which is what makes `for (uint32_t i = 0; i < v.size(); ++i)` bound its
@@ -1911,64 +2140,63 @@ def _expression_lower_bound(
     """
     body = _strip_all_outer_parens(expr)
     if not body:
-        return False
+        return _NO_BOUND
 
     ternary = _ternary_spans(body)
     if ternary:
-        return all(
-            _expression_lower_bound(symbol, body[span[0] : span[1]], nonnegative)
+        arms = [
+            _expression_bound(symbol, body[span[0] : span[1]], nonnegative)
             for span in ternary[1:]
-        )
+        ]
+        return _bound_intersection(arms[0], arms[1])
     disjuncts = _split_top_level(body, "||")
     if len(disjuncts) > 1:
-        return all(
-            _expression_lower_bound(symbol, body[span[0] : span[1]], nonnegative)
-            for span in disjuncts
-        )
+        bound = _expression_bound(symbol, body[disjuncts[0][0] : disjuncts[0][1]], nonnegative)
+        for span in disjuncts[1:]:
+            bound = _bound_intersection(
+                bound, _expression_bound(symbol, body[span[0] : span[1]], nonnegative)
+            )
+        return bound
     conjuncts = _split_top_level(body, "&&")
     if len(conjuncts) > 1:
         parts = [body[span[0] : span[1]] for span in conjuncts]
-        if any(_expression_lower_bound(symbol, part, nonnegative) for part in parts):
-            return True
+        bound = _NO_BOUND
+        for part in parts:
+            bound = _bound_union(bound, _expression_bound(symbol, part, nonnegative))
         # All conjuncts hold together, so one of them may prove what another needs:
         # `!a.is_empty() && b.size() == a.size()` bounds `b` even though neither
-        # half does alone (test_gaussian_importer.h:2930).
+        # half does alone (test_gaussian_importer.h:2930). The lengths are EQUAL,
+        # so `b` inherits the partner's bound whole - the minimum length, the index
+        # expressions proven below it, AND the partner itself as a length peer,
+        # which is what decides `b[a.size() - 1]` two lines further down.
         for position, part in enumerate(parts):
             partner = _equal_cardinality_partner(symbol, part)
             if partner is None:
                 continue
             siblings = parts[:position] + parts[position + 1 :]
-            if any(
-                _expression_lower_bound(partner, sibling, nonnegative)
-                for sibling in siblings
-            ):
-                return True
-        return False
+            for sibling in siblings:
+                bound = _bound_union(bound, _expression_bound(partner, sibling, nonnegative))
+            bound = _bound_union(
+                bound, _Bound(0, frozenset(), frozenset({_normalize_index(partner)}))
+            )
+        return bound
 
     negated = False
     while body.startswith("!") and not body.startswith("!="):
         negated = not negated
         body = _strip_all_outer_parens(body[1:])
     if negated:
-        return _size_negative_test(symbol, body)
+        return _NONEMPTY_BOUND if _size_negative_test(symbol, body) else _NO_BOUND
 
     atom = _atom_cardinality(symbol, body)
     if atom is None:
-        return False
+        return _NO_BOUND
     kind, call, operator, other = atom
-    # Re-rendered in the one canonical spelling `size() <op> <operand>` so that
-    # `_bound_direction` - still the single place a DIRECTION is decided - reads
-    # the same relation whichever side of the atom the call sat on.
-    rendered = call if not operator else f"{call} {operator} {other}"
-    return _bound_direction(
-        rendered,
-        (0, len(rendered)),
-        kind,
-        0,
-        len(call),
-        guard=True,
-        nonnegative=nonnegative,
-    )
+    # `_atom_bound` re-renders the atom in the one canonical spelling
+    # `size() <op> <operand>` so that `_bound_direction` - still the single place a
+    # DIRECTION is decided - reads the same relation whichever side of the atom the
+    # call sat on, and then adds the MAGNITUDE that direction alone cannot give.
+    return _atom_bound(kind, call, operator, other, nonnegative)
 
 
 def _condition_lower_bounds(expr: str) -> bool:
@@ -1976,10 +2204,11 @@ def _condition_lower_bounds(expr: str) -> bool:
 
     Used only to classify a reported site as loop-bounded-by-another-container, so
     the two counts stay reconcilable against #844's sweep. It is direction-aware for
-    the same reason `_expression_lower_bound` is: a header that merely mentions a
-    `size()` has not bounded anything. It is deliberately NOT decomposed and not
-    `guard=True` strict the way `_expression_lower_bound` is, because its answer can
-    only change the LABEL on a site that is already reported, never hide one.
+    the same reason `_expression_bound` is: a header that merely mentions a
+    `size()` has not bounded anything. It is deliberately NOT decomposed, not
+    `guard=True` strict and not related to the index expression the way
+    `_expression_bound` is, because its answer can only change the LABEL on a site
+    that is already reported, never hide one.
     """
     return any(
         _bound_direction(expr, (0, len(expr)), kind, start, end)
@@ -2016,23 +2245,55 @@ def _size_assertions(fragment: str, name: str) -> list[tuple[str, str]]:
     return found
 
 
-def _index_positions(symbol: str, text: str) -> list[int]:
-    """Offsets in `text` where `symbol` is subscripted."""
-    pattern = rf"(?<![\w)\]]){_size_symbol_regex(symbol)}\s*\["
-    return [match.start() for match in re.finditer(pattern, text)]
+def _index_expressions(symbol: str, text: str) -> list[tuple[int, str | None]]:
+    """(offset, subscript text) for each place `text` subscripts `symbol`.
 
-
-def _size_positive_test(symbol: str, expr: str) -> bool:
-    """`expr` being TRUE constrains `symbol`'s length from below.
-
-    Delegates to `_bound_direction` rather than pattern-matching the operator.
-    The three regexes this replaced asked only WHICH operator appeared and never
-    which VALUE it compared against, so `v.size() == 0 && v[0]` and
-    `v.size() != 4 && v[0]` both read as short-circuit guarded - while `v[0]` is
-    evaluated in exactly the case where the container is empty (Codex, PR #849
-    round 2).
+    The subscript itself is what a bound has to be related to: `v[0]` and `v[1]`
+    are not made safe by the same guard. A subscript whose brackets do not balance
+    within `text` yields None, which no bound covers - the fail-closed answer for
+    something the scanner could not read.
     """
-    return _expression_lower_bound(symbol, _strip_outer_parens(expr.strip())[0].strip())
+    pattern = rf"(?<![\w)\]]){_size_symbol_regex(symbol)}\s*\["
+    found: list[tuple[int, str | None]] = []
+    for match in re.finditer(pattern, text):
+        open_at = match.end() - 1
+        depth = 0
+        inner: str | None = None
+        for i in range(open_at, len(text)):
+            if text[i] in "([{":
+                depth += 1
+            elif text[i] in ")]}":
+                depth -= 1
+                if depth == 0:
+                    inner = text[open_at + 1 : i]
+                    break
+        found.append((match.start(), inner))
+    return found
+
+
+def _size_bound_tests(index: str | None) -> tuple[Callable[[str, str], bool], Callable[[str, str], bool]]:
+    """The (positive, negative) pair `_short_circuit_guarded` needs for ONE subscript.
+
+    A short-circuit operand is judged exactly like a control-flow header: not "does
+    it bound the container" but "does it bound THIS index". `v.size() >= 1 && v[1]`
+    short-circuits on a test that proves only index 0, so it does not guard `v[1]`
+    (Codex, PR #849 round 6). Before that the operand's bound was a boolean, and
+    any lower bound on the container suppressed every subscript of it.
+
+    The negative side is the `A || B` case (`v.is_empty() || v[0]`): the operand
+    being FALSE proves non-emptiness and nothing more, so it covers index 0 only.
+    """
+
+    def positive(symbol: str, expr: str) -> bool:
+        bound = _expression_bound(symbol, _strip_outer_parens(expr.strip())[0].strip())
+        return _bound_covers(bound, index, symbol)
+
+    def negative(symbol: str, expr: str) -> bool:
+        return _size_negative_test(symbol, expr) and _bound_covers(
+            _NONEMPTY_BOUND, index, symbol
+        )
+
+    return positive, negative
 
 
 def _size_negative_test(symbol: str, expr: str) -> bool:
@@ -2048,14 +2309,21 @@ def _size_negative_test(symbol: str, expr: str) -> bool:
     )
 
 
-def _unguarded_index(symbol: str, text: str) -> bool:
-    """True when `text` subscripts `symbol` somewhere short-circuiting can reach."""
-    return any(
-        not _short_circuit_guarded(
-            symbol, text, at, positive=_size_positive_test, negative=_size_negative_test
-        )
-        for at in _index_positions(symbol, text)
-    )
+def _unguarded_index(symbol: str, text: str, bound: _Bound = _NO_BOUND) -> bool:
+    """True when `text` subscripts `symbol` at an index nothing here proves in range.
+
+    `bound` is what the ENCLOSING blocks have proved (see `_first_unbounded_index`).
+    Each subscript is judged against it individually, because a bound on the
+    container is not a bound on every index of it: under `if (!v.is_empty())`,
+    `v[0]` is covered and `v[1]` is not (Codex, PR #849 round 6).
+    """
+    for at, index in _index_expressions(symbol, text):
+        if _bound_covers(bound, index, symbol):
+            continue
+        positive, negative = _size_bound_tests(index)
+        if not _short_circuit_guarded(symbol, text, at, positive=positive, negative=negative):
+            return True
+    return False
 
 
 _CONTROL_HEAD_RE = re.compile(r"\s*(?:\}\s*)?(?:else\s+)?(if|while|switch|for|do)\b")
@@ -2115,7 +2383,10 @@ def _nonnegative_loop_indices(header: str) -> frozenset[str]:
     Limits, stated rather than hidden: the initialiser must be a nonnegative
     integer literal, and the increment clause must not decrease the same name, so
     `for (int i = v.size() - 1; i >= 0; i--)` qualifies on neither count. A loop
-    BODY that drives the variable negative is not modelled.
+    BODY that rebinds the variable no longer rides on the header's relation -
+    `_bound_after` drops it at the rebinding statement (round 6) - so what is left
+    unmodelled here is a rebinding this file's syntax cannot see: through a
+    reference or a pointer, or inside a callee handed `&i`.
     """
     head = _CONTROL_HEAD_RE.match(header)
     if head is None or head.group(1) != "for":
@@ -2142,15 +2413,20 @@ def _nonnegative_loop_indices(header: str) -> frozenset[str]:
     return frozenset(names)
 
 
-def _bounds_iteration(symbol: str, header: str) -> bool:
-    """True when a control-flow header bounds by the indexed container's OWN length.
+def _bounds_iteration(symbol: str, header: str) -> _Bound:
+    """What a control-flow header proves about subscripts of `symbol` in its BODY.
 
     DIRECTION-aware. Accepting any mention of the container's cardinality made the
     unsafe body of `if (v.is_empty()) { CHECK(v[0]); }` and
     `if (i >= v.size()) { CHECK(v[i]); }` invisible: both conditions select exactly
     the out-of-bounds case, and both were reported clean (Codex, PR #849 round 2).
+
+    MAGNITUDE-aware since round 6: the answer is a `_Bound`, not a boolean, so
+    `for (uint32_t i = 0; i < v.size(); ++i)` protects `v[i]` without also
+    protecting `v[i + 1]`, and `if (!v.is_empty())` protects `v[0]` without also
+    protecting `v[1]`.
     """
-    return _expression_lower_bound(
+    return _expression_bound(
         symbol, _control_condition(header), _nonnegative_loop_indices(header)
     )
 
@@ -2249,6 +2525,60 @@ def _inline_pieces(statement: str) -> list[str]:
     return pieces
 
 
+# A statement-level rebinding of a name: `i = 0`, `i += 2`, `i++`, `--i`. `==`,
+# `!=`, `<=` and `>=` are excluded by the lookahead and by the operator class.
+_REBIND_RE = re.compile(
+    r"(?<![\w.>])([A-Za-z_]\w*)\s*(?:\+\+|--|(?:[-+*/%&|^]|<<|>>)?=(?!=))"
+    r"|(?:\+\+|--)\s*([A-Za-z_]\w*)"
+)
+_IDENTIFIER_RE = re.compile(r"[A-Za-z_]\w*")
+
+
+def _bound_after(bound: _Bound, statement: str) -> _Bound:
+    """`bound` with everything this statement can invalidate removed.
+
+    A proven relation is a statement about VALUES, and the model compares index
+    expressions by TEXT. The two agree only while the text still denotes the same
+    value, so a statement that rebinds a name drops every `below` entry mentioning
+    it - otherwise `for (uint32_t i = 0; i < v.size(); i++) { i += 5; CHECK(v[i]); }`
+    would ride on a relation that stopped holding one statement earlier. A `lengths`
+    peer goes the same way when the statement can rebind or resize THAT container:
+    the indexed container's own mutators already stop the scan, but the peer's did
+    not, and `b.push_back(x); CHECK(a[b.size() - 1]);` is out of bounds on `a`.
+
+    `minimum` survives: it is a fact about the container, whose own mutators end the
+    scan in `_first_unbounded_index`.
+    """
+    rebound = {match.group(1) or match.group(2) for match in _REBIND_RE.finditer(statement)}
+    if not rebound and not bound.lengths:
+        return bound
+    return _Bound(
+        bound.minimum,
+        frozenset(
+            entry for entry in bound.below
+            if rebound.isdisjoint(_IDENTIFIER_RE.findall(entry))
+        ),
+        frozenset(
+            peer for peer in bound.lengths
+            if rebound.isdisjoint(_IDENTIFIER_RE.findall(peer))
+            and not _changes_length(peer, statement)
+        ),
+    )
+
+
+def _classify(own_bound: _Bound, other_bound: bool) -> str:
+    """Which population a reported site belongs to.
+
+    Checked in order of specificity. A site whose OWN container is bounded where it
+    is indexed is round 6's population - the bound is real but too small for this
+    subscript - and reporting it as bounded by another container would name the
+    wrong container in the message a maintainer then goes to read.
+    """
+    if own_bound != _NO_BOUND:
+        return _CLASS_UNDER_BOUND
+    return _CLASS_OTHER_BOUND if other_bound else _CLASS_STRAIGHT_LINE
+
+
 def _first_unbounded_index(
     symbol: str, following: list[tuple[int, str]]
 ) -> tuple[int, str, str] | None:
@@ -2257,10 +2587,16 @@ def _first_unbounded_index(
     A block STACK, not a stop-at-the-first-control-flow rule: a loop bounded by
     the container's own `size()` makes its BODY safe and nothing after it, so
     `for (i < a.size()) { a[i]; } CHECK(a[0]);` is still reported on `a[0]`.
-    Each frame records two facts - bounded by THIS container's length, and bounded
-    by ANY container's length - because only the first makes the index safe, while
-    the second is what #844's sweep counted as loop-bounded and is reported
-    separately so the two counts stay reconcilable.
+    Each frame records two facts - what THIS container's length is proved to be
+    (a `_Bound`, not a boolean), and whether ANY container's length was bounded -
+    because only the first can make an index safe, while the second is what #844's
+    sweep counted as loop-bounded and is reported separately so the two counts stay
+    reconcilable.
+
+    The enclosing frames' bounds are UNIONED: every enclosing condition holds at
+    once, so `if (v.size() >= 2) { for (i < v.size()) { v[1]; v[i]; } }` proves
+    both subscripts. What one frame proves it proves for the whole subtree, and a
+    subscript is safe only if the union covers that specific index expression.
 
     A body that shares its header's line is expanded first (`_inline_pieces`), so
     the stack sees the same pieces whether or not the author used a line break. The
@@ -2268,8 +2604,8 @@ def _first_unbounded_index(
     still counts SOURCE statements: a one-line block must not consume three of the
     six statements this detector is allowed to look ahead.
     """
-    stack: list[tuple[bool, bool]] = []
-    pending: tuple[bool, bool] | None = None
+    stack: list[tuple[_Bound, bool]] = []
+    pending: tuple[_Bound, bool] | None = None
     expanded = [
         (line_no, piece)
         for line_no, statement in following
@@ -2282,7 +2618,17 @@ def _first_unbounded_index(
             return None
         if statement.lstrip().startswith("}") and stack:
             stack.pop()
-        own_bound = any(frame[0] for frame in stack) or bool(pending and pending[0])
+        # Applied BEFORE the statement is judged, not after: `i += 5; v[i];` is two
+        # statements, but `i = j, v[i]` is one, and the relation is already gone by
+        # the time the subscript in it is evaluated.
+        stack = [(_bound_after(bound, statement), other) for bound, other in stack]
+        if pending:
+            pending = (_bound_after(pending[0], statement), pending[1])
+        own_bound = _NO_BOUND
+        for frame in stack:
+            own_bound = _bound_union(own_bound, frame[0])
+        if pending:
+            own_bound = _bound_union(own_bound, pending[0])
         other_bound = any(frame[1] for frame in stack) or bool(pending and pending[1])
         header = statement.split("{", 1)[0]
         opens_block = statement.rstrip().endswith("{")
@@ -2290,12 +2636,10 @@ def _first_unbounded_index(
             # A header's own bound guards its BODY, never itself: in
             # `while (v[i] && i < v.size())` the subscript is evaluated first. So
             # the header is judged against the ENCLOSING bound only.
-            if not own_bound and _unguarded_index(symbol, header):
-                return line_no, header.strip(), (
-                    _CLASS_OTHER_BOUND if other_bound else _CLASS_STRAIGHT_LINE
-                )
+            if _unguarded_index(symbol, header, own_bound):
+                return line_no, header.strip(), _classify(own_bound, other_bound)
             frame = (
-                own_bound or _bounds_iteration(symbol, header),
+                _bound_union(own_bound, _bounds_iteration(symbol, header)),
                 other_bound or _condition_lower_bounds(_control_condition(header)),
             )
             if opens_block:
@@ -2304,10 +2648,8 @@ def _first_unbounded_index(
             else:
                 pending = frame  # brace-less body: applies to the next statement
             continue
-        if not own_bound and _unguarded_index(symbol, statement):
-            return line_no, statement.strip(), (
-                _CLASS_OTHER_BOUND if other_bound else _CLASS_STRAIGHT_LINE
-            )
+        if _unguarded_index(symbol, statement, own_bound):
+            return line_no, statement.strip(), _classify(own_bound, other_bound)
         if _changes_length(symbol, statement):
             return None
         if opens_block:
@@ -2500,13 +2842,15 @@ def _check_size_index() -> tuple[int, list[str], str]:
     found_prints, _ = scan_size_index_fingerprints()
     baseline, failures = load_size_index_baseline()
     total = sum(len(sites) for sites in found.values())
-    straight = sum(
-        1 for sites in found.values() for site in sites if site[6] == _CLASS_STRAIGHT_LINE
-    )
-    summary = (
-        f"{total} baselined site(s) across {len(found)} file(s) "
-        f"({straight} {_CLASS_STRAIGHT_LINE}, {total - straight} {_CLASS_OTHER_BOUND})"
-    )
+    # Every class is printed, including the ones currently at zero: a population
+    # that only appears in the summary once it is non-empty is a population nobody
+    # notices arriving.
+    by_class = {
+        klass: sum(1 for sites in found.values() for site in sites if site[6] == klass)
+        for klass in (_CLASS_STRAIGHT_LINE, _CLASS_OTHER_BOUND, _CLASS_UNDER_BOUND)
+    }
+    split = ", ".join(f"{count} {klass}" for klass, count in by_class.items())
+    summary = f"{total} baselined site(s) across {len(found)} file(s) ({split})"
     if scan_errors:
         report = ["the scan is INCOMPLETE, so its result cannot be trusted:"]
         report += [f"    {error}" for error in scan_errors]
