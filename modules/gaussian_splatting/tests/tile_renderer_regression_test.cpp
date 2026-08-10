@@ -1748,12 +1748,29 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
         // lacks indirect): shut the sorter down, drop the reference, latch sorter_available
         // false and mark the cause permanent with no retry pending, so ensure_resources takes
         // its `if (!sorter_available && !sorter_retry_due)` branch and does NOT rebuild one.
+        //
+        // The cause installed is CREATED_SORTER_LACKS_INDIRECT, and `permanent` is DERIVED from
+        // the classifier rather than hand-set, so the injected state is one disable_sorter()
+        // could actually produce on THIS device. That matters since the round-2 re-probe: the
+        // other permanent cause (INDIRECT_CAPABILITY_UNSUPPORTED) is decided by a probe that
+        // passes on this GPU with the default configuration, so pinning it here would be
+        // pinning a state that cannot exist — phase 5 provokes that one for real instead. This
+        // cause is the non-re-probable one, so phase 2 doubles as the GPU-side proof that the
+        // re-probe does NOT lift a latch whose cause it cannot re-evaluate.
         sort_resources.sorter->shutdown();
         sort_resources.sorter.unref();
         sort_resources.sorter_available = false;
-        sort_resources.sorter_unavailable_permanent = true;
+        sort_resources.sorter_unavailable_cause =
+                GaussianSplatting::SorterCreationFailure::CREATED_SORTER_LACKS_INDIRECT;
+        sort_resources.sorter_unavailable_permanent =
+                GaussianSplatting::sorter_creation_failure_is_permanent(sort_resources.sorter_unavailable_cause);
         sort_resources.sorter_retry_delay_calls = 0;
         sort_resources.sorter_retry_countdown_calls = 0;
+        if (!sort_resources.sorter_unavailable_permanent) {
+            r.error_message = "Premise failed: CREATED_SORTER_LACKS_INDIRECT is no longer classified as a permanent "
+                              "cause, so phase 2 is not testing a permanent latch at all.";
+            return r;
+        }
 
         const uint64_t rejected_before = tile_renderer->get_global_composite_rejected_frames();
         const uint64_t unsorted_before = tile_renderer->get_unsorted_composite_frames();
@@ -1882,12 +1899,26 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
         sort_resources.sorter->shutdown();
         sort_resources.sorter.unref();
         sort_resources.sorter_available = false;
-        sort_resources.sorter_unavailable_permanent = false;
+        // DERIVED, not hand-set: routing the injected state through the same classifier
+        // disable_sorter() uses is what makes this phase pin the round-1 contract on GPU. Hand
+        // -setting `permanent = false` would install a state the classifier need not agree
+        // with, so a change that reclassified CREATION_FAILED as permanent — the exact round-1
+        // regression — would sail through this phase untouched.
+        sort_resources.sorter_unavailable_cause = GaussianSplatting::SorterCreationFailure::CREATION_FAILED;
+        sort_resources.sorter_unavailable_permanent =
+                GaussianSplatting::sorter_creation_failure_is_permanent(sort_resources.sorter_unavailable_cause);
         // Saturated backoff: far more ensure_resources() calls than one render() can consume
         // (render() calls it at most a handful of times), so "the frame was rejected" here is
         // unambiguously the outstanding backoff and not an instant, storm-y retry.
         sort_resources.sorter_retry_delay_calls = GaussianSplatting::SORTER_RETRY_MAX_DELAY_CALLS;
         sort_resources.sorter_retry_countdown_calls = GaussianSplatting::SORTER_RETRY_MAX_DELAY_CALLS;
+        if (sort_resources.sorter_unavailable_permanent) {
+            r.error_message = "ROUND-1 REGRESSION: a sorter CREATION failure (allocation/initialization, on a device "
+                              "whose capability probe passed) is classified PERMANENT, so it is never retried. One "
+                              "transient VRAM blip during a capacity growth then disables translucent output for the "
+                              "rest of the session.";
+            return r;
+        }
 
         const uint64_t rejected_before_transient = tile_renderer->get_global_composite_rejected_frames();
         RID backoff_output = tile_renderer->render(p_rd, params);
@@ -1956,6 +1987,155 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
                     "After recovery the next frame did not publish cleanly (valid=%s rejected %d -> %d).",
                     steady_output.is_valid() ? "true" : "false", int(rejected_after_retry),
                     int(tile_renderer->get_global_composite_rejected_frames()));
+            return r;
+        }
+
+        // ---- Phase 5: a REAL capability latch, and its escape (round-2 review of #586). ----
+        // NOT SIMULATED, unlike phases 2 and 4. The capability cause is decided by
+        // GPUSorterFactory::probe_supports_indirect(ALGORITHM_RADIX, device), which answers
+        // from LIVE configuration: RadixSort::is_supported() reads g_gpu_sorting_config's
+        // radix_bits and workgroup_size and compares the derived scatter shared-memory
+        // footprint plus the required workgroup size against this device's compute limits.
+        // So the production failure IS reproducible on a capable GPU — by configuring a sort
+        // this device cannot run. That is exactly the user-facing scenario: a nonportable
+        // radix/workgroup pair (#634 warns about the shared-memory product at config time but
+        // does NOT reject it; a workgroup size beyond the device's limit is not warned about
+        // at all), translucent frames rejected, and then the user CORRECTS the setting.
+        //
+        // The finding: nothing cleared the latch. reload_gpu_sorting_config_from_project_settings()
+        // (render_sorting_orchestrator.cpp) reloads the global config and rebuilds the INSTANCE
+        // sorter; it never touches TileGlobalSortResources. So the correction could not restore
+        // tile output and every translucent frame stayed rejected until renderer teardown.
+        //
+        // Both directions are asserted here, because either alone is a bug:
+        //   * corrected config  -> must RESUME publishing (the dead end is gone), and
+        //   * still-bad config  -> must STILL REJECT (a latch that any settings edit clears is
+        //                          not a latch, and would ship unsorted output again).
+        struct SortingConfigGuard {
+            uint32_t saved_workgroup_size;
+            SortingConfigGuard() : saved_workgroup_size(g_gpu_sorting_config.workgroup_size) {}
+            ~SortingConfigGuard() { g_gpu_sorting_config.workgroup_size = saved_workgroup_size; }
+        } sorting_config_guard;
+
+        // Premise: with the real configuration this device DOES support the indirect radix
+        // sort, so any later false answer is caused by the configuration change and nothing else.
+        if (!GPUSorterFactory::probe_supports_indirect(GPUSorterFactory::ALGORITHM_RADIX, p_rd)) {
+            r.error_message = "Premise failed: this device does not support the indirect radix sort with the "
+                              "default configuration, so phase 5 cannot tell a config-induced capability "
+                              "failure from a device limitation.";
+            return r;
+        }
+
+        // A workgroup size no real device can run (limits are checked against
+        // LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_X and LIMIT_MAX_COMPUTE_WORKGROUP_INVOCATIONS).
+        // This is the only global touched, and the guard above restores it on every exit.
+        const uint32_t unsupported_workgroup_size = 65536u;
+        const uint32_t still_unsupported_workgroup_size = 32768u;
+        g_gpu_sorting_config.workgroup_size = unsupported_workgroup_size;
+        if (GPUSorterFactory::probe_supports_indirect(GPUSorterFactory::ALGORITHM_RADIX, p_rd)) {
+            r.error_message = vformat(
+                    "Premise failed: workgroup_size=%d still probes as SUPPORTED on this device, so the "
+                    "capability failure was never provoked and phase 5 proves nothing.",
+                    int(unsupported_workgroup_size));
+            return r;
+        }
+
+        // Retire the live sorter WITHOUT touching any latch, so ensure_resources() takes its
+        // ordinary `!sorter.is_valid()` recreation path and runs the REAL probe. Everything
+        // from here is production code deciding for itself.
+        if (!sort_resources.sorter.is_valid()) {
+            r.error_message = "Premise failed: phase 5 needs a live sorter to retire.";
+            return r;
+        }
+        sort_resources.sorter->shutdown();
+        sort_resources.sorter.unref();
+
+        const uint64_t rejected_before_capability = tile_renderer->get_global_composite_rejected_frames();
+        RID capability_output = tile_renderer->render(p_rd, params);
+        if (capability_output.is_valid()) {
+            r.error_message = "A configuration this device cannot sort with PUBLISHED a translucent frame. #586 "
+                              "requires the frame to be rejected rather than composited unsorted.";
+            return r;
+        }
+        // Premise: the renderer really did reach the capability branch and latch it PERMANENTLY
+        // (as opposed to any other failure), so what phase 5 lifts below is the right latch.
+        if (sort_resources.sorter_available || !sort_resources.sorter_unavailable_permanent ||
+                sort_resources.sorter_unavailable_cause !=
+                        GaussianSplatting::SorterCreationFailure::INDIRECT_CAPABILITY_UNSUPPORTED) {
+            r.error_message = vformat(
+                    "Premise failed: the unsupported configuration did not produce a PERMANENT capability latch "
+                    "(available=%s permanent=%s cause=%d). Phase 5 would then be testing a different state.",
+                    sort_resources.sorter_available ? "true" : "false",
+                    sort_resources.sorter_unavailable_permanent ? "true" : "false",
+                    int(sort_resources.sorter_unavailable_cause));
+            return r;
+        }
+        if (tile_renderer->get_global_composite_rejected_frames() != rejected_before_capability + 1u) {
+            r.error_message = "The capability-rejected frame was not counted in global_composite_rejected_frames.";
+            return r;
+        }
+
+        // DIRECTION B — the control. Editing the setting to ANOTHER value this device cannot
+        // run must NOT lift the latch: it is still true that this device cannot sort. A fix
+        // that clears the latch on "any sorting settings change" passes direction A below and
+        // fails right here, having re-armed the unsorted-output path.
+        g_gpu_sorting_config.workgroup_size = still_unsupported_workgroup_size;
+        for (int frame = 0; frame < 2; frame++) {
+            RID still_rejected = tile_renderer->render(p_rd, params);
+            if (still_rejected.is_valid()) {
+                r.error_message = vformat(
+                        "A still-unsupported sorting configuration published a frame on repeat frame %d. The latch "
+                        "must track whether the device can actually sort, not merely whether a setting changed.",
+                        frame);
+                return r;
+            }
+            if (sort_resources.sorter.is_valid() || !sort_resources.sorter_unavailable_permanent) {
+                r.error_message = vformat(
+                        "A still-unsupported sorting configuration rebuilt the sorter / cleared the permanent latch "
+                        "on repeat frame %d.", frame);
+                return r;
+            }
+        }
+
+        // DIRECTION A — THE FIX. The user corrects the setting. The renderer must re-probe,
+        // discover the device can sort again, rebuild by itself (nothing here pokes
+        // sorter_available, unlike phase 3) and resume publishing.
+        //
+        // DISCRIMINATING ASSERTION for the round-2 finding: pre-change the permanent latch was
+        // never re-evaluated, so this frame — and every later frame of the session — rejected,
+        // no matter what the user did to the configuration.
+        const uint64_t rejected_before_correction = tile_renderer->get_global_composite_rejected_frames();
+        g_gpu_sorting_config.workgroup_size = sorting_config_guard.saved_workgroup_size;
+        RID corrected_output = tile_renderer->render(p_rd, params);
+        if (!sort_resources.sorter.is_valid() || !sort_resources.sorter_available ||
+                sort_resources.sorter_unavailable_permanent) {
+            r.error_message = vformat(
+                    "ROUND-2 REGRESSION: after the sorting configuration was CORRECTED to one this device supports, "
+                    "the renderer did not lift the capability latch (sorter_valid=%s available=%s permanent=%s). "
+                    "Correcting the setting therefore cannot restore tile output, and every translucent frame stays "
+                    "rejected until renderer teardown.",
+                    sort_resources.sorter.is_valid() ? "true" : "false",
+                    sort_resources.sorter_available ? "true" : "false",
+                    sort_resources.sorter_unavailable_permanent ? "true" : "false");
+            return r;
+        }
+        if (!corrected_output.is_valid()) {
+            r.error_message = "ROUND-2 REGRESSION: the corrected configuration rebuilt the sorter but render() still "
+                              "published nothing.";
+            return r;
+        }
+        if (tile_renderer->get_global_composite_rejected_frames() != rejected_before_correction) {
+            r.error_message = vformat(
+                    "The recovered frame was ALSO counted as rejected (%d -> %d) even though it published.",
+                    int(rejected_before_correction),
+                    int(tile_renderer->get_global_composite_rejected_frames()));
+            return r;
+        }
+        // ...and it stays recovered.
+        RID capability_steady_output = tile_renderer->render(p_rd, params);
+        if (!capability_steady_output.is_valid() ||
+                tile_renderer->get_global_composite_rejected_frames() != rejected_before_correction) {
+            r.error_message = "After the configuration correction the next frame did not publish cleanly.";
             return r;
         }
 
@@ -2061,10 +2241,17 @@ TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] Overflow-record drop r
 // again, must rebuild the sorter by itself and resume publishing. Both halves live in this one
 // case so neither can pass by answering a constant.
 //
-// The hardware trigger (indirect-capability probe false / sorter creation failure) is
-// SIMULATED by installing disable_sorter()'s end state through the TESTS_ENABLED-only
-// _test_global_sort_resources() accessor; it does not occur on a desktop GPU. See the long
-// comment on test_sorter_unavailable_rejects_frame for exactly what that does and does not cover.
+// Round-2 review of #586 added the remaining half: "permanent" is permanent for the sorting
+// CONFIGURATION that produced it, not for the process. Phase 5 provokes a REAL capability
+// failure by configuring a sort this device cannot run, then proves that CORRECTING the
+// setting restores publishing while a still-unsupported setting does not — the difference
+// between fixing the dead end and re-arming the unsorted-output path.
+//
+// The hardware trigger for phases 2 and 4 (sorter creation failure) is SIMULATED by installing
+// disable_sorter()'s end state through the TESTS_ENABLED-only _test_global_sort_resources()
+// accessor; it does not occur on a desktop GPU. Phase 5 is NOT simulated: the capability probe
+// answers from live project configuration, so its failure is reproducible on capable hardware.
+// See the long comment on test_sorter_unavailable_rejects_frame for what each phase covers.
 //
 // Tagged [RequiresGPU] so the self-hosted "GPU Harness + Visual Gate" lane runs it (the
 // gs-gpu-test runner's TileRenderer batch filters `*TileRenderer*][RequiresGPU]*`).

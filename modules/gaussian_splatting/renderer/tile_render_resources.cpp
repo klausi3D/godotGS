@@ -1095,6 +1095,7 @@ void TileGlobalSortResources::reset_state(bool p_clear_sorter) {
 	}
 	sorter_available = true;
 	sorter_unavailable_permanent = false;
+	sorter_unavailable_cause = GaussianSplatting::SorterCreationFailure::CREATION_FAILED;
 	sorter_retry_delay_calls = 0;
 	sorter_retry_countdown_calls = 0;
 	sorter_missing_logged = false;
@@ -1185,7 +1186,41 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 	// backoff once per ensure_resources() call (outside the retry loop below, so the
 	// buffer-allocation `continue` cannot double-tick it) and, when it expires, let this
 	// call fall through into the recreation branch again. A PERMANENT capability failure
-	// never retries: its answer cannot change and create_sorter() is expensive.
+	// does not take part in this backoff: it never re-attempts the expensive create_sorter()
+	// on a timer. It has its own, free recovery path immediately below.
+	//
+	// A PERMANENT capability latch must not outlive the CONFIGURATION that produced it.
+	// probe_supports_indirect() answers from g_gpu_sorting_config (radix_bits x
+	// workgroup_size -> scatter shared memory + required workgroup size) against this
+	// device's limits, so a user who sets a nonportable pair, sees translucent frames
+	// rejected, and then CORRECTS the setting must get sorted output back. Nothing else
+	// clears this latch — reload_gpu_sorting_config_from_project_settings() rebuilds only
+	// the instance sorter (render_sorting_orchestrator.cpp) and never touches
+	// TileGlobalSortResources — so without this re-probe the correction can never take
+	// effect and every translucent frame stays rejected until renderer teardown.
+	//
+	// Re-asking the probe, rather than mirroring "capability-affecting settings" into this
+	// struct, is deliberate: the mirror would be a hand-written list that rots the moment
+	// the probe grows an input, and it would only see the config routes we remembered to
+	// hook. The probe allocates nothing (RenderingDevice::limit_get is a switch over the
+	// driver's cached VkPhysicalDeviceLimits), and this runs only while the sorter is
+	// already unavailable — a state in which nothing is being published at all. The
+	// expensive step, create_sorter(), is still NOT reached while the probe answers false.
+	// Causes that are not probe-decided stay hard-latched; see
+	// GaussianSplatting::sorter_permanent_failure_is_reprobable().
+	if (!sorter_available && sorter_unavailable_permanent &&
+			GaussianSplatting::sorter_permanent_failure_is_reprobable(sorter_unavailable_cause) &&
+			GPUSorterFactory::probe_supports_indirect(GPUSorterFactory::ALGORITHM_RADIX, device)) {
+		GS_LOG_WARN_DEFAULT("[TileRenderer] Global composite sort capability is available again after a sorting "
+							"configuration change; retrying the sorter build");
+		sorter_unavailable_permanent = false;
+		// Attempt the rebuild on THIS call: the user's corrective action is a discrete
+		// event, not a flap, so it does not have to wait out a backoff. The monotone
+		// sorter_retry_delay_calls is deliberately left alone, so a device that keeps
+		// failing transiently after the correction still backs off from where it was.
+		sorter_retry_countdown_calls = 0;
+	}
+
 	bool sorter_retry_due = false;
 	if (!sorter_available && !sorter_unavailable_permanent) {
 		if (sorter_retry_countdown_calls > 0) {
@@ -1320,6 +1355,10 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 				sorter.unref();
 			}
 			sorter_available = false;
+			// Record WHICH cause latched: a permanent capability failure is permanent only
+			// for the configuration that produced it, and the re-probe above needs to know
+			// whether this cause can be re-evaluated for free.
+			sorter_unavailable_cause = p_failure;
 			sorter_unavailable_permanent = GaussianSplatting::sorter_creation_failure_is_permanent(p_failure);
 			if (sorter_unavailable_permanent) {
 				sorter_retry_delay_calls = 0;
@@ -1418,13 +1457,17 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 					// backoff monotone bounds the cost of a device that flaps between success
 					// and failure (see next_sorter_retry_delay_calls). reset_state() clears it.
 					sorter_unavailable_permanent = false;
+					sorter_unavailable_cause = GaussianSplatting::SorterCreationFailure::CREATION_FAILED;
 					sorter_retry_countdown_calls = 0;
 					if (sorter_missing_logged) {
 						// Recovery is as operationally important as the failure, and the
 						// failure line said frames were being rejected. Re-arming the one-shot
 						// also lets a LATER failure log its own root cause instead of being
 						// swallowed by the first one.
-						GS_LOG_WARN_DEFAULT("[TileRenderer] Global composite GPU sorter rebuilt after a transient failure; sorted output restored");
+						// Says "after a failure", not "after a TRANSIENT failure": since the
+						// round-2 re-probe above, a capability latch can also be lifted (by a
+						// corrected sorting configuration) and land here.
+						GS_LOG_WARN_DEFAULT("[TileRenderer] Global composite GPU sorter rebuilt after a failure; sorted output restored");
 						sorter_missing_logged = false;
 					}
 					GS_LOG_INFO_DEFAULT(vformat("[TileRenderer] Global sort capacity initialized: %d (config max_overlap_records=%d)",

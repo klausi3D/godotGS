@@ -408,14 +408,28 @@ TEST_CASE("[GaussianSplatting][SortFallback] retry state machine recovers transi
 	struct Sim {
 		bool available = true;
 		bool permanent = false;
+		SorterCreationFailure cause = SorterCreationFailure::CREATION_FAILED;
 		uint32_t delay = 0;
 		uint32_t countdown = 0;
 		uint32_t creation_attempts = 0;
+		uint32_t probe_calls = 0;
 		uint32_t rejected_calls = 0;
+		// Models g_gpu_sorting_config as seen by probe_supports_indirect(): the capability
+		// answer is a function of LIVE configuration (radix_bits x workgroup_size vs the
+		// device's compute limits), so the user can change it while the renderer runs.
+		bool config_supported = true;
+
+		// Mirrors GPUSorterFactory::probe_supports_indirect(ALGORITHM_RADIX, device):
+		// allocation-free, answers from live config + cached device limits.
+		bool probe() {
+			probe_calls++;
+			return config_supported;
+		}
 
 		// Mirrors disable_sorter().
 		void fail(SorterCreationFailure p_failure) {
 			available = false;
+			cause = p_failure;
 			permanent = sorter_creation_failure_is_permanent(p_failure);
 			if (permanent) {
 				delay = 0;
@@ -429,6 +443,13 @@ TEST_CASE("[GaussianSplatting][SortFallback] retry state machine recovers transi
 		// Mirrors one ensure_resources() call. p_device_healthy models whether a retried
 		// create_sorter() would now succeed.
 		void tick(bool p_device_healthy) {
+			// Mirrors the round-2 re-probe block: a permanent latch whose cause is decided
+			// by the (free) capability probe is re-evaluated, so correcting the sorting
+			// configuration lifts it. Causes that are not probe-decided stay latched.
+			if (!available && permanent && sorter_permanent_failure_is_reprobable(cause) && probe()) {
+				permanent = false;
+				countdown = 0; // retry on THIS call; delay stays monotone.
+			}
 			bool retry_due = false;
 			if (!available && !permanent) {
 				if (countdown > 0) {
@@ -437,14 +458,21 @@ TEST_CASE("[GaussianSplatting][SortFallback] retry state machine recovers transi
 				retry_due = (countdown == 0);
 			}
 			if (!available && retry_due) {
-				creation_attempts++;
-				if (p_device_healthy) {
-					available = true;
-					permanent = false;
-					countdown = 0; // delay deliberately kept (monotone).
-					return;
+				// Mirrors the recreation branch: the capability probe GATES create_sorter(),
+				// so a still-unsupported configuration costs a probe, never an allocation.
+				if (!probe()) {
+					fail(SorterCreationFailure::INDIRECT_CAPABILITY_UNSUPPORTED);
+				} else {
+					creation_attempts++;
+					if (p_device_healthy) {
+						available = true;
+						permanent = false;
+						cause = SorterCreationFailure::CREATION_FAILED;
+						countdown = 0; // delay deliberately kept (monotone).
+						return;
+					}
+					fail(SorterCreationFailure::CREATION_FAILED);
 				}
-				fail(SorterCreationFailure::CREATION_FAILED);
 			}
 			if (!available) {
 				rejected_calls++; // #586: the frame publishes nothing.
@@ -490,17 +518,236 @@ TEST_CASE("[GaussianSplatting][SortFallback] retry state machine recovers transi
 					 SorterCreationFailure::CREATED_SORTER_LACKS_INDIRECT,
 			 }) {
 			Sim sim;
+			// Keep the modelled state COHERENT: an indirect-capability failure can only be
+			// produced by a probe that answers false, so the configuration must be one the
+			// device cannot run. CREATED_SORTER_LACKS_INDIRECT is the opposite case — the
+			// probe passes and the built sorter still has no indirect entry point — so its
+			// config stays supported, which is exactly what makes it the discriminator for
+			// "re-probing must not lift THIS latch".
+			sim.config_supported = (failure != SorterCreationFailure::INDIRECT_CAPABILITY_UNSUPPORTED);
 			sim.fail(failure);
 			const uint32_t calls = SORTER_RETRY_MAX_DELAY_CALLS * 8u;
 			for (uint32_t call = 0; call < calls; call++) {
-				// Even with a "healthy" device the permanent latch must not rebuild: the
-				// capability answer cannot change, and #586's protection must hold.
+				// Even with a "healthy" device the permanent latch must not rebuild while its
+				// cause still holds: #586's protection must hold.
 				sim.tick(/*p_device_healthy=*/true);
 			}
 			CHECK_FALSE(sim.available);
 			CHECK_EQ(sim.creation_attempts, 0u); // no allocation storm.
 			CHECK_EQ(sim.rejected_calls, calls); // #586 protection intact: nothing published.
 		}
+	}
+}
+
+// #586 ROUND-2 REVIEW (P2). "Permanent" was permanent for the PROCESS, not for the
+// configuration that produced it — and one of the two permanent causes is decided by a
+// query over live project settings. A user on a GPU where a valid-but-nonportable radix
+// configuration makes probe_supports_indirect() answer false could therefore CORRECT the
+// setting and never get rendering back: reload_gpu_sorting_config_from_project_settings()
+// rebuilds only the instance sorter and never touches TileGlobalSortResources, so every
+// translucent frame stayed rejected until renderer teardown.
+//
+// This locks the classification that makes the latch liftable exactly when its cause can
+// be re-evaluated for free, and NOT otherwise. Both directions matter: a latch that any
+// change lifts is not a latch, and a latch nothing lifts is the dead end.
+TEST_CASE("[GaussianSplatting][SortFallback] a permanent latch is re-probable only when live config decides it (#586 round-2)") {
+	// THE FINDING: this cause IS probe_supports_indirect(), which reads
+	// g_gpu_sorting_config.radix_bits / .workgroup_size. Its answer changes when the user
+	// changes those, so it must be re-asked.
+	CHECK(sorter_permanent_failure_is_reprobable(SorterCreationFailure::INDIRECT_CAPABILITY_UNSUPPORTED));
+
+	// ...but this one is a compile-time constant of the sorter class, and re-testing it
+	// costs a full create_sorter(). Re-probing it per call would be the allocation storm
+	// the permanent latch exists to prevent. It stays hard-latched.
+	CHECK_FALSE(sorter_permanent_failure_is_reprobable(SorterCreationFailure::CREATED_SORTER_LACKS_INDIRECT));
+
+	// The transient cause is not "re-probable": it is already recovered by the retry
+	// backoff, which re-attempts CREATION rather than re-asking the capability question.
+	// Answering true here would run both recovery mechanisms over one state.
+	CHECK_FALSE(sorter_permanent_failure_is_reprobable(SorterCreationFailure::CREATION_FAILED));
+
+	// Structural invariants, so neither predicate can degenerate into a constant and so a
+	// newly added cause cannot silently inherit a classification.
+	uint32_t permanent_count = 0;
+	uint32_t reprobable_count = 0;
+	for (SorterCreationFailure failure : {
+				 SorterCreationFailure::INDIRECT_CAPABILITY_UNSUPPORTED,
+				 SorterCreationFailure::CREATION_FAILED,
+				 SorterCreationFailure::CREATED_SORTER_LACKS_INDIRECT,
+		 }) {
+		if (sorter_creation_failure_is_permanent(failure)) {
+			permanent_count++;
+		}
+		if (sorter_permanent_failure_is_reprobable(failure)) {
+			reprobable_count++;
+			// Re-probing is only ever consulted for a PERMANENT cause; a transient one is
+			// already retried. A re-probable-but-transient cause would double-recover.
+			CHECK(sorter_creation_failure_is_permanent(failure));
+		}
+	}
+	CHECK_EQ(permanent_count, 2u);
+	CHECK_EQ(reprobable_count, 1u); // exactly one: the config-decided capability probe.
+}
+
+// End-to-end state machine for the round-2 finding, mirroring ensure_resources()'s
+// re-probe block. Every direction lives in this one case so it cannot pass by lifting
+// every latch or by lifting none.
+TEST_CASE("[GaussianSplatting][SortFallback] a corrected sorting configuration lifts the capability latch, a still-bad one does not (#586 round-2)") {
+	struct Sim {
+		bool available = true;
+		bool permanent = false;
+		SorterCreationFailure cause = SorterCreationFailure::CREATION_FAILED;
+		uint32_t delay = 0;
+		uint32_t countdown = 0;
+		uint32_t creation_attempts = 0;
+		uint32_t probe_calls = 0;
+		uint32_t rejected_calls = 0;
+		bool config_supported = true;
+
+		bool probe() {
+			probe_calls++;
+			return config_supported;
+		}
+
+		void fail(SorterCreationFailure p_failure) {
+			available = false;
+			cause = p_failure;
+			permanent = sorter_creation_failure_is_permanent(p_failure);
+			if (permanent) {
+				delay = 0;
+				countdown = 0;
+			} else {
+				delay = next_sorter_retry_delay_calls(delay);
+				countdown = delay;
+			}
+		}
+
+		void tick(bool p_device_healthy) {
+			if (!available && permanent && sorter_permanent_failure_is_reprobable(cause) && probe()) {
+				permanent = false;
+				countdown = 0;
+			}
+			bool retry_due = false;
+			if (!available && !permanent) {
+				if (countdown > 0) {
+					countdown--;
+				}
+				retry_due = (countdown == 0);
+			}
+			if (!available && retry_due) {
+				if (!probe()) {
+					fail(SorterCreationFailure::INDIRECT_CAPABILITY_UNSUPPORTED);
+				} else {
+					creation_attempts++;
+					if (p_device_healthy) {
+						available = true;
+						permanent = false;
+						cause = SorterCreationFailure::CREATION_FAILED;
+						countdown = 0;
+						return;
+					}
+					fail(SorterCreationFailure::CREATION_FAILED);
+				}
+			}
+			if (!available) {
+				rejected_calls++;
+			}
+		}
+
+		// The user hits a nonportable radix/workgroup pair: the probe answers false and the
+		// next recreation latches the sorter off.
+		void latch_on_unsupported_config() {
+			config_supported = false;
+			fail(SorterCreationFailure::INDIRECT_CAPABILITY_UNSUPPORTED);
+		}
+	};
+
+	SUBCASE("correcting the setting resumes publishing") {
+		Sim sim;
+		sim.latch_on_unsupported_config();
+
+		// While the setting is still wrong: rejected forever, and never an allocation.
+		for (int call = 0; call < 64; call++) {
+			sim.tick(/*p_device_healthy=*/true);
+		}
+		if (sim.available) {
+			FAIL("premise: an unsupported sorting configuration must keep the sorter latched off");
+			return;
+		}
+		CHECK_EQ(sim.creation_attempts, 0u); // the probe gates creation: no storm.
+		CHECK_EQ(sim.rejected_calls, 64u); // #586 protection intact: nothing published.
+
+		// THE FIX: the user corrects radix_bits / workgroup_size.
+		sim.config_supported = true;
+		sim.tick(/*p_device_healthy=*/true);
+
+		CHECK(sim.available); // rendering comes back...
+		CHECK_FALSE(sim.permanent);
+		CHECK_EQ(sim.creation_attempts, 1u); // ...on the very first call after the change.
+		CHECK_EQ(sim.rejected_calls, 64u); // and that call published.
+
+		// Steady state afterwards: no further probing storm, no further rebuilds.
+		const uint32_t attempts_after_recovery = sim.creation_attempts;
+		const uint32_t probes_after_recovery = sim.probe_calls;
+		for (int call = 0; call < 16; call++) {
+			sim.tick(/*p_device_healthy=*/true);
+		}
+		CHECK(sim.available);
+		CHECK_EQ(sim.creation_attempts, attempts_after_recovery);
+		CHECK_EQ(sim.probe_calls, probes_after_recovery); // healthy path does not re-probe at all.
+		CHECK_EQ(sim.rejected_calls, 64u);
+	}
+
+	SUBCASE("a different but still-unsupported setting must NOT lift the latch") {
+		// The control that stops "clear the latch on any settings change" from passing: a
+		// device that genuinely cannot run the configured sort must keep rejecting.
+		Sim sim;
+		sim.latch_on_unsupported_config();
+		for (int call = 0; call < 32; call++) {
+			sim.tick(/*p_device_healthy=*/true);
+		}
+		// The user edits the setting again — to another value this device cannot run.
+		// (config_supported stays false: that is what "still unsupported" means.)
+		for (int call = 0; call < 32; call++) {
+			sim.tick(/*p_device_healthy=*/true);
+		}
+		CHECK_FALSE(sim.available); // still rejecting, correctly.
+		CHECK(sim.permanent);
+		CHECK_EQ(sim.creation_attempts, 0u); // and still never allocating.
+		CHECK_EQ(sim.rejected_calls, 64u);
+	}
+
+	SUBCASE("a non-probe permanent cause stays latched however the configuration changes") {
+		Sim sim;
+		// The probe passes; the sorter that got built has no indirect entry point. No
+		// configuration edit can change that, and re-testing it costs a create_sorter().
+		sim.config_supported = true;
+		sim.fail(SorterCreationFailure::CREATED_SORTER_LACKS_INDIRECT);
+		for (int call = 0; call < 128; call++) {
+			sim.tick(/*p_device_healthy=*/true);
+		}
+		CHECK_FALSE(sim.available);
+		CHECK(sim.permanent);
+		CHECK_EQ(sim.creation_attempts, 0u); // no per-call create_sorter() storm.
+		CHECK_EQ(sim.probe_calls, 0u); // not even a probe: the cause is not probe-decided.
+		CHECK_EQ(sim.rejected_calls, 128u);
+	}
+
+	SUBCASE("the transient backoff is not short-circuited by the re-probe") {
+		// A transient failure must keep its backoff: the re-probe block must not fire for
+		// it (that would be a per-call retry, the storm the backoff prevents).
+		Sim sim;
+		sim.fail(SorterCreationFailure::CREATION_FAILED);
+		sim.delay = SORTER_RETRY_MAX_DELAY_CALLS;
+		sim.countdown = SORTER_RETRY_MAX_DELAY_CALLS;
+		for (uint32_t call = 0; call < SORTER_RETRY_MAX_DELAY_CALLS - 1u; call++) {
+			sim.tick(/*p_device_healthy=*/true);
+		}
+		CHECK_FALSE(sim.available); // still waiting out the backoff.
+		CHECK_EQ(sim.creation_attempts, 0u);
+		sim.tick(/*p_device_healthy=*/true);
+		CHECK(sim.available); // and it does arrive.
+		CHECK_EQ(sim.creation_attempts, 1u);
 	}
 }
 

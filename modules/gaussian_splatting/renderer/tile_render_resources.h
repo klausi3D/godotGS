@@ -3,6 +3,7 @@
 
 #include "tile_render_types.h"
 #include "gpu_sorter.h"
+#include "sort_fallback_policy.h"
 
 #include <memory>
 
@@ -204,6 +205,16 @@ struct TileGlobalSortResources {
 	// where it does. Without this split, one failed buffer allocation during a capacity
 	// growth black-screened a capable GPU for the rest of the session.
 	bool sorter_unavailable_permanent = false;
+	// WHICH cause latched, not just whether it was permanent. Only meaningful while
+	// sorter_available == false. It exists because "permanent" is permanent for a FIXED
+	// sorting configuration, not for the process: the capability cause is decided by
+	// probe_supports_indirect(), which reads g_gpu_sorting_config, so a user who corrects
+	// a bad radix_bits/workgroup_size must be able to get sorted output back. ensure_resources()
+	// re-asks the probe (allocation-free) for the causes
+	// GaussianSplatting::sorter_permanent_failure_is_reprobable() admits, and hard-latches the
+	// rest. Defaults to the transient cause so an uninitialised read can never unlatch anything.
+	GaussianSplatting::SorterCreationFailure sorter_unavailable_cause =
+			GaussianSplatting::SorterCreationFailure::CREATION_FAILED;
 	// Exponential backoff for retrying a TRANSIENT failure, in ensure_resources() calls.
 	// delay is monotone non-decreasing (see next_sorter_retry_delay_calls); countdown is
 	// the remaining calls before the next recreation attempt. Both zero while healthy.

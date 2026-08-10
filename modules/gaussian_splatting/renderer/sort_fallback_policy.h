@@ -240,6 +240,70 @@ static inline bool sorter_creation_failure_is_permanent(SorterCreationFailure p_
 	return true;
 }
 
+// ---------------------------------------------------------------------------
+// "Permanent" is permanent for a FIXED configuration, not for the process (#586 round-2)
+// ---------------------------------------------------------------------------
+//
+// Round-2 review finding: a permanent capability latch is only defensible while the
+// input that produced it cannot change. One of the two permanent causes is decided by
+// a query over LIVE PROJECT CONFIGURATION:
+//
+//   probe_supports_indirect(ALGORITHM_RADIX, device)
+//     -> RadixSort::is_supported(device)
+//        -> reads g_gpu_sorting_config.radix_bits and .workgroup_size, derives the
+//           scatter shared-memory footprint from them, and compares that plus the
+//           required workgroup size against the device's CACHED compute limits.
+//
+// So a valid-but-nonportable pair (e.g. radix_bits=8 x workgroup_size=512 needs 18 KB of
+// scatter shared memory; #634 warns about it at config time but does NOT reject it, and
+// a workgroup_size the device cannot run is not warned about at all) latches the sorter
+// off — and then CORRECTING the setting could never take effect, because nothing cleared
+// the latch. Since #586 makes that state reject every translucent frame, the user's fix
+// left the renderer permanently publishing nothing. That is the dead end this predicate
+// exists to end.
+//
+// The fix is a RE-PROBE, not a list of "capability-affecting settings" mirrored into the
+// resource state. A mirrored list is an invariant guarded by a hand-written enumeration:
+// it is correct only until the probe grows a new input, and it silently rots when it
+// does. Re-asking the probe is derived from ground truth, and it also covers EVERY route
+// that mutates the config (reload_gpu_sorting_config_from_project_settings(), preset
+// application, direct writes to g_gpu_sorting_config, the benchmark lane), not just the
+// one public reload entry point.
+//
+// Re-probing is affordable precisely where it runs: the probe allocates nothing and
+// issues no driver calls — RenderingDevice::limit_get() is a switch over the driver's
+// cached VkPhysicalDeviceLimits — so it is a handful of struct reads and integer
+// compares, and it only runs while the sorter is already unavailable (a state in which
+// the renderer publishes nothing at all, so a few compares per call are free). The
+// EXPENSIVE thing — create_sorter(), which compiles shader variants and allocates >=8
+// buffers — is still never retried while the probe answers false, which is the part of
+// "permanent" that was actually load-bearing.
+//
+// The other permanent cause must NOT be re-probed: CREATED_SORTER_LACKS_INDIRECT is a
+// compile-time constant of the sorter class, so nothing about it can change, and
+// re-testing it requires a full create_sorter() — retrying that per call is exactly the
+// allocation storm the permanent latch was introduced to prevent.
+//
+// No default label, so a new failure cause must make an explicit choice here too.
+static inline bool sorter_permanent_failure_is_reprobable(SorterCreationFailure p_failure) {
+	switch (p_failure) {
+		// Decided by probe_supports_indirect(), which reads live config. Re-ask it.
+		case SorterCreationFailure::INDIRECT_CAPABILITY_UNSUPPORTED:
+			return true;
+		// A compile-time constant of the sorter class; re-testing it costs a full
+		// create_sorter(). Hard-latched.
+		case SorterCreationFailure::CREATED_SORTER_LACKS_INDIRECT:
+			return false;
+		// Not permanent at all — recovered by the transient retry backoff above, which
+		// already re-attempts creation on its own schedule.
+		case SorterCreationFailure::CREATION_FAILED:
+			return false;
+	}
+	// Unknown cause: do not re-probe. Fail-closed here means "keep the latch", which can
+	// never produce a retry storm on a device that cannot sort.
+	return false;
+}
+
 // Retry schedule for a TRANSIENT sorter-recreation failure.
 //
 // Both obvious designs are traps:
