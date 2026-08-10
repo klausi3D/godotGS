@@ -22,7 +22,7 @@ Use this page when you need prerequisites, toolchain setup, or an editor built f
 
 ## Verify the Editor
 
-Once you have an editor from this fork, confirm it opens the sample project before continuing:
+Once you have an editor from this fork, confirm it opens the sample project before continuing. The sample project lives in this repository, so clone it first (`git clone --depth 1 https://github.com/klausi3D/godotGS.git`) and run these from the repository root:
 
 ```bash
 $GODOT_BINARY --headless --path tests/examples/godot/test_project --quit

@@ -17,6 +17,17 @@ Each nightly contains the editor for both supported platforms plus integrity fil
 
 macOS is not yet covered by a published binary — [Build from Source](../BUILDING.md).
 
+!!! warning "Nightly binaries are unoptimized `-O0` builds"
+    Every published nightly is compiled with `dev_build=yes`, which means `-O0` — no
+    optimization at all. That inflates CPU-side frame cost by roughly an order of
+    magnitude compared with an optimized build. The `.dev` segment in the binary
+    names below is exactly this flag. **Do not judge godotGS performance from a
+    nightly download, and do not benchmark one.** For representative speed, build
+    from source with `target=editor optimize=speed_trace` — see
+    [Build Flavors](../BUILDING.md#build-flavors) — and read the
+    [Performance Dashboard](../performance/index.md#measurement-environment) for the
+    numbers an optimized build actually produces.
+
 ## Run It
 
 ### Linux
@@ -55,10 +66,16 @@ Get-FileHash -Algorithm SHA256 .\godotgs-windows-x86_64-<tag>.zip
 
 Nightlies are prereleases by design — they may break at any time. They are intended for evaluation, prototypes, and contributor work, not production. See the [stability column in Release Channels](../development/release-channels.md#channels) for the per-channel guarantees.
 
+They are also **not performance-representative**: every nightly is a `dev_build=yes`
+/ `-O0` binary, so anything you measure on one is an artifact of the build flavor
+rather than of godotGS. Build an optimized editor ([Build Flavors](../BUILDING.md#build-flavors))
+before drawing any conclusion about speed.
+
 ## Building From Source
 
 Use [Build from Source](../BUILDING.md) when:
 
 - you are on macOS,
+- you want representative performance rather than an `-O0` nightly (see [Build Flavors](../BUILDING.md#build-flavors)),
 - you need a custom build flavor (release-stripped, different optimizer settings, debug symbols, etc.),
 - or you want to reproduce a specific commit's binary.
