@@ -279,15 +279,38 @@ index `container[...]` that nothing between them bounds.
 4. **Non-container `size()`** - anything named `size()` is treated as a length.
 5. **A rebinding this file's syntax cannot see.** Round 6's bound expires when a
    statement assigns, increments or decrements a name it depends on, or resizes a
-   length peer. It does not expire on a rebinding through a reference or pointer
-   alias, or inside a callee handed `&i` - the same dataflow blind spot detector 1
-   has for aliases (its item 2 above), for the same reason.
+   length peer, and since round 7 a `for` header's own update clause must be
+   PROVABLY nondecreasing rather than merely not spelled `--`/`-=`
+   (`_update_is_nondecreasing`, a whitelist: `i += delta`, `i = -1` and `f(&i)` all
+   refute the header now). What remains is a rebinding the syntax cannot reach:
 
-   That is the honest edge of the model: what a guard proves is now three named
-   rules, so the surface a future review can attack is enumerable rather than
-   open-ended, and it is exactly rule 2's textual identity, rule 3's peer equality,
-   and the nonnegativity proof `_nonnegative_loop_indices` supplies to rule 2. The
-   two round-4 limits recorded there are part of the same list.
+   * through a reference or pointer alias, or inside a callee handed `&i` - the
+     same dataflow blind spot detector 1 has for aliases (its item 2 above);
+   * carried over the loop's BACK EDGE. The scan is one forward pass, so a
+     rebinding placed AFTER the subscript in the body is seen too late:
+     `for (int i = 0; i < v.size(); i++) { CHECK(v[i]); i = -5; }` re-enters with
+     `i == -4` and is reported clean today (measured, not inferred). This one is
+     structural rather than an oversight - the scan window is
+     `_SIZE_SCAN_STATEMENTS` statements, so for most real loops the end of the body
+     is not visible at the point the frame is pushed, and "assume a rebinding
+     whenever the body is truncated" would report every long loop in the corpus.
+     Closing it needs the whole body, i.e. a different scan shape, not another
+     rule here.
+
+   That is the honest edge of the model: what a guard proves is three named rules,
+   so the surface a future review can attack is enumerable rather than open-ended,
+   and it is exactly rule 2's textual identity, rule 3's peer equality, the
+   nonnegativity proof `_nonnegative_loop_indices` supplies to rule 2, and the two
+   dataflow paths above. Round 4's separate limit - "the increment clause must not
+   decrease the same name" - is retired by round 7's whitelist rather than still
+   standing beside it.
+6. **An integer literal this file cannot read.** `_literal_value` implements C++
+   spelling (decimal, `0x`, `0b`, legacy `010` octal, digit separators, `u`/`l`
+   suffixes) and returns None for everything else - a named constant, a `sizeof`,
+   an ill-formed `09`. None never bounds and never suppresses, so this costs false
+   positives, not silence. Legacy octal was in that None bucket until round 7 and
+   made the guard OVER-report on valid code, which is its own failure: a ratchet
+   that fails on correct input gets waived.
 
 ### Reconciliation of the count
 
@@ -1538,13 +1561,28 @@ def _literal_is_nonzero(text: str) -> bool:
 
 
 def _literal_value(text: str) -> int | None:
-    """`text` as an integer literal's value, or None when it is not one."""
+    """`text` as an integer literal's value, or None when it is not one.
+
+    Python's `int(_, 0)` implements C++'s spelling rules for every base EXCEPT the
+    legacy octal one: it reads `0x10` as 16 and `0b1` as 1, but *raises* on `010`,
+    which C++ reads as 8. Left unhandled that made the guard OVER-report - the only
+    direction on this file that had not bitten yet - so
+    `REQUIRE(v.size() == 9); if (v.size() >= 010) { CHECK(v[7]); }` was called a new
+    violation although the branch proves eight elements (Codex, PR #849 round 7).
+    The legacy base is therefore selected explicitly.
+
+    Ill-formed spellings stay None, which is the fail-closed answer everywhere this
+    is consulted: `09` is not an octal literal in C++ either, and an operand whose
+    value cannot be determined must not be allowed to bound anything.
+    """
     literal = _INTEGER_LITERAL_RE.match(text.strip())
     if literal is None:
         return None
+    digits = literal.group(1).replace("'", "")
+    # `0x`/`0X` hex and `0b`/`0B` binary keep base 0; a bare leading zero is octal.
+    base = 8 if len(digits) > 1 and digits[0] == "0" and digits[1] not in "xXbB" else 0
     try:
-        # base 0 is C++'s own spelling rule: `0x10` hex, `0b1` binary, `010` octal.
-        return int(literal.group(1).replace("'", ""), 0)
+        return int(digits, base)
     except ValueError:
         return None  # not a well-formed literal after all: unproven, so None
 
@@ -2371,6 +2409,55 @@ def _control_operand(header: str, at: int) -> str | None:
 _FOR_INITIALIZER_RE = re.compile(r"^\s*(?:[A-Za-z_][\w:]*\s+)*([A-Za-z_]\w*)\s*=\s*(.+)$", re.S)
 
 
+def _update_is_nondecreasing(name: str, update: str) -> bool:
+    """True when a `for` header's update clause PROVABLY cannot decrease `name`.
+
+    A WHITELIST, and that is the whole point. Until #849's round 7 this asked the
+    opposite question - "is this a `--` or a `-=` on `name`?" - so every update it
+    had not enumerated was accepted, and
+
+        REQUIRE(v.size() == 2);
+        for (int i = 0; i < v.size(); i += delta) { CHECK(v[i]); }
+
+    was reported clean: at an actual length of 1 the assertion fails, execution
+    continues, `delta == -1` re-enters with `i == -1`, and `v[i]` aborts the batch.
+    `i = -1` was accepted for the same reason. An invariant that rests on a list of
+    the bad cases is already broken; this one lists the provable cases instead, and
+    everything outside the list - `i += delta`, `i = f()`, `i = -1`, `g(&i)`, a
+    clause that merely mentions `name` - is unproven and does NOT bound (Codex,
+    PR #849 round 7).
+
+    Provable, given that the initialiser already established `name >= 0`:
+
+    * `++name` / `name++`;
+    * `name += <integer literal>` - the literal grammar carries no sign, so
+      matching it IS the proof that the step is not negative;
+    * `name = name + <integer literal>` and `name = <integer literal> + name`;
+    * any clause that does not mention `name` at all, which therefore cannot
+      write it (`name` is declared by the initialiser, so it is a local: only a
+      clause naming it, or an alias made in the body, can reach it).
+    """
+    escaped = re.escape(name)
+    mentions = re.compile(rf"(?<![\w.>]){escaped}(?![\w])")
+    steps = re.compile(rf"^\s*(?:\+\+\s*{escaped}|{escaped}\s*\+\+)\s*$")
+    adds = re.compile(rf"^\s*{escaped}\s*\+=\s*(.+)$", re.S)
+    rebinds = re.compile(
+        rf"^\s*{escaped}\s*=\s*(?:{escaped}\s*\+\s*(.+)|(.+?)\s*\+\s*{escaped})\s*$", re.S
+    )
+    for clause in _split_macro_arguments(update):
+        if mentions.search(clause) is None:
+            continue
+        if steps.match(clause):
+            continue
+        added = adds.match(clause) or rebinds.match(clause)
+        if added is None:
+            return False
+        operand = next((group for group in added.groups() if group is not None), None)
+        if operand is None or _literal_value(operand) is None:
+            return False
+    return True
+
+
 def _nonnegative_loop_indices(header: str) -> frozenset[str]:
     """Names a `for` header proves are at least zero when its condition is tested.
 
@@ -2381,12 +2468,17 @@ def _nonnegative_loop_indices(header: str) -> frozenset[str]:
     and that is the difference this set carries (Codex, PR #849 round 4).
 
     Limits, stated rather than hidden: the initialiser must be a nonnegative
-    integer literal, and the increment clause must not decrease the same name, so
-    `for (int i = v.size() - 1; i >= 0; i--)` qualifies on neither count. A loop
-    BODY that rebinds the variable no longer rides on the header's relation -
+    integer literal, and the update clause must be PROVABLY nondecreasing
+    (`_update_is_nondecreasing` - a whitelist since round 7, not "is it a `--`"), so
+    `for (int i = v.size() - 1; i >= 0; i--)` qualifies on neither count and
+    `for (int i = 0; i < v.size(); i += delta)` qualifies on the second. A loop BODY
+    that rebinds the variable no longer rides on the header's relation -
     `_bound_after` drops it at the rebinding statement (round 6) - so what is left
     unmodelled here is a rebinding this file's syntax cannot see: through a
-    reference or a pointer, or inside a callee handed `&i`.
+    reference or a pointer, or inside a callee handed `&i`, and a rebinding carried
+    over the loop's BACK EDGE (`for (int i = 0; i < v.size();) { CHECK(v[i]); i = -1; }`
+    - the forward scan sees the subscript before the rebinding, and there is no
+    second pass over the body).
     """
     head = _CONTROL_HEAD_RE.match(header)
     if head is None or head.group(1) != "for":
@@ -2405,9 +2497,7 @@ def _nonnegative_loop_indices(header: str) -> frozenset[str]:
         if declaration is None or _literal_value(declaration.group(2)) is None:
             continue
         name = declaration.group(1)
-        if re.search(rf"(?<![\w.>]){re.escape(name)}\s*(?:--|-=)", increment) or re.search(
-            rf"--\s*{re.escape(name)}(?![\w])", increment
-        ):
+        if not _update_is_nondecreasing(name, increment):
             continue
         names.add(name)
     return frozenset(names)

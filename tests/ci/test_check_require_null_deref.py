@@ -1078,6 +1078,180 @@ class SizeThenIndexBoundDirection(SizeIndexScanTestCase):
         )
 
 
+class SizeThenIndexLoopUpdateMustBeProvenNondecreasing(SizeIndexScanTestCase):
+    """The `for` update clause is judged by a WHITELIST, not by "is it a `--`".
+
+    Round 4 accepted every update clause except a syntactic `--`/`-=` on the loop
+    variable, so every shape it had not enumerated - `i += delta`, `i = -1`,
+    `f(&i)` - kept the header's `i >= 0` proof and suppressed the subscript under
+    it. With an actual length of 1, `REQUIRE(v.size() == 2)` fails, execution
+    continues, `delta == -1` re-enters the body with `i == -1`, and `v[i]` aborts
+    the whole batch while the detector reports clean (Codex, PR #849 round 7).
+
+    The update clause is a path `_bound_after` never sees: round 6 closed the same
+    hole for a rebinding in the loop BODY, and this one is in the header.
+    """
+
+    def test_an_unproven_step_does_not_bound_the_body(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0; i < v.size(); i += delta) {\n    CHECK(v[i] == 1);\n  }",
+            "v",
+        )
+
+    def test_an_assignment_in_the_update_does_not_bound_the_body(self):
+        """`i = -1` matches neither `--` nor `-=`, and was accepted for that reason."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0; i < v.size(); i = -1) {\n    CHECK(v[i] == 1);\n  }",
+            "v",
+        )
+
+    def test_a_negative_literal_step_does_not_bound_the_body(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0; i < v.size(); i += -1) {\n    CHECK(v[i] == 1);\n  }",
+            "v",
+        )
+
+    def test_an_update_that_takes_the_address_does_not_bound_the_body(self):
+        """`advance(&i)` can write `i`; nothing here can see what it writes."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0; i < v.size(); advance(&i)) {\n    CHECK(v[i] == 1);\n  }",
+            "v",
+        )
+
+    def test_a_multiplying_update_is_not_on_the_whitelist(self):
+        """Sound by accident is still unproven: only the listed forms may bound."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0; i < v.size(); i *= 2) {\n    CHECK(v[i] == 1);\n  }",
+            "v",
+        )
+
+    def test_a_rebinding_from_another_name_does_not_bound_the_body(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0; i < v.size(); i = j + 1) {\n    CHECK(v[i] == 1);\n  }",
+            "v",
+        )
+
+    def test_a_self_rebinding_that_SUBTRACTS_does_not_bound_the_body(self):
+        """`i = i - 1` is `i--` spelled long; only the ADDING forms are on the list."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0; i < v.size(); i = i - 1) {\n    CHECK(v[i] == 1);\n  }",
+            "v",
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0; i < v.size(); i = 1 - i) {\n    CHECK(v[i] == 1);\n  }",
+            "v",
+        )
+
+    def test_the_proven_update_forms_still_bound_the_body(self):
+        """The whitelist must not be vacuous: every real corpus spelling is on it."""
+        for update in ("i++", "++i", "i += 1", "i += 4", "i = i + 1", "i = 1 + i", "i += 010"):
+            with self.subTest(update=update):
+                self.assertNotSized(
+                    "  REQUIRE(v.size() == 2);\n"
+                    f"  for (int i = 0; i < v.size(); {update}) {{\n    CHECK(v[i] == 1);\n  }}"
+                )
+
+    def test_a_sibling_clause_is_judged_per_name(self):
+        """`i++, j--` proves `i` and refutes `j`; one clause must not decide both."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0, j = 0; i < v.size(); i++, j--) {\n    CHECK(v[i] == 1);\n  }"
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 2);\n"
+            "  for (int i = 0, j = 0; j < v.size(); i++, j--) {\n    CHECK(v[j] == 1);\n  }",
+            "v",
+        )
+
+    def test_the_whitelist_is_asked_about_the_right_name(self):
+        """Direct: only the listed forms answer True, and only for their own name."""
+        self.assertTrue(GUARD._update_is_nondecreasing("i", "i++"))
+        self.assertTrue(GUARD._update_is_nondecreasing("i", "++i"))
+        self.assertTrue(GUARD._update_is_nondecreasing("i", "i += 2"))
+        self.assertTrue(GUARD._update_is_nondecreasing("i", "j--"))  # does not touch `i`
+        self.assertTrue(GUARD._update_is_nondecreasing("i", ""))
+        self.assertFalse(GUARD._update_is_nondecreasing("i", "i--"))
+        self.assertFalse(GUARD._update_is_nondecreasing("i", "--i"))
+        self.assertFalse(GUARD._update_is_nondecreasing("i", "i -= 2"))
+        self.assertFalse(GUARD._update_is_nondecreasing("i", "i += step"))
+        self.assertFalse(GUARD._update_is_nondecreasing("i", "i = -1"))
+        self.assertFalse(GUARD._update_is_nondecreasing("i", "i = f(i)"))
+        self.assertFalse(GUARD._update_is_nondecreasing("i", "j += i"))
+        self.assertFalse(GUARD._update_is_nondecreasing("i", "i = i - 1"))
+        self.assertFalse(GUARD._update_is_nondecreasing("i", "i = 1 - i"))
+        self.assertFalse(GUARD._update_is_nondecreasing("i", "i++, i -= 3"))
+
+    def test_a_member_named_like_the_index_is_not_the_index(self):
+        """`it.i++` writes a member, not the loop variable; the name must not match."""
+        self.assertTrue(GUARD._update_is_nondecreasing("i", "it.i--"))
+        self.assertTrue(GUARD._update_is_nondecreasing("i", "p->i--"))
+
+
+class SizeThenIndexIntegerLiteralSpelling(SizeIndexScanTestCase):
+    """C++ spelling rules, including the legacy octal one Python's `int(_, 0)` rejects.
+
+    Every earlier finding on this file was the guard being too PERMISSIVE. This one
+    is the opposite: `int("010", 0)` raises, so the safe
+    `REQUIRE(v.size() == 9); if (v.size() >= 010) { CHECK(v[7]); }` was reported as
+    a new violation although the branch proves eight elements (Codex, PR #849
+    round 7). A ratchet that fails on valid input gets waived, and a waived guard
+    proves nothing - but the fix is to read the literal CORRECTLY, never to let an
+    unreadable one bound anything.
+    """
+
+    def test_a_legacy_octal_guard_bounds_its_body(self):
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 9);\n  if (v.size() >= 010) {\n    CHECK(v[7] == 1);\n  }"
+        )
+
+    def test_a_legacy_octal_guard_bounds_only_as_far_as_its_value(self):
+        """`010` is EIGHT, not ten: `v[8]` is past what the branch proves."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 9);\n  if (v.size() >= 010) {\n    CHECK(v[8] == 1);\n  }", "v"
+        )
+
+    def test_an_ill_formed_octal_literal_bounds_nothing(self):
+        """`09` is not a literal in C++ either; unreadable must stay unproven."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 9);\n  if (v.size() >= 09) {\n    CHECK(v[7] == 1);\n  }", "v"
+        )
+
+    def test_an_octal_subscript_is_compared_by_value(self):
+        """The index side is read by the same function: `v[07]` is `v[7]`."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 9);\n  if (v.size() >= 8) {\n    CHECK(v[07] == 1);\n  }"
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 9);\n  if (v.size() >= 8) {\n    CHECK(v[010] == 1);\n  }", "v"
+        )
+
+    def test_every_base_reads_as_c_plus_plus_reads_it(self):
+        self.assertEqual(GUARD._literal_value("010"), 8)
+        self.assertEqual(GUARD._literal_value("0"), 0)
+        self.assertEqual(GUARD._literal_value("00"), 0)
+        self.assertEqual(GUARD._literal_value("0755"), 493)
+        self.assertEqual(GUARD._literal_value("010u"), 8)
+        self.assertEqual(GUARD._literal_value("0'1'0"), 8)
+        self.assertEqual(GUARD._literal_value("10"), 10)
+        self.assertEqual(GUARD._literal_value("0x10"), 16)
+        self.assertEqual(GUARD._literal_value("0X1F"), 31)
+        self.assertEqual(GUARD._literal_value("0b101"), 5)
+        self.assertEqual(GUARD._literal_value("0B11"), 3)
+        self.assertIsNone(GUARD._literal_value("09"))
+        self.assertIsNone(GUARD._literal_value("08"))
+        self.assertIsNone(GUARD._literal_value("0xZ"))
+        self.assertIsNone(GUARD._literal_value("expected"))
+        self.assertIsNone(GUARD._literal_value("-1"))
+
+
 class SizeThenIndexShortCircuitDirection(SizeIndexScanTestCase):
     """The same direction question, asked of a short-circuit operand.
 
