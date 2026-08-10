@@ -39,8 +39,16 @@ For module-only build commands and SCons targets, see [Gaussian Splatting Build 
 
 ## Per-lane result ledger
 
-`tests/ci/run_module_tests.py` declares 27 doctest lanes in `MODULE_TEST_FILTERS`:
-**21 strict, 6 advisory** (`strict=False`).
+`tests/ci/run_module_tests.py` declares 28 doctest lanes in `MODULE_TEST_FILTERS`:
+**22 strict, 6 advisory** (`strict=False`).
+
+These counts are **derived, not hand-tallied** — re-derive them from the tuple itself
+(`strict` is index 3) rather than recounting the source by eye, which is how they last
+drifted:
+
+```
+python -c "import importlib.util,sys; s=importlib.util.spec_from_file_location('r','tests/ci/run_module_tests.py'); m=importlib.util.module_from_spec(s); sys.modules['r']=m; s.loader.exec_module(m); f=m.MODULE_TEST_FILTERS; print(len(f),'lanes;',sum(1 for x in f if x[3]),'strict;',sum(1 for x in f if not x[3]),'advisory')"
+```
 
 When an advisory lane fails the ordinary way — the lane process exits nonzero, or crashes —
 the failure is **tolerated and does not itself fail the run**. The same holds when it executes
@@ -175,7 +183,7 @@ truncated. The preflight additionally rejects the destination classes the siblin
 structurally cannot see, because "can I create a file next to this path" is a different
 question from "can I replace this path": an existing **directory** (or any other non-regular
 file), and an existing file this process may not write (the Windows read-only attribute, a
-POSIX mode without write permission). Without those checks the run executes all 27 lanes
+POSIX mode without write permission). Without those checks the run executes every lane
 before `os.replace()` finally raises. What the preflight deliberately does **not** claim is
 that the write will succeed: a destination can be opened by another process without delete
 sharing, have its permissions changed, or lose its parent directory afterwards — unavoidable

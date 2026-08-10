@@ -76,6 +76,38 @@ stale, an entry matching more than it declares FAILS as an undeclared newcomer,
 and an entry matching fewer FAILS with an instruction to lower the count so the
 slack cannot be reoccupied.
 
+## Strict-coverage contracts: a promotion must not be able to quietly unwind
+
+Reaching *a* lane is not the same as reaching a lane that can fail CI. When a
+corpus is deliberately promoted out of the advisory `[untagged]` safety net into
+its own strict lane, the promotion is a decision - and nothing used to hold it in
+place. `run_module_tests.py` expresses such a promotion with **two** coupled
+edits: the tag joins `HEADLESS_GAUSSIAN_SCOPED_TAGS` (so the advisory net stops
+claiming those cases) and a `strict=True` lane is added to `MODULE_TEST_FILTERS`.
+Delete *both* and every case silently falls back to the advisory net; retag *some*
+of the cases and those cases fall back while the strict lane stays green and
+non-empty. Neither shape is stranded, so neither trips the check above, and the
+un-gated no-strict count moves by an amount nobody watches (measured on PR #850:
+381 -> 392 for the both-entries deletion, 381 -> 385 for a four-case retag - both
+exit 0).
+
+`STRICT_COVERAGE_CONTRACTS` closes that. A contract names a promoted corpus **by
+its source file(s) and by its tag pattern**, and the guard asserts the *property*:
+every case in that corpus is executed by at least one lane whose `strict` flag is
+true. Both sides are derived - the cases from the test sources, the lanes from
+`MODULE_TEST_FILTERS` - so no list of case names or lane names is maintained here.
+What is written down is only the policy ("this corpus is load-bearing"), which is
+exactly the thing that cannot be derived from a tree that no longer contains it.
+
+The two keys are deliberately redundant, because each covers the other's blind
+spot: retagging a case in place keeps it in the *file* set, moving a case to
+another file keeps it in the *tag* set. Both must be non-empty on their own,
+which is what stops a misspelled tag or a renamed file from turning the contract
+into a check of nothing. A contract can still be defeated by editing it, by
+deleting the tests, or by moving a case to a new file *and* retagging it in the
+same change - all of which are visible, deliberate acts in a diff rather than a
+side effect of touching a lane table.
+
 ## Corpus scope
 
 The module tests, plus the engine test tree scanned **recursively** for cases
@@ -88,13 +120,14 @@ no lane here" is not a defect for them.
 
 ## What this guard deliberately does NOT check
 
-* **Whether a matched lane is strict.** 416 of 756 registered cases reach no
-  *strict* lane - most of them legitimately, because they live in the GPU harness
-  or in an advisory safety-net lane. Failing on that today would demand ~400
-  quarantine entries, i.e. it would turn the manifest into the very rubber stamp
-  this guard exists to prevent. The strict-coverage picture is REPORTED (see the
-  summary line) so the number is visible and can be ratcheted deliberately; it is
-  not gated here.
+* **Whether a matched lane is strict, for the corpus as a whole.** 381 of 856
+  registered cases reach no *strict* lane - most of them legitimately, because
+  they live in the GPU harness or in an advisory safety-net lane. Failing on that
+  globally would demand ~400 quarantine entries, i.e. it would turn the manifest
+  into the very rubber stamp this guard exists to prevent. The global number is
+  REPORTED (see the summary line), not gated. Individual corpora ARE gated - see
+  the strict-coverage contracts below, which are the deliberate ratchet this
+  bullet used to only promise.
 * **Whether a matched case actually asserts anything.** A case that matches a lane
   and then early-returns past every assertion is vacuous, not stranded. That is a
   different defect with a different signal (see #520's skip-guard discussion); no
@@ -135,6 +168,47 @@ UNLANED_REQUIRED_FIELDS: tuple[str, ...] = (
 
 _CASE_RE = re.compile(r'\bTEST_CASE\s*\(\s*"((?:[^"\\]|\\.)*)"')
 _GAUSSIAN_NAME = "gaussian"
+
+
+@dataclass(frozen=True)
+class StrictCoverageContract:
+    """A corpus whose strict-lane coverage is a promise, not an accident.
+
+    `sources` are test-source **basenames** (the corpus records `path.name`);
+    `test_case` is a doctest-style wildcard matched against case names. The
+    protected set is the UNION of the two, and each side must be non-empty on its
+    own - see the module docstring for why the redundancy is the point.
+
+    This tuple is the one thing here that is written down rather than derived,
+    and it has to be: it records a decision ("this corpus must be able to fail
+    CI"), which is precisely the fact a tree that has already lost the lane can
+    no longer tell you. It is NOT a list of cases and NOT a list of lanes; both
+    of those are re-derived on every run.
+    """
+
+    name: str
+    sources: tuple[str, ...]
+    test_case: str
+    issue_url: str
+    rationale: str
+
+
+STRICT_COVERAGE_CONTRACTS: tuple[StrictCoverageContract, ...] = (
+    StrictCoverageContract(
+        name="[DataAuthority]",
+        sources=("test_data_authority_hardening.h",),
+        test_case="*][DataAuthority]*",
+        issue_url="https://github.com/klausi3D/godotGS/issues/846",
+        rationale=(
+            "#846 promoted this corpus out of the advisory [untagged] safety net into "
+            "its own strict lane. Five of its cases are the only executable proof of "
+            "the fail-closed persistence defects fixed in #805 (coherent reset, the "
+            "oversized-lane SHRINK that was a real OOB read, the refused getter "
+            "allocation, transactional materialization, the refusing merge). A "
+            "fail-closed proof that cannot fail CI is not a proof."
+        ),
+    ),
+)
 
 
 def _load_module(alias: str, path: Path):
@@ -316,6 +390,96 @@ def _load_unlaned_declarations() -> tuple[list[dict], list[str]]:
 
 
 @dataclass
+class StrictContractResult:
+    """What one `StrictCoverageContract` found. Shared by the guard and its test."""
+
+    contract: StrictCoverageContract
+    protected: list[tuple[str, str]]
+    uncovered: list[tuple[str, str]]
+    lanes: list[str]
+    problems: list[str]
+
+    @property
+    def failures(self) -> list[str]:
+        """Every reason this contract is not satisfied, as reportable lines."""
+        lines = list(self.problems)
+        for case_name, file_name in self.uncovered:
+            lines.append(
+                f"strict-coverage contract {self.contract.name}: "
+                f'{file_name}: TEST_CASE("{case_name}") reaches NO strict lane in '
+                f"run_module_tests.py. It can still run in an advisory lane, where a "
+                f"failure is printed and tolerated, so it can no longer fail CI. Either "
+                f"restore its strict lane (both halves: the HEADLESS_GAUSSIAN_SCOPED_TAGS "
+                f"entry AND the strict MODULE_TEST_FILTERS tuple), or retire the contract "
+                f"in check_test_lane_coverage.py with justification ({self.contract.issue_url})."
+            )
+        return lines
+
+
+def evaluate_strict_coverage_contract(
+    contract: StrictCoverageContract,
+    cases: list[tuple[str, str]],
+    module_lanes: list[tuple[str, tuple[str, ...], tuple[str, ...], bool]],
+) -> StrictContractResult:
+    """Assert the property: every case in `contract`'s corpus reaches a strict lane.
+
+    Pure, and takes both derived inputs as arguments, so the unit test can drive it
+    with a mutated corpus or a mutated lane table without editing the tree - and so
+    the guard and the test cannot drift apart the way #520's did.
+
+    Note the two vacuity checks. Without them a contract naming a renamed file and a
+    misspelled tag would enumerate zero cases, find zero of them uncovered, and pass:
+    a guard whose subject has silently become empty is the failure mode this whole
+    file exists to catch, so it is a failure here rather than a green run.
+    """
+    problems: list[str] = []
+
+    by_source = [(name, file_name) for name, file_name in cases if file_name in contract.sources]
+    by_tag = [
+        (name, file_name) for name, file_name in cases if _doctest_wildcmp(name, contract.test_case)
+    ]
+
+    for source in contract.sources:
+        if not any(file_name == source for _, file_name in cases):
+            problems.append(
+                f"strict-coverage contract {contract.name}: source {source!r} contributes NO "
+                f"TEST_CASE to the corpus. The file was renamed, deleted, emptied, or dropped "
+                f"from the build (check_test_linkage.KNOWN_UNLINKED). A contract whose subject "
+                f"is empty proves nothing, so this fails instead of passing vacuously "
+                f"({contract.issue_url})."
+            )
+    if not by_tag:
+        problems.append(
+            f"strict-coverage contract {contract.name}: pattern {contract.test_case!r} matches NO "
+            f"registered case. The tag was renamed or the pattern is misspelled; either way the "
+            f"tag half of this contract is checking nothing ({contract.issue_url})."
+        )
+
+    protected = sorted(set(by_source) | set(by_tag))
+    if not protected:
+        problems.append(
+            f"strict-coverage contract {contract.name}: protects ZERO cases. Nothing about it "
+            f"can fail, so it is not a guard ({contract.issue_url})."
+        )
+
+    strict_lanes = [(name, inc, exc) for name, inc, exc, strict in module_lanes if strict]
+    uncovered = [
+        (case_name, file_name)
+        for case_name, file_name in protected
+        if not any(_lane_matches(case_name, inc, exc) for _, inc, exc in strict_lanes)
+    ]
+    lanes = sorted(
+        {
+            lane_name
+            for case_name, _ in protected
+            for lane_name, inc, exc in strict_lanes
+            if _lane_matches(case_name, inc, exc)
+        }
+    )
+    return StrictContractResult(contract, protected, uncovered, lanes, problems)
+
+
+@dataclass
 class Analysis:
     """The corpus/lane picture. Single source of truth for the guard AND its test."""
 
@@ -324,6 +488,7 @@ class Analysis:
     no_strict: int
     requires_rd_only: int
     notes: list[str]
+    strict_contracts: list[StrictContractResult]
 
 
 def analyze() -> Analysis:
@@ -373,7 +538,12 @@ def analyze() -> Analysis:
         if not strict_hit and not gpu_hit:
             no_strict += 1
 
-    return Analysis(cases, stranded, no_strict, requires_rd_only, notes)
+    strict_contracts = [
+        evaluate_strict_coverage_contract(contract, cases, module_lanes)
+        for contract in STRICT_COVERAGE_CONTRACTS
+    ]
+
+    return Analysis(cases, stranded, no_strict, requires_rd_only, notes, strict_contracts)
 
 
 def attribute(
@@ -447,8 +617,26 @@ def main() -> int:
             f"linked issue and an expiry."
         )
 
+    # Strict-coverage contracts. A contract with no declared corpus at all would be
+    # the same vacuity it forbids, so an empty contract tuple is itself a failure.
+    if not analysis.strict_contracts:
+        failures.append(
+            "STRICT_COVERAGE_CONTRACTS is empty. Removing every contract removes the "
+            "only check that a promoted corpus still reaches a lane that can fail CI."
+        )
+    for result in analysis.strict_contracts:
+        failures.extend(result.failures)
+
     for note in notes:
         print(f"[test-lane-coverage] note: {note}")
+
+    for result in analysis.strict_contracts:
+        print(
+            f"[test-lane-coverage] strict-coverage contract {result.contract.name}: "
+            f"{len(result.protected)} protected case(s), {len(result.uncovered)} without a "
+            f"strict lane; covering strict lane(s): "
+            f"{', '.join(result.lanes) if result.lanes else '(none)'}."
+        )
 
     if failures:
         print(

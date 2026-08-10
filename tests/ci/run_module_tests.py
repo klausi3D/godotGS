@@ -69,6 +69,7 @@ HEADLESS_GAUSSIAN_SCOPED_TAGS: tuple[str, ...] = (
     "ComputeInfra",
     "Config",
     "Container",
+    "DataAuthority",  # #846: promoted from the advisory [untagged] lane to a strict blocking lane.
     "Editor",
     "Importer",
     "MalformedCorpus",  # G2: the aggregate malformed-input gate (WorldIO/PLY/SPZ/Persistence).
@@ -137,6 +138,32 @@ MODULE_TEST_FILTERS: tuple[tuple[str, tuple[str, ...], tuple[str, ...], bool], .
     ("GaussianSplatting [MalformedCorpus]", ("*GaussianSplatting*][MalformedCorpus]*",), ("*][RequiresGPU]*",), True),
     ("GaussianSplatting [SPZ]", ("*GaussianSplatting*][SPZ]*",), ("*][RequiresGPU]*",), True),
     ("GaussianSplatting [AtomicWrite]", ("*GaussianSplatting*][AtomicWrite]*",), ("*][RequiresGPU]*",), True),
+    # #846: same promotion, same reason. The 11 [DataAuthority] cases ran only in
+    # the advisory [untagged] lane, where _report_failed_lane() returns True
+    # ("advisory lane, continuing"), so a failure could not fail the runner. Five
+    # of them are the ONLY executable proof of the defects fixed in #805 (the
+    # coherent reset that bumps payload_version and emits `changed`; the failed
+    # lane SHRINK that left the lane oversized -- an actual OOB read captured
+    # under cdb as c0000005; the getter-allocation refusal that stops a defaulted
+    # payload being cached; the transactional materialization; and the merge that
+    # refuses rather than substituting defaults). Fail-closed persistence proofs
+    # that cannot fail CI are not proofs, so this lane blocks.
+    #
+    # Promotion gated on measured stability, not on one green run (the reason
+    # #805 did not do it): 25 full-lane runs (11/11 cases, 190/190 assertions,
+    # zero variance) plus 100 dedicated runs of the one threaded case, "Animated
+    # accessors tolerate concurrent payload mutation" -- 60 on a quiet box and 40
+    # under 4-way self-contention to shift the interleaving -- all 98/98 with no
+    # crash and no assertion-count drift. 125 runs, zero failures.
+    #
+    # HELD IN PLACE BY A GUARD, not by this comment: the promotion is two coupled
+    # edits (this tuple plus the HEADLESS_GAUSSIAN_SCOPED_TAGS entry above), and
+    # undoing BOTH -- or retagging only some of the cases -- would drop them back
+    # into the advisory net without stranding anything. `STRICT_COVERAGE_CONTRACTS`
+    # in tests/ci/check_test_lane_coverage.py asserts the property instead: every
+    # case in this corpus must reach some strict lane. Deleting this line without
+    # retiring that contract fails the guard batch.
+    ("GaussianSplatting [DataAuthority]", ("*GaussianSplatting*][DataAuthority]*",), ("*][RequiresGPU]*",), True),
     # Safety-net lane for unscoped [GaussianSplatting] tests.  Advisory because
     # doctest's --test-case-exclude parsing is unreliable beyond ~10 repeated
     # flags, so the exclude list cannot guarantee precise filtering.  Real
@@ -2685,7 +2712,7 @@ def _preflight_lane_report_path(path: Path) -> list[str]:
     could have written some is the worst available failure mode.
 
     The end-of-run write still fails closed on its own; this only moves the
-    diagnosis to second zero instead of after 26 lanes.
+    diagnosis to second zero instead of after every lane has run.
     """
     # WHAT THIS RULES OUT - and, just as importantly, what it does not.
     #
@@ -2724,7 +2751,7 @@ def _preflight_lane_report_path(path: Path) -> list[str]:
     # succeed through the parent directory's permissions, so this is stricter
     # than the OS: writing this run's evidence over a file the process is not
     # permitted to write is not something to do silently, and naming the wrong
-    # destination is far cheaper to diagnose now than after 26 lanes.
+    # destination is far cheaper to diagnose now than after every lane has run.
     if path.is_file() and not os.access(path, os.W_OK):
         return [
             f"--lane-report destination exists and is not writable: {path}. "

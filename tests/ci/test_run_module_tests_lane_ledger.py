@@ -2090,7 +2090,7 @@ class LaneReportTests(unittest.TestCase):
                 )
 
     def test_a_directory_destination_fails_before_any_lane_runs(self) -> None:
-        """The preflight must reject it, not os.replace() 26 lanes later."""
+        """The preflight must reject it, not os.replace() a full lane sweep later."""
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp) / "reports"
             directory.mkdir()
@@ -2178,7 +2178,7 @@ class LaneReportTests(unittest.TestCase):
         The probe asks "can I create a file NEXT TO this path". An existing
         read-only destination is not a directory and its parent still accepts a
         temp file, so the probe passed and the run died in `os.replace()` after
-        26 lanes - the exact cost the preflight exists to avoid, for the second
+        every lane had run - the exact cost the preflight exists to avoid, for the second
         input class in a row.
         """
         with tempfile.TemporaryDirectory() as tmp:
@@ -2252,8 +2252,8 @@ class LaneReportTests(unittest.TestCase):
 
             # A DIRECTORY destination: the sibling probe succeeds for it, because
             # "can I write a file next to this path" is a different question from
-            # "can I write this path". Without an explicit check the run does all
-            # 26 lanes and only then dies in os.replace() - which is precisely the
+            # "can I write this path". Without an explicit check the run does every
+            # lane and only then dies in os.replace() - which is precisely the
             # cost the preflight exists to avoid.
             directory = Path(tmp) / "reports"
             directory.mkdir()
