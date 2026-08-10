@@ -17,7 +17,11 @@
   **Waiting on Option 2:** `qa_stream_multi_asset.tscn`.
 - **Verified against:** `origin/master` @ **`a04472a82cf`**. Every file:line in this
   document was read at that commit. §2 records which of the issue's original citations had
-  drifted.
+  drifted. The round-5 re-derivation of §6.4 was read at `origin/master` @ **`c73570c840f`**;
+  every file it cites (`scene/3d/node_3d.cpp`, `scene/main/viewport.cpp`, `scene/main/node.cpp`,
+  `core/object/object.h`, `scene/main/scene_tree.cpp`, both node `.cpp`s and
+  `core/gaussian_splat_scene_director.cpp`) is byte-identical between the two commits, so the
+  line numbers below hold at both.
 
 ## 1. What a user sees
 
@@ -311,6 +315,12 @@ it; a warning on only one is a coin-flip on which node they inspect first.
                       AND registered_scenario(M) == registered_scenario(N)
   ```
 
+  **§6.4's mutation table is a function of this predicate.** Every "Killed by" entry there is
+  the claim "*this conjunct is the one that changes value in this state*", so changing,
+  adding or removing a conjunct here silently invalidates rows over there. Two rounds have
+  already shipped a row that the predicate had outgrown. **Any edit to this block requires
+  re-deriving §6.4 in full** — see the rules under "The table is coupled to the predicate".
+
   Every conjunct is a mirror of a guard on the path that actually produces the submission, and
   is listed here with that guard. Nothing is in the predicate that is not:
 
@@ -587,7 +597,8 @@ resolve a `World3D` at exactly the moments when the node cannot, which is how th
 draft of this section got the world switch wrong. Filtering by the *registered* scenario
 (S, §6.1) would not have that problem — but it is not specified either, because it buys
 nothing on an idempotent operation and no case in §6.4 can kill it, which would make it an
-unkillable variation. §6.4's T10 is scoped to the resolved-scenario filter accordingly.
+unkillable variation. §6.4's T10 and T10b are scoped to the resolved-scenario filter
+accordingly.
 
 **Ordering: four engine facts the refresh has to survive.** All four read at
 `a04472a82cf`.
@@ -755,22 +766,22 @@ recorded is not a control — it is a case that happens to be green.
 
 | # | Case | Setup | Assertion | Killed by (mutation that must turn it RED) |
 | --- | --- | --- | --- | --- |
-| **T1** | **the RED-without / GREEN-with case** | `GaussianSplatWorld3D` with a world holding ≥1 splat **and** `GaussianSplatNode3D` with runtime splat data, both under one `SceneTree` root, same `World3D` | **both** nodes report the warning. `if (!found) { FAIL(...); return; }` | reverting either `get_configuration_warnings()` addition |
-| **T2** | control — world alone | only the `GaussianSplatWorld3D` | warning **absent** | making the condition "a GS node of *either* type is in this scenario" |
-| **T3** | control — instance alone | only the `GaussianSplatNode3D` | warning **absent** | same as T2 |
-| **T4** | control — two instance nodes | two `GaussianSplatNode3D`s, no world node | warning **absent**. This is the control that stops "more than one GS node in the scene" from passing as an implementation; multiple instance nodes coexist correctly, they all publish `RESIDENT` | replacing the *other*-group lookup with a both-groups lookup |
-| **T5** | control — visibility is irrelevant | T1 setup, then `set_visible(false)` on the instance node, then on the world node | warning **still present in both configurations** (pins §6.3) | adding `&& is_visible_in_tree()` to the condition |
-| **T6** | control — `route_policy` is irrelevant | T1 setup, run once with `route_policy = 0` and once with `= 1`, restoring the setting via the existing `ProjectSettingGuard` pattern (`tests/test_node_surface_cleanup.h:184`) | warning **present at both values** (pins §3.4/§6.3) | making the condition read `gs::settings::get_streaming_route_policy()` |
+| **T1** | **the RED-without / GREEN-with case** | `GaussianSplatWorld3D` with a world holding ≥1 splat **and** `GaussianSplatNode3D` whose **`splat_asset` is a valid `GaussianSplatAsset` with ≥1 splat**, both under one `SceneTree` root, same `World3D`. **The `splat_asset` member is load-bearing:** §6.1's P resolves `splat_asset` first, so a T1 built on `renderer_data` instead would go RED under the `splat_asset.is_valid()` weakening and destroy that row's attribution | **both** nodes report the warning. `if (!found) { FAIL(...); return; }` | reverting either `get_configuration_warnings()` addition |
+| **T2** | control — world alone | only the `GaussianSplatWorld3D`, carrying and having applied the **same ≥1-splat world as T1** | warning **absent** | making the condition "a GS node of *either* type is in this scenario", **counting the node itself** — see the Run B row, which is broad by construction |
+| **T3** | control — instance alone | only the `GaussianSplatNode3D`, carrying the **same ≥1-splat runtime data as T1** | warning **absent** | same as T2 |
+| **T4** | control — two instance nodes | two `GaussianSplatNode3D`s, **each carrying ≥1 splat and each resolving the same `World3D`**, no world node | warning **absent**. This is the control that stops "more than one GS node in the scene" from passing as an implementation; multiple instance nodes coexist correctly, they all publish `RESIDENT` | replacing the *other*-group lookup with a both-groups lookup |
+| **T5** | control — visibility is irrelevant | T1 setup, then `set_visible(false)` on the instance node, then on the world node | warning **still present on *both* nodes in both configurations** (pins §6.3). Asserting both nodes is what makes the case indifferent to whether the mutation adds the conjunct to the self test or to the peer test | adding `&& is_visible_in_tree()` to the condition |
+| **T6** | control — `route_policy` is irrelevant | T1 setup, run once with `route_policy = 0` and once with `= 1`, restoring the setting via the existing `ProjectSettingGuard` pattern (`tests/test_node_surface_cleanup.h:184`) | warning **present at both values** (pins §3.4/§6.3) | making the condition read `gs::settings::get_streaming_route_policy()`, in the polarity that agrees with the **project default** (`== GS_ROUTE_STREAMING`, §3.1) — the opposite polarity would take T1 down with it, see the Run B row |
 | **T7** | control — different `World3D` | world node in the main tree, instance node inside a `SubViewport` with `own_world_3d = true` | warning **absent in both**. This is the control that proves the scenario scoping is real rather than a global "is there a world node anywhere" check | dropping the registered-scenario comparison (S, §6.1) from the condition |
-| **T8** | control — no content at all | both node types present, neither has any resource assigned | warning **absent** — the user's actionable problem is "no asset", which the existing warning already states | making the condition ignore content entirely |
+| **T8** | control — no content at all | both node types present, neither has any resource assigned | warning **absent** — the user's actionable problem is "no asset", which the existing warning already states | **nothing — deliberately unkilled.** With no resource assigned, this state fails **S, P and I at once** on both nodes (`_register_shared_renderer()` returns at `nodes/gaussian_splat_world_3d.cpp:478-480`, before S is written at `:491-492` and before I is set at `:524`; the instance node's `_register_shared_renderer()` returns at `nodes/gaussian_splat_node_3d.cpp:2897-2901`, before `_register_instance_in_director()` writes S at `:2622-2624`). Dropping P alone therefore leaves S and I still excluding both nodes. T8 is kept as a **regression control** against the naive "two GS node types in one scene" implementation; the individually killable weakenings of P are T8b and T8c |
 | **T8b** | control — **empty instance resource** | world node with ≥1 splat **and** instance node whose `splat_asset` is a valid `GaussianSplatAsset` with `get_splat_count() == 0` | warning **absent on both**, and the world node gains no other new warning. The world route renders in this configuration (§6.1 proof), so a warning here would be a lie | weakening the instance predicate to `splat_asset.is_valid()` — i.e. the "content assigned" spec this ADR shipped in round 1 |
 | **T8c** | control — **empty world resource** | instance node with ≥1 splat of runtime data **and** world node whose `GaussianSplatWorld` has a null-or-zero-count `gaussian_data` *and* `chunk_payload_source` | warning **absent on both** | weakening the world payload test (P) to `get_world().is_valid()` |
-| **T8d** | control — **world never applied** | T1 setup, except the world node has `auto_apply_on_ready = false` set *before* it enters the tree. Payload is fully renderable; `apply_world()` is never called (`nodes/gaussian_splat_world_3d.cpp:108-113`) | warning **absent on both** — the instance route renders in this configuration | dropping conjunct I from the world predicate |
-| **T8e** | control — **world explicitly cleared** | T1 setup (so the world *did* apply and the warning is present — assert that first), then `world_node->clear_world()`, then flush | warning **absent on both** afterwards, even though `get_world()` is still valid and still non-empty (`clear_world()` never nulls the `Ref`, `:306-317`) | dropping conjunct I; **and, uniquely,** implementing I as `is_auto_apply_on_ready()` — the natural misreading of "apply intent", which reads `true` here and which T8d cannot catch |
+| **T8d** | control — **world never applied** | T1 setup, except the world node has `auto_apply_on_ready = false` set *before* it enters the tree. Payload is fully renderable; `apply_world()` is never called (`nodes/gaussian_splat_world_3d.cpp:108-113`). **Setup constraint:** the `GaussianSplatWorld` must be assigned *before* tree entry — `set_world()` applies immediately when already in-tree (`:252-254`), which would make the world node active and T8d RED on the unmutated build | warning **absent on both** — the instance route renders in this configuration | **nothing — deliberately unkilled.** Because `apply_world()` never runs, `_register_shared_renderer()` is never reached, so **S is invalid as well as I false** (`:491-492` is never executed). Dropping I alone leaves S excluding the node, so T8d stays GREEN under that mutation; only a simultaneous drop of I *and* S's validity conjunct reaches it, and a two-conjunct mutation attributes nothing. **T8e is the case that isolates I** (S valid, P true, I false). T8d is kept as the regression control for the never-applied configuration and as the GREEN control for the `is_auto_apply_on_ready()` mutation. **This row was killable until round 4** — under the round-3 *resolved*-scenario S the world node had a valid scenario here; round 4's registered-scenario S invalidated it |
+| **T8e** | control — **world explicitly cleared** | T1 setup (so the world *did* apply and the warning is present — assert that first), then `world_node->clear_world()`, then flush | warning **absent on both** afterwards, even though `get_world()` is still valid and still non-empty (`clear_world()` never nulls the `Ref`, `:306-317`) | dropping conjunct I — and T8e is the **only** case that kills it, because it is the only state in the list with S valid *and* P true while I is false: `clear_world()` releases the submission but leaves both the payload `Ref` and `last_known_scenario` (`:306-317`, S cleared only at `PREDELETE`, `:186`); **and, uniquely,** implementing I as `is_auto_apply_on_ready()` — the natural misreading of "apply intent", which reads `true` here and which T8d cannot catch |
 | **T9** | the peer refresh on **tree exit** actually happens | T1 setup + the signal harness below, then `root->remove_child(instance_node)`, then flush | the world node appears in the recorder **and** *every* snapshot recorded for it no longer carries the conflict warning | (a) deleting the **instance** node's `EXIT_WORLD` peer refresh — now a real kill, because §6.3 no longer specifies an `EXIT_TREE` refresh to survive it; (b) issuing any refresh immediately instead of deferred |
 | **T9b** | the peer refresh on **tree entry** actually happens | root already holding the T1 world node (applied, warning absent) + the signal harness, then `root->add_child(instance_node)` carrying ≥1 splat, then flush | the world node appears in the recorder **and** *every* snapshot recorded for it now **contains** the conflict warning | deleting the **instance** node's `ENTER_WORLD` peer refresh. **No immediacy mutation:** fact 1 makes an immediate enter-time refresh correct, so T9b cannot kill one and must not claim to |
-| **T10** | the peer refresh survives a **`World3D` switch** | T1 setup with the instance node under a `SubViewport` that shares the main world (the default), + the signal harness, then `subviewport->set_use_own_world_3d(true)`, then flush | same as T9, for the world node left behind in the old world | (a) **scoping the peer walk by the *resolved* scenario (`get_world_3d()`)** — the only mutation T10 uniquely kills, and it must be the *resolved* one, see the derivation below; (b) issuing any refresh immediately instead of deferred. **Per-trigger deletion is not claimed** — see the derivation below |
-| **T10b** | the **opposite orientation**: the ***world*** node's viewport switches | T1 setup with the ***world*** node under a `SubViewport` that shares the main world (the default) and the instance node in the main tree, + the signal harness. Assert the T1 precondition (warning present on both), clear the recorder, then `subviewport->set_use_own_world_3d(true)`, then flush | **both** nodes appear in the recorder **and** *every* snapshot recorded for each **still contains** the conflict warning. The world node's submission stays registered in — and stays arbitrating over — the old scenario (#863), so the conflict there is still live and the warning must not disappear | (a) **comparing `get_world_3d()->get_scenario()` instead of the registered scenario** — the world node resolves the new scenario, the peer match fails and both snapshots come back clean → RED. This is the round-3 predicate, and T10b is the only case that kills it; (b) deleting the `GaussianSplatWorld3D` `ENTER_WORLD`/`EXIT_WORLD` peer refresh — the instance node never moves and no other trigger fires, so the recorder is empty → RED. **No per-notification attribution and no immediacy mutation** — see the derivation below |
+| **T10** | the peer refresh survives a **`World3D` switch** | T1 setup with the instance node under a `SubViewport` that shares the main world (the default), + the signal harness, then `subviewport->set_use_own_world_3d(true)`, then flush | same as T9, for the world node left behind in the old world | (a) **scoping the peer walk by the *resolved* scenario (`get_world_3d()`)**, which must be the *resolved* one, see the derivation below; (b) **dropping the `registered_scenario(M) == registered_scenario(N)` equality**, which is the only conjunct that makes T10's expected end state clean. **Per-trigger deletion is not claimed, and — since round 5 — neither is the immediacy mutation:** both of T10's immediate snapshots are already clean, see the derivation below |
+| **T10b** | the **opposite orientation**: the ***world*** node's viewport switches | T1 setup with the ***world*** node under a `SubViewport` that shares the main world (the default) and the instance node in the main tree, + the signal harness. Assert the T1 precondition (warning present on both), clear the recorder, then `subviewport->set_use_own_world_3d(true)`, then flush | **both** nodes appear in the recorder **and** *every* snapshot recorded for each **still contains** the conflict warning. The world node's submission stays registered in — and stays arbitrating over — the old scenario (#863), so the conflict there is still live and the warning must not disappear | (a) **comparing `get_world_3d()->get_scenario()` instead of the registered scenario** — the world node resolves the new scenario, the peer match fails and both snapshots come back clean → RED. This is the round-3 predicate, and T10b is the only case that kills it; (b) deleting the `GaussianSplatWorld3D` `ENTER_WORLD`/`EXIT_WORLD` peer refresh — the instance node never moves and no other trigger fires, so the recorder is empty → RED; (c) **issuing any refresh immediately instead of deferred** — the switch dispatches `EXIT_WORLD` *forward* (`scene/main/viewport.cpp:4810`), so `Node3D` has already cleared `inside_world` (`scene/3d/node_3d.cpp:251`) when the world node's own handler runs; an immediate refresh there records a snapshot with R2 false on the node under test, i.e. **no** warning, while T10b's expected end state is the warning present → RED. This kill is new in round 5 and replaces the one T10 could not deliver; (d) **scoping the peer walk by the *resolved* scenario** — the world node's `EXIT_WORLD` walk resolves nothing (fact 3a) and its `ENTER_WORLD` walk resolves the *new* scenario, so the main-tree instance node is never reached and its entry is missing → RED. **No per-notification attribution** — see the derivation below |
 | **T11** | the **world** resource-`changed` wiring is real | T8c setup (empty world resource, no warning) + the signal harness. Assert absence, clear the recorder, then `world_res->set_gaussian_data(<≥1 splat>)` (`core/gaussian_splat_world.cpp:107`, emits at `:120`), then flush | the recorder holds an entry for the **world node** *and* one for the **instance node**, and both snapshots now **contain** the conflict warning | (a) deleting the world node's `changed` connection — no entry at all; (b) keeping the connection but refreshing only self — the instance-node entry disappears while the world-node entry survives, which is why the peer half is asserted separately. **What T11 does not discriminate:** the state it constructs is the #862 divergence (§6.1's P bullet) — the director still holds the pre-swap empty `Ref`, so the warning it asserts is a recorded false positive until #862 lands. T11 passes identically before and after that fix, so it is a proof of the `changed` **wiring** only and must never be cited as evidence that the resubmission works |
 | **T12** | the **instance** resource-`changed` wiring is real | T8b setup (empty `splat_asset`, no warning) + the signal harness. Assert absence, clear the recorder, then `asset->set_positions(<3 floats>)` (`core/gaussian_splat_asset.cpp:876`, sets `splat_count` at `:885`, emits at `:895`), then flush | same as T11, with the roles swapped | omitting the *peer* notification added to `_on_asset_changed()` (`nodes/gaussian_splat_node_3d.cpp:2965-2970`) — the world-node entry disappears. The self entry is pre-existing wiring (`:2969`); T12 additionally regression-pins it, but must not claim it as the new-wiring kill |
 
@@ -836,10 +847,21 @@ snapshot is post-settle, so the stronger form costs nothing.
   `EXIT_WORLD` — now that §6.3 specifies no `EXIT_TREE` refresh — and **T9b** (`add_child`)
   reaches only `ENTER_WORLD`. Between them every deletion mutation of the previous revision's
   T9/T10 lists is killed, each by exactly one case.
-- What is left for T10, and what no other case covers, is the **scenario-scoping** mutation:
-  scope the peer walk by the *resolved* scenario and the `EXIT_WORLD` walk resolves no scenario
-  at all (fact 3a) while the `ENTER_WORLD` walk resolves the *new* one and excludes the
-  old-world peer — no entry, RED. That is T10's reason to exist.
+- What is left for T10 is the **scenario-scoping** mutation: scope the peer walk by the
+  *resolved* scenario and the `EXIT_WORLD` walk resolves no scenario at all (fact 3a) while the
+  `ENTER_WORLD` walk resolves the *new* one and excludes the old-world peer — no entry, RED.
+  **T10b is RED under that same mutation** (its own `EXIT_WORLD` walk resolves nothing and its
+  `ENTER_WORLD` walk resolves the new own-world scenario, so the main-tree instance node is
+  never reached), so the earlier "the only mutation T10 uniquely kills" was an overclaim and is
+  withdrawn. The two are still both needed: they exercise the filter from the **two
+  orientations**, which come apart the moment an implementation writes the walk twice instead of
+  sharing `_notify_route_conflict_peers()`.
+- **T10's second kill is the scenario *equality*.** Drop
+  `registered_scenario(M) == registered_scenario(N)` and, after the switch, the migrated instance
+  node still matches the world node, so the world node's post-flush snapshot still carries the
+  warning where T10 expects it gone → RED. T7 kills the same mutation from a static setup; T10
+  kills it across a transition. Neither is redundant with the other, because T7 never moves a
+  node and cannot distinguish a condition that is right only until something migrates.
 - **The *resolved* qualifier there is load-bearing since round 4, and the weaker claim is
   recorded rather than dropped.** A walk filtered by the **registered** scenario (S, §6.1)
   would *not* be killed by T10: S is latched, so the `EXIT_WORLD` walk resolves the old
@@ -850,9 +872,40 @@ snapshot is post-settle, so the stronger form costs nothing.
 - **T10b inherits the same limit on the other class, and claims no more.** Its trigger moves the
   *world* node's viewport, so both of that class's new world-notification refreshes fire and
   mask each other exactly as in T10; T10b's "Killed by (b)" is therefore the **pair** deleted
-  together, not either one. Nor can T10b kill immediacy: the registered scenario (S, §6.1) does
-  not move during the switch, so an immediate refresh records the same answer a deferred one
-  does. T9 and T10 remain the only immediacy kills.
+  together, not either one.
+- **The immediacy mutation is killed by T9 and T10b — not by T10. This is the round-5
+  correction, and it is the third unachievable expectation this section has shipped.** The
+  derivation the previous revision did not do:
+  - **T10 stays GREEN.** Its trigger moves the *instance* node, and T10 expects both of the
+    world node's snapshots to be **clean**. On the exit leg, `_propagate_exit_world_3d()`
+    dispatches `EXIT_WORLD` **forward** (`scene/main/viewport.cpp:4810`), so `Node3D` has
+    already run `data.inside_world = false` (`scene/3d/node_3d.cpp:251`) before our handler:
+    **R2 is false for the moving node**, so the peer's immediate recompute already finds no
+    qualifying `M` and records a clean snapshot. On the enter leg,
+    `_notification_enter_world()` (`nodes/gaussian_splat_node_3d.cpp:380-388`) has already
+    re-registered through `_register_shared_renderer()` (`:383` → `:2903` →
+    `:2622-2624`) by the time a refresh appended after it runs, so **S is already the new
+    scenario** and the equality conjunct excludes it. Both immediate snapshots are clean, which
+    is exactly what T10 asserts. Neither R2 nor S was re-checked against this row when round 4
+    reshaped the predicate.
+  - **T10b goes RED.** Its trigger moves the *world* node, and T10b expects every snapshot to
+    **still contain** the warning. The same forward dispatch clears `inside_world` on the node
+    under test itself, so an immediate refresh issued from the world node's `EXIT_WORLD`
+    handler records R2 = false on **self** — a snapshot with no warning — and the "*every*
+    snapshot" quantifier turns that transient into a failure. The asymmetry is entirely in the
+    direction of the expectation: an immediate refresh in this window always under-reports, so
+    only a case expecting the warning *present* can catch it.
+  - **T9 stays RED**, and for the opposite engine reason: the `EXIT_TREE`-driven `EXIT_WORLD` is
+    dispatched **reversed** (`scene/3d/node_3d.cpp:201`; `Node::_propagate_exit_tree()` also
+    sends `EXIT_TREE` reversed at `scene/main/node.cpp:412`), so our handler runs *before*
+    `Node3D` clears `inside_world`. The group is not removed until `node.cpp:424-427`,
+    `data.tree` is not nulled until `:436`, and `_unregister_shared_renderer()`
+    (`nodes/gaussian_splat_node_3d.cpp:2911`) never clears `last_known_scenario` (it moves only
+    at `:2624` and `:519`). Every conjunct of the departing node still holds, so the immediate
+    snapshot still carries the warning that the deferred one does not.
+  - **The same notification, dispatched two ways, is what separates T9 from T10** — §6.3 fact 3
+    already recorded that the orderings differ; what it did not do was carry the consequence
+    into the "Killed by" column.
 - **What T10b uniquely covers, and no earlier case does, is twofold.** (i) The
   registered-vs-resolved scenario mutation: T1, T7 and T10 all leave the two in agreement, so
   each of them stays green against a resolved-scenario condition; only T10b puts them in
@@ -861,22 +914,58 @@ snapshot is post-settle, so the stronger form costs nothing.
   the instance node's viewport. Before T10b, deleting the `GaussianSplatWorld3D` half of the
   §6.3 trigger table's first row was an unkilled mutation.
 
-This is the third time this section has had to be re-derived. Round 1 mandated "T1 fails,
-T2–T9 pass", which no mutation could produce. Round 2 replaced it with per-trigger Run B
-expectations that were equally unproducible, because `Node3D` dispatches `EXIT_WORLD` from its
-own `EXIT_TREE` handler (`scene/3d/node_3d.cpp:201`) and the two refreshes masked each other.
-**The rule this leaves behind: before writing a "Killed by" entry, enumerate which
-notifications the trigger actually dispatches and which refresh paths survive the mutation. If
-two paths reach the same assertion, either pick a trigger that reaches one, or drop the
-attribution. Do not write the transcript you expect to see.** Round 4 added the corollary that
-produced T10b: **enumerate the trigger in both orientations.** T10 moved one of the two node
-types and the case list silently assumed the other was symmetric; it is not, because only one
-of the two classes migrates its registration on a world switch (§6.1, #863).
-
 **Spurious-fire control for all six:** with the recorder connected and the same T1 setup,
 remove an unrelated plain `Node3D` from the root and flush. The recorder must contain **no**
 entry for either GS node. Without this, "the peer was signalled" could be satisfied by any
 unrelated tree churn that happens to emit for the same node.
+
+#### The table is coupled to the predicate — re-derive it whenever §6.1 changes
+
+**This is the third unachievable expectation this section has shipped, and all three have the
+same generator: a "Killed by" entry written by reasoning about what a mutation *ought* to break,
+against a predicate that had since moved.**
+
+- Round 1 mandated "T1 fails, T2–T9 pass", which no mutation could produce — reverting both
+  overrides also kills T5 and T6.
+- Round 2 replaced it with per-trigger Run B expectations that were equally unproducible,
+  because `Node3D` dispatches `EXIT_WORLD` from its own `EXIT_TREE` handler
+  (`scene/3d/node_3d.cpp:201`) and the two refreshes masked each other.
+- Round 5 found the third: T10 under the immediate-refresh mutation, unachievable because R2 and
+  S already exclude the moving node from both snapshots. Re-deriving the *whole* table against
+  the current predicate — rather than only the reported row — found that round 4's
+  registered-scenario S had silently invalidated **T8d** the same way; that the "condition
+  ignores content entirely" row (**T8**) had never been achievable, because I already excluded
+  that state; and that **five** further rows had incomplete RED sets (see the Run B table). It
+  also found four setups under-specified in ways that would have made a row vacuous rather than
+  wrong: T1 must carry its content in `splat_asset` (not `renderer_data`) or the
+  `splat_asset.is_valid()` row takes T1 down with T8b; T2, T3 and T4 must carry content at all,
+  or their mutations cannot fire; and T8d must assign its world *before* tree entry, or
+  `set_world()` applies it and T8d fails unmutated.
+
+**The rules this leaves behind.**
+
+1. **Before writing a "Killed by" entry, enumerate which notifications the trigger actually
+   dispatches and which refresh paths survive the mutation.** If two paths reach the same
+   assertion, either pick a trigger that reaches one, or drop the attribution. Do not write the
+   transcript you expect to see.
+2. **Enumerate the trigger in both orientations** (round 4's corollary, which produced T10b).
+   T10 moved one of the two node types and the case list silently assumed the other was
+   symmetric; it is not, because only one of the two classes migrates its registration on a
+   world switch (§6.1, #863).
+3. **The mutation table is a function of the predicate in §6.1, not an independent artifact.**
+   Every "Killed by" entry is the claim "*this conjunct is the one that changes value in this
+   state*". Adding, removing or reshaping a conjunct therefore invalidates rows that were
+   correct against the previous predicate — silently, because the case list does not mention the
+   conjuncts by name. **Any change to §6.1's predicate, to §6.3's trigger set, or to the
+   deferral rule requires re-deriving §6.4 in full, row by row, and re-checking every case
+   against every mutation — not only the rows that mention the changed conjunct.** Round 4
+   changed S and re-derived T10b alone; two rows it did not look at (T8d, T10) were wrong by the
+   end of that round.
+4. **A row whose reason cannot be written is not a row.** State, per row, *which conjunct or
+   which snapshot observes the difference*. If no single-conjunct mutation reaches a case, list
+   the case as **deliberately unkilled** with that reason. An honest "not independently
+   killable" is worth more than an attribution the next round deletes — T8 and T8d are now on
+   that list, and the list is expected to grow, not shrink.
 
 #### The mutation runs — what they must actually produce
 
@@ -912,40 +1001,71 @@ prevent exactly that.
 **Run B — the narrow mutations, one per distinct mutation.** Run A proves the warning exists;
 it proves nothing about *which* case guards *what*, because a mutation that kills ten cases at
 once cannot attribute any of them. Apply each **distinct** mutation named in the "Killed by"
-column independently and record for each that **the named case is RED while T1 stays GREEN**.
-The distinct mutations, and which case is expected RED for each:
+column independently and record, for each, **the complete RED set the row names** — not merely
+that the designated case went RED. A run that produces more REDs than the row lists is a
+finding about this table, not a passing result.
 
-| Mutation | Expected RED |
-| --- | --- |
-| condition = "a GS node of either type is in this scenario" | T2 **and** T3 (they share it) |
-| other-group lookup → both-groups lookup | T4 |
-| add `&& is_visible_in_tree()` to the condition | T5 |
-| condition reads `get_streaming_route_policy()` | T6 |
-| drop the registered-scenario comparison (S) from the condition | T7 |
-| compare `get_world_3d()->get_scenario()` instead of the registered scenario | T10b **only** — T1, T7 and T10 all leave the two in agreement and stay GREEN |
-| condition ignores content entirely | T8 |
-| weaken P on the instance side to `splat_asset.is_valid()` | T8b |
-| weaken P on the world side to `get_world().is_valid()` | T8c |
-| drop conjunct I | T8d **and** T8e (they share it) |
-| implement I as `is_auto_apply_on_ready()` | T8e only — T8d stays GREEN, which is the point of having both |
-| delete the **instance** node's `EXIT_WORLD` peer refresh | T9 |
-| delete the **instance** node's `ENTER_WORLD` peer refresh | T9b |
-| delete the **world** node's `EXIT_WORLD` **and** `ENTER_WORLD` peer refreshes (the pair — they mask each other, see the derivation) | T10b |
-| issue refreshes immediately instead of deferred | T9 **and** T10 |
-| scope the peer walk by the **resolved** scenario (`get_world_3d()`) | T10 |
-| delete the world resource `changed` connection | T11 |
-| refresh only self from the world `changed` handler | T11 |
-| omit the peer notification in `_on_asset_changed()` | T12 |
+**The `Expected RED` column is complete, not indicative**, and the third column states *why each
+listed case observes the mutation*. A row whose third column cannot be written is not a row —
+see rule 4 above. `T1 GREEN` is implied by every row except the first and is called out only
+where the mutation could plausibly take it down. **The first row is the one deliberate
+exception:** it is a broad, Run-A-class mutation kept because T2 and T3 have no narrow kill, and
+it attributes nothing on its own.
 
-Four entries are **deliberately absent**, and enumerating them is the point of the table.
-Round-3 corrections: no "delete the `EXIT_TREE` peer refresh" row (§6.3 no longer specifies
-one), and no row attributing a deletion to `EXIT_WORLD` *versus* `ENTER_WORLD` within T10 (the
-derivation above shows no case can). Round-4 additions: the same non-attribution holds on the
-world node's side, which is why T10b's deletion row names the **pair**; and there is no
-"scope the peer walk by the *registered* scenario" row, because that variation is not a defect
-and no case kills it — the row above is deliberately restricted to the *resolved*-scenario
-filter. Each mutation is a one-line result and none requires rebuilding more than the two node
-translation units.
+| Mutation | Expected RED (complete) | Which conjunct or snapshot observes it |
+| --- | --- | --- |
+| condition = "a GS node of either type is in this scenario", **counting the node itself** — **broad, Run-A class; not an attribution row** | T2, T3, T4, T7, T8b, T8c, T8d, T8e, T9, T9b, T10, T11, T12 — only T1, T5, T6, T8 and T10b GREEN | Counting self makes the `∃M` clause vacuously true, so the condition collapses to `WOULD_STEER(N)` and **every** qualifying node warns. That takes down every case asserting absence (T2/T3/T4/T7/T8b/T8c/T8d/T8e), every absence *precondition* (T9b/T11/T12) and every clean *post*-condition (T9/T10). T8 survives because neither of its nodes satisfies S/P/I at all; T10b, T5 and T6 assert presence throughout. **T2 and T3 have no narrow kill and this row does not pretend otherwise:** the only way to break "a lone node must not warn" is to stop requiring a peer, and any mutation that does so reaches every one-qualifying-node control at once. Run it, but attribute nothing from it beyond "the peer requirement exists" |
+| other-group lookup → both-groups lookup, **self still excluded** | T4 | T4 is the only case with two *same-type* nodes that both satisfy WOULD_STEER in one scenario. Its setup must therefore give both instance nodes ≥1 splat, or the mutation cannot fire and the case is vacuous |
+| add `&& is_visible_in_tree()` to the condition | T5 | T5 is the only case that falsifies the added conjunct while leaving every real conjunct true. It asserts on **both** nodes in each configuration so the kill lands whether the mutation is applied to the self test, the peer test, or both |
+| condition reads `get_streaming_route_policy()`, **in the polarity that agrees with the project default** (`== GS_ROUTE_STREAMING`; default is `1`, §3.1) | T6 | T6 is the only case that runs one setup at both policy values; the added conjunct is false at `route_policy = 0`. **The polarity is load-bearing:** `== GS_ROUTE_RESIDENT` would be false at the default and take T1, T5, T9–T12 down with it, destroying the attribution |
+| drop the `registered_scenario(M) == registered_scenario(N)` equality | T7 **and** T10 | T7 — its two nodes are in different scenarios from the start, so the equality is the only conjunct excluding them. T10 — after the switch the mover's S is the *new* scenario, and the equality is precisely what makes T10's expected end state clean; without it the post-flush snapshot still warns. T7 pins it statically, T10 across a transition; a condition that is right until something migrates passes T7 |
+| compare `get_world_3d()->get_scenario()` instead of the registered scenario | T10b **only** | Only T10b puts registered and resolved in conflict — the world node resolves the new scenario while its submission stays registered in the old one (#863). T1, T7, T9, T9b, T10, T11 and T12 all leave the two in agreement and stay GREEN |
+| drop conjunct P entirely | **nothing — deliberately unkilled** | The case this row used to name (T8) fails S, P *and* I simultaneously, so dropping P alone changes no answer. See the deliberately-unkilled list below. The killable weakenings of P are the two rows that follow |
+| weaken P on the instance side to `splat_asset.is_valid()` | T8b **and** T12 | T8b is built for it. T12 inherits T8b's setup and asserts the warning's **absence** as its step-3 precondition, so it fails before its trigger runs |
+| weaken P on the world side to `get_world().is_valid()` | T8c **and** T11 | Symmetric: T11 inherits T8c's setup and its absence precondition. Both depend on an assigned-but-empty `GaussianSplatWorld` still being **accepted** — `submit_world_submission()` rejects only on arbitration (`core/gaussian_splat_scene_director.cpp:2390-2399`), never on an empty payload — so I is true, S is valid, and P is the only false conjunct |
+| drop conjunct I | T8e **only** | T8e is the only state in the list with S valid *and* P true while I is false: `clear_world()` releases the submission but leaves the payload `Ref` and `last_known_scenario` (`nodes/gaussian_splat_world_3d.cpp:306-317`). **T8d is no longer listed here** — see the deliberately-unkilled list |
+| implement I as `is_auto_apply_on_ready()` | T8e **only** | `auto_apply_on_ready` is still `true` after `clear_world()`, so the mutant reads true where the real I reads false. T8d stays GREEN because its flag is `false` and the mutant agrees with the real answer by accident — which is exactly why T8d cannot substitute for T8e |
+| delete the **instance** node's `EXIT_WORLD` peer refresh | T9 | `remove_child()` reaches `EXIT_WORLD` and nothing else that refreshes (§6.3 specifies no `EXIT_TREE` refresh), so the recorder holds **no entry** for the world node. T10 stays GREEN: its trigger also dispatches `ENTER_WORLD`, whose unfiltered walk reaches the same peer |
+| delete the **instance** node's `ENTER_WORLD` peer refresh | T9b | `add_child()` reaches `ENTER_WORLD` only, and T9b's node already carries its content *before* entry, so no content-assignment trigger masks the deletion → no entry for the world node. T10 stays GREEN for the mirror-image reason |
+| delete the **world** node's `EXIT_WORLD` **and** `ENTER_WORLD` peer refreshes (the pair — they mask each other, see the derivation) | T10b | In T10b only the world node moves, so these are the only refreshes that fire at all; with both gone the **instance** node has no entry. T10b asserts an entry for *both* nodes, which is what makes the missing one a failure |
+| issue refreshes immediately instead of deferred | T9 **and T10b** — **T10 stays GREEN** | T9 — the `EXIT_TREE`-driven `EXIT_WORLD` is dispatched *reversed* (`scene/3d/node_3d.cpp:201`), so every conjunct of the departing node still holds when an immediate refresh runs and the snapshot still carries the warning T9 expects gone. T10b — the world-switch `EXIT_WORLD` is dispatched *forward* (`scene/main/viewport.cpp:4810`), so `Node3D` has already cleared `inside_world` (`node_3d.cpp:251`) and an immediate self-refresh records R2 = false, i.e. **no** warning, where T10b expects it present. T10 cannot kill it because *both* of its immediate snapshots are already clean — R2 excludes the mover on the exit leg and S on the enter leg — and clean is what T10 asserts. Full derivation above |
+| scope the peer walk by the **resolved** scenario (`get_world_3d()`) | T10 **and** T10b | T10 — the mover's `EXIT_WORLD` walk resolves no scenario at all (§6.3 fact 3a) and its `ENTER_WORLD` walk resolves the *new* one, so the old-world peer is never reached. T10b — the same structure on the other class: the world node's `EXIT_WORLD` walk resolves nothing and its `ENTER_WORLD` walk resolves the new own-world scenario, so the main-tree instance node is never reached. Both are kept: they exercise the filter from the two orientations, which come apart if the walk is written twice instead of shared |
+| delete the world resource `changed` connection | T11 | No refresh of any kind fires, so the recorder is empty and T11's positive post-condition has nothing to read. The getter would still return the right answer, which is why T11 uses the recorder |
+| refresh only self from the world `changed` handler | T11 | The world-node entry survives and the **instance**-node entry disappears; T11 asserts the two halves separately for exactly this |
+| omit the peer notification in `_on_asset_changed()` | T12 | Mirror of the row above on the instance side: the world-node entry disappears. The *self* entry at `nodes/gaussian_splat_node_3d.cpp:2969` is pre-existing wiring and T12 must not claim it as the new-wiring kill |
+
+**Deliberately unkilled — cases no single-conjunct mutation reaches.** Listing them is a
+result, not an omission (rule 4 above):
+
+- **T8** (no resource assigned to either node). The state fails **S, P and I at once** on both
+  nodes: `_register_shared_renderer()` returns at `nodes/gaussian_splat_world_3d.cpp:478-480`
+  before S is written at `:491-492` or I set at `:524`, and the instance node's
+  `_register_shared_renderer()` returns at `nodes/gaussian_splat_node_3d.cpp:2897-2901` before
+  `_register_instance_in_director()` writes S at `:2622-2624`. Only a composite mutation that
+  drops S, P and I together turns it RED, and a three-conjunct mutation attributes nothing.
+  T8 is retained as a **regression control** against the naive "two GS node types in one scene"
+  implementation. *(This row was never achievable; I excluded T8's world node even before round
+  4, and the round-1 table did not check it.)*
+- **T8d** (world never applied). `apply_world()` never runs, so `_register_shared_renderer()` is
+  never reached and **S is invalid as well as I false**. Dropping I alone leaves S excluding the
+  node. T8e is the case that isolates I. T8d is retained as the regression control for the
+  never-applied configuration and as the GREEN control for the `is_auto_apply_on_ready()`
+  mutation. *(This row **was** achievable under the round-3 resolved-scenario S, where the
+  never-applied node still had a valid scenario; round 4's registered-scenario S invalidated it
+  and the table was not re-derived. It is the second instance of the coupling failure described
+  above.)*
+
+**Six entries are deliberately absent.** Round-3 corrections: no "delete the `EXIT_TREE` peer
+refresh" row (§6.3 no longer specifies one), and no row attributing a deletion to `EXIT_WORLD`
+*versus* `ENTER_WORLD` within T10 (the derivation above shows no case can). Round-4: the same
+non-attribution holds on the world node's side, which is why T10b's deletion row names the
+**pair**; and there is no "scope the peer walk by the *registered* scenario" row, because that
+variation is not a defect and no case kills it — the row above is deliberately restricted to the
+*resolved*-scenario filter. Round-5: there is no row for **dropping conjunct P alone** and none
+for **dropping S's validity conjunct** (as opposed to the S *equality*, which T7/T10 kill) —
+both are states already excluded by another conjunct in every case in the list, so neither is
+independently observable. Each mutation is a one-line result and none requires rebuilding more
+than the two node translation units.
 
 Paste both transcripts into the PR; do not describe them.
 
@@ -963,8 +1083,8 @@ Paste both transcripts into the PR; do not describe them.
   for now — a scene that cannot work should not be gating — but it means the first Option 2
   slice must bring its own coverage rather than inheriting any.
 - **Cost:** an editor-only code path in two node classes, one public const accessor on
-  `GaussianSplatWorld3D` (§6.1, conjunct I), plus seventeen test cases (T1–T12 with
-  T8b/T8c/T8d/T8e and T9b) and the spurious-fire control. The peer notification is the only
+  `GaussianSplatWorld3D` (§6.1, conjunct I), plus eighteen test cases (T1–T12 with
+  T8b/T8c/T8d/T8e, T9b and T10b) and the spurious-fire control. The peer notification is the only
   non-trivial part, and it runs on world transitions, resource `changed` and content
   assignment — never per frame. Every refresh is deferred by one idle frame (§6.3), which is
   invisible in the editor and is why T9/T9b/T10/T11/T12 flush the message queue.
