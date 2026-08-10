@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unit tests for tests/ci/check_reject_telemetry_parity.py (#586 round-4).
+"""Unit tests for tests/ci/check_reject_telemetry_parity.py (#586 round-4 / round-5).
 
 The guard's job is to make "every per-frame telemetry field is invalidated on a
 rejected frame" a CI failure rather than a review finding. Two review rounds in a row
@@ -21,6 +21,14 @@ sources, so they keep discriminating even after the real files are fixed:
   * `test_stale_exemption_fails`            -- an exemption naming a dead field.
   * pin / reason tests                      -- the allow-list cannot grow invisibly.
 
+`InvalidationValueTests` pins the round-5 finding: the guard used to record only the
+TARGET of each `_reject_frame()` assignment, so an assignment that invalidates NOTHING
+satisfied it -- `renderer.timing_state.last_widget_cpu_ms = renderer.timing_state.
+last_widget_cpu_ms;` passed, as did `= 42.0f` and `= true` on a validity flag. A
+completeness check a no-op can satisfy is not a completeness check, so those three, plus
+an assignment hidden inside a conditional or a preprocessor branch, are now RED, and a
+type the guard has no invalid-value rule for fails rather than being assumed fine.
+
 Fixtures never touch the committed sources: each synthetic file lives in a temp dir
 inside ROOT (the guard prints paths `relative_to(ROOT)`, so fixtures must be real
 subpaths), and the four module-level path constants plus the allow-list are patched
@@ -37,7 +45,6 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
-
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "tests" / "ci" / "check_reject_telemetry_parity.py"
@@ -62,8 +69,10 @@ def _populator(assignments: str) -> str:
     )
 
 
-def _renderer_header(getters: str) -> str:
-    return "class TileRenderer {\npublic:\n" + getters + "};\n"
+def _renderer_header(getters: str, other_classes: str = "") -> str:
+    """`other_classes` is emitted BEFORE `class TileRenderer` so tests can prove that a
+    same-named getter on a different class in the same header does not resolve."""
+    return other_classes + "class TileRenderer {\npublic:\n" + getters + "};\n"
 
 
 def _renderer_source(assignments: str) -> str:
@@ -181,6 +190,115 @@ class RejectCoverageTests(unittest.TestCase):
         self.assertIn("remove the stale entry", out)
 
 
+class InvalidationValueTests(unittest.TestCase):
+    """An assignment is not an invalidation. These pin the round-5 review finding: the
+    guard recorded only the left-hand side, so a no-op satisfied it."""
+
+    def test_self_assignment_fails(self) -> None:
+        """The reported case, verbatim: the field is 'assigned' to itself, so the last
+        SUCCESSFUL frame's CPU cost keeps being published on a rejected frame."""
+        source = _renderer_source(
+            "\trenderer.timing_state.last_widget_cpu_ms = renderer.timing_state.last_widget_cpu_ms;\n"
+        )
+        with _tree(_STRUCT_ONE, _POPULATOR_ONE, _HEADER_ONE, source):
+            rc, out = _run_main()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("widget_cpu_ms", out)
+        self.assertIn("not the invalid state for a `float`", out)
+
+    def test_nonzero_constant_fails(self) -> None:
+        source = _renderer_source("\trenderer.timing_state.last_widget_cpu_ms = 42.0f;\n")
+        with _tree(_STRUCT_ONE, _POPULATOR_ONE, _HEADER_ONE, source):
+            rc, out = _run_main()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("`42.0f`", out)
+        self.assertIn("expected 0.0f", out)
+
+    def test_validity_flag_set_true_fails(self) -> None:
+        """Worse than a stale duration: the flag is the only thing that tells a consumer
+        'this stage did not run' rather than 'it ran and measured 0'."""
+        struct = _struct("    bool widget_cpu_valid = false;\n")
+        populator = _populator("    perf.widget_cpu_valid = tile_renderer->is_widget_cpu_valid();\n")
+        header = _renderer_header(
+            "\tbool is_widget_cpu_valid() const { return timing_state.widget_cpu_valid; }\n"
+        )
+        source = _renderer_source("\trenderer.timing_state.widget_cpu_valid = true;\n")
+        with _tree(struct, populator, header, source):
+            rc, out = _run_main()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("`true`", out)
+        self.assertIn("expected false", out)
+
+    def test_conditional_assignment_fails(self) -> None:
+        """Invalidated on SOME rejects is the bug, not the fix: the assignment must be
+        unconditional at the top level of _reject_frame()."""
+        source = _renderer_source(
+            "\tif (p_stage == GaussianSplatting::FrameRejectStage::SETTINGS) {\n"
+            "\t\trenderer.timing_state.last_widget_cpu_ms = 0.0f;\n"
+            "\t}\n"
+        )
+        with _tree(_STRUCT_ONE, _POPULATOR_ONE, _HEADER_ONE, source):
+            rc, out = _run_main()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("inside a nested block", out)
+
+    def test_preprocessor_directive_in_reject_body_fails(self) -> None:
+        """An invalidation the guard cannot prove compiles must not be credited."""
+        source = _renderer_source(
+            "#ifdef DEBUG_ENABLED\n\trenderer.timing_state.last_widget_cpu_ms = 0.0f;\n#endif\n"
+        )
+        with _tree(_STRUCT_ONE, _POPULATOR_ONE, _HEADER_ONE, source):
+            rc, out = _run_main()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("_reject_frame() contains a preprocessor directive", out)
+
+    def test_unknown_field_type_fails(self) -> None:
+        """Fail closed on a type with no invalid-value rule: without one the guard cannot
+        distinguish an invalidation from a no-op, and guessing is the original defect."""
+        struct = _struct("    Vector2i widget_extent = Vector2i();\n")
+        populator = _populator("    perf.widget_extent = tile_renderer->get_widget_extent();\n")
+        header = _renderer_header(
+            "\tVector2i get_widget_extent() const { return timing_state.widget_extent; }\n"
+        )
+        source = _renderer_source("\trenderer.timing_state.widget_extent = Vector2i();\n")
+        with _tree(struct, populator, header, source):
+            rc, out = _run_main()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("no invalid-value rule for the declared type `Vector2i`", out)
+
+    def test_zero_forms_pass_for_each_known_type(self) -> None:
+        """The control for the value check: bool/float/integer/String fields cleared to
+        their own invalid literal are accepted, so the guard is not simply always-red."""
+        struct = _struct(
+            "    bool widget_valid = false;\n"
+            "    float widget_ms = 0.0f;\n"
+            "    uint64_t widget_count = 0;\n"
+            "    String widget_reason;\n"
+        )
+        populator = _populator(
+            "    perf.widget_valid = tile_renderer->is_widget_valid();\n"
+            "    perf.widget_ms = tile_renderer->get_widget_ms();\n"
+            "    perf.widget_count = tile_renderer->get_widget_count();\n"
+            "    perf.widget_reason = tile_renderer->get_widget_reason();\n"
+        )
+        header = _renderer_header(
+            "\tbool is_widget_valid() const { return timing_state.widget_valid; }\n"
+            "\tfloat get_widget_ms() const { return timing_state.widget_ms; }\n"
+            "\tuint64_t get_widget_count() const { return timing_state.widget_count; }\n"
+            "\tString get_widget_reason() const { return timing_state.widget_reason; }\n"
+        )
+        source = _renderer_source(
+            "\trenderer.timing_state.widget_valid = false;\n"
+            "\trenderer.timing_state.widget_ms = 0.0f;\n"
+            "\trenderer.timing_state.widget_count = 0;\n"
+            "\trenderer.timing_state.widget_reason = String();\n"
+        )
+        with _tree(struct, populator, header, source):
+            rc, out = _run_main()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("PASSED", out)
+
+
 class FailClosedResolutionTests(unittest.TestCase):
     """The guard resolves backing state through a narrow, trivial getter shape. When it
     cannot resolve a field it must SAY SO, not skip the field -- a skipped field is a
@@ -225,6 +343,42 @@ class FailClosedResolutionTests(unittest.TestCase):
         self.assertEqual(rc, 1, out)
         self.assertIn("widget_cpu_ms", out)
         self.assertIn("never assigned in get_performance()", out)
+
+    def test_getter_on_another_class_does_not_resolve(self) -> None:
+        """Same weakness one link up: matching a getter by NAME anywhere in the header
+        would resolve a name, not the member `_reject_frame()` clears. Getters are read
+        from `class TileRenderer` only, so a lookalike elsewhere leaves the field
+        unresolved -- and unresolved is reported, never skipped."""
+        struct = _struct("    float widget_cpu_ms = 0.0f;\n    float other_cpu_ms = 0.0f;\n")
+        populator = _populator(
+            "    perf.widget_cpu_ms = tile_renderer->get_widget_cpu_ms();\n"
+            "    perf.other_cpu_ms = tile_renderer->get_other_cpu_ms();\n"
+        )
+        header = _renderer_header(
+            "\tfloat get_other_cpu_ms() const { return timing_state.last_other_cpu_ms; }\n",
+            other_classes=(
+                "class SomeOtherRenderer {\npublic:\n"
+                "\tfloat get_widget_cpu_ms() const { return timing_state.last_widget_cpu_ms; }\n"
+                "};\n"
+            ),
+        )
+        source = _renderer_source(
+            "\trenderer.timing_state.last_widget_cpu_ms = 0.0f;\n"
+            "\trenderer.timing_state.last_other_cpu_ms = 0.0f;\n"
+        )
+        with _tree(struct, populator, header, source):
+            rc, out = _run_main()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("widget_cpu_ms", out)
+        self.assertIn("not a simple", out)
+
+    def test_missing_renderer_class_fails(self) -> None:
+        header = "class NotTheRenderer {\npublic:\n\tfloat get_widget_cpu_ms() const { return a.b; }\n};\n"
+        source = _renderer_source("\trenderer.timing_state.last_widget_cpu_ms = 0.0f;\n")
+        with _tree(_STRUCT_ONE, _POPULATOR_ONE, header, source):
+            rc, out = _run_main()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("class TileRenderer", out)
 
     def test_missing_reject_anchor_fails(self) -> None:
         source = "RID _some_other_function() {\n\treturn RID();\n}\n"

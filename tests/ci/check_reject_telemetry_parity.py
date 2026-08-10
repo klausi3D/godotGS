@@ -53,6 +53,36 @@ reason-validated, exactly like `check_metric_reset_parity.py`. That asymmetry is
 deliberate: a newly added field defaults to "must be invalidated", so forgetting to
 classify it FAILS rather than silently passing.
 
+An assignment is not an invalidation (round-5)
+----------------------------------------------
+The first version of this guard recorded only the *target* of each `_reject_frame()`
+assignment, so any assignment at all counted as coverage. Review caught that this is the
+very defect class the guard exists to catch, one link down:
+
+    renderer.timing_state.last_submission_cpu_ms = renderer.timing_state.last_submission_cpu_ms;
+
+is a no-op that publishes the last SUCCESSFUL frame's CPU cost on a rejected frame, and
+it satisfied a target-only check. So did `= 42.0f`, and so did `= true` on a validity
+flag -- which is worse than a stale duration, because the flag is the only thing telling
+a consumer "this stage really ran". A completeness check that a no-op can satisfy is not
+a completeness check.
+
+The guard therefore checks three things about each covering assignment, all derived:
+
+  * the assigned VALUE is the invalid state for the field's declared type -- `0`/`0.0f`
+    for a duration or counter, `false` for a validity flag, `String()`/`""` for a
+    reason string. A type this guard has no invalid-value rule for is FAILED, not
+    assumed fine (see `_INVALID_VALUE_RULES`).
+  * the assignment is UNCONDITIONAL: at the top brace level of `_reject_frame()`, not
+    nested in an `if`. "Invalidated on some rejects" is exactly the bug #586 round-3
+    and round-4 kept re-finding.
+  * `_reject_frame()`'s body is free of preprocessor directives, for the same reason the
+    struct body is: the guard cannot know which branch compiles, so it must not credit an
+    assignment that may be compiled out.
+
+For the same reason the getter scan is scoped to `class TileRenderer`: a same-named
+getter on some other class in that header resolves a name, not the backing member.
+
 A field that is neither reject-covered nor exempt fails the guard: clear its backing
 member in `_reject_frame()` (preferred), or -- if it must survive a reject -- add it to
 `SURVIVES_REJECT_FIELDS` with a justification and bump the pin. Do not silence this
@@ -63,6 +93,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE = ROOT / "modules" / "gaussian_splatting"
@@ -74,9 +105,13 @@ RENDERER_SOURCE = MODULE / "renderer" / "tile_renderer.cpp"
 STRUCT_NAME = "RasterPerformance"
 POPULATOR_ANCHOR = f"{STRUCT_NAME} TileRasterizer::get_performance() const"
 REJECT_ANCHOR = "RID _reject_frame(GaussianSplatting::FrameRejectStage p_stage)"
+# Getters are resolved only inside this class: a getter of the same name on another class
+# in the same header would resolve a NAME, not the member that `_reject_frame()` clears.
+RENDERER_CLASS_ANCHOR = "class TileRenderer"
 
 # A plain-old-data member: "<type...> <name> = <default>;" or "<type...> <name>;".
-_FIELD_RE = re.compile(r"^\s*[\w:]+(?:\s*[*&])?\s+(\w+)\s*(?:=|;)")
+# The TYPE is captured too -- it is what says which value counts as "invalidated".
+_FIELD_RE = re.compile(r"^\s*([\w:]+(?:\s*[*&])?)\s+(\w+)\s*(?:=|;)")
 # `perf.<field> = tile_renderer-><getter>();` inside get_performance().
 _POPULATE_RE = re.compile(r"^\s*perf\.(\w+)\s*=\s*tile_renderer->(\w+)\s*\(\s*\)\s*;")
 # An inline getter on TileRenderer: `<type> <name>() const { return <group>.<member>; }`.
@@ -86,12 +121,64 @@ _POPULATE_RE = re.compile(r"^\s*perf\.(\w+)\s*=\s*tile_renderer->(\w+)\s*\(\s*\)
 _GETTER_RE = re.compile(
     r"^\s*[\w:]+(?:\s*[*&])?\s+(\w+)\s*\(\s*\)\s*const\s*\{\s*return\s+(\w+)\.(\w+)\s*;\s*\}"
 )
-# A member assignment inside _reject_frame(): `renderer.<group>.<member> = ...;`.
-_REJECT_ASSIGN_RE = re.compile(r"^\s*renderer\.(\w+)\.(\w+)\s*=[^=]")
+# A member assignment inside _reject_frame(): `renderer.<group>.<member> = <value>;`.
+# The VALUE is captured, not just the target -- an assignment that merely exists is not
+# an invalidation (see _INVALID_VALUE_RULES and _invalidation_problems). A statement that
+# does not close on its own line simply does not match, and the field is then reported as
+# uncovered, which is the fail-closed direction.
+_REJECT_ASSIGN_RE = re.compile(r"^\s*renderer\.(\w+)\.(\w+)\s*=\s*([^=].*);\s*$")
 _PP_DIRECTIVE_RE = re.compile(r"^\s*#")
 _ACCESS_SPECIFIER_RE = re.compile(r"^(?:public|private|protected)\s*:\s*$")
 _BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
 _LINE_COMMENT_RE = re.compile(r"//[^\n]*")
+
+# What "invalidated" means, per declared field type. Keyed by the base type name, so the
+# check is derived from the struct rather than from a per-field hand-written expectation.
+# Anything not listed here is FAILED rather than accepted: if the guard cannot say what
+# the invalid value of a type is, it cannot tell an invalidation from a no-op, and
+# guessing is how a target-only check got shipped in the first place.
+_INVALID_VALUE_RULES = (
+    (frozenset({"bool"}), re.compile(r"^false$"), "false"),
+    (frozenset({"float", "double", "real_t"}), re.compile(r"^0(?:\.0*)?[fF]?$"), "0.0f"),
+    (
+        frozenset(
+            {
+                "int",
+                "unsigned",
+                "long",
+                "short",
+                "char",
+                "int8_t",
+                "int16_t",
+                "int32_t",
+                "int64_t",
+                "uint8_t",
+                "uint16_t",
+                "uint32_t",
+                "uint64_t",
+                "size_t",
+                "ptrdiff_t",
+            }
+        ),
+        re.compile(r"^0[uUlL]*$"),
+        "0",
+    ),
+    (
+        frozenset({"String", "StringName"}),
+        re.compile(r'^(?:String\(\)|StringName\(\)|"")$'),
+        'String() or ""',
+    ),
+)
+
+
+class RejectAssignment(NamedTuple):
+    """One `renderer.<group>.<member> = <value>;` statement in `_reject_frame()`.
+
+    `depth` is the brace nesting relative to the function body: only depth 0 is an
+    unconditional invalidation, which is what a rejected frame owes every field."""
+
+    value: str
+    depth: int
 
 # Growing this allow-list is how the guard would be quietly hollowed out: one appended
 # line moves a field from "must be invalidated on reject" to "exempt", and nothing else
@@ -198,11 +285,11 @@ def _is_balanced(line: str) -> bool:
     return not stack
 
 
-def _extract_struct_fields(body: str) -> tuple[list[str], list[str]]:
-    """Return (field_names, unrecognized_lines). Fail closed: a struct-body line that is
-    not a parsed data member or an access specifier is reported so it must be
-    classified, rather than silently dropped from the check."""
-    fields: list[str] = []
+def _extract_struct_fields(body: str) -> tuple[dict[str, str], list[str]]:
+    """Return ({field_name: declared_type}, unrecognized_lines). Fail closed: a
+    struct-body line that is not a parsed data member or an access specifier is reported
+    so it must be classified, rather than silently dropped from the check."""
+    fields: dict[str, str] = {}
     unrecognized: list[str] = []
     for line in body.splitlines():
         stripped = line.strip()
@@ -217,10 +304,50 @@ def _extract_struct_fields(body: str) -> tuple[list[str], list[str]]:
             and _is_balanced(stripped)
             and not _has_top_level_comma(stripped)
         ):
-            fields.append(match.group(1))
+            fields[match.group(2)] = match.group(1).strip()
             continue
         unrecognized.append(stripped)
     return fields, unrecognized
+
+
+def _invalid_value_rule(field_type: str) -> tuple[re.Pattern[str], str] | None:
+    """The (matcher, canonical-form) saying which literal invalidates this type, or None
+    if the guard has no rule for it -- in which case the caller must FAIL, not assume."""
+    base = field_type.replace("*", "").replace("&", "").strip().split("::")[-1]
+    for type_names, pattern, canonical in _INVALID_VALUE_RULES:
+        if base in type_names:
+            return pattern, canonical
+    return None
+
+
+def _line_brace_depths(body: str) -> list[tuple[int, str]]:
+    """(brace_depth_at_line_start, line) for each line of a comment-stripped body.
+
+    String and character literals are skipped so a brace inside one cannot shift the
+    depth and make a nested assignment look top-level."""
+    depth = 0
+    result: list[tuple[int, str]] = []
+    for line in body.splitlines():
+        result.append((depth, line))
+        index = 0
+        length = len(line)
+        while index < length:
+            char = line[index]
+            if char in ("'", '"'):
+                index += 1
+                while index < length:
+                    if line[index] == "\\":
+                        index += 2
+                        continue
+                    if line[index] == char:
+                        break
+                    index += 1
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+            index += 1
+    return result
 
 
 def _extract_populators(body: str) -> dict[str, str]:
@@ -233,25 +360,74 @@ def _extract_populators(body: str) -> dict[str, str]:
     return mapping
 
 
-def _extract_getters(text: str) -> dict[str, tuple[str, str]]:
-    """Map TileRenderer getter name -> (state_group, member) it returns."""
-    stripped = _strip_cpp_comments(text)
+def _extract_getters(class_body: str) -> dict[str, tuple[str, str]]:
+    """Map TileRenderer getter name -> (state_group, member) it returns.
+
+    `class_body` must already be scoped to `class TileRenderer`; a getter of the same name
+    on another class in the header backs a different member and must not resolve here."""
     getters: dict[str, tuple[str, str]] = {}
-    for line in stripped.splitlines():
+    for line in class_body.splitlines():
         match = _GETTER_RE.match(line)
         if match:
             getters[match.group(1)] = (match.group(2), match.group(3))
     return getters
 
 
-def _extract_reject_assignments(body: str) -> set[tuple[str, str]]:
-    """The set of (state_group, member) pairs `_reject_frame()` assigns."""
-    assigned: set[tuple[str, str]] = set()
-    for line in body.splitlines():
+def _extract_reject_assignments(body: str) -> dict[tuple[str, str], list[RejectAssignment]]:
+    """Map (state_group, member) -> every assignment `_reject_frame()` makes to it.
+
+    Every assignment is kept, not just the last: the guard requires ALL of them to be
+    unconditional invalidations, so a later `= <stale>` cannot hide behind an earlier
+    `= 0.0f` (or the reverse) on a path the parser does not model."""
+    assigned: dict[tuple[str, str], list[RejectAssignment]] = {}
+    for depth, line in _line_brace_depths(body):
         match = _REJECT_ASSIGN_RE.match(line)
         if match:
-            assigned.add((match.group(1), match.group(2)))
+            key = (match.group(1), match.group(2))
+            assigned.setdefault(key, []).append(RejectAssignment(match.group(3).strip(), depth))
     return assigned
+
+
+def _invalidation_problems(
+    field: str,
+    field_type: str,
+    backing: tuple[str, str],
+    assignments: list[RejectAssignment],
+) -> list[str]:
+    """Why `_reject_frame()`'s assignments to `backing` do NOT invalidate `field` (empty
+    list = they do). This is the check that separates an invalidation from a no-op."""
+    where = f"{backing[0]}.{backing[1]}"
+    rule = _invalid_value_rule(field_type)
+    if rule is None:
+        return [
+            f"{STRUCT_NAME}.{field} is backed by {where}, which _reject_frame() assigns, but this "
+            f"guard has no invalid-value rule for the declared type `{field_type}`, so it cannot "
+            f"tell an invalidation from a no-op. Add the type to _INVALID_VALUE_RULES in "
+            f"tests/ci/check_reject_telemetry_parity.py; do not drop the field from the check."
+        ]
+    pattern, canonical = rule
+    problems: list[str] = []
+    for assignment in assignments:
+        if assignment.depth != 0:
+            problems.append(
+                f"{STRUCT_NAME}.{field} is backed by {where}, which _reject_frame() assigns only "
+                f"inside a nested block (`{where} = {assignment.value};`). Every rejected frame "
+                f"must invalidate it, so the assignment has to be unconditional at the top level "
+                f"of _reject_frame() -- 'invalidated on some rejects' is the bug this guard exists "
+                f"to catch."
+            )
+        elif not pattern.match(assignment.value):
+            problems.append(
+                f"{STRUCT_NAME}.{field} is backed by {where}, which _reject_frame() assigns "
+                f"`{assignment.value}` -- not the invalid state for a `{field_type}` (expected "
+                f"{canonical}). An assignment that merely EXISTS invalidates nothing: "
+                f"`{where} = {where};` would satisfy a target-only check while the last SUCCESSFUL "
+                f"frame's value keeps being published, and `= true` on a validity flag destroys "
+                f"the one signal that separates 'did not run' from 'ran and measured 0'. Assign "
+                f"{canonical}, or -- if the field must survive a reject -- add it to "
+                f"SURVIVES_REJECT_FIELDS with a reason and bump the pin."
+            )
+    return problems
 
 
 def main() -> int:  # noqa: PLR0911, PLR0912, PLR0915 -- linear fail-closed checks
@@ -325,7 +501,17 @@ def main() -> int:  # noqa: PLR0911, PLR0912, PLR0915 -- linear fail-closed chec
         print(f"{prefix} FAIL parsed no `perf.<field> = tile_renderer-><getter>();` assignments")
         return 1
 
-    getters = _extract_getters(RENDERER_HEADER.read_text(encoding="utf-8"))
+    renderer_class_body = _brace_body(
+        RENDERER_HEADER.read_text(encoding="utf-8"), RENDERER_CLASS_ANCHOR
+    )
+    if renderer_class_body is None:
+        print(
+            f"{prefix} FAIL could not find `{RENDERER_CLASS_ANCHOR}` in {RENDERER_HEADER.name}; "
+            f"getters are resolved inside that class only, so a same-named getter elsewhere in "
+            f"the header cannot be mistaken for the backing member"
+        )
+        return 1
+    getters = _extract_getters(renderer_class_body)
     if not getters:
         print(f"{prefix} FAIL parsed no inline getters from {RENDERER_HEADER.name}")
         return 1
@@ -338,6 +524,17 @@ def main() -> int:  # noqa: PLR0911, PLR0912, PLR0915 -- linear fail-closed chec
             f"this check; the boundary is what the whole #586 rejection contract rests on."
         )
         return 1
+
+    reject_directives = [ln.strip() for ln in reject_body.splitlines() if _PP_DIRECTIVE_RE.match(ln)]
+    if reject_directives:
+        for directive in reject_directives:
+            print(
+                f"{prefix} FAIL _reject_frame() contains a preprocessor directive `{directive}`; "
+                f"the guard cannot know which branch compiles, so an invalidation inside one "
+                f"cannot be credited. Keep the reject boundary free of conditional compilation"
+            )
+        return 1
+
     reject_assignments = _extract_reject_assignments(reject_body)
     if not reject_assignments:
         print(
@@ -375,7 +572,8 @@ def main() -> int:  # noqa: PLR0911, PLR0912, PLR0915 -- linear fail-closed chec
             )
             continue
 
-        is_covered = backing in reject_assignments
+        assignments = reject_assignments.get(backing)
+        is_covered = assignments is not None
         if is_covered and exempt_reason is not None:
             failures.append(
                 f"{STRUCT_NAME}.{field} is both cleared by _reject_frame() (via "
@@ -383,7 +581,13 @@ def main() -> int:  # noqa: PLR0911, PLR0912, PLR0915 -- linear fail-closed chec
                 f"stale exemption and lower the pin"
             )
         elif is_covered:
-            covered.append(field)
+            # An assignment exists -- but only an assignment of the field's INVALID value,
+            # made unconditionally, actually invalidates anything.
+            problems = _invalidation_problems(field, fields[field], backing, assignments)
+            if problems:
+                failures.extend(problems)
+            else:
+                covered.append(field)
         elif exempt_reason is None:
             failures.append(
                 f"{STRUCT_NAME}.{field} is per-frame telemetry that a REJECTED frame does not "
