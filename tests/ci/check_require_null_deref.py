@@ -243,6 +243,17 @@ index `container[...]` that nothing between them bounds.
   group the real corpus produces (420,814 atoms), so anything still splittable in
   what a consumer is handed fails a test rather than waiting for a review round.
 
+  Round 10 extends the decomposition rather than the property: a BRACE-LESS body
+  (`if (v.size() >= 2) consume(v);`) is split off its header too, so an atom never
+  contains the body it guards. Before that split the atom was read as a header
+  whose body is the NEXT atom, and its frame bounded a statement outside the
+  branch - `REQUIRE(v.size() == 3); if (v.size() >= 2) consume(v); CHECK(v[1]);`
+  reported nothing, though at a real length of 1 the assertion fails, the branch is
+  skipped and `v[1]` aborts the batch. The same atom also carried its body into the
+  header test, where a header's own bound deliberately does not apply, so the
+  branch that IS guarded (`if (v.size() >= 2) CHECK(v[1]);`) was reported instead.
+  One split fixes both directions and both detectors.
+
   Totality is about the PIECES, though, not about what each piece MEANS, and
   round 9 found the difference. `} while (v.size() >= 2);` atomises correctly,
   into `"}"` and `while (...);` - and the `while` was then read as a brace-less
@@ -254,6 +265,17 @@ index `container[...]` that nothing between them bounds.
   deliberately empty `while (poll());`) now creates no frame at all. It is
   recognised by SHAPE rather than by finding the matching `do`, because the scan
   starts at the assertion and a `do` opened above it is not in the window.
+
+  Rounds 8, 9 and 10 are three instances of ONE mechanism: a frame applied to a
+  statement outside its scope, each time through `pending` - a one-slot lookahead
+  meaning "the body of this header is the next atom". So what round 10 pins is the
+  property `pending` needs rather than a fourth shape: **an atom that creates a
+  `pending` frame holds no body of its own**, checked over every atom the corpus
+  produces (`test_no_atom_that_creates_a_pending_frame_carries_its_own_body`).
+  Under it "the body is the next atom" is a fact about the decomposition instead of
+  a guess about layout, and the walker refuses to create the frame at all if that
+  ever stops holding - a frame whose extent is unknown bounds nothing. What the
+  property does NOT close is item 8 below.
 * **A bound from a DIFFERENT container does not count.** In
   `for (i < a.size()) { CHECK(a[i] == b[i]); }` after `REQUIRE(b.size() == 3)`,
   `b[i]` crashes whenever `b` is the short one. Seven such sites exist; they are
@@ -383,6 +405,34 @@ index `container[...]` that nothing between them bounds.
    this file already derives, and that second source was wrong in a direction
    nobody had measured: it also rejected `DOCTEST_REQUIRE`.
 
+8. **A brace-less body that is not in the same ATOM as its header.** Round 10's
+   split makes an atom carry no body of its own, so `pending` now means what it
+   says - and the one way a frame can still reach a statement that is not its body
+   is a header whose atom ends before the body starts, leaving the body to arrive
+   from the NEXT group:
+
+       if (v.size() >= 2)
+           for (uint32_t i = 0; i < 3; i++)     // `_statements()` ends the group here
+               CHECK(v[1]);                     // ... and the body is the next one
+
+   `_statements()` ends a group at a depth-0 `;`, a trailing `{` or a trailing `}`,
+   so a group ending on a bare header can only be a header CHAIN like this one, and
+   the following group does begin with its body - but that is a property of the
+   grouper, not something checked here, and it is the honest residual of this
+   mechanism. **Measured: zero corpus groups end on a bare header** (117 files;
+   every brace-less body in the corpus is inside its header's atom, where the split
+   handles it). It is deliberately not asserted: the shape is valid C++ that the
+   detector answers CORRECTLY today, and a ratchet that fails on correct input gets
+   waived (see item 6). Follow-up under #844/#865 if it ever appears.
+
+   Two smaller residuals of the same decomposition, both measured at zero and both
+   pre-dating round 10: a control-flow header followed by an aggregate initializer
+   (`if (c) v = {1, 2};`) splits at the initializer's `{` rather than at the header,
+   which yields a stray `;` atom - the frame it opens is closed by the initializer's
+   own `}`, so its extent is still right; and a line-spliced macro DEFINITION
+   inside a test header (`test_macros.h`) is the one corpus group with text between
+   a header and a top-level `{`.
+
 Round 8 retired no item on this list, and that is worth saying plainly: all three
 of its findings were shapes this section did not know it was missing - a macro
 spelling, a grouping pair, a brace placement - not limits anyone had chosen. The
@@ -400,7 +450,8 @@ small a bound). All three figures are printed on every run, including the zero, 
 that a population cannot arrive unremarked, and all three are pinned by a unit
 test. Round 9 left all three unchanged: neither the `do` terminator nor the wider
 macro vocabulary adds a site to THIS detector, which is the measured statement
-that both of its shapes occur zero times in the corpus.
+that both of its shapes occur zero times in the corpus. Round 10 leaves all three
+unchanged too, and detector 1's 337 as well - see the count under "Convergence".
 
 The delta against 42 is +1 straight-line and +7 cross-container, and neither is
 the baseline being tuned to fit:
@@ -426,16 +477,17 @@ set of the same size.
 
 ## Convergence
 
-Nine review rounds have landed on this one file, and **three** claims that the
+Ten review rounds have landed on this one file, and **three** claims that the
 remaining gap was bounded have now been refuted by the next round. So the state is
-recorded here rather than asserted again. Sorting all nine rounds' findings by
+recorded here rather than asserted again. Sorting all ten rounds' findings by
 WHERE they came from:
 
 * **the inputs to the rules** - the text handed to a recogniser was not the
   statement it assumed: a `REQUIRE` split over lines and several compacted onto
   one (round 1), a body sharing its header's line and unspliced line
   continuations (round 5), a closing brace sharing the body's last statement's
-  line and a grouping pair read as a nesting level (round 8);
+  line and a grouping pair read as a nesting level (round 8), a brace-less body
+  still inside its header's atom (round 10);
 * **an external vocabulary spelled by hand** - a doctest macro name that does not
   exist and a real one that was missed (rounds 1 and 8), a relational suffix table
   naming a macro family doctest never defined (round 8), C++ integer-literal
@@ -464,7 +516,19 @@ What is structural now, and what is not:
 * statement SHAPE - one total decomposition shared by both detectors, its
   totality machine-checked over the corpus. Round 9 did not dent this. `} while
   (…);` decomposed correctly; the atoms were then MISREAD. Totality of the pieces
-  is not totality of their meaning, and the property as stated never claimed to be;
+  is not totality of their meaning, and the property as stated never claimed to be.
+  Round 10 DID dent it: a brace-less body was a piece the decomposition had never
+  been asked to split, so the atom contained the body it guarded. The answer was to
+  split it and to pin the property `pending` actually depends on - no atom that
+  creates a `pending` frame carries its own body - beside the idempotence one;
+* frame SCOPE - this is what rounds 8, 9 and 10 were each an instance of, and it is
+  now two claims of different strength, deliberately not merged. Within an atom it
+  is structural and machine-checked (above). ACROSS atoms it rests on `_statements()`
+  ending a group at a `;`, a `{` or a `}`, which is an argument, not an assertion -
+  see blind spot 8, measured at zero corpus occurrences. So the narrow question
+  "can a frame still be attributed to a statement that is not in its scope?" has a
+  narrow answer: not from an atom that contains its body, by a corpus-wide check;
+  and from a group that ends on a bare header, only if one is ever written;
 * macro VOCABULARY - now genuinely single-sourced: `_assertion_vocabulary()` is
   the only accepted-name test in the file, and a unit test parses this module's
   own AST to fail if a fifth hand-written spelling is ever added. That test is the
@@ -473,10 +537,12 @@ What is structural now, and what is not:
   of a dataflow question with an open-ended rule set.
 
 The prediction record is what it is: three convergence claims, three refutations.
-So this section states no fourth prediction. Rounds 5, 8 and 9 each found a defect
-in a mechanism the previous round had just called closed, and the only pattern
-that has held across all nine is that the file gets a finding whenever someone
-looks at it.
+So this section states no fourth prediction, and round 10 adds none - round 9
+declined to predict and was not thereby made right, it was simply not made wrong.
+Rounds 5, 8, 9 and 10 each found a defect in a mechanism the previous round had
+just called closed, and the only pattern that has held across all ten is that the
+file gets a finding whenever someone looks at it. What replaces a prediction here
+is the pair of claims above: one checked over the corpus, one explicitly not.
 
 What that is worth is bounded by what this guard IS. It is a **ratchet over a
 frozen baseline**, not a proof that the corpus is safe - the docstring says so
@@ -490,7 +556,17 @@ separated them cleanly:
   changed the reported set by exactly zero sites. They buy recall against code
   nobody has written yet;
 * the hand-spelled `REQUIRE` heads in detector 1 occurred **18** times, and were
-  worth the round on their own.
+  worth the round on their own;
+* round 10's shape is the first that does not sort cleanly into either bucket, and
+  the numbers are worth stating rather than rounding to "zero". The SYNTAX is
+  ordinary C++ and it is already here: **36 inline brace-less bodies, 24 distinct,
+  across 10 of the 117 files** - `if (c) return;` alone is 11 of the 24. What is
+  zero is the CO-OCCURRENCE: of 217 cardinality-assertion windows, **0** contain
+  one, and of 780 null-ish windows, 6 do (all `if (c) return;`, all already
+  answered the same way). So both baselines move by exactly zero sites, as in
+  rounds 5-9 - but unlike those, this shape is one ordinary edit away from
+  mattering rather than a spelling nobody uses, and un-bracing any single-statement
+  body in the corpus is that edit. That is why it is fixed here rather than filed.
 
 The disposition this file is landed under: further findings of this class are
 triaged by whether the shape OCCURS in the corpus. If it does, it is a bug and it
@@ -3102,6 +3178,62 @@ def _block_body_pieces(text: str) -> list[str]:
     return pieces
 
 
+_BARE_ELSE_RE = re.compile(r"\s*(?:\}\s*)?else\b")
+
+
+def _header_end(statement: str) -> int | None:
+    """Offset just past a control-flow header, i.e. where its BODY would start.
+
+    None only when `statement` is not a control-flow head at all. The two regexes
+    consulted here cover, between them, every keyword `_SIZE_CONTROL_FLOW_RE`
+    accepts - `_CONTROL_HEAD_RE` takes `if`/`for`/`while`/`switch`/`do` (and
+    `else if`), `_BARE_ELSE_RE` takes a lone `else` - and a test derives that
+    keyword set from `_SIZE_CONTROL_FLOW_RE` itself, so a keyword added there
+    without a rule here fails rather than silently keeping its body glued on.
+
+    `do` and a lone `else` carry no parenthesised condition, so their header is
+    the keyword. A condition that never closes inside this text returns the END of
+    the text: there is then no body HERE to split off, and claiming one would be
+    inventing a scope out of a truncated statement.
+    """
+    head = _CONTROL_HEAD_RE.match(statement)
+    if head is None:
+        bare = _BARE_ELSE_RE.match(statement)
+        return bare.end() if bare else None
+    if head.group(1) == "do":
+        return head.end()
+    open_at = statement.find("(", head.end())
+    if open_at < 0:
+        return head.end()
+    depth = 0
+    for i in range(open_at, len(statement)):
+        if statement[i] == "(":
+            depth += 1
+        elif statement[i] == ")":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+    return len(statement)
+
+
+def _split_header(statement: str) -> tuple[str, str] | None:
+    """(header, brace-less body) when a control-flow atom carries its own body.
+
+    None when it does not: a header that owns no body text (`if (c)`, whose body is
+    a later statement), a non-header, and a lone `;` (`_guards_no_body`: there is
+    nothing to run). ONE function answers both "does this atom contain its body"
+    for the walker and "where do I cut" for the decomposition, so the two cannot
+    drift into disagreeing about the same atom.
+    """
+    end = _header_end(statement)
+    if end is None:
+        return None
+    body = statement[end:].strip()
+    if not body or body == ";":
+        return None
+    return statement[:end].strip(), body
+
+
 def _inline_pieces(statement: str) -> list[str]:
     """A control-flow statement whose BODY shares its line, split into pieces.
 
@@ -3114,6 +3246,25 @@ def _inline_pieces(statement: str) -> list[str]:
     header's bound guards the body and is popped at the `}` rather than leaking on
     to whatever follows.
 
+    A BRACE-LESS body is split off the same way (round 10). `if (v.size() >= 2)
+    consume(v);` reached `_first_unbounded_index` as ONE atom, which read it as a
+    header whose body is the NEXT atom - so the condition's frame was stored in
+    `pending` and bounded a statement outside the branch, and
+    `REQUIRE(v.size() == 3); if (v.size() >= 2) consume(v); CHECK(v[1]);` reported
+    nothing: at a real length of 1 the assertion fails, the branch is SKIPPED, and
+    `v[1]` aborts the batch (Codex, PR #849 round 10). The same atom also carried
+    its body into the header test, so the branch that IS guarded
+    (`if (v.size() >= 2) CHECK(v[1]);`) was reported instead. Both directions are
+    the one defect - an atom that contains its own body - and splitting here fixes
+    both, for both detectors, because there is one decomposition.
+
+    No synthetic `}` is emitted for the brace-less split, and none is needed: a
+    brace-less body is exactly ONE statement, so the frame `pending` holds expires
+    on it by the rule that already ends `pending` after every non-header atom. The
+    invariant this establishes is what makes `pending` sound - after this split, no
+    atom that creates a `pending` frame contains its own body, so "the body is the
+    next atom" is a fact about the decomposition rather than a guess about layout.
+
     Only control flow is split HERE. A bare `{` at statement level would otherwise
     catch every aggregate initializer, and pushing a frame for one would make the
     next `}` pop the wrong block. Delimiters that are unambiguous - a depth-0 `;`,
@@ -3122,9 +3273,14 @@ def _inline_pieces(statement: str) -> list[str]:
     if not _SIZE_CONTROL_FLOW_RE.match(statement):
         return [statement]
     brace = _top_level_brace(statement)
-    if brace == -1 or not statement[brace + 1 :].strip():
+    if brace != -1:
+        if not statement[brace + 1 :].strip():
+            return [statement]
+        return [statement[: brace + 1].strip(), *_statement_atoms(statement[brace + 1 :])]
+    split = _split_header(statement)
+    if split is None:
         return [statement]
-    return [statement[: brace + 1].strip(), *_statement_atoms(statement[brace + 1 :])]
+    return [split[0], *_statement_atoms(split[1])]
 
 
 def _statement_atoms(text: str) -> list[str]:
@@ -3261,7 +3417,13 @@ def _first_unbounded_index(
     for line_no, statement in expanded:
         if _SIZE_SCAN_STOP_RE.match(statement):
             return None
-        if _RETURN_RE.match(statement) and not stack:
+        # `and not pending`: a `return` reached while a brace-less frame is pending
+        # IS that frame's conditional body (`if (skip()) return;`), exactly as a
+        # `return` inside braces is the block's - and a CONDITIONAL return does not
+        # end the scan any more than `if (skip()) { return; }` does. Without this,
+        # round 10's split would have turned eleven corpus `if (c) return;` lines
+        # into unconditional scan stops, which is the fail-OPEN direction.
+        if _RETURN_RE.match(statement) and not stack and not pending:
             return None
         # Atomisation guarantees a block close arrives as the atom `"}"` on its own.
         # The test stays a PREFIX one anyway, because the two readings differ only
@@ -3302,8 +3464,17 @@ def _first_unbounded_index(
             if opens_block:
                 stack.append(frame)
                 pending = None
+            elif _split_header(statement) is not None:
+                # This atom carries its own body, so "the body is the next atom" is
+                # false for it. `_statement_atoms` splits every such atom (round 10),
+                # so nothing it produces reaches here - but if that ever regresses,
+                # the frame's extent is unknown and the fail-CLOSED answer is to bound
+                # nothing rather than to bound the following statement. Pinned by
+                # `test_the_walker_fails_closed_if_the_decomposition_regresses`.
+                pending = None
             else:
-                pending = frame  # brace-less body: applies to the next statement
+                # The body really is the NEXT atom, because this one holds no body.
+                pending = frame
             continue
         if _unguarded_index(symbol, statement, own_bound):
             return line_no, statement.strip(), _classify(own_bound, other_bound)

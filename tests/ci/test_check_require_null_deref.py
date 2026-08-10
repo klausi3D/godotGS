@@ -9,10 +9,12 @@ BOTH directions: the shapes it must flag, and the shapes it must leave alone.
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 CI_DIR = Path(__file__).resolve().parent
 
@@ -1683,6 +1685,101 @@ class StatementAtomsAreTotal(unittest.TestCase):
                         )
         self.assertGreater(examined, 10000, "the corpus sweep examined too little to mean anything")
 
+    def test_no_atom_that_creates_a_pending_frame_carries_its_own_body(self):
+        """The property that makes `pending` sound (round 10).
+
+        `pending` is a one-slot lookahead meaning "the body of this header is the
+        NEXT atom". Rounds 8, 9 and 10 each found a shape where that guess was
+        wrong, and round 10's was the shape where the body was inside the atom all
+        along: `if (v.size() >= 2) consume(v);` stored the condition's frame in
+        `pending`, which then bounded the statement AFTER the branch.
+
+        Idempotence (the test above) does not catch that - the atom really is one
+        statement, and splitting it further is what round 5's `{`-split does only
+        for BRACED bodies. So the property pinned here is the one `pending`
+        actually needs: an atom that reaches `pending = frame` holds no body of its
+        own, hence "the body is the next atom" is a fact about the decomposition
+        and not a guess about layout. If this ever fails there is a fourth shape,
+        and it fails here rather than in a review round.
+        """
+        examined = 0
+        pending_creators = 0
+        for path in GUARD._test_sources():
+            lines = GUARD._strip_comments(GUARD._read_source(path)).splitlines()
+            for index in range(len(lines)):
+                logical, last = GUARD._logical_line(lines, index)
+                groups = list(GUARD._line_fragments(logical))
+                groups += [text for _line, text in GUARD._statements(lines, last + 1, 6)]
+                for group in groups:
+                    for atom in GUARD._statement_atoms(group):
+                        examined += 1
+                        if not GUARD._SIZE_CONTROL_FLOW_RE.match(atom):
+                            continue
+                        if atom.rstrip().endswith("{") or GUARD._guards_no_body(atom):
+                            continue
+                        pending_creators += 1
+                        self.assertEqual(
+                            GUARD._split_header(atom),
+                            None,
+                            f"{path.name}: atom {atom!r} would put a frame in `pending` "
+                            f"while carrying its own body",
+                        )
+        self.assertGreater(examined, 10000, "the corpus sweep examined too little to mean anything")
+        self.assertGreater(
+            pending_creators,
+            0,
+            "no atom in the corpus reaches `pending` - this property passed vacuously",
+        )
+
+    def test_every_control_keyword_has_a_header_end_rule(self):
+        """DERIVED from `_SIZE_CONTROL_FLOW_RE`, not listed again beside it.
+
+        `_header_end` is a second reading of the same vocabulary the walker uses to
+        decide a statement is control flow. A keyword accepted there but unknown
+        here would keep its body glued to its header - exactly round 10's defect,
+        reintroduced by an edit nobody thought was risky. So the keyword set comes
+        out of the walker's own pattern.
+        """
+        keywords = re.findall(r"(\w+)\\b", GUARD._SIZE_CONTROL_FLOW_RE.pattern)
+        self.assertGreaterEqual(len(keywords), 6, keywords)
+        for keyword in keywords:
+            with self.subTest(keyword=keyword):
+                statement = f"{keyword} (cond) body();"
+                self.assertIsNotNone(GUARD._header_end(statement))
+                self.assertIsNotNone(GUARD._split_header(statement))
+                atoms = GUARD._statement_atoms(statement)
+                self.assertGreater(len(atoms), 1, atoms)
+                self.assertIsNone(GUARD._split_header(atoms[0]), atoms)
+
+    def test_a_braceless_body_splits_off_its_header(self):
+        self.assertEqual(
+            GUARD._statement_atoms("if (v.size() >= 2) consume(v);"),
+            ["if (v.size() >= 2)", "consume(v);"],
+        )
+
+    def test_a_header_with_no_body_of_its_own_is_left_whole(self):
+        self.assertEqual(GUARD._statement_atoms("if (v.size() >= 2)"), ["if (v.size() >= 2)"])
+
+    def test_an_empty_body_is_not_split_into_a_stray_semicolon(self):
+        self.assertEqual(GUARD._statement_atoms("while (poll());"), ["while (poll());"])
+        self.assertEqual(
+            GUARD._statement_atoms("} while (v.size() >= 2);"), ["}", "while (v.size() >= 2);"]
+        )
+
+    def test_a_braceless_do_body_splits_off_its_keyword(self):
+        """`do` carries no condition, so its header is the keyword alone. Without
+        that rule the first `(` in the BODY is mistaken for a condition and the body
+        stays glued on - the round-10 shape, in the one keyword whose header has no
+        parentheses."""
+        self.assertEqual(GUARD._statement_atoms("do consume(v);"), ["do", "consume(v);"])
+        self.assertEqual(GUARD._statement_atoms("do {"), ["do {"])
+
+    def test_a_nested_braceless_body_splits_all_the_way_down(self):
+        self.assertEqual(
+            GUARD._statement_atoms("if (a) if (b) consume(v);"),
+            ["if (a)", "if (b)", "consume(v);"],
+        )
+
     def test_a_closing_brace_is_its_own_atom(self):
         self.assertEqual(GUARD._statement_atoms("CHECK(v[0]); }"), ["CHECK(v[0]);", "}"])
 
@@ -2849,6 +2946,285 @@ class DoWhileTerminatorIsNotALoopHead(SizeIndexScanTestCase):
             "  REQUIRE(v.size() == 3);\n  do { consume(v); } while (v.size() >= 2);\n  CHECK(v[1]);"
         )
         self.assertEqual(len(compact), 1, compact)
+
+
+class LayoutInvarianceOverTheRealCorpus(unittest.TestCase):
+    """Un-brace the real corpus and both detectors must not notice (#849 round 10).
+
+    The synthetic cases below pin the SHAPES. This pins the PROPERTY they are all
+    instances of, over real code rather than over examples: removing the braces
+    from a single-statement body is a reformat that changes no semantics, so it
+    must change no verdict. Rounds 5, 8, 9 and 10 were each a way of failing that.
+
+    Measured against HEAD when this was written: on the shipped corpus the rewrite
+    collapses 1136 real bodies, and the round-9 guard's answer moves on 18 detector-2
+    entries and 6 detector-1 entries - including reporting a bounded
+    `for (i < a.size()) CHECK(a[i] == b[i]);` as unbounded and, because the scan
+    reports the FIRST unbounded index, thereby MISSING the real `CHECK(a[0] == 1u)`
+    that follows it (`test_gaussian_importance.h:47-54`). This test is zero for the
+    guard in this file. It is the corpus-wide form of "a frame is applied only to
+    statements in its scope", which is otherwise an argument.
+    """
+
+    HEAD_RE = re.compile(r"^(\s*)((?:\}\s*)?(?:else\s+if|if|for|while)\s*\(.*\))\s*\{\s*$")
+
+    @classmethod
+    def _unbrace(cls, text: str) -> tuple[str, int]:
+        """`H (c) {\\n s;\\n }` -> `H (c) s;`. Deliberately conservative: one
+        statement, no braces of its own, `}` alone on its line, no `else` after."""
+        lines = text.splitlines()
+        out: list[str] = []
+        index = 0
+        collapsed = 0
+        while index < len(lines):
+            head = cls.HEAD_RE.match(lines[index])
+            body = lines[index + 1] if index + 1 < len(lines) else ""
+            closer = lines[index + 2].strip() if index + 2 < len(lines) else ""
+            following = lines[index + 3].strip() if index + 3 < len(lines) else ""
+            if (
+                head
+                and body.strip().endswith(";")
+                and "{" not in body
+                and "}" not in body
+                and closer == "}"
+                and not following.startswith("else")
+            ):
+                out.append(f"{head.group(1)}{head.group(2)} {body.strip()}")
+                index += 3
+                collapsed += 1
+                continue
+            out.append(lines[index])
+            index += 1
+        return "\n".join(out) + "\n", collapsed
+
+    def test_unbracing_the_corpus_changes_no_verdict(self):
+        collapsed_total = 0
+        braced2: list = []
+        braced1: list = []
+        unbraced2: list = []
+        unbraced1: list = []
+        with tempfile.TemporaryDirectory() as tmp:
+            for path in GUARD._test_sources():
+                text = GUARD._read_source(path)
+                rewritten, collapsed = self._unbrace(text)
+                if not collapsed:
+                    continue
+                collapsed_total += collapsed
+                for label, source, sink2, sink1 in (
+                    ("braced", text, braced2, braced1),
+                    ("unbraced", rewritten, unbraced2, unbraced1),
+                ):
+                    target = Path(tmp) / f"{label}_{path.name}"
+                    target.write_text(source, encoding="utf-8", newline="")
+                    sink2 += [
+                        (path.name, s[1], s[2], s[3], s[5], s[6])
+                        for s in GUARD._scan_file_size_index(target)
+                    ]
+                    sink1 += [
+                        (path.name, s[1], s[2], s[3]) for s in GUARD._scan_file(target)
+                    ]
+        self.assertGreater(collapsed_total, 100, "the rewrite did not fire enough to mean anything")
+        self.assertGreater(len(braced2), 0, "no detector-2 site in the rewritten file set")
+        self.assertGreater(len(braced1), 0, "no detector-1 site in the rewritten file set")
+        self.assertEqual(sorted(unbraced2), sorted(braced2), "detector 2 is layout-dependent")
+        self.assertEqual(sorted(unbraced1), sorted(braced1), "detector 1 is layout-dependent")
+
+
+class BracelessBodyEndsWithItsBody(SizeIndexScanTestCase):
+    """A brace-less body is ONE statement, and the frame ends there (#849 round 10).
+
+    Third instance of one mechanism. Rounds 8, 9 and 10 all found a frame applied
+    to a statement outside its scope, and all three arrived through `pending` - the
+    one-slot lookahead that means "the body of this header is the next atom":
+
+    * round 8 - a trailing `}` shared the last body statement's line, so the block
+      frame was never popped and leaked past the block;
+    * round 9 - a `do … while (c);` TERMINATOR read as a brace-less loop head, so a
+      body that does not exist bounded the next statement;
+    * round 10 - a brace-less body INSIDE the atom, so the condition's frame went
+      to `pending` and bounded the statement after the branch, while the body it
+      was supposed to guard was judged against the enclosing bound instead.
+
+    All three are one defect: a frame whose scope was inferred from surface syntax
+    rather than from structure. The repair is structural rather than a fourth
+    special case - `_statement_atoms` now splits a brace-less body off its header,
+    so the atom no longer contains its body and `pending` cannot mis-attribute it.
+    `StatementAtomsAreTotal.test_no_atom_that_creates_a_pending_frame_carries_its_own_body`
+    is what holds that down: it is checked over the corpus rather than argued.
+
+    The corpus contains 36 inline brace-less bodies (24 distinct, 10 files) and
+    NONE of them is inside a cardinality-assertion window today, so this fix moves
+    no baseline. The syntax is ordinary C++ though - `if (c) return;` is 11 of the
+    24 - so the silence is one ordinary edit away, which is why the shapes below
+    are pinned rather than left to a follow-up.
+    """
+
+    def test_the_reported_shape_is_a_site(self):
+        """Codex, PR #849 round 10. At a real length of 1 the assertion fails, the
+        branch is SKIPPED, and `v[1]` aborts the batch."""
+        for eol in ("\n", "\r\n"):
+            with self.subTest(eol=eol):
+                self.assertSized(
+                    (
+                        "  REQUIRE(v.size() == 3);\n"
+                        "  if (v.size() >= 2) consume(v);\n"
+                        "  CHECK(v[1]);"
+                    ).replace("\n", eol),
+                    "v",
+                )
+
+    def test_the_body_may_be_on_its_own_line(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  if (v.size() >= 2)\n"
+            "    consume(v);\n"
+            "  CHECK(v[1]);",
+            "v",
+        )
+
+    def test_a_braceless_loop_bound_also_ends_at_its_body(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n  while (v.size() >= 2) step(v);\n  CHECK(v[1]);", "v"
+        )
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  for (uint32_t i = 0; i < v.size(); i++) consume(v);\n"
+            "  CHECK(v[1]);",
+            "v",
+        )
+
+    def test_a_nested_braceless_body_is_still_scoped(self):
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  if (ok()) if (v.size() >= 2) consume(v);\n"
+            "  CHECK(v[1]);",
+            "v",
+        )
+
+    def test_the_body_itself_is_judged_UNDER_the_frame(self):
+        """The other half of the same defect: the atom carried its body into the
+        header test, where the header's own bound deliberately does not apply, so a
+        branch that IS guarded was reported."""
+        self.assertNotSized("  REQUIRE(v.size() == 3);\n  if (v.size() >= 2) CHECK(v[1]);")
+
+    def test_an_index_the_frame_does_not_reach_is_still_reported(self):
+        """The fix must not become a blanket suppressor: `v.size() >= 2` proves
+        nothing about `v[5]`."""
+        self.assertSized("  REQUIRE(v.size() == 3);\n  if (v.size() >= 2) CHECK(v[5]);", "v")
+
+    BODIES = (
+        ("consume(v);", "CHECK(v[1]);"),
+        ("CHECK(v[1]);", "consume(v);"),
+        ("CHECK(v[5]);", "consume(v);"),
+        ("step(v);", "CHECK(v[0]);"),
+    )
+
+    def test_braced_and_braceless_spellings_agree(self):
+        """The property the three rounds were each a violation of: LAYOUT does not
+        change the verdict. Compared on everything but the line number."""
+        for body, after in self.BODIES:
+            for head in ("if (v.size() >= 2)", "while (v.size() >= 2)", "for (uint32_t i = 0; i < v.size(); i++)"):
+                with self.subTest(head=head, body=body):
+                    prefix = f"  REQUIRE(v.size() == 3);\n  {head} "
+                    braced = self.sites(f"{prefix}{{ {body} }}\n  {after}")
+                    braceless = self.sites(f"{prefix}{body}\n  {after}")
+                    self.assertEqual(
+                        [(s[1], s[5], s[6]) for s in braced],
+                        [(s[1], s[5], s[6]) for s in braceless],
+                    )
+
+    def test_a_braceless_do_body_is_scanned_like_a_braced_one(self):
+        """A `do` body runs whatever the condition says, so the round-9 rule that a
+        `do` TERMINATOR bounds nothing must still leave the site reported - and the
+        body's own statements must be reached, which they are not while the body is
+        glued to the keyword."""
+        braceless = self.sites(
+            "  REQUIRE(v.size() == 3);\n  do consume(v); while (v.size() >= 2);\n  CHECK(v[1]);"
+        )
+        braced = self.sites(
+            "  REQUIRE(v.size() == 3);\n  do { consume(v); } while (v.size() >= 2);\n  CHECK(v[1]);"
+        )
+        self.assertEqual(len(braceless), 1, braceless)
+        self.assertEqual(
+            [(s[1], s[5], s[6]) for s in braceless], [(s[1], s[5], s[6]) for s in braced]
+        )
+
+    def test_a_conditional_return_does_not_end_the_scan(self):
+        """`if (skip()) return;` is 11 of the corpus's 24 inline bodies. Splitting
+        the body off must not turn it into an unconditional `return`, which would
+        make the scan stop and the site vanish - the fail-OPEN direction."""
+        self.assertSized(
+            "  REQUIRE(v.size() == 3);\n  if (skip()) return;\n  CHECK(v[1]);", "v"
+        )
+
+    def test_an_unconditional_return_still_ends_the_scan(self):
+        self.assertNotSized("  REQUIRE(v.size() == 3);\n  return;\n  CHECK(v[1]);")
+
+    def test_a_body_that_really_is_the_next_atom_still_gets_the_frame(self):
+        """`pending`'s genuine case, which the split must leave working: a header
+        whose atom ends without a body because the body is a later statement."""
+        self.assertNotSized(
+            "  REQUIRE(v.size() == 3);\n"
+            "  if (v.size() >= 2)\n"
+            "    for (uint32_t i = 0; i < 3; i++)\n"
+            "      CHECK(v[1]);"
+        )
+
+    def test_detector_one_reads_the_same_atoms(self):
+        """One decomposition, both detectors. Detector 1's documented rule is that
+        a control-flow statement guards its BODY and it therefore stops at one - and
+        for a brace-less body it was breaking that rule in the reporting direction,
+        flagging `if (ptr) ptr->method();`, the shape where the deref is guarded by
+        the very null check the guard is looking for."""
+        for eol in ("\n", "\r\n"):
+            with self.subTest(eol=eol):
+                braceless = self.null_deref_sites(
+                    "  REQUIRE(ptr != nullptr);\n  if (ptr) ptr->method();".replace("\n", eol)
+                )
+                braced = self.null_deref_sites(
+                    "  REQUIRE(ptr != nullptr);\n  if (ptr) { ptr->method(); }".replace("\n", eol)
+                )
+                self.assertEqual(braceless, [])
+                self.assertEqual([v[1:] for v in braceless], [v[1:] for v in braced])
+
+    def test_a_deref_in_the_header_is_still_flagged(self):
+        """Non-inertness for detector 1: the header is evaluated before anything can
+        guard it, so a deref THERE must still report."""
+        self.assertEqual(
+            len(self.null_deref_sites("  REQUIRE(ptr != nullptr);\n  if (ptr->ready()) use();")),
+            1,
+        )
+
+    def test_the_walker_fails_closed_if_the_decomposition_regresses(self):
+        """The backstop, exercised rather than asserted in prose.
+
+        `_first_unbounded_index` refuses to put a frame in `pending` when the atom
+        it came from carries its own body. That branch is unreachable while
+        `_statement_atoms` splits, so it is checked by REMOVING the split: with the
+        decomposition regressed to its round-9 behaviour, the walker must still
+        report the shape rather than suppress it. Delete the branch and this test
+        goes silent exactly the way the guard did.
+        """
+        original = GUARD._inline_pieces
+
+        def without_the_braceless_split(statement: str) -> list[str]:
+            pieces = original(statement)
+            if len(pieces) > 1 and not pieces[0].rstrip().endswith("{"):
+                return [statement]
+            return pieces
+
+        with mock.patch.object(GUARD, "_inline_pieces", without_the_braceless_split):
+            self.assertEqual(
+                GUARD._statement_atoms("if (v.size() >= 2) consume(v);"),
+                ["if (v.size() >= 2) consume(v);"],
+                "the regression harness did not actually regress the split",
+            )
+            self.assertSized(
+                "  REQUIRE(v.size() == 3);\n"
+                "  if (v.size() >= 2) consume(v);\n"
+                "  CHECK(v[1]);",
+                "v",
+            )
 
 
 class AssertionVocabularyIsDerived(SizeIndexScanTestCase):
