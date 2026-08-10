@@ -208,6 +208,28 @@ STRICT_COVERAGE_CONTRACTS: tuple[StrictCoverageContract, ...] = (
             "fail-closed proof that cannot fail CI is not a proof."
         ),
     ),
+    StrictCoverageContract(
+        name="[SortFallback]",
+        # Only test_sort_fallback_policy.h carries [SortFallback] cases. The
+        # neighbouring tile_renderer_regression_test.cpp exercises the same #586
+        # reject path but registers its cases as [TileRenderer][RequiresGPU], which
+        # every strict module lane excludes by construction (they run in the GPU
+        # harness). Naming it here would not protect them - it would make this
+        # contract fail on cases it was never the right instrument for, and the only
+        # way to make that green again is to weaken something. Measured: adding it
+        # makes this guard exit 1 with 4 "reaches NO strict lane" lines.
+        sources=("test_sort_fallback_policy.h",),
+        test_case="*][SortFallback]*",
+        issue_url="https://github.com/klausi3D/godotGS/issues/586",
+        rationale=(
+            "#586 promoted this corpus out of the advisory [untagged] safety net into "
+            "its own strict lane. These cases decide whether a frame is composited with "
+            "wrong alpha ordering or rejected outright, and they are the only executable "
+            "proof of the reject decision, the permanent-vs-transient latch, the "
+            "re-probe that lifts it, and the reject counters/timing invalidation. A "
+            "reject policy whose regressions cannot fail CI is not a policy."
+        ),
+    ),
 )
 
 

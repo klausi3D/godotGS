@@ -274,6 +274,15 @@ class StrictCoverageContracts(unittest.TestCase):
     corpus and the REAL lane table, mutating one of them in memory. Mutating the
     inputs rather than the tree is what makes these mutations reproducible in CI
     instead of a transcript nobody can re-run.
+
+    Every mutation runs against **every** shipped contract, not against a chosen
+    one (#852). A mutation proof that names one contract is the same artifact as
+    a hand-written coverage list: it stops being true the moment a second
+    contract is added, and nothing says so. The tag and the covering lane are
+    derived per contract - from `contract.test_case` and from the evaluator's own
+    `lanes` result - so a contract added for `[AtomicWrite]`, `[SPZ]` or
+    `[MalformedCorpus]` (#853) is mutation-proven the day it lands, with no edit
+    here.
     """
 
     def setUp(self):
@@ -282,6 +291,7 @@ class StrictCoverageContracts(unittest.TestCase):
         self.cases, _ = GUARD._collect_corpus(linkage._strip_comments)
         self.lanes = list(self.runner.MODULE_TEST_FILTERS)
         self.assertTrue(GUARD.STRICT_COVERAGE_CONTRACTS, "no contracts to exercise")
+        self.contracts = list(GUARD.STRICT_COVERAGE_CONTRACTS)
         self.contract = next(
             c for c in GUARD.STRICT_COVERAGE_CONTRACTS if c.name == "[DataAuthority]"
         )
@@ -295,38 +305,76 @@ class StrictCoverageContracts(unittest.TestCase):
             self.lanes if lanes is None else lanes,
         )
 
-    def _lanes_without_the_promotion(self):
+    def _tag_fragment(self, contract):
+        """`*][SortFallback]*` -> `][SortFallback]`.
+
+        Derived from the contract rather than written down, so these mutations
+        cover a contract nobody edited this file for. A contract whose pattern is
+        not a bare `*][Tag]*` fails loudly here instead of being skipped.
+        """
+        fragment = contract.test_case.strip("*")
+        self.assertTrue(
+            fragment.startswith("][") and fragment.endswith("]") and len(fragment) > 3,
+            f"{contract.name}: test_case {contract.test_case!r} is not a bare '*][Tag]*' "
+            "pattern, so the mutations below cannot derive its tag. Give the contract a "
+            "bare pattern or teach this helper - do not let it silently opt out.",
+        )
+        return fragment
+
+    def _covering_strict_lanes(self, contract):
+        """The strict lanes that actually execute this corpus today, derived."""
+        lanes = set(self._evaluate(contract=contract).lanes)
+        self.assertTrue(lanes, f"{contract.name}: no strict lane covers it, nothing to unwind")
+        return lanes
+
+    def _promoted_cases(self, contract):
+        fragment = self._tag_fragment(contract)
+        return [name for name, _ in self.cases if fragment in name]
+
+    def _retag_count(self, contract):
+        """Retag a strict SUBSET, so the strict lane survives and stays non-empty."""
+        count = min(4, len(self._promoted_cases(contract)) - 1)
+        self.assertGreaterEqual(count, 1, f"{contract.name}: too few cases to retag a subset")
+        return count
+
+    def _lanes_without_the_promotion(self, contract=None):
         """Route (a): delete the strict lane AND the HEADLESS_GAUSSIAN_SCOPED_TAGS entry.
 
-        Deleting the tag entry is what removes `*][DataAuthority]*` from the
-        `[untagged]` safety net's exclude list, so the cases land back in an
-        advisory lane instead of being stranded. Both halves are modelled here
-        because it is the combination that is invisible to every other check.
+        Deleting the tag entry is what removes `*][<Tag>]*` from the `[untagged]`
+        safety net's exclude list, so the cases land back in an advisory lane
+        instead of being stranded. Both halves are modelled here because it is the
+        combination that is invisible to every other check.
         """
+        contract = contract or self.contract
+        fragment = self._tag_fragment(contract)
+        covering = self._covering_strict_lanes(contract)
         mutated = []
         for name, includes, excludes, strict in self.lanes:
-            if name == "GaussianSplatting [DataAuthority]":
+            if name in covering:
                 continue
-            if name == "GaussianSplatting [untagged]":
-                excludes = tuple(e for e in excludes if "][DataAuthority]" not in e)
+            excludes = tuple(e for e in excludes if fragment not in e)
             mutated.append((name, includes, excludes, strict))
         return mutated
 
-    def _lanes_with_the_lane_demoted(self):
+    def _lanes_with_the_lane_demoted(self, contract=None):
         """The third shape: keep everything, flip `strict` to False."""
+        contract = contract or self.contract
+        covering = self._covering_strict_lanes(contract)
         return [
-            (name, includes, excludes, False if name == "GaussianSplatting [DataAuthority]" else strict)
+            (name, includes, excludes, False if name in covering else strict)
             for name, includes, excludes, strict in self.lanes
         ]
 
-    def _corpus_with_a_retagged_subset(self, count=4, replacement="[GaussianSplatting]"):
+    def _corpus_with_a_retagged_subset(self, contract=None, count=4, replacement="]"):
         """Route (b): retag `count` of the cases out of the promoted tag."""
+        contract = contract or self.contract
+        fragment = self._tag_fragment(contract)
         mutated = []
         retagged = 0
         for name, file_name in self.cases:
-            if "][DataAuthority]" in name and retagged < count:
+            if fragment in name and retagged < count:
                 retagged += 1
-                name = name.replace("[GaussianSplatting][DataAuthority]", replacement)
+                name = name.replace(fragment, replacement)
             mutated.append((name, file_name))
         self.assertEqual(retagged, count, "the corpus no longer has enough cases to retag")
         return mutated
@@ -355,6 +403,23 @@ class StrictCoverageContracts(unittest.TestCase):
             "the protected set drifted away from the promoted corpus",
         )
 
+    def test_every_contract_enumerates_more_than_a_token_corpus(self):
+        """The same non-vacuity control, for contracts nobody wrote a case for.
+
+        The floor is derived (a subset must be retaggable while the strict lane
+        stays non-empty), not pinned per contract, because a pinned per-contract
+        number is the hand-written artifact this file keeps replacing.
+        """
+        for contract in self.contracts:
+            with self.subTest(contract=contract.name):
+                fragment = self._tag_fragment(contract)
+                result = self._evaluate(contract=contract)
+                self.assertGreaterEqual(len(result.protected), 2)
+                self.assertTrue(
+                    all(fragment in name for name, _ in result.protected),
+                    "the protected set drifted away from the promoted corpus",
+                )
+
     def test_every_shipped_contract_is_completely_declared(self):
         for contract in GUARD.STRICT_COVERAGE_CONTRACTS:
             with self.subTest(contract=contract.name):
@@ -368,84 +433,112 @@ class StrictCoverageContracts(unittest.TestCase):
 
     def test_deleting_both_halves_of_the_promotion_is_red(self):
         """Route (a). The cases are NOT stranded here - that is the whole point."""
-        lanes = self._lanes_without_the_promotion()
-        promoted = [name for name, _ in self.cases if "][DataAuthority]" in name]
-        self.assertTrue(promoted)
-        for name in promoted:
-            self.assertTrue(
-                any(GUARD._lane_matches(name, inc, exc) for _, inc, exc, _ in lanes),
-                "this mutation must leave the cases running in an advisory lane; if they "
-                "were stranded, the stranded check would catch it and this test would be "
-                "proving the wrong thing",
-            )
-        result = self._evaluate(lanes=lanes)
-        self.assertEqual(len(result.uncovered), len(promoted))
-        self.assertTrue(result.failures)
+        for contract in self.contracts:
+            with self.subTest(contract=contract.name):
+                lanes = self._lanes_without_the_promotion(contract)
+                promoted = self._promoted_cases(contract)
+                self.assertTrue(promoted)
+                for name in promoted:
+                    self.assertTrue(
+                        any(GUARD._lane_matches(name, inc, exc) for _, inc, exc, _ in lanes),
+                        "this mutation must leave the cases running in an advisory lane; if "
+                        "they were stranded, the stranded check would catch it and this test "
+                        "would be proving the wrong thing",
+                    )
+                result = self._evaluate(lanes=lanes, contract=contract)
+                self.assertEqual(len(result.uncovered), len(promoted))
+                self.assertTrue(result.failures)
 
     def test_retagging_a_subset_is_red(self):
         """Route (b). The strict lane survives, non-empty, and still passes."""
-        cases = self._corpus_with_a_retagged_subset(count=4)
-        still_tagged = [name for name, _ in cases if "][DataAuthority]" in name]
-        self.assertTrue(
-            still_tagged,
-            "the strict lane must remain non-empty, or the runner's own zero-coverage "
-            "check would already fail and this test would prove the wrong thing",
-        )
-        retagged = [
-            (name, file_name)
-            for name, file_name in cases
-            if "][DataAuthority]" not in name and file_name in self.contract.sources
-        ]
-        self.assertEqual(len(retagged), 4)
-        for name, _ in retagged:
-            self.assertTrue(
-                any(GUARD._lane_matches(name, inc, exc) for _, inc, exc, _ in self.lanes),
-                "a retagged case must still reach the advisory [untagged] net - otherwise "
-                "it is stranded and a different check catches it",
-            )
-        result = self._evaluate(cases=cases)
-        self.assertEqual(len(result.uncovered), 4)
-        self.assertTrue(result.failures)
+        for contract in self.contracts:
+            with self.subTest(contract=contract.name):
+                fragment = self._tag_fragment(contract)
+                count = self._retag_count(contract)
+                cases = self._corpus_with_a_retagged_subset(contract, count=count)
+                still_tagged = [name for name, _ in cases if fragment in name]
+                self.assertTrue(
+                    still_tagged,
+                    "the strict lane must remain non-empty, or the runner's own zero-coverage "
+                    "check would already fail and this test would prove the wrong thing",
+                )
+                retagged = [
+                    (name, file_name)
+                    for name, file_name in cases
+                    if fragment not in name and file_name in contract.sources
+                ]
+                self.assertEqual(len(retagged), count)
+                for name, _ in retagged:
+                    self.assertTrue(
+                        any(
+                            GUARD._lane_matches(name, inc, exc)
+                            for _, inc, exc, _ in self.lanes
+                        ),
+                        "a retagged case must still reach the advisory [untagged] net - "
+                        "otherwise it is stranded and a different check catches it",
+                    )
+                result = self._evaluate(cases=cases, contract=contract)
+                self.assertEqual(len(result.uncovered), count)
+                self.assertTrue(result.failures)
 
     def test_retagging_to_another_new_tag_is_red_too(self):
         """Same route, different shape: a new tag rather than a dropped one."""
-        cases = self._corpus_with_a_retagged_subset(
-            count=4, replacement="[GaussianSplatting][DataAuthorityLegacy]"
-        )
-        result = self._evaluate(cases=cases)
-        self.assertEqual(len(result.uncovered), 4)
-        self.assertTrue(result.failures)
+        for contract in self.contracts:
+            with self.subTest(contract=contract.name):
+                fragment = self._tag_fragment(contract)
+                count = self._retag_count(contract)
+                cases = self._corpus_with_a_retagged_subset(
+                    contract, count=count, replacement=f"{fragment[:-1]}Legacy]"
+                )
+                result = self._evaluate(cases=cases, contract=contract)
+                self.assertEqual(len(result.uncovered), count)
+                self.assertTrue(result.failures)
 
     def test_demoting_the_lane_to_advisory_is_red(self):
         """The shape neither Codex round named: leave the tuple, flip `strict`."""
-        result = self._evaluate(lanes=self._lanes_with_the_lane_demoted())
-        self.assertEqual(len(result.uncovered), len(result.protected))
-        self.assertTrue(result.failures)
+        for contract in self.contracts:
+            with self.subTest(contract=contract.name):
+                result = self._evaluate(
+                    lanes=self._lanes_with_the_lane_demoted(contract), contract=contract
+                )
+                self.assertTrue(result.protected)
+                self.assertEqual(len(result.uncovered), len(result.protected))
+                self.assertTrue(result.failures)
 
     # -- why both keys exist ---------------------------------------------
 
     def test_a_case_moved_to_another_file_is_still_protected_by_the_tag_key(self):
-        moved = [
-            (name, "test_somewhere_else.h" if "][DataAuthority]" in name else file_name)
-            for name, file_name in self.cases
-        ]
-        result = self._evaluate(cases=moved)
-        self.assertTrue(result.protected)
-        self.assertTrue(
-            all(file_name == "test_somewhere_else.h" for _, file_name in result.protected),
-            "the file key contributes nothing here; the tag key must carry it",
-        )
+        for contract in self.contracts:
+            with self.subTest(contract=contract.name):
+                fragment = self._tag_fragment(contract)
+                moved = [
+                    (name, "test_somewhere_else.h" if fragment in name else file_name)
+                    for name, file_name in self.cases
+                ]
+                result = self._evaluate(cases=moved, contract=contract)
+                self.assertTrue(result.protected)
+                self.assertTrue(
+                    all(
+                        file_name == "test_somewhere_else.h"
+                        for _, file_name in result.protected
+                    ),
+                    "the file key contributes nothing here; the tag key must carry it",
+                )
 
     def test_a_case_retagged_in_place_is_still_protected_by_the_file_key(self):
-        cases = self._corpus_with_a_retagged_subset(count=4)
-        result = self._evaluate(cases=cases)
-        protected_names = {name for name, _ in result.protected}
-        untagged_but_protected = [n for n in protected_names if "][DataAuthority]" not in n]
-        self.assertEqual(
-            len(untagged_but_protected),
-            4,
-            "the tag key cannot see a retagged case; the file key must carry it",
-        )
+        for contract in self.contracts:
+            with self.subTest(contract=contract.name):
+                fragment = self._tag_fragment(contract)
+                count = self._retag_count(contract)
+                cases = self._corpus_with_a_retagged_subset(contract, count=count)
+                result = self._evaluate(cases=cases, contract=contract)
+                protected_names = {name for name, _ in result.protected}
+                untagged_but_protected = [n for n in protected_names if fragment not in n]
+                self.assertEqual(
+                    len(untagged_but_protected),
+                    count,
+                    "the tag key cannot see a retagged case; the file key must carry it",
+                )
 
     # -- vacuity: the contract must not pass by enumerating nothing -------
 
@@ -453,32 +546,39 @@ class StrictCoverageContracts(unittest.TestCase):
         """The half-vacuous case, which is the dangerous one.
 
         With only a union check, a typo'd pattern would contribute nothing, the
-        file key would still find 11 covered cases, and the contract would report
-        a clean pass while half of it silently checked nothing.
+        file key would still cover every case, and the contract would report a
+        clean pass while half of it silently checked nothing.
         """
-        broken = GUARD.StrictCoverageContract(
-            name="[DataAuthority] (typo)",
-            sources=self.contract.sources,
-            test_case="*][DataAuthorityy]*",
-            issue_url=self.contract.issue_url,
-            rationale="typo control",
-        )
-        result = self._evaluate(contract=broken)
-        self.assertEqual(result.uncovered, [], "the file key still covers everything")
-        self.assertTrue(result.problems, "a pattern matching nothing must fail, not pass")
-        self.assertTrue(result.failures)
+        for contract in self.contracts:
+            with self.subTest(contract=contract.name):
+                fragment = self._tag_fragment(contract)
+                broken = GUARD.StrictCoverageContract(
+                    name=f"{contract.name} (typo)",
+                    sources=contract.sources,
+                    test_case=f"*{fragment[:-1]}y]*",
+                    issue_url=contract.issue_url,
+                    rationale="typo control",
+                )
+                result = self._evaluate(contract=broken)
+                self.assertEqual(result.uncovered, [], "the file key still covers everything")
+                self.assertTrue(
+                    result.problems, "a pattern matching nothing must fail, not pass"
+                )
+                self.assertTrue(result.failures)
 
     def test_a_renamed_source_file_fails(self):
-        broken = GUARD.StrictCoverageContract(
-            name="[DataAuthority] (renamed file)",
-            sources=("test_data_authority_hardening_OLD.h",),
-            test_case=self.contract.test_case,
-            issue_url=self.contract.issue_url,
-            rationale="rename control",
-        )
-        result = self._evaluate(contract=broken)
-        self.assertTrue(result.problems)
-        self.assertTrue(result.failures)
+        for contract in self.contracts:
+            with self.subTest(contract=contract.name):
+                broken = GUARD.StrictCoverageContract(
+                    name=f"{contract.name} (renamed file)",
+                    sources=tuple(f"{source}_OLD" for source in contract.sources),
+                    test_case=contract.test_case,
+                    issue_url=contract.issue_url,
+                    rationale="rename control",
+                )
+                result = self._evaluate(contract=broken)
+                self.assertTrue(result.problems)
+                self.assertTrue(result.failures)
 
     def test_a_contract_matching_nothing_at_all_fails(self):
         broken = GUARD.StrictCoverageContract(

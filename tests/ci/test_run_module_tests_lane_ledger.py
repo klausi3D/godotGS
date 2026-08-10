@@ -29,11 +29,16 @@ Three properties are asserted here, and the order matters:
    summary, and propagating that would make a crash indistinguishable from a
    lane that ran and passed nothing.
 
-Every test method drives `_run_doctest_lanes()` and asserts on the emitted
-records, so stubbing the lane loop out makes the whole file fail rather than
-pass vacuously. The one exception is the CLI-argument test, which by
+Every ledger test method drives `_run_doctest_lanes()` and asserts on the
+emitted records, so stubbing the lane loop out makes the whole file fail rather
+than pass vacuously. The one exception is the CLI-argument test, which by
 construction never reaches the lane loop; it is mutation-proven separately by
 removing the `parser.error()` it pins.
+
+The file has since become the place where `run_module_tests.py`'s own integrity
+is pinned, because this is the file the runner already executes (via
+`_run_lane_ledger_guard`) - see `GuardRunnerWiringTests` at the bottom, which
+asserts that every guard the runner defines is a guard the runner calls (#852).
 
 `CI` is patched explicitly in every scenario rather than inherited, because
 `_enforce_skipped_marker_policy` and `_tolerate_quarantined_lane` sit behind
@@ -43,6 +48,7 @@ whose local green says nothing about CI.
 
 from __future__ import annotations
 
+import argparse
 import contextlib
 import errno
 import importlib.util
@@ -3389,6 +3395,234 @@ class DocConsistencyTests(unittest.TestCase):
                             f"denying it; deleting it is the same defect. Expected a "
                             f"sentence matching {marker.pattern!r}"
                         )
+
+
+class GuardRunnerWiringTests(unittest.TestCase):
+    """A guard the runner defines but never calls is a guard nobody runs (#852).
+
+    ## The defect
+
+    Every guard in `--guard-only` is wired by ONE tuple entry in
+    `_run_optional_message_guards()` / `_run_required_message_guards()`. Delete
+    that entry and the guard script, its runner function and its own unit test
+    all survive untouched and all stay green - the checker still works, CI just
+    stops calling it. Measured on this branch: deleting the
+    `_run_reject_telemetry_parity_guard` entry left every unit test in
+    `tests/ci/` passing (137 passed, exit 0) while `--guard-only` silently
+    stopped enforcing reject-telemetry parity (Codex, PR #852).
+
+    That is the same shape as the defects #586 spent five rounds on - a rejection
+    nobody counts, a timing nobody invalidates - one level up: a check nobody
+    runs.
+
+    ## Why this is derived rather than one test per guard
+
+    A test per guard is a hand-written list of the things that must be wired, and
+    a hand-written list of what a guard must cover is an invariant this repo has
+    already found broken more than once. Both sides are derived instead:
+
+    * **wired** - recorded by driving the real `_run_ci_guard_steps()` with only
+      the leaf executors replaced, so what is asserted is reachability from the
+      entry point blocking CI actually calls, not from a helper that something
+      else might have stopped calling.
+    * **defined** - every module-level function with the `GuardRunner` shape
+      (named `_run_*_guard`, taking no arguments). The shape is what excludes
+      `_run_history_artifact_guard(mode)`, which is deliberately wired through
+      its own step: it drops out by arity, not by being named in an exception
+      list that would rot.
+
+    So a guard added tomorrow is covered the day it lands, and a guard unwired
+    tomorrow is red the same day.
+
+    ## What still defeats this
+
+    One edit: unwiring `_run_lane_ledger_guard`, which is what executes this
+    file. `test_this_file_is_itself_executed_by_a_wired_runner` closes the
+    variant where that entry survives but is repointed; the outright deletion
+    terminates the same way #850's strict-coverage contracts do - a contract can
+    always be defeated by deleting the contract, which is a visible, deliberate
+    line in a diff rather than a side effect of editing a table. The point of
+    this class is that there is now ONE such line instead of thirty-one.
+    """
+
+    LEAF_STEPS = (
+        "_run_render_guard_step",
+        "_run_static_guard_step",
+        "_run_stringname_orphan_guard_step",
+        "_run_history_artifact_guard_step",
+    )
+    GUARD_SCRIPT_DIRS = (
+        ROOT / "tests" / "ci",
+        ROOT / "tests" / "runtime",
+        ROOT / "modules" / "gaussian_splatting" / "tests",
+    )
+
+    def _drive_guard_pipeline(self) -> list:
+        """Record what `_run_ci_guard_steps()` invokes, without executing anything.
+
+        Only the leaves are replaced. The wiring functions, the step list and the
+        `_first_guard_failure` short-circuit all run for real, so removing the
+        `_run_optional_message_guards` call from `_run_ci_guard_steps()` is caught
+        here just as much as removing one entry from inside it.
+        """
+        recorded: list = []
+        cli_args = argparse.Namespace(
+            skip_build_metadata_guard=False,
+            skip_render_guards=False,
+            skip_static_guards=False,
+            base_ref=None,
+            godot_binary="godot",
+        )
+
+        def _record_runner(runner, *_args, **_kwargs):
+            recorded.append(runner)
+            return None
+
+        def _record_step(step_name):
+            def _step(*_args, **_kwargs):
+                recorded.append(step_name)
+                return None
+
+            return _step
+
+        saved_override = harness._GUARD_BASE_REF_OVERRIDE
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(
+                mock.patch.object(harness, "_run_message_guard", _record_runner)
+            )
+            for step_name in self.LEAF_STEPS:
+                stack.enter_context(
+                    mock.patch.object(harness, step_name, _record_step(step_name))
+                )
+            stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+            try:
+                self.assertIsNone(
+                    harness._run_ci_guard_steps(cli_args),
+                    "with every leaf stubbed out, the pipeline must reach the end",
+                )
+            finally:
+                harness._GUARD_BASE_REF_OVERRIDE = saved_override
+        self.assertTrue(recorded, "the pipeline invoked nothing at all")
+        return recorded
+
+    def _defined_guard_runners(self) -> dict:
+        """Module-level functions with the `GuardRunner` shape, derived by signature."""
+        found = {}
+        for name, obj in vars(harness).items():
+            if not (inspect.isfunction(obj) and obj.__module__ == harness.__name__):
+                continue
+            if not (name.startswith("_run_") and name.endswith("_guard")):
+                continue
+            if inspect.signature(obj).parameters:
+                # Takes arguments, so it is not a GuardRunner and is wired by a
+                # dedicated step (e.g. _run_history_artifact_guard(mode)).
+                continue
+            found[name] = obj
+        return found
+
+    @staticmethod
+    def _referenced_global_names(code, seen=None) -> set:
+        """Global names a function body reads, including nested code objects."""
+        seen = set() if seen is None else seen
+        seen.update(code.co_names)
+        for const in code.co_consts:
+            if hasattr(const, "co_names"):
+                GuardRunnerWiringTests._referenced_global_names(const, seen)
+        return seen
+
+    def _scripts_reached_by_wired_runners(self) -> set:
+        """Every module-level `Path` constant a wired guard runner actually reads."""
+        reached = set()
+        for runner in self._drive_guard_pipeline():
+            if isinstance(runner, str):  # a stubbed step, not a GuardRunner
+                continue
+            for name in self._referenced_global_names(runner.__code__):
+                value = getattr(harness, name, None)
+                if isinstance(value, Path):
+                    reached.add(value.resolve())
+        return reached
+
+    def test_every_guard_runner_the_module_defines_is_actually_invoked(self):
+        defined = set(self._defined_guard_runners())
+        wired = {r.__name__ for r in self._drive_guard_pipeline() if not isinstance(r, str)}
+        self.assertGreater(
+            len(defined), 1, "guard-runner discovery found nothing; the shape rule drifted"
+        )
+        unwired = sorted(defined - wired)
+        self.assertEqual(
+            unwired,
+            [],
+            "these guards are defined but never invoked by _run_ci_guard_steps(), so "
+            "--guard-only silently stops enforcing them while their own unit tests stay "
+            f"green: {unwired}. Wire them, or - if one is deliberately run by a dedicated "
+            "step - give it that step's argument so it stops claiming the GuardRunner shape.",
+        )
+
+    def test_the_recorded_wiring_is_not_a_superset_of_nothing(self):
+        """Non-vacuity: the recorder must observe the real, populated pipeline."""
+        recorded = self._drive_guard_pipeline()
+        runners = [r for r in recorded if not isinstance(r, str)]
+        steps = [r for r in recorded if isinstance(r, str)]
+        self.assertGreater(len(runners), 1)
+        self.assertEqual(
+            sorted(steps),
+            sorted(self.LEAF_STEPS),
+            "every leaf step must still be reached from _run_ci_guard_steps()",
+        )
+
+    def test_every_guard_script_on_disk_is_reached_by_a_wired_runner(self):
+        """The same property one level down, keyed on the filesystem.
+
+        The runner-level check cannot see a wired runner that quietly stops
+        shelling out to its script. This one is anchored in ground truth: every
+        `check_*.py` that exists must be executed by something CI calls.
+        """
+        reached = self._scripts_reached_by_wired_runners()
+        on_disk = sorted(
+            path.resolve()
+            for directory in self.GUARD_SCRIPT_DIRS
+            for path in directory.glob("check_*.py")
+        )
+        self.assertTrue(on_disk, "no guard scripts discovered; the glob drifted")
+        missing = sorted(
+            str(path.relative_to(ROOT)) for path in on_disk if path not in reached
+        )
+        self.assertEqual(
+            missing,
+            [],
+            "these guard scripts exist but no runner reachable from _run_ci_guard_steps() "
+            f"executes them, so nothing in blocking CI runs them: {missing}",
+        )
+
+    def test_every_guard_that_ships_a_unit_test_also_runs_it(self):
+        """A guard's own unit test is the only thing that catches a vacuous guard.
+
+        Derived from the `check_x.py` / `test_check_x.py` pairing rather than from
+        a list, so a guard that grows a unit test tomorrow is covered tomorrow.
+        """
+        reached = self._scripts_reached_by_wired_runners()
+        unrun = []
+        for directory in self.GUARD_SCRIPT_DIRS:
+            for guard in directory.glob("check_*.py"):
+                sibling = guard.with_name(f"test_{guard.name}")
+                if sibling.is_file() and sibling.resolve() not in reached:
+                    unrun.append(str(sibling.relative_to(ROOT)))
+        self.assertEqual(
+            sorted(unrun),
+            [],
+            "these guard unit tests exist next to a guard the runner executes, but the "
+            f"runner does not execute them, so a vacuous guard would go unnoticed: {unrun}",
+        )
+
+    def test_this_file_is_itself_executed_by_a_wired_runner(self):
+        """Otherwise this whole class is a guard nobody runs - the defect itself."""
+        reached = self._scripts_reached_by_wired_runners()
+        self.assertIn(
+            Path(__file__).resolve(),
+            reached,
+            "no runner reachable from _run_ci_guard_steps() executes this file, so none "
+            "of the wiring assertions above can fail CI",
+        )
 
 
 if __name__ == "__main__":

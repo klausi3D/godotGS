@@ -126,6 +126,16 @@ MODULE_TEST_FILTERS: tuple[tuple[str, tuple[str, ...], tuple[str, ...], bool], .
     # #586: the sort-fallback policy decides whether a frame is presented with incorrect alpha
     # compositing or rejected. Those cases previously reached only the advisory [untagged] lane,
     # so a regression in the reject decision could not fail CI. Strict blocking lane.
+    #
+    # HELD IN PLACE BY A GUARD, not by this comment (same as [DataAuthority] below):
+    # the promotion is two coupled edits -- this tuple plus the
+    # HEADLESS_GAUSSIAN_SCOPED_TAGS entry above -- and undoing BOTH, retagging only
+    # some of the cases, or flipping this `True` to `False` would drop them back into
+    # the advisory net without stranding anything, so no other check would notice.
+    # The `[SortFallback]` `STRICT_COVERAGE_CONTRACTS` entry in
+    # tests/ci/check_test_lane_coverage.py asserts the property instead: every case in
+    # this corpus must reach some strict lane. Measured before that contract existed:
+    # dropping both halves left the guard at exit 0.
     ("GaussianSplatting [SortFallback]", ("*GaussianSplatting*][SortFallback]*",), ("*][RequiresGPU]*",), True),
     ("GaussianSplatting [Synthetic]", ("*GaussianSplatting*][Synthetic]*",), ("*][RequiresGPU]*",), False),
     ("GaussianSplatting [VRAMBudgetRegulator]", ("*GaussianSplatting*][VRAMBudgetRegulator]*",), ("*][RequiresGPU]*",), True),
@@ -3105,6 +3115,19 @@ def _run_required_message_guards() -> int | None:
 
 
 def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
+    """Every guard `--guard-only` runs, one tuple entry each.
+
+    Deleting an entry here is invisible to every guard's own unit test: the
+    checker, its runner function and its unit test all survive and all stay
+    green, and CI simply stops calling it (measured on #852 -- dropping the
+    reject-telemetry entry left 137 unit tests passing at exit 0).
+
+    `GuardRunnerWiringTests` in tests/ci/test_run_module_tests_lane_ledger.py
+    closes that for the whole table rather than one entry at a time: it drives
+    `_run_ci_guard_steps()` with only the leaf executors stubbed and asserts that
+    every zero-argument `_run_*_guard` the module defines was invoked. All 31
+    entries are mutation-proven RED individually.
+    """
     optional_message_guards: list[tuple[bool, GuardRunner, str, str]] = [
         (
             not cli_args.skip_build_metadata_guard,
