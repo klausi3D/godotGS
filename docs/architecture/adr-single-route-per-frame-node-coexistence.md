@@ -258,40 +258,111 @@ it; a warning on only one is a coin-flip on which node they inspect first.
   `"__gs_world_submission_nodes"` and `"__gs_instance_submission_nodes"`.
 - Each class calls `add_to_group(<its own group>, /*persistent=*/false)` **once, in its
   constructor**. Godot registers grouped nodes with the `SceneTree` on tree entry
-  (`scene/main/node.cpp:338`) and removes them on tree exit (`:425`), so
+  (`scene/main/node.cpp:337-339`) and removes them on tree exit (`:424-427`), so
   `SceneTree::get_nodes_in_group()` returns exactly the in-tree nodes with no bookkeeping of
-  our own. `persistent = false` keeps the group out of the saved `.tscn`.
+  our own. `persistent = false` keeps the group out of the saved `.tscn`. **The two are not
+  symmetric in time** — registration happens *before* `NOTIFICATION_ENTER_TREE`, removal
+  *after* `NOTIFICATION_EXIT_TREE` — and §6.3 turns on that asymmetry.
 - The condition, evaluated only when `get_configuration_warnings()` is called:
 
   ```text
-  is_inside_tree()
+  is_inside_tree() AND is_inside_world()
     AND get_world_3d().is_valid()
     AND this node would submit content
-    AND ∃ a node in the *other* group with
-          the same get_world_3d()->get_scenario() RID
-          that would also submit content
+    AND ∃ a node in the *other* group that
+          is_inside_tree() AND is_inside_world()
+          AND has the same get_world_3d()->get_scenario() RID
+          AND would also submit content
   ```
+
+  `is_inside_world()` is **not** redundant with `is_inside_tree()`. `Node3D::get_world_3d()`
+  trips `ERR_FAIL_COND_V(!is_inside_world(), ...)` — returning null *and printing an engine
+  error* — for a node that is in the tree but between worlds
+  (`scene/3d/node_3d.cpp:1054-1060`), and a `SubViewport` world switch produces exactly that
+  state for the duration of one propagation (§6.3, fact 3). The guard is required on each
+  candidate peer as well as on self, because the condition dereferences the peer's
+  `get_world_3d()` too.
 
   Scoping by scenario RID — not by edited-scene root — is what makes this correct: the
   director keys its `world_registry` by scenario
   (`core/gaussian_splat_scene_director.cpp:2865-2870`), so two nodes in different `World3D`s
   (a `SubViewport` with `own_world_3d`) genuinely do not conflict and must not warn.
 
-- **"would submit content"** means, deliberately, *has renderable content assigned* — not
-  *is visible*:
-  - `GaussianSplatWorld3D`: `get_world().is_valid()` and the world reports a non-zero splat
-    count, mirroring `SubmissionStore::record_has_renderable_payload()`
-    (`core/gaussian_splat_scene_director.cpp:843-851`): valid `gaussian_data` with
-    `get_count() > 0`, **or** a valid `payload_source` with `get_count() > 0`.
-  - `GaussianSplatNode3D`: not all of `splat_asset` / `renderer_data` / `runtime_asset` are
-    null — the same triple the existing "No Gaussian splat asset or runtime data assigned"
-    warning uses at `nodes/gaussian_splat_node_3d.cpp:1813`.
+- **"would submit content"** means, deliberately, *carries a payload the director can
+  actually register* — not *is visible*, and **not merely *has a resource assigned***:
+  - `GaussianSplatWorld3D`: `get_world().is_valid()` **and** the world's payload is
+    non-empty, mirroring `SubmissionStore::record_has_renderable_payload()`
+    (`core/gaussian_splat_scene_director.cpp:843-851`) against the exact two values
+    `_register_shared_renderer()` publishes (`nodes/gaussian_splat_world_3d.cpp:494-495`):
+    a non-null `world->get_gaussian_data()` with `get_count() > 0`, **or** a non-null
+    `world->get_chunk_payload_source()` whose own `is_valid()` is true and whose
+    `get_count() > 0`.
+  - `GaussianSplatNode3D`: **mirror the asset resolution in
+    `_register_instance_in_director()`** (`nodes/gaussian_splat_node_3d.cpp:2593-2606`) and
+    require a non-zero count on whichever member that resolution picks:
+    1. `splat_asset.is_valid()` → `splat_asset->get_splat_count() > 0`;
+    2. else `renderer_data.is_valid()` → `renderer_data->get_count() > 0` (registration
+       rebuilds `runtime_asset` from it);
+    3. else `runtime_asset.is_valid()` → `runtime_asset->get_splat_count() > 0`;
+    4. else: no payload.
+
+    An OR over the three members is **wrong**, not just imprecise: step 1 wins even when
+    `splat_asset` is empty and `renderer_data` is full, and an empty `splat_asset` is
+    precisely what registration then fails on. The predicate must reproduce the precedence,
+    not the union.
 
 - **Do not gate on director/renderer state** (`_is_renderer_shared_with_other_content()`,
   `nodes/gaussian_splat_node_3d.cpp:42-59`). It is the right question at runtime and the
   wrong one at author time: it depends on registration order and on the world resource
   having loaded, so the warning would blink. Structural presence is what the user can act
   on. The director query may be used as an *additional* runtime log, never as the condition.
+
+**Why the count and not the assignment — the proof.** A valid-but-empty asset never reaches
+the instance store, so it never steers the route. `InstanceStore::retain_asset()`
+(`core/gaussian_splat_scene_director.cpp:722`) returns false when
+`_populate_gaussian_data_from_asset()` fails (`:739-742`); that helper (`:638-653`) returns
+false for a `ASSET_TYPE_DYNAMIC` asset because
+`GaussianSplatAsset::populate_gaussian_data()` early-outs on `splat_count == 0`
+(`core/gaussian_splat_asset.cpp:1655-1657`), and for every other asset type because
+`get_gaussian_data()` `ERR_FAIL_COND_V`s on `splat_count == 0` and hands back a null Ref
+(`:1548-1549`), which `:647-650` rejects. `register_instance()` early-returns on that false
+at all three of its call sites (`:1150-1152`, `:1156-1158`, `:1175-1177`), so **no
+`InstanceRecord` is appended at all**. With no record, the instance-hint loop at
+`:2830-2846` finds nothing, the world submission's hint wins at `:2817-2827`, and the world
+route renders normally. The repo has already *measured* this shape from the other direction:
+the #798 round-3 comment at `nodes/gaussian_splat_node_3d.cpp:794-812` records a GPU run in
+which "the director itself rejects the empty asset … so no submission survives". A warning
+keyed on assignment would therefore tell a user that one of their two node types renders
+nothing while their scene is, in fact, on screen — the false-positive shape this ADR exists
+to avoid producing.
+
+**This does not reopen the visibility question (§3.3).** The two cases are asymmetric, and
+the asymmetry is in the store, not in the diagnostic:
+
+- *Hidden* instance node: `register_instance()` still runs, the record is appended carrying
+  `record.visible = false`, and the hint loop at
+  `core/gaussian_splat_scene_director.cpp:2830-2846` filters only on
+  `record.has_desired_residency_hint` — it never reads `visible`. The record still steers the
+  route, the conflict is still real, and the warning must stay. §3.3 stands unchanged.
+- *Empty* instance node: there is no record, so there is nothing to steer the route with.
+
+The predicate therefore still keys on content rather than visibility. All that changed is
+that "there is content" stopped being approximated by a non-null `Ref` and started using the
+test the director itself applies.
+
+**One accepted false negative, recorded rather than hidden.** If a node registers
+successfully and its asset is emptied *afterwards*, `refresh_asset()` (`:773`) evicts the
+cached payload at `:795` — `retain_asset()` does the same at `:760`, both via
+`_evict_asset_data()` (`:681-690`) — but `register_instance()` returns on that false
+**without removing the `InstanceRecord`** (`:1146-1148`). The record keeps
+`has_desired_residency_hint`, so it still steers the route at `:2830-2846`, while every
+buffer builder skips it for null data — which lands back on the `resident_no_instances` skip
+of §3.1. In that transient state the conflict is real and this predicate stays silent.
+Gating on director state instead would trade a rare, self-healing false negative for a
+warning that blinks on every load (the director-state bullet above), which is the worse
+trade. The underlying
+defect — a record with no payload still steering the global route — is filed as follow-up
+work in §9, next to the `visible` one; they are the same defect shape.
 
 ### 6.2 Warning text
 
@@ -326,18 +397,88 @@ constant, so the test cannot become a tautology against the code it guards.
 ### 6.3 When the warning is re-evaluated
 
 `get_configuration_warnings()` is pull-based — the editor calls it only after
-`update_configuration_warnings()`. A node must refresh **itself and its peers**, because
-when node A enters the tree, node B's warning is the one that goes stale.
+`update_configuration_warnings()`, which does nothing itself except emit the tree's
+`node_configuration_warning_changed` signal for the node (`scene/main/node.cpp:3498-3508`;
+`TOOLS_ENABLED`-only, and it returns without emitting unless the tree has an edited-scene
+root that is, or is an ancestor of, the node). A node must refresh **itself and its peers**,
+because when node A enters the tree, node B's warning is the one that goes stale.
 
 Add a small shared helper (e.g. `_notify_route_conflict_peers()`) that walks the *other*
-group, filters by matching scenario RID, and calls `update_configuration_warnings()` on each
-peer. Call it, plus `update_configuration_warnings()` on self, from:
+group and calls `update_configuration_warnings()` on every peer that is inside the tree.
+
+**The helper does not filter peers by scenario.** Scenario scoping is load-bearing in the
+*condition* (§6.1) and only there. A refresh is idempotent — it asks a node to recompute,
+it does not tell it an answer — so refreshing a peer in an unrelated `World3D` costs one
+recompute and changes no result. Filtering here would be a micro-optimisation that has to
+resolve a `World3D` at exactly the moments when the node cannot, which is how the first
+draft of this section got the world switch wrong.
+
+**Ordering: three engine facts the refresh has to survive.** All three read at
+`a04472a82cf`.
+
+1. **Entering: the group is registered before the notification.** `_propagate_enter_tree()`
+   adds the node to its groups at `scene/main/node.cpp:337-339` and only then sends
+   `NOTIFICATION_ENTER_TREE` at `:341`. A peer refreshed from ENTER_TREE therefore already
+   sees the entering node. Enter is safe as written.
+2. **Leaving: the notification comes before the group is removed.** `_propagate_exit_tree()`
+   sends `NOTIFICATION_EXIT_TREE` at `scene/main/node.cpp:412`, removes the node from its
+   groups at `:424-427`, and nulls `data.tree` at `:436`. A peer refreshed *during*
+   EXIT_TREE recomputes while the leaving node is still in the group and still reports
+   `is_inside_tree()` — so it re-reports the conflict. The editor caches that answer, and
+   the stale warning triangle this trigger exists to remove survives it.
+3. **A `SubViewport` world switch sends EXIT_WORLD before it replaces the world, and the
+   node cannot resolve a `World3D` while that notification runs.**
+   `Viewport::set_use_own_world_3d()` calls `_propagate_exit_world_3d()` at
+   `scene/main/viewport.cpp:4746-4748`, replaces `own_world_3d` at `:4750-4762`, and only
+   then calls `_propagate_enter_world_3d()` at `:4764-4766`. That propagation dispatches
+   `NOTIFICATION_EXIT_WORLD` **forward** (`viewport.cpp:4804-4812`), and forward means base
+   class first (`core/object/object.h:477-482`), so `Node3D`'s own handler has already
+   cleared `data.inside_world` at `scene/3d/node_3d.cpp:251` before any subclass handler
+   runs. Two consequences: (a) from inside our EXIT_WORLD case `get_world_3d()` trips
+   `ERR_FAIL_COND_V(!is_inside_world(), ...)`, returns null and prints an engine error
+   (`scene/3d/node_3d.cpp:1054-1060`), so there is no scenario to filter peers by; (b)
+   because the world has not been replaced yet, a peer refreshed *here* still resolves the
+   **old** scenario, still sees this node in it, and keeps its warning. Afterwards
+   ENTER_WORLD resolves the **new** world, so an enter-time walk scoped to the new scenario
+   never revisits the old-world peer and it is never corrected.
+   *(The EXIT_TREE-driven EXIT_WORLD is dispatched **backward** instead —
+   `scene/3d/node_3d.cpp:201` passes `p_reversed = true` — so `inside_world` is still true
+   on that path. The same notification has two orderings depending on who sent it; do not
+   rely on either.)*
+
+**Therefore: every exit-path refresh is deferred, and every world lookup is guarded.**
+
+- On the exit paths (`EXIT_TREE`, `EXIT_WORLD`) the helper issues each peer refresh as
+  `callable_mp(peer, &Node::update_configuration_warnings).call_deferred()`. A deferred call
+  runs once the current propagation has finished — after group removal (fact 2) and after
+  the world replacement *and* the matching `ENTER_WORLD` (fact 3) — so every peer recomputes
+  against the settled tree. `callable_mp` deferred calls are dropped when the target has
+  been freed in the meantime, so a peer torn down in the same propagation is not a lifetime
+  hazard.
+- Because the peer walk carries no scenario filter, the exiting node never has to resolve a
+  world at exit time. That is what makes fact 3(a) harmless instead of a stream of engine
+  errors in the editor log.
+- The condition guards `is_inside_world()` on self and on every peer before touching
+  `get_world_3d()` (§6.1), for the same reason: a node can be in the tree and out of a world
+  for the duration of a viewport switch.
+
+Call the helper, plus `update_configuration_warnings()` on self, from:
 
 | Trigger | `GaussianSplatWorld3D` | `GaussianSplatNode3D` |
 | --- | --- | --- |
 | `NOTIFICATION_ENTER_TREE` / `NOTIFICATION_EXIT_TREE` | add (`:79`, `:125`) | add (`:441`, `:469`) |
 | `NOTIFICATION_ENTER_WORLD` / `NOTIFICATION_EXIT_WORLD` | **add both cases** (the class handles neither today) — the scoping key is the `World3D` and a viewport's `own_world_3d` can change it without tree churn | add (cases exist at `:445`, `:449`) |
-| content assigned/cleared | `set_world()`, `clear_world()`, `apply_world()` | the sites that already call `update_configuration_warnings()` (`:738`, `:827`, `:1063`, `:1283`, `:1293`, `:1303`, `:2969`) — add the *peer* notification there |
+| content assigned/cleared | `set_world()` (`:249`), `clear_world()` (`:306`), `apply_world()` (`:301`) — this class calls `update_configuration_warnings()` nowhere today, so both the self and the peer call are new | the sites that already call `update_configuration_warnings()` (`:738`, `:827`, `:1063`, `:1283`, `:1293`, `:1303`, `:2969`) — add the *peer* notification there |
+| content **count** changes on an already-assigned resource | **new:** connect to the `GaussianSplatWorld` resource's `changed` signal and refresh self + peers, mirroring what the instance node already does for its asset | already covered on self: `set_splat_asset()` connects the asset's `changed` (`:730-733`) and `_on_asset_changed()` calls `update_configuration_warnings()` (`:2965-2970`) — add the peer notification there |
+
+The last row exists **because** the predicate now reads a count (§6.1) rather than a
+non-null `Ref`. A resource that is assigned while empty and populated later — an import that
+completes, a `set_splat_data()` call, a streamed world payload — flips the answer with no
+assignment happening on the node, so assignment-only triggers would leave the warning
+permanently wrong on exactly the scenes most likely to hit it. **Residual, accepted:** a
+`GaussianSplatWorld` payload that grows without emitting `changed` leaves the warning stale
+until the next tree/world transition or reassignment. That is a quieter error than a warning
+that blinks, and it is listed in §8 as unverified-by-run.
 
 **Two triggers named in the brief are deliberately excluded, and each is pinned by a test:**
 
@@ -345,7 +486,11 @@ peer. Call it, plus `update_configuration_warnings()` on self, from:
   (§3.3): hiding a node does not restore the other, so a warning that disappeared on hide
   would be a lie. `NOTIFICATION_VISIBILITY_CHANGED` therefore stays untouched
   (`gaussian_splat_world_3d.cpp:207`, `gaussian_splat_node_3d.cpp:526`). Test T5 pins that
-  the warning survives a `set_visible(false)` on either node.
+  the warning survives a `set_visible(false)` on either node. Note that §6.1's move to a
+  payload-count predicate does **not** soften this: a hidden node keeps its
+  `InstanceRecord` and keeps steering the route, while an empty node has no record at all —
+  the asymmetry is spelled out under §6.1's predicate and is what keeps "content, not
+  visibility" true rather than merely asserted.
 - **`route_policy` change is not a trigger.** Per §3.4 the conflict exists at both values.
   Test T6 pins the warning at `route_policy = 0` and `= 1`.
 
@@ -369,23 +514,89 @@ contains all three of `"GaussianSplatWorld3D"`, `"GaussianSplatNode3D"` and
 `"renders nothing"`. Substring-on-one-entry, not "any entry mentions the other class",
 otherwise the pre-existing "No Gaussian splat asset..." warning could satisfy it.
 
-| # | Case | Setup | Assertion |
-| --- | --- | --- | --- |
-| **T1** | **the RED-without / GREEN-with case** | `GaussianSplatWorld3D` with a world holding ≥1 splat **and** `GaussianSplatNode3D` with runtime splat data, both under one `SceneTree` root, same `World3D` | **both** nodes report the warning. `if (!found) { FAIL(...); return; }` |
-| **T2** | control — world alone | only the `GaussianSplatWorld3D` | warning **absent** |
-| **T3** | control — instance alone | only the `GaussianSplatNode3D` | warning **absent** |
-| **T4** | control — two instance nodes | two `GaussianSplatNode3D`s, no world node | warning **absent**. This is the control that stops "more than one GS node in the scene" from passing as an implementation; multiple instance nodes coexist correctly, they all publish `RESIDENT` |
-| **T5** | control — visibility is irrelevant | T1 setup, then `set_visible(false)` on the instance node, then on the world node | warning **still present in both configurations** (pins §6.3) |
-| **T6** | control — `route_policy` is irrelevant | T1 setup, run once with `route_policy = 0` and once with `= 1`, restoring the setting via the existing `ProjectSettingGuard` pattern (`tests/test_node_surface_cleanup.h:184`) | warning **present at both values** (pins §3.4/§6.3) |
-| **T7** | control — different `World3D` | world node in the main tree, instance node inside a `SubViewport` with `own_world_3d = true` | warning **absent in both**. This is the control that proves the scenario scoping is real rather than a global "is there a world node anywhere" check |
-| **T8** | control — no content | both node types present but neither has content assigned | warning **absent** — the user's actionable problem is "no asset", which the existing warning already states |
-| **T9** | re-evaluation actually happens | T1 setup, then `root->remove_child(instance_node)` | the world node's warning is **gone** on the next `get_configuration_warnings()` — proves group deregistration plus the peer `update_configuration_warnings()` on `EXIT_TREE` |
+Every case below names the mutation that must turn it RED. A control whose mutation is not
+recorded is not a control — it is a case that happens to be green.
 
-**The mutation run is part of the deliverable, not optional.** Before the PR is opened, run
-T1 with the two `get_configuration_warnings()` additions reverted (keep everything else) and
-record that **T1 fails and T2–T9 pass**. A run in which T1 still passes means the assertion
-is matching something else — most likely a pre-existing warning — and the test proves
-nothing. Paste the two transcripts (mutant and fixed) into the PR; do not describe them.
+| # | Case | Setup | Assertion | Killed by (mutation that must turn it RED) |
+| --- | --- | --- | --- | --- |
+| **T1** | **the RED-without / GREEN-with case** | `GaussianSplatWorld3D` with a world holding ≥1 splat **and** `GaussianSplatNode3D` with runtime splat data, both under one `SceneTree` root, same `World3D` | **both** nodes report the warning. `if (!found) { FAIL(...); return; }` | reverting either `get_configuration_warnings()` addition |
+| **T2** | control — world alone | only the `GaussianSplatWorld3D` | warning **absent** | making the condition "a GS node of *either* type is in this scenario" |
+| **T3** | control — instance alone | only the `GaussianSplatNode3D` | warning **absent** | same as T2 |
+| **T4** | control — two instance nodes | two `GaussianSplatNode3D`s, no world node | warning **absent**. This is the control that stops "more than one GS node in the scene" from passing as an implementation; multiple instance nodes coexist correctly, they all publish `RESIDENT` | replacing the *other*-group lookup with a both-groups lookup |
+| **T5** | control — visibility is irrelevant | T1 setup, then `set_visible(false)` on the instance node, then on the world node | warning **still present in both configurations** (pins §6.3) | adding `&& is_visible_in_tree()` to the condition |
+| **T6** | control — `route_policy` is irrelevant | T1 setup, run once with `route_policy = 0` and once with `= 1`, restoring the setting via the existing `ProjectSettingGuard` pattern (`tests/test_node_surface_cleanup.h:184`) | warning **present at both values** (pins §3.4/§6.3) | making the condition read `gs::settings::get_streaming_route_policy()` |
+| **T7** | control — different `World3D` | world node in the main tree, instance node inside a `SubViewport` with `own_world_3d = true` | warning **absent in both**. This is the control that proves the scenario scoping is real rather than a global "is there a world node anywhere" check | dropping the scenario-RID comparison from the condition |
+| **T8** | control — no content at all | both node types present, neither has any resource assigned | warning **absent** — the user's actionable problem is "no asset", which the existing warning already states | making the condition ignore content entirely |
+| **T8b** | control — **empty instance resource** | world node with ≥1 splat **and** instance node whose `splat_asset` is a valid `GaussianSplatAsset` with `get_splat_count() == 0` | warning **absent on both**, and the world node gains no other new warning. The world route renders in this configuration (§6.1 proof), so a warning here would be a lie | weakening the instance predicate to `splat_asset.is_valid()` — i.e. the "content assigned" spec this ADR shipped in round 1 |
+| **T8c** | control — **empty world resource** | instance node with ≥1 splat of runtime data **and** world node whose `GaussianSplatWorld` has a null-or-zero-count `gaussian_data` *and* `chunk_payload_source` | warning **absent on both** | weakening the world predicate to `get_world().is_valid()` |
+| **T9** | the peer refresh on **tree exit** actually happens | T1 setup + the signal harness below, then `root->remove_child(instance_node)`, then flush | the world node appears in the recorder **and** its signal-time snapshot no longer carries the conflict warning | (a) deleting the `EXIT_TREE` peer refresh; (b) issuing it immediately instead of deferred |
+| **T10** | the peer refresh survives a **`World3D` switch** | T1 setup with the instance node under a `SubViewport` that shares the main world (the default), + the signal harness, then `subviewport->set_use_own_world_3d(true)`, then flush | same as T9, for the world node left behind in the old world | (a) deleting the `EXIT_WORLD`/`ENTER_WORLD` peer refresh; (b) issuing it immediately instead of deferred; (c) scoping the peer walk by scenario at exit time |
+
+**T9 and T10 need a signal observer, not a getter.** `get_configuration_warnings()`
+recomputes from the groups on every call, so once a removal has *fully completed* it returns
+the right answer whether or not any refresh was ever issued. A T9 that only calls the getter
+therefore stays green with the entire peer-notification mechanism deleted — a green test for
+a mechanism that is not there, and the exact defect shape this ADR is trying to keep out of
+the module. Both cases must observe what the editor observes:
+
+1. `SceneTree::set_edited_scene_root(root)` (`scene/main/scene_tree.cpp:1623-1627`,
+   `TOOLS_ENABLED`-only; the module test batches build under `target=editor tests=yes`).
+   Without it `Node::update_configuration_warnings()` returns before emitting
+   (`scene/main/node.cpp:3501-3506`) and no signal is observable at all. Save and restore the
+   previous value.
+2. Connect a recorder to the tree's `node_configuration_warning_changed` signal
+   (`scene/main/scene_tree.cpp:1952`). For each emitting node the recorder stores **the
+   result of calling `get_configuration_warnings()` on that node at signal time** — not just
+   the fact that it fired.
+3. Assert the T1 precondition first (the conflict warning is present on both nodes), then
+   clear the recorder, then perform the trigger, then
+   `MessageQueue::get_singleton()->flush()` so the deferred refreshes of §6.3 run.
+4. Assert: the recorder holds an entry for the peer node, **and** that entry's snapshot no
+   longer contains the conflict warning.
+
+Step 4 is what makes these two cases discriminate, and each half kills a different mutation:
+
+- **delete the peer `update_configuration_warnings()` call** → no entry for the peer → RED.
+  A value-only assertion (round 1's T9) stays green here.
+- **issue the peer refresh immediately instead of deferred** → the entry exists, but its
+  snapshot still carries the conflict warning, because the refresh ran before group removal
+  (§6.3 fact 2) or before the world replacement (§6.3 fact 3) → RED. A fires-at-all
+  assertion stays green here.
+
+**Spurious-fire control for both:** with the recorder connected and the same T1 setup,
+remove an unrelated plain `Node3D` from the root and flush. The recorder must contain **no**
+entry for either GS node. Without this, "the peer was signalled" could be satisfied by any
+unrelated tree churn that happens to emit for the same node.
+
+#### The mutation runs — what they must actually produce
+
+**The mutation runs are part of the deliverable, not optional.** Two runs are mandated, and
+the expected outcomes below were derived from the case list above rather than assumed.
+
+**Run A — the broad mutation.** Revert both `get_configuration_warnings()` additions and
+keep everything else (groups, helper, triggers, deferral). No conflict warning is producible
+at all, so every case that *positively requires* the warning fails and every case that
+requires its *absence* passes:
+
+> expected: **T1, T5, T6, T9, T10 FAIL — T2, T3, T4, T7, T8, T8b, T8c PASS.**
+
+T5 and T6 fail because each positively asserts the same warning T1 does, under a
+perturbation. T9 and T10 fail on their T1 precondition (step 3 above) — which they must
+assert, because a T9 that skipped it would be green against a mutant that produces no
+warning at all, i.e. vacuous. **A transcript reading "T1 fails and everything else passes"
+is not achievable for this mutation and must not be written.** If a run does produce it, the
+assertions are matching something other than the new warning — most likely the pre-existing
+"No Gaussian splat asset…" string — and the whole suite proves nothing; the
+three-substring helper above exists to prevent exactly that.
+
+**Run B — the narrow mutations, one per control.** Run A proves the warning exists; it
+proves nothing about *which* case guards *what*, because a mutation that kills five cases at
+once cannot attribute any of them. Apply each distinct mutation named in the "Killed by"
+column independently (T2 and T3 share one; T9 and T10 have two and three respectively) and
+record for each that **the named case is RED while T1 stays GREEN**. Each is a one-line
+result and none requires rebuilding more than the two node translation units.
+
+Paste both transcripts into the PR; do not describe them.
 
 ## 7. Consequences
 
@@ -400,9 +611,11 @@ nothing. Paste the two transcripts (mutant and fixed) into the PR; do not descri
 - **Nothing in the repo exercises coexistence after #854 merges.** That is the correct state
   for now — a scene that cannot work should not be gating — but it means the first Option 2
   slice must bring its own coverage rather than inheriting any.
-- **Cost:** an editor-only code path in two node classes, plus nine test cases. The peer
-  notification is the only non-trivial part, and it runs on tree/world transitions and
-  content assignment, never per frame.
+- **Cost:** an editor-only code path in two node classes, plus twelve test cases (T1–T10
+  with T8b/T8c). The peer notification is the only non-trivial part, and it runs on
+  tree/world transitions, resource `changed` and content assignment — never per frame. Its
+  exit-path half is deferred by one idle frame (§6.3), which is invisible in the editor and
+  is why T9/T10 flush the message queue.
 
 ## 8. What is not verified here
 
@@ -423,6 +636,24 @@ below was executed.
 - **The Option 1 spec compiles/behaves as written is unproven.** Group registration from a
   constructor, `get_world_3d()` validity inside the editor's edited-scene viewport, and the
   peer-notification ordering are all read from source, not run.
+- **The §6.3 ordering facts are read, not executed.** The three engine orderings (group
+  registration vs. `ENTER_TREE`, `EXIT_TREE` vs. group removal, and `EXIT_WORLD` vs. the
+  `own_world_3d` replacement) are cited to line, but the *consequence* claimed for the fix —
+  that a `call_deferred()` peer refresh issued from `EXIT_WORLD` lands after
+  `_propagate_enter_world_3d()` and the `viewport_set_scenario()` at
+  `scene/main/viewport.cpp:4768-4770` — was not observed running. T10 is the case that
+  measures it; if it does not, the alternative is to capture the old-world peer set at exit
+  and refresh that captured set, which is the same fix with explicit bookkeeping.
+- **Whether `set_edited_scene_root()` is sufficient to make
+  `update_configuration_warnings()` emit inside a `[SceneTree]` doctest** is read from
+  `scene/main/node.cpp:3498-3508` and not run. Nothing in this repo currently connects to
+  `node_configuration_warning_changed` — the T9/T10 harness is the first user of it, so it
+  is the least-precedented part of §6.4.
+- **Whether an unloaded imported `GaussianSplatAsset` reports `get_splat_count() == 0` and
+  later emits `changed`** — the trigger the count-based predicate of §6.1 depends on for
+  lazily-loaded content — is not measured. `nodes/gaussian_splat_node_3d.cpp:730-733` and
+  `:2965-2970` show the wiring exists; that it fires for every load path does not follow from
+  reading it.
 
 ## 9. Follow-up work this ADR surfaces but does not do
 
@@ -432,6 +663,17 @@ below was executed.
   Worth filing as its own issue: a hidden node influencing route selection is surprising
   independently of #788, and it is a small, testable change. **Not** to be folded into the
   Option 1 PR — it is a behaviour change to the director, not a diagnostic.
+- **Instance records that outlive their payload still steer the global route.** Same loop,
+  same defect shape as the bullet above, different field. When `refresh_asset()` fails it
+  evicts the cached `GaussianData` (`core/gaussian_splat_scene_director.cpp:795`, and
+  `retain_asset()` at `:760`, both via `_evict_asset_data()` at `:681-690`) and
+  `register_instance()` returns without removing the `InstanceRecord` (`:1146-1148`). Every
+  buffer builder then skips the record for null data,
+  but the hint loop at `:2830-2846` still counts it, so the route is committed to `RESIDENT`
+  for a record that contributes no instances — landing on the `resident_no_instances` skip of
+  §3.1 with nothing on screen. The loop's filter should test what the render path tests, not
+  a flag that survives its own payload. This is also the source of the one accepted false
+  negative in §6.1's predicate; fixing it here would remove that caveat.
 - **#855 must be root-caused before Option 2 is scheduled** (§5.2, reason 3).
 
 ## 10. What would change this decision
