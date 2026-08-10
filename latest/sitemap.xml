@@ -101,6 +101,10 @@
          <lastmod>2026-08-10</lastmod>
     </url>
     <url>
+         <loc>https://klausi3d.github.io/godotGS/latest/architecture/adr-single-route-per-frame-node-coexistence/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
          <loc>https://klausi3d.github.io/godotGS/latest/architecture/adr-test-quarantine-manifest/</loc>
          <lastmod>2026-08-10</lastmod>
     </url>
