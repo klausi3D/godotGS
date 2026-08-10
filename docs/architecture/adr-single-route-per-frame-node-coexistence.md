@@ -20,16 +20,22 @@
   exactly while the stale submission is still steering the route** (§6.1, T13). A diagnostic
   that goes quiet when the problem is real is worse than no diagnostic, and no wording change
   fixes it. The alternative — basing P on the submitted payload — is rejected in §6.1 (it is a
-  live director query and would make the warning blink). **#863 is not a hard prerequisite**,
-  but it is what forces the §6.2 workaround to carry an extra manual step; the evidence and
-  the distinction are in §5.1.
+  live director query and would make the warning blink). **#863 and #870 are not hard
+  prerequisites**, but together they are why §6.2 no longer prescribes a workaround at all —
+  separating the `World3D`s is necessary and not sufficient, and no in-place repair completes
+  it on master today; the evidence and the distinction are in §5.1 and §6.2.
 - **Tracking:** #788 (this decision). **Split from:** #785 (`qa_visual_diff` /
   `qa_sh_rotation` were built on the combination this ADR describes; fixed by PR #854).
   **Blocked-on / related:** #855 (world route drops content the instance route draws).
   **Waiting on Option 2:** `qa_stream_multi_asset.tscn`.
 - **Verified against:** `origin/master` @ **`a04472a82cf`**. Every file:line in this
   document was read at that commit. §2 records which of the issue's original citations had
-  drifted. The round-5 re-derivation of §6.4 was read at `origin/master` @ **`c73570c840f`**;
+  drifted. **Round 11 re-ran the blob-identity check against `origin/master` = `b68d5ed5a37`**
+  (master has moved on since the anchor): all 22 files this document cites — now including
+  `servers/rendering/renderer_rd/renderer_scene_render_rd.cpp` and
+  `nodes/gaussian_splat_node_helpers.cpp`, first cited in that round — are blob-identical
+  between `a04472a82cf` and `b68d5ed5a37`, so every line number below still holds on current
+  master. The round-5 re-derivation of §6.4 was read at `origin/master` @ **`c73570c840f`**;
   every file it cites (`scene/3d/node_3d.cpp`, `scene/main/viewport.cpp`, `scene/main/node.cpp`,
   `core/object/object.h`, `scene/main/scene_tree.cpp`, both node `.cpp`s and
   `core/gaussian_splat_scene_director.cpp`) is byte-identical between the two commits, so the
@@ -290,14 +296,18 @@ route later) is unchanged by rounds 5 and 6; what those rounds established is th
 - **#863 is not a hard prerequisite, and this ADR does not claim it is.** Its effect is on the
   *remedy*, not the predicate: toggling `own_world_3d` on the viewport containing the world
   node separates the two `World3D`s but leaves the world node's submission registered in the
-  old scenario, so the conflict — and the warning — survive the exact action §6.2 recommends
-  (this is §6.4's T10b). Round 6 verified that **re-applying the world node afterwards does
-  clear it**: `_register_shared_renderer()` resolves the new scenario at
+  old scenario, so the conflict — and the warning — survive the `World3D` separation that §6.2
+  names as necessary (this is §6.4's T10b). Round 6 verified that **re-applying the world node afterwards does
+  move the submission**: `_register_shared_renderer()` resolves the new scenario at
   `nodes/gaussian_splat_world_3d.cpp:488` and `submit_world_submission()`'s phase 3
   re-resolves the owner's previous world and **resets** it
   (`core/gaussian_splat_scene_director.cpp:2509-2517`), so the stranded submission is
-  released, not duplicated. §6.2's text therefore names that step. #863 turns a one-step
-  workaround into a two-step one; it does not make the warning wrong.
+  released, not duplicated. **Round 11 then found that moving the submission is not enough**
+  — the node's cached renderer `Ref` does not migrate with it (#870), so the warning clears
+  while the node still draws nothing. §6.2 therefore no longer prescribes that step, or any
+  other in-place repair. **None of this makes the warning wrong**, which is the only question
+  that decides prerequisite status: #863 and #870 both act on the *remedy*, and neither is an
+  input to §6.1's predicate.
 
 - **#869 is not a hard prerequisite either, and the reasoning is neither #862's nor #863's.**
   Found in round 8: `last_known_scenario` (conjunct S) is written before
@@ -365,7 +375,11 @@ Evaluated honestly, and rejected:
 **The honest counterpoint, recorded:** a hard error would guarantee nobody ships a silently
 black scene, and Option 1 does not — a user can ignore a warning triangle. This is accepted
 as a residual risk, mitigated by the warning naming the observable consequence explicitly
-(§6.2) and by the documented workaround. If evidence later shows users shipping the broken
+(§6.2). **The mitigation is weaker than earlier revisions of this ADR claimed**, because since
+round 11 §6.2 offers no in-place repair — only the scope limit "run content of only one of the
+two node types at a time" — so a user who wants both in one project has nothing to *do* except
+wait for #863 and #870. That is the honest state and it is the reason those two are tracked in
+§9 rather than treated as optional polish. If evidence later shows users shipping the broken
 combination anyway, Option 3 can be revisited as an *export-time* check rather than a
 runtime error, which would break no editing session.
 
@@ -750,14 +764,14 @@ On `GaussianSplatWorld3D`:
 A GaussianSplatNode3D is registered in the same World3D as this node's content. The
 renderer commits to a single render route per frame, so only one of the two node types
 is drawn and the other renders nothing. Hiding either node does not restore the other.
-Until per-submission routing lands (issue #788), keep GaussianSplatWorld3D content and
-GaussianSplatNode3D content in separate World3Ds: put one under a SubViewport with its
-own World3D, or run the two as separate scenes one at a time. Separating the World3Ds
-is not enough on its own — this node keeps its content registered in the World3D it
-last applied to, so re-apply it afterwards: reload the scene, or re-assign its
-GaussianSplatWorld in the inspector. Splitting them into separate .tscn files that are
-then instantiated under the same viewport does NOT help — they still resolve the same
-World3D.
+This configuration cannot be repaired in place on this build: moving GaussianSplatWorld3D
+content and GaussianSplatNode3D content into separate World3Ds is necessary but not
+sufficient, because this node migrates neither its submission (issue #863) nor its
+renderer (issue #870) when its World3D changes — and once the submission does move, this
+warning stops appearing while the node can still render nothing. Splitting them into separate .tscn files that are then
+instantiated under the same viewport does NOT help either: they still resolve the same
+World3D. Until per-submission routing lands (issue #788), run content of only one of
+the two node types at a time.
 ```
 
 On `GaussianSplatNode3D`:
@@ -765,19 +779,19 @@ On `GaussianSplatNode3D`:
 ```text
 A GaussianSplatWorld3D has content registered in this node's World3D. The renderer
 commits to a single render route per frame, so only one of the two node types is drawn
-and the other renders nothing. Hiding either node does not restore the other. Until
-per-submission routing lands (issue #788), keep GaussianSplatNode3D content and
-GaussianSplatWorld3D content in separate World3Ds: put one under a SubViewport with its
-own World3D, or run the two as separate scenes one at a time. Separating the World3Ds
-is not enough on its own — the GaussianSplatWorld3D keeps its content registered in the
-World3D it last applied to, so re-apply that node afterwards: reload the scene, or
-re-assign its GaussianSplatWorld in the inspector. Splitting them into separate .tscn
-files that are then instantiated under the same viewport does NOT help — they still
-resolve the same World3D.
+and the other renders nothing. Hiding either node does not restore the other. This
+configuration cannot be repaired in place on this build: moving GaussianSplatNode3D
+content and GaussianSplatWorld3D content into separate World3Ds is necessary but not
+sufficient, because the GaussianSplatWorld3D migrates neither its submission (issue #863)
+nor its renderer (issue #870) when its World3D changes — and once that submission does
+move, this warning stops appearing while that node can still render nothing. Splitting them into separate .tscn files that are
+then instantiated under the same viewport does NOT help either: they still resolve the
+same World3D. Until per-submission routing lands (issue #788), run content of only one
+of the two node types at a time.
 ```
 
-**Why the workaround is phrased as a `World3D` separation and not as "separate scenes".**
-The conflict is keyed by scenario RID (§6.1), and a scene file is not a scenario.
+**Why the necessary condition is phrased as a `World3D` separation and not as "separate
+scenes" (round 3).** The conflict is keyed by scenario RID (§6.1), and a scene file is not a scenario.
 `Node3D::get_world_3d()` forwards to `Viewport::find_world_3d()`
 (`scene/3d/node_3d.cpp:1054-1060`), which returns `own_world_3d`, else the viewport's
 `world_3d`, else **recurses into the parent viewport** (`scene/main/viewport.cpp:4670-4681`).
@@ -787,32 +801,65 @@ scene files" on its own is not a workaround and must not be advertised as one. O
 viewport that supplies its own world, or not having both scenes in the tree at the same
 time, changes the key.
 
-**Why the re-apply step is in the text, and what was verified about it (round 6).** The
-previous revision told the user to separate the `World3D`s and stopped there. Separating them
-by toggling `own_world_3d` on the viewport that contains the **world** node does not clear the
-conflict: `Viewport::set_use_own_world_3d()` (`scene/main/viewport.cpp:4740`) never touches the
-tree, and `GaussianSplatWorld3D::_notification()` (`nodes/gaussian_splat_world_3d.cpp:73-215`)
-handles neither `NOTIFICATION_ENTER_WORLD` nor `NOTIFICATION_EXIT_WORLD` — its submission is
-released only from `NOTIFICATION_EXIT_TREE` (`:126`) and `clear_world()` (`:307`). So the
-submission stays registered in, and arbitrating over, the old scenario (#863), the conflict
-stays live, and the warning correctly stays up. **Advice that fails when followed is a defect
-in the deliverable**, so the text now names the step that finishes the job. That step was
-verified by reading the path, not assumed:
+**Why the text no longer prescribes a repair procedure at all — the round-11 decision.** Three
+successive revisions of this section each named a workaround, each verified it by reading the
+path before writing it, and each was found incomplete by the next round of review:
 
-- `apply_world()` (`:301`) → `_apply_world_internal()` (`:417`) → `_register_shared_renderer()`
-  (`:452`), which resolves the **new** scenario at `:488` and republishes there.
-- `submit_world_submission()` then migrates rather than duplicating: in phase 3 it re-resolves
-  the owner's previous world with `_find_world_for_world_submission(owner_id)` — a scan over
-  the whole `world_registry` keyed on owner (`core/gaussian_splat_scene_director.cpp:614-624`)
-  — and when that world is not the one being committed to, it queues the renderer restore and
-  calls `previous_world->submission_store.reset()` (`:2509-2517`). The stranded submission is
-  released.
-- The two user-reachable ways to reach `apply_world()` without a script: **re-assign the
-  resource** — `set_world()` calls `apply_world()` whenever the node is in the tree
-  (`:249-254`) — or **reload the scene**, which re-enters the node in the new world and
-  re-registers from `NOTIFICATION_READY` (`:100-113`). Removing and re-adding the node works
-  too: `EXIT_TREE` releases at `:126` and `ENTER_TREE` re-applies at `:96-98`, gated on
-  `was_world_submission_active`, which a previously-applied node still carries.
+| Round | Prescribed | Why it was wrong |
+| --- | --- | --- |
+| 3 | "put them in separate `.tscn` files" | Two `PackedScene`s under one viewport resolve the *same* `World3D` (derivation above), so the key never changes |
+| 6 | "separate the `World3D`s, **then re-apply**" | Verified correct *as far as it went* — the submission really does migrate (below) — but it moves only the submission |
+| 11 | — | The re-apply migrates the submission and **not** the node's renderer, so the warning clears while the node still draws nothing (#870) |
+
+The round-6 verification was not wrong, and it is kept here because #863's entry in §9 depends
+on it: `apply_world()` (`:301`) → `_apply_world_internal()` (`:417`) →
+`_register_shared_renderer()` (`:452`) resolves the **new** scenario at `:488` and republishes
+there, and `submit_world_submission()` migrates rather than duplicating — phase 3 re-resolves
+the owner's previous world with `_find_world_for_world_submission(owner_id)`
+(`core/gaussian_splat_scene_director.cpp:614-624`) and, when that world is not the one being
+committed to, queues the renderer restore and calls `previous_world->submission_store.reset()`
+(`:2509-2517`). The stranded submission *is* released.
+
+What round 11 established is that releasing it is not sufficient, and that the step therefore
+must not be prescribed:
+
+- `_ensure_renderer()` replaces the node's cached `renderer` **only when the old `Ref` is
+  invalid** (`nodes/gaussian_splat_world_3d.cpp:331`, assignment at `:334`). A world switch does
+  not invalidate it — `NOTIFICATION_EXIT_TREE` (`:125-132`) releases the submission and the
+  gaussian base but never unrefs the renderer, and the sole `renderer.unref()` is in
+  `NOTIFICATION_PREDELETE` (`:181`).
+- `_sync_gaussian_storage()` then republishes that stale `Ref` onto the gaussian base
+  (`:636-651`, `gaussian_set_renderer` at `:647`; likewise `_ensure_gaussian_base()` at `:612`
+  for a base recreated after tree re-entry), and Forward+ builds the frame's draw list from
+  exactly that value — `gaussian_get_renderer(gaussian_rid)`
+  (`servers/rendering/renderer_rd/renderer_scene_render_rd.cpp:1507`) →
+  `render_data.gaussian_splat_renderers.push_back()` (`:1530`).
+- So after the recommended re-apply, the render instance is in the **new** scenario (`:582`)
+  while the base names the **old** scenario's renderer — the one whose world contract phase 3
+  just restored away (`queue_restore` at `:2514-2515`). The submission moved; the thing that
+  draws it did not.
+
+**A warning that clears while the node is still blank is worse than no warning**, because it
+converts a diagnosable configuration into an undiagnosable one: the user performs the documented
+step, the diagnostic disappears, and the symptom does not. That is the same failure shape as
+#862 — and it is why the prescriptive text is deleted rather than corrected a fourth time. Three
+verified-then-falsified formulations are not three wording accidents; they are evidence that **no
+complete in-place remedy exists on master today**, and a spec that keeps asserting one is
+asserting something the code does not support.
+
+**Does this touch the predicate? No — and that distinction is load-bearing, so it is recorded
+rather than assumed.** §6.1's condition is a function of R1, R2, S, P and I only. Which renderer
+object a node holds is not an input to any of them, so #870 can produce neither a false positive
+nor a false negative. In the post-re-apply state the warning goes quiet **correctly**: the world
+node's S has genuinely moved to the new scenario, its submission genuinely moved with it, and
+the instance node in the old scenario is genuinely no longer being dropped by it — the route
+conflict this ADR diagnoses really is resolved. What persists is a *different* failure, in a
+mechanism the predicate was never scoped to observe. Option 1's specification is therefore
+unchanged by #870, and §6.4 needs no re-derivation on its account (§6.4's only dependency on
+this section is the three-substring assertion — `"GaussianSplatWorld3D"`,
+`"GaussianSplatNode3D"`, `"renders nothing"` — and all three survive the rewrite verbatim).
+This is a defect in the **deliverable's advice**, not in the diagnostic, and it is fixed by
+deleting the advice.
 
 The first sentence of each string changed for the same reason. "shares this node's `World3D`"
 is **false** in exactly the state T10b constructs — after the switch the two nodes resolve
@@ -825,6 +872,18 @@ now resolves — the same distinction conjunct S makes (§6.1).
 The phrase **"renders nothing"** and both literal class names are load-bearing: §6.4 asserts
 on them, and the assertion is specified here rather than derived from the implementation
 constant, so the test cannot become a tautology against the code it guards.
+
+**This is a live constraint, not a note — the round-11 rewrite violated it and had to be
+corrected before landing.** The deleted prescriptive sentence was the *only* occurrence of the
+peer class name in each string ("keep GaussianSplatWorld3D content and GaussianSplatNode3D
+content in separate World3Ds"). Removing it left each string naming only one of the two classes,
+which would have made **every** §6.4 case that checks for a warning's presence fail its
+three-substring helper — an entire table turned RED by an edit to prose that no one would think
+to re-derive. The names were restored into the "necessary but not sufficient" sentence.
+**Any future edit to these two strings must re-run the three-substring check on both of them**,
+mechanically, before the diff is proposed: `"GaussianSplatWorld3D"`, `"GaussianSplatNode3D"` and
+`"renders nothing"` must each appear in *each* string. The check is cheap and this section has
+now proved it is not redundant.
 
 ### 6.3 When the warning is re-evaluated
 
@@ -1662,8 +1721,9 @@ Paste both transcripts into the PR; do not describe them.
 ## 7. Consequences
 
 - **Immediately:** the conflict becomes visible at author time on both node types, on a
-  scene the user is editing, naming the consequence and a workaround. No render behaviour
-  changes; no existing scene stops working.
+  scene the user is editing, naming the consequence and the scope limit that avoids it. It
+  does **not** hand the user a repair procedure — there is none on master (§6.2, #863, #870).
+  No render behaviour changes; no existing scene stops working.
 - **The warning is a stopgap with an expiry condition.** It is deleted, not amended, when
   Option 2 lands. Both the warning text and this ADR name #788 so the removal is findable.
 - **`qa_stream_multi_asset.tscn` stays quarantined** (`qa_test_runner.gd:53-55`). Option 1
@@ -1713,6 +1773,17 @@ below was executed.
 - **The Option 1 spec compiles/behaves as written is unproven.** Group registration from a
   constructor, `get_world_3d()` validity inside the editor's edited-scene viewport, and the
   peer-notification ordering are all read from source, not run.
+- **Whether a full scene reload sidesteps #863 and #870 is NOT verified, and is deliberately
+  not advertised.** The mechanism suggests it should: a reload constructs fresh nodes whose
+  `renderer` `Ref` starts invalid, so `_ensure_renderer()` binds the destination world's
+  renderer on the normal path (`nodes/gaussian_splat_world_3d.cpp:331-336`) and the node
+  registers only in the new scenario, which is neither the stranded-submission state (#863)
+  nor the stale-`Ref` state (#870). **That reasoning is exactly the kind that has now failed
+  three times in this section** — each of rounds 3, 6 and 11 overturned a workaround that had
+  been derived the same way, by reading a path rather than running it. It is recorded here as
+  an unverified observation and a place for a future runtime check to start, **not** as a
+  remedy, and §6.2 does not state it. Promoting it requires a runtime capture of the mixed
+  scene across a reload, which needs a build.
 - **Whether conjunct I (§6.1) ever latches at author time is the single highest-risk
   unverified item, because if it does not the warning never appears in the editor at all.**
   `was_world_submission_active` becomes true only inside `_register_shared_renderer()`
@@ -1834,13 +1905,17 @@ below was executed.
   scenario while the node resolves the new one. **This is the reason §6.1's conjunct S compares
   registered scenarios rather than resolved ones**; that choice makes the predicate correct
   before *and* after the fix, so Option 1 does not block on it. **What it does cost, until it
-  lands, is a step in the user-facing remedy:** separating the two `World3D`s — the action
-  §6.2 recommends — leaves the world node's submission in the old scenario, so the warning
-  survives the fix the user just performed. §6.2 now names the step that completes it
-  (re-apply the world node), and round 6 verified that step against
-  `core/gaussian_splat_scene_director.cpp:2509-2517`, which releases the stranded submission
-  rather than duplicating it. That mitigation is why #863 is recorded as a strong dependency
-  and not, like #862, as a blocker. Also **not** to be folded into the Option 1 PR: §6.3 adds
+  lands, is the user-facing remedy:** separating the two `World3D`s leaves the world node's
+  submission in the old scenario, so the warning survives the action the user just performed.
+  Round 6 verified that re-applying the node afterwards *does* release the stranded submission
+  (`core/gaussian_splat_scene_director.cpp:2509-2517` — a migration, not a duplication), and
+  §6.2 named that step for five rounds. **Round 11 withdrew it**: #870 shows the re-apply moves
+  the submission without rebinding the node's renderer, so the completing step leaves the user
+  with a blank node and no warning. #863 and #870 must therefore be read together — neither
+  alone makes the world-switch path work, and §6.2 now prescribes no in-place repair at all.
+  What keeps #863 a strong dependency rather than a blocker is unchanged and does not rest on
+  the remedy: conjunct S makes the predicate correct before *and* after the fix. Also **not**
+  to be folded into the Option 1 PR: §6.3 adds
   those two notification cases to the class for a *refresh* only, and making them migrate the
   submission is a renderer behaviour change.
   **One further consequence, recorded here rather than filed separately because it is
@@ -1876,21 +1951,51 @@ below was executed.
   ADR never promised for that configuration; #862's removes one it does.
 
   Two further checks, because "less reachable" alone is not the standard round 7 set. **It does
-  not break the §6.2 remedy**, which is what kept #863 off the prerequisite list: §6.2 tells
-  the user to put one node under a `SubViewport` with its **own** `World3D`, and a freshly
-  created own-world scenario has no incumbent owner, so the re-apply is accepted and the
-  migration path round 6 verified (`:2509-2517`) runs unchanged. And **it does not make the
+  not break the §6.2 remedy** — the check that kept #863 off the prerequisite list. This one is
+  now moot in the direction that matters: §6.2 prescribes no remedy at all after round 11, so
+  there is none for #869 to break. It remains true on its own terms (a freshly created own-world
+  scenario has no incumbent owner, so a re-apply into it is accepted and never reaches the
+  rejection at `:2392-2401`), and it is recorded that way rather than deleted, because if
+  #863 and #870 land and §6.2 regains a remedy, this check has to be re-run against it. And
+  **it does not make the
   predicate unimplementable**: unlike #862, where no wording and no conjunct reaches the
   divergence, #869 is closed by the fix landing later without any change to §6.1 — S simply
   stops moving on a rejected submit. Option 1 can ship, and the residual is recorded in §6.1
   and §8 rather than hidden.
+- **#870 — neither node class rebinds its cached `renderer` `Ref` on a `World3D` switch.**
+  `_ensure_renderer()` assigns only when the old `Ref` is invalid
+  (`nodes/gaussian_splat_world_3d.cpp:331`, assignment `:334`; the instance node's equivalent is
+  `nodes/gaussian_splat_node_helpers.cpp:1907`, assignment `:1910`), and the only `unref()` on
+  either class is at `NOTIFICATION_PREDELETE` (`gaussian_splat_world_3d.cpp:181`,
+  `gaussian_splat_node_3d.cpp:514`). The stale `Ref` is republished onto the gaussian base
+  (`gaussian_splat_world_3d.cpp:647`, `:612`), which is exactly where Forward+ reads the
+  renderer for the frame's draw list (`renderer_scene_render_rd.cpp:1507` → `:1530`), so the
+  node's render instance ends up in the new scenario while the renderer drawing it is the old
+  scenario's — the one phase 3 just restored out of its world contract (`:2514-2517`).
+  **This is the round-11 finding, and it is the reason §6.2 stopped prescribing a workaround.**
+  Filed with a two-directional mutation proof, including an explicit note that a same-world
+  re-apply *cannot* kill the unconditional-rebind mutation by object identity (the director
+  returns the same renderer for the same scenario), so the no-churn direction is proved from
+  the out-of-world case instead. **Not** a prerequisite and **not** to be folded into the
+  Option 1 PR: it changes what the renderer draws, and it is not an input to §6.1 — see §6.2's
+  "Does this touch the predicate?" for why the warning going quiet in that state is correct
+  rather than a false negative. **Not** independently fixable with #863 either; the world-switch
+  path needs both.
 - **#855 must be root-caused before Option 2 is scheduled** (§5.2, reason 3).
 
-#862, #863 and #869 were all found *through* this ADR rather than by it: each round of review on
-the spec has turned up a product defect in the class the spec describes, and all three are the
-same shape — **a node-side field written optimistically, before the director operation that
-decides whether the field is true.** That is worth recording as a property of the exercise — a diagnostic that has to state, conjunct by conjunct, when a node
-"would steer the route" is an audit of the registration path whether or not it was meant to be.
+#862, #863, #869 and #870 were all found *through* this ADR rather than by it: each round of
+review on the spec has turned up a product defect in the class the spec describes. The first
+three are the same shape — **a node-side field written optimistically, before the director
+operation that decides whether the field is true.** #870 is a fourth of a different shape —
+**a node-side field never written at all on an event that invalidates it.** That is worth
+recording as a property of the exercise: a diagnostic that has to state, conjunct by conjunct,
+when a node "would steer the route" is an audit of the registration path whether or not it was
+meant to be. It is also worth recording *where* the four were found. #862, #863 and #869 came
+out of deriving the predicate. #870 came out of the one part of the document that is not a
+specification at all — the sentence telling a user what to do about it. **The prose was the
+least-reviewed surface in the ADR and the one that had to model the most machinery**, which is
+why three successive formulations of it were verified and still wrong, and why the fourth
+revision deletes the claim instead of replacing it.
 
 ## 10. What would change this decision
 
