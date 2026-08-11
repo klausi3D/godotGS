@@ -77,6 +77,45 @@ An unterminated code fence means it cannot: everything after it is ambiguous,
 and silently treating it as code would hide exactly the link this guard exists to
 find. That is reported as an uninspectable input (exit 3), not skipped.
 
+## Two views of one document, and why they are deliberately different
+
+Rounds 1-3 of review on this guard all found the same thing in a new costume:
+**the guard passing on something the reader never sees.** An inline-only link
+pattern missed reference-style links; a raw-text token search counted a warning
+that only existed inside a fenced snippet; a definition-counting link extractor
+credited an orphan `[dashboard]: ...` line that renders nothing at all. Patching
+one authoring form per round is not a terminating process, so the rule is stated
+once, as a property of *which* text each question is asked over:
+
+* **Obligation -- "must this page carry the warning?" -- is asked over a
+  superset of what the reader might see.** Every occurrence of the Releases URL
+  outside certain code counts, in any syntax, recognised or not. When the guard
+  is unsure whether something renders, it assumes it does, because the cost of
+  being wrong is a page that hands out an unwarned binary.
+* **Credit -- "does this page carry the warning?" -- is asked over a subset of
+  what the reader certainly sees.** Fenced blocks (at any indentation), indented
+  code blocks, and HTML comments are removed; a reference definition counts as a
+  link only when some reference link actually uses its label. When the guard is
+  unsure whether something renders, it assumes it does not, because the cost of
+  being wrong is a PASS the reader cannot see.
+
+Both directions therefore fail closed, and anything unclassifiable falls into
+the obligation view and out of the credit view automatically -- which is why an
+authoring form nobody anticipated cannot produce a false PASS, only a false
+demand for a warning the page should have had anyway.
+
+The one place ambiguity is escalated rather than resolved is the obligation
+view, where treating an unterminated fence as code would *hide* a link: that is
+exit 3. In the credit view the same ambiguity only ever withholds credit, which
+is already the safe direction, so it is masked rather than escalated.
+
+Inline code is the deliberate exception to "code is not prose". A warning
+written as ``compiled with `dev_build=yes`, i.e. `-O0` `` renders, and is how
+every page in this repository actually writes it, so the credit view keeps
+inline-code *content* when looking for the warning tokens. It masks inline code
+only when extracting links, where a `` `[x](y)` `` span renders as text rather
+than as a link.
+
 ## What "carries the warning" means
 
 Two things, both checkable:
@@ -105,6 +144,14 @@ this guard printing PASS. That is the repository's named defect shape: absence o
 a signal reported as a passing signal. Every such input is now collected and
 returned as exit 3, distinct from both "clean" (0) and "violations found" (1),
 and distinct from the existing empty-subject non-vacuity failure (2).
+
+"Decoded without raising" is not the same as "was read as authored". A BOM-less
+UTF-16 file is the counter-example that survived the first version of this rule:
+its NUL bytes are valid UTF-8, so `read_text` succeeds and returns
+`[\x00N\x00i\x00g...`, in which no URL pattern can match. The page is then not a
+download surface, and the guard passes -- the exact swallow the exit-3 path
+exists to close, reached through a decode that never failed. A decoded document
+containing NUL is therefore uninspectable too.
 
 ## What this guard does NOT check
 
@@ -155,13 +202,21 @@ RELEASES_URL_PATTERN = re.compile(
 # through, where a destination -- not a raw URL match -- is what is needed.
 INLINE_LINK_PATTERN = re.compile(r"\]\(\s*<?(?P<dest>[^)\s>]+)")
 REFERENCE_DEFINITION_PATTERN = re.compile(
-    r"^\s{0,3}\[[^\]\n]+\]:\s*<?(?P<dest>[^\s>]+)>?", re.MULTILINE
+    r"^\s{0,3}\[(?P<label>[^\]\n]+)\]:\s*<?(?P<dest>[^\s>]+)>?", re.MULTILINE
 )
 AUTOLINK_PATTERN = re.compile(r"<(?P<dest>[a-zA-Z][a-zA-Z0-9+.\-]*://[^>\s]+)>")
 HTML_HREF_PATTERN = re.compile(
     r"href\s*=\s*(?:\"(?P<dq>[^\"]*)\"|'(?P<sq>[^']*)'|(?P<bare>[^\s\"'`=<>]+))",
     re.IGNORECASE,
 )
+
+# A reference DEFINITION renders nothing on its own; a reference LINK is what
+# renders, and only when a definition matches its label. `[text][label]` and the
+# collapsed `[label][]` are the first form; a bare `[label]` not followed by `(`,
+# `[` or `:` is the shortcut form (the `:` exclusion is what stops a definition
+# line from being read as a use of itself).
+FULL_REFERENCE_PATTERN = re.compile(r"\[(?P<text>[^\]\n]*)\]\[(?P<label>[^\]\n]*)\]")
+SHORTCUT_REFERENCE_PATTERN = re.compile(r"\[(?P<label>[^\]\n]+)\](?![\(\[:])")
 
 # The named groups above that hold a link destination, whichever form matched.
 DESTINATION_GROUPS = ("dest", "dq", "sq", "bare")
@@ -173,8 +228,31 @@ LINK_FORMS = (
     ("raw HTML href", HTML_HREF_PATTERN),
 )
 
+# Link forms that render on their own, with no second half elsewhere on the page.
+DIRECT_LINK_FORMS = (INLINE_LINK_PATTERN, AUTOLINK_PATTERN, HTML_HREF_PATTERN)
+
+# CommonMark allows a fence to be indented up to three spaces relative to its
+# container, so at top level `FENCE_PATTERN` is the rule. Inside a list item or an
+# admonition the same fence is indented further, which the top-level pattern
+# cannot see -- fine for the obligation view (missing a fence only ever adds a
+# surface) and wrong for the credit view, which uses `FENCE_ANY_INDENT_PATTERN`.
 FENCE_PATTERN = re.compile(r"^(?P<indent>\s{0,3})(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
+FENCE_ANY_INDENT_PATTERN = re.compile(
+    r"^(?P<indent>\s*)(?P<fence>`{3,}|~{3,})(?P<info>.*)$"
+)
 INLINE_CODE_PATTERN = re.compile(r"(?P<ticks>`+)(?!`)(?P<body>.*?)(?<!`)(?P=ticks)(?!`)")
+HTML_COMMENT_PATTERN = re.compile(r"<!--.*?(?:-->|\Z)", re.DOTALL)
+
+# A four-space indent is an indented code block only at top level. After a list
+# marker, an admonition marker, a blockquote or an HTML block it is that
+# container's content and renders as ordinary prose -- which is exactly how all
+# three MkDocs pages in this repository write their warning. Getting this wrong
+# in the permissive direction credits a code sample; getting it wrong in the
+# strict direction rejects a real warning, so the container set is listed here
+# and pinned by tests rather than inferred.
+CONTAINER_START_PATTERN = re.compile(
+    r"^\s{0,3}(?:[-*+]\s|\d{1,9}[.)]\s|!!!|\?\?\?|>|<)"
+)
 
 # Both must appear in the SAME paragraph. See module docstring.
 REQUIRED_TOKENS = ("-O0", "dev_build")
@@ -245,8 +323,65 @@ def _display(path: Path, root: Path) -> str:
         return path.as_posix()
 
 
+def _rejoin(text: str, lines: list[str]) -> str:
+    joined = "\n".join(lines)
+    return joined + "\n" if text.endswith("\n") else joined
+
+
+def _mask_fenced_blocks(text: str, *, any_indent: bool) -> tuple[str, int]:
+    """Blank fenced code blocks. Returns `(masked, unclosed_fence_line)`.
+
+    `unclosed_fence_line` is 0 when every fence closed. `any_indent` selects the
+    credit view's rule (a fence indented into a list item or an admonition is
+    still a fence) over the obligation view's top-level CommonMark rule.
+    """
+    pattern = FENCE_ANY_INDENT_PATTERN if any_indent else FENCE_PATTERN
+    masked_lines: list[str] = []
+    open_fence: tuple[str, int] | None = None
+    open_line = 0
+    for number, line in enumerate(text.splitlines(), start=1):
+        if open_fence is not None:
+            char, length = open_fence
+            stripped = line.strip()
+            if (
+                stripped
+                and set(stripped) == {char}
+                and len(stripped) >= length
+                and (any_indent or len(line) - len(line.lstrip()) <= 3)
+            ):
+                open_fence = None
+                open_line = 0
+            masked_lines.append(" " * len(line))
+            continue
+        match = pattern.match(line)
+        # CommonMark: a backtick fence's info string may not contain a backtick,
+        # which is what keeps an inline code span from being read as a fence. The
+        # rule is specific to backtick fences; a tilde fence's info string may.
+        if match is not None and not (
+            match.group("fence")[0] == "`" and "`" in match.group("info")
+        ):
+            fence = match.group("fence")
+            open_fence = (fence[0], len(fence))
+            open_line = number
+            masked_lines.append(" " * len(line))
+            continue
+        masked_lines.append(line)
+    return _rejoin(text, masked_lines), open_line if open_fence is not None else 0
+
+
+def mask_inline_code(text: str) -> str:
+    """Blank inline code spans, line by line, preserving every offset."""
+    return _rejoin(
+        text,
+        [
+            INLINE_CODE_PATTERN.sub(lambda m: " " * len(m.group(0)), line)
+            for line in text.splitlines()
+        ],
+    )
+
+
 def mask_code(text: str) -> tuple[str, str | None]:
-    """Blank out code spans and fenced blocks, preserving every offset.
+    """The OBLIGATION view: blank code spans and fenced blocks, keeping offsets.
 
     Masked characters become spaces and newlines are kept, so line numbers and
     match offsets computed on the result still address the original document.
@@ -257,47 +392,71 @@ def mask_code(text: str) -> tuple[str, str | None]:
     tell an offered link from a printed example, and guessing "code" would hide
     the exact thing it is looking for.
     """
-    masked_lines: list[str] = []
-    open_fence: tuple[str, int, int] | None = None
-    open_line = 0
-    for number, line in enumerate(text.splitlines(), start=1):
-        if open_fence is not None:
-            char, length, _indent = open_fence
-            stripped = line.strip()
-            if (
-                stripped
-                and set(stripped) == {char}
-                and len(stripped) >= length
-                and len(line) - len(line.lstrip()) <= 3
-            ):
-                open_fence = None
-            masked_lines.append(" " * len(line))
-            continue
-        match = FENCE_PATTERN.match(line)
-        # CommonMark: a backtick fence's info string may not contain a backtick,
-        # which is what keeps an inline code span from being read as a fence. The
-        # rule is specific to backtick fences; a tilde fence's info string may.
-        if match is not None and not (
-            match.group("fence")[0] == "`" and "`" in match.group("info")
-        ):
-            fence = match.group("fence")
-            open_fence = (fence[0], len(fence), len(match.group("indent")))
-            open_line = number
-            masked_lines.append(" " * len(line))
-            continue
-        masked_lines.append(
-            INLINE_CODE_PATTERN.sub(lambda m: " " * len(m.group(0)), line)
-        )
-    masked = "\n".join(masked_lines)
-    if text.endswith("\n"):
-        masked += "\n"
-    if open_fence is not None:
+    masked, unclosed = _mask_fenced_blocks(text, any_indent=False)
+    masked = mask_inline_code(masked)
+    if unclosed:
         return masked, (
-            f"a code fence opened on line {open_line} is never closed, so this guard "
+            f"a code fence opened on line {unclosed} is never closed, so this guard "
             "cannot tell which of the text below it is code and which is an offered "
             "link. Close the fence."
         )
     return masked, None
+
+
+def _mask_indented_code(text: str) -> str:
+    """Blank top-level indented code blocks, leaving container content alone.
+
+    A run of lines indented four or more spaces is an indented code block only
+    when it starts after a blank line (CommonMark: it cannot interrupt a
+    paragraph) and no list, admonition, blockquote or HTML block is open --
+    otherwise the indentation belongs to that container and renders as prose.
+    """
+    masked_lines: list[str] = []
+    container_open = False
+    previous_blank = True
+    in_code = False
+    for line in text.splitlines():
+        if not line.strip():
+            masked_lines.append(line)
+            previous_blank = True
+            in_code = False
+            continue
+        indent = len(line) - len(line.lstrip())
+        if indent >= 4:
+            if in_code or (previous_blank and not container_open):
+                in_code = True
+                masked_lines.append(" " * len(line))
+            else:
+                masked_lines.append(line)
+        else:
+            in_code = False
+            container_open = CONTAINER_START_PATTERN.match(line) is not None
+            masked_lines.append(line)
+        previous_blank = False
+    return _rejoin(text, masked_lines)
+
+
+def _mask_html_comments(text: str) -> str:
+    """Blank `<!-- ... -->`, including an unterminated one, preserving offsets.
+
+    A comment renders nothing, so a warning written inside one is a warning the
+    reader never sees. An unterminated comment is masked to the end of the file
+    rather than escalated: in the credit view, over-masking only withholds
+    credit, which is already the fail-closed direction.
+    """
+    return HTML_COMMENT_PATTERN.sub(
+        lambda m: "".join("\n" if c == "\n" else " " for c in m.group(0)), text
+    )
+
+
+def rendered_prose(text: str) -> str:
+    """The CREDIT view: what a reader actually sees, minus every code form.
+
+    Inline code is deliberately kept -- see the module docstring. Use
+    `mask_inline_code()` on the result when extracting links from it.
+    """
+    masked, _unclosed = _mask_fenced_blocks(text, any_indent=True)
+    return _mask_html_comments(_mask_indented_code(masked))
 
 
 def link_form_at(masked: str, start: int) -> str:
@@ -327,16 +486,49 @@ def releases_occurrences(masked: str) -> list[tuple[int, str, str]]:
     return occurrences
 
 
-def link_destinations(masked: str) -> list[str]:
-    """Every link destination on the page, across all supported forms."""
+def _normalise_label(label: str) -> str:
+    """CommonMark link-label matching: case-insensitive, whitespace-collapsed."""
+    return " ".join(label.split()).casefold()
+
+
+def referenced_labels(text: str) -> set[str]:
+    """Every link label the page actually *uses*, in any reference-link form."""
+    labels: set[str] = set()
+    for match in FULL_REFERENCE_PATTERN.finditer(text):
+        # `[text][]` is the collapsed form: the label is the link text.
+        labels.add(_normalise_label(match.group("label") or match.group("text")))
+    for match in SHORTCUT_REFERENCE_PATTERN.finditer(text):
+        labels.add(_normalise_label(match.group("label")))
+    return labels
+
+
+def rendered_link_destinations(text: str) -> list[str]:
+    """Every destination that RENDERS as a link, across all supported forms.
+
+    A reference definition is not a link. `[dashboard]: ../performance/index.md`
+    with no `[dashboard]` anywhere else on the page renders nothing at all, so
+    counting the definition credited the author with a cross-reference the reader
+    was never given (Codex, PR #872). Definitions are therefore resolved through
+    the labels the page actually uses, and an orphan definition contributes
+    nothing.
+    """
     destinations: list[str] = []
-    for _name, pattern in LINK_FORMS:
-        for match in pattern.finditer(masked):
+    for pattern in DIRECT_LINK_FORMS:
+        for match in pattern.finditer(text):
             groups = match.groupdict()
             for key in DESTINATION_GROUPS:
                 value = groups.get(key)
                 if value:
                     destinations.append(value)
+
+    definitions: dict[str, str] = {}
+    for match in REFERENCE_DEFINITION_PATTERN.finditer(text):
+        definitions.setdefault(_normalise_label(match.group("label")), match.group("dest"))
+    if definitions:
+        for label in referenced_labels(text):
+            destination = definitions.get(label)
+            if destination:
+                destinations.append(destination)
     return destinations
 
 
@@ -355,16 +547,23 @@ def paragraphs(text: str) -> list[str]:
     return blocks
 
 
-def has_warning_paragraph(text: str) -> bool:
+def has_warning_paragraph(prose: str) -> bool:
+    """True when one rendered paragraph carries both tokens.
+
+    Takes the CREDIT view (`rendered_prose()`), not the raw file: tokens that
+    only exist inside a fenced snippet, an indented code block or an HTML comment
+    are text the reader is never shown, and crediting them was a reported defect
+    (Codex, PR #872).
+    """
     return any(
-        all(token in block for token in REQUIRED_TOKENS) for block in paragraphs(text)
+        all(token in block for token in REQUIRED_TOKENS) for block in paragraphs(prose)
     )
 
 
-def links_to_performance_page(path: Path, masked: str, root: Path) -> bool:
-    """True when some link on the page resolves to the performance dashboard."""
+def links_to_performance_page(path: Path, prose: str, root: Path) -> bool:
+    """True when some RENDERED link on the page resolves to the dashboard."""
     performance_page = (root / PERFORMANCE_PAGE_RELPATH).resolve()
-    for destination in link_destinations(masked):
+    for destination in rendered_link_destinations(mask_inline_code(prose)):
         target = destination.split("#", 1)[0].strip()
         if not target or "://" in target:
             continue
@@ -395,6 +594,19 @@ def check(root: Path) -> tuple[list[Path], list[str], list[str]]:
             )
             continue
 
+        if "\x00" in text:
+            # Decoded without raising, but not read as authored: a BOM-less
+            # UTF-16 page is valid UTF-8 (its NULs are), and comes back as
+            # `[\x00N\x00i...` in which no pattern can match. Silently not a
+            # download surface is the exact swallow exit 3 exists to close.
+            uninspectable.append(
+                f"{rel}: decoded as UTF-8 but contains NUL bytes, so it is not the "
+                "text an author wrote (a BOM-less UTF-16 file decodes this way). "
+                "No pattern can match it, which would make an unwarned download "
+                "surface invisible; re-save the file as UTF-8."
+            )
+            continue
+
         masked, problem = mask_code(text)
         if problem is not None:
             uninspectable.append(f"{rel}: {problem}")
@@ -405,21 +617,28 @@ def check(root: Path) -> tuple[list[Path], list[str], list[str]]:
             continue
         surfaces.append(path)
 
+        # Obligation was decided above, on the permissive view. Credit below is
+        # decided on the strict one: only what the reader is actually shown.
+        prose = rendered_prose(text)
+
         forms = ", ".join(sorted({form for _line, _url, form in occurrences}))
         lines = ", ".join(str(line) for line, _url, _form in occurrences)
-        if not has_warning_paragraph(text):
+        if not has_warning_paragraph(prose):
             failures.append(
                 f"{rel}: offers the GitHub Releases page ({forms}, line(s) {lines}) but "
                 f"no single paragraph mentions both {REQUIRED_TOKENS[0]} and "
                 f"{REQUIRED_TOKENS[1]}. Every published binary is an -O0 dev_build; a "
-                "page that hands one out has to say so."
+                "page that hands one out has to say so. Note that a code block, an "
+                "indented snippet and an HTML comment do not count: the reader has to "
+                "be able to see it."
             )
-        if not links_to_performance_page(path, masked, root):
+        if not links_to_performance_page(path, prose, root):
             failures.append(
                 f"{rel}: offers the GitHub Releases page ({forms}, line(s) {lines}) but "
                 "never links to docs/performance/index.md, so a reader is told the "
                 "download is slow and given nowhere to see what an optimized build "
-                "measures."
+                "measures. A reference definition with no matching reference link "
+                "renders nothing and does not count."
             )
 
     return surfaces, failures, uninspectable

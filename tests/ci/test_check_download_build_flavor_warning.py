@@ -26,6 +26,24 @@ the first version of the guard printed PASS without having checked anything:
   a tracked latin-1 page containing an unguarded Releases link left the guard at
   exit 0. "Could not inspect" must not read as "inspected and compliant"; it is
   now exit 3.
+
+Round three added two more families, both instances of one property -- the guard
+must ask each question over the text the reader is actually shown:
+
+* `RenderedProseTests` -- `has_warning_paragraph()` read the raw file, so a page
+  whose only `-O0` / `dev_build` mention sat inside a fenced snippet, an indented
+  code block or an HTML comment was reported compliant while rendering no warning
+  at all. Measured before the fix: each of those pages was exit 0, alone in its
+  tree, with the guard printing "1 download surface(s) all carry the ... warning".
+* `RenderedLinkTests` -- an orphan `[dashboard]: ../performance/index.md`
+  definition that no reference link uses renders nothing, and was accepted as the
+  dashboard cross-reference. Measured before the fix: exit 0.
+
+Both families also assert the opposite direction, because a fix that passes by
+rejecting everything is not a fix: a warning written with ordinary inline code,
+one in a four-space-indented admonition body (which is how all three MkDocs pages
+in this repository write theirs), and a genuinely referenced `[dashboard]` label
+must all still be GREEN.
 """
 
 from __future__ import annotations
@@ -340,6 +358,256 @@ class LinkFormTests(_SyntheticTree):
         self.assertEqual(code, guard.EXIT_OK, output)
 
 
+class RenderedProseTests(_SyntheticTree):
+    """Credit is asked over what renders, not over the file (Codex #872, round 3).
+
+    Every RED case here writes a page whose ONLY mention of the two tokens is in
+    text a reader never sees. Every GREEN case writes a warning in a form this
+    repository actually uses, so the rule cannot pass by rejecting everything.
+    """
+
+    def _assert_red(self, body: str) -> None:
+        self._write_page("downloads.md", body)
+        code, output = _run_guard(self.root)
+        self.assertEqual(code, guard.EXIT_VIOLATIONS, output)
+        self.assertIn("no single paragraph", output)
+
+    def _assert_green(self, body: str) -> None:
+        self._write_page("downloads.md", body)
+        code, output = _run_guard(self.root)
+        self.assertEqual(code, guard.EXIT_OK, output)
+        self.assertIn("1 download surface", output)
+
+    # --- RED: the tokens exist, but only where nothing is rendered ---
+
+    def test_tokens_only_inside_a_fenced_block_are_not_a_warning(self) -> None:
+        self._assert_red(
+            f"# Downloads\n\n{RELEASES_LINK}\n\n"
+            "[Performance Dashboard](../performance/index.md)\n\n"
+            "```ini\ndev_build=yes   # -O0\n```\n"
+        )
+
+    def test_tokens_only_inside_an_indented_fence_are_not_a_warning(self) -> None:
+        """A fence inside a list item is indented past the top-level fence rule.
+
+        The obligation view deliberately keeps the CommonMark top-level rule --
+        failing to see a fence there only ever adds a download surface. The credit
+        view cannot afford that error, so it reads fences at any indentation.
+        """
+        self._assert_red(
+            f"# Downloads\n\n{RELEASES_LINK}\n\n"
+            "[Performance Dashboard](../performance/index.md)\n\n"
+            "- The nightly lane is configured like this:\n\n"
+            "      ```ini\n      dev_build=yes   # -O0\n      ```\n"
+        )
+
+    def test_tokens_only_inside_an_indented_code_block_are_not_a_warning(self) -> None:
+        self._assert_red(
+            f"# Downloads\n\n{RELEASES_LINK}\n\n"
+            "[Performance Dashboard](../performance/index.md)\n\n"
+            "Release lane configuration:\n\n"
+            "    dev_build=yes   # -O0\n"
+        )
+
+    def test_tokens_only_inside_an_html_comment_are_not_a_warning(self) -> None:
+        self._assert_red(
+            f"# Downloads\n\n{RELEASES_LINK}\n\n"
+            "[Performance Dashboard](../performance/index.md)\n\n"
+            "<!-- TODO: say that dev_build=yes means -O0 -->\n"
+        )
+
+    def test_tokens_only_inside_an_unterminated_html_comment_are_not_a_warning(self) -> None:
+        """An unterminated comment swallows the rest of the page for the reader.
+
+        Masked, not escalated: in the credit view over-masking only withholds
+        credit, which is already fail-closed. Contrast the fence case, which is
+        exit 3 because there ambiguity would hide an offered link.
+        """
+        self._assert_red(
+            f"# Downloads\n\n{RELEASES_LINK}\n\n"
+            "[Performance Dashboard](../performance/index.md)\n\n"
+            "<!-- draft\n\nNightlies are `dev_build=yes`, i.e. `-O0`.\n"
+        )
+
+    def test_a_dashboard_link_only_inside_a_fenced_block_does_not_count(self) -> None:
+        self._write_page(
+            "downloads.md",
+            f"# Downloads\n\n{RELEASES_LINK}\n\n"
+            "Nightlies are `dev_build=yes`, i.e. `-O0`.\n\n"
+            "```markdown\n[Performance Dashboard](../performance/index.md)\n```\n",
+        )
+        code, output = _run_guard(self.root)
+        self.assertEqual(code, guard.EXIT_VIOLATIONS, output)
+        self.assertIn("docs/performance/index.md", output)
+
+    def test_a_dashboard_link_inside_inline_code_does_not_count(self) -> None:
+        """Inline code is prose for TOKENS and not a link for DESTINATIONS."""
+        self._write_page(
+            "downloads.md",
+            f"# Downloads\n\n{RELEASES_LINK}\n\n"
+            "Nightlies are `dev_build=yes`, i.e. `-O0`.\n"
+            "Write it as `[Performance Dashboard](../performance/index.md)`.\n",
+        )
+        code, output = _run_guard(self.root)
+        self.assertEqual(code, guard.EXIT_VIOLATIONS, output)
+        self.assertIn("never links to docs/performance/index.md", output)
+
+    # --- GREEN: the forms this repository's warnings are actually written in ---
+
+    def test_a_warning_written_with_inline_code_is_green(self) -> None:
+        self._assert_green(
+            f"# Downloads\n\n{RELEASES_LINK}\n\n"
+            "Published nightlies are compiled with `dev_build=yes`, i.e. `-O0`.\n"
+            "See the [Performance Dashboard](../performance/index.md).\n"
+        )
+
+    def test_a_warning_in_a_four_space_admonition_body_is_green(self) -> None:
+        """The exact shape of all three MkDocs download pages in this repository.
+
+        An admonition body is indented four spaces; reading that as an indented
+        code block would reject every real warning the project has written.
+        """
+        self._assert_green(f"# Downloads\n\n{RELEASES_LINK}\n\n{WARNING_BLOCK}")
+
+    def test_a_warning_in_a_list_item_continuation_is_green(self) -> None:
+        self._assert_green(
+            f"# Downloads\n\n{RELEASES_LINK}\n\n"
+            "- Before you download:\n\n"
+            "    Published nightlies are `dev_build=yes`, i.e. `-O0`.\n"
+            "    See the [Performance Dashboard](../performance/index.md).\n"
+        )
+
+    def test_a_warning_in_a_blockquote_alert_is_green(self) -> None:
+        """README uses GitHub's `> [!WARNING]` form rather than an admonition."""
+        self._assert_green(
+            f"# Downloads\n\n{RELEASES_LINK}\n\n"
+            "> [!WARNING]\n"
+            "> Nightlies are `dev_build=yes`, i.e. `-O0`.\n"
+            "> See the [Performance Dashboard](../performance/index.md).\n"
+        )
+
+    def test_an_indented_continuation_of_a_paragraph_is_still_prose(self) -> None:
+        """CommonMark: an indented code block cannot interrupt a paragraph."""
+        self._assert_green(
+            f"# Downloads\n\n{RELEASES_LINK}\n\n"
+            "Published nightlies are compiled with\n"
+            "    `dev_build=yes`, i.e. `-O0`.\n"
+            "    See the [Performance Dashboard](../performance/index.md).\n"
+        )
+
+    # --- non-vacuity of the credit view itself ---
+
+    def test_the_prose_view_removes_code_and_keeps_prose(self) -> None:
+        """A mask that blanks everything, or nothing, would pass the cases above.
+
+        Both halves are asserted on one document so neither degenerate mask can
+        satisfy this: the fenced token must be gone AND the prose token must
+        survive.
+        """
+        prose = guard.rendered_prose(
+            "Visible `dev_build` prose.\n\n```\nhidden_token_in_a_fence\n```\n\n"
+            "    hidden_token_in_an_indent\n\n<!-- hidden_token_in_a_comment -->\n"
+        )
+        self.assertIn("Visible `dev_build` prose.", prose)
+        for hidden in (
+            "hidden_token_in_a_fence",
+            "hidden_token_in_an_indent",
+            "hidden_token_in_a_comment",
+        ):
+            self.assertNotIn(hidden, prose)
+
+    def test_the_prose_view_preserves_offsets(self) -> None:
+        """Masks are offset-preserving so reported line numbers stay truthful."""
+        text = "# T\n\n```\nx\n```\n\n    y\n\nz\n"
+        prose = guard.rendered_prose(text)
+        self.assertEqual(len(prose), len(text))
+        self.assertEqual(prose.count("\n"), text.count("\n"))
+
+
+class RenderedLinkTests(_SyntheticTree):
+    """A reference definition is not a link (Codex #872, round 3).
+
+    `[dashboard]: ../performance/index.md` with nothing using `[dashboard]`
+    renders nothing. Crediting it handed the guard a cross-reference the reader
+    was never shown.
+    """
+
+    def _page(self, warning_and_links: str) -> None:
+        self._write_page(
+            "downloads.md", f"# Downloads\n\n{RELEASES_LINK}\n\n{warning_and_links}"
+        )
+
+    def test_an_orphan_dashboard_definition_is_red(self) -> None:
+        self._page(
+            "Nightlies are `dev_build=yes`, i.e. `-O0`.\n\n"
+            "[dashboard]: ../performance/index.md\n"
+        )
+        code, output = _run_guard(self.root)
+        self.assertEqual(code, guard.EXIT_VIOLATIONS, output)
+        self.assertIn("renders nothing and does not count", output)
+
+    def test_a_full_reference_dashboard_link_is_green(self) -> None:
+        self._page(
+            "Nightlies are `dev_build=yes`, i.e. `-O0`.\n"
+            "See the [Performance Dashboard][dashboard].\n\n"
+            "[dashboard]: ../performance/index.md\n"
+        )
+        self.assertEqual(_run_guard(self.root)[0], guard.EXIT_OK)
+
+    def test_a_collapsed_reference_dashboard_link_is_green(self) -> None:
+        self._page(
+            "Nightlies are `dev_build=yes`, i.e. `-O0`.\n"
+            "See the [dashboard][].\n\n"
+            "[dashboard]: ../performance/index.md\n"
+        )
+        self.assertEqual(_run_guard(self.root)[0], guard.EXIT_OK)
+
+    def test_a_shortcut_reference_dashboard_link_is_green(self) -> None:
+        self._page(
+            "Nightlies are `dev_build=yes`, i.e. `-O0`.\n"
+            "See the [dashboard].\n\n"
+            "[dashboard]: ../performance/index.md\n"
+        )
+        self.assertEqual(_run_guard(self.root)[0], guard.EXIT_OK)
+
+    def test_label_matching_is_case_and_whitespace_insensitive(self) -> None:
+        """CommonMark label matching; a stricter rule would reject a real link."""
+        self._page(
+            "Nightlies are `dev_build=yes`, i.e. `-O0`.\n"
+            "See the [Performance   Dashboard].\n\n"
+            "[performance dashboard]: ../performance/index.md\n"
+        )
+        self.assertEqual(_run_guard(self.root)[0], guard.EXIT_OK)
+
+    def test_a_definition_used_only_inside_a_fenced_block_is_red(self) -> None:
+        """The use has to render too, not merely appear in the file."""
+        self._page(
+            "Nightlies are `dev_build=yes`, i.e. `-O0`.\n\n"
+            "```markdown\nSee the [dashboard].\n```\n\n"
+            "[dashboard]: ../performance/index.md\n"
+        )
+        code, output = _run_guard(self.root)
+        self.assertEqual(code, guard.EXIT_VIOLATIONS, output)
+        self.assertIn("never links to docs/performance/index.md", output)
+
+    def test_an_orphan_releases_definition_is_still_a_download_surface(self) -> None:
+        """The asymmetry, pinned: obligation is a superset, credit is a subset.
+
+        An unused `[releases]:` definition renders no link either -- but assuming
+        it does costs a warning on a page that should carry one anyway, while
+        assuming it does not costs an unwarned binary. The two views are supposed
+        to disagree here, so the disagreement is asserted rather than left to be
+        "fixed" later for symmetry.
+        """
+        self._compliant_page()
+        self._write_page(
+            "orphan.md", f"# Get It\n\nNothing links this.\n\n[releases]: {RELEASES_URL}\n"
+        )
+        code, output = _run_guard(self.root)
+        self.assertEqual(code, guard.EXIT_VIOLATIONS, output)
+        self.assertIn("orphan.md", output)
+
+
 class UninspectableInputTests(_SyntheticTree):
     """"Could not inspect" must not read as "inspected and compliant" (Codex #872).
 
@@ -403,6 +671,31 @@ class UninspectableInputTests(_SyntheticTree):
         self.assertIn("truncated.md", output)
         self.assertIn("never closed", output)
 
+    def test_a_bomless_utf16_page_is_a_failure(self) -> None:
+        """Decoding without raising is not the same as being read as authored.
+
+        UTF-16LE without a BOM is valid UTF-8 -- its NUL bytes are -- so
+        `read_text` succeeds and hands back `[\\x00N\\x00i...`, which no pattern
+        can match. The page silently stops being a download surface. Measured
+        before the fix: exit 0 with the unwarned link present.
+        """
+        self._compliant_page()
+        self.assertEqual(_run_guard(self.root)[0], guard.EXIT_OK)
+        (self.pages / "utf16.md").write_bytes(
+            f"# Get It\n\n[Nightly]({RELEASES_URL})\n".encode("utf-16-le")
+        )
+        code, output = _run_guard(self.root)
+        self.assertEqual(code, guard.EXIT_UNINSPECTABLE, output)
+        self.assertIn("utf16.md", output)
+        self.assertIn("NUL", output)
+
+    def test_a_nul_byte_in_an_otherwise_decodable_page_is_a_failure(self) -> None:
+        self._compliant_page()
+        (self.pages / "corrupt.md").write_bytes(b"# Get It\n\n[Nightly](htt\x00ps://x)\n")
+        code, output = _run_guard(self.root)
+        self.assertEqual(code, guard.EXIT_UNINSPECTABLE, output)
+        self.assertIn("corrupt.md", output)
+
     def test_list_mode_also_reports_uninspectable_inputs(self) -> None:
         """`--list` is what a maintainer runs to trust a green run; it must not lie."""
         self._compliant_page()
@@ -463,6 +756,34 @@ class RealTreeControlTests(unittest.TestCase):
         self.assertEqual(guard.releases_occurrences(masked), [])
         surfaces, _failures, _uninspectable = guard.check(ROOT)
         self.assertNotIn(audit, surfaces)
+
+    def test_the_prose_view_fires_on_the_real_download_pages(self) -> None:
+        """Both halves of the credit view, anchored to real authored content.
+
+        `docs/getting-started/downloads.md` has fenced code blocks AND a
+        four-space-indented admonition body carrying the warning. A mask that
+        stopped removing code, or one that started eating admonition bodies,
+        would still satisfy every synthetic case; it cannot satisfy this.
+        """
+        page = ROOT / "docs" / "getting-started" / "downloads.md"
+        self.assertTrue(page.is_file(), f"missing fixture page: {page}")
+        text = page.read_text(encoding="utf-8")
+        self.assertIn("```", text, "this control needs a page that has fences")
+        prose = guard.rendered_prose(text)
+        # Masks blank in place, so compare visible characters, not length.
+        self.assertLess(
+            len("".join(prose.split())),
+            len("".join(text.split())),
+            "the prose view removed nothing from a page that contains fenced code",
+        )
+        self.assertNotIn("```", prose, "fence delimiters survived the prose view")
+        self.assertTrue(
+            guard.has_warning_paragraph(prose),
+            "the real warning, written in a four-space-indented admonition body, "
+            "no longer survives the prose view -- the indented-code rule is eating "
+            "container content",
+        )
+        self.assertTrue(guard.links_to_performance_page(page, prose, ROOT))
 
     def test_the_documented_warning_source_still_exists(self) -> None:
         """The prose this guard propagates has a single origin; keep it findable."""
