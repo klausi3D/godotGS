@@ -27,6 +27,13 @@ on:
       - "tests/ci/resolve_export_template.py"
       - "tests/ci/check_renderer_release_gates.py"
       - "tests/ci/release_attestation.py"
+      # export_smoke_windows runs run_export_smoke.py, which imports
+      # run_runtime_validation.py at module scope for its mode arguments. Only
+      # the first is an *execution*, so only the first is in
+      # RELEASE_HELPER_SCRIPTS; the import is a real dependency that the
+      # executed-script derivation cannot see, so it is listed here explicitly.
+      - "tests/runtime/run_export_smoke.py"
+      - "tests/runtime/run_runtime_validation.py"
   push:
     branches: [master, main, develop]
     tags:
@@ -48,6 +55,8 @@ on:
       - "tests/ci/resolve_export_template.py"
       - "tests/ci/check_renderer_release_gates.py"
       - "tests/ci/release_attestation.py"
+      - "tests/runtime/run_export_smoke.py"
+      - "tests/runtime/run_runtime_validation.py"
   schedule:
     # Nightly preview build at 02:30 UTC.
     - cron: "30 2 * * *"
@@ -874,6 +883,150 @@ jobs:
             repo/${{ steps.package.outputs.checksum }}
             repo/${{ steps.package.outputs.info }}
           retention-days: 14
+
+  export_smoke_windows:
+    name: Export Smoke (Windows, GS template)
+    # Issue #825, milestone 1. The first lane that RUNS what the template job
+    # builds. `build_windows_export_template` has been uploading an artifact
+    # that nothing ever executed and that expires after 14 days, so a green
+    # Release Builds run said nothing at all about whether that template can
+    # ship a game. This job exports tests/examples/godot/test_project against
+    # the template built by THIS run and then launches the exported binary,
+    # which is where the proof lives (export_smoke_probe.gd: ClassDB lookup, a
+    # live RenderingDevice, visible splats, four pipeline stage statuses and
+    # non-background pixel samples).
+    #
+    # The `gpu` label is required and is the one difference from the two build
+    # jobs above. They run on [self-hosted, Windows, X64, godotgs]; the probe
+    # needs a real RenderingDevice and a real window read-back, so this job has
+    # to land on the GPU-labelled pool that baseline_qa.yml and
+    # release_ci_runtime.yml use.
+    runs-on: [self-hosted, Windows, X64, godotgs, gpu]
+    needs: [release_metadata, build_windows, build_windows_export_template]
+    # Never run a self-hosted Windows job on untrusted PR code. Same strict form
+    # as build_windows and build_windows_export_template; see
+    # .github/workflows/README.md.
+    if: github.event_name != 'pull_request'
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: repo
+    steps:
+      - name: Configure Git safe.directory for self-hosted workspace
+        shell: pwsh
+        working-directory: ${{ github.workspace }}
+        run: |
+          git config --global --add safe.directory '*'
+
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: repo
+          fetch-depth: 0
+          submodules: recursive
+          set-safe-directory: false
+
+      - name: Download Windows editor built by this run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: godotgs-windows-${{ needs.release_metadata.outputs.channel }}-${{ github.run_number }}
+          path: smoke-input/editor
+
+      - name: Download Windows export template built by this run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: godotgs-export-template-windows-${{ needs.release_metadata.outputs.channel }}-${{ github.run_number }}
+          path: smoke-input/template
+
+      - name: Unpack the published archives
+        id: unpack
+        shell: pwsh
+        working-directory: ${{ github.workspace }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          # Unpack the ARCHIVES, not a local bin/ directory. These are the exact
+          # bytes a user downloads and the exact bytes PR 3 attaches to the
+          # release, which is the thing this job has to say something about.
+          function Expand-One([string] $sourceDir, [string] $destination) {
+            $archives = @(Get-ChildItem -Path $sourceDir -Filter "*.zip" -File -Recurse)
+            if ($archives.Count -ne 1) {
+              Get-ChildItem -Path $sourceDir -Recurse | Format-Table Name, Length | Out-String | Write-Host
+              throw "Expected exactly one .zip under $sourceDir, found $($archives.Count)."
+            }
+            New-Item -ItemType Directory -Force -Path $destination | Out-Null
+            Expand-Archive -LiteralPath $archives[0].FullName -DestinationPath $destination -Force
+          }
+
+          function Resolve-One([string] $directory, [string] $filter) {
+            $matched = @(Get-ChildItem -Path $directory -Filter $filter -File -Recurse |
+              Where-Object { $_.Name -notlike "*.console.exe" })
+            if ($matched.Count -ne 1) {
+              Get-ChildItem -Path $directory -Recurse | Format-Table Name, Length | Out-String | Write-Host
+              throw "Expected exactly one match for '$filter' under $directory, found $($matched.Count)."
+            }
+            return $matched[0].FullName
+          }
+
+          Expand-One "smoke-input/editor" "smoke-stage/editor"
+          Expand-One "smoke-input/template" "smoke-stage/template"
+
+          # The template archive stages Godot's EXPORT-TEMPLATE names
+          # (windows_release_x86_64.exe), not the SConstruct output names -- the
+          # two name spaces differ deliberately, see the header of
+          # tests/ci/resolve_export_template.py.
+          $editorBinary = Resolve-One "smoke-stage/editor" "godot.windows.editor*.x86_64.exe"
+          $templateBinary = Resolve-One "smoke-stage/template" "windows_release_x86_64.exe"
+          Write-Host "editor   = $editorBinary"
+          Write-Host "template = $templateBinary"
+          "editor=$editorBinary" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "template=$templateBinary" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Export smoke test against the template built by this run
+        shell: pwsh
+        run: |
+          # --require-binaries is load-bearing and is the single most important
+          # flag in this job. Without it `_skip()` returns EXIT_PASS, so a
+          # missing binary, a failed download or a non-Windows host would report
+          # this lane GREEN -- the "skip encoded as pass" defect this lane
+          # exists to retire.
+          #
+          # --allow-blank-viewport is deliberately NOT passed. The GPU pool
+          # demonstrably reads back real pixels (tests/ci/baselines/qa_results.json
+          # records a measured centre colour from this runner). If it stops doing
+          # so, that is a finding to file, not a flag to add here.
+          python tests/runtime/run_export_smoke.py `
+            --editor-binary "${{ steps.unpack.outputs.editor }}" `
+            --template "${{ steps.unpack.outputs.template }}" `
+            --require-binaries
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::Export smoke test failed (exit $LASTEXITCODE). Read the [EXPORT_SMOKE_METRICS] line above before treating this as a wiring problem: probe exit 2 = the gaussian_splatting module is missing from the exported binary, 3 = no RenderingDevice on this runner, 4 = the window read back blank, 1 = a pipeline stage failed."
+            exit 1
+          }
+
+      - name: Negative control -- an empty custom_template/release must not pass
+        shell: pwsh
+        run: |
+          # The discrimination test. Without it the step above proves only that
+          # one configuration worked once, and a smoke test that cannot fail is
+          # the shape of defect this repository keeps finding. This run writes
+          # the same preset with custom_template/release="" -- the #825
+          # misconfiguration verbatim -- and requires the run NOT to end in a
+          # working GS export.
+          #
+          # Its outcome is also a probe of this runner's state: outcome
+          # `stock_template_detected` means a stock upstream export template is
+          # installed here and #825's exact condition is reproducible on this
+          # machine.
+          python tests/runtime/run_export_smoke.py `
+            --editor-binary "${{ steps.unpack.outputs.editor }}" `
+            --template "${{ steps.unpack.outputs.template }}" `
+            --require-binaries `
+            --expect-stock-template-failure
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::Negative control failed (exit $LASTEXITCODE): an export whose preset named no custom template still produced a GS-enabled binary, so the smoke test above cannot discriminate. Read the [EXPORT_SMOKE_METRICS] outcome field."
+            exit 1
+          }
 
   release_candidate_gate:
     name: Release candidate gate

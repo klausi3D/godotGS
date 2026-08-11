@@ -43,6 +43,16 @@ Both paths are auto-discovered from `bin/` and can also be supplied via the
 `GODOT_EDITOR_BINARY` / `GODOT_EXPORT_TEMPLATE` environment variables. When a
 prerequisite is missing the run reports `[EXPORT_SMOKE_SKIP]` and exits 0
 unless `--require-binaries` is passed.
+
+The negative control (`--expect-stock-template-failure`)
+-------------------------------------------------------
+A smoke test that has only ever been run in its passing configuration proves
+that one configuration worked once, not that it still detects the failure. So
+this script also runs itself backwards: with `--expect-stock-template-failure`
+it writes the preset with an EMPTY `custom_template/release` -- the #825
+misconfiguration verbatim -- and requires the run NOT to end in a working GS
+export. See `_negative_control_verdict` for the three outcomes and what each of
+them says about the machine it ran on.
 """
 
 from __future__ import annotations
@@ -269,13 +279,22 @@ def preset_state_error(overwrite_allowed: bool) -> Optional[str]:
     return None
 
 
-def _write_preset(template_binary: Path, backup_path: Path) -> Path:
+def _write_preset(
+    template_binary: Path,
+    backup_path: Path,
+    custom_template_release: Optional[str] = None,
+) -> Path:
     """Write the generated preset, first moving any pre-existing one aside.
 
     The caller has already established (via `preset_state_error`) that
     overwriting is allowed and that no backup exists. The existing file is
     *moved* (not copied-then-truncated), so a crash between here and the restore
     leaves the developer's original on disk under `backup_path`.
+
+    `custom_template_release` defaults to `template_binary`'s absolute path,
+    which is the normal run. The negative control passes `""` to reproduce the
+    #825 preset exactly; note that `""` is a *deliberate value*, not "unset", so
+    the check below is `is None` rather than a truth test.
     """
     target = PROJECT_DIR / "export_presets.cfg"
     if target.exists():
@@ -289,12 +308,13 @@ def _write_preset(template_binary: Path, backup_path: Path) -> Path:
         target.replace(backup_path)
         print(f"[export-smoke] moved your existing export_presets.cfg to {backup_path.name}")
 
+    if custom_template_release is None:
+        # Godot stores/reads this as an absolute path with forward slashes.
+        custom_template_release = template_binary.resolve().as_posix()
+
     preset_text = PRESET_TEMPLATE.read_text(encoding="utf-8")
     preset_text = preset_text.replace("@PRESET_NAME@", PRESET_NAME)
-    # Godot stores/reads this as an absolute path with forward slashes.
-    preset_text = preset_text.replace(
-        "@CUSTOM_TEMPLATE_RELEASE@", template_binary.resolve().as_posix()
-    )
+    preset_text = preset_text.replace("@CUSTOM_TEMPLATE_RELEASE@", custom_template_release)
     target.write_text(preset_text, encoding="utf-8")
     return target
 
@@ -320,6 +340,70 @@ def _parse_metrics(output: str) -> Optional[dict]:
             return None
         return parsed if isinstance(parsed, dict) else None
     return None
+
+
+NEGATIVE_CONTROL_OUTCOMES = ("export_rejected", "stock_template_detected", "undetected")
+
+
+def negative_control_outcome(export_returncode: int, exported: Optional[Path]) -> tuple[str, str]:
+    """Classify a `--expect-stock-template-failure` run. Returns (outcome, detail).
+
+    The preset named NO custom template, so exactly two things are acceptable
+    and one is not:
+
+    ``export_rejected``
+        The editor refused to export at all. Today that means no stock export
+        template is installed on this machine, so the exporter had nothing to
+        silently fall back to. After the engine-side fix (milestone 1 PR 5) this
+        is the outcome to expect everywhere, and the reason this control has to
+        exist *before* that change: it is the assertion that provably passes for
+        a different reason on the pre-change tree.
+
+    ``stock_template_detected``
+        The export SUCCEEDED and produced a binary with no GS symbols in it.
+        That is #825 reproduced: a stock upstream template is installed on this
+        machine and Godot silently fell back to it. The byte-scan caught it and
+        nothing upstream of the byte-scan did. Worth reporting loudly -- it is a
+        fact about the runner, not about the change under test.
+
+    ``undetected``
+        The export succeeded and the binary carries GS symbols anyway. Then
+        either the preset substitution did not take or something is feeding a GS
+        template in behind the flag's back; either way the positive run above is
+        not discriminating and its green is worth nothing. This is the only
+        failing outcome.
+    """
+    if export_returncode != 0 or exported is None or not exported.is_file():
+        return (
+            "export_rejected",
+            f"the editor refused the export (exit {export_returncode}) and produced no binary",
+        )
+
+    missing = _missing_gs_symbol_needles(exported)
+    if missing:
+        return (
+            "stock_template_detected",
+            f"the export SUCCEEDED and produced a binary missing {', '.join(missing)}. A stock "
+            "upstream export template is installed on this machine, so #825's exact condition is "
+            "reproducible here; the byte-scan is what caught it",
+        )
+    return (
+        "undetected",
+        f"the export succeeded and {exported} carries GS symbols even though the preset named no "
+        "custom template, so this run cannot tell a correct export from the #825 one",
+    )
+
+
+def _negative_control_verdict(export_returncode: int, exported: Optional[Path]) -> int:
+    outcome, detail = negative_control_outcome(export_returncode, exported)
+    print(
+        f"{METRICS_MARKER} "
+        f"{json.dumps({'probe': 'export_smoke_negative_control', 'outcome': outcome}, sort_keys=True)}"
+    )
+    if outcome == "undetected":
+        return _fail(f"Negative control did not discriminate: {detail}.")
+    print(f"{PASS_MARKER} negative control ({outcome}): {detail}.")
+    return EXIT_PASS
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -363,6 +447,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         action="store_true",
         help="Treat missing editor/template/platform prerequisites as a failure instead of a skip.",
     )
+    parser.add_argument(
+        "--expect-stock-template-failure",
+        action="store_true",
+        help=(
+            "Negative control: write the preset with an EMPTY custom_template/release (the #825 "
+            "misconfiguration) and require that the run does NOT end in a working GS export. "
+            "Passes when the export is rejected, or when it succeeds and the produced binary is "
+            "detected as stock; fails when a GS-enabled binary comes out of a preset that named "
+            "no template. Does not run the probe."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if platform.system() != "Windows":
@@ -393,6 +488,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     print(f"[export-smoke] editor   = {editor}")
     print(f"[export-smoke] template = {template}")
+    if args.expect_stock_template_failure:
+        # The template is still resolved and still pre-checked below, even
+        # though the preset will not name it. That is on purpose: it keeps the
+        # two invocations symmetric, so a negative control cannot "pass" merely
+        # because the template download failed.
+        print(
+            "[export-smoke] NEGATIVE CONTROL: writing the preset with an EMPTY "
+            "custom_template/release; this run must NOT produce a working GS export."
+        )
 
     # Cheap pre-check before spending minutes on an export: a stock template
     # would produce a green-looking export and a silently splat-free game.
@@ -442,7 +546,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 print(_tail(imported.stdout + "\n" + imported.stderr))
                 return _fail(f"Project import failed (exit {imported.returncode}).")
 
-        preset_path = _write_preset(template, preset_backup)
+        preset_path = _write_preset(
+            template,
+            preset_backup,
+            custom_template_release="" if args.expect_stock_template_failure else None,
+        )
         exported_result = _run(
             [
                 str(editor),
@@ -457,6 +565,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             timeout=args.export_timeout,
             label="export project",
         )
+        if args.expect_stock_template_failure:
+            # The export tail is printed either way: on `export_rejected` it is
+            # the evidence of *why* it was rejected, and on the failing outcome
+            # it is the only place the misconfiguration could have been noticed.
+            print(_tail(exported_result.stdout + "\n" + exported_result.stderr))
+            return _negative_control_verdict(exported_result.returncode, exported)
+
         if exported_result.returncode != 0 or not exported.is_file():
             print(_tail(exported_result.stdout + "\n" + exported_result.stderr))
             return _fail(f"Export failed (exit {exported_result.returncode}); no binary at {exported}.")

@@ -23,6 +23,7 @@ states, and assert that a refusal leaves every byte on disk untouched.
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -197,6 +198,114 @@ class BinaryPathResolutionTests(unittest.TestCase):
     def test_missing_relative_path_is_still_rejected(self) -> None:
         self.assertIsNone(smoke._resolve_editor("no-such-binary.exe"))
         self.assertIsNone(smoke._resolve_template("no-such-binary.exe"))
+
+
+class NegativeControlPresetTests(PresetStateTestCase):
+    """`--expect-stock-template-failure` must actually write an EMPTY template path.
+
+    The whole control rests on this substitution. If it silently kept writing the
+    template path the control would run the *positive* configuration and report
+    the reassuring answer, which is worse than not having it.
+    """
+
+    def test_default_writes_the_template_path(self) -> None:
+        generated = smoke._write_preset(ROOT / "bin", self.backup)
+        text = generated.read_text(encoding="utf-8")
+        self.assertIn(f'custom_template/release="{(ROOT / "bin").resolve().as_posix()}"', text)
+
+    def test_empty_string_is_honoured_rather_than_treated_as_unset(self) -> None:
+        # `""` is falsy, so a truth test here would fall back to the template
+        # path and quietly turn the negative control into a second positive run.
+        generated = smoke._write_preset(ROOT / "bin", self.backup, custom_template_release="")
+        self.assertIn('custom_template/release=""', generated.read_text(encoding="utf-8"))
+
+
+class NegativeControlOutcomeTests(unittest.TestCase):
+    """The three outcomes of `--expect-stock-template-failure`, and only one fails."""
+
+    def setUp(self) -> None:
+        self.stack = tempfile.TemporaryDirectory()
+        self.addCleanup(self.stack.cleanup)
+        self.here = Path(self.stack.name)
+
+    def _binary(self, name: str, *, gs_symbols: bool) -> Path:
+        path = self.here / name
+        body = b"MZ" + b"\x00" * 64
+        if gs_symbols:
+            body += b"".join(smoke.REQUIRED_TEMPLATE_SYMBOLS)
+        path.write_bytes(body)
+        return path
+
+    def test_a_refused_export_is_the_control_passing(self) -> None:
+        outcome, _ = smoke.negative_control_outcome(1, self.here / "never-written.exe")
+        self.assertEqual(outcome, "export_rejected")
+        self.assertEqual(smoke._negative_control_verdict(1, self.here / "never-written.exe"), 0)
+
+    def test_a_zero_exit_that_produced_no_binary_is_still_a_rejection(self) -> None:
+        outcome, _ = smoke.negative_control_outcome(0, self.here / "never-written.exe")
+        self.assertEqual(outcome, "export_rejected")
+
+    def test_a_stock_binary_is_detected_and_the_control_passes(self) -> None:
+        exported = self._binary("stock.exe", gs_symbols=False)
+        outcome, detail = smoke.negative_control_outcome(0, exported)
+        self.assertEqual(outcome, "stock_template_detected")
+        self.assertIn("#825", detail)
+        self.assertEqual(smoke._negative_control_verdict(0, exported), 0)
+
+    def test_a_gs_binary_from_an_empty_preset_fails_the_control(self) -> None:
+        # The one failing outcome: nothing in the chain noticed, so the positive
+        # run's green says nothing.
+        exported = self._binary("gs.exe", gs_symbols=True)
+        outcome, _ = smoke.negative_control_outcome(0, exported)
+        self.assertEqual(outcome, "undetected")
+        self.assertEqual(smoke._negative_control_verdict(0, exported), smoke.EXIT_FAIL)
+
+    def test_every_outcome_is_declared(self) -> None:
+        # A new outcome that nobody listed would still be compared against
+        # "undetected" and silently pass.
+        exported = self._binary("stock.exe", gs_symbols=False)
+        for returncode, path in ((1, None), (0, exported)):
+            with self.subTest(returncode=returncode):
+                outcome, _ = smoke.negative_control_outcome(returncode, path)
+                self.assertIn(outcome, smoke.NEGATIVE_CONTROL_OUTCOMES)
+
+
+class NegativeControlFlagTests(unittest.TestCase):
+    """The CI step passes this flag by name; argparse has to know it.
+
+    Checked through the real parser rather than by grepping the source: a rename
+    would otherwise surface as an argparse error inside a self-hosted CI step
+    whose log nobody reads until the lane is already red.
+    """
+
+    def test_the_flag_is_registered_on_the_real_parser(self) -> None:
+        script = ROOT / "tests" / "runtime" / "run_export_smoke.py"
+        result = subprocess.run(
+            [sys.executable, str(script), "--help"],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--expect-stock-template-failure", result.stdout)
+        self.assertIn("--require-binaries", result.stdout)
+
+    def test_an_unknown_flag_is_still_rejected(self) -> None:
+        # Discrimination for the test above: `--help` printing something is only
+        # evidence if a bogus flag does not also sail through. Deliberately NOT a
+        # prefix of the real flag -- argparse accepts unambiguous abbreviations,
+        # so a near-miss spelling would be accepted and would then start a real
+        # multi-minute export from inside a unit test.
+        script = ROOT / "tests" / "runtime" / "run_export_smoke.py"
+        result = subprocess.run(
+            [sys.executable, str(script), "--not-a-real-flag"],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            check=False,
+        )
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

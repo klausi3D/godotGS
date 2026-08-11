@@ -100,6 +100,7 @@ RELEASE_HELPER_SCRIPTS = (
     "tests/ci/resolve_export_template.py",
     "tests/ci/check_renderer_release_gates.py",
     "tests/ci/release_attestation.py",
+    "tests/runtime/run_export_smoke.py",
 )
 
 # The self-hosted jobs check out under `repo/`; `paths:` are repository-relative.

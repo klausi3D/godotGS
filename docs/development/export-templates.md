@@ -144,6 +144,41 @@ the window reads back blank; that is reported as its own status
 module check, the `RenderingDevice` check and the "a GPU raster pass actually
 ran over the fixture" check all still have to pass.
 
+### In CI
+
+The `export_smoke_windows` job in `release_builds.yml` runs this against the
+Windows template built by the same run, on the self-hosted GPU runner, on
+`push`/tag/schedule/dispatch. It downloads the two published archives rather
+than reading a local `bin/`, so what it exercises is the bytes a user gets.
+
+Two flags matter there and are worth repeating, because getting either wrong
+turns the lane into a check that cannot fail:
+
+- **`--require-binaries` is always passed.** Without it `_skip()` returns exit 0,
+  so a missing binary, a failed artifact download or a non-Windows host reports
+  the lane green. That is the "skip encoded as pass" shape this lane exists to
+  retire.
+- **`--allow-blank-viewport` is never passed.** The GPU pool reads back real
+  pixels. If it stops, that is a finding to file, not a flag to add.
+
+The job then runs the same script a second time with
+`--expect-stock-template-failure`. That is the negative control: it writes the
+preset with an **empty** `custom_template/release` and requires the run *not* to
+end in a working GS export. It reports one of three outcomes on its
+`[EXPORT_SMOKE_METRICS]` line:
+
+| Outcome | Meaning | Verdict |
+| --- | --- | --- |
+| `export_rejected` | The editor refused to export; there was no stock template to fall back to. | pass |
+| `stock_template_detected` | The export succeeded and produced a binary with no GS symbols. A stock upstream template is installed on that machine — this is #825 reproduced, and only the byte-scan caught it. | pass, but report it |
+| `undetected` | A GS-enabled binary came out of a preset that named no template. Then the positive run is not discriminating. | fail |
+
+**What CI does not check:** whether the exported game *looks right*. The probe
+asserts visible splats, four pipeline stage statuses and a count of
+non-background pixel samples; it does not compare against a reference image.
+That still needs one human look — run the script with `--keep`, launch the
+exported binary, and look at it.
+
 ## Related
 
 - [Release channels](release-channels.md)
