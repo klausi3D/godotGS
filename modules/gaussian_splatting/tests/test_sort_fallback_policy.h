@@ -354,6 +354,10 @@ TEST_CASE("[GaussianSplatting][SortFallback] permanent capability failure latche
 	// site (the capability probe has already passed), so it must be retryable. If this
 	// flips to true, one transient VRAM blip black-screens a capable GPU for the session.
 	CHECK_FALSE(sorter_creation_failure_is_permanent(SorterCreationFailure::CREATION_FAILED));
+	// #586 round-7: and its deterministic sibling is the opposite. A shader/pipeline that will
+	// not build does not build on the next attempt either, so retrying it is a recompile loop
+	// that can never succeed.
+	CHECK(sorter_creation_failure_is_permanent(SorterCreationFailure::CREATION_FAILED_DETERMINISTIC));
 
 	// Both directions must be represented, otherwise a classifier that answers a constant
 	// would satisfy the case above.
@@ -363,6 +367,7 @@ TEST_CASE("[GaussianSplatting][SortFallback] permanent capability failure latche
 				 SorterCreationFailure::INDIRECT_CAPABILITY_UNSUPPORTED,
 				 SorterCreationFailure::CREATION_FAILED,
 				 SorterCreationFailure::CREATED_SORTER_LACKS_INDIRECT,
+				 SorterCreationFailure::CREATION_FAILED_DETERMINISTIC,
 		 }) {
 		if (sorter_creation_failure_is_permanent(failure)) {
 			saw_permanent = true;
@@ -540,6 +545,132 @@ TEST_CASE("[GaussianSplatting][SortFallback] retry state machine recovers transi
 			CHECK_EQ(sim.rejected_calls, calls); // #586 protection intact: nothing published.
 		}
 	}
+
+	// #586 ROUND-7 REVIEW (P2). THE FINDING, as a state machine. Round 2 classified every
+	// invalid Ref from create_sorter() as CREATION_FAILED, i.e. transient, arguing that once
+	// the capability probe passes the only remaining causes are VRAM/capacity ones. But
+	// RadixSort::create_variant() compiles four shaders and builds four compute pipelines, and
+	// a device can pass the compute-limit probe and still reject the generated radix GLSL.
+	// That failure reproduces on every attempt, so the "never gives up" backoff turned into an
+	// unbounded recompile loop: a full create_sorter() every saturated-backoff interval,
+	// forever, on a renderer that is rejecting every translucent frame regardless.
+	//
+	// config_supported stays TRUE here, and that is the entire point — this is the state Codex
+	// described, a device that PASSES the probe and fails afterwards. It also makes the subcase
+	// discriminating against the re-probe: if this cause were made re-probable, tick() would
+	// lift the latch on the first call and creation_attempts would climb.
+	SUBCASE("a deterministic creation failure never retries, even though the capability probe still passes (#586 round-7)") {
+		Sim sim;
+		sim.config_supported = true;
+		sim.fail(SorterCreationFailure::CREATION_FAILED_DETERMINISTIC);
+		const uint32_t calls = SORTER_RETRY_MAX_DELAY_CALLS * 8u;
+		for (uint32_t call = 0; call < calls; call++) {
+			// "Healthy" device: this must NOT be what decides it. The cause is deterministic
+			// for this device and configuration, so nothing about the passage of time or the
+			// device's allocation health can make the shader compile.
+			sim.tick(/*p_device_healthy=*/true);
+		}
+		CHECK_FALSE(sim.available);
+		// THE DISCRIMINATING ASSERTION. Pre-round-7 this cause did not exist and the same
+		// failure arrived as CREATION_FAILED, which the "transient failure on a device that
+		// stays broken" subcase above shows produces creation_attempts > 1 over this many
+		// calls — one full shader recompile + buffer allocation cycle each.
+		CHECK_EQ(sim.creation_attempts, 0u);
+		// And it must not be spending probe calls on a question that cannot change either.
+		CHECK_EQ(sim.probe_calls, 0u);
+		CHECK_EQ(sim.rejected_calls, calls); // #586 protection intact: nothing published.
+	}
+
+	// THE LOAD-BEARING CONTROL for the subcase above, stated as its own scenario rather than
+	// left implicit: the round-7 latch must not swallow the transient case that rounds 1-2
+	// exist to keep recoverable. Same Sim, same call count, same "healthy device" — only the
+	// CAUSE differs — so a fix that latched everything (or a classifier that answered a
+	// constant) fails here while passing the subcase above.
+	SUBCASE("the round-7 latch does not swallow a transient failure on the same device (#586 round-7 control)") {
+		Sim deterministic;
+		deterministic.fail(SorterCreationFailure::CREATION_FAILED_DETERMINISTIC);
+		Sim transient;
+		transient.fail(SorterCreationFailure::CREATION_FAILED);
+		const uint32_t calls = SORTER_RETRY_MAX_DELAY_CALLS * 8u;
+		for (uint32_t call = 0; call < calls; call++) {
+			deterministic.tick(/*p_device_healthy=*/true);
+			transient.tick(/*p_device_healthy=*/true);
+		}
+		CHECK_FALSE(deterministic.available);
+		CHECK(transient.available); // recovers, exactly as before round 7.
+		CHECK_EQ(transient.creation_attempts, 1u);
+		CHECK_EQ(transient.rejected_calls, 0u);
+	}
+}
+
+// #586 ROUND-7 REVIEW (P2). "Stop retrying deterministic sorter creation failures."
+//
+// The retry policy is only as good as the classification feeding it, and before this round
+// the classification had nothing to feed on: GPUSorterFactory::create_sorter() discarded
+// RadixSort::initialize()'s Error and returned a bare invalid Ref, so the call site could not
+// tell an out-of-VRAM histogram buffer from a scatter shader the driver refuses to compile and
+// called both transient.
+//
+// The mapping below is read from the callees (gpu_sorter.cpp), not inferred from names — the
+// error-code contract above RadixSort::initialize() documents the same table from the other
+// side. Both directions are asserted because each failure mode is a real regression:
+// classifying an allocation failure as deterministic re-creates the permanent black screen
+// round 1 removed, and classifying a shader failure as transient is the recompile loop round 7
+// removes.
+TEST_CASE("[GaussianSplatting][SortFallback] the preserved init error separates allocation failures from deterministic ones (#586 round-7)") {
+	// --- RETRYABLE: the resource-shaped errors. ---
+	// storage_buffer_create() returned an invalid RID under momentary VRAM pressure, or
+	// _init_sorter_devices() has not seen a GaussianSplatManager yet. Both can differ on the
+	// next attempt with nothing else changing.
+	CHECK_EQ(uint8_t(classify_sorter_creation_error(ERR_CANT_CREATE)), uint8_t(SorterCreationFailure::CREATION_FAILED));
+	CHECK_EQ(uint8_t(classify_sorter_creation_error(ERR_OUT_OF_MEMORY)), uint8_t(SorterCreationFailure::CREATION_FAILED));
+	// The >UINT32_MAX size refusals are a function of the REQUESTED CAPACITY, and capacity
+	// shrinks back (the bounded-shrink path recreates at measured demand).
+	CHECK_EQ(uint8_t(classify_sorter_creation_error(ERR_INVALID_PARAMETER)), uint8_t(SorterCreationFailure::CREATION_FAILED));
+	// ...and being retryable is what they are FOR: this is the round-1 contract, restated on
+	// the new path so the round-7 change cannot quietly revoke it.
+	CHECK_FALSE(sorter_creation_failure_is_permanent(classify_sorter_creation_error(ERR_CANT_CREATE)));
+
+	// --- DETERMINISTIC: the errors that reproduce on every attempt. ---
+	// THE FINDING. create_compute_shader_from_spirv() / compute_pipeline_create() failing is a
+	// property of (generated GLSL, device, driver). Retrying recompiles the same source on the
+	// same device and gets the same answer.
+	CHECK_EQ(uint8_t(classify_sorter_creation_error(ERR_COMPILATION_FAILED)),
+			uint8_t(SorterCreationFailure::CREATION_FAILED_DETERMINISTIC));
+	// A capability answer (device_supports_workgroup, and create_sorter()'s pre-instantiation
+	// policy rejects). Reads limits and static config; allocates nothing.
+	CHECK_EQ(uint8_t(classify_sorter_creation_error(ERR_UNAVAILABLE)),
+			uint8_t(SorterCreationFailure::CREATION_FAILED_DETERMINISTIC));
+	CHECK(sorter_creation_failure_is_permanent(classify_sorter_creation_error(ERR_COMPILATION_FAILED)));
+	// ...and NOT re-probable, which is not a nicety: create_sorter() is only reached after the
+	// capability probe passes, so a re-probable deterministic latch would be lifted on the very
+	// next call and the loop would be back, just routed through the round-2 escape hatch.
+	CHECK_FALSE(sorter_permanent_failure_is_reprobable(classify_sorter_creation_error(ERR_COMPILATION_FAILED)));
+
+	// --- FAIL-CLOSED on anything unrecognised. ---
+	// The switch is over Godot's whole Error enum, so it cannot get the "a new enumerator must
+	// choose" property from omitting a default. It latches instead. OK is included on purpose:
+	// reaching the classifier at all means the sorter came back invalid, and an OK alongside
+	// that is a contract violation, not a reason to retry forever.
+	for (Error unrecognised : { OK, FAILED, ERR_UNCONFIGURED, ERR_BUSY, ERR_TIMEOUT, ERR_BUG }) {
+		CHECK_EQ(uint8_t(classify_sorter_creation_error(unrecognised)),
+				uint8_t(SorterCreationFailure::CREATION_FAILED_DETERMINISTIC));
+	}
+
+	// The classifier must not be a constant function — without this, "everything latches"
+	// satisfies every deterministic assertion above.
+	bool saw_retryable = false;
+	bool saw_deterministic = false;
+	for (Error err : { OK, FAILED, ERR_UNAVAILABLE, ERR_CANT_CREATE, ERR_OUT_OF_MEMORY,
+				 ERR_INVALID_PARAMETER, ERR_COMPILATION_FAILED, ERR_UNCONFIGURED }) {
+		if (sorter_creation_failure_is_permanent(classify_sorter_creation_error(err))) {
+			saw_deterministic = true;
+		} else {
+			saw_retryable = true;
+		}
+	}
+	CHECK(saw_retryable);
+	CHECK(saw_deterministic);
 }
 
 // #586 ROUND-2 REVIEW (P2). "Permanent" was permanent for the PROCESS, not for the
@@ -825,6 +956,9 @@ TEST_CASE("[GaussianSplatting][SortFallback] every frame-reject stage is distinc
 		FrameRejectStage::PARAMS,
 		FrameRejectStage::GLOBAL_SORT,
 		FrameRejectStage::RASTER_PATH,
+		// #586 round-7: the resource-device precondition. It used to reject from
+		// TileRenderer::render() itself, before the executor existed, so it had no stage at all.
+		FrameRejectStage::DEVICE,
 	};
 	for (size_t i = 0; i < sizeof(all_stages) / sizeof(all_stages[0]); i++) {
 		const char *name_i = frame_reject_stage_name(all_stages[i]);
@@ -834,7 +968,7 @@ TEST_CASE("[GaussianSplatting][SortFallback] every frame-reject stage is distinc
 		}
 	}
 	CHECK(strcmp(frame_reject_stage_name(
-						  static_cast<FrameRejectStage>(uint8_t(FrameRejectStage::RASTER_PATH) + 1u)),
+						  static_cast<FrameRejectStage>(uint8_t(FrameRejectStage::DEVICE) + 1u)),
 				  "unknown") == 0);
 	// NONE is reserved for "the frame was published", so it must be the zero value: telemetry
 	// reads last_reject_stage as a raw uint8_t and a freshly constructed metrics struct must

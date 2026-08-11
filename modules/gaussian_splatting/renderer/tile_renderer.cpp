@@ -304,6 +304,34 @@ public:
 		// somebody has to remember to extend: a new failure exit inside any stage inherits both,
 		// and a new STAGE cannot compile without naming its FrameRejectStage here.
 		//
+		// #586 round-7: and there is no other `return RID()` in TileRenderer::render() either.
+		// Round 3 wrote the sentence above while its OWN exit table recorded the resource-device
+		// precondition as "no — fires before the executor exists": render() opened with an
+		// ERR_FAIL_NULL_V_MSG, so a renderer that never acquired a device published nothing on
+		// every single frame while rejected_frames stayed 0, last_reject_stage stayed NONE, and
+		// every per-frame CPU timing kept serving the last frame that DID render. A claim of
+		// completeness with a known exception listed underneath it is worse than no claim: it
+		// tells the next reader the enumeration has already been done. The precondition is now
+		// the first thing run() checks, so the boundary is reached from render()'s first
+		// statement onward and the sentence above is true as written, not true-with-a-footnote.
+		//
+		// Constructing the executor with a null resource_device to reject through it is safe by
+		// inspection, not by luck: the constructor only stores its arguments, ~RenderFrameExecutor
+		// -> _prepare_next_tile_counts_if_needed() returns immediately (tile_counts_buffer_advanced
+		// is false until a stage sets it), _clear_debug_counters() forwards a null device to
+		// TileRendererDebugStats::clear_counters(), which returns on null, and _reject_frame()
+		// touches renderer-side POD only.
+		if (!resource_device) {
+			// ERR_PRINT_ONCE, not the previous ERR_FAIL_NULL_V_MSG: this is now a stage failure
+			// like every other one in run(), and they all report once per process. The recurring
+			// signal is the throttled WARN + counter that _reject_frame() raises, which is the
+			// whole point of routing it here — a device that never arrives is a permanent
+			// condition, so a per-frame ERR would be an unbounded log flood and a one-shot ERR
+			// with no counter was the silence this fixes.
+			ERR_PRINT_ONCE("[TileRenderer] Rendering device is required");
+			return _reject_frame(GaussianSplatting::FrameRejectStage::DEVICE);
+		}
+		//
 		// The round-3 finding this replaces: the reject counter was incremented at ONE site
 		// inside the global-sort pipeline (the unsorted-composite choke point), so the pipeline's
 		// nine OTHER failure exits rejected frames that counted zero — including the pre-binning
@@ -3059,10 +3087,13 @@ void TileRenderer::resolve_gpu_timestamps_async() {
 }
 
 RID TileRenderer::render(RenderingDevice *p_rendering_device, const RenderParams &p_params) {
-    RenderingDevice *resource_device = _get_resource_device();
-    ERR_FAIL_NULL_V_MSG(resource_device, RID(), "[TileRenderer] Rendering device is required");
-
-    RenderFrameExecutor executor(*this, p_rendering_device, p_params, resource_device);
+    // #586 round-7: NO early return here. The null-resource-device precondition moved into
+    // RenderFrameExecutor::run(), where it rejects through _reject_frame() like every other
+    // failure, so this function is a two-liner with exactly one exit and the reject boundary
+    // accounts for every frame render() refuses to publish. Re-adding an exit above run() —
+    // an ERR_FAIL_*, a guard clause, anything returning RID() — silently reopens the hole
+    // this round closed, because the accounting lives inside the executor.
+    RenderFrameExecutor executor(*this, p_rendering_device, p_params, _get_resource_device());
     return executor.run();
 }
 

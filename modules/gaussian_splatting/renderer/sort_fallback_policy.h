@@ -1,6 +1,11 @@
 #ifndef GAUSSIAN_SORT_FALLBACK_POLICY_H
 #define GAUSSIAN_SORT_FALLBACK_POLICY_H
 
+// #586 round-7: the sorter-creation classifier below maps a Godot `Error` to a
+// SorterCreationFailure. error_list.h is a dependency-free enum header, so this file stays
+// host-only and its policy predicates stay unit-testable without a RenderingDevice.
+#include "core/error/error_list.h"
+
 #include <stdint.h>
 
 namespace GaussianSplatting {
@@ -236,21 +241,100 @@ enum class SorterCreationFailure : uint8_t {
 	// It queries device limits and static config and allocates nothing, so it cannot
 	// fail transiently: same device + same config => same answer forever. PERMANENT.
 	INDIRECT_CAPABILITY_UNSUPPORTED = 0,
-	// GPUSorterFactory::create_sorter() returned an invalid Ref. At this call site the
-	// algorithm is RADIX explicitly and the capability probe above has already passed,
-	// which makes create_sorter()'s two pre-instantiation policy rejects unreachable
-	// (_algorithm_meets_requirements and .supported both hold for RADIX once the probe
-	// is true). The only remaining cause is RadixSort::initialize() != OK: shader-variant
-	// creation, or one of the >=8 storage_buffer_create() calls returning an invalid RID
-	// (ERR_CANT_CREATE), or the capacity-dependent >UINT32_MAX size refusal
-	// (ERR_INVALID_PARAMETER). Those depend on momentary VRAM pressure or on the
-	// requested capacity — and the requested capacity can shrink back. TRANSIENT.
+	// GPUSorterFactory::create_sorter() returned an invalid Ref AND the initialization error
+	// it preserved is ALLOCATION-SHAPED: a storage_buffer_create() that returned an invalid
+	// RID, or a size refusal that depends on the requested capacity. Both depend on momentary
+	// VRAM pressure or on a capacity that can shrink back. TRANSIENT.
+	//
+	// #586 round-7 correction. Round 2 wrote that "the only remaining cause is
+	// RadixSort::initialize() != OK: shader-variant creation, or one of the >=8
+	// storage_buffer_create() calls ..., or the capacity-dependent >UINT32_MAX size refusal.
+	// Those depend on momentary VRAM pressure or on the requested capacity". It listed
+	// shader-variant creation and then classified it with the allocation causes anyway. A
+	// shader that will not compile and a pipeline that will not build do NOT depend on VRAM
+	// pressure — they are a property of the device, the driver and the generated GLSL, so they
+	// reproduce on every attempt. Calling them transient made the renderer recompile the same
+	// failing shader forever at the saturated backoff while rejecting every translucent frame.
+	// Those causes are now CREATION_FAILED_DETERMINISTIC below, and this enumerator means what
+	// its comment always claimed.
 	CREATION_FAILED = 1,
 	// The created sorter reports supports_indirect() == false. That is a compile-time
 	// constant of the sorter class (RadixSort::supports_indirect() is a literal `true`),
 	// so it cannot change at runtime; the branch is purely defensive. PERMANENT.
 	CREATED_SORTER_LACKS_INDIRECT = 2,
+	// create_sorter() returned an invalid Ref and the preserved initialization error says the
+	// failure cannot change while the device and the sorting configuration are fixed. Read
+	// from the callees (gpu_sorter.cpp), the two shapes are:
+	//
+	//   * ERR_COMPILATION_FAILED — a GPU program would not build. Every such site funnels
+	//     through create_compute_shader_from_spirv() or RenderingDevice::compute_pipeline_create():
+	//     the four shader compiles and four pipeline creations in RadixSort::create_variant()
+	//     and the indirect-dispatch shader/pipeline pair in RadixSort::initialize(). glslang
+	//     compiling the generated GLSL and the driver building a pipeline from that SPIR-V are
+	//     pure functions of (source, device); neither allocates the kind of memory that frees
+	//     up a frame later. This is Codex's case: a device that PASSES the compute-limit probe
+	//     and still rejects the generated radix shader.
+	//   * ERR_UNAVAILABLE — a capability answer. RadixSort::initialize()'s
+	//     device_supports_workgroup() check, and create_sorter()'s two pre-instantiation policy
+	//     rejects, all read device limits and static config and allocate nothing. Same device +
+	//     same config => same answer forever, exactly like INDIRECT_CAPABILITY_UNSUPPORTED.
+	//
+	// PERMANENT, and NOT re-probable (see sorter_permanent_failure_is_reprobable): unlike the
+	// capability latch, there is no cheap query that re-decides this one. Re-testing it costs a
+	// full create_sorter() — which is the allocation-and-recompile storm the latch exists to
+	// prevent — so it is lifted only by TileGlobalSortResources::reset_state(), i.e. a renderer
+	// teardown/device change. That is a real cost and it is the deliberate trade: a config
+	// change that would fix a shader-compile failure needs a renderer reset to take effect,
+	// which is bounded and diagnosable, whereas retrying forever is neither.
+	CREATION_FAILED_DETERMINISTIC = 3,
 };
+
+// Map the initialization error create_sorter() preserved onto the failure class that decides
+// whether the resulting unavailability is retryable.
+//
+// This is the whole point of preserving the error: `Ref::is_valid() == false` cannot tell an
+// out-of-VRAM buffer from a shader the driver refuses to compile, and before round 7 the call
+// site had nothing else to go on, so it called both transient.
+//
+// Fail-closed direction: an error this function does not recognise is DETERMINISTIC. Getting
+// that wrong costs recoverability until the next renderer reset; the other direction costs an
+// unbounded recompile loop on a device that will never succeed, which is the defect being
+// fixed. The recognised transient set is therefore listed explicitly and everything else
+// latches — including OK, which reaching this function at all means the sorter came back
+// invalid without an error to explain why.
+static inline SorterCreationFailure classify_sorter_creation_error(Error p_error) {
+	switch (p_error) {
+		// A resource acquisition failed: storage_buffer_create() returned an invalid RID
+		// (>= 8 sites in RadixSort::initialize(), plus the two indirect-count buffers), or
+		// _init_sorter_devices() found no GaussianSplatManager singleton yet. Both can
+		// change between attempts, and the second returns before anything is compiled or
+		// allocated, so retrying it is free.
+		case ERR_CANT_CREATE:
+		// Not currently produced by the sort path, but it is the canonical allocation
+		// failure and classifying it as anything but transient would be wrong.
+		case ERR_OUT_OF_MEMORY:
+		// The >UINT32_MAX size refusals in RadixSort::initialize() (the sort-path preflight
+		// and the RADIX_CREATE_BUFFER guard). These are CAPACITY-dependent, and capacity
+		// shrinks back: the bounded-shrink path recreates at measured demand. The one
+		// config-shaped ERR_INVALID_PARAMETER that also lands here — create_variant()'s
+		// unsupported radix_bits — costs nothing to retry, because it is rejected before any
+		// shader is compiled or any buffer allocated, so it cannot produce the resource burn
+		// this classification exists to stop.
+		case ERR_INVALID_PARAMETER:
+			return SorterCreationFailure::CREATION_FAILED;
+		// Named rather than left to `default` because these two ARE the round-7 finding: they
+		// are the errors the deterministic sites actually return, and a reader checking whether
+		// a shader-compile failure still latches must be able to see it here.
+		case ERR_COMPILATION_FAILED:
+		case ERR_UNAVAILABLE:
+			return SorterCreationFailure::CREATION_FAILED_DETERMINISTIC;
+		// A `default` is unavoidable here — the switch is over Godot's whole `Error` enum, not
+		// over a closed set this module owns — so it cannot carry the "a new enumerator must
+		// choose" property the predicates below get from omitting it. It fails closed instead.
+		default:
+			return SorterCreationFailure::CREATION_FAILED_DETERMINISTIC;
+	}
+}
 
 // No default label, so a new failure site must make an explicit permanent/transient
 // choice here rather than silently inheriting one.
@@ -258,6 +342,11 @@ static inline bool sorter_creation_failure_is_permanent(SorterCreationFailure p_
 	switch (p_failure) {
 		case SorterCreationFailure::INDIRECT_CAPABILITY_UNSUPPORTED:
 		case SorterCreationFailure::CREATED_SORTER_LACKS_INDIRECT:
+		// #586 round-7: a shader/pipeline that will not build, or a capability answer, does not
+		// become buildable by being attempted again. Retrying it is pure resource burn — a full
+		// create_sorter() per saturated-backoff interval, forever, while every translucent frame
+		// is rejected anyway.
+		case SorterCreationFailure::CREATION_FAILED_DETERMINISTIC:
 			return true;
 		case SorterCreationFailure::CREATION_FAILED:
 			return false;
@@ -324,6 +413,15 @@ static inline bool sorter_permanent_failure_is_reprobable(SorterCreationFailure 
 		// Not permanent at all — recovered by the transient retry backoff above, which
 		// already re-attempts creation on its own schedule.
 		case SorterCreationFailure::CREATION_FAILED:
+			return false;
+		// #586 round-7. MUST be false, and not merely as a conservative choice: the probe was
+		// TRUE when this failure was recorded — create_sorter() is only reached after
+		// probe_supports_indirect() passes — so re-probing would answer true again on the very
+		// next ensure_resources() call and lift the latch immediately. That is not a re-probe,
+		// it is a per-call create_sorter() loop with extra steps: precisely the storm this
+		// classification was added to stop. The escape hatch for this cause is reset_state(),
+		// not a query.
+		case SorterCreationFailure::CREATION_FAILED_DETERMINISTIC:
 			return false;
 	}
 	// Unknown cause: do not re-probe. Fail-closed here means "keep the latch", which can

@@ -1430,12 +1430,35 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 						"[TileRenderer] Global composite sort requires RadixSort indirect support, which this device/config does not provide; translucent global-composite frames will be REJECTED (nothing presented) until the device or sort configuration changes",
 						GaussianSplatting::SorterCreationFailure::INDIRECT_CAPABILITY_UNSUPPORTED);
 			} else {
+				// #586 round-7: PRESERVE the initialization error and classify on it. Before
+				// this, every invalid Ref was tagged CREATION_FAILED — i.e. transient — on the
+				// reasoning that the capability probe above had already passed, so the only
+				// remaining causes were VRAM/capacity ones. That reasoning was incomplete:
+				// RadixSort::create_variant() compiles four shaders and builds four compute
+				// pipelines, and a device that passes the compute-limit probe can still reject
+				// the generated radix GLSL or fail pipeline creation. Those failures reproduce
+				// on every attempt, so classifying them transient made the renderer recompile
+				// the same failing shader forever at the saturated backoff while rejecting
+				// every translucent frame — a permanent resource burn with no possible
+				// recovery. classify_sorter_creation_error() splits allocation-shaped errors
+				// (still retried) from deterministic ones (latched).
+				Error create_error = OK;
 				Ref<IGPUSorter> created_sorter = GPUSorterFactory::create_sorter(
-						GPUSorterFactory::ALGORITHM_RADIX, device, resize_elements, config_to_use);
+						GPUSorterFactory::ALGORITHM_RADIX, device, resize_elements, config_to_use, &create_error);
 				if (!created_sorter.is_valid()) {
+					const GaussianSplatting::SorterCreationFailure creation_failure =
+							GaussianSplatting::classify_sorter_creation_error(create_error);
+					const bool deterministic =
+							creation_failure == GaussianSplatting::SorterCreationFailure::CREATION_FAILED_DETERMINISTIC;
+					// Two messages, because the operator's next action differs: a retryable
+					// failure resolves itself if the pressure lifts, a latched one will not
+					// change until the device or the sorting configuration does AND the
+					// renderer is rebuilt (nothing but reset_state() clears this latch).
 					handle_recreate_failure(
-							"[TileRenderer] Failed to create the global composite GPU sorter (allocation/initialization); translucent global-composite frames are REJECTED until a retry succeeds",
-							GaussianSplatting::SorterCreationFailure::CREATION_FAILED);
+							deterministic
+									? "[TileRenderer] Failed to build the global composite GPU sorter for a DETERMINISTIC reason (shader/pipeline creation or capability); it will NOT be retried, because the same device and sorting configuration produce the same failure every time. Translucent global-composite frames are REJECTED (nothing presented) until the renderer is rebuilt with a working device/sort configuration"
+									: "[TileRenderer] Failed to create the global composite GPU sorter (allocation/initialization); translucent global-composite frames are REJECTED until a retry succeeds",
+							creation_failure);
 				} else if (!created_sorter->supports_indirect()) {
 					created_sorter->shutdown();
 					handle_recreate_failure(

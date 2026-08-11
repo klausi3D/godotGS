@@ -268,6 +268,12 @@ public:
     // de-dup can be driven deterministically. Returns the private nested TileRendererDebugStats.
     auto &_test_debug_stats() { return debug_stats; }
     auto &_test_global_sort_resources() { return global_sort_resources; }
+    // #586 round-7: lets a test stash device_context.resource_rd to null and put it back, so the
+    // run() device precondition can be driven on a renderer that is otherwise fully warmed up.
+    // Reproducing that state for real would mean a device acquisition failure, which a healthy
+    // harness GPU does not produce; stashing installs the same STATE render() reads, and the
+    // restore afterwards is what proves the renderer was not simply wedged.
+    auto &_test_device_context() { return device_context; }
     auto &_test_grid_state() { return grid_state; }
     auto &_test_timing_state() { return timing_state; }
     auto &_test_prefix_scan_stage() { return prefix_scan_stage; }

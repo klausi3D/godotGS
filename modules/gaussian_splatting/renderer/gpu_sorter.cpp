@@ -1086,7 +1086,13 @@ void BitonicSort::wait_for_completion() {
 // GPUSorterFactory Implementation
 
 Ref<IGPUSorter> GPUSorterFactory::create_sorter(SortingAlgorithm algorithm, RenderingDevice *rd, uint32_t max_elements,
-        const SortKeyConfig &p_key_config) {
+        const SortKeyConfig &p_key_config, Error *r_error) {
+    // #586 round-7: every `return` below must have set this. Seeded with the failure value, not
+    // OK, so a path that forgets to write it reports a failure rather than a false success —
+    // and seeded ONCE here rather than at each exit, so adding an exit cannot skip it.
+    if (r_error) {
+        *r_error = ERR_CANT_CREATE;
+    }
     SortKeyConfig key_config = p_key_config;
     if (key_config.key_bits != 32 && key_config.key_bits != 64) {
         WARN_PRINT(vformat("[GPU Sort] Unsupported key_bits=%d; falling back to 64-bit keys", key_config.key_bits));
@@ -1165,6 +1171,12 @@ Ref<IGPUSorter> GPUSorterFactory::create_sorter(SortingAlgorithm algorithm, Rend
         } else {
             GS_LOG_ERROR_DEFAULT(vformat("[GPU Sort] Requested sorter '%s' does not satisfy instance pipeline requirements and no valid fallback is available (%s)",
                     _algorithm_name_label(requested_algorithm), requested_failure));
+            // Capability verdict from probes over device limits + static config: nothing
+            // allocated, so the same inputs give the same answer. ERR_UNAVAILABLE, which the
+            // caller latches rather than retries.
+            if (r_error) {
+                *r_error = ERR_UNAVAILABLE;
+            }
             return Ref<IGPUSorter>();
         }
     }
@@ -1173,6 +1185,9 @@ Ref<IGPUSorter> GPUSorterFactory::create_sorter(SortingAlgorithm algorithm, Rend
     if (!get_policy_probe(resolved_algorithm).supported) {
         GS_LOG_ERROR_DEFAULT(vformat("[GPU Sort] Requested sorter '%d' not supported; GPU sorting unavailable",
                 int(resolved_algorithm)));
+        if (r_error) {
+            *r_error = ERR_UNAVAILABLE;
+        }
         return Ref<IGPUSorter>();
     }
 
@@ -1194,6 +1209,13 @@ Ref<IGPUSorter> GPUSorterFactory::create_sorter(SortingAlgorithm algorithm, Rend
     if (sorter.is_valid()) {
         sorter->set_key_config(key_config);
         Error err = sorter->initialize(rd, max_elements);
+        // #586 round-7: THE preserved error. This is the one the caller's retry policy turns on
+        // — the sorter is dropped either way, but "the driver would not compile the scatter
+        // shader" and "there was no VRAM for the histogram buffer this instant" arrive here as
+        // different codes and must not be collapsed back into a bare invalid Ref.
+        if (r_error) {
+            *r_error = err;
+        }
         if (err != OK) {
             String name = sorter->get_algorithm_name();
             print_error("Failed to initialize GPU sorter (" + name + "): " + itos(err));
@@ -1880,7 +1902,7 @@ void main() {
 
     RID histogram_shader_file = create_compute_shader_from_spirv(device, histogram_source);
     if (!histogram_shader_file.is_valid()) {
-        return ERR_CANT_CREATE;
+        return ERR_COMPILATION_FAILED;
     }
     variant.histogram_shader = histogram_shader_file;
 
@@ -1948,7 +1970,7 @@ void main() {
     RID wg_prefix_shader_file = create_compute_shader_from_spirv(device, wg_prefix_source);
     if (!wg_prefix_shader_file.is_valid()) {
         cleanup_variant(variant);
-        return ERR_CANT_CREATE;
+        return ERR_COMPILATION_FAILED;
     }
     variant.wg_prefix_shader = wg_prefix_shader_file;
 
@@ -1990,7 +2012,7 @@ void main() {
     RID bin_prefix_shader_file = create_compute_shader_from_spirv(device, bin_prefix_source);
     if (!bin_prefix_shader_file.is_valid()) {
         cleanup_variant(variant);
-        return ERR_CANT_CREATE;
+        return ERR_COMPILATION_FAILED;
     }
     variant.bin_prefix_shader = bin_prefix_shader_file;
 
@@ -2132,32 +2154,32 @@ void main() {
     RID scatter_shader_file = create_compute_shader_from_spirv(device, scatter_source);
     if (!scatter_shader_file.is_valid()) {
         cleanup_variant(variant);
-        return ERR_CANT_CREATE;
+        return ERR_COMPILATION_FAILED;
     }
     variant.scatter_shader = scatter_shader_file;
 
     variant.histogram_pipeline = device->compute_pipeline_create(variant.histogram_shader);
     if (!variant.histogram_pipeline.is_valid()) {
         cleanup_variant(variant);
-        return ERR_CANT_CREATE;
+        return ERR_COMPILATION_FAILED;
     }
 
     variant.wg_prefix_pipeline = device->compute_pipeline_create(variant.wg_prefix_shader);
     if (!variant.wg_prefix_pipeline.is_valid()) {
         cleanup_variant(variant);
-        return ERR_CANT_CREATE;
+        return ERR_COMPILATION_FAILED;
     }
 
     variant.bin_prefix_pipeline = device->compute_pipeline_create(variant.bin_prefix_shader);
     if (!variant.bin_prefix_pipeline.is_valid()) {
         cleanup_variant(variant);
-        return ERR_CANT_CREATE;
+        return ERR_COMPILATION_FAILED;
     }
 
     variant.scatter_pipeline = device->compute_pipeline_create(variant.scatter_shader);
     if (!variant.scatter_pipeline.is_valid()) {
         cleanup_variant(variant);
-        return ERR_CANT_CREATE;
+        return ERR_COMPILATION_FAILED;
     }
 
     variants.push_back(variant);
@@ -2190,6 +2212,30 @@ uint32_t RadixSort::get_workgroup_count(uint32_t element_count) const {
     return MAX<uint32_t>(1, (element_count + workgroup_size - 1) / workgroup_size);
 }
 
+// ERROR-CODE CONTRACT for the whole RadixSort init path (#586 round-7).
+//
+// The caller (TileGlobalSortResources::ensure_resources, via GPUSorterFactory::create_sorter)
+// has to decide whether a failed sorter build is worth retrying. `Ref::is_valid() == false`
+// cannot answer that, so the ERROR is what carries it, and these codes are the vocabulary:
+//
+//   ERR_COMPILATION_FAILED  a GPU program would not build (create_compute_shader_from_spirv or
+//                           RenderingDevice::compute_pipeline_create returned invalid). A pure
+//                           function of (generated source, device, driver) — DETERMINISTIC, so
+//                           the caller latches instead of retrying it forever.
+//   ERR_UNAVAILABLE         a capability answer (device_supports_workgroup). Reads limits and
+//                           static config, allocates nothing — DETERMINISTIC.
+//   ERR_CANT_CREATE         a resource acquisition failed: storage_buffer_create returned an
+//                           invalid RID (momentary VRAM pressure), or _init_sorter_devices
+//                           found no GaussianSplatManager singleton yet. Both can change
+//                           between attempts without anything else changing — RETRYABLE. (The
+//                           no-manager case is cheap to retry: it returns before a single
+//                           shader is compiled or a byte allocated.)
+//   ERR_INVALID_PARAMETER   a size/parameter refusal that depends on the requested capacity,
+//                           which shrinks back — RETRYABLE.
+//
+// GaussianSplatting::classify_sorter_creation_error() (sort_fallback_policy.h) is the single
+// consumer of this mapping and documents the same table from the other side. Changing a code
+// here without changing it there silently changes the retry policy, so keep the two in sync.
 Error RadixSort::initialize(RenderingDevice *p_rd, uint32_t p_max_elements) {
     if (!p_rd || p_max_elements == 0) {
         return ERR_INVALID_PARAMETER;
@@ -2388,13 +2434,13 @@ void main() {
     if (!indirect_dispatch_shader.is_valid()) {
         GS_LOG_ERROR_DEFAULT("RadixSort: Failed to create indirect dispatch compute shader");
         _cleanup_partial_init(resource_rd);
-        return ERR_CANT_CREATE;
+        return ERR_COMPILATION_FAILED;
     }
     indirect_dispatch_pipeline = resource_rd->compute_pipeline_create(indirect_dispatch_shader);
     if (!indirect_dispatch_pipeline.is_valid()) {
         GS_LOG_ERROR_DEFAULT("RadixSort: Failed to create indirect dispatch compute pipeline");
         _cleanup_partial_init(resource_rd);
-        return ERR_CANT_CREATE;
+        return ERR_COMPILATION_FAILED;
     }
 
 #undef RADIX_CREATE_BUFFER

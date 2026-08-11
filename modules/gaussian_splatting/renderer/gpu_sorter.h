@@ -544,8 +544,15 @@ public:
         static AutoThresholds from_project_settings();
     };
 
+    // #586 round-7: `r_error` PRESERVES the initialization error instead of discarding it with
+    // the Ref. Callers that must decide whether a failed build is worth retrying cannot get
+    // that from `is_valid() == false` — an out-of-VRAM buffer and a shader the driver refuses
+    // to compile are indistinguishable there, and treating both as transient makes the renderer
+    // recompile a permanently failing shader forever. See the error-code contract above
+    // RadixSort::initialize() and GaussianSplatting::classify_sorter_creation_error().
+    // Always written when non-null: OK on success, otherwise the failing error.
     static Ref<IGPUSorter> create_sorter(SortingAlgorithm algorithm, RenderingDevice *rd, uint32_t max_elements,
-            const SortKeyConfig &p_key_config = SortKeyConfig::from_settings());
+            const SortKeyConfig &p_key_config = SortKeyConfig::from_settings(), Error *r_error = nullptr);
     static SortingAlgorithm get_best_algorithm_for_size(uint32_t element_count, const SortKeyConfig &key_config);
     static SortingAlgorithm get_best_algorithm_for_size(uint32_t element_count, const SortKeyConfig &key_config, RenderingDevice *rd);
     static PolicyDecision evaluate_auto_policy(uint32_t element_count, const SortKeyConfig &key_config,

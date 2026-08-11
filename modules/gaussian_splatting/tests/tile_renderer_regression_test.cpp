@@ -2550,6 +2550,266 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
             return r;
         }
 
+        // ---- Phase 7: the RESOURCE-DEVICE precondition must be counted too (round-7 review). ----
+        // Round-7 finding. Phases 2-6 all reject from inside RenderFrameExecutor::run(), which is
+        // where the reject boundary lives. TileRenderer::render() ITSELF opened with an
+        // ERR_FAIL_NULL_V_MSG on the resource device, BEFORE the executor was constructed, so a
+        // renderer that never acquired a device published nothing on every frame while
+        // rejected_frames stayed flat, last_reject_stage stayed NONE, and every per-frame CPU
+        // timing kept serving the last frame that DID render. Round 3's own exit table listed
+        // this exit as uncounted and the "complete by construction" claim was left standing
+        // anyway, which is the part that makes it worth a phase of its own: the claim was the
+        // defect.
+        //
+        // SIMULATED, like phases 2, 4 and 6: a device acquisition failure is not something a
+        // healthy harness GPU produces, so the STATE render() reads is stashed rather than
+        // provoked. The stash is device_context.resource_rd, which is exactly what
+        // _get_resource_device() returns and therefore exactly what the precondition tests.
+        // The restore at the end is what keeps this from passing on a renderer that simply died.
+        {
+            auto &device_context = tile_renderer->_test_device_context();
+            RenderingDevice *stashed_resource_rd = device_context.resource_rd;
+            if (stashed_resource_rd == nullptr) {
+                r.error_message = "Premise failed: phase 7 needs a live resource device to take away, so nulling it "
+                                  "would change nothing and the phase would prove nothing.";
+                return r;
+            }
+            // The healthy frame just published above, so the timings it reported are this
+            // phase's control: they are the values that must STOP being published.
+            const float healthy_assignment_before_device_loss = tile_renderer->get_tile_assignment_time();
+            const float healthy_raster_before_device_loss = tile_renderer->get_rasterization_time();
+            const float healthy_setup_before_device_loss = tile_renderer->get_last_setup_cpu_ms();
+            if (!(healthy_assignment_before_device_loss > 0.0f) || !(healthy_raster_before_device_loss > 0.0f) ||
+                    !(healthy_setup_before_device_loss > 0.0f)) {
+                r.error_message = vformat(
+                        "Premise failed: the frame preceding phase 7 reported no measurable timings "
+                        "(assignment=%f raster=%f setup_cpu=%f), so 'the reject zeroes them' would be vacuous.",
+                        double(healthy_assignment_before_device_loss), double(healthy_raster_before_device_loss),
+                        double(healthy_setup_before_device_loss));
+                return r;
+            }
+            const uint64_t all_rejects_before_device_loss = tile_renderer->get_rejected_frames();
+            const uint64_t composite_rejects_before_device_loss = tile_renderer->get_global_composite_rejected_frames();
+            const uint64_t unsorted_before_device_loss = tile_renderer->get_unsorted_composite_frames();
+
+            device_context.resource_rd = nullptr;
+            RID device_lost_output = tile_renderer->render(p_rd, params);
+            device_context.resource_rd = stashed_resource_rd;
+
+            if (device_lost_output.is_valid()) {
+                r.error_message = "A frame rendered with no resource RenderingDevice PUBLISHED. Nothing can have been "
+                                  "drawn without a device.";
+                return r;
+            }
+            // THE DISCRIMINATING ASSERTION for round 7. Pre-fix both of these were unchanged:
+            // the ERR_FAIL_NULL_V_MSG returned an invalid RID without ever reaching
+            // _reject_frame(), so the superset counter that exists precisely so "no reject path
+            // can be silent" was silent about the one path that bypassed the boundary entirely.
+            if (tile_renderer->get_rejected_frames() != all_rejects_before_device_loss + 1u) {
+                r.error_message = vformat(
+                        "ROUND-7 REGRESSION: a frame rejected for a missing resource device left rejected_frames at "
+                        "%d -> %d (expected +1). render() refused to publish and the superset counter — whose whole "
+                        "purpose is that no reject path is silent — says nothing happened.",
+                        int(all_rejects_before_device_loss), int(tile_renderer->get_rejected_frames()));
+                return r;
+            }
+            if (tile_renderer->get_last_reject_stage() != uint8_t(GaussianSplatting::FrameRejectStage::DEVICE)) {
+                r.error_message = vformat(
+                        "ROUND-7 REGRESSION: the device-precondition reject reported stage %d, expected DEVICE (%d). "
+                        "Without it an operator cannot tell 'the renderer never got a device' from any other reject, "
+                        "and the individual site logs ERR_PRINT_ONCE — one line per process.",
+                        int(tile_renderer->get_last_reject_stage()),
+                        int(GaussianSplatting::FrameRejectStage::DEVICE));
+                return r;
+            }
+            // The #586 subset must NOT move: this reject has nothing to do with sorting, and
+            // global_composite_rejected_frames keeps its name honest only if unrelated setup
+            // failures stay out of it. This is also what distinguishes a real routing of the
+            // exit through the boundary from a lazy `global_composite_rejected_frames++`.
+            if (tile_renderer->get_global_composite_rejected_frames() != composite_rejects_before_device_loss) {
+                r.error_message = vformat(
+                        "The device-precondition reject was counted as a GLOBAL-COMPOSITE reject (%d -> %d). That "
+                        "counter is the #586 subset (stage == GLOBAL_SORT); a missing device is not a sort failure.",
+                        int(composite_rejects_before_device_loss),
+                        int(tile_renderer->get_global_composite_rejected_frames()));
+                return r;
+            }
+            if (tile_renderer->get_unsorted_composite_frames() != unsorted_before_device_loss) {
+                r.error_message = vformat(
+                        "The device-precondition reject incremented unsorted_composite_frames (%d -> %d). That "
+                        "counter means \"wrong pixels were shipped\"; nothing was shipped.",
+                        int(unsorted_before_device_loss), int(tile_renderer->get_unsorted_composite_frames()));
+                return r;
+            }
+            // Same per-frame timing contract as every other reject. Pre-fix these still held the
+            // control values asserted non-zero above — for EVERY frame, indefinitely, because a
+            // renderer with no device never publishes again.
+            if (tile_renderer->get_tile_assignment_time() != 0.0f ||
+                    tile_renderer->get_rasterization_time() != 0.0f ||
+                    tile_renderer->get_last_setup_cpu_ms() != 0.0f) {
+                r.error_message = vformat(
+                        "ROUND-7 REGRESSION: the device-precondition reject left stale timings (assignment=%f "
+                        "raster=%f setup_cpu=%f) from the last successful frame (%f/%f/%f). The perf HUD reads "
+                        "\"normal\" while the renderer is drawing nothing at all.",
+                        double(tile_renderer->get_tile_assignment_time()),
+                        double(tile_renderer->get_rasterization_time()),
+                        double(tile_renderer->get_last_setup_cpu_ms()),
+                        double(healthy_assignment_before_device_loss), double(healthy_raster_before_device_loss),
+                        double(healthy_setup_before_device_loss));
+                return r;
+            }
+            // The round-4 CPU fallback pairs are part of the same contract and are reached the
+            // same way — this reject happens even earlier than phase 6's, before a single stage
+            // helper runs, so it is the strictest place to assert them.
+            if (tile_renderer->is_last_overlap_sort_cpu_dispatch_time_valid() ||
+                    tile_renderer->is_last_prefix_cpu_sync_fallback_time_valid()) {
+                r.error_message = vformat(
+                        "The device-precondition reject left the CPU fallback timings valid (sort_dispatch valid=%s, "
+                        "prefix_sync valid=%s). The frame did not reach either stage.",
+                        tile_renderer->is_last_overlap_sort_cpu_dispatch_time_valid() ? "yes" : "no",
+                        tile_renderer->is_last_prefix_cpu_sync_fallback_time_valid() ? "yes" : "no");
+                return r;
+            }
+
+            // RECOVERY CONTROL, the direction that keeps the assertions above from being
+            // satisfiable by a renderer wedged at zero: the device is back, so this frame must
+            // publish and report REAL timings again.
+            RID device_recovered_output = tile_renderer->render(p_rd, params);
+            if (!device_recovered_output.is_valid()) {
+                r.error_message = "After the resource device was restored, render() still published nothing.";
+                return r;
+            }
+            if (!(tile_renderer->get_tile_assignment_time() > 0.0f) ||
+                    !(tile_renderer->get_rasterization_time() > 0.0f) ||
+                    !(tile_renderer->get_last_setup_cpu_ms() > 0.0f)) {
+                r.error_message = vformat(
+                        "The frame published after the resource device was restored reports no stage timings "
+                        "(assignment=%f raster=%f setup_cpu=%f). The reject-time invalidation must clear timings for "
+                        "rejected frames only, not wedge them at 0.",
+                        double(tile_renderer->get_tile_assignment_time()),
+                        double(tile_renderer->get_rasterization_time()),
+                        double(tile_renderer->get_last_setup_cpu_ms()));
+                return r;
+            }
+        }
+
+        // ---- Phase 8: a DETERMINISTIC creation failure must stop retrying (round-7 review). ----
+        // Round-7 finding. Round 2 tagged every invalid Ref from create_sorter() as
+        // CREATION_FAILED — transient — reasoning that once probe_supports_indirect() passes,
+        // only VRAM/capacity causes remain. RadixSort::create_variant() compiles four shaders and
+        // builds four compute pipelines, and a device can pass the compute-limit probe and still
+        // reject the generated radix GLSL, so the "never gives up" backoff became an unbounded
+        // recompile loop on a renderer that rejects every translucent frame anyway.
+        //
+        // The cause is NOT hand-picked: it is derived by running the real classifier over the
+        // error the deterministic sites actually return, so a mutation of either the classifier
+        // or the permanence predicate lands here. `permanent` is likewise derived, so the
+        // injected state is one disable_sorter() could really produce.
+        //
+        // What makes this phase discriminating on a HEALTHY GPU, with no simulated shader
+        // failure: create_sorter() SUCCEEDS on this device. So if the cause were classified
+        // transient, the backoff would expire within a couple of ensure_resources() calls and
+        // the sorter would be rebuilt — which is exactly what phase 4 proves happens for a
+        // genuinely transient cause. A sorter that is still absent after many frames therefore
+        // means the retry really stopped, and phase 4 is the control proving it did not stop for
+        // everything.
+        {
+            if (!sort_resources.sorter.is_valid() || !sort_resources.sorter_available) {
+                r.error_message = "Premise failed: phase 8 needs a live sorter to retire before injecting the "
+                                  "deterministic creation failure.";
+                return r;
+            }
+            const GaussianSplatting::SorterCreationFailure deterministic_cause =
+                    GaussianSplatting::classify_sorter_creation_error(ERR_COMPILATION_FAILED);
+            if (deterministic_cause != GaussianSplatting::SorterCreationFailure::CREATION_FAILED_DETERMINISTIC) {
+                r.error_message = vformat(
+                        "ROUND-7 REGRESSION: the shader/pipeline creation error ERR_COMPILATION_FAILED classifies as "
+                        "cause %d, not CREATION_FAILED_DETERMINISTIC (%d). A shader the driver will not compile is "
+                        "not a transient allocation failure.",
+                        int(deterministic_cause),
+                        int(GaussianSplatting::SorterCreationFailure::CREATION_FAILED_DETERMINISTIC));
+                return r;
+            }
+            // Mirrors disable_sorter() for this cause, with every derived field derived.
+            sort_resources.sorter->shutdown();
+            sort_resources.sorter.unref();
+            sort_resources.sorter_available = false;
+            sort_resources.sorter_unavailable_cause = deterministic_cause;
+            sort_resources.sorter_unavailable_permanent =
+                    GaussianSplatting::sorter_creation_failure_is_permanent(deterministic_cause);
+            sort_resources.sorter_retry_delay_calls = 0;
+            sort_resources.sorter_retry_countdown_calls = 0;
+            if (!sort_resources.sorter_unavailable_permanent) {
+                r.error_message = "ROUND-7 REGRESSION: a deterministic sorter creation failure is classified as "
+                                  "transient, so the renderer will keep recompiling the same failing shader at the "
+                                  "saturated backoff, forever, while rejecting every translucent frame.";
+                return r;
+            }
+
+            // Many calls, well past the shortest retry delay a transient cause would schedule.
+            // Every one of them is a frame the renderer refuses to publish, which is the state
+            // the recompile loop would be burning a full create_sorter() inside of.
+            const uint64_t rejects_before_deterministic = tile_renderer->get_rejected_frames();
+            const int deterministic_frames = 12;
+            for (int frame = 0; frame < deterministic_frames; frame++) {
+                RID deterministic_output = tile_renderer->render(p_rd, params);
+                if (deterministic_output.is_valid()) {
+                    r.error_message = vformat(
+                            "A DETERMINISTIC sorter-creation latch published a frame on repeat frame %d.", frame);
+                    return r;
+                }
+                // THE DISCRIMINATING ASSERTION. With the pre-round-7 classification this cause
+                // arrived as CREATION_FAILED, the backoff expired, and create_sorter() — which
+                // succeeds on this GPU — rebuilt the sorter. A rebuilt sorter here is the
+                // recompile loop, observed.
+                if (sort_resources.sorter.is_valid() || sort_resources.sorter_available) {
+                    r.error_message = vformat(
+                            "ROUND-7 REGRESSION: a DETERMINISTIC sorter-creation failure was RETRIED and rebuilt the "
+                            "sorter on repeat frame %d (valid=%s available=%s). On a device that really cannot build "
+                            "the shader this is a full create_sorter() — four shader compiles, four pipelines, >=8 "
+                            "buffers — every saturated-backoff interval, forever.",
+                            frame, sort_resources.sorter.is_valid() ? "true" : "false",
+                            sort_resources.sorter_available ? "true" : "false");
+                    return r;
+                }
+                // ...and it must not have been quietly unlatched by the round-2 re-probe either:
+                // the capability probe PASSES on this device, so a re-probable deterministic
+                // cause would be lifted on the first call and the loop would be back.
+                if (!sort_resources.sorter_unavailable_permanent) {
+                    r.error_message = vformat(
+                            "ROUND-7 REGRESSION: the deterministic latch was lifted by the capability re-probe on "
+                            "repeat frame %d. create_sorter() is only reached after that probe passes, so re-probing "
+                            "this cause re-enables the retry loop through the round-2 escape hatch.",
+                            frame);
+                    return r;
+                }
+            }
+            if (tile_renderer->get_rejected_frames() != rejects_before_deterministic + uint64_t(deterministic_frames)) {
+                r.error_message = vformat(
+                        "The %d deterministic-latch frames were not all counted at the reject boundary (%d -> %d).",
+                        deterministic_frames, int(rejects_before_deterministic),
+                        int(tile_renderer->get_rejected_frames()));
+                return r;
+            }
+
+            // RECOVERY CONTROL. The latch is lifted only by reset_state(), i.e. a renderer
+            // teardown / device change — so lift it the way reset_state() does and require the
+            // sorter to come back. Without this the phase would also pass on a renderer that had
+            // simply died, and "stops retrying" would be indistinguishable from "stops working".
+            sort_resources.sorter_available = true;
+            sort_resources.sorter_unavailable_permanent = false;
+            sort_resources.sorter_unavailable_cause = GaussianSplatting::SorterCreationFailure::CREATION_FAILED;
+            RID deterministic_recovered_output = tile_renderer->render(p_rd, params);
+            if (!deterministic_recovered_output.is_valid() || !sort_resources.sorter.is_valid()) {
+                r.error_message = vformat(
+                        "After the deterministic latch was cleared the renderer did not recover (published=%s "
+                        "sorter_valid=%s). The round-7 latch must stop the RETRY, not the renderer.",
+                        deterministic_recovered_output.is_valid() ? "true" : "false",
+                        sort_resources.sorter.is_valid() ? "true" : "false");
+                return r;
+            }
+        }
+
         r.passed = true;
         return r;
     }();
@@ -2658,9 +2918,19 @@ TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] Overflow-record drop r
 // setting restores publishing while a still-unsupported setting does not — the difference
 // between fixing the dead end and re-arming the unsorted-output path.
 //
-// The hardware trigger for phases 2 and 4 (sorter creation failure) is SIMULATED by installing
-// disable_sorter()'s end state through the TESTS_ENABLED-only _test_global_sort_resources()
-// accessor; it does not occur on a desktop GPU. Phase 5 is NOT simulated: the capability probe
+// Round-7 review of #586 added two more. Phase 7: TileRenderer::render() used to reject a
+// missing resource device from OUTSIDE the executor, so that exit reached none of the reject
+// accounting — round 3's own exit table said so and its completeness claim was left standing
+// anyway. Phase 8: a DETERMINISTIC create_sorter() failure (a shader or compute pipeline the
+// device will not build) was classified transient, so it was retried forever at the saturated
+// backoff. Phase 8 needs no simulated shader failure to discriminate — create_sorter() succeeds
+// on this GPU, so a sorter that is still absent after many frames can only mean the retry
+// stopped, and phase 4 is the standing control that it did not stop for transient causes.
+//
+// The hardware trigger for phases 2, 4, 7 and 8 is SIMULATED by installing the end state
+// through the TESTS_ENABLED-only _test_global_sort_resources() / _test_device_context()
+// accessors; neither a sorter creation failure nor a device acquisition failure occurs on a
+// desktop GPU. Phase 5 is NOT simulated: the capability probe
 // answers from live project configuration, so its failure is reproducible on capable hardware.
 // See the long comment on test_sorter_unavailable_rejects_frame for what each phase covers.
 //

@@ -317,6 +317,19 @@ enum class FrameRejectStage : uint8_t {
 	PARAMS = 3, // _setup_diagnostics_and_params: uniform device, parameter buffer allocation/upload.
 	GLOBAL_SORT = 4, // _execute_global_sort_pipeline: see UnsortedCompositeReason for which exit.
 	RASTER_PATH = 5, // _select_and_prepare_raster_path: fragment raster uniform-set acquisition.
+	// #586 round-7: the resource RenderingDevice precondition, checked as run()'s first act.
+	// It used to be an ERR_FAIL_NULL_V_MSG in TileRenderer::render() ITSELF, before the
+	// executor was even constructed, so it was the one way render() could return an invalid
+	// RID without passing the reject boundary — the round-3 exit table listed it as
+	// "no — fires before the executor exists" and the round-3 claim of completeness was
+	// nevertheless left standing. It is now a stage like any other, which is what makes that
+	// claim true rather than nearly true.
+	//
+	// Appended (6) rather than inserted ahead of SETTINGS even though it runs first: the value
+	// is published telemetry (last_reject_stage is a raw uint8_t on the perf surface), and
+	// renumbering would silently re-map every already-captured sample onto a different stage.
+	// The enum documents EXITS, not an order; run() is the order.
+	DEVICE = 6, // run() precondition: TileRenderer::_get_resource_device() returned null.
 };
 
 static inline const char *frame_reject_stage_name(FrameRejectStage p_stage) {
@@ -333,6 +346,8 @@ static inline const char *frame_reject_stage_name(FrameRejectStage p_stage) {
 			return "global composite sort";
 		case FrameRejectStage::RASTER_PATH:
 			return "raster path preparation";
+		case FrameRejectStage::DEVICE:
+			return "rendering device unavailable";
 	}
 	return "unknown";
 }

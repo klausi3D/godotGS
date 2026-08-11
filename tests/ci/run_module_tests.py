@@ -36,6 +36,8 @@ METRIC_RESET_PARITY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_metric_reset_p
 METRIC_RESET_PARITY_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_metric_reset_parity.py"
 REJECT_TELEMETRY_PARITY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_reject_telemetry_parity.py"
 REJECT_TELEMETRY_PARITY_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_reject_telemetry_parity.py"
+SORTER_ERROR_CLASS_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_sorter_error_class_parity.py"
+SORTER_ERROR_CLASS_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_sorter_error_class_parity.py"
 DOC_CLASSES_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_doc_classes_complete.py"
 TEST_LINKAGE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_test_linkage.py"
 REQUIRE_NULL_DEREF_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_require_null_deref.py"
@@ -1315,6 +1317,39 @@ def _run_reject_telemetry_parity_guard() -> tuple[bool, list[str]]:
         if code != 0:
             if not output_lines:
                 output_lines = [f"Reject-telemetry parity guard failed with exit code {code}."]
+            return False, output_lines
+
+    return True, output_lines
+
+
+def _run_sorter_error_class_guard() -> tuple[bool, list[str]]:
+    # #586 round-7. The retry policy for a failed sorter build is decided by the ERROR the
+    # failure returns: ERR_COMPILATION_FAILED / ERR_UNAVAILABLE latch, ERR_CANT_CREATE /
+    # ERR_INVALID_PARAMETER are retried. That split is only as good as the sites producing the
+    # codes, and one `return ERR_CANT_CREATE;` typed at a shader-creation site reverts round 7
+    # with every test still green. This guard derives the expected code from what each object
+    # was BUILT by, so a new shader or pipeline is covered the moment it is written. Its unit
+    # test runs too, so a future parser change is caught even if it happens not to flag
+    # anything on today's tree.
+    missing = [
+        path.relative_to(ROOT)
+        for path in (SORTER_ERROR_CLASS_GUARD_SCRIPT, SORTER_ERROR_CLASS_TEST_SCRIPT)
+        if not path.is_file()
+    ]
+    if missing:
+        return False, [f"Missing sorter error-class guard file: {path}" for path in missing]
+
+    output_lines: list[str] = []
+    commands = (
+        [sys.executable, str(SORTER_ERROR_CLASS_GUARD_SCRIPT)],
+        [sys.executable, str(SORTER_ERROR_CLASS_TEST_SCRIPT)],
+    )
+    for args in commands:
+        code, out, err = _run_command(args)
+        output_lines.extend(line for line in (out + err).splitlines() if line.strip())
+        if code != 0:
+            if not output_lines:
+                output_lines = [f"Sorter error-class parity guard failed with exit code {code}."]
             return False, output_lines
 
     return True, output_lines
@@ -3170,6 +3205,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_reject_telemetry_parity_guard,
             "Reject-telemetry parity guard failed.",
             "Reject-telemetry parity guard passed.",
+        ),
+        (
+            True,
+            _run_sorter_error_class_guard,
+            "Sorter error-class parity guard failed.",
+            "Sorter error-class parity guard passed.",
         ),
         (
             True,
