@@ -44,10 +44,21 @@ on:
       # module-level Path constant and
       # tests/ci/test_release_builds_path_filters.py reads those constants back
       # and fails if one is not covered here, so the list cannot drift.
-      # Deliberately file-precise rather than
-      # `tests/examples/godot/test_project/**`: that directory's binary fixtures
-      # are rebaked routinely and would fire two editor builds plus two template
-      # builds every time (#825).
+      #
+      # NOT A COMPLETE INPUT SET, and deliberately so. The preset the smoke run
+      # writes uses `export_filter="all_resources"`, and the run imports the
+      # whole project first (`--path <project> --import`), so every tracked file
+      # under tests/examples/godot/test_project is an input of this blocking
+      # job -- ~140 of them, of which the entries below cover three. A
+      # `tests/examples/godot/test_project/**` filter would cover the rest and
+      # fire two editor builds plus two template builds on every fixture rebake,
+      # which happens routinely, so the trigger stays narrow and the gap is
+      # RECORDED instead: tests/ci/test_release_builds_path_filters.py derives
+      # the untriggered set, prints it, and checks the two things that bound the
+      # risk -- gaussian_production_gates.yml triggers on `tests/**` and loads
+      # the same project with a real editor, and the nightly `schedule:` below
+      # runs the smoke test on whatever a push skipped. What is actually
+      # deferred is the export/packaging interaction on those files (#825).
       - "tests/runtime/export_smoke_preset.cfg.in"
       - "tests/runtime/prepare_synthetic_assets.py"
       - "tests/examples/godot/test_project/project.godot"
@@ -339,6 +350,10 @@ jobs:
     # the Linux release template and uploads it as an artifact. It is
     # deliberately NOT wired into `release_candidate_gate` or `publish_release`
     # -- template distribution must not become a dependency of the release gate.
+    # This applies to the LINUX job only: no lane executes this artifact, so
+    # nothing lists it under `needs:`. Its Windows counterpart below is not in
+    # the same position any more -- `export_smoke_windows` runs that template,
+    # which makes it transitively gating. Do not copy this note onto it.
     runs-on: ubuntu-latest
     timeout-minutes: 120
     needs: release_metadata
@@ -755,9 +770,17 @@ jobs:
 
   build_windows_export_template:
     name: Build Windows Export Template (release)
-    # Issue #825: companion to build_linux_export_template. Uploads the Windows
-    # release template as an artifact only -- deliberately NOT a dependency of
-    # `release_candidate_gate` or `publish_release`.
+    # Issue #825: companion to build_linux_export_template, but NO LONGER its
+    # mirror image. That job's template is a build product nothing consumes;
+    # this one's is downloaded and executed by `export_smoke_windows` below,
+    # which `release_candidate_gate` and `publish_release` both list under
+    # `needs:` and both assert. This job is therefore TRANSITIVELY GATING: if it
+    # fails, the smoke test is skipped, and a skipped smoke test blocks every
+    # stable publish and every nightly whose `build_windows` succeeded. The note
+    # that used to sit here said the opposite; it stopped being true the moment
+    # the smoke lane started consuming this artifact, without this job being
+    # edited. See .github/workflows/README.md, "Release Builds", and the derived
+    # check in tests/ci/test_release_publication_gating.py.
     runs-on: [self-hosted, Windows, X64, godotgs]
     needs: release_metadata
     # Never run a self-hosted Windows job on untrusted PR code. This is the

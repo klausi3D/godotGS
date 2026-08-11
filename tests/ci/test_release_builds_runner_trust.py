@@ -26,6 +26,13 @@ So this guard derives both directions from source:
   actually be one -- so the bullet cannot go stale in the other direction
   either.
 
+Scope: this guard is about the TRUST boundary (which jobs reach the persistent
+runner, and under which guard form), not about which jobs gate publication.
+README's other stale claim about the same jobs -- that both export-template
+builds are ungated -- is checked by `tests/ci/test_release_publication_gating.py`
+(`GatingDocumentationTests`), which already derives the `needs:` closure it
+needs. Extend that one rather than teaching this file a second policy.
+
 Two guard forms are accepted, and only two:
 
 ``STANDARD_FORK_GUARD``

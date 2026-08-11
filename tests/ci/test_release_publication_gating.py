@@ -243,6 +243,134 @@ def release_side_effect_jobs(jobs: Dict[str, Dict[str, object]]) -> List[str]:
     )
 
 
+def publication_closure(jobs: Dict[str, Dict[str, object]]) -> Set[str]:
+    """Every job whose failure can stop a publish, derived from `needs:` alone.
+
+    A job blocks publication if a release-side-effect job waits on it, directly
+    or through any number of intermediate jobs. `build_windows_export_template`
+    entered this set the moment `export_smoke_windows` started listing it under
+    `needs:` -- nothing about the template job itself changed, which is exactly
+    why a hand-written statement about it went stale without anyone editing it.
+    """
+    closure: Set[str] = set()
+    for job in release_side_effect_jobs(jobs):
+        closure.add(job)
+        closure |= needs_closure(jobs, job)
+    return closure
+
+
+# --------------------------------------------------------------------------
+# Documentation contradiction check
+# --------------------------------------------------------------------------
+
+DOCUMENTATION_SOURCES = (
+    ROOT / ".github" / "workflows" / "README.md",
+    WORKFLOW,
+)
+
+# Statements that claim a job does NOT gate publication. Deliberately literal
+# and narrow: these are the exact shapes this repository has used, not an
+# attempt at natural-language understanding. `gates nothing` / `blocks nothing`
+# are POINTEDLY absent -- both are used here to describe the `always()` lesson
+# ("a `needs:` entry alone gates nothing"), which is a statement about GitHub's
+# semantics rather than about a job's status.
+UNGATED_CLAIM = re.compile(
+    r"artifacts?\s+only|not\s+wired\s+into|not\s+a\s+dependency\s+of",
+    re.IGNORECASE,
+)
+COMMENT_LINE = re.compile(r"^\s*#\s?(.*)$")
+SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+
+
+def job_comment_paragraphs(lines: Optional[List[str]] = None) -> Dict[str, List[str]]:
+    """Job name -> contiguous comment paragraphs inside that job's block.
+
+    A comment inside a job block has an unambiguous SUBJECT: the job that owns
+    the block. That is what makes the YAML side of this check exact while the
+    prose side (below) has to infer one.
+    """
+    if lines is None:
+        lines = _workflow_lines()
+    paragraphs: Dict[str, List[str]] = {}
+    current: Optional[str] = None
+    buffer: List[str] = []
+
+    def flush() -> None:
+        if current and buffer:
+            paragraphs.setdefault(current, []).append(" ".join(buffer))
+        buffer.clear()
+
+    in_jobs = False
+    for line in lines:
+        if line.rstrip() == "jobs:":
+            in_jobs = True
+            continue
+        if in_jobs and line.strip() and not line.startswith(" "):
+            in_jobs = False
+        if not in_jobs:
+            continue
+        job_match = JOB_KEY.match(line)
+        if job_match:
+            flush()
+            current = job_match.group(1)
+            continue
+        comment = COMMENT_LINE.match(line)
+        if comment:
+            buffer.append(comment.group(1).strip())
+        else:
+            flush()
+    flush()
+    return paragraphs
+
+
+def _names_job(text: str, job: str) -> bool:
+    """Does `text` name `job` as a whole token (not as a prefix of another job)?"""
+    return re.search(rf"(?<![\w-]){re.escape(job)}(?![\w-])", text) is not None
+
+
+def claimed_ungated(text: str, job_names: Sequence[str], owner: Optional[str] = None) -> Set[str]:
+    """Job names this text claims do not gate publication.
+
+    The SUBJECT of such a claim precedes it and its OBJECTS follow it: "X is
+    not wired into `release_candidate_gate` or `publish_release`" says nothing
+    about the two jobs named after the phrase, and reading them as claims would
+    make every correct sentence self-incriminating. So only names appearing
+    BEFORE the phrase in the same sentence count, plus `owner` when the text is
+    a comment inside a job's own block.
+    """
+    claims: Set[str] = set()
+    for sentence in SENTENCE_SPLIT.split(text):
+        for match in UNGATED_CLAIM.finditer(sentence):
+            prefix = sentence[: match.start()]
+            # Whole-token match only. `build_linux` is a prefix of
+            # `build_linux_export_template`, so a plain `in` test attributed the
+            # Linux template job's (correct) note to the Linux EDITOR build --
+            # which is gating, so the guard failed the healthy tree.
+            claims.update(name for name in job_names if _names_job(prefix, name))
+            if owner is not None:
+                claims.add(owner)
+    return claims
+
+
+def documented_ungated_claims(jobs: Dict[str, Dict[str, object]]) -> Dict[str, List[str]]:
+    """Job -> the documentation sentences claiming it does not gate publication."""
+    job_names = sorted(jobs)
+    found: Dict[str, List[str]] = {}
+
+    for owner, paragraphs in job_comment_paragraphs().items():
+        for paragraph in paragraphs:
+            for job in claimed_ungated(paragraph, job_names, owner=owner):
+                found.setdefault(job, []).append(f"{WORKFLOW.name} ({owner}): {paragraph}")
+
+    for source in DOCUMENTATION_SOURCES:
+        if source == WORKFLOW:
+            continue  # handled above, with the job block as the subject.
+        for line in source.read_text(encoding="utf-8").splitlines():
+            for job in claimed_ungated(line, job_names):
+                found.setdefault(job, []).append(f"{source.name}: {line.strip()}")
+    return found
+
+
 # --------------------------------------------------------------------------
 # GitHub expression evaluation
 # --------------------------------------------------------------------------
@@ -720,6 +848,119 @@ class ParserFailClosedTests(unittest.TestCase):
         self.assertIn("release_candidate_gate", jobs)
         self.assertEqual(
             release_side_effect_jobs(jobs), ["prune_nightly_history", "publish_release"]
+        )
+
+
+class GatingDocumentationTests(unittest.TestCase):
+    """Documentation must not describe a gating job as ungated (#825 round 3).
+
+    `build_windows_export_template` became a publication blocker without being
+    edited: `export_smoke_windows` started listing it under `needs:`, and both
+    publishing jobs list *that*. The README and the job comment went on saying
+    the two template jobs are "artifacts only -- deliberately not wired into
+    `release_candidate_gate` or `publish_release`", which is still true of the
+    Linux job and false of the Windows one. A maintainer diagnosing a blocked
+    release would have read it and eliminated the actual cause.
+
+    The gating side is DERIVED from `needs:` (`publication_closure`). The prose
+    side is a deliberately literal phrase scan, and its limits are worth being
+    explicit about, because a scan over English is not a proof:
+
+    * It catches a CONTRADICTION, never an omission. A job that is gating and
+      simply undocumented passes. (`release_metadata` is exactly that today, so
+      requiring a mention would only pressure someone into writing filler.)
+    * Rewording a claim past `UNGATED_CLAIM` makes the scan blind to it. The
+      non-vacuity test below is the bound on that: some job must still be
+      claimed ungated, so a phrase set that has stopped matching anything shows
+      up as a failure rather than as silence.
+    * Subject/object is inferred from word order (see `claimed_ungated`).
+    """
+
+    def setUp(self) -> None:
+        self.jobs = parse_jobs()
+        self.closure = publication_closure(self.jobs)
+        self.claims = documented_ungated_claims(self.jobs)
+
+    def test_the_windows_template_job_is_inside_the_publication_closure(self) -> None:
+        # The fact the documentation got wrong, asserted directly so the reason
+        # this class exists cannot quietly stop being true.
+        self.assertIn("build_windows_export_template", self.closure)
+        self.assertIn(
+            "build_windows_export_template", needs_closure(self.jobs, SMOKE_JOB)
+        )
+
+    def test_the_linux_template_job_is_still_outside_it(self) -> None:
+        # The other half of the distinction: if this ever fails, the README's
+        # "artifact only" sentence about the Linux job needs the same correction.
+        self.assertNotIn("build_linux_export_template", self.closure)
+
+    def test_no_gating_job_is_documented_as_ungated(self) -> None:
+        for job in sorted(self.closure):
+            with self.subTest(job=job):
+                self.assertNotIn(
+                    job,
+                    self.claims,
+                    f"{job} is in the publication `needs:` closure "
+                    f"({sorted(self.closure)}), so its failure can block a release -- but the "
+                    f"documentation still describes it as ungated: {self.claims.get(job)}. "
+                    "Correct the text or drop the job from the graph; do not relax this check.",
+                )
+
+    def test_the_claim_scan_is_not_vacuous(self) -> None:
+        # A scan that stopped matching would make the check above pass over an
+        # empty dict, which is how this class of gap survives. Some job IS
+        # legitimately documented as ungated (the Linux template job today); if
+        # that is no longer true, the phrase set has gone blind or the text has
+        # changed, and either way this check needs a human.
+        self.assertTrue(
+            self.claims,
+            "No 'ungated' claim was found in any documentation source, so the scan is no "
+            f"longer discriminating. Either UNGATED_CLAIM {UNGATED_CLAIM.pattern!r} stopped "
+            "matching the wording in use, or every such claim was removed. Fix the pattern "
+            "rather than deleting the check.",
+        )
+
+    def test_an_object_of_a_claim_is_not_read_as_its_subject(self) -> None:
+        # "X is not wired into Y" is a claim about X, not about Y. Reading it
+        # backwards would fail the healthy tree, and a guard that fails on the
+        # healthy tree gets relaxed.
+        claims = claimed_ungated(
+            "`build_linux_export_template` is deliberately not wired into "
+            "`release_candidate_gate` or `publish_release`.",
+            sorted(self.jobs),
+        )
+        self.assertEqual(claims, {"build_linux_export_template"})
+
+    def test_a_job_block_comment_attributes_the_claim_to_its_owner(self) -> None:
+        lines = [
+            "jobs:",
+            "  build_windows_export_template:",
+            "    # Uploads the release template as an artifact only.",
+            "    runs-on: ubuntu-latest",
+        ]
+        paragraphs = job_comment_paragraphs(lines)
+        self.assertIn("build_windows_export_template", paragraphs)
+        self.assertEqual(
+            claimed_ungated(
+                paragraphs["build_windows_export_template"][0],
+                ["build_windows_export_template"],
+                owner="build_windows_export_template",
+            ),
+            {"build_windows_export_template"},
+        )
+
+    def test_the_always_lesson_is_not_read_as_an_ungated_claim(self) -> None:
+        # Both publishing jobs' comments say a `needs:` entry alone gates
+        # nothing. That is a statement about GitHub, and flagging it would make
+        # the guard demand the removal of the very sentence that explains why
+        # the assertions exist.
+        self.assertEqual(
+            claimed_ungated(
+                "under `always()` a `needs:` entry alone gates nothing, so "
+                "`publish_release` asserts the result.",
+                sorted(self.jobs),
+            ),
+            set(),
         )
 
 

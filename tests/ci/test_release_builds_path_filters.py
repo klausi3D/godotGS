@@ -84,10 +84,11 @@ from __future__ import annotations
 
 import ast
 import re
+import subprocess
 import sys
 import unittest
 from pathlib import Path
-from typing import Dict, List, Sequence, Set
+from typing import Dict, List, NamedTuple, Sequence, Set
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "release_builds.yml"
@@ -128,20 +129,71 @@ SMOKE_RUNNER_DIR = ROOT / "tests" / "runtime"
 # explicit disposition naming the files inside it that must trigger the
 # workflow, WITH the reason. Fail-closed: a directory constant that is not
 # dispositioned here raises, so a new one cannot be silently ignored.
-DIRECTORY_DEPENDENCY_DISPOSITIONS: Dict[str, Sequence[str]] = {
+#
+# A disposition is NOT a coverage claim
+# -------------------------------------
+# The first version of this said `PROJECT_DIR` was "narrowed deliberately to the
+# project manifest" and stopped there, which read as though the three named
+# files were the smoke test's project inputs. They are not. The preset the run
+# writes sets `export_filter="all_resources"`
+# (tests/runtime/export_smoke_preset.cfg.in), which
+# `editor/export/editor_export.cpp` maps to `EXPORT_ALL_RESOURCES` and
+# `editor/export/editor_export_platform.cpp` implements by walking the WHOLE
+# EditorFileSystem -- and the run's first step is `--path <project> --import`,
+# which imports the whole project before any of that. Every tracked file under
+# the project is an input to a blocking gate, and the filter covers five of
+# them.
+#
+# So the disposition now has to carry both halves: what triggers, and what
+# knowingly does NOT. `whole_tree` is the second half. The untriggered set is
+# DERIVED (tracked files minus covered files), printed by the guard so the
+# accepted risk appears in its output rather than only in this comment, and
+# bounded by two checks that must hold rather than by an assurance:
+#   * `compensating_workflow` -- a workflow that DOES trigger on those files and
+#     loads the same project, so an import/load regression in one of them is
+#     still caught on the same push; and
+#   * `release_builds.yml`'s own `schedule:` trigger, which bounds how long an
+#     untriggered change can go without the smoke test running at all.
+# What remains uncovered after those two is the export/packaging interaction
+# specifically, deferred to the next matching push or the nightly. That is the
+# accepted risk, and it is stated instead of being implied by a short list.
+WHOLE_TREE_EXPORT_FILTERS = ("all_resources",)
+
+
+class DirectoryDisposition(NamedTuple):
+    triggering: Sequence[str]
+    whole_tree: bool = False
+    compensating_workflow: str = ""
+    accepted_risk: str = ""
+
+
+DIRECTORY_DEPENDENCY_DISPOSITIONS: Dict[str, DirectoryDisposition] = {
     # The repository itself (subprocess cwd). Every source path is already
     # covered by the coarse `core/**`, `modules/**`, ... filters.
-    "ROOT": (),
+    "ROOT": DirectoryDisposition(triggering=()),
     # Only used to build the file constants below and as a `sys.path` entry; the
     # module it imports from there is covered by `_imported_runtime_modules()`.
-    "RUNTIME_DIR": (),
-    # Passed to the editor as `--path`, so strictly the WHOLE project is an
-    # input. Narrowed deliberately to the project manifest: the two files inside
-    # it that the runner names directly (the probe and the fixture) are separate
-    # constants and are covered on their own, while the remaining churn under
-    # this directory is rebaked binary fixtures that must not trigger four
-    # release builds.
-    "PROJECT_DIR": ("tests/examples/godot/test_project/project.godot",),
+    "RUNTIME_DIR": DirectoryDisposition(triggering=()),
+    # Passed to the editor as `--path`, imported wholesale and exported under
+    # `export_filter="all_resources"`, so the WHOLE tree is an input. Only the
+    # project manifest is named here; the probe and the fixture are separate
+    # constants covered on their own. Everything else under the directory is
+    # knowingly untriggered -- it is dominated by rebaked binary fixtures, and a
+    # `tests/examples/godot/test_project/**` filter would fire two editor builds
+    # plus two template builds on every rebake.
+    "PROJECT_DIR": DirectoryDisposition(
+        triggering=("tests/examples/godot/test_project/project.godot",),
+        whole_tree=True,
+        compensating_workflow=".github/workflows/gaussian_production_gates.yml",
+        accepted_risk=(
+            "A push that changes only one of these files does not run the blocking export "
+            "smoke test on that commit. It DOES run the compensating workflow, which loads "
+            "the same project with a real editor, so an import or load regression still "
+            "surfaces on the same push; what is deferred is the export/packaging "
+            "interaction specifically, to the next push that matches a filter or to the "
+            "nightly schedule."
+        ),
+    ),
 }
 
 
@@ -192,9 +244,143 @@ def _imported_runtime_modules() -> Set[str]:
     return found
 
 
+EXPORT_FILTER_LINE = re.compile(r'^\s*export_filter\s*=\s*"([^"]*)"\s*$')
+
+
+def export_filter_from_text(text: str) -> str:
+    """The preset template's `export_filter` value. Ambiguity raises."""
+    values = [
+        match.group(1)
+        for match in (EXPORT_FILTER_LINE.match(line) for line in text.splitlines())
+        if match
+    ]
+    if len(values) != 1:
+        raise UnmodelledDependency(
+            f"Expected exactly one `export_filter=` line in the preset template, found "
+            f"{len(values)} ({values}). The smoke test's project input set is derived from "
+            "this value, so an ambiguous or missing one is refused rather than assumed."
+        )
+    return values[0]
+
+
+def smoke_export_filter() -> str:
+    """Read `export_filter` off the preset template the runner names."""
+    module = _import_smoke_runner()
+    template = module.PRESET_TEMPLATE
+    _repo_relative(template, "PRESET_TEMPLATE")
+    return export_filter_from_text(template.read_text(encoding="utf-8"))
+
+
+def assert_project_input_model() -> str:
+    """Bind the PROJECT_DIR disposition to the mechanism it reasons about.
+
+    Both directions are refused, because either one on its own turns the
+    disposition back into an unchecked assertion:
+
+    * an `export_filter` this guard has no input model for -- `resources`,
+      `scenes` and `customized` all export a dependency CLOSURE the editor
+      computes, which cannot be derived from the tree here, so claiming any
+      coverage over it would be a guess; and
+    * a preset that still exports the whole project while the disposition has
+      stopped saying so, which is exactly how the three-file list came to read
+      as complete.
+    """
+    export_filter = smoke_export_filter()
+    disposition = DIRECTORY_DEPENDENCY_DISPOSITIONS["PROJECT_DIR"]
+    if export_filter not in WHOLE_TREE_EXPORT_FILTERS:
+        raise UnmodelledDependency(
+            f"The export smoke preset now uses export_filter={export_filter!r}, which is not "
+            f"one of {WHOLE_TREE_EXPORT_FILTERS}. Every other value exports a dependency "
+            "closure computed by the editor, and this guard cannot derive that from the tree, "
+            "so it will not go on reporting the project input set as modelled. Work out the "
+            "new input set and re-disposition PROJECT_DIR."
+        )
+    if not disposition.whole_tree:
+        raise UnmodelledDependency(
+            f"export_filter={export_filter!r} exports the whole project, but the PROJECT_DIR "
+            "disposition no longer records `whole_tree`. Dropping that flag hides the "
+            "untriggered inputs again instead of covering them."
+        )
+    return export_filter
+
+
+def tracked_files_under(directory: Path) -> List[str]:
+    """Repo-relative tracked files under `directory`.
+
+    Tracked, not walked: a `paths:` filter is evaluated over the files a push
+    actually changes, and untracked local debris (a developer's
+    `export_presets.cfg`, the `.godot/` import cache) is not that. Fail-closed
+    -- no git, no answer.
+    """
+    relative = _repo_relative(directory, "tracked_files_under")
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(ROOT), "ls-files", "-z", "--", relative],
+            capture_output=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise UnmodelledDependency(
+            f"Could not list tracked files under {relative} with git ({exc}). This guard "
+            "derives the smoke test's project input set from the tracked tree; without it "
+            "the untriggered set would silently read as empty."
+        ) from exc
+    files = [name for name in result.stdout.decode("utf-8").split("\0") if name]
+    if not files:
+        raise UnmodelledDependency(
+            f"No tracked files under {relative}; the derivation has stopped seeing the "
+            "project it is supposed to model."
+        )
+    return sorted(files)
+
+
+class ProjectInputDisposition(NamedTuple):
+    constant: str
+    export_filter: str
+    inputs: Sequence[str]
+    triggering: Sequence[str]
+    untriggered: Sequence[str]
+    compensating_workflow: str
+    accepted_risk: str
+
+
+def project_input_disposition(event: str) -> ProjectInputDisposition:
+    """What the smoke test consumes under PROJECT_DIR, split by what triggers."""
+    export_filter = assert_project_input_model()
+    disposition = DIRECTORY_DEPENDENCY_DISPOSITIONS["PROJECT_DIR"]
+    module = _import_smoke_runner()
+    inputs = tracked_files_under(module.PROJECT_DIR)
+    patterns = parse_event_paths(_workflow_text())[event]
+    triggering = [path for path in inputs if path_is_covered(patterns, path)]
+    untriggered = [path for path in inputs if path not in set(triggering)]
+    return ProjectInputDisposition(
+        constant="PROJECT_DIR",
+        export_filter=export_filter,
+        inputs=inputs,
+        triggering=triggering,
+        untriggered=untriggered,
+        compensating_workflow=disposition.compensating_workflow,
+        accepted_risk=disposition.accepted_risk,
+    )
+
+
+def describe_project_input_disposition(event: str) -> str:
+    """The accepted risk, in the guard's OUTPUT rather than only in a comment."""
+    state = project_input_disposition(event)
+    return (
+        f"[SMOKE_INPUT_DISPOSITION] {state.constant} export_filter={state.export_filter!r} "
+        f"event={event}: {len(state.inputs)} tracked project files are inputs of the blocking "
+        f"export_smoke_windows job (the editor imports and exports all of them); "
+        f"{len(state.triggering)} trigger release_builds.yml, {len(state.untriggered)} "
+        f"knowingly do NOT. Compensating lane: {state.compensating_workflow}. "
+        f"{state.accepted_risk}"
+    )
+
+
 def derived_smoke_dependencies() -> List[str]:
     """Repo-relative files `export_smoke_windows` consumes, read off the runner."""
     module = _import_smoke_runner()
+    assert_project_input_model()
     dependencies: Set[str] = {_repo_relative(SMOKE_RUNNER, "SMOKE_RUNNER")}
 
     for name, value in sorted(vars(module).items()):
@@ -209,7 +395,7 @@ def derived_smoke_dependencies() -> List[str]:
                     "release_builds.yml and say why -- a whole-directory filter would fire four "
                     "release builds on unrelated churn, and ignoring it would reopen the gap."
                 )
-            dependencies.update(DIRECTORY_DEPENDENCY_DISPOSITIONS[name])
+            dependencies.update(DIRECTORY_DEPENDENCY_DISPOSITIONS[name].triggering)
             continue
         dependencies.add(relative)
 
@@ -904,7 +1090,7 @@ class SmokeDataDependencyTests(unittest.TestCase):
 
     def test_dispositioned_directories_are_still_directories(self) -> None:
         module = _import_smoke_runner()
-        for name, files in DIRECTORY_DEPENDENCY_DISPOSITIONS.items():
+        for name, disposition in DIRECTORY_DEPENDENCY_DISPOSITIONS.items():
             with self.subTest(constant=name):
                 value = getattr(module, name, None)
                 self.assertIsInstance(
@@ -914,11 +1100,154 @@ class SmokeDataDependencyTests(unittest.TestCase):
                     "exists as a Path constant; drop the disposition or fix the name.",
                 )
                 self.assertTrue(value.resolve().is_dir())
-                for relative in files:
+                for relative in disposition.triggering:
                     self.assertTrue(
                         (ROOT / relative).is_file(),
                         f"{relative} is dispositioned for {name} but does not exist.",
                     )
+
+
+class WholeProjectInputDispositionTests(unittest.TestCase):
+    """The smoke test's project inputs are broader than its triggers -- say so.
+
+    Round 2 dispositioned `PROJECT_DIR` down to `project.godot` and gave a real
+    reason (a `test_project/**` filter fires four release builds on every
+    fixture rebake). The reason is sound; the presentation was not. The preset
+    exports `all_resources`, the run imports the whole project first, so the
+    true input set of a BLOCKING job is every tracked file under it -- and a
+    three-file disposition read as "this is covered" rather than as "we chose
+    not to cover this".
+
+    Three routes were on the table and two were rejected on evidence:
+
+    * a minimal dedicated smoke project, or a selective `export_filter`. Both
+      shrink the input set honestly, and both change what the blocking gate
+      actually exports -- which cannot be verified without running the export on
+      the GPU runner. Shipping an unverified change to a blocking gate to settle
+      a documentation-honesty finding is the worse trade. The selective filter
+      is additionally self-defeating here: `resources`/`scenes`/`customized`
+      export a dependency CLOSURE the editor computes, so the guard would still
+      be unable to enumerate the input set -- a smaller gap, and an invisible
+      one.
+    * covering the actual inputs with `tests/examples/godot/test_project/**`.
+      Truthful, and it reopens the four-builds-per-rebake problem the
+      disposition exists to avoid. Those fixtures are rebaked routinely.
+
+    So the trigger stays narrow and the disposition is made honest instead: the
+    untriggered set is derived and printed, and the accepted risk is bounded by
+    two things that are CHECKED -- a compensating workflow that triggers on
+    those files and loads the same project, and this workflow's own nightly
+    schedule. Silence is what was rejected, not the narrow filter.
+    """
+
+    def setUp(self) -> None:
+        self.text = _workflow_text()
+        self.filters = parse_event_paths(self.text)
+
+    def test_the_disposition_is_reported_in_the_guards_output(self) -> None:
+        # Not a comment: a maintainer running this guard must SEE that the
+        # blocking smoke test consumes far more than it is triggered by.
+        for event in FILTERED_EVENTS:
+            description = describe_project_input_disposition(event)
+            print(description)
+            self.assertIn("knowingly do NOT", description)
+            self.assertIn("Compensating lane", description)
+
+    def test_the_untriggered_set_is_real_and_named(self) -> None:
+        """The check that the record is a record, not an empty formality."""
+        for event in FILTERED_EVENTS:
+            state = project_input_disposition(event)
+            with self.subTest(event=event):
+                self.assertTrue(
+                    state.triggering,
+                    "No project file triggers release_builds.yml at all; the filter has "
+                    "stopped covering the inputs it is supposed to cover.",
+                )
+                self.assertTrue(
+                    state.untriggered,
+                    "Every tracked project file now triggers release_builds.yml, so the "
+                    "`whole_tree` disposition is recording a risk that no longer exists. "
+                    "Drop it rather than leaving a stale accepted-risk note.",
+                )
+                # The export packs scripts and scenes, and those are the inputs
+                # whose regressions the smoke test would actually notice. If the
+                # untriggered set were only binary fixtures the risk statement
+                # would be overstated; it is not, and that is the point.
+                self.assertTrue(
+                    [path for path in state.untriggered if path.endswith((".gd", ".tscn"))],
+                    "The untriggered set contains no .gd/.tscn resources, which is not what "
+                    "the tree looks like; the derivation has narrowed unexpectedly.",
+                )
+
+    def test_the_accepted_risk_names_a_compensating_lane_that_covers_it(self) -> None:
+        """The bound on the risk is checked, not asserted.
+
+        `gaussian_production_gates.yml` filters on `tests/**` and loads the same
+        project with a real editor, so an import or load regression in an
+        untriggered file still fails on the same push. If that stops being true
+        -- the filter narrows, the workflow stops using the project -- the
+        accepted risk grows and this fails rather than going quiet.
+        """
+        state = project_input_disposition("push")
+        compensating = ROOT / state.compensating_workflow
+        self.assertTrue(compensating.is_file(), f"{state.compensating_workflow} does not exist")
+        text = compensating.read_text(encoding="utf-8")
+        filters = parse_event_paths(text)
+
+        project_relative = _repo_relative(_import_smoke_runner().PROJECT_DIR, "PROJECT_DIR")
+        self.assertTrue(
+            any(project_relative in line for line in _body_lines(text)),
+            f"{state.compensating_workflow} never names {project_relative} outside its `on:` "
+            "block, so it cannot be the lane that still exercises the untriggered inputs.",
+        )
+
+        for event in FILTERED_EVENTS:
+            self.assertIn(event, filters, f"{state.compensating_workflow} has no {event} paths:")
+            uncovered = [
+                path for path in state.untriggered if not path_is_covered(filters[event], path)
+            ]
+            self.assertEqual(
+                uncovered,
+                [],
+                f"{len(uncovered)} project files trigger neither release_builds.yml nor the "
+                f"compensating lane {state.compensating_workflow} on {event} (e.g. "
+                f"{uncovered[:3]}), so a change to one of them would be validated by no lane "
+                "that loads this project. Either cover them or re-state the accepted risk.",
+            )
+
+    def test_a_scheduled_run_bounds_how_long_an_untriggered_change_goes_unexecuted(self) -> None:
+        # The other half of the bound: whatever a push skips, the nightly runs.
+        # Without a schedule the accepted risk is unbounded in time and the
+        # disposition would have to be rewritten.
+        self.assertRegex(
+            self.text,
+            r"(?m)^  schedule:\s*$",
+            "release_builds.yml no longer has a `schedule:` trigger, so an untriggered change "
+            "to a project input could go indefinitely without the blocking smoke test running "
+            "on it. The PROJECT_DIR accepted-risk statement depends on that schedule.",
+        )
+
+    def test_an_unmodelled_export_filter_fails_closed(self) -> None:
+        for value in ("resources", "scenes", "customized", "exclude"):
+            with self.subTest(export_filter=value):
+                self.assertNotIn(value, WHOLE_TREE_EXPORT_FILTERS)
+
+    def test_the_preset_still_exports_the_whole_project(self) -> None:
+        self.assertIn(smoke_export_filter(), WHOLE_TREE_EXPORT_FILTERS)
+
+    def test_an_ambiguous_preset_raises(self) -> None:
+        for text in ("", 'export_filter="a"\nexport_filter="b"\n'):
+            with self.subTest(text=text):
+                with self.assertRaises(UnmodelledDependency):
+                    export_filter_from_text(text)
+
+    def test_the_reader_ignores_commented_lines(self) -> None:
+        # `.cfg` comments start with `;`, and the template's header talks about
+        # the preset it writes.
+        self.assertEqual(
+            export_filter_from_text('; export_filter="scenes" was considered\nexport_filter="all_resources"\n'),
+            "all_resources",
+        )
 
 
 class PathFilterSemanticsTests(unittest.TestCase):
