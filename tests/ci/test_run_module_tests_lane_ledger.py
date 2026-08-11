@@ -43,6 +43,7 @@ whose local green says nothing about CI.
 
 from __future__ import annotations
 
+import argparse
 import contextlib
 import errno
 import importlib.util
@@ -3389,6 +3390,218 @@ class DocConsistencyTests(unittest.TestCase):
                             f"denying it; deleting it is the same defect. Expected a "
                             f"sentence matching {marker.pattern!r}"
                         )
+
+
+class GuardScriptWiringTests(unittest.TestCase):
+    """A guard script the runner never executes is a guard nobody runs (#872).
+
+    ## The defect this exists to catch, measured
+
+    Every optional guard in `--guard-only` is wired by ONE tuple entry in
+    `_run_optional_message_guards()`. Delete the entry and the guard script, its
+    runner function and its own discrimination tests all survive untouched -- and
+    all stay green, because nothing else launches them. Measured on this branch by
+    deleting the `_run_download_build_flavor_guard` entry and re-running
+    `python tests/ci/run_module_tests.py --guard-only`: exit 0, and the string
+    "download" appeared zero times in 93 lines of output. The guard and its 13
+    self-tests had silently stopped existing, and the lane stayed green.
+
+    That is why a guard's own tests cannot be the contract for its wiring: they
+    are launched by the very entry whose deletion is the mutation. The contract
+    has to live somewhere a *different* runner entry executes, which is what this
+    file is -- `_run_lane_ledger_guard()` runs it, and `_run_lane_ledger_guard`
+    is a separate tuple from every guard asserted below.
+
+    ## Derived, not a list
+
+    A named assertion per guard would be a hand-written list of the things that
+    must be wired, which is the artifact this repository keeps finding already
+    broken. Both sides are ground truth instead:
+
+    * **wired** -- recorded by driving the real `_run_ci_guard_steps()` with only
+      the leaf executors stubbed, so what is asserted is reachability from the
+      entry point blocking CI actually calls. Removing the
+      `_run_optional_message_guards` call itself fails here just as much as
+      removing one entry inside it.
+    * **on disk** -- every `check_*.py` under `tests/ci/`, and the
+      `test_check_*.py` sibling of each one that ships tests. A guard added
+      tomorrow is covered the day it lands.
+
+    ## Overlap with PR #852 -- read before editing
+
+    PR #852 adds `GuardRunnerWiringTests` to this same file: the same property
+    asserted one level up (every zero-arg `_run_*_guard` the module defines is
+    invoked), plus the filesystem-keyed form this class checks. It is the more
+    general contract and it subsumes this one. **Whichever of #852 and #872 lands
+    second must delete the redundant class rather than keep both**, because two
+    hand-maintained encodings of one invariant is the failure mode both are
+    guarding against. This class exists only because #872 could not depend on an
+    unmerged branch; it is deliberately in the same file so that the second merge
+    is a visible conflict instead of a silent duplication.
+
+    ## What still defeats this
+
+    Unwiring `_run_lane_ledger_guard`, which is what executes this file.
+    `test_this_files_own_runner_is_wired` closes the case where that entry
+    survives but stops pointing at this file. Outright deletion of the entry is
+    the residual, and it is one deliberate line in a diff rather than a side
+    effect of editing a table -- the same terminating condition every contract in
+    this repository has.
+    """
+
+    LEAF_STEPS = (
+        "_run_render_guard_step",
+        "_run_static_guard_step",
+        "_run_stringname_orphan_guard_step",
+        "_run_history_artifact_guard_step",
+    )
+    GUARD_SCRIPT_DIR = ROOT / "tests" / "ci"
+
+    def _record_wired_runners(self) -> list:
+        """What `_run_ci_guard_steps()` invokes, with nothing actually executed.
+
+        Only the leaves are stubbed. The wiring functions, the guard tables and
+        the `_first_guard_failure` short-circuit all run for real.
+        """
+        recorded: list = []
+        cli_args = argparse.Namespace(
+            skip_build_metadata_guard=False,
+            skip_render_guards=False,
+            skip_static_guards=False,
+            base_ref=None,
+            godot_binary="godot",
+        )
+
+        def _record_runner(runner, *_args, **_kwargs):
+            recorded.append(runner)
+            return None
+
+        def _record_step(step_name):
+            def _step(*_args, **_kwargs):
+                recorded.append(step_name)
+                return None
+
+            return _step
+
+        saved_override = harness._GUARD_BASE_REF_OVERRIDE
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(
+                mock.patch.object(harness, "_run_message_guard", _record_runner)
+            )
+            for step_name in self.LEAF_STEPS:
+                stack.enter_context(
+                    mock.patch.object(harness, step_name, _record_step(step_name))
+                )
+            stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+            try:
+                self.assertIsNone(
+                    harness._run_ci_guard_steps(cli_args),
+                    "with every leaf stubbed out the pipeline must reach the end",
+                )
+            finally:
+                harness._GUARD_BASE_REF_OVERRIDE = saved_override
+        return recorded
+
+    @staticmethod
+    def _referenced_global_names(code, seen: set | None = None) -> set:
+        """Global names a function body reads, including nested code objects."""
+        seen = set() if seen is None else seen
+        seen.update(code.co_names)
+        for const in code.co_consts:
+            if hasattr(const, "co_names"):
+                GuardScriptWiringTests._referenced_global_names(const, seen)
+        return seen
+
+    def _scripts_reached_by_wired_runners(self) -> set:
+        """Every module-level `Path` constant a wired guard runner actually reads."""
+        reached = set()
+        for runner in self._record_wired_runners():
+            if isinstance(runner, str):  # a stubbed leaf step, not a guard runner
+                continue
+            for name in self._referenced_global_names(runner.__code__):
+                value = getattr(harness, name, None)
+                if isinstance(value, Path):
+                    reached.add(value.resolve())
+        return reached
+
+    def test_the_recorded_wiring_is_not_vacuous(self) -> None:
+        """Non-vacuity: the recorder must observe the real, populated pipeline.
+
+        Without this, stubbing the pipeline into silence would make every
+        assertion below pass over an empty set.
+        """
+        recorded = self._record_wired_runners()
+        runners = [item for item in recorded if not isinstance(item, str)]
+        steps = sorted(item for item in recorded if isinstance(item, str))
+        self.assertGreater(
+            len(runners), 10, f"only {len(runners)} guard runners were reached"
+        )
+        self.assertEqual(
+            steps,
+            sorted(self.LEAF_STEPS),
+            "every leaf step must still be reached from _run_ci_guard_steps()",
+        )
+
+    def test_every_guard_script_on_disk_is_executed_by_a_wired_runner(self) -> None:
+        reached = self._scripts_reached_by_wired_runners()
+        on_disk = sorted(self.GUARD_SCRIPT_DIR.glob("check_*.py"))
+        self.assertGreater(
+            len(on_disk), 5, "guard-script discovery found almost nothing; glob drifted"
+        )
+        missing = sorted(
+            path.relative_to(ROOT).as_posix()
+            for path in on_disk
+            if path.resolve() not in reached
+        )
+        self.assertEqual(
+            missing,
+            [],
+            "these guard scripts exist but no runner reachable from "
+            "_run_ci_guard_steps() executes them, so `--guard-only` -- which the "
+            "always-on agentic-pr-gate required check invokes on every PR -- does "
+            f"not enforce them: {missing}",
+        )
+
+    def test_every_guard_that_ships_discrimination_tests_also_runs_them(self) -> None:
+        """The guard script running is not enough; its own tests must run too.
+
+        A guard's discrimination tests are the only thing that catches a guard
+        which has stopped being able to fail. Derived from the
+        `check_x.py` / `test_check_x.py` pairing, so it covers whatever pairs
+        exist rather than a list of the ones somebody remembered.
+        """
+        reached = self._scripts_reached_by_wired_runners()
+        pairs = [
+            (script, script.with_name(f"test_{script.name}"))
+            for script in sorted(self.GUARD_SCRIPT_DIR.glob("check_*.py"))
+        ]
+        pairs = [(script, sibling) for script, sibling in pairs if sibling.is_file()]
+        self.assertGreater(
+            len(pairs), 3, "no check_*.py / test_check_*.py pairs found; pairing drifted"
+        )
+        missing = sorted(
+            sibling.relative_to(ROOT).as_posix()
+            for _script, sibling in pairs
+            if sibling.resolve() not in reached
+        )
+        self.assertEqual(
+            missing,
+            [],
+            "these guards ship discrimination tests that no wired runner executes, "
+            "so a guard that has silently stopped being able to fail would not be "
+            f"caught: {missing}",
+        )
+
+    def test_this_files_own_runner_is_wired(self) -> None:
+        """The contract above is only worth anything while this file still runs."""
+        reached = self._scripts_reached_by_wired_runners()
+        self.assertIn(
+            Path(__file__).resolve(),
+            reached,
+            "nothing reachable from _run_ci_guard_steps() executes this file any "
+            "more, so every wiring assertion in it is dead. Re-wire "
+            "_run_lane_ledger_guard.",
+        )
 
 
 if __name__ == "__main__":
