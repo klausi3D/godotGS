@@ -1538,6 +1538,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#build-flavors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build Flavors
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#smoke-test" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1959,6 +1970,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#build-flavors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build Flavors
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#smoke-test" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2111,6 +2133,54 @@
 <div class="highlight"><pre><span></span><code>scons<span class="w"> </span><span class="nv">platform</span><span class="o">=</span>macos<span class="w"> </span><span class="nv">target</span><span class="o">=</span>editor<span class="w"> </span><span class="nv">dev_build</span><span class="o">=</span>yes<span class="w"> </span><span class="nv">arch</span><span class="o">=</span>x86_64<span class="w"> </span>-j8
 </code></pre></div>
 <p>If you want a test-enabled editor build, append <code>tests=yes</code> to the same command.</p>
+<h2 id="build-flavors">Build Flavors<a class="headerlink" href="#build-flavors" title="Permanent link">¶</a></h2>
+<p>The commands above pass <code>dev_build=yes</code>. Know what that costs before you use the
+resulting binary for anything but development.</p>
+<table>
+<thead>
+<tr>
+<th>Flavor</th>
+<th>Command tail</th>
+<th>Optimizer</th>
+<th>Use it for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Development (the commands above)</td>
+<td><code>target=editor dev_build=yes</code></td>
+<td><strong><code>-O0</code></strong> — no optimization</td>
+<td>Iterating on engine/module code, debugging, running the test suite</td>
+</tr>
+<tr>
+<td>Optimized</td>
+<td><code>target=editor optimize=speed_trace</code></td>
+<td><code>-O2</code> (<code>/O2</code> on MSVC)</td>
+<td>Evaluating godotGS, opening real scenes, any performance measurement</td>
+</tr>
+</tbody>
+</table>
+<p>With the default <code>optimize=auto</code>, <code>dev_build=yes</code> resolves to <code>optimize=none</code>, so a
+development build compiles at <code>-O0</code> (<code>/Od</code> on MSVC) and inflates CPU-side frame cost
+by roughly an order of magnitude compared with an optimized build. Numbers taken from
+a <code>dev_build</code> binary are not performance evidence — see the
+<a href="../performance/#measurement-environment">Performance Dashboard</a> for what an
+optimized measurement looks like and on what hardware.</p>
+<p>To build an optimized editor, drop <code>dev_build=yes</code> and name the optimizer
+explicitly:</p>
+<div class="highlight"><pre><span></span><code>scons<span class="w"> </span><span class="nv">platform</span><span class="o">=</span>linuxbsd<span class="w"> </span><span class="nv">target</span><span class="o">=</span>editor<span class="w"> </span><span class="nv">optimize</span><span class="o">=</span>speed_trace<span class="w"> </span>-j<span class="s2">"</span><span class="k">$(</span>nproc<span class="k">)</span><span class="s2">"</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><span class="n">scons</span> <span class="n">platform</span><span class="p">=</span><span class="n">windows</span> <span class="n">target</span><span class="p">=</span><span class="n">editor</span> <span class="n">optimize</span><span class="p">=</span><span class="n">speed_trace</span> <span class="n">-j10</span>
+</code></pre></div>
+<p><code>optimize=speed_trace</code> is <code>-O2</code> rather than <code>-O3</code>, which upstream keeps around
+because it is friendlier to debuggers and produces better crash backtraces. It is
+deliberately <strong>not</strong> <code>optimize=speed</code>: on this fork <code>optimize=speed</code> is the exact
+value that also switches on the Gaussian Splatting module's fast-math / ISA block
+(<code>modules/gaussian_splatting/SCsub</code>), which is a separate decision from "compile
+with optimization on".</p>
+<p>An optimized build drops <code>dev_build</code>, so it also drops the <code>.dev</code> filename segment
+(see <a href="#output-naming">Output Naming</a>) and the dev-only assertions. Add
+<code>debug_symbols=yes</code> if you still want a symbolized backtrace.</p>
 <h2 id="smoke-test">Smoke Test<a class="headerlink" href="#smoke-test" title="Permanent link">¶</a></h2>
 <p>Use the built editor to open the sample project from this repository. The command should exit cleanly after the project loads.</p>
 <h3 id="linux_1">Linux<a class="headerlink" href="#linux_1" title="Permanent link">¶</a></h3>
@@ -2127,7 +2197,10 @@
 </code></pre></div>
 <h2 id="output-naming">Output Naming<a class="headerlink" href="#output-naming" title="Permanent link">¶</a></h2>
 <ul>
-<li><code>dev_build=yes</code> adds a <code>.dev</code> segment to the binary name.</li>
+<li><code>dev_build=yes</code> adds a <code>.dev</code> segment to the binary name. The published nightly
+  binaries carry that segment, which is how you can tell a download is an <code>-O0</code>
+  build without looking at anything else.</li>
+<li>An optimized build (no <code>dev_build=yes</code>) has no <code>.dev</code> segment: <code>bin/godot.windows.editor.x86_64.exe</code>.</li>
 <li>Windows example: <code>bin/godot.windows.editor.dev.x86_64.exe</code></li>
 <li>Linux example: <code>bin/godot.linuxbsd.editor.dev.x86_64</code></li>
 <li>macOS Apple Silicon example: <code>bin/godot.macos.editor.dev.arm64</code></li>
@@ -2160,7 +2233,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 10, 2026 20:22:12 UTC">August 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 11, 2026 21:08:16 UTC">August 11, 2026</span>
   </span>
 
     

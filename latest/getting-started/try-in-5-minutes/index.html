@@ -555,10 +555,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-open-the-project" class="md-nav__link">
+  <a href="#2-get-the-sample-project" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. Open the Project
+        2. Get the Sample Project
       
     </span>
   </a>
@@ -566,10 +566,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-verify-the-public-evaluator" class="md-nav__link">
+  <a href="#3-open-the-project" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Verify the Public Evaluator
+        3. Open the Project
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-verify-the-public-evaluator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Verify the Public Evaluator
       
     </span>
   </a>
@@ -1787,10 +1798,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-open-the-project" class="md-nav__link">
+  <a href="#2-get-the-sample-project" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. Open the Project
+        2. Get the Sample Project
       
     </span>
   </a>
@@ -1798,10 +1809,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-verify-the-public-evaluator" class="md-nav__link">
+  <a href="#3-open-the-project" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Verify the Public Evaluator
+        3. Open the Project
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-verify-the-public-evaluator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Verify the Public Evaluator
       
     </span>
   </a>
@@ -1855,13 +1877,30 @@
 <li><strong>macOS:</strong> no published binary; stop here and use <a href="../../BUILDING/">Build from Source</a>.</li>
 </ul>
 <p>See the <a href="../downloads/">Downloads page</a> for verification and integrity-check details.</p>
-<h2 id="2-open-the-project">2. Open the Project<a class="headerlink" href="#2-open-the-project" title="Permanent link">¶</a></h2>
-<p>Launch the Linux editor you downloaded, then point <code>GODOT_BINARY</code> at it and open the sample project:</p>
+<div class="admonition warning">
+<p class="admonition-title">This editor is an unoptimized <code>-O0</code> build</p>
+<p>Nightlies are compiled with <code>dev_build=yes</code>, i.e. <code>-O0</code>, which inflates CPU-side
+frame cost by roughly an order of magnitude. This page is the fastest way to see
+godotGS work; it is <strong>not</strong> a way to see how fast it is. For that, build with
+<code>optimize=speed_trace</code> (<a href="../../BUILDING/#build-flavors">Build Flavors</a>) and read
+the <a href="../../performance/#measurement-environment">Performance Dashboard</a>.</p>
+</div>
+<h2 id="2-get-the-sample-project">2. Get the Sample Project<a class="headerlink" href="#2-get-the-sample-project" title="Permanent link">¶</a></h2>
+<p>The sample project lives in this repository, not in the download. A shallow clone is
+enough and is far quicker than the full engine history:</p>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--depth<span class="w"> </span><span class="m">1</span><span class="w"> </span>https://github.com/klausi3D/godotGS.git
+<span class="nb">cd</span><span class="w"> </span>godotGS
+</code></pre></div>
+<h2 id="3-open-the-project">3. Open the Project<a class="headerlink" href="#3-open-the-project" title="Permanent link">¶</a></h2>
+<p>Point <code>GODOT_BINARY</code> at the editor you downloaded, then open the sample project
+from the clone (paths below are relative to the repository root):</p>
 <div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">GODOT_BINARY</span><span class="o">=</span>/absolute/path/to/godot.linuxbsd.editor.dev.x86_64
 <span class="nv">$GODOT_BINARY</span><span class="w"> </span>--path<span class="w"> </span>tests/examples/godot/test_project
 </code></pre></div>
-<p>If you do not already have a binary on your path, use the editor you downloaded from Releases.</p>
-<h2 id="3-verify-the-public-evaluator">3. Verify the Public Evaluator<a class="headerlink" href="#3-verify-the-public-evaluator" title="Permanent link">¶</a></h2>
+<div class="highlight"><pre><span></span><code><span class="nv">$env:GODOT_BINARY</span><span class="p">=</span><span class="s2">"C:\absolute\path\to\godot.windows.editor.dev.x86_64.exe"</span>
+<span class="p">&amp;</span> <span class="nv">$env:GODOT_BINARY</span> <span class="p">-</span><span class="n">-path</span> <span class="p">.\</span><span class="n">tests</span><span class="p">\</span><span class="n">examples</span><span class="p">\</span><span class="n">godot</span><span class="p">\</span><span class="n">test_project</span>
+</code></pre></div>
+<h2 id="4-verify-the-public-evaluator">4. Verify the Public Evaluator<a class="headerlink" href="#4-verify-the-public-evaluator" title="Permanent link">¶</a></h2>
 <p>Press Play. The sample project opens <code>res://scenes/public_evaluator.tscn</code> by default.</p>
 <p>You should see:</p>
 <ul>
@@ -1894,7 +1933,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 10, 2026 20:22:16 UTC">August 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 11, 2026 21:08:21 UTC">August 11, 2026</span>
   </span>
 
     
