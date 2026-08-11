@@ -94,15 +94,42 @@ once, as a property of *which* text each question is asked over:
   being wrong is a page that hands out an unwarned binary.
 * **Credit -- "does this page carry the warning?" -- is asked over a subset of
   what the reader certainly sees.** Fenced blocks (at any indentation), indented
-  code blocks, and HTML comments are removed; a reference definition counts as a
-  link only when some reference link actually uses its label. When the guard is
-  unsure whether something renders, it assumes it does not, because the cost of
-  being wrong is a PASS the reader cannot see.
+  code blocks (measured relative to the enclosing container, not to column zero),
+  HTML comments and images are removed; a reference definition counts as a link
+  only when some reference link actually uses its label, and blocks are split
+  where a reader sees a break, including a blank line written inside a blockquote
+  as a bare `>`. When the guard is unsure whether something renders, it assumes
+  it does not, because the cost of being wrong is a PASS the reader cannot see.
 
-Both directions therefore fail closed, and anything unclassifiable falls into
-the obligation view and out of the credit view automatically -- which is why an
-authoring form nobody anticipated cannot produce a false PASS, only a false
-demand for a warning the page should have had anyway.
+Both directions are meant to fail closed. Round three claimed more than that --
+that an authoring form nobody anticipated could therefore only ever produce a
+false FAIL. **That claim was wrong, and round four produced three
+counter-examples, all false PASSes and all in the credit view:**
+
+* an eight-space snippet inside a list item, because the indented-code mask
+  asked *whether* a container was open rather than where its content began, so
+  once inside one no indentation however deep was read as code;
+* `![Performance Dashboard](../performance/index.md)`, because every link
+  pattern matched the image syntax as a link;
+* two blockquote paragraphs separated by the ordinary blank marker `>`, because
+  `line.strip()` is non-empty there, so the two merged into one paragraph.
+
+The asymmetry above is real, but it only holds for text the credit view
+*classifies*. It says nothing about text the credit view classifies **wrongly**,
+and each of those three was a misclassification: nested block structure it did
+not model, and one inline syntax class it had never heard of. Each is fixed, and
+the three fixes are structural rather than per-form -- indentation is measured
+relative to the enclosing container instead of column zero, blockquote markers
+are stripped before either question is asked, and images are masked before any
+link pattern runs -- but the honest statement of the property is now:
+
+**The credit view is a hand-written approximation of a Markdown renderer. Where
+the approximation is right it fails closed. Where it is wrong it can fail either
+way, and four rounds of review have found a new way each round.** The PR that
+last touched this file records the recommendation for what to do about that; the
+short version is that this shape does not terminate, and the terminating fixes
+are to run the checks over rendered HTML or to constrain the warning to one
+exactly-verifiable authoring form.
 
 The one place ambiguity is escalated rather than resolved is the obligation
 view, where treating an unterminated fence as code would *hide* a link: that is
@@ -124,14 +151,20 @@ Two things, both checkable:
    single block, not merely somewhere in the file: `dev_build` appears in build
    docs for unrelated reasons (filename segments, flag tables), and `-O0` could
    drift into an unrelated aside. Requiring them in the same paragraph is what
-   makes the match evidence of an actual warning rather than of two coincidences.
+   makes the match evidence of an actual warning rather than of two coincidences
+   -- which only holds while "paragraph" means what a reader sees as one block,
+   so `paragraphs()` splits on a blockquote's blank `>` marker, on a blockquote
+   that opens mid-paragraph, and on a heading or rule that interrupts one.
 2. **A link to the performance dashboard.** A warning that says "this is slow" and
    stops there tells a reader nothing they can act on. Requiring the cross-
    reference also puts these pages under `scripts/docs/check_links.py`, so a
    renamed heading or moved page fails a second, independent check.
 
 The dashboard link is read through the same multi-form extractor, so a page that
-writes it reference-style satisfies the rule the same way an inline one does.
+writes it reference-style satisfies the rule the same way an inline one does --
+but an *image* of the dashboard does not. `![Performance Dashboard](...)` renders
+a picture and nothing a reader can follow, in every reference form as well, so
+images are masked before any link pattern runs.
 
 ## Why "could not inspect" is not "compliant"
 
@@ -218,6 +251,18 @@ HTML_HREF_PATTERN = re.compile(
 FULL_REFERENCE_PATTERN = re.compile(r"\[(?P<text>[^\]\n]*)\]\[(?P<label>[^\]\n]*)\]")
 SHORTCUT_REFERENCE_PATTERN = re.compile(r"\[(?P<label>[^\]\n]+)\](?![\(\[:])")
 
+# `![alt](dest)` is an image, not a link: a reader is shown a picture and given
+# nothing to follow. Every link pattern above matches it anyway -- the inline
+# one because it keys on `](`, the reference ones because `![label]` contains
+# `[label]` -- so a page whose only dashboard reference was an image was
+# credited with a cross-reference that does not exist (Codex, PR #872, round 4).
+# The credit view therefore blanks image spans BEFORE any link pattern runs.
+# Doing it as a mask rather than as a negative look-behind on each pattern is
+# what also gets the linked-image case right: `[![alt](icon.png)](dest)` masks to
+# `[        ](dest)`, whose destination is `dest` -- the one a reader follows --
+# instead of `icon.png`.
+IMAGE_PATTERN = re.compile(r"!\[[^\]\n]*\](?:\([^)\n]*\)|\[[^\]\n]*\])?")
+
 # The named groups above that hold a link destination, whichever form matched.
 DESTINATION_GROUPS = ("dest", "dq", "sq", "bare")
 
@@ -243,16 +288,40 @@ FENCE_ANY_INDENT_PATTERN = re.compile(
 INLINE_CODE_PATTERN = re.compile(r"(?P<ticks>`+)(?!`)(?P<body>.*?)(?<!`)(?P=ticks)(?!`)")
 HTML_COMMENT_PATTERN = re.compile(r"<!--.*?(?:-->|\Z)", re.DOTALL)
 
-# A four-space indent is an indented code block only at top level. After a list
-# marker, an admonition marker, a blockquote or an HTML block it is that
-# container's content and renders as ordinary prose -- which is exactly how all
-# three MkDocs pages in this repository write their warning. Getting this wrong
-# in the permissive direction credits a code sample; getting it wrong in the
-# strict direction rejects a real warning, so the container set is listed here
-# and pinned by tests rather than inferred.
-CONTAINER_START_PATTERN = re.compile(
-    r"^\s{0,3}(?:[-*+]\s|\d{1,9}[.)]\s|!!!|\?\?\?|>|<)"
+# A four-space indent is an indented code block only at top level. Inside a
+# container it is that container's content and renders as ordinary prose -- which
+# is exactly how all three MkDocs download pages in this repository write their
+# warning. The first version of this rule tracked only *whether* a container was
+# open, so once one was, no indentation however deep was ever read as code: an
+# eight-space snippet inside a list item was credited as a warning (Codex,
+# PR #872, round 4). Whether a container is open is the wrong quantity. The right
+# one is the column its content starts at, because "indented code" means four
+# columns past *that*, so these patterns yield a content indent rather than a
+# boolean.
+#
+# `>` and `<` are deliberately absent. A blockquote is handled by stripping its
+# markers (`BLOCKQUOTE_PREFIX_PATTERN`) so indentation inside a quote is measured
+# where the reader sees it -- `>     x` is a four-space indent in the quote, and
+# reading it as column zero hid indented code inside quotes entirely. An HTML
+# block ends at the first blank line, and an indented code block needs a blank
+# line before it, so treating `<div>` as an open container only suppressed the
+# mask on lines where CommonMark says the block has already closed.
+FOUR_SPACE_CONTAINER_PATTERN = re.compile(r'^[ \t]*(?:!!!|\?\?\?\+?|===[ \t]+")')
+LIST_MARKER_PATTERN = re.compile(
+    r"^(?P<indent>[ \t]*)(?P<marker>[-*+]|\d{1,9}[.)])(?P<space>[ \t]*)(?P<rest>.*)$"
 )
+THEMATIC_BREAK_PATTERN = re.compile(
+    r"^[ \t]{0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$"
+)
+ATX_HEADING_PATTERN = re.compile(r"^[ \t]{0,3}#{1,6}(?:[ \t]|$)")
+
+# A blockquote's content begins after its `>` markers, so both the credit view's
+# indentation arithmetic and its paragraph splitting have to be done on what
+# follows them. Matching `>` as an opaque "container is open" flag meant `>` on
+# its own -- the ordinary way to put a blank line inside a quote -- was neither
+# blank nor a container boundary, so two quoted paragraphs merged into one and
+# satisfied the same-paragraph rule between them (Codex, PR #872, round 4).
+BLOCKQUOTE_PREFIX_PATTERN = re.compile(r"^(?:[ \t]{0,3}>[ \t]?)+")
 
 # Both must appear in the SAME paragraph. See module docstring.
 REQUIRED_TOKENS = ("-O0", "dev_build")
@@ -403,37 +472,93 @@ def mask_code(text: str) -> tuple[str, str | None]:
     return masked, None
 
 
-def _mask_indented_code(text: str) -> str:
-    """Blank top-level indented code blocks, leaving container content alone.
+def split_quote_prefix(line: str) -> tuple[int, str]:
+    """`(blockquote depth, the line as it reads inside that quote)`.
 
-    A run of lines indented four or more spaces is an indented code block only
-    when it starts after a blank line (CommonMark: it cannot interrupt a
-    paragraph) and no list, admonition, blockquote or HTML block is open --
-    otherwise the indentation belongs to that container and renders as prose.
+    `> > text` is depth 2 and `text`; a bare `>` is depth 1 and the empty
+    string, which is how a blank line inside a blockquote is written.
+    """
+    match = BLOCKQUOTE_PREFIX_PATTERN.match(line)
+    if match is None:
+        return 0, line
+    return match.group(0).count(">"), line[match.end() :]
+
+
+def container_content_indent(line: str) -> int | None:
+    """The column a container opened on `line` indents its content to, or None.
+
+    An admonition, a collapsible admonition and a content tab (all enabled in
+    `mkdocs.yml`) indent their bodies four columns from the marker. A list item's
+    content starts after its marker and the spaces following it -- except that
+    CommonMark caps that run at one column when five or more spaces follow,
+    because everything past the first is then an indented code block *inside* the
+    item, and except that a marker with no space after it (`-foo`) is not a list
+    at all.
+    """
+    if THEMATIC_BREAK_PATTERN.match(line):
+        return None
+    if FOUR_SPACE_CONTAINER_PATTERN.match(line):
+        return len(line) - len(line.lstrip()) + 4
+    match = LIST_MARKER_PATTERN.match(line)
+    if match is None:
+        return None
+    spaces = len(match.group("space"))
+    if not match.group("rest").strip():
+        spaces = 1
+    elif spaces == 0:
+        return None
+    elif spaces > 4:
+        spaces = 1
+    return len(match.group("indent")) + len(match.group("marker")) + spaces
+
+
+def _mask_indented_code(text: str) -> str:
+    """Blank indented code blocks, at top level and inside containers alike.
+
+    A run of lines is an indented code block when it starts after a blank line
+    (CommonMark: it cannot interrupt a paragraph) and is indented four or more
+    columns past where the innermost open container's content begins. At top
+    level that reduces to the familiar four spaces; inside a list item whose
+    content starts at column 2 it is six, and inside a blockquote it is four
+    columns past the `>` markers.
+
+    The container stack holds `(blockquote depth, content indent)` and is popped
+    by any line that steps back out, so a snippet indented eight spaces under a
+    list item is masked while the item's own four-space continuation is not.
     """
     masked_lines: list[str] = []
-    container_open = False
+    stack: list[tuple[int, int]] = []
     previous_blank = True
     in_code = False
     for line in text.splitlines():
-        if not line.strip():
+        depth, rest = split_quote_prefix(line)
+        if not rest.strip():
             masked_lines.append(line)
             previous_blank = True
             in_code = False
             continue
-        indent = len(line) - len(line.lstrip())
-        if indent >= 4:
-            if in_code or (previous_blank and not container_open):
-                in_code = True
-                masked_lines.append(" " * len(line))
-            else:
-                masked_lines.append(line)
+        indent = len(rest) - len(rest.lstrip())
+        while stack and (
+            stack[-1][0] > depth or (stack[-1][0] == depth and indent < stack[-1][1])
+        ):
+            stack.pop()
+        base = stack[-1][1] if stack and stack[-1][0] == depth else 0
+        if indent >= base + 4 and (in_code or previous_blank):
+            in_code = True
+            masked_lines.append(" " * len(line))
         else:
             in_code = False
-            container_open = CONTAINER_START_PATTERN.match(line) is not None
+            content_indent = container_content_indent(rest)
+            if content_indent is not None:
+                stack.append((depth, content_indent))
             masked_lines.append(line)
         previous_blank = False
     return _rejoin(text, masked_lines)
+
+
+def _mask_images(text: str) -> str:
+    """Blank `![...]`, `![...](...)` and `![...][...]`, preserving every offset."""
+    return IMAGE_PATTERN.sub(lambda m: " " * len(m.group(0)), text)
 
 
 def _mask_html_comments(text: str) -> str:
@@ -511,7 +636,14 @@ def rendered_link_destinations(text: str) -> list[str]:
     was never given (Codex, PR #872). Definitions are therefore resolved through
     the labels the page actually uses, and an orphan definition contributes
     nothing.
+
+    Images are masked out first, in every form, because an image is something a
+    reader looks at rather than something they can follow -- and both
+    `![Dashboard](../performance/index.md)` and `![dashboard]` with a matching
+    definition were being counted as the cross-reference (Codex, PR #872,
+    round 4).
     """
+    text = _mask_images(text)
     destinations: list[str] = []
     for pattern in DIRECT_LINK_FORMS:
         for match in pattern.finditer(text):
@@ -533,17 +665,48 @@ def rendered_link_destinations(text: str) -> list[str]:
 
 
 def paragraphs(text: str) -> list[str]:
-    """Split on blank lines. An admonition body or a blockquote stays one block."""
+    """Split rendered text into blocks a reader sees as separate.
+
+    A blank line ends a block -- and so does a blank line *inside* a blockquote,
+    which is written as a bare `>` marker. Testing `line.strip()` missed that, so
+    two quoted paragraphs merged and `dev_build` in one plus `-O0` in the other
+    satisfied the same-paragraph contract between them (Codex, PR #872, round 4).
+
+    Two more block boundaries fall out of the same reading, and are taken here
+    because they are exact: a blockquote that *opens* on the line after a
+    paragraph interrupts it, and an ATX heading or a thematic break is its own
+    block. A quote depth that decreases does NOT split -- that is a lazy
+    continuation, still the same paragraph.
+
+    An admonition body, a list continuation and a multi-line blockquote all stay
+    one block, which is how every warning in this repository is written.
+    """
     blocks: list[str] = []
     current: list[str] = []
-    for line in text.splitlines():
-        if line.strip():
-            current.append(line)
-        elif current:
+    previous_depth = 0
+
+    def flush() -> None:
+        if current:
             blocks.append("\n".join(current))
-            current = []
-    if current:
-        blocks.append("\n".join(current))
+            current.clear()
+
+    for line in text.splitlines():
+        depth, rest = split_quote_prefix(line)
+        if not rest.strip():
+            flush()
+            previous_depth = 0
+            continue
+        own_block = (
+            ATX_HEADING_PATTERN.match(rest) is not None
+            or THEMATIC_BREAK_PATTERN.match(rest) is not None
+        )
+        if own_block or depth > previous_depth:
+            flush()
+        current.append(line)
+        previous_depth = depth
+        if own_block:
+            flush()
+    flush()
     return blocks
 
 

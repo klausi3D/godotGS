@@ -44,6 +44,33 @@ rejecting everything is not a fix: a warning written with ordinary inline code,
 one in a four-space-indented admonition body (which is how all three MkDocs pages
 in this repository write theirs), and a genuinely referenced `[dashboard]` label
 must all still be GREEN.
+
+Round four found three more, all in the credit view and all false PASSes, which
+is why round three's claim that an unmodelled form could only cause a false FAIL
+was too strong:
+
+* `NestedIndentedCodeTests` -- the mask asked *whether* a container was open, not
+  where its content started, so once inside a list item no indentation however
+  deep was read as code. Measured before the fix: a page whose only warning was
+  an eight-space snippet under `- Example only:` was exit 0. The blockquote
+  variant (`>` then a four-space snippet) was invisible for the same reason,
+  because indentation inside a quote was measured before the `>` markers.
+* `ImageTests` -- `![Performance Dashboard](../performance/index.md)` matched the
+  inline-link pattern, and `![dashboard]` matched the shortcut-reference pattern.
+  Measured before the fix: exit 0 for all three image forms, on pages that render
+  a picture and no link at all.
+* `BlockBoundaryTests` -- a blank line inside a blockquote is a bare `>`, whose
+  `.strip()` is non-empty, so two quoted paragraphs merged and satisfied the
+  same-paragraph contract between them. Measured before the fix: exit 0.
+
+Each family again asserts both directions. The GREEN controls that pin the
+over-correction boundary are the four-space list continuation (which must NOT
+become an indented code block now that the mask reads indentation inside
+containers), the six-space continuation of a *nested* item, the multi-line
+`> [!WARNING]` blockquote and its lazy continuation (which must NOT be split now
+that the splitter reads quote markers), and a linked image
+`[![Chart](chart.png)](../performance/index.md)`, whose destination is a real
+link a reader can follow.
 """
 
 from __future__ import annotations
@@ -524,6 +551,345 @@ class RenderedProseTests(_SyntheticTree):
         self.assertEqual(prose.count("\n"), text.count("\n"))
 
 
+class NestedIndentedCodeTests(_SyntheticTree):
+    """Indented code is four columns past the CONTAINER, not past column zero.
+
+    The first version of this mask tracked a boolean -- "is a container open?" --
+    and left every indented line alone while one was. That is the wrong quantity:
+    a list item whose content starts at column 2 turns column 6 into code, and a
+    snippet at column 8 under `- Example only:` is a code block the reader is
+    shown as code. Crediting it as a warning was Codex, PR #872, round 4.
+    """
+
+    def _assert_red(self, body: str) -> None:
+        self._write_page("downloads.md", body)
+        code, output = _run_guard(self.root)
+        self.assertEqual(code, guard.EXIT_VIOLATIONS, output)
+        self.assertIn("no single paragraph", output)
+
+    def _assert_green(self, body: str) -> None:
+        self._write_page("downloads.md", body)
+        code, output = _run_guard(self.root)
+        self.assertEqual(code, guard.EXIT_OK, output)
+        self.assertIn("1 download surface", output)
+
+    # --- RED: a code block nested inside a container is still a code block ---
+
+    def test_an_eight_space_snippet_under_a_list_item_is_not_a_warning(self) -> None:
+        """The reported case: measured at exit 0 before the fix.
+
+        The dashboard link is inside the snippet too, so this pins both halves of
+        the credit view at once -- neither the tokens nor the cross-reference may
+        be taken from text rendered as code.
+        """
+        self._write_page(
+            "downloads.md",
+            f"# Downloads\n\n{RELEASES_LINK}\n\n"
+            "- Example only:\n\n"
+            "        dev_build=yes   # -O0\n"
+            "        [Performance Dashboard](../performance/index.md)\n",
+        )
+        code, output = _run_guard(self.root)
+        self.assertEqual(code, guard.EXIT_VIOLATIONS, output)
+        self.assertIn("no single paragraph", output)
+        self.assertIn("never links to docs/performance/index.md", output)
+
+    def test_a_twelve_space_snippet_under_a_nested_list_item_is_not_a_warning(self) -> None:
+        self._assert_red(
+            f"# Downloads\n\n{RELEASES_LINK}\n\n"
+            "[Performance Dashboard](../performance/index.md)\n\n"
+            "- Outer:\n"
+            "  - Inner example:\n\n"
+            "        dev_build=yes   # -O0\n"
+        )
+
+    def test_a_snippet_indented_inside_a_blockquote_is_not_a_warning(self) -> None:
+        """Indentation inside a quote is measured after the `>` markers.
+
+        Measuring raw leading whitespace made `>     x` look like column zero, so
+        an indented code block inside a blockquote was never masked at all.
+        """
+        self._assert_red(
+            f"# Downloads\n\n{RELEASES_LINK}\n\n"
+            "[Performance Dashboard](../performance/index.md)\n\n"
+            "> Release lane configuration:\n"
+            ">\n"
+            ">     dev_build=yes   # -O0\n"
+        )
+
+    def test_an_eight_space_snippet_in_an_admonition_body_is_not_a_warning(self) -> None:
+        self._assert_red(
+            f"# Downloads\n\n{RELEASES_LINK}\n\n"
+            "[Performance Dashboard](../performance/index.md)\n\n"
+            '!!! note "Lane configuration"\n'
+            "    The nightly lane is configured like this:\n\n"
+            "        dev_build=yes   # -O0\n"
+        )
+
+    def test_an_ordered_list_measures_its_own_marker_width(self) -> None:
+        """`10. ` indents content to column 4, so code starts at column 8.
+
+        A rule that assumed "two columns" for every list marker would read the
+        continuation below as code and reject a real warning.
+        """
+        self._assert_red(
+            f"# Downloads\n\n{RELEASES_LINK}\n\n"
+            "[Performance Dashboard](../performance/index.md)\n\n"
+            "10. Example only:\n\n"
+            "        dev_build=yes   # -O0\n"
+        )
+
+    # --- GREEN: container content at any depth is still prose ---
+
+    def test_a_four_space_continuation_of_a_list_item_is_green(self) -> None:
+        """The boundary the RED cases must not cross. Content indent 2, so 4 < 6."""
+        self._assert_green(
+            f"# Downloads\n\n{RELEASES_LINK}\n\n"
+            "- Before you download:\n\n"
+            "    Published nightlies are `dev_build=yes`, i.e. `-O0`.\n"
+            "    See the [Performance Dashboard](../performance/index.md).\n"
+        )
+
+    def test_a_six_space_continuation_of_a_nested_list_item_is_green(self) -> None:
+        """Content indent 4 inside the inner item, so 6 is prose and 8 is code."""
+        self._assert_green(
+            f"# Downloads\n\n{RELEASES_LINK}\n\n"
+            "- Outer:\n"
+            "  - Before you download:\n\n"
+            "      Published nightlies are `dev_build=yes`, i.e. `-O0`.\n"
+            "      See the [Performance Dashboard](../performance/index.md).\n"
+        )
+
+    def test_an_ordered_list_continuation_is_green(self) -> None:
+        self._assert_green(
+            f"# Downloads\n\n{RELEASES_LINK}\n\n"
+            "1. Before you download:\n\n"
+            "   Published nightlies are `dev_build=yes`, i.e. `-O0`.\n"
+            "   See the [Performance Dashboard](../performance/index.md).\n"
+        )
+
+    def test_a_warning_in_a_blockquote_after_a_blank_marker_is_green(self) -> None:
+        """A quoted paragraph at column zero is prose however many precede it."""
+        self._assert_green(
+            f"# Downloads\n\n{RELEASES_LINK}\n\n"
+            "> Read this first.\n"
+            ">\n"
+            "> Nightlies are `dev_build=yes`, i.e. `-O0`.\n"
+            "> See the [Performance Dashboard](../performance/index.md).\n"
+        )
+
+    # --- non-vacuity of the mask itself ---
+
+    def test_the_mask_removes_nested_code_and_keeps_container_prose(self) -> None:
+        """Both halves on one document, so neither degenerate mask satisfies it."""
+        prose = guard.rendered_prose(
+            "- Item:\n\n"
+            "    visible_continuation_text\n\n"
+            "        hidden_nested_snippet\n\n"
+            "> Quoted:\n"
+            ">\n"
+            ">     hidden_quoted_snippet\n"
+        )
+        self.assertIn("visible_continuation_text", prose)
+        self.assertIn("Quoted:", prose)
+        for hidden in ("hidden_nested_snippet", "hidden_quoted_snippet"):
+            self.assertNotIn(hidden, prose)
+
+    def test_container_content_indent_is_measured_not_assumed(self) -> None:
+        """The quantity the boolean version never had, pinned directly."""
+        self.assertEqual(guard.container_content_indent("- item"), 2)
+        self.assertEqual(guard.container_content_indent("  - item"), 4)
+        self.assertEqual(guard.container_content_indent("10. item"), 4)
+        self.assertEqual(guard.container_content_indent("1.  item"), 4)
+        self.assertEqual(guard.container_content_indent('!!! warning "t"'), 4)
+        self.assertEqual(guard.container_content_indent('    !!! note "t"'), 8)
+        self.assertEqual(guard.container_content_indent('=== "Tab"'), 4)
+        # A marker with no space after it is not a list; a thematic break is not
+        # a container. Both previously raised the code threshold for free.
+        self.assertIsNone(guard.container_content_indent("-not-a-list"))
+        self.assertIsNone(guard.container_content_indent("* * *"))
+        self.assertIsNone(guard.container_content_indent("---"))
+        self.assertIsNone(guard.container_content_indent("ordinary prose"))
+
+    def test_split_quote_prefix_reports_depth_and_content(self) -> None:
+        self.assertEqual(guard.split_quote_prefix("> text"), (1, "text"))
+        self.assertEqual(guard.split_quote_prefix("> > text"), (2, "text"))
+        self.assertEqual(guard.split_quote_prefix(">"), (1, ""))
+        self.assertEqual(guard.split_quote_prefix(">     x"), (1, "    x"))
+        self.assertEqual(guard.split_quote_prefix("plain"), (0, "plain"))
+
+
+class ImageTests(_SyntheticTree):
+    """An image is looked at, not followed (Codex, PR #872, round 4).
+
+    `![Performance Dashboard](../performance/index.md)` renders a broken picture
+    and no link whatsoever, and satisfied the cross-reference rule in all three
+    reference forms as well.
+    """
+
+    def _page_with_dashboard_written_as(self, markup: str) -> tuple[int, str]:
+        self._write_page(
+            "downloads.md",
+            f"# Downloads\n\n{RELEASES_LINK}\n\n"
+            "Nightlies are `dev_build=yes`, i.e. `-O0`.\n"
+            f"{markup}\n",
+        )
+        return _run_guard(self.root)
+
+    def _assert_not_a_link(self, markup: str) -> None:
+        code, output = self._page_with_dashboard_written_as(markup)
+        self.assertEqual(code, guard.EXIT_VIOLATIONS, output)
+        self.assertIn("never links to docs/performance/index.md", output)
+
+    def test_an_inline_image_is_not_the_dashboard_link(self) -> None:
+        self._assert_not_a_link("![Performance Dashboard](../performance/index.md)")
+
+    def test_a_shortcut_reference_image_is_not_the_dashboard_link(self) -> None:
+        self._assert_not_a_link("![dashboard]\n\n[dashboard]: ../performance/index.md")
+
+    def test_a_full_reference_image_is_not_the_dashboard_link(self) -> None:
+        self._assert_not_a_link(
+            "![Performance Dashboard][dashboard]\n\n[dashboard]: ../performance/index.md"
+        )
+
+    def test_a_collapsed_reference_image_is_not_the_dashboard_link(self) -> None:
+        self._assert_not_a_link("![dashboard][]\n\n[dashboard]: ../performance/index.md")
+
+    def test_an_image_with_an_attribute_list_is_not_the_dashboard_link(self) -> None:
+        """MkDocs `attr_list` suffixes are how this repository writes its images."""
+        self._assert_not_a_link(
+            "![Performance Dashboard](../performance/index.md){ .gs-diagram }"
+        )
+
+    # --- GREEN: masking images must not swallow the links around them ---
+
+    def test_an_image_wrapped_in_a_link_counts_as_the_link(self) -> None:
+        """`[![alt](icon)](dest)` is a link to `dest`, and a reader can follow it.
+
+        Masking the image is what makes this resolve to `dest`; matching `](`
+        alone would have answered `icon.png`.
+        """
+        code, output = self._page_with_dashboard_written_as(
+            "[![Chart](chart.png)](../performance/index.md)"
+        )
+        self.assertEqual(code, guard.EXIT_OK, output)
+
+    def test_an_image_elsewhere_does_not_suppress_a_real_link(self) -> None:
+        code, output = self._page_with_dashboard_written_as(
+            "![Screenshot](shot.png)\n\n[Performance Dashboard](../performance/index.md)"
+        )
+        self.assertEqual(code, guard.EXIT_OK, output)
+
+    def test_an_image_does_not_consume_the_reference_link_beside_it(self) -> None:
+        code, output = self._page_with_dashboard_written_as(
+            "![Screenshot][shot] and the [Performance Dashboard][dashboard].\n\n"
+            "[shot]: shot.png\n[dashboard]: ../performance/index.md"
+        )
+        self.assertEqual(code, guard.EXIT_OK, output)
+
+
+class BlockBoundaryTests(_SyntheticTree):
+    """Two rendered blocks are not one paragraph (Codex, PR #872, round 4).
+
+    A blank line inside a blockquote is a bare `>`, which `.strip()` reports as
+    non-empty, so the splitter ran two quoted paragraphs together and let
+    `dev_build` in one satisfy the co-occurrence rule with `-O0` in the other.
+    """
+
+    def _assert_split(self, body: str) -> None:
+        self._write_page(
+            "downloads.md",
+            f"# Downloads\n\n{RELEASES_LINK}\n\n"
+            "[Performance Dashboard](../performance/index.md)\n\n" + body,
+        )
+        code, output = _run_guard(self.root)
+        self.assertEqual(code, guard.EXIT_VIOLATIONS, output)
+        self.assertIn("no single paragraph", output)
+
+    def test_a_blank_quote_marker_splits_two_quoted_paragraphs(self) -> None:
+        self._assert_split(
+            "> Built with `dev_build=yes`.\n"
+            ">\n"
+            "> A separate thought about `-O0` in some other project.\n"
+        )
+
+    def test_a_blank_marker_in_a_nested_quote_splits_too(self) -> None:
+        self._assert_split(
+            "> > Built with `dev_build=yes`.\n"
+            "> >\n"
+            "> > A separate thought about `-O0`.\n"
+        )
+
+    def test_a_quote_opening_after_a_paragraph_is_a_new_block(self) -> None:
+        """A blockquote interrupts a paragraph, so the two are not one block."""
+        self._assert_split(
+            "The binary name carries a `dev_build` segment.\n"
+            "> Unrelated aside about `-O0`.\n"
+        )
+
+    def test_a_heading_between_two_paragraphs_splits_them(self) -> None:
+        self._assert_split(
+            "The binary name carries a `dev_build` segment.\n"
+            "## Something else\n"
+            "Unrelated aside about `-O0`.\n"
+        )
+
+    def test_a_rule_between_two_paragraphs_splits_them(self) -> None:
+        """Written without blank lines, so only the rule itself can split them.
+
+        With blank lines around it this case would pass on a splitter that only
+        knows blank lines, and prove nothing.
+        """
+        self._assert_split(
+            "The binary name carries a `dev_build` segment.\n"
+            "---\n"
+            "Unrelated aside about `-O0`.\n"
+        )
+
+    # --- GREEN: the boundary in the other direction ---
+
+    def test_a_multi_line_blockquote_alert_stays_one_paragraph(self) -> None:
+        """README's form: consecutive quoted lines are one block."""
+        self._write_page(
+            "downloads.md",
+            f"# Downloads\n\n{RELEASES_LINK}\n\n"
+            "> [!WARNING]\n"
+            "> Nightlies are `dev_build=yes`,\n"
+            "> which means `-O0`.\n"
+            "> See the [Performance Dashboard](../performance/index.md).\n",
+        )
+        code, output = _run_guard(self.root)
+        self.assertEqual(code, guard.EXIT_OK, output)
+
+    def test_a_lazy_continuation_of_a_blockquote_stays_one_paragraph(self) -> None:
+        """A quote depth that DECREASES is a lazy continuation, not a new block."""
+        self._write_page(
+            "downloads.md",
+            f"# Downloads\n\n{RELEASES_LINK}\n\n"
+            "> Nightlies are `dev_build=yes`,\n"
+            "which means `-O0`.\n"
+            "See the [Performance Dashboard](../performance/index.md).\n",
+        )
+        code, output = _run_guard(self.root)
+        self.assertEqual(code, guard.EXIT_OK, output)
+
+    def test_paragraph_splitting_is_non_vacuous(self) -> None:
+        """A splitter that split every line, or none, would pass the cases above."""
+        blocks = guard.paragraphs(
+            "> one `dev_build`\n>\n> two `-O0`\n\nthree\n## four\nfive\n"
+        )
+        self.assertEqual(
+            blocks,
+            [
+                "> one `dev_build`",
+                "> two `-O0`",
+                "three",
+                "## four",
+                "five",
+            ],
+        )
+
+
 class RenderedLinkTests(_SyntheticTree):
     """A reference definition is not a link (Codex #872, round 3).
 
@@ -784,6 +1150,52 @@ class RealTreeControlTests(unittest.TestCase):
             "container content",
         )
         self.assertTrue(guard.links_to_performance_page(page, prose, ROOT))
+
+    def test_a_real_pages_image_is_not_counted_as_a_link(self) -> None:
+        """Anchored to authored content, not to a synthetic image.
+
+        `docs/getting-started/quick-start.md` is a real download surface that
+        embeds a diagram. Its `![...](../assets/images/...)` destination must not
+        appear among the page's rendered link destinations, while the dashboard
+        link on the same page must -- so neither an image rule that stopped
+        firing nor one that ate every link can satisfy this.
+        """
+        page = ROOT / "docs" / "getting-started" / "quick-start.md"
+        self.assertTrue(page.is_file(), f"missing fixture page: {page}")
+        text = page.read_text(encoding="utf-8")
+        self.assertIn("![", text, "this control needs a page that embeds an image")
+        prose = guard.rendered_prose(text)
+        destinations = guard.rendered_link_destinations(guard.mask_inline_code(prose))
+        self.assertTrue(destinations, "the destination extractor returned nothing")
+        self.assertFalse(
+            [d for d in destinations if d.endswith(".svg") or d.endswith(".png")],
+            f"an image source was counted as a link destination: {destinations}",
+        )
+        self.assertTrue(guard.links_to_performance_page(page, prose, ROOT))
+
+    def test_the_real_download_pages_survive_the_block_splitter(self) -> None:
+        """Every real warning is one block, in each of the two forms in use.
+
+        The MkDocs pages write theirs as a four-space admonition body and README
+        as a multi-line `> [!WARNING]` blockquote. A splitter that broke either
+        into per-line blocks would reject all four pages, and a mask that read
+        container content as code would empty them; both are asserted here on the
+        authored text rather than only on synthetic fixtures.
+        """
+        surfaces, _failures, _uninspectable = guard.check(ROOT)
+        self.assertGreaterEqual(len(surfaces), 4, surfaces)
+        for page in surfaces:
+            prose = guard.rendered_prose(page.read_text(encoding="utf-8"))
+            blocks = [
+                block
+                for block in guard.paragraphs(prose)
+                if all(token in block for token in guard.REQUIRED_TOKENS)
+            ]
+            self.assertTrue(
+                blocks,
+                f"{guard._display(page, ROOT)}: the warning no longer survives as a "
+                "single rendered block",
+            )
 
     def test_the_documented_warning_source_still_exists(self) -> None:
         """The prose this guard propagates has a single origin; keep it findable."""
