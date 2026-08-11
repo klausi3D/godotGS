@@ -164,14 +164,31 @@ turns the lane into a check that cannot fail:
 The job then runs the same script a second time with
 `--expect-stock-template-failure`. That is the negative control: it writes the
 preset with an **empty** `custom_template/release` and requires the run *not* to
-end in a working GS export. It reports one of three outcomes on its
+end in a working GS export. It reports one of four outcomes on its
 `[EXPORT_SMOKE_METRICS]` line:
 
 | Outcome | Meaning | Verdict |
 | --- | --- | --- |
-| `export_rejected` | The editor refused to export; there was no stock template to fall back to. | pass |
+| `export_rejected` | The editor refused the export **because it could not resolve a template** (its own diagnostics say so), and no binary exists at the export path — checked on disk. There was no stock template to fall back to. | pass |
 | `stock_template_detected` | The export succeeded and produced a binary with no GS symbols. A stock upstream template is installed on that machine — this is #825 reproduced, and only the byte-scan caught it. | pass, but report it |
 | `undetected` | A GS-enabled binary came out of a preset that named no template. Then the positive run is not discriminating. | fail |
+| `unrelated_failure` | The export did not succeed, but nothing established that the empty `custom_template/release` is why: a timeout, a crash, a disk error, an unrelated resource error, an export that exited 0 and produced nothing, or a failed export that left a binary behind. | fail |
+
+The last row is the point. "The export did not succeed" is a much weaker claim
+than "the export was refused because no template could be resolved", and a
+control that accepts the first has stopped being a control — it would report
+green on a runner where the editor simply hung. Only the expected rejection
+passes, recognised from the untranslated `Cannot export project with preset …
+due to configuration errors` prefix plus the (also untranslated) export-template
+path interpolated into the reason, so the check does not depend on the runner's
+editor language.
+
+Because this lane is the only thing that ever executes the shipped template, it
+is part of the publication dependency graph: `release_candidate_gate` and
+`publish_release` both wait for it via `needs:` and both require
+`result == 'success'`. See `.github/workflows/README.md` for the channel policy
+(always required for stable; required for nightly whenever a Windows payload is
+published).
 
 **What CI does not check:** whether the exported game *looks right*. The probe
 asserts visible splats, four pipeline stage statuses and a count of

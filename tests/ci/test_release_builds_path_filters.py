@@ -82,6 +82,7 @@ trusted.
 
 from __future__ import annotations
 
+import ast
 import re
 import sys
 import unittest
@@ -102,6 +103,118 @@ RELEASE_HELPER_SCRIPTS = (
     "tests/ci/release_attestation.py",
     "tests/runtime/run_export_smoke.py",
 )
+
+# --- The smoke test's DATA dependencies --------------------------------------
+#
+# A second gap of the same shape, one layer out. The manifest above covers the
+# scripts the workflow *executes*; `export_smoke_windows` also consumes files
+# that no interpreter line names -- the preset template it substitutes, the
+# project it exports, the probe it runs inside the exported binary, the fixture
+# generator. A push touching only the probe matched none of the filters, so the
+# blocking smoke test never validated the behaviour that changed.
+#
+# DERIVED, not listed. `run_export_smoke.py` already names every one of those
+# files as a module-level `Path` constant, so the constants ARE the dependency
+# set and are read back here instead of being transcribed. Transcription is what
+# failed the first time: a hand-kept list drifts silently, and this file's own
+# doctrine is that an invariant guarded by a hand-written list is already broken.
+SMOKE_RUNNER = ROOT / "tests" / "runtime" / "run_export_smoke.py"
+SMOKE_RUNNER_DIR = ROOT / "tests" / "runtime"
+
+# Directory-valued constants cannot be turned into a filter entry mechanically:
+# `tests/examples/godot/test_project/**` would fire two editor builds and two
+# template builds on every fixture rebake, which is the same objection the
+# `tests/ci/**` decision above records. So each directory constant needs an
+# explicit disposition naming the files inside it that must trigger the
+# workflow, WITH the reason. Fail-closed: a directory constant that is not
+# dispositioned here raises, so a new one cannot be silently ignored.
+DIRECTORY_DEPENDENCY_DISPOSITIONS: Dict[str, Sequence[str]] = {
+    # The repository itself (subprocess cwd). Every source path is already
+    # covered by the coarse `core/**`, `modules/**`, ... filters.
+    "ROOT": (),
+    # Only used to build the file constants below and as a `sys.path` entry; the
+    # module it imports from there is covered by `_imported_runtime_modules()`.
+    "RUNTIME_DIR": (),
+    # Passed to the editor as `--path`, so strictly the WHOLE project is an
+    # input. Narrowed deliberately to the project manifest: the two files inside
+    # it that the runner names directly (the probe and the fixture) are separate
+    # constants and are covered on their own, while the remaining churn under
+    # this directory is rebaked binary fixtures that must not trigger four
+    # release builds.
+    "PROJECT_DIR": ("tests/examples/godot/test_project/project.godot",),
+}
+
+
+class UnmodelledDependency(RuntimeError):
+    """A `run_export_smoke.py` dependency this guard refuses to reason about."""
+
+
+def _import_smoke_runner():
+    """Import `run_export_smoke` for its constants (stdlib-only, no side effects)."""
+    if str(SMOKE_RUNNER_DIR) not in sys.path:
+        sys.path.insert(0, str(SMOKE_RUNNER_DIR))
+    import run_export_smoke  # noqa: PLC0415 -- deliberately late, see docstring
+
+    return run_export_smoke
+
+
+def _repo_relative(path: Path, origin: str) -> str:
+    resolved = path.resolve()
+    try:
+        return resolved.relative_to(ROOT).as_posix()
+    except ValueError as exc:
+        raise UnmodelledDependency(
+            f"run_export_smoke.{origin} points outside the repository ({resolved}); a `paths:` "
+            "filter cannot cover it, so this guard will not pretend it is covered."
+        ) from exc
+
+
+def _imported_runtime_modules() -> Set[str]:
+    """Repository modules `run_export_smoke.py` imports at module scope.
+
+    `run_runtime_validation.py` is a real dependency that the executed-script
+    derivation cannot see -- it is imported, never invoked -- and was therefore
+    hand-listed in the filters with a comment. Reading the import statements
+    turns that comment into a derivation.
+    """
+    tree = ast.parse(SMOKE_RUNNER.read_text(encoding="utf-8"))
+    found: Set[str] = set()
+    for node in ast.walk(tree):
+        modules: List[str] = []
+        if isinstance(node, ast.Import):
+            modules = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            modules = [node.module]
+        for module in modules:
+            candidate = SMOKE_RUNNER_DIR.joinpath(*module.split(".")).with_suffix(".py")
+            if candidate.is_file():
+                found.add(_repo_relative(candidate, f"import {module}"))
+    return found
+
+
+def derived_smoke_dependencies() -> List[str]:
+    """Repo-relative files `export_smoke_windows` consumes, read off the runner."""
+    module = _import_smoke_runner()
+    dependencies: Set[str] = {_repo_relative(SMOKE_RUNNER, "SMOKE_RUNNER")}
+
+    for name, value in sorted(vars(module).items()):
+        if not isinstance(value, Path) or name.startswith("_"):
+            continue
+        relative = _repo_relative(value, name)
+        if value.resolve().is_dir():
+            if name not in DIRECTORY_DEPENDENCY_DISPOSITIONS:
+                raise UnmodelledDependency(
+                    f"run_export_smoke.{name} is a DIRECTORY ({relative}) and has no entry in "
+                    "DIRECTORY_DEPENDENCY_DISPOSITIONS. Decide which files inside it must trigger "
+                    "release_builds.yml and say why -- a whole-directory filter would fire four "
+                    "release builds on unrelated churn, and ignoring it would reopen the gap."
+                )
+            dependencies.update(DIRECTORY_DEPENDENCY_DISPOSITIONS[name])
+            continue
+        dependencies.add(relative)
+
+    dependencies.update(_imported_runtime_modules())
+    return sorted(dependencies)
 
 # The self-hosted jobs check out under `repo/`; `paths:` are repository-relative.
 CHECKOUT_PREFIX = "repo/"
@@ -702,6 +815,110 @@ class ManifestTests(unittest.TestCase):
                 path_is_covered(self.filters[event], ".github/workflows/release_builds.yml"),
                 f"release_builds.yml does not trigger itself on {event}.",
             )
+
+
+class SmokeDataDependencyTests(unittest.TestCase):
+    """The export smoke test's non-script inputs must trigger the workflow too.
+
+    `export_smoke_windows` is a BLOCKING job, so a push that changes only the
+    preset template or the probe script and skips `release_builds.yml` entirely
+    is the gate not running on the change it exists to validate -- the same
+    defect as the helper-script gap above, one layer out from the executed
+    scripts the manifest covers.
+    """
+
+    def setUp(self) -> None:
+        self.text = _workflow_text()
+        self.filters = parse_event_paths(self.text)
+        self.dependencies = derived_smoke_dependencies()
+
+    def test_every_derived_dependency_triggers_the_workflow(self) -> None:
+        for event in FILTERED_EVENTS:
+            for dependency in self.dependencies:
+                with self.subTest(event=event, dependency=dependency):
+                    self.assertTrue(
+                        path_is_covered(self.filters[event], dependency),
+                        f"{dependency} is consumed by export_smoke_windows (derived from a "
+                        f"run_export_smoke.py constant) but no `{event}` paths: filter matches "
+                        f"it, so changing it would skip the blocking smoke test. Current "
+                        f"filters: {self.filters[event]}",
+                    )
+
+    def test_the_derivation_is_not_vacuous(self) -> None:
+        # A derivation that silently stopped finding anything would make the
+        # check above pass over an empty set -- how this class of gap survives.
+        # These four are the inputs the review named; if the derivation stops
+        # producing them it has broken, whatever else it still returns.
+        for expected in (
+            "tests/runtime/export_smoke_preset.cfg.in",
+            "tests/examples/godot/test_project/project.godot",
+            "tests/examples/godot/test_project/tests/export_smoke_probe.gd",
+            "tests/runtime/prepare_synthetic_assets.py",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.dependencies)
+
+    def test_the_derivation_finds_the_imported_module(self) -> None:
+        # Imported, never invoked: invisible to the executed-script discovery,
+        # so it used to be hand-listed in the filters with a comment.
+        self.assertIn("tests/runtime/run_runtime_validation.py", self.dependencies)
+
+    def test_every_derived_dependency_exists(self) -> None:
+        for dependency in self.dependencies:
+            with self.subTest(dependency=dependency):
+                self.assertTrue(
+                    (ROOT / dependency).is_file(),
+                    f"{dependency} is derived as a smoke-test input but does not exist; the "
+                    "constant it came from is stale.",
+                )
+
+    def test_an_undispositioned_directory_constant_fails_closed(self) -> None:
+        module = _import_smoke_runner()
+        sentinel = "GUARD_PROBE_DIR"
+        setattr(module, sentinel, ROOT / "tests" / "ci")
+        self.addCleanup(delattr, module, sentinel)
+        with self.assertRaises(UnmodelledDependency) as ctx:
+            derived_smoke_dependencies()
+        self.assertIn(sentinel, str(ctx.exception))
+
+    def test_a_new_file_constant_is_required_to_be_covered(self) -> None:
+        # Discrimination for the coverage test: it must actually be able to
+        # fail. A constant naming a file no filter matches has to come back
+        # uncovered rather than being quietly dropped by the derivation.
+        module = _import_smoke_runner()
+        sentinel = "GUARD_PROBE_FILE"
+        setattr(module, sentinel, ROOT / "misc" / "hooks" / "pre-commit")
+        self.addCleanup(delattr, module, sentinel)
+        derived = derived_smoke_dependencies()
+        self.assertIn("misc/hooks/pre-commit", derived)
+        for event in FILTERED_EVENTS:
+            self.assertFalse(path_is_covered(self.filters[event], "misc/hooks/pre-commit"))
+
+    def test_a_dependency_outside_the_repository_fails_closed(self) -> None:
+        module = _import_smoke_runner()
+        sentinel = "GUARD_PROBE_OUTSIDE"
+        setattr(module, sentinel, ROOT.parent / "somewhere-else" / "thing.cfg")
+        self.addCleanup(delattr, module, sentinel)
+        with self.assertRaises(UnmodelledDependency):
+            derived_smoke_dependencies()
+
+    def test_dispositioned_directories_are_still_directories(self) -> None:
+        module = _import_smoke_runner()
+        for name, files in DIRECTORY_DEPENDENCY_DISPOSITIONS.items():
+            with self.subTest(constant=name):
+                value = getattr(module, name, None)
+                self.assertIsInstance(
+                    value,
+                    Path,
+                    f"run_export_smoke.{name} is dispositioned as a directory but no longer "
+                    "exists as a Path constant; drop the disposition or fix the name.",
+                )
+                self.assertTrue(value.resolve().is_dir())
+                for relative in files:
+                    self.assertTrue(
+                        (ROOT / relative).is_file(),
+                        f"{relative} is dispositioned for {name} but does not exist.",
+                    )
 
 
 class PathFilterSemanticsTests(unittest.TestCase):

@@ -34,6 +34,25 @@ on:
       # executed-script derivation cannot see, so it is listed here explicitly.
       - "tests/runtime/run_export_smoke.py"
       - "tests/runtime/run_runtime_validation.py"
+      # Data inputs of the same blocking job. export_smoke_windows does not only
+      # run a script: it substitutes a preset template, exports a project, runs a
+      # probe script inside the exported binary and generates a fixture. None of
+      # those is an execution, so none is discoverable from an interpreter line,
+      # and a push touching only the probe skipped this workflow entirely --
+      # exactly the gap the helper-script list above closed, one layer out.
+      # DERIVED, not transcribed: run_export_smoke.py names each of these as a
+      # module-level Path constant and
+      # tests/ci/test_release_builds_path_filters.py reads those constants back
+      # and fails if one is not covered here, so the list cannot drift.
+      # Deliberately file-precise rather than
+      # `tests/examples/godot/test_project/**`: that directory's binary fixtures
+      # are rebaked routinely and would fire two editor builds plus two template
+      # builds every time (#825).
+      - "tests/runtime/export_smoke_preset.cfg.in"
+      - "tests/runtime/prepare_synthetic_assets.py"
+      - "tests/examples/godot/test_project/project.godot"
+      - "tests/examples/godot/test_project/tests/export_smoke_probe.gd"
+      - "tests/examples/godot/test_project/tests/fixtures/synthetic_cube.ply"
   push:
     branches: [master, main, develop]
     tags:
@@ -57,6 +76,11 @@ on:
       - "tests/ci/release_attestation.py"
       - "tests/runtime/run_export_smoke.py"
       - "tests/runtime/run_runtime_validation.py"
+      - "tests/runtime/export_smoke_preset.cfg.in"
+      - "tests/runtime/prepare_synthetic_assets.py"
+      - "tests/examples/godot/test_project/project.godot"
+      - "tests/examples/godot/test_project/tests/export_smoke_probe.gd"
+      - "tests/examples/godot/test_project/tests/fixtures/synthetic_cube.ply"
   schedule:
     # Nightly preview build at 02:30 UTC.
     - cron: "30 2 * * *"
@@ -1030,6 +1054,14 @@ jobs:
           # misconfiguration verbatim -- and requires the run NOT to end in a
           # working GS export.
           #
+          # Passing requires a POSITIVE finding, not merely "the export did not
+          # succeed": either a refusal whose own diagnostics name an
+          # unresolvable export template (with the binary's absence verified on
+          # disk), or a produced binary the byte-scan identifies as stock. A
+          # timeout, a crash or an unrelated resource error is
+          # `unrelated_failure` and is red -- a control that passes whenever
+          # anything goes wrong establishes nothing.
+          #
           # Its outcome is also a probe of this runner's state: outcome
           # `stock_template_detected` means a stock upstream export template is
           # installed here and #825's exact condition is reproducible on this
@@ -1040,7 +1072,7 @@ jobs:
             --require-binaries `
             --expect-stock-template-failure
           if ($LASTEXITCODE -ne 0) {
-            Write-Host "::error::Negative control failed (exit $LASTEXITCODE): an export whose preset named no custom template still produced a GS-enabled binary, so the smoke test above cannot discriminate. Read the [EXPORT_SMOKE_METRICS] outcome field."
+            Write-Host "::error::Negative control failed (exit $LASTEXITCODE). Read the [EXPORT_SMOKE_METRICS] outcome field: 'undetected' = an export whose preset named no custom template still produced a GS-enabled binary, so the smoke test above cannot discriminate; 'unrelated_failure' = the export did not succeed but nothing showed the empty custom_template/release was detected (timeout, crash, unrelated error, or a failed export that left a binary), so the control proved nothing either way."
             exit 1
           }
 
@@ -1052,6 +1084,7 @@ jobs:
       - build_linux
       - build_windows
       - finite_math_guard
+      - export_smoke_windows
     # Runs whenever a publish is requested so `publish_release` can hard-depend
     # on this job's success (fail-closed wiring for #593). This job is the single
     # authority for "is a stable/candidate release allowed to publish":
@@ -1075,10 +1108,42 @@ jobs:
     # guards were folded away by -ffast-math is precisely what that lane exists
     # to stop. Asserting it here means a failed guard makes this gate `skipped`,
     # which in turn fails `publish_release`'s `result == 'success'` check.
+    #
+    # EXPORT SMOKE (#825, milestone 1 PR 2): `export_smoke_windows` is wired the
+    # same way, for the same reason and in the same two halves -- the `needs:`
+    # entry above makes this gate WAIT for it (job ordering comes only from
+    # `needs:`), and the assertion below makes a failure BLOCK. As a sibling job
+    # it did neither: publication could start while the smoke test was still
+    # running, or proceed after it had failed, so "the first lane that runs what
+    # we ship" was a decorative red X rather than a gate.
+    #
+    # CHANNEL POLICY -- keyed to the PAYLOAD rather than to the channel name,
+    # which is why one expression serves both:
+    #
+    #   * Stable: required, no exception. A stable release is both-platform by
+    #     construction (see the step below), so a Windows archive always ships
+    #     and must always have been executed.
+    #   * Nightly: required WHENEVER a Windows payload is published, i.e.
+    #     whenever `build_windows` succeeded. The documented Linux-only nightly
+    #     tolerance exists for a Windows runner outage; in that case
+    #     `build_windows` is not `success`, `export_smoke_windows` is skipped
+    #     along with it, no Windows bytes ship, and the nightly cadence
+    #     continues. What the tolerance must NOT cover is `build_windows` green
+    #     with the smoke test failed, skipped or cancelled -- a template-build
+    #     failure, or the GPU pool being busy -- because there a Windows archive
+    #     nobody ran would ship. `!= 'success'` rather than `== 'failure'` is
+    #     deliberate: `skipped` and `cancelled` are not passes.
     if: |
       always() &&
       needs.release_metadata.outputs.publish == 'true' &&
-      needs.finite_math_guard.result == 'success'
+      needs.finite_math_guard.result == 'success' &&
+      (
+        needs.export_smoke_windows.result == 'success' ||
+        (
+          needs.release_metadata.outputs.channel != 'stable' &&
+          needs.build_windows.result != 'success'
+        )
+      )
     env:
       # Repo-relative path to the public-alpha candidate evidence bundle and its
       # issue snapshot. These are produced by the public-alpha evidence pipeline
@@ -1287,6 +1352,7 @@ jobs:
       - build_windows
       - finite_math_guard
       - release_candidate_gate
+      - export_smoke_windows
     # A stable release cannot publish unless `release_candidate_gate` succeeded:
     # that gate enforces both-platform builds AND `--mode candidate` validation
     # for the stable/tag path, and fails closed when the evidence bundle is
@@ -1310,12 +1376,41 @@ jobs:
     # direct assertion is the belt-and-braces edge, so the guard still blocks
     # even if the gate's own conditions are later relaxed. Neither side was
     # dropped.
+    #
+    # EXPORT SMOKE (#825, milestone 1 PR 2). This job is the release SIDE
+    # EFFECT: once it runs, the bytes are attached to a public release and the
+    # tag is moved. `export_smoke_windows` -- the only lane that has ever
+    # executed what those bytes are -- was a sibling job, listed in neither
+    # `needs:` nor this condition, so GitHub was free to publish while it was
+    # still running and equally free to publish after it had failed. Both halves
+    # are required to fix that and neither is sufficient alone: the `needs:`
+    # entry is what makes publication WAIT (job ordering comes only from
+    # `needs:`), and the assertion below is what makes a failure BLOCK, because
+    # under `always()` a `needs:` entry on its own gates nothing -- the same
+    # lesson recorded for `finite_math_guard` two paragraphs up.
+    #
+    # The condition is the identical clause `release_candidate_gate` carries,
+    # for the identical reason the fast-math guard is asserted in both places:
+    # the gate-side copy puts the smoke test inside the publication dependency
+    # graph, this copy keeps it blocking even if the gate's own conditions are
+    # later relaxed. Its channel policy is documented on the gate: stable always
+    # requires it; nightly requires it whenever a Windows payload is actually
+    # published (`build_windows` green), and tolerates its absence only in the
+    # Windows-outage case the Linux-only nightly tolerance already covers, where
+    # no Windows bytes ship at all.
     if: |
       always() &&
       needs.release_metadata.outputs.publish == 'true' &&
       needs.build_linux.result == 'success' &&
       needs.finite_math_guard.result == 'success' &&
-      needs.release_candidate_gate.result == 'success'
+      needs.release_candidate_gate.result == 'success' &&
+      (
+        needs.export_smoke_windows.result == 'success' ||
+        (
+          needs.release_metadata.outputs.channel != 'stable' &&
+          needs.build_windows.result != 'success'
+        )
+      )
     steps:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

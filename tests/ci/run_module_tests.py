@@ -1606,6 +1606,37 @@ def _run_release_builds_path_filter_guard() -> tuple[bool, list[str]]:
     return True, ["Release builds path filter guard passed."]
 
 
+def _run_release_publication_gating_guard() -> tuple[bool, list[str]]:
+    """Guard (#825): nothing publishes an artifact no lane has executed.
+
+    Static, headless, no GPU, no PyYAML. `export_smoke_windows` is the only lane
+    that RUNS the export template `publish_release` ships, and it was added as a
+    sibling job -- listed in neither `publish_release`'s `needs:` nor its `if:`,
+    so GitHub could attach the assets while the smoke test was still running or
+    after it had failed. The workflow described a blocking check and wired a
+    decorative one.
+
+    Both halves are checked because neither is sufficient: `needs:` is the only
+    thing that makes publication WAIT, and under `always()` a `needs:` entry
+    blocks nothing unless the result is asserted (the lesson `finite_math_guard`
+    already recorded and this job reproduced). The conditions are EVALUATED over
+    a truth table rather than grepped, because a clause that is present but
+    structurally inert passes a substring check and gates nothing.
+    """
+    script = ROOT / "tests" / "ci" / "test_release_publication_gating.py"
+    if not script.is_file():
+        return False, [f"Missing release publication gating test: {script.relative_to(ROOT)}"]
+
+    code, out, err = _run_command([sys.executable, str(script)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"Release publication gating guard failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["Release publication gating guard passed."]
+
+
 def _run_release_builds_runner_trust_guard() -> tuple[bool, list[str]]:
     """Guard (#825): every self-hosted release_builds.yml job is guarded and documented.
 
@@ -3233,6 +3264,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_release_builds_runner_trust_guard,
             "Release builds runner trust guard failed.",
             "Release builds runner trust guard passed.",
+        ),
+        (
+            True,
+            _run_release_publication_gating_guard,
+            "Release publication gating guard failed.",
+            "Release publication gating guard passed.",
         ),
     ]
     for enabled, runner, failure_summary, success_summary in optional_message_guards:
