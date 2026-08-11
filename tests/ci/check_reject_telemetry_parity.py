@@ -73,12 +73,38 @@ The guard therefore checks three things about each covering assignment, all deri
     for a duration or counter, `false` for a validity flag, `String()`/`""` for a
     reason string. A type this guard has no invalid-value rule for is FAILED, not
     assumed fine (see `_INVALID_VALUE_RULES`).
-  * the assignment is UNCONDITIONAL: at the top brace level of `_reject_frame()`, not
-    nested in an `if`. "Invalidated on some rejects" is exactly the bug #586 round-3
-    and round-4 kept re-finding.
+  * the assignment is UNCONDITIONAL: at the top statement level of `_reject_frame()`, not
+    governed by any control statement. "Invalidated on some rejects" is exactly the bug
+    #586 round-3 and round-4 kept re-finding. See the next section for why brace depth
+    alone did not establish this.
   * `_reject_frame()`'s body is free of preprocessor directives, for the same reason the
     struct body is: the guard cannot know which branch compiles, so it must not credit an
     assignment that may be compiled out.
+
+Braces are not control flow (round-8)
+-------------------------------------
+"Unconditional" was established by brace depth alone, and brace depth is not a statement
+structure. An unbraced conditional has depth 0:
+
+    if (p_stage != GaussianSplatting::FrameRejectStage::DEVICE)
+        renderer.timing_state.last_submission_cpu_ms = 0.0f;
+
+`_line_brace_depths()` reported that assignment at depth 0 and the guard credited it for
+EVERY reject, while in reality every other rejection path kept publishing the last
+successful frame's CPU cost -- the exact defect this blocking guard exists to make
+impossible, passing green. The same held for an unbraced `else` arm and for a body
+governed by an unbraced `for`/`while`. That was the third consecutive round in this
+series in which a guard added to close a hole was found to have the same hole one level
+down: a line/brace heuristic standing in for structure.
+
+So the scan is now structural. `_statement_depths()` walks the function body tracking
+braces AND control statements, skipping string/character literals, and the depth it
+reports for a line is `braces + pending control bodies`. On top of that it REFUSES the
+shape outright: an unbraced control statement anywhere in `_reject_frame()` is a hard
+failure, because the guard will not decide for itself where an unbraced sub-statement
+ends. Brace it. Anything the scanner cannot carry to a clean end state (unbalanced
+braces/parens, a control statement with no condition, a literal that does not terminate
+on its line) is likewise a failure rather than a best guess.
 
 For the same reason the getter scan is scoped to `class TileRenderer`: a same-named
 getter on some other class in that header resolves a name, not the backing member.
@@ -128,6 +154,11 @@ _GETTER_RE = re.compile(
 # uncovered, which is the fail-closed direction.
 _REJECT_ASSIGN_RE = re.compile(r"^\s*renderer\.(\w+)\.(\w+)\s*=\s*([^=].*);\s*$")
 _PP_DIRECTIVE_RE = re.compile(r"^\s*#")
+_IDENT_RE = re.compile(r"[A-Za-z_]\w*")
+# Statement structure, not braces: these introduce a sub-statement whose body governs the
+# assignments inside it whether or not that body happens to be braced.
+_CONTROL_WITH_CONDITION = frozenset({"if", "while", "for", "switch", "catch"})
+_CONTROL_WITHOUT_CONDITION = frozenset({"else", "do", "try"})
 _ACCESS_SPECIFIER_RE = re.compile(r"^(?:public|private|protected)\s*:\s*$")
 _BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
 _LINE_COMMENT_RE = re.compile(r"//[^\n]*")
@@ -174,11 +205,20 @@ _INVALID_VALUE_RULES = (
 class RejectAssignment(NamedTuple):
     """One `renderer.<group>.<member> = <value>;` statement in `_reject_frame()`.
 
-    `depth` is the brace nesting relative to the function body: only depth 0 is an
-    unconditional invalidation, which is what a rejected frame owes every field."""
+    `depth` is the STATEMENT nesting relative to the function body -- open braces plus any
+    unbraced control body in force. Only depth 0 is an unconditional invalidation, which is
+    what a rejected frame owes every field. Brace depth alone was not enough: it reported an
+    unbraced conditional's body at 0 (#586 round-8)."""
 
     value: str
     depth: int
+
+
+class _StatementScan(NamedTuple):
+    """Per-line statement depths, plus the shapes `_statement_depths()` refuses to parse."""
+
+    depths: list[tuple[int, str]]
+    problems: list[str]
 
 # Growing this allow-list is how the guard would be quietly hollowed out: one appended
 # line moves a field from "must be invalidated on reject" to "exempt", and nothing else
@@ -239,9 +279,34 @@ def _strip_cpp_comments(text: str) -> str:
     return _LINE_COMMENT_RE.sub("", text)
 
 
+def _skip_literal(text: str, index: int) -> int:
+    """Index just past the string/char literal opening at `index`.
+
+    A literal that does not terminate on its own line is not advanced past -- the caller
+    keeps scanning from the next character, which is the fail-closed direction (the
+    structure it derives will not balance, and it refuses rather than guesses)."""
+    quote = text[index]
+    cursor = index + 1
+    length = len(text)
+    while cursor < length:
+        char = text[cursor]
+        if char == "\\":
+            if cursor + 1 < length and text[cursor + 1] == "\n":
+                return cursor
+            cursor += 2
+            continue
+        if char == quote:
+            return cursor + 1
+        if char == "\n":
+            return cursor
+        cursor += 1
+    return cursor
+
+
 def _brace_body(text: str, anchor: str) -> str | None:
     """Return the `{...}` body (contents only) following `anchor`, comments stripped
-    first so braces inside comments cannot mis-bound it."""
+    first so braces inside comments cannot mis-bound it. String and character literals
+    are skipped for the same reason -- a `}` inside a log message is not a scope."""
     stripped = _strip_cpp_comments(text)
     start = stripped.find(anchor)
     if start == -1:
@@ -250,14 +315,20 @@ def _brace_body(text: str, anchor: str) -> str | None:
     if brace == -1:
         return None
     depth = 0
-    for i in range(brace, len(stripped)):
-        char = stripped[i]
+    index = brace
+    length = len(stripped)
+    while index < length:
+        char = stripped[index]
+        if char in ("'", '"'):
+            index = _skip_literal(stripped, index)
+            continue
         if char == "{":
             depth += 1
         elif char == "}":
             depth -= 1
             if depth == 0:
-                return stripped[brace + 1 : i]
+                return stripped[brace + 1 : index]
+        index += 1
     return None
 
 
@@ -320,34 +391,199 @@ def _invalid_value_rule(field_type: str) -> tuple[re.Pattern[str], str] | None:
     return None
 
 
-def _line_brace_depths(body: str) -> list[tuple[int, str]]:
-    """(brace_depth_at_line_start, line) for each line of a comment-stripped body.
+def _statement_depths(body: str) -> _StatementScan:
+    """(statement_depth_at_line_start, line) for each line of a comment-stripped body, plus
+    the structural shapes this guard refuses to reason about.
 
-    String and character literals are skipped so a brace inside one cannot shift the
-    depth and make a nested assignment look top-level."""
-    depth = 0
-    result: list[tuple[int, str]] = []
-    for line in body.splitlines():
-        result.append((depth, line))
-        index = 0
-        length = len(line)
-        while index < length:
-            char = line[index]
-            if char in ("'", '"'):
-                index += 1
-                while index < length:
-                    if line[index] == "\\":
-                        index += 2
-                        continue
-                    if line[index] == char:
-                        break
-                    index += 1
-            elif char == "{":
-                depth += 1
-            elif char == "}":
-                depth -= 1
+    Statement depth is `open braces + pending unbraced control bodies`, NOT brace depth:
+    brace depth alone reports an unbraced conditional's body at depth 0 and would credit it
+    as an unconditional invalidation (#586 round-8). String and character literals are
+    skipped so a brace, paren or semicolon inside one cannot shift the structure.
+
+    Every unbraced control statement is additionally reported as a problem. The guard does
+    not need to locate the end of an unbraced sub-statement if it refuses to accept one."""
+    lines = body.split("\n")
+    depths: list[tuple[int, str]] = []
+    problems: list[str] = []
+
+    brace_depth = 0
+    paren_depth = 0
+    unbraced: list[int] = []  # brace depths carrying a pending unbraced control body
+    do_open: list[int] = []  # brace depths at which a `do { ... }` block is open
+    awaiting_condition = False  # saw `if`/`while`/... , the next token must be `(`
+    condition_active = False  # inside a control statement's condition
+    condition_level = 0  # paren depth the condition returns to when it closes
+    condition_is_do_tail = False  # this condition belongs to a `do ... while (...)` tail
+    awaiting_body = False  # condition consumed (or `else`/`do`/`try`): next token is the body
+    do_pending = False  # the pending body belongs to a `do`
+    expect_do_while = False  # a `do` block just closed; a following `while` is its tail
+
+    def snippet(at: int) -> str:
+        return body[at : at + 60].split("\n", 1)[0].strip()
+
+    index = 0
+    line_index = 0
+    length = len(body)
+    depths.append((0, lines[0] if lines else ""))
+
+    while index < length:
+        char = body[index]
+
+        if char == "\n":
+            line_index += 1
+            if line_index < len(lines):
+                # A body pending from the previous line governs this line's statement.
+                pending = 1 if (awaiting_body or awaiting_condition or condition_active) else 0
+                depths.append((brace_depth + len(unbraced) + pending, lines[line_index]))
             index += 1
-    return result
+            continue
+        if char.isspace():
+            index += 1
+            continue
+
+        # --- a control statement's condition must open here ---
+        if awaiting_condition:
+            awaiting_condition = False
+            if char == "(":
+                condition_active = True
+                condition_level = paren_depth
+                paren_depth += 1
+                index += 1
+                continue
+            problems.append(
+                f"_reject_frame() has a control statement with no parenthesised condition at "
+                f"`{snippet(index)}`; this guard refuses shapes it cannot parse rather than "
+                f"assuming the statements after it are unconditional"
+            )
+
+        # --- a control statement's body must open here ---
+        if awaiting_body:
+            awaiting_body = False
+            if char == "{":
+                brace_depth += 1
+                if do_pending:
+                    do_open.append(brace_depth - 1)
+                    do_pending = False
+                index += 1
+                continue
+            keyword_match = _IDENT_RE.match(body, index)
+            keyword = keyword_match.group(0) if keyword_match else ""
+            if keyword in _CONTROL_WITH_CONDITION or keyword in _CONTROL_WITHOUT_CONDITION:
+                # `else if (...)`: the body IS another control statement, whose own
+                # braced-ness is checked when it is processed just below.
+                if do_pending:
+                    problems.append(
+                        f"_reject_frame() has an unbraced `do` body at `{snippet(index)}`; "
+                        f"brace it"
+                    )
+                    do_pending = False
+                    unbraced.append(brace_depth)
+            else:
+                problems.append(
+                    f"_reject_frame() has an UNBRACED control statement body at "
+                    f"`{snippet(index)}`. Brace depth alone cannot tell that statement apart "
+                    f"from an unconditional one, so an unbraced conditional invalidation would "
+                    f"be credited for every reject while leaving telemetry stale on every other "
+                    f"rejection path (#586 round-8). Add braces."
+                )
+                unbraced.append(brace_depth)
+                do_pending = False
+
+        do_while_tail = expect_do_while
+        expect_do_while = False
+
+        if char in ("'", '"'):
+            quote = char
+            index += 1
+            terminated = False
+            while index < length:
+                current = body[index]
+                if current == "\\":
+                    if index + 1 < length and body[index + 1] == "\n":
+                        break  # line-continued literal: refuse below
+                    index += 2
+                    continue
+                if current == quote:
+                    index += 1
+                    terminated = True
+                    break
+                if current == "\n":
+                    break
+                index += 1
+            if not terminated:
+                problems.append(
+                    "_reject_frame() has a string or character literal that does not terminate "
+                    "on its own line; this guard cannot establish statement structure around "
+                    "it, and will not guess"
+                )
+            continue
+        if char == "{":
+            brace_depth += 1
+            index += 1
+            continue
+        if char == "}":
+            brace_depth -= 1
+            if brace_depth < 0:
+                problems.append("_reject_frame() has an unbalanced `}`; refusing to guess")
+                brace_depth = 0
+            while unbraced and unbraced[-1] >= brace_depth:
+                unbraced.pop()
+            if do_open and do_open[-1] == brace_depth:
+                do_open.pop()
+                expect_do_while = True
+            index += 1
+            continue
+        if char == "(":
+            paren_depth += 1
+            index += 1
+            continue
+        if char == ")":
+            paren_depth -= 1
+            if paren_depth < 0:
+                problems.append("_reject_frame() has an unbalanced `)`; refusing to guess")
+                paren_depth = 0
+            if condition_active and paren_depth == condition_level:
+                condition_active = False
+                if condition_is_do_tail:
+                    condition_is_do_tail = False
+                else:
+                    awaiting_body = True
+            index += 1
+            continue
+        if char == ";":
+            if paren_depth == 0:
+                while unbraced and unbraced[-1] == brace_depth:
+                    unbraced.pop()
+            index += 1
+            continue
+
+        word_match = _IDENT_RE.match(body, index)
+        if word_match:
+            word = word_match.group(0)
+            index = word_match.end()
+            if word in _CONTROL_WITH_CONDITION:
+                if word == "while" and do_while_tail:
+                    condition_is_do_tail = True
+                awaiting_condition = True
+            elif word in _CONTROL_WITHOUT_CONDITION:
+                if word == "do":
+                    do_pending = True
+                awaiting_body = True
+            continue
+        index += 1
+
+    if unbraced or awaiting_body or awaiting_condition or condition_active or do_pending:
+        problems.append(
+            "_reject_frame() ends with an unresolved control statement; this guard could not "
+            "establish where every statement sits, so it refuses rather than crediting an "
+            "assignment it cannot place"
+        )
+    if brace_depth != 0 or paren_depth != 0 or do_open:
+        problems.append(
+            f"_reject_frame() does not parse to a balanced end state (braces {brace_depth}, "
+            f"parens {paren_depth}); refusing rather than guessing at statement structure"
+        )
+    return _StatementScan(depths, problems)
 
 
 def _extract_populators(body: str) -> dict[str, str]:
@@ -373,14 +609,16 @@ def _extract_getters(class_body: str) -> dict[str, tuple[str, str]]:
     return getters
 
 
-def _extract_reject_assignments(body: str) -> dict[tuple[str, str], list[RejectAssignment]]:
+def _extract_reject_assignments(
+    scan: _StatementScan,
+) -> dict[tuple[str, str], list[RejectAssignment]]:
     """Map (state_group, member) -> every assignment `_reject_frame()` makes to it.
 
     Every assignment is kept, not just the last: the guard requires ALL of them to be
     unconditional invalidations, so a later `= <stale>` cannot hide behind an earlier
     `= 0.0f` (or the reverse) on a path the parser does not model."""
     assigned: dict[tuple[str, str], list[RejectAssignment]] = {}
-    for depth, line in _line_brace_depths(body):
+    for depth, line in scan.depths:
         match = _REJECT_ASSIGN_RE.match(line)
         if match:
             key = (match.group(1), match.group(2))
@@ -411,10 +649,12 @@ def _invalidation_problems(
         if assignment.depth != 0:
             problems.append(
                 f"{STRUCT_NAME}.{field} is backed by {where}, which _reject_frame() assigns only "
-                f"inside a nested block (`{where} = {assignment.value};`). Every rejected frame "
-                f"must invalidate it, so the assignment has to be unconditional at the top level "
-                f"of _reject_frame() -- 'invalidated on some rejects' is the bug this guard exists "
-                f"to catch."
+                f"inside a nested or CONDITIONALLY REACHED statement (`{where} = "
+                f"{assignment.value};`, statement depth {assignment.depth}). Every rejected frame "
+                f"must invalidate it, so the assignment has to be unconditional at the top "
+                f"statement level of _reject_frame() -- 'invalidated on some rejects' is the bug "
+                f"this guard exists to catch, and an unbraced `if` governing it counts (#586 "
+                f"round-8)."
             )
         elif not pattern.match(assignment.value):
             problems.append(
@@ -535,7 +775,16 @@ def main() -> int:  # noqa: PLR0911, PLR0912, PLR0915 -- linear fail-closed chec
             )
         return 1
 
-    reject_assignments = _extract_reject_assignments(reject_body)
+    # Statement structure first: if the body contains a shape this guard cannot place a
+    # statement in (an unbraced control body above all), nothing below it can be trusted, so
+    # refuse rather than credit assignments whose reachability is a guess.
+    reject_scan = _statement_depths(reject_body)
+    if reject_scan.problems:
+        for problem in reject_scan.problems:
+            print(f"{prefix} FAIL {problem}")
+        return 1
+
+    reject_assignments = _extract_reject_assignments(reject_scan)
     if not reject_assignments:
         print(
             f"{prefix} FAIL `_reject_frame()` assigns no `renderer.<group>.<member>` fields; "

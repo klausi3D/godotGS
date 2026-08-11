@@ -29,6 +29,15 @@ completeness check a no-op can satisfy is not a completeness check, so those thr
 an assignment hidden inside a conditional or a preprocessor branch, are now RED, and a
 type the guard has no invalid-value rule for fails rather than being assumed fine.
 
+`UnbracedControlFlowTests` pins the round-8 review finding on the guard itself: "at the
+top brace level" was established from brace depth alone, and an unbraced conditional's
+body sits at brace depth 0. `if (condition)` followed on the next line by the
+invalidation was therefore credited for EVERY reject while every other rejection path
+kept publishing stale telemetry -- the defect this blocking guard exists to prevent,
+passing green. The unbraced `if`, `else` arm and loop body are now RED, braced control
+flow still resolves (so the fix is not "reject everything"), and literals cannot shift
+the structure.
+
 Fixtures never touch the committed sources: each synthetic file lives in a temp dir
 inside ROOT (the guard prints paths `relative_to(ROOT)`, so fixtures must be real
 subpaths), and the four module-level path constants plus the allow-list are patched
@@ -240,7 +249,7 @@ class InvalidationValueTests(unittest.TestCase):
         with _tree(_STRUCT_ONE, _POPULATOR_ONE, _HEADER_ONE, source):
             rc, out = _run_main()
         self.assertEqual(rc, 1, out)
-        self.assertIn("inside a nested block", out)
+        self.assertIn("CONDITIONALLY REACHED", out)
 
     def test_preprocessor_directive_in_reject_body_fails(self) -> None:
         """An invalidation the guard cannot prove compiles must not be credited."""
@@ -294,6 +303,102 @@ class InvalidationValueTests(unittest.TestCase):
             "\trenderer.timing_state.widget_reason = String();\n"
         )
         with _tree(struct, populator, header, source):
+            rc, out = _run_main()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("PASSED", out)
+
+
+class UnbracedControlFlowTests(unittest.TestCase):
+    """Round-8: braces are not control flow.
+
+    "Unconditional" was established from brace depth alone, and an unbraced conditional's
+    body sits at brace depth 0. The guard therefore credited it for EVERY reject while the
+    other rejection paths kept publishing the last successful frame's telemetry -- the exact
+    defect this blocking guard exists to prevent, passing green. These tests pin that the
+    shape is now refused, and that legal braced control flow still resolves."""
+
+    def test_unbraced_conditional_assignment_fails(self) -> None:
+        """THE round-8 finding, verbatim: `if (condition)` followed on the NEXT line by the
+        invalidation. Brace depth reports it at 0; statement depth does not."""
+        source = _renderer_source(
+            "\tif (p_stage != GaussianSplatting::FrameRejectStage::DEVICE)\n"
+            "\t\trenderer.timing_state.last_widget_cpu_ms = 0.0f;\n"
+        )
+        with _tree(_STRUCT_ONE, _POPULATOR_ONE, _HEADER_ONE, source):
+            rc, out = _run_main()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("UNBRACED control statement body", out)
+
+    def test_unbraced_else_arm_fails(self) -> None:
+        source = _renderer_source(
+            "\tif (p_stage == GaussianSplatting::FrameRejectStage::DEVICE) {\n"
+            "\t\t(void)p_stage;\n"
+            "\t} else\n"
+            "\t\trenderer.timing_state.last_widget_cpu_ms = 0.0f;\n"
+        )
+        with _tree(_STRUCT_ONE, _POPULATOR_ONE, _HEADER_ONE, source):
+            rc, out = _run_main()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("UNBRACED control statement body", out)
+
+    def test_unbraced_loop_body_fails(self) -> None:
+        """Not only `if`: a body governed by an unbraced `for` runs zero or more times, and
+        zero is exactly the stale-telemetry case."""
+        source = _renderer_source(
+            "\tfor (int i = 0; i < frame_count; ++i)\n"
+            "\t\trenderer.timing_state.last_widget_cpu_ms = 0.0f;\n"
+        )
+        with _tree(_STRUCT_ONE, _POPULATOR_ONE, _HEADER_ONE, source):
+            rc, out = _run_main()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("UNBRACED control statement body", out)
+
+    def test_unbraced_conditional_before_a_valid_invalidation_fails(self) -> None:
+        """The assignment itself is fine and unconditional; an unbraced conditional
+        elsewhere in the body still fails the guard, because once the body contains a shape
+        whose extent the guard must guess at, nothing in it can be certified."""
+        source = _renderer_source(
+            "\tif (p_stage == GaussianSplatting::FrameRejectStage::DEVICE)\n"
+            "\t\tlog_reject();\n"
+            "\trenderer.timing_state.last_widget_cpu_ms = 0.0f;\n"
+        )
+        with _tree(_STRUCT_ONE, _POPULATOR_ONE, _HEADER_ONE, source):
+            rc, out = _run_main()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("UNBRACED control statement body", out)
+
+    def test_braced_control_flow_still_resolves(self) -> None:
+        """The negative control: the fix must not 'pass' by rejecting every shape. A braced
+        `for`, a braced `if / else if / else` chain and a braced `do { } while (...)` all
+        parse, and a top-level invalidation after them is still credited."""
+        source = _renderer_source(
+            "\tfor (int i = 0; i < 2; ++i) {\n"
+            "\t\tif (i == 0) {\n"
+            "\t\t\t(void)i;\n"
+            "\t\t} else if (i == 1) {\n"
+            "\t\t\t(void)p_stage;\n"
+            "\t\t} else {\n"
+            "\t\t\t(void)i;\n"
+            "\t\t}\n"
+            "\t}\n"
+            "\tdo {\n"
+            "\t\t(void)p_stage;\n"
+            "\t} while (false);\n"
+            "\trenderer.timing_state.last_widget_cpu_ms = 0.0f;\n"
+        )
+        with _tree(_STRUCT_ONE, _POPULATOR_ONE, _HEADER_ONE, source):
+            rc, out = _run_main()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("PASSED", out)
+
+    def test_braces_inside_string_literals_do_not_shift_structure(self) -> None:
+        """A brace, paren or semicolon inside a literal must not be read as structure --
+        otherwise a log line could make a conditional look unconditional or the reverse."""
+        source = _renderer_source(
+            '\tGS_LOG_WARN_DEFAULT("reject { ; ) stage %s", name);\n'
+            "\trenderer.timing_state.last_widget_cpu_ms = 0.0f;\n"
+        )
+        with _tree(_STRUCT_ONE, _POPULATOR_ONE, _HEADER_ONE, source):
             rc, out = _run_main()
         self.assertEqual(rc, 0, out)
         self.assertIn("PASSED", out)

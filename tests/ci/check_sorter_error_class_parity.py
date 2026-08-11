@@ -47,11 +47,39 @@ derived fact rather than a preference: the classified call site passes
 and OneSweepSort live in the same file and are deliberately NOT in scope -- retagging their
 errors would change behaviour on the instance-sorting path, which this round does not touch.
 
+The return must be BOUND to its own branch (round-8)
+----------------------------------------------------
+The first version of this guard took "the first `return ERR_...;` anywhere after the
+`!x.is_valid()` check" as that check's error. That search was not bounded to the `if` body,
+so it could attribute a LATER object's return to this failure, and the guard could not detect
+the very mutation it was written to catch:
+
+    if (!histogram_shader_file.is_valid()) {
+        GS_LOG_ERROR_DEFAULT("...");          // reports and FALLS THROUGH -- no return
+    }
+    ...
+    if (!wg_prefix_shader_file.is_valid()) {
+        return ERR_COMPILATION_FAILED;        // <- stolen, and credited to histogram
+    }
+
+Both sites were then recorded as correctly classified, with no problems, while the real code
+carried on using an invalid shader. `return FAILED;` or `return _map_error(err);` hid the same
+way: unreadable to the `ERR_\w+` pattern, so the scan simply walked on to the next site's
+return. That is the third consecutive round in this series in which a guard added to close a
+hole was found to have the same hole one level down -- a line/offset heuristic standing in for
+structure. So the parse is now structural: locate the `if (...)` whose CONDITION contains the
+validity check, take that branch's `{...}` body, and require exactly the expected error in it.
+
 Fail-closed behaviour
 ---------------------
   * A tracked object with no `is_valid()` failure branch is a FAILURE, not a pass: an
     unchecked shader/pipeline/buffer is a worse defect than a mislabelled one.
-  * A failure branch whose `return` this parser cannot read is a FAILURE.
+  * A validity check this guard cannot bind to an `if (...) { ... }` branch is a FAILURE.
+    An unbraced branch is REFUSED rather than guessed at: the guard will not decide for
+    itself where an unbraced statement ends. Brace the branch.
+  * A branch that does not return at all is a FAILURE -- that is the fall-through above.
+  * A branch whose returns this parser cannot read as `ERR_...`, or that returns more than
+    one distinct error code, is a FAILURE.
   * The site counts are PINNED. Deleting sites until the guard has nothing left to check is
     the way a derived guard gets hollowed out while still printing PASSED, so a change in the
     number of covered sites must be a visible, reviewed edit to a constant here.
@@ -110,7 +138,12 @@ EXPECTED_PROGRAM_SITES = 10
 EXPECTED_ALLOCATION_SITES = 3
 
 _VALIDITY_CHECK_RE = re.compile(r"!\s*([\w.]+)\s*\.is_valid\s*\(\s*\)")
-_RETURN_ERROR_RE = re.compile(r"\breturn\s+(ERR_\w+)\s*;")
+# Every `return <something>;` in a branch, whatever it returns. Anything that is not a bare
+# `ERR_...` constant is reported as unreadable rather than skipped over -- skipping it is how
+# the round-8 defect let a later site's return stand in for this one.
+_ANY_RETURN_RE = re.compile(r"\breturn\b([^;]*);")
+_ERROR_CODE_RE = re.compile(r"ERR_\w+")
+_IF_HEAD_RE = re.compile(r"\bif\s*\(")
 _BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
 _LINE_COMMENT_RE = re.compile(r"//[^\n]*")
 
@@ -161,12 +194,64 @@ def _collect_producers(body: str) -> dict[str, str]:
     return producers
 
 
-def _collect_sites(function: str, body: str, producers: dict[str, str]) -> tuple[list[Site], list[str]]:
-    """For each `!<tracked>.is_valid()` check, the FIRST `return ERR_...;` after it.
+def _match_delimiter(text: str, open_index: int, opener: str, closer: str) -> int | None:
+    """Index of the `closer` matching the `opener` at `open_index`, or None."""
+    depth = 0
+    for i in range(open_index, len(text)):
+        char = text[i]
+        if char == opener:
+            depth += 1
+        elif char == closer:
+            depth -= 1
+            if depth == 0:
+                return i
+    return None
 
-    Taking the first return after the check is what ties the code to that specific failure
-    branch: the checks in this path all have the shape
-    `if (!x.is_valid()) { <cleanup...>; return ERR_...; }`."""
+
+def _checked_branch(body: str, check: re.Match[str]) -> tuple[str | None, str]:
+    """The `{...}` body of the `if (...)` whose CONDITION contains this validity check.
+
+    Returns (branch_body, "") on success, or (None, why) when the shape cannot be established.
+    Nothing here is inferred from proximity: the branch is delimited by matching the
+    condition's parentheses and then the branch's braces, so a return found inside it belongs
+    to THIS failure and to no other."""
+    head: re.Match[str] | None = None
+    for candidate in _IF_HEAD_RE.finditer(body, 0, check.start()):
+        head = candidate
+    if head is None:
+        return None, "is not inside any `if (...)` this guard can locate"
+    open_paren = head.end() - 1
+    close_paren = _match_delimiter(body, open_paren, "(", ")")
+    if close_paren is None:
+        return None, "is inside an `if (...)` whose condition this guard cannot close"
+    if close_paren < check.end():
+        # The nearest preceding `if` closes before the check, so the check is not a condition
+        # at all (an assignment, a `while`, a lambda...). Refuse rather than guess.
+        return None, (
+            "is not part of an `if (...)` condition; this guard only classifies the "
+            "`if (!x.is_valid()) { ...; return ERR_...; }` shape"
+        )
+    cursor = close_paren + 1
+    while cursor < len(body) and body[cursor].isspace():
+        cursor += 1
+    if cursor >= len(body) or body[cursor] != "{":
+        return None, (
+            "has an UNBRACED failure branch. This guard will not guess where an unbraced "
+            "statement ends -- an unbounded search is exactly how a later site's return got "
+            "credited to this one (#586 round-8). Brace the branch"
+        )
+    close_brace = _match_delimiter(body, cursor, "{", "}")
+    if close_brace is None:
+        return None, "has a failure branch whose `{` this guard cannot close"
+    return body[cursor + 1 : close_brace], ""
+
+
+def _collect_sites(function: str, body: str, producers: dict[str, str]) -> tuple[list[Site], list[str]]:
+    """For each `!<tracked>.is_valid()` check, the error returned BY THAT CHECK'S OWN branch.
+
+    The branch is parsed, not approximated: `_checked_branch()` delimits the `if (...) {...}`
+    the check controls, and the error must be found inside it. A branch that reports and falls
+    through therefore fails here instead of silently inheriting the next site's return."""
     sites: list[Site] = []
     problems: list[str] = []
     seen: set[str] = set()
@@ -179,16 +264,45 @@ def _collect_sites(function: str, body: str, producers: dict[str, str]) -> tuple
             # asserting the wrong thing.
             continue
         seen.add(variable)
-        returned = _RETURN_ERROR_RE.search(body, check.end())
-        if returned is None:
+        branch, why = _checked_branch(body, check)
+        if branch is None:
             problems.append(
-                f"{function}: `{variable}` is checked with is_valid() but this guard cannot find "
-                f"the `return ERR_...;` that failure takes, so it cannot verify the error class. "
-                f"Keep the failure branch in the `if (!x.is_valid()) {{ ...; return ERR_...; }}` "
-                f"shape, or extend tests/ci/check_sorter_error_class_parity.py."
+                f"{function}: `{variable}` is checked with is_valid(), but that check {why}, so "
+                f"this guard cannot bind an error class to the failure. Keep the failure branch "
+                f"in the `if (!{variable}.is_valid()) {{ ...; return "
+                f"{EXPECTED_ERROR[kind]}; }}` shape, or extend "
+                f"tests/ci/check_sorter_error_class_parity.py."
             )
             continue
-        sites.append(Site(function, variable, kind, returned.group(1)))
+        returned = [match.group(1).strip() for match in _ANY_RETURN_RE.finditer(branch)]
+        if not returned:
+            problems.append(
+                f"{function}: `{variable}` is checked with is_valid(), but its failure branch "
+                f"does not RETURN -- it reports and falls through into code that then uses an "
+                f"invalid {kind}. Return {EXPECTED_ERROR[kind]} from the branch. (This is the "
+                f"shape #586 round-8 found the previous, unbounded version of this guard could "
+                f"not see: the search walked on and credited the next site's return to this one.)"
+            )
+            continue
+        unreadable = sorted({value for value in returned if not _ERROR_CODE_RE.fullmatch(value)})
+        if unreadable:
+            problems.append(
+                f"{function}: `{variable}`'s failure branch returns "
+                f"{', '.join('`return ' + value + ';`' for value in unreadable)}, which this "
+                f"guard cannot read as an error class. It must return a bare "
+                f"{EXPECTED_ERROR[kind]} so the class the classifier sees is visible in the "
+                f"source; do not route it through a helper or a non-ERR_ constant."
+            )
+            continue
+        codes = sorted(set(returned))
+        if len(codes) != 1:
+            problems.append(
+                f"{function}: `{variable}`'s failure branch returns more than one error class "
+                f"({', '.join(codes)}). classify_sorter_creation_error() sees exactly one, so "
+                f"the branch must return exactly one; split the check instead."
+            )
+            continue
+        sites.append(Site(function, variable, kind, codes[0]))
 
     for variable, kind in producers.items():
         if variable not in seen:

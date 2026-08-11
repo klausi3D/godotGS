@@ -21,6 +21,19 @@ committed sources, so they keep discriminating after the real file changes:
   * `test_unchecked_object_fails`            -- fail closed on a GPU object never validated.
   * `test_missing_return_fails`              -- fail closed when the failure branch is
                                                 unreadable, rather than passing over it.
+  * `test_fallthrough_does_not_inherit_the_next_sites_return`
+                                             -- THE round-8 finding: the guard's own blind
+                                                spot. A check that reports and falls through
+                                                used to be credited with a LATER site's
+                                                return, so the mutation the guard claims to
+                                                cover was invisible to it.
+  * `test_unreadable_return_in_branch_fails` /
+    `test_unbraced_failure_branch_is_refused` /
+    `test_two_error_classes_in_one_branch_fails`
+                                             -- the other shapes an unbounded search hid.
+  * `test_branch_with_cleanup_and_nested_block_still_passes`
+                                             -- the bounded parse does not pass by rejecting
+                                                everything.
   * `test_site_count_pin_enforced`           -- the guard cannot be hollowed out by deleting
                                                 sites until it has nothing left to check.
   * `test_missing_function_fails` /
@@ -195,7 +208,97 @@ class SorterErrorClassParityTests(unittest.TestCase):
             _source(no_return, _BUFFER % ALLOC_OK), program_pin=0, allocation_pin=1
         )
         self.assertEqual(code, 1, output)
-        self.assertIn("cannot find", output)
+        self.assertIn("does not RETURN", output)
+
+    # --- round-8: the return must be BOUND to its own branch ---------------------------
+
+    def test_fallthrough_does_not_inherit_the_next_sites_return(self):
+        """THE round-8 finding, verbatim. The first shader check only REPORTS and falls
+        through; the next shader check returns ERR_COMPILATION_FAILED. The pre-round-8 guard
+        searched forward from the check without a bound, attributed the second site's return
+        to the first, and recorded BOTH as correctly classified with no problems -- so the
+        mutation it exists to catch was invisible to it."""
+        fallthrough = (
+            "    RID first_shader = create_compute_shader_from_spirv(device, src_a);\n"
+            "    if (!first_shader.is_valid()) {\n"
+            "        GS_LOG_ERROR_DEFAULT(\"first shader failed\");\n"
+            "    }\n"
+            "    RID second_shader = create_compute_shader_from_spirv(device, src_b);\n"
+            "    if (!second_shader.is_valid()) {\n"
+            "        return ERR_COMPILATION_FAILED;\n"
+            "    }\n"
+        )
+        code, output = self._run(
+            _source(fallthrough, _BUFFER % ALLOC_OK), program_pin=1, allocation_pin=1
+        )
+        self.assertEqual(code, 1, output)
+        self.assertIn("first_shader", output)
+        self.assertIn("does not RETURN", output)
+        # ...and the site that DOES return correctly must not be dragged down with it.
+        self.assertNotIn("`second_shader`", output)
+
+    def test_unreadable_return_in_branch_fails(self):
+        """The other half of the round-8 finding: a branch whose return this guard cannot
+        read as an error class used to be skipped, so the NEXT site's matching return stood
+        in for it. It must be reported instead."""
+        unreadable = (
+            "    RID s = create_compute_shader_from_spirv(device, src);\n"
+            "    if (!s.is_valid()) {\n        return map_error(err);\n    }\n"
+            "    RID t = create_compute_shader_from_spirv(device, src2);\n"
+            "    if (!t.is_valid()) {\n        return ERR_COMPILATION_FAILED;\n    }\n"
+        )
+        code, output = self._run(
+            _source(unreadable, _BUFFER % ALLOC_OK), program_pin=1, allocation_pin=1
+        )
+        self.assertEqual(code, 1, output)
+        self.assertIn("cannot read as an error class", output)
+
+    def test_unbraced_failure_branch_is_refused(self):
+        """Fail closed rather than guess where an unbraced branch ends -- guessing is what
+        made a later site's return look like this one's."""
+        unbraced = (
+            "    RID s = create_compute_shader_from_spirv(device, src);\n"
+            "    if (!s.is_valid())\n        return ERR_COMPILATION_FAILED;\n"
+        )
+        code, output = self._run(
+            _source(unbraced, _BUFFER % ALLOC_OK), program_pin=0, allocation_pin=1
+        )
+        self.assertEqual(code, 1, output)
+        self.assertIn("UNBRACED failure branch", output)
+
+    def test_two_error_classes_in_one_branch_fails(self):
+        """classify_sorter_creation_error() sees exactly one code, so a branch that can
+        return either is not a classification this guard can certify."""
+        ambiguous = (
+            "    RID s = create_compute_shader_from_spirv(device, src);\n"
+            "    if (!s.is_valid()) {\n"
+            "        if (device) { return ERR_CANT_CREATE; }\n"
+            "        return ERR_COMPILATION_FAILED;\n"
+            "    }\n"
+        )
+        code, output = self._run(
+            _source(ambiguous, _BUFFER % ALLOC_OK), program_pin=0, allocation_pin=1
+        )
+        self.assertEqual(code, 1, output)
+        self.assertIn("more than one error class", output)
+
+    def test_branch_with_cleanup_and_nested_block_still_passes(self):
+        """The negative control for the bounded parse: real failure branches log, clean up
+        and may contain a nested block before returning. That must still resolve, or the fix
+        would 'pass' by rejecting everything."""
+        realistic = (
+            "    RID s = create_compute_shader_from_spirv(device, src);\n"
+            "    if (!s.is_valid()) {\n"
+            "        GS_LOG_ERROR_DEFAULT(\"failed\");\n"
+            "        if (device) { cleanup_variant(variant); }\n"
+            "        return ERR_COMPILATION_FAILED;\n"
+            "    }\n"
+        )
+        code, output = self._run(
+            _source(realistic, _BUFFER % ALLOC_OK), program_pin=1, allocation_pin=1
+        )
+        self.assertEqual(code, 0, output)
+        self.assertIn("PASSED", output)
 
     def test_site_count_pin_enforced(self):
         # Deleting covered sites must not leave a guard that still prints PASSED.
