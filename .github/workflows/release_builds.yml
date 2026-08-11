@@ -918,6 +918,22 @@ jobs:
         run: |
           git config --global --add safe.directory '*'
 
+      - name: Clear the smoke staging directories from any previous run
+        shell: pwsh
+        working-directory: ${{ github.workspace }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          # The self-hosted workspace persists between runs and actions/checkout
+          # only cleans `repo/`. A leftover binary from a previous run would make
+          # the resolution below ambiguous -- or, worse, unambiguous and wrong,
+          # which is the stale-bin hazard build_windows already guards against.
+          foreach ($stale in @("smoke-input", "smoke-stage")) {
+            if (Test-Path $stale) {
+              Remove-Item -LiteralPath $stale -Recurse -Force
+              Write-Host "removed stale $stale"
+            }
+          }
+
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
