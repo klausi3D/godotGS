@@ -26,8 +26,19 @@ recorded, gating ones.
 
 Why this is not "we set an environment variable and CI went green"
 ------------------------------------------------------------------
-Setting ``VK_LOADER_LAYERS_DISABLE`` proves nothing on its own -- an unsupported
-or misspelled value is silently ignored by the loader and the job stays green.
+This is not hypothetical here. The first version of this change set
+``VK_LOADER_LAYERS_DISABLE=~implicit~`` on every GPU job, verified as the
+interactive user that the loader honoured it, and would have shipped -- except
+the preflight measured the CI job and found the chain unchanged. The runner
+service is registered as ``LocalSystem``, so job steps run at System integrity,
+and the loader reads its own filter variables through ``loader_secure_getenv``,
+which discards them in an elevated process. The variable was set, the log showed
+it set, and it did nothing (#878). What works there is each layer's own
+``disable_environment`` variable, which the loader reads unprivileged.
+
+So: setting ``VK_LOADER_LAYERS_DISABLE`` proves nothing on its own -- an
+unsupported value, a misspelled one, or a correct one in a process the loader
+declines to read it in are all silently ignored and the job stays green.
 So this preflight never reads the environment variable, and never reads the
 registry. It asks **the loader itself, at runtime**, which layers it inserted
 into the instance and device chains, by running a probe process under
@@ -103,24 +114,69 @@ EXPECTED_LAYERS: Tuple[str, ...] = (
     "VK_LAYER_NV_present",
 )
 
-#: The loader-side disable mechanism the GPU jobs use. Measured against Vulkan
-#: loader 1.4.341.0 (`C:\\Windows\\System32\\vulkan-1.dll`) on the runner: with
+#: The loader-side filter variables. Measured against Vulkan loader 1.4.341.0
+#: (`C:\\Windows\\System32\\vulkan-1.dll`) **as the interactive user**: with
 #: `VK_LOADER_LAYERS_DISABLE=~implicit~` alone the loader inserts *no* implicit
 #: layers at all, including the driver's own; adding `VK_LOADER_LAYERS_ENABLE`
 #: brings back exactly the named ones, so enable takes precedence over disable.
+#:
+#: **These do nothing in the GPU jobs.** The self-hosted runner service is
+#: registered as `LocalSystem`, so every job step runs at System integrity
+#: (`S-1-16-16384`), and the loader reads its own filter variables through
+#: `loader_secure_getenv`, which drops them when the process is elevated. Run
+#: 31603970211 on the runner has the loader saying so in as many words::
+#:
+#:     [Vulkan Loader] INFO: Loader is running with elevated permissions.
+#:                           Environment variable VK_LOADER_LAYERS_DISABLE will be ignored
+#:
+#: In that run `~implicit~`, `~all~`, and `~implicit~` + enable all produced the
+#: byte-identical chain the bare baseline did. They are still exported by the
+#: jobs because they are the only mechanism that covers a layer we have not
+#: enumerated, and they *are* honoured on any runner whose service does not run
+#: elevated -- but what actually strips the layers on this runner is
+#: :data:`LAYER_DISABLE_ENV` below. `VK_LOADER_DEBUG` is read with the plain
+#: getenv and keeps working while elevated, which is why the preflight can see
+#: any of this at all.
 LOADER_LAYERS_DISABLE_VAR = "VK_LOADER_LAYERS_DISABLE"
 LOADER_LAYERS_DISABLE_VALUE = "~implicit~"
 LOADER_LAYERS_ENABLE_VAR = "VK_LOADER_LAYERS_ENABLE"
 LOADER_LAYERS_ENABLE_VALUE = ",".join(EXPECTED_LAYERS)
 
-#: Environment variables stripped for the control run. `VK_INSTANCE_LAYERS` is
-#: the legacy force-enable variable and is included so a machine-level setting
-#: cannot make the control run look like the effective one.
+#: The per-layer opt-out each third-party layer declares in its **own** manifest
+#: under the `disable_environment` key, read off the runner's registered layer
+#: JSONs. The loader reads these with the ordinary getenv, not the secure one,
+#: so unlike the filter variables above they are honoured in an elevated
+#: process -- measured in run 31603970211, where this set and nothing else
+#: reduced the System-integrity chain to the driver's own two layers.
+#:
+#: `(layer name, variable, value)`. The layer name is not used to build the
+#: environment; it records which manifest each variable came from, so a reader
+#: can check the claim against the JSON on disk.
+#:
+#: This list is machine-specific by construction and *will* go stale when the
+#: runner gains or updates instrumentation. That is survivable only because it
+#: is not the guarantee: Gate 1 measures the chain the loader actually built, so
+#: a layer this list does not cover fails the job instead of passing quietly.
+LAYER_DISABLE_ENV: Tuple[Tuple[str, str, str], ...] = (
+    # C:\ProgramData\obs-studio-hook\obs-vulkan64.json
+    ("VK_LAYER_OBS_HOOK", "DISABLE_VULKAN_OBS_CAPTURE", "1"),
+    # C:\Program Files (x86)\Overwolf\<version>\ow-graphics-vulkan64.json
+    ("VK_LAYER_OW_OBS_HOOK", "DISABLE_VULKAN_OW_OBS_CAPTURE", "1"),
+    # C:\Program Files (x86)\Overwolf\<version>\ow-vulkan-overlay64.json
+    ("VK_LAYER_OW_OVERLAY", "DISABLE_VULKAN_OW_OVERLAY_LAYER", "1"),
+)
+
+#: Environment variables stripped for the control run: everything the jobs set
+#: to influence the chain. `VK_INSTANCE_LAYERS` is the legacy force-enable
+#: variable and is included so a machine-level setting cannot make the control
+#: run look like the effective one. Missing one of the per-layer variables here
+#: would leave the control run disabled too, and a control that carries the
+#: treatment cannot show what the treatment removed.
 _CONTROL_STRIPPED_VARS = (
     LOADER_LAYERS_DISABLE_VAR,
     LOADER_LAYERS_ENABLE_VAR,
     "VK_INSTANCE_LAYERS",
-)
+) + tuple(variable for _layer, variable, _value in LAYER_DISABLE_ENV)
 
 #: Substring match, lowercased, against an Image File Execution Options subkey
 #: name. These are the images CI executes; page-heap flags on any of them taint
@@ -149,6 +205,23 @@ _LAYER_LINE = re.compile(
     re.MULTILINE,
 )
 
+#: The loader's INFO message for a filter variable it refused to read because
+#: the process is elevated. Captured verbatim from run 31603970211:
+#: `Loader is running with elevated permissions. Environment variable
+#: VK_LOADER_LAYERS_DISABLE will be ignored`. Parsed so a maintainer reading a
+#: failure is told *why* the disable had no effect rather than having to
+#: rediscover it -- this is exactly the message that explains a control run and
+#: an effective run coming back identical.
+_IGNORED_ENV_LINE = re.compile(
+    r"running with elevated permissions\.\s*"
+    r"Environment variable\s+(?P<name>[A-Za-z0-9_]+)\s+will be ignored"
+)
+
+#: What the probe asks the loader to report. `layer` yields the chain messages;
+#: `info` is what carries the elevated-permissions notices above, and without it
+#: the loader silently declines our variables with nothing in the log.
+_PROBE_LOADER_DEBUG = "layer,info"
+
 #: Any line the Vulkan loader's debug channel emits. Used only to tell
 #: "the loader said nothing" apart from "the loader said nothing about layers".
 _LOADER_DEBUG_MARKER = "[Vulkan Loader]"
@@ -169,6 +242,9 @@ class ProbeResult(NamedTuple):
     loader_debug_lines: int
     error: Optional[str]
     command: Tuple[str, ...]
+    #: Filter variables the loader told us it discarded because the process is
+    #: elevated. Empty on a non-elevated runner.
+    ignored_env_vars: Tuple[str, ...] = ()
 
 
 # --------------------------------------------------------------------------
@@ -200,8 +276,13 @@ def _probe_env(strip_disable: bool) -> Dict[str, str]:
         for name in _CONTROL_STRIPPED_VARS:
             env.pop(name, None)
     # The loader only reports its layer decisions when asked to.
-    env["VK_LOADER_DEBUG"] = "layer"
+    env["VK_LOADER_DEBUG"] = _PROBE_LOADER_DEBUG
     return env
+
+
+def parse_ignored_env_vars(text: str) -> Tuple[str, ...]:
+    """Filter variables the loader discarded because the process is elevated."""
+    return tuple(sorted({match.group("name") for match in _IGNORED_ENV_LINE.finditer(text)}))
 
 
 def parse_layer_report(text: str) -> Dict[str, LayerRecord]:
@@ -259,12 +340,20 @@ def run_probe(probe: str, strip_disable: bool) -> ProbeResult:
             completed.returncode,
             {},
             0,
-            "probe produced no Vulkan loader debug output; VK_LOADER_DEBUG=layer was "
-            "ignored or the loader's message format changed, so an empty layer list "
+            f"probe produced no Vulkan loader debug output; VK_LOADER_DEBUG={_PROBE_LOADER_DEBUG} "
+            "was ignored or the loader's message format changed, so an empty layer list "
             "would mean nothing",
             command,
         )
-    return ProbeResult(True, completed.returncode, parse_layer_report(text), debug_lines, None, command)
+    return ProbeResult(
+        True,
+        completed.returncode,
+        parse_layer_report(text),
+        debug_lines,
+        None,
+        command,
+        parse_ignored_env_vars(text),
+    )
 
 
 def check_vulkan_layers() -> Tuple[bool, List[str], Dict[str, object]]:
@@ -306,6 +395,20 @@ def check_vulkan_layers() -> Tuple[bool, List[str], Dict[str, object]]:
     lines.append(f"  control   (disable stripped): {_fmt_layers(control_names)}")
     lines.append(f"  effective (this job's env)  : {_fmt_layers(effective_names)}")
 
+    # Not a verdict -- the explanation a maintainer would otherwise have to go
+    # find. The loader drops its own filter variables in an elevated process, so
+    # on a runner service registered as LocalSystem the control and effective
+    # runs come back identical no matter what those variables say (#878).
+    ignored = sorted(set(effective.ignored_env_vars) & set(_CONTROL_STRIPPED_VARS))
+    record["ignored_filter_env_vars"] = ignored
+    if ignored:
+        lines.append(
+            "  NOTE: the loader reports it discarded "
+            f"{', '.join(ignored)} because this process is elevated, so those variables "
+            "did not shape the chain above. What did is each layer's own "
+            "`disable_environment` variable, which the loader reads unprivileged."
+        )
+
     if not control_names:
         # See the module docstring: this is the assertion that keeps a silent
         # effective run from being read as success.
@@ -331,6 +434,39 @@ def check_vulkan_layers() -> Tuple[bool, List[str], Dict[str, object]]:
 
     removed = sorted(control_names - effective_names)
     lines.append(f"  removed by the disable: {_fmt_layers(set(removed))}")
+
+    # An empty effective chain satisfies "nothing unexpected is present" while
+    # meaning the opposite of what this gate is for: the driver's own layers
+    # were stripped too, and every GPU job downstream is measuring a different
+    # driver stack. So the gate asserts survival, not just absence.
+    #
+    # The bar is what the *control* run saw, not the whole of EXPECTED_LAYERS:
+    # the control is this machine's ground truth for which of the driver's
+    # layers exist at all, and demanding a layer the driver never registered
+    # would be this guard asserting facts about hardware instead of measuring
+    # it.
+    expected_in_control = control_names & set(EXPECTED_LAYERS)
+    if not expected_in_control:
+        lines.append(
+            "  FAIL: the control run inserted layers, but none of them were the GPU "
+            f"driver's own ({', '.join(EXPECTED_LAYERS)}). Either the driver's implicit "
+            "layers are no longer registered on this runner, or EXPECTED_LAYERS names "
+            "layers this machine does not have -- and until that is resolved, "
+            "'the driver's layers survived' cannot be checked at all."
+        )
+        return False, lines, record
+
+    lost = sorted(expected_in_control - effective_names)
+    if lost:
+        lines.append(
+            f"  FAIL: {len(lost)} of the GPU driver's own layer(s) present in the control "
+            f"run are missing from the effective chain: {', '.join(lost)}. The disable is "
+            "over-reaching: GPU jobs would run on a driver stack that no measurement "
+            "outside CI uses. Narrow the disable rather than accepting the loss."
+        )
+        return False, lines, record
+
+    lines.append(f"  driver layers retained: {_fmt_layers(expected_in_control)}")
 
     unexpected = sorted(effective_names - set(EXPECTED_LAYERS))
     if unexpected:
@@ -361,6 +497,7 @@ def _probe_record(result: ProbeResult) -> Dict[str, object]:
         "returncode": result.returncode,
         "loader_debug_lines": result.loader_debug_lines,
         "error": result.error,
+        "ignored_env_vars": list(result.ignored_env_vars),
         "layers": {
             name: {"modules": list(entry.modules), "chains": list(entry.chains)}
             for name, entry in sorted(result.layers.items())
@@ -409,42 +546,118 @@ def _flag_is_set(value: object) -> bool:
     return bool(value)
 
 
-def collect_ifeo_flags() -> Tuple[Optional[List[Dict[str, object]]], Optional[str]]:
-    """Every IFEO image carrying a page-heap/verifier value, from both registry views."""
+#: `ERROR_FILE_NOT_FOUND` -- the only registry error that means "this is not
+#: configured". Everything else (access denied, the key marked for deletion, a
+#: corrupt hive) means "we could not look", which is not the same answer and
+#: must not be reported as one.
+_ERROR_FILE_NOT_FOUND = 2
+#: `ERROR_NO_MORE_ITEMS` -- the normal end of a subkey enumeration.
+_ERROR_NO_MORE_ITEMS = 259
+
+
+def _registry_error_is_absence(exc: OSError) -> bool:
+    return getattr(exc, "winerror", None) == _ERROR_FILE_NOT_FOUND
+
+
+class IfeoScan(NamedTuple):
+    """What the IFEO sweep managed to learn, and what it could not."""
+
+    #: Images found carrying a page-heap/verifier value.
+    entries: List[Dict[str, object]]
+    #: Images whose subkey could not be read at all. Recorded so "no flags
+    #: found" is never silently standing in for "not looked at".
+    unreadable: List[Dict[str, object]]
+    #: Set when the sweep could not be completed and its result means nothing.
+    error: Optional[str]
+
+
+def collect_ifeo_flags() -> IfeoScan:
+    """Every IFEO image carrying a page-heap/verifier value, from both registry views.
+
+    Fails closed, scoped to what Gate 2 actually judges. A read that does not
+    succeed is never folded into the empty result -- an access-denied view that
+    still holds a page-heap entry would otherwise be indistinguishable from a
+    clean machine. Only `ERROR_FILE_NOT_FOUND` is read as "not configured".
+
+    The three failures that make the whole sweep meaningless -- a view that
+    cannot be opened, an enumeration that cannot be walked -- return an
+    ``error`` and fail the gate: without the list of image names, whether a
+    binary CI executes carries flags is simply unknown.
+
+    A single *image subkey* that cannot be read is narrower than that, because
+    enumeration already told us its name. If it is one of the images CI runs it
+    is returned as an error for the same reason as above. If it is not, it is
+    recorded in ``unreadable`` and reported but does not gate: this box is a
+    workstation, several images under IFEO are ACL'd against non-administrators
+    (`DefenderAgentScan.exe` among them), and page heap on software we never
+    execute is not a variable in our measurements. Gating on those would mean
+    the preflight could only ever run as an administrator, which is a worse
+    failure mode than the one it would be guarding.
+    """
     try:
         import winreg  # noqa: PLC0415 -- Windows-only, imported where it is used
     except ImportError as exc:  # pragma: no cover - non-Windows
-        return None, f"winreg unavailable: {exc}"
+        return IfeoScan([], [], f"winreg unavailable: {exc}")
 
     entries: List[Dict[str, object]] = []
+    unreadable: List[Dict[str, object]] = []
     for path in _IFEO_PATHS:
         try:
             root = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path)
-        except OSError:
-            continue
+        except OSError as exc:
+            if _registry_error_is_absence(exc):
+                continue  # this registry view does not exist on this machine
+            return IfeoScan([], [], f"HKLM\\{path} could not be opened: {exc}")
         with root:
             index = 0
             while True:
                 try:
                     image = winreg.EnumKey(root, index)
-                except OSError:
-                    break
+                except OSError as exc:
+                    if getattr(exc, "winerror", None) == _ERROR_NO_MORE_ITEMS:
+                        break
+                    return IfeoScan(
+                        [], [], f"HKLM\\{path} could not be enumerated at index {index}: {exc}"
+                    )
                 index += 1
-                flags: Dict[str, object] = {}
-                try:
-                    with winreg.OpenKey(root, image) as image_key:
-                        for value_name in PAGE_HEAP_VALUE_NAMES:
-                            try:
-                                data, _kind = winreg.QueryValueEx(image_key, value_name)
-                            except OSError:
-                                continue
-                            if _flag_is_set(data):
-                                flags[value_name] = data
-                except OSError:
+                flags, read_error = _read_ifeo_image_flags(winreg, root, image)
+                if read_error is not None:
+                    if _is_ci_image(image):
+                        return IfeoScan(
+                            [],
+                            [],
+                            f"HKLM\\{path}\\{image} is an image CI executes and could not be "
+                            f"read: {read_error}. Page-heap flags on it cannot be ruled out.",
+                        )
+                    unreadable.append({"image": image, "view": path, "error": read_error})
                     continue
                 if flags:
                     entries.append({"image": image, "view": path, "flags": flags})
-    return entries, None
+    return IfeoScan(entries, unreadable, None)
+
+
+def _read_ifeo_image_flags(
+    winreg, root, image: str
+) -> Tuple[Dict[str, object], Optional[str]]:
+    """Page-heap/verifier values on one IFEO image, or why they could not be read."""
+    flags: Dict[str, object] = {}
+    try:
+        image_key = winreg.OpenKey(root, image)
+    except OSError as exc:
+        if _registry_error_is_absence(exc):
+            return flags, None  # deleted between enumeration and open
+        return flags, str(exc)
+    with image_key:
+        for value_name in PAGE_HEAP_VALUE_NAMES:
+            try:
+                data, _kind = winreg.QueryValueEx(image_key, value_name)
+            except OSError as exc:
+                if _registry_error_is_absence(exc):
+                    continue  # this image does not carry that value
+                return {}, f"{value_name}: {exc}"
+            if _flag_is_set(data):
+                flags[value_name] = data
+    return flags, None
 
 
 def collect_systemwide_global_flag() -> Tuple[Optional[object], Optional[str]]:
@@ -455,8 +668,12 @@ def collect_systemwide_global_flag() -> Tuple[Optional[object], Optional[str]]:
     try:
         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _SESSION_MANAGER_PATH) as key:
             data, _kind = winreg.QueryValueEx(key, "GlobalFlag")
-    except OSError:
-        return None, None
+    except OSError as exc:
+        # Same fail-closed rule as collect_ifeo_flags(): "no such value" is an
+        # answer, "could not read" is not.
+        if _registry_error_is_absence(exc):
+            return None, None
+        return None, f"HKLM\\{_SESSION_MANAGER_PATH}\\GlobalFlag could not be read: {exc}"
     return data, None
 
 
@@ -473,21 +690,34 @@ def check_page_heap() -> Tuple[bool, List[str], Dict[str, object]]:
         record["status"] = "not-applicable"
         return True, lines, record
 
-    entries, error = collect_ifeo_flags()
-    if error is not None or entries is None:
-        lines.append(f"  FAIL: could not read Image File Execution Options -- {error}")
+    scan = collect_ifeo_flags()
+    if scan.error is not None:
+        lines.append(f"  FAIL: could not read Image File Execution Options -- {scan.error}")
         record["status"] = "unreadable"
-        record["error"] = error
+        record["error"] = scan.error
         return False, lines, record
 
+    entries = scan.entries
     record["entries_with_flags"] = entries
+    record["unreadable_images"] = scan.unreadable
+    for skipped in scan.unreadable:
+        lines.append(
+            f"    unread (not an image CI executes): {skipped['image']} -- {skipped['error']}"
+        )
     ours = [entry for entry in entries if _is_ci_image(str(entry["image"]))]
     others = [entry for entry in entries if entry not in ours]
     record["ci_images_flagged"] = ours
 
     systemwide, sys_error = collect_systemwide_global_flag()
     record["systemwide_global_flag"] = systemwide
-    systemwide_set = sys_error is None and systemwide is not None and _flag_is_set(systemwide)
+    if sys_error is not None:
+        # Unreadable is not unset. Reporting green here would claim the runner
+        # has no system-wide page heap on the strength of a read that failed.
+        lines.append(f"  FAIL: could not read the system-wide GlobalFlag -- {sys_error}")
+        record["status"] = "unreadable"
+        record["error"] = sys_error
+        return False, lines, record
+    systemwide_set = systemwide is not None and _flag_is_set(systemwide)
 
     lines.append(f"  IFEO images carrying page-heap/verifier values: {len(entries)}")
     lines.append(

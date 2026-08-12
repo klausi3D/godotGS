@@ -59,6 +59,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_DIR = ROOT / ".github" / "workflows"
 README = WORKFLOW_DIR / "README.md"
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -245,6 +246,31 @@ class GpuJobEnvironmentContract(unittest.TestCase):
                     "third-party instrumentation.",
                 )
 
+    def test_every_gpu_job_sets_the_per_layer_disable_variables(self) -> None:
+        """The half that actually works on this runner (#878).
+
+        The two variables above are read through the loader's `secure_getenv`
+        and are discarded outright in an elevated process -- which every job on
+        this pool is, because the runner service is registered as LocalSystem.
+        These per-layer opt-outs come from each layer's own manifest and are
+        read unprivileged, so they are what removes the layers here. A job
+        carrying only the loader-filter pair looks configured and is not.
+        """
+        for (workflow, job), lines in sorted(self.jobs.items()):
+            env = job_level_env(lines)
+            for layer, variable, value in preflight.LAYER_DISABLE_ENV:
+                with self.subTest(workflow=workflow, job=job, layer=layer):
+                    self.assertEqual(
+                        env.get(variable),
+                        value,
+                        f"{workflow}: job {job!r} runs on the self-hosted GPU pool but does "
+                        f"not export {variable}={value!r}, the `disable_environment` opt-out "
+                        f"{layer} declares in its own manifest. Without it that layer stays "
+                        "in the chain of every GPU process this job starts: the loader "
+                        f"discards {preflight.LOADER_LAYERS_DISABLE_VAR} in an elevated "
+                        "process, so it will not cover for this (#878).",
+                    )
+
     def test_every_gpu_job_runs_the_preflight(self) -> None:
         for (workflow, job), lines in sorted(self.jobs.items()):
             with self.subTest(workflow=workflow, job=job):
@@ -315,32 +341,165 @@ class PreflightPolicyMatchesWorkflows(unittest.TestCase):
     def test_expected_layers_are_not_empty(self) -> None:
         self.assertTrue(preflight.EXPECTED_LAYERS)
 
+    def test_per_layer_disable_vars_are_stripped_for_the_control_run(self) -> None:
+        """A control run that carries the treatment is not a control.
+
+        If a per-layer variable is added to the job env but not to the stripped
+        set, the control probe runs with that layer already disabled, "removed
+        by the disable" comes back empty, and the two runs stop being
+        comparable.
+        """
+        for layer, variable, _value in preflight.LAYER_DISABLE_ENV:
+            with self.subTest(layer=layer):
+                self.assertIn(variable, preflight._CONTROL_STRIPPED_VARS)
+
+    def test_per_layer_disable_entries_are_well_formed(self) -> None:
+        self.assertTrue(preflight.LAYER_DISABLE_ENV)
+        for entry in preflight.LAYER_DISABLE_ENV:
+            layer, variable, value = entry
+            with self.subTest(layer=layer):
+                self.assertTrue(layer.startswith("VK_LAYER_"))
+                self.assertTrue(variable and value)
+                self.assertNotIn(
+                    layer,
+                    preflight.EXPECTED_LAYERS,
+                    f"{layer} is both disabled per-layer and allowlisted as the GPU driver's "
+                    "own. One of the two is wrong.",
+                )
+
 
 # --------------------------------------------------------------------------
 # The preflight's own logic
 # --------------------------------------------------------------------------
 
-_CONTROL_TEXT = """\
-[Vulkan Loader] INFO | LAYER:   Insert instance layer "VK_LAYER_OBS_HOOK" (C:\\ProgramData\\obs-studio-hook\\graphics-hook64.dll)
-[Vulkan Loader] INFO | LAYER:   Insert instance layer "VK_LAYER_OW_OVERLAY" (C:\\Program Files (x86)\\Overwolf\\0.305.0.9\\owclient.dll)
-[Vulkan Loader] INFO | LAYER:   Insert instance layer "VK_LAYER_NV_optimus" (C:\\WINDOWS\\System32\\nvoglv64.dll)
-[Vulkan Loader] INFO | LAYER:   Insert instance layer "VK_LAYER_NV_present" (C:\\WINDOWS\\System32\\nvoglv64.dll)
-[Vulkan Loader] INFO | LAYER:   Inserted device layer "VK_LAYER_OBS_HOOK" (C:\\ProgramData\\obs-studio-hook\\graphics-hook64.dll)
-[Vulkan Loader] INFO | LAYER:   Inserted device layer "VK_LAYER_NV_optimus" (C:\\WINDOWS\\System32\\nvoglv64.dll)
-[Vulkan Loader] INFO | LAYER:   Inserted device layer "VK_LAYER_NV_present" (C:\\WINDOWS\\System32\\nvoglv64.dll)
-"""
+#: Verbatim Vulkan loader output, captured off the runner rather than invented.
+#:
+#: Provenance: `VK_LOADER_DEBUG=layer,info C:\\Windows\\System32\\vulkaninfo.exe`
+#: against `C:\\Windows\\System32\\vulkan-1.dll` 1.4.341.0 -- the chain lines from
+#: an interactive-user run, the `elevated permissions` lines from the
+#: System-integrity CI job (run 31603970211). Nothing was reformatted.
+#:
+#: A parser proven only against strings this file invented can drift from the
+#: producer's real spacing, prefix or wording and stay green while matching
+#: nothing, so the producer's own bytes are the contract, and every scenario
+#: below is *built from this file's line shape* rather than typed out again.
+LOADER_CAPTURE = FIXTURES / "vulkan_loader_layer_report_1_4_341.txt"
+_CAPTURED_TEXT = LOADER_CAPTURE.read_text(encoding="utf-8")
 
-_CLEAN_TEXT = """\
-[Vulkan Loader] INFO | LAYER:   Insert instance layer "VK_LAYER_NV_optimus" (C:\\WINDOWS\\System32\\nvoglv64.dll)
-[Vulkan Loader] INFO | LAYER:   Insert instance layer "VK_LAYER_NV_present" (C:\\WINDOWS\\System32\\nvoglv64.dll)
-[Vulkan Loader] INFO | LAYER:   Inserted device layer "VK_LAYER_NV_optimus" (C:\\WINDOWS\\System32\\nvoglv64.dll)
-[Vulkan Loader] INFO | LAYER:   Inserted device layer "VK_LAYER_NV_present" (C:\\WINDOWS\\System32\\nvoglv64.dll)
-"""
+#: The producer's line prefix, taken from the capture instead of assumed:
+#: everything ahead of `Insert instance layer` on a real chain line.
+_CAPTURED_PREFIX = _CAPTURED_TEXT.split("Insert instance layer", 1)[0].rsplit("\n", 1)[-1]
+
+
+def loader_line(chain: str, name: str, module: str) -> str:
+    """One chain line in the producer's real format.
+
+    `chain` is `"instance"` or `"device"`. The wording and prefix come from the
+    captured output, so a scenario cannot quietly assert against a format the
+    loader does not emit.
+    """
+    phrase = "Insert instance layer" if chain == "instance" else "Inserted device layer"
+    return f'{_CAPTURED_PREFIX}{phrase} "{name}" ({module})'
+
+
+_OBS_DLL = "C:\\ProgramData\\obs-studio-hook\\graphics-hook64.dll"
+_OW_DLL = "C:\\Program Files (x86)\\Overwolf\\0.305.0.9\\owclient.dll"
+_NV_DLL = (
+    "C:\\WINDOWS\\System32\\DriverStore\\FileRepository"
+    "\\nv_dispig.inf_amd64_f4c7a2fd13e0f763\\nvoglv64.dll"
+)
+
+_CONTROL_TEXT = "\n".join(
+    [
+        loader_line("instance", "VK_LAYER_OBS_HOOK", _OBS_DLL),
+        loader_line("instance", "VK_LAYER_OW_OVERLAY", _OW_DLL),
+        loader_line("instance", "VK_LAYER_NV_optimus", _NV_DLL),
+        loader_line("instance", "VK_LAYER_NV_present", _NV_DLL),
+        loader_line("device", "VK_LAYER_OBS_HOOK", _OBS_DLL),
+        loader_line("device", "VK_LAYER_NV_optimus", _NV_DLL),
+        loader_line("device", "VK_LAYER_NV_present", _NV_DLL),
+    ]
+) + "\n"
+
+_CLEAN_TEXT = "\n".join(
+    [
+        loader_line("instance", "VK_LAYER_NV_optimus", _NV_DLL),
+        loader_line("instance", "VK_LAYER_NV_present", _NV_DLL),
+        loader_line("device", "VK_LAYER_NV_optimus", _NV_DLL),
+        loader_line("device", "VK_LAYER_NV_present", _NV_DLL),
+    ]
+) + "\n"
+
+#: The driver's own layers stripped along with the third-party ones. Reachable
+#: for real if a loader update changes what `~implicit~` covers, and it is the
+#: shape that passes an "is anything unexpected present?" check while meaning
+#: the GPU jobs now measure a different driver stack.
+_NO_LAYERS_TEXT = f"{_CAPTURED_PREFIX}no layers were inserted into the chain\n"
 
 
 def _probe(text: str, returncode: int = 0):
     """A fake `subprocess.run` result for the loader probe."""
     return mock.Mock(returncode=returncode, stdout=text, stderr="")
+
+
+class CapturedLoaderOutputContract(unittest.TestCase):
+    """The parser is proven against the producer's own bytes, not a model of them.
+
+    Everything else in this file constructs its input. That is fine for
+    scenarios, but it cannot detect the failure that matters most: the loader's
+    real format differing from what we imagined, leaving a parser that matches
+    nothing and a preflight that reports an empty chain -- which the gate then
+    has to interpret. So the recorded output of the loader version the runner
+    actually has is checked directly.
+    """
+
+    def setUp(self) -> None:
+        self.layers = preflight.parse_layer_report(_CAPTURED_TEXT)
+
+    def test_capture_is_present_and_is_loader_output(self) -> None:
+        """An emptied or replaced capture must fail here, not degrade silently."""
+        self.assertTrue(
+            LOADER_CAPTURE.is_file(), f"the captured loader output {LOADER_CAPTURE} is missing"
+        )
+        self.assertIn(preflight._LOADER_DEBUG_MARKER, _CAPTURED_TEXT)
+        self.assertGreaterEqual(len(_CAPTURED_TEXT.splitlines()), 20)
+
+    def test_every_layer_the_runner_registers_is_recognised(self) -> None:
+        self.assertEqual(
+            sorted(self.layers),
+            [
+                "VK_LAYER_NV_optimus",
+                "VK_LAYER_NV_present",
+                "VK_LAYER_OBS_HOOK",
+                "VK_LAYER_OW_OBS_HOOK",
+                "VK_LAYER_OW_OVERLAY",
+            ],
+        )
+        for name, entry in self.layers.items():
+            with self.subTest(layer=name):
+                self.assertEqual(entry.chains, ("device", "instance"))
+
+    def test_real_module_paths_survive_the_parse(self) -> None:
+        self.assertEqual(
+            self.layers["VK_LAYER_OW_OVERLAY"].modules,
+            ("C:\\Program Files (x86)\\Overwolf\\0.305.0.9\\owclient.dll",),
+        )
+        self.assertEqual(
+            self.layers["VK_LAYER_OBS_HOOK"].modules,
+            ("C:\\ProgramData\\obs-studio-hook\\graphics-hook64.dll",),
+        )
+
+    def test_elevated_permission_notices_are_read(self) -> None:
+        """The line that explains why a set variable did nothing (#878)."""
+        ignored = preflight.parse_ignored_env_vars(_CAPTURED_TEXT)
+        self.assertIn(preflight.LOADER_LAYERS_DISABLE_VAR, ignored)
+        self.assertIn(preflight.LOADER_LAYERS_ENABLE_VAR, ignored)
+
+    def test_scenario_lines_match_the_captured_format(self) -> None:
+        """The constructed scenarios below use the producer's real line shape."""
+        for line in (_CONTROL_TEXT + _CLEAN_TEXT).splitlines():
+            with self.subTest(line=line):
+                self.assertRegex(line, preflight._LAYER_LINE)
 
 
 class LoaderReportParsing(unittest.TestCase):
@@ -434,6 +593,64 @@ class VulkanLayerGate(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("no Vulkan loader probe found", "\n".join(lines))
 
+    def test_losing_the_driver_layers_fails_rather_than_passing_as_clean(self) -> None:
+        """An empty effective chain contains nothing unexpected -- and is a failure.
+
+        `~implicit~` without a working enable produces exactly this, and so
+        would a loader update that changes what the enable covers. Checking only
+        for the absence of third-party layers would call it a pass while every
+        GPU job silently moved to a driver stack nothing else uses.
+        """
+        ok, lines, _record = self._run(_CONTROL_TEXT, _NO_LAYERS_TEXT)
+        self.assertFalse(ok, "\n".join(lines))
+        text = "\n".join(lines)
+        self.assertIn("missing from the effective chain", text)
+        self.assertIn("VK_LAYER_NV_optimus", text)
+        self.assertIn("VK_LAYER_NV_present", text)
+
+    def test_losing_one_driver_layer_fails(self) -> None:
+        partial = "\n".join(
+            [
+                loader_line("instance", "VK_LAYER_NV_optimus", _NV_DLL),
+                loader_line("device", "VK_LAYER_NV_optimus", _NV_DLL),
+            ]
+        )
+        ok, lines, _record = self._run(_CONTROL_TEXT, partial)
+        self.assertFalse(ok)
+        self.assertIn("VK_LAYER_NV_present", "\n".join(lines))
+
+    def test_control_without_any_driver_layer_fails(self) -> None:
+        """Control saw layers, but none of the driver's own: nothing to check survival against."""
+        third_party_only = "\n".join(
+            [
+                loader_line("instance", "VK_LAYER_OBS_HOOK", _OBS_DLL),
+                loader_line("device", "VK_LAYER_OBS_HOOK", _OBS_DLL),
+            ]
+        )
+        ok, lines, _record = self._run(third_party_only, _NO_LAYERS_TEXT)
+        self.assertFalse(ok)
+        self.assertIn("none of them were the GPU driver's own", "\n".join(lines))
+
+    def test_elevated_notice_is_reported_next_to_the_verdict(self) -> None:
+        """Why a set variable did nothing, said in the failure a maintainer reads."""
+        elevated = _CONTROL_TEXT + "".join(
+            f"{preflight._LOADER_DEBUG_MARKER} INFO:           Loader is running with "
+            f"elevated permissions. Environment variable {name} will be ignored\n"
+            for name in (
+                preflight.LOADER_LAYERS_DISABLE_VAR,
+                preflight.LOADER_LAYERS_ENABLE_VAR,
+            )
+        )
+        ok, lines, record = self._run(_CONTROL_TEXT, elevated)
+        self.assertFalse(ok)
+        text = "\n".join(lines)
+        self.assertIn("because this process is elevated", text)
+        self.assertIn(preflight.LOADER_LAYERS_DISABLE_VAR, text)
+        self.assertEqual(
+            sorted(record["ignored_filter_env_vars"]),
+            sorted([preflight.LOADER_LAYERS_DISABLE_VAR, preflight.LOADER_LAYERS_ENABLE_VAR]),
+        )
+
 
 class PageHeapFlagReading(unittest.TestCase):
     def test_dword_and_string_forms_are_both_understood(self) -> None:
@@ -454,6 +671,110 @@ class PageHeapFlagReading(unittest.TestCase):
         self.assertTrue(preflight._is_ci_image("godot.windows.editor.dev.x86_64.exe"))
         self.assertTrue(preflight._is_ci_image("Godot_v4.7-stable_win64.exe"))
         self.assertFalse(preflight._is_ci_image("notepad.exe"))
+
+
+class _FakeWinreg:
+    """Enough of `winreg` to drive the IFEO sweep's error handling.
+
+    `errors` maps a registry step to the OSError it should raise, so a read that
+    fails can be told apart from a key that is not there -- which is the whole
+    distinction under test.
+    """
+
+    HKEY_LOCAL_MACHINE = object()
+
+    def __init__(self, images, errors=None):
+        self.images = list(images)
+        self.errors = errors or {}
+
+    @staticmethod
+    def _oserror(winerror: int) -> OSError:
+        exc = OSError(f"winerror {winerror}")
+        exc.winerror = winerror
+        return exc
+
+    def OpenKey(self, root, path):  # noqa: N802 - mirrors winreg's spelling
+        if path in self.errors:
+            raise self._oserror(self.errors[path])
+        return _FakeKey(self, path)
+
+    def EnumKey(self, key, index):  # noqa: N802
+        if index >= len(self.images):
+            raise self._oserror(preflight._ERROR_NO_MORE_ITEMS)
+        return self.images[index]
+
+    def QueryValueEx(self, key, value_name):  # noqa: N802
+        marker = f"{key.path}!{value_name}"
+        if marker in self.errors:
+            raise self._oserror(self.errors[marker])
+        raise self._oserror(preflight._ERROR_FILE_NOT_FOUND)
+
+
+class _FakeKey:
+    def __init__(self, reg, path):
+        self.reg = reg
+        self.path = path
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+class IfeoReadsFailClosed(unittest.TestCase):
+    """"Could not read" and "not set" must not produce the same verdict.
+
+    An access-denied IFEO view that still holds a page-heap entry looks exactly
+    like a clean machine to a sweep that swallows `OSError`, and Gate 2 would
+    report green on a runner it never managed to inspect.
+    """
+
+    def _scan(self, images, errors):
+        fake = _FakeWinreg(images, errors)
+        with mock.patch.dict(sys.modules, {"winreg": fake}):
+            return preflight.collect_ifeo_flags()
+
+    def test_unreadable_ci_image_is_an_error_not_an_empty_result(self) -> None:
+        scan = self._scan(
+            ["godot.windows.editor.dev.x86_64.exe"],
+            {"godot.windows.editor.dev.x86_64.exe": 5},  # ERROR_ACCESS_DENIED
+        )
+        self.assertIsNotNone(scan.error)
+        self.assertIn("godot", str(scan.error))
+        self.assertEqual(scan.entries, [])
+
+    def test_unreadable_value_on_a_ci_image_is_an_error(self) -> None:
+        image = "godot.windows.editor.dev.x86_64.exe"
+        scan = self._scan([image], {f"{image}!GlobalFlag": 5})
+        self.assertIsNotNone(scan.error)
+
+    def test_unreadable_foreign_image_is_recorded_not_gated(self) -> None:
+        """Several IFEO subkeys on this workstation are ACL'd against non-admins.
+
+        Failing on those would mean the preflight could only run as an
+        administrator -- a worse failure mode than the one being guarded -- so
+        an image CI never executes is reported as unread instead.
+        """
+        scan = self._scan(["DefenderAgentScan.exe"], {"DefenderAgentScan.exe": 5})
+        self.assertIsNone(scan.error)
+        # Once per registry view: the sweep walks the native and WOW6432Node views.
+        self.assertEqual(
+            [entry["image"] for entry in scan.unreadable],
+            ["DefenderAgentScan.exe"] * len(preflight._IFEO_PATHS),
+        )
+        self.assertEqual(
+            {entry["view"] for entry in scan.unreadable}, set(preflight._IFEO_PATHS)
+        )
+
+    def test_absent_view_is_not_an_error(self) -> None:
+        scan = self._scan([], {path: preflight._ERROR_FILE_NOT_FOUND for path in preflight._IFEO_PATHS})
+        self.assertIsNone(scan.error)
+        self.assertEqual(scan.entries, [])
+
+    def test_unreadable_view_is_an_error(self) -> None:
+        scan = self._scan([], {preflight._IFEO_PATHS[0]: 5})
+        self.assertIsNotNone(scan.error)
 
 
 if __name__ == "__main__":

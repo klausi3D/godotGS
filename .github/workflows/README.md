@@ -248,14 +248,49 @@ every GPU-pool job exports, at job level:
 
 ```yaml
 env:
+  # Loader-side filter. Works only in a non-elevated process — see below.
   VK_LOADER_LAYERS_DISABLE: '~implicit~'
   VK_LOADER_LAYERS_ENABLE: 'VK_LAYER_NV_optimus,VK_LAYER_NV_present'
+  # Each layer's own opt-out. This is what actually works on this runner.
+  DISABLE_VULKAN_OBS_CAPTURE: '1'          # VK_LAYER_OBS_HOOK
+  DISABLE_VULKAN_OW_OBS_CAPTURE: '1'       # VK_LAYER_OW_OBS_HOOK
+  DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'     # VK_LAYER_OW_OVERLAY
 ```
 
-`~implicit~` alone removes the GPU driver's own implicit layers too, so the two
-NVIDIA layers are re-enabled by name; on the loader installed on the runner
-(`1.4.341.0`) `VK_LOADER_LAYERS_ENABLE` takes precedence over
-`VK_LOADER_LAYERS_DISABLE`, which is what makes that combination work.
+#### Why two mechanisms, and why the obvious one is not enough
+
+Measured as the interactive user, `VK_LOADER_LAYERS_DISABLE=~implicit~` works
+exactly as documented: the loader inserts no implicit layers at all, and adding
+`VK_LOADER_LAYERS_ENABLE` brings back the two named NVIDIA layers, enable taking
+precedence over disable on loader `1.4.341.0`.
+
+**In the GPU jobs it does nothing.** The runner service
+(`actions.runner.klausi3D-godotGS.DESKTOP-NLG4NKL-godotgs`) is registered with
+`StartName: LocalSystem`, so every job step runs as `NT AUTHORITY\SYSTEM` at
+System integrity (`S-1-16-16384`). The Vulkan loader reads its own filter
+variables through `loader_secure_getenv`, which discards them in an elevated
+process — and says so, at `VK_LOADER_DEBUG=info`:
+
+```
+[Vulkan Loader] INFO: Loader is running with elevated permissions.
+                      Environment variable VK_LOADER_LAYERS_DISABLE will be ignored
+```
+
+Run 31603970211 on this runner probed the loader under five environments in the
+job context. `~implicit~`, `~implicit~` + enable, `~all~`, and no variables at
+all produced the **identical** chain; `VK_LAYER_PATH`, `VK_ICD_FILENAMES`,
+`VK_LOADER_DRIVERS_DISABLE` and eleven other variables are discarded the same
+way. `VK_LOADER_DEBUG` itself is read unprivileged, which is the only reason any
+of this is observable.
+
+What does work in that context is the per-layer opt-out each layer declares in
+its **own** manifest under `disable_environment` — the loader reads those with
+the ordinary getenv. In the same run, setting those three and nothing else
+reduced the System-integrity chain to the driver's own two layers. So both
+mechanisms are exported: the per-layer variables are what strips the layers
+here, and the loader filter remains for the layers nobody has enumerated and for
+any runner whose service is not elevated. Neither is trusted — the preflight
+below measures the result.
 
 Only three of the seven were ever actually in the chain. RenderDoc, both Steam
 layers and the EOS overlay declare an `enable_environment` key in their layer
@@ -267,8 +302,13 @@ precisely why the check below reads the loader rather than the registry.
 ### The preflight
 
 **Setting an environment variable is not evidence.** A value the loader does not
-understand is ignored in silence, and the job stays green with every layer still
-in place. So each GPU-pool job runs, before its build and before any GPU step:
+understand — or a correct value in a process the loader declines to read it in,
+which is exactly what happened above — is ignored in silence, and the job stays
+green with every layer still in place. That is not hypothetical: the first
+version of this change set the loader-filter variables, was verified
+interactively, and was caught by this preflight because it changed nothing in
+the job (#878). So each GPU-pool job runs, before its build and before any GPU
+step:
 
 ```yaml
 - name: Preflight - runner GPU environment (#875)
@@ -277,16 +317,22 @@ in place. So each GPU-pool job runs, before its build and before any GPU step:
 
 `tests/ci/preflight_runner_gpu_environment.py` never reads the environment variable
 and never reads the registry. It runs a probe process under
-`VK_LOADER_DEBUG=layer` and parses the loader's own `Insert instance layer` /
-`Inserted device layer` messages, twice: once with the disable variables
+`VK_LOADER_DEBUG=layer,info` and parses the loader's own `Insert instance layer` /
+`Inserted device layer` messages, twice: once with every disable variable
 stripped (the *control*), once with the job's environment as-is (the
 *effective*). It fails if the effective chain holds any layer that is not the
-GPU driver's own, naming the layer and the module the loader loaded for it — and
-it fails if the **control** run reports no layers at all, because a parser that
-has stopped matching and a machine with no layers would otherwise look
-identical. The same script asserts that the page-heap / Application Verifier
-IFEO flags found on this runner (#874) stay removed, and records GPU occupancy
-at job start.
+GPU driver's own, naming the layer and the module the loader loaded for it; it
+fails if any of the driver's own layers present in the control run went
+*missing* from the effective one, because an empty chain contains nothing
+unexpected while meaning the GPU jobs moved to a driver stack nothing else uses;
+and it fails if the **control** run reports no layers at all, because a parser
+that has stopped matching and a machine with no layers would otherwise look
+identical. It also reports any filter variable the loader says it discarded for
+elevation, so a control and effective run coming back identical arrives with its
+explanation attached. The same script asserts that the page-heap / Application
+Verifier IFEO flags found on this runner (#874) stay removed — failing closed on
+a registry read that does not succeed, rather than reading "could not look" as
+"not set" — and records GPU occupancy at job start.
 
 A layer this preflight reports is a finding to act on, not one to add to its
 allowlist. Widening `EXPECTED_LAYERS` asserts that a layer is part of the GPU
@@ -298,7 +344,8 @@ The GPU pool is derived, never listed here:
 `tests/ci/test_preflight_runner_gpu_environment.py` takes every self-hosted job
 in `.github/workflows/*.yml` carrying the `gpu` label — reusing the label-routing
 classification from `tests/ci/test_release_builds_runner_trust.py` — and requires
-each to export both variables at job level, to run the preflight, and to run it
+each to export both the loader-filter pair *and* every per-layer opt-out at job
+level, to run the preflight, and to run it
 before the build. An empty derived set fails the guard rather than passing. At
 the time of writing that set is `gpu-tests` and `gpu-harness`
 (`baseline_qa.yml`), `module-validation` and `openworld-proof-evidence`
