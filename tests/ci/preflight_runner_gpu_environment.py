@@ -546,6 +546,83 @@ def _flag_is_set(value: object) -> bool:
     return bool(value)
 
 
+#: `GlobalFlag` is not a boolean. It is an NT bitfield of ~30 unrelated debug
+#: flags, and only two of them are what this gate is about. Treating any nonzero
+#: value as page heap means a runner carrying, say, `FLG_SHOW_LDR_SNAPS` (0x2)
+#: or `FLG_STOP_ON_EXCEPTION` (0x1) fails every GPU job under a "full page heap"
+#: diagnosis that is simply untrue -- and a misleading gate is worse than none,
+#: because the next person disables it rather than reading it.
+#:
+#: `PageHeapFlags` and `VerifierDlls` keep the generic "present and nonzero"
+#: test: those values exist only to configure page heap / Application Verifier,
+#: so any set value there *is* this gate's business.
+FLG_APPLICATION_VERIFIER = 0x00000100  # gflags `vrf`
+FLG_HEAP_PAGE_ALLOCS = 0x02000000  # gflags `hpa` -- full page heap
+GLOBAL_FLAG_GATED_BITS = FLG_APPLICATION_VERIFIER | FLG_HEAP_PAGE_ALLOCS
+
+_GLOBAL_FLAG_BIT_NAMES = {
+    FLG_APPLICATION_VERIFIER: "FLG_APPLICATION_VERIFIER",
+    FLG_HEAP_PAGE_ALLOCS: "FLG_HEAP_PAGE_ALLOCS",
+}
+
+
+def _parse_flag_value(value: object) -> Tuple[int, bool]:
+    """`(number, parsed)` for a registry flag written as REG_DWORD or REG_SZ."""
+    if isinstance(value, bool):
+        return int(value), True
+    if isinstance(value, int):
+        return value, True
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return 0, True
+        try:
+            return int(text, 16 if text.lower().startswith("0x") else 10), True
+        except ValueError:
+            return 0, False
+    return 0, False
+
+
+class GlobalFlagVerdict(NamedTuple):
+    """What a `GlobalFlag` value actually turns on, split by what we gate on."""
+
+    #: True when the page-heap/verifier bits are set, or when the value could
+    #: not be parsed at all.
+    gating: bool
+    #: The gated bits that are set (0 when unparseable).
+    gated_bits: int
+    #: Bits that are set but are none of this gate's business. Reported, never
+    #: gated -- so "we saw a nonzero GlobalFlag" is still visible in the log.
+    other_bits: int
+    #: False when the value could not be read as a number.
+    parsed: bool
+
+
+def classify_global_flag(value: object) -> GlobalFlagVerdict:
+    """Split a `GlobalFlag` value into the bits this gate owns and the rest.
+
+    Fails closed on an unparseable value: we cannot show the page-heap bits are
+    clear, and "could not read it" must not be reported as "it is off".
+    """
+    number, parsed = _parse_flag_value(value)
+    if not parsed:
+        return GlobalFlagVerdict(True, 0, 0, False)
+    gated = number & GLOBAL_FLAG_GATED_BITS
+    return GlobalFlagVerdict(bool(gated), gated, number & ~GLOBAL_FLAG_GATED_BITS, True)
+
+
+def describe_global_flag_bits(bits: int) -> str:
+    named = [name for bit, name in sorted(_GLOBAL_FLAG_BIT_NAMES.items()) if bits & bit]
+    return ", ".join(named) if named else f"0x{bits:08x}"
+
+
+def _value_gates(value_name: str, data: object) -> bool:
+    """Does this IFEO value turn on page heap / Application Verifier?"""
+    if value_name == "GlobalFlag":
+        return classify_global_flag(data).gating
+    return _flag_is_set(data)
+
+
 #: `ERROR_FILE_NOT_FOUND` -- the only registry error that means "this is not
 #: configured". Everything else (access denied, the key marked for deletion, a
 #: corrupt hive) means "we could not look", which is not the same answer and
@@ -620,7 +697,7 @@ def collect_ifeo_flags() -> IfeoScan:
                         [], [], f"HKLM\\{path} could not be enumerated at index {index}: {exc}"
                     )
                 index += 1
-                flags, read_error = _read_ifeo_image_flags(winreg, root, image)
+                flags, noted, read_error = _read_ifeo_image_flags(winreg, root, image)
                 if read_error is not None:
                     if _is_ci_image(image):
                         return IfeoScan(
@@ -631,22 +708,30 @@ def collect_ifeo_flags() -> IfeoScan:
                         )
                     unreadable.append({"image": image, "view": path, "error": read_error})
                     continue
-                if flags:
-                    entries.append({"image": image, "view": path, "flags": flags})
+                if flags or noted:
+                    entries.append(
+                        {"image": image, "view": path, "flags": flags, "noted": noted}
+                    )
     return IfeoScan(entries, unreadable, None)
 
 
 def _read_ifeo_image_flags(
     winreg, root, image: str
-) -> Tuple[Dict[str, object], Optional[str]]:
-    """Page-heap/verifier values on one IFEO image, or why they could not be read."""
+) -> Tuple[Dict[str, object], Dict[str, object], Optional[str]]:
+    """Page-heap/verifier values on one IFEO image, or why they could not be read.
+
+    Returns `(gating, noted, error)`. `noted` carries values that are present and
+    nonzero but set none of the bits this gate owns -- recorded so the log never
+    implies we did not look, gated on so nothing fails under the wrong diagnosis.
+    """
     flags: Dict[str, object] = {}
+    noted: Dict[str, object] = {}
     try:
         image_key = winreg.OpenKey(root, image)
     except OSError as exc:
         if _registry_error_is_absence(exc):
-            return flags, None  # deleted between enumeration and open
-        return flags, str(exc)
+            return flags, noted, None  # deleted between enumeration and open
+        return flags, noted, str(exc)
     with image_key:
         for value_name in PAGE_HEAP_VALUE_NAMES:
             try:
@@ -654,10 +739,12 @@ def _read_ifeo_image_flags(
             except OSError as exc:
                 if _registry_error_is_absence(exc):
                     continue  # this image does not carry that value
-                return {}, f"{value_name}: {exc}"
-            if _flag_is_set(data):
+                return {}, {}, f"{value_name}: {exc}"
+            if _value_gates(value_name, data):
                 flags[value_name] = data
-    return flags, None
+            elif _flag_is_set(data):
+                noted[value_name] = data
+    return flags, noted, None
 
 
 def collect_systemwide_global_flag() -> Tuple[Optional[object], Optional[str]]:
@@ -704,7 +791,14 @@ def check_page_heap() -> Tuple[bool, List[str], Dict[str, object]]:
         lines.append(
             f"    unread (not an image CI executes): {skipped['image']} -- {skipped['error']}"
         )
-    ours = [entry for entry in entries if _is_ci_image(str(entry["image"]))]
+    # Only an entry with gating `flags` can fail the job. An entry that carries
+    # nothing but `noted` bits (a nonzero GlobalFlag that is not page heap and
+    # not Application Verifier) is printed and recorded, never gated.
+    ours = [
+        entry
+        for entry in entries
+        if _is_ci_image(str(entry["image"])) and entry["flags"]
+    ]
     others = [entry for entry in entries if entry not in ours]
     record["ci_images_flagged"] = ours
 
@@ -717,16 +811,34 @@ def check_page_heap() -> Tuple[bool, List[str], Dict[str, object]]:
         record["status"] = "unreadable"
         record["error"] = sys_error
         return False, lines, record
-    systemwide_set = systemwide is not None and _flag_is_set(systemwide)
+    systemwide_verdict = (
+        classify_global_flag(systemwide) if systemwide is not None else None
+    )
+    systemwide_set = systemwide_verdict is not None and systemwide_verdict.gating
+    if systemwide_verdict is not None:
+        record["systemwide_global_flag_gated_bits"] = systemwide_verdict.gated_bits
+        record["systemwide_global_flag_other_bits"] = systemwide_verdict.other_bits
+        if not systemwide_verdict.gating and systemwide_verdict.other_bits:
+            # Nonzero, but none of it ours. Say so rather than pass in silence:
+            # the reader must be able to tell "we looked and it was clean of page
+            # heap" from "there was nothing there".
+            lines.append(
+                f"  NOTE: system-wide GlobalFlag is {systemwide!r}, which sets "
+                f"0x{systemwide_verdict.other_bits:08x} but none of "
+                f"{describe_global_flag_bits(GLOBAL_FLAG_GATED_BITS)}. Not gated."
+            )
 
     lines.append(f"  IFEO images carrying page-heap/verifier values: {len(entries)}")
     lines.append(
         f"  of which CI images (matching {'/'.join(CI_IMAGE_NAME_MARKERS)}): {len(ours)}"
     )
     for entry in others:
-        # Recorded, not gated: this box is also a workstation, and page heap on
-        # unrelated software is not a variable in our measurements.
-        lines.append(f"    record-only: {entry['image']} -> {sorted(entry['flags'])}")
+        # Recorded, not gated, for two different reasons: page heap on unrelated
+        # software is not a variable in our measurements, and a CI image whose
+        # GlobalFlag sets only bits this gate does not own is not page heap.
+        shown = sorted(entry["flags"]) or sorted(entry.get("noted", {}))
+        why = "" if entry["flags"] else " (no page-heap/verifier bits)"
+        lines.append(f"    record-only: {entry['image']} -> {shown}{why}")
 
     if ours or systemwide_set:
         for entry in ours:
@@ -739,7 +851,10 @@ def check_page_heap() -> Tuple[bool, List[str], Dict[str, object]]:
         if systemwide_set:
             lines.append(
                 f"  FAIL: system-wide GlobalFlag is {systemwide!r} under "
-                f"HKLM\\{_SESSION_MANAGER_PATH}; it applies to every process on the runner."
+                f"HKLM\\{_SESSION_MANAGER_PATH}, setting "
+                f"{describe_global_flag_bits(systemwide_verdict.gated_bits)}"
+                f"{'' if systemwide_verdict.parsed else ' (value unparseable -- failing closed)'}"
+                "; it applies to every process on the runner."
             )
         record["status"] = "failed"
         return False, lines, record
@@ -794,10 +909,24 @@ def record_gpu_occupancy() -> Tuple[List[str], Dict[str, object]]:
         record["error"] = str(exc)
         return lines, record
     rows = [row.strip() for row in (completed.stdout or "").splitlines() if row.strip()]
-    record["status"] = "ok"
     record["returncode"] = completed.returncode
     record["query"] = _GPU_OCCUPANCY_QUERY
     record["rows"] = rows
+    if completed.returncode != 0:
+        # `nvidia-smi` on PATH is not the same as `nvidia-smi answered`. It exits
+        # nonzero when the driver is unavailable or the query is rejected, and
+        # recording that as "ok" would encode a *missing* occupancy measurement
+        # as a successful one -- exactly the reading this record exists to let a
+        # surprising result be checked against.
+        stderr = (completed.stderr or "").strip()
+        record["status"] = "error"
+        record["error"] = (
+            f"nvidia-smi exited {completed.returncode}" + (f": {stderr}" if stderr else "")
+        )
+        lines.append(f"  nvidia-smi failed: {record['error']}")
+        lines.append("  GPU occupancy not recorded.")
+        return lines, record
+    record["status"] = "ok"
     if not rows:
         lines.append(f"  nvidia-smi reported no GPU rows (exit {completed.returncode}).")
     for row in rows:

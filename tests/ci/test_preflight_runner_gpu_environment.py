@@ -50,6 +50,7 @@ Run directly (``python tests/ci/test_preflight_runner_gpu_environment.py``) or v
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -683,9 +684,12 @@ class _FakeWinreg:
 
     HKEY_LOCAL_MACHINE = object()
 
-    def __init__(self, images, errors=None):
+    def __init__(self, images, errors=None, values=None):
         self.images = list(images)
         self.errors = errors or {}
+        #: `"<image>!<value_name>" -> data`, so a sweep can be driven with real
+        #: registry contents and not only with failures.
+        self.values = values or {}
 
     @staticmethod
     def _oserror(winerror: int) -> OSError:
@@ -707,6 +711,8 @@ class _FakeWinreg:
         marker = f"{key.path}!{value_name}"
         if marker in self.errors:
             raise self._oserror(self.errors[marker])
+        if marker in self.values:
+            return self.values[marker], 4  # REG_DWORD
         raise self._oserror(preflight._ERROR_FILE_NOT_FOUND)
 
 
@@ -775,6 +781,128 @@ class IfeoReadsFailClosed(unittest.TestCase):
     def test_unreadable_view_is_an_error(self) -> None:
         scan = self._scan([], {preflight._IFEO_PATHS[0]: 5})
         self.assertIsNotNone(scan.error)
+
+
+class GlobalFlagIsABitfieldNotABoolean(unittest.TestCase):
+    """`GlobalFlag != 0` is not the same question as "is page heap on".
+
+    `GlobalFlag` carries ~30 unrelated NT debug flags. Gating on any nonzero
+    value means a runner with loader snaps set fails every GPU job under a
+    "full page heap" diagnosis that is false, and the next person to see it
+    deletes the gate rather than reading it.
+    """
+
+    def test_page_heap_and_verifier_bits_gate(self) -> None:
+        self.assertTrue(preflight.classify_global_flag(preflight.FLG_HEAP_PAGE_ALLOCS).gating)
+        self.assertTrue(
+            preflight.classify_global_flag(preflight.FLG_APPLICATION_VERIFIER).gating
+        )
+
+    def test_unrelated_bits_do_not_gate_but_are_reported(self) -> None:
+        # 0x1 FLG_STOP_ON_EXCEPTION, 0x2 FLG_SHOW_LDR_SNAPS -- neither is ours.
+        verdict = preflight.classify_global_flag(0x3)
+        self.assertFalse(verdict.gating)
+        self.assertEqual(verdict.gated_bits, 0)
+        self.assertEqual(verdict.other_bits, 0x3)
+
+    def test_mixed_value_gates_on_the_page_heap_bit_alone(self) -> None:
+        verdict = preflight.classify_global_flag(preflight.FLG_HEAP_PAGE_ALLOCS | 0x2)
+        self.assertTrue(verdict.gating)
+        self.assertEqual(verdict.gated_bits, preflight.FLG_HEAP_PAGE_ALLOCS)
+        self.assertEqual(verdict.other_bits, 0x2)
+
+    def test_string_forms_are_masked_too(self) -> None:
+        # gflags writes REG_SZ; the mask has to survive that spelling as well.
+        self.assertFalse(preflight.classify_global_flag("0x2").gating)
+        self.assertTrue(preflight.classify_global_flag("0x02000000").gating)
+        self.assertTrue(preflight.classify_global_flag("33554432").gating)
+
+    def test_unparseable_value_fails_closed(self) -> None:
+        verdict = preflight.classify_global_flag("not-a-number")
+        self.assertTrue(verdict.gating)
+        self.assertFalse(verdict.parsed)
+
+    def test_other_ifeo_values_keep_the_generic_nonzero_test(self) -> None:
+        # `PageHeapFlags`/`VerifierDlls` exist only to configure page heap, so
+        # any set value there is this gate's business -- unlike `GlobalFlag`.
+        self.assertFalse(preflight._value_gates("GlobalFlag", 0x2))
+        self.assertTrue(preflight._value_gates("PageHeapFlags", 0x2))
+        self.assertTrue(preflight._value_gates("VerifierDlls", "verifier.dll"))
+
+
+class PageHeapGateMasksGlobalFlag(unittest.TestCase):
+    """The masking has to hold end-to-end, not just in the classifier."""
+
+    CI_IMAGE = "godot.windows.editor.dev.x86_64.exe"
+
+    def _gate(self, values, systemwide=None):
+        fake = _FakeWinreg([self.CI_IMAGE], {}, values)
+        with mock.patch.dict(sys.modules, {"winreg": fake}), mock.patch.object(
+            preflight, "collect_systemwide_global_flag", return_value=(systemwide, None)
+        ), mock.patch.object(preflight.os, "name", "nt"):
+            return preflight.check_page_heap()
+
+    def test_ci_image_with_only_unrelated_bits_passes_and_is_reported(self) -> None:
+        passed, lines, record = self._gate({f"{self.CI_IMAGE}!GlobalFlag": 0x2})
+        self.assertTrue(passed, "\n".join(lines))
+        self.assertEqual(record["ci_images_flagged"], [])
+        # Reported, so "no page-heap flags" is never standing in for "not looked at".
+        self.assertTrue(
+            any("record-only" in line and self.CI_IMAGE in line for line in lines),
+            "\n".join(lines),
+        )
+
+    def test_ci_image_with_the_page_heap_bit_still_fails(self) -> None:
+        passed, lines, _ = self._gate(
+            {f"{self.CI_IMAGE}!GlobalFlag": preflight.FLG_HEAP_PAGE_ALLOCS}
+        )
+        self.assertFalse(passed)
+        self.assertTrue(any("FAIL" in line and self.CI_IMAGE in line for line in lines))
+
+    def test_ci_image_with_page_heap_flags_value_still_fails(self) -> None:
+        passed, _lines, _ = self._gate({f"{self.CI_IMAGE}!PageHeapFlags": 0x2})
+        self.assertFalse(passed)
+
+    def test_systemwide_unrelated_bits_pass_with_a_note(self) -> None:
+        passed, lines, _ = self._gate({}, systemwide=0x2)
+        self.assertTrue(passed, "\n".join(lines))
+        self.assertTrue(any("NOTE: system-wide GlobalFlag" in line for line in lines))
+
+    def test_systemwide_verifier_bit_fails_and_names_the_bit(self) -> None:
+        passed, lines, _ = self._gate({}, systemwide=preflight.FLG_APPLICATION_VERIFIER)
+        self.assertFalse(passed)
+        self.assertTrue(
+            any("FLG_APPLICATION_VERIFIER" in line for line in lines), "\n".join(lines)
+        )
+
+
+class GpuOccupancyRecordsFailure(unittest.TestCase):
+    """`nvidia-smi` on PATH is not the same fact as `nvidia-smi answered`."""
+
+    def _record(self, returncode, stdout="", stderr=""):
+        completed = subprocess.CompletedProcess(
+            args=["nvidia-smi"], returncode=returncode, stdout=stdout, stderr=stderr
+        )
+        with mock.patch.object(preflight.shutil, "which", return_value="nvidia-smi"), \
+                mock.patch.object(preflight.subprocess, "run", return_value=completed):
+            return preflight.record_gpu_occupancy()
+
+    def test_nonzero_exit_is_not_recorded_as_ok(self) -> None:
+        lines, record = self._record(9, stderr="Failed to initialize NVML")
+        self.assertEqual(record["status"], "error")
+        self.assertIn("Failed to initialize NVML", record["error"])
+        self.assertIn("9", record["error"])
+        self.assertTrue(any("nvidia-smi failed" in line for line in lines))
+
+    def test_successful_query_is_recorded_as_ok(self) -> None:
+        _lines, record = self._record(0, stdout="1 %, 900 MiB, 24576 MiB, RTX 3090\n")
+        self.assertEqual(record["status"], "ok")
+        self.assertEqual(record["rows"], ["1 %, 900 MiB, 24576 MiB, RTX 3090"])
+
+    def test_the_record_never_gates_the_job(self) -> None:
+        # It is a record, not a gate: a failed query must still not fail the run.
+        _lines, record = self._record(9)
+        self.assertEqual(record["status"], "error")
 
 
 if __name__ == "__main__":
