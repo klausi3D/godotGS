@@ -293,6 +293,37 @@ TEST_CASE("[GaussianSplatting] Your feature") {
 } // namespace TestGaussianSplatting
 ```
 
+### Waiting for asynchronous pipeline state (#879)
+
+Do **not** warm a renderer up with `for (int i = 0; i < N; i++) render_scene_instance(...)`
+and then assert. Streaming residency is produced by the async pack worker threads
+(`rendering/gaussian_splatting/streaming/async_pack_enabled`, default on); the
+frames only poll it. Measured in #879, first residency needs ~1.2 s of wall clock
+and the frame count needed *falls* as the frames are slowed — so a frame budget is
+a race against machine speed. A 16-frame warm-up covered 1.2 s on the old runner
+and 0.2 s once page heap was removed, and the module's only `has_rendered_content()`
+proof went red on unchanged C++.
+
+Use `gs_test_pump.h` instead:
+
+```cpp
+#include "gs_test_pump.h"
+
+const GSPumpOutcome warmup = gs_pump_until([&]() {
+    renderer->render_scene_instance(&render_data);
+    return renderer->has_rendered_content() && renderer->get_visible_splat_count() > 0;
+});
+if (!warmup.ready) {
+    FAIL("Instance pipeline never warmed up ", warmup.describe(),
+            " - visible_splat_count=", renderer->get_visible_splat_count());
+    return;
+}
+```
+
+It keeps pumping (it never sleeps — the frames are what drive the async work) and
+bounds only the wall clock. The deadline is a **failure**, never a silent skip: if
+readiness never arrives the case must `FAIL` and say what never became true.
+
 ## CI/CD Integration
 
 The tests are designed to run in CI/CD pipelines:

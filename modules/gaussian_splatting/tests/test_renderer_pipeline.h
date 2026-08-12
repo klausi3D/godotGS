@@ -8,6 +8,8 @@
 
 #include "test_macros.h"
 
+#include "gs_test_pump.h"
+
 #include <cstring>
 #include <cstddef>
 
@@ -1788,27 +1790,35 @@ TEST_CASE("[GaussianSplatting][SceneTree][RequiresGPU] World-backed RenderSceneI
     // Warm up streaming pipeline: atlas upload -> chunk loading -> instance
     // buffer creation -> cull -> sort may take many frames without the
     // resident-fallback path.
-    bool pipeline_ready = false;
+    //
+    // #879: the warm-up is bounded by WALL CLOCK, not by a frame count. Residency
+    // here is produced by the async pack worker threads, so these frames poll the
+    // work rather than perform it; measured, first residency needs ~1.2 s no
+    // matter how many frames pass in it. The previous fixed 16-frame budget was
+    // ~1.2 s under page heap and ~0.2 s without it, so this case failed the moment
+    // the runner stopped being slow (#875). The pump never sleeps - the frames are
+    // what drive the async work forward. See gs_test_pump.h.
     uint32_t visible_splat_count = 0;
-    for (int i = 0; i < 16; i++) {
+    const GSPumpOutcome warmup = gs_pump_until([&]() {
         renderer->render_scene_instance(&render_data);
         visible_splat_count = renderer->get_visible_splat_count();
-        if (renderer->has_instance_pipeline_buffers() && renderer->has_rendered_content() && visible_splat_count > 0) {
-            pipeline_ready = true;
-            break;
-        }
-    }
+        return renderer->has_instance_pipeline_buffers() && renderer->has_rendered_content() &&
+                visible_splat_count > 0;
+    });
 
     CHECK(renderer->has_rendered_content());
     CHECK(renderer->get_final_texture().is_valid());
 
-    if (!pipeline_ready) {
+    if (!warmup.ready) {
         // #690: the two CHECKs above are unconditional, so this branch cannot make the
         // case pass vacuously - it only skips the downstream detail assertions once the
         // headline proof has already failed.
-        MESSAGE("Instance pipeline did not fully warm up - "
-                "visible_splat_count=" << visible_splat_count
-                << " has_instance_pipeline_buffers=" << renderer->has_instance_pipeline_buffers());
+        // #879: the deadline expiring is itself a FAILURE, not "we waited, moving on" -
+        // say what never became true rather than leaving it to the CHECKs above.
+        FAIL("Instance pipeline never warmed up ", warmup.describe(),
+                " - visible_splat_count=", visible_splat_count,
+                " has_instance_pipeline_buffers=", renderer->has_instance_pipeline_buffers(),
+                " has_rendered_content=", renderer->has_rendered_content());
         renderer->commit_to_render_buffers(&render_data);
         gs_free_test_render_target(render_target);
         return;
@@ -2100,29 +2110,60 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] World static chunks keep streaming i
 
     bool streaming_system_ready = false;
     bool instance_buffers_ready = false;
-    for (int i = 0; i < 8; i++) {
+    // #879: wall-clock-bounded warm-up (see gs_test_pump.h). The per-frame
+    // telemetry invariants are ACCUMULATED rather than asserted once per frame:
+    // the pump is no longer capped at 8 iterations, so one CHECK per frame would
+    // report thousands of assertions. The first offending value is captured so a
+    // violation still names what it saw, and any violating frame still fails.
+    String warmup_global_cpu_route;
+    String warmup_no_data_route;
+    String warmup_untyped_reason;
+    String warmup_unskipped_cull_status;
+    const GSPumpOutcome warmup = gs_pump_until([&]() {
         renderer->render_scene_instance(&render_data);
         const Dictionary frame_stats = renderer->get_render_stats();
         const String frame_cull_route_uid = frame_stats.get("cull_route_uid", String());
-        CHECK_MESSAGE(frame_cull_route_uid != String(RenderRouteUID::GLOBAL_CULL_CPU),
-                "Expected streaming warmup not to fall through to the resident/global CPU path");
-        CHECK_MESSAGE(frame_cull_route_uid != String(RenderRouteUID::COMMON_SKIP_NO_DATA),
-                "Expected streaming warmup with gaussian data to stay on instance/not-ready telemetry, not no-data");
+        if (warmup_global_cpu_route.is_empty() &&
+                frame_cull_route_uid == String(RenderRouteUID::GLOBAL_CULL_CPU)) {
+            warmup_global_cpu_route = frame_cull_route_uid;
+        }
+        if (warmup_no_data_route.is_empty() &&
+                frame_cull_route_uid == String(RenderRouteUID::COMMON_SKIP_NO_DATA)) {
+            warmup_no_data_route = frame_cull_route_uid;
+        }
         if (frame_cull_route_uid.begins_with("COMMON.SKIP.STREAMING_NOT_READY.")) {
-            CHECK_MESSAGE(String(frame_stats.get("cull_route_reason", String())).begins_with("streaming_not_ready_"),
-                    "Expected typed streaming-not-ready frames to publish a typed cull_route_reason");
-            CHECK_MESSAGE(frame_stats.get("stage_cull_status", String()) == String("skipped"),
-                    "Expected streaming-not-ready warmup frames to publish skipped cull stage metrics");
+            const String frame_reason = frame_stats.get("cull_route_reason", String());
+            if (warmup_untyped_reason.is_empty() && !frame_reason.begins_with("streaming_not_ready_")) {
+                warmup_untyped_reason = frame_reason.is_empty() ? String("<empty>") : frame_reason;
+            }
+            const String frame_cull_status = frame_stats.get("stage_cull_status", String());
+            if (warmup_unskipped_cull_status.is_empty() && frame_cull_status != String("skipped")) {
+                warmup_unskipped_cull_status = frame_cull_status.is_empty() ? String("<empty>") : frame_cull_status;
+            }
         }
         streaming_system_ready = streaming_system_ready || renderer->test_has_current_streaming_system();
         instance_buffers_ready = instance_buffers_ready || renderer->has_instance_pipeline_buffers();
-        if (streaming_system_ready && instance_buffers_ready) {
-            break;
-        }
-    }
+        return streaming_system_ready && instance_buffers_ready;
+    });
+
+    CHECK_MESSAGE(warmup_global_cpu_route.is_empty(),
+            "Expected streaming warmup not to fall through to the resident/global CPU path");
+    CHECK_MESSAGE(warmup_no_data_route.is_empty(),
+            "Expected streaming warmup with gaussian data to stay on instance/not-ready telemetry, not no-data");
+    CHECK_MESSAGE(warmup_untyped_reason.is_empty(),
+            vformat("Expected typed streaming-not-ready frames to publish a typed cull_route_reason, saw '%s'",
+                    warmup_untyped_reason));
+    CHECK_MESSAGE(warmup_unskipped_cull_status.is_empty(),
+            vformat("Expected streaming-not-ready warmup frames to publish skipped cull stage metrics, saw '%s'",
+                    warmup_unskipped_cull_status));
 
     if (!streaming_system_ready) {
-        MESSAGE("Skipping test - streaming system unavailable");
+        // #879: the deadline is a failure, not a skip. Nothing about this case is
+        // environment-conditional at this point - the renderer and its device were
+        // already obtained above - so a streaming system that never appears is a
+        // real defect, not a reason to report a hollow pass.
+        FAIL("Streaming system never became current ", warmup.describe(),
+                " - has_instance_pipeline_buffers=", renderer->has_instance_pipeline_buffers());
         return;
     }
 
@@ -2148,21 +2189,21 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] World static chunks keep streaming i
     renderer->clear_instance_pipeline_buffers();
     CHECK_FALSE(renderer->has_instance_pipeline_buffers());
 
-    bool recovered_after_clear = false;
-    for (int i = 0; i < 6; i++) {
+    // #879: republishing the cleared buffers goes back through the same async
+    // streaming path, so bound this by wall clock too rather than by 6 frames.
+    const GSPumpOutcome recovery = gs_pump_until([&]() {
         renderer->render_scene_instance(&render_data);
         const GaussianRenderPipeline::InstancePipelineBuffers &recovered_buffers =
                 renderer->get_instance_pipeline_buffers();
-        if (renderer->has_instance_pipeline_buffers() &&
+        return renderer->has_instance_pipeline_buffers() &&
                 recovered_buffers.instance_buffer.is_valid() &&
-                recovered_buffers.instance_count > 0) {
-            recovered_after_clear = true;
-            break;
-        }
-    }
+                recovered_buffers.instance_count > 0;
+    });
 
-    CHECK_MESSAGE(recovered_after_clear,
-            "Expected streaming instance pipeline to recover a ready contract after clearing only the published buffers");
+    CHECK_MESSAGE(recovery.ready,
+            vformat("Expected streaming instance pipeline to recover a ready contract after clearing only the "
+                    "published buffers - gave up %s",
+                    recovery.describe()));
 
     renderer.unref();
 }
@@ -2425,17 +2466,18 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Resident-selected failure does not p
     render_data.scene_data = &scene_data;
     render_data.render_buffers = Ref<RenderSceneBuffersRD>();
 
-    bool streaming_system_ready = false;
-    for (int i = 0; i < 16; i++) {
+    // #879: wall-clock bound, not a frame budget - the streaming system becomes
+    // current off the back of asynchronous pack/upload work (see gs_test_pump.h).
+    const GSPumpOutcome streaming_warmup = gs_pump_until([&]() {
         renderer->render_scene_instance(&render_data);
-        if (renderer->test_has_current_streaming_system()) {
-            streaming_system_ready = true;
-            break;
-        }
-    }
+        return renderer->test_has_current_streaming_system();
+    });
 
-    if (!streaming_system_ready) {
-        MESSAGE("Skipping test - streaming system did not become ready");
+    if (!streaming_warmup.ready) {
+        // #879: a deadline expiry is a failure. The device and renderer are already
+        // in hand here, so this is not an environment skip.
+        FAIL("Streaming system never became current ", streaming_warmup.describe(),
+                " - the resident-vs-streaming pivot contract below would be unexercised");
         renderer.unref();
         return;
     }
@@ -2555,17 +2597,17 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Static layout fallback publishes typ
     render_data.scene_data = &scene_data;
     render_data.render_buffers = Ref<RenderSceneBuffersRD>();
 
-    bool streaming_system_ready = false;
-    for (int i = 0; i < 8; i++) {
+    // #879: wall-clock bound, not a frame budget (see gs_test_pump.h).
+    const GSPumpOutcome streaming_warmup = gs_pump_until([&]() {
         renderer->render_scene_instance(&render_data);
-        streaming_system_ready = streaming_system_ready || renderer->test_has_current_streaming_system();
-        if (streaming_system_ready) {
-            break;
-        }
-    }
+        return renderer->test_has_current_streaming_system();
+    });
 
-    if (!streaming_system_ready) {
-        MESSAGE("Skipping test - streaming system unavailable");
+    if (!streaming_warmup.ready) {
+        // #879: a deadline expiry is a failure, not a skip - without a streaming
+        // system the static-layout fallback diagnostics below are never produced.
+        FAIL("Streaming system never became current ", streaming_warmup.describe(),
+                " - the static-layout fallback diagnostics would be unexercised");
         renderer.unref();
         return;
     }
@@ -2727,7 +2769,11 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Streaming indices validate against b
 	bool counters_ready = false;
 	uint32_t streaming_capacity = 0;
 
-	for (int i = 0; i < 6; i++) {
+	// #879: wall-clock bound, not a frame budget - streaming residency (and hence a
+	// non-zero raster iteration count) is produced by async pack work that these
+	// frames only poll. See gs_test_pump.h.
+	int64_t raster_splats_iterated = 0;
+	const GSPumpOutcome streaming_warmup = gs_pump_until([&]() {
 		renderer->render_scene_instance(&render_data);
 		const GaussianSplatRenderer::StreamingState &streaming_state = renderer->get_streaming_state();
 		streaming_active = streaming_state.use_streamed_data &&
@@ -2736,25 +2782,28 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Streaming indices validate against b
 		streaming_capacity = streaming_state.streaming_gpu_total_capacity;
 
 		counters = renderer->get_binning_debug_counters();
-		const int64_t iterated = counters.get("raster_splats_iterated", int64_t(0));
-		if (streaming_active && iterated > 0) {
-			counters_ready = true;
-			break;
-		}
-	}
+		raster_splats_iterated = counters.get("raster_splats_iterated", int64_t(0));
+		return streaming_active && raster_splats_iterated > 0;
+	});
+	counters_ready = streaming_warmup.ready;
 
 	if (!streaming_active) {
-		MESSAGE("Skipping test - streaming buffer indices not active");
+		// #879: the deadline expiring is a failure, not a skip.
+		FAIL("Streaming buffer indices never became active ", streaming_warmup.describe(),
+				" - the OOB-reject assertion below would be unexercised");
 		renderer.unref();
 		return;
 	}
 	if (streaming_capacity <= total_gaussians) {
+		// NOT a deadline: this is a sizing property of the streaming buffer, not
+		// something more frames or more wall clock can change.
 		MESSAGE("Skipping test - streaming buffer capacity not larger than source data");
 		renderer.unref();
 		return;
 	}
 	if (!counters_ready) {
-		MESSAGE("Skipping test - binning debug counters unavailable");
+		FAIL("Binning debug counters never reported a rasterized splat ", streaming_warmup.describe(),
+				" - raster_splats_iterated=", raster_splats_iterated);
 		renderer.unref();
 		return;
 	}
@@ -2827,12 +2876,20 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] RenderSceneInstance supports forced 
     render_data.scene_data = &scene_data;
     render_data.render_buffers = Ref<RenderSceneBuffersRD>();
 
-    for (int i = 0; i < 2; i++) {
+    // #879: the fixed 2-frame warm-up becomes a pump whose FLOOR is those same two
+    // frames and whose ceiling is wall clock. A fixed lower bound is not the #879
+    // defect (it cannot lose a race on a faster machine), so nothing below gets
+    // weaker: the pump waits only for sort metrics to be PUBLISHED, never for the
+    // values it is about to assert, and it stops on the first frame that publishes
+    // them - so a regression that publishes cpu_fallback=false still fails here.
+    const GSPumpOutcome sort_warmup = gs_pump_until([&]() {
         renderer->render_scene_instance(&render_data);
-    }
+        return renderer->get_last_sort_metrics().has("cpu_fallback");
+    }, GS_PUMP_DEADLINE_USEC, 2);
 
     Dictionary sort_metrics = renderer->get_last_sort_metrics();
-    CHECK_MESSAGE(sort_metrics.has("cpu_fallback"), "Expected sort metrics to include cpu_fallback");
+    CHECK_MESSAGE(sort_metrics.has("cpu_fallback"),
+            vformat("Expected sort metrics to include cpu_fallback - gave up %s", sort_warmup.describe()));
     if (sort_metrics.has("cpu_fallback")) {
         CHECK_MESSAGE(bool(sort_metrics["cpu_fallback"]), "Expected CPU sorting fallback to be active");
     }
@@ -2854,12 +2911,18 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] RenderSceneInstance supports forced 
 	Error set_empty_err = renderer->set_gaussian_data(empty_data);
 	CHECK(set_empty_err == OK);
 	if (set_empty_err == OK) {
-		for (int i = 0; i < 2; i++) {
+		// #879: same shape as the warm-up above - a two-frame floor with a wall-clock
+		// ceiling. The pump condition is publication only, so the empty-frame values
+		// asserted below stay strict.
+		const GSPumpOutcome empty_sort_warmup = gs_pump_until([&]() {
 			renderer->render_scene_instance(&render_data);
-		}
+			return renderer->get_last_sort_metrics().has("cpu_fallback");
+		}, GS_PUMP_DEADLINE_USEC, 2);
 
 		Dictionary empty_sort_metrics = renderer->get_last_sort_metrics();
-		CHECK_MESSAGE(empty_sort_metrics.has("cpu_fallback"), "Expected sort metrics to include cpu_fallback for empty frame");
+		CHECK_MESSAGE(empty_sort_metrics.has("cpu_fallback"),
+				vformat("Expected sort metrics to include cpu_fallback for empty frame - gave up %s",
+						empty_sort_warmup.describe()));
 		if (empty_sort_metrics.has("cpu_fallback")) {
 			CHECK_MESSAGE(bool(empty_sort_metrics["cpu_fallback"]), "Expected CPU fallback to remain active for empty frame");
 		}
@@ -3333,6 +3396,14 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Production metrics contract and perf
     render_data.scene_data = &scene_data;
     render_data.render_buffers = Ref<RenderSceneBuffersRD>();
 
+    // #879: deliberately left as a fixed frame count. This loop polls NOTHING - it
+    // has no exit condition - and everything asserted below is published by
+    // get_render_stats() on every rendered frame (key presence, plus values derived
+    // from the tier preset and the device's reported VRAM capacity). Nothing here
+    // waits on asynchronous residency, so there is no wall-clock race to lose and
+    // no condition a pump could converge on. Converting it would mean inventing an
+    // exit condition out of the assertions themselves, which turns strict checks
+    // into "eventually" checks - a weakening, not a fix.
     for (int i = 0; i < 2; i++) {
         renderer->render_scene_instance(&render_data);
     }
@@ -3796,19 +3867,23 @@ TEST_CASE("[GaussianSplatting][RendererPipeline][SceneTree][RequiresGPU] Stage r
     // report raster actually succeeding. Only then is the injected failure below meaningful.
     // Note get_visible_splat_count() is NOT a usable precondition here -- it stays 0 on this
     // path even when raster runs -- so the stage status itself is the signal.
-    bool raster_ran = false;
-    for (int i = 0; i < 8 && !raster_ran; i++) {
+    // #879: bounded by wall clock rather than by 8 frames. The frames poll a stage
+    // status whose arrival depends on the cull readback schedule, so a fixed
+    // iteration budget is the same race that broke the streaming warm-up. See
+    // gs_test_pump.h.
+    const GSPumpOutcome raster_bootstrap = gs_pump_until([&]() {
         renderer->invalidate_cached_render();
         renderer->render_scene_instance(&render_data);
         const Dictionary bootstrap_stats = renderer->get_render_stats();
-        raster_ran = String(bootstrap_stats.get("stage_raster_status", String())) == String("success");
-    }
+        return String(bootstrap_stats.get("stage_raster_status", String())) == String("success");
+    });
     // Fail closed: if raster never ran, the cascade this case exists to pin is not being
     // exercised at all. Say so instead of asserting against a skipped stage -- and never let
     // this case go quietly hollow again (#694).
-    if (!raster_ran) {
-        FAIL("Raster stage never ran during bootstrap; the raster-failure cascade is not "
-             "being exercised");
+    if (!raster_bootstrap.ready) {
+        FAIL("Raster stage never ran during bootstrap ", raster_bootstrap.describe(),
+                "; the raster-failure cascade is not being exercised - last stage_raster_status='",
+                String(renderer->get_render_stats().get("stage_raster_status", String())), "'");
         return;
     }
 
@@ -3884,6 +3959,12 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Stage results report streaming not-r
     render_data.scene_data = &scene_data;
     render_data.render_buffers = Ref<RenderSceneBuffersRD>();
 
+    // #879: deliberately left as a fixed frame count, and it must stay one. This
+    // case asserts the pipeline is NOT ready (the streaming-not-ready skip route),
+    // so a pump that waited for readiness would invert its intent, and merely
+    // pumping LONGER would give the streaming system time to become ready and turn
+    // a correct run red. The fixed count here is not a race against a faster
+    // machine - it is the bound that keeps the case measuring a cold pipeline.
     for (int i = 0; i < 2; i++) {
         renderer->render_scene_instance(&render_data);
     }
@@ -3995,13 +4076,16 @@ TEST_CASE("[GaussianSplatting][RendererPipeline][SceneTree][RequiresGPU] Serial 
     // frame is blind and raster is skipped ("no visible splats"). Converging on the
     // observed stage status instead of a fixed frame count keeps this case correct
     // under both, and fail-closed if neither holds.
-    bool bootstrap_rastered = false;
-    for (int i = 0; i < 8 && !bootstrap_rastered; i++) {
+    // #879: bounded by wall clock, not by 8 frames - a fixed iteration budget on an
+    // asynchronously-satisfied condition is the race that broke the streaming
+    // warm-up when the runner got faster. See gs_test_pump.h.
+    const GSPumpOutcome raster_bootstrap = gs_pump_until([&]() {
         renderer->invalidate_cached_render();
         renderer->render_scene_instance(&render_data);
         const Dictionary bootstrap_stats = renderer->get_render_stats();
-        bootstrap_rastered = String(bootstrap_stats.get("stage_raster_status", String())) == String("success");
-    }
+        return String(bootstrap_stats.get("stage_raster_status", String())) == String("success");
+    });
+    const bool bootstrap_rastered = raster_bootstrap.ready;
     // Fail closed rather than skip. This is a REQUIRED batch: a mid-test `MESSAGE(...);
     // return;` leaves the case reported as PASSED having verified nothing, which is the
     // exact hollow-coverage failure mode #694 is repairing. On a device that got this far
@@ -4011,8 +4095,10 @@ TEST_CASE("[GaussianSplatting][RendererPipeline][SceneTree][RequiresGPU] Serial 
         return;
     }
     if (!bootstrap_rastered) {
-        FAIL("Raster stage never ran during bootstrap; the serial failure cascade would be "
-             "measured against a pipeline that was never live");
+        FAIL("Raster stage never ran during bootstrap ", raster_bootstrap.describe(),
+                "; the serial failure cascade would be measured against a pipeline that was never "
+                "live - last stage_raster_status='",
+                String(renderer->get_render_stats().get("stage_raster_status", String())), "'");
         return;
     }
     // NOTE: deliberately NOT gated on get_visible_splat_count() here. That counter stays 0

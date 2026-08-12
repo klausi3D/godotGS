@@ -23,6 +23,22 @@ Full command reference: `docs/reference/build-test-ci.md`.
   (`tests/runtime/prepare_synthetic_assets.py`); do not depend on wall-clock,
   network, or machine-specific paths. Real-scan visual validation is required for
   rendering-math changes but lives in its own lane, not the unit tests.
+- **Never wait for asynchronous state with a fixed iteration count.** A loop that
+  renders N frames and then asserts on something the *worker threads* produce is a
+  race against machine speed, not a budget — the frames only poll. #879 measured
+  it: first GPU residency needs ~1.2 s of wall clock and the frame count needed
+  *falls* as the frames are slowed down, so a 16-frame warm-up covered 1.2 s on a
+  slow runner and 0.2 s on a fast one, and the module's only
+  `has_rendered_content()` proof went red when the runner got faster. Pump until
+  the condition holds **or a wall-clock deadline expires**
+  (`modules/gaussian_splatting/tests/gs_test_pump.h`), and make the deadline a
+  `FAIL` that names what never became true. Two things make it a fix rather than a
+  slower version of the bug: it must keep pumping (never sleep — the frames are
+  what drive the async work), and the deadline must never be a silent pass. This
+  does not conflict with the deterministic-fixture rule above: a deadline changes
+  no passing run's verdict, whereas a frame budget makes the verdict depend on how
+  fast the machine is. A fixed *lower* bound is fine; a fixed *upper* bound is the
+  defect.
 - **`REQUIRE` does not abort in this build.** `disable_exceptions` defaults to
   `True`, so both `tests/SCsub` and `modules/gaussian_splatting/SCsub` define
   `DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS`; doctest's abort path
