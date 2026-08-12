@@ -152,7 +152,7 @@ if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.re
 ```
 
 - `baseline_qa.yml` — `gpu-tests`, `gpu-harness` (form above).
-- `gaussian_production_gates.yml` — `guards`, `module-validation` (form above).
+- `gaussian_production_gates.yml` — `guards`, `module-validation` (form above), and `openworld-proof-evidence`, which carries a *narrower* guard: `if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && ...)`, so it never runs on a pull request at all, fork or same-repo.
 - `gaussian_shader_validation.yml` — `shader-validation` (form above).
 - `release_ci_runtime.yml` — `runtime-release-ci` (form above). This workflow has no `pull_request` trigger (schedule + `workflow_dispatch` only), so the guard is trivially satisfied; it is carried explicitly to keep the self-hosted job fail-closed if a `pull_request` trigger is ever added.
 - `release_builds.yml` — self-hosted jobs `build_windows` (strict), `build_windows_export_template` (strict). The tag after each job is the guard form that job actually carries, and `tests/ci/test_release_builds_runner_trust.py` compares it against the workflow **per job**, so this line cannot go on claiming a form one of them has stopped using. **strict** = `if: github.event_name != 'pull_request'`, which skips **all** pull requests (fork *and* same-repo); **standard** = the repository-standard fork guard in the code block above, under which trusted same-repo PRs still run. Both Windows release lanes therefore run on `push`/tag/schedule/dispatch only. The deviation is *narrower* than the standard form, never wider — it cannot admit fork code — but it does cost pull-request coverage, and that cost is accepted deliberately rather than overlooked: Windows-only packaging steps (PowerShell staging, zip, checksum) are first exercised after the branch reaches `master`, or on the nightly/dispatch run. Two things bound the exposure. The Windows-specific *naming* logic — the part that actually broke (#825, the `.console.exe` wrapper name) — lives in `tests/ci/resolve_export_template.py` and is unit-covered on every PR by `tests/ci/test_resolve_export_template.py`; and `build_linux_export_template` is GitHub-hosted, runs on pull requests, and drives the same resolver and the same package/checksum/upload shape. Moving these jobs to the standard guard would place a multi-hour template build on the single shared self-hosted runner ahead of the GPU gates on every same-repo PR, so it is a maintainer trade-off rather than a default. Kept in sync with the workflow by `tests/ci/test_release_builds_runner_trust.py`, which derives the self-hosted job set from `release_builds.yml` — by label routing, so a job that reaches the persistent runner through its custom labels alone (`runs-on: [Windows, X64, godotgs]`, no `self-hosted` label) is caught too — and fails if a job here is undocumented, documented but nonexistent, carrying neither accepted guard form, or carrying a different form than the tag above claims.
@@ -222,6 +222,96 @@ change focused on the fork-`pull_request` boundary.
 
 Any change that relaxes this boundary must be documented here and approved by a
 maintainer (see the project governance docs under `docs/governance/`).
+
+## Self-hosted GPU runner environment
+
+The persistent GPU runner is also the maintainer's workstation. That is an
+accepted arrangement, but it means the machine carries developer and consumer
+software whose settings silently change what every GPU gate measures. Two such
+settings have already produced misleading results (#874, #875), so they are now
+**controlled per job and verified at runtime** rather than left invisible.
+
+### Third-party Vulkan implicit layers
+
+Seven third-party implicit layers are registered machine-wide under
+`HKLM\SOFTWARE\Khronos\Vulkan\ImplicitLayers` (and the `WOW6432Node` view):
+RenderDoc, the Steam overlay, Steam Fossilize, the Epic Online Services overlay,
+the OBS studio hook, and Overwolf's overlay and graphics hooks. A layer in the
+chain changes allocation behaviour, command-buffer handling, pipeline creation
+and timing even when it is not capturing, and one of them is already in our
+logs: PR #852's run 31487454038 shows the loader failing to resolve
+`vkGetInstanceProcAddr` in Overwolf's `ow-graphics-vulkan.dll` while building a
+device chain, in the same job that then could not create a `RenderingDevice`.
+
+The registry is not CI's to edit and the software is not CI's to uninstall, so
+every GPU-pool job exports, at job level:
+
+```yaml
+env:
+  VK_LOADER_LAYERS_DISABLE: '~implicit~'
+  VK_LOADER_LAYERS_ENABLE: 'VK_LAYER_NV_optimus,VK_LAYER_NV_present'
+```
+
+`~implicit~` alone removes the GPU driver's own implicit layers too, so the two
+NVIDIA layers are re-enabled by name; on the loader installed on the runner
+(`1.4.341.0`) `VK_LOADER_LAYERS_ENABLE` takes precedence over
+`VK_LOADER_LAYERS_DISABLE`, which is what makes that combination work.
+
+Only three of the seven were ever actually in the chain. RenderDoc, both Steam
+layers and the EOS overlay declare an `enable_environment` key in their layer
+JSON, so the loader skips them unless their opt-in variable is set; the OBS hook
+and Overwolf's two layers declare only a `disable_environment` and inject
+unconditionally. The registry therefore over-reports the problem, which is
+precisely why the check below reads the loader rather than the registry.
+
+### The preflight
+
+**Setting an environment variable is not evidence.** A value the loader does not
+understand is ignored in silence, and the job stays green with every layer still
+in place. So each GPU-pool job runs, before its build and before any GPU step:
+
+```yaml
+- name: Preflight - runner GPU environment (#875)
+  run: python tests/ci/preflight_runner_gpu_environment.py
+```
+
+`tests/ci/preflight_runner_gpu_environment.py` never reads the environment variable
+and never reads the registry. It runs a probe process under
+`VK_LOADER_DEBUG=layer` and parses the loader's own `Insert instance layer` /
+`Inserted device layer` messages, twice: once with the disable variables
+stripped (the *control*), once with the job's environment as-is (the
+*effective*). It fails if the effective chain holds any layer that is not the
+GPU driver's own, naming the layer and the module the loader loaded for it — and
+it fails if the **control** run reports no layers at all, because a parser that
+has stopped matching and a machine with no layers would otherwise look
+identical. The same script asserts that the page-heap / Application Verifier
+IFEO flags found on this runner (#874) stay removed, and records GPU occupancy
+at job start.
+
+A layer this preflight reports is a finding to act on, not one to add to its
+allowlist. Widening `EXPECTED_LAYERS` asserts that a layer is part of the GPU
+driver and cannot be removed — a claim about the machine that a maintainer makes.
+
+### Which jobs
+
+The GPU pool is derived, never listed here:
+`tests/ci/test_preflight_runner_gpu_environment.py` takes every self-hosted job
+in `.github/workflows/*.yml` carrying the `gpu` label — reusing the label-routing
+classification from `tests/ci/test_release_builds_runner_trust.py` — and requires
+each to export both variables at job level, to run the preflight, and to run it
+before the build. An empty derived set fails the guard rather than passing. At
+the time of writing that set is `gpu-tests` and `gpu-harness`
+(`baseline_qa.yml`), `module-validation` and `openworld-proof-evidence`
+(`gaussian_production_gates.yml`), and `runtime-release-ci`
+(`release_ci_runtime.yml`).
+
+The self-hosted jobs *without* the `gpu` label — `guards`
+(`gaussian_production_gates.yml`), `shader-validation`
+(`gaussian_shader_validation.yml`), `build_windows` and
+`build_windows_export_template` (`release_builds.yml`) — run on the same
+physical machine but do not create a Vulkan device, so they are deliberately out
+of scope. If one of them grows a GPU step it must also gain the `gpu` label,
+which brings it into the derived set automatically.
 
 ## Scheduled Triggers
 

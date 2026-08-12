@@ -71,6 +71,15 @@ jobs:
     runs-on: [self-hosted, Windows, X64, godotgs, gpu]
     timeout-minutes: 120
 
+    # #875 -- keep third-party Vulkan implicit layers out of this job's GPU
+    # processes. Rationale and the measured loader behaviour: the "Self-hosted
+    # GPU runner environment" section of .github/workflows/README.md. Setting
+    # these proves nothing on its own, which is why the preflight step below
+    # reads back the chain the loader actually built.
+    env:
+      VK_LOADER_LAYERS_DISABLE: '~implicit~'
+      VK_LOADER_LAYERS_ENABLE: 'VK_LAYER_NV_optimus,VK_LAYER_NV_present'
+
     defaults:
       run:
         working-directory: repo
@@ -93,6 +102,11 @@ jobs:
     - name: Verify Python
       run: |
         python --version
+
+    # Must precede the build and every GPU step: it decides whether anything
+    # measured afterwards is a measurement of the renderer (#875).
+    - name: Preflight - runner GPU environment (#875)
+      run: python tests/ci/preflight_runner_gpu_environment.py
 
     - name: Set up MSVC
       uses: ilammy/msvc-dev-cmd@v1
@@ -296,6 +310,12 @@ jobs:
       contents: write
       pull-requests: write
 
+    # #875 -- see the gpu-tests job above and the "Self-hosted GPU runner
+    # environment" section of .github/workflows/README.md.
+    env:
+      VK_LOADER_LAYERS_DISABLE: '~implicit~'
+      VK_LOADER_LAYERS_ENABLE: 'VK_LAYER_NV_optimus,VK_LAYER_NV_present'
+
     defaults:
       run:
         working-directory: repo
@@ -497,6 +517,13 @@ jobs:
       - name: Verify Python
         if: steps.path_filter.outputs.run_harness == 'true'
         run: python --version
+
+      # Must precede the build and every GPU step (#875). Carries the same
+      # path-filter condition as the rest of the job: when the harness does not
+      # run there is no GPU measurement for it to protect.
+      - name: Preflight - runner GPU environment (#875)
+        if: steps.path_filter.outputs.run_harness == 'true'
+        run: python tests/ci/preflight_runner_gpu_environment.py
 
       - name: Set up MSVC
         if: steps.path_filter.outputs.run_harness == 'true'

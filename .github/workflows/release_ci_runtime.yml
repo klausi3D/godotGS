@@ -40,6 +40,14 @@ jobs:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: [self-hosted, Windows, X64, godotgs, gpu]
     timeout-minutes: 120
+    # #875 -- keep third-party Vulkan implicit layers out of this job's GPU
+    # processes. Rationale and the measured loader behaviour: the "Self-hosted
+    # GPU runner environment" section of .github/workflows/README.md. Setting
+    # these proves nothing on its own, which is why the preflight step below
+    # reads back the chain the loader actually built.
+    env:
+      VK_LOADER_LAYERS_DISABLE: '~implicit~'
+      VK_LOADER_LAYERS_ENABLE: 'VK_LAYER_NV_optimus,VK_LAYER_NV_present'
     defaults:
       run:
         working-directory: repo
@@ -62,6 +70,12 @@ jobs:
         shell: pwsh
         run: |
           python --version
+
+      # Must precede the build and every GPU step: it decides whether anything
+      # measured afterwards is a measurement of the renderer (#875).
+      - name: Preflight - runner GPU environment (#875)
+        shell: pwsh
+        run: python tests/ci/preflight_runner_gpu_environment.py
 
       - name: Set up MSVC build env
         uses: ilammy/msvc-dev-cmd@v1
