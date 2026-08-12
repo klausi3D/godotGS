@@ -35,6 +35,10 @@
 #include "core/templates/local_vector.h"
 #include "servers/rendering/rendering_device.h"
 #include "gpu_sorting_constants.h"
+// #586 round-9: GaussianSplatting::SorterBuildSignature, returned by
+// GPUSorterFactory::capture_radix_build_signature() below. Host-only header (error_list.h
+// plus <stdint.h>), so it adds no rendering dependency here.
+#include "sort_fallback_policy.h"
 #include <atomic>
 #include <chrono>
 
@@ -568,6 +572,21 @@ public:
     static PolicyDecision evaluate_auto_policy(uint32_t element_count, const SortKeyConfig &key_config,
             const PolicyProbe &radix_probe, const PolicyProbe &bitonic_probe, const PolicyProbe &onesweep_probe,
             bool require_indirect, bool require_64bit_keys);
+
+    // #586 round-9: the live-configuration inputs a RADIX sorter build reads.
+    //
+    // A CREATION_FAILED_DETERMINISTIC latch is latched against THESE VALUES, not against the
+    // process: a shader that will not compile for one (radix, workgroup, key) configuration
+    // says nothing about another, so TileGlobalSortResources::ensure_resources() drops the
+    // latch the first time this signature differs from the one recorded when it was taken.
+    //
+    // Implemented in gpu_sorter.cpp beside the reads themselves, and NOT hand-maintained
+    // against a remembered list of "capability-affecting settings":
+    // tests/ci/check_sorter_build_signature_parity.py derives every g_gpu_sorting_config
+    // field gpu_sorter.cpp reads and fails if one of them is missing here. Over-inclusion is
+    // the safe direction (it can only cost one extra build attempt per configuration edit);
+    // omission is the defect, because it silently makes a corrected setting un-actionable.
+    static GaussianSplatting::SorterBuildSignature capture_radix_build_signature(const SortKeyConfig &p_key_config);
 
     // Capability probes - query algorithm capabilities without instantiation
     static bool probe_is_supported(SortingAlgorithm algorithm, RenderingDevice *rd);

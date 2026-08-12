@@ -419,13 +419,99 @@ static inline bool sorter_permanent_failure_is_reprobable(SorterCreationFailure 
 		// probe_supports_indirect() passes — so re-probing would answer true again on the very
 		// next ensure_resources() call and lift the latch immediately. That is not a re-probe,
 		// it is a per-call create_sorter() loop with extra steps: precisely the storm this
-		// classification was added to stop. The escape hatch for this cause is reset_state(),
-		// not a query.
+		// classification was added to stop. The escape hatch for this cause is a BUILD-INPUT
+		// CHANGE (sorter_permanent_failure_is_config_latched below), not a query.
 		case SorterCreationFailure::CREATION_FAILED_DETERMINISTIC:
 			return false;
 	}
 	// Unknown cause: do not re-probe. Fail-closed here means "keep the latch", which can
 	// never produce a retry storm on a device that cannot sort.
+	return false;
+}
+
+// ---------------------------------------------------------------------------
+// The deterministic latch must not outlive the CONFIGURATION that produced it (#586 round-9)
+// ---------------------------------------------------------------------------
+//
+// Round-9 review finding (Codex, P2). Round 2 built the escape hatch for the capability
+// latch: correcting a nonportable radix configuration re-probes and restores sorted output.
+// Round 7's new CREATION_FAILED_DETERMINISTIC latch does not participate in it, and the
+// consequence is worse than "no escape hatch": in
+// TileGlobalSortResources::ensure_resources() the deterministic latch makes
+// `sorter_retry_due` false, and the branch that then runs
+//
+//     if (!sorter_available && !sorter_retry_due) {
+//         if (capacity < attempt_elements || key_config_changed) {
+//             key_config = desired_key_config;   // <- the change signal is CONSUMED
+//
+// copies the corrected key configuration into the cached state WITHOUT attempting a build.
+// So the user's fix is not merely ignored, it is swallowed: `key_config_changed` is false
+// from the next call on, and every later frame stays rejected until renderer teardown.
+//
+// Why this is not a re-probe. There is no cheap query that re-decides a shader-compile
+// failure — re-testing it costs a full create_sorter(), which is why round 7 made it
+// non-re-probable, and that reasoning is still correct. What changes here is the TRIGGER:
+// not "ask the same question again on a timer", but "the inputs that decided the answer are
+// no longer the inputs we answered for". A build that failed for (radix_bits=8,
+// workgroup_size=512) says nothing about (radix_bits=4, workgroup_size=256), so the latch
+// simply does not apply to the new configuration and must be dropped — exactly once, on the
+// call where the change is first observed. A configuration that keeps failing re-latches
+// against its OWN inputs, so a user who changes nothing pays nothing and a user who changes
+// something pays one create_sorter() per change. That is bounded by the number of discrete
+// configuration edits, not by time, which is what separates it from the retry storm.
+//
+// Capacity is deliberately NOT an input: `attempt_elements` moves with the visible splat
+// count on essentially every frame, so admitting it would turn "a configuration change" into
+// "any frame", i.e. the per-call create_sorter() loop with extra steps.
+struct SorterBuildSignature {
+	// Read by RadixSort::is_supported() and RadixSort::initialize(); both feed the generated
+	// GLSL (radix width, workgroup size and the shared-memory footprint derived from them).
+	uint32_t radix_bits = 0;
+	uint32_t workgroup_size = 0;
+	// _subgroup_prefix_forced_off(): selects the subgroup preamble compiled into the prefix
+	// kernels, so it changes the SOURCE glslang is asked to compile.
+	uint8_t subgroup_prefix_mode = 0;
+	// The key layout the variant is generated for (32- vs 64-bit key type, tie-breaker).
+	uint32_t key_bits = 0;
+	uint32_t tile_bits = 0;
+	uint32_t depth_bits = 0;
+	bool enable_tie_breaker = false;
+
+	bool operator==(const SorterBuildSignature &p_other) const {
+		return radix_bits == p_other.radix_bits &&
+				workgroup_size == p_other.workgroup_size &&
+				subgroup_prefix_mode == p_other.subgroup_prefix_mode &&
+				key_bits == p_other.key_bits &&
+				tile_bits == p_other.tile_bits &&
+				depth_bits == p_other.depth_bits &&
+				enable_tie_breaker == p_other.enable_tie_breaker;
+	}
+	bool operator!=(const SorterBuildSignature &p_other) const { return !(*this == p_other); }
+};
+
+// Which permanent causes are latched against a BUILD SIGNATURE, i.e. released when the
+// inputs that produced them change. No default label, so a new cause must choose.
+static inline bool sorter_permanent_failure_is_config_latched(SorterCreationFailure p_failure) {
+	switch (p_failure) {
+		// THE round-9 cause. A shader that will not compile for THIS (radix, workgroup, key)
+		// configuration says nothing about a different one.
+		case SorterCreationFailure::CREATION_FAILED_DETERMINISTIC:
+			return true;
+		// Already released, and released more cheaply, by the round-2 re-probe: the probe
+		// reads the same configuration and answers for free, so routing this cause through a
+		// signature compare as well would only add a second mechanism over one state.
+		case SorterCreationFailure::INDIRECT_CAPABILITY_UNSUPPORTED:
+			return false;
+		// RadixSort::supports_indirect() is a literal `true`. No configuration reachable from
+		// project settings changes it, so a signature change is not evidence about it.
+		case SorterCreationFailure::CREATED_SORTER_LACKS_INDIRECT:
+			return false;
+		// Not permanent at all; the transient backoff already re-attempts creation.
+		case SorterCreationFailure::CREATION_FAILED:
+			return false;
+	}
+	// Unknown cause: keep the latch. Fail-closed here costs recoverability until renderer
+	// teardown and can never produce a build storm.
 	return false;
 }
 

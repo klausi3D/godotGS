@@ -138,14 +138,71 @@ static const char *_sort_preflight_error_name(SortPreflightError p_error) {
     }
 }
 
-// Static helper function for creating compute shaders with new API
-static RID create_compute_shader_from_spirv(RenderingDevice *rd, const String &source) {
-    ERR_FAIL_NULL_V(rd, RID());
+// Build a compute shader from GLSL source, and report WHICH LEG failed (#586 round-9).
+//
+// Round-9 review finding (Codex, P1). Round 7 mapped "this helper returned an invalid RID"
+// to ERR_COMPILATION_FAILED, which classify_sorter_creation_error() latches permanently. But
+// the helper is not one operation, and its legs do not fail for the same reasons. What the
+// API can actually distinguish here, read from the callees rather than assumed:
+//
+//   1. shader_compile_spirv_from_source() — glslang. A pure CPU function of (source, the
+//      driver's target shader-language/SPIR-V version); it touches no device object and
+//      allocates nothing on the GPU. Empty result == the generated GLSL does not compile for
+//      this driver, identically on every attempt. DETERMINISTIC -> ERR_COMPILATION_FAILED.
+//   2. shader_compile_binary_from_spirv() — SPIR-V reflection plus the driver's shader
+//      container (servers/rendering/rendering_device.cpp: reflect_spirv() +
+//      RenderingShaderContainer::set_code_from_spirv()). Also pure CPU, also no device
+//      object. DETERMINISTIC -> ERR_COMPILATION_FAILED. In practice unreachable once leg 1
+//      succeeded, but it is separable, so it is separated rather than assumed away.
+//   3. shader_create_from_bytecode() — the DRIVER leg, ending in vkCreateShaderModule().
+//      This one is NOT distinguishable. RenderingDeviceDriverVulkan::shader_create_from_container()
+//      formats the VkResult into an error string and returns ShaderID(0) for every failure
+//      (drivers/vulkan/rendering_device_driver_vulkan.cpp), and RenderingDevice turns that
+//      into a bare RID(). So VK_ERROR_OUT_OF_HOST_MEMORY, VK_ERROR_OUT_OF_DEVICE_MEMORY and
+//      a genuine driver rejection of the module arrive here as the same invalid RID with no
+//      code, no flag and no way to re-ask.
+//
+// Leg 3 is therefore a choice under uncertainty, and the two costs are not symmetric:
+//
+//   * calling it DETERMINISTIC (round 7) latches the sorter off for the rest of the
+//     renderer's life over one momentary host/device allocation failure. Every translucent
+//     global-composite frame is then REJECTED forever — the permanent black screen rounds 1
+//     and 2 exist to prevent, re-entered through a different door.
+//   * calling it RETRYABLE costs, on a device that genuinely cannot build the module, one
+//     create_sorter() per SORTER_RETRY_MAX_DELAY_CALLS (~1.7-5 s at 60 fps) — bounded work,
+//     rate-limited by a backoff that is already saturated, in a state where the renderer is
+//     publishing nothing either way.
+//
+// So leg 3 reports ERR_CANT_CREATE, the allocation/retryable class. Round 7's split is NOT
+// reverted: the deterministic class keeps both source-compilation legs above and the
+// ERR_UNAVAILABLE capability answers, which are exactly the causes a CONFIGURATION change
+// can fix — and #586 round-9 makes such a change lift the latch (see
+// GaussianSplatting::sorter_permanent_failure_is_config_latched).
+//
+// `r_error` is always written when non-null: OK on success, otherwise the leg's class.
+// tests/ci/check_sorter_error_class_parity.py pins that the RadixSort call sites propagate
+// exactly this value rather than re-deciding it.
+static RID create_compute_shader_from_spirv(RenderingDevice *rd, const String &source, Error *r_error = nullptr) {
+    if (r_error) {
+        *r_error = OK;
+    }
+    if (rd == nullptr) {
+        // A null device is a caller bug, not a resource shortage: it reproduces every time.
+        if (r_error) {
+            *r_error = ERR_COMPILATION_FAILED;
+        }
+        ERR_FAIL_NULL_V(rd, RID());
+    }
 
     String compile_error;
     Vector<uint8_t> spirv_data = rd->shader_compile_spirv_from_source(
             RD::SHADER_STAGE_COMPUTE, source, RenderingDevice::SHADER_LANGUAGE_GLSL, &compile_error);
-    ERR_FAIL_COND_V_MSG(spirv_data.is_empty(), RID(), compile_error.is_empty() ? "Failed to compile compute shader source" : compile_error);
+    if (spirv_data.is_empty()) {
+        if (r_error) {
+            *r_error = ERR_COMPILATION_FAILED;
+        }
+        ERR_FAIL_V_MSG(RID(), compile_error.is_empty() ? "Failed to compile compute shader source" : compile_error);
+    }
 
     // Create ShaderStageSPIRVData vector for new API
     Vector<RenderingDevice::ShaderStageSPIRVData> spirv_stages;
@@ -154,7 +211,25 @@ static RID create_compute_shader_from_spirv(RenderingDevice *rd, const String &s
     stage_data.spirv = spirv_data;
     spirv_stages.push_back(stage_data);
 
-    return rd->shader_create_from_spirv(spirv_stages);
+    // Leg 2, split out of RenderingDevice::shader_create_from_spirv() (which is exactly
+    // these two calls) so the deterministic half does not inherit leg 3's uncertainty.
+    Vector<uint8_t> shader_binary = rd->shader_compile_binary_from_spirv(spirv_stages);
+    if (shader_binary.is_empty()) {
+        if (r_error) {
+            *r_error = ERR_COMPILATION_FAILED;
+        }
+        ERR_FAIL_V_MSG(RID(), "Failed to reflect/compile SPIR-V into a shader container");
+    }
+
+    // Leg 3: the driver. An allocation failure and a rejected module are the same RID here.
+    RID shader = rd->shader_create_from_bytecode(shader_binary);
+    if (!shader.is_valid()) {
+        if (r_error) {
+            *r_error = ERR_CANT_CREATE;
+        }
+        ERR_FAIL_V_MSG(RID(), "Failed to create the compute shader object (driver reported no shader; an allocation failure and a rejected module are indistinguishable here)");
+    }
+    return shader;
 }
 
 // #764: sort-time command/resource device-coherency invariant (Option b).
@@ -1900,9 +1975,10 @@ void main() {
             key_read_hist,
             histogram_update);
 
-    RID histogram_shader_file = create_compute_shader_from_spirv(device, histogram_source);
+    Error histogram_shader_error = OK;
+    RID histogram_shader_file = create_compute_shader_from_spirv(device, histogram_source, &histogram_shader_error);
     if (!histogram_shader_file.is_valid()) {
-        return ERR_COMPILATION_FAILED;
+        return histogram_shader_error;
     }
     variant.histogram_shader = histogram_shader_file;
 
@@ -1967,10 +2043,11 @@ void main() {
             variant.radix_size,
             workgroup_size);
 
-    RID wg_prefix_shader_file = create_compute_shader_from_spirv(device, wg_prefix_source);
+    Error wg_prefix_shader_error = OK;
+    RID wg_prefix_shader_file = create_compute_shader_from_spirv(device, wg_prefix_source, &wg_prefix_shader_error);
     if (!wg_prefix_shader_file.is_valid()) {
         cleanup_variant(variant);
-        return ERR_COMPILATION_FAILED;
+        return wg_prefix_shader_error;
     }
     variant.wg_prefix_shader = wg_prefix_shader_file;
 
@@ -2009,10 +2086,11 @@ void main() {
         )",
             variant.radix_size);
 
-    RID bin_prefix_shader_file = create_compute_shader_from_spirv(device, bin_prefix_source);
+    Error bin_prefix_shader_error = OK;
+    RID bin_prefix_shader_file = create_compute_shader_from_spirv(device, bin_prefix_source, &bin_prefix_shader_error);
     if (!bin_prefix_shader_file.is_valid()) {
         cleanup_variant(variant);
-        return ERR_COMPILATION_FAILED;
+        return bin_prefix_shader_error;
     }
     variant.bin_prefix_shader = bin_prefix_shader_file;
 
@@ -2151,35 +2229,36 @@ void main() {
                     : String("        uint key = 0u;\n        uint value = 0u;\n        uint radix = 0u;\n        if (valid) {\n            key = keys_in.keys[idx];\n            value = values_in.values[idx];\n            radix = get_radix(key, params.bit_shift);\n        }")),
             scatter_bin_update);
 
-    RID scatter_shader_file = create_compute_shader_from_spirv(device, scatter_source);
+    Error scatter_shader_error = OK;
+    RID scatter_shader_file = create_compute_shader_from_spirv(device, scatter_source, &scatter_shader_error);
     if (!scatter_shader_file.is_valid()) {
         cleanup_variant(variant);
-        return ERR_COMPILATION_FAILED;
+        return scatter_shader_error;
     }
     variant.scatter_shader = scatter_shader_file;
 
     variant.histogram_pipeline = device->compute_pipeline_create(variant.histogram_shader);
     if (!variant.histogram_pipeline.is_valid()) {
         cleanup_variant(variant);
-        return ERR_COMPILATION_FAILED;
+        return ERR_CANT_CREATE;
     }
 
     variant.wg_prefix_pipeline = device->compute_pipeline_create(variant.wg_prefix_shader);
     if (!variant.wg_prefix_pipeline.is_valid()) {
         cleanup_variant(variant);
-        return ERR_COMPILATION_FAILED;
+        return ERR_CANT_CREATE;
     }
 
     variant.bin_prefix_pipeline = device->compute_pipeline_create(variant.bin_prefix_shader);
     if (!variant.bin_prefix_pipeline.is_valid()) {
         cleanup_variant(variant);
-        return ERR_COMPILATION_FAILED;
+        return ERR_CANT_CREATE;
     }
 
     variant.scatter_pipeline = device->compute_pipeline_create(variant.scatter_shader);
     if (!variant.scatter_pipeline.is_valid()) {
         cleanup_variant(variant);
-        return ERR_COMPILATION_FAILED;
+        return ERR_CANT_CREATE;
     }
 
     variants.push_back(variant);
@@ -2218,18 +2297,29 @@ uint32_t RadixSort::get_workgroup_count(uint32_t element_count) const {
 // has to decide whether a failed sorter build is worth retrying. `Ref::is_valid() == false`
 // cannot answer that, so the ERROR is what carries it, and these codes are the vocabulary:
 //
-//   ERR_COMPILATION_FAILED  a GPU program would not build (create_compute_shader_from_spirv or
-//                           RenderingDevice::compute_pipeline_create returned invalid). A pure
-//                           function of (generated source, device, driver) — DETERMINISTIC, so
-//                           the caller latches instead of retrying it forever.
+//   ERR_COMPILATION_FAILED  the generated PROGRAM SOURCE would not translate: glslang refused
+//                           the GLSL, or SPIR-V reflection/containerisation refused the
+//                           result. Both are pure CPU functions of (generated source, driver
+//                           target version) that create no device object — DETERMINISTIC, so
+//                           the caller latches instead of retrying forever. This is the one
+//                           the sites propagate out of create_compute_shader_from_spirv()'s
+//                           `r_error` rather than typing it themselves; see that helper for
+//                           what each of its three legs can actually fail on.
 //   ERR_UNAVAILABLE         a capability answer (device_supports_workgroup). Reads limits and
 //                           static config, allocates nothing — DETERMINISTIC.
-//   ERR_CANT_CREATE         a resource acquisition failed: storage_buffer_create returned an
-//                           invalid RID (momentary VRAM pressure), or _init_sorter_devices
-//                           found no GaussianSplatManager singleton yet. Both can change
-//                           between attempts without anything else changing — RETRYABLE. (The
-//                           no-manager case is cheap to retry: it returns before a single
-//                           shader is compiled or a byte allocated.)
+//   ERR_CANT_CREATE         an acquisition of a DEVICE OBJECT failed, and the API cannot say
+//                           why: storage_buffer_create returned an invalid RID (momentary
+//                           VRAM pressure), shader_create_from_bytecode returned an invalid
+//                           RID (vkCreateShaderModule — allocation failure and driver
+//                           rejection collapse to the same value), compute_pipeline_create
+//                           returned an invalid RID (vkCreateComputePipelines, same
+//                           collapse), or _init_sorter_devices found no GaussianSplatManager
+//                           singleton yet. RETRYABLE — not because every one of these is
+//                           known to be transient, but because a transient one latched
+//                           forever costs the renderer permanently while a deterministic one
+//                           retried costs one bounded build per saturated backoff (#586
+//                           round-9). (The no-manager case is cheap to retry: it returns
+//                           before a single shader is compiled or a byte allocated.)
 //   ERR_INVALID_PARAMETER   a size/parameter refusal that depends on the requested capacity,
 //                           which shrinks back — RETRYABLE.
 //
@@ -2430,17 +2520,18 @@ void main() {
 }
 )";
 
-    indirect_dispatch_shader = create_compute_shader_from_spirv(resource_rd, dispatch_source);
+    Error indirect_dispatch_shader_error = OK;
+    indirect_dispatch_shader = create_compute_shader_from_spirv(resource_rd, dispatch_source, &indirect_dispatch_shader_error);
     if (!indirect_dispatch_shader.is_valid()) {
         GS_LOG_ERROR_DEFAULT("RadixSort: Failed to create indirect dispatch compute shader");
         _cleanup_partial_init(resource_rd);
-        return ERR_COMPILATION_FAILED;
+        return indirect_dispatch_shader_error;
     }
     indirect_dispatch_pipeline = resource_rd->compute_pipeline_create(indirect_dispatch_shader);
     if (!indirect_dispatch_pipeline.is_valid()) {
         GS_LOG_ERROR_DEFAULT("RadixSort: Failed to create indirect dispatch compute pipeline");
         _cleanup_partial_init(resource_rd);
-        return ERR_COMPILATION_FAILED;
+        return ERR_CANT_CREATE;
     }
 
 #undef RADIX_CREATE_BUFFER
@@ -3748,6 +3839,38 @@ static AlgorithmProbe _probe_algorithm(GPUSorterFactory::SortingAlgorithm algori
             break;
     }
     return probe;
+}
+
+// #586 round-9. The live-configuration inputs of a RADIX sorter build, in one place.
+//
+// Every field here is a value some part of the RADIX build path above reads out of
+// g_gpu_sorting_config, and the set is not maintained by memory:
+// tests/ci/check_sorter_build_signature_parity.py scans THIS FILE for every
+// `g_gpu_sorting_config.<field>` read (directly or through the `const GPUSortingConfig
+// &config = g_gpu_sorting_config;` alias the probes use) and fails if a field it finds is
+// not captured below. A read added tomorrow is covered the day it lands.
+//
+// The key layout is passed in rather than re-read, because the value that reaches
+// create_sorter() is the renderer's EFFECTIVE config (TileRenderer::_get_effective_sort_key_config
+// can promote 32-bit keys back to 64-bit), not the raw setting. Capturing the raw setting
+// would miss a correction that the promotion absorbs, and would report a change on a frame
+// where the sorter would in fact be built from the same key layout as before.
+//
+// Deliberately absent: element capacity. It moves with the visible splat count on nearly
+// every frame, so admitting it would turn "the configuration changed" into "a frame
+// happened" and reintroduce the per-call create_sorter() storm the latch exists to stop. A
+// capacity change already has its own trigger (`capacity < attempt_elements`).
+GaussianSplatting::SorterBuildSignature GPUSorterFactory::capture_radix_build_signature(const SortKeyConfig &p_key_config) {
+    const GPUSortingConfig &config = g_gpu_sorting_config;
+    GaussianSplatting::SorterBuildSignature signature;
+    signature.radix_bits = config.radix_bits;
+    signature.workgroup_size = config.workgroup_size;
+    signature.subgroup_prefix_mode = config.subgroup_prefix_mode;
+    signature.key_bits = p_key_config.key_bits;
+    signature.tile_bits = p_key_config.tile_bits;
+    signature.depth_bits = p_key_config.depth_bits;
+    signature.enable_tie_breaker = p_key_config.enable_tie_breaker;
+    return signature;
 }
 
 // Factory probe implementations

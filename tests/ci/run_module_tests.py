@@ -38,6 +38,8 @@ REJECT_TELEMETRY_PARITY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_reject_tel
 REJECT_TELEMETRY_PARITY_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_reject_telemetry_parity.py"
 SORTER_ERROR_CLASS_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_sorter_error_class_parity.py"
 SORTER_ERROR_CLASS_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_sorter_error_class_parity.py"
+SORTER_BUILD_SIGNATURE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_sorter_build_signature_parity.py"
+SORTER_BUILD_SIGNATURE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_sorter_build_signature_parity.py"
 DOC_CLASSES_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_doc_classes_complete.py"
 TEST_LINKAGE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_test_linkage.py"
 REQUIRE_NULL_DEREF_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_require_null_deref.py"
@@ -1385,6 +1387,38 @@ def _run_sorter_error_class_guard() -> tuple[bool, list[str]]:
         if code != 0:
             if not output_lines:
                 output_lines = [f"Sorter error-class parity guard failed with exit code {code}."]
+            return False, output_lines
+
+    return True, output_lines
+
+
+def _run_sorter_build_signature_guard() -> tuple[bool, list[str]]:
+    # #586 round-9. The DETERMINISTIC sorter latch is released when the sorter build's live
+    # configuration inputs change; a build input the signature does not capture is a setting
+    # the user can correct with no effect at all, leaving the sorter disabled and every
+    # translucent frame rejected until renderer teardown. This guard derives the read set from
+    # gpu_sorter.cpp rather than trusting the capture function's list, so a config read added
+    # tomorrow is covered tomorrow. Its unit test runs too, so a parser change that stops the
+    # guard being able to fail is caught even on a tree it would not flag.
+    missing = [
+        path.relative_to(ROOT)
+        for path in (SORTER_BUILD_SIGNATURE_GUARD_SCRIPT, SORTER_BUILD_SIGNATURE_TEST_SCRIPT)
+        if not path.is_file()
+    ]
+    if missing:
+        return False, [f"Missing sorter build-signature guard file: {path}" for path in missing]
+
+    output_lines: list[str] = []
+    commands = (
+        [sys.executable, str(SORTER_BUILD_SIGNATURE_GUARD_SCRIPT)],
+        [sys.executable, str(SORTER_BUILD_SIGNATURE_TEST_SCRIPT)],
+    )
+    for args in commands:
+        code, out, err = _run_command(args)
+        output_lines.extend(line for line in (out + err).splitlines() if line.strip())
+        if code != 0:
+            if not output_lines:
+                output_lines = [f"Sorter build-signature parity guard failed with exit code {code}."]
             return False, output_lines
 
     return True, output_lines
@@ -3246,6 +3280,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_sorter_error_class_guard,
             "Sorter error-class parity guard failed.",
             "Sorter error-class parity guard passed.",
+        ),
+        (
+            True,
+            _run_sorter_build_signature_guard,
+            "Sorter build-signature parity guard failed.",
+            "Sorter build-signature parity guard passed.",
         ),
         (
             True,

@@ -1096,6 +1096,9 @@ void TileGlobalSortResources::reset_state(bool p_clear_sorter) {
 	sorter_available = true;
 	sorter_unavailable_permanent = false;
 	sorter_unavailable_cause = GaussianSplatting::SorterCreationFailure::CREATION_FAILED;
+	// Cleared with the latch it belongs to: a stale signature outliving a reset would make
+	// the next deterministic failure compare against inputs from a previous device.
+	sorter_unavailable_build_signature = GaussianSplatting::SorterBuildSignature();
 	sorter_retry_delay_calls = 0;
 	sorter_retry_countdown_calls = 0;
 	sorter_missing_logged = false;
@@ -1218,6 +1221,41 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 		// event, not a flap, so it does not have to wait out a backoff. The monotone
 		// sorter_retry_delay_calls is deliberately left alone, so a device that keeps
 		// failing transiently after the correction still backs off from where it was.
+		sorter_retry_countdown_calls = 0;
+	}
+
+	// #586 round-9: the DETERMINISTIC latch must not outlive the configuration that produced
+	// it either — and unlike the capability latch above, it cannot merely be ignored, it is
+	// actively SWALLOWED. With the latch held, `sorter_retry_due` below stays false, and the
+	// `if (!sorter_available && !sorter_retry_due)` branch further down copies
+	// `desired_key_config` into `key_config` without attempting a build. So a user who
+	// corrects the key/radix configuration through
+	// reload_gpu_sorting_config_from_project_settings() loses the change signal on that very
+	// call: `key_config_changed` is false from then on, and every later frame stays rejected
+	// until renderer teardown (Codex, PR #852 round 9).
+	//
+	// This is NOT the round-2 re-probe with a wider net. Re-asking a question whose answer
+	// has not changed is the storm round 7 stopped, and the probe was true when this failure
+	// was recorded, so it would lift the latch on the very next call. The trigger here is
+	// that the INPUTS the failed build read are no longer the inputs in force: a build that
+	// failed for one (radix_bits, workgroup_size, subgroup mode, key layout) tuple makes no
+	// claim about a different one, so the latch does not apply and is dropped exactly once,
+	// on the call where the change is first observed. A configuration that keeps failing
+	// re-latches against its own new signature in disable_sorter(), so the cost is one
+	// create_sorter() per discrete configuration edit — bounded by user actions, not by time.
+	//
+	// The signature is captured only while such a latch is actually held (the && chain
+	// short-circuits), so the healthy path pays nothing.
+	if (!sorter_available && sorter_unavailable_permanent &&
+			GaussianSplatting::sorter_permanent_failure_is_config_latched(sorter_unavailable_cause) &&
+			GPUSorterFactory::capture_radix_build_signature(owner._get_effective_sort_key_config()) !=
+					sorter_unavailable_build_signature) {
+		GS_LOG_WARN_DEFAULT("[TileRenderer] The sorting configuration that could not build a global composite sorter has "
+							"changed; the deterministic failure no longer applies, so the sorter build is retried once");
+		sorter_unavailable_permanent = false;
+		// Rebuild on THIS call, for the same reason as the re-probe above: a corrective edit
+		// is a discrete event, not a flap. sorter_retry_delay_calls stays monotone so a
+		// device that then keeps failing transiently still backs off from where it was.
 		sorter_retry_countdown_calls = 0;
 	}
 
@@ -1359,6 +1397,15 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 			// for the configuration that produced it, and the re-probe above needs to know
 			// whether this cause can be re-evaluated for free.
 			sorter_unavailable_cause = p_failure;
+			// ...and record WHAT CONFIGURATION it failed for (#586 round-9). The deterministic
+			// latch is released by a change in these inputs, so it has to be latched against
+			// the values the failed build actually read. Recorded for every cause, not just
+			// the config-latched one: the cause can be re-decided by a later failure, and a
+			// signature written only on some paths is a stale signature on the others.
+			// `desired_key_config` is the effective layout create_sorter() was (or would have
+			// been) called with on this call, which is what the next comparison must match.
+			sorter_unavailable_build_signature =
+					GPUSorterFactory::capture_radix_build_signature(desired_key_config);
 			sorter_unavailable_permanent = GaussianSplatting::sorter_creation_failure_is_permanent(p_failure);
 			if (sorter_unavailable_permanent) {
 				sorter_retry_delay_calls = 0;

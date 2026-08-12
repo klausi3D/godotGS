@@ -2,6 +2,8 @@
 
 #include "test_macros.h"
 
+#include "../renderer/gpu_sorter.h"
+#include "../renderer/gpu_sorting_config.h"
 #include "../renderer/sort_fallback_policy.h"
 #include "../renderer/tile_render_types.h"
 
@@ -426,6 +428,22 @@ TEST_CASE("[GaussianSplatting][SortFallback] retry state machine recovers transi
 		// answer is a function of LIVE configuration (radix_bits x workgroup_size vs the
 		// device's compute limits), so the user can change it while the renderer runs.
 		bool config_supported = true;
+		// #586 round-9. The live build inputs, and the ones the latched failure was recorded
+		// against. Mirrors TileGlobalSortResources::sorter_unavailable_build_signature.
+		SorterBuildSignature config_signature;
+		SorterBuildSignature latched_signature;
+		// Mirrors `key_config`, the CACHED layout ensure_resources() compares
+		// `desired_key_config` against to decide `key_config_changed`. It exists in this model
+		// for one reason: the no-retry branch WRITES it, and that write is the round-9 defect.
+		uint32_t cached_key_bits = 64;
+		// How many times a configuration change was absorbed into the cached state without a
+		// build being attempted. The round-9 finding is that this can be nonzero.
+		uint32_t changes_consumed_without_build = 0;
+		// Whether the CURRENT configuration produces a program this device can build. False
+		// models round 7's case: the capability probe passes and the build still fails
+		// deterministically. It is a property of the configuration, so correcting the
+		// configuration flips it - which is the whole of the round-9 finding.
+		bool config_builds = true;
 
 		// Mirrors GPUSorterFactory::probe_supports_indirect(ALGORITHM_RADIX, device):
 		// allocation-free, answers from live config + cached device limits.
@@ -438,6 +456,10 @@ TEST_CASE("[GaussianSplatting][SortFallback] retry state machine recovers transi
 		void fail(SorterCreationFailure p_failure) {
 			available = false;
 			cause = p_failure;
+			// disable_sorter() records the configuration the failed build read, and caches the
+			// key layout it was asked for.
+			latched_signature = config_signature;
+			cached_key_bits = config_signature.key_bits;
 			permanent = sorter_creation_failure_is_permanent(p_failure);
 			if (permanent) {
 				delay = 0;
@@ -458,6 +480,14 @@ TEST_CASE("[GaussianSplatting][SortFallback] retry state machine recovers transi
 				permanent = false;
 				countdown = 0; // retry on THIS call; delay stays monotone.
 			}
+			// Mirrors the round-9 block: a latch held against a CONFIGURATION is released when
+			// that configuration changes. No probe, no timer - the inputs the failed build read
+			// are simply no longer the inputs in force.
+			if (!available && permanent && sorter_permanent_failure_is_config_latched(cause) &&
+					config_signature != latched_signature) {
+				permanent = false;
+				countdown = 0; // retry on THIS call; delay stays monotone.
+			}
 			bool retry_due = false;
 			if (!available && !permanent) {
 				if (countdown > 0) {
@@ -472,14 +502,30 @@ TEST_CASE("[GaussianSplatting][SortFallback] retry state machine recovers transi
 					fail(SorterCreationFailure::INDIRECT_CAPABILITY_UNSUPPORTED);
 				} else {
 					creation_attempts++;
-					if (p_device_healthy) {
+					if (!config_builds) {
+						// The device passes the capability probe and still cannot build a
+						// program for THIS configuration - round 7's case.
+						fail(SorterCreationFailure::CREATION_FAILED_DETERMINISTIC);
+					} else if (p_device_healthy) {
 						available = true;
 						permanent = false;
 						cause = SorterCreationFailure::CREATION_FAILED;
 						countdown = 0; // delay deliberately kept (monotone).
 						return;
+					} else {
+						fail(SorterCreationFailure::CREATION_FAILED);
 					}
-					fail(SorterCreationFailure::CREATION_FAILED);
+				}
+			} else if (!available) {
+				// Mirrors `if (!sorter_available && !sorter_retry_due) { if (capacity <
+				// attempt_elements || key_config_changed) { key_config = desired_key_config; ...`
+				// - the branch that ABSORBS a configuration change without building anything.
+				// Before round 9 this was the only thing that ran while a deterministic latch
+				// was held, so the corrected configuration was consumed here and
+				// `key_config_changed` was false forever after.
+				if (cached_key_bits != config_signature.key_bits) {
+					cached_key_bits = config_signature.key_bits;
+					changes_consumed_without_build++;
 				}
 			}
 			if (!available) {
@@ -600,6 +646,222 @@ TEST_CASE("[GaussianSplatting][SortFallback] retry state machine recovers transi
 		CHECK(transient.available); // recovers, exactly as before round 7.
 		CHECK_EQ(transient.creation_attempts, 1u);
 		CHECK_EQ(transient.rejected_calls, 0u);
+	}
+
+	// #586 ROUND-9 REVIEW (P2). THE FINDING. Round 7's latch survives a retry, which is
+	// right, but it also survived the user FIXING the configuration that caused it - and it
+	// did not merely ignore the fix, it consumed it. With the latch held, `sorter_retry_due`
+	// is false, so the only branch that runs is the one that copies `desired_key_config` into
+	// `key_config` without building anything: `key_config_changed` is false from the next
+	// call on, and every later frame stays rejected until renderer teardown.
+	SUBCASE("correcting the configuration that could not build lifts the deterministic latch (#586 round-9)") {
+		Sim sim;
+		sim.config_supported = true; // the capability probe passes: round 7's exact state.
+		sim.config_builds = false; // ...and the generated program still will not build.
+		sim.config_signature.radix_bits = 8;
+		sim.config_signature.workgroup_size = 512;
+		sim.config_signature.key_bits = 64;
+		sim.fail(SorterCreationFailure::CREATION_FAILED_DETERMINISTIC);
+
+		// Latched: nothing published, nothing rebuilt, nothing probed.
+		for (uint32_t call = 0; call < SORTER_RETRY_MAX_DELAY_CALLS * 2u; call++) {
+			sim.tick(/*p_device_healthy=*/true);
+		}
+		CHECK_FALSE(sim.available);
+		CHECK_EQ(sim.creation_attempts, 0u);
+
+		// The user corrects the sorting configuration to a portable pair, which is exactly
+		// what makes the program buildable.
+		sim.config_signature.radix_bits = 4;
+		sim.config_signature.workgroup_size = 256;
+		sim.config_builds = true;
+
+		sim.tick(/*p_device_healthy=*/true);
+
+		// THE FIX: the corrected configuration is acted on, on the very call that first sees
+		// it, and sorted output comes back. Before round 9 this call took the consume branch
+		// instead and `available` stayed false for the rest of the session.
+		CHECK(sim.available);
+		CHECK_EQ(sim.creation_attempts, 1u);
+		// ...and the change was never silently absorbed on the way there.
+		CHECK_EQ(sim.changes_consumed_without_build, 0u);
+	}
+
+	// THE LOAD-BEARING CONTROL. A latch that any change lifts is not a latch: the release has
+	// to be driven by the BUILD INPUTS, not by "something in the project settings moved".
+	// Same latched state, same call count, same healthy device - the only difference is that
+	// what changes is not an input the build reads, so the signature is unchanged and the
+	// latch must hold, with no create_sorter() and no probe spent on it.
+	SUBCASE("a setting the build does not read must not lift the deterministic latch (#586 round-9 control)") {
+		Sim sim;
+		sim.config_supported = true;
+		sim.config_builds = false;
+		sim.config_signature.radix_bits = 8;
+		sim.config_signature.workgroup_size = 512;
+		sim.fail(SorterCreationFailure::CREATION_FAILED_DETERMINISTIC);
+
+		// An unrelated project-settings edit - max_overlap_records, a logging toggle, a
+		// telemetry interval. None of them is an input to the program the build compiles, so
+		// none of them appears in the signature and none of them is evidence about the
+		// failure. Modelled exactly the way the real code sees it: the signature does not move.
+		const SorterBuildSignature unchanged = sim.config_signature;
+		CHECK(unchanged == sim.latched_signature);
+
+		const uint32_t calls = SORTER_RETRY_MAX_DELAY_CALLS * 8u;
+		for (uint32_t call = 0; call < calls; call++) {
+			sim.tick(/*p_device_healthy=*/true);
+		}
+		CHECK_FALSE(sim.available);
+		CHECK_EQ(sim.creation_attempts, 0u); // no build storm...
+		CHECK_EQ(sim.probe_calls, 0u); // ...and no probe storm either.
+		CHECK_EQ(sim.rejected_calls, calls); // #586 protection intact.
+	}
+
+	// The other half of the control, on the mechanism rather than the scenario: a
+	// configuration change must not lift the latches that are NOT config-latched. Without
+	// this, "release on any signature change" would pass the subcase above by making every
+	// permanent cause liftable, which is the allocation storm rounds 2 and 7 both refused.
+	SUBCASE("a configuration change does not lift a latch that is not config-decided (#586 round-9 control)") {
+		Sim sim;
+		// The probe passes (so the round-2 re-probe cannot lift anything either) and the
+		// created sorter still reports no indirect support - a compile-time constant of the
+		// sorter class that no project setting can change.
+		sim.config_supported = true;
+		sim.config_signature.radix_bits = 8;
+		sim.fail(SorterCreationFailure::CREATED_SORTER_LACKS_INDIRECT);
+
+		sim.config_signature.radix_bits = 4; // a real build-input change...
+		const uint32_t calls = SORTER_RETRY_MAX_DELAY_CALLS * 8u;
+		for (uint32_t call = 0; call < calls; call++) {
+			sim.tick(/*p_device_healthy=*/true);
+		}
+		CHECK_FALSE(sim.available); // ...that is still no evidence about THIS cause.
+		CHECK_EQ(sim.creation_attempts, 0u);
+		CHECK_EQ(sim.rejected_calls, calls);
+	}
+}
+
+// #586 ROUND-9 REVIEW (P2), the predicate the release is gated on. Both directions, because
+// each is a real regression: a cause that is not config-latched becomes a per-edit build
+// loop, and a CREATION_FAILED_DETERMINISTIC that is not config-latched is the dead end the
+// round found - a corrected configuration that can never take effect.
+TEST_CASE("[GaussianSplatting][SortFallback] only the deterministic latch is released by a build-input change (#586 round-9)") {
+	// THE FINDING: this cause is a statement about a configuration, so it must not outlive it.
+	CHECK(sorter_permanent_failure_is_config_latched(SorterCreationFailure::CREATION_FAILED_DETERMINISTIC));
+
+	// The capability cause already has a cheaper release (the round-2 free re-probe), and
+	// routing it through this one as well would run two mechanisms over one state.
+	CHECK_FALSE(sorter_permanent_failure_is_config_latched(SorterCreationFailure::INDIRECT_CAPABILITY_UNSUPPORTED));
+	CHECK(sorter_permanent_failure_is_reprobable(SorterCreationFailure::INDIRECT_CAPABILITY_UNSUPPORTED));
+
+	// RadixSort::supports_indirect() is a literal `true`; no setting reaches it.
+	CHECK_FALSE(sorter_permanent_failure_is_config_latched(SorterCreationFailure::CREATED_SORTER_LACKS_INDIRECT));
+
+	// The transient cause is not latched at all; the backoff already re-attempts creation, and
+	// answering true here would run two recovery mechanisms over one state.
+	CHECK_FALSE(sorter_permanent_failure_is_config_latched(SorterCreationFailure::CREATION_FAILED));
+
+	// Non-constancy: without this, `return true;` satisfies the finding above and `return
+	// false;` satisfies every control.
+	bool saw_latched = false;
+	bool saw_unlatched = false;
+	for (SorterCreationFailure failure : { SorterCreationFailure::INDIRECT_CAPABILITY_UNSUPPORTED,
+				 SorterCreationFailure::CREATION_FAILED,
+				 SorterCreationFailure::CREATED_SORTER_LACKS_INDIRECT,
+				 SorterCreationFailure::CREATION_FAILED_DETERMINISTIC }) {
+		if (sorter_permanent_failure_is_config_latched(failure)) {
+			saw_latched = true;
+		} else {
+			saw_unlatched = true;
+		}
+	}
+	CHECK(saw_latched);
+	CHECK(saw_unlatched);
+
+	// Every config-latched cause must also be one the failure classifier calls PERMANENT -
+	// releasing a latch that was never taken is meaningless, and a transient cause routed
+	// through the release would double-count against the backoff.
+	for (SorterCreationFailure failure : { SorterCreationFailure::INDIRECT_CAPABILITY_UNSUPPORTED,
+				 SorterCreationFailure::CREATION_FAILED,
+				 SorterCreationFailure::CREATED_SORTER_LACKS_INDIRECT,
+				 SorterCreationFailure::CREATION_FAILED_DETERMINISTIC }) {
+		if (sorter_permanent_failure_is_config_latched(failure)) {
+			CHECK(sorter_creation_failure_is_permanent(failure));
+		}
+	}
+}
+
+// #586 ROUND-9 REVIEW (P2). What the release is keyed on, against the REAL capture rather
+// than a model of it. The predicate above decides WHICH causes are released; this decides
+// WHEN, and it is the half that can silently rot: a signature that misses a build input
+// makes a corrected setting un-actionable again (the defect), and one that includes a
+// setting the build never reads makes every unrelated edit cost a build attempt.
+TEST_CASE("[GaussianSplatting][SortFallback] the sorter build signature moves with build inputs only (#586 round-9)") {
+	struct GPUSortingConfigRestore {
+		GPUSortingConfig previous_config;
+		~GPUSortingConfigRestore() { g_gpu_sorting_config = previous_config; }
+	} restore = { g_gpu_sorting_config };
+	g_gpu_sorting_config.reset_to_defaults();
+
+	SortKeyConfig key_config;
+	key_config.key_bits = 64;
+	key_config.tile_bits = 32;
+	key_config.depth_bits = 32;
+	key_config.enable_tie_breaker = false;
+
+	const SorterBuildSignature baseline = GPUSorterFactory::capture_radix_build_signature(key_config);
+	// Non-vacuity: an all-zero capture would make every "unchanged" assertion below hold for
+	// the wrong reason.
+	CHECK(baseline.radix_bits != 0u);
+	CHECK(baseline.workgroup_size != 0u);
+	CHECK_EQ(baseline.key_bits, 64u);
+	CHECK(baseline == GPUSorterFactory::capture_radix_build_signature(key_config)); // stable.
+
+	// --- MUST MOVE: the inputs the generated program and the capability answer are built
+	// from. Each is a setting a user can correct after seeing translucent frames rejected. ---
+	{
+		g_gpu_sorting_config.radix_bits = (baseline.radix_bits == 4u) ? 8u : 4u;
+		CHECK(GPUSorterFactory::capture_radix_build_signature(key_config) != baseline);
+		g_gpu_sorting_config.radix_bits = baseline.radix_bits;
+	}
+	{
+		g_gpu_sorting_config.workgroup_size = baseline.workgroup_size * 2u;
+		CHECK(GPUSorterFactory::capture_radix_build_signature(key_config) != baseline);
+		g_gpu_sorting_config.workgroup_size = baseline.workgroup_size;
+	}
+	{
+		// Selects the subgroup preamble compiled into the prefix kernels, i.e. it changes the
+		// GLSL glslang is asked to compile.
+		g_gpu_sorting_config.subgroup_prefix_mode = GPUSortingConfig::SUBGROUP_PREFIX_FORCE_OFF;
+		CHECK(GPUSorterFactory::capture_radix_build_signature(key_config) != baseline);
+		g_gpu_sorting_config.subgroup_prefix_mode = baseline.subgroup_prefix_mode;
+	}
+	CHECK(GPUSorterFactory::capture_radix_build_signature(key_config) == baseline); // restored.
+	{
+		SortKeyConfig narrower = key_config;
+		narrower.key_bits = 32;
+		narrower.tile_bits = 16;
+		narrower.depth_bits = 16;
+		CHECK(GPUSorterFactory::capture_radix_build_signature(narrower) != baseline);
+		SortKeyConfig tie_broken = key_config;
+		tie_broken.enable_tie_breaker = !key_config.enable_tie_breaker;
+		CHECK(GPUSorterFactory::capture_radix_build_signature(tie_broken) != baseline);
+	}
+
+	// --- MUST NOT MOVE: settings the RADIX build path never reads. THE CONTROL. If any of
+	// these moved the signature, the deterministic latch would be lifted - and one full
+	// create_sorter() paid - by an edit that is no evidence at all about the failure. ---
+	{
+		g_gpu_sorting_config.max_overlap_records = baseline.workgroup_size + 12345u;
+		g_gpu_sorting_config.max_sort_elements = 1234567u;
+		g_gpu_sorting_config.enable_performance_logging = !g_gpu_sorting_config.enable_performance_logging;
+		g_gpu_sorting_config.performance_log_interval = 999u;
+		g_gpu_sorting_config.bounded_buffer_shrink_enabled = !g_gpu_sorting_config.bounded_buffer_shrink_enabled;
+		g_gpu_sorting_config.adaptive_overlap_budget_enabled = !g_gpu_sorting_config.adaptive_overlap_budget_enabled;
+		g_gpu_sorting_config.max_raster_splats_per_tile = 4096u;
+		g_gpu_sorting_config.strict_global_sort = !g_gpu_sorting_config.strict_global_sort;
+		g_gpu_sorting_config.enable_stage_timestamps = !g_gpu_sorting_config.enable_stage_timestamps;
+		CHECK(GPUSorterFactory::capture_radix_build_signature(key_config) == baseline);
 	}
 }
 

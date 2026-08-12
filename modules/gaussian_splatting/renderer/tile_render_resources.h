@@ -215,6 +215,17 @@ struct TileGlobalSortResources {
 	// rest. Defaults to the transient cause so an uninitialised read can never unlatch anything.
 	GaussianSplatting::SorterCreationFailure sorter_unavailable_cause =
 			GaussianSplatting::SorterCreationFailure::CREATION_FAILED;
+	// The live-configuration inputs the FAILED build read (#586 round-9). Only meaningful
+	// while sorter_available == false with a config-latched cause
+	// (GaussianSplatting::sorter_permanent_failure_is_config_latched). A deterministic
+	// failure is a statement about a configuration, not about the process: a shader that
+	// will not compile for radix_bits=8 x workgroup_size=512 says nothing about 4 x 256, so
+	// ensure_resources() drops the latch the first time the signature differs from this one.
+	// Without it, the corrected configuration is not merely ignored — the
+	// `!sorter_available && !sorter_retry_due` branch below CONSUMES `key_config_changed`,
+	// so the change signal is gone from the next call on and every later frame stays
+	// rejected until renderer teardown.
+	GaussianSplatting::SorterBuildSignature sorter_unavailable_build_signature;
 	// Exponential backoff for retrying a TRANSIENT failure, in ensure_resources() calls.
 	// delay is monotone non-decreasing (see next_sorter_retry_delay_calls); countdown is
 	// the remaining calls before the next recreation attempt. Both zero while healthy.
