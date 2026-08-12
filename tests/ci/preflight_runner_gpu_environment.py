@@ -66,6 +66,12 @@ Verdict
 * Gate 1 fails if the effective chain contains any layer outside
   :data:`EXPECTED_LAYERS` (the GPU driver's own implicit layers), naming each
   unexpected layer and the module the loader loaded for it.
+* Gate 1 also fails if a driver layer the control run put on a chain is missing
+  from that **same chain** in the effective run. The comparison is per chain, not
+  per layer name: the loader builds an instance chain and a device chain and
+  reports them separately, so a layer that survives on one and disappears from
+  the other keeps its *name* in the effective set while the device stack the GPU
+  jobs measure on has changed.
 * Gate 1 also fails if the probe could not be validated (missing probe binary,
   non-zero exit, unparseable output, empty control set, or an effective set that
   is not a subset of the control set).
@@ -456,17 +462,66 @@ def check_vulkan_layers() -> Tuple[bool, List[str], Dict[str, object]]:
         )
         return False, lines, record
 
-    lost = sorted(expected_in_control - effective_names)
-    if lost:
+    # Survival is asserted **per chain**, not per layer name.
+    #
+    # The loader builds two chains and reports them separately, and a layer can
+    # be in one and not the other. Collapsing both to a name throws away the only
+    # fact that distinguishes "the driver's layer survived" from "the driver's
+    # layer survived on the instance chain and vanished from the device chain" --
+    # and the second is a changed device stack, which is the thing this gate is
+    # for. A name-set difference is empty in that case, so the gate reported PASS
+    # on output it could not tell apart from a healthy run, byte for byte.
+    #
+    # The comparison is against the *control* run's chain membership for the same
+    # reason the layer set is: the control is this machine's ground truth. A
+    # driver layer the loader only ever puts on the instance chain is not
+    # required to appear on the device chain.
+    lost_chains = [
+        (name, chain)
+        for name in sorted(expected_in_control)
+        for chain in sorted(
+            set(control.layers[name].chains)
+            - set(effective.layers[name].chains if name in effective.layers else ())
+        )
+    ]
+    if lost_chains:
+        gone_entirely = sorted(
+            {name for name, _chain in lost_chains if name not in effective.layers}
+        )
         lines.append(
-            f"  FAIL: {len(lost)} of the GPU driver's own layer(s) present in the control "
-            f"run are missing from the effective chain: {', '.join(lost)}. The disable is "
-            "over-reaching: GPU jobs would run on a driver stack that no measurement "
-            "outside CI uses. Narrow the disable rather than accepting the loss."
+            f"  FAIL: {len(lost_chains)} chain membership(s) of the GPU driver's own layers "
+            "present in the control run are missing from the effective chain:"
+        )
+        for name, chain in lost_chains:
+            still_on = _fmt_layers(
+                effective.layers[name].chains if name in effective.layers else ()
+            )
+            lines.append(
+                f"    - {name}: gone from the {chain} chain "
+                f"(control had {'+'.join(control.layers[name].chains)}; "
+                f"effective has {still_on})"
+            )
+        if gone_entirely:
+            lines.append(
+                f"  {len(gone_entirely)} of them left the chain altogether: "
+                f"{', '.join(gone_entirely)}."
+            )
+        lines.append(
+            "  The disable is over-reaching: GPU jobs would run on a driver stack that no "
+            "measurement outside CI uses. A layer lost from the device chain alone is the "
+            "same defect and just as invisible in the layer *names* -- narrow the disable "
+            "rather than accepting the loss, and do not compare names instead of chains to "
+            "make this green."
         )
         return False, lines, record
 
-    lines.append(f"  driver layers retained: {_fmt_layers(expected_in_control)}")
+    lines.append(
+        "  driver layers retained: "
+        + ", ".join(
+            f"{name} [{'+'.join(effective.layers[name].chains)}]"
+            for name in sorted(expected_in_control)
+        )
+    )
 
     unexpected = sorted(effective_names - set(EXPECTED_LAYERS))
     if unexpected:

@@ -620,6 +620,86 @@ class VulkanLayerGate(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("VK_LAYER_NV_present", "\n".join(lines))
 
+    def test_driver_layer_lost_from_the_device_chain_only_fails(self) -> None:
+        """The failure a *name* comparison cannot see (#878 review, P1).
+
+        The loader builds two chains and reports them separately. If a loader or
+        manifest update drops `VK_LAYER_NV_optimus` from the **device** chain
+        while leaving it on the instance chain, the layer's *name* is still in
+        the effective set, so a name-set difference is empty and the gate passed
+        -- on output it could not distinguish from a healthy run, byte for byte.
+        The device stack the GPU jobs measure on had changed anyway.
+        """
+        device_chain_loss = "\n".join(
+            [
+                loader_line("instance", "VK_LAYER_NV_optimus", _NV_DLL),
+                loader_line("instance", "VK_LAYER_NV_present", _NV_DLL),
+                loader_line("device", "VK_LAYER_NV_present", _NV_DLL),
+            ]
+        )
+        ok, lines, _record = self._run(_CONTROL_TEXT, device_chain_loss)
+        text = "\n".join(lines)
+        self.assertFalse(ok, text)
+        self.assertIn("VK_LAYER_NV_optimus", text)
+        self.assertIn("gone from the device chain", text)
+
+    def test_driver_layer_lost_from_the_instance_chain_only_fails(self) -> None:
+        """The same defect in the other direction, so the fix is not device-specific."""
+        instance_chain_loss = "\n".join(
+            [
+                loader_line("instance", "VK_LAYER_NV_present", _NV_DLL),
+                loader_line("device", "VK_LAYER_NV_optimus", _NV_DLL),
+                loader_line("device", "VK_LAYER_NV_present", _NV_DLL),
+            ]
+        )
+        ok, lines, _record = self._run(_CONTROL_TEXT, instance_chain_loss)
+        text = "\n".join(lines)
+        self.assertFalse(ok, text)
+        self.assertIn("gone from the instance chain", text)
+
+    def test_a_healthy_two_chain_run_still_passes(self) -> None:
+        """The leg that stops the fix from passing by rejecting everything.
+
+        A per-chain comparison that failed a *healthy* chain would be no better
+        than the name comparison it replaces -- it would just be red instead of
+        green. The retained line is asserted to name both chains, so this cannot
+        pass because chain data stopped being read at all.
+        """
+        ok, lines, _record = self._run(_CONTROL_TEXT, _CLEAN_TEXT)
+        text = "\n".join(lines)
+        self.assertTrue(ok, text)
+        self.assertIn("VK_LAYER_NV_optimus [device+instance]", text)
+        self.assertIn("VK_LAYER_NV_present [device+instance]", text)
+
+    def test_a_driver_layer_the_control_only_had_on_one_chain_is_not_demanded_on_both(
+        self,
+    ) -> None:
+        """The bar is the control run's chains, not a chain list written here.
+
+        If this machine's loader only ever puts `NV_present` on the instance
+        chain, requiring it on the device chain would be the guard asserting
+        facts about the driver instead of measuring it -- and would fail every
+        job on a machine that is behaving correctly.
+        """
+        control = "\n".join(
+            [
+                loader_line("instance", "VK_LAYER_OBS_HOOK", _OBS_DLL),
+                loader_line("device", "VK_LAYER_OBS_HOOK", _OBS_DLL),
+                loader_line("instance", "VK_LAYER_NV_optimus", _NV_DLL),
+                loader_line("device", "VK_LAYER_NV_optimus", _NV_DLL),
+                loader_line("instance", "VK_LAYER_NV_present", _NV_DLL),
+            ]
+        )
+        effective = "\n".join(
+            [
+                loader_line("instance", "VK_LAYER_NV_optimus", _NV_DLL),
+                loader_line("device", "VK_LAYER_NV_optimus", _NV_DLL),
+                loader_line("instance", "VK_LAYER_NV_present", _NV_DLL),
+            ]
+        )
+        ok, lines, _record = self._run(control, effective)
+        self.assertTrue(ok, "\n".join(lines))
+
     def test_control_without_any_driver_layer_fails(self) -> None:
         """Control saw layers, but none of the driver's own: nothing to check survival against."""
         third_party_only = "\n".join(

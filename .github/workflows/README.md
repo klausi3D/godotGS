@@ -324,8 +324,13 @@ stripped (the *control*), once with the job's environment as-is (the
 GPU driver's own, naming the layer and the module the loader loaded for it; it
 fails if any of the driver's own layers present in the control run went
 *missing* from the effective one, because an empty chain contains nothing
-unexpected while meaning the GPU jobs moved to a driver stack nothing else uses;
-and it fails if the **control** run reports no layers at all, because a parser
+unexpected while meaning the GPU jobs moved to a driver stack nothing else uses.
+That survival check is **per chain**, not per layer name: the loader builds an
+instance chain and a device chain and reports them separately, so a layer that
+survives on one and vanishes from the other keeps its name in the effective set
+while the device stack the GPU jobs measure on has changed — a name comparison
+cannot tell that output apart from a healthy run.
+And it fails if the **control** run reports no layers at all, because a parser
 that has stopped matching and a machine with no layers would otherwise look
 identical. It also reports any filter variable the loader says it discarded for
 elevation, so a control and effective run coming back identical arrives with its
