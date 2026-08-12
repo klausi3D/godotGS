@@ -343,6 +343,83 @@ A layer this preflight reports is a finding to act on, not one to add to its
 allowlist. Widening `EXPECTED_LAYERS` asserts that a layer is part of the GPU
 driver and cannot be removed — a claim about the machine that a maintainer makes.
 
+### GPU contention
+
+The runner is the maintainer's workstation and there is only one of it. That is
+an **accepted constraint**, not something CI can fix — so the handling is
+attribution, never tolerance.
+
+Unrelated GPU work lands on the box while jobs run. On the day #875 was written
+it happened three times: 4× `Godot_v4.7-stable` gdUnit4 at 11:13, the same again
+around 13:00, 2× `Godot_v4.5.2-stable` at 22:28. None were ours; all contend for
+the GPU the runner uses. The cost is not slow jobs, it is **false failures that
+read like real ones**: PR #881's streaming gate failed on wall-clock budgets
+alone (`first_visible_ms=3500`, `frame_p95_to_avg_ratio=1.935`) while residency
+hit 1.0, fallback rate 0.0 and readiness `READY` — nothing failed functionally.
+#867's `NodeSceneTree` 300 s timeout was the same thing and cost a full
+diagnosis cycle.
+
+Every GPU-pool job therefore runs, before its build:
+
+```yaml
+- name: Preflight - GPU contention, wait for a free runner (#875)
+  run: python tests/ci/runner_gpu_contention.py preflight
+```
+
+and, as its last step, **with `if: always()`**:
+
+```yaml
+- name: Postflight - GPU contention verdict (#875)
+  if: always()
+  run: python tests/ci/runner_gpu_contention.py postflight
+```
+
+**It waits; it does not fail on sight.** On a machine that is also somebody's
+workstation, failing the moment the GPU is busy would let the owner's own work
+block CI outright. The preflight polls for the GPU to be free of *foreign* load
+(our own build and tests are supposed to use it) for up to **15 minutes**, which
+is longer than any comparable workload of ours — the GPU harness runs 3–8
+minutes per batch — and is 12.5 % of the 120-minute `gpu-tests` timeout, so a job
+that waits the whole bound still keeps over 105 minutes and cannot fail *as a
+timeout* because of the wait. Beyond a quarter of an hour the contending work is
+not a transient; it is someone using their machine, and the right answer is a
+loud "retry when it is free" rather than CI sitting on a serialised queue.
+
+**When it does give up, it is unmistakable.** Exit code **75**, not 1 — a job
+that ends there did not fail a test, it produced no measurement — behind a
+banner reading `RUNNER BUSY — THIS RESULT IS VOID`, naming every process holding
+the GPU with pid, image path and measured share, plus a GitHub error annotation
+and a step-summary entry.
+
+**Start *and* end, and everything between.** #881's interference began *after*
+the job started, so a check that only looked at job start would have called that
+run clean. The preflight leaves a detached sampler running for the life of the
+job; the postflight stops it, takes a closing measurement, and reads back the
+whole series. A run that was clean at start and contended while running is
+`CONTENDED_MID_RUN` — void, with the window and the offending image printed. A
+run whose series has a hole larger than five minutes is `UNMEASURED` — also
+void, because "the monitor saw nothing" and "the monitor was not running" must
+never read the same.
+
+**Nothing is relaxed.** No budget, timeout or threshold moves. A contended run is
+*void*, never *passed*. Every verdict also prints the discriminator this repo
+already measured — clean `frame_p95_to_avg_ratio ≈ 1.15` on the streaming lane
+(#630/#624) — so a reader who arrives at a bare `first_visible_exceeded` sees
+"ratio 1.94, this is contention" instead of starting a diagnosis from scratch.
+Whether wall-clock budgets belong in correctness lanes at all is #523/#778 and a
+much larger change.
+
+Busy is decided from two independent sources: the Windows
+`\GPU Engine(*)\Utilization Percentage` counters, whose instance names carry the
+owning pid, joined against `Win32_Process` for the image path (this is what makes
+a failure *actionable* — it names the process); and `nvidia-smi` as the driver's
+aggregate view, recorded always. `nvidia-smi --query-compute-apps` is
+deliberately not the attribution source: under WDDM it lists 60 rows of shell,
+browser and tray processes with `[N/A]` memory — volume without attribution. The
+15 % threshold sits above the measured idle desktop floor on this machine (0.5–5.5 %
+per process, aggregate 3–7 %) and well below what a single Godot workload pulls
+(19–34 %, measured).
+
 ### Which jobs
 
 The GPU pool is derived, never listed here:
@@ -355,7 +432,13 @@ label-routing classification from
 `tests/ci/test_release_builds_runner_trust.py` — and requires
 each to export both the loader-filter pair *and* every per-layer opt-out at job
 level, to run the preflight, and to run it
-before the build. An empty derived set fails the guard rather than passing. At
+before the build. `tests/ci/test_runner_gpu_contention.py` reuses that same
+derivation — importing it rather than restating it, so the two guards cannot come
+to disagree about which jobs are the GPU pool — and requires each derived job to
+run the contention preflight before its build, to run the postflight after it,
+and to carry `always()` on the postflight (a verdict that is skipped when a step
+above failed is missing from the only runs anyone reads it in). An empty derived
+set fails both guards rather than passing. At
 the time of writing that set is `gpu-tests` and `gpu-harness`
 (`baseline_qa.yml`), `module-validation` and `openworld-proof-evidence`
 (`gaussian_production_gates.yml`), and `runtime-release-ci`

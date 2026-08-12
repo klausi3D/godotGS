@@ -118,6 +118,15 @@ jobs:
       run: |
         python --version
 
+    # #875 -- the GPU runner is also the maintainer's workstation, so unrelated
+    # GPU work lands on it while CI runs and turns wall-clock budgets into
+    # failures that read like renderer regressions (#867, #881). This waits for
+    # the GPU to be free, then leaves a background sampler running so the
+    # postflight below can say whether contention began mid-job. It never
+    # relaxes a budget: a contended run is void, not passed.
+    - name: Preflight - GPU contention, wait for a free runner (#875)
+      run: python tests/ci/runner_gpu_contention.py preflight
+
     # Must precede the build and every GPU step: it decides whether anything
     # measured afterwards is a measurement of the renderer (#875).
     - name: Preflight - runner GPU environment (#875)
@@ -300,6 +309,13 @@ jobs:
         } else {
           "Test results file not found" | Out-File -FilePath $summaryFile -Encoding utf8 -Append
         }
+    # #875 -- must run even when the job failed: a timing failure above is
+    # exactly the result whose attribution this decides. Exits 75 (not 1) when
+    # the run is void, so it cannot be read as a test failure.
+    - name: Postflight - GPU contention verdict (#875)
+      if: always()
+      run: python tests/ci/runner_gpu_contention.py postflight
+
 
   gpu-harness:
     name: GPU Harness + Visual Gate (Windows Self-Hosted)
@@ -547,6 +563,16 @@ jobs:
       - name: Verify Python
         if: steps.path_filter.outputs.run_harness == 'true'
         run: python --version
+
+      # #875 -- the GPU runner is also the maintainer's workstation, so unrelated
+      # GPU work lands on it while CI runs and turns wall-clock budgets into
+      # failures that read like renderer regressions (#867, #881). This waits for
+      # the GPU to be free, then leaves a background sampler running so the
+      # postflight below can say whether contention began mid-job. It never
+      # relaxes a budget: a contended run is void, not passed.
+      - name: Preflight - GPU contention, wait for a free runner (#875)
+        if: steps.path_filter.outputs.run_harness == 'true'
+        run: python tests/ci/runner_gpu_contention.py preflight
 
       # Must precede the build and every GPU step (#875). Carries the same
       # path-filter condition as the rest of the job: when the harness does not
@@ -808,6 +834,13 @@ jobs:
           $summaryFile = $env:GITHUB_STEP_SUMMARY
           "## GPU Harness + Visual Gate" | Out-File -Append -FilePath $summaryFile -Encoding utf8
           "Skipped: ${{ steps.path_filter.outputs.reason }}" | Out-File -Append -FilePath $summaryFile -Encoding utf8
+      # #875 -- must run even when the job failed: a timing failure above is
+      # exactly the result whose attribution this decides. Exits 75 (not 1) when
+      # the run is void, so it cannot be read as a test failure.
+      - name: Postflight - GPU contention verdict (#875)
+        if: always() && (steps.path_filter.outputs.run_harness == 'true')
+        run: python tests/ci/runner_gpu_contention.py postflight
+
 
   cpu-tests:
     name: CPU-Only QA Tests (Linux)
