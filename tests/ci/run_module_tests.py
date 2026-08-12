@@ -80,6 +80,7 @@ HEADLESS_GAUSSIAN_SCOPED_TAGS: tuple[str, ...] = (
     "SceneTree",
     "SortBenchmark",
     "Synthetic",
+    "TestPump",  # #881: the wall-clock pump helper's own contract (gs_test_pump.h).
     "VRAMBudgetRegulator",
     "ViewTransform",
     "WorldIO",
@@ -123,6 +124,14 @@ MODULE_TEST_FILTERS: tuple[tuple[str, tuple[str, ...], tuple[str, ...], bool], .
     ),
     ("GaussianSplatting [SortBenchmark]", ("*GaussianSplatting*][SortBenchmark]*",), ("*][RequiresGPU]*",), True),
     ("GaussianSplatting [Synthetic]", ("*GaussianSplatting*][Synthetic]*",), ("*][RequiresGPU]*",), False),
+    # #881: `gs_test_pump.h` is the bound that every converted renderer warm-up
+    # now depends on, and its own review found the bound could be evaded (readiness
+    # was accepted before expiry was checked, so a frame that returned true past the
+    # deadline still passed). The cases in test_gs_pump.h are the only executable
+    # proof of that ordering, and they need no GPU and no SceneTree, so they run in
+    # a strict headless lane rather than in the advisory [untagged] safety net: a
+    # proof of a fail-closed bound that cannot fail CI is not a proof.
+    ("GaussianSplatting [TestPump]", ("*GaussianSplatting*][TestPump]*",), ("*][RequiresGPU]*",), True),
     ("GaussianSplatting [VRAMBudgetRegulator]", ("*GaussianSplatting*][VRAMBudgetRegulator]*",), ("*][RequiresGPU]*",), True),
     ("GaussianSplatting [ViewTransform]", ("*GaussianSplatting*][ViewTransform]*",), ("*][RequiresGPU]*",), True),
     ("GaussianSplatting [WorldIO]", ("*GaussianSplatting*][WorldIO]*",), ("*][RequiresGPU]*",), True),

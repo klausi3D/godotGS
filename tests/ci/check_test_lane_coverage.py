@@ -208,6 +208,22 @@ STRICT_COVERAGE_CONTRACTS: tuple[StrictCoverageContract, ...] = (
             "fail-closed proof that cannot fail CI is not a proof."
         ),
     ),
+    StrictCoverageContract(
+        name="[TestPump]",
+        sources=("test_gs_pump.h",),
+        test_case="*][TestPump]*",
+        issue_url="https://github.com/klausi3D/godotGS/issues/879",
+        rationale=(
+            "#879 replaced every renderer warm-up's frame budget with the wall-clock "
+            "deadline in gs_test_pump.h, so that one helper is now the only thing "
+            "standing between those cases and a machine-speed race. Its PR review "
+            "found the bound could be evaded from the inside: readiness was accepted "
+            "before expiry was checked, so a frame that first observed readiness past "
+            "the deadline still passed every caller. These cases are the only "
+            "executable proof of the ordering (and of the floor that outranks it), and "
+            "they need no GPU, so there is no reason for them to sit in an advisory lane."
+        ),
+    ),
 )
 
 

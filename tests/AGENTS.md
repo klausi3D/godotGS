@@ -32,9 +32,12 @@ Full command reference: `docs/reference/build-test-ci.md`.
   `has_rendered_content()` proof went red when the runner got faster. Pump until
   the condition holds **or a wall-clock deadline expires**
   (`modules/gaussian_splatting/tests/gs_test_pump.h`), and make the deadline a
-  `FAIL` that names what never became true. Two things make it a fix rather than a
-  slower version of the bug: it must keep pumping (never sleep — the frames are
-  what drive the async work), and the deadline must never be a silent pass. This
+  `FAIL` that names what never became true. Three things make it a fix rather than
+  a slower version of the bug: it must keep pumping (never sleep — the frames are
+  what drive the async work), the deadline must never be a silent pass, and the
+  deadline must bind the *pass* — readiness observed by a frame that ended past the
+  bound is a failure, or a slow frame can manufacture the pass the bound exists to
+  deny (PR #881). This
   does not conflict with the deterministic-fixture rule above: a deadline changes
   no passing run's verdict, whereas a frame budget makes the verdict depend on how
   fast the machine is. A fixed *lower* bound is fine; a fixed *upper* bound is the

@@ -324,6 +324,13 @@ It keeps pumping (it never sleeps — the frames are what drive the async work) 
 bounds only the wall clock. The deadline is a **failure**, never a silent skip: if
 readiness never arrives the case must `FAIL` and say what never became true.
 
+The deadline also binds the *pass*, not just the loop: `outcome.ready` is true only
+for a frame that finished **inside** the deadline, so a slow frame that returns
+`true` past the bound is reported as a failure (`describe()` then says the condition
+did hold, only too late). Accepting it would put #879 back one level in — a pass a
+slow machine can manufacture. The unit proof of that ordering is
+`test_gs_pump.h`, in the strict headless `GaussianSplatting [TestPump]` lane.
+
 ## CI/CD Integration
 
 The tests are designed to run in CI/CD pipelines:
