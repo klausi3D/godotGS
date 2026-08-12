@@ -12,12 +12,15 @@ Nightly editor builds are published as prereleases on GitHub. Pick the latest:
 
 No named stable (`v*`) release is published yet, so nightly is the only public install path today. See [Release Channels](docs/development/release-channels.md) for the full publishing model.
 
+> [!WARNING]
+> **Nightly binaries are unoptimized `-O0` builds.** They are compiled with `dev_build=yes`, which inflates CPU-side frame cost by roughly an order of magnitude — the `.dev` segment in the filename is that flag. Use a nightly to see godotGS work, not to judge how fast it is. For representative performance, build with `target=editor optimize=speed_trace` ([Build Flavors](docs/BUILDING.md#build-flavors)) and read the [Performance Dashboard](docs/performance/index.md#measurement-environment).
+
 ## Current Status
 
 | Area | State |
 | --- | --- |
 | Maturity | Alpha |
-| Public binaries | Linux nightly editor; Windows nightly editor when the Windows lane succeeds |
+| Public binaries | Linux nightly editor; Windows nightly editor when the Windows lane succeeds. All published binaries are `dev_build=yes` / `-O0` — not performance-representative. |
 | macOS | Source build first |
 | Stable release | Not yet published |
 | Compatibility truth | [Compatibility Matrix](docs/reference/compatibility-matrix.md) |

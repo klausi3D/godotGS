@@ -12,18 +12,39 @@ Open the [GitHub Releases](https://github.com/klausi3D/godotGS/releases) page, p
 
 See the [Downloads page](downloads.md) for verification and integrity-check details.
 
-## 2. Open the Project
+!!! warning "This editor is an unoptimized `-O0` build"
+    Nightlies are compiled with `dev_build=yes`, i.e. `-O0`, which inflates CPU-side
+    frame cost by roughly an order of magnitude. This page is the fastest way to see
+    godotGS work; it is **not** a way to see how fast it is. For that, build with
+    `optimize=speed_trace` ([Build Flavors](../BUILDING.md#build-flavors)) and read
+    the [Performance Dashboard](../performance/index.md#measurement-environment).
 
-Launch the Linux editor you downloaded, then point `GODOT_BINARY` at it and open the sample project:
+## 2. Get the Sample Project
+
+The sample project lives in this repository, not in the download. A shallow clone is
+enough and is far quicker than the full engine history:
+
+```bash
+git clone --depth 1 https://github.com/klausi3D/godotGS.git
+cd godotGS
+```
+
+## 3. Open the Project
+
+Point `GODOT_BINARY` at the editor you downloaded, then open the sample project
+from the clone (paths below are relative to the repository root):
 
 ```bash
 export GODOT_BINARY=/absolute/path/to/godot.linuxbsd.editor.dev.x86_64
 $GODOT_BINARY --path tests/examples/godot/test_project
 ```
 
-If you do not already have a binary on your path, use the editor you downloaded from Releases.
+```powershell
+$env:GODOT_BINARY="C:\absolute\path\to\godot.windows.editor.dev.x86_64.exe"
+& $env:GODOT_BINARY --path .\tests\examples\godot\test_project
+```
 
-## 3. Verify the Public Evaluator
+## 4. Verify the Public Evaluator
 
 Press Play. The sample project opens `res://scenes/public_evaluator.tscn` by default.
 

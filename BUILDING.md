@@ -60,6 +60,33 @@ scons platform=macos target=editor dev_build=yes arch=x86_64 -j8
 
 If you want a test-enabled editor build, append `tests=yes` to the same command.
 
+## Build Flavors
+
+The commands above pass `dev_build=yes`. With the default `optimize=auto` that
+resolves to `optimize=none`, so the editor compiles at `-O0` (`/Od` on MSVC) and
+CPU-side frame cost is inflated by roughly an order of magnitude. **Numbers from a
+`dev_build` binary are not performance evidence.**
+
+For an optimized editor, drop `dev_build=yes` and name the optimizer explicitly:
+
+```bash
+scons platform=linuxbsd target=editor optimize=speed_trace -j"$(nproc)"
+```
+
+```powershell
+scons platform=windows target=editor optimize=speed_trace -j10
+```
+
+`optimize=speed_trace` is `-O2`. It is deliberately not `optimize=speed`, which is
+the exact value that also switches on the Gaussian Splatting module's fast-math /
+ISA block in `modules/gaussian_splatting/SCsub`.
+
+An optimized build has no `.dev` filename segment and no dev-only assertions; add
+`debug_symbols=yes` if you still want a symbolized backtrace. See
+[docs/BUILDING.md](docs/BUILDING.md#build-flavors) for the full table and
+[docs/performance/index.md](docs/performance/index.md#measurement-environment) for
+what an optimized measurement looks like.
+
 ## Smoke Test
 
 Use the built editor to open the sample project from this repository. The command should exit cleanly after the project loads.

@@ -3411,6 +3411,19 @@ class GuardRunnerWiringTests(unittest.TestCase):
     `tests/ci/` passing (137 passed, exit 0) while `--guard-only` silently
     stopped enforcing reject-telemetry parity (Codex, PR #852).
 
+    #872 measured the same defect independently on a different guard: deleting
+    the `_run_download_build_flavor_guard` entry and re-running
+    `python tests/ci/run_module_tests.py --guard-only` gave exit 0 with the
+    string "download" appearing zero times in 93 lines of output - that guard and
+    its 13 self-tests had silently stopped existing while the lane stayed green.
+    #872 landed a second class here (`GuardScriptWiringTests`) asserting the
+    filesystem-keyed half of this contract, and said in its own docstring that
+    this class is the more general one and that whichever PR merged second must
+    keep ONE encoding rather than two. This is that merge: `GuardScriptWiringTests`
+    is gone and the three non-vacuity bounds it carried that this class did not
+    (a populated runner list, a populated guard-script glob, a populated
+    guard/test pairing) are folded into the assertions below.
+
     That is the same shape as the defects #586 spent five rounds on - a rejection
     nobody counts, a timing nobody invalidates - one level up: a check nobody
     runs.
@@ -3563,7 +3576,13 @@ class GuardRunnerWiringTests(unittest.TestCase):
         recorded = self._drive_guard_pipeline()
         runners = [r for r in recorded if not isinstance(r, str)]
         steps = [r for r in recorded if isinstance(r, str)]
-        self.assertGreater(len(runners), 1)
+        # Bound carried over from #872's GuardScriptWiringTests, which this class
+        # absorbed: `> 1` still passes over a pipeline stubbed down to almost
+        # nothing, and every assertion in this class is a set difference that a
+        # near-empty recording satisfies vacuously.
+        self.assertGreater(
+            len(runners), 10, f"only {len(runners)} guard runners were reached"
+        )
         self.assertEqual(
             sorted(steps),
             sorted(self.LEAF_STEPS),
@@ -3583,7 +3602,9 @@ class GuardRunnerWiringTests(unittest.TestCase):
             for directory in self.GUARD_SCRIPT_DIRS
             for path in directory.glob("check_*.py")
         )
-        self.assertTrue(on_disk, "no guard scripts discovered; the glob drifted")
+        self.assertGreater(
+            len(on_disk), 5, "guard-script discovery found almost nothing; glob drifted"
+        )
         missing = sorted(
             str(path.relative_to(ROOT)) for path in on_disk if path not in reached
         )
@@ -3601,12 +3622,22 @@ class GuardRunnerWiringTests(unittest.TestCase):
         a list, so a guard that grows a unit test tomorrow is covered tomorrow.
         """
         reached = self._scripts_reached_by_wired_runners()
-        unrun = []
+        pairs = []
         for directory in self.GUARD_SCRIPT_DIRS:
             for guard in directory.glob("check_*.py"):
                 sibling = guard.with_name(f"test_{guard.name}")
-                if sibling.is_file() and sibling.resolve() not in reached:
-                    unrun.append(str(sibling.relative_to(ROOT)))
+                if sibling.is_file():
+                    pairs.append(sibling)
+        # Non-vacuity, carried over from #872's GuardScriptWiringTests: with no
+        # pairs discovered, `unrun == []` below holds for the wrong reason.
+        self.assertGreater(
+            len(pairs), 3, "no check_*.py / test_check_*.py pairs found; pairing drifted"
+        )
+        unrun = [
+            str(sibling.relative_to(ROOT))
+            for sibling in pairs
+            if sibling.resolve() not in reached
+        ]
         self.assertEqual(
             sorted(unrun),
             [],
