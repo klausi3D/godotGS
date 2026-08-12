@@ -899,6 +899,19 @@ class GpuOccupancyRecordsFailure(unittest.TestCase):
         self.assertEqual(record["status"], "ok")
         self.assertEqual(record["rows"], ["1 %, 900 MiB, 24576 MiB, RTX 3090"])
 
+    def test_zero_rows_on_a_clean_exit_is_not_ok_either(self) -> None:
+        """Exit 0 naming no GPU is still an absent measurement.
+
+        This is the same defect as the nonzero-exit case reached by another
+        route: `status: "ok"` with `rows: []` reads as "we asked and the
+        machine is idle", when what happened is "we asked and learned nothing".
+        """
+        lines, record = self._record(0, stdout="   \n\n")
+        self.assertEqual(record["status"], "unavailable")
+        self.assertEqual(record["rows"], [])
+        self.assertIn("no GPU rows", record["error"])
+        self.assertTrue(any("not recorded" in line for line in lines))
+
     def test_the_record_never_gates_the_job(self) -> None:
         # It is a record, not a gate: a failed query must still not fail the run.
         _lines, record = self._record(9)

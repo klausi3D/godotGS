@@ -926,9 +926,19 @@ def record_gpu_occupancy() -> Tuple[List[str], Dict[str, object]]:
         lines.append(f"  nvidia-smi failed: {record['error']}")
         lines.append("  GPU occupancy not recorded.")
         return lines, record
-    record["status"] = "ok"
     if not rows:
-        lines.append(f"  nvidia-smi reported no GPU rows (exit {completed.returncode}).")
+        # A clean exit that names no GPU is still not an occupancy measurement.
+        # `status: "ok"` with `rows: []` says "we asked and the machine is idle";
+        # what actually happened is "we asked and learned nothing". Same defect
+        # as the nonzero-exit path above, reached by a different route.
+        record["status"] = "unavailable"
+        record["error"] = (
+            f"nvidia-smi exited {completed.returncode} but reported no GPU rows"
+        )
+        lines.append(f"  {record['error']}.")
+        lines.append("  GPU occupancy not recorded.")
+        return lines, record
+    record["status"] = "ok"
     for row in rows:
         lines.append(f"    {_GPU_OCCUPANCY_QUERY} = {row}")
     return lines, record
