@@ -1698,6 +1698,35 @@ def _run_gpu_runner_environment_contract_guard() -> tuple[bool, list[str]]:
     return True, ["GPU runner environment contract guard passed."]
 
 
+def _run_gpu_contention_contract_guard() -> tuple[bool, list[str]]:
+    """Guard (#875): every GPU-pool job waits for a free runner, and says so afterwards.
+
+    Static, headless, no GPU: it reads `.github/workflows/*.yml` (reusing the
+    derived GPU-pool job set rather than restating it) and unit-tests the wait
+    loop, the attribution rules and the start-vs-end verdict over synthetic
+    samples. The *runtime* half is `runner_gpu_contention.py`, which runs inside
+    each GPU job.
+
+    The sole self-hosted GPU runner is also the maintainer's workstation, and
+    unrelated GPU work on it has already produced two failures that read as
+    renderer regressions (#867, #881). Neither half is sufficient alone: a job
+    that waits at the start but never checks again calls a run contended from
+    minute five "clean", and a mechanism no job invokes protects nothing.
+    """
+    script = ROOT / "tests" / "ci" / "test_runner_gpu_contention.py"
+    if not script.is_file():
+        return False, [f"Missing GPU contention contract test: {script.relative_to(ROOT)}"]
+
+    code, out, err = _run_command([sys.executable, str(script)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"GPU contention contract guard failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["GPU contention contract guard passed."]
+
+
 def _run_export_smoke_preset_state_guard() -> tuple[bool, list[str]]:
     """Guard (#825): the export smoke test never destroys a preset it did not create.
 
@@ -3309,6 +3338,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_gpu_runner_environment_contract_guard,
             "GPU runner environment contract guard failed.",
             "GPU runner environment contract guard passed.",
+        ),
+        (
+            True,
+            _run_gpu_contention_contract_guard,
+            "GPU contention contract guard failed.",
+            "GPU contention contract guard passed.",
         ),
     ]
     for enabled, runner, failure_summary, success_summary in optional_message_guards:

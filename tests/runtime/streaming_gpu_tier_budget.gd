@@ -191,6 +191,48 @@ static func tier_1m_budget() -> Dictionary:
 	}
 
 
+# --- Contention discriminator (#875) -----------------------------------------
+#
+# This lane runs on the sole self-hosted GPU runner, which is also the
+# maintainer's workstation. Unrelated GPU work on that machine has twice produced
+# a wall-clock failure here that read as a renderer regression (#867, #881), and
+# on PR #881 the run that failed had residency 1.0, fallback rate 0.0, readiness
+# READY -- nothing functional failed at all.
+#
+# The tell was already in the report and nobody was told to look at it. A clean
+# run of this lane sits near p95/avg 1.15 (measured, #630/#624); #881's failing
+# run read 1.935 on tier_1m and 1.756 on tier_2_5m. So when a budget failure is
+# reported, the ratio is reported with it, together with what a clean run looks
+# like -- turning a bare `first_visible_exceeded` into "ratio 1.94, this is the
+# machine".
+#
+# This is a NOTE, never a verdict. It widens nothing and relaxes nothing: the
+# budgets above are untouched and a contended run stays failed. What decides
+# whether a run was actually contended is the GPU-contention postflight in the
+# same job (`tests/ci/runner_gpu_contention.py`), which measures the machine
+# rather than inferring from a ratio.
+const CLEAN_FRAME_P95_TO_AVG_RATIO := 1.15
+# Above this, the dispersion is worth pointing at. Sits above every clean
+# observation and below both #881 readings; the enforced ceiling is 2.25, so this
+# note fires well before the gate does and never instead of it.
+const CONTENTION_SIGNATURE_RATIO := 1.5
+
+
+static func contention_signature(tier_result: Dictionary) -> String:
+	var ratio := float(tier_result.get("frame_p95_to_avg_ratio", 0.0))
+	if ratio <= CONTENTION_SIGNATURE_RATIO:
+		return ""
+	return (
+		"frame_p95_to_avg_ratio=%.3f vs ~%.2f on a clean run of this lane (#630/#624). "
+		% [ratio, CLEAN_FRAME_P95_TO_AVG_RATIO]
+		+ "Dispersion this high on the shared self-hosted runner is the signature of GPU "
+		+ "contention rather than a renderer regression (#875, #881) -- check the "
+		+ "'RUNNER GPU CONTENTION -- postflight' block in this job's log before diagnosing "
+		+ "the renderer. Budgets are NOT relaxed for contention: a contended run is void, "
+		+ "not passed."
+	)
+
+
 static func evaluate_tier_budget(tier: Dictionary, tier_result: Dictionary, residency: Dictionary) -> Dictionary:
 	var budget_failures: Array[String] = []
 	var telemetry_failures: Array[String] = []

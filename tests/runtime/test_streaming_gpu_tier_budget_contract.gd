@@ -304,6 +304,51 @@ func _run_scaling_cases() -> Array:
 	return scaling_cases
 
 
+## #875/#881: the contention discriminator printed next to a budget failure.
+##
+## Two failure modes are pinned, and the second is the one that matters. A note
+## that never fires tells nobody anything -- so the exact ratios from #881's
+## failing run (1.935 on tier_1m, 1.756 on tier_2_5m, both with residency 1.0
+## and fallback rate 0.0) must produce it. And a note that fires on every run is
+## noise that gets ignored -- so a clean run's measured ratio must not.
+func _run_contention_signature_checks() -> void:
+	var clean := StreamingGpuTierBudget.contention_signature(
+		{"frame_p95_to_avg_ratio": StreamingGpuTierBudget.CLEAN_FRAME_P95_TO_AVG_RATIO}
+	)
+	if clean != "":
+		_record_failure("a clean-run p95/avg ratio must not be flagged as contention", {
+			"ratio": StreamingGpuTierBudget.CLEAN_FRAME_P95_TO_AVG_RATIO,
+			"note": clean
+		})
+	for observed in [1.756, 1.935]:
+		var note: String = StreamingGpuTierBudget.contention_signature(
+			{"frame_p95_to_avg_ratio": observed}
+		)
+		if note == "":
+			_record_failure("a measured contended ratio produced no discriminator note", {
+				"ratio": observed,
+				"threshold": StreamingGpuTierBudget.CONTENTION_SIGNATURE_RATIO
+			})
+			continue
+		# The note is only useful if it carries the baseline and where it came
+		# from; a bare "ratio is high" sends the reader back to the archaeology
+		# this exists to spare them.
+		for required in ["#630/#624", "%.2f" % StreamingGpuTierBudget.CLEAN_FRAME_P95_TO_AVG_RATIO, "void"]:
+			if not note.contains(required):
+				_record_failure("the discriminator note lost a piece a reader needs", {
+					"ratio": observed,
+					"missing": required,
+					"note": note
+				})
+	# The note must not become a second, hidden gate.
+	var tier: Dictionary = StreamingGpuTierBudget.tier_1m_budget()
+	if StreamingGpuTierBudget.CONTENTION_SIGNATURE_RATIO >= float(tier.get("max_frame_p95_to_avg_ratio", 0.0)):
+		_record_failure("the advisory contention threshold reached the enforced ceiling", {
+			"advisory": StreamingGpuTierBudget.CONTENTION_SIGNATURE_RATIO,
+			"enforced": tier.get("max_frame_p95_to_avg_ratio", 0.0)
+		})
+
+
 func _run() -> void:
 	# #797: DERIVE the exceed-boundary from the enforced ceiling instead of hardcoding it.
 	# This case used to pass 325.001 -- a literal matching the pre-#796 ceiling. Once the
@@ -410,6 +455,7 @@ func _run() -> void:
 		_run_case(test_case)
 
 	var scaling_cases := _run_scaling_cases()
+	_run_contention_signature_checks()
 
 	var summary := {
 		"status": "passed" if failures.is_empty() else "failed",
