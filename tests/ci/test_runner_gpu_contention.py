@@ -32,7 +32,9 @@ Run directly (``python tests/ci/test_runner_gpu_contention.py``) or via
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
 import posixpath
 import sys
 import tempfile
@@ -445,7 +447,20 @@ class WaitLoop(unittest.TestCase):
 # --------------------------------------------------------------------------
 
 
-def _entry(at: float, busy: bool = False, error: str = None) -> Dict[str, object]:
+#: The pid the preflight recorded for this job's sampler. Fixtures carry it, and
+#: carry the sampler's provenance, because production samples do: a fixture that
+#: lets the code under test take a path production never takes is a hiding place,
+#: not a fixture.
+SAMPLER_PID = 4242
+
+
+def _entry(
+    at: float,
+    busy: bool = False,
+    error: str = None,
+    source: str = contention.SOURCE_SAMPLER,
+    writer_pid: int = SAMPLER_PID,
+) -> Dict[str, object]:
     contenders = (
         [
             {
@@ -459,7 +474,25 @@ def _entry(at: float, busy: bool = False, error: str = None) -> Dict[str, object
         if busy
         else []
     )
-    return {"at": at, "error": error, "contenders": contenders, "loads": contenders}
+    return {
+        "at": at,
+        "error": error,
+        "contenders": contenders,
+        "loads": contenders,
+        "source": source,
+        "writer_pid": writer_pid,
+    }
+
+
+def _series(entries, monitored_from, ended_at, **kwargs):
+    """`evaluate_series` as the postflight calls it: the sampler is this job's.
+
+    Coverage is only what `SAMPLER_PID`'s sampler wrote, so every test that is
+    about something else has to supply that pid, exactly as the postflight does
+    from the session record.
+    """
+    kwargs.setdefault("sampler_pid", SAMPLER_PID)
+    return contention.evaluate_series(entries, monitored_from, ended_at, **kwargs)
 
 
 class StartVersusEnd(unittest.TestCase):
@@ -467,12 +500,12 @@ class StartVersusEnd(unittest.TestCase):
 
     def test_a_clean_continuous_series_passes(self) -> None:
         entries = [_entry(index * 60.0) for index in range(1, 11)]
-        verdict = contention.evaluate_series(entries, 0.0, 660.0)
+        verdict = _series(entries, 0.0, 660.0)
         self.assertEqual(verdict.verdict, contention.VERDICT_CLEAN)
 
     def test_contention_that_begins_after_the_preflight_is_caught(self) -> None:
         entries = [_entry(60.0), _entry(120.0), _entry(180.0, busy=True), _entry(240.0, busy=True)]
-        verdict = contention.evaluate_series(entries, 0.0, 300.0)
+        verdict = _series(entries, 0.0, 300.0)
         self.assertEqual(verdict.verdict, contention.VERDICT_CONTENDED_MID_RUN)
         self.assertEqual(len(verdict.windows), 1)
         self.assertIn(
@@ -481,7 +514,7 @@ class StartVersusEnd(unittest.TestCase):
 
     def test_contention_is_reported_with_its_window_and_the_offending_image(self) -> None:
         entries = [_entry(60.0, busy=True), _entry(120.0, busy=True), _entry(180.0)]
-        verdict = contention.evaluate_series(entries, 0.0, 240.0)
+        verdict = _series(entries, 0.0, 240.0)
         first, last, described = verdict.windows[0]
         self.assertEqual((first, last), (60.0, 120.0))
         self.assertIn("pid 500", described[0])
@@ -490,11 +523,11 @@ class StartVersusEnd(unittest.TestCase):
     def test_a_single_busy_sample_is_not_a_contended_run(self) -> None:
         """A blip must not void a two-hour job; that is a false failure too."""
         entries = [_entry(60.0), _entry(120.0, busy=True), _entry(180.0), _entry(240.0)]
-        verdict = contention.evaluate_series(entries, 0.0, 300.0)
+        verdict = _series(entries, 0.0, 300.0)
         self.assertEqual(verdict.verdict, contention.VERDICT_CLEAN)
 
     def test_no_samples_at_all_is_void_not_clean(self) -> None:
-        verdict = contention.evaluate_series([], 0.0, 600.0)
+        verdict = _series([], 0.0, 600.0)
         self.assertEqual(verdict.verdict, contention.VERDICT_UNMEASURED)
         self.assertIn(contention.VERDICT_UNMEASURED, contention.VOID_VERDICTS)
 
@@ -506,28 +539,28 @@ class StartVersusEnd(unittest.TestCase):
         as "nothing happened".
         """
         entries = [_entry(60.0), _entry(120.0), _entry(120.0 + contention.MAX_SAMPLE_GAP_SEC + 60.0)]
-        verdict = contention.evaluate_series(entries, 0.0, 900.0)
+        verdict = _series(entries, 0.0, 900.0)
         self.assertEqual(verdict.verdict, contention.VERDICT_UNMEASURED)
         self.assertIn("gap", "\n".join(verdict.reasons))
 
     def test_a_gap_before_the_first_sample_counts_too(self) -> None:
         """A sampler that never started until late leaves the same blind window."""
         entries = [_entry(contention.MAX_SAMPLE_GAP_SEC + 120.0)]
-        verdict = contention.evaluate_series(
+        verdict = _series(
             entries, 0.0, contention.MAX_SAMPLE_GAP_SEC + 180.0
         )
         self.assertEqual(verdict.verdict, contention.VERDICT_UNMEASURED)
 
     def test_a_gap_after_the_last_sample_counts_too(self) -> None:
         entries = [_entry(60.0), _entry(120.0)]
-        verdict = contention.evaluate_series(
+        verdict = _series(
             entries, 0.0, 120.0 + contention.MAX_SAMPLE_GAP_SEC + 60.0
         )
         self.assertEqual(verdict.verdict, contention.VERDICT_UNMEASURED)
 
     def test_a_series_of_only_failed_samples_is_void(self) -> None:
         entries = [_entry(index * 60.0, error="counters unavailable") for index in range(1, 6)]
-        verdict = contention.evaluate_series(entries, 0.0, 360.0)
+        verdict = _series(entries, 0.0, 360.0)
         self.assertEqual(verdict.verdict, contention.VERDICT_UNMEASURED)
 
     def test_a_long_successful_wait_is_not_an_unobserved_gap(self) -> None:
@@ -544,12 +577,12 @@ class StartVersusEnd(unittest.TestCase):
         entries = [_entry(waited + index * 60.0) for index in range(1, 6)]
         ended = waited + 360.0
 
-        from_monitoring = contention.evaluate_series(entries, waited, ended)
+        from_monitoring = _series(entries, waited, ended)
         self.assertEqual(from_monitoring.verdict, contention.VERDICT_CLEAN)
 
         # The same series judged from the old start point, to show the two are
         # not equivalent and this test would not pass either way.
-        from_preflight_start = contention.evaluate_series(entries, 0.0, ended)
+        from_preflight_start = _series(entries, 0.0, ended)
         self.assertEqual(from_preflight_start.verdict, contention.VERDICT_UNMEASURED)
 
     def test_failed_probes_do_not_stand_in_for_coverage(self) -> None:
@@ -566,9 +599,9 @@ class StartVersusEnd(unittest.TestCase):
             for step in range(60, int(blind), 60)
         ]
         entries.append(_entry(60.0 + blind))
-        verdict = contention.evaluate_series(entries, 0.0, 60.0 + blind + 30.0)
+        verdict = _series(entries, 0.0, 60.0 + blind + 30.0)
         self.assertEqual(verdict.verdict, contention.VERDICT_UNMEASURED)
-        self.assertIn("no usable sample", "\n".join(verdict.reasons))
+        self.assertIn("no usable monitoring sample", "\n".join(verdict.reasons))
 
     def test_a_failed_probe_does_not_split_a_contended_window(self) -> None:
         """A failure to observe must not be able to erase what was observed.
@@ -584,7 +617,7 @@ class StartVersusEnd(unittest.TestCase):
             _entry(180.0, busy=True),
             _entry(240.0),
         ]
-        verdict = contention.evaluate_series(entries, 0.0, 300.0)
+        verdict = _series(entries, 0.0, 300.0)
         self.assertEqual(verdict.verdict, contention.VERDICT_CONTENDED_MID_RUN)
         self.assertEqual(len(verdict.windows), 1)
 
@@ -597,7 +630,7 @@ class StartVersusEnd(unittest.TestCase):
         entries = []
         for index in range(1, 13):
             entries.append(_entry(index * 60.0, error="blip" if index == 5 else None))
-        verdict = contention.evaluate_series(entries, 0.0, 13 * 60.0)
+        verdict = _series(entries, 0.0, 13 * 60.0)
         self.assertEqual(verdict.verdict, contention.VERDICT_CLEAN, verdict.reasons)
 
     def test_contention_wins_over_an_incomplete_record(self) -> None:
@@ -607,7 +640,7 @@ class StartVersusEnd(unittest.TestCase):
             _entry(120.0, busy=True),
             _entry(120.0 + contention.MAX_SAMPLE_GAP_SEC + 60.0),
         ]
-        verdict = contention.evaluate_series(entries, 0.0, 900.0)
+        verdict = _series(entries, 0.0, 900.0)
         self.assertEqual(verdict.verdict, contention.VERDICT_CONTENDED_MID_RUN)
 
 
@@ -650,6 +683,7 @@ class PostflightReadsTheMonitoredWindow(unittest.TestCase):
             "started_at": self.EPOCH,
             "monitored_from": self.EPOCH + waited,
             "job_root_pid": 200,
+            "sampler_pid": SAMPLER_PID,
             "wait_samples": [
                 {"at": self.EPOCH + step} for step in range(0, int(waited), 20)
             ],
@@ -766,6 +800,392 @@ class ProbeFailures(unittest.TestCase):
                 rows, error = contention.query_nvidia_smi()
         self.assertEqual(rows, ())
         self.assertIn("no GPU rows", error)
+
+
+# --------------------------------------------------------------------------
+# "Monitoring was active" is a positive fact
+# --------------------------------------------------------------------------
+
+
+class MonitoringIsAPositiveFact(unittest.TestCase):
+    """Coverage may rest only on evidence the sampler itself produced.
+
+    Two routes into "monitoring never ran, and the job reported CLEAN" have now
+    been found (#882 review):
+
+    1. the sampler never started, so the only entry in the series is the
+       postflight's own closing sample -- a one-sample series over a zero-length
+       window, which scores as perfect continuous coverage;
+    2. the sampler started (`Popen` returned a pid) and died before its first
+       append, which leaves the *same* empty series for the postflight to fill.
+
+    Both end in one place, so they are closed in one place rather than as two
+    special cases: a sample counts as coverage only if this job's sampler wrote
+    it. A third route to the same end state -- however it arises -- is closed by
+    the same rule, because the rule is stated over what the evidence *is* rather
+    than over the ways it can be missing.
+
+    Every case here is paired with its opposite. A rule that voided everything
+    would satisfy the first half of each pair and be worthless.
+    """
+
+    T0 = 1_700_000_000.0
+
+    def test_a_sample_records_who_wrote_it(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / contention.SAMPLES_FILE
+            contention.append_sample(path, _sample(at=self.T0), contention.SOURCE_SAMPLER)
+            entry = contention.read_samples(path)[0]
+        self.assertEqual(entry["source"], contention.SOURCE_SAMPLER)
+        self.assertEqual(entry["writer_pid"], os.getpid())
+        self.assertTrue(contention.written_by_sampler(entry, os.getpid()))
+        # The pid is the discriminator the postflight cannot satisfy: it runs in
+        # a different process, so its own closing sample can never match.
+        self.assertFalse(contention.written_by_sampler(entry, os.getpid() + 1))
+
+    def test_the_postflights_own_closing_sample_is_not_coverage(self) -> None:
+        """Route 2, at the unit: a series of exactly one postflight sample."""
+        entries = [
+            _entry(self.T0 + 120.0, source=contention.SOURCE_POSTFLIGHT, writer_pid=99)
+        ]
+        verdict = _series(entries, self.T0, self.T0 + 120.0)
+        self.assertEqual(verdict.verdict, contention.VERDICT_UNMEASURED)
+        self.assertIn("background sampler", "\n".join(verdict.reasons))
+
+    def test_the_same_window_covered_by_the_sampler_is_clean(self) -> None:
+        """The other direction, which is the one that keeps the fix honest."""
+        entries = [_entry(self.T0 + step) for step in (30.0, 90.0)]
+        entries.append(
+            _entry(self.T0 + 120.0, source=contention.SOURCE_POSTFLIGHT, writer_pid=99)
+        )
+        verdict = _series(entries, self.T0, self.T0 + 120.0)
+        self.assertEqual(verdict.verdict, contention.VERDICT_CLEAN, verdict.reasons)
+
+    def test_a_full_series_of_postflight_samples_is_still_not_coverage(self) -> None:
+        """It is provenance that decides, not sample count or gap size.
+
+        Twelve evenly spaced samples with no gap anywhere -- everything the
+        continuity rule asks for -- and still void, because no monitor produced
+        them.
+        """
+        entries = [
+            _entry(
+                self.T0 + index * 60.0,
+                source=contention.SOURCE_POSTFLIGHT,
+                writer_pid=99,
+            )
+            for index in range(1, 13)
+        ]
+        verdict = _series(entries, self.T0, self.T0 + 13 * 60.0)
+        self.assertEqual(verdict.verdict, contention.VERDICT_UNMEASURED)
+
+    def test_an_orphaned_samplers_samples_are_not_this_jobs_coverage(self) -> None:
+        """#882 finding B, seen from the postflight side.
+
+        An orphan writes genuine sampler samples -- of the same machine, in the
+        same file -- but it was not monitoring *this* job, and it did not cover
+        this job's window by design.
+        """
+        entries = [_entry(self.T0 + index * 60.0, writer_pid=SAMPLER_PID + 7) for index in range(1, 6)]
+        verdict = _series(entries, self.T0, self.T0 + 360.0)
+        self.assertEqual(verdict.verdict, contention.VERDICT_UNMEASURED)
+        self.assertIn(str(SAMPLER_PID + 7), "\n".join(verdict.reasons))
+
+    def test_contention_is_read_from_every_sample_whoever_wrote_it(self) -> None:
+        """The asymmetry is deliberate: filtering evidence could only go green.
+
+        A reading of this machine during this window says what the machine was
+        doing regardless of who took it, so contention counts it. Coverage is a
+        claim about being monitored, so it does not.
+        """
+        entries = [
+            _entry(self.T0 + 60.0, busy=True, writer_pid=SAMPLER_PID + 7),
+            _entry(self.T0 + 120.0, busy=True, source=contention.SOURCE_POSTFLIGHT, writer_pid=99),
+        ]
+        verdict = _series(entries, self.T0, self.T0 + 180.0)
+        self.assertEqual(verdict.verdict, contention.VERDICT_CONTENDED_MID_RUN)
+
+    def test_no_recorded_sampler_means_nothing_can_be_coverage(self) -> None:
+        """`sampler_pid` absent is answered False, not "match anything"."""
+        entries = [_entry(self.T0 + index * 60.0) for index in range(1, 6)]
+        self.assertEqual(
+            contention.evaluate_series(
+                entries, self.T0, self.T0 + 360.0, sampler_pid=None
+            ).verdict,
+            contention.VERDICT_UNMEASURED,
+        )
+        self.assertEqual(
+            _series(entries, self.T0, self.T0 + 360.0).verdict,
+            contention.VERDICT_CLEAN,
+        )
+
+    def test_the_preflight_waits_for_the_samplers_first_written_sample(self) -> None:
+        """Readiness is the sample, not the spawn -- and it is bounded."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / contention.SAMPLES_FILE
+
+            # Nothing written at all: the wait gives up and says so.
+            missing_at, error = contention.await_sampler_ready(
+                path, SAMPLER_PID, timeout_sec=0.0, sleep=lambda _seconds: None
+            )
+            self.assertIsNone(missing_at)
+            self.assertIn("wrote no sample", error)
+
+            # A sample from someone else's sampler is not this sampler starting.
+            path.write_text(
+                json.dumps(_entry(self.T0, writer_pid=SAMPLER_PID + 7)) + "\n",
+                encoding="utf-8",
+            )
+            orphan_at, orphan_error = contention.await_sampler_ready(
+                path, SAMPLER_PID, timeout_sec=0.0, sleep=lambda _seconds: None
+            )
+            self.assertIsNone(orphan_at)
+            self.assertIsNotNone(orphan_error)
+
+            # Its own first sample releases the wait, and dates the interval.
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(_entry(self.T0 + 5.0)) + "\n")
+            ready_at, ready_error = contention.await_sampler_ready(
+                path, SAMPLER_PID, timeout_sec=0.0, sleep=lambda _seconds: None
+            )
+            self.assertIsNone(ready_error)
+            self.assertEqual(ready_at, self.T0 + 5.0)
+
+    def test_a_sampler_that_died_before_its_first_append_is_void_end_to_end(self) -> None:
+        """Codex's reproduction, through the real CLI.
+
+        Session with `monitored_from` and a sampler pid, no JSONL series at all,
+        postflight 120 s later taking a clean closing sample. Before the fix this
+        printed PASS and exited 0.
+        """
+        session = {
+            "start_verdict": contention.VERDICT_CLEAN,
+            "started_at": self.T0,
+            "monitored_from": self.T0 + 5.0,
+            "sampler_pid": SAMPLER_PID,
+            "sampler_error": None,
+            "job_root_pid": 200,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / contention.SESSION_FILE).write_text(json.dumps(session), encoding="utf-8")
+            with mock.patch.object(
+                contention, "take_sample", return_value=_sample(at=self.T0 + 125.0)
+            ):
+                code = contention.main(["postflight", "--record-dir", str(base)])
+        self.assertEqual(code, contention.EXIT_RUNNER_BUSY)
+
+
+# --------------------------------------------------------------------------
+# Orphaned samplers on a persistent runner
+# --------------------------------------------------------------------------
+
+
+OUR_SAMPLER_COMMAND = (
+    f'"C:\\Python\\python.exe" "{Path(contention.__file__).resolve()}" sample '
+    "--record-dir {directory} --job-root-pid 4 --poll-interval-sec 60.0"
+)
+
+
+class OrphanedSamplersAreStoppedNotInherited(unittest.TestCase):
+    """A killed job's sampler must not outlive it into the next job's series.
+
+    A GPU job that hits its 60/120-minute timeout never runs its postflight, so
+    nothing writes the stop file and its detached sampler keeps sampling for up
+    to three hours. The next job on this persistent runner deletes the shared
+    files and starts its own -- and two samplers then append to one series.
+
+    The termination has to be *safe*, which is the harder half: pids are
+    recycled, and this runner is also the maintainer's workstation, so the pid a
+    stale session names may now be their editor. Killing a stranger would be a
+    worse defect than the orphan.
+    """
+
+    def _session(self, directory: Path, **fields) -> Path:
+        payload = {"sampler_pid": 4242, "start_verdict": contention.VERDICT_CLEAN}
+        payload.update(fields)
+        (directory / contention.SESSION_FILE).write_text(
+            json.dumps(payload), encoding="utf-8"
+        )
+        return directory
+
+    def _stop(self, directory: Path, probe, killed: List[int]):
+        def terminate(pid: int):
+            killed.append(pid)
+            return None
+
+        # A fake clock, so the "it never died" case exercises the real timeout
+        # without spending it.
+        clock = {"now": 0.0}
+
+        def advance(seconds: float) -> None:
+            clock["now"] += max(seconds, 1.0)
+
+        with mock.patch.object(contention, "probe_process", side_effect=probe):
+            with mock.patch.object(contention, "terminate_process", side_effect=terminate):
+                return contention.stop_orphaned_sampler(
+                    directory, now=lambda: clock["now"], sleep=advance
+                )
+
+    def test_identity_needs_this_script_this_phase_and_this_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            ours = OUR_SAMPLER_COMMAND.format(directory=base)
+            self.assertTrue(contention.is_this_guards_sampler(ours, base))
+            # Right script, right phase, *different* record directory: another
+            # job's sampler, not this directory's orphan.
+            self.assertFalse(
+                contention.is_this_guards_sampler(
+                    OUR_SAMPLER_COMMAND.format(directory=base / "elsewhere"), base
+                )
+            )
+            # Right script and directory, different phase.
+            self.assertFalse(
+                contention.is_this_guards_sampler(ours.replace(" sample ", " postflight "), base)
+            )
+            # A python process in the same directory that is not this script.
+            self.assertFalse(
+                contention.is_this_guards_sampler(
+                    f'"C:\\Python\\python.exe" "other.py" sample --record-dir {base}', base
+                )
+            )
+            self.assertFalse(contention.is_this_guards_sampler(None, base))
+            self.assertFalse(contention.is_this_guards_sampler("", base))
+
+    def test_the_previous_jobs_sampler_is_terminated(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = self._session(Path(directory))
+            ours = OUR_SAMPLER_COMMAND.format(directory=base)
+            killed: List[int] = []
+            probes = iter([(True, ours), (False, None)])
+            lines, unresolved = self._stop(base, lambda _pid: next(probes), killed)
+        self.assertEqual(killed, [4242])
+        self.assertIsNone(unresolved)
+        self.assertIn("orphaned sampler", "\n".join(lines))
+
+    def test_a_recycled_pid_owned_by_someone_else_is_left_alone(self) -> None:
+        """The direction that matters more: never kill a stranger.
+
+        A pid that now belongs to another process is also proof the sampler that
+        held it has exited, so there is nothing left to stop.
+        """
+        stranger = (
+            '"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" '
+            "--type=renderer --lang=en-GB"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            base = self._session(Path(directory))
+            killed: List[int] = []
+            lines, unresolved = self._stop(base, lambda _pid: (True, stranger), killed)
+        self.assertEqual(killed, [])
+        self.assertIsNone(unresolved)
+        self.assertIn("recycled", "\n".join(lines))
+        self.assertIn("chrome.exe", "\n".join(lines))
+
+    def test_a_live_pid_that_cannot_be_identified_is_left_alone_and_recorded(self) -> None:
+        """"Running but unreadable" is not "running our sampler", and not "gone"."""
+        with tempfile.TemporaryDirectory() as directory:
+            base = self._session(Path(directory))
+            killed: List[int] = []
+            lines, unresolved = self._stop(base, lambda _pid: (True, None), killed)
+        self.assertEqual(killed, [])
+        self.assertIsNotNone(unresolved)
+        self.assertIn("NOT terminating", "\n".join(lines))
+
+    def test_a_dead_pid_needs_no_action(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = self._session(Path(directory))
+            killed: List[int] = []
+            lines, unresolved = self._stop(base, lambda _pid: (False, None), killed)
+        self.assertEqual(killed, [])
+        self.assertIsNone(unresolved)
+
+    def test_an_orphan_that_survives_termination_is_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = self._session(Path(directory))
+            ours = OUR_SAMPLER_COMMAND.format(directory=base)
+            killed: List[int] = []
+            lines, unresolved = self._stop(base, lambda _pid: (True, ours), killed)
+        self.assertEqual(killed, [4242])
+        self.assertIn("could not be stopped", unresolved or "")
+        self.assertIn("WARNING", "\n".join(lines))
+
+    def test_no_previous_session_is_not_an_orphan(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            killed: List[int] = []
+            lines, unresolved = self._stop(Path(directory), lambda _pid: (True, None), killed)
+        self.assertEqual((lines, unresolved, killed), ([], None, []))
+
+    def test_our_own_pid_is_never_a_target(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = self._session(Path(directory), sampler_pid=os.getpid())
+            killed: List[int] = []
+            self._stop(base, lambda _pid: (True, None), killed)
+        self.assertEqual(killed, [])
+
+
+class PreflightOrderAndReadiness(unittest.TestCase):
+    """The preflight, run offline, in the order the fix depends on."""
+
+    T0 = 1_700_000_000.0
+
+    def _preflight(self, ready, base: Path, seen: Dict[str, object]):
+        def stop_orphan(directory, **_kwargs):
+            # Recorded at call time: deleting the shared series while a previous
+            # sampler is still writing does not stop it writing.
+            seen["samples_present_when_orphan_stopped"] = (
+                directory / contention.SAMPLES_FILE
+            ).is_file()
+            return ["  (orphan check)"], "pid 1 could not be identified"
+
+        with contextlib.ExitStack() as stack:
+            patch = lambda name, **kw: stack.enter_context(  # noqa: E731
+                mock.patch.object(contention, name, **kw)
+            )
+            patch("stop_orphaned_sampler", side_effect=stop_orphan)
+            patch("run_sample_script", return_value=({"processes": {}}, None))
+            patch(
+                "wait_for_free_gpu",
+                return_value=(True, [_sample(at=self.T0)], []),
+            )
+            patch("spawn_sampler", return_value=(SAMPLER_PID, None))
+            patch("await_sampler_ready", return_value=ready)
+            patch("probe_process", return_value=(True, "unidentifiable"))
+            terminated: List[int] = []
+            patch("terminate_process", side_effect=terminated.append)
+            code = contention.main(["preflight", "--record-dir", str(base)])
+        seen["terminated"] = terminated
+        return code, json.loads((base / contention.SESSION_FILE).read_text(encoding="utf-8"))
+
+    def test_the_orphan_is_stopped_before_the_shared_series_is_deleted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / contention.SAMPLES_FILE).write_text("{}\n", encoding="utf-8")
+            seen: Dict[str, object] = {}
+            code, session = self._preflight((self.T0 + 3.0, None), base, seen)
+        self.assertEqual(code, 0)
+        self.assertTrue(seen["samples_present_when_orphan_stopped"])
+        # And the unresolved orphan is recorded rather than dropped.
+        self.assertEqual(session["orphan_sampler_error"], "pid 1 could not be identified")
+
+    def test_a_confirmed_sampler_dates_the_monitored_interval_by_its_first_sample(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            code, session = self._preflight((self.T0 + 3.0, None), base, {})
+        self.assertEqual(code, 0)
+        self.assertEqual(session["monitored_from"], self.T0 + 3.0)
+        self.assertIsNone(session["sampler_error"])
+
+    def test_a_sampler_that_never_wrote_records_no_monitored_interval(self) -> None:
+        """And the stray child is stopped rather than left on the runner."""
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            seen: Dict[str, object] = {}
+            code, session = self._preflight((None, "wrote no sample within 90s"), base, seen)
+        self.assertEqual(code, 0)  # the job may still run; the postflight voids it
+        self.assertNotIn("monitored_from", session)
+        self.assertIn("wrote no sample", session["sampler_error"])
+        self.assertEqual(seen["terminated"], [])  # unidentifiable -> never killed
 
 
 if __name__ == "__main__":

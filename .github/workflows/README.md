@@ -401,6 +401,26 @@ run whose series has a hole larger than five minutes is `UNMEASURED` — also
 void, because "the monitor saw nothing" and "the monitor was not running" must
 never read the same.
 
+**"It was monitored" is a positive fact, not the absence of a complaint.** The
+postflight appends its own closing sample to the same series, so a series
+containing *only* that sample would otherwise score as perfect continuous
+coverage over a zero-length window — a measurement of the last instant standing
+in for a measurement of the job. Every sample therefore records who wrote it, and
+only samples written by *this job's* sampler (matched by the pid the preflight
+got back from the spawn) count as coverage; the preflight in turn declares
+monitoring active only once that sampler has actually written its first sample,
+not merely when it was started. Contention, by contrast, is read from every
+sample whoever wrote it: filtering evidence on provenance could only turn a void
+run green.
+
+**An orphaned sampler is stopped, never inherited.** A job killed by its own
+timeout never runs its postflight, so its detached sampler keeps going for up to
+three hours. Before reusing the shared record directory, the next preflight
+terminates that sampler — but only after confirming from the process's command
+line that the pid really is this guard's sampler for this directory. Pids are
+recycled and this runner is also the maintainer's workstation, so an
+unidentifiable or reassigned pid is left alone and recorded rather than killed.
+
 **Nothing is relaxed.** No budget, timeout or threshold moves. A contended run is
 *void*, never *passed*. Every verdict also prints the discriminator this repo
 already measured — clean `frame_p95_to_avg_ratio ≈ 1.15` on the streaming lane

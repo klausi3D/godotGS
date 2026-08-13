@@ -47,6 +47,12 @@ Four things, in the order they matter:
    arrives with "the machine was contended from 18:33 to 18:51" attached instead
    of being investigated from scratch.
 
+   Coverage may be claimed only from samples that sampler demonstrably wrote
+   (see :data:`SOURCE_SAMPLER`), and a sampler orphaned by an earlier job that
+   was killed before its postflight is stopped -- after verifying whose pid it
+   is -- before this job reuses the record directory (see
+   :func:`stop_orphaned_sampler`).
+
 What it deliberately does **not** do
 ------------------------------------
 It does not move, raise or soften a single budget, timeout or threshold. A
@@ -100,6 +106,7 @@ import json
 import ntpath
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -199,6 +206,38 @@ MAX_SAMPLE_GAP_SEC = 300.0
 #: postflight cannot leave a process behind on a persistent runner forever. Set
 #: above the longest GPU job timeout in the workflows (120 minutes) plus margin.
 SAMPLER_MAX_LIFETIME_SEC = 3.0 * 60.0 * 60.0
+
+#: How long the preflight waits for the sampler's *first* sample before deciding
+#: that monitoring did not start.
+#:
+#: `Popen` returning a pid proves a process was created; it does not prove that
+#: process reached its sampling loop or wrote anything (#882 review). So the
+#: preflight does not take the spawn as evidence -- it waits for the sampler to
+#: put a sample on disk, and only then records a monitored interval.
+#:
+#: 90 s is ~10x the measured cost of one sample on this runner (~8.5 s, see
+#: :data:`SAMPLER_INTERVAL_SEC`), so it cannot fire on a slow probe; and it is
+#: 10 % of the preflight's own bounded wait, so it cannot meaningfully eat into
+#: the job budget.
+SAMPLER_READY_TIMEOUT_SEC = 90.0
+
+#: Who appended a sample. Written by the process that took the reading, next to
+#: the reading itself.
+#:
+#: This is what makes "monitoring was active" a *positive* fact rather than the
+#: absence of a complaint. The postflight appends a closing sample to the same
+#: file; without provenance, a series consisting of nothing but that closing
+#: sample is indistinguishable from a monitored job, and scores as perfect
+#: coverage. Two separate routes into that state have now been found (#882
+#: review) -- a sampler that never started, and a sampler that started and died
+#: before its first append -- so the rule is stated once, over the evidence:
+#: coverage counts only samples the *sampler* wrote, identified by
+#: :data:`SOURCE_SAMPLER` **and** by the writer's own pid matching the pid the
+#: preflight got back from `Popen`. The postflight runs in a different process,
+#: so it cannot produce a matching record even by accident, and an orphaned
+#: sampler from an earlier job cannot either.
+SOURCE_SAMPLER = "sampler"
+SOURCE_POSTFLIGHT = "postflight"
 
 #: The clean-run p95/avg frame-time ratio this repository has already measured on
 #: the streaming lane, and the issues that measured it. Printed next to every
@@ -686,10 +725,44 @@ def _float_env(name: str, default: float) -> float:
     return value if value > 0 else default
 
 
-def append_sample(path: Path, sample: Sample) -> None:
+def append_sample(path: Path, sample: Sample, source: str) -> None:
+    """Append one reading, stamped with who took it.
+
+    `source` is required rather than defaulted, so no call site can add a write
+    to this series without deciding what it is. The postflight's own closing
+    sample is :data:`SOURCE_POSTFLIGHT`, and only :data:`SOURCE_SAMPLER` entries
+    written by this job's sampler count as coverage -- see :data:`SOURCE_SAMPLER`.
+    """
+    record = sample.as_dict()
+    record["source"] = source
+    record["writer_pid"] = os.getpid()
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(sample.as_dict(), sort_keys=True) + "\n")
+        handle.write(json.dumps(record, sort_keys=True) + "\n")
+
+
+def written_by_sampler(entry: Dict[str, object], sampler_pid: Optional[int]) -> bool:
+    """Was this entry written by `sampler_pid`'s background sampler?
+
+    Both halves matter. The source tells a sampler reading apart from the
+    postflight's closing sample; the writer pid tells *this job's* sampler apart
+    from an orphan left behind by a job that was killed before its postflight
+    (#882 review) -- whose samples describe the same machine but not this job's
+    monitored interval.
+
+    `sampler_pid is None` means the preflight recorded no sampler for this job,
+    and is therefore answered `False` rather than "match anything". Leniency
+    there would hand the coverage claim to whatever else happened to be writing
+    to the file -- which, on a persistent runner, is exactly the orphan case.
+    """
+    if str(entry.get("source") or "") != SOURCE_SAMPLER:
+        return False
+    if sampler_pid is None:
+        return False
+    writer = entry.get("writer_pid")
+    if isinstance(writer, bool) or not isinstance(writer, int):
+        return False
+    return writer == sampler_pid
 
 
 def read_samples(path: Path) -> List[Dict[str, object]]:
@@ -883,11 +956,274 @@ def spawn_sampler(
     return process.pid, None
 
 
+def await_sampler_ready(
+    samples_path: Path,
+    sampler_pid: int,
+    timeout_sec: float = SAMPLER_READY_TIMEOUT_SEC,
+    poll_sec: float = 1.0,
+    now=time.monotonic,
+    sleep=time.sleep,
+) -> Tuple[Optional[float], Optional[str]]:
+    """Wait for the sampler's own first sample; return `(its timestamp, error)`.
+
+    A spawned pid is not a running monitor. The child has to import this module,
+    reach :func:`phase_sample`, take a reading through PowerShell and append it;
+    it can die at any point in that sequence -- and if it dies before the append,
+    the series it leaves behind is empty, which the postflight then fills with
+    its own closing sample (#882 review). So the preflight declares monitoring
+    active only once the sampler has *demonstrated* it, by writing.
+
+    The returned timestamp is the sample's own, so the monitored interval starts
+    where the evidence starts rather than a few seconds earlier at spawn time.
+    """
+    deadline = now() + timeout_sec
+    while True:
+        for entry in read_samples(samples_path):
+            if not written_by_sampler(entry, sampler_pid):
+                continue
+            at = entry.get("at")
+            if isinstance(at, (int, float)) and not isinstance(at, bool):
+                return float(at), None
+        if now() >= deadline:
+            return None, (
+                f"the background sampler (pid {sampler_pid}) started but wrote no sample "
+                f"within {timeout_sec:.0f}s, so nothing is monitoring this job"
+            )
+        sleep(min(poll_sec, max(deadline - now(), 0.0)))
+
+
+#: How long to wait for a terminated orphan sampler to actually disappear.
+ORPHAN_STOP_TIMEOUT_SEC = 15.0
+
+
+def probe_process(pid: int) -> Tuple[bool, Optional[str]]:
+    """`(is running, command line)` for `pid`.
+
+    The two are separate answers on purpose. "Not running" and "running but I
+    could not read its command line" must not collapse into one value, because
+    the first permits reusing the record directory and the second does not, and
+    a caller that cannot tell them apart would either kill blind or ignore a
+    live orphan.
+    """
+    if os.name != "nt":
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False, None
+        except PermissionError:
+            return True, None
+        except OSError:
+            return False, None
+        try:
+            raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+        except OSError:
+            return True, None
+        parts = [part for part in raw.decode("utf-8", "replace").split("\0") if part]
+        return True, (" ".join(parts) or None)
+    script = (
+        f"$p = Get-CimInstance Win32_Process -Filter 'ProcessId={int(pid)}' "
+        "-ErrorAction SilentlyContinue; "
+        "if ($p) { Write-Output 'ALIVE'; Write-Output $p.CommandLine }"
+    )
+    try:
+        completed = subprocess.run(  # noqa: S603 -- fixed argv, no shell
+            _encoded_command(script),
+            capture_output=True,
+            text=True,
+            timeout=_PS_TIMEOUT_SEC,
+        )
+    except (OSError, subprocess.SubprocessError):
+        # Could not ask. Treat as "running, unidentifiable": the caller must not
+        # kill on this, and must not assume the directory is free either.
+        return True, None
+    lines = [line.strip() for line in (completed.stdout or "").splitlines() if line.strip()]
+    if not lines or lines[0] != "ALIVE":
+        return False, None
+    return True, (" ".join(lines[1:]) or None)
+
+
+def is_this_guards_sampler(command_line: Optional[str], session_dir: Path) -> bool:
+    """Is `command_line` this script sampling into `session_dir`?
+
+    The check exists because pids are recycled, and this runner is also the
+    maintainer's workstation: the pid a previous session recorded may now belong
+    to their editor, a build, or a browser tab. Terminating a stranger would be a
+    worse defect than the orphan it is meant to clear, so identity is required
+    positively -- this script's own resolved path, the ``sample`` phase, and this
+    very record directory, all three -- and anything less means "do not touch".
+    """
+    if not command_line:
+        return False
+    if not _argument_present(command_line, str(Path(__file__).resolve())):
+        return False
+    if not _argument_present(command_line, "sample"):
+        return False
+    recorded = _record_dir_argument(command_line)
+    if recorded is None:
+        return False
+    # Compared as a *path*, not as a string prefix. `--record-dir <dir>/elsewhere`
+    # contains `<dir>`, and this repository has already shipped one fail-open
+    # containment check of exactly that shape (the ownership test on this PR).
+    spellings = {_normalised_dir(session_dir)}
+    try:
+        spellings.add(_normalised_dir(session_dir.resolve()))
+    except OSError:
+        pass
+    return _normalised_dir(Path(recorded)) in spellings
+
+
+def _normalised_dir(path: Path) -> str:
+    return os.path.normcase(os.path.normpath(str(path))).rstrip("\\/")
+
+
+def _argument_present(command_line: str, token: str) -> bool:
+    """Is `token` a whole argument of `command_line` (quoted or bare)?"""
+    pattern = r"(?:^|[\s\"'])" + re.escape(token) + r"(?:[\s\"']|$)"
+    if re.search(pattern, command_line):
+        return True
+    if os.name != "nt":
+        return False
+    return bool(re.search(pattern, os.path.normcase(command_line), re.IGNORECASE))
+
+
+def _record_dir_argument(command_line: str) -> Optional[str]:
+    """The value of `--record-dir` in `command_line`, or None."""
+    match = re.search(r"--record-dir[\s=]+(\"[^\"]*\"|'[^']*'|\S+)", command_line)
+    if not match:
+        return None
+    return match.group(1).strip("\"'") or None
+
+
+def terminate_process(pid: int) -> Optional[str]:
+    """Kill `pid`; return an error description, or None if the request went through."""
+    if os.name == "nt":
+        try:
+            completed = subprocess.run(  # noqa: S603 -- fixed argv, no shell
+                ["taskkill", "/PID", str(int(pid)), "/F"],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            return str(exc)
+        if completed.returncode != 0:
+            return (completed.stderr or completed.stdout or "taskkill failed").strip()
+        return None
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError as exc:
+        return str(exc)
+    return None
+
+
+def stop_orphaned_sampler(
+    session_dir: Path, now=time.monotonic, sleep=time.sleep
+) -> Tuple[List[str], Optional[str]]:
+    """Clear a sampler left behind by a previous job, before reusing this directory.
+
+    A GPU job that hits its 60/120-minute timeout is killed without running its
+    postflight, so nothing writes the stop file and its detached sampler keeps
+    going for up to :data:`SAMPLER_MAX_LIFETIME_SEC`. The next job on this
+    persistent runner deletes the shared series and starts its own sampler -- and
+    then two processes append to one file (#882 review): wasted probes, and two
+    near-simultaneous readings of a single brief spike satisfying the
+    two-consecutive-samples rule that exists to reject exactly that.
+
+    Returns `(log lines, unresolved orphan description or None)`.
+    """
+    session_path = session_dir / SESSION_FILE
+    if not session_path.is_file():
+        return [], None
+    try:
+        loaded = json.loads(session_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return (
+            [
+                f"  WARNING: the previous session record at {session_path} is unreadable, so "
+                "an orphaned sampler from that job cannot be identified or stopped"
+            ],
+            "the previous session record was unreadable",
+        )
+    pid_raw = loaded.get("sampler_pid") if isinstance(loaded, dict) else None
+    if isinstance(pid_raw, bool) or not isinstance(pid_raw, int):
+        return [], None
+    pid = int(pid_raw)
+    if pid == os.getpid():
+        return [], None
+
+    running, command_line = probe_process(pid)
+    if not running:
+        return [f"  previous session's sampler (pid {pid}) is no longer running"], None
+    if not is_this_guards_sampler(command_line, session_dir):
+        if command_line is None:
+            # Alive but unidentifiable: refuse to kill, and say the directory is
+            # not known to be clear. The postflight's coverage rule keeps this
+            # honest -- samples from a pid that is not this job's sampler are not
+            # this job's coverage, so an unresolved orphan can only void a run.
+            return (
+                [
+                    f"  WARNING: pid {pid} from the previous session is running but its "
+                    "command line could not be read, so it cannot be confirmed as this "
+                    "guard's sampler. NOT terminating it."
+                ],
+                f"pid {pid} is running but could not be identified",
+            )
+        return (
+            [
+                f"  pid {pid} from the previous session now belongs to an unrelated process "
+                f"({_first_token(command_line)}), so the pid was recycled and that sampler "
+                "has already exited. NOT terminating it."
+            ],
+            None,
+        )
+
+    error = terminate_process(pid)
+    deadline = now() + ORPHAN_STOP_TIMEOUT_SEC
+    while True:
+        running, command_line = probe_process(pid)
+        if not running or not is_this_guards_sampler(command_line, session_dir):
+            return (
+                [
+                    f"  stopped an orphaned sampler (pid {pid}) left by a previous job in "
+                    "this record directory, before reusing it"
+                ],
+                None,
+            )
+        if now() >= deadline:
+            return (
+                [
+                    f"  WARNING: an orphaned sampler (pid {pid}) from a previous job is still "
+                    f"running after {ORPHAN_STOP_TIMEOUT_SEC:.0f}s"
+                    + (f" ({error})" if error else "")
+                    + ". It will append to this job's series; the postflight counts only "
+                    "this job's own sampler as coverage, so this cannot pass silently."
+                ],
+                f"orphaned sampler pid {pid} could not be stopped"
+                + (f": {error}" if error else ""),
+            )
+        sleep(0.5)
+
+
+def _first_token(command_line: str) -> str:
+    text = command_line.strip()
+    if text.startswith('"'):
+        closing = text.find('"', 1)
+        if closing > 0:
+            return text[1:closing]
+    return text.split(" ", 1)[0]
+
+
 def phase_preflight(args: argparse.Namespace) -> int:
     session_dir = record_dir(args.record_dir)
     session_dir.mkdir(parents=True, exist_ok=True)
     samples_path = session_dir / SAMPLES_FILE
     session_path = session_dir / SESSION_FILE
+    # Before touching the shared files: stop any sampler the *previous* job left
+    # behind. Deleting the series out from under a live writer does not stop it
+    # writing -- it just makes the next job's series a mix of two jobs' samplers.
+    # Order matters here; this has to happen while the old session record still
+    # exists, and before the new sampler is started.
+    orphan_lines, orphan_error = stop_orphaned_sampler(session_dir)
     # A stale series from a previous job on this persistent runner would be read
     # by the postflight as this job's own history.
     for stale in (samples_path, session_dir / STOP_FILE):
@@ -902,6 +1238,8 @@ def phase_preflight(args: argparse.Namespace) -> int:
     busy_percent = args.busy_percent
 
     print("RUNNER GPU CONTENTION -- preflight (#875)")
+    for line in orphan_lines:
+        print(line)
     print(f"  waiting up to {timeout_sec:.0f}s for the GPU to be free of foreign load")
     print(
         f"  a foreign process at or above {busy_percent:.0f}% GPU counts as contending; "
@@ -940,6 +1278,11 @@ def phase_preflight(args: argparse.Namespace) -> int:
         "start_verdict": VERDICT_CLEAN if free else VERDICT_BUSY,
         "github_run_id": os.environ.get("GITHUB_RUN_ID"),
         "github_job": os.environ.get("GITHUB_JOB"),
+        # Set when a sampler from a previous job in this directory could not be
+        # accounted for. Recorded rather than acted on: it cannot fabricate
+        # coverage (the postflight counts only this job's own sampler), and
+        # voiding a run on it would be a false-void generator.
+        "orphan_sampler_error": orphan_error,
     }
 
     if not free:
@@ -1005,8 +1348,27 @@ def phase_preflight(args: argparse.Namespace) -> int:
     # Left unset when the sampler did not start, so its absence reads as "there
     # was no monitored interval" rather than silently defaulting to a time that
     # would make an empty series look covered.
-    if sampler_error is None:
-        session["monitored_from"] = time.time()
+    #
+    # And "started" means *wrote a sample*, not "Popen returned a pid". A child
+    # that exits before its first append leaves an empty series, which the
+    # postflight then fills with its own closing sample -- the same false green
+    # by a different route (#882 review). So the monitored interval begins at the
+    # first sample the sampler actually produced, and if it produces none, there
+    # is no monitored interval to record.
+    if sampler_error is None and sampler_pid is not None:
+        first_at, ready_error = await_sampler_ready(samples_path, sampler_pid)
+        if ready_error is None:
+            session["monitored_from"] = first_at
+        else:
+            sampler_error = ready_error
+            session["sampler_error"] = sampler_error
+            # Do not leave a child that is alive but not sampling: it would still
+            # be holding a lifetime of up to SAMPLER_MAX_LIFETIME_SEC on a
+            # persistent runner. Same verified identity check as for an orphan --
+            # never kill a pid that is not demonstrably this guard's sampler.
+            running, command_line = probe_process(sampler_pid)
+            if running and is_this_guards_sampler(command_line, session_dir):
+                terminate_process(sampler_pid)
     session_path.write_text(json.dumps(session, indent=2, sort_keys=True), encoding="utf-8")
 
     if last is not None:
@@ -1019,8 +1381,9 @@ def phase_preflight(args: argparse.Namespace) -> int:
         print("  Mid-run contention will not be observable; the postflight will say so.")
     else:
         print(
-            f"  background sampler started (pid {sampler_pid}), sampling every "
-            f"{args.sampler_interval_sec:.0f}s until the postflight stops it"
+            f"  background sampler started (pid {sampler_pid}) and confirmed by its own "
+            f"first sample, sampling every {args.sampler_interval_sec:.0f}s until the "
+            "postflight stops it"
         )
     print("  PASS: the GPU was free of foreign load at job start.")
     print(f"  session record: {session_path}")
@@ -1041,7 +1404,7 @@ def phase_sample(args: argparse.Namespace) -> int:
     while True:
         sample = take_sample(args.job_root_pid, args.busy_percent)
         try:
-            append_sample(samples_path, sample)
+            append_sample(samples_path, sample, SOURCE_SAMPLER)
         except OSError:
             return 1
         if stop_path.exists() or time.monotonic() >= deadline:
@@ -1069,6 +1432,7 @@ def evaluate_series(
     ended_at: float,
     max_gap_sec: float = MAX_SAMPLE_GAP_SEC,
     contended_samples_required: int = CONTENDED_SAMPLES_REQUIRED,
+    sampler_pid: Optional[int] = None,
 ) -> SeriesVerdict:
     """Turn the sampled series into a verdict about the *whole* job window.
 
@@ -1078,6 +1442,17 @@ def evaluate_series(
     *continuous* before it may be called clean -- because a gap is exactly where
     unobserved contention would hide, and "we did not see any" from a monitor
     that was not running is the vacuous pass this exists to remove.
+
+    Two asymmetric rules over the same entries, and the asymmetry is deliberate:
+
+    * **Contention** is read from every usable sample, whoever wrote it. A
+      reading of this machine during this job's window is evidence of what the
+      machine was doing, and discarding it on provenance could only turn a void
+      run green.
+    * **Coverage** is read only from samples this job's sampler wrote
+      (:func:`written_by_sampler`). "The GPU was clean throughout" is a claim
+      about a monitored interval, and it may rest only on evidence that an actual
+      monitor produced.
     """
     reasons: List[str] = []
     if not entries:
@@ -1125,7 +1500,23 @@ def evaluate_series(
             len(ordered),
         )
 
-    stamps = [float(entry.get("at") or 0.0) for entry in usable]
+    # Coverage is what the *sampler* wrote, and nothing else.
+    #
+    # `Popen` returning a pid is not proof that monitoring happened, and neither
+    # is a non-empty series: the postflight appends its own closing sample to the
+    # same file, so a sampler that died before its first append leaves a series
+    # of exactly one postflight-written sample over a zero-length window -- which
+    # scored as perfect continuous coverage. That is the second route into the
+    # same false green (#882 review); the first was a sampler that never started
+    # at all, and there is no reason to believe there is not a third.
+    #
+    # So the rule is not "reject the two known shapes" but "require the positive
+    # fact": at least one sample carrying this job's sampler's own provenance,
+    # which no other process in this design writes. Both known routes, and any
+    # route that ends in an unmonitored job, close together.
+    covering = [entry for entry in usable if written_by_sampler(entry, sampler_pid)]
+
+    stamps = [float(entry.get("at") or 0.0) for entry in covering]
     boundaries = [monitored_from] + stamps + [ended_at]
     largest_gap = max(
         (later - earlier for earlier, later in zip(boundaries, boundaries[1:])),
@@ -1179,10 +1570,37 @@ def evaluate_series(
             VERDICT_CONTENDED_MID_RUN, reasons, windows, largest_gap, len(ordered)
         )
 
+    if not covering:
+        foreign = sorted(
+            {
+                entry.get("writer_pid")
+                for entry in ordered
+                if str(entry.get("source") or "") == SOURCE_SAMPLER
+                and not written_by_sampler(entry, sampler_pid)
+            }
+        )
+        reasons.append(
+            f"Not one of the {len(ordered)} sample(s) in this series was written by this "
+            f"job's background sampler ("
+            + (f"pid {sampler_pid}" if sampler_pid is not None else "none was recorded")
+            + "), so nothing observed this job while it ran. What is in the series is the "
+            "postflight's own closing measurement, which describes this instant and not "
+            "the job -- a one-sample series over a zero-length window otherwise scores as "
+            "perfect continuous coverage."
+        )
+        if foreign:
+            reasons.append(
+                f"    Sampler-written samples are present from pid(s) {foreign}, which are "
+                "not this job's sampler -- an orphaned sampler from an earlier job on this "
+                "runner, appending to the same series."
+            )
+        return SeriesVerdict(VERDICT_UNMEASURED, reasons, [], largest_gap, len(ordered))
+
     if largest_gap > max_gap_sec:
         reasons.append(
-            f"The occupancy series has a {largest_gap:.0f}s gap with no usable sample in "
-            f"it, over the {max_gap_sec:.0f}s this guard accepts as continuous coverage. The "
+            f"The occupancy series has a {largest_gap:.0f}s gap with no usable monitoring "
+            f"sample in it, over the {max_gap_sec:.0f}s this guard accepts as continuous "
+            "coverage. The "
             "background sampler stopped, was starved, or could not read occupancy, so part "
             "of this job was unobserved -- and an unobserved window reported as clean is "
             "exactly the false green this check exists to prevent."
@@ -1195,9 +1613,9 @@ def evaluate_series(
         return SeriesVerdict(VERDICT_UNMEASURED, reasons, [], largest_gap, len(ordered))
 
     reasons.append(
-        f"{len(usable)} usable samples over {max(ended_at - monitored_from, 0.0):.0f}s of "
-        f"monitored time, largest gap without one {largest_gap:.0f}s, no foreign process "
-        "sustained above the busy threshold."
+        f"{len(covering)} sampler-written samples over "
+        f"{max(ended_at - monitored_from, 0.0):.0f}s of monitored time, largest gap without "
+        f"one {largest_gap:.0f}s, no foreign process sustained above the busy threshold."
     )
     if unusable:
         reasons.append(
@@ -1240,7 +1658,7 @@ def phase_postflight(args: argparse.Namespace) -> int:
         int(job_root_pid) if isinstance(job_root_pid, int) else None, args.busy_percent
     )
     try:
-        append_sample(samples_path, end_sample)
+        append_sample(samples_path, end_sample, SOURCE_POSTFLIGHT)
     except OSError as exc:
         print(f"  WARNING: could not append the closing sample: {exc}")
 
@@ -1267,8 +1685,16 @@ def phase_postflight(args: argparse.Namespace) -> int:
         if isinstance(started_at_raw, (int, float)) and not isinstance(started_at_raw, bool)
         else end_sample.at
     )
+    sampler_pid_raw = session.get("sampler_pid")
+    sampler_pid = (
+        int(sampler_pid_raw)
+        if isinstance(sampler_pid_raw, int) and not isinstance(sampler_pid_raw, bool)
+        else None
+    )
     entries = read_samples(samples_path)
-    series = evaluate_series(entries, monitored_from, end_sample.at)
+    series = evaluate_series(
+        entries, monitored_from, end_sample.at, sampler_pid=sampler_pid
+    )
 
     if monitored_from > started_at + 1.0:
         print(
@@ -1296,7 +1722,7 @@ def phase_postflight(args: argparse.Namespace) -> int:
             int(job_root_pid) if isinstance(job_root_pid, int) else None, args.busy_percent
         )
         try:
-            append_sample(samples_path, confirm)
+            append_sample(samples_path, confirm, SOURCE_POSTFLIGHT)
         except OSError:
             pass
         if confirm.busy:
