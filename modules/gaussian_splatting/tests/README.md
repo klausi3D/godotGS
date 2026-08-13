@@ -270,8 +270,22 @@ To add new tests to the module:
 1. Create a new header file in `tests/` directory
 2. Include `tests/test_macros.h` for test framework
 3. Use `TEST_CASE()` and `SUBCASE()` macros
-4. Include your test header in `test_gaussian_splatting.h`
-5. Follow the naming convention: `test_<feature>.h`
+4. Follow the naming convention: `test_<feature>.h`
+5. Tag the case so a **lane** selects it (`tests/ci/run_module_tests.py`
+   `MODULE_TEST_FILTERS`, or a `tests/ci/run_gpu_harness.py` batch for
+   `[RequiresGPU]`). A case no lane selects runs nowhere;
+   `check_test_lane_coverage.py` fails on it.
+
+A `.h` test does **not** need an entry in `test_gaussian_splatting.h`:
+`modules/SCsub` globs every `tests/*.h` into the generated
+`modules_tests.gen.h`, so the file registers by existing in this directory. Ten
+case-carrying headers are unlisted there today and all run (`test_ply_importer.h`
+alone is the whole strict `[PLY]` lane). To answer "is my header compiled?", grep
+the generated `modules/modules_tests.gen.h` — not the include list.
+
+A test **`.cpp`** is the opposite case: it is compiled into the module static
+library and is silently linker-dropped unless `test_gaussian_splatting.h`
+references its `force_link` anchor (`check_test_linkage.py` enforces this).
 
 Example test structure:
 ```cpp
@@ -292,6 +306,59 @@ TEST_CASE("[GaussianSplatting] Your feature") {
 
 } // namespace TestGaussianSplatting
 ```
+
+### Waiting for asynchronous pipeline state (#879)
+
+Do **not** warm a renderer up with `for (int i = 0; i < N; i++) render_scene_instance(...)`
+and then assert. Streaming residency is produced by the async pack worker threads
+(`rendering/gaussian_splatting/streaming/async_pack_enabled`, default on); the
+frames only poll it. Measured in #879, first residency needs ~1.2 s of wall clock
+and the frame count needed *falls* as the frames are slowed — so a frame budget is
+a race against machine speed. A 16-frame warm-up covered 1.2 s on the old runner
+and 0.2 s once page heap was removed, and the module's only `has_rendered_content()`
+proof went red on unchanged C++.
+
+Use `gs_test_pump.h` instead:
+
+```cpp
+#include "gs_test_pump.h"
+
+const GSPumpOutcome warmup = gs_pump_until([&]() {
+    renderer->render_scene_instance(&render_data);
+    return renderer->has_rendered_content() && renderer->get_visible_splat_count() > 0;
+});
+if (!warmup.ready()) {
+    FAIL("Instance pipeline never warmed up ", warmup.describe(),
+            " - visible_splat_count=", renderer->get_visible_splat_count());
+    return;
+}
+```
+
+It keeps pumping (it never sleeps — the frames are what drive the async work) and
+bounds only the wall clock. The deadline is a **failure**, never a silent skip: if
+readiness never arrives the case must `FAIL` and say what never became true.
+
+The deadline also binds the *pass*, not just the loop: `outcome.ready()` is true only
+for a frame that finished **inside** the deadline, so a slow frame that returns
+`true` past the bound is reported as a failure (`describe()` then says the condition
+did hold, only too late). Accepting it would put #879 back one level in — a pass a
+slow machine can manufacture. The unit proof of that ordering is
+`test_gs_pump.h`, in the strict headless `GaussianSplatting [TestPump]` lane.
+
+**Gate on `warmup.ready()`, never on the thing the pump was waiting for.** Three of
+this helper's original ten call sites re-derived readiness from the observable
+itself — `if (!streaming_system_ready)`, `if (metrics.has("cpu_fallback"))` — and
+never looked at the outcome. Those two questions are different: the observable says
+"this became true", `ready()` says "this became true *inside the deadline*". When
+the deciding frame lands late the pump correctly reports failure and a re-derived
+gate walks straight past it, so the timeout is discarded and the case passes on an
+unverified pipeline. Put the observable in the `FAIL` message, where it is
+diagnosis, not a pass condition.
+
+That rule is **enforced, not just documented**: `ready()` is the only way to read the
+flag, it records that it was read, and `~GSPumpOutcome()` `FAIL`s the case if it never
+was — on every outcome, ready or not, so a new call site that forgets to check fails
+on the first healthy run rather than years later on a slow machine.
 
 ## CI/CD Integration
 

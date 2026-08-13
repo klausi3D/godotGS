@@ -1379,7 +1379,12 @@ class RealTreeTests(IsolatedTestCase):
         found = real.scan_all()
         # 383 -> 382 (#831): one environment skip in test_gaussian_splat_node.h
         # became a FAIL, which is the direction this ratchet is allowed to move.
-        self.assertEqual(382, sum(len(v) for v in found.values()))
+        # 382 -> 377 (#879): five environment skips in test_renderer_pipeline.h
+        # became FAILs. Each was reached only by a fixed-iteration warm-up loop
+        # running out, i.e. by a wall-clock race rather than by anything the
+        # machine failed to supply -- so they were never environment skips, and a
+        # deadline that ends in a silent "skip" is indistinguishable from the bug.
+        self.assertEqual(377, sum(len(v) for v in found.values()))
         self.assertEqual(27, len(found))
 
     def test_derived_macro_set_matches_the_headers_actual_macros(self) -> None:
