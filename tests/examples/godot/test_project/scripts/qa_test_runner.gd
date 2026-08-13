@@ -47,8 +47,20 @@ const QUARANTINED_SCENES := {
 		+ "65.2ms against a 60ms limit — the same signal that failed the frame-time "
 		+ "gate in #630/#624. CI also measured avg_fps 24.9 where an optimized local "
 		+ "build measures 1095.9, a 44x spread from the build config alone. Perf "
-		+ "gating belongs in the benchmark lanes, which persist per-machine baselines; "
-		+ "this lane exists to gate correctness and render-path identity.",
+		+ "gating belongs in a lane that compares a run against a per-machine "
+		+ "baseline; this lane exists to gate correctness and render-path identity. "
+		+ "CORRECTION (#883): an earlier version of this note said perf gating belongs "
+		+ "in 'the benchmark lanes, which persist per-machine baselines'. The normative "
+		+ "half stands; the factual half was FALSE and is withdrawn. No such lane exists "
+		+ "in this repo — every 'baseline' in run_benchmark.py is a lane NAME "
+		+ "(static_baseline, small_baseline, deck_*_baseline), there is no run-over-run "
+		+ "perf comparison anywhere, and the benchmark lane never runs on a PR, is "
+		+ "continue-on-error at job and step level, and routes these metrics through "
+		+ "soft_budget_thresholds that do not change run_benchmark.py's own exit code. "
+		+ "Building that baseline is what #523 is open for. So this entry PARKS the "
+		+ "assertion; it does not relocate it — and the sentence must not be cited to "
+		+ "move another perf assertion out of a blocking lane, because it already was "
+		+ "once (#883).",
 	"res://scenes/qa/qa_stream_multi_asset.tscn":
 		"Pre-existing: disabled until the runtime surface can prove true "
 		+ "resident/streaming coexistence.",

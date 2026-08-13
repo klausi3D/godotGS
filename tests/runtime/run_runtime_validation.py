@@ -391,6 +391,19 @@ def run_command(name: str, command: List[str], *, cwd: Optional[Path], timeout: 
             command,
             capture_output=True,
             text=True,
+            # Decode the child's streams explicitly. `text=True` alone uses the
+            # host locale (cp1252 on the Windows self-hosted runner), so ONE
+            # byte the codepage cannot map raises UnicodeDecodeError inside
+            # subprocess's reader thread and discards the ENTIRE captured
+            # stream. Observed locally on this gate: the run reported
+            # `metrics: {}` and an empty output tail on a test that had printed
+            # both. Everything this harness derives from output -- the metrics
+            # payload, the [RUNTIME_FAIL] reasons, [RUNTIME_SKIP], and the #883
+            # [RUNTIME_ADVISORY] lines -- silently disappears, leaving only the
+            # exit code. errors="replace" keeps the rest of the stream instead
+            # of trading all of it for one unmappable byte.
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
             cwd=cwd or ROOT,
         )
