@@ -79,7 +79,9 @@ template <typename TPump>
 // dropping the whole value, which none of the three sites did (all three stored
 // the outcome and used `describe()` in a message). So the obligation is enforced
 // where it CAN be: `ready()` is the only way to read the success flag, and it
-// records that it was read; the destructor FAILs the case if it never was.
+// records that it was read; the destructor fails the case if it never was. It
+// does so WITHOUT throwing -- see the note on the destructor for why a guard
+// that unwound out of a destructor destroyed more coverage than it protected.
 //
 // The guard is unconditional -- it fires on a ready outcome as loudly as on an
 // expired one -- deliberately. A guard that only fired on expiry would sit dark
@@ -144,17 +146,50 @@ struct GSPumpOutcome {
 	// compile time.
 	GSPumpOutcome &operator=(const GSPumpOutcome &) = delete;
 
+	// A DESTRUCTOR MAY NOT THROW (PR #881 review, round 4).
+	//
+	// This guard reported the violation with `FAIL`, whose severity is
+	// `is_require`; doctest's `MessageBuilder::react()` throws
+	// `TestFailureException` for exactly that severity. A destructor is
+	// implicitly `noexcept`, so with `disable_exceptions=false` -- a supported
+	// build of this repo -- the throw never reached the doctest runner: it hit
+	// `std::terminate` and killed the whole test binary, erasing every case that
+	// had not run yet. A guard that exists to stop one case from passing
+	// unverified would have deleted the coverage of every case behind it, which
+	// is strictly worse than the defect it guards.
+	//
+	// `FAIL_CHECK` has severity `is_check`, and `react()` throws only for
+	// `is_require`. So it records the same failed assertion against the same
+	// running case, through the same reporter, and the run still exits non-zero
+	// -- it simply does not unwind. That is the whole difference.
+	//
+	// Nothing is weakened by this, in either configuration:
+	//
+	//   * The obligation is unchanged and still UNCONDITIONAL. Every outcome,
+	//     ready or expired, must have had `ready()` called on it, and any that
+	//     did not still fails its case.
+	//   * In the DEFAULT build (`disable_exceptions=True`) this is a provable
+	//     no-op. That build defines DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS
+	//     (see `tests/SCsub`), under which `throwException()` has an empty body --
+	//     so `FAIL` already did not unwind, and already behaved exactly as
+	//     `FAIL_CHECK` does. Nothing about today's CI changes.
+	//   * The abort semantics `is_require` would buy are not available here
+	//     anyway. This runs at the end of the outcome's scope, after the case has
+	//     already made the assertions it was going to make, so there is nothing
+	//     left to abort -- and it can also run while ANOTHER failure is unwinding,
+	//     which is the second way the old form reached `std::terminate`.
+	//
+	// The failing branch still cannot be asserted from a passing case (it fails
+	// the case by construction), so it stays mutation-proven -- see the note on
+	// the "Reading the verdict" case in `test_gs_pump.h`.
 	~GSPumpOutcome() {
 		if (consumed) {
 			return;
 		}
-		// Not a CHECK: an outcome nobody read means the case's central wait was
-		// never proven to have succeeded, so whatever it asserted afterwards was
-		// asserted against an unverified pipeline.
-		FAIL("A gs_pump_until() outcome was discarded without calling ready() - the deadline it "
-			 "reports can therefore not have been honoured by this case. Inspect ready() and FAIL "
-			 "on it; re-deriving readiness from the observable the pump was waiting on is exactly "
-			 "the defect this guard exists to stop. Outcome: ready=",
+		FAIL_CHECK("A gs_pump_until() outcome was discarded without calling ready() - the deadline it "
+				"reports can therefore not have been honoured by this case. Inspect ready() and FAIL "
+				"on it; re-deriving readiness from the observable the pump was waiting on is exactly "
+				"the defect this guard exists to stop. Outcome: ready=",
 				ready_flag, " ", describe());
 	}
 

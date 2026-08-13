@@ -210,8 +210,8 @@ TEST_CASE("[GaussianSplatting][TestPump] A true observable is not the same quest
 }
 
 TEST_CASE("[GaussianSplatting][TestPump] Reading the verdict is what discharges the unchecked-outcome guard") {
-	// The bookkeeping `~GSPumpOutcome()` depends on. The destructor's FAIL branch
-	// cannot be asserted from a passing case (it fails the case by construction);
+	// The bookkeeping `~GSPumpOutcome()` depends on. The destructor's failing
+	// branch cannot be asserted from a passing case (it fails the case by construction);
 	// it is mutation-proven instead, by deleting a `ready()` call and watching the
 	// guard turn a case red on its own. What IS assertable is the half the guard
 	// reads: only `ready()` marks the outcome as checked, and `describe()` does not.
