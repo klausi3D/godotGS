@@ -1116,6 +1116,20 @@ def terminate_process(pid: int) -> Optional[str]:
     return None
 
 
+def write_session(session_path: Path, session: Dict[str, object]) -> None:
+    """Write the session record.
+
+    One writer, because the record is written more than once per preflight and
+    the whole point of the extra writes is that each one is durable at the moment
+    it happens: whatever the preflight knows about its sampler has to be on disk
+    before the preflight does anything that could be interrupted. A second
+    hand-rolled `write_text(json.dumps(...))` would eventually drift in
+    formatting or forget a field, and the next job reads this file to decide
+    whether a live orphan needs stopping.
+    """
+    session_path.write_text(json.dumps(session, indent=2, sort_keys=True), encoding="utf-8")
+
+
 def stop_orphaned_sampler(
     session_dir: Path, now=time.monotonic, sleep=time.sleep
 ) -> Tuple[List[str], Optional[str]]:
@@ -1323,7 +1337,7 @@ def phase_preflight(args: argparse.Namespace) -> int:
             + ["", "Nothing was built or measured. Retry when the machine is free."]
         )
         session["sampler_pid"] = None
-        session_path.write_text(json.dumps(session, indent=2, sort_keys=True), encoding="utf-8")
+        write_session(session_path, session)
         return EXIT_RUNNER_BUSY
 
     sampler_pid, sampler_error = spawn_sampler(
@@ -1332,6 +1346,24 @@ def phase_preflight(args: argparse.Namespace) -> int:
     session["sampler_pid"] = sampler_pid
     session["sampler_interval_sec"] = args.sampler_interval_sec
     session["sampler_error"] = sampler_error
+    # PERSIST THE PID BEFORE WAITING ON IT (#882 review).
+    #
+    # `spawn_sampler()` has already detached a child that will keep sampling for
+    # up to SAMPLER_MAX_LIFETIME_SEC. From this line on, the only record of which
+    # pid that is lives in this dict -- and the readiness wait below can run for
+    # SAMPLER_READY_TIMEOUT_SEC (90 s). A preflight cancelled or killed inside
+    # that window (a cancelled workflow run, a runner restart, Ctrl-C) would take
+    # the pid with it: the child stays alive and keeps appending to the shared
+    # JSONL, while the next job's `stop_orphaned_sampler()` reads a session file
+    # that either predates this run or does not exist, finds no pid to stop, and
+    # mixes the orphan's samples into its own series. That is precisely the
+    # orphan hazard `stop_orphaned_sampler()` exists to close, re-entered through
+    # the window the readiness wait opened.
+    #
+    # So the record is written the moment the pid exists, and rewritten below
+    # once the wait has resolved. The first write is what makes the child
+    # recoverable; the second is what makes it *described*.
+    write_session(session_path, session)
     # The instant continuous monitoring actually begins -- which is *after* the
     # wait, not when the preflight started.
     #
@@ -1369,7 +1401,7 @@ def phase_preflight(args: argparse.Namespace) -> int:
             running, command_line = probe_process(sampler_pid)
             if running and is_this_guards_sampler(command_line, session_dir):
                 terminate_process(sampler_pid)
-    session_path.write_text(json.dumps(session, indent=2, sort_keys=True), encoding="utf-8")
+    write_session(session_path, session)
 
     if last is not None:
         for line in describe_sample(last, busy_percent=busy_percent):

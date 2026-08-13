@@ -206,6 +206,62 @@ def job_level_env(job_lines: List[str]) -> Dict[str, str]:
     return env
 
 
+#: A job's own `timeout-minutes:`, at the job's key depth (4 spaces). A
+#: step-level `timeout-minutes:` sits deeper and bounds one step, not the job,
+#: so matching it here would read a bound the runner never applies to the job.
+_JOB_TIMEOUT = re.compile(r"^    timeout-minutes:\s*([0-9]+)\s*(?:#.*)?$")
+
+#: GitHub's documented default when a job declares no `timeout-minutes:`.
+#: A job without one is not unbounded and is not excluded from the minimum --
+#: it genuinely gets this, and dropping it from the derivation would let a new
+#: GPU job silently sit outside every timeout-relative bound.
+DEFAULT_JOB_TIMEOUT_MINUTES = 360
+
+
+def job_timeout_minutes(job_lines: List[str]) -> Tuple[int, bool]:
+    """`(the job's timeout in minutes, whether it declared one)`.
+
+    The two are separate answers so a caller can tell "this job is bounded at 60"
+    from "nothing was found and 360 is GitHub's default", and so a derivation
+    that silently found *no* explicit timeout anywhere -- the shape a broken
+    parser produces -- is detectable rather than passing as a comfortable 360.
+    """
+    for line in job_lines:
+        if line.lstrip().startswith("#"):
+            continue
+        match = _JOB_TIMEOUT.match(line)
+        if match:
+            return int(match.group(1)), True
+    return DEFAULT_JOB_TIMEOUT_MINUTES, False
+
+
+def shortest_gpu_job_timeout_minutes() -> Tuple[int, Tuple[str, str], int]:
+    """`(shortest timeout, the job that sets it, how many declared one)`.
+
+    Derived, never restated. Any bound expressed as a fraction of "the job
+    timeout" has to be measured against the *shortest* one in the pool, because
+    that is the first job the bound can overrun -- and a constant written into a
+    test goes stale the moment a job with a tighter budget joins the pool, which
+    is exactly what happened when `baseline_qa.yml`'s 60-minute `gpu-harness`
+    landed under an assertion still claiming 120 (#882 review).
+    """
+    jobs = gpu_jobs()
+    if not jobs:
+        raise WorkflowContractError(
+            "No GPU job was derived, so there is no shortest timeout to bound "
+            "anything against. This must fail rather than return a default."
+        )
+    declared = 0
+    shortest: Optional[Tuple[int, Tuple[str, str]]] = None
+    for key, lines in sorted(jobs.items()):
+        minutes, explicit = job_timeout_minutes(lines)
+        declared += int(explicit)
+        if shortest is None or minutes < shortest[0]:
+            shortest = (minutes, key)
+    assert shortest is not None
+    return shortest[0], shortest[1], declared
+
+
 def first_index(job_lines: List[str], needle: str) -> Optional[int]:
     """First line containing `needle`, ignoring YAML comments.
 

@@ -60,6 +60,20 @@ POSTFLIGHT_INVOCATION = f"{SCRIPT} postflight"
 
 README_SECTION_HEADING = "### GPU contention"
 
+#: Longest run observed of the GPU job with the SHORTEST timeout, which is what
+#: the wait bound has to fit alongside. Measured over the 12 most recent
+#: successful `baseline_qa.yml` runs: `gpu-harness` (60 min budget) took 0.5-14.2
+#: min, `gpu-tests` (120 min budget) 5.7-18.1 min.
+MEASURED_ON = "12 successful baseline_qa.yml runs, 2026-08-13"
+OBSERVED_GPU_JOB_MINUTES_MAX = 14.2
+
+#: Twice the worst observed run. A wait is affordable only if the job can still
+#: finish after waiting the whole bound, and "still finish" has to carry margin:
+#: the runs measured above were themselves on a healthy machine, and the case
+#: that consumes the wait is by definition a machine that was NOT healthy.
+HEADROOM_MARGIN = 2.0
+REQUIRED_HEADROOM_SEC = HEADROOM_MARGIN * OBSERVED_GPU_JOB_MINUTES_MAX * 60
+
 
 # --------------------------------------------------------------------------
 # The workflow contract
@@ -192,12 +206,42 @@ class ContentionPolicyIsCoherent(unittest.TestCase):
     def test_the_wait_is_bounded_and_fits_inside_the_job_timeout(self) -> None:
         """A wait longer than the job's own timeout would fail as a timeout instead.
 
-        The shortest GPU job timeout in the workflows is 120 minutes. A bound
-        that approached it would turn "the runner was busy" back into an
-        uninterpretable red, which is the defect being removed.
+        The bound this asserts is DERIVED, not restated. The assertion used to
+        say "the shortest GPU job timeout is 120 minutes" and compare against
+        that literal -- and it was already false when it was written, because
+        `baseline_qa.yml`'s `gpu-harness` is bounded at 60 (#882 review). A
+        constant cannot notice a tighter job joining the pool; the workflows can.
+
+        And the relation that matters is not a fraction of the timeout, it is
+        HEADROOM: what is left for the job's own work after a maximal wait. A
+        wait is affordable exactly when the job can still finish inside its
+        timeout having waited the whole bound, so that is what is asserted.
         """
+        shortest_minutes, binding_job, declared = gpu_guard.shortest_gpu_job_timeout_minutes()
+        self.assertGreater(
+            declared,
+            0,
+            "Not one GPU job declares a `timeout-minutes:`, so every job fell back "
+            f"to GitHub's {gpu_guard.DEFAULT_JOB_TIMEOUT_MINUTES}-minute default and "
+            "this bound is being checked against a number no workflow states. That "
+            "is a broken parser, not a relaxed policy.",
+        )
         self.assertGreater(contention.DEFAULT_WAIT_TIMEOUT_SEC, 0)
-        self.assertLess(contention.DEFAULT_WAIT_TIMEOUT_SEC, 0.25 * 120 * 60)
+
+        headroom_sec = shortest_minutes * 60 - contention.DEFAULT_WAIT_TIMEOUT_SEC
+        self.assertGreaterEqual(
+            headroom_sec,
+            REQUIRED_HEADROOM_SEC,
+            f"A job that waits the full {contention.DEFAULT_WAIT_TIMEOUT_SEC:.0f}s and "
+            f"then runs normally has {headroom_sec / 60:.0f} min left inside "
+            f"{binding_job[0]}'s {binding_job[1]!r} budget of {shortest_minutes} min, "
+            f"but that job has been measured taking up to {OBSERVED_GPU_JOB_MINUTES_MAX} "
+            f"min ({MEASURED_ON}). Below {REQUIRED_HEADROOM_SEC / 60:.0f} min of headroom "
+            "a busy runner stops producing an interpretable RUNNER BUSY verdict and "
+            "starts producing a job timeout instead -- the uninterpretable red this "
+            "whole guard exists to remove. Either shorten DEFAULT_WAIT_TIMEOUT_SEC or "
+            "raise that job's timeout; do not lower the headroom to fit.",
+        )
 
     def test_the_sample_gap_tolerance_exceeds_the_sampling_interval(self) -> None:
         """Otherwise every healthy run is UNMEASURED and the guard is pure noise."""
@@ -1149,7 +1193,13 @@ class PreflightOrderAndReadiness(unittest.TestCase):
                 return_value=(True, [_sample(at=self.T0)], []),
             )
             patch("spawn_sampler", return_value=(SAMPLER_PID, None))
-            patch("await_sampler_ready", return_value=ready)
+            # A callable `ready` stands in the readiness wait's place so a case
+            # can observe the world *during* the wait -- which is the only place
+            # the persist-before-wait property is visible.
+            if callable(ready):
+                patch("await_sampler_ready", side_effect=ready)
+            else:
+                patch("await_sampler_ready", return_value=ready)
             patch("probe_process", return_value=(True, "unidentifiable"))
             terminated: List[int] = []
             patch("terminate_process", side_effect=terminated.append)
@@ -1186,6 +1236,55 @@ class PreflightOrderAndReadiness(unittest.TestCase):
         self.assertNotIn("monitored_from", session)
         self.assertIn("wrote no sample", session["sampler_error"])
         self.assertEqual(seen["terminated"], [])  # unidentifiable -> never killed
+
+    def test_the_sampler_pid_is_on_disk_before_the_readiness_wait(self) -> None:
+        """A preflight killed mid-wait must still leave a stoppable pid (#882 review).
+
+        `spawn_sampler()` returns a detached child with a lifetime of up to
+        SAMPLER_MAX_LIFETIME_SEC, and the readiness wait after it can run for
+        SAMPLER_READY_TIMEOUT_SEC (90 s). If the pid is only in memory for that
+        window, a cancelled or killed preflight leaves the child alive with
+        nothing recording it: the next job's orphan check reads a stale or absent
+        session, stops nothing, and shares the JSONL with a sampler it cannot see.
+
+        So this reads the session record from *inside* the wait -- the exact
+        instant the interruption would land -- rather than after it.
+        """
+        during: Dict[str, object] = {}
+
+        def read_the_record_mid_wait(samples_path, sampler_pid, **_kwargs):
+            path = Path(samples_path).parent / contention.SESSION_FILE
+            during["exists"] = path.is_file()
+            during["pid"] = (
+                json.loads(path.read_text(encoding="utf-8")).get("sampler_pid")
+                if path.is_file()
+                else None
+            )
+            return (self.T0 + 3.0, None)
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            code, session = self._preflight(read_the_record_mid_wait, base, {})
+
+        self.assertEqual(code, 0)
+        self.assertTrue(
+            during["exists"],
+            "The preflight entered the readiness wait with no session record on "
+            "disk at all, so a preflight interrupted during the wait would leave "
+            "its detached sampler with no pid anywhere for the next job to stop.",
+        )
+        self.assertEqual(
+            during["pid"],
+            SAMPLER_PID,
+            "The session record on disk during the readiness wait does not name "
+            f"the sampler that was just spawned (pid {SAMPLER_PID}). Whatever is "
+            "recorded there is what the next job's orphan check will act on, so "
+            "an interrupted preflight orphans this sampler onto the runner.",
+        )
+        # And the normal path is unaffected: the wait's result still lands in the
+        # record that survives the preflight.
+        self.assertEqual(session["sampler_pid"], SAMPLER_PID)
+        self.assertEqual(session["monitored_from"], self.T0 + 3.0)
 
 
 if __name__ == "__main__":
