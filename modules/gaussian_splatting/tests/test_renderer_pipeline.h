@@ -1809,7 +1809,7 @@ TEST_CASE("[GaussianSplatting][SceneTree][RequiresGPU] World-backed RenderSceneI
     CHECK(renderer->has_rendered_content());
     CHECK(renderer->get_final_texture().is_valid());
 
-    if (!warmup.ready) {
+    if (!warmup.ready()) {
         // #690: the two CHECKs above are unconditional, so this branch cannot make the
         // case pass vacuously - it only skips the downstream detail assertions once the
         // headline proof has already failed.
@@ -2157,13 +2157,24 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] World static chunks keep streaming i
             vformat("Expected streaming-not-ready warmup frames to publish skipped cull stage metrics, saw '%s'",
                     warmup_unskipped_cull_status));
 
-    if (!streaming_system_ready) {
+    if (!warmup.ready()) {
         // #879: the deadline is a failure, not a skip. Nothing about this case is
         // environment-conditional at this point - the renderer and its device were
         // already obtained above - so a streaming system that never appears is a
         // real defect, not a reason to report a hollow pass.
-        FAIL("Streaming system never became current ", warmup.describe(),
-                " - has_instance_pipeline_buffers=", renderer->has_instance_pipeline_buffers());
+        //
+        // PR #881 review: gate on the PUMP's verdict, not on `streaming_system_ready`.
+        // Those are not the same question. The flag says "this eventually became
+        // true"; `warmup.ready()` says "this became true INSIDE the deadline". When
+        // the frame that first satisfies both flags ends past the deadline the pump
+        // refuses it, and re-deriving readiness from the flag here would walk
+        // straight past that refusal into the assertions below - discarding the very
+        // timeout the pump exists to report. The flag is still named in the message,
+        // where it is diagnosis rather than a pass condition.
+        FAIL("Streaming warm-up did not complete inside the deadline ", warmup.describe(),
+                " - streaming_system_ready=", streaming_system_ready,
+                " instance_buffers_ready=", instance_buffers_ready,
+                " has_instance_pipeline_buffers=", renderer->has_instance_pipeline_buffers());
         return;
     }
 
@@ -2200,7 +2211,7 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] World static chunks keep streaming i
                 recovered_buffers.instance_count > 0;
     });
 
-    CHECK_MESSAGE(recovery.ready,
+    CHECK_MESSAGE(recovery.ready(),
             vformat("Expected streaming instance pipeline to recover a ready contract after clearing only the "
                     "published buffers - gave up %s",
                     recovery.describe()));
@@ -2473,7 +2484,7 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Resident-selected failure does not p
         return renderer->test_has_current_streaming_system();
     });
 
-    if (!streaming_warmup.ready) {
+    if (!streaming_warmup.ready()) {
         // #879: a deadline expiry is a failure. The device and renderer are already
         // in hand here, so this is not an environment skip.
         FAIL("Streaming system never became current ", streaming_warmup.describe(),
@@ -2603,7 +2614,7 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Static layout fallback publishes typ
         return renderer->test_has_current_streaming_system();
     });
 
-    if (!streaming_warmup.ready) {
+    if (!streaming_warmup.ready()) {
         // #879: a deadline expiry is a failure, not a skip - without a streaming
         // system the static-layout fallback diagnostics below are never produced.
         FAIL("Streaming system never became current ", streaming_warmup.describe(),
@@ -2785,12 +2796,24 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Streaming indices validate against b
 		raster_splats_iterated = counters.get("raster_splats_iterated", int64_t(0));
 		return streaming_active && raster_splats_iterated > 0;
 	});
-	counters_ready = streaming_warmup.ready;
+	counters_ready = streaming_warmup.ready();
 
-	if (!streaming_active) {
+	// PR #881 review: the pump's verdict is checked FIRST, ahead of both the
+	// re-derived `streaming_active` gate and the capacity skip below.
+	//
+	// This site did already consume the outcome, but it consumed it in third
+	// place, and the environment skip sitting in front of it could swallow a
+	// timeout: with the deadline expired on a frame that DID satisfy the
+	// condition, `streaming_active` is true, so the first gate passes and an
+	// undersized streaming buffer then reports "Skipping test" - a timeout
+	// converted into a skip. Gating on `ready()` first makes the deadline
+	// unconditional and leaves the capacity skip to mean only what it says.
+	if (!counters_ready) {
 		// #879: the deadline expiring is a failure, not a skip.
-		FAIL("Streaming buffer indices never became active ", streaming_warmup.describe(),
-				" - the OOB-reject assertion below would be unexercised");
+		FAIL("Streaming/raster warm-up did not complete inside the deadline ", streaming_warmup.describe(),
+				" - streaming_active=", streaming_active,
+				" raster_splats_iterated=", raster_splats_iterated,
+				"; the OOB-reject assertion below would be unexercised");
 		renderer.unref();
 		return;
 	}
@@ -2798,12 +2821,6 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Streaming indices validate against b
 		// NOT a deadline: this is a sizing property of the streaming buffer, not
 		// something more frames or more wall clock can change.
 		MESSAGE("Skipping test - streaming buffer capacity not larger than source data");
-		renderer.unref();
-		return;
-	}
-	if (!counters_ready) {
-		FAIL("Binning debug counters never reported a rasterized splat ", streaming_warmup.describe(),
-				" - raster_splats_iterated=", raster_splats_iterated);
 		renderer.unref();
 		return;
 	}
@@ -2887,6 +2904,19 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] RenderSceneInstance supports forced 
         return renderer->get_last_sort_metrics().has("cpu_fallback");
     }, GS_PUMP_DEADLINE_USEC, 2);
 
+    // PR #881 review: check the PUMP's verdict before consuming anything it
+    // published. `sort_metrics.has("cpu_fallback")` answers "were the metrics
+    // published at all", which is true both when the pump succeeded and when the
+    // publishing frame landed past the deadline and the pump refused it. Asserting
+    // on the dictionary first therefore passes in both cases and silently discards
+    // the timeout; the values below are only meaningful once readiness is in hand.
+    if (!sort_warmup.ready()) {
+        FAIL("Sort metrics did not publish cpu_fallback inside the deadline ", sort_warmup.describe(),
+                " - cpu_fallback published now=", renderer->get_last_sort_metrics().has("cpu_fallback"));
+        renderer.unref();
+        return;
+    }
+
     Dictionary sort_metrics = renderer->get_last_sort_metrics();
     CHECK_MESSAGE(sort_metrics.has("cpu_fallback"),
             vformat("Expected sort metrics to include cpu_fallback - gave up %s", sort_warmup.describe()));
@@ -2918,6 +2948,18 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] RenderSceneInstance supports forced 
 			renderer->render_scene_instance(&render_data);
 			return renderer->get_last_sort_metrics().has("cpu_fallback");
 		}, GS_PUMP_DEADLINE_USEC, 2);
+
+		// PR #881 review: same defect, same fix as the warm-up above. Codex named
+		// only the first site; this one re-derived readiness from
+		// `empty_sort_metrics.has("cpu_fallback")` in exactly the same way, so it
+		// would have kept discarding its own timeout after the named site was fixed.
+		if (!empty_sort_warmup.ready()) {
+			FAIL("Empty-frame sort metrics did not publish cpu_fallback inside the deadline ",
+					empty_sort_warmup.describe(),
+					" - cpu_fallback published now=", renderer->get_last_sort_metrics().has("cpu_fallback"));
+			renderer.unref();
+			return;
+		}
 
 		Dictionary empty_sort_metrics = renderer->get_last_sort_metrics();
 		CHECK_MESSAGE(empty_sort_metrics.has("cpu_fallback"),
@@ -3880,7 +3922,7 @@ TEST_CASE("[GaussianSplatting][RendererPipeline][SceneTree][RequiresGPU] Stage r
     // Fail closed: if raster never ran, the cascade this case exists to pin is not being
     // exercised at all. Say so instead of asserting against a skipped stage -- and never let
     // this case go quietly hollow again (#694).
-    if (!raster_bootstrap.ready) {
+    if (!raster_bootstrap.ready()) {
         FAIL("Raster stage never ran during bootstrap ", raster_bootstrap.describe(),
                 "; the raster-failure cascade is not being exercised - last stage_raster_status='",
                 String(renderer->get_render_stats().get("stage_raster_status", String())), "'");
@@ -4085,7 +4127,7 @@ TEST_CASE("[GaussianSplatting][RendererPipeline][SceneTree][RequiresGPU] Serial 
         const Dictionary bootstrap_stats = renderer->get_render_stats();
         return String(bootstrap_stats.get("stage_raster_status", String())) == String("success");
     });
-    const bool bootstrap_rastered = raster_bootstrap.ready;
+    const bool bootstrap_rastered = raster_bootstrap.ready();
     // Fail closed rather than skip. This is a REQUIRED batch: a mid-test `MESSAGE(...);
     // return;` leaves the case reported as PASSED having verified nothing, which is the
     // exact hollow-coverage failure mode #694 is repairing. On a device that got this far

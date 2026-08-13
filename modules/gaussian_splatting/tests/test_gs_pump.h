@@ -23,7 +23,7 @@ namespace TestGaussianSplatting {
 // every caller passed and the wall-clock bound was enforced against nothing --
 // #879 one level in. These cases pin the post-condition
 //
-//     outcome.ready  =>  outcome.elapsed_usec < deadline
+//     outcome.ready()  =>  outcome.elapsed_usec < deadline
 //
 // in both directions, plus the floor and the never-converges path.
 //
@@ -66,7 +66,7 @@ TEST_CASE("[GaussianSplatting][TestPump] Readiness observed only after the deadl
 	},
 			deadline_usec);
 
-	CHECK_MESSAGE(!outcome.ready,
+	CHECK_MESSAGE(!outcome.ready(),
 			vformat("Expected late readiness to be refused, got ready=true %s", outcome.describe()));
 	CHECK_MESSAGE(outcome.late_ready,
 			"Expected the refused readiness to be recorded as late_ready for the FAIL message");
@@ -95,7 +95,7 @@ TEST_CASE("[GaussianSplatting][TestPump] In-time readiness is still accepted on 
 	},
 			deadline_usec);
 
-	CHECK_MESSAGE(outcome.ready, vformat("Expected in-time readiness to be accepted, gave up %s", outcome.describe()));
+	CHECK_MESSAGE(outcome.ready(), vformat("Expected in-time readiness to be accepted, gave up %s", outcome.describe()));
 	CHECK_FALSE(outcome.late_ready);
 	CHECK_MESSAGE(outcome.frames == 3,
 			vformat("Expected the loop to return on the first satisfying frame, saw %d", outcome.frames));
@@ -120,7 +120,7 @@ TEST_CASE("[GaussianSplatting][TestPump] A condition that never holds fails at t
 	},
 			deadline_usec);
 
-	CHECK_FALSE(outcome.ready);
+	CHECK_FALSE(outcome.ready());
 	CHECK_MESSAGE(!outcome.late_ready,
 			"A condition that never held must not be reported as late readiness");
 	CHECK_MESSAGE(outcome.elapsed_usec >= deadline_usec,
@@ -154,7 +154,7 @@ TEST_CASE("[GaussianSplatting][TestPump] The minimum-frame floor outranks both e
 		CHECK_MESSAGE(outcome.frames == 3,
 				vformat("Expected the floor to be honoured past expiry, saw %d frame(s)", outcome.frames));
 		CHECK(pump_calls == 3);
-		CHECK_MESSAGE(!outcome.ready, "Readiness observed past the deadline stays refused under a floor too");
+		CHECK_MESSAGE(!outcome.ready(), "Readiness observed past the deadline stays refused under a floor too");
 		CHECK(outcome.late_ready);
 	}
 
@@ -167,11 +167,74 @@ TEST_CASE("[GaussianSplatting][TestPump] The minimum-frame floor outranks both e
 		},
 				deadline_usec, 3);
 
-		CHECK_MESSAGE(outcome.ready, vformat("Expected in-time readiness at the floor, gave up %s", outcome.describe()));
+		CHECK_MESSAGE(outcome.ready(), vformat("Expected in-time readiness at the floor, gave up %s", outcome.describe()));
 		CHECK_MESSAGE(outcome.frames == 3,
 				vformat("Expected exactly the floor's frames, saw %d", outcome.frames));
 		CHECK(pump_calls == 3);
 	}
+}
+
+TEST_CASE("[GaussianSplatting][TestPump] A true observable is not the same question as a ready outcome") {
+	// The PR #881 round-3 defect shape, reproduced at helper level.
+	//
+	// Three call sites gated on the OBSERVABLE the pump had been waiting for --
+	// `if (!streaming_system_ready)`, `if (metrics.has("cpu_fallback"))` -- instead
+	// of on the outcome. This case pins why those are different questions: after a
+	// pump whose deciding frame ended late, the observable is TRUE and the outcome
+	// is NOT ready. A gate written the old way passes here; a gate written on
+	// `ready()` fails, which is the correct answer.
+	if (OS::get_singleton() == nullptr) {
+		FAIL("OS singleton unavailable - gs_pump_until() cannot be exercised without a clock");
+		return;
+	}
+	const uint64_t deadline_usec = 20000; // 20 ms.
+	// Stands in for `streaming_system_ready` / `sort_metrics.has("cpu_fallback")`:
+	// state the frame publishes, which outlives the frame and stays observable
+	// after the pump returns.
+	bool observable = false;
+	const GSPumpOutcome outcome = gs_pump_until([&]() {
+		observable = true;
+		gs_pump_test_spin_usec(deadline_usec * 2); // ...on a frame that ends late.
+		return observable;
+	},
+			deadline_usec);
+
+	CHECK_MESSAGE(observable,
+			"Precondition: the pumped condition DID become true and is still readable after the pump - "
+			"this is exactly the state the three fixed call sites were reading");
+	CHECK_MESSAGE(!outcome.ready(),
+			vformat("A late-satisfying pump must not be ready even though its observable is true %s",
+					outcome.describe()));
+	CHECK_MESSAGE(outcome.late_ready,
+			"The refused readiness must still be reported as late, so the FAIL message can say so");
+}
+
+TEST_CASE("[GaussianSplatting][TestPump] Reading the verdict is what discharges the unchecked-outcome guard") {
+	// The bookkeeping `~GSPumpOutcome()` depends on. The destructor's FAIL branch
+	// cannot be asserted from a passing case (it fails the case by construction);
+	// it is mutation-proven instead, by deleting a `ready()` call and watching the
+	// guard turn a case red on its own. What IS assertable is the half the guard
+	// reads: only `ready()` marks the outcome as checked, and `describe()` does not.
+	if (OS::get_singleton() == nullptr) {
+		FAIL("OS singleton unavailable - gs_pump_until() cannot be exercised without a clock");
+		return;
+	}
+	const GSPumpOutcome outcome = gs_pump_until([&]() {
+		return true;
+	},
+			5ULL * 1000ULL * 1000ULL);
+
+	CHECK_MESSAGE(!outcome.test_verdict_was_read(),
+			"A fresh outcome must start out owing a ready() call");
+	const String ignored_tail = outcome.describe();
+	CHECK_MESSAGE(!ignored_tail.is_empty(), "Precondition: describe() produced its diagnostic tail");
+	CHECK_MESSAGE(!outcome.test_verdict_was_read(),
+			"describe() must NOT discharge the obligation - the three fixed call sites all called "
+			"describe() while never checking readiness, so accepting it would have left them silent");
+
+	CHECK(outcome.ready());
+	CHECK_MESSAGE(outcome.test_verdict_was_read(),
+			"ready() must record that the verdict was read, or the destructor guard would fire on every case");
 }
 
 } // namespace TestGaussianSplatting

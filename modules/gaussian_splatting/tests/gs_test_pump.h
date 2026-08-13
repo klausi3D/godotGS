@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include "tests/test_macros.h"
+
 #include "core/os/os.h"
 #include "core/variant/variant.h"
 
@@ -36,10 +38,11 @@ namespace TestGaussianSplatting {
 //      what observe its completion. A deadline that merely slept would let the
 //      case "pass" for a different wrong reason, so this helper never sleeps --
 //      it calls the caller's frame function as fast as it can.
-//   2. The deadline is a FAILURE, not a silent pass. This helper only reports;
-//      every caller must inspect `ready` and FAIL with the state it observed,
-//      naming what never became true. A deadline that swallows the failure is
-//      indistinguishable from a fix.
+//   2. The deadline is a FAILURE, not a silent pass. Every caller must inspect
+//      `ready()` and FAIL with the state it observed, naming what never became
+//      true. A deadline that swallows the failure is indistinguishable from a
+//      fix. This one is ENFORCED rather than documented -- see the unchecked-
+//      outcome guard on `GSPumpOutcome` below and the note on why.
 //   3. The deadline BINDS THE PASS, not just the loop. Readiness is only accepted
 //      from a frame that also finished inside the deadline (see the ordering note
 //      on `gs_pump_until` below). A helper that reports ready off a frame which
@@ -51,10 +54,40 @@ namespace TestGaussianSplatting {
 // nothing until something is genuinely broken.
 static constexpr uint64_t GS_PUMP_DEADLINE_USEC = 10ULL * 1000ULL * 1000ULL; // 10 s ~= 8x the ~1.2 s measured in #879.
 
+struct GSPumpOutcome;
+
+// `[[nodiscard]]` catches the coarsest misuse -- calling the pump purely for its
+// side effect and dropping the outcome on the floor. It does NOT catch the three
+// sites this round fixed (they all stored the outcome), which is why the guard on
+// the type below exists as well.
+template <typename TPump>
+[[nodiscard]] GSPumpOutcome gs_pump_until(TPump p_pump, uint64_t p_deadline_usec = GS_PUMP_DEADLINE_USEC, int p_min_frames = 1);
+
+// THE UNCHECKED-OUTCOME GUARD (PR #881 review, round 3).
+//
+// Property 2 above was written as a rule for callers to remember, and callers
+// forgot it: of the ten call sites this helper had, THREE never looked at the
+// outcome at all. They re-derived readiness from the observable itself -- "the
+// streaming system is current now", "the metrics dictionary has the key now" --
+// and passed on a pump that had already reported failure. The helper was honest
+// and the callers threw the answer away, which is #879 a third level in: the
+// wall-clock bound existed, was correctly enforced, and bound nothing.
+//
+// A rule that must be remembered will eventually be forgotten; the fix is to
+// make forgetting it impossible rather than to write the rule down again. C++
+// cannot express "you must branch on this bool" -- `[[nodiscard]]` only catches
+// dropping the whole value, which none of the three sites did (all three stored
+// the outcome and used `describe()` in a message). So the obligation is enforced
+// where it CAN be: `ready()` is the only way to read the success flag, and it
+// records that it was read; the destructor FAILs the case if it never was.
+//
+// The guard is unconditional -- it fires on a ready outcome as loudly as on an
+// expired one -- deliberately. A guard that only fired on expiry would sit dark
+// through every healthy run and only wake up on the slow machine years later,
+// which is the same latent-failure shape as the bug it guards. Unconditional
+// means every call site exercises it on every run, so a NEW caller that forgets
+// to check fails immediately, on the developer's own healthy box.
 struct GSPumpOutcome {
-	// The ONLY success signal. `ready` is true if and only if the condition held
-	// on a frame that also finished inside the deadline.
-	bool ready = false;
 	// DIAGNOSTIC ONLY -- never a success signal, never something a caller may
 	// branch on. The condition DID hold, but only on a frame that ended past the
 	// deadline, so `gs_pump_until()` refused it (see the ordering note there).
@@ -63,6 +96,21 @@ struct GSPumpOutcome {
 	bool late_ready = false;
 	int frames = 0;
 	uint64_t elapsed_usec = 0;
+
+	// The ONLY success signal, and the only route to it. True if and only if the
+	// condition held on a frame that also finished inside the deadline. Reading
+	// it discharges the obligation the destructor below enforces, so a caller
+	// that decides readiness any other way -- by re-reading the renderer, or by
+	// re-testing the dictionary the pump was waiting on -- still fails.
+	[[nodiscard]] bool ready() const {
+		consumed = true;
+		return ready_flag;
+	}
+
+	// For the guard's own contract test only. Reports whether `ready()` has been
+	// called WITHOUT counting as that call, so a case can prove the bookkeeping the
+	// destructor depends on. Never a substitute for `ready()`.
+	bool test_verdict_was_read() const { return consumed; }
 
 	double elapsed_ms() const { return double(elapsed_usec) / 1000.0; }
 
@@ -77,6 +125,48 @@ struct GSPumpOutcome {
 		}
 		return tail;
 	}
+
+	GSPumpOutcome() = default;
+	// Copying transfers the obligation to the copy rather than duplicating it, so
+	// `return outcome;` out of the helper (and any caller that stores a copy)
+	// leaves exactly one object that still owes a `ready()` call.
+	GSPumpOutcome(const GSPumpOutcome &p_other) :
+			late_ready(p_other.late_ready),
+			frames(p_other.frames),
+			elapsed_usec(p_other.elapsed_usec),
+			ready_flag(p_other.ready_flag) {
+		p_other.consumed = true;
+	}
+	// Deleted rather than written: assigning over an outcome whose `ready()` was
+	// never called would drop that obligation where the destructor cannot see it,
+	// which is the one way the guard could be defeated by accident. No call site
+	// assigns an outcome, so deleting it costs nothing and closes the hole at
+	// compile time.
+	GSPumpOutcome &operator=(const GSPumpOutcome &) = delete;
+
+	~GSPumpOutcome() {
+		if (consumed) {
+			return;
+		}
+		// Not a CHECK: an outcome nobody read means the case's central wait was
+		// never proven to have succeeded, so whatever it asserted afterwards was
+		// asserted against an unverified pipeline.
+		FAIL("A gs_pump_until() outcome was discarded without calling ready() - the deadline it "
+			 "reports can therefore not have been honoured by this case. Inspect ready() and FAIL "
+			 "on it; re-deriving readiness from the observable the pump was waiting on is exactly "
+			 "the defect this guard exists to stop. Outcome: ready=",
+				ready_flag, " ", describe());
+	}
+
+private:
+	bool ready_flag = false;
+	// `mutable` so `ready()` can stay const: callers hold the outcome by const
+	// reference or as a `const` local, and making the check non-const would push
+	// them back towards not calling it.
+	mutable bool consumed = false;
+
+	template <typename TPump>
+	friend GSPumpOutcome gs_pump_until(TPump p_pump, uint64_t p_deadline_usec, int p_min_frames);
 };
 
 // `p_pump` must advance the pipeline by exactly one frame and return whether the
@@ -92,7 +182,7 @@ struct GSPumpOutcome {
 // ORDER OF THE TWO EXITS (PR #881 review). Once the floor is satisfied, EXPIRY IS
 // CHECKED FIRST and readiness second, so the post-condition is exact:
 //
-//     outcome.ready  =>  outcome.elapsed_usec < p_deadline_usec
+//     outcome.ready()  =>  outcome.elapsed_usec < p_deadline_usec
 //
 // Checking readiness first -- the obvious order, and the one this helper shipped
 // with -- lets the deadline be evaded by exactly the thing the deadline exists to
@@ -115,7 +205,7 @@ struct GSPumpOutcome {
 // already wrong -- and `describe()` says the condition did hold but too late, so
 // "too tight a deadline" is still one line away from "never converges".
 template <typename TPump>
-GSPumpOutcome gs_pump_until(TPump p_pump, uint64_t p_deadline_usec = GS_PUMP_DEADLINE_USEC, int p_min_frames = 1) {
+GSPumpOutcome gs_pump_until(TPump p_pump, uint64_t p_deadline_usec, int p_min_frames) {
 	GSPumpOutcome outcome;
 	const OS *os = OS::get_singleton();
 	const uint64_t started_usec = os ? os->get_ticks_usec() : 0;
@@ -132,12 +222,12 @@ GSPumpOutcome gs_pump_until(TPump p_pump, uint64_t p_deadline_usec = GS_PUMP_DEA
 			continue;
 		}
 		if (outcome.elapsed_usec >= p_deadline_usec) {
-			// `ready` is recorded, never honoured: `outcome.ready` stays false.
+			// `ready` is recorded, never honoured: `outcome.ready()` stays false.
 			outcome.late_ready = ready;
 			return outcome;
 		}
 		if (ready) {
-			outcome.ready = true;
+			outcome.ready_flag = true;
 			return outcome;
 		}
 	}

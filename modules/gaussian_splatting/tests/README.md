@@ -327,7 +327,7 @@ const GSPumpOutcome warmup = gs_pump_until([&]() {
     renderer->render_scene_instance(&render_data);
     return renderer->has_rendered_content() && renderer->get_visible_splat_count() > 0;
 });
-if (!warmup.ready) {
+if (!warmup.ready()) {
     FAIL("Instance pipeline never warmed up ", warmup.describe(),
             " - visible_splat_count=", renderer->get_visible_splat_count());
     return;
@@ -338,12 +338,27 @@ It keeps pumping (it never sleeps — the frames are what drive the async work) 
 bounds only the wall clock. The deadline is a **failure**, never a silent skip: if
 readiness never arrives the case must `FAIL` and say what never became true.
 
-The deadline also binds the *pass*, not just the loop: `outcome.ready` is true only
+The deadline also binds the *pass*, not just the loop: `outcome.ready()` is true only
 for a frame that finished **inside** the deadline, so a slow frame that returns
 `true` past the bound is reported as a failure (`describe()` then says the condition
 did hold, only too late). Accepting it would put #879 back one level in — a pass a
 slow machine can manufacture. The unit proof of that ordering is
 `test_gs_pump.h`, in the strict headless `GaussianSplatting [TestPump]` lane.
+
+**Gate on `warmup.ready()`, never on the thing the pump was waiting for.** Three of
+this helper's original ten call sites re-derived readiness from the observable
+itself — `if (!streaming_system_ready)`, `if (metrics.has("cpu_fallback"))` — and
+never looked at the outcome. Those two questions are different: the observable says
+"this became true", `ready()` says "this became true *inside the deadline*". When
+the deciding frame lands late the pump correctly reports failure and a re-derived
+gate walks straight past it, so the timeout is discarded and the case passes on an
+unverified pipeline. Put the observable in the `FAIL` message, where it is
+diagnosis, not a pass condition.
+
+That rule is **enforced, not just documented**: `ready()` is the only way to read the
+flag, it records that it was read, and `~GSPumpOutcome()` `FAIL`s the case if it never
+was — on every outcome, ready or not, so a new call site that forgets to check fails
+on the first healthy run rather than years later on a slow machine.
 
 ## CI/CD Integration
 
