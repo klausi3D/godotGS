@@ -97,7 +97,9 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import ntpath
 import os
+import re
 import subprocess
 import sys
 import time
@@ -454,15 +456,85 @@ def query_nvidia_smi() -> Tuple[Tuple[str, ...], Optional[str]]:
 # --------------------------------------------------------------------------
 
 
+#: A drive-letter (`C:\`) or UNC (`\\host\share`) path -- one that has to be read
+#: with Windows rules whatever host is doing the reading.
+_WINDOWS_STYLE_PATH = re.compile(r"^[A-Za-z]:[\\/]")
+
+#: The path module used for paths that are *not* Windows-style -- i.e. the host's
+#: own rules. Named rather than spelled `os.path` inline so the guard's tests can
+#: substitute `posixpath` and prove the Windows-path handling on a Windows
+#: developer machine, instead of only finding out on `ubuntu-latest`.
+_HOST_PATH = os.path
+
+
+def normalise_image_path(path: str) -> Optional[str]:
+    r"""A comparable absolute form of a process image path, or ``None``.
+
+    Two rules, and both of them were bugs here (#882 review):
+
+    **Never `abspath`.** `os.path.abspath` *joins a relative path to the current
+    directory*, and the current directory during a CI job is the repository --
+    which is one of :func:`ci_roots`. So any image path this function could not
+    interpret came back rooted inside the workspace and was classified as
+    **ours**, i.e. not contention. That is fail-open in the one direction that
+    matters: it hides the thing the module exists to detect. A path that is not
+    already absolute under its own rules therefore yields ``None`` and simply
+    cannot match a root.
+
+    **The rules follow the data, not the host.** These paths come from a Windows
+    process table no matter where this code runs, and the guard's own unit tests
+    run on `ubuntu-latest` in `agentic-pr-gate`. On Linux,
+    `posixpath.abspath("C:\\g\\G.exe")` is `"<cwd>/C:\\g\\G.exe"` -- a Windows
+    path silently reinterpreted as a relative POSIX one, which is exactly how a
+    foreign `Godot_v4.7-stable_win64.exe` became "ours" there. So the module is
+    chosen from the path's own shape. A Windows-style path is never under a
+    POSIX root and vice versa, which is correct rather than merely convenient.
+    """
+    text = (path or "").strip()
+    if not text:
+        return None
+    module = ntpath if _WINDOWS_STYLE_PATH.match(text) or text.startswith("\\\\") else _HOST_PATH
+    if not module.isabs(text):
+        return None
+    return module.normcase(module.normpath(text))
+
+
+def path_is_under(candidate: Optional[str], root: str) -> bool:
+    r"""Containment on **path boundaries**, not on string prefixes.
+
+    `startswith` alone says `C:\work\repo2\bin\godot.exe` is inside
+    `C:\work\repo` -- a *sibling* directory's process classified as ours, the
+    same fail-open as above reached by a different route.
+    """
+    if not candidate or not root:
+        return False
+    # The root is normalised here too, not assumed pre-normalised by the caller:
+    # a comparison between a normalised candidate and a raw root is a comparison
+    # between two different spellings of the same place, which fails open.
+    normalised_root = normalise_image_path(root)
+    if not normalised_root:
+        return False
+    trimmed = normalised_root.rstrip("\\/")
+    if candidate == trimmed:
+        return True
+    return any(candidate.startswith(trimmed + separator) for separator in ("\\", "/"))
+
+
 def ci_roots() -> Tuple[str, ...]:
-    """Directories whose executables belong to the job."""
+    """Directories whose executables belong to the job.
+
+    A value that cannot be normalised is dropped rather than kept in a form that
+    might match by accident: a root nobody can compare against is better than one
+    that matches everything.
+    """
     roots = []
     for name in CI_ROOT_ENV_VARS:
-        value = os.environ.get(name)
-        if value:
-            roots.append(os.path.normcase(os.path.abspath(value)))
-    repo_root = Path(__file__).resolve().parents[2]
-    roots.append(os.path.normcase(str(repo_root)))
+        normalised = normalise_image_path(os.environ.get(name) or "")
+        if normalised:
+            roots.append(normalised)
+    repo_root = normalise_image_path(str(Path(__file__).resolve().parents[2]))
+    if repo_root:
+        roots.append(repo_root)
     return tuple(sorted(set(roots)))
 
 
@@ -525,8 +597,8 @@ def classify(
         path = str(entry.get("path") or "")
         ours = pid in ours_pids
         if not ours and path:
-            normalised = os.path.normcase(os.path.abspath(path))
-            ours = any(normalised.startswith(root) for root in roots)
+            normalised = normalise_image_path(path)
+            ours = any(path_is_under(normalised, root) for root in roots)
         loads.append(ProcessLoad(pid, float(percent), name, path, ours))
     loads.sort(key=lambda load: load.gpu_percent, reverse=True)
     return loads
@@ -856,6 +928,9 @@ def phase_preflight(args: argparse.Namespace) -> int:
 
     last = samples[-1] if samples else None
     session: Dict[str, object] = {
+        # When the preflight began. Kept for the record, and deliberately NOT
+        # what the postflight measures coverage from -- see `monitored_from`
+        # below, set only once the sampler is actually running.
         "started_at": samples[0].at if samples else time.time(),
         "job_root_pid": job_root_pid,
         "busy_percent": busy_percent,
@@ -914,6 +989,24 @@ def phase_preflight(args: argparse.Namespace) -> int:
     session["sampler_pid"] = sampler_pid
     session["sampler_interval_sec"] = args.sampler_interval_sec
     session["sampler_error"] = sampler_error
+    # The instant continuous monitoring actually begins -- which is *after* the
+    # wait, not when the preflight started.
+    #
+    # Measuring coverage from `started_at` made the bounded wait self-defeating:
+    # a wait longer than MAX_SAMPLE_GAP_SEC (5 min) left a >5-minute stretch with
+    # no JSONL sample in it, the postflight read that as an unobserved window,
+    # and the verdict came back UNMEASURED -- voiding every job that waited
+    # between roughly 5 and 15 minutes and then ran on a *free* machine. That is
+    # precisely the transient-busy case the wait exists to support, so the wait
+    # would have been punishing exactly the runs it was built to rescue (#882
+    # review). The wait is not an unobserved window: it is densely sampled, and
+    # those samples are in `wait_samples` right here.
+    #
+    # Left unset when the sampler did not start, so its absence reads as "there
+    # was no monitored interval" rather than silently defaulting to a time that
+    # would make an empty series look covered.
+    if sampler_error is None:
+        session["monitored_from"] = time.time()
     session_path.write_text(json.dumps(session, indent=2, sort_keys=True), encoding="utf-8")
 
     if last is not None:
@@ -972,7 +1065,7 @@ class SeriesVerdict(NamedTuple):
 
 def evaluate_series(
     entries: Sequence[Dict[str, object]],
-    started_at: float,
+    monitored_from: float,
     ended_at: float,
     max_gap_sec: float = MAX_SAMPLE_GAP_SEC,
     contended_samples_required: int = CONTENDED_SAMPLES_REQUIRED,
@@ -996,13 +1089,44 @@ def evaluate_series(
                 "not run or could not write its series."
             ],
             [],
-            max(ended_at - started_at, 0.0),
+            max(ended_at - monitored_from, 0.0),
             0,
         )
 
     ordered = sorted(entries, key=lambda entry: float(entry.get("at") or 0.0))
-    stamps = [float(entry.get("at") or 0.0) for entry in ordered]
-    boundaries = [started_at] + stamps + [ended_at]
+
+    # A sample that failed to measure occupancy is NOT coverage.
+    #
+    # Two separate defects came from letting error entries stand in the series
+    # (#882 review). Their timestamps shortened the gaps, so an arbitrarily long
+    # stretch of one-minute failed probes between two good ones still read as
+    # continuous CLEAN coverage -- an interval where nothing was known, encoded
+    # as an interval where nothing happened. And an error landing between two
+    # busy samples split one contended window into two single-sample streaks,
+    # neither of which reached `contended_samples_required`, so real contention
+    # could be dropped by a *failure to observe it*.
+    #
+    # Both are fixed by the same move: continuity and streaks are computed over
+    # the usable samples only. An error is then invisible to the streak logic
+    # (two busy samples either side of one stay adjacent, correctly) and the
+    # blind interval it leaves shows up where it belongs -- as a gap.
+    usable = [entry for entry in ordered if not entry.get("error")]
+    unusable = [entry for entry in ordered if entry.get("error")]
+    if not usable:
+        return SeriesVerdict(
+            VERDICT_UNMEASURED,
+            [
+                f"All {len(ordered)} sample(s) taken during this job failed to measure GPU "
+                f"occupancy (first: {ordered[0].get('error')}). Nothing is known about "
+                "contention."
+            ],
+            [],
+            max(ended_at - monitored_from, 0.0),
+            len(ordered),
+        )
+
+    stamps = [float(entry.get("at") or 0.0) for entry in usable]
+    boundaries = [monitored_from] + stamps + [ended_at]
     largest_gap = max(
         (later - earlier for earlier, later in zip(boundaries, boundaries[1:])),
         default=0.0,
@@ -1037,7 +1161,7 @@ def evaluate_series(
         )
         streak.clear()
 
-    for entry in ordered:
+    for entry in usable:
         if entry.get("contenders"):
             streak.append(entry)
         else:
@@ -1055,27 +1179,31 @@ def evaluate_series(
             VERDICT_CONTENDED_MID_RUN, reasons, windows, largest_gap, len(ordered)
         )
 
-    unusable = [entry for entry in ordered if entry.get("error")]
-    if len(unusable) == len(ordered):
-        reasons.append(
-            "Every sample taken during this job failed to measure GPU occupancy "
-            f"(first: {unusable[0].get('error')}). Nothing is known about contention."
-        )
-        return SeriesVerdict(VERDICT_UNMEASURED, reasons, [], largest_gap, len(ordered))
-
     if largest_gap > max_gap_sec:
         reasons.append(
-            f"The occupancy series has a {largest_gap:.0f}s gap, over the {max_gap_sec:.0f}s "
-            "this guard accepts as continuous coverage. The background sampler stopped or "
-            "was starved, so part of this job was unobserved -- and an unobserved window "
-            "reported as clean is exactly the false green this check exists to prevent."
+            f"The occupancy series has a {largest_gap:.0f}s gap with no usable sample in "
+            f"it, over the {max_gap_sec:.0f}s this guard accepts as continuous coverage. The "
+            "background sampler stopped, was starved, or could not read occupancy, so part "
+            "of this job was unobserved -- and an unobserved window reported as clean is "
+            "exactly the false green this check exists to prevent."
         )
+        if unusable:
+            reasons.append(
+                f"    {len(unusable)} of {len(ordered)} sample(s) failed to measure and do "
+                f"not count as coverage (first: {unusable[0].get('error')})."
+            )
         return SeriesVerdict(VERDICT_UNMEASURED, reasons, [], largest_gap, len(ordered))
 
     reasons.append(
-        f"{len(ordered)} samples over {max(ended_at - started_at, 0.0):.0f}s, largest gap "
-        f"{largest_gap:.0f}s, no foreign process sustained above the busy threshold."
+        f"{len(usable)} usable samples over {max(ended_at - monitored_from, 0.0):.0f}s of "
+        f"monitored time, largest gap without one {largest_gap:.0f}s, no foreign process "
+        "sustained above the busy threshold."
     )
+    if unusable:
+        reasons.append(
+            f"    ({len(unusable)} sample(s) failed to measure and were excluded from "
+            "coverage; the gap check above already accounts for the time they cover.)"
+        )
     return SeriesVerdict(VERDICT_CLEAN, reasons, [], largest_gap, len(ordered))
 
 
@@ -1117,10 +1245,37 @@ def phase_postflight(args: argparse.Namespace) -> int:
         print(f"  WARNING: could not append the closing sample: {exc}")
 
     start_verdict = str(session.get("start_verdict") or VERDICT_UNMEASURED)
-    started_at = float(session.get("started_at") or end_sample.at)
+    # Coverage is measured from when the sampler started, not from when the
+    # preflight did: the wait between them is densely sampled and recorded in
+    # `wait_samples`, it is not an unobserved window. Absent (sampler never
+    # started) there is no monitored interval at all, and the empty/short series
+    # below is what says so -- so the fallback is the closing sample's own
+    # timestamp, which yields a zero-length window rather than a fabricated one.
+    monitored_from_raw = session.get("monitored_from")
+    monitoring_started = isinstance(monitored_from_raw, (int, float)) and not isinstance(
+        monitored_from_raw, bool
+    )
+    monitored_from = float(monitored_from_raw) if monitoring_started else end_sample.at
+    # Not `session.get("started_at") or end_sample.at`: `0.0` is a legitimate
+    # value and it is *falsy*, so the `or` silently replaced it with the closing
+    # timestamp. Found because a mutation that should have gone red survived --
+    # the collapse made the two timestamps equal and hid the difference the
+    # mutation was meant to expose.
+    started_at_raw = session.get("started_at")
+    started_at = (
+        float(started_at_raw)
+        if isinstance(started_at_raw, (int, float)) and not isinstance(started_at_raw, bool)
+        else end_sample.at
+    )
     entries = read_samples(samples_path)
-    series = evaluate_series(entries, started_at, end_sample.at)
+    series = evaluate_series(entries, monitored_from, end_sample.at)
 
+    if monitored_from > started_at + 1.0:
+        print(
+            f"  waited {monitored_from - started_at:.0f}s for a free GPU before monitoring "
+            f"began (that interval is covered by {len(session.get('wait_samples') or [])} "
+            "wait sample(s), not by the series below)"
+        )
     print(f"  start verdict (preflight)  : {start_verdict}")
     print(f"  end sample                 : {'CLEAN' if end_sample.usable and not end_sample.busy else 'CONTENDED' if end_sample.busy else 'UNMEASURED'}")
     for line in describe_sample(end_sample, indent="    ", busy_percent=args.busy_percent):
@@ -1174,6 +1329,25 @@ def phase_postflight(args: argparse.Namespace) -> int:
                 f"No preflight session record at {session_path}. Without it there is no "
                 "start-of-job measurement to compare against, so a clean end sample proves "
                 "nothing about the job that just ran."
+            ],
+            [],
+            series.largest_gap_sec,
+            series.sample_count,
+        )
+    elif not monitoring_started and start_verdict != VERDICT_BUSY:
+        # The sampler never ran, so the only thing in the series is the closing
+        # sample this postflight just took -- and a one-sample series spanning a
+        # zero-length window scores as perfect continuous coverage. Caught by
+        # this module's own test rather than in production, but it is the same
+        # vacuous pass as everywhere else: a measurement of the last instant
+        # standing in for a measurement of the job.
+        series = SeriesVerdict(
+            VERDICT_UNMEASURED,
+            [
+                "The preflight recorded no monitored interval, so the background sampler "
+                "never started and nothing was observed while this job ran. The closing "
+                "sample below describes this instant only and says nothing about the "
+                f"preceding job. Preflight reported: {session.get('sampler_error') or 'no reason'}."
             ],
             [],
             series.largest_gap_sec,

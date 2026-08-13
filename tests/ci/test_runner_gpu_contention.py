@@ -32,7 +32,10 @@ Run directly (``python tests/ci/test_runner_gpu_contention.py``) or via
 
 from __future__ import annotations
 
+import json
+import posixpath
 import sys
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -266,6 +269,108 @@ class Attribution(unittest.TestCase):
         )
         self.assertTrue(loads[0].ours)
 
+    def test_a_sibling_directory_is_not_inside_the_workspace(self) -> None:
+        r"""`startswith` alone says `C:\work\repo2` is inside `C:\work\repo`.
+
+        It is not, and the error runs the wrong way: an unrelated process in a
+        neighbouring directory would be classified as ours and its GPU load
+        would stop counting as contention.
+        """
+        table = dict(self.TABLE)
+        table[600] = {"ppid": 1, "name": "other.exe", "path": "C:\\work\\repo2\\bin\\other.exe"}
+        loads = contention.classify(
+            {600: 90.0}, table, ours_pids=set(), roots=("C:\\work\\repo",)
+        )
+        self.assertFalse(loads[0].ours)
+
+    def test_an_uninterpretable_image_path_is_foreign_not_ours(self) -> None:
+        """Fail closed. `abspath` used to join it to the cwd -- which is the repo.
+
+        Classifying an unreadable path as *ours* removes it from contention
+        accounting, so the failure mode was invisible by construction.
+        """
+        table = dict(self.TABLE)
+        table[700] = {"ppid": 1, "name": "odd.exe", "path": "some-relative-thing.exe"}
+        loads = contention.classify(
+            {700: 90.0}, table, ours_pids=set(), roots=("C:\\work\\repo",)
+        )
+        self.assertFalse(loads[0].ours)
+
+
+class WindowsPathsOnAnyHost(unittest.TestCase):
+    r"""These paths are Windows paths wherever this code runs (#882 review).
+
+    The guard runs for real only on the Windows runner, but its unit tests run
+    on `ubuntu-latest` in the required `agentic-pr-gate` lane. There,
+    `posixpath.abspath("C:\\g\\G.exe")` returns `"<cwd>/C:\\g\\G.exe"` -- the
+    Windows path silently reinterpreted as a *relative POSIX* one, rooted in the
+    current directory, which during a CI job is the repository and therefore one
+    of `ci_roots()`. A foreign `Godot_v4.7-stable_win64.exe` came out classified
+    as ours.
+
+    The fix is in the logic, not in the tests, because the defect is not a test
+    artefact: `abspath` on any unparsed path fails **open**, in the single
+    direction that hides contention. So the rules follow the shape of the data
+    and the tests pin that on both host flavours.
+    """
+
+    def _posix_host(self):
+        return mock.patch.object(contention, "_HOST_PATH", posixpath)
+
+    def test_a_windows_path_normalises_by_windows_rules_on_a_posix_host(self) -> None:
+        with self._posix_host():
+            self.assertEqual(
+                contention.normalise_image_path("C:\\g\\G.exe"), "c:\\g\\g.exe"
+            )
+            self.assertEqual(
+                contention.normalise_image_path("C:/g/G.exe"), "c:\\g\\g.exe"
+            )
+
+    def test_a_unc_path_is_windows_style_too(self) -> None:
+        with self._posix_host():
+            self.assertEqual(
+                contention.normalise_image_path("\\\\host\\share\\a.exe"),
+                "\\\\host\\share\\a.exe",
+            )
+
+    def test_a_relative_path_never_becomes_absolute(self) -> None:
+        """The whole defect in one assertion: no cwd is ever joined in."""
+        with self._posix_host():
+            self.assertIsNone(contention.normalise_image_path("relative\\thing.exe"))
+            self.assertIsNone(contention.normalise_image_path("thing.exe"))
+            self.assertIsNone(contention.normalise_image_path(""))
+            self.assertIsNone(contention.normalise_image_path("   "))
+
+    def test_a_foreign_windows_image_is_foreign_on_a_posix_host(self) -> None:
+        """The exact `agentic-pr-gate` failure, pinned."""
+        with self._posix_host():
+            with mock.patch.object(
+                contention, "ci_roots", return_value=("/home/runner/work/godotGS/godotGS",)
+            ):
+                loads = contention.classify(
+                    {500: 42.0},
+                    {500: {"ppid": 1, "name": "Godot_v4.7-stable_win64.exe",
+                           "path": "C:\\g\\G.exe"}},
+                    ours_pids=set(),
+                    roots=contention.ci_roots(),
+                )
+        self.assertFalse(
+            loads[0].ours,
+            "a Windows image path was matched against a POSIX repository root; on the "
+            "Linux guard lane this reclassified foreign GPU load as the job's own.",
+        )
+
+    def test_a_posix_image_under_a_posix_root_is_still_ours(self) -> None:
+        """The fix must not make everything foreign -- that is red, not correct."""
+        with self._posix_host():
+            loads = contention.classify(
+                {400: 42.0},
+                {400: {"ppid": 1, "name": "godot", "path": "/home/runner/work/repo/bin/godot"}},
+                ours_pids=set(),
+                roots=("/home/runner/work/repo",),
+            )
+        self.assertTrue(loads[0].ours)
+
 
 # --------------------------------------------------------------------------
 # The wait
@@ -425,6 +530,76 @@ class StartVersusEnd(unittest.TestCase):
         verdict = contention.evaluate_series(entries, 0.0, 360.0)
         self.assertEqual(verdict.verdict, contention.VERDICT_UNMEASURED)
 
+    def test_a_long_successful_wait_is_not_an_unobserved_gap(self) -> None:
+        """The bounded wait must not void the runs it exists to rescue (#882 review).
+
+        Coverage used to be measured from when the *preflight* started. A wait
+        longer than `MAX_SAMPLE_GAP_SEC` then left a >5-minute stretch with no
+        sample in it, the postflight read that as a blind window, and the
+        verdict came back `UNMEASURED` -- voiding every job that waited between
+        roughly 5 and 15 minutes and then ran on a genuinely free machine. The
+        wait is not unobserved: it is densely sampled, into `wait_samples`.
+        """
+        waited = contention.MAX_SAMPLE_GAP_SEC + 240.0
+        entries = [_entry(waited + index * 60.0) for index in range(1, 6)]
+        ended = waited + 360.0
+
+        from_monitoring = contention.evaluate_series(entries, waited, ended)
+        self.assertEqual(from_monitoring.verdict, contention.VERDICT_CLEAN)
+
+        # The same series judged from the old start point, to show the two are
+        # not equivalent and this test would not pass either way.
+        from_preflight_start = contention.evaluate_series(entries, 0.0, ended)
+        self.assertEqual(from_preflight_start.verdict, contention.VERDICT_UNMEASURED)
+
+    def test_failed_probes_do_not_stand_in_for_coverage(self) -> None:
+        """An interval where nothing was known must not read as one where nothing happened.
+
+        Error entries used to keep their timestamps in the continuity
+        calculation, so an arbitrarily long run of failed probes between two
+        good samples still produced `CLEAN`.
+        """
+        blind = contention.MAX_SAMPLE_GAP_SEC + 120.0
+        entries = [_entry(60.0)]
+        entries += [
+            _entry(60.0 + step, error="counters unavailable")
+            for step in range(60, int(blind), 60)
+        ]
+        entries.append(_entry(60.0 + blind))
+        verdict = contention.evaluate_series(entries, 0.0, 60.0 + blind + 30.0)
+        self.assertEqual(verdict.verdict, contention.VERDICT_UNMEASURED)
+        self.assertIn("no usable sample", "\n".join(verdict.reasons))
+
+    def test_a_failed_probe_does_not_split_a_contended_window(self) -> None:
+        """A failure to observe must not be able to erase what was observed.
+
+        With error entries in the streak, one failed probe between two busy
+        samples broke a real contended window into two single-sample streaks,
+        neither reaching the required count -- so contention was dropped
+        *because* measurement failed.
+        """
+        entries = [
+            _entry(60.0, busy=True),
+            _entry(120.0, error="counters unavailable"),
+            _entry(180.0, busy=True),
+            _entry(240.0),
+        ]
+        verdict = contention.evaluate_series(entries, 0.0, 300.0)
+        self.assertEqual(verdict.verdict, contention.VERDICT_CONTENDED_MID_RUN)
+        self.assertEqual(len(verdict.windows), 1)
+
+    def test_a_few_scattered_failed_probes_still_pass(self) -> None:
+        """Excluding errors must not make every real run UNMEASURED.
+
+        One failed probe in ten is the measured rate on this runner, so a rule
+        that voided a run for any error at all would be a false-void generator.
+        """
+        entries = []
+        for index in range(1, 13):
+            entries.append(_entry(index * 60.0, error="blip" if index == 5 else None))
+        verdict = contention.evaluate_series(entries, 0.0, 13 * 60.0)
+        self.assertEqual(verdict.verdict, contention.VERDICT_CLEAN, verdict.reasons)
+
     def test_contention_wins_over_an_incomplete_record(self) -> None:
         """A demonstrably contended run is void whether or not the record has holes."""
         entries = [
@@ -439,6 +614,73 @@ class StartVersusEnd(unittest.TestCase):
 # --------------------------------------------------------------------------
 # Sampling
 # --------------------------------------------------------------------------
+
+
+class PostflightReadsTheMonitoredWindow(unittest.TestCase):
+    """End-to-end for the wait/coverage split, through the real CLI.
+
+    Timestamps are realistic epochs, not `0.0`. The first version of this test
+    used `started_at: 0.0` and did not discriminate: the reader was
+    `float(session.get("started_at") or end_sample.at)`, and `0.0` is falsy, so
+    the two timestamps collapsed onto each other and the mutation that reverts
+    this fix survived. A fixture value that lets the code under test take a
+    different path than production does is not a fixture, it is a hiding place.
+    """
+
+    #: Any plausible wall-clock epoch; the point is only that it is not falsy.
+    EPOCH = 1_700_000_000.0
+
+    def _run(self, session: Dict[str, object], entries: List[Dict[str, object]]) -> int:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / contention.SESSION_FILE).write_text(
+                json.dumps(session), encoding="utf-8"
+            )
+            (base / contention.SAMPLES_FILE).write_text(
+                "".join(json.dumps(entry) + "\n" for entry in entries), encoding="utf-8"
+            )
+            clean = _sample(at=session["monitored_from"] + 400.0)
+            with mock.patch.object(contention, "take_sample", return_value=clean):
+                return contention.main(["postflight", "--record-dir", str(base)])
+
+    def test_a_job_that_waited_ten_minutes_and_then_ran_clean_passes(self) -> None:
+        waited = contention.MAX_SAMPLE_GAP_SEC + 300.0
+        session = {
+            "start_verdict": contention.VERDICT_CLEAN,
+            "started_at": self.EPOCH,
+            "monitored_from": self.EPOCH + waited,
+            "job_root_pid": 200,
+            "wait_samples": [
+                {"at": self.EPOCH + step} for step in range(0, int(waited), 20)
+            ],
+        }
+        entries = [
+            _entry(self.EPOCH + waited + index * 60.0) for index in range(1, 7)
+        ]
+        self.assertEqual(self._run(session, entries), 0)
+
+    def test_the_same_job_is_void_when_the_sampler_never_started(self) -> None:
+        """No `monitored_from` means there was no monitored interval at all.
+
+        The closing sample this postflight takes is by itself a one-sample
+        series over a zero-length window, which scores as perfect continuous
+        coverage -- a measurement of the last instant standing in for a
+        measurement of the job.
+        """
+        session = {
+            "start_verdict": contention.VERDICT_CLEAN,
+            "started_at": self.EPOCH,
+            "job_root_pid": 200,
+            "sampler_error": "could not start the background sampler",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / contention.SESSION_FILE).write_text(json.dumps(session), encoding="utf-8")
+            with mock.patch.object(
+                contention, "take_sample", return_value=_sample(at=self.EPOCH + 900.0)
+            ):
+                code = contention.main(["postflight", "--record-dir", str(base)])
+        self.assertEqual(code, contention.EXIT_RUNNER_BUSY)
 
 
 class SampleParsing(unittest.TestCase):
