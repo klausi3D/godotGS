@@ -347,8 +347,12 @@ driver and cannot be removed — a claim about the machine that a maintainer mak
 
 The GPU pool is derived, never listed here:
 `tests/ci/test_preflight_runner_gpu_environment.py` takes every self-hosted job
-in `.github/workflows/*.yml` carrying the `gpu` label — reusing the label-routing
-classification from `tests/ci/test_release_builds_runner_trust.py` — and requires
+in `.github/workflows/` — **both** the `*.yml` and `*.yaml` suffixes GitHub
+reads, because a job in an `x.yaml` workflow runs exactly like one in `x.yml`
+and a guard that scans only one of them reports "no such job" over a real
+self-hosted GPU job — carrying the `gpu` label, reusing the suffix set *and* the
+label-routing classification from
+`tests/ci/test_release_builds_runner_trust.py` — and requires
 each to export both the loader-filter pair *and* every per-layer opt-out at job
 level, to run the preflight, and to run it
 before the build. An empty derived set fails the guard rather than passing. At

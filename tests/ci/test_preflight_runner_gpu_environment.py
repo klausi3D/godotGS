@@ -22,8 +22,9 @@ gate means nothing -- so this guard checks both, in a job set it **derives**.
 Deriving the job set
 --------------------
 The GPU pool is `runs-on:` label routing, not a list written here: every
-self-hosted job in `.github/workflows/*.yml` carrying the `gpu` label. The
-self-hosted classification is reused wholesale from
+self-hosted job in `.github/workflows/` -- **both** the `*.yml` and `*.yaml`
+suffixes GitHub reads -- carrying the `gpu` label. The suffix set and the
+self-hosted classification are both reused wholesale from
 `tests/ci/test_release_builds_runner_trust.py`, which already models label
 routing properly (a job reaches the persistent runner through its custom labels
 whether or not it spells out `self-hosted`) and fails closed on any `runs-on:`
@@ -52,6 +53,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -96,7 +98,22 @@ class WorkflowContractError(AssertionError):
 
 
 def workflow_paths() -> List[Path]:
-    return sorted(WORKFLOW_DIR.glob("*.yml"))
+    """Delegated, never re-globbed here.
+
+    This used to be `WORKFLOW_DIR.glob("*.yml")`, which silently excluded
+    GitHub's other valid suffix: a self-hosted GPU job in an `x.yaml` workflow
+    was outside every assertion below, so the guard stayed green while that job
+    ran its GPU measurements with the third-party layers still in the chain
+    (#878 review).
+
+    The reused runner-trust helper already scanned both suffixes, so the two
+    derivations disagreed about what "the workflows" are while claiming to share
+    a classification. Both now read `trust.WORKFLOW_SUFFIX_GLOBS` through
+    `trust.workflow_paths()`. Adding `"*.yaml"` here instead would have fixed
+    this instance and left the second literal in place to drift again -- the
+    same hand-written-list failure the reuse was meant to avoid.
+    """
+    return trust.workflow_paths()
 
 
 def job_spans(lines: List[str]) -> Dict[str, Tuple[int, int]]:
@@ -322,6 +339,78 @@ class GpuJobEnvironmentContract(unittest.TestCase):
                     f"{README.name}; the documented picture of what runs on the persistent "
                     "runner is partial again (#825's failure mode).",
                 )
+
+
+#: A minimal self-hosted GPU job carrying none of the protections this guard
+#: requires. Written to a `.yaml` file on purpose: the point of the scenarios
+#: below is the *suffix*, not the contents.
+_UNPROTECTED_GPU_WORKFLOW = """\
+name: probe
+on:
+  push:
+jobs:
+  gpu-probe:
+    name: probe
+    runs-on: [self-hosted, Windows, X64, godotgs, gpu]
+    steps:
+    - name: Build
+      run: python -m SCons platform=windows
+"""
+
+
+class WorkflowSuffixCoverage(unittest.TestCase):
+    """`.yaml` is as real as `.yml`, and a guard that cannot see it protects nothing.
+
+    GitHub reads both suffixes. This guard scanned only `*.yml` while reusing a
+    helper that scanned both, so the two derivations disagreed about what "the
+    workflows" are -- and a self-hosted GPU job in an `x.yaml` file sat outside
+    every assertion here while the guard stayed green over it (#878 review).
+    """
+
+    def test_both_github_suffixes_are_scanned(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            for name in ("a.yml", "b.yaml", "c.txt", "d.yml.bak"):
+                (base / name).write_text("", encoding="utf-8")
+            found = {path.name for path in trust.workflow_paths(base)}
+        self.assertEqual(found, {"a.yml", "b.yaml"})
+
+    def test_the_suffix_set_is_a_single_source_both_guards_read(self) -> None:
+        """Not "both lists happen to agree" -- one list, read twice.
+
+        A second literal spelled the same way is the drift this fix exists to
+        remove, so the assertion is on the *source*, not on the values matching.
+        """
+        self.assertIn("*.yaml", trust.WORKFLOW_SUFFIX_GLOBS)
+        self.assertIn("*.yml", trust.WORKFLOW_SUFFIX_GLOBS)
+        self.assertEqual(workflow_paths(), trust.workflow_paths())
+
+    def test_a_gpu_job_in_a_dot_yaml_workflow_is_derived(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "extra_gpu.yaml"
+            path.write_text(_UNPROTECTED_GPU_WORKFLOW, encoding="utf-8")
+            with mock.patch(f"{__name__}.workflow_paths", return_value=[path]):
+                jobs = gpu_jobs()
+        self.assertIn(
+            ("extra_gpu.yaml", "gpu-probe"),
+            jobs,
+            "a self-hosted `gpu`-labelled job in a .yaml workflow was not derived, so "
+            "every assertion in this file would pass over it while it ran GPU work with "
+            "the third-party implicit layers still in the chain.",
+        )
+
+    def test_an_unprotected_dot_yaml_gpu_job_fails_the_contract(self) -> None:
+        """Being derived has to mean being *checked*, or the derivation is decorative."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "extra_gpu.yaml"
+            path.write_text(_UNPROTECTED_GPU_WORKFLOW, encoding="utf-8")
+            with mock.patch(f"{__name__}.workflow_paths", return_value=[path]):
+                case = GpuJobEnvironmentContract("test_every_gpu_job_runs_the_preflight")
+                case.setUp()
+                with self.assertRaises(AssertionError):
+                    case.test_every_gpu_job_runs_the_preflight()
+                with self.assertRaises(AssertionError):
+                    case.test_every_gpu_job_disables_third_party_implicit_layers()
 
 
 class PreflightPolicyMatchesWorkflows(unittest.TestCase):
