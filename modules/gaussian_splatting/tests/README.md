@@ -270,8 +270,22 @@ To add new tests to the module:
 1. Create a new header file in `tests/` directory
 2. Include `tests/test_macros.h` for test framework
 3. Use `TEST_CASE()` and `SUBCASE()` macros
-4. Include your test header in `test_gaussian_splatting.h`
-5. Follow the naming convention: `test_<feature>.h`
+4. Follow the naming convention: `test_<feature>.h`
+5. Tag the case so a **lane** selects it (`tests/ci/run_module_tests.py`
+   `MODULE_TEST_FILTERS`, or a `tests/ci/run_gpu_harness.py` batch for
+   `[RequiresGPU]`). A case no lane selects runs nowhere;
+   `check_test_lane_coverage.py` fails on it.
+
+A `.h` test does **not** need an entry in `test_gaussian_splatting.h`:
+`modules/SCsub` globs every `tests/*.h` into the generated
+`modules_tests.gen.h`, so the file registers by existing in this directory. Ten
+case-carrying headers are unlisted there today and all run (`test_ply_importer.h`
+alone is the whole strict `[PLY]` lane). To answer "is my header compiled?", grep
+the generated `modules/modules_tests.gen.h` — not the include list.
+
+A test **`.cpp`** is the opposite case: it is compiled into the module static
+library and is silently linker-dropped unless `test_gaussian_splatting.h`
+references its `force_link` anchor (`check_test_linkage.py` enforces this).
 
 Example test structure:
 ```cpp
