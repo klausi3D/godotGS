@@ -39,8 +39,8 @@ For module-only build commands and SCons targets, see [Gaussian Splatting Build 
 
 ## Per-lane result ledger
 
-`tests/ci/run_module_tests.py` declares 27 doctest lanes in `MODULE_TEST_FILTERS`:
-**21 strict, 6 advisory** (`strict=False`).
+`tests/ci/run_module_tests.py` declares 28 doctest lanes in `MODULE_TEST_FILTERS`:
+**22 strict, 6 advisory** (`strict=False`).
 
 These counts are **derived, not hand-tallied** — re-derive them from the tuple itself
 (`strict` is index 3) rather than recounting the source by eye, which is how they last
