@@ -11,6 +11,13 @@ const MAX_VISIBLE_RATIO_DROP := 0.35
 const METRICS_MARKER := "[RUNTIME_METRICS]"
 const SKIP_MARKER := "[RUNTIME_SKIP]"
 const FAIL_MARKER := "[RUNTIME_FAIL]"
+# #883: marker for a budget that was evaluated and BREACHED but is currently not
+# allowed to fail the job. Deliberately NOT a substring of FAIL_MARKER -- the
+# harness classifies a run as failed if FAIL_MARKER appears anywhere in the
+# output, even on exit code 0 (run_runtime_validation.py _classify_result), so
+# an advisory line must not carry it. It must still be greppable and loud: this
+# is the only thing standing between "demoted" and "deleted".
+const ADVISORY_MARKER := "[RUNTIME_ADVISORY]"
 const SAMPLE_FRAMES := 120
 const FIRST_VISIBLE_TIMEOUT_FRAMES := 240
 
@@ -21,12 +28,28 @@ var world_node: GaussianSplatWorld3D
 var manager = null
 var exit_code = 0
 var failures: Array[String] = []
+# #883: budgets that were evaluated and breached but are currently not allowed
+# to fail the run. Collected so the end-of-run summary repeats them even on a
+# green run -- a demotion that only shows up 500 lines earlier is a demotion
+# nobody reads.
+var advisories: Array[String] = []
 var benchmark_summary: Dictionary = {
     "status": "failed",
     "baseline_tier": BASELINE_TIER_NAME,
+    # Unchanged meaning: did the baseline tier meet EVERY budget, timing
+    # included. #883 does not soften this -- an advisory timing breach still
+    # reads as `baseline_passed: false` in the metrics JSON and in the evidence
+    # artefacts, it just no longer fails the job.
     "baseline_passed": false,
+    # #883: the same question restricted to the checks still allowed to fail the
+    # job. `baseline_passed` stays the honest budget answer; this is the one that
+    # matches the gate's verdict, so the two cannot silently diverge unnoticed.
+    "baseline_blocking_passed": false,
     "tiers": [],
-    "failures": []
+    "failures": [],
+    # #883: unenforced budget breaches, so they survive into the metrics JSON and
+    # the uploaded evidence artefact rather than only into the console log.
+    "advisories": []
 }
 
 ## Defers execution until the SceneTree loop is initialized.
@@ -115,19 +138,36 @@ func _run() -> void:
         if String(tier_result.get("name", "")) == BASELINE_TIER_NAME:
             baseline_found = true
             benchmark_summary["baseline_passed"] = bool(tier_result.get("within_budget", false))
+            benchmark_summary["baseline_blocking_passed"] = bool(
+                tier_result.get("blocking_within_budget", false)
+            )
 
     benchmark_summary["tiers"] = tier_results
     _evaluate_frame_scaling(tier_results)
     if not baseline_found:
         benchmark_summary["baseline_passed"] = false
+        benchmark_summary["baseline_blocking_passed"] = false
         _record_failure("Missing baseline streaming tier result", {"baseline_tier": BASELINE_TIER_NAME})
     benchmark_summary["failures"] = failures.duplicate()
+    benchmark_summary["advisories"] = advisories.duplicate()
     benchmark_summary["status"] = "passed" if exit_code == 0 else "failed"
     print("%s %s" % [METRICS_MARKER, JSON.stringify(benchmark_summary)])
 
     _print_summary()
     if exit_code == 0:
-        print("\n✅ GPU streaming stress test completed without regressions")
+        if advisories.is_empty():
+            print("\n✅ GPU streaming stress test completed without regressions")
+        else:
+            # Do not claim "without regressions" when a budget was breached and
+            # merely not enforced. The run passed; it was not clean.
+            # Deliberately ASCII. The harness decodes the child's streams with the
+            # host locale (cp1252 on this runner), so a character whose UTF-8
+            # encoding contains an unmapped byte can throw in the reader thread
+            # and take the WHOLE captured output with it -- including this line.
+            print(
+                "\n[!] GPU streaming stress test passed its ENFORCED checks with %d unenforced budget breach(es) (#883)"
+                % advisories.size()
+            )
     else:
         push_error("%s GPU streaming stress test detected failures" % FAIL_MARKER)
     quit(exit_code)
@@ -232,6 +272,14 @@ func _extract_streaming_diagnostics(stream_state: Dictionary) -> Dictionary:
 
 ## Prints an explicit failure list for CI log triage.
 func _print_summary() -> void:
+    if not advisories.is_empty():
+        print("\nUnenforced budget breaches (#883 interim; NOT failing this run):")
+        for advisory in advisories:
+            print(" - ", advisory)
+        print(
+            "   Enforcement is restored by #778 (deterministic cross-tier verdict becomes"
+            + " blocking) or #523 (a real per-machine perf baseline to compare against)."
+        )
     if failures.is_empty():
         return
     print("\nFailure details:")
@@ -279,8 +327,15 @@ func _exercise_tier(tier: Dictionary) -> Dictionary:
         "name": tier_name,
         "dataset_size": size,
         "enforce": enforce,
+        # #883: `enforce` above is per-TIER and covers correctness; this second
+        # flag is per-metric-class and covers only the timing budgets.
+        "enforce_timing_budgets": bool(tier.get("enforce_timing_budgets", true)),
         "within_budget": false,
+        "blocking_within_budget": false,
         "budget_failures": [],
+        "blocking_failures": [],
+        "advisory_failures": [],
+        "advisory_details": [],
         "first_visible_ms": -1.0,
         "frame_avg_ms": 0.0,
         "frame_p95_ms": 0.0,
@@ -571,29 +626,75 @@ func _exercise_tier(tier: Dictionary) -> Dictionary:
     var within_budget := bool(budget_eval.get("within_budget", false))
     var budget_failures: Array = budget_eval.get("budget_failures", [])
     var telemetry_failures: Array = budget_eval.get("telemetry_failures", [])
+    # #883: the enforcement split. `budget_failures`/`telemetry_failures` above
+    # are unchanged and still record everything that breached; these two arrays
+    # only say which of them may fail the job on this tier.
+    var blocking_failures: Array = budget_eval.get("blocking_failures", [])
+    var advisory_failures: Array = budget_eval.get("advisory_failures", [])
+    var advisory_details: Array = budget_eval.get("advisory_details", [])
 
-    if not within_budget:
-        var budget_context := {
-            "tier": tier_name,
-            "size": size,
-            "first_visible_ms": first_visible_ms,
-            "residency_ratio": float(residency.get("residency_ratio", 0.0)),
-            "frame_p95_ms": frame_p95_ms,
-            "frame_p95_to_avg_ratio": frame_p95_to_avg_ratio,
-            "source_data_status": source_data_status,
-            "fallback_rate_status": fallback_rate_status,
-            "fallback_rate": fallback_rate,
-            "budget_failures": budget_failures,
-            "telemetry_failures": telemetry_failures
-        }
+    var budget_context := {
+        "tier": tier_name,
+        "size": size,
+        "first_visible_ms": first_visible_ms,
+        "residency_ratio": float(residency.get("residency_ratio", 0.0)),
+        "frame_p95_ms": frame_p95_ms,
+        "frame_p95_to_avg_ratio": frame_p95_to_avg_ratio,
+        "source_data_status": source_data_status,
+        "fallback_rate_status": fallback_rate_status,
+        "fallback_rate": fallback_rate,
+        "budget_failures": budget_failures,
+        "telemetry_failures": telemetry_failures,
+        "blocking_failures": blocking_failures,
+        "advisory_failures": advisory_failures
+    }
+
+    # Report the demoted breaches FIRST and unconditionally, before any verdict,
+    # so they are in the job log with their measured values whether or not the
+    # tier goes on to fail for a correctness reason. Printed to stdout (not only
+    # push_warning) because that is what CI captures and greps.
+    if not advisory_failures.is_empty():
+        for detail in advisory_details:
+            var check_name := String(detail.get("check", "unknown"))
+            var advisory_line := ""
+            if detail.has("measured") and detail.has("budget"):
+                advisory_line = "%s %s: measured %.3f vs budget %.3f (%s) -- UNENFORCED (#883 interim; #778/#523 restore it)" % [
+                    tier_name,
+                    check_name,
+                    float(detail.get("measured", 0.0)),
+                    float(detail.get("budget", 0.0)),
+                    String(detail.get("units", ""))
+                ]
+            else:
+                advisory_line = "%s %s -- UNENFORCED (#883 interim)" % [tier_name, check_name]
+            advisories.append(advisory_line)
+            print("%s [Streaming] %s" % [ADVISORY_MARKER, advisory_line])
+        push_warning(
+            "%s [Streaming] %s timing budget breached but not enforced (#883): %s" % [
+                ADVISORY_MARKER, tier_name, str(advisory_details)
+            ]
+        )
+
+    if not blocking_failures.is_empty():
         if enforce:
             _record_failure("[Streaming] Tier budget check failed", budget_context)
         else:
             push_warning("[Streaming] Non-blocking tier budget failed: %s" % str(budget_context))
+    elif not within_budget:
+        # Nothing blocking failed, but the tier still did not meet every budget.
+        # Say so rather than printing a clean bill of health.
+        push_warning("[Streaming] Tier %s met every ENFORCED budget but breached %s" % [
+            tier_name, str(advisory_failures)
+        ])
 
     tier_result["within_budget"] = within_budget
     tier_result["budget_failures"] = budget_failures
     tier_result["telemetry_failures"] = telemetry_failures
+    tier_result["enforce_timing_budgets"] = bool(budget_eval.get("enforce_timing_budgets", true))
+    tier_result["blocking_within_budget"] = bool(budget_eval.get("blocking_within_budget", false))
+    tier_result["blocking_failures"] = blocking_failures
+    tier_result["advisory_failures"] = advisory_failures
+    tier_result["advisory_details"] = advisory_details
     tier_result["first_visible_ms"] = first_visible_ms
     tier_result["frame_avg_ms"] = frame_avg_ms
     tier_result["frame_p95_ms"] = frame_p95_ms
