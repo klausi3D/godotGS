@@ -3,8 +3,13 @@
 
 from __future__ import annotations
 
+import copy
 import importlib.util
 import json
+import os
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -82,11 +87,191 @@ class ClassifyChangeTest(unittest.TestCase):
             "R3",
         )
 
-    def test_empty_changeset_is_lowest_class(self):
-        self.assertEqual(self._cls([]), "R0")
+    def test_empty_changeset_fails_closed_to_default_unclassified(self):
+        """DO NOT "fix" this back to R0 (GS-AUDIT-TEST-002).
+
+        An empty changed-path set is an ABSENCE of information -- a mis-resolved
+        base, a filtered path list, a diff form that answered a different question
+        -- not a demonstration that nothing risky changed. The predecessor of this
+        test asserted R0, i.e. the suite defended the fail-open while
+        ``policy.json`` declared ``default_unclassified: R3`` and the module
+        docstring claimed fail-closed behaviour.
+
+        Both halves are asserted: the derived class must equal the policy default,
+        AND the live policy default must still be R3. Asserting only the first
+        would keep passing if someone set the policy default to R0.
+        """
+        self.assertEqual(self._cls([]), POLICY["classification"]["default_unclassified"])
+        self.assertEqual("R3", POLICY["classification"]["default_unclassified"])
+
+    def test_empty_changeset_default_is_read_from_policy_not_hardcoded(self):
+        """The fallback must come from the policy, not from a literal "R3".
+
+        A hardcoded default would pass the test above and silently ignore a policy
+        that declares something else.
+        """
+        for expected in ("R2", "R1"):
+            policy = copy.deepcopy(POLICY)
+            policy["classification"]["default_unclassified"] = expected
+            self.assertEqual(classify.classify_paths([], policy)[0], expected)
 
     def test_windows_separators_are_normalized(self):
         self.assertEqual(self._cls([r"modules\gaussian_splatting\renderer\a.cpp"]), "R2")
+
+
+def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [
+            "git",
+            "-c", "user.name=gs-test",
+            "-c", "user.email=gs-test@example.invalid",
+            "-c", "commit.gpgsign=false",
+            "-C", str(cwd),
+            *args,
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
+def _commit(repo: Path, name: str) -> None:
+    (repo / name).write_text(name, encoding="utf-8")
+    _git(repo, "add", name)
+    _git(repo, "commit", "-m", f"add {name}")
+
+
+class BaseRefResolutionTest(unittest.TestCase):
+    """``git_changed_paths`` must fail closed rather than degrade the diff.
+
+    The previous implementation retried an unresolvable ``base...HEAD`` as a
+    two-dot ``git diff base``. That is a different question, and it succeeds in
+    cases where the three-dot form fails -- so a bad base produced a path set that
+    was not the PR's diff, and an under-reported risk class followed
+    (GS-AUDIT-TEST-002's stated trigger).
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = Path(self._tmp.name) / "repo"
+        self.repo.mkdir()
+        _git(self.repo, "init", "-q")
+        # Point the module's ROOT at the scratch repository for the duration.
+        self._saved_root = classify.ROOT
+        classify.ROOT = self.repo
+        self.addCleanup(lambda: setattr(classify, "ROOT", self._saved_root))
+
+    def _diverged_repo(self) -> None:
+        """base and feature share a root commit, then diverge."""
+        _git(self.repo, "checkout", "-q", "-b", "base")
+        _commit(self.repo, "shared.txt")
+        _git(self.repo, "checkout", "-q", "-b", "feature")
+        _commit(self.repo, "only_on_feature.txt")
+        _git(self.repo, "checkout", "-q", "base")
+        _commit(self.repo, "only_on_base.txt")
+        _git(self.repo, "checkout", "-q", "feature")
+
+    def test_diff_is_taken_from_the_merge_base(self):
+        """The three-dot meaning is preserved: base-only commits must not appear.
+
+        This is the discriminating half. A two-dot ``git diff base`` from feature
+        would additionally report ``only_on_base.txt`` (as a deletion), and a
+        classifier fed that list is grading paths the PR never touched.
+        """
+        self._diverged_repo()
+        self.assertEqual(["only_on_feature.txt"], classify.git_changed_paths("base"))
+
+    def test_unresolvable_base_ref_exits_non_zero(self):
+        self._diverged_repo()
+        with self.assertRaises(SystemExit) as caught:
+            classify.git_changed_paths("no-such-ref-42")
+        message = str(caught.exception)
+        self.assertIn("no-such-ref-42", message, "the error must name the unresolvable ref")
+        self.assertNotEqual(0, caught.exception.code)
+
+    def test_base_without_shared_history_fails_closed(self):
+        """The exact fail-open the removed fallback produced.
+
+        With two unrelated histories the three-dot form errors while the two-dot
+        form succeeds and returns a full path list. The old code therefore turned
+        "I cannot tell what this PR changed" into a confident answer. It must now
+        be an error.
+        """
+        _git(self.repo, "checkout", "-q", "-b", "base")
+        _commit(self.repo, "on_base.txt")
+        _git(self.repo, "checkout", "-q", "--orphan", "feature")
+        _git(self.repo, "rm", "-q", "-rf", ".")
+        _commit(self.repo, "on_feature.txt")
+        # Control: the two-dot form the old code fell back to DOES succeed here.
+        two_dot = _git(self.repo, "diff", "--name-only", "base")
+        self.assertTrue(two_dot.stdout.strip(), "control broken: two-dot diff produced nothing")
+        with self.assertRaises(SystemExit) as caught:
+            classify.git_changed_paths("base")
+        self.assertIn("no merge base", str(caught.exception))
+
+    def test_cli_exits_non_zero_for_an_unresolvable_base(self):
+        """End-to-end through the real entry point, as CI invokes it."""
+        self._diverged_repo()
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), "--base-ref", "no-such-ref-42", "--format", "json"],
+            capture_output=True,
+            text=True,
+            cwd=str(self.repo),
+        )
+        self.assertNotEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("no-such-ref-42", result.stdout + result.stderr)
+
+
+class StepSummaryTest(unittest.TestCase):
+    """The required check must publish the class's obligations, from policy."""
+
+    def test_summary_lists_the_class_evidence_and_deterministic_checks(self):
+        _, per_path = classify.classify_paths(["servers/rendering/foo.cpp"], POLICY)
+        summary = classify.render_markdown_summary("R3", per_path, POLICY, base_ref="abc1234")
+        self.assertIn("R3", summary)
+        for item in POLICY["risk_classes"]["R3"]["evidence_requirements"]:
+            self.assertIn(item, summary)
+        for command in POLICY["risk_classes"]["R3"]["deterministic_checks"]:
+            self.assertIn(command, summary)
+        # The honest-limit note must travel with the summary, not just the class.
+        self.assertIn("contract-source ADR", summary)
+
+    def test_summary_items_come_from_the_policy_argument(self):
+        """Discriminating: a hardcoded block would ignore an edited policy."""
+        policy = copy.deepcopy(POLICY)
+        policy["risk_classes"]["R2"]["evidence_requirements"] = ["A UNIQUELY NAMED EVIDENCE ITEM"]
+        policy["risk_classes"]["R2"]["deterministic_checks"] = ["python -m no_such_check"]
+        summary = classify.render_markdown_summary("R2", [], policy)
+        self.assertIn("A UNIQUELY NAMED EVIDENCE ITEM", summary)
+        self.assertIn("python -m no_such_check", summary)
+        for item in POLICY["risk_classes"]["R2"]["evidence_requirements"]:
+            self.assertNotIn(item, summary)
+
+    def test_flag_writes_to_the_github_step_summary_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "summary.md"
+            saved = os.environ.get("GITHUB_STEP_SUMMARY")
+            os.environ["GITHUB_STEP_SUMMARY"] = str(target)
+            try:
+                rc = classify.main(
+                    [
+                        "--paths",
+                        "modules/gaussian_splatting/renderer/a.cpp",
+                        "--format",
+                        "json",
+                        "--github-step-summary",
+                    ]
+                )
+            finally:
+                if saved is None:
+                    os.environ.pop("GITHUB_STEP_SUMMARY", None)
+                else:
+                    os.environ["GITHUB_STEP_SUMMARY"] = saved
+            self.assertEqual(0, rc)
+            written = target.read_text(encoding="utf-8")
+        self.assertIn("R2", written)
+        self.assertIn(POLICY["risk_classes"]["R2"]["evidence_requirements"][0], written)
 
 
 if __name__ == "__main__":

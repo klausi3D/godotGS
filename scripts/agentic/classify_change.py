@@ -6,10 +6,20 @@ highest matching class is taken; the overall result is the maximum class across
 all paths. Paths that match no rule fall back to ``default_unclassified`` (R3) so
 that unrecognized, potentially sensitive paths fail closed.
 
+An **empty** changed-path set falls back the same way. An empty diff is an
+absence of information, not evidence that nothing risky changed, so it is
+classified as ``default_unclassified`` rather than as the lowest class
+(GS-AUDIT-TEST-002; the "fail-open on absence" shape in
+``docs/governance/evidence-integrity.md``).
+
+Base-ref resolution fails closed for the same reason: an unresolvable base is an
+error, never a degraded diff and never an empty result.
+
 Examples
 --------
     python scripts/agentic/classify_change.py --paths modules/gaussian_splatting/renderer/foo.cpp
     python scripts/agentic/classify_change.py --base-ref master --format json
+    python scripts/agentic/classify_change.py --base-ref master --github-step-summary
 """
 
 from __future__ import annotations
@@ -101,30 +111,151 @@ def classify_paths(paths: list[str], policy: dict[str, Any]) -> tuple[str, list[
             overall = best
 
     if overall is None:
-        # No changed paths: nothing risky to classify.
-        overall = ordering[0]
+        # No changed paths at all. This is an ABSENCE of information -- a
+        # mis-resolved base, a filtered path list, a diff form that reported
+        # nothing -- not a demonstration that nothing risky changed. Fail closed to
+        # the policy's default_unclassified, exactly as an unmatched path does.
+        # Returning ordering[0] (R0) here was the fail-open of GS-AUDIT-TEST-002.
+        overall = default
     return overall, per_path
+
+
+def _git(args: list[str]) -> "subprocess.CompletedProcess[str]":
+    return subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True)
+
+
+def resolve_diff_base(base_ref: str) -> str:
+    """Resolve ``base_ref`` to its merge base with ``HEAD``, or fail closed.
+
+    Returns the merge-base commit SHA. Raises ``SystemExit`` (non-zero) when the
+    ref, or the shared history, cannot be resolved.
+
+    There is deliberately **no** fallback here. The previous implementation
+    retried an unresolvable ``base...HEAD`` as a two-dot ``git diff base``, which
+    is a different question: a two-dot diff also reports commits that are only on
+    the base, and where the two refs share no history it succeeds where the
+    three-dot form fails. Either way the caller got a path set whose meaning was
+    not the PR's own diff, and an under-reported risk class followed. An empty
+    result is not offered as a success path either -- see ``classify_paths``.
+    """
+    probe = _git(["rev-parse", "--verify", "--quiet", f"{base_ref}^{{commit}}"])
+    if probe.returncode != 0 or not probe.stdout.strip():
+        raise SystemExit(
+            f"cannot resolve base ref {base_ref!r} to a commit in {ROOT}. Refusing to "
+            f"classify against an unknown base: any degraded diff would under-report "
+            f"the risk class. If this is a shallow checkout, fetch the base first "
+            f"(actions/checkout with 'fetch-depth: 0', or "
+            f"'git fetch --depth=<n> origin {base_ref}')."
+        )
+    base_sha = probe.stdout.strip()
+
+    merge_base = _git(["merge-base", base_sha, "HEAD"])
+    if merge_base.returncode != 0 or not merge_base.stdout.strip():
+        raise SystemExit(
+            f"no merge base between base ref {base_ref!r} ({base_sha}) and HEAD. "
+            f"Refusing to fall back to a two-dot diff, which answers a different "
+            f"question. Deepen the checkout so the shared history is present."
+        )
+    return merge_base.stdout.strip()
 
 
 def git_changed_paths(base_ref: str) -> list[str]:
     # --no-renames so a rename reports BOTH the deleted source and the added
     # destination; otherwise moving a sensitive R3 path onto an R0 docs path would
     # hide the high-risk source and defeat the fail-closed classification.
-    result = subprocess.run(
-        ["git", "-C", str(ROOT), "diff", "--name-only", "--no-renames", f"{base_ref}...HEAD"],
-        capture_output=True,
-        text=True,
-    )
+    #
+    # Diffing merge_base..HEAD is the two-dot spelling of `base...HEAD`; it is
+    # written out so the base resolution can fail closed on its own (above)
+    # instead of being hidden inside a single git invocation's exit code.
+    base_sha = resolve_diff_base(base_ref)
+    result = _git(["diff", "--name-only", "--no-renames", base_sha, "HEAD"])
     if result.returncode != 0:
-        # Fall back to a two-dot diff if the merge-base form is unavailable.
-        result = subprocess.run(
-            ["git", "-C", str(ROOT), "diff", "--name-only", "--no-renames", base_ref],
-            capture_output=True,
-            text=True,
+        raise SystemExit(
+            f"git diff failed for base-ref {base_ref!r} (merge base {base_sha}): "
+            f"{result.stderr.strip()}"
         )
-    if result.returncode != 0:
-        raise SystemExit(f"git diff failed for base-ref {base_ref!r}: {result.stderr.strip()}")
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+# How many per-path rows the markdown summary prints before truncating. The class
+# itself is always complete; the table is context.
+SUMMARY_PATH_LIMIT = 40
+
+# Stated on every rendered summary. The gate enforces the *derivation* of the risk
+# class; it does not yet verify that the class's evidence was produced, because no
+# per-PR contract source exists in this repository (Phase-2 contract-source ADR).
+SUMMARY_SCOPE_NOTE = (
+    "> **What this gate enforces.** The risk class above is derived from this PR's own "
+    "diff, and that derivation is enforced: an unresolvable base fails the check, and an "
+    "empty changed-path set fails closed to the policy default rather than to R0. The "
+    "evidence requirements and deterministic checks above are published for the human "
+    "merging this PR; CI does **not** yet verify that they were produced, and no per-PR "
+    "task contract (`owned_paths` / `forbidden_paths` / evidence) is consumed, because the "
+    "repository has no per-PR contract source. Closing that gap is the Phase-2 "
+    "contract-source ADR."
+)
+
+
+def render_markdown_summary(
+    risk_class: str,
+    per_path: list[dict[str, str]],
+    policy: dict[str, Any],
+    base_ref: str | None = None,
+) -> str:
+    """Render the risk class plus that class's policy obligations as markdown.
+
+    Both lists are read out of ``policy`` rather than restated here, so a policy
+    edit cannot drift from what the required check publishes.
+    """
+    class_policy = policy.get("risk_classes", {}).get(risk_class, {})
+    title = class_policy.get("title", "")
+
+    lines: list[str] = []
+    lines.append(f"## Agentic risk class: {risk_class}" + (f" — {title}" if title else ""))
+    lines.append("")
+    if base_ref:
+        lines.append(f"Derived from {len(per_path)} changed path(s) against base `{base_ref}`.")
+    else:
+        lines.append(f"Derived from {len(per_path)} changed path(s).")
+    lines.append("")
+
+    for heading, key, code in (
+        (f"Evidence required for {risk_class}", "evidence_requirements", False),
+        (f"Deterministic checks for {risk_class}", "deterministic_checks", True),
+    ):
+        lines.append(f"### {heading}")
+        lines.append("")
+        items = class_policy.get(key) or []
+        if items:
+            lines.extend(f"- `{item}`" if code else f"- {item}" for item in items)
+        else:
+            lines.append(f"- _none declared for {risk_class} in `.agentic/policy.json`_")
+        lines.append("")
+
+    lines.append(SUMMARY_SCOPE_NOTE)
+    lines.append("")
+
+    if not per_path:
+        lines.append(
+            "_No changed paths were reported for this base, so the class above is the "
+            "fail-closed default rather than a measurement._"
+        )
+        lines.append("")
+        return "\n".join(lines)
+
+    shown = per_path[:SUMMARY_PATH_LIMIT]
+    lines.append("<details><summary>Changed paths and their class</summary>")
+    lines.append("")
+    lines.append("| Class | Path | Rule |")
+    lines.append("| --- | --- | --- |")
+    for detail in shown:
+        lines.append(f"| {detail['class']} | `{detail['path']}` | {detail['reason']} |")
+    if len(per_path) > len(shown):
+        lines.append(f"| … | _{len(per_path) - len(shown)} further path(s) not shown_ | |")
+    lines.append("")
+    lines.append("</details>")
+    lines.append("")
+    return "\n".join(lines)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -137,6 +268,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--github-output",
         action="store_true",
         help="Also write risk_class to the file named by $GITHUB_OUTPUT.",
+    )
+    parser.add_argument(
+        "--github-step-summary",
+        action="store_true",
+        help="Render the risk class together with that class's policy evidence "
+        "requirements and deterministic checks as markdown, and append it to the file "
+        "named by $GITHUB_STEP_SUMMARY. Falls back to stdout when that variable is "
+        "unset, so the summary is never silently dropped.",
     )
     return parser
 
@@ -167,6 +306,17 @@ def main(argv: list[str] | None = None) -> int:
         if output_file:
             with open(output_file, "a", encoding="utf-8") as handle:
                 handle.write(f"risk_class={risk_class}\n")
+
+    if args.github_step_summary:
+        summary = render_markdown_summary(risk_class, per_path, policy, base_ref=args.base_ref)
+        summary_file = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary_file:
+            with open(summary_file, "a", encoding="utf-8") as handle:
+                handle.write(summary + "\n")
+        else:
+            # Never a silent no-op: a summary flag that quietly writes nowhere is
+            # the "guard wired to nothing" shape this file is being repaired for.
+            print(summary)
 
     return 0
 
