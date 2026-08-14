@@ -19,6 +19,25 @@ written out here, and an event this file does not recognise is a hard failure
 rather than an assumption of safety -- a hand-written event list is how the merge
 queue was left without a review base once already (see
 `tests/ci/test_run_module_tests_skip_marker.py`).
+
+## Why this file matches TEXT instead of parsing YAML
+
+Every check here is a text matcher over `agentic_pr_gate.yml`, which makes it a
+ratchet over NAMED shapes rather than a structural guarantee -- see the threat
+model enumerated on `invocation_re`. Parsing the workflow as real YAML is the
+correct long-term fix: it closes the job-vs-step scope gap structurally (a
+job-level `if:` is a different key, not a different indent) and retires most of
+the regex-evasion category at once.
+
+It is not done here for one concrete reason. **No workflow in this repository
+pip-installs PyYAML**, and `actions/setup-python@v5` provisions a bare tool-cache
+interpreter, so `import yaml` at module scope in `tests/agentic/` would raise
+`ImportError` during unittest DISCOVERY -- failing the only required status check
+on `master`, on every PR, with `enforce_admins: true`. (The guarded
+`try: import yaml / except ImportError` in `tests/ci/validate_automation.py` is
+suggestive but is NOT the evidence, because no workflow invokes that file.)
+Making PyYAML a mandatory gate dependency, and then porting this file to a real
+parse, is tracked as a follow-up on T6 / #894.
 """
 
 from __future__ import annotations
@@ -76,6 +95,36 @@ def invocation_re(script: str) -> "re.Pattern[str]":
     the command with `echo` reconstitutes the exact print-only step
     GS-AUDIT-TEST-001 is about, and a substring scan for the script path cannot
     tell the two apart. `EchoPrefixIsNotAnInvocationTest` pins the distinction.
+
+    ## Threat model, stated rather than implied
+
+    This is a text matcher and is therefore evadable by construction. It defends
+    against **accidental** loss of enforcement -- a refactor, a debugging `echo`
+    left in, a step quietly neutered -- and NOT against an adversarial author, who
+    has merge rights and is defended against by human review instead. Written out
+    so nobody reads a green run as "the gate cannot be disabled":
+
+    * **Correctly accepted** (semantics preserved, matcher agrees): `python3`,
+      extra spaces or tabs around the interpreter and the path, and any rename of
+      the enclosing step -- step selection is by invocation, never by name.
+    * **Safe false-REDs** (annoying, not dangerous): `env python <script>` and the
+      `python -m <module>` form are legitimate invocations this pattern rejects.
+      Note the asymmetry, because it is the whole reason a text matcher is
+      acceptable here: a reflow that changes the TEXT but not the SEMANTICS costs
+      a false RED and a one-line pattern update, while only the opposite -- a
+      change of SEMANTICS that preserves the matched text -- is dangerous, and
+      that is what the negative cases pin. Reindentation is a third,
+      self-detecting case: push it past YAML validity and `yaml.safe_load` raises
+      `ParserError`, i.e. GitHub rejects the workflow loudly rather than running a
+      weakened one.
+    * **Deliberately out of scope**: `bash -c '…'` obfuscation, trailing `&`
+      backgrounding the command, `;`-chained no-ops after it, and decoy comment
+      lines (those are removed by `WorkflowScan.body()` before matching, so they
+      cannot create a false GREEN, only be ignored). Each of these requires
+      intent, which puts it in the review threat model, not this one.
+
+    The structural fix for the whole category is a real YAML parse; see the
+    module docstring for why that is blocked today and where it is tracked.
     """
     return re.compile(
         r"^[ \t]*(?:run:[ \t]*)?python3?[ \t]+" + re.escape(script) + r"(?=[ \t\\]|$)",
@@ -454,6 +503,84 @@ SWALLOWED_FAILURE_RE = re.compile(
 )
 
 
+class GateAlwaysRunsTest(WorkflowScan):
+    """The two ways to switch the whole gate off without touching a single step.
+
+    Both were GREEN against every other assertion in this file: they operate one
+    nesting level up from, or entirely outside, the steps the rest of the file
+    inspects. Same "guard wired to nothing" shape, larger blast radius.
+    """
+
+    JOB = "agentic-pr-gate"
+    AGENTIC_SUITE_RE = re.compile(
+        r"^[ \t]*(?:run:[ \t]*)?python3?[ \t]+-m[ \t]+unittest[ \t]+discover[ \t]+-s[ \t]+"
+        r"tests/agentic(?=[ \t\\]|$)",
+        re.MULTILINE,
+    )
+
+    def job_header(self) -> str:
+        """The job's own keys, i.e. everything above its `steps:`.
+
+        `enforce_admins: true` plus a single required context means this job IS
+        the merge gate; a key here applies to all of it at once.
+        """
+        lines = self.body(self.text).splitlines()
+        try:
+            start = next(
+                index
+                for index, line in enumerate(lines)
+                if re.match(r"^  " + re.escape(self.JOB) + r":[ \t]*$", line)
+            )
+        except StopIteration:
+            self.fail(
+                f"no job named '{self.JOB}'; that name is the required status check's "
+                f"context and renaming it silently removes the gate from every PR"
+            )
+        header: list[str] = []
+        for line in lines[start + 1 :]:
+            if re.match(r"^    steps:[ \t]*$", line):
+                break
+            if line.strip() and len(line) - len(line.lstrip()) <= 2:
+                break  # dedented out of this job
+            header.append(line)
+        return "\n".join(header)
+
+    def test_the_job_itself_carries_no_condition(self):
+        """A job-level `if:` disables every step at once.
+
+        `test_the_step_carries_no_condition_at_all` is anchored at `^ {8}if:` --
+        step level. Moving the same expression up to the job header
+        (`jobs.agentic-pr-gate.if:`, four spaces) parses fine, skips the entire
+        required gate on the events it excludes, and was GREEN against all 76
+        assertions. A skipped required job reports success, so there is nothing to
+        notice at the merge boundary either.
+        """
+        conditions = [
+            line for line in self.job_header().splitlines() if re.match(r"^ {4}if:", line)
+        ]
+        self.assertEqual(
+            [],
+            conditions,
+            "the required gate's JOB is conditional; on the events it excludes every "
+            "check in this workflow is skipped and the gate still reports success",
+        )
+
+    def test_the_gate_still_runs_this_test_suite(self):
+        """Nothing else pins that these guards execute in CI at all.
+
+        Deleting the `Run agentic unit tests` step leaves every assertion in this
+        file green while none of them runs on any PR again -- the single edit with
+        the largest blast radius, and the exact shape the file exists to catch.
+        Matched by invocation shape, so an `echo`-prefixed revival does not count.
+        """
+        self.assertIsNotNone(
+            self.AGENTIC_SUITE_RE.search(self.body(self.text)),
+            "the required gate no longer runs 'python -m unittest discover -s "
+            "tests/agentic'; every guard in this file stops executing in CI while "
+            "still passing locally",
+        )
+
+
 class NoAdvisoryStepTest(WorkflowScan):
     """A required check whose steps swallow failures is decorative."""
 
@@ -490,16 +617,25 @@ class NoAdvisoryStepTest(WorkflowScan):
             "          python x.py || exit 1",
             "          python x.py || echo failed",
             "          set -euo pipefail",
-            "          # historically this used || true",
         ):
-            self.assertIsNone(
-                SWALLOWED_FAILURE_RE.search(
-                    line if not line.lstrip().startswith("#") else ""
-                ),
-                line,
-            )
+            self.assertIsNone(SWALLOWED_FAILURE_RE.search(line), line)
         self.assertRegex("        continue-on-error: true", CONTINUE_ON_ERROR_RE.pattern)
         self.assertIsNone(CONTINUE_ON_ERROR_RE.search("        continue-on-error: false"))
+
+    def test_a_comment_is_neutralised_by_body_not_by_the_regex(self):
+        """Where comment immunity actually comes from -- stated honestly.
+
+        The previous version of this case listed a comment line among the negative
+        samples and then searched `""` instead of the line, so it asserted nothing
+        at all: a tautology inside the anti-vacuity self-test. The regex is NOT
+        immune to comments -- it matches `# historically this used || true` -- and
+        pretending otherwise would hide which component is load-bearing. `body()`
+        is, so `body()` is what is pinned here. Delete the comment stripping and
+        this goes red.
+        """
+        comment = "          # historically this used || true"
+        self.assertRegex(comment, SWALLOWED_FAILURE_RE.pattern)
+        self.assertEqual("", self.body(comment))
 
 
 if __name__ == "__main__":
