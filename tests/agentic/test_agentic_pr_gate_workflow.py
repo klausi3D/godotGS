@@ -523,6 +523,13 @@ class GateAlwaysRunsTest(WorkflowScan):
 
         `enforce_admins: true` plus a single required context means this job IS
         the merge gate; a key here applies to all of it at once.
+
+        DECLARED LIMIT: `JOB` is matched against the job's YAML **key**, while the
+        required status-check context is the job's **`name:` value**. Changing only
+        `name:` and keeping the key leaves every test here green. That is a
+        false-RED brick (the context never reports, so nothing merges) rather than
+        a bypass, so it cannot let a bad PR through; it is recorded as a follow-up
+        on #887 rather than asserted here.
         """
         lines = self.body(self.text).splitlines()
         try:
@@ -533,8 +540,12 @@ class GateAlwaysRunsTest(WorkflowScan):
             )
         except StopIteration:
             self.fail(
-                f"no job named '{self.JOB}'; that name is the required status check's "
-                f"context and renaming it silently removes the gate from every PR"
+                f"no job named '{self.JOB}'; that name IS the required status check's "
+                f"context, so renaming it makes the context never report and every PR "
+                f"stops at 'Expected - waiting for status to be reported'. That is a "
+                f"repo-wide merge BLOCK, not a bypass - the opposite failure mode from "
+                f"the job-level 'if:' below. Caught here so it is found in review "
+                f"rather than by a frozen queue."
             )
         header: list[str] = []
         for line in lines[start + 1 :]:
@@ -553,7 +564,21 @@ class GateAlwaysRunsTest(WorkflowScan):
         (`jobs.agentic-pr-gate.if:`, four spaces) parses fine, skips the entire
         required gate on the events it excludes, and was GREEN against all 76
         assertions. A skipped required job reports success, so there is nothing to
-        notice at the merge boundary either.
+        notice at the merge boundary either. GitHub's *Troubleshooting required
+        status checks* states that a job "skipped by a conditional" reports
+        Success, and that "Successful check statuses are `success`, `skipped`, and
+        `neutral`". This repository already demonstrates the mechanism:
+        `baseline_qa.yml`'s `cpu-tests` carries
+        `if: github.event_name != 'pull_request'` and its check-run reports
+        `conclusion: skipped`.
+
+        Note the asymmetry against the two neighbouring shapes, because it is the
+        whole reason this one is the dangerous member of the family. Removing
+        `merge_group:` from `on:` is a *workflow*-level skip: no check is created,
+        it stays Pending, and it BLOCKS merging. Renaming the job blocks merging
+        too. Only a *job*-level `if:` converts into a passing status -- it is the
+        one gate-wide edit that is silent, which is why it needs its own assertion
+        rather than being folded into the rename check.
         """
         conditions = [
             line for line in self.job_header().splitlines() if re.match(r"^ {4}if:", line)
