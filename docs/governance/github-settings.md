@@ -70,22 +70,37 @@ this page as a dated observation.
 
 ## Branch protection / ruleset for `master` — still intended
 
-These are **not** live as of the observation above.
+Only the bullets in this section are **not** live. Each names the API field it
+corresponds to, so the claim can be checked against
+`gh api repos/klausi3D/godotGS/branches/master/protection` rather than believed.
 
-- **Require a pull request before merging** — no direct pushes to `master`.
-- **Require at least one approving review from a human maintainer**
-  (`required_approving_review_count` is `0` today).
-- **Require review from Code Owners** (`.github/CODEOWNERS`). Enable this only
-  **after** `.github/CODEOWNERS` has merged; with no owners defined the setting
-  cannot request anyone and the R3 escalation below stays unenforced.
-- **Dismiss stale approvals** when new commits are pushed.
-- **Require branches to be up to date** before merging (or use the merge queue);
-  `strict` is `false` today.
+- **Require at least one approving review from a human maintainer** —
+  `required_pull_request_reviews.required_approving_review_count` is `0` today, so
+  the PR requirement below is satisfied by a PR with no approval at all.
+- **Require review from Code Owners** (`.github/CODEOWNERS`) —
+  `require_code_owner_reviews: false` today. Enable this only **after**
+  `.github/CODEOWNERS` has merged; with no owners defined the setting cannot
+  request anyone and the R3 escalation below stays unenforced.
+- **Require branches to be up to date** before merging (or use the merge queue) —
+  `strict: false` today. No merge queue is configured either
+  (`required_merge_queue` absent, `rulesets: []`), so nothing currently sends a PR
+  through the `merge_group` event.
 
-Already live, kept here so the intended set stays complete: required status check
-`agentic-pr-gate` (shown in the PR UI as `Agentic PR Gate / agentic-pr-gate`),
-required conversation resolution, admin enforcement, and blocked force
-pushes/deletions.
+### Already live, listed so the intended set stays complete
+
+- **Require a pull request before merging** — `required_pull_request_reviews` is
+  present, so direct pushes to `master` are refused.
+- **Dismiss stale approvals** when new commits are pushed —
+  `dismiss_stale_reviews: true`.
+- Required status check `agentic-pr-gate` (`Agentic PR Gate / agentic-pr-gate` in
+  the PR UI), required conversation resolution, admin enforcement, and blocked
+  force pushes/deletions — see the table above.
+
+Two of the bullets in this section were themselves wrong when this page was
+rewritten: "require a pull request" and "dismiss stale approvals" were filed as
+*intended* while the same `gh api` call showed both live. A hand-written page
+reproduces `GS-AUDIT-DOC-003` as fast as it corrects it, which is the argument for
+the Phase-2 settings-as-code item above.
 
 ## Risk-class escalation
 

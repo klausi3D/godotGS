@@ -57,7 +57,30 @@ BASE_FIELD_BY_EVENT = {
 }
 BASELESS_EVENTS = {"push", "schedule", "workflow_dispatch", "workflow_call"}
 
+# Events this gate MUST keep triggering on. Deriving the event list from `on:`
+# (below) is fail-closed against an event being ADDED and fail-OPEN against one
+# being removed: delete `merge_group:` and every derived check silently narrows to
+# the events that remain. This list is the other half.
+REQUIRED_TRIGGERS = ("pull_request", "merge_group")
+
 STEP_RE = re.compile(r"^      - name: (.+)$", re.MULTILINE)
+
+
+def invocation_re(script: str) -> "re.Pattern[str]":
+    """Matches a line that actually RUNS `script`, not one that mentions it.
+
+    Both step shapes are accepted: a single-line `run: python <script> …` and a
+    line inside a `run: |` block scalar. What is deliberately NOT accepted is any
+    line where something else precedes the interpreter -- `echo python <script>`,
+    `true python <script>`, `: python <script>`. That is not academic: prefixing
+    the command with `echo` reconstitutes the exact print-only step
+    GS-AUDIT-TEST-001 is about, and a substring scan for the script path cannot
+    tell the two apart. `EchoPrefixIsNotAnInvocationTest` pins the distinction.
+    """
+    return re.compile(
+        r"^[ \t]*(?:run:[ \t]*)?python3?[ \t]+" + re.escape(script) + r"(?=[ \t\\]|$)",
+        re.MULTILINE,
+    )
 
 TEXT = WORKFLOW.read_text(encoding="utf-8") if WORKFLOW.is_file() else ""
 
@@ -84,21 +107,52 @@ class WorkflowScan(unittest.TestCase):
     steps = STEPS
 
     def step_invoking(self, script: str) -> str:
-        """The single step whose non-comment body invokes `script`."""
+        """The single step that actually EXECUTES `script`.
+
+        Selection is by `invocation_re`, not by substring: a step that merely
+        names the script -- in a comment, in an `echo`, in a disabled line -- is
+        not a step that runs it, and treating it as one is how a print-only gate
+        passes a wiring test.
+        """
+        pattern = invocation_re(script)
         found = [
             (name, block)
             for name, block in self.steps
-            if any(
-                script in line and not line.lstrip().startswith("#")
-                for line in block.splitlines()
-            )
+            if pattern.search(self.body(block))
         ]
         self.assertEqual(
             1,
             len(found),
-            f"expected exactly one step invoking {script}; found {[n for n, _ in found]}",
+            f"expected exactly one step INVOKING {script} (not merely mentioning it); "
+            f"found {[n for n, _ in found]}",
         )
         return found[0][1]
+
+    def env_value(self, block: str, name: str) -> str:
+        """The value of `name` in the step's `env:` mapping, folded scalars included.
+
+        Needed because the base expression is a `>-` block: the payload fields sit
+        on continuation lines, and the point of reading it here is to follow the
+        chain `--base-ref "${VAR}"` -> `env: VAR:` -> `github.event.*` rather than
+        to scan the step for a string that happens to appear somewhere in it.
+        """
+        lines = self.body(block).splitlines()
+        start = indent = None
+        collected: list[str] = []
+        for index, line in enumerate(lines):
+            match = re.match(r"^([ \t]+)" + re.escape(name) + r":(.*)$", line)
+            if match:
+                start, indent = index, len(match.group(1))
+                collected.append(match.group(2).strip())
+                break
+        self.assertIsNotNone(start, f"the step declares no env entry '{name}':\n{block}")
+        for line in lines[start + 1 :]:
+            if not line.strip():
+                continue
+            if len(line) - len(line.lstrip()) <= indent:
+                break
+            collected.append(line.strip())
+        return "\n".join(collected)
 
     @staticmethod
     def body(block: str) -> str:
@@ -138,6 +192,91 @@ class ParserControlTest(WorkflowScan):
         self.assertIn("agentic-pr-gate", self.text)
         self.assertIn("pull_request", self.trigger_events())
 
+    def test_the_required_triggers_are_still_declared(self):
+        """The half that a derived event list cannot supply.
+
+        Everything else here (and `WorkflowBaseExportTests` in
+        `tests/ci/test_run_module_tests_skip_marker.py`) derives its expectations
+        FROM `on:`. That is fail-closed against an event being added and fail-OPEN
+        against one being removed: delete `merge_group:` and every derived check
+        quietly narrows to the events that remain, with nothing red. Both suites
+        were measured green with `merge_group` deleted before this test existed.
+        """
+        events = self.trigger_events()
+        for trigger in REQUIRED_TRIGGERS:
+            self.assertIn(
+                trigger,
+                events,
+                f"the required gate no longer triggers on '{trigger}'; every "
+                f"event-derived check in this repo silently narrows with it",
+            )
+
+
+class EchoPrefixIsNotAnInvocationTest(unittest.TestCase):
+    """Pins the detector that the whole file's step selection rests on.
+
+    A wiring test that matches the script PATH cannot distinguish
+    `python x.py` from `echo python x.py`, and the second is precisely the
+    print-only step GS-AUDIT-TEST-001 recorded. This is the
+    `BASELINE_SKIP_MARKER_RE`-inertness pattern from
+    `tests/ci/test_run_module_tests_skip_marker.py`: assert what the matcher must
+    NOT see, or a broken matcher passes every test written on top of it.
+    """
+
+    SCRIPT = "scripts/agentic/classify_change.py"
+
+    def test_real_invocation_shapes_are_detected(self):
+        for line in (
+            "          python scripts/agentic/classify_change.py \\",
+            "        run: python scripts/agentic/classify_change.py --base-ref x",
+            "          python3 scripts/agentic/classify_change.py",
+            "          python scripts/agentic/classify_change.py",
+        ):
+            self.assertIsNotNone(invocation_re(self.SCRIPT).search(line), line)
+
+    def test_neutered_shapes_are_not_detected(self):
+        for line in (
+            "          echo python scripts/agentic/classify_change.py \\",
+            "          true python scripts/agentic/classify_change.py \\",
+            "          : python scripts/agentic/classify_change.py",
+            "          # python scripts/agentic/classify_change.py",
+            "          echo 'run scripts/agentic/classify_change.py by hand'",
+            "          pythonx scripts/agentic/classify_change.py",
+        ):
+            self.assertIsNone(invocation_re(self.SCRIPT).search(line), line)
+
+    def test_a_prefixed_workflow_is_rejected_end_to_end(self):
+        """The mutation itself, run through the real selection path.
+
+        `echo`-prefixing the command in a copy of the live workflow must make step
+        selection find zero invoking steps -- i.e. the tests that call
+        `step_invoking` go red rather than passing on a decorative step.
+        """
+        pattern = invocation_re(self.SCRIPT)
+        lines = TEXT.splitlines(keepends=True)
+        indexes = [i for i, line in enumerate(lines) if pattern.search(line)]
+        self.assertEqual(
+            1,
+            len(indexes),
+            f"expected exactly one line invoking {self.SCRIPT} in the live workflow; "
+            f"found {len(indexes)}",
+        )
+        for prefix in ("echo ", "true ", ": "):
+            mutated = list(lines)
+            original = mutated[indexes[0]]
+            stripped = original.lstrip()
+            mutated[indexes[0]] = original[: len(original) - len(stripped)] + prefix + stripped
+            steps = [
+                name
+                for name, block in _parse_steps("".join(mutated))
+                if pattern.search(
+                    "\n".join(
+                        ln for ln in block.splitlines() if not ln.lstrip().startswith("#")
+                    )
+                )
+            ]
+            self.assertEqual([], steps, f"prefix {prefix!r} still counted as an invocation")
+
 
 class ControlPlaneValidationTest(WorkflowScan):
     def test_repo_contract_validation_is_strict(self):
@@ -154,22 +293,64 @@ class ControlPlaneValidationTest(WorkflowScan):
 
 
 class RiskClassStepTest(WorkflowScan):
+    SCRIPT = "scripts/agentic/classify_change.py"
+
+    def raw_block(self) -> str:
+        return self.step_invoking(self.SCRIPT)
+
     def block(self) -> str:
         # Comment-stripped: a flag named only in a comment is not wiring, and the
         # comments next to this step name several of the flags asserted below.
-        return self.body(self.step_invoking("scripts/agentic/classify_change.py"))
+        return self.body(self.raw_block())
 
-    def test_the_classifier_runs_against_a_base_ref(self):
-        self.assertIn("--base-ref", self.block())
+    def test_the_classifier_is_executed_not_merely_named(self):
+        """The step must RUN the classifier.
+
+        `step_invoking` already selects on `invocation_re`, so this restates the
+        requirement at the point a reader looks for it and fails with a readable
+        message if the command is ever prefixed (`echo`, `true`, `:`) back into a
+        print-only step.
+        """
+        block = self.block()
+        self.assertIsNotNone(
+            invocation_re(self.SCRIPT).search(block),
+            f"the risk-class step does not execute the classifier:\n{block}",
+        )
+
+    def base_ref_variable(self) -> str:
+        """The shell variable `--base-ref` is actually given.
+
+        Asserting only that `--base-ref` appears somewhere is not enough: a
+        hardcoded `--base-ref "master"` satisfies that and classifies every PR
+        against the wrong base. Worse than the empty case, because a hardcoded but
+        *resolvable* ref (`origin/master`, `HEAD~1`) misclassifies silently instead
+        of failing closed.
+        """
+        match = re.search(r'--base-ref[ \t]+"\$\{([A-Za-z_][A-Za-z0-9_]*)\}"', self.block())
+        self.assertIsNotNone(
+            match,
+            "--base-ref must receive a shell variable expanded from the step's env "
+            '(expected --base-ref "${SOME_VAR}"); a literal ref would classify every '
+            f"PR against a fixed base:\n{self.block()}",
+        )
+        return match.group(1)
+
+    def test_the_base_ref_argument_comes_from_the_step_environment(self):
+        self.assertEqual("GS_PR_BASE_SHA", self.base_ref_variable())
 
     def test_every_base_bearing_trigger_is_covered_by_the_base_expression(self):
         """Derived from `on:`, not from a list written here.
+
+        The chain checked is `--base-ref "${VAR}"` -> `env: VAR:` -> the event's
+        payload field. Scanning the whole step for the field name is not the same
+        assertion: the `env:` block could keep declaring a perfectly correct
+        variable that `--base-ref` never uses.
 
         A trigger this file does not recognise fails closed: it is either a new
         base-bearing event whose payload field must be added to the expression, or
         a baseless one that must be declared as such deliberately.
         """
-        block = self.block()
+        expression = self.env_value(self.raw_block(), self.base_ref_variable())
         checked = 0
         for event in sorted(self.trigger_events()):
             if event in BASELESS_EVENTS:
@@ -183,25 +364,35 @@ class RiskClassStepTest(WorkflowScan):
             checked += 1
             self.assertIn(
                 BASE_FIELD_BY_EVENT[event],
-                block,
-                f"the risk-class step has no base for '{event}'; on that event it "
-                f"would classify against an empty base and fail the required check",
+                expression,
+                f"the base handed to --base-ref has no value for '{event}'; on that "
+                f"event it would be empty and the required check would fail",
             )
         self.assertTrue(checked, "no base-bearing trigger was checked; the derivation broke")
 
-    def test_the_step_is_not_restricted_to_a_single_event(self):
-        """It used to carry `if: github.event_name == 'pull_request'`.
+    def test_the_step_carries_no_condition_at_all(self):
+        """Unconditional, and with the right polarity.
 
-        A step skipped on `merge_group` cannot enforce anything in the merge queue,
-        which is the last boundary before `master`.
+        The predecessor of this test looped over `if:` lines and asserted only
+        *inside* the loop, so with no `if:` present it executed ZERO assertions --
+        a zero-assertion test inside the file written to stop zero-assertion tests.
+        Its polarity was wrong too: `if: ${{ github.event_name != 'merge_group' }}`
+        mentions `merge_group` and would have satisfied it while skipping the merge
+        queue, which is the original defect (the step used to be
+        `if: github.event_name == 'pull_request'`).
+
+        A step of the only required gate must simply always run, so any `if:` on it
+        is a failure and the reviewer decides deliberately.
         """
-        for line in self.block().splitlines():
-            if re.match(r"^        if:", line):
-                self.assertIn(
-                    "merge_group",
-                    line,
-                    "the risk-class step is conditioned in a way that can skip the merge queue",
-                )
+        conditions = [
+            line for line in self.block().splitlines() if re.match(r"^ {8}if:", line)
+        ]
+        self.assertEqual(
+            [],
+            conditions,
+            "the risk-class step is conditional; a required-gate step that can be "
+            "skipped enforces nothing on the events where it is skipped",
+        )
 
     def test_the_step_publishes_the_class_obligations_to_the_job_summary(self):
         """A human merging an R2 PR must see "runtime/GPU evidence required" on the
@@ -251,11 +442,64 @@ class TemplateSelfTestStepTest(WorkflowScan):
         self.assertRegex(names[0].lower(), r"template|fixture|self-test")
 
 
+# `continue-on-error:` set to anything other than an explicit false. Written as a
+# match on the VALUE rather than on the key, so `continue-on-error: false` -- which
+# states the safe intent -- is not reported as a violation.
+CONTINUE_ON_ERROR_RE = re.compile(r"continue-on-error:[ \t]*(?!false[ \t]*$)\S")
+# Shell constructs that turn a failing command into a passing step. `|| :` is here
+# because `:` is the POSIX no-op and a blacklist of the literal strings "|| true"
+# and "|| exit 0" does not catch it.
+SWALLOWED_FAILURE_RE = re.compile(
+    r"\|\|[ \t]*(?:true\b|:(?=[ \t]|$)|exit[ \t]+0\b)|(?<![\w-])set[ \t]+\+e\b"
+)
+
+
 class NoAdvisoryStepTest(WorkflowScan):
-    def test_no_step_in_the_required_gate_is_advisory(self):
-        """A required check whose steps swallow failures is decorative."""
-        for pattern in ("continue-on-error", "|| true", "|| exit 0"):
-            self.assertNotIn(pattern, self.text, f"{pattern!r} makes the required gate advisory")
+    """A required check whose steps swallow failures is decorative."""
+
+    def test_no_step_declares_continue_on_error(self):
+        offenders = [
+            line for line in self.body(self.text).splitlines() if CONTINUE_ON_ERROR_RE.search(line)
+        ]
+        self.assertEqual([], offenders, "a step of the required gate cannot continue on error")
+
+    def test_no_command_swallows_its_own_failure(self):
+        """Matched by shape, not by a list of three literal strings.
+
+        The predecessor checked for `continue-on-error`, `|| true` and `|| exit 0`
+        as substrings. `|| :` is the same construct and walked straight through it,
+        and `continue-on-error: false` -- an explicit statement of the safe intent
+        -- was reported as a violation.
+        """
+        offenders = [
+            line for line in self.body(self.text).splitlines() if SWALLOWED_FAILURE_RE.search(line)
+        ]
+        self.assertEqual([], offenders, "a failing command in the required gate must fail the step")
+
+    def test_the_detector_recognises_every_swallowing_shape(self):
+        """Self-test: a matcher nobody probes is a matcher nobody can trust."""
+        for line in (
+            "          python x.py || true",
+            "          python x.py || :",
+            "          python x.py ||:",
+            "          python x.py || exit 0",
+            "          set +e",
+        ):
+            self.assertRegex(line, SWALLOWED_FAILURE_RE.pattern, line)
+        for line in (
+            "          python x.py || exit 1",
+            "          python x.py || echo failed",
+            "          set -euo pipefail",
+            "          # historically this used || true",
+        ):
+            self.assertIsNone(
+                SWALLOWED_FAILURE_RE.search(
+                    line if not line.lstrip().startswith("#") else ""
+                ),
+                line,
+            )
+        self.assertRegex("        continue-on-error: true", CONTINUE_ON_ERROR_RE.pattern)
+        self.assertIsNone(CONTINUE_ON_ERROR_RE.search("        continue-on-error: false"))
 
 
 if __name__ == "__main__":
