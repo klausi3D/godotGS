@@ -123,11 +123,10 @@ The Python supervisor drives `--gs-gpu-test` in **per-batch subprocesses** so a 
 | --- | --- | --- |
 | `CompositorHazard` | `*HazardRepro*` | Active, **required** (canonical regression) |
 | `OutputCompositor` | `*OutputCompositor*][RequiresGPU]*` | Active, **required** (promoted #724) |
-| `ComputeInfrastructure` | `*ComputeInfra*][RequiresGPU]*` | Catalogued, empty |
 | `TileRenderer` | `*TileRenderer*][RequiresGPU]*` | Active (3 cases, #641) |
 | `GpuSorting` | `*Sort*][RequiresGPU]*` | Active, **required** (promoted #744) — gates the #508 `[GPUSortPipeline]` overflow-sticky case AND the three `[GpuSort]` sort-order oracles retagged in #622 (Bitonic + 32-bit/8-bit Radix); `check_gpu_sorting_order_coverage.py` pins that coverage. The `.cpp` order tests remain linker-dropped (#622/#631); the `GPU Sorting Performance` timing benchmark stays advisory |
-| `MemoryStream` | `*MemoryStream*][RequiresGPU]*` | Catalogued, empty |
-| `Streaming` | `*Streaming*][RequiresGPU]*` | Catalogued, empty |
+| `MemoryStream` | `*MemoryStream*][RequiresGPU]*` | Active (2 cases, #798) |
+| `Streaming` | `*Streaming*][RequiresGPU]*` | Active, advisory (3 cases retagged `[Streaming]` in #908) |
 | `Integration` | `*Integration*][RequiresGPU]*` | Active (1 of 2 cases, #641) |
 | `RendererPipeline` | *(named cases)* | Active, **required** |
 | `Lifetime` | *(named cases)* | Active, **required** |
@@ -165,7 +164,7 @@ See also the contributor docs in `docs/testing/setup-guide.md` for how this lane
 **To run specific tests:**
 - For all Gaussian Splatting tests: `--test-case="*GaussianSplatting*"`
 - For a specific test suite only: `--test-suite="[GaussianSplatting]"`
-- For a specific test case: `--test-case="[GaussianSplatting] GPU Memory Streaming"`
+- For a specific test case: `--test-case="[GaussianSplatting][Streaming][RequiresGPU] GPU Memory Streaming"`
 
 **Note:** The `[Gaussian Splatting Integration]` suite tests don't have the `[GaussianSplatting]` tag, so run them separately with `--test-suite="[Gaussian Splatting Integration]"` or use the `run_tests.bat` script which runs both.
 
@@ -205,7 +204,7 @@ The script builds the Windows editor with tests enabled and then runs `--test-ca
 
 ### Unit Tests
 - **GaussianData basics and layout** – `[GaussianSplatting] GaussianData basic operations` exercises creation, resizing, AABB computation, and empty/single-splat cases, while `[GaussianSplatting] Gaussian structure memory layout` checks GPU-friendly alignment.【F:modules/gaussian_splatting/tests/test_gaussian_data.h†L17-L134】
-- **GPU Memory Streaming** – `[GaussianSplatting] GPU Memory Streaming` validates initialization, uploads, triple buffering, overflow handling, and invalid parameters; `[GaussianSplatting] GPU Memory Streaming Performance` enforces timing budgets across dataset sizes.【F:modules/gaussian_splatting/tests/test_gpu_streaming.h†L20-L233】
+- **GPU Memory Streaming** – `[GaussianSplatting][Streaming][RequiresGPU] GPU Memory Streaming` validates initialization, uploads, triple buffering, overflow handling, and invalid parameters; `[GaussianSplatting][Streaming][RequiresGPU] GPU Memory Streaming Performance` enforces timing budgets across dataset sizes (both retagged `[Streaming]` in #908 so the harness's `Streaming` batch selects them).【F:modules/gaussian_splatting/tests/test_gpu_streaming.h†L20-L233】
 - **GPU Sorting** – `[GaussianSplatting] GPU Bitonic Sorting` covers initialization, correctness for different sizes, and non-power-of-two inputs, while `[GaussianSplatting] GPU Sorting Performance` benchmarks the sorter and compares against CPU sorting.【F:modules/gaussian_splatting/tests/test_gpu_sorting.h†L21-L204】【F:modules/gaussian_splatting/tests/test_gpu_sorting.h†L205-L347】
 
 ### Integration Tests

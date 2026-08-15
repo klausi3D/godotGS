@@ -1117,6 +1117,317 @@ class TwoCommitRatchetTests(IsolatedTestCase):
         self.assertEqual(1, code, out)
         self.assertIn("still a live scanned source", out)
 
+    # -- the case-retag ledger (#916) --------------------------------------
+    #
+    # A tag-only TEST_CASE rename moves the case-hash component of every
+    # fingerprint under that case while the site count stays identical -- the
+    # programme's rename blind spot, fifth instance. These tests pin the three
+    # legs of #916's contract from both directions: the documented flow goes
+    # GREEN end to end, and every laundering shape adjacent to it stays RED.
+
+    _RETAG_FILE = "modules/gaussian_splatting/tests/test_alpha.h"
+    _RETAG_OLD = "[Alpha][RequiresGPU] streams data"
+    _RETAG_NEW = "[Alpha][Streaming][RequiresGPU] streams data"
+
+    def _retag_source(self, case_name: str, extra: str = "") -> str:
+        return f'TEST_CASE("{case_name}") {{\n\tREQUIRE_GPU_DEVICE();\n{extra}}}\n'
+
+    def _retag_arg(self) -> str:
+        return f"{self._RETAG_FILE}::{self._RETAG_OLD}={self._RETAG_NEW}"
+
+    def test_case_retag_round_trip_through_the_documented_flow_passes(self) -> None:
+        """The documented flow must go GREEN (#916 leg 3: re-key only)."""
+        self._write_source("test_alpha.h", self._retag_source(self._RETAG_OLD))
+        self._seed_and_commit()
+        self._git("branch", "-f", "base", "HEAD")
+
+        self._write_source("test_alpha.h", self._retag_source(self._RETAG_NEW))
+        code, out = self._run(
+            ["--write-baseline", "--retag-case", self._retag_arg(), "--base-ref", "base"]
+        )
+        self.assertEqual(0, code, out)
+        self._commit_all("tag-only retag")
+
+        code, out = self._run(["--base-ref", "base"])
+        self.assertEqual(0, code, out)
+
+        document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            [{"file": self._RETAG_FILE, "from": self._RETAG_OLD, "to": self._RETAG_NEW}],
+            document["case_retag_ledger"],
+        )
+        sites = document["files"][self._RETAG_FILE]["sites"]
+        self.assertEqual([guard.fingerprint("macro", "REQUIRE_GPU_DEVICE", self._RETAG_NEW)], sites)
+        self.assertNotIn(
+            guard.fingerprint("macro", "REQUIRE_GPU_DEVICE", self._RETAG_OLD), sites
+        )
+
+    def test_case_retag_writer_refuses_a_nontag_edit_riding_along(self) -> None:
+        """#916 leg 1, writer side: byte-identical except the header substitution."""
+        self._write_source("test_alpha.h", self._retag_source(self._RETAG_OLD))
+        self._seed_and_commit()
+        self._git("branch", "-f", "base", "HEAD")
+
+        self._write_source(
+            "test_alpha.h",
+            self._retag_source(self._RETAG_NEW, extra='\tMESSAGE("Skipping - smuggled");\n'),
+        )
+        code, out = self._run(
+            ["--write-baseline", "--retag-case", self._retag_arg(), "--base-ref", "base"]
+        )
+        self.assertEqual(1, code, out)
+        self.assertIn("MORE than the declared TEST_CASE header substitution", out)
+
+    def test_case_retag_hand_ledger_cannot_smuggle_a_nontag_edit(self) -> None:
+        """#916 leg 1, read side: a hand-written ledger entry re-keys nothing when
+        the file changed beyond the substitution, so the smuggled state reads as
+        plain growth."""
+        self._write_source("test_alpha.h", self._retag_source(self._RETAG_OLD))
+        self._seed_and_commit()
+        self._git("branch", "-f", "base", "HEAD")
+
+        # Retag PLUS a smuggled new skip, with the baseline and ledger both
+        # hand-edited to "authorise" the whole state.
+        self._write_source(
+            "test_alpha.h",
+            self._retag_source(self._RETAG_NEW, extra='\tMESSAGE("Skipping - smuggled");\n'),
+        )
+        document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
+        entry = document["files"][self._RETAG_FILE]
+        entry["sites"] = sorted(
+            [
+                guard.fingerprint("macro", "REQUIRE_GPU_DEVICE", self._RETAG_NEW),
+                guard.fingerprint("message", "Skipping - smuggled", self._RETAG_NEW),
+            ]
+        )
+        entry["count"] = 2
+        document["case_retag_ledger"] = [
+            {"file": self._RETAG_FILE, "from": self._RETAG_OLD, "to": self._RETAG_NEW}
+        ]
+        self.baseline_path.write_text(guard._serialize(document), encoding="utf-8")
+        self._commit_all("retag with a smuggled skip and a hand-written ledger")
+
+        code, out = self._run(["--base-ref", "base"])
+        self.assertEqual(1, code, out)
+        self.assertIn("MORE than the declared TEST_CASE header substitution", out)
+        self.assertIn("the BASELINE FILE gained", out)
+
+    def test_case_retag_ledger_without_the_matching_retag_is_rejected(self) -> None:
+        """#916 leg 2: a ledger entry whose source did not actually move."""
+        self._write_source("test_alpha.h", self._retag_source(self._RETAG_OLD))
+        self._seed_and_commit()
+        self._git("branch", "-f", "base", "HEAD")
+
+        # No source change at all; the baseline and ledger claim one happened.
+        document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
+        entry = document["files"][self._RETAG_FILE]
+        entry["sites"] = [guard.fingerprint("macro", "REQUIRE_GPU_DEVICE", self._RETAG_NEW)]
+        document["case_retag_ledger"] = [
+            {"file": self._RETAG_FILE, "from": self._RETAG_OLD, "to": self._RETAG_NEW}
+        ]
+        self.baseline_path.write_text(guard._serialize(document), encoding="utf-8")
+        self._commit_all("ledger entry with no retag behind it")
+
+        code, out = self._run(["--base-ref", "base"])
+        self.assertEqual(1, code, out)
+        self.assertIn("still exists at head", out)
+        self.assertIn("the BASELINE FILE gained", out)
+
+    def test_case_retag_onto_a_case_that_existed_at_the_base_is_rejected(self) -> None:
+        """#916 leg 2: a retag CREATES its destination."""
+        self._write_source(
+            "test_alpha.h",
+            self._retag_source(self._RETAG_OLD)
+            + f'TEST_CASE("{self._RETAG_NEW}") {{\n\tCHECK(true);\n}}\n',
+        )
+        self._seed_and_commit()
+        self._git("branch", "-f", "base", "HEAD")
+
+        # Delete the old case outright and move its skip into the pre-existing
+        # destination case, then claim the pair was a retag.
+        self._write_source("test_alpha.h", self._retag_source(self._RETAG_NEW))
+        code, out = self._run(
+            ["--write-baseline", "--retag-case", self._retag_arg(), "--base-ref", "base"]
+        )
+        self.assertEqual(1, code, out)
+        self.assertIn("already existed at the review base", out)
+
+    def test_historical_case_retag_entry_is_inert_once_the_base_moves(self) -> None:
+        """The ledger is append-only history; entries the base outgrew must not
+        red every later change."""
+        self._write_source("test_alpha.h", self._retag_source(self._RETAG_OLD))
+        self._write_source("test_beta.h", 'MESSAGE("Skipping - beta");\n')
+        self._seed_and_commit()
+        self._git("branch", "-f", "base", "HEAD")
+
+        self._write_source("test_alpha.h", self._retag_source(self._RETAG_NEW))
+        code, out = self._run(
+            ["--write-baseline", "--retag-case", self._retag_arg(), "--base-ref", "base"]
+        )
+        self.assertEqual(0, code, out)
+        self._commit_all("tag-only retag")
+        # The base moves PAST the retag; the ledger entry stays committed.
+        self._git("branch", "-f", "base2", "HEAD")
+
+        # An unrelated legitimate shrink on top of the new base.
+        (self.tests_dir / "test_beta.h").unlink()
+        code, out = self._run(["--write-baseline", "--base-ref", "base2"])
+        self.assertEqual(0, code, out)
+        self._commit_all("remove an unrelated skip")
+
+        code, out = self._run(["--base-ref", "base2"])
+        self.assertEqual(0, code, out)
+
+    def test_case_retag_writer_refuses_an_entry_with_no_credit(self) -> None:
+        """Write-time is STRICT: an entry that re-keys nothing is refused, not
+        recorded as decorative history."""
+        self._write_source("test_alpha.h", self._retag_source(self._RETAG_OLD))
+        self._seed_and_commit()
+        self._git("branch", "-f", "base", "HEAD")
+
+        self._write_source("test_alpha.h", self._retag_source(self._RETAG_NEW))
+        stale = f"{self._RETAG_FILE}::[Alpha] never baselined=[Alpha][Streaming] never baselined"
+        code, out = self._run(
+            [
+                "--write-baseline",
+                "--retag-case", self._retag_arg(),
+                "--retag-case", stale,
+                "--base-ref", "base",
+            ]
+        )
+        self.assertEqual(1, code, out)
+        self.assertIn("no credit to re-key", out)
+
+    def test_case_retag_composes_with_a_file_rename_against_one_base(self) -> None:
+        """A file renamed AND a case inside it retagged, judged against a base
+        that predates both (Codex round 2: the activity lookup and the base
+        blob must resolve at the file's ORIGIN key)."""
+        self._write_source("test_alpha.h", self._retag_source(self._RETAG_OLD))
+        self._seed_and_commit()
+        self._git("branch", "-f", "base", "HEAD")
+
+        (self.tests_dir / "test_alpha.h").rename(self.tests_dir / "test_gamma.h")
+        (self.tests_dir / "test_gamma.h").write_text(
+            self._retag_source(self._RETAG_NEW), encoding="utf-8"
+        )
+        new_file = "modules/gaussian_splatting/tests/test_gamma.h"
+        code, out = self._run(
+            [
+                "--write-baseline",
+                "--rename", f"{self._RETAG_FILE}={new_file}",
+                "--retag-case", f"{new_file}::{self._RETAG_OLD}={self._RETAG_NEW}",
+                "--base-ref", "base",
+            ]
+        )
+        self.assertEqual(0, code, out)
+        self._commit_all("rename the file and retag the case in one change")
+
+        code, out = self._run(["--base-ref", "base"])
+        self.assertEqual(0, code, out)
+        document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            [guard.fingerprint("macro", "REQUIRE_GPU_DEVICE", self._RETAG_NEW)],
+            document["files"][new_file]["sites"],
+        )
+
+    def test_case_retag_rejects_a_comment_only_edit_riding_along(self) -> None:
+        """Isolates #916 leg 1. A comment edit adds NO site, so the no-additions
+        and base-growth checks are silent about it -- only the byte-identity
+        check refuses. Deleting that check turns exactly this test green
+        (mutation adequacy, Codex round 2)."""
+        self._write_source(
+            "test_alpha.h", "// note v1\n" + self._retag_source(self._RETAG_OLD)
+        )
+        self._seed_and_commit()
+        self._git("branch", "-f", "base", "HEAD")
+
+        self._write_source(
+            "test_alpha.h", "// note v2\n" + self._retag_source(self._RETAG_NEW)
+        )
+        code, out = self._run(
+            ["--write-baseline", "--retag-case", self._retag_arg(), "--base-ref", "base"]
+        )
+        self.assertEqual(1, code, out)
+        self.assertIn("MORE than the declared TEST_CASE header substitution", out)
+
+    def test_case_retag_rejects_a_pre_existing_destination_even_when_bytes_match(self) -> None:
+        """Isolates #916 leg 2's destination check. The head IS the exact header
+        substitution of the base (the byte-identity leg passes by construction),
+        and the destination name still existed at the base -- so only the
+        new-absent-at-base check refuses. Deleting it turns exactly this test
+        green (mutation adequacy, Codex round 2)."""
+        base_text = (
+            self._retag_source(self._RETAG_OLD)
+            + f'TEST_CASE("{self._RETAG_NEW}") {{\n\tCHECK(true);\n}}\n'
+        )
+        self._write_source("test_alpha.h", base_text)
+        self._seed_and_commit()
+        self._git("branch", "-f", "base", "HEAD")
+
+        self._write_source(
+            "test_alpha.h", base_text.replace(f'"{self._RETAG_OLD}"', f'"{self._RETAG_NEW}"')
+        )
+        code, out = self._run(
+            ["--write-baseline", "--retag-case", self._retag_arg(), "--base-ref", "base"]
+        )
+        self.assertEqual(1, code, out)
+        self.assertIn("already existed at the review base", out)
+        self.assertNotIn("MORE than the declared TEST_CASE header substitution", out)
+
+    def test_case_retag_survives_a_later_rename_of_the_same_file(self) -> None:
+        """Codex round 3: a retag recorded under an intermediate file name must
+        be forwarded through LATER rename_ledger entries, or a stacked review
+        against the original base reads the final file as newly gaining the
+        retagged fingerprint (false-RED)."""
+        self._write_source("test_alpha.h", self._retag_source(self._RETAG_OLD))
+        self._seed_and_commit()
+        self._git("branch", "-f", "base", "HEAD")
+
+        # Change 1: rename alpha -> gamma AND retag the case, one invocation.
+        (self.tests_dir / "test_alpha.h").rename(self.tests_dir / "test_gamma.h")
+        (self.tests_dir / "test_gamma.h").write_text(
+            self._retag_source(self._RETAG_NEW), encoding="utf-8"
+        )
+        gamma = "modules/gaussian_splatting/tests/test_gamma.h"
+        code, out = self._run(
+            [
+                "--write-baseline",
+                "--rename", f"{self._RETAG_FILE}={gamma}",
+                "--retag-case", f"{gamma}::{self._RETAG_OLD}={self._RETAG_NEW}",
+                "--base-ref", "base",
+            ]
+        )
+        self.assertEqual(0, code, out)
+        self._commit_all("rename + retag")
+
+        # Change 2: rename gamma -> delta. The retag entry stays keyed to gamma.
+        (self.tests_dir / "test_gamma.h").rename(self.tests_dir / "test_delta.h")
+        delta = "modules/gaussian_splatting/tests/test_delta.h"
+        code, out = self._run(
+            ["--write-baseline", "--rename", f"{gamma}={delta}", "--base-ref", "base"]
+        )
+        self.assertEqual(0, code, out)
+        self._commit_all("second rename")
+
+        # Judged against the ORIGINAL base, both ledgers must compose.
+        code, out = self._run(["--base-ref", "base"])
+        self.assertEqual(0, code, out)
+
+    def test_malformed_case_retag_ledger_entry_fails_the_schema_check(self) -> None:
+        """Shape-validated on EVERY run, like the rename ledger (same lesson)."""
+        self._write_source("test_alpha.h", self._retag_source(self._RETAG_OLD))
+        self._seed_and_commit()
+        self._git("branch", "-f", "base", "HEAD")
+
+        document = json.loads(self.baseline_path.read_text(encoding="utf-8"))
+        document["case_retag_ledger"] = [{"from": self._RETAG_OLD, "to": self._RETAG_NEW}]
+        self.baseline_path.write_text(guard._serialize(document), encoding="utf-8")
+        self._commit_all("malformed ledger entry")
+
+        code, out = self._run(["--base-ref", "base"])
+        self.assertEqual(1, code, out)
+        self.assertIn("case_retag_ledger[0].file must be a non-empty string", out)
+
     # -- base resolution --------------------------------------------------
 
     def _make_remote_ref(self, name: str, commit: str = "HEAD") -> None:

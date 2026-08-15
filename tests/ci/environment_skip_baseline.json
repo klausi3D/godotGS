@@ -32,6 +32,23 @@
     }
   },
   "rename_ledger": [],
+  "case_retag_ledger": [
+    {
+      "file": "modules/gaussian_splatting/tests/test_gpu_streaming.h",
+      "from": "[GaussianSplatting][RequiresGPU] GPU Memory Streaming",
+      "to": "[GaussianSplatting][Streaming][RequiresGPU] GPU Memory Streaming"
+    },
+    {
+      "file": "modules/gaussian_splatting/tests/test_gpu_streaming.h",
+      "from": "[GaussianSplatting][RequiresGPU] GPU Memory Streaming Performance",
+      "to": "[GaussianSplatting][Streaming][RequiresGPU] GPU Memory Streaming Performance"
+    },
+    {
+      "file": "modules/gaussian_splatting/tests/test_gpu_streaming.h",
+      "from": "[GaussianSplatting][RequiresGPU] Stage-B instance depth culling toggles",
+      "to": "[GaussianSplatting][Streaming][RequiresGPU] Stage-B instance depth culling toggles"
+    }
+  ],
   "files": {
     "modules/gaussian_splatting/tests/test_batched_async_readback.h": {
       "owner": "gaussian-splatting-module",
@@ -272,11 +289,11 @@
       "conversion_slice": "GS-595-B",
       "count": 5,
       "sites": [
-        "message|21c0ee7601|c570460f76",
-        "message|2362b4067b|7ab347aad9",
-        "message|7a105eae14|129a09b6bc",
-        "message|9084aefcf9|c570460f76",
-        "message|c2ba89f5ea|7ab347aad9"
+        "message|21c0ee7601|983e4e1494",
+        "message|2362b4067b|61722b2440",
+        "message|7a105eae14|ce4fe17ebc",
+        "message|9084aefcf9|983e4e1494",
+        "message|c2ba89f5ea|61722b2440"
       ]
     },
     "modules/gaussian_splatting/tests/test_integration.cpp": {
