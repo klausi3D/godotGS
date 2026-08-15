@@ -59,6 +59,11 @@ BASELINE_QA_REQUIRE_FLAG_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_baseline_qa
 HISTORY_ARTIFACT_AUDIT_SCRIPT = ROOT / "scripts" / "repo" / "history_artifact_audit.py"
 SYNTHETIC_ASSET_PREP_SCRIPT = ROOT / "tests" / "runtime" / "prepare_synthetic_assets.py"
 BENCHMARK_ASSET_GUARD_SCRIPT = ROOT / "tests" / "runtime" / "check_benchmark_asset_paths.py"
+# T3 (#891): module-level constants (not inline paths) so the guard-wiring
+# contract in test_run_module_tests_lane_ledger.py can derive that a wired
+# runner actually reaches these contract-test files.
+RUNTIME_VALIDATION_CONTRACT_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_runtime_validation_proof_contract.py"
+EXPORT_SMOKE_PRESET_STATE_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_export_smoke_preset_state.py"
 SOURCE_TREES = (ROOT,)
 HEADLESS_GAUSSIAN_SCOPED_TAGS: tuple[str, ...] = (
     # Only tags whose TEST_CASEs are registered at runtime belong here. Phantom
@@ -1692,7 +1697,7 @@ def _run_export_smoke_preset_state_guard() -> tuple[bool, list[str]]:
     pins all three backup states (absent / present-with-preset /
     present-without-preset) and that a refusal rewrites nothing.
     """
-    script = ROOT / "tests" / "runtime" / "test_export_smoke_preset_state.py"
+    script = EXPORT_SMOKE_PRESET_STATE_TEST_SCRIPT
     if not script.is_file():
         return False, [f"Missing export smoke preset state test: {script.relative_to(ROOT)}"]
 
@@ -1719,7 +1724,7 @@ def _run_runtime_validation_contract_guard() -> tuple[bool, list[str]]:
     reported as "Can't create an accessibility driver" and the message naming the real
     fault was captured and discarded.
     """
-    script = ROOT / "tests" / "runtime" / "test_runtime_validation_proof_contract.py"
+    script = RUNTIME_VALIDATION_CONTRACT_TEST_SCRIPT
     if not script.is_file():
         return False, [f"Missing runtime validation contract test: {script.relative_to(ROOT)}"]
 

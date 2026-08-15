@@ -1,3 +1,8 @@
+// T3 (#891): the scenario emits its own [RUNTIME_PASS] completion marker
+// (run_runtime_validation.py verifies it; the harness never synthesises it).
+// NDEBUG is forced off so GS_ASSERT never counts an unevaluated check.
+#undef NDEBUG
+
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -11,6 +16,11 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+
+static int gs_assertions = 0;
+// Wraps assert() so every verified check is counted for the completion marker.
+#define GS_ASSERT(cond) do { assert(cond); ++gs_assertions; } while (0)
+
 
 // -----------------------------------------------------------------------------
 // Lightweight runtime harness that mirrors the behaviour of the engine level
@@ -173,7 +183,7 @@ public:
         std::istringstream stream(payload, std::ios::binary);
         char header[4] = {};
         stream.read(header, 4);
-        assert(std::string(header, 3) == "GSF");
+        GS_ASSERT(std::string(header, 3) == "GSF");
 
         uint64_t splat_count = 0;
         stream.read(reinterpret_cast<char *>(&splat_count), sizeof(uint64_t));
@@ -260,16 +270,16 @@ void test_keyframe_interpolation() {
     AnimationClip clip = build_animation_clip();
 
     Vec3 halfway = clip.sample_position(1.0f);
-    assert(halfway.distance_to(Vec3(5, 5, 0)) < 0.01f);
+    GS_ASSERT(halfway.distance_to(Vec3(5, 5, 0)) < 0.01f);
 
     Vec3 start = clip.sample_position(0.0f);
     Vec3 end = clip.sample_position(2.0f);
-    assert(start.distance_to(Vec3(0, 0, 0)) < 0.01f);
-    assert(end.distance_to(Vec3(10, 10, 0)) < 0.01f);
+    GS_ASSERT(start.distance_to(Vec3(0, 0, 0)) < 0.01f);
+    GS_ASSERT(end.distance_to(Vec3(10, 10, 0)) < 0.01f);
 
     Color mid_color = clip.sample_color(0.5f);
-    assert(std::abs(mid_color.r - 0.5f) < 0.01f);
-    assert(std::abs(mid_color.g - 0.5f) < 0.01f);
+    GS_ASSERT(std::abs(mid_color.r - 0.5f) < 0.01f);
+    GS_ASSERT(std::abs(mid_color.g - 0.5f) < 0.01f);
     std::cout << "  ✓ Keyframe interpolation stable" << std::endl;
 }
 
@@ -284,32 +294,32 @@ void test_persistence_round_trip() {
     const std::filesystem::path temp_path = std::filesystem::temp_directory_path() / "animation_persistence_round_trip.gsf";
     {
         std::ofstream stream(temp_path, std::ios::binary);
-        assert(stream.good());
+        GS_ASSERT(stream.good());
         stream.write(payload.data(), static_cast<std::streamsize>(payload.size()));
         stream.flush();
-        assert(stream.good());
+        GS_ASSERT(stream.good());
     }
     std::string disk_payload;
     {
         std::ifstream stream(temp_path, std::ios::binary);
-        assert(stream.good());
+        GS_ASSERT(stream.good());
         disk_payload.assign(std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>());
     }
     std::filesystem::remove(temp_path);
-    assert(disk_payload == payload);
+    GS_ASSERT(disk_payload == payload);
 
     GaussianScene restored;
     AnimationClip restored_clip;
     std::string tag;
     serializer.load(payload, restored, restored_clip, tag);
 
-    assert(restored.size() == original.size());
-    assert(restored_clip.get_keyframes().size() == clip.get_keyframes().size());
-    assert(tag == "animation_persistence_v060");
+    GS_ASSERT(restored.size() == original.size());
+    GS_ASSERT(restored_clip.get_keyframes().size() == clip.get_keyframes().size());
+    GS_ASSERT(tag == "animation_persistence_v060");
 
     for (size_t i = 0; i < original.size(); ++i) {
-        assert(restored[i].position.distance_to(original[i].position) < 0.0001f);
-        assert(std::abs(restored[i].lod_radius - original[i].lod_radius) < 0.0001f);
+        GS_ASSERT(restored[i].position.distance_to(original[i].position) < 0.0001f);
+        GS_ASSERT(std::abs(restored[i].lod_radius - original[i].lod_radius) < 0.0001f);
     }
     std::cout << "  ✓ Persistence round-trip preserved data" << std::endl;
 }
@@ -329,9 +339,9 @@ void test_lod_residency_scaling() {
     std::cout << "  LOD0 ratio : " << lod0_ratio * 100.0f << "%" << std::endl;
     std::cout << "  LOD2 ratio : " << lod2_ratio * 100.0f << "%" << std::endl;
 
-    assert(report.total == target_count);
-    assert(lod0_ratio > 0.15f);
-    assert(lod2_ratio < 0.55f);
+    GS_ASSERT(report.total == target_count);
+    GS_ASSERT(lod0_ratio > 0.15f);
+    GS_ASSERT(lod2_ratio < 0.55f);
     std::cout << "  ✓ Residency distribution within expected bounds" << std::endl;
 }
 
@@ -343,5 +353,7 @@ int main() {
     test_lod_residency_scaling();
 
     std::cout << "\n✅ All animation & persistence tests passed" << std::endl;
+    std::cout << "[RUNTIME_PASS] {\"scenario\": \"Animation Persistence\", \"assertions\": "
+              << gs_assertions << "}" << std::endl;
     return 0;
 }

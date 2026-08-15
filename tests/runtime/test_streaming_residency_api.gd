@@ -1,6 +1,10 @@
 extends SceneTree
 
-const FAIL_MARKER := "[RUNTIME_FAIL]"
+const GsRuntimeReport := preload("gs_runtime_report.gd")
+const FAIL_MARKER := GsRuntimeReport.FAIL_MARKER
+
+# T3 (#891): registry name from GDS_TESTS in run_runtime_validation.py.
+var _report := GsRuntimeReport.new("Streaming Residency API")
 
 func _init() -> void:
 	call_deferred("_run")
@@ -46,6 +50,7 @@ func _run() -> void:
 	if streaming == null:
 		_record_failure("Failed to create GaussianStreamingSystem")
 		return
+	_report.ok()
 
 	var required_methods := [
 		"begin_residency_requests",
@@ -58,6 +63,7 @@ func _run() -> void:
 		if not streaming.has_method(method_name):
 			_record_failure("Streaming residency API method missing", {"method": method_name})
 			return
+		_report.ok()
 
 	var data := _build_minimal_gaussian_data(32)
 	streaming.initialize(data)
@@ -68,45 +74,57 @@ func _run() -> void:
 	if bool(idle_status.get("request_pending", true)):
 		_record_failure("No-op finalize should not create pending residency work", idle_status)
 		return
+	_report.ok()
 	if int(idle_status.get("request_state", -1)) != 0:
 		_record_failure("No-op finalize should leave request state idle", idle_status)
 		return
+	_report.ok()
 	if bool(idle_status.get("request_status_current_generation", true)):
 		_record_failure("Idle residency status should not report a current-generation completion", idle_status)
 		return
+	_report.ok()
 
 	streaming.begin_residency_requests()
 	var chunk_result := streaming.request_chunk_residency(0, 0, 0)
 	if chunk_result != OK:
 		_record_failure("Primary explicit residency request was rejected", {"error": chunk_result})
 		return
+	_report.ok()
 	var status := streaming.get_residency_request_status(0, 0)
 	if not bool(status.get("requested", false)):
 		_record_failure("Primary explicit residency request was not recorded", status)
 		return
+	_report.ok()
 	if status.get("request_state_name", "") != "collected":
 		_record_failure("Primary explicit residency request did not expose collected state", status)
 		return
+	_report.ok()
 	if status.get("request_result_name", "") != "collected":
 		_record_failure("Primary explicit residency request did not expose collected result", status)
 		return
+	_report.ok()
 	if not bool(status.get("request_status_current_generation", false)):
 		_record_failure("Collected residency request should report a current-generation status", status)
 		return
+	_report.ok()
 	if not bool(status.get("request_pending", false)):
 		_record_failure("Primary explicit residency request should mark pending work", status)
 		return
+	_report.ok()
 
 	var asset_result := streaming.request_asset_residency(0, 0)
 	if asset_result != OK:
 		_record_failure("Primary explicit residency asset request was rejected", {"error": asset_result})
 		return
+	_report.ok()
 	streaming.finalize_residency_requests()
 
 	var final_status := streaming.get_residency_request_status(0, 0)
 	if int(final_status.get("lod_mask", 0)) == 0:
 		_record_failure("Primary explicit residency request did not populate a lod mask", final_status)
 		return
+	_report.ok()
 
 	print("✅ Streaming residency API request state coverage passed")
+	_report.emit_pass()
 	quit(0)

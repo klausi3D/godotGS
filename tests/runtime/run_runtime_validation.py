@@ -10,6 +10,70 @@ Examples:
       python3 tests/runtime/run_runtime_validation.py --profile streaming-gpu-ci
   - Profile-based stress lane:
       python3 tests/runtime/run_runtime_validation.py --profile stress-only
+
+Completion-marker contract (T3 / #891, ADR adr-phase1-guard-hardening.md section 4)
+-----------------------------------------------------------------------------------
+
+`passed` is NOT the fall-through. A scenario is classified `passed` only when its
+output carries a positive completion marker:
+
+    [RUNTIME_PASS] {"scenario": "<registry name>", "assertions": <int>}
+
+emitted by the scenario itself (the harness never synthesises the marker it
+checks; GDScript scenarios emit it through tests/runtime/gs_runtime_report.gd).
+Classification order is: nonzero exit > [RUNTIME_FAIL] > [RUNTIME_SKIP] >
+completion evaluation. Within completion evaluation:
+
+  - A present marker with a malformed payload (not one JSON object per line,
+    missing/mistyped fields) is a FAILURE, not a missing-optional.
+  - The payload's `scenario` field must equal the registry name of the scenario
+    being classified; a mismatch is a FAILURE. This makes the marker
+    non-transferable: a copy-pasted emitter cannot vouch for another scenario.
+  - More than one [RUNTIME_PASS] line is a FAILURE (duplicate/ambiguous claim).
+  - `assertions == 0` is a FAILURE unless the payload also carries a
+    `no_assertions_reason` string AND the scenario has an unexpired entry in the
+    `zero_assertion_allowlist` of runtime_scenarios.json (quarantine-manifest
+    shape: scenario, reason, issue_url, owner, expires_utc). The allowlist
+    fails in both directions: an entry whose scenario reports `assertions > 0`
+    fails as STALE and must be removed in the same change that made the
+    scenario assert again; an expired entry no longer exempts. Unknown scenario
+    names in the allowlist fail config validation (membership is pinned).
+  - No [RUNTIME_PASS] marker at all is recorded with the advisory status
+    `no_completion_marker` (ladder step 1). It is visible in the report,
+    counted in the summary (`summary["no_completion_marker"]`), printed by the
+    summary printer, and does NOT fail the run: the status is added to the
+    summary-schema vocabulary, is excluded from `summary["failed"]`, and so
+    satisfies both terms of the exit expression (failed == 0 and schema_valid)
+    at once. The fail-closed flip (ladder step 2) is a LATER PR gated on the
+    soak below; at the flip this status becomes a failure with reason
+    "no completion marker" and is removed from the schema vocabulary.
+
+Soak criterion for the fail-closed flip (ADR section 4.6, settled Q4) -- measured
+over the per-profile report artifacts preserved by CI (distinct --report-path
+per invocation in gaussian_production_gates.yml; release_ci_runtime.yml already
+uploads its own):
+
+  1. Per-profile completeness: 5 consecutive runs of each CI-invoked profile
+     (headless-ci, streaming-gpu-ci, release-ci) whose preserved report shows
+     `summary["no_completion_marker"] == 0` and a completion marker recorded
+     for every scenario that profile selected.
+  2. Union coverage: the soaked profiles must between them select all 11
+     GDS_TESTS scenarios; the flip PR asserts this in code, derived from
+     runtime_scenarios.json and GDS_TESTS, failing loudly and naming any
+     orphaned scenario.
+
+The two C++ scenarios run in no CI lane (--skip-cpp is universal); their arming
+evidence is a recorded run without --skip-cpp produced by the flip PR itself
+(ADR section 4.6.2), never the soak.
+
+Assertion-floor forward reference (#914 amendment A1): step 2 pins the
+per-scenario assertion counts observed during the soak as a shrink-only floor.
+That floor does not exist at this step, so the A1 self-certification hole (one
+diff lowering the floor while removing assertions) is not exploitable yet; the
+flip PR that creates the floor MUST ratchet it against the immutable review
+base (the `git show "$GS_PR_BASE_SHA:<floor file>"` pattern used by
+agentic_pr_gate.yml, failing closed when the base copy cannot be resolved),
+never against its own head. The ADR text amendment itself is tracked on #914.
 """
 
 from __future__ import annotations
@@ -22,6 +86,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
@@ -33,6 +98,16 @@ SYNTHETIC_ASSET_PREP_SCRIPT = RUNTIME_DIR / "prepare_synthetic_assets.py"
 SKIP_MARKER = "[RUNTIME_SKIP]"
 FAIL_MARKER = "[RUNTIME_FAIL]"
 METRICS_MARKER = "[RUNTIME_METRICS]"
+# T3 (#891): the positive completion marker. See the module docstring for the
+# full contract; emitted by scenarios via tests/runtime/gs_runtime_report.gd.
+PASS_MARKER = "[RUNTIME_PASS]"
+# Ladder step 1 advisory status for "ran, exited 0, produced no completion
+# marker". Recorded and printed, counted in summary["no_completion_marker"],
+# part of the summary-schema vocabulary, and NOT counted as failed. The
+# fail-closed flip (ADR section 4.6 step 2) turns this into a failure and
+# removes the status from the vocabulary (no producer remains after the flip:
+# allowlisted zero-assertion scenarios classify as "passed").
+NO_COMPLETION_MARKER_STATUS = "no_completion_marker"
 DEFAULT_SCENARIO_CONFIG = RUNTIME_DIR / "runtime_scenarios.json"
 
 # #787: how many trailing output lines a non-passing scenario contributes to the summary.
@@ -57,6 +132,9 @@ class TestResult:
     status: str = "failed"
     reasons: List[str] = field(default_factory=list)
     metrics: Dict[str, object] = field(default_factory=dict)
+    # T3 (#891): what the completion evaluation observed. Always serialised so
+    # the soak can read marker presence and assertion counts out of the report.
+    completion: Dict[str, object] = field(default_factory=dict)
 
     @property
     def success(self) -> bool:
@@ -334,7 +412,140 @@ def _extract_metrics_payload(output: str) -> Dict[str, object]:
     return metrics
 
 
-def _classify_result(result: TestResult, *, fail_on_skip: bool, allow_skip_tests: set[str]) -> TestResult:
+def _extract_completion_payloads(output: str) -> List[str]:
+    """Raw payload text of every [RUNTIME_PASS] line in the scenario output."""
+    payloads: List[str] = []
+    for raw_line in output.splitlines():
+        marker_index = raw_line.find(PASS_MARKER)
+        if marker_index == -1:
+            continue
+        payloads.append(raw_line[marker_index + len(PASS_MARKER):].strip())
+    return payloads
+
+
+def _parse_allowlist_expiry(expires_utc: str) -> Optional[datetime]:
+    """Parse a zero_assertion_allowlist expires_utc value; None when invalid."""
+    text = expires_utc.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _evaluate_completion(
+        result: TestResult,
+        combined_output: str,
+        zero_assertion_allowlist: Dict[str, Dict[str, object]],
+) -> TestResult:
+    """Apply the completion-marker contract (module docstring) to a clean run.
+
+    Reached only for exit 0 with no failure and no skip markers. `passed` is
+    reachable exclusively from here; the pre-#891 fall-through is deleted.
+    """
+    payloads = _extract_completion_payloads(combined_output)
+    result.completion = {"marker_present": bool(payloads), "assertions": None}
+
+    def _fail(reason: str) -> TestResult:
+        result.status = "failed"
+        result.reasons = [reason]
+        return result
+
+    if not payloads:
+        # Ladder step 1 (advisory): recorded, counted, printed -- not a failure.
+        result.status = NO_COMPLETION_MARKER_STATUS
+        result.reasons = [
+            "No [RUNTIME_PASS] completion marker was emitted; the scenario ran but proved "
+            "nothing it reported. Advisory until the fail-closed flip (ADR "
+            "adr-phase1-guard-hardening.md section 4.6)."
+        ]
+        return result
+
+    if len(payloads) > 1:
+        return _fail(
+            f"Expected exactly one [RUNTIME_PASS] completion marker, found {len(payloads)}; "
+            "an ambiguous completion claim is a failure."
+        )
+
+    payload_text = payloads[0]
+    if not payload_text:
+        return _fail("[RUNTIME_PASS] marker carried no payload; expected one JSON object on the marker line.")
+    try:
+        payload = json.loads(payload_text)
+    except json.JSONDecodeError as exc:
+        return _fail(f"[RUNTIME_PASS] payload is not valid JSON ({exc}); a malformed payload is a failure.")
+    if not isinstance(payload, dict):
+        return _fail("[RUNTIME_PASS] payload must be a JSON object.")
+
+    scenario = payload.get("scenario")
+    if not isinstance(scenario, str) or not scenario.strip():
+        return _fail("[RUNTIME_PASS] payload field 'scenario' must be a non-empty string.")
+    if scenario != result.name:
+        return _fail(
+            f"[RUNTIME_PASS] scenario mismatch: marker names '{scenario}' but the scenario "
+            f"under classification is '{result.name}'. A completion marker is non-transferable."
+        )
+
+    assertions = payload.get("assertions")
+    if not isinstance(assertions, int) or isinstance(assertions, bool) or assertions < 0:
+        return _fail("[RUNTIME_PASS] payload field 'assertions' must be a non-negative integer.")
+    result.completion["assertions"] = assertions
+
+    allow_entry = zero_assertion_allowlist.get(result.name)
+
+    if assertions == 0:
+        no_assertions_reason = payload.get("no_assertions_reason")
+        if not isinstance(no_assertions_reason, str) or not no_assertions_reason.strip():
+            return _fail(
+                "Scenario reported assertions=0 without a 'no_assertions_reason' string in the "
+                "[RUNTIME_PASS] payload; a scenario that asserts nothing must say why."
+            )
+        if allow_entry is None:
+            return _fail(
+                "Scenario reported assertions=0 but has no zero_assertion_allowlist entry in "
+                "runtime_scenarios.json; an untracked exemption is not available."
+            )
+        expiry = _parse_allowlist_expiry(str(allow_entry.get("expires_utc", "")))
+        if expiry is None:
+            return _fail(
+                f"zero_assertion_allowlist entry for '{result.name}' has an unparseable "
+                "expires_utc; failing closed."
+            )
+        if datetime.now(timezone.utc) >= expiry:
+            return _fail(
+                f"zero_assertion_allowlist entry for '{result.name}' expired at "
+                f"{allow_entry.get('expires_utc')}; renew deliberately or make the scenario assert."
+            )
+        result.status = "passed"
+        result.completion["allowlisted_zero_assertions"] = True
+        result.reasons = []
+        return result
+
+    if allow_entry is not None:
+        # Both-directions staleness (ADR section 4.3): an exemption whose
+        # scenario has resumed asserting is a licence sitting unused. The diff
+        # that makes the scenario assert again must remove the entry.
+        return _fail(
+            f"Stale zero_assertion_allowlist entry: '{result.name}' reported "
+            f"assertions={assertions} (> 0). Remove the allowlist entry."
+        )
+
+    result.status = "passed"
+    result.reasons = []
+    return result
+
+
+def _classify_result(
+        result: TestResult,
+        *,
+        fail_on_skip: bool,
+        allow_skip_tests: set[str],
+        zero_assertion_allowlist: Optional[Dict[str, Dict[str, object]]] = None,
+) -> TestResult:
     combined_output = f"{result.stdout}\n{result.stderr}"
     result.metrics = _extract_metrics_payload(combined_output)
     explicit_failures = _extract_marker_reasons(combined_output, FAIL_MARKER)
@@ -373,9 +584,13 @@ def _classify_result(result: TestResult, *, fail_on_skip: bool, allow_skip_tests
             result.reasons = skip_reasons
         return result
 
-    result.status = "passed"
-    result.reasons = []
-    return result
+    # T3 (#891): `passed` is no longer the fall-through. A clean exit must
+    # positively prove completion; see _evaluate_completion.
+    return _evaluate_completion(
+        result,
+        combined_output,
+        zero_assertion_allowlist if zero_assertion_allowlist is not None else {},
+    )
 
 
 def _format_command(command: Iterable[str]) -> str:
@@ -530,7 +745,12 @@ def compile_cpp_test(name: str, source: Path, cpp_build_config: CppBuildConfig) 
     return output
 
 
-def run_cpp_harnesses(timeout: int, selected_tests: Iterable[str], cpp_build_config: CppBuildConfig) -> List[TestResult]:
+def run_cpp_harnesses(
+        timeout: int,
+        selected_tests: Iterable[str],
+        cpp_build_config: CppBuildConfig,
+        zero_assertion_allowlist: Optional[Dict[str, Dict[str, object]]] = None,
+) -> List[TestResult]:
     try:
         cpp_tests = _resolve_named_test_map(CPP_TESTS, selected_tests, kind="C++ runtime test")
     except ValueError as exc:
@@ -566,7 +786,14 @@ def run_cpp_harnesses(timeout: int, selected_tests: Iterable[str], cpp_build_con
             continue
 
         result = run_command(name, [str(binary)], cwd=ROOT, timeout=timeout)
-        results.append(_classify_result(result, fail_on_skip=False, allow_skip_tests=set()))
+        results.append(
+            _classify_result(
+                result,
+                fail_on_skip=False,
+                allow_skip_tests=set(),
+                zero_assertion_allowlist=zero_assertion_allowlist,
+            )
+        )
     return results
 
 
@@ -637,6 +864,8 @@ def _resolve_gd_test_map(selected_scripts: Iterable[str]) -> Dict[str, Path]:
         return dict(GDS_TESTS)
 
     resolved: Dict[str, Path] = {}
+    # T3 (#891): reverse map so registered scripts keep their registry name.
+    registry_names = {path.resolve(): name for name, path in GDS_TESTS.items()}
     for script_path_str in selected_list:
         script_path = Path(script_path_str)
         if not script_path.is_absolute():
@@ -654,7 +883,13 @@ def _resolve_gd_test_map(selected_scripts: Iterable[str]) -> Dict[str, Path]:
                 f"GDScript runtime test must be inside repository: {script_path_str}"
             ) from exc
 
-        display_name = relative.stem.replace("_", " ").title()
+        # T3 (#891): a registered script keeps its registry name so the
+        # completion marker it emits (bound to the registry name) matches the
+        # scenario identity under --gd-script runs too. Only unregistered
+        # ad-hoc scripts fall back to the filename-derived display name.
+        display_name = registry_names.get(
+            script_path, relative.stem.replace("_", " ").title()
+        )
         resolved[display_name] = script_path
     return resolved
 
@@ -746,7 +981,72 @@ def _load_scenario_config(path: Path) -> Dict[str, object]:
             f"{', '.join(sorted(str(name) for name in profiles.keys()))}"
         )
 
+    _validate_zero_assertion_allowlist(raw.get("zero_assertion_allowlist", []))
+
     return raw
+
+
+# T3 (#891, ADR section 4.3): required fields of a zero_assertion_allowlist
+# entry -- the programme's one waiver idiom (quarantine-manifest shape).
+ZERO_ASSERTION_ALLOWLIST_FIELDS = ("scenario", "reason", "issue_url", "owner", "expires_utc")
+
+
+def _validate_zero_assertion_allowlist(raw_entries: object) -> None:
+    """Fail closed on any malformed zero_assertion_allowlist.
+
+    Entry lifecycle (stated at design time, ADR section 2.10):
+      - ENTRY: one diff adds the allowlist record (all fields, a real issue,
+        an expiry) together with the scenario change that makes it emit
+        `assertions: 0` plus a `no_assertions_reason`. A record without the
+        emission is unused; the emission without a record fails the run.
+      - EXIT: one diff removes the record together with the scenario change
+        that makes it assert again. Either half alone is loud: a scenario
+        asserting past a live record fails as STALE, and a zero-assertion
+        scenario without a record fails as untracked. Expiry passing is the
+        third loud exit: the run fails until the entry is renewed deliberately
+        or the scenario asserts.
+    Membership is pinned: an entry naming a scenario outside the registry is a
+    config error, so a renamed scenario cannot silently keep an exemption.
+    """
+    if not isinstance(raw_entries, list):
+        raise ValueError("Scenario config field 'zero_assertion_allowlist' must be a list.")
+    known_scenarios = set(GDS_TESTS.keys()) | set(CPP_TESTS.keys())
+    seen: set[str] = set()
+    for index, entry in enumerate(raw_entries):
+        prefix = f"zero_assertion_allowlist[{index}]"
+        if not isinstance(entry, dict):
+            raise ValueError(f"{prefix} must be a JSON object.")
+        for field_name in ZERO_ASSERTION_ALLOWLIST_FIELDS:
+            value = entry.get(field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{prefix} field '{field_name}' must be a non-empty string.")
+        unknown_fields = sorted(set(entry.keys()) - set(ZERO_ASSERTION_ALLOWLIST_FIELDS))
+        if unknown_fields:
+            raise ValueError(f"{prefix} carries unknown field(s): {', '.join(unknown_fields)}.")
+        scenario = str(entry["scenario"])
+        if scenario not in known_scenarios:
+            raise ValueError(
+                f"{prefix} names unknown scenario '{scenario}'; allowlist membership is "
+                "pinned to the registry (GDS_TESTS + CPP_TESTS)."
+            )
+        if scenario in seen:
+            raise ValueError(f"{prefix} duplicates scenario '{scenario}'.")
+        seen.add(scenario)
+        if _parse_allowlist_expiry(str(entry["expires_utc"])) is None:
+            raise ValueError(
+                f"{prefix} field 'expires_utc' is not a parseable ISO-8601 UTC timestamp."
+            )
+
+
+def _load_zero_assertion_allowlist(scenario_config: Dict[str, object]) -> Dict[str, Dict[str, object]]:
+    """Allowlist keyed by scenario name; config was already validated on load."""
+    entries = scenario_config.get("zero_assertion_allowlist", [])
+    allowlist: Dict[str, Dict[str, object]] = {}
+    if isinstance(entries, list):
+        for entry in entries:
+            if isinstance(entry, dict) and isinstance(entry.get("scenario"), str):
+                allowlist[entry["scenario"]] = entry
+    return allowlist
 
 
 def _build_renderer_proof_summary(
@@ -835,12 +1135,12 @@ def _print_profiles(config: Dict[str, object], *, source: Path) -> None:
 
 def _validate_summary_schema(summary: Dict[str, object]) -> List[str]:
     errors: List[str] = []
-    required_fields = ("total", "passed", "failed", "skipped", "duration", "tests")
+    required_fields = ("total", "passed", "failed", "skipped", "no_completion_marker", "duration", "tests")
     for field_name in required_fields:
         if field_name not in summary:
             errors.append(f"Missing summary field '{field_name}'.")
 
-    for integer_field in ("total", "passed", "failed", "skipped"):
+    for integer_field in ("total", "passed", "failed", "skipped", "no_completion_marker"):
         value = summary.get(integer_field)
         if not isinstance(value, int):
             errors.append(f"Field '{integer_field}' must be an integer.")
@@ -858,13 +1158,17 @@ def _validate_summary_schema(summary: Dict[str, object]) -> List[str]:
         errors.append("Field 'tests' must be a list.")
         return errors
 
-    allowed_statuses = {"passed", "failed", "skipped"}
+    # T3 (#891): the advisory no-completion-marker status is schema-legal during
+    # ladder step 1 so an advisory scenario cannot flip schema_valid and re-fail
+    # the run through the second term of the exit expression. The fail-closed
+    # flip removes it from this vocabulary.
+    allowed_statuses = {"passed", "failed", "skipped", NO_COMPLETION_MARKER_STATUS}
     for index, test_entry in enumerate(tests):
         prefix = f"tests[{index}]"
         if not isinstance(test_entry, dict):
             errors.append(f"{prefix} must be an object.")
             continue
-        for required_key in ("name", "status", "reasons", "command", "duration", "exit_code", "metrics", "output_tail"):
+        for required_key in ("name", "status", "reasons", "command", "duration", "exit_code", "metrics", "completion", "output_tail"):
             if required_key not in test_entry:
                 errors.append(f"{prefix} missing '{required_key}'.")
         name = test_entry.get("name")
@@ -888,6 +1192,9 @@ def _validate_summary_schema(summary: Dict[str, object]) -> List[str]:
         metrics = test_entry.get("metrics")
         if not isinstance(metrics, dict):
             errors.append(f"{prefix}.metrics must be an object.")
+        completion = test_entry.get("completion")
+        if not isinstance(completion, dict):
+            errors.append(f"{prefix}.completion must be an object.")
         output_tail = test_entry.get("output_tail")
         if not isinstance(output_tail, list) or not all(isinstance(line, str) for line in output_tail):
             errors.append(f"{prefix}.output_tail must be a string list.")
@@ -910,6 +1217,19 @@ def _validate_summary_schema(summary: Dict[str, object]) -> List[str]:
             errors.append(
                 f"Field 'total' ({expected_total}) does not match number of test entries ({len(tests)})."
             )
+        # T3 (#891): the four status buckets must partition the run, so a new
+        # status can never silently drop scenarios out of every counter.
+        bucket_fields = ("passed", "failed", "skipped", "no_completion_marker")
+        bucket_values = [summary.get(field_name) for field_name in bucket_fields]
+        if isinstance(expected_total, int) and all(isinstance(v, int) for v in bucket_values):
+            if sum(bucket_values) != expected_total:
+                errors.append(
+                    "Status buckets {buckets} sum to {total_buckets}, but 'total' is {total}.".format(
+                        buckets="+".join(bucket_fields),
+                        total_buckets=sum(bucket_values),
+                        total=expected_total,
+                    )
+                )
 
     renderer_proof = summary.get("renderer_proof")
     if renderer_proof is not None:
@@ -938,6 +1258,7 @@ def run_gd_tests(
         config: GodotRunConfig,
         selected_scripts: Iterable[str],
         selected_tests: Iterable[str],
+        zero_assertion_allowlist: Optional[Dict[str, Dict[str, object]]] = None,
 ) -> List[TestResult]:
     gd_scripts = [entry for entry in selected_scripts if entry and entry.strip()]
     if gd_scripts:
@@ -1007,6 +1328,7 @@ def run_gd_tests(
                 result,
                 fail_on_skip=config.fail_on_skip,
                 allow_skip_tests=allow_skip_tests,
+                zero_assertion_allowlist=zero_assertion_allowlist,
             )
         )
     return results
@@ -1018,6 +1340,11 @@ def summarise(results: List[TestResult]) -> Dict[str, object]:
         "passed": sum(1 for r in results if r.status == "passed"),
         "failed": sum(1 for r in results if r.status == "failed"),
         "skipped": sum(1 for r in results if r.status == "skipped"),
+        # T3 (#891): advisory "ran, proved nothing" count. Deliberately NOT part
+        # of "failed" during ladder step 1; the soak reads this field.
+        "no_completion_marker": sum(
+            1 for r in results if r.status == NO_COMPLETION_MARKER_STATUS
+        ),
         "duration": sum(r.duration for r in results),
         "tests": [
             {
@@ -1028,6 +1355,9 @@ def summarise(results: List[TestResult]) -> Dict[str, object]:
                 "duration": r.duration,
                 "exit_code": r.exit_code,
                 "metrics": r.metrics,
+                # T3 (#891): marker presence + assertion count, for the soak
+                # and the step-2 assertion floor.
+                "completion": r.completion,
                 # #787: always present so the key is uniformly validatable; populated only for
                 # non-passing scenarios, where it is the only record of why the run died.
                 "output_tail": r.output_tail(),
@@ -1041,14 +1371,29 @@ def summarise(results: List[TestResult]) -> Dict[str, object]:
 def _print_summary(summary: Dict[str, object]) -> None:
     print("\n=== Runtime Validation Summary ===")
     print(
-        "[runtime] total={total} passed={passed} failed={failed} skipped={skipped} duration={duration:.1f}s".format(
+        "[runtime] total={total} passed={passed} failed={failed} skipped={skipped} "
+        "no_completion_marker={no_marker} duration={duration:.1f}s".format(
             total=summary["total"],
             passed=summary["passed"],
             failed=summary["failed"],
             skipped=summary["skipped"],
+            no_marker=summary.get("no_completion_marker", 0),
             duration=summary["duration"],
         )
     )
+    # T3 (#891) ladder step 1: an advisory result must be visibly advisory.
+    advisory_tests = [
+        entry
+        for entry in summary.get("tests", [])
+        if isinstance(entry, dict) and entry.get("status") == NO_COMPLETION_MARKER_STATUS
+    ]
+    for entry in advisory_tests:
+        print(
+            "[runtime] [ADVISORY] {name}: ran with no [RUNTIME_PASS] completion marker; "
+            "this becomes a failure at the fail-closed flip (ADR section 4.6 step 2).".format(
+                name=entry.get("name"),
+            )
+        )
     schema_valid = bool(summary.get("schema_valid", False))
     if schema_valid:
         print("[runtime] summary schema validation: ok")
@@ -1173,6 +1518,8 @@ def main() -> int:
         f"gd_mode={resolved_gd_mode} cpp_link_mode={cpp_build_config.link_mode}"
     )
 
+    zero_assertion_allowlist = _load_zero_assertion_allowlist(scenario_config)
+
     all_results: List[TestResult] = []
     if should_run_cpp_harnesses:
         all_results.extend(
@@ -1180,10 +1527,18 @@ def main() -> int:
                 timeout=cpp_timeout,
                 selected_tests=selected_cpp_tests,
                 cpp_build_config=cpp_build_config,
+                zero_assertion_allowlist=zero_assertion_allowlist,
             )
         )
     if not args.skip_gd:
-        all_results.extend(run_gd_tests(gd_config, args.gd_script, selected_gd_tests))
+        all_results.extend(
+            run_gd_tests(
+                gd_config,
+                args.gd_script,
+                selected_gd_tests,
+                zero_assertion_allowlist=zero_assertion_allowlist,
+            )
+        )
 
     summary = summarise(all_results)
     summary["profile"] = profile_name
