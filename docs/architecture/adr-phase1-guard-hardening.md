@@ -116,34 +116,35 @@ These are stated once, here, and are binding on every PR in §1.
 6. **No prescription without a read.** Every sentence in a design record that says what a named
    file does, or must be changed to do, **cites the `file:line` it was read at**. A prescription
    written from memory of how a consumer *probably* behaves is not a design decision; it is a
-   guess that a reviewer has to re-derive. Eight review rounds produced eighteen findings against
-   this document and **twelve were the same defect**: an instruction that would have failed the
-   very consumer it was written to satisfy, because nobody had opened it. A fifth manifest
-   declaration the count check rejects and a #908 declaration the stale check rejects (§5.4); a
-   soak trigger no profile selection can satisfy, evidence read from a report already
-   overwritten, and an advisory status the exit expression counts as a failure (§4.6, §4.6.1); a
-   defaults source that cannot resolve 14 of the 32 keys it must compare (§6.6); an expected-fail
-   design that stops at the GDScript boundary while three Python mechanisms reject it (§6.3); its
-   own replacement, which produced a representation no scene could both execute from and be
-   inventoried under (§6.3 again, round 5); a derivation whose changed-path input drops one side
-   of every rename (§8.4.1); the same input silently truncated at 300 files by a documented cap
-   nobody re-read (§8.4.1 again, round 7); and a fail-closed rule with no green route, because
-   the manifest deliberately inventories unregistered keys (§6.6); and a soak whose union
-   property could never reach the two C++ scenarios that step 2 nevertheless arms (§4.6.2). The
-   other six were genuine design gaps — a missing failure signature, a base-versus-head policy
-   read, an under-specified membership check, the self-certification hole in §8.4, a completion
-   marker never bound to the scenario that emitted it (§4.1), and an allowlist offered as the
-   repair for a state it cannot reach (§4.6) — the normal cost of design review. The twelve were
-   not. **Not one was a wrong judgement call; every one was an unread consumer.** Treat an
-   uncited claim about a consumer's behaviour as unverified whatever its confidence.
+   guess that a reviewer has to re-derive. Nine review rounds produced **twenty-one** findings
+   against this document, and **fourteen were the same defect**: an instruction that would have
+   failed the very consumer it was written to satisfy, because nobody had opened it.
+
+   | Where | Unread-consumer defects |
+   | --- | --- |
+   | §5.4 | a fifth manifest declaration the count check rejects; a #908 declaration the stale check rejects |
+   | §4.6 / §4.6.1 | a soak trigger no profile selection can satisfy; evidence read from a report already overwritten; an advisory status the exit expression counts as a failure |
+   | §4.6.2 | a soak whose union property could never reach the two C++ scenarios step 2 arms |
+   | §6.3 | an expected-fail design that stops at the GDScript boundary while three Python mechanisms reject it; and its own replacement, a representation no scene could both execute from and be inventoried under |
+   | §6.6 | a defaults source that cannot resolve 14 of the 32 keys it must compare; a fail-closed rule with no green route, because the manifest deliberately inventories unregistered keys |
+   | §8.4.1 | a changed-path input that drops one side of every rename; the same input truncated at 300 files by a documented cap nobody re-read; a `listFiles` ceiling pagination does not escape; and a pagination prescription the target endpoint cannot implement |
+
+   The other **seven** were genuine design gaps — a missing failure signature, a base-versus-head
+   policy read, an under-specified membership check, the self-certification hole in §8.4, a
+   completion marker never bound to the scenario that emitted it (§4.1), an allowlist offered as
+   the repair for a state it cannot reach (§4.6), and an expected-fail bucket with no specified
+   exit (§6.5) — the normal cost of design review. The fourteen were not. **Not one was a wrong
+   judgement call; every one was an unread consumer.** Treat an uncited claim about a consumer's
+   behaviour as unverified whatever its confidence.
 
    **How corrections themselves fared, tracked in three categories rather than two**, because
    the distinction changes what a reviewer should look for. Of the findings that landed on text
-   an earlier round had already written: **three were fresh defects introduced by a correction**
-   (§6.3's representation, and two others); **two were corrections that were incomplete rather
-   than wrong** (§8.4.1's rename contract, missing the truncation precondition on the same
-   input; §4.6's soak, which fixed satisfiability and left the C++ scope unstated); and the rest
-   were **by design** — an existing rule deliberately extended to a new site, such as §10.1's
+   an earlier round had already written: **four were fresh defects introduced by a correction**
+   (§6.3's representation, §8.4.1's unimplementable pagination prescription, and two others);
+   **three were corrections that were incomplete rather than wrong** (§8.4.1's rename contract,
+   missing the truncation precondition on the same input, and then its truncation fix, missing
+   the second cap; §4.6's soak, which fixed satisfiability and left the C++ scope unstated); and
+   the rest were **by design** — an existing rule deliberately extended to a new site, such as §10.1's
    symmetric enumeration guard. Only the first category is a regression. The second is the more
    instructive one: a correction that closes the named hole and leaves a sibling is the shape
    that survives review, because the section *looks* freshly examined.
@@ -154,6 +155,19 @@ These are stated once, here, and are binding on every PR in §1.
    two C++ scenarios invisible to four subsequent rounds of review *of that same paragraph*,
    including two that rewrote it. A wrong noun in a claim about scope is not a wording problem;
    it is a specification that reviewers then verify against the wrong set.
+
+   **Corollary — read the sibling.** *Before prescribing how an input is handled, grep for
+   existing consumers of that input and read how they handle its limits.* Cheap, and the
+   highest-yield check this rule has: a sibling consumer has already met the input's real limits
+   **in production**, and its comments are those limits written down by someone who hit them.
+   `baseline_qa.yml` consumes the same changed-path input as
+   `gaussian_production_gates.yml`, and it already carried the answer to **both** of §8.4.1's
+   API findings — `pathsFromFile` for renames (`:402-407`), the non-paginable compare endpoint
+   and its 300-file cap (`:433-440`), the 3,000-file `listFiles` ceiling that pagination does
+   not escape (`:388-392`), and the force-at-cap fallback (`:443-462`). **This document has now
+   twice prescribed input handling that a sibling workflow had already solved and documented**,
+   and in one of those rounds prescribed a mechanism (paginate the compare endpoint) that the
+   sibling's comment explicitly rules out. Reading one adjacent file would have prevented both.
 
    **The rule binds every layer, and did.** The `GLOBAL_DEF`-only defaults source (§6.6) came
    from the **maintainer's** §6.5 requirement, written without reading the registration
@@ -218,6 +232,25 @@ These are stated once, here, and are binding on every PR in §1.
    to it is under-specified**, and the reviewer's question is the same every time — *what does
    this see when the thing it matches on is renamed, and does it fail loudly or quietly?*
    Quietly is the answer three of the four gave.
+10. **Any bucket, waiver, or quarantine design specifies entry, exit, and the atomicity of both —
+    at design time.** A state an artifact can enter but not leave cleanly is the
+    deferred-enforcement trap wearing state-machine clothes: the entry is easy, the exit is
+    discovered to be red, and the pragmatic response is to stay in the state. Three instances in
+    this cluster, all found the same way — by someone asking what the *departure* looks like:
+
+    - **T4's split (§5.4, §9.1).** Entry into the unlaned declarations is one edit; exit is not.
+      The wildcard's removal, §5.2's retag and the three named declarations must land together,
+      because every intermediate state has the manifest declaring a count the corpus does not
+      have.
+    - **#820's closure (§5.4).** The issue closes *by* the split rather than before or after it;
+      an issue pointing at a declaration that is gone is worse than no issue.
+    - **Expected-fail promotion (§6.5).** Removing the entry is not the exit — the scene must
+      move to the active bucket and gain a baseline in the same change, or it is owned by no
+      bucket and stops running.
+
+    The rule is therefore a design-time question, not a review-time one: **what does it take to
+    leave this state, and does any single-sided step leave the tree red?** If the answer is yes,
+    the atomic set is part of the design and belongs in the record beside the entry conditions.
 
 ## 3. The R3 obligations disposition: cited, then instantiated
 
@@ -1037,11 +1070,35 @@ Two reasons, and the second is the operative one:
 
 ### 6.5 The flip to blocking is gated on GPU-001 being fixed, not on a date
 
-Removing an `EXPECTED_FAIL_SCENES` entry is the whole flip — the same property
-`QUARANTINED_SCENES` already documents ("Removing an entry is the whole fix for that scene").
-No separate promotion machinery is built for a two-entry map. The trigger is GPU-001's issue
-closing (§6.4), which is why that issue and #903 must be distinct: #903 is done long before
-this flip is possible.
+The trigger is GPU-001's issue closing (§6.4), which is why that issue and #903 must be
+distinct: #903 is done long before this flip is possible.
+
+**But removing the entry is *not* the whole flip, and an earlier revision of this section said
+it was.** That claim was inherited from `QUARANTINED_SCENES` ("Removing an entry is the whole
+fix for that scene") and it does not survive §6.3's design. Under §6.3, execution membership is
+**derived** from the buckets and every scene file on disk must be owned by **exactly one**
+bucket (invariant 2). So deleting an expected-fail entry on its own leaves the scene in *no*
+bucket, which:
+
+- stops it executing, because the derived sequence no longer contains it — the scene is
+  "promoted" into not running at all; and
+- fails the inventory guard, which rejects a scene file owned by no bucket
+  (`test_baseline_qa_require_flag.py:96-97`); and
+- would fail `new_scenes` anyway (`run_baseline_qa.py:1295-1300`) if it did run, since it has
+  no committed baseline.
+
+**Decision: promotion is one atomic change with three parts** — remove the `EXPECTED_FAIL_SCENES`
+entry, **add the scene to the active bucket**, and **commit its now-passing baseline** — landing
+together. Any two-of-three intermediate state is red, and the reds are not cosmetic: they are
+the guards correctly reporting a scene that is owned by nothing, or running with no baseline.
+The `QUARANTINED_SCENES` analogy is withdrawn rather than repaired, because it was never exact
+even for quarantine — un-quarantining a scene has always required adding it to the active set
+and baselining it, since the inventory guard's disk-coverage rule (`:96-97`) predates all of
+this.
+
+No *separate promotion machinery* is built for a two-entry map — the three-part change is done
+by hand — but "no machinery" is not "no procedure", and §6.3.1's evidence obligation covers the
+exit as well as the entry.
 
 ### 6.6 The override-diff guard — the other half of `TEST-008`
 
@@ -1579,7 +1636,7 @@ exclusions, both against the same base. Co-location secures the *source*; the di
 governs how that source *combines*. Anyone later collapsing the two into "just read policy from
 base" should read this paragraph first.
 
-### 8.4.1 The input contract the invariant depends on: both sides of a rename
+### 8.4.1 The input contract the invariant depends on: completeness
 
 **The union in §8.2 is correct and was defeated by its input.** A set operation over changed
 paths is only as complete as the path list handed to it, and that precondition was never
@@ -1615,37 +1672,66 @@ the section prescribing a derivation for the other workflow did not go and look.
 
 **Second precondition: the list must be complete, not merely rename-aware.** Rename-awareness
 fixes the paths that *are* returned; it does nothing about paths that are never returned at all.
-The `merge_group` branch carries the workflow's own admission, at `:182-184`:
+And this section has now been wrong at mechanism level in three consecutive rounds — rename,
+then truncation, then a pagination prescription that cannot be implemented on the endpoint it
+named. Per §2.7 it is therefore restructured: the invariant and the verified traps stay here,
+and the mechanism is delegated.
 
-> `compareCommitsWithBasehead` caps at 300 files without pagination. Acceptable for this repo's
-> typical PR size; revisit if merge-queue batches routinely exceed 300 changed files.
+**Invariant.** *Path derivation is complete, or it fails in the direction of more evidence and
+a higher class.* Never the reverse. This is the statement that has survived every round: each
+finding changed how completeness must be achieved, none of them changed the requirement. An
+input that cannot be shown complete must arm the lane, not skip it.
 
-The call at `:188-193` passes `per_page: 100` and reads `compare.data.files` directly, with no
-pagination and no truncation check, so a merge group above the cap hands the union a silently
-truncated list. An omitted R2 path is not excused, not waived and not logged — it simply never
-existed as far as the evidence decision is concerned.
+**Verified traps, all read at `adcd6916dbd`.** Any mechanism must clear all four:
 
-**Requirement: paginate the merge-group comparison, and fail closed if the result is still
-truncated** — both, not either. Pagination is the fix for the ordinary case and is what the
-pull-request branch already does (`github.paginate`, `:174-179`); the fail-closed check is what
-covers the case pagination cannot reach, since the compare API has its own hard ceiling
-independent of paging. Choosing only pagination would leave a smaller version of the same hole
-and no way to notice it; choosing only fail-closed would red the lane on batches that could
-simply have been fetched. **A truncated input must never be silently treated as a complete one**
-— on this input the safe direction is running the evidence lane, not skipping it, so if
-completeness cannot be established the lane runs.
+| # | Trap | Evidence |
+| --- | --- | --- |
+| 1 | Renames drop one side | `gaussian_production_gates.yml:180`, `:194` map `file.filename` only; `previous_filename` appears **0 times** in that workflow |
+| 2 | The compare endpoint is **not paginable** | `baseline_qa.yml:433-440`: its `files` array *"is **NOT** paginated like `pulls.listFiles` — it returns up to a hard cap (300) in the first response and silently omits the rest"* |
+| 3 | `listFiles` pagination does not escape its own ceiling | `baseline_qa.yml:388-392`: *"capped at 3000 files per PR; `github.paginate` walks all pages but **stops at that ceiling**"* |
+| 4 | A truncated list is indistinguishable from a complete one unless checked | `baseline_qa.yml:443-462` detects `files.length >= 300` and sets `runHarness = true`, `reason = "merge-group-file-list-truncated"` |
 
-**The shape is worth naming, because it caught the same section twice.** Both preconditions —
-rename-awareness and completeness — were invisible from inside the set operation. §8.2's union
-and §8.4's intersection are correct set logic, and correct set logic over an input that is
-missing members produces a confidently wrong answer with no symptom. **A set operation is only
-as sound as the completeness of its input, and neither kind of incompleteness announces
-itself.** Note also *how* the second one survived: the 300-file cap was **known, documented and
-deliberately accepted** — for the purpose the workflow had when the comment was written. It
-became a bypass when a new consumer arrived and inherited the input without re-reading the
-limits attached to it. An accepted limit is scoped to the consumer that accepted it, and
-inheriting the input inherits the limit whether or not the new consumer's author knows it
-exists.
+**Round 8's prescription is withdrawn.** It required paginating the merge-group comparison —
+which trap 2 makes unimplementable on that endpoint, and which would likely break the step
+rather than fix it. It also assumed pagination solved the `pull_request` branch, which trap 3
+disproves: `gaussian_production_gates.yml:174-179` *does* already paginate `listFiles`, and is
+still capped at 3,000. **The choice set is now real and closed at two options, and the third —
+"just paginate" — does not exist.** It should not be reintroduced.
+
+**Two candidate mechanisms, delegated to #897 (§2.7), which must document which it took and
+why:**
+
+- **(a) The sibling's API + force-at-cap pattern.** Request `per_page` at the real cap, detect
+  `length >= cap`, and force the lane on. *Buys:* consistency with `baseline_qa.yml`, the other
+  consumer of this same input, including its `pathsFromFile` helper and its two error paths
+  (`:426-431`, `:463-468`) that also force on. One reviewer can then check both workflows
+  against one pattern. *Costs:* keeps two API-shaped caps and forces the full GPU lane on any
+  batch at the cap — a false positive that is safe but expensive.
+- **(b) A local `git diff` against the already-fetched base.** `actions/checkout@v4` runs with
+  `fetch-depth: 0` (`gaussian_production_gates.yml:111-117`, depth at `:115`), so full history
+  is present and this needs no new plumbing. *Buys:* **no caps at all** — the completeness
+  problem disappears rather than being detected — plus rename handling via git's own detection
+  and one derivation source instead of an API contract. *Costs:* diverges from the sibling, so
+  the two consumers of this input stop being checkable against one pattern, and it needs its own
+  base-resolution care (§8.2).
+
+Neither is picked here. The trade is consistency-with-the-sibling against
+eliminating-the-failure-class, and that is settled in minutes by a verifier with a running
+harness and in rounds by a document guessing. What is **not** delegated: the invariant above,
+the four traps, and the requirement that whichever mechanism is chosen must demonstrate clearing
+each trap in #897's evidence.
+
+**The shape is worth naming, because it caught the same section three times.** Every one of
+these preconditions was invisible from inside the set operation. §8.2's union and §8.4's
+intersection are correct set logic, and correct set logic over an input missing members produces
+a confidently wrong answer with no symptom. **A set operation is only as sound as the
+completeness of its input, and no kind of incompleteness announces itself.** Note also *how*
+these survived: the caps were **known, documented and deliberately accepted** — by the consumer
+that met them first. They became bypasses when a new consumer inherited the input without
+re-reading the limits attached to it. An accepted limit is scoped to the consumer that accepted
+it, and inheriting an input inherits its limits whether or not the new author knows they exist.
+That is the reasoning behind §2.6's read-the-sibling corollary, and this section is where it was
+learned twice.
 
 ## 9. Members with no independent design content
 
