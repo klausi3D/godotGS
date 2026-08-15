@@ -691,6 +691,14 @@ class NoAdvisoryStepTest(WorkflowScan):
         `${{ a || b }}` is an Actions expression, not a shell fallback, and the
         gate uses it legitimately. Removing those spans is what lets the rule below
         be a blanket "no `||`" rather than a list of swallowing shapes.
+
+        DECLARED LIMIT, and the consequence of that stripping: a `||` delivered
+        INTO the shell by an expression -- `${{ '|| true' }}` interpolated into a
+        `run:` line -- is invisible to the detector. It is out of the accidental
+        threat model (`invocation_re`'s docstring): the gate's four expressions are
+        static and none of them interpolates into a command. It is named here
+        rather than left implicit because a residual nobody wrote down is
+        indistinguishable from one nobody found.
         """
         return self.body(GITHUB_EXPRESSION_RE.sub("", self.text))
 
