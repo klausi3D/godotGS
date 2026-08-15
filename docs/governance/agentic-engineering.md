@@ -85,8 +85,23 @@ from the changed paths and **fails closed to R3** for unrecognized sensitive pat
 | **R2** | Renderer, shaders, compute, GPU sort, streaming, performance, VRAM. | R1 + GPU/performance review + runtime/GPU evidence. |
 | **R3** | Godot-engine delta outside the module; persistence/file formats; release/security workflows; public API/compat. | ADR before implementation + two reviews + CODEOWNER and human approval. |
 
-The PR author's self-declared risk class is **not** trusted on its own: CI
-re-derives it from the diff and uses the higher of the two.
+**What CI actually does with the risk class.** The required `agentic-pr-gate` check
+derives the class from the PR's own diff (`classify_change.py --base-ref <PR base>`)
+and publishes it, together with that class's `evidence_requirements` and
+`deterministic_checks`, to the job summary. The derivation fails closed: an
+unresolvable base ref fails the check, and an empty changed-path set is classified as
+`classification.default_unclassified` (R3), not R0.
+
+An author's **self-declared** class is *not consumed by CI today*. The
+higher-of-the-two rule is implemented in `check_pr_contract.py`, but that script only
+runs against the shipped fixture `.agentic/templates/task.json`, because the
+repository has no per-PR contract source (a task-contract instance is a local agent
+artifact and [`AGENTS.md`](../../AGENTS.md) forbids committing those). So a declared
+class is a review-time convention, not an enforced one, and per-PR scope
+(`owned_paths` / `forbidden_paths`) and evidence contracts are not enforced at all.
+Wiring a contract source is the Phase-2 contract-source ADR; the limit is recorded in
+[GitHub settings](github-settings.md) and in `.github/workflows/README.md`
+(`GS-AUDIT-TEST-001`).
 
 ## Legacy coordination data
 
