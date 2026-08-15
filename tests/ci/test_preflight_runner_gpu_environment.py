@@ -789,6 +789,66 @@ class VulkanLayerGate(unittest.TestCase):
         ok, lines, _record = self._run(control, effective)
         self.assertTrue(ok, "\n".join(lines))
 
+    def test_a_driver_layer_gaining_the_device_chain_fails(self) -> None:
+        """A chain membership *added* by the job's environment fails (#878 review, P1).
+
+        The survival diff alone is a one-way subtraction: if the control run
+        observed `NV_present` on the instance chain only and the effective run
+        has it on instance+device -- `VK_LOADER_LAYERS_ENABLE` force-enabling
+        it onto both chains is the concrete route -- then nothing is lost,
+        nothing is outside the control's names, nothing is unallowlisted, and
+        the gate approved a device stack this machine never runs outside CI.
+        This is the mirror image of the test above: the same control, the same
+        instance-only layer, and the only difference is the added membership.
+        """
+        control = "\n".join(
+            [
+                loader_line("instance", "VK_LAYER_OBS_HOOK", _OBS_DLL),
+                loader_line("device", "VK_LAYER_OBS_HOOK", _OBS_DLL),
+                loader_line("instance", "VK_LAYER_NV_optimus", _NV_DLL),
+                loader_line("device", "VK_LAYER_NV_optimus", _NV_DLL),
+                loader_line("instance", "VK_LAYER_NV_present", _NV_DLL),
+            ]
+        )
+        effective = "\n".join(
+            [
+                loader_line("instance", "VK_LAYER_NV_optimus", _NV_DLL),
+                loader_line("device", "VK_LAYER_NV_optimus", _NV_DLL),
+                loader_line("instance", "VK_LAYER_NV_present", _NV_DLL),
+                loader_line("device", "VK_LAYER_NV_present", _NV_DLL),
+            ]
+        )
+        ok, lines, _record = self._run(control, effective)
+        text = "\n".join(lines)
+        self.assertFalse(ok, text)
+        self.assertIn("VK_LAYER_NV_present", text)
+        self.assertIn("added to the device chain", text)
+        # And the verdict names both sides of the diff, so a maintainer sees
+        # the direction rather than inferring it.
+        self.assertIn("control had instance; effective has device+instance", text)
+
+    def test_a_driver_layer_gaining_the_instance_chain_fails(self) -> None:
+        """The same defect in the other direction, so the fix is not device-specific."""
+        control = "\n".join(
+            [
+                loader_line("instance", "VK_LAYER_NV_optimus", _NV_DLL),
+                loader_line("device", "VK_LAYER_NV_optimus", _NV_DLL),
+                loader_line("device", "VK_LAYER_NV_present", _NV_DLL),
+            ]
+        )
+        effective = "\n".join(
+            [
+                loader_line("instance", "VK_LAYER_NV_optimus", _NV_DLL),
+                loader_line("device", "VK_LAYER_NV_optimus", _NV_DLL),
+                loader_line("instance", "VK_LAYER_NV_present", _NV_DLL),
+                loader_line("device", "VK_LAYER_NV_present", _NV_DLL),
+            ]
+        )
+        ok, lines, _record = self._run(control, effective)
+        text = "\n".join(lines)
+        self.assertFalse(ok, text)
+        self.assertIn("added to the instance chain", text)
+
     def test_control_without_any_driver_layer_fails(self) -> None:
         """Control saw layers, but none of the driver's own: nothing to check survival against."""
         third_party_only = "\n".join(

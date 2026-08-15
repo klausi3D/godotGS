@@ -66,11 +66,13 @@ Verdict
 * Gate 1 fails if the effective chain contains any layer outside
   :data:`EXPECTED_LAYERS` (the GPU driver's own implicit layers), naming each
   unexpected layer and the module the loader loaded for it.
-* Gate 1 also fails if a driver layer the control run put on a chain is missing
-  from that **same chain** in the effective run. The comparison is per chain, not
-  per layer name: the loader builds an instance chain and a device chain and
-  reports them separately, so a layer that survives on one and disappears from
-  the other keeps its *name* in the effective set while the device stack the GPU
+* Gate 1 also fails if a driver layer's chain membership differs between the
+  control and effective runs in **either direction** -- missing from a chain the
+  control run put it on, or added to a chain the control run did not. The
+  comparison is per chain, not per layer name: the loader builds an instance
+  chain and a device chain and reports them separately, so a layer that survives
+  on one and disappears from the other -- or is force-enabled onto one it never
+  had -- keeps its *name* in the effective set while the device stack the GPU
   jobs measure on has changed.
 * Gate 1 also fails if the probe could not be validated (missing probe binary,
   non-zero exit, unparseable output, empty control set, a control run that
@@ -541,6 +543,47 @@ def check_vulkan_layers() -> Tuple[bool, List[str], Dict[str, object]]:
             "same defect and just as invisible in the layer *names* -- narrow the disable "
             "rather than accepting the loss, and do not compare names instead of chains to "
             "make this green."
+        )
+        return False, lines, record
+
+    # The other direction of the same diff. Losses alone are a one-way
+    # subtraction: a driver layer the control observed on the instance chain
+    # only can silently *gain* device-chain membership in the effective run --
+    # the name-level subset and allowlist checks cannot see it, and `lost_chains`
+    # above is empty -- while the device stack the GPU jobs measure on is one
+    # this machine never runs outside CI. `VK_LOADER_LAYERS_ENABLE` force-
+    # enabling a layer onto both chains is a concrete route there (#878 review,
+    # thread on line 484). Together with `lost_chains` this makes the comparison
+    # an equality of each expected layer's chain sets, which is the contract:
+    # the effective run must be *the control run minus the third-party layers*,
+    # nothing else changed in either direction.
+    gained_chains = [
+        (name, chain)
+        for name in sorted(expected_in_control)
+        for chain in sorted(
+            set(effective.layers[name].chains if name in effective.layers else ())
+            - set(control.layers[name].chains)
+        )
+    ]
+    if gained_chains:
+        lines.append(
+            f"  FAIL: {len(gained_chains)} chain membership(s) of the GPU driver's own layers "
+            "are present in the effective run that the control run did not have:"
+        )
+        for name, chain in gained_chains:
+            lines.append(
+                f"    - {name}: added to the {chain} chain "
+                f"(control had {'+'.join(control.layers[name].chains)}; "
+                f"effective has {'+'.join(effective.layers[name].chains)})"
+            )
+        lines.append(
+            "  This job's environment placed a driver layer on a chain the loader does not "
+            "put it on by itself -- most likely a force-enable "
+            f"({LOADER_LAYERS_ENABLE_VAR} or VK_INSTANCE_LAYERS) widening its scope. That is "
+            "a changed device stack exactly like a lost membership: GPU jobs would measure "
+            "on a chain layout nothing outside CI uses. Narrow the enable rather than "
+            "accepting the addition, and do not drop this direction of the diff to make "
+            "it green."
         )
         return False, lines, record
 
