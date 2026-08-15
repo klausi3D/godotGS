@@ -88,6 +88,14 @@ These are stated once, here, and are binding on every PR in §1.
    [`evidence-integrity.md`](../governance/evidence-integrity.md) required practice 1: a
    guard that cannot run must report a state that is not `pass`, and a consumer of required
    evidence must fail closed on it.
+
+   **And its limit, which this cluster hit in §6.6: fail-closed is not a licence to build a
+   guard that cannot pass.** A rule that reds on a condition the tree permanently satisfies is a
+   **vacuous FAIL** — the mirror of the vacuous pass, and not the safe direction, because a gate
+   that can never go green is deleted, suppressed or "temporarily" narrowed by whoever meets it
+   next, and carries no information in the meantime. Both are the same underlying error: a
+   guard whose output does not vary with the thing it guards. **Every guard must have a
+   reachable RED and a reachable GREEN, and §2.4's acceptance evidence must show both.**
 2. **A positive completion marker beats inferring success from absence.** Where a member has
    the choice between "no bad signal seen" and "a good signal produced", it takes the latter.
    §4 is the largest instance; the principle is not confined to it.
@@ -108,8 +116,8 @@ These are stated once, here, and are binding on every PR in §1.
 6. **No prescription without a read.** Every sentence in a design record that says what a named
    file does, or must be changed to do, **cites the `file:line` it was read at**. A prescription
    written from memory of how a consumer *probably* behaves is not a design decision; it is a
-   guess that a reviewer has to re-derive. Six review rounds produced thirteen findings against
-   this document and **nine were the same defect**: an instruction that would have failed the
+   guess that a reviewer has to re-derive. Seven review rounds produced sixteen findings against
+   this document and **eleven were the same defect**: an instruction that would have failed the
    very consumer it was written to satisfy, because nobody had opened it. A fifth manifest
    declaration the count check rejects and a #908 declaration the stale check rejects (§5.4); a
    soak trigger no profile selection can satisfy, evidence read from a report already
@@ -117,13 +125,18 @@ These are stated once, here, and are binding on every PR in §1.
    defaults source that cannot resolve 14 of the 32 keys it must compare (§6.6); an expected-fail
    design that stops at the GDScript boundary while three Python mechanisms reject it (§6.3); its
    own replacement, which produced a representation no scene could both execute from and be
-   inventoried under (§6.3 again, round 5); and a derivation whose changed-path input drops one
-   side of every rename (§8.4.1). The other four were genuine design gaps — a missing failure
-   signature, a base-versus-head policy read, an under-specified membership check, and the
-   self-certification hole in §8.4 — the normal cost of design review. The nine were not.
+   inventoried under (§6.3 again, round 5); a derivation whose changed-path input drops one side
+   of every rename (§8.4.1); the same input silently truncated at 300 files by a documented cap
+   nobody re-read (§8.4.1 again, round 7); and a fail-closed rule with no green route, because
+   the manifest deliberately inventories unregistered keys (§6.6). The other five were genuine
+   design gaps — a missing failure signature, a base-versus-head policy read, an under-specified
+   membership check, the self-certification hole in §8.4, and a completion marker never bound to
+   the scenario that emitted it (§4.1) — the normal cost of design review. The eleven were not.
    **Not one was a wrong judgement call; every one was an unread consumer.** Treat an uncited
    claim about a consumer's behaviour as unverified whatever its confidence — including in the
-   corrections, **three** of which introduced a fresh instance while fixing an earlier one.
+   corrections: **three** introduced a fresh instance while fixing an earlier one, and a fourth
+   (§8.4.1's rename contract) was *incomplete* rather than wrong, missing a second precondition
+   on the very input it had just been written to repair.
 
    **The rule binds every layer, and did.** The `GLOBAL_DEF`-only defaults source (§6.6) came
    from the **maintainer's** §6.5 requirement, written without reading the registration
@@ -265,6 +278,28 @@ fields are required; a malformed or absent payload is a failure, not a missing-o
 exit 0, no failure markers, no skip markers, **and no `[RUNTIME_PASS]`** ⇒ the scenario is
 **not** `passed`. The fall-through to `passed` is deleted; `passed` becomes reachable only from
 a marker.
+
+**And the marker must be bound to the scenario it is classifying.** Requiring the `scenario`
+field while never comparing it to anything makes it decoration: a scenario whose emitter was
+copied from another — the *expected* way this spreads, since §4.2 puts emission in 15 separate
+`.gd` files and §4.2's shared library is adopted "as they are touched" — emits a syntactically
+valid marker naming a different registry member, and the branch above passes it. The harness
+would then accept *some* scenario's completion as proof of *this* scenario's completion. That is
+the same self-vouching shape §4.2 rejects when it forbids the harness from synthesising the
+marker it checks; it simply moves the unchecked claim from the harness into the payload.
+
+**Decision: `[RUNTIME_PASS]`'s `scenario` must equal the registry name of the scenario being
+classified (`result.name`), and a mismatch is a failure — not a warning, and not silently
+tolerated as a stray marker.** The field then does the one job it exists for: it makes the
+marker non-transferable, so a marker proves completion of the scenario it was emitted by.
+
+**This is load-bearing for §4.6's soak, not a tidiness point.** The soak's first obligation
+counts `[RUNTIME_PASS]` per scenario *that the profile selects*. An unbound marker means one
+scenario can vouch for another, so a profile could satisfy per-profile completeness while a
+scenario it selected never completed — and the union-coverage obligation, which is what makes
+per-profile counting add up to a statement about the whole registry, would be counting
+signatures rather than completions. The arming evidence for the fail-closed flip would be
+exactly as strong as the assumption nobody copy-pasted an emitter.
 
 **Which status that branch assigns depends on the ladder step, and is the whole of §4.6's
 advisory phase.** In step 2 it is `"failed"` with reason `no completion marker`. In step 1 it
@@ -1028,6 +1063,53 @@ audit. The surface is larger than `depth_test`: the QA project carries **32**
    at `adcd6916dbd`; a form added later would not appear in it. That is why the fail-closed
    clause, not the table, is the requirement — the table tells an implementer where to start,
    and the unresolved-key failure is what catches the ones the table misses.
+
+   **But as stated, that fail-closed rule can never go green — and that is a defect of a kind
+   this programme has not seen before.** Some keys are *intentionally* unregistered. At
+   `modules/gaussian_splatting/config/project_settings_manifest.json`,
+   `rendering/gaussian_splatting/debug/force_unclustered_lights` carries
+   `"effective_state": "none"` and a note reading *"Live raw-only debug hook (**unregistered, no
+   `GLOBAL_DEF`**): read via `gpu_debug_utils.h` `is_debug_force_unclustered_lights_enabled()`"*.
+   No registration exists to scrape and no initial value exists to query, so **neither** source
+   in requirement 1 can resolve it, and a rule that reds on every unresolved key reds forever.
+
+   **Name the class: this is a vacuous FAIL, the mirror of the vacuous pass.** Every other
+   finding against this document was a gate that could wrongly *pass*; this is a gate that can
+   only *fail*. It is not the safe direction. A gate that cannot go green is deleted, or
+   `# noqa`'d, or "temporarily" narrowed by whoever meets it next — and it protects nothing in
+   the meantime, because a signal that is always red carries no information. Both failures are
+   the same underlying error, a guard whose output does not vary with the thing it guards, and
+   §2.1's "fail closed" is not a licence to build one: a guard must have **both** a reachable
+   RED and a reachable GREEN, and the acceptance evidence per §2.4 must show both.
+
+   **Fix: exempt keys the manifest itself declares unregistered, derived from the manifest,
+   never from a hand-written key list.** The exemption must be a property of the inventory, so
+   that adding an unregistered key is a manifest edit rather than a guard edit.
+
+   **Which field is authoritative — measured, and the answer is "none of the existing ones."**
+   This is stated rather than resolved by picking the field that happens to work, because the
+   measurement says picking one would silently break the guard:
+
+   | Candidate | Keys matched | Verdict |
+   | --- | --- | --- |
+   | `effective_state == "none"` | 24 | **Wrong.** 19 of the 24 *are* `GLOBAL_DEF`-registered (`enable_frame_logging`, `frame_log_frequency`, `eager_raster_pipeline`, the `cull_guardrail_*` family…). The field means "maps to no effective-state field", which is a statement about state plumbing, not about registration. |
+   | `publicness == "debug_only"` | 26 | **Wrong**, and sparse: `publicness` is present on only 49 of 199 entries, inherited from `families` for the rest. |
+   | `test_coverage` | 199 | Orthogonal — it describes test status, not registration. |
+   | `notes` free text | 1 | The **only** place the fact is actually recorded, and not machine-readable. |
+
+   Choosing either plausible field would exempt **two of the 32 QA overrides the guard exists to
+   check** — `debug/enable_frame_logging` and `debug/frame_log_frequency`, both registered, both
+   overridden by the QA project — which is the "picked a field that works today" failure
+   happening immediately rather than later.
+
+   **So T10's work includes a manifest schema addition**: an explicit, machine-readable
+   `registration: "unregistered"` (or equivalent single-purpose field) on the entries that are
+   deliberately raw-only, set on `force_unclustered_lights` and on any sibling found by the same
+   audit. The guard exempts exactly the keys carrying it, fails closed on every other unresolved
+   key, and — per §2.5 — **an exemption that no longer matches a raw-only key fails as stale**,
+   so the list cannot outlive its reason. `project_settings_manifest.json` is inside the module
+   and `modules/gaussian_splatting/tests/check_project_settings_manifest.py` already guards its
+   shape, so this is an in-scope edit for T10 rather than new surface.
 2. **The waiver list carries a per-entry reason, in the same shape as §8.3's exclusion list.**
    One waiver idiom for this programme, not three: the quarantine-manifest shape — the keyed
    subject, `reason`, `issue_url`, `owner`, `expires_utc`. The two lists differ in subject only
@@ -1439,6 +1521,40 @@ failure: a file moving from a watched prefix to an unwatched one is missed by ma
 the section prescribing a derivation for the other workflow did not go and look. #897 inherits
 `pathsFromFile` rather than reinventing it.
 
+**Second precondition: the list must be complete, not merely rename-aware.** Rename-awareness
+fixes the paths that *are* returned; it does nothing about paths that are never returned at all.
+The `merge_group` branch carries the workflow's own admission, at `:182-184`:
+
+> `compareCommitsWithBasehead` caps at 300 files without pagination. Acceptable for this repo's
+> typical PR size; revisit if merge-queue batches routinely exceed 300 changed files.
+
+The call at `:188-193` passes `per_page: 100` and reads `compare.data.files` directly, with no
+pagination and no truncation check, so a merge group above the cap hands the union a silently
+truncated list. An omitted R2 path is not excused, not waived and not logged — it simply never
+existed as far as the evidence decision is concerned.
+
+**Requirement: paginate the merge-group comparison, and fail closed if the result is still
+truncated** — both, not either. Pagination is the fix for the ordinary case and is what the
+pull-request branch already does (`github.paginate`, `:174-179`); the fail-closed check is what
+covers the case pagination cannot reach, since the compare API has its own hard ceiling
+independent of paging. Choosing only pagination would leave a smaller version of the same hole
+and no way to notice it; choosing only fail-closed would red the lane on batches that could
+simply have been fetched. **A truncated input must never be silently treated as a complete one**
+— on this input the safe direction is running the evidence lane, not skipping it, so if
+completeness cannot be established the lane runs.
+
+**The shape is worth naming, because it caught the same section twice.** Both preconditions —
+rename-awareness and completeness — were invisible from inside the set operation. §8.2's union
+and §8.4's intersection are correct set logic, and correct set logic over an input that is
+missing members produces a confidently wrong answer with no symptom. **A set operation is only
+as sound as the completeness of its input, and neither kind of incompleteness announces
+itself.** Note also *how* the second one survived: the 300-file cap was **known, documented and
+deliberately accepted** — for the purpose the workflow had when the comment was written. It
+became a bypass when a new consumer arrived and inherited the input without re-reading the
+limits attached to it. An accepted limit is scoped to the consumer that accepted it, and
+inheriting the input inherits the limit whether or not the new consumer's author knows it
+exists.
+
 ## 9. Members with no independent design content
 
 Each of the following is a direct application of its finding's remediation direction. Listing
@@ -1514,6 +1630,22 @@ policy's R3 machinery list or in an explicit, reasoned exempt list committed bes
 fail closed on a file in neither. If that is not cheap inside T9's diff, it is a **one-line
 follow-up on #887**, not scope growth for any member of §1. Landing it is what turns §7's rule
 from a convention into a guard, which is the difference this whole cluster is about.
+
+**The guard fails in both directions, and this is not a new rule.** As first written, the check
+above covers only *growth*: a guard file on disk that is listed nowhere. It misses the mirror —
+**a policy enumeration entry naming a path that no longer exists**, which is what a rename or a
+deletion leaves behind. The stale entry then sits in policy claiming R3 coverage for a file that
+is gone, while the renamed file arrives unlisted; the growth half catches the second, nothing
+catches the first, and the enumeration quietly drifts out of correspondence with the tree.
+
+This is **§2.5 and §8.3's property 2 applied to a third site, not a new decision** — pin the
+membership and fail on shrinkage as well as growth. The precedent is already running in this
+repo: the quarantine manifest's `count` fails both ways, `actual > declared` as *"NEW stranded
+case(s) joined an already-declared family"* and `actual < declared` demanding you *"lower
+'count' … so the slack cannot be reoccupied"* (`check_test_lane_coverage.py:611-624`). The
+consistency is the point: three sites, one rule, so a reviewer who has checked one knows what to
+check in the others — and per §2.9 this is also the fourth-plus place where a rename is the
+thing that breaks it.
 
 ### 10.2 Carried by reference — open, not re-opened here
 
