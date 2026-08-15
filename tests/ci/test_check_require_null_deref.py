@@ -3650,6 +3650,39 @@ class ReviewBaseGrowthCheck(unittest.TestCase):
             "new when the detector genuinely changed (a pure rekey)",
         )
 
+    def test_a_same_key_duplicate_cannot_launder_a_second_new_copy(self):
+        """Codex review (GS-AUDIT-TEST-003): a same-key match must not ALSO be
+        available to the cross-key rename pool.
+
+        The base holds two copies of a duplicated fingerprint under ONE key. The
+        current scan holds three copies under that SAME key: two are covered by the
+        ordinary same-key comparison, and the third is a genuinely new duplicate
+        introduced in this diff. Before the fix, the flattened `base_flat` pool still
+        counted all base copies -- including the two the same-key comparison already
+        matched -- so the third (real) addition could be laundered as a "rename"
+        merely because `detector_differs` was true for an unrelated reason. It must
+        be rejected regardless.
+        """
+        fingerprint = "dup|!= nullptr|deadbeef00"
+        self._stub_base(
+            base_null_deref_files={"same_key.h": [fingerprint, fingerprint]},
+            base_size_index_files={},
+            detector_differs=True,
+        )
+        base_sha, base_failures = GUARD.resolve_review_base()
+        self.assertEqual(base_failures, [])
+        new_relative, growth_failures, introduced = GUARD._baseline_growth_vs_base(
+            {"same_key.h": [fingerprint, fingerprint, fingerprint]},
+            GUARD.BASELINE_PATH, base_sha, True,
+        )
+        self.assertEqual(growth_failures, [])
+        self.assertFalse(introduced)
+        self.assertEqual(
+            new_relative, {"same_key.h": [fingerprint]},
+            "the third, genuinely new copy under the SAME key must not be excused by "
+            "the cross-key rename pool, which the first two copies already exhausted",
+        )
+
     def test_a_different_key_does_not_license_growth_without_a_detector_change(self):
         """The lenient (rekey) route must not be reachable by an ordinary PR that
         never touches the detector -- otherwise it is a second way to write anything

@@ -963,6 +963,17 @@ def _baseline_growth_vs_base(
     dict key it sits under), and it still rejects genuinely new content: a fingerprint
     that never existed anywhere at the base has nothing to match, rename license or
     not.
+
+    The global pool a same-key match draws from is NOT the raw base multiset: a
+    fingerprint that a name's OWN same-key comparison already matched is removed from
+    the pool before any cross-key claim can draw on it (Codex review, GS-AUDIT-TEST-003).
+    Without this, a base entry of two copies of a duplicated fingerprint could license
+    BOTH the copy the same-key comparison already accounted for AND a genuinely new
+    third copy added under that same key in this diff -- the same-key match and the
+    cross-key pool would be spending the base's supply twice. A key whose fingerprints
+    do not appear in `current` at all (the ordinary rekey/rename shape) is untouched by
+    this and stays fully available to the cross-key pool, which is what licenses a
+    rename in the first place.
     """
     raw, failures = _blob_at_base(base_sha, baseline_path)
     if failures:
@@ -979,6 +990,13 @@ def _baseline_growth_vs_base(
         return {}, [f"baseline at review base {base_sha[:12]} is unusable: {exc}"], False
 
     base_flat = collections.Counter(fp for prints in base_files.values() for fp in prints)
+    # Remove what each name's OWN same-key comparison already matched, for every name
+    # in `current` -- not only the ones with a surplus -- before the cross-key pool
+    # below is allowed to draw on it. See the docstring note above.
+    for name, prints in current.items():
+        same_key_matched = collections.Counter(base_files.get(name, [])) & collections.Counter(prints)
+        base_flat -= same_key_matched
+
     new_relative: dict[str, list[str]] = {}
     for name in sorted(current):
         added = _multiset_difference(current[name], base_files.get(name, []))
