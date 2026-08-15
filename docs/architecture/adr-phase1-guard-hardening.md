@@ -39,7 +39,7 @@ principle was tested; both were settled by it, and Q1 was settled *against* the 
 
 Of the fifteen remaining Phase-1 sub-tasks, **eight measure R3 unconditionally** (#891, #892,
 #893, #894, #896, #897, #898, #904); **#895 measures R3 on the scope the maintainer chose**
-(§11 Q1); **#903 measures R3 once its design is written down in full** (§11 Q5, §6.5); and one
+(§11 Q1); **#903 measures R3 once its design is written down in full** (§11 Q5, §6.6); and one
 (#901) is deliberately floored at R3 by §7. **Eleven of the fifteen are R3.**
 Read literally, each would need its own design record. They are one programme against one
 defect shape — a guard that reports green while observing nothing — so they get one record.
@@ -59,7 +59,7 @@ The price of that economy is that the list is closed.
 | T8b frame-completion tracker | #900 | `GPU-017` | **R2** | §9 |
 | T9a fork-delta truth + drift guard | #901 | `DOC-001` | **R1 → R3 by design** | §7 |
 | T9b `nodes/README.md` truth | #902 | `DOC-002` | **R1** | §9 |
-| T10 production-defaults pixel coverage + override-diff guard | #903 | `TEST-008` | **R3** — the class followed the design (§11 Q5). `TEST-008`'s second remediation clause is a new `tests/ci/check_*.py`, which self-registers per §7 and floors the PR at R3 (§6.5, measured). Independent of whether it reaches `baseline_qa.yml` | §6 |
+| T10 production-defaults pixel coverage + override-diff guard | #903 | `TEST-008` | **R3** — the class followed the design (§11 Q5). `TEST-008`'s second remediation clause is a new `tests/ci/check_*.py`, which self-registers per §7 and floors the PR at R3 (§6.6, measured). Independent of whether it reaches `baseline_qa.yml` | §6 |
 | T11a stale fork claim | #904 | `TEST-013` | **R3** | §9 |
 | T11b dead shaders | #905 | `BUILD-001` | **R2** | §9 |
 
@@ -105,6 +105,23 @@ These are stated once, here, and are binding on every PR in §1.
    name-keyed digests while counts stay identical, so an unchanged count is not evidence that
    nothing moved. Where a member changes case names or tags, the acceptance evidence is the
    derived membership set before and after, never the count.
+6. **No prescription without a read.** Every sentence in a design record that says what a named
+   file does, or must be changed to do, **cites the `file:line` it was read at**. A prescription
+   written from memory of how a consumer *probably* behaves is not a design decision; it is a
+   guess that a reviewer has to re-derive. Four review rounds produced ten findings against this
+   document and **seven were the same defect**: an instruction that would have failed the very
+   consumer it was written to satisfy, because nobody had opened it. A fifth manifest
+   declaration the count check rejects and a #908 declaration the stale check rejects (§5.4); a
+   soak trigger no profile selection can satisfy, evidence read from a report already
+   overwritten, and an advisory status the exit expression counts as a failure (§4.6, §4.6.1); a
+   defaults source that cannot resolve 14 of the 32 keys it must compare (§6.6); and an
+   expected-fail design that stops at the GDScript boundary while three Python mechanisms reject
+   it (§6.3). The other three were genuine design gaps — a missing failure signature, a
+   base-versus-head policy read, an under-specified membership check — and those are the normal
+   cost of design review. The seven were not. **Not one was a wrong judgement call; every one
+   was an unread consumer.** Treat an uncited claim about a consumer's behaviour as unverified
+   whatever its confidence — including in the corrections, two of which introduced a fresh
+   instance while fixing an earlier one.
 
 ## 3. The R3 obligations disposition: cited, then instantiated
 
@@ -179,9 +196,16 @@ so the parser reuses the existing extraction shape rather than inventing a secon
 fields are required; a malformed or absent payload is a failure, not a missing-optional.
 
 `_classify_result` gains one branch, evaluated after the existing failure and skip branches:
-exit 0, no failure markers, no skip markers, **and no `[RUNTIME_PASS]`** ⇒ `status =
-"failed"`, reason `no completion marker`. The fall-through to `passed` is deleted; `passed`
-becomes reachable only from a marker.
+exit 0, no failure markers, no skip markers, **and no `[RUNTIME_PASS]`** ⇒ the scenario is
+**not** `passed`. The fall-through to `passed` is deleted; `passed` becomes reachable only from
+a marker.
+
+**Which status that branch assigns depends on the ladder step, and is the whole of §4.6's
+advisory phase.** In step 2 it is `"failed"` with reason `no completion marker`. In step 1 it
+must be a status that is *recorded and printed without failing the run* — and, as §4.6.1 works
+through, the runner has no such status today, so step 1's PR creates one. Writing "`status =
+'failed'`" here unconditionally, as an earlier revision of this section did, silently deletes
+the advisory step the whole ladder is built on.
 
 ### 4.2 Who emits it
 
@@ -257,6 +281,7 @@ is to relax the parser — which recreates the defect with a fresh justification
   11 in one run**, and step 2's trigger turns on that distinction: every registered scenario
   gets the marker here, but no single profile *selects* all 11, so no single run can witness
   them. Step 1's obligation is over the registry; step 2's is over what each profile runs.
+  **Making step 1 actually advisory takes two coupled changes to the runner — §4.6.1.**
 - **Step 2 (gated on step 1's numbers, and it stays in this cluster).** The parser flips to
   fail-closed, and the assertion counts measured in step 1 are pinned as a shrink-only floor.
   Arming against measured values is the [advisory-lane-ledger](adr-advisory-lane-ledger.md)
@@ -395,6 +420,50 @@ probes (`GS-AUDIT-TEST-010` / #896) that are in no registry, no profile and no w
 - The **4 orphans** are #896's business, not T3's. **Sequencing:** land #896 before step 2, so
   the fail-closed flip never has to reason about scenarios that may be deleted. If #896
   registers them, they are ported with it; if #896 deletes them, they never need the marker.
+
+### 4.6.1 Step 1 cannot be advisory without a new status — and adding one takes two changes
+
+**The runner has no non-failing way to record "ran, produced no completion marker".** Read at
+`adcd6916dbd`:
+
+- `TestResult.status` defaults to `"failed"` (`run_runtime_validation.py:57`).
+- `summarise()` (`:1015`) counts `"failed": sum(1 for r in results if r.status == "failed")`
+  (`:1019`).
+- `main()` (`:1060`) ends `return 0 if summary["failed"] == 0 and summary["schema_valid"] and
+  not renderer_proof_failed else 1` (`:1219`).
+
+So a scenario classified `"failed"` for a missing marker **exits 1**. Step 1 says such a
+scenario "is recorded … and printed, but does not fail"; §4.1's earlier wording said `status =
+"failed"`. Those cannot both hold, and the loser is the advisory phase — the one the soak exists
+to evaluate would never occur, because the first unported scenario reds the run.
+
+**And the naive fix trades one exit-1 for another.** The summary schema pins the status
+vocabulary: `allowed_statuses = {"passed", "failed", "skipped"}` (`:861`), enforced at
+`:874-875` (*"status must be one of …"*), collected into `schema_errors` and reduced to
+`summary["schema_valid"] = len(schema_errors) == 0` (`:1197`) — which is **a second term in the
+same exit expression** at `:1219`. Inventing a status string without widening the vocabulary
+turns a scenario failure into a schema failure. Same exit code, worse diagnosis.
+
+**Decision: step 1's PR makes both changes together, or it makes neither.**
+
+1. **Add one advisory status** — `"no_completion_marker"` — assigned by §4.1's branch during
+   step 1, counted and printed in its own column by `summarise()` (`:1015`) and
+   `_print_summary()` (`:1041`), and **excluded from the `failed` count** that `:1219` gates on.
+2. **Widen `allowed_statuses` (`:861`) and the report schema in the same diff**, so the new
+   status validates. The status vocabulary and the exit expression are one contract; editing
+   either alone produces a red run that says nothing true about the scenario.
+
+**What must not happen: reusing `"skipped"`.** It is already in `allowed_statuses`, so it looks
+free — and it is wrong twice over. A skip means *the scenario did not run*; a missing marker
+means *it ran and proved nothing*, which is the exact distinction §4.3 and `TEST-007` exist to
+draw, and collapsing them re-creates the defect one column over. It would also collide with the
+`fail_on_skip` precedence chain (§4.4): under every CI invocation `--fail-on-skip` is passed
+explicitly, so a scenario parked as `"skipped"` would fail the run anyway.
+
+**Step 2 needs no schema work.** Its flip re-points §4.1's branch from the advisory status to
+`"failed"`, which is already in the vocabulary and already counted. The status added in step 1
+then either disappears with the flip or remains for the §4.3 allowlisted zero-assertion cases;
+the flip PR states which, and does not leave a status in the schema that nothing can produce.
 
 ## 5. T4 (#892, #906–#910) — batch grouping and the hollow batch
 
@@ -619,7 +688,68 @@ repair. An expected-fail scene runs every time and is a live regression oracle f
 expected-fail exits 0 with one line naming the scenes and their issues. A reader who sees red
 scene output and a zero exit code is told, in the same output, why.
 
-### 6.3 The entries point at GPU-001's own issue, filed at T10 time
+### 6.3 Expected-fail must be represented in the Python lane too, without weakening it
+
+**§6.2 specifies a GDScript-side map and stops at the language boundary. The blocking lane is
+Python, and three separate mechanisms there reject the design as written.** Read at
+`adcd6916dbd`:
+
+1. **The comparator fails on any scene lacking a committed baseline.**
+   `run_baseline_qa.py:1138` computes `comparison["new_scenes"]` as current-minus-baseline;
+   `:1295-1299` folds it into `has_regressions = bool(regressions) or bool(missing_scenes) or
+   bool(new_scenes)`; `:1300` sets `comparison["status"] = "failed"`, and `:1308-1309` prints
+   *"Current QA scene has no committed baseline"*. Adding the two red scenes to `test_scenes`
+   therefore reds the lane **even when `qa_test_runner.gd` exits 0** — §6.2's exit-code design is
+   necessary and not sufficient.
+2. **They cannot simply be baselined.** `validate_baseline_candidate()` (`:206`) rejects any
+   entry with `if not entry.get("passed", False):` (`:236`) — *"a failing run must never become
+   the baseline."*
+3. **The inventory guard knows exactly two buckets.** `_qa_inventory_failures`
+   (`tests/ci/test_baseline_qa_require_flag.py:68`) derives `var test_scenes:` and
+   `const QUARANTINED_SCENES` from the runner source by regex (`:71-83`) and then asserts: each
+   scene declared **exactly once** across the two (`:86-89`), the two are disjoint (`:94-95`),
+   every scene file on disk is in one of them (`:96-97`, *"QA scene files neither active nor
+   quarantined"*), no declared scene is missing from disk (`:98-99`), and the committed
+   baseline's active and quarantine sets **equal** the runner's (`:103-118`). A third GDScript
+   map is invisible to all of it: put the red scenes only in `EXPECTED_FAIL_SCENES` and their
+   files trip `:96-97`; put them in `test_scenes` and the baseline-equality check at `:108-112`
+   demands baseline entries that (2) forbids.
+
+**None of this is a bug to route around.** `validate_baseline_candidate`'s refusal is a guard
+doing precisely its job, and the inventory guard's disk-coverage rule is what stops a scene
+quietly leaving the suite — the same property `_strip_machine_dependent_metrics`' docstring
+protects when it keeps a metric-less entry so *"the comparator's `missing_scenes` check fails if
+the scene silently drops out"* (`run_baseline_qa.py:303-310`). **Do not weaken any of the three.**
+
+**Decision: carve a declared, owned, expiring third bucket, mirroring how `quarantined` is
+already carried.** The precedent is in the same payload: the committed baseline already holds a
+`quarantined` map read at `test_baseline_qa_require_flag.py:106`, kept *beside* `results` rather
+than inside it, exactly because quarantined scenes must be inventoried without being baselined.
+Expected-fail takes the same shape and nothing new is invented:
+
+- **Baseline schema** — a third top-level `expected_failures` map beside `results` and
+  `quarantined`, keyed by scene path, carrying the §6.2 fields including the
+  `expected_failure` signature. Expected-fail scenes are **not** entries in `results`, so
+  `validate_baseline_candidate` never sees a `passed=false` entry and its refusal stays intact
+  and unweakened.
+- **Comparator** — subtract declared expected-fail scenes from `new_scenes` before `:1295-1299`
+  computes `has_regressions`, and report them in their own section. A scene that is *neither*
+  baselined nor declared expected-fail still fails, which is the property `new_scenes` exists
+  for.
+- **Inventory guard** — derive a third block from the runner and extend every assertion to three
+  buckets: declared exactly once across all three, pairwise disjoint, union covers disk, and
+  `baseline_expected_failures == runner_expected_fail`. This keeps `:96-97` total rather than
+  punching a hole in it.
+- **Fail closed on disagreement.** A scene declared expected-fail in the runner but absent from
+  the baseline map (or vice versa) is a failure, on the same equality model `:103-118` already
+  uses for the other two buckets. Silence between the two sides is never agreement.
+
+**Sequencing.** The Python changes land **before or with** the GDScript map, never after: the
+moment `test_scenes` grows by two scenes with no committed baseline, the blocking lane is red at
+`:1300`. This is T10's own ordering constraint, and it is why §1's T10 row is not "scenes plus
+`qa_test_runner.gd`" work.
+
+### 6.4 The entries point at GPU-001's own issue, filed at T10 time
 
 **Decision (settled: §11 Q2). `GS-AUDIT-GPU-001` gets its own GitHub issue, filed when T10 is
 implemented, and the `EXPECTED_FAIL_SCENES` entries point at that issue — not at #903.** The
@@ -644,17 +774,17 @@ Two reasons, and the second is the operative one:
   pointing at a closed issue — which is the same shape §5.4 rejects for #820. Different
   events need different trackers.
 
-### 6.4 The flip to blocking is gated on GPU-001 being fixed, not on a date
+### 6.5 The flip to blocking is gated on GPU-001 being fixed, not on a date
 
 Removing an `EXPECTED_FAIL_SCENES` entry is the whole flip — the same property
 `QUARANTINED_SCENES` already documents ("Removing an entry is the whole fix for that scene").
 No separate promotion machinery is built for a two-entry map. The trigger is GPU-001's issue
-closing (§6.3), which is why that issue and #903 must be distinct: #903 is done long before
+closing (§6.4), which is why that issue and #903 must be distinct: #903 is done long before
 this flip is possible.
 
-### 6.5 The override-diff guard — the other half of `TEST-008`
+### 6.6 The override-diff guard — the other half of `TEST-008`
 
-`GS-AUDIT-TEST-008`'s remediation direction has **two** clauses, and §§6.1–6.4 take only the
+`GS-AUDIT-TEST-008`'s remediation direction has **two** clauses, and §§6.1–6.5 take only the
 first: *"Add a production-defaults QA scene (depth_test=true, default lighting) to the blocking
 suite; **add a guard diffing test-project overrides against shipped defaults with an explicit
 waiver list**."* The second clause is specified here. It was carried in T10's task from the
@@ -675,16 +805,66 @@ audit. The surface is larger than `depth_test`: the QA project carries **32**
 **Four requirements, and they are the specification.**
 
 1. **Both sides derived; neither side hand-written.** Overrides are parsed from the QA
-   `project.godot`; shipped defaults come from the `GLOBAL_DEF` registrations that declare them
-   (e.g. `GLOBAL_DEF("rendering/gaussian_splatting/composite/depth_test", true)`,
-   `gaussian_splat_manager.cpp:998`), cross-checked for key completeness against the
-   199-key inventory in `modules/gaussian_splatting/config/project_settings_manifest.json`
-   (`root_prefix: rendering/gaussian_splatting/`). Note the division: the manifest is a key
-   inventory and does **not** carry default *values*, so values must come from `GLOBAL_DEF` and
-   the manifest is what catches an override whose key is registered nowhere. **A hand-written
-   table of expected defaults is forbidden** — it is the same defect this whole cluster exists
-   to remove, and it would rot silently the first time a default changed, leaving the guard
-   green while comparing against a value the engine no longer ships.
+   `project.godot`; defaults come from the registrations that declare them, cross-checked for
+   key completeness against the 199-key inventory in
+   `modules/gaussian_splatting/config/project_settings_manifest.json`
+   (`root_prefix: rendering/gaussian_splatting/`). The manifest is a key inventory and does
+   **not** carry default *values*, so values must come from the registrations and the manifest
+   is what catches an override whose key is registered nowhere — which fires today:
+   **`gaussian_splatting/instance_pipeline/enabled=true` is overridden by the QA project and
+   has no manifest entry** (31 of the 32 overrides are inventoried). **A hand-written table of
+   expected defaults is forbidden** — it is the same defect this cluster exists to remove, and
+   it would rot silently the first time a default changed.
+
+   **`GLOBAL_DEF` is not the only registration form, and a `GLOBAL_DEF`-only guard would be
+   vacuous over the keys that matter most.** An earlier revision of this section said defaults
+   "come from the `GLOBAL_DEF` registrations", which was written without reading the
+   registration paths — rule 6, and the sixth instance of it. Measured at `adcd6916dbd` by
+   resolving manifest keys against string literals at `GLOBAL_DEF*` call sites: only **128 of
+   199** resolve, and of the QA project's 32 overrides **14 do not resolve at all** — including
+   **all three lighting keys**, which is precisely the divergence `TEST-008` calls material. The
+   forms actually present in the module:
+
+   | Form | Sites | Example |
+   | --- | --- | --- |
+   | `GLOBAL_DEF` | 189 | `GLOBAL_DEF("rendering/gaussian_splatting/composite/depth_test", true)` — `core/gaussian_splat_manager.cpp:998` |
+   | `GLOBAL_DEF_RST` | 1 | `core/gaussian_splat_manager.cpp:1065` |
+   | `set_setting` + `set_initial_value` | 3 files | `renderer/gaussian_splat_renderer.cpp:189` `_initialize_lighting_project_settings_defaults()`, called at `:883`; `renderer/quantization_config.cpp:210-212`; `renderer/sh_config.cpp:139-141` |
+
+   The lighting path is the worked example, and it contains no `GLOBAL_DEF` at all:
+   `direct_light_scale` 0.5 (`:203`, `:205`), `indirect_sh_scale` 1.0 (`:208`, `:210`),
+   `shadow_strength` 1.0 (`:213`, `:215`), each guarded by `has_setting` and pinned with
+   `set_initial_value`. Against those, the QA project sets `indirect_sh_scale=0.0`,
+   `shadow_strength=0.0` **and `direct_light_scale=1.0` against a 0.5 default** — a third
+   lighting divergence `TEST-008` does not name, found only because the values were read.
+
+   **Requirement: cover every authoritative registration mechanism, or query the registered
+   defaults at runtime** rather than scraping source. Querying sidesteps the enumeration problem
+   entirely — every form above ends in the same `ProjectSettings` store — and is preferable
+   wherever the guard can boot the engine.
+
+   One caveat the implementer must price in rather than discover, because it decides the
+   approach: **the value the guard needs is the registered *initial* value, and there is no
+   public C++ accessor for it.** `core/config/project_settings.h` exposes
+   `set_initial_value` (`:172`) but no getter; the stored value is reachable only through
+   `_property_get_revert` (`core/config/project_settings.cpp:1300-1307`, returning
+   `value->value().initial`), declared in the non-public section at `:118-119`.
+   `get_setting_with_override` (`:204`, the target of the `GLOBAL_GET` macro at `:254`) returns
+   the *effective* value — which in the QA project is the override itself, making it useless
+   for this comparison. So the runtime route needs either the bound property-revert path or a
+   new engine accessor; the latter is `core/**` and therefore **R3 engine-delta** with its own
+   review burden. If that price is not worth paying, the source-scraping route is legitimate —
+   it just has to enumerate all the forms above *and* fail closed on the rest.
+
+   **And the load-bearing half: fail closed when a manifest key has no derived value.** An
+   unresolved key is reported and RED, never skipped. Without that clause the guard silently
+   passes over exactly the keys it could not parse — which today would be 71 of 199, the
+   vacuous-guard shape this ADR exists to eliminate, rebuilt inside the guard meant to close it.
+
+   **The list of forms above is open-ended, not closed.** It is what a grep of the module found
+   at `adcd6916dbd`; a form added later would not appear in it. That is why the fail-closed
+   clause, not the table, is the requirement — the table tells an implementer where to start,
+   and the unresolved-key failure is what catches the ones the table misses.
 2. **The waiver list carries a per-entry reason, in the same shape as §8.3's exclusion list.**
    One waiver idiom for this programme, not three: the quarantine-manifest shape — the keyed
    subject, `reason`, `issue_url`, `owner`, `expires_utc`. The two lists differ in subject only
@@ -700,7 +880,7 @@ audit. The surface is larger than `depth_test`: the QA project carries **32**
    to policy's "CI deterministic-check / release-gate machinery" enumeration in the same diff,
    which floors T10's PR at R3 via `SELF_REFERENTIAL_PATHS`. This is what makes T10 the second
    worked instance of §7's programme-wide rule rather than an assertion about a guard that does
-   not exist: §6.5 is the thing §7 points at.
+   not exist: §6.6 is the thing §7 points at.
 
 **Landing posture.** The 32 existing overrides are pre-existing, and this ADR does not decide
 which of them are legitimate — that is the guard's first PR, arguing each waiver on its merits.
@@ -728,7 +908,23 @@ So **T10 is R3 by requirement 4**, independently of whether it ever touches `bas
 no longer what decides the class, though it remains open as a design question. The guard file
 name above is illustrative; only its directory and prefix are load-bearing.
 
-### 6.6 Every QA/visual change is A/B'd on both `depth_test` values
+**The later corrections did not move it.** §6.3's Python-lane work adds
+`tests/ci/run_baseline_qa.py` (R1), and requirement 1's runtime route would add
+`core/config/project_settings.h` (R3, engine delta). Both measured at `adcd6916dbd`; both
+still R3 overall, so §1's row is unchanged:
+
+```
+$ ... --paths qa_test_runner.gd check_qa_settings_overrides.py run_baseline_qa.py .agentic/policy.json
+risk_class: R3     # run_baseline_qa.py measures R1; the policy edit still sets the class
+$ ... --paths check_qa_settings_overrides.py core/config/project_settings.h .agentic/policy.json
+risk_class: R3     # now R3 twice over — engine delta AND the self-referential policy edit
+```
+
+Worth noting which way that cuts: the engine-accessor route does not *raise* T10's class,
+because §7's self-registration already floored it. The reason to weigh that route is the
+review burden of a `core/**` delta, not a class change.
+
+### 6.7 Every QA/visual change is A/B'd on both `depth_test` values
 
 **Decision, and it is a rule for the whole programme, not just T10.** Phase 0 measured that
 the QA pin does not merely narrow coverage — it **inverts the result**: with
@@ -758,10 +954,10 @@ an R3-grade guard under an R1 review.
 **Instances in this cluster.**
 
 - **T9 (#901)** — `tests/ci/check_engine_delta.py`. The worked example, measured below.
-- **T10 (#903)** — the **override-diff guard specified in §6.5**, which is the second clause of
+- **T10 (#903)** — the **override-diff guard specified in §6.6**, which is the second clause of
   `GS-AUDIT-TEST-008`'s remediation direction. T10's PR carries the `.agentic/policy.json` edit
-  and the resulting R3 grade with it; §6.5 records the measurement. This is a worked instance
-  rather than an assertion, because §6.5 now specifies the guard the rule attaches to.
+  and the resulting R3 grade with it; §6.6 records the measurement. This is a worked instance
+  rather than an assertion, because §6.6 now specifies the guard the rule attaches to.
 - **No other member of §1 can be shown to introduce a new guard script from this ADR's text
   alone.** §9 records the remaining members as direct applications of their findings' remediation
   directions without naming files, so whether (for instance) T6's `validate_automation` wiring
@@ -1112,13 +1308,13 @@ excluded from the Phase-1 batch — while the manifest fields require a real tar
 GPU-001 is filed, or the entries point at #903 and are re-pointed later.
 
 *Settled.* **The entries point at GPU-001's own issue, which T10 files when it is implemented.
-Not #903, and not filed now.** Full reasoning in §6.3: filing it is *within* the Phase-1
+Not #903, and not filed now.** Full reasoning in §6.4: filing it is *within* the Phase-1
 exclusion policy rather than an exception to it, because an in-repo artifact referencing the
 defect makes it active work; and #903 cannot serve, because **#903 closes when the gate covers
 production defaults while the oracles flip to blocking when the defect is fixed** — two events,
 two trackers.
 
-*Recorded in.* §6.3 (new), and §6.4's flip trigger.
+*Recorded in.* §6.4 (new), and §6.5's flip trigger.
 
 **Q3 — whether T7c derives `renderStreamingPrefixes` from policy's R2 globs. Settled: derive,
 with an explicit reasoned exclusion list.**
@@ -1184,8 +1380,8 @@ instead of avoiding it. §6 covers T10's design **either way**, so the ADR requi
 satisfied whichever class the finished design measures.
 
 *And then the design answered it.* Specifying the second clause of `TEST-008`'s remediation
-direction — the override-diff guard, §6.5 — introduces a new `tests/ci/check_*.py`, which
-self-registers into policy per §7 and floors T10's PR at **R3** (measured in §6.5). So T10 is
+direction — the override-diff guard, §6.6 — introduces a new `tests/ci/check_*.py`, which
+self-registers into policy per §7 and floors T10's PR at **R3** (measured in §6.6). So T10 is
 R3, arrived at the way the principle requires: nobody chose the class, the class fell out of
 writing down the whole fix. The original question stands open as a *design* question — whether
 the finished design also wants `baseline_qa.yml` edited, for instance to surface the
@@ -1199,7 +1395,7 @@ R1 and looked like a defensible minimal scope — and it would have shipped **ha
 against manifest/GLOBAL_DEF defaults") went unaddressed. Trimming a fix until it grades R1 is
 the failure this ADR is about, one level up.
 
-*Recorded in.* §1's T10 row (now **R3**), §6.5, and §7's instance list.
+*Recorded in.* §1's T10 row (now **R3**), §6.6, and §7's instance list.
 
 ## 12. What would change this decision
 
