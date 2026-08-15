@@ -830,6 +830,31 @@ audit. The surface is larger than `depth_test`: the QA project carries **32**
    | `GLOBAL_DEF` | 189 | `GLOBAL_DEF("rendering/gaussian_splatting/composite/depth_test", true)` — `core/gaussian_splat_manager.cpp:998` |
    | `GLOBAL_DEF_RST` | 1 | `core/gaussian_splat_manager.cpp:1065` |
    | `set_setting` + `set_initial_value` | 3 files | `renderer/gaussian_splat_renderer.cpp:189` `_initialize_lighting_project_settings_defaults()`, called at `:883`; `renderer/quantization_config.cpp:210-212`; `renderer/sh_config.cpp:139-141` |
+   | `GLOBAL_DEF` with a **constructed** key | 23 paths | `GLOBAL_DEF(GPUSortingConfig::MAX_ELEMENTS_PATH, …)` — `renderer/gpu_sorting_config.cpp:690`, key built at `:24` |
+
+   **And the unresolved keys have two distinct causes, which matters because only one of them
+   is about registration forms.** Reading the actual sites:
+
+   - **A different form.** The lighting keys are registered with no `GLOBAL_DEF` anywhere in the
+     path (below).
+   - **A constructed key.** `renderer/gpu_sorting_config.cpp` builds **23** setting paths by
+     concatenation — `const String GPUSortingConfig::MAX_ELEMENTS_PATH = SECTION_PATH +
+     "max_sort_elements"` (`:24`, with `SECTION_PATH` at `:20`) — and then registers them with
+     the ordinary macro: `GLOBAL_DEF(GPUSortingConfig::MAX_ELEMENTS_PATH, 50000000)` (`:690`).
+     The form is `GLOBAL_DEF`; the full key literal simply never appears in the source, so no
+     literal scan can find it however many forms it enumerates.
+
+   A third obstacle sits behind both: some registrations take a **runtime value**, e.g.
+   `GLOBAL_DEF(GPUSortingConfig::BOUNDED_BUFFER_SHRINK_PATH,
+   g_gpu_sorting_config.bounded_buffer_shrink_enabled)` (`:701`). Even with the key resolved,
+   the default is not a literal to read. Source-scraping therefore has to solve key
+   constant-folding *and* value constant-folding, not just form enumeration — which is the
+   strongest argument for querying at runtime, where all three collapse into one lookup.
+
+   (The same file shows why this matters beyond the guard: `:137-140` carries hand-written
+   fallbacks with the comment *"Fallbacks MUST match the registered `GLOBAL_DEF`"* — a
+   duplicated-default coupling of exactly the kind rule 5 exists to catch. Out of scope for
+   T10; noted because the guard would be well placed to catch it later.)
 
    The lighting path is the worked example, and it contains no `GLOBAL_DEF` at all:
    `direct_light_scale` 0.5 (`:203`, `:205`), `indirect_sh_scale` 1.0 (`:208`, `:210`),
