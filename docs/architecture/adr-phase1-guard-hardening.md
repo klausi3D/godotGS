@@ -253,7 +253,10 @@ is to relax the parser — which recreates the defect with a fresh justification
 - **Step 1 (this cluster).** The parser learns the marker. A scenario without it is recorded
   as `no_completion_marker` in `runtime_validation_report.json` and printed, but does not
   fail. All 11 registered GDScript scenarios are ported in the same PR, and their measured
-  per-scenario assertion counts are recorded.
+  per-scenario assertion counts are recorded. **Porting all 11 is not the same as observing all
+  11 in one run**, and step 2's trigger turns on that distinction: every registered scenario
+  gets the marker here, but no single profile *selects* all 11, so no single run can witness
+  them. Step 1's obligation is over the registry; step 2's is over what each profile runs.
 - **Step 2 (gated on step 1's numbers, and it stays in this cluster).** The parser flips to
   fail-closed, and the assertion counts measured in step 1 are pinned as a shrink-only floor.
   Arming against measured values is the [advisory-lane-ledger](adr-advisory-lane-ledger.md)
@@ -265,14 +268,59 @@ is to relax the parser — which recreates the defect with a fresh justification
   arming condition is an advisory lane forever. So the flip has a condition it can actually
   meet, in this cluster:
 
-  - **Proposed soak: 5 consecutive runs of each CI-invoked profile, with `[RUNTIME_PASS]`
-    present for every registered GDScript scenario in every run, and no `no_completion_marker`
-    record in any `runtime_validation_report.json` from those runs.** The profile set is the
-    three profiles CI actually invokes — **`headless-ci`** and **`streaming-gpu-ci`**
-    (`gaussian_production_gates.yml:346,358`) and **`release-ci`**
+  - **Proposed soak, as two distinct obligations.** They are separate on purpose; collapsing
+    them into one is what made the first draft of this paragraph unsatisfiable (see the
+    correction below).
+    1. **Per-profile completeness.** 5 consecutive runs of each CI-invoked profile, with
+       `[RUNTIME_PASS]` present for every scenario **that profile selects** — not every
+       registered scenario — and no `no_completion_marker` record in that profile's report for
+       any of those runs.
+    2. **Union coverage.** The profiles in the soak set must, between them, select **all 11**
+       registered `GDS_TESTS` scenarios. This is asserted separately, as a property of
+       `runtime_scenarios.json` at the moment the flip lands, and it is what makes obligation 1
+       add up to a statement about the whole registry.
+
+    The profile set is the three profiles CI actually invokes — **`headless-ci`** and
+    **`streaming-gpu-ci`** (`gaussian_production_gates.yml:346,358`) and **`release-ci`**
     (`release_ci_runtime.yml:119`) — not all six declared profiles. A profile no lane invokes
     cannot soak, and counting it as soaked would be the same absence-as-evidence shape one
     level up.
+
+    **Both halves measured at `adcd6916dbd`**, by reading `gd_tests` out of
+    `tests/runtime/runtime_scenarios.json` and the registry out of `GDS_TESTS`
+    (`run_runtime_validation.py:107-119`):
+
+    | Profile | Scenarios selected | Covers all 11? |
+    | --- | --- | --- |
+    | `headless-ci` | 3 | no |
+    | `streaming-gpu-ci` | 3 | no |
+    | `release-ci` | 10 | no |
+    | **union of the three** | **11** | **yes** |
+
+    The union holds, but only just, and on one scenario: **`Streaming GPU Tier Budget
+    Contract` is selected by `headless-ci` alone** and is the single scenario `release-ci`
+    omits. Drop `headless-ci` from the set, or edit its `gd_tests`, and the union silently
+    stops covering the registry while every remaining obligation still passes.
+
+    **So obligation 2 is a guard, not a note.** The flip PR asserts the union property in code
+    — derived from `runtime_scenarios.json` and `GDS_TESTS`, never from a hand-written list of
+    scenario names, per §2 and `evidence-integrity.md` practice 5 — and **a future profile edit
+    that breaks it must fail loudly.** A registered scenario that no soaked profile selects is
+    a coverage hole, and the failure must name the orphaned scenario. The forbidden outcome is
+    the quiet one: the soak keeps passing over a shrinking share of the registry, and the
+    fail-closed flip is armed by evidence about scenarios nobody ran.
+
+  - **Correction, recorded because the mistake is instructive.** The first version of this
+    paragraph required `[RUNTIME_PASS]` from *every registered scenario in every run*. Measured
+    against the table above, **no profile selects all 11**, so no run could ever qualify, step 2
+    could never arm, and the missing-marker path would have stayed advisory forever. That is
+    precisely the outcome §11 Q4 exists to prevent — an unsatisfiable trigger is a forgotten
+    TODO with a schedule attached — and it is a vacuous gate in the strictest sense this repo
+    means it: a condition that can never fire can never discriminate, so it would have read as
+    a rigorous trigger while being no trigger at all. It is recorded here rather than quietly
+    corrected because the tightening felt like *strengthening* the requirement at the time. The
+    next author revising this trigger should check satisfiability against real profile
+    selections before tightening it again.
   - **This N and this profile set are a proposal, not a measurement.** They are chosen before
     step 1 has produced a single run. The flip PR must confirm them against real runs and say
     so: if 5 runs is too few to have seen the flaky path, or a profile turns out never to emit,
@@ -283,6 +331,50 @@ is to relax the parser — which recreates the defect with a fresh justification
     5 consecutive `release-ci` runs is 5 nights of wall-clock. If that latency is the reason to
     change the trigger, the flip PR says so and proposes the alternative — it does not silently
     drop `release-ci` from the set.
+  - **Precondition: the reports the soak reads must survive the run. Today one of them does
+    not.** Verified at `adcd6916dbd`: neither invocation in `gaussian_production_gates.yml`
+    passes `--report-path` (there is **no** `--report-path` anywhere under `.github/workflows/`),
+    so both fall back to the same default — `tests/runtime/runtime_validation_report.json`
+    (`run_runtime_validation.py:217-221`, default at `:219`) — inside the **same job and the
+    same workspace**. The write is truncating (`report_path.open("w")`, `:1205`), so the
+    `streaming-gpu-ci` run at
+    `:351-360` **overwrites the `headless-ci` report** written at `:339-349`, and the single
+    upload step at `:362-367` ships only the survivor.
+
+    The consequence is exactly the error this cluster exists to remove: the soak would try to
+    confirm that no `no_completion_marker` appeared in the **headless** reports by reading a
+    file that no longer contains them, and would read that silence as a pass. Absence of a
+    signal is never a passing signal — and here the absence is not even a gap in the evidence,
+    it is evidence that was produced and then destroyed. Note that `headless-ci` is the only
+    profile selecting `Streaming GPU Tier Budget Contract`, so the lost report is the one
+    carrying the union's single load-bearing scenario.
+
+    **Therefore: distinct `--report-path` values per invocation, and both artifacts preserved,
+    are a precondition of the soak counting at all.** No qualifying run exists before this
+    lands. This is **T3 implementation work on `.github/workflows/gaussian_production_gates.yml`**,
+    and it does not move T3's class — measured, not assumed:
+
+    ```
+    $ python scripts/agentic/classify_change.py --paths \
+          tests/runtime/run_runtime_validation.py tests/runtime/gs_runtime_report.gd \
+          tests/runtime/runtime_scenarios.json
+    risk_class: R3
+    $ python scripts/agentic/classify_change.py --paths \
+          tests/runtime/run_runtime_validation.py tests/runtime/gs_runtime_report.gd \
+          tests/runtime/runtime_scenarios.json .github/workflows/gaussian_production_gates.yml
+    risk_class: R3
+      R3  .github/workflows/gaussian_production_gates.yml  (Release / security / CI workflow surface)
+    ```
+
+    T3 is R3 on `run_runtime_validation.py` alone; the workflow edit adds a second R3 path and
+    changes nothing about the obligations. **This ADR does not make that edit** — it is an R0
+    design record, and the workflow change belongs to T3's implementation PR. A later reader
+    must not assume it is already done: check the two invocations for `--report-path` before
+    counting a single soak run.
+
+    `release-ci` is unaffected — it runs in its own workflow and job and uploads under its own
+    artifact name (`release_ci_runtime.yml:124-129`), so nothing overwrites it.
+
   - **If the soak exposes marker gaps, that is a finding to fix, not a reason to stay advisory
     silently.** A scenario that intermittently omits the marker has an intermittent
     completion path, which is the defect `TEST-007` describes. The available responses are:
@@ -902,6 +994,18 @@ a finding to fix, not a reason to stay advisory silently.**
 
 *Recorded in.* §4.6 step 2, including a proposed N and profile set that the flip PR must
 confirm against real runs rather than inherit.
+
+*Two corrections found in review, both kept visible in §4.6 rather than silently patched.* The
+first draft of the trigger was **unsatisfiable** — it demanded a marker from every registered
+scenario in every run, and no CI profile selects more than 10 of the 11 — so the "evidence-based
+trigger" would have armed nothing, which is the same forgotten-TODO outcome this answer was
+chosen to avoid, reached by the opposite route. It is now two obligations: per-profile
+completeness, plus a separately guarded union-coverage property. The second: the soak's evidence
+is currently **destroyed before it is read** — both `gaussian_production_gates.yml` invocations
+write the same default report path and the later one overwrites the earlier — so distinct
+`--report-path` values and preserved artifacts are now a stated precondition, and T3
+implementation work. Neither correction changes the answer to Q4; both change whether the answer
+could have been carried out.
 
 **Q5 — whether T10 reaches `baseline_qa.yml`. Settled: not pre-decided; the class follows the
 design.**
