@@ -483,6 +483,35 @@ class ZeroAssertionAllowlistTests(unittest.TestCase):
                 ]
             )
 
+    def test_load_scenario_config_itself_rejects_an_expired_entry(self) -> None:
+        """Codex round 2 (PR #915): the direct-validator test above cannot see
+        `_load_scenario_config` dropping its call to the validator (the shipped
+        allowlist is empty, so the load path would stay green). This drives the
+        LOAD PATH with a config whose only profile does not select the exempted
+        scenario -- deleting the validator call in _load_scenario_config turns
+        this RED."""
+        config = {
+            "version": 1,
+            "default_profile": "p",
+            "profiles": {
+                "p": {"cpp_tests": [], "gd_tests": ["Engine Capability Sanity"], "godot_args": []}
+            },
+            "zero_assertion_allowlist": [
+                {
+                    "scenario": "Interactive State",
+                    "reason": "r",
+                    "issue_url": "u",
+                    "owner": "o",
+                    "expires_utc": "2020-01-01T00:00:00Z",
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "scenarios.json"
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                runtime_validation._load_scenario_config(config_path)
+
     def test_shipped_scenario_config_validates(self) -> None:
         """The committed runtime_scenarios.json must satisfy its own contract."""
         config = runtime_validation._load_scenario_config(
