@@ -801,6 +801,73 @@ class VulkanLayerGate(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("none of them were the GPU driver's own", "\n".join(lines))
 
+    def test_control_that_never_saw_the_device_chain_fails(self) -> None:
+        """A control blind to the device chain must not certify it (#878 review, P1).
+
+        The two chains have different line formats, so a loader update can hide
+        the device lines from control and effective runs *symmetrically*:
+        `control_names` stays nonempty, nothing is lost against the control's
+        own chains, nothing unexpected is parsed -- and a device-only
+        third-party layer is invisible while the gate passes. Note the control
+        below even contains a third-party layer; without the both-chains
+        assertion this scenario is GREEN.
+        """
+        instance_only_control = "\n".join(
+            [
+                loader_line("instance", "VK_LAYER_OBS_HOOK", _OBS_DLL),
+                loader_line("instance", "VK_LAYER_NV_optimus", _NV_DLL),
+                loader_line("instance", "VK_LAYER_NV_present", _NV_DLL),
+            ]
+        )
+        instance_only_clean = "\n".join(
+            [
+                loader_line("instance", "VK_LAYER_NV_optimus", _NV_DLL),
+                loader_line("instance", "VK_LAYER_NV_present", _NV_DLL),
+            ]
+        )
+        ok, lines, record = self._run(instance_only_control, instance_only_clean)
+        text = "\n".join(lines)
+        self.assertFalse(ok, text)
+        self.assertIn("device", text)
+        self.assertIn("never observed that chain", text)
+        # The failure is about blindness, not cleanliness.
+        self.assertNotIn("PASS", text)
+        self.assertEqual(record["control_chain_types"], ["instance"])
+
+    def test_control_that_never_saw_the_instance_chain_fails(self) -> None:
+        """The same defect in the other direction, so the fix is not device-specific."""
+        device_only_control = "\n".join(
+            [
+                loader_line("device", "VK_LAYER_OBS_HOOK", _OBS_DLL),
+                loader_line("device", "VK_LAYER_NV_optimus", _NV_DLL),
+                loader_line("device", "VK_LAYER_NV_present", _NV_DLL),
+            ]
+        )
+        device_only_clean = "\n".join(
+            [
+                loader_line("device", "VK_LAYER_NV_optimus", _NV_DLL),
+                loader_line("device", "VK_LAYER_NV_present", _NV_DLL),
+            ]
+        )
+        ok, lines, record = self._run(device_only_control, device_only_clean)
+        text = "\n".join(lines)
+        self.assertFalse(ok, text)
+        self.assertIn("instance", text)
+        self.assertIn("never observed that chain", text)
+        self.assertEqual(record["control_chain_types"], ["device"])
+
+    def test_a_control_that_saw_both_chains_is_accepted_and_recorded(self) -> None:
+        """The leg that stops the fix from passing by rejecting everything.
+
+        Healthy captured-format output -- both chains present in the control --
+        must still pass, and the record must show which chain types the control
+        demonstrated, so a later reader of --json can see the evidence rather
+        than infer it.
+        """
+        ok, lines, record = self._run(_CONTROL_TEXT, _CLEAN_TEXT)
+        self.assertTrue(ok, "\n".join(lines))
+        self.assertEqual(record["control_chain_types"], ["device", "instance"])
+
     def test_elevated_notice_is_reported_next_to_the_verdict(self) -> None:
         """Why a set variable did nothing, said in the failure a maintainer reads."""
         elevated = _CONTROL_TEXT + "".join(
