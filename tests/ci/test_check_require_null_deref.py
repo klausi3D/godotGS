@@ -3421,11 +3421,26 @@ class BaselineIntegrity(unittest.TestCase):
         clone with neither ref) -- exactly the class of environment an isolated
         agent worktree can have. `--base-ref HEAD` sidesteps it: `merge-base(HEAD,
         HEAD)` is HEAD itself, so it resolves in ANY git repository regardless of
-        what other branches exist, while still exercising the real review-base code
-        path (resolution, base-content fetch, comparison) end to end. The FALLBACK
-        CHAIN itself (unset ref -> origin/master -> master) is covered separately,
-        in complete isolation from this checkout's topology, by
-        `ResolveReviewBaseAgainstRealGit` below.
+        what other branches exist, while still exercising resolution and base-content
+        fetch end to end.
+
+        Acknowledged deliberate deviation (independent review, round 3): `--base-ref
+        HEAD` is the exact anti-pattern `resolve_base_sha`'s own docstring forbids in
+        production ("It must never fall back to HEAD: that reinstates the bug in
+        precisely the situation where it matters"), and the sibling ships
+        `test_head_is_not_accepted_as_its_own_reference` guarding against it. Here it
+        is a deliberate, narrow TEST-ONLY choice, not a reachable code path -- but it
+        means base content is always IDENTICAL to current content in this specific
+        test, so `added` is empty on every key and `_rescan_base_content` fires ZERO
+        times: this assertion's review-base half is structurally incapable of ever
+        going RED on a real regression there. It cannot be fixed by pointing this
+        smoke test at a synthetic fixture instead, because its job is specifically to
+        smoke-test the REAL, full, ~119-file corpus end to end, which a fixture
+        cannot stand in for. The rescan itself has real, non-vacuous coverage
+        elsewhere: `RescanBaseContentAgainstRealGit` (a real two-commit fixture where
+        base content genuinely differs from current) and
+        `DetectorDiffersFromBaseAgainstRealGit` (real, unstubbed, against actual
+        history) below.
         """
         self.assertEqual(GUARD.main(["--base-ref", "HEAD"]), 0)
 
@@ -3891,6 +3906,34 @@ class ReviewBaseGrowthCheck(unittest.TestCase):
         self.assertEqual(code, 0, buffer.getvalue())
         self.assertIn("NOTE", buffer.getvalue())
 
+    def test_rescan_failure_is_a_hard_stop_not_a_silent_pass(self):
+        """A `_rescan_base_content` FAILURE (git broke, could not stage the temp
+        file, a scan error re-reading the base content) must propagate as a hard
+        stop, never be read as "found nothing" or "found everything" -- either
+        silent reading would turn a git or filesystem hiccup into a bypass of the
+        very check GS-AUDIT-TEST-003 exists to enforce. No existing case before
+        this one ever configures `_rescan_base_content` to fail; every
+        `rescan_results` entry elsewhere returns `(prints, [])`.
+        """
+        fingerprint = "ptr|!= nullptr|deadbeef00"
+        self._stub_base(
+            base_null_deref_files={"old_basename.h": [fingerprint]},
+            base_size_index_files={},
+            detector_differs=True,
+            rescan_results={"new/nested/path.h": (None, ["git show exit 128: fatal: bad object"])},
+        )
+        base_sha, base_failures = GUARD.resolve_review_base()
+        self.assertEqual(base_failures, [])
+        new_relative, growth_failures, introduced = GUARD._baseline_growth_vs_base(
+            {"new/nested/path.h": [fingerprint]}, GUARD.BASELINE_PATH, base_sha, True, "null_deref"
+        )
+        self.assertEqual(
+            new_relative, {}, "a hard-stop failure must not also report growth"
+        )
+        self.assertTrue(growth_failures, "a rescan failure must propagate, not be swallowed")
+        self.assertIn("bad object", growth_failures[0])
+        self.assertFalse(introduced)
+
     def test_regenerate_refuses_a_genuinely_new_fingerprint(self):
         """`_refused_flattened_additions` (GS-AUDIT-TEST-003) is the one deliberate
         loosening in this change: both regenerate tools compare the freshly scanned
@@ -3945,6 +3988,18 @@ _BASE_ENV_VARS = (
 )
 
 
+def _resolve_review_base_with_clean_env(base_ref=None):
+    """`resolve_review_base`, with none of this PROCESS's own CI env vars leaking
+    into a fixture-repo test -- this test suite may itself be running inside CI,
+    where `GS_CI_BASE_REF` etc. are set for the REAL PR, which must not silently
+    override a fixture's `base_ref`/fallback-chain scenario.
+    """
+    with mock.patch.dict(os.environ, {}, clear=False):
+        for name in _BASE_ENV_VARS:
+            os.environ.pop(name, None)
+        return GUARD.resolve_review_base(base_ref)
+
+
 class ResolveReviewBaseAgainstRealGit(unittest.TestCase):
     """A thin, non-mocked check that the git plumbing itself fails closed -- the
     mocked cases above stub `resolve_review_base` and cannot catch a regression in
@@ -3995,10 +4050,7 @@ class ResolveReviewBaseAgainstRealGit(unittest.TestCase):
         )
 
     def _resolve_with_clean_env(self, base_ref=None):
-        with mock.patch.dict(os.environ, {}, clear=False):
-            for name in _BASE_ENV_VARS:
-                os.environ.pop(name, None)
-            return GUARD.resolve_review_base(base_ref)
+        return _resolve_review_base_with_clean_env(base_ref)
 
     def test_an_unresolvable_named_ref_fails_closed(self):
         base_sha, failures = self._resolve_with_clean_env(
@@ -4036,6 +4088,221 @@ class ResolveReviewBaseAgainstRealGit(unittest.TestCase):
         self.assertEqual(failures, [], failures)
         self.assertIsNotNone(base_sha)
         self.assertRegex(base_sha, r"^[0-9a-f]{40}$")
+
+
+class RescanBaseContentAgainstRealGit(unittest.TestCase):
+    """A real, end-to-end proof that `_rescan_base_content` reads the REVIEW
+    BASE's content, not the working tree's -- independent review, round 3.
+
+    Every `ReviewBaseGrowthCheck` case stubs `_rescan_base_content` via
+    `_stub_base(rescan_results=...)`. That pins "given the rescan returns X, the
+    arithmetic does Y" -- genuinely valuable; it is what caught the
+    double-reduction bug -- but never "the rescan returns what the base actually
+    contained". The one previously-unmocked end-to-end case,
+    `BaselineIntegrity.test_guard_passes_on_the_current_tree`, now uses
+    `--base-ref HEAD` (the F2 fix), and the independent verifier measured that
+    firing the real rescan ZERO times: base content is identical to current
+    content when the base IS HEAD, so `added` is empty and the rescan is never
+    reached. Closing that gap is this class's job.
+
+    Extends `ResolveReviewBaseAgainstRealGit`'s `BASE_RESOLVER_PATH`-redirection
+    fixture with ROOT / MODULE_TESTS_DIR / ENGINE_TESTS_DIR / BASELINE_PATH /
+    SIZE_INDEX_BASELINE_PATH, all pointed inside the SAME disposable git repo, so
+    the full pipeline -- scan, baseline load, git-based base resolution, blob
+    fetch, and the rescan itself -- runs against real files and real git history,
+    across a REAL two-commit history where the base commit's content genuinely
+    differs from the working tree's.
+
+    One function is still stubbed: `detector_differs_from_base`. It inherently
+    compares THIS SCRIPT's own content via `Path(__file__)`, which Python binds at
+    import time to the real `check_require_null_deref.py` on disk -- no
+    monkeypatch redirects it into an isolated fixture (see that function's own
+    real, unstubbed coverage in `DetectorDiffersFromBaseAgainstRealGit` below,
+    which is what makes stubbing it HERE a justified, narrow substitution rather
+    than a silent gap).
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = Path(self._tmp.name) / "repo"
+        self.module_dir = self.repo / "modules" / "gaussian_splatting" / "tests"
+        self.engine_dir = self.repo / "engine_tests"
+        self.ci_dir = self.repo / "tests" / "ci"
+        self.module_dir.mkdir(parents=True)
+        self.engine_dir.mkdir(parents=True)
+        self.ci_dir.mkdir(parents=True)
+
+        fixture_resolver = self.ci_dir / "check_environment_skip_marker.py"
+        fixture_resolver.write_text(
+            GUARD.BASE_RESOLVER_PATH.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+
+        self._saved = {
+            name: getattr(GUARD, name)
+            for name in (
+                "ROOT",
+                "MODULE_TESTS_DIR",
+                "ENGINE_TESTS_DIR",
+                "BASELINE_PATH",
+                "SIZE_INDEX_BASELINE_PATH",
+                "BASE_RESOLVER_PATH",
+                "detector_differs_from_base",
+            )
+        }
+        self.addCleanup(lambda: [setattr(GUARD, k, v) for k, v in self._saved.items()])
+        GUARD.ROOT = self.repo
+        GUARD.MODULE_TESTS_DIR = self.module_dir
+        GUARD.ENGINE_TESTS_DIR = self.engine_dir
+        GUARD.BASELINE_PATH = self.ci_dir / "require_null_deref_baseline.json"
+        GUARD.SIZE_INDEX_BASELINE_PATH = self.ci_dir / "size_then_index_baseline.json"
+        GUARD.BASE_RESOLVER_PATH = fixture_resolver
+        # Justified narrow stub -- see the class docstring.
+        GUARD.detector_differs_from_base = lambda sha: (True, [])
+
+        self._git("init", "-q", "-b", "topic")
+        self._git("config", "user.email", "t@example.com")
+        self._git("config", "user.name", "t")
+
+    def _git(self, *args: str) -> None:
+        subprocess.run(
+            ["git", *args], cwd=self.repo, check=True, capture_output=True, text=True
+        )
+
+    def test_rescan_reads_the_base_not_the_working_tree(self):
+        # --- Commit 1 (the review base). test_a.h has ONE violation. test_b.h has
+        # ONE violation, recorded in the COMMITTED baseline under its OLD basename
+        # key -- the exact shape a pending basename -> path rekey leaves at the
+        # review base (this PR's own real transition).
+        a_base_content = (
+            'TEST_CASE("[Synthetic] a") {\n'
+            "  REQUIRE(ptr_a != nullptr);\n"
+            "  ptr_a->method();\n"
+            "}\n"
+        )
+        b_content = (
+            'TEST_CASE("[Synthetic] b") {\n'
+            "  REQUIRE(shared_b != nullptr);\n"
+            "  shared_b->method();\n"
+            "}\n"
+        )
+        (self.module_dir / "test_a.h").write_text(a_base_content, encoding="utf-8")
+        (self.module_dir / "test_b.h").write_text(b_content, encoding="utf-8")
+
+        base_prints = GUARD.scan_fingerprints()
+        fp_a = base_prints["modules/gaussian_splatting/tests/test_a.h"][0]
+        fp_c = base_prints["modules/gaussian_splatting/tests/test_b.h"][0]
+
+        GUARD.BASELINE_PATH.write_text(
+            json.dumps({
+                "schema_version": 1,
+                "files": {
+                    "modules/gaussian_splatting/tests/test_a.h": [fp_a],
+                    "test_b.h": [fp_c],
+                },
+            }),
+            encoding="utf-8",
+        )
+        GUARD.SIZE_INDEX_BASELINE_PATH.write_text(
+            json.dumps({"schema_version": 1, "files": {}}), encoding="utf-8"
+        )
+        self._git("add", "-A")
+        self._git("commit", "-q", "-m", "base")
+
+        # --- Commit 2 / working tree (the change under review). test_a.h gains a
+        # SECOND, genuinely new violation -- content that genuinely differs from
+        # the base commit, so the rescan has something to prove. test_b.h is
+        # byte-for-byte unchanged.
+        a_current_content = a_base_content + (
+            'TEST_CASE("[Synthetic] a2") {\n'
+            "  REQUIRE(ptr_a2 != nullptr);\n"
+            "  ptr_a2->method();\n"
+            "}\n"
+        )
+        (self.module_dir / "test_a.h").write_text(a_current_content, encoding="utf-8")
+
+        current_prints = GUARD.scan_fingerprints()
+        fp_b_candidates = [
+            fp for fp in current_prints["modules/gaussian_splatting/tests/test_a.h"]
+            if fp != fp_a
+        ]
+        self.assertEqual(len(fp_b_candidates), 1, current_prints)
+        fp_b = fp_b_candidates[0]
+
+        # The WORKING-TREE baseline is kept HONEST here (this is not the
+        # joint-mutation shape -- that is what `ReviewBaseGrowthCheck` proves): it
+        # is what an up-to-date, correctly-rekeyed baseline looks like, so the
+        # working-tree consistency check passes cleanly and only the review-base
+        # comparison is exercised by this test.
+        GUARD.BASELINE_PATH.write_text(
+            json.dumps({
+                "schema_version": 1,
+                "files": {
+                    "modules/gaussian_splatting/tests/test_a.h": sorted([fp_a, fp_b]),
+                    "modules/gaussian_splatting/tests/test_b.h": [fp_c],
+                },
+            }),
+            encoding="utf-8",
+        )
+        self._git("add", "-A")
+        self._git("commit", "-q", "-m", "current")
+
+        base_sha, base_failures = _resolve_review_base_with_clean_env("topic~1")
+        self.assertEqual(base_failures, [])
+
+        # Precise, structural assertion straight from the growth-check function --
+        # this is the REAL `_rescan_base_content`, `_blob_at_base`, `_repo_path_for_key`
+        # doing real `git show` / `git ls-tree` against the fixture repo built above.
+        new_relative, growth_failures, introduced = GUARD._baseline_growth_vs_base(
+            current_prints, GUARD.BASELINE_PATH, base_sha, True, "null_deref"
+        )
+        self.assertEqual(growth_failures, [])
+        self.assertFalse(introduced)
+        self.assertEqual(
+            new_relative,
+            {"modules/gaussian_splatting/tests/test_a.h": [fp_b]},
+            "test_a.h's genuinely new violation (absent from its OWN real base "
+            "content) must be flagged; test_b.h's rekeyed-but-byte-identical one "
+            "(present in its OWN real base content, just under a different "
+            "committed-baseline key) must be licensed by the real rescan",
+        )
+
+        # And through `main()` end to end, for the WIRING proof -- not merely that
+        # the arithmetic is right in isolation.
+        buffer = io.StringIO()
+        with mock.patch.dict(os.environ, {}, clear=False):
+            for name in _BASE_ENV_VARS:
+                os.environ.pop(name, None)
+            with contextlib.redirect_stdout(buffer):
+                code = GUARD.main(["--base-ref", "topic~1"])
+        output = buffer.getvalue()
+        self.assertEqual(code, 1, output)
+        self.assertIn(fp_b, output, output)
+
+
+class DetectorDiffersFromBaseAgainstRealGit(unittest.TestCase):
+    """Real, unstubbed coverage of `detector_differs_from_base` -- independent
+    review, round 3, item 1 (mutation "detector_differs_from_base -> True").
+
+    `detector_differs_from_base` inherently compares THIS SCRIPT's own content via
+    `Path(__file__)`, bound by Python at import time to the real
+    `check_require_null_deref.py` on disk; no fixture-repo redirection reaches it
+    (see `RescanBaseContentAgainstRealGit`'s docstring), so it cannot be exercised
+    inside an isolated fixture. It CAN be exercised directly against real,
+    topology-independent history: `HEAD` compared with itself must never differ,
+    with no dependency on `origin/master`, `master`, or any other ambient ref.
+    """
+
+    def test_head_does_not_differ_from_itself(self):
+        head_sha, failures = _resolve_review_base_with_clean_env("HEAD")
+        self.assertEqual(failures, [], failures)
+        differs, failures = GUARD.detector_differs_from_base(head_sha)
+        self.assertEqual(failures, [], failures)
+        self.assertFalse(
+            differs,
+            "this script's current content must not differ from its own committed "
+            "HEAD content",
+        )
 
 
 if __name__ == "__main__":
