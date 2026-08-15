@@ -115,6 +115,42 @@ class ClassifyChangeTest(unittest.TestCase):
             policy["classification"]["default_unclassified"] = expected
             self.assertEqual(classify.classify_paths([], policy)[0], expected)
 
+    def test_a_policy_change_is_forced_to_the_top_class(self):
+        """`.agentic/policy.json` is R0 under the shipped rules. It must not be.
+
+        The rules that would grade a change to the risk policy are the rules being
+        changed. Forcing the top class is one half of the fix for that; the other
+        half is the caller passing the immutable base policy (see below).
+        """
+        ordering = POLICY["classification"]["ordering"]
+        self.assertEqual(self._cls([".agentic/policy.json"]), ordering[-1])
+
+    def test_a_relaxed_rule_cannot_downgrade_the_pr_that_relaxes_it(self):
+        """The "compared against itself" shape, as an executable case.
+
+        A PR that flips the renderer rule R2 -> R0 and touches a renderer file used
+        to classify **R1**: the renderer path fell through to the
+        `modules/gaussian_splatting/**` rule, and `.agentic/policy.json` itself was
+        R0. `validate_repo_contract.py --strict-hierarchy` passes throughout,
+        because the relaxed policy is still internally consistent. The required
+        check then published R1 obligations for a renderer change.
+        """
+        relaxed = copy.deepcopy(POLICY)
+        for rule in relaxed["classification"]["rules"]:
+            if rule["class"] == "R2":
+                rule["class"] = "R0"
+        rank = {cls: i for i, cls in enumerate(POLICY["classification"]["ordering"])}
+        paths = ["modules/gaussian_splatting/renderer/gpu_sorter.cpp", ".agentic/policy.json"]
+
+        # Graded by the PR's OWN relaxed policy, the class still cannot drop.
+        relaxed_class = classify.classify_paths(paths, relaxed)[0]
+        self.assertGreaterEqual(rank[relaxed_class], rank["R2"], relaxed_class)
+        self.assertEqual("R3", relaxed_class)
+
+        # And graded by the immutable base policy -- what CI now passes via
+        # --policy -- the renderer file is R2 on its own merits regardless.
+        self.assertEqual("R2", self._cls([paths[0]]))
+
     def test_windows_separators_are_normalized(self):
         self.assertEqual(self._cls([r"modules\gaussian_splatting\renderer\a.cpp"]), "R2")
 

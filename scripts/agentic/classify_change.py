@@ -15,6 +15,12 @@ classified as ``default_unclassified`` rather than as the lowest class
 Base-ref resolution fails closed for the same reason: an unresolvable base is an
 error, never a degraded diff and never an empty result.
 
+A diff that touches ``.agentic/policy.json`` is forced to the top class
+(``SELF_REFERENTIAL_PATHS``): the rules being edited are the ones that would
+otherwise grade the edit. Callers that classify a proposed change -- CI above all
+-- should additionally pass the **immutable base** copy of the policy via
+``--policy``, so a PR cannot relax a rule and be graded by the relaxed rule.
+
 Examples
 --------
     python scripts/agentic/classify_change.py --paths modules/gaussian_splatting/renderer/foo.cpp
@@ -35,6 +41,20 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_POLICY = ROOT / ".agentic" / "policy.json"
+
+# Paths that cannot be graded by the rules they themselves change. A diff touching
+# one of these is forced to the TOP class in ``ordering``, whatever the rules say
+# about it -- otherwise a PR that relaxes a rule is classified by the relaxed rule
+# ("compared against itself", docs/governance/evidence-integrity.md). ``.agentic/**``
+# is R0 under the shipped rules, so without this a PR could downgrade the renderer
+# rule to R0 and be graded R1 overall.
+#
+# This is one of the two halves of the fix; the other is the caller passing the
+# IMMUTABLE BASE copy of the policy via --policy, which is what stops the relaxed
+# rules from being consulted at all. Either half alone leaves a hole: forcing
+# without the base policy still lets ``ordering`` itself be rewritten, and the base
+# policy alone still lets the *next* PR inherit a weakened rule silently.
+SELF_REFERENTIAL_PATHS = (".agentic/policy.json",)
 
 _GLOB_REGEX_CACHE: dict[str, "re.Pattern[str]"] = {}
 
@@ -106,6 +126,11 @@ def classify_paths(paths: list[str], policy: dict[str, Any]) -> tuple[str, list[
         if best is None:
             best = default
             best_reason = "unclassified path (fail-closed)"
+        if path in SELF_REFERENTIAL_PATHS:
+            # Editing the risk policy is maximally sensitive by construction: the
+            # rules being edited are the ones that would otherwise grade the edit.
+            best = ordering[-1]
+            best_reason = "risk policy change (self-referential; forced to the top class)"
         per_path.append({"path": path, "class": best, "reason": best_reason})
         if overall is None or rank[best] > rank[overall]:
             overall = best

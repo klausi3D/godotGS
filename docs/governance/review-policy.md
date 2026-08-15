@@ -46,9 +46,16 @@ severity:
 - **Reviewers do not implement**, and verifiers do not fix — they report.
 - A **reconciler** (human or agent) may deduplicate or merge overlapping findings
   but may **not** silently drop or downgrade a blocker.
-- The author's self-declared risk class is cross-checked against
-  `scripts/agentic/classify_change.py`; the higher class wins and sets the required
-  review layers.
+- The risk class that sets the required review layers is **derived from the diff**
+  by `scripts/agentic/classify_change.py`, which the required `agentic-pr-gate`
+  check runs against the PR's own changed paths and the **immutable base** copy of
+  `.agentic/policy.json`. An author's self-declared class is **not consumed by CI**:
+  the higher-of-the-two cross-check exists in `check_pr_contract.py`, but that
+  script only runs against the shipped fixture, because the repository has no
+  per-PR contract source (Phase-2 contract-source ADR). Treat a declared class as a
+  review-time convention and the derived class as the enforced one — see
+  [agentic engineering](agentic-engineering.md) and `.github/workflows/README.md`
+  for the same statement of the limit.
 - **Untrusted fork code** must never be validated on persistent self-hosted runners;
   GPU/Windows validation happens only after a maintainer moves the change onto a
   same-repo branch. This is the required standard the agentic-foundation series brings

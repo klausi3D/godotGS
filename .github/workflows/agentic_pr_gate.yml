@@ -79,6 +79,18 @@ jobs:
         # merge_group carries base_sha, pull_request carries base.sha. Same shape as
         # the guard step below - a merge-queue run must never be blocked by a missing
         # pull_request payload.
+        #
+        # The classification POLICY is taken from the immutable base, not from this
+        # PR's checkout. A PR that edits .agentic/policy.json alongside higher-risk
+        # files would otherwise be graded by the rules it is itself changing -- flip
+        # the renderer rule R2->R0 and renderer files fall through to R1, while
+        # validate_repo_contract.py --strict-hierarchy still passes because the
+        # policy stays internally consistent. That is the "compared against itself"
+        # shape in docs/governance/evidence-integrity.md. Materialising the base copy
+        # fails CLOSED: if it cannot be read, the step exits non-zero rather than
+        # falling back to the PR's copy. classify_change.py independently forces any
+        # diff touching .agentic/policy.json to the top class, so neither half is
+        # load-bearing alone.
         env:
           GS_PR_BASE_SHA: >-
             ${{ github.event_name == 'merge_group'
@@ -90,8 +102,18 @@ jobs:
             echo "::error::No base SHA available for event '${GITHUB_EVENT_NAME}'; refusing to classify this PR against an unknown base."
             exit 1
           fi
+          base_policy="${RUNNER_TEMP}/base_policy.json"
+          if ! git show "${GS_PR_BASE_SHA}:.agentic/policy.json" > "${base_policy}"; then
+            echo "::error::Cannot read .agentic/policy.json at base ${GS_PR_BASE_SHA}; refusing to classify this PR against its own policy."
+            exit 1
+          fi
+          if [ ! -s "${base_policy}" ]; then
+            echo "::error::Base .agentic/policy.json at ${GS_PR_BASE_SHA} is empty; refusing to classify this PR against its own policy."
+            exit 1
+          fi
           python scripts/agentic/classify_change.py \
             --base-ref "${GS_PR_BASE_SHA}" \
+            --policy "${base_policy}" \
             --format json \
             --github-step-summary
 

@@ -443,6 +443,56 @@ class RiskClassStepTest(WorkflowScan):
             "skipped enforces nothing on the events where it is skipped",
         )
 
+    def test_the_policy_comes_from_the_immutable_base_not_this_prs_checkout(self):
+        """Otherwise the gate grades a PR by the rules that PR is changing.
+
+        `.agentic/policy.json` is R0 under the shipped rules, and
+        `validate_repo_contract.py --strict-hierarchy` only checks the policy is
+        internally CONSISTENT -- so flipping the renderer rule R2->R0 passes
+        validation, drops renderer files to R1, and the required check publishes
+        weaker obligations. "Compared against itself", from
+        `docs/governance/evidence-integrity.md`.
+
+        The chain is asserted, not the presence of a flag: the file `--policy`
+        receives must be the one materialised from the base SHA.
+        """
+        block = self.block()
+        written = re.search(
+            r'git show "\$\{GS_PR_BASE_SHA\}:\.agentic/policy\.json"[ \t]*>[ \t]*"\$\{(\w+)\}"',
+            block,
+        )
+        self.assertIsNotNone(
+            written,
+            f"the step does not materialise the base policy from ${{GS_PR_BASE_SHA}}:\n{block}",
+        )
+        passed = re.search(r'--policy[ \t]+"\$\{(\w+)\}"', block)
+        self.assertIsNotNone(passed, f"the classifier is not given --policy:\n{block}")
+        self.assertEqual(
+            written.group(1),
+            passed.group(1),
+            "--policy is not the file materialised from the base; the gate would "
+            "classify this PR against a policy the PR itself controls",
+        )
+
+    def test_an_unreadable_base_policy_fails_the_step(self):
+        """Fail closed, never fall back to the PR's copy.
+
+        A missing or empty base policy means the gate cannot know what the rules
+        were before this PR. Degrading to the PR's own copy at that point would
+        reintroduce exactly the hole the base copy exists to close.
+        """
+        block = self.block()
+        self.assertRegex(
+            block, r'if ! git show "\$\{GS_PR_BASE_SHA\}:\.agentic/policy\.json"'
+        )
+        self.assertRegex(block, r'if \[ ! -s "\$\{base_policy\}" \]')
+        self.assertGreaterEqual(
+            block.count("exit 1"),
+            3,
+            "each of the three preconditions -- no base SHA, unreadable base "
+            "policy, empty base policy -- must exit non-zero",
+        )
+
     def test_the_step_publishes_the_class_obligations_to_the_job_summary(self):
         """A human merging an R2 PR must see "runtime/GPU evidence required" on the
         required check itself, not only in a doc they might read."""
@@ -495,12 +545,32 @@ class TemplateSelfTestStepTest(WorkflowScan):
 # match on the VALUE rather than on the key, so `continue-on-error: false` -- which
 # states the safe intent -- is not reported as a violation.
 CONTINUE_ON_ERROR_RE = re.compile(r"continue-on-error:[ \t]*(?!false[ \t]*$)\S")
-# Shell constructs that turn a failing command into a passing step. `|| :` is here
-# because `:` is the POSIX no-op and a blacklist of the literal strings "|| true"
-# and "|| exit 0" does not catch it.
-SWALLOWED_FAILURE_RE = re.compile(
-    r"\|\|[ \t]*(?:true\b|:(?=[ \t]|$)|exit[ \t]+0\b)|(?<![\w-])set[ \t]+\+e\b"
-)
+# Shell constructs that turn a failing command into a passing step.
+#
+# This is a WHITELIST, not a list of swallowing shapes: any `||` at all in the
+# gate's shell is rejected, plus `set +e`. Enumerating the bad shapes is how the
+# hole got here. The predecessor listed `|| true`, `|| :` and `|| exit 0` and then
+# asserted, in its own negative control, that `python x.py || echo failed` was
+# SAFE -- it is not: `||` yields the right-hand side's status, `echo` succeeds, and
+# the step goes green while the validator failed. Same false-GREEN class as the
+# print-only step this whole file exists for, and it was blessed by an assertion
+# rather than merely missed.
+#
+# `|| exit 1` and friends propagate failure correctly and are rejected too. That
+# is a deliberate false-RED: the rule "no `||` in the required gate's shell" is
+# auditable at a glance, whereas "no `||` whose right-hand side can succeed"
+# requires classifying every command on earth. Measured before choosing: the gate
+# contains no shell-level `||` today (the docs-link step builds its array with
+# `&&`), so the whitelist costs nothing now and a future need is a deliberate
+# review conversation.
+SWALLOWED_FAILURE_RE = re.compile(r"\|\||(?<![\w-])set[ \t]+\+e\b")
+
+# GitHub expression spans. `${{ a || b }}` is expression syntax evaluated by
+# Actions, not shell, and the gate uses it legitimately for the base-SHA fallback
+# and the concurrency group. Stripping the spans is what makes the blanket `||`
+# rule above possible; see the honesty note on
+# `test_a_github_expression_is_neutralised_by_shell_text_not_by_the_regex`.
+GITHUB_EXPRESSION_RE = re.compile(r"\$\{\{.*?\}\}", re.DOTALL)
 
 
 class GateAlwaysRunsTest(WorkflowScan):
@@ -615,16 +685,27 @@ class NoAdvisoryStepTest(WorkflowScan):
         ]
         self.assertEqual([], offenders, "a step of the required gate cannot continue on error")
 
-    def test_no_command_swallows_its_own_failure(self):
-        """Matched by shape, not by a list of three literal strings.
+    def shell_text(self) -> str:
+        """The workflow's SHELL, with comments and GitHub expressions removed.
 
-        The predecessor checked for `continue-on-error`, `|| true` and `|| exit 0`
-        as substrings. `|| :` is the same construct and walked straight through it,
-        and `continue-on-error: false` -- an explicit statement of the safe intent
-        -- was reported as a violation.
+        `${{ a || b }}` is an Actions expression, not a shell fallback, and the
+        gate uses it legitimately. Removing those spans is what lets the rule below
+        be a blanket "no `||`" rather than a list of swallowing shapes.
+        """
+        return self.body(GITHUB_EXPRESSION_RE.sub("", self.text))
+
+    def test_no_command_swallows_its_own_failure(self):
+        """No `||` in the required gate's shell, at all.
+
+        The predecessor enumerated `|| true`, `|| :` and `|| exit 0` -- and then
+        asserted in its own negative control that `python x.py || echo failed` was
+        safe. It is not: `||` returns the right-hand side's status, `echo`
+        succeeds, and the step reports green while the validator failed. A blessed
+        false-GREEN on the only required check is worse than an uncovered one,
+        because a test says it was considered.
         """
         offenders = [
-            line for line in self.body(self.text).splitlines() if SWALLOWED_FAILURE_RE.search(line)
+            line for line in self.shell_text().splitlines() if SWALLOWED_FAILURE_RE.search(line)
         ]
         self.assertEqual([], offenders, "a failing command in the required gate must fail the step")
 
@@ -635,17 +716,32 @@ class NoAdvisoryStepTest(WorkflowScan):
             "          python x.py || :",
             "          python x.py ||:",
             "          python x.py || exit 0",
+            "          python x.py || echo failed",
+            "          python x.py || printf 'failed\\n'",
+            "          python x.py || cat log.txt",
             "          set +e",
         ):
             self.assertRegex(line, SWALLOWED_FAILURE_RE.pattern, line)
         for line in (
-            "          python x.py || exit 1",
-            "          python x.py || echo failed",
             "          set -euo pipefail",
+            '          [ -e "$p" ] && targets+=("$p")',
+            "          python x.py && echo ok",
         ):
             self.assertIsNone(SWALLOWED_FAILURE_RE.search(line), line)
         self.assertRegex("        continue-on-error: true", CONTINUE_ON_ERROR_RE.pattern)
         self.assertIsNone(CONTINUE_ON_ERROR_RE.search("        continue-on-error: false"))
+
+    def test_a_github_expression_is_neutralised_by_shell_text_not_by_the_regex(self):
+        """Same honesty rule as the comment case: name the load-bearing component.
+
+        The regex deliberately matches the `||` inside `${{ a || b }}` -- it is a
+        blanket rule. Immunity for expression syntax comes from `shell_text()`
+        stripping the spans, so that is what is pinned. Asserting the regex "knows"
+        about expressions would be the tautology this file keeps removing.
+        """
+        expression = "            ${{ github.event_name == 'merge_group' || false }}"
+        self.assertRegex(expression, SWALLOWED_FAILURE_RE.pattern)
+        self.assertEqual("", GITHUB_EXPRESSION_RE.sub("", expression).strip())
 
     def test_a_comment_is_neutralised_by_body_not_by_the_regex(self):
         """Where comment immunity actually comes from -- stated honestly.
