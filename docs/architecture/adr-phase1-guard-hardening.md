@@ -116,8 +116,8 @@ These are stated once, here, and are binding on every PR in §1.
 6. **No prescription without a read.** Every sentence in a design record that says what a named
    file does, or must be changed to do, **cites the `file:line` it was read at**. A prescription
    written from memory of how a consumer *probably* behaves is not a design decision; it is a
-   guess that a reviewer has to re-derive. Nine review rounds produced **twenty-one** findings
-   against this document, and **fourteen were the same defect**: an instruction that would have
+   guess that a reviewer has to re-derive. Ten review rounds produced **twenty-two** findings
+   against this document, and **fifteen were the same defect**: an instruction that would have
    failed the very consumer it was written to satisfy, because nobody had opened it.
 
    | Where | Unread-consumer defects |
@@ -128,12 +128,13 @@ These are stated once, here, and are binding on every PR in §1.
    | §6.3 | an expected-fail design that stops at the GDScript boundary while three Python mechanisms reject it; and its own replacement, a representation no scene could both execute from and be inventoried under |
    | §6.6 | a defaults source that cannot resolve 14 of the 32 keys it must compare; a fail-closed rule with no green route, because the manifest deliberately inventories unregistered keys |
    | §8.4.1 | a changed-path input that drops one side of every rename; the same input truncated at 300 files by a documented cap nobody re-read; a `listFiles` ceiling pagination does not escape; and a pagination prescription the target endpoint cannot implement |
+   | §8.4.2 | a directional table that silently assumed every input is a committed file, leaving a label able to subtract the whole evidence lane |
 
    The other **seven** were genuine design gaps — a missing failure signature, a base-versus-head
    policy read, an under-specified membership check, the self-certification hole in §8.4, a
    completion marker never bound to the scenario that emitted it (§4.1), an allowlist offered as
    the repair for a state it cannot reach (§4.6), and an expected-fail bucket with no specified
-   exit (§6.5) — the normal cost of design review. The fourteen were not. **Not one was a wrong
+   exit (§6.5) — the normal cost of design review. The fifteen were not. **Not one was a wrong
    judgement call; every one was an unread consumer.** Treat an uncited claim about a consumer's
    behaviour as unverified whatever its confidence.
 
@@ -251,6 +252,15 @@ These are stated once, here, and are binding on every PR in §1.
     The rule is therefore a design-time question, not a review-time one: **what does it take to
     leave this state, and does any single-sided step leave the tree red?** If the answer is yes,
     the atomic set is part of the design and belongs in the record beside the entry conditions.
+
+    **Sweep at the moment a rule is minted, not at the next round.** This decision was written in
+    round 9 and swept against the document's other bucket mechanisms immediately; the sweep
+    found **two live instances in the same document** — §6.6's waiver list, where both
+    single-sided orders fail, and §4.3's allowlist, which had expiry but no stale check. Both
+    are now fixed, and neither would have surfaced for at least another round on the
+    one-finding-at-a-time path that produced the previous twenty-two. A rule general enough to
+    be worth recording is general enough to have existing violations, and the cheapest moment to
+    find them is while the rule is still being written down.
 
 ## 3. The R3 obligations disposition: cited, then instantiated
 
@@ -376,6 +386,19 @@ counter, and port scenarios onto it as they are touched.
 `no_assertions_reason` string *and* its registry name appears in an explicit, expiring
 allowlist in `runtime_scenarios.json`. Same posture as the quarantine manifest: an untracked
 exemption is not available; a tracked one is, with an owner, an issue and an expiry.
+
+**And the allowlist fails in both directions — expiry alone is not a stale check.** An entry
+whose scenario has *resumed asserting* is an exemption nobody needs, sitting unused until its
+expiry and then renewed on reflex, and nothing flags it. So: **an allowlist entry whose scenario
+reports `assertions > 0` fails as stale**, and is removed rather than renewed.
+
+This is not a new rule. It is the both-directions symmetry already recorded twice in this
+document — §8.3's property 2 (pin membership; growth *and* shrinkage fail) — and running in the
+repo, where the quarantine manifest's `count` fails on `actual > declared` *and* on `actual <
+declared` (`check_test_lane_coverage.py:611-624`). §4.3's allowlist is the **third site**, on the
+same reasoning as §10.1 was the third site for the enumeration guard: an exemption that has
+outlived its cause is a licence sitting unused, and the next scenario to match it inherits the
+exemption without anyone deciding.
 
 This is not new doctrine in the repo. The GPU harness already treats "ran, asserted nothing"
 as distinct from "passed" (`case_assert_audit_ok`, `zero_assertion_cases`, #695/#696), and
@@ -1270,6 +1293,26 @@ audit. The surface is larger than `depth_test`: the QA project carries **32**
 3. **An un-waived override is RED.** Any `gaussian_splatting/*` key whose QA value differs from
    its shipped default and which carries no waiver fails the guard. Not a warning, not a
    report line — the whole point is that the current 32 were never a decision anyone recorded.
+
+   **Retiring a waiver is an atomic two-artifact change — §2 decision 10 applied to its first
+   case after adoption.** Requirements 2 and 3 fail in opposite directions, so *both*
+   single-sided orders are red:
+
+   | Single-sided step | Result |
+   | --- | --- |
+   | Remove the QA override, leave the waiver | The waiver's key is no longer overridden → **stale**, fails per requirement 2 |
+   | Remove the waiver, leave the QA override | An override with no waiver → **RED**, fails per requirement 3 |
+
+   So the exit is: **delete the `gaussian_splatting/*` line from
+   `tests/examples/godot/test_project/project.godot` and delete the waiver entry from the waiver
+   list, in one change.** Naming the two artifacts matters more than the word "atomic" — they
+   live in different files, are edited for different reasons, and are plausibly owned by
+   different people (the QA project is test-fixture configuration; the waiver list is guard
+   policy). "Atomic" without naming what must move together is exactly how §6.5's promotion gap
+   survived nine rounds.
+
+   The same applies to the *entry* side, in the opposite order: adding a new QA override without
+   a waiver is RED by requirement 3, so the override and its waiver land together too.
 4. **The guard registers itself, per §7.** It is a new `tests/ci/check_*.py`, so it adds itself
    to policy's "CI deterministic-check / release-gate machinery" enumeration in the same diff,
    which floors T10's PR at R3 via `SELF_REFERENTIAL_PATHS`. This is what makes T10 the second
@@ -1594,6 +1637,7 @@ direction can only **add** evidence.* Concretely, comparing base and head:
 | R2 `path_globs` (inclusive) | **union** of base and head | union only ever adds paths to the lane |
 | Exclusion list (subtractive) | **intersection** of base and head | a path is excused only if it was excused *before* this change too |
 | Either input unreadable at base | **fail closed** | as `agentic_pr_gate.yml:105-116` already does |
+| **Non-committed subtractive inputs** (labels, dispatch inputs) | **bound to the state they were applied to** — §8.4.2 | there is no base version to resolve against, so the binding must be constructed |
 
 Intersection is the exclusion-side mirror of §8.2's union, and it closes both directions of the
 hole, not just the one Codex named:
@@ -1732,6 +1776,66 @@ re-reading the limits attached to it. An accepted limit is scoped to the consume
 it, and inheriting an input inherits its limits whether or not the new author knows they exist.
 That is the reasoning behind §2.6's read-the-sibling corollary, and this section is where it was
 learned twice.
+
+### 8.4.2 Inputs with no base version: the fallback label
+
+**§8.4's table silently assumed every input is a committed file. One is not**, and it defeats
+both protections the section was built on.
+
+`gaussian_production_gates.yml:222-225` ends the evidence decision with an unconditional
+override:
+
+```js
+if (runWindowsGpu && labels.includes(fallbackLabel)) {
+  runWindowsGpu = false;
+  reason = `fallback-label:${fallbackLabel}`;
+}
+```
+
+`fallbackLabel` is `"ci/gpu-runner-unavailable"` (`:154`). A label thus subtracts the entire GPU
+evidence lane after a successful path match — and **neither §8.3 nor §8.4 can reach it**:
+
+1. **There is no base version of a label.** "Resolve from the immutable base" (§8.2) has no
+   meaning for an input that was never committed, so the intersection rule §8.4 prescribes for
+   subtractive inputs cannot be applied to it at all.
+2. **No risk-class floor engages.** Applying a label is not a diff, so it does not floor the PR
+   at R3 the way editing `.agentic/policy.json` does (`SELF_REFERENTIAL_PATHS`, §8.3). That
+   flooring was *the entire mechanism* by which round 5's self-certification hole was closed by
+   construction, and it simply does not fire here.
+
+The concrete failure is not exotic: the label is applied legitimately while the runner is
+genuinely down, the PR then takes new commits touching R2 paths, and the label keeps subtracting
+evidence for code it never covered. Nothing expires, nothing re-checks, nothing is logged as a
+bypass.
+
+**Rule, derived from §8.4 rather than invented: a subtractive input that cannot be resolved
+against the immutable base must not be able to subtract unconditionally — it must be bound to
+the state it was applied to.** Base-resolution is how a committed input gets bound; for an input
+with no base version, the binding has to be constructed, and the construction is the design
+content here.
+
+**Decision: the label excuses the commit range it was applied to, and nothing after it.** If any
+commit touching an R2 path (per §8's derivation) landed **after** the most recent application of
+the label, the label no longer subtracts and the evidence lane runs. This is implementable with
+the API surface the workflow already uses — the `labeled` event and its timestamp from the
+issue-timeline endpoint, against the PR's commit list — and it needs no new committed artifact.
+
+**Why this shape and not the alternatives.** Treating the label as merely advisory, or failing
+toward evidence whenever its provenance is unclear, closes the hole and also destroys the case
+the label exists for: a genuinely-down runner would then block every merge, and **a control that
+blocks all merges when the runner is down is deleted by the first person it blocks** — which
+returns the bypass permanently and without a record. Commit-binding is the only shape that keeps
+the legitimate case *exactly* intact: runner down, label applied, that head merges. What it
+removes is only the part nobody intended — the label continuing to cover code written after
+someone decided the runner was down. Re-labelling after new R2 commits is a deliberate act by a
+human who can see the runner's current state, which is precisely the decision the label is
+supposed to represent.
+
+**And the label's effect must be recorded as a bypass, not as an absence.** `reason` already
+carries `fallback-label:…` (`:224`); that value must reach the evidence ledger rather than
+living only in a step log, so a green PR that skipped the GPU lane is distinguishable from one
+that never needed it. Absence of a signal is never a passing signal (§2.1), and this is the one
+input whose whole purpose is to produce that absence deliberately.
 
 ## 9. Members with no independent design content
 
