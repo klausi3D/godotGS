@@ -8,7 +8,10 @@ BOTH directions: the shapes it must flag, and the shapes it must leave alone.
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
+import json
 import re
 import sys
 import tempfile
@@ -2869,10 +2872,11 @@ class SizeIndexBaselineIntegrity(unittest.TestCase):
         population, which is the evidence that this is the same set of sites and
         not a different set of similar size."""
         found, _ = GUARD.scan_all_size_index()
+        # Keyed by repo-relative path, not basename, since GS-AUDIT-TEST-003.
         expected = {
-            "test_renderer_pipeline.h": 7,
-            "test_resident_atlas_budget.h": 7,
-            "test_gaussian_importance.h": 5,
+            "modules/gaussian_splatting/tests/test_renderer_pipeline.h": 7,
+            "modules/gaussian_splatting/tests/test_resident_atlas_budget.h": 7,
+            "modules/gaussian_splatting/tests/test_gaussian_importance.h": 5,
         }
         for name, count in expected.items():
             straight = [
@@ -3408,6 +3412,315 @@ class BaselineIntegrity(unittest.TestCase):
 
     def test_guard_passes_on_the_current_tree(self):
         self.assertEqual(GUARD.main(), 0)
+
+
+class SiteKeyingIsPathBased(unittest.TestCase):
+    """GS-AUDIT-TEST-003: sites are keyed by repo-relative path, not basename.
+
+    `modules/gaussian_splatting/tests/test_utils.h` and `tests/test_utils.h` both
+    exist in this tree; a basename key collides between them (and any other
+    same-named pair) and `results[key] = sites` -- plain dict assignment -- silently
+    OVERWRITES rather than merges, so one file's sites vanish. These cases construct
+    that exact shape and prove both halves: the keys come out distinct, and neither
+    file's site is lost under the other's.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        # Nested the same way the real tree is (ROOT/modules/gaussian_splatting/tests
+        # and ROOT/tests), so `_site_key`'s PRIMARY branch (relative_to ROOT) produces
+        # genuinely distinct repo-relative paths -- not its tempdir fallback, which
+        # (like the sibling's source_key() it mirrors) can only recover the bare name
+        # when the scan roots are not nested under a common ROOT.
+        self.root = Path(self._tmp.name)
+        self.module_dir = self.root / "modules" / "gaussian_splatting" / "tests"
+        self.engine_dir = self.root / "tests"
+        self.module_dir.mkdir(parents=True)
+        self.engine_dir.mkdir(parents=True)
+
+        self._saved = {
+            name: getattr(GUARD, name) for name in ("ROOT", "MODULE_TESTS_DIR", "ENGINE_TESTS_DIR")
+        }
+        self.addCleanup(lambda: [setattr(GUARD, k, v) for k, v in self._saved.items()])
+        GUARD.ROOT = self.root
+        GUARD.MODULE_TESTS_DIR = self.module_dir
+        GUARD.ENGINE_TESTS_DIR = self.engine_dir
+
+    def test_distinct_directories_get_distinct_keys(self):
+        module_file = self.module_dir / "test_utils.h"
+        engine_file = self.engine_dir / "test_utils.h"
+        module_file.write_text(
+            'TEST_CASE("[Synthetic] module") {\n'
+            "  REQUIRE(module_only != nullptr);\n"
+            "  module_only->method();\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        engine_file.write_text(
+            'TEST_CASE("[Synthetic] engine") {\n'
+            "  REQUIRE(engine_only != nullptr);\n"
+            "  engine_only->method();\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        # _test_sources() globs MODULE_TESTS_DIR/*.h and ENGINE_TESTS_DIR/test_*.cpp,
+        # neither of which matches a bare `test_utils.h` sitting directly under
+        # ENGINE_TESTS_DIR -- irrelevant to what this proves (the KEY collision), so
+        # the source list is supplied directly rather than widening what is scanned.
+        original_test_sources = GUARD._test_sources
+        GUARD._test_sources = lambda: sorted([module_file, engine_file])
+        self.addCleanup(lambda: setattr(GUARD, "_test_sources", original_test_sources))
+
+        found = GUARD.scan_all()
+        self.assertEqual(
+            set(found), {"modules/gaussian_splatting/tests/test_utils.h", "tests/test_utils.h"},
+            f"expected two distinct repo-relative keys, got {sorted(found)}",
+        )
+        module_symbols = {v[1] for v in found["modules/gaussian_splatting/tests/test_utils.h"]}
+        engine_symbols = {v[1] for v in found["tests/test_utils.h"]}
+        self.assertEqual(module_symbols, {"module_only"})
+        self.assertEqual(engine_symbols, {"engine_only"})
+
+    def test_a_pre_fix_basename_key_would_have_collided(self):
+        """Documents the bug this replaces: same setup, basename-keyed, collapses to
+        one entry and loses a site. Not exercising the guard -- a literal record of
+        what `results[path.name] = sites` (the pre-fix line) would have done."""
+        module_file = self.module_dir / "test_utils.h"
+        engine_file = self.engine_dir / "test_utils.h"
+        self.assertEqual(module_file.name, engine_file.name)
+        results: dict[str, list] = {}
+        for path in (module_file, engine_file):
+            results[path.name] = [f"site-from-{path.parent.name}"]
+        self.assertEqual(len(results), 1, "the basename key collides, as the bug relied on")
+
+
+class ReviewBaseGrowthCheck(unittest.TestCase):
+    """GS-AUDIT-TEST-003: the baseline is graded against the REVIEW BASE, not only
+    against its own working-tree copy -- closing the hole where a change adds a
+    violation AND appends its fingerprint to the baseline in the SAME commit, which
+    a working-tree-only comparison cannot see because both sides moved together.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        root = Path(self._tmp.name)
+        self.module_dir = root / "modules_tests"
+        self.engine_dir = root / "engine_tests"
+        self.module_dir.mkdir()
+        self.engine_dir.mkdir()
+
+        self._saved = {
+            name: getattr(GUARD, name)
+            for name in (
+                "MODULE_TESTS_DIR",
+                "ENGINE_TESTS_DIR",
+                "BASELINE_PATH",
+                "SIZE_INDEX_BASELINE_PATH",
+                "resolve_review_base",
+                "_blob_at_base",
+                "detector_differs_from_base",
+            )
+        }
+        self.addCleanup(lambda: [setattr(GUARD, k, v) for k, v in self._saved.items()])
+
+        GUARD.MODULE_TESTS_DIR = self.module_dir
+        GUARD.ENGINE_TESTS_DIR = self.engine_dir
+        GUARD.BASELINE_PATH = root / "require_null_deref_baseline.json"
+        GUARD.SIZE_INDEX_BASELINE_PATH = root / "size_then_index_baseline.json"
+
+    def _stub_base(
+        self,
+        base_null_deref_files,
+        base_size_index_files=None,
+        base_sha="feedfacecafe0011",
+        detector_differs=False,
+    ):
+        GUARD.resolve_review_base = lambda base_ref=None: (base_sha, [])
+        GUARD.detector_differs_from_base = lambda sha: (detector_differs, [])
+
+        def _blob(sha, path):
+            name = Path(path).name
+            if name == GUARD.BASELINE_PATH.name:
+                if base_null_deref_files is None:
+                    return GUARD.ABSENT_AT_BASE, []
+                return json.dumps({"schema_version": 1, "files": base_null_deref_files}), []
+            if name == GUARD.SIZE_INDEX_BASELINE_PATH.name:
+                files = {} if base_size_index_files is None else base_size_index_files
+                return json.dumps({"schema_version": 1, "files": files}), []
+            raise AssertionError(f"unexpected _blob_at_base call for {path}")
+
+        GUARD._blob_at_base = _blob
+
+    def _write_violation(self, name: str = "test_mutation_proof.h") -> tuple[str, list[str]]:
+        (self.module_dir / name).write_text(
+            'TEST_CASE("[Synthetic] joint mutation") {\n'
+            "  REQUIRE(ptr != nullptr);\n"
+            "  ptr->method();\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        found_prints = GUARD.scan_fingerprints()
+        self.assertEqual(len(found_prints), 1, found_prints)
+        [(key, prints)] = found_prints.items()
+        self.assertEqual(len(prints), 1, prints)
+        return key, prints
+
+    def test_joint_mutation_is_caught(self):
+        """The exact shape GS-AUDIT-TEST-003 names: a REQUIRE-then-deref site and its
+        baseline fingerprint land in the SAME change. The working-tree comparison
+        alone reports 0 new (both sides moved together, by construction below); the
+        review-base comparison must still fail the run.
+        """
+        key, prints = self._write_violation()
+
+        # The joint mutation: the working tree's OWN baseline already carries the new
+        # fingerprint, so it agrees with the scan (0 new / 0 stale on that check alone).
+        GUARD.BASELINE_PATH.write_text(
+            json.dumps({"schema_version": 1, "files": {key: prints}}), encoding="utf-8"
+        )
+        GUARD.SIZE_INDEX_BASELINE_PATH.write_text(
+            json.dumps({"schema_version": 1, "files": {}}), encoding="utf-8"
+        )
+
+        # At the review base this fingerprint never existed, under this key or any
+        # other. detector_differs=False: an ordinary PR that only edits a test source
+        # and a baseline never touches this detector script itself.
+        self._stub_base(base_null_deref_files={}, base_size_index_files={})
+
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            code = GUARD.main()
+        output = buffer.getvalue()
+        self.assertEqual(
+            code, 1,
+            "a violation and its baseline entry added in the same change must fail "
+            "the review-base comparison even though the working-tree copy agrees:\n" + output,
+        )
+        self.assertIn("NEW relative to review base", output, output)
+        self.assertIn(prints[0], output, output)
+
+    def test_unresolvable_review_base_fails_closed(self):
+        """No base means no reference. It must never degrade to grading nothing."""
+        (self.module_dir / "test_clean.h").write_text(
+            'TEST_CASE("[Synthetic] clean") { int x = 1; (void)x; }\n', encoding="utf-8"
+        )
+        GUARD.resolve_review_base = lambda base_ref=None: (None, ["no base reachable"])
+        GUARD._blob_at_base = lambda sha, path: (_ for _ in ()).throw(
+            AssertionError("must not be called when the base did not resolve")
+        )
+        GUARD.detector_differs_from_base = lambda sha: (_ for _ in ()).throw(
+            AssertionError("must not be called when the base did not resolve")
+        )
+
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            code = GUARD.main()
+        self.assertEqual(code, 1, "an unresolvable review base must fail, not pass")
+        self.assertIn("cannot resolve the review base", buffer.getvalue())
+
+    def test_a_pure_rekey_is_not_rejected(self):
+        """This PR's own transition: the SAME fingerprint, present at the base under
+        a DIFFERENT (basename) key, must not be rejected when the detector -- which
+        derives the key -- genuinely changed in this diff. Measured for real against
+        the actual repo corpus too (see the PR body): regenerating both baselines
+        after the `_site_key` change reports 0 refused additions and the guard's own
+        review-base check reports "0 new" against origin/master. This is the precise,
+        synthetic version of that same claim, isolating `_baseline_growth_vs_base`
+        from the rest of `main()`'s wiring (covered separately by
+        `test_joint_mutation_is_caught`).
+        """
+        fingerprint = "ptr|!= nullptr|deadbeef00"
+        self._stub_base(
+            base_null_deref_files={"old_basename.h": [fingerprint]},
+            base_size_index_files={},
+            detector_differs=True,
+        )
+        base_sha, base_failures = GUARD.resolve_review_base()
+        self.assertEqual(base_failures, [])
+        new_relative, growth_failures, introduced = GUARD._baseline_growth_vs_base(
+            {"new/nested/path.h": [fingerprint]}, GUARD.BASELINE_PATH, base_sha, True
+        )
+        self.assertEqual(growth_failures, [])
+        self.assertFalse(introduced)
+        self.assertEqual(
+            new_relative, {},
+            "a fingerprint that exists ANYWHERE at the base must not be treated as "
+            "new when the detector genuinely changed (a pure rekey)",
+        )
+
+    def test_a_different_key_does_not_license_growth_without_a_detector_change(self):
+        """The lenient (rekey) route must not be reachable by an ordinary PR that
+        never touches the detector -- otherwise it is a second way to write anything
+        into the baseline, exactly what GS-AUDIT-TEST-003 exists to close.
+
+        Exercises `_baseline_growth_vs_base` directly (rather than through `main()`)
+        so the "different key" shape is asserted precisely: `_write_violation`'s
+        natural key has no subdirectory component here (the file sits directly in
+        the monkeypatched MODULE_TESTS_DIR), so a same-vs-different-key distinction
+        needs synthetic keys instead of relying on the scan to happen to produce two
+        different ones.
+        """
+        fingerprint = "ptr|!= nullptr|deadbeef00"
+        self._stub_base(
+            base_null_deref_files={"old_basename.h": [fingerprint]},
+            base_size_index_files={},
+            detector_differs=False,
+        )
+        base_sha, base_failures = GUARD.resolve_review_base()
+        self.assertEqual(base_failures, [])
+        new_relative, growth_failures, introduced = GUARD._baseline_growth_vs_base(
+            {"new/nested/path.h": [fingerprint]}, GUARD.BASELINE_PATH, base_sha, False
+        )
+        self.assertEqual(growth_failures, [])
+        self.assertFalse(introduced)
+        self.assertEqual(
+            new_relative, {"new/nested/path.h": [fingerprint]},
+            "a fingerprint recorded at a DIFFERENT key must be treated as new when "
+            "the detector did not change -- otherwise renaming a file would launder "
+            "an unrelated pre-existing fingerprint onto it",
+        )
+
+    def test_baseline_absent_at_base_is_reported_not_failed(self):
+        """A change that INTRODUCES a baseline has no shrink-only reference; say so,
+        and do not fail the run over it."""
+        (self.module_dir / "test_clean.h").write_text(
+            'TEST_CASE("[Synthetic] clean") { int x = 1; (void)x; }\n', encoding="utf-8"
+        )
+        GUARD.BASELINE_PATH.write_text(json.dumps({"schema_version": 1, "files": {}}), encoding="utf-8")
+        GUARD.SIZE_INDEX_BASELINE_PATH.write_text(
+            json.dumps({"schema_version": 1, "files": {}}), encoding="utf-8"
+        )
+        self._stub_base(base_null_deref_files=None, base_size_index_files=None)
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            code = GUARD.main()
+        self.assertEqual(code, 0, buffer.getvalue())
+        self.assertIn("NOTE", buffer.getvalue())
+
+
+class ResolveReviewBaseAgainstRealGit(unittest.TestCase):
+    """A thin, non-mocked check that the git plumbing itself fails closed -- the
+    mocked cases above stub `resolve_review_base` and cannot catch a regression in
+    the function itself.
+    """
+
+    def test_an_unresolvable_named_ref_fails_closed(self):
+        base_sha, failures = GUARD.resolve_review_base(
+            "this-ref-does-not-exist-anywhere-gs-audit-test-003"
+        )
+        self.assertIsNone(base_sha)
+        self.assertTrue(failures)
+
+    def test_head_resolves_against_origin_master_or_master_by_default(self):
+        """No explicit ref: falls back to origin/master then master, exactly like
+        check_environment_skip_marker.py's resolve_base_sha (which this delegates
+        to) -- this repo has one or the other in CI and in any normal clone."""
+        base_sha, failures = GUARD.resolve_review_base(None)
+        self.assertEqual(failures, [], failures)
+        self.assertIsNotNone(base_sha)
+        self.assertRegex(base_sha, r"^[0-9a-f]{40}$")
 
 
 if __name__ == "__main__":
