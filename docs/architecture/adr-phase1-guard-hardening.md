@@ -116,7 +116,7 @@ These are stated once, here, and are binding on every PR in §1.
 6. **No prescription without a read.** Every sentence in a design record that says what a named
    file does, or must be changed to do, **cites the `file:line` it was read at**. A prescription
    written from memory of how a consumer *probably* behaves is not a design decision; it is a
-   guess that a reviewer has to re-derive. Ten review rounds produced **twenty-two** findings
+   guess that a reviewer has to re-derive. Eleven review rounds produced **twenty-three** findings
    against this document, and **fifteen were the same defect**: an instruction that would have
    failed the very consumer it was written to satisfy, because nobody had opened it.
 
@@ -130,25 +130,38 @@ These are stated once, here, and are binding on every PR in §1.
    | §8.4.1 | a changed-path input that drops one side of every rename; the same input truncated at 300 files by a documented cap nobody re-read; a `listFiles` ceiling pagination does not escape; and a pagination prescription the target endpoint cannot implement |
    | §8.4.2 | a directional table that silently assumed every input is a committed file, leaving a label able to subtract the whole evidence lane |
 
-   The other **seven** were genuine design gaps — a missing failure signature, a base-versus-head
+   The other **eight** were genuine design gaps — a missing failure signature, a base-versus-head
    policy read, an under-specified membership check, the self-certification hole in §8.4, a
    completion marker never bound to the scenario that emitted it (§4.1), an allowlist offered as
-   the repair for a state it cannot reach (§4.6), and an expected-fail bucket with no specified
-   exit (§6.5) — the normal cost of design review. The fifteen were not. **Not one was a wrong
+   the repair for a state it cannot reach (§4.6), an expected-fail bucket with no specified
+   exit (§6.5), and a label binding built on a clock the repo does not control (§8.4.2) — the
+   normal cost of design review. The fifteen were not. **Not one was a wrong
    judgement call; every one was an unread consumer.** Treat an uncited claim about a consumer's
    behaviour as unverified whatever its confidence.
 
    **How corrections themselves fared, tracked in three categories rather than two**, because
    the distinction changes what a reviewer should look for. Of the findings that landed on text
-   an earlier round had already written: **four were fresh defects introduced by a correction**
-   (§6.3's representation, §8.4.1's unimplementable pagination prescription, and two others);
-   **three were corrections that were incomplete rather than wrong** (§8.4.1's rename contract,
-   missing the truncation precondition on the same input, and then its truncation fix, missing
-   the second cap; §4.6's soak, which fixed satisfiability and left the C++ scope unstated); and
-   the rest were **by design** — an existing rule deliberately extended to a new site, such as §10.1's
-   symmetric enumeration guard. Only the first category is a regression. The second is the more
-   instructive one: a correction that closes the named hole and leaves a sibling is the shape
-   that survives review, because the section *looks* freshly examined.
+   an earlier round had already written: **five were fresh defects introduced by a correction**
+   (§6.3's representation, §8.4.1's unimplementable pagination prescription, §8.4.2's
+   timestamp binding, and two others); **three were corrections that were incomplete rather than
+   wrong** (§8.4.1's rename contract, missing the truncation precondition on the same input, and
+   then its truncation fix, missing the second cap; §4.6's soak, which fixed satisfiability and
+   left the C++ scope unstated); and the rest were **by design** — an existing rule deliberately
+   extended to a new site, such as §10.1's symmetric enumeration guard. Only the first category
+   is a regression. The second is the more instructive one: a correction that closes the named
+   hole and leaves a sibling is the shape that survives review, because the section *looks*
+   freshly examined.
+
+   **The clearest instance of the first category, and the single best argument for the stopping
+   rule: §8.4.2's timestamp binding.** It was written to close a real hole (a label subtracting
+   evidence unconditionally), its *intent* was right, and its *mechanism* was unsound — commit
+   dates are supplied by the author and rewritable by a force-push, so a time comparison cannot
+   establish which commits a label preceded. It was **approved by both the author and the
+   orchestrator** and caught only by the next review round. Nothing about it looked wrong: the
+   section had just been rewritten, the reasoning was explicit, the failure it named was real,
+   and the fix was one clause away from correct. **A correction is not evidence that the thing
+   it corrected is now right** — which is exactly why rounds continue until one returns clean,
+   rather than until the author is satisfied.
 
    **One instance is worth naming for how it hid.** §4.6's union obligation said it made
    per-profile counting *"add up to a statement about the whole registry"* — correct number,
@@ -1630,7 +1643,8 @@ production-evidence collection, with formally valid metadata and a perfectly cor
 is precisely why it is stated here as an invariant rather than patched as a fourth bullet.
 
 **Invariant.** *Every input to "which evidence does this change owe?" resolves in whichever
-direction can only **add** evidence.* Concretely, comparing base and head:
+direction can only **add** evidence.* Scoped to the merge-gating paths — `pull_request` and
+`merge_group` — for the reason and the exceptions in §8.4.3. Concretely, comparing base and head:
 
 | Input | Resolution | Why that direction |
 | --- | --- | --- |
@@ -1814,28 +1828,82 @@ the state it was applied to.** Base-resolution is how a committed input gets bou
 with no base version, the binding has to be constructed, and the construction is the design
 content here.
 
-**Decision: the label excuses the commit range it was applied to, and nothing after it.** If any
-commit touching an R2 path (per §8's derivation) landed **after** the most recent application of
-the label, the label no longer subtracts and the evidence lane runs. This is implementable with
-the API surface the workflow already uses — the `labeled` event and its timestamp from the
-issue-timeline endpoint, against the PR's commit list — and it needs no new committed artifact.
+**Decision: the label excuses exactly the head SHA it was applied to. Any new head re-requires
+evidence.** The label's effect is bound to a commit identity, not to a clock.
+
+**An earlier revision of this section bound it to a *timestamp*** — "the commit range it was
+applied to", established by comparing the `labeled` event's time against the PR's commit list —
+**and that is unsound.** Commit dates are not a trustworthy clock and are not under this repo's
+control: a commit can be authored before the label and pushed after it, and a force-push can
+install commits carrying older author and committer dates than the label event. Either case
+leaves a post-label R2 change looking, to a time comparison, like a pre-label one. The binding
+has to be to something the repo can verify rather than something the author supplies.
+
+**A head SHA is exactly that, and it is available where the decision is made.**
+`context.payload.merge_group.head_sha` is already read at `:187`, and the `pull_request` payload
+exposes `head` in this same workflow — `github.event.pull_request.head.repo.full_name` is used
+at `:98` and `:244`, so `head.sha` is a sibling field of one already in use. No new committed
+artifact and no new API surface.
+
+*Reasoning, not a measured claim:* a `labeled` timeline event is not expected to record the head
+SHA it was applied against, which is why the labelling side must be made to carry that binding
+rather than have it inferred. **This does not affect the decision either way** — SHA-binding is
+strictly stronger than timestamp-binding whether or not the event happens to record a SHA, so
+the design is correct even if that expectation about the API is wrong.
 
 **Why this shape and not the alternatives.** Treating the label as merely advisory, or failing
 toward evidence whenever its provenance is unclear, closes the hole and also destroys the case
 the label exists for: a genuinely-down runner would then block every merge, and **a control that
 blocks all merges when the runner is down is deleted by the first person it blocks** — which
-returns the bypass permanently and without a record. Commit-binding is the only shape that keeps
+returns the bypass permanently and without a record. SHA-binding is the only shape that keeps
 the legitimate case *exactly* intact: runner down, label applied, that head merges. What it
-removes is only the part nobody intended — the label continuing to cover code written after
-someone decided the runner was down. Re-labelling after new R2 commits is a deliberate act by a
-human who can see the runner's current state, which is precisely the decision the label is
-supposed to represent.
+removes is only the part nobody intended — the label continuing to cover a head nobody looked
+at. Re-labelling after a new head is a deliberate act by a human who can see the runner's
+current state, which is precisely the decision the label is supposed to represent.
 
 **And the label's effect must be recorded as a bypass, not as an absence.** `reason` already
 carries `fallback-label:…` (`:224`); that value must reach the evidence ledger rather than
 living only in a step log, so a green PR that skipped the GPU lane is distinguishable from one
 that never needed it. Absence of a signal is never a passing signal (§2.1), and this is the one
 input whose whole purpose is to produce that absence deliberately.
+
+### 8.4.3 Scope boundary, and the operator-invoked bypasses outside it
+
+**§8's input contract governs the `pull_request` and `merge_group` paths — the paths that gate
+merges — and not `workflow_dispatch`.** §8.4's invariant says "every input to the evidence
+decision", which read literally is false, so the boundary is stated rather than left to be
+discovered as a fourth finding.
+
+Three inputs reach the decision only under `workflow_dispatch`, and each can subtract evidence
+without touching a committed artifact. They are **operator-invoked bypasses**, documented here so
+they are known rather than guarded, because a manual dispatch is a human deliberately asking for
+a non-default run:
+
+| Input | Where | Effect |
+| --- | --- | --- |
+| `run_gpu_lane` | `:158-161`, declared `:45-49`, `default: false` | On dispatch, `runWindowsGpu` is taken **entirely** from this input — the path derivation in §8 is not consulted at all |
+| `run_openworld_proof_dev` / `_weekly` | job-level `if:` at `:98`, `:142`, `:244` | A dispatch with either **skips the whole `gpu-evidence-requirement` job**, leaving `needs.gpu-evidence-requirement.outputs.run_windows_gpu` empty at its three consumers (`:371`, `:390`, `:397`) |
+| `enforce_gpu_readiness` | `:397`, `default: false` | Readiness **enforcement** is off unless explicitly requested, even when evidence was collected |
+
+**Requirement: a run produced under non-default dispatch inputs is marked as such in the evidence
+ledger.** Same principle as the fallback label in §8.4.2 — an input whose purpose is to change
+what runs must leave a trace in the artifact people read as evidence. Concretely, such a run must
+never be mistakable for a gate run and must never be countable toward §4.6's soak. A dispatch
+run and a merge-gating run producing indistinguishable artifacts is how a soak gets satisfied by
+runs nobody would have accepted as evidence.
+
+**Standing hazard, recorded because it is one promotion away from being live.** The job-level
+`if:` at `:142` is the shape this repo has been bitten by before: a job skipped by a job-level
+`if:` reports `conclusion: skipped`, and **GitHub counts a skipped required check as success** —
+a silent total bypass rather than a loud failure. **Verified at `adcd6916dbd`: this is not live**,
+because `gpu-evidence-requirement` is not a required check — branch protection on `master`
+requires exactly one context, `agentic-pr-gate`
+(`required_status_checks.contexts == ["agentic-pr-gate"]`). But the hazard is structural, not
+hypothetical: **if `gpu-evidence-requirement` is ever promoted to required, its job-level `if:`
+becomes a silent bypass on every dispatch that trips it.** Promotion must therefore *remove* the
+job-level `if:` and move the condition inside the job, never inherit it. This is recorded here
+rather than filed as a defect because nothing is currently wrong; it is a precondition on a
+future change.
 
 ## 9. Members with no independent design content
 
