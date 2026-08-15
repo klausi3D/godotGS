@@ -167,6 +167,26 @@ class CheckPrContractTest(unittest.TestCase):
         rc = cpc.main(["--contract", str(TEMPLATE_PATH)])
         self.assertEqual(rc, 2)
 
+    def test_empty_paths_fails_closed_instead_of_reporting_compliant(self):
+        """`--paths` with no values is a diff source that resolved to nothing.
+
+        It used to inherit classify_change's empty-set fail-open: the computed
+        class was R0, so nothing could ever "understate" it and the full gate
+        reported compliant with zero risk and zero scope enforcement
+        (GS-AUDIT-TEST-002, fourth evidence line). The empty set now classifies as
+        the policy default, so an R1 contract is flagged as understating it.
+        """
+        errors = _hard(cpc.check_contract(copy.deepcopy(TEMPLATE), POLICY, TASK_SCHEMA, []))
+        self.assertTrue(
+            any("understates" in e for e in errors),
+            f"empty --paths must not pass the gate silently; got {errors}",
+        )
+
+    def test_main_with_empty_paths_returns_non_zero(self):
+        """The same fail-closed behaviour through the real CLI entry point."""
+        rc = cpc.main(["--contract", str(TEMPLATE_PATH), "--paths"])
+        self.assertEqual(1, rc)
+
     def test_main_schema_only_opt_out(self):
         # The schema-only escape hatch must be explicit and pass on the valid template.
         rc = cpc.main(["--contract", str(TEMPLATE_PATH), "--schema-only"])
