@@ -1,8 +1,18 @@
+// T3 (#891): the scenario emits its own [RUNTIME_PASS] completion marker
+// (run_runtime_validation.py verifies it; the harness never synthesises it).
+// NDEBUG is forced off so GS_ASSERT never counts an unevaluated check.
+#undef NDEBUG
+
 // Unit test for Runtime Property Modification System (Issue #87)
 #include <cassert>
 #include <chrono>
 #include <iostream>
 #include <vector>
+
+static int gs_assertions = 0;
+// Wraps assert() so every verified check is counted for the completion marker.
+#define GS_ASSERT(cond) do { assert(cond); ++gs_assertions; } while (0)
+
 
 // Mock Godot types for testing
 struct Vector3 {
@@ -59,14 +69,14 @@ public:
         runtime_positions[5] = Vector3(1, 2, 3);
         modified_flags[5] = true;
         has_runtime_modifications = true;
-        assert(runtime_positions[5].x == 1.0f);
-        assert(modified_flags[5] == true);
+        GS_ASSERT(runtime_positions[5].x == 1.0f);
+        GS_ASSERT(modified_flags[5] == true);
 
         // Test color setter
         runtime_colors.resize(100);
         runtime_colors[10] = Color(0.5f, 0.6f, 0.7f, 1.0f);
         modified_flags[10] = true;
-        assert(runtime_colors[10].r == 0.5f);
+        GS_ASSERT(runtime_colors[10].r == 0.5f);
 
         std::cout << "✓ Individual setters working" << std::endl;
     }
@@ -99,8 +109,8 @@ public:
 
         // Verify all were set
         for (int i = 0; i < 10000; i++) {
-            assert(runtime_colors[i].r == 1.0f);
-            assert(modified_flags[i] == true);
+            GS_ASSERT(runtime_colors[i].r == 1.0f);
+            GS_ASSERT(modified_flags[i] == true);
         }
 
         std::cout << "✓ Bulk operations working" << std::endl;
@@ -126,8 +136,8 @@ public:
         modified_flags.clear();
         has_runtime_modifications = false;
 
-        assert(runtime_positions.size() == 0);
-        assert(has_runtime_modifications == false);
+        GS_ASSERT(runtime_positions.size() == 0);
+        GS_ASSERT(has_runtime_modifications == false);
 
         std::cout << "✓ State management working" << std::endl;
     }
@@ -177,5 +187,7 @@ int main() {
     std::cout << "  - Bulk operations (10K splats) < 1ms ✓" << std::endl;
     std::cout << "  - Memory overhead < 50% ✓" << std::endl;
 
+    std::cout << "[RUNTIME_PASS] {\"scenario\": \"Runtime Modifications\", \"assertions\": "
+              << gs_assertions << "}" << std::endl;
     return 0;
 }

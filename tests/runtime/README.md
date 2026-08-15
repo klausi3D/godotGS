@@ -2,7 +2,45 @@
 
 `tests/runtime/run_runtime_validation.py` runs runtime harnesses (C++ and GDScript) and writes:
 
-- `tests/runtime/runtime_validation_report.json`
+- `tests/runtime/runtime_validation_report.json` (default; override per invocation with
+  `--report-path`. The two invocations in `gaussian_production_gates.yml` write distinct
+  `runtime_validation_report_<profile>.json` paths so neither profile's report truncates
+  the other's, and both are uploaded.)
+
+## Completion Marker (T3 / #891)
+
+`passed` is not the fall-through. A scenario proves completion by printing, on the
+terminal success path, exactly one line:
+
+```
+[RUNTIME_PASS] {"scenario": "<registry name>", "assertions": <int>}
+```
+
+GDScript scenarios emit it through the shared `tests/runtime/gs_runtime_report.gd`
+(`ok()` counts each verified check; `emit_pass()` prints the marker); the C++ harnesses
+emit it themselves via their `GS_ASSERT` counters. The harness only verifies the marker —
+it never synthesises it. The `scenario` field must equal the registry name of the
+scenario under classification (mismatch = failure, so a copy-pasted emitter cannot vouch
+for another scenario); a malformed payload, a duplicate marker line, or an untracked
+`assertions: 0` claim is a failure too. A scenario that legitimately asserts nothing
+needs BOTH a `no_assertions_reason` string in the payload AND an unexpired entry in
+`runtime_scenarios.json`'s `zero_assertion_allowlist` (fields: `scenario`, `reason`,
+`issue_url`, `owner`, `expires_utc`); an entry whose scenario reports `assertions > 0`
+fails as stale and must be removed in the same change.
+
+**Advisory ladder (step 1, current):** a clean exit with NO marker classifies as the
+advisory status `no_completion_marker` — visible in the report, counted in
+`summary["no_completion_marker"]`, printed as `[ADVISORY]`, and not a failure. The
+fail-closed flip (step 2) is a later PR gated on a measurable soak: **5 consecutive runs
+of each CI-invoked profile (`headless-ci`, `streaming-gpu-ci`, `release-ci`), each
+preserved report showing `no_completion_marker == 0` with a marker recorded for every
+scenario the profile selected**, plus a code-level assertion that the soaked profiles'
+union covers all 11 GDScript registry scenarios. The two C++ scenarios run in no CI lane
+(`--skip-cpp` is universal), so their arming evidence is a recorded run without
+`--skip-cpp` produced by the flip PR itself. Full contract and the step-2
+assertion-floor obligation (ratchet against the immutable review base, per #914 A1):
+`run_runtime_validation.py`'s module docstring and
+`docs/architecture/adr-phase1-guard-hardening.md` section 4.
 
 ## Scenario Profiles
 

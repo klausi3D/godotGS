@@ -3,10 +3,14 @@ extends SceneTree
 # Test script for Interactive State System (Issue #88)
 
 const MAX_AVERAGE_TRANSITION_MS := 5.0
-const SKIP_MARKER := "[RUNTIME_SKIP]"
-const FAIL_MARKER := "[RUNTIME_FAIL]"
+const GsRuntimeReport := preload("gs_runtime_report.gd")
+const SKIP_MARKER := GsRuntimeReport.SKIP_MARKER
+const FAIL_MARKER := GsRuntimeReport.FAIL_MARKER
 
 var failures: Array[String] = []
+
+# T3 (#891): registry name from GDS_TESTS in run_runtime_validation.py.
+var _report := GsRuntimeReport.new("Interactive State")
 
 ## Defers test execution until the SceneTree loop is initialized.
 func _init() -> void:
@@ -34,6 +38,7 @@ func _run() -> void:
         _print_summary()
         quit(1)
         return
+    _report.ok()
     renderer.initialize()
 
     # Test state transitions
@@ -49,11 +54,14 @@ func _run() -> void:
     test_state_performance(renderer)
 
     _print_summary()
+    if failures.is_empty():
+        _report.emit_pass()
     quit(0 if failures.is_empty() else 1)
 
 ## Records a validation outcome with optional context details.
 func _record_check(condition: bool, label: String, context: Dictionary = {}) -> void:
     if condition:
+        _report.ok()
         print("✓ ", label)
         return
     _record_failure(label, context)

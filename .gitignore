@@ -419,7 +419,10 @@ tests/ci/qa_results.json
 tests/output/*
 !tests/output/README.md
 tests/runtime/build/
+# T3 (#891): per-profile report paths (CI passes --report-path per invocation
+# so one profile's report can no longer truncate another's).
 tests/runtime/runtime_validation_report.json
+tests/runtime/runtime_validation_report_*.json
 tests/runtime/linux_logs/
 tests/runtime/windows_logs/
 tests/runtime/**/*.log

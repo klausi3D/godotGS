@@ -1,13 +1,17 @@
 extends SceneTree
 
-const SKIP_MARKER := "[RUNTIME_SKIP]"
-const FAIL_MARKER := "[RUNTIME_FAIL]"
-const METRICS_MARKER := "[RUNTIME_METRICS]"
+const GsRuntimeReport := preload("gs_runtime_report.gd")
+const SKIP_MARKER := GsRuntimeReport.SKIP_MARKER
+const FAIL_MARKER := GsRuntimeReport.FAIL_MARKER
+const METRICS_MARKER := GsRuntimeReport.METRICS_MARKER
 
 const ASSET_PATH := "res://tests/fixtures/test_splats.ply"
 const MAX_TEST_FRAMES := 240
 const TRACE_DISABLE_FRAME := 140
 const MIN_FRESH_EVENT_FRAMES := 4
+
+# T3 (#891): registry name from GDS_TESTS in run_runtime_validation.py.
+var _report := GsRuntimeReport.new("Pipeline Trace Freshness")
 
 var scene_root: Node3D
 var splat_node: GaussianSplatNode3D
@@ -88,6 +92,7 @@ func _run() -> void:
 		_cleanup()
 		quit(1)
 		return
+	_report.ok()
 
 	ProjectSettings.set_setting("rendering/gaussian_splatting/debug/enable_pipeline_trace", true)
 
@@ -154,6 +159,7 @@ func _run() -> void:
 		_cleanup()
 		quit(1)
 		return
+	_report.ok()
 
 	if not bool(metrics.get("trace_generation_monotonic", false)):
 		_record_failure("trace_generation was not monotonic")
@@ -161,6 +167,7 @@ func _run() -> void:
 		_cleanup()
 		quit(1)
 		return
+	_report.ok()
 
 	var generation_at_disable := int(metrics.get("trace_generation_at_disable", -1))
 	var generation_end := int(metrics.get("trace_generation_end", -1))
@@ -170,6 +177,7 @@ func _run() -> void:
 		_cleanup()
 		quit(1)
 		return
+	_report.ok()
 
 	if bool(metrics.get("stale_fresh_flag_after_disable", false)):
 		_record_failure("trace_fresh remained true after trace disable")
@@ -177,6 +185,7 @@ func _run() -> void:
 		_cleanup()
 		quit(1)
 		return
+	_report.ok()
 
 	if bool(metrics.get("stale_events_after_disable", false)):
 		_record_failure("Snapshot events were not cleared after trace disable")
@@ -184,7 +193,9 @@ func _run() -> void:
 		_cleanup()
 		quit(1)
 		return
+	_report.ok()
 
 	_emit_metrics("passed", "pipeline trace freshness semantics validated")
+	_report.emit_pass()
 	_cleanup()
 	quit(0)

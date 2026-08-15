@@ -1,10 +1,16 @@
 extends SceneTree
 
-const FAIL_MARKER := "[RUNTIME_FAIL]"
-const METRICS_MARKER := "[RUNTIME_METRICS]"
+const GsRuntimeReport := preload("gs_runtime_report.gd")
+const FAIL_MARKER := GsRuntimeReport.FAIL_MARKER
+const METRICS_MARKER := GsRuntimeReport.METRICS_MARKER
 const StreamingGpuTierBudget = preload("streaming_gpu_tier_budget.gd")
 
 var failures: Array[String] = []
+
+# T3 (#891): registry name from GDS_TESTS in run_runtime_validation.py. This
+# scenario accumulates failures instead of quitting, so verified checks are
+# counted where a section/case completes without growing `failures`.
+var _report := GsRuntimeReport.new("Streaming GPU Tier Budget Contract")
 
 
 func _init() -> void:
@@ -359,9 +365,18 @@ func _run_scaling_cases() -> Array:
 		}
 	]
 	for scaling_case in scaling_cases:
+		var failures_before := failures.size()
 		_run_scaling_case(scaling_case)
+		if failures.size() == failures_before:
+			_report.ok()
+	var failures_before_offset := failures.size()
 	_run_offset_invariance_check()
+	if failures.size() == failures_before_offset:
+		_report.ok()
+	var failures_before_trim := failures.size()
 	_run_trim_warmup_checks()
+	if failures.size() == failures_before_trim:
+		_report.ok()
 	return scaling_cases
 
 
@@ -390,6 +405,8 @@ func _run() -> void:
 			"actual": enforced_p95_ceiling,
 			"why": "the ceiling is metric-specific (#796 engine-frame-only); changing it needs its own measured justification"
 		})
+	else:
+		_report.ok()
 	# #883: the shipped tier_1m posture, pinned. `enforce` (per-tier, covering
 	# correctness) must stay ON; `enforce_timing_budgets` (per-metric-class) is
 	# the interim OFF. Both are asserted so that neither half can move without a
@@ -402,11 +419,15 @@ func _run() -> void:
 			"why": "#883 demoted the TIMING budgets only; `enforce` covers residency, "
 				+ "fallback rate and telemetry and must stay true"
 		})
+	else:
+		_report.ok()
 	if bool(shipped_tier.get("enforce_timing_budgets", true)):
 		_record_failure("tier_1m timing budgets are enforced again", {
 			"why": "this is the intended end state (#778/#523), but it must land with the "
 				+ "evidence that the measurement is stable -- update this test alongside it"
 		})
+	else:
+		_report.ok()
 
 	# The demotion list itself, pinned exactly. Adding a correctness code here
 	# would demote it invisibly at every call site at once; removing a timing
@@ -419,6 +440,8 @@ func _run() -> void:
 			"why": "only wall-clock/dispersion budgets may be demoted; `first_visible_missing` "
 				+ "is a correctness failure observed through a timer and must not join this list"
 		})
+	else:
+		_report.ok()
 
 	var cases := [
 		{
@@ -584,7 +607,10 @@ func _run() -> void:
 	]
 
 	for test_case in cases:
+		var failures_before := failures.size()
 		_run_case(test_case)
+		if failures.size() == failures_before:
+			_report.ok()
 
 	var scaling_cases := _run_scaling_cases()
 
@@ -610,6 +636,7 @@ func _run() -> void:
 
 	if failures.is_empty():
 		print("GPU streaming tier budget contract checks passed.")
+		_report.emit_pass()
 		quit(0)
 	else:
 		quit(1)
