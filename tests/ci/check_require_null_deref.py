@@ -642,12 +642,21 @@ hand-maintained (round 9's 319 -> 337 was a hand edit, reviewed as a diff).
 
 Both baselines key each entry's fingerprint list by the source file's
 **repo-relative POSIX path**, not its basename (GS-AUDIT-TEST-003). A basename key
-collides when two files share a name in different directories -- and this tree has
-exactly that pair, `modules/gaussian_splatting/tests/test_utils.h` and
-`tests/test_utils.h` -- silently merging one file's sites onto the other's, in the
-under-reporting direction. `check_environment_skip_marker.py`'s own baseline already
-carries this fix and names this guard as the sibling still exposed to the hazard;
-`_site_key()` ports it.
+collides when two files share a name in different directories, silently merging
+one file's sites onto the other's, in the under-reporting direction. This tree
+already has a same-named pair -- `modules/gaussian_splatting/tests/test_utils.h`
+and `tests/test_utils.h` -- but it is NOT currently an active collision for this
+guard specifically: `_test_sources()`'s `ENGINE_TESTS_DIR` glob is `test_*.cpp`
+only, never `.h`, so `tests/test_utils.h` is never a member of the scanned set
+here (it would collide with the module's copy if that glob were ever widened to
+match `.h`, or for any future `tests/test_X.cpp` vs
+`modules/gaussian_splatting/tests/test_X.cpp` pair, both of which the current
+`.cpp`-only glob does admit). `check_environment_skip_marker.py`'s own baseline,
+whose `_module_and_engine_sources()` DOES glob `.h` there, is where this exact
+pair collides for real today, and its `source_key()` already carries this fix and
+names this guard as the sibling still exposed to the (latent) hazard; `_site_key()`
+ports that fix's mechanism, independent of whether today's scanned set happens to
+exercise it.
 
 ## Review-base comparison
 
@@ -720,6 +729,7 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import NamedTuple
@@ -793,9 +803,13 @@ _NULL_DEREF_BASELINE_NOTE = (
     "CHECK/WARN spellings of a null-ish assertion are seen at last. Those 18 sites are "
     "pre-existing and #656 rules out mass-rewriting them; a site added by NEW code still "
     "fails. Keyed by repo-relative POSIX path, not basename (GS-AUDIT-TEST-003): a "
-    "basename key collides when two test files share a name in different directories "
-    "(e.g. modules/gaussian_splatting/tests/test_utils.h and tests/test_utils.h both "
-    "exist in this tree), silently masking one file's sites under the other's."
+    "basename key collides when two test files this guard's _test_sources() BOTH "
+    "scan share a name in different directories (e.g. a hypothetical "
+    "tests/test_x.cpp vs modules/gaussian_splatting/tests/test_x.cpp -- the "
+    "ENGINE_TESTS_DIR glob here is test_*.cpp only, so this is a real hazard for a "
+    ".cpp pair, not for the modules/.../test_utils.h vs tests/test_utils.h pair "
+    "that motivated the fix, which this guard's glob happens not to scan both "
+    "halves of), silently masking one file's sites under the other's."
 )
 
 # ---------------------------------------------------------------------------------
@@ -939,11 +953,75 @@ def detector_differs_from_base(base_sha: str) -> tuple[bool, list[str]]:
     return current != content, []
 
 
+def _repo_path_for_key(name: str) -> Path:
+    """The Path a scan key names -- the inverse of `_site_key`'s PRIMARY branch.
+
+    `_site_key` computes `name` as `path.relative_to(ROOT).as_posix()` whenever the
+    scanned path sits under ROOT, which is every real (non-fixture) invocation; this
+    reconstructs that same Path directly. A monkeypatched ROOT (as some self-tests
+    use) inverts correctly too, since it is the SAME ROOT `_site_key` used to derive
+    the key. This does not need to invert `_site_key`'s tempdir FALLBACK branches
+    (used only when the scan roots are not nested under ROOT): tests that exercise
+    those route `name` through a stubbed `_rescan_base_content` instead of a real
+    path and git, exactly as `resolve_review_base` / `_blob_at_base` are stubbed.
+    """
+    return ROOT / name
+
+
+def _rescan_base_content(
+    name: str, base_sha: str, scan_kind: str
+) -> tuple[list[str] | None, list[str]]:
+    """Fingerprints THIS (current) detector finds re-run over `name`'s content as it
+    existed at the review base, or None if that file did not exist there.
+
+    `scan_kind` selects which of the two detectors does the re-run: "null_deref"
+    (`_scan_file` + `fingerprint`) or "size_index" (`_scan_file_size_index` +
+    `size_index_fingerprint`) -- the two baselines are graded by the SAME function
+    below, so the caller says which one this rescan is for.
+
+    The base content is written to a REAL temporary file, named identically to the
+    source (so any suffix- or name-dependent behaviour in the scanners -- error
+    messages via `path.name`, `_size_assertions`'s `path.name` argument -- behaves
+    exactly as an ordinary scan of that file would), rather than refactoring the
+    scanners to accept text directly: reusing `_scan_file` / `_scan_file_size_index`
+    unmodified means this rescan is provably the SAME code path a normal scan takes,
+    not a second, drift-prone implementation of "what counts as a violation".
+    """
+    path = _repo_path_for_key(name)
+    raw, failures = _blob_at_base(base_sha, path)
+    if failures:
+        return None, failures
+    if raw is ABSENT_AT_BASE:
+        return None, []
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp) / path.name
+        try:
+            tmp_path.write_text(raw, encoding="utf-8")
+        except OSError as exc:
+            return None, [f"cannot stage '{name}' at the review base for rescanning: {exc}"]
+        try:
+            if scan_kind == "null_deref":
+                violations = _scan_file(tmp_path)
+                return sorted(
+                    fingerprint(sym, form, stmt) for _, sym, form, stmt in violations
+                ), []
+            if scan_kind == "size_index":
+                sites = _scan_file_size_index(tmp_path)
+                return sorted(
+                    size_index_fingerprint(sym, macro, assertion, stmt)
+                    for _, sym, macro, assertion, _, stmt, _ in sites
+                ), []
+        except ScanError as exc:
+            return None, [f"cannot rescan '{name}' at the review base {base_sha[:12]}: {exc}"]
+    raise AssertionError(f"unknown scan_kind {scan_kind!r}")  # pragma: no cover
+
+
 def _baseline_growth_vs_base(
     current: dict[str, list[str]],
     baseline_path: Path,
     base_sha: str,
     detector_differs: bool,
+    scan_kind: str,
 ) -> tuple[dict[str, list[str]], list[str], bool]:
     """(new fingerprints per file relative to the base, failures, introduced-here).
 
@@ -954,26 +1032,28 @@ def _baseline_growth_vs_base(
     reach.
 
     A fingerprint present under the SAME key in the base baseline is never new. One
-    present under a DIFFERENT key is new UNLESS `detector_differs` is true (this script
-    itself changed relative to the base -- see `detector_differs_from_base`) AND that
-    exact fingerprint exists SOMEWHERE in the base baseline (any key), consumed
-    one-for-one so the same base fingerprint cannot license two different new sites.
-    That is a precise, content-hash-based proof for a pure rekey (this PR's own
-    basename -> path migration does not change a single fingerprint STRING, only which
-    dict key it sits under), and it still rejects genuinely new content: a fingerprint
-    that never existed anywhere at the base has nothing to match, rename license or
-    not.
+    added under the current key is otherwise new UNLESS `detector_differs` is true
+    (this script itself changed relative to the base -- see `detector_differs_from_base`)
+    AND re-running THIS (current) detector over THAT SAME FILE's content AS IT EXISTED
+    AT THE BASE finds that exact fingerprint there too (`_rescan_base_content`).
 
-    The global pool a same-key match draws from is NOT the raw base multiset: a
-    fingerprint that a name's OWN same-key comparison already matched is removed from
-    the pool before any cross-key claim can draw on it (Codex review, GS-AUDIT-TEST-003).
-    Without this, a base entry of two copies of a duplicated fingerprint could license
-    BOTH the copy the same-key comparison already accounted for AND a genuinely new
-    third copy added under that same key in this diff -- the same-key match and the
-    cross-key pool would be spending the base's supply twice. A key whose fingerprints
-    do not appear in `current` at all (the ordinary rekey/rename shape) is untouched by
-    this and stays fully available to the cross-key pool, which is what licenses a
-    rename in the first place.
+    That per-FILE rescan, not a cross-file/global pool, is deliberate -- an earlier
+    version of this function drew from a flattened, repo-wide multiset of every
+    fingerprint anywhere in the base baseline, and a review found it exploitable: fix
+    a site in file A (removing its fingerprint's only base occurrence from nowhere in
+    particular, since the pool was never tied to A), copy byte-identical code into
+    file B, and B's "new" fingerprint matched something -- ANYTHING -- still sitting
+    unclaimed in the global pool, even though B never contained that code at the base.
+    Restricting the proof to "does B's OWN base-commit content contain this
+    fingerprint" closes that: a genuinely new site, wherever it is copied from, was
+    never in the file the guard is now asked to excuse it in. It still licenses a pure
+    rekey (this PR's own basename -> path migration touches no C++ at all, so every
+    file's base content and current content are byte-identical) and a genuine
+    detector improvement over unchanged content (e.g. #849 round 9: the file's base
+    content, rescanned with the WIDENED current detector, reveals the same
+    previously-invisible site the live scan finds) -- both are exactly "this file, at
+    the base, already contained what the live scan now reports", provable from git
+    history rather than asserted.
     """
     raw, failures = _blob_at_base(base_sha, baseline_path)
     if failures:
@@ -989,27 +1069,25 @@ def _baseline_growth_vs_base(
     except (json.JSONDecodeError, KeyError, TypeError, AttributeError) as exc:
         return {}, [f"baseline at review base {base_sha[:12]} is unusable: {exc}"], False
 
-    base_flat = collections.Counter(fp for prints in base_files.values() for fp in prints)
-    # Remove what each name's OWN same-key comparison already matched, for every name
-    # in `current` -- not only the ones with a surplus -- before the cross-key pool
-    # below is allowed to draw on it. See the docstring note above.
-    for name, prints in current.items():
-        same_key_matched = collections.Counter(base_files.get(name, [])) & collections.Counter(prints)
-        base_flat -= same_key_matched
-
     new_relative: dict[str, list[str]] = {}
     for name in sorted(current):
         added = _multiset_difference(current[name], base_files.get(name, []))
         if not added:
             continue
         if detector_differs:
-            still_new = []
-            for fp in added:
-                if base_flat.get(fp, 0) > 0:
-                    base_flat[fp] -= 1
-                else:
-                    still_new.append(fp)
-            added = still_new
+            base_scan_prints, rescan_failures = _rescan_base_content(name, base_sha, scan_kind)
+            if rescan_failures:
+                return {}, rescan_failures, False
+            if base_scan_prints is not None:
+                # Recomputed against the FRESH RESCAN, not a further reduction of
+                # `added`: `added` was already reduced by `base_files.get(name, [])`
+                # (the COMMITTED baseline's recorded entries), so subtracting the
+                # rescan from it too would let the base's supply cover the same
+                # occurrences twice. current[3.h] = [FP,FP,FP] against a committed
+                # baseline of [FP,FP] and a genuine base-content rescan of [FP,FP]
+                # must find exactly ONE new copy, not zero -- reducing already-reduced
+                # `added` against the rescan again would report zero.
+                added = _multiset_difference(current[name], base_scan_prints)
         if added:
             new_relative[name] = added
     return new_relative, [], False
@@ -3824,16 +3902,23 @@ def _test_sources() -> list[Path]:
 def _site_key(path: Path) -> str:
     """The baseline key for a source: its repo-relative POSIX path, not its basename.
 
-    GS-AUDIT-TEST-003: `modules/gaussian_splatting/tests/test_utils.h` and
-    `tests/test_utils.h` both exist in this tree. A basename key collides between them
-    -- and between any other same-named pair, present or future -- and one file's
-    sites silently mask the other's, in the under-reporting direction, which is the
-    wrong direction for a guard against a test-binary-killing defect (#656).
-    check_environment_skip_marker.py's `source_key()` already carries this exact fix
-    for its own baseline and names this guard as the sibling still exposed to the
-    hazard; this mirrors it, including its fallback chain, so the self-tests below --
-    which point `_test_sources()` at directories outside ROOT via monkeypatched
-    MODULE_TESTS_DIR/ENGINE_TESTS_DIR -- get stable keys instead of a ValueError.
+    GS-AUDIT-TEST-003: a basename key collides whenever two SCANNED files share a
+    name in different directories, silently masking one file's sites under the
+    other's -- the wrong direction for a guard against a test-binary-killing defect
+    (#656). `modules/gaussian_splatting/tests/test_utils.h` and `tests/test_utils.h`
+    both exist in this tree and motivated the fix, but this guard's own
+    `_test_sources()` globs `ENGINE_TESTS_DIR` for `test_*.cpp` only (never `.h`),
+    so that specific pair is not an ACTIVE collision here today; the hazard is real
+    for any `.cpp` pair sharing a name across the two directories, present or
+    future, and for the `.h` pair too the day this glob (or a future guard reusing
+    this key function) widens to match it.
+    check_environment_skip_marker.py's `source_key()` -- whose OWN
+    `_module_and_engine_sources()` globs `.h` on both sides, so that exact pair DOES
+    collide for it today -- already carries this fix and names this guard as the
+    sibling still exposed to the hazard; this mirrors it, including its fallback
+    chain, so the self-tests below -- which point `_test_sources()` at directories
+    outside ROOT via monkeypatched MODULE_TESTS_DIR/ENGINE_TESTS_DIR -- get stable
+    keys instead of a ValueError.
     """
     resolved = path.resolve()
     for base in (ROOT, MODULE_TESTS_DIR, ENGINE_TESTS_DIR):
@@ -4303,12 +4388,12 @@ def main(argv: list[str] | None = None) -> int:
         else:
             base_growth_status = 0
             size_index_prints, _size_index_scan_errors = scan_size_index_fingerprints()
-            for label, current_prints, baseline_path, issue in (
-                ("require-null-deref", found_prints, BASELINE_PATH, BASELINE_ISSUE),
-                ("size-then-index", size_index_prints, SIZE_INDEX_BASELINE_PATH, SIZE_INDEX_ISSUE),
+            for label, current_prints, baseline_path, issue, scan_kind in (
+                ("require-null-deref", found_prints, BASELINE_PATH, BASELINE_ISSUE, "null_deref"),
+                ("size-then-index", size_index_prints, SIZE_INDEX_BASELINE_PATH, SIZE_INDEX_ISSUE, "size_index"),
             ):
                 new_relative, growth_failures, introduced = _baseline_growth_vs_base(
-                    current_prints, baseline_path, base_sha, differs
+                    current_prints, baseline_path, base_sha, differs, scan_kind
                 )
                 if growth_failures:
                     print(f"[{label}] FAIL cannot grade {baseline_path.name} against the "
