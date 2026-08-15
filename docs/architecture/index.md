@@ -36,5 +36,6 @@ rather than patching it by hand.
 - [Import input hardening](adr-import-input-hardening.md)
 - [Overflow drop telemetry](adr-overflow-drop-telemetry.md)
 - [Required gate evaluates the PR's own diff](adr-gate-evaluates-pr-diff.md)
+- [Phase-1 guard hardening: a closed cluster of remediations](adr-phase1-guard-hardening.md)
 - [Single route per frame: world/instance node coexistence](adr-single-route-per-frame-node-coexistence.md)
 - [Test quarantine manifest](adr-test-quarantine-manifest.md)
