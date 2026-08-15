@@ -349,6 +349,22 @@ class CompletionMarkerClassificationTests(unittest.TestCase):
         result = _classify(_raw_result("Interactive State", stdout=f"{line}\n{line}\n"))
         self.assertEqual(result.status, "failed")
 
+    def test_mid_line_marker_token_is_not_a_completion_proof(self) -> None:
+        """Codex round 1 (PR #915): a line merely CONTAINING the token -- an
+        engine log echo, a scenario quoting its own docs -- must not mint a
+        pass. Only a line beginning with the marker (the shape both real
+        emitters produce, verified against captured producer output) counts."""
+        echoed = f"engine log: {_marker('Interactive State', 12)}"
+        result = _classify(_raw_result("Interactive State", stdout=echoed))
+        self.assertEqual(result.status, runtime_validation.NO_COMPLETION_MARKER_STATUS)
+        self.assertNotEqual(result.status, "passed")
+
+    def test_leading_whitespace_marker_still_counts(self) -> None:
+        result = _classify(
+            _raw_result("Interactive State", stdout="  " + _marker("Interactive State", 12))
+        )
+        self.assertEqual(result.status, "passed")
+
     def test_marker_does_not_override_nonzero_exit(self) -> None:
         result = _classify(
             _raw_result("Interactive State", exit_code=3, stdout=_marker("Interactive State", 12))
@@ -449,6 +465,22 @@ class ZeroAssertionAllowlistTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             runtime_validation._validate_zero_assertion_allowlist(
                 [{**entry, "expires_utc": "not-a-date"}]
+            )
+
+    def test_config_validation_rejects_an_expired_entry_on_every_run(self) -> None:
+        """Codex round 1 (PR #915): expiry must be loud at config load, not only
+        when a profile happens to select the exempted scenario."""
+        with self.assertRaises(ValueError):
+            runtime_validation._validate_zero_assertion_allowlist(
+                [
+                    {
+                        "scenario": "Interactive State",
+                        "reason": "r",
+                        "issue_url": "u",
+                        "owner": "o",
+                        "expires_utc": "2020-01-01T00:00:00Z",
+                    }
+                ]
             )
 
     def test_shipped_scenario_config_validates(self) -> None:

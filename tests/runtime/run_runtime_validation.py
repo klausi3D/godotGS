@@ -36,8 +36,10 @@ completion evaluation. Within completion evaluation:
     shape: scenario, reason, issue_url, owner, expires_utc). The allowlist
     fails in both directions: an entry whose scenario reports `assertions > 0`
     fails as STALE and must be removed in the same change that made the
-    scenario assert again; an expired entry no longer exempts. Unknown scenario
-    names in the allowlist fail config validation (membership is pinned).
+    scenario assert again; an EXPIRED entry fails config validation at load on
+    every run (not only runs that select the exempted scenario) and no longer
+    exempts. Unknown scenario names in the allowlist fail config validation
+    (membership is pinned).
   - No [RUNTIME_PASS] marker at all is recorded with the advisory status
     `no_completion_marker` (ladder step 1). It is visible in the report,
     counted in the summary (`summary["no_completion_marker"]`), printed by the
@@ -413,13 +415,23 @@ def _extract_metrics_payload(output: str) -> Dict[str, object]:
 
 
 def _extract_completion_payloads(output: str) -> List[str]:
-    """Raw payload text of every [RUNTIME_PASS] line in the scenario output."""
+    """Raw payload text of every line that BEGINS with [RUNTIME_PASS].
+
+    Codex review (PR #915 round 1): unlike the FAIL/SKIP extractors, which only
+    make a run stricter when they over-match, this extractor mints a positive
+    completion proof -- accepting the token anywhere in a line (find()) would
+    let an incidental echo (an engine log line quoting the marker, a scenario
+    printing its own documentation) classify a scenario as passed. Both real
+    emitters (gs_runtime_report.gd print(); the C++ harnesses' std::cout) write
+    the marker at column 0 -- verified against captured producer output, not
+    assumed -- so only leading whitespace is tolerated.
+    """
     payloads: List[str] = []
     for raw_line in output.splitlines():
-        marker_index = raw_line.find(PASS_MARKER)
-        if marker_index == -1:
+        line = raw_line.lstrip()
+        if not line.startswith(PASS_MARKER):
             continue
-        payloads.append(raw_line[marker_index + len(PASS_MARKER):].strip())
+        payloads.append(line[len(PASS_MARKER):].strip())
     return payloads
 
 
@@ -1003,8 +1015,9 @@ def _validate_zero_assertion_allowlist(raw_entries: object) -> None:
         that makes it assert again. Either half alone is loud: a scenario
         asserting past a live record fails as STALE, and a zero-assertion
         scenario without a record fails as untracked. Expiry passing is the
-        third loud exit: the run fails until the entry is renewed deliberately
-        or the scenario asserts.
+        third loud exit, and it is loud HERE, at config load, on every run of
+        every profile -- not only when the exempted scenario is selected --
+        until the entry is renewed deliberately or removed.
     Membership is pinned: an entry naming a scenario outside the registry is a
     config error, so a renamed scenario cannot silently keep an exemption.
     """
@@ -1032,9 +1045,20 @@ def _validate_zero_assertion_allowlist(raw_entries: object) -> None:
         if scenario in seen:
             raise ValueError(f"{prefix} duplicates scenario '{scenario}'.")
         seen.add(scenario)
-        if _parse_allowlist_expiry(str(entry["expires_utc"])) is None:
+        expiry = _parse_allowlist_expiry(str(entry["expires_utc"]))
+        if expiry is None:
             raise ValueError(
                 f"{prefix} field 'expires_utc' is not a parseable ISO-8601 UTC timestamp."
+            )
+        # Codex review (PR #915 round 1): expiry must be loud on EVERY run, not
+        # only on runs whose profile selects the exempted scenario -- otherwise
+        # an expired entry for an unselected scenario survives silently, which
+        # is the renewed-on-reflex rot the expiry exists to prevent. Same
+        # posture as the quarantine manifest: staleness fails at load.
+        if datetime.now(timezone.utc) >= expiry:
+            raise ValueError(
+                f"{prefix} for scenario '{scenario}' expired at {entry['expires_utc']}; "
+                "renew it deliberately (new expiry + review) or remove it."
             )
 
 
