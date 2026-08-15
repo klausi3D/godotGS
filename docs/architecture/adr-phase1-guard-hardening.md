@@ -116,8 +116,8 @@ These are stated once, here, and are binding on every PR in §1.
 6. **No prescription without a read.** Every sentence in a design record that says what a named
    file does, or must be changed to do, **cites the `file:line` it was read at**. A prescription
    written from memory of how a consumer *probably* behaves is not a design decision; it is a
-   guess that a reviewer has to re-derive. Seven review rounds produced sixteen findings against
-   this document and **eleven were the same defect**: an instruction that would have failed the
+   guess that a reviewer has to re-derive. Eight review rounds produced eighteen findings against
+   this document and **twelve were the same defect**: an instruction that would have failed the
    very consumer it was written to satisfy, because nobody had opened it. A fifth manifest
    declaration the count check rejects and a #908 declaration the stale check rejects (§5.4); a
    soak trigger no profile selection can satisfy, evidence read from a report already
@@ -128,15 +128,32 @@ These are stated once, here, and are binding on every PR in §1.
    inventoried under (§6.3 again, round 5); a derivation whose changed-path input drops one side
    of every rename (§8.4.1); the same input silently truncated at 300 files by a documented cap
    nobody re-read (§8.4.1 again, round 7); and a fail-closed rule with no green route, because
-   the manifest deliberately inventories unregistered keys (§6.6). The other five were genuine
-   design gaps — a missing failure signature, a base-versus-head policy read, an under-specified
-   membership check, the self-certification hole in §8.4, and a completion marker never bound to
-   the scenario that emitted it (§4.1) — the normal cost of design review. The eleven were not.
-   **Not one was a wrong judgement call; every one was an unread consumer.** Treat an uncited
-   claim about a consumer's behaviour as unverified whatever its confidence — including in the
-   corrections: **three** introduced a fresh instance while fixing an earlier one, and a fourth
-   (§8.4.1's rename contract) was *incomplete* rather than wrong, missing a second precondition
-   on the very input it had just been written to repair.
+   the manifest deliberately inventories unregistered keys (§6.6); and a soak whose union
+   property could never reach the two C++ scenarios that step 2 nevertheless arms (§4.6.2). The
+   other six were genuine design gaps — a missing failure signature, a base-versus-head policy
+   read, an under-specified membership check, the self-certification hole in §8.4, a completion
+   marker never bound to the scenario that emitted it (§4.1), and an allowlist offered as the
+   repair for a state it cannot reach (§4.6) — the normal cost of design review. The twelve were
+   not. **Not one was a wrong judgement call; every one was an unread consumer.** Treat an
+   uncited claim about a consumer's behaviour as unverified whatever its confidence.
+
+   **How corrections themselves fared, tracked in three categories rather than two**, because
+   the distinction changes what a reviewer should look for. Of the findings that landed on text
+   an earlier round had already written: **three were fresh defects introduced by a correction**
+   (§6.3's representation, and two others); **two were corrections that were incomplete rather
+   than wrong** (§8.4.1's rename contract, missing the truncation precondition on the same
+   input; §4.6's soak, which fixed satisfiability and left the C++ scope unstated); and the rest
+   were **by design** — an existing rule deliberately extended to a new site, such as §10.1's
+   symmetric enumeration guard. Only the first category is a regression. The second is the more
+   instructive one: a correction that closes the named hole and leaves a sibling is the shape
+   that survives review, because the section *looks* freshly examined.
+
+   **One instance is worth naming for how it hid.** §4.6's union obligation said it made
+   per-profile counting *"add up to a statement about the whole registry"* — correct number,
+   wrong noun, since 11 `GDS_TESTS` is not the 13-scenario registry. That single word made the
+   two C++ scenarios invisible to four subsequent rounds of review *of that same paragraph*,
+   including two that rewrote it. A wrong noun in a claim about scope is not a wording problem;
+   it is a specification that reviewers then verify against the wrong set.
 
    **The rule binds every layer, and did.** The `GLOBAL_DEF`-only defaults source (§6.6) came
    from the **maintainer's** §6.5 requirement, written without reading the registration
@@ -401,10 +418,18 @@ is to relax the parser — which recreates the defect with a fresh justification
        `[RUNTIME_PASS]` present for every scenario **that profile selects** — not every
        registered scenario — and no `no_completion_marker` record in that profile's report for
        any of those runs.
-    2. **Union coverage.** The profiles in the soak set must, between them, select **all 11**
-       registered `GDS_TESTS` scenarios. This is asserted separately, as a property of
-       `runtime_scenarios.json` at the moment the flip lands, and it is what makes obligation 1
-       add up to a statement about the whole registry.
+    2. **Union coverage — over the GDScript registry only, and that scope is the point.** The
+       profiles in the soak set must, between them, select **all 11** `GDS_TESTS` scenarios,
+       asserted separately as a property of `runtime_scenarios.json` at the moment the flip
+       lands. What that makes obligation 1 add up to is a statement about **the 11 GDScript
+       scenarios — not the registry**, which holds **13** (11 `GDS_TESTS` + 2 `CPP_TESTS`).
+
+       **An earlier revision of this obligation said "the whole registry", and that sentence is
+       what hid §4.6.2 for four rounds.** The number was right and the noun was wrong: 11 is the
+       whole *GDScript* registry and 11 ≠ 13. Reading it as "the registry" made the two C++
+       scenarios invisible to every subsequent review of this section, including the ones that
+       rewrote it. The scope is now stated in the obligation itself rather than inferable from
+       the constant beside it.
 
     The profile set is the three profiles CI actually invokes — **`headless-ci`** and
     **`streaming-gpu-ci`** (`gaussian_production_gates.yml:346,358`) and **`release-ci`**
@@ -502,11 +527,30 @@ is to relax the parser — which recreates the defect with a fresh justification
     artifact name (`release_ci_runtime.yml:124-129`), so nothing overwrites it.
 
   - **If the soak exposes marker gaps, that is a finding to fix, not a reason to stay advisory
-    silently.** A scenario that intermittently omits the marker has an intermittent
-    completion path, which is the defect `TEST-007` describes. The available responses are:
-    fix it, or give it a tracked, expiring `no_assertions_reason` allowlist entry per §4.3.
-    "Extend the soak until it goes green" is not one of them, and neither is letting the
-    advisory step run on with no one holding the trigger.
+    silently.** A scenario that intermittently omits the marker has an intermittent completion
+    path, which is the defect `TEST-007` describes.
+
+    **Two states that an earlier revision of this bullet conflated, and they have different
+    repairs:**
+
+    | Observed | What it means | Repair |
+    | --- | --- | --- |
+    | Marker emitted, `assertions: 0`, `no_assertions_reason` present | The scenario ran and legitimately asserted nothing | Tracked, expiring §4.3 allowlist entry — owner, issue, expiry |
+    | **No marker at all** | The scenario is **unported**, or its completion path is intermittent | **Port it, or fix the path. Nothing else.** |
+
+    **The §4.3 allowlist is not available for a missing marker, and the reason is structural
+    rather than stylistic:** §4.3 grants the exemption only when *"the scenario also **emits** a
+    `no_assertions_reason` string"*. A scenario that emits nothing has no marker to carry the
+    reason, so the allowlist route is unreachable for it by construction — the earlier wording
+    offered a door that does not open.
+
+    It also must not be made to open. An allowlist entry for a missing marker would convert
+    *"nobody ported this scenario"* into a **declared, owned, expiring — and therefore
+    renewable — exemption**, which is how the advisory phase becomes permanent through the front
+    door: each renewal individually justified, the ladder never climbed. That is precisely the
+    outcome the soak exists to prevent, arriving with better paperwork than the failure it
+    replaced. "Extend the soak until it goes green" is not an available response either, and
+    neither is letting the advisory step run on with no one holding the trigger.
 
 **Migration cost, stated honestly.** The registry holds **13** scenarios: 11 GDScript
 (`GDS_TESTS`, `run_runtime_validation.py:107-119`) and 2 C++ (`CPP_TESTS`). Plus **4** orphan
@@ -514,10 +558,14 @@ probes (`GS-AUDIT-TEST-010` / #896) that are in no registry, no profile and no w
 
 - The 11 GDScript scenarios are ported by the T3 implementer, in step 1.
 - The **2 C++ harnesses** must emit the marker too, and **nothing in CI will observe it**:
-  `--skip-cpp` is universal across all three CI invocations, and `run_cpp_harnesses` hardcodes
-  `fail_on_skip=False` (`:569`). Porting them is bookkeeping against a lane that does not run.
-  It is in scope because leaving two registry members structurally exempt is how the next
-  audit finds this again; it is not evidence, and the PR must not present it as evidence.
+  `--skip-cpp` is universal across all three CI invocations
+  (`gaussian_production_gates.yml:348`, `:359`; `release_ci_runtime.yml:121`), and
+  `run_cpp_harnesses` (`:533`) hardcodes `fail_on_skip=False` (`:569`). **These ports are not
+  bookkeeping** — an earlier revision called them that, and §4.6.2 withdraws it. They are the
+  code step 2's fail-closed branch acts on the first time anyone runs the C++ scenarios:
+  load-bearing, with no lane watching them, which is a more dangerous shape than bookkeeping
+  rather than a less important one. Porting them is still not *evidence*, and the PR must not
+  present it as evidence; §4.6.2 says what the arming evidence for these two actually is.
 - The **4 orphans** are #896's business, not T3's. **Sequencing:** land #896 before step 2, so
   the fail-closed flip never has to reason about scenarios that may be deleted. If #896
   registers them, they are ported with it; if #896 deletes them, they never need the marker.
@@ -568,6 +616,50 @@ survives step 2 or is removed by it. This ADR has now specified this mechanism t
 wrong twice (§2.6), and the reason is structural rather than careless: the questions left are
 settled in minutes by someone running the harness and in rounds by someone reading it. See §4.7
 for what T3's PR owes in exchange.
+
+### 4.6.2 The two C++ scenarios cannot be soaked, and step 2 must not pretend otherwise
+
+**No CI lane observes the C++ emitters.** `--skip-cpp` is passed by every CI invocation of the
+runner — `gaussian_production_gates.yml:348` and `:359`, `release_ci_runtime.yml:121` — and
+`run_cpp_harnesses` classifies its own results with the check disarmed:
+`_classify_result(result, fail_on_skip=False, allow_skip_tests=set())` (`:569`). So the soak,
+which is defined over CI-invoked profiles, is **structurally incapable** of covering
+`CPP_TESTS`. Not unlikely to cover them — incapable.
+
+**But step 2 arms them anyway.** After the flip, any run that includes the C++ scenarios passes
+them through the same `_classify_result` (`:337`; main path `:1006`) and fails closed on a
+missing or malformed marker. So the flip would arm fail-closed behaviour for two scenarios whose
+emitters no soak run has ever observed — **arming on evidence that cannot exist**, which is the
+ratchet-pinned-to-a-hoped-for-value failure §4.6 names in its own text, committed by §4.6.
+
+**Decision: step 2 arms both kinds, and the C++ pair's arming evidence is a recorded run of the
+harnesses with `--skip-cpp` omitted, produced by the flip PR itself — not by the soak.**
+
+The soak measures CI lanes; the C++ pair is in no CI lane, so asking the soak to cover it is
+asking for a measurement of something unobserved. A single recorded run is weaker evidence than
+five consecutive soak runs, and it is stated as weaker — but it is **real**, which the soak's
+coverage of these two scenarios could never be. It is also achievable today: `run_cpp_harnesses`
+exists (`:533-570`) and CI already builds the binaries the harnesses need, so the flip PR runs
+them once, without `--skip-cpp`, and records the transcript showing both emit a well-formed
+marker bound to their own registry name (§4.1).
+
+**Step 2 is not weakened by this**, and that is the reason for choosing it over the alternative
+of narrowing the flip to GDScript: narrowing would leave two registry members permanently
+exempt from a fail-closed contract that applies to everything else, which is the structural
+exemption §4.6's migration paragraph already refuses for these same two scenarios.
+
+**If the flip PR cannot produce even one observed run**, then the C++ pair is deferred out of
+step 2 — and deferral has the same price here as everywhere else in this programme: an **owner,
+a tracking issue filed by the flip PR** (referenced with `refs`, never a closing keyword), an
+expiry, and an explicit statement in the ADR and the PR that step 2's scope is GDScript-only.
+**Silently arming them, or silently not arming them, are both unavailable.**
+
+**And §4's description of these ports as "bookkeeping" is withdrawn.** The migration paragraph
+above called porting the two C++ harnesses *"bookkeeping against a lane that does not run"*.
+That was true about the *observation* and wrong about the *consequence*: the ports are what
+step 2's fail-closed branch will act on the first time anyone runs the C++ scenarios, so they
+are load-bearing code with no lane watching them — which is a more dangerous shape than
+bookkeeping, not a less important one.
 
 ### 4.7 What T3's PR owes for the delegated mechanism
 
