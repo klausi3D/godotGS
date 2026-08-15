@@ -116,8 +116,8 @@ These are stated once, here, and are binding on every PR in §1.
 6. **No prescription without a read.** Every sentence in a design record that says what a named
    file does, or must be changed to do, **cites the `file:line` it was read at**. A prescription
    written from memory of how a consumer *probably* behaves is not a design decision; it is a
-   guess that a reviewer has to re-derive. Eleven review rounds produced **twenty-three** findings
-   against this document, and **fifteen were the same defect**: an instruction that would have
+   guess that a reviewer has to re-derive. Twelve review rounds produced **twenty-five** findings
+   against this document, and **sixteen were the same defect**: an instruction that would have
    failed the very consumer it was written to satisfy, because nobody had opened it.
 
    | Where | Unread-consumer defects |
@@ -129,13 +129,15 @@ These are stated once, here, and are binding on every PR in §1.
    | §6.6 | a defaults source that cannot resolve 14 of the 32 keys it must compare; a fail-closed rule with no green route, because the manifest deliberately inventories unregistered keys |
    | §8.4.1 | a changed-path input that drops one side of every rename; the same input truncated at 300 files by a documented cap nobody re-read; a `listFiles` ceiling pagination does not escape; and a pagination prescription the target endpoint cannot implement |
    | §8.4.2 | a directional table that silently assumed every input is a committed file, leaving a label able to subtract the whole evidence lane |
+   | §8.4.4 | a completeness invariant stated below the trigger filter that decides whether the workflow runs at all |
 
-   The other **eight** were genuine design gaps — a missing failure signature, a base-versus-head
+   The other **nine** were genuine design gaps — a missing failure signature, a base-versus-head
    policy read, an under-specified membership check, the self-certification hole in §8.4, a
    completion marker never bound to the scenario that emitted it (§4.1), an allowlist offered as
    the repair for a state it cannot reach (§4.6), an expected-fail bucket with no specified
-   exit (§6.5), and a label binding built on a clock the repo does not control (§8.4.2) — the
-   normal cost of design review. The fifteen were not. **Not one was a wrong
+   exit (§6.5), a label binding built on a clock the repo does not control (§8.4.2), and a
+   failure signature pinned as one token rather than the complete set (§6.2) — the normal cost
+   of design review. The sixteen were not. **Not one was a wrong
    judgement call; every one was an unread consumer.** Treat an uncited claim about a consumer's
    behaviour as unverified whatever its confidence.
 
@@ -917,12 +919,12 @@ single largest blind spot in the only per-PR pixel gate.
 
 **Decision.** A new `EXPECTED_FAIL_SCENES` map beside `QUARANTINED_SCENES` in
 `qa_test_runner.gd`, carrying the same fields the quarantine manifest requires (reason, issue,
-owner, expiry) **plus a required `expected_failure` signature**. Five behaviours, all pinned:
+owner, expiry) **plus a required `expected_failure` set**. Five behaviours, all pinned:
 
 | Observed | Outcome |
 | --- | --- |
-| scene runs, **RED, matching** the entry's `expected_failure` | recorded as `expected_fail`, counted in the summary and in `qa_results.json`, **suite does not fail** |
-| scene runs, **RED, not matching** the entry's `expected_failure` | **suite fails**, reported as `unexpected_failure` with both the expected and the observed signature printed |
+| scene runs, **RED**, observed failure set **exactly equals** the entry's `expected_failure` set | recorded as `expected_fail`, counted in the summary and in `qa_results.json`, **suite does not fail** |
+| scene runs, **RED**, observed set **differs in any way** — superset, subset, or different | **suite fails**, reported as `unexpected_failure` with both the expected and the observed sets printed |
 | scene runs, **GREEN** | **suite fails.** Either GPU-001 is fixed — remove the entry and promote — or the scene stopped asserting. Both need a human |
 | scene produced **no result** | fails closed, as a missing quarantine entry does today |
 | entry's **expiry passes** | fails, matching the quarantine manifest's clock-checked expiry |
@@ -948,6 +950,35 @@ carries through `get_result_metrics()` / `append_renderer_diagnostics()`
 (`qa_test_base.gd:109,113-158`, which already surfaces `visible_splats` and `sorted_splats`).
 GPU-001's signature is "**splats absent**", i.e. a splat-count-zero condition on the scene's own
 content assertion.
+
+**And the pin is against the *complete* observed failure set, by exact equality — not against
+one token found somewhere in it.** Pinning a single identity was correct in direction and
+**insufficient in strength**, and the reason is the result interface: a QA scene reports through
+`signal test_completed(passed: bool, message: String)` (`qa_test_base.gd:6`), and the runner
+stores that as **one** `message` string per scene (`qa_test_runner.gd:174-185`). One string is
+all there is. So a scene exhibiting the known splats-absent failure **and** an unrelated
+regression can still surface the pinned token as the reported message, and a
+does-the-signature-appear check classifies the whole run `expected_fail` — the second failure
+absorbed silently by the first. That is the round-1 finding in its real form: the earlier fix
+closed "red for a completely different reason" and left "red for the known reason *plus*
+something else", which is the harder case and the likelier one.
+
+**Requirement, therefore:**
+
+1. **Aggregate without short-circuiting.** The scene evaluates every assertion and reports all
+   failures, rather than returning at the first. A single-result interface cannot express a set
+   unless the producer builds one, so the failure set is assembled scene-side before it is
+   reported.
+2. **Compare by exact set equality.** Observed failure set `==` the entry's pinned set →
+   `expected_fail`. **Anything else — a superset, a subset, or a different set — is
+   `unexpected_failure` and fails the suite.** A superset is a new regression hiding behind a
+   known one; a subset is a partial repair, which is equally a thing a human must see.
+
+The mechanism for carrying a set through a one-string channel is **T10's to choose and document**
+(§6.3.1) — a delimited token list and a structured payload are both obvious candidates, and the
+runner already carries a `metrics` dictionary alongside the message (`qa_test_runner.gd:176-182`)
+if a second channel is preferable to encoding one. What is not delegated is the comparison:
+**equality against the whole set, never membership of one token.**
 
 The alternative — hashing the failing frame and matching the hash — is rejected. A pixel
 fingerprint over a *visual mismatch* is brittle in exactly the wrong direction: driver
@@ -1904,6 +1935,42 @@ becomes a silent bypass on every dispatch that trips it.** Promotion must theref
 job-level `if:` and move the condition inside the job, never inherit it. This is recorded here
 rather than filed as a defect because nothing is currently wrong; it is a precondition on a
 future change.
+
+### 8.4.4 The trigger sits above the derivation, and can silence it entirely
+
+**Everything in §8.4 assumes the workflow ran.** `gaussian_production_gates.yml` triggers on a
+**hard-coded path enumeration** — `on.pull_request.paths` at `:7-24` and the same shape repeated
+under `push.paths` at `:27` — listing `core/**`, `drivers/**`, `editor/**`, `main/**`,
+`modules/**`, `platform/**`, `scene/**`, `servers/**`, `thirdparty/**`, `tests/**`, `*.py`,
+`SConstruct` and a handful of named files.
+
+**So the completeness invariant is stated one layer below where it can first be violated.** If
+policy gains an R2 glob outside those prefixes, the workflow never starts for a change touching
+only that path, and no amount of correct derivation inside the job can arm a lane that was never
+scheduled. The failure is **silent in the strongest sense available**: not a lane that skipped,
+not a check that passed vacuously, but no run at all — there is no artifact to inspect and no
+`reason` string to read, because nothing executed. Every other input in §8.4 at least leaves a
+trace.
+
+**Measured today, and stated as today's fact rather than a guarantee:** all **8** R2
+`path_globs` live under `modules/gaussian_splatting/…`, so `modules/**` (`:12`) covers every one
+of them at `adcd6916dbd`. Nothing is currently unreachable. That is a property of the *current
+policy*, not of the design — it holds until someone adds an R2 glob outside the enumerated
+prefixes, and the person adding it gets no signal that they have just made a path unreachable.
+
+**Requirement: the trigger surface must be at least as broad as the derived R2 surface, or the
+two must be guarded to evolve atomically.** Which of those, and how, is **delegated to #897**
+under §2.7's document-the-mechanism obligation — broadening the trigger trades CI cost for
+coverage, guarding the two lists trades a maintenance burden for precision, and that is the kind
+of trade a verifier settles against a real CI bill rather than a document settles by reasoning.
+What is not delegated: **§8.4's completeness claim is conditional on the trigger**, and that
+conditionality is now stated where the claim is made rather than left implicit.
+
+This is the outermost layer the input contract has reached — §8.4.1 covered the *content* of the
+changed-path list, §8.4.2 an input with no base version, §8.4.3 the paths the contract does not
+govern, and this one the question of whether the code that applies any of it runs at all. The
+progression is worth noting for the next reader: each round found the previous fix correct and
+scoped one layer too narrowly.
 
 ## 9. Members with no independent design content
 
