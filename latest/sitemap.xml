@@ -105,6 +105,10 @@
          <lastmod>2026-08-15</lastmod>
     </url>
     <url>
+         <loc>https://klausi3d.github.io/godotGS/latest/architecture/adr-phase1-guard-hardening/</loc>
+         <lastmod>2026-08-15</lastmod>
+    </url>
+    <url>
          <loc>https://klausi3d.github.io/godotGS/latest/architecture/adr-single-route-per-frame-node-coexistence/</loc>
          <lastmod>2026-08-15</lastmod>
     </url>
