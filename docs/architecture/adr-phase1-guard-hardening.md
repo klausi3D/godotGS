@@ -39,8 +39,8 @@ principle was tested; both were settled by it, and Q1 was settled *against* the 
 
 Of the fifteen remaining Phase-1 sub-tasks, **eight measure R3 unconditionally** (#891, #892,
 #893, #894, #896, #897, #898, #904); **#895 measures R3 on the scope the maintainer chose**
-(§11 Q1); #903's class follows from its design and is not pre-decided (§11 Q5); and one
-(#901) is deliberately floored at R3 by §7.
+(§11 Q1); **#903 measures R3 once its design is written down in full** (§11 Q5, §6.5); and one
+(#901) is deliberately floored at R3 by §7. **Eleven of the fifteen are R3.**
 Read literally, each would need its own design record. They are one programme against one
 defect shape — a guard that reports green while observing nothing — so they get one record.
 The price of that economy is that the list is closed.
@@ -59,7 +59,7 @@ The price of that economy is that the list is closed.
 | T8b frame-completion tracker | #900 | `GPU-017` | **R2** | §9 |
 | T9a fork-delta truth + drift guard | #901 | `DOC-001` | **R1 → R3 by design** | §7 |
 | T9b `nodes/README.md` truth | #902 | `DOC-002` | **R1** | §9 |
-| T10 production-defaults pixel coverage | #903 | `TEST-008` | **Not pre-decided — the class follows the design** (§11 Q5). **R1** if the correct design stops at scenes + `qa_test_runner.gd`; **R3** if it needs `.github/workflows/baseline_qa.yml`. §6 covers T10 either way | §6 |
+| T10 production-defaults pixel coverage + override-diff guard | #903 | `TEST-008` | **R3** — the class followed the design (§11 Q5). `TEST-008`'s second remediation clause is a new `tests/ci/check_*.py`, which self-registers per §7 and floors the PR at R3 (§6.5, measured). Independent of whether it reaches `baseline_qa.yml` | §6 |
 | T11a stale fork claim | #904 | `TEST-013` | **R3** | §9 |
 | T11b dead shaders | #905 | `BUILD-001` | **R2** | §9 |
 
@@ -417,11 +417,15 @@ The 60 partition as follows:
 | --- | --- | --- | --- |
 | #906 | bare-tagged renderer pipeline | **38** | `test_renderer_pipeline.h` |
 | #907 | device ownership / buffer lifetime / leak detection | **12** | `test_render_device_manager_ownership.h` (7), `test_memory_leak_detection.h` (3), `test_gpu_buffer_manager_lifetime.h` (2) |
-| #908 | streaming | **3** | `test_gpu_streaming.h` |
+| #908 | streaming — **fixed by retag, not by declaration** (§5.2) | **3** | `test_gpu_streaming.h` |
 | #910 | singletons | **6** | composite-hazard (2), importer (1), sorting-perf (1), phase-1 integration (1), render validation (1) |
 | — | *(not in the split)* | 1 | `test_tile_renderer.cpp` — inside the `TileRenderer` filter, subtracted by the honored #643 `excludes` |
 
-38 + 12 + 3 + 6 = **59**, exactly the count the wildcard declares
+38 + 12 + 3 + 6 = **59**, exactly the count the wildcard declares **today**. This is the
+partition of the corpus as it stands *before* T4 acts; §5.2's retag then moves #908's three out
+of the stranded set entirely, so the manifest T4 *lands* declares 56 across three entries, not
+59 across four. §5.4 works this through — the pre-state and the post-state are different
+numbers, and conflating them writes a manifest the guard rejects.
 (`tests/ci/quarantine_manifest.json`: `*][RequiresGPU]*`, `count: 59`, issue #820, expiry
 `2026-10-15`). The 60th unbatched-at-runtime case is the #643 waiver — a filter exclusion with
 its own `deferred_requires_gpu_waivers` entry, not a member of the split and not this task's
@@ -443,7 +447,26 @@ enough to try (`*Streaming*`, matching the descriptive tail) would instead pull 
 boundary rather than fix it, and it would make batch membership depend on prose.
 
 Per §2.5, the acceptance evidence for this retag is the derived membership set before and
-after — the count is identical on both sides by construction.
+after — the *corpus* count is identical on both sides by construction, because a retag is a
+rename.
+
+**But the retag changes the stranded set, and therefore the manifest.** This is the half that
+§2.5's "a retag is a rename" warning is easy to under-read. `check_test_lane_coverage.py`
+computes `gpu_hit` against **every** batch in `run_gpu_harness.py`'s `BATCHES` — advisory
+batches included, not just `REQUIRED_BATCHES` — and a case with `module_hit or gpu_hit` is not
+stranded (`:538-551`). The whole point of this retag is to make these three cases match the
+`Streaming` batch, so the retag **un-strands them**. Measured at `adcd6916dbd` by driving the
+guard's own `_doctest_wildcmp` against `BATCHES`:
+
+| Case (post-retag name) | Matches a batch? |
+| --- | --- |
+| `[GaussianSplatting][Streaming][RequiresGPU] GPU Memory Streaming` | `Streaming` |
+| `[GaussianSplatting][Streaming][RequiresGPU] GPU Memory Streaming Performance` | `Streaming` |
+| `[GaussianSplatting][Streaming][RequiresGPU] Stage-B instance depth culling toggles` | `Streaming` |
+
+All three match `Streaming`'s filter `*Streaming*][RequiresGPU]*` after the retag and none
+before. So the stranded `[RequiresGPU]` population drops **59 → 56** the moment the retag lands,
+and #908 needs **no** manifest declaration — see §5.4.
 
 ### 5.3 `ComputeInfrastructure` is deleted, and retagging is rejected
 
@@ -471,18 +494,35 @@ recorded here so it is not "restored" later by someone reading only the zero-mat
 
 - **#820 is closed by the split, as superseded by #906–#910.** Its subject — the 59-case
   wildcard declaration — ceases to exist, and an open issue pointing at a declaration that is
-  gone is worse than no issue. The wildcard is replaced by **four** named declarations — one
-  each for **#906 (38), #907 (12), #908 (3) and #910 (6)** — carrying the same required fields
-  the manifest already demands (`UNLANED_REQUIRED_FIELDS`: `test_case`, `count`, `reason`,
-  `issue_url`, `owner`, `expires_utc`), whose counts sum to 59 at the moment of the split.
-- **#909 gets no manifest declaration at all.** Its batch is deleted outright (§5.3), so it
-  contributes **0** cases to the partition (§5.1) — and a zero-count declaration cannot exist:
-  `tests/ci/check_test_lane_coverage.py:380` rejects any `unlaned_tests` entry whose `count`
-  is not a positive integer
-  (`if not isinstance(entry.get("count"), int) or entry["count"] < 1`). Five declarations is
-  therefore not merely redundant here, it is **unrepresentable**; an implementer who reads
-  "five" and writes five either fails the guard or invents an undocumented split to fill the
-  fifth. #909's work is the batch deletion, not a declaration.
+  gone is worse than no issue. **The wildcard is replaced by three named declarations — #906
+  (38), #907 (12) and #910 (6), summing to 56** — carrying the same required fields the manifest
+  already demands (`UNLANED_REQUIRED_FIELDS`: `test_case`, `count`, `reason`, `issue_url`,
+  `owner`, `expires_utc`).
+- **Two of the five children declare nothing, for two different reasons. Both would fail the
+  guard if declared.**
+  - **#909** — its batch is deleted outright (§5.3), so it contributes **0** cases to the
+    partition (§5.1), and a zero-count declaration cannot exist:
+    `tests/ci/check_test_lane_coverage.py:380` rejects any `unlaned_tests` entry whose `count`
+    is not a positive integer
+    (`if not isinstance(entry.get("count"), int) or entry["count"] < 1`). #909's work is the
+    batch deletion.
+  - **#908** — its three cases stop being stranded the moment §5.2's retag lands, because they
+    then match the `Streaming` batch and `gpu_hit` is computed over all `BATCHES`. A #908
+    declaration would match **zero stranded cases** and fail as **stale**: *"matches NO
+    currently stranded test case… the tests were given a lane"* (`:605-610`). #908's work is
+    the retag, and the retag is the thing that removes the need to declare it.
+
+  Both failures are the same shape from opposite ends — a declaration is a statement that cases
+  are stranded, and neither set is. **The count the manifest can honestly carry after T4 is 56,
+  not 59.** An implementer who preserves the 59 total by keeping a #908 or #909 declaration has
+  written a manifest the guard rejects; one who preserves it by inventing a fourth group has
+  written a partition this ADR does not describe.
+- **Ordering, because 59 → 56 is a live constraint, not bookkeeping.** The wildcard declares 59.
+  If the retag lands while the wildcard still exists, the wildcard matches 56 and the guard
+  fails it for over-declaring (`:619-624`, *"matches 56 stranded case(s) but declares 59…
+  lower 'count' to 56 so the slack cannot be reoccupied"*).
+  Either the retag and the wildcard's count drop land together, or the retag and the full split
+  land together. §9.1 states the atomicity requirement.
 - **`REQUIRED_BATCHES` stays policy-enumerated, not derived.** It records a *decision* ("this
   batch must be able to fail CI"), and that is precisely the fact a tree which has already
   lost the batch can no longer tell you — the same reasoning
@@ -612,7 +652,83 @@ No separate promotion machinery is built for a two-entry map. The trigger is GPU
 closing (§6.3), which is why that issue and #903 must be distinct: #903 is done long before
 this flip is possible.
 
-### 6.5 Every QA/visual change is A/B'd on both `depth_test` values
+### 6.5 The override-diff guard — the other half of `TEST-008`
+
+`GS-AUDIT-TEST-008`'s remediation direction has **two** clauses, and §§6.1–6.4 take only the
+first: *"Add a production-defaults QA scene (depth_test=true, default lighting) to the blocking
+suite; **add a guard diffing test-project overrides against shipped defaults with an explicit
+waiver list**."* The second clause is specified here. It was carried in T10's task from the
+start and was under-specified in this record, not out of scope — and dropping it would silently
+shrink the `TEST-008` fix to half its remediation.
+
+It is also the clause that addresses the finding's own root cause. `TEST-008`'s
+`why_existing_tests_or_gates_miss_it` reads: *"The gate compares against baselines captured
+under the same non-default config, so both sides drift together; **nothing diffs QA-project
+settings against manifest/GLOBAL_DEF defaults.**"* Scenes close the two configurations we
+already know about; the guard is what stops the next divergence from being discovered by an
+audit. The surface is larger than `depth_test`: the QA project carries **32**
+`gaussian_splatting/*` overrides (`tests/examples/godot/test_project/project.godot`,
+`[rendering]`), of which `TEST-008` names six as material — `composite/depth_test=false`,
+`effects/max_effectors=0`, `lighting/shadow_strength=0.0`, `lighting/indirect_sh_scale=0.0`,
+`quality/tier_apply_streaming_budgets=false`, `streaming/auto_regulate_enabled=false`.
+
+**Four requirements, and they are the specification.**
+
+1. **Both sides derived; neither side hand-written.** Overrides are parsed from the QA
+   `project.godot`; shipped defaults come from the `GLOBAL_DEF` registrations that declare them
+   (e.g. `GLOBAL_DEF("rendering/gaussian_splatting/composite/depth_test", true)`,
+   `gaussian_splat_manager.cpp:998`), cross-checked for key completeness against the
+   199-key inventory in `modules/gaussian_splatting/config/project_settings_manifest.json`
+   (`root_prefix: rendering/gaussian_splatting/`). Note the division: the manifest is a key
+   inventory and does **not** carry default *values*, so values must come from `GLOBAL_DEF` and
+   the manifest is what catches an override whose key is registered nowhere. **A hand-written
+   table of expected defaults is forbidden** — it is the same defect this whole cluster exists
+   to remove, and it would rot silently the first time a default changed, leaving the guard
+   green while comparing against a value the engine no longer ships.
+2. **The waiver list carries a per-entry reason, in the same shape as §8.3's exclusion list.**
+   One waiver idiom for this programme, not three: the quarantine-manifest shape — the keyed
+   subject, `reason`, `issue_url`, `owner`, `expires_utc`. The two lists differ in subject only
+   (a settings key here, a path glob in §8.3) and **must not** differ in mechanism; if an
+   implementer finds a reason they must diverge, that reason goes in both docstrings or the
+   shapes stay identical. §8.3's membership-pinning requirement applies here too, in its
+   degenerate form: a waiver names exactly one settings key, so "matches nothing" and "matches
+   more than declared" collapse to "the key is not overridden any more", which fails as stale.
+3. **An un-waived override is RED.** Any `gaussian_splatting/*` key whose QA value differs from
+   its shipped default and which carries no waiver fails the guard. Not a warning, not a
+   report line — the whole point is that the current 32 were never a decision anyone recorded.
+4. **The guard registers itself, per §7.** It is a new `tests/ci/check_*.py`, so it adds itself
+   to policy's "CI deterministic-check / release-gate machinery" enumeration in the same diff,
+   which floors T10's PR at R3 via `SELF_REFERENTIAL_PATHS`. This is what makes T10 the second
+   worked instance of §7's programme-wide rule rather than an assertion about a guard that does
+   not exist: §6.5 is the thing §7 points at.
+
+**Landing posture.** The 32 existing overrides are pre-existing, and this ADR does not decide
+which of them are legitimate — that is the guard's first PR, arguing each waiver on its merits.
+What is decided here is that the arguing happens **once, in the open, with expiries**, rather
+than never. The advisory-then-blocking ladder is available if the first pass is large; what is
+not available is landing the guard with a blanket waiver, which would reproduce the wildcard
+§5.4 deletes.
+
+**Class.** Specifying the guard changes T10's measurement, and per the programme principle the
+class follows the design rather than the design being trimmed to hold a class. Measured at
+`adcd6916dbd`:
+
+```
+$ python scripts/agentic/classify_change.py --paths \
+      tests/examples/godot/test_project/scripts/qa_test_runner.gd \
+      tests/ci/check_qa_settings_overrides.py .agentic/policy.json
+risk_class: R3
+  R1  tests/examples/godot/test_project/scripts/qa_test_runner.gd  (Local module or test change)
+  R1  tests/ci/check_qa_settings_overrides.py  (Local module or test change)
+  R3  .agentic/policy.json  (risk policy change (self-referential; forced to the top class))
+```
+
+So **T10 is R3 by requirement 4**, independently of whether it ever touches `baseline_qa.yml`.
+§1's row and §11 Q5 are updated accordingly: Q5's question — does T10 reach the workflow? — is
+no longer what decides the class, though it remains open as a design question. The guard file
+name above is illustrative; only its directory and prefix are load-bearing.
+
+### 6.6 Every QA/visual change is A/B'd on both `depth_test` values
 
 **Decision, and it is a rule for the whole programme, not just T10.** Phase 0 measured that
 the QA pin does not merely narrow coverage — it **inverts the result**: with
@@ -642,11 +758,10 @@ an R3-grade guard under an R1 review.
 **Instances in this cluster.**
 
 - **T9 (#901)** — `tests/ci/check_engine_delta.py`. The worked example, measured below.
-- **T10 (#903)** — its new override-diff guard inherits the rule identically. Note that §6 as
-  written does not yet specify that guard's shape; the rule attaches to it the moment T10's
-  design introduces it, and T10's PR carries the `.agentic/policy.json` edit and the resulting
-  R3 grade with it. This also interacts with §11 Q5: a T10 that introduces a guard script is
-  R3 by this rule regardless of whether it reaches `baseline_qa.yml`.
+- **T10 (#903)** — the **override-diff guard specified in §6.5**, which is the second clause of
+  `GS-AUDIT-TEST-008`'s remediation direction. T10's PR carries the `.agentic/policy.json` edit
+  and the resulting R3 grade with it; §6.5 records the measurement. This is a worked instance
+  rather than an assertion, because §6.5 now specifies the guard the rule attaches to.
 - **No other member of §1 can be shown to introduce a new guard script from this ADR's text
   alone.** §9 records the remaining members as direct applications of their findings' remediation
   directions without naming files, so whether (for instance) T6's `validate_automation` wiring
@@ -752,7 +867,30 @@ not string-substituting a list — `core/*streaming*` has no prefix form. #897 o
 translation, and its acceptance evidence is the derived path set compared against the 197-file
 expansion above, per §2.5: a count that matches is not evidence that the membership matches.
 
-### 8.2 Required: an explicit, reasoned exclusion list
+### 8.2 The policy is read from the immutable base, never from the PR's own checkout
+
+**Required, and it is the difference between a derivation and a self-serving one.** Deriving
+from `.agentic/policy.json` **as checked out at the PR head** would let a PR that edits policy
+alongside an R2 file narrow or delete the matching R2 glob, so `runWindowsGpu` stays false and
+the GPU evidence lane never runs *for the very file that made the PR risky*. The change under
+review would be deciding which evidence it owes. Editing `policy.json` does floor the PR at R3
+(§7), but that is a *classification* control, not an evidence one: the gate's own summary states
+that CI does not verify the published evidence was produced, so an R3 grade with a silently
+skipped evidence lane is exactly the green-while-unobserved shape this cluster exists to remove.
+
+**Decision: resolve the R2 globs from the immutable review base**, matching what the required
+gate already does one layer up — `agentic_pr_gate.yml:105-116` reads
+`git show "${GS_PR_BASE_SHA}:.agentic/policy.json"` and **fails closed** rather than classify a
+PR against its own policy (*"refusing to classify this PR against its own policy"*). The same
+argument applies unchanged to the evidence filter, so it gets the same treatment rather than a
+new one.
+
+If a PR legitimately widens the R2 surface and wants its own new paths covered in the same run,
+the safe resolution is the **union of base and head** globs — never head alone. Union can only
+add evidence; head-alone can remove it. Fail closed if the base policy cannot be read, for the
+same reason the gate does.
+
+### 8.3 Required: an explicit, reasoned exclusion list
 
 **Deriving alone would make divergence impossible; that is the wrong goal. Divergence must be
 *visible*.** Some R2 path may genuinely not need the GPU evidence lane — a header-only
@@ -770,17 +908,31 @@ follows them rather than inventing a shape:
 | --- | --- |
 | `tests/ci/quarantine_manifest.json` `unlaned_tests` | `test_case`, `count`, `reason`, `issue_url`, `owner`, `expires_utc` (`check_test_lane_coverage.py:160-167`) |
 | `renderer_release_gate_manifest.json` `deferred_requires_gpu_waivers` | `test_name`, `issue_url`, `owner`, `expires_utc`, `risk`, `mitigation`, `docs_path` (`check_renderer_release_gates.py:379-388`) |
-| **T7c's exclusion list (new)** | `path_glob`, `reason`, `issue_url`, `owner`, plus `expires_utc` — see below |
+| **T7c's exclusion list (new)** | `path_glob`, **`matched_paths`** (see 2), `reason`, `issue_url`, `owner`, plus `expires_utc` — see below |
 
-Three properties the list must have, each taken from a precedent rather than argued from
+Four properties the list must have, each taken from a precedent rather than argued from
 scratch:
 
 1. **Fail closed on a malformed or incomplete entry**, as both precedents do — a missing field
    is a validation failure, not a silently ignored exclusion.
-2. **An exclusion that matches nothing is itself a failure.** A stale exclusion for a deleted
-   path is a licence sitting unused, and the next R2 file that happens to match it inherits the
-   exemption without anyone deciding. `deferred_requires_gpu_waivers`' `docs_path` existence
-   check is the same instinct.
+2. **Each entry pins its matched membership, and both growth and shrinkage fail.** A
+   zero-match check alone is not enough, and the earlier draft of this section got it wrong: it
+   caught only the stale case, while the failure it *named in its own sentence* — "the next R2
+   file that happens to match it inherits the exemption without anyone deciding" — slips
+   straight through. A wildcard exclusion that still matches one existing file keeps passing a
+   zero-match check while silently absorbing every new R2 file that matches it, which is the
+   bypass the whole list is supposed to make visible.
+
+   So each entry declares the **set of paths it currently excuses**, and the guard fails on any
+   difference — a new file joining (an undecided exemption) or a file leaving (a stale licence
+   whose slack can be reoccupied). The precedent is exact and already in this repo: the
+   quarantine manifest's `count` does precisely this in both directions
+   (`check_test_lane_coverage.py:611-624` — `actual > declared` is *"NEW stranded case(s) joined
+   an already-declared family — a wildcard declaration must not silently amnesty cases written
+   after it"*; `actual < declared` demands you *"lower 'count' … so the slack cannot be
+   reoccupied"*). **Pin the membership, not merely the count**, per §2.5: a rename keeps the
+   count identical while moving the set, and here a rename is exactly how a file would slide
+   into an exemption unnoticed.
 3. **Expiry.** `expires_utc` is carried, on the quarantine manifest's clock-checked model, so
    an exclusion is re-argued rather than inherited. **This is the one field where a case can be
    made either way** — an R2 path that genuinely never needs the lane is a permanent fact, and
@@ -788,6 +940,10 @@ scratch:
    because "genuinely never" is exactly the claim that ages badly in this repo, and a re-argued
    exclusion costs one line. #897 may argue the other side in its PR; it may not simply omit
    the field.
+4. **Prefer exact paths to wildcards.** Property 2 makes a wildcard safe, not cheap: every
+   matching file must be enumerated in `matched_paths` anyway, so a glob buys nothing except a
+   larger blast radius the day someone adds a file that matches it. A wildcard is available
+   where a directory genuinely is excluded as a whole; the entry then still pins its members.
 
 **Where it lives is #897's call, not this ADR's** — beside the workflow, or as a key in an
 existing manifest — with one constraint: it must **not** live in `.agentic/policy.json`. Putting
@@ -842,12 +998,17 @@ is recorded here so the deletion is visible rather than silent.
   what makes it mandatory and fail-closed. #894's PR must record **which lane carries the
   dependency**, because a module-scope `import yaml` in `tests/agentic/` would `ImportError`
   at unittest *discovery* and red the only required check on every PR.
-- **The wildcard's removal and the four named declarations are one atomic change.** Removing
-  `*][RequiresGPU]*` (count 59) before the #906/#907/#908/#910 declarations exist leaves the
-  manifest under-declared against a corpus that has not moved; adding them first double-declares
-  the same 59 cases. Either state is a guard reporting on a tree that never existed. (Four, not
-  five: #909 declares nothing — §5.4.) #909's batch deletion is not part of this atomic change;
-  it touches `run_gpu_harness.py`'s `BATCHES`, not the manifest.
+- **The wildcard's removal, §5.2's retag, and the three named declarations are one atomic
+  change.** Removing `*][RequiresGPU]*` (count 59) before the #906/#907/#910 declarations exist
+  leaves the manifest under-declared against a corpus that has not moved; adding them first
+  double-declares the same cases. **And the retag must ride along**, because it is what takes the
+  stranded population from 59 to 56: land it separately and the surviving wildcard declares 59
+  against 56 stranded cases, which the guard fails for over-declaring; land the declarations
+  without it and 56 does not add up. Every one of those intermediate states is a guard reporting
+  on a tree that never existed. (Three declarations, not four and not five: #908 is fixed by the
+  retag and #909 by the batch deletion — §5.4.) #909's batch deletion is the one piece that is
+  *not* part of the atomic change: it touches `run_gpu_harness.py`'s `BATCHES` only, changes no
+  case's stranded status, and can land on its own.
 
 ## 10. Known gaps and carried follow-ups
 
@@ -1007,8 +1168,8 @@ write the same default report path and the later one overwrites the earlier — 
 implementation work. Neither correction changes the answer to Q4; both change whether the answer
 could have been carried out.
 
-**Q5 — whether T10 reaches `baseline_qa.yml`. Settled: not pre-decided; the class follows the
-design.**
+**Q5 — whether T10 reaches `baseline_qa.yml`. Settled: not pre-decided — and the design then
+made T10 R3 anyway.**
 
 *What was open.* On the minimal scope — QA scenes plus `qa_test_runner.gd` — T10 measures R1,
 not the R3 its task plan carried; it reaches R3 only if the workflow is edited.
@@ -1020,10 +1181,25 @@ the job — and not by which answer is cheaper to review. Pre-deciding "keep it 
 scope decision made for a class reason, which is the move the programme principle forbids;
 pre-deciding "make it R3" would be the same error with the sign flipped, buying ceremony
 instead of avoiding it. §6 covers T10's design **either way**, so the ADR requirement is
-satisfied whichever class the finished design measures. Note also that §7's self-registration
-rule floors T10 at R3 independently if its design introduces a new guard script.
+satisfied whichever class the finished design measures.
 
-*Recorded in.* §1's T10 row, reframed from a scope caveat to "the class follows the design".
+*And then the design answered it.* Specifying the second clause of `TEST-008`'s remediation
+direction — the override-diff guard, §6.5 — introduces a new `tests/ci/check_*.py`, which
+self-registers into policy per §7 and floors T10's PR at **R3** (measured in §6.5). So T10 is
+R3, arrived at the way the principle requires: nobody chose the class, the class fell out of
+writing down the whole fix. The original question stands open as a *design* question — whether
+the finished design also wants `baseline_qa.yml` edited, for instance to surface the
+expected-fail count on the job — but it no longer decides anything about the class, because the
+guard already floored it.
+
+Worth stating plainly, since it is the principle's sharpest test in this cluster: the cheaper
+reading was available right up to the end. Leaving §6 at the scenes alone would have kept T10 at
+R1 and looked like a defensible minimal scope — and it would have shipped **half** of
+`TEST-008`'s remediation while the finding's own root cause ("nothing diffs QA-project settings
+against manifest/GLOBAL_DEF defaults") went unaddressed. Trimming a fix until it grades R1 is
+the failure this ADR is about, one level up.
+
+*Recorded in.* §1's T10 row (now **R3**), §6.5, and §7's instance list.
 
 ## 12. What would change this decision
 
