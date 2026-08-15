@@ -43,6 +43,23 @@ Both paths are auto-discovered from `bin/` and can also be supplied via the
 `GODOT_EDITOR_BINARY` / `GODOT_EXPORT_TEMPLATE` environment variables. When a
 prerequisite is missing the run reports `[EXPORT_SMOKE_SKIP]` and exits 0
 unless `--require-binaries` is passed.
+
+The negative control (`--expect-stock-template-failure`)
+-------------------------------------------------------
+A smoke test that has only ever been run in its passing configuration proves
+that one configuration worked once, not that it still detects the failure. So
+this script also runs itself backwards: with `--expect-stock-template-failure`
+it writes the preset with an EMPTY `custom_template/release` -- the #825
+misconfiguration verbatim -- and requires the run NOT to end in a working GS
+export. See `negative_control_outcome` for the four outcomes and what each of
+them says about the machine it ran on.
+
+A control that passes on *any* failure is not a control. "The export did not
+succeed" is far weaker than "the export was refused because no template could be
+resolved": a timeout, a crash, a disk-full error and an unrelated resource error
+all satisfy the first and establish nothing about the second. Only the expected
+rejection passes -- classified from the editor's own diagnostics and from the
+verified absence of the binary on disk, never inferred from a nonzero exit code.
 """
 
 from __future__ import annotations
@@ -97,6 +114,46 @@ EXIT_FAIL = 1
 # `Canonical Node Asset Render` proof fails the same way there). It is still a
 # failure by default; `--allow-blank-viewport` downgrades ONLY this one code.
 PROBE_EXIT_NO_VISUAL_EVIDENCE = 4
+
+# Exit code this module fabricates for a subprocess it had to kill. It is NOT a
+# reliable timeout signal on its own -- 124 is also a perfectly ordinary exit
+# code for a real process -- which is why `CommandResult.timed_out` carries the
+# fact separately.
+TIMEOUT_RETURNCODE = 124
+
+# --- Negative-control evidence -----------------------------------------------
+#
+# What the editor prints when it refuses an export because it cannot resolve a
+# template. Both halves matter, and both are chosen to be LOCALE-INDEPENDENT:
+# the editor runs with the host's language, and a German or Chinese runner would
+# translate every TTR() string, so matching the English message text would make
+# the control machine-dependent.
+#
+#   * `editor/editor_node.cpp` emits
+#     `Cannot export project with preset "%s" due to configuration errors:\n%s`
+#     through plain `vformat()`, NOT `TTR()`, so this prefix survives any locale.
+#     It says "the editor refused because `can_export()` returned false".
+#   * The reason itself IS translated, but the *path* interpolated into it is
+#     not: `editor/export/editor_export_platform.cpp` appends
+#     `<data dir>/export_templates/<version>/windows_release_x86_64.exe` after
+#     the translated "No export template found at the expected path:" line
+#     (`export_templates_folder` in `editor/file_system/editor_paths.h`,
+#     `EditorExportPlatformWindows::get_template_file_name()` in
+#     `platform/windows/export/export_plugin.cpp`). Matching the path narrows
+#     "some configuration error" to "the template could not be resolved", which
+#     is the only reason this control is allowed to pass.
+EXPORT_REJECTION_MARKER = "Cannot export project with preset"
+EXPORT_REJECTION_REASON_MARKER = "due to configuration errors"
+MISSING_TEMPLATE_MARKERS: Sequence[str] = (
+    "export_templates",
+    "windows_release_x86_64.exe",
+    # Set when `custom_template/release` names a file that does not exist. Not
+    # this control's own configuration (it writes ""), but it is still a
+    # template-resolution refusal, so it is recognised rather than misfiled as
+    # an unrelated failure. English-only by nature -- it carries no path -- so it
+    # is a bonus signal, never the sole one required.
+    "Custom release template not found",
+)
 
 sys.path.insert(0, str(RUNTIME_DIR))
 from run_runtime_validation import _resolve_mode_args  # noqa: E402
@@ -159,10 +216,37 @@ def _resolve_template(explicit: Optional[str]) -> Optional[Path]:
     )
 
 
-def _run(command: List[str], *, cwd: Path, timeout: int, label: str) -> subprocess.CompletedProcess:
+class CommandResult(subprocess.CompletedProcess):
+    """`CompletedProcess` plus an unambiguous "we killed it" flag.
+
+    A fabricated exit code cannot carry this fact: `TIMEOUT_RETURNCODE` is a
+    legal exit code for a real process, so a caller that inferred "timed out"
+    from `returncode == 124` would also fire on a program that simply exited
+    124. The negative control has to tell a hang apart from a refusal, so the
+    distinction is recorded rather than reconstructed.
+    """
+
+    def __init__(
+        self,
+        args: Sequence[str],
+        returncode: int,
+        stdout: str,
+        stderr: str,
+        *,
+        timed_out: bool = False,
+    ) -> None:
+        super().__init__(args, returncode, stdout, stderr)
+        self.timed_out = timed_out
+
+    @property
+    def combined_output(self) -> str:
+        return f"{self.stdout or ''}\n{self.stderr or ''}"
+
+
+def _run(command: List[str], *, cwd: Path, timeout: int, label: str) -> CommandResult:
     print(f"[export-smoke] {label}: {' '.join(command)}")
     try:
-        return subprocess.run(
+        completed = subprocess.run(
             command,
             cwd=str(cwd),
             capture_output=True,
@@ -174,7 +258,14 @@ def _run(command: List[str], *, cwd: Path, timeout: int, label: str) -> subproce
     except subprocess.TimeoutExpired as exc:
         stdout = exc.stdout if isinstance(exc.stdout, str) else (exc.stdout or b"").decode("utf-8", "replace")
         stderr = exc.stderr if isinstance(exc.stderr, str) else (exc.stderr or b"").decode("utf-8", "replace")
-        return subprocess.CompletedProcess(command, 124, stdout, stderr)
+        return CommandResult(command, TIMEOUT_RETURNCODE, stdout, stderr, timed_out=True)
+    return CommandResult(
+        command,
+        completed.returncode,
+        completed.stdout or "",
+        completed.stderr or "",
+        timed_out=False,
+    )
 
 
 def _tail(text: str, lines: int = 30) -> str:
@@ -269,13 +360,22 @@ def preset_state_error(overwrite_allowed: bool) -> Optional[str]:
     return None
 
 
-def _write_preset(template_binary: Path, backup_path: Path) -> Path:
+def _write_preset(
+    template_binary: Path,
+    backup_path: Path,
+    custom_template_release: Optional[str] = None,
+) -> Path:
     """Write the generated preset, first moving any pre-existing one aside.
 
     The caller has already established (via `preset_state_error`) that
     overwriting is allowed and that no backup exists. The existing file is
     *moved* (not copied-then-truncated), so a crash between here and the restore
     leaves the developer's original on disk under `backup_path`.
+
+    `custom_template_release` defaults to `template_binary`'s absolute path,
+    which is the normal run. The negative control passes `""` to reproduce the
+    #825 preset exactly; note that `""` is a *deliberate value*, not "unset", so
+    the check below is `is None` rather than a truth test.
     """
     target = PROJECT_DIR / "export_presets.cfg"
     if target.exists():
@@ -289,12 +389,13 @@ def _write_preset(template_binary: Path, backup_path: Path) -> Path:
         target.replace(backup_path)
         print(f"[export-smoke] moved your existing export_presets.cfg to {backup_path.name}")
 
+    if custom_template_release is None:
+        # Godot stores/reads this as an absolute path with forward slashes.
+        custom_template_release = template_binary.resolve().as_posix()
+
     preset_text = PRESET_TEMPLATE.read_text(encoding="utf-8")
     preset_text = preset_text.replace("@PRESET_NAME@", PRESET_NAME)
-    # Godot stores/reads this as an absolute path with forward slashes.
-    preset_text = preset_text.replace(
-        "@CUSTOM_TEMPLATE_RELEASE@", template_binary.resolve().as_posix()
-    )
+    preset_text = preset_text.replace("@CUSTOM_TEMPLATE_RELEASE@", custom_template_release)
     target.write_text(preset_text, encoding="utf-8")
     return target
 
@@ -320,6 +421,182 @@ def _parse_metrics(output: str) -> Optional[dict]:
             return None
         return parsed if isinstance(parsed, dict) else None
     return None
+
+
+NEGATIVE_CONTROL_OUTCOMES = (
+    "export_rejected",
+    "stock_template_detected",
+    "undetected",
+    "unrelated_failure",
+)
+# Pass-LIST, not a fail-list. The earlier form was `if outcome == "undetected":
+# fail`, so every outcome anyone added later -- including ones that establish
+# nothing -- passed by default. An unrecognised outcome must be red.
+NEGATIVE_CONTROL_PASSING_OUTCOMES = ("export_rejected", "stock_template_detected")
+
+
+def missing_template_rejection_evidence(export_output: str) -> List[str]:
+    """The markers proving the editor refused because it could not resolve a template.
+
+    Empty means "not proven", which is the only thing this control is entitled to
+    conclude from an export that merely failed. Requires BOTH halves:
+
+      * the untranslated refusal prefix, which says `can_export()` returned false
+        rather than the export dying somewhere downstream, and
+      * at least one template-resolution marker, which narrows that refusal from
+        "some configuration error" (a bad texture-format combination also lands
+        there) to the missing template this control is about.
+
+    See the marker constants for why each one is locale-independent.
+    """
+    text = export_output or ""
+    if EXPORT_REJECTION_MARKER not in text or EXPORT_REJECTION_REASON_MARKER not in text:
+        return []
+    template_markers = [marker for marker in MISSING_TEMPLATE_MARKERS if marker in text]
+    if not template_markers:
+        return []
+    return [EXPORT_REJECTION_MARKER, *template_markers]
+
+
+def negative_control_outcome(
+    export_returncode: int,
+    exported: Optional[Path],
+    export_output: str,
+    *,
+    timed_out: bool = False,
+) -> tuple[str, str]:
+    """Classify a `--expect-stock-template-failure` run. Returns (outcome, detail).
+
+    The preset named NO custom template. Exactly two outcomes are acceptable, and
+    both of them are *positive findings* -- the control never passes on the mere
+    absence of success.
+
+    ``export_rejected`` (passes)
+        The editor refused the export **because it could not resolve a template**,
+        and no binary exists at the export path -- checked on disk, not inferred
+        from the exit code. Today that means no stock export template is installed
+        on this machine, so the exporter had nothing to silently fall back to.
+        After the engine-side fix (milestone 1 PR 5) this is the outcome to expect
+        everywhere, and the reason this control has to exist *before* that change:
+        it is the assertion that provably passes for a different reason on the
+        pre-change tree.
+
+    ``stock_template_detected`` (passes)
+        The export SUCCEEDED and produced a binary with no GS symbols in it.
+        That is #825 reproduced: a stock upstream template is installed on this
+        machine and Godot silently fell back to it. The byte-scan caught it and
+        nothing upstream of the byte-scan did. Worth reporting loudly -- it is a
+        fact about the runner, not about the change under test.
+
+    ``undetected`` (fails)
+        A binary carrying GS symbols came out of a preset that named no custom
+        template. Either the preset substitution did not take or something is
+        feeding a GS template in behind the flag's back; either way the positive
+        run above is not discriminating and its green is worth nothing.
+
+    ``unrelated_failure`` (fails)
+        The export did not succeed, but nothing establishes that the empty
+        `custom_template/release` is why. A timeout, a crash, a disk-full error,
+        a missing project, an unreadable fixture -- every one of them produced a
+        nonzero exit and no binary, which the earlier version of this function
+        classified as `export_rejected` and reported green. A control that passes
+        whenever anything at all goes wrong has stopped being a control.
+    """
+    binary_present = exported is not None and exported.is_file()
+    where = str(exported) if exported is not None else "the export path"
+    binary_state = f"a binary IS present at {where}" if binary_present else f"no binary exists at {where}"
+
+    if timed_out:
+        return (
+            "unrelated_failure",
+            f"the export TIMED OUT (killed after the export timeout, reported as exit "
+            f"{export_returncode}) instead of being refused; a hang says nothing about whether "
+            f"the empty custom_template/release was detected ({binary_state})",
+        )
+
+    if binary_present:
+        missing = _missing_gs_symbol_needles(exported)
+        if not missing:
+            # Worst case, and it does not become acceptable because the editor
+            # also happened to exit nonzero.
+            return (
+                "undetected",
+                f"the export produced {where} (exit {export_returncode}) and it carries GS symbols "
+                "even though the preset named no custom template, so this run cannot tell a "
+                "correct export from the #825 one",
+            )
+        if export_returncode != 0:
+            return (
+                "unrelated_failure",
+                f"the export failed (exit {export_returncode}) and LEFT A BINARY at {where} that is "
+                f"missing {', '.join(missing)}. A partial artifact from a failed export is not a "
+                "clean missing-template rejection, and the byte-scan cannot say which of the two "
+                "this was",
+            )
+        return (
+            "stock_template_detected",
+            f"the export SUCCEEDED and produced a binary missing {', '.join(missing)}. A stock "
+            "upstream export template is installed on this machine, so #825's exact condition is "
+            "reproducible here; the byte-scan is what caught it",
+        )
+
+    if export_returncode == 0:
+        return (
+            "unrelated_failure",
+            f"the export reported SUCCESS (exit 0) yet {binary_state}. That is neither a rejection "
+            "nor a produced artifact, so there is nothing to scan and nothing was established",
+        )
+
+    evidence = missing_template_rejection_evidence(export_output)
+    if not evidence:
+        return (
+            "unrelated_failure",
+            f"the export failed (exit {export_returncode}) and {binary_state}, but its output "
+            f"carries no missing-template rejection: expected {EXPORT_REJECTION_MARKER!r} together "
+            f"with one of {list(MISSING_TEMPLATE_MARKERS)}. A timeout, a crash or an unrelated "
+            "resource error fails exactly like this and would prove nothing about the empty "
+            "custom_template/release",
+        )
+
+    return (
+        "export_rejected",
+        f"the editor refused the export (exit {export_returncode}) because it could not resolve an "
+        f"export template -- evidence: {', '.join(repr(item) for item in evidence)} -- and "
+        f"{binary_state} (checked on disk)",
+    )
+
+
+def _negative_control_verdict(
+    export_returncode: int,
+    exported: Optional[Path],
+    export_output: str,
+    *,
+    timed_out: bool = False,
+) -> int:
+    outcome, detail = negative_control_outcome(
+        export_returncode, exported, export_output, timed_out=timed_out
+    )
+    print(
+        f"{METRICS_MARKER} "
+        + json.dumps(
+            {
+                "probe": "export_smoke_negative_control",
+                "outcome": outcome,
+                "export_returncode": export_returncode,
+                "timed_out": bool(timed_out),
+                "binary_present": bool(exported is not None and exported.is_file()),
+                "rejection_evidence": missing_template_rejection_evidence(export_output),
+            },
+            sort_keys=True,
+        )
+    )
+    if outcome not in NEGATIVE_CONTROL_PASSING_OUTCOMES:
+        return _fail(
+            f"Negative control did not establish that the empty custom_template/release was "
+            f"detected ({outcome}): {detail}."
+        )
+    print(f"{PASS_MARKER} negative control ({outcome}): {detail}.")
+    return EXIT_PASS
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -363,6 +640,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         action="store_true",
         help="Treat missing editor/template/platform prerequisites as a failure instead of a skip.",
     )
+    parser.add_argument(
+        "--expect-stock-template-failure",
+        action="store_true",
+        help=(
+            "Negative control: write the preset with an EMPTY custom_template/release (the #825 "
+            "misconfiguration) and require that the run does NOT end in a working GS export. "
+            "Passes ONLY on a proven missing-template rejection, or when the export succeeds and "
+            "the produced binary is detected as stock. A GS-enabled binary from a preset that "
+            "named no template fails, and so does any other failure -- a timeout, a crash or an "
+            "unrelated error establishes nothing. Does not run the probe."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if platform.system() != "Windows":
@@ -393,6 +682,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     print(f"[export-smoke] editor   = {editor}")
     print(f"[export-smoke] template = {template}")
+    if args.expect_stock_template_failure:
+        # The template is still resolved and still pre-checked below, even
+        # though the preset will not name it. That is on purpose: it keeps the
+        # two invocations symmetric, so a negative control cannot "pass" merely
+        # because the template download failed.
+        print(
+            "[export-smoke] NEGATIVE CONTROL: writing the preset with an EMPTY "
+            "custom_template/release; this run must NOT produce a working GS export."
+        )
 
     # Cheap pre-check before spending minutes on an export: a stock template
     # would produce a green-looking export and a silently splat-free game.
@@ -442,7 +740,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 print(_tail(imported.stdout + "\n" + imported.stderr))
                 return _fail(f"Project import failed (exit {imported.returncode}).")
 
-        preset_path = _write_preset(template, preset_backup)
+        preset_path = _write_preset(
+            template,
+            preset_backup,
+            custom_template_release="" if args.expect_stock_template_failure else None,
+        )
         exported_result = _run(
             [
                 str(editor),
@@ -457,6 +759,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             timeout=args.export_timeout,
             label="export project",
         )
+        if args.expect_stock_template_failure:
+            # The export tail is printed either way: on `export_rejected` it is
+            # the evidence of *why* it was rejected, and on the failing outcomes
+            # it is the only place the misconfiguration could have been noticed.
+            # The verdict is classified from the FULL output, not the tail: the
+            # refusal diagnostic is several lines long and a tail cut could drop
+            # the half that distinguishes it from an unrelated failure.
+            print(_tail(exported_result.combined_output))
+            return _negative_control_verdict(
+                exported_result.returncode,
+                exported,
+                exported_result.combined_output,
+                timed_out=exported_result.timed_out,
+            )
+
         if exported_result.returncode != 0 or not exported.is_file():
             print(_tail(exported_result.stdout + "\n" + exported_result.stderr))
             return _fail(f"Export failed (exit {exported_result.returncode}); no binary at {exported}.")
