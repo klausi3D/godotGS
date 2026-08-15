@@ -7,7 +7,7 @@
       
       
       
-        <link rel="canonical" href="https://klausi3d.github.io/godotGS/latest/reports/archive/docs_assessment_2026-03-29/">
+        <link rel="canonical" href="https://klausi3d.github.io/godotGS/latest/architecture/adr-gate-evaluates-pr-diff/">
       
       
       
@@ -15,19 +15,19 @@
         
       
       
-      <link rel="icon" href="../../../assets/branding/godotgs-mark.png">
+      <link rel="icon" href="../../assets/branding/godotgs-mark.png">
       <meta name="generator" content="mkdocs-ProperDocs 1.6.7, mkdocs-material-9.7.7">
     
     
       
-        <title>Documentation Assessment Report - Godot Gaussian Splatting - Godot Gaussian Splatting Docs</title>
+        <title>ADR: The required gate evaluates the PR's own diff; contract source deferred (#887) - Godot Gaussian Splatting Docs</title>
       
     
     
-      <link rel="stylesheet" href="../../../assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
-        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -40,21 +40,21 @@
       
     
     
-      <link rel="stylesheet" href="../../../assets/styles/brand.css">
+      <link rel="stylesheet" href="../../assets/styles/brand.css">
     
-      <link rel="stylesheet" href="../../../assets/styles/components.css">
+      <link rel="stylesheet" href="../../assets/styles/components.css">
     
-      <link rel="stylesheet" href="../../../assets/styles/landing.css">
+      <link rel="stylesheet" href="../../assets/styles/landing.css">
     
-      <link rel="stylesheet" href="../../../assets/styles/marketing.css">
+      <link rel="stylesheet" href="../../assets/styles/marketing.css">
     
-    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
     
     
-  <link href="../../../assets/stylesheets/glightbox.min.css" rel="stylesheet"><script src="../../../assets/javascripts/glightbox.min.js"></script><style id="glightbox-style">
+  <link href="../../assets/stylesheets/glightbox.min.css" rel="stylesheet"><script src="../../assets/javascripts/glightbox.min.js"></script><style id="glightbox-style">
             html.glightbox-open { overflow: initial; height: 100%; }
             .gslide-title { margin-top: 0px; user-select: text; }
             .gslide-desc { color: #666; user-select: text; }
@@ -83,7 +83,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#documentation-assessment-report-godot-gaussian-splatting" class="md-skip">
+        <a href="#adr-the-required-gate-evaluates-the-prs-own-diff-contract-source-deferred-887" class="md-skip">
           Skip to content
         </a>
       
@@ -103,9 +103,9 @@
 
 <header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../../.." title="Godot Gaussian Splatting Docs" class="md-header__button md-logo" aria-label="Godot Gaussian Splatting Docs" data-md-component="logo">
+    <a href="../.." title="Godot Gaussian Splatting Docs" class="md-header__button md-logo" aria-label="Godot Gaussian Splatting Docs" data-md-component="logo">
       
-  <img src="../../../assets/branding/godotgs-mark.png" alt="logo">
+  <img src="../../assets/branding/godotgs-mark.png" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -122,7 +122,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Documentation Assessment Report - Godot Gaussian Splatting
+              ADR: The required gate evaluates the PR's own diff; contract source deferred (#887)
             
           </span>
         </div>
@@ -231,7 +231,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../../getting-started/" class="md-tabs__link">
+        <a href="../../getting-started/" class="md-tabs__link">
           
   
   
@@ -253,7 +253,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../../user/" class="md-tabs__link">
+        <a href="../../user/" class="md-tabs__link">
           
   
   
@@ -275,7 +275,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../../reference/" class="md-tabs__link">
+        <a href="../../reference/" class="md-tabs__link">
           
   
   
@@ -297,7 +297,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../../contributor/" class="md-tabs__link">
+        <a href="../../contributor/" class="md-tabs__link">
           
   
   
@@ -339,9 +339,9 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../../.." title="Godot Gaussian Splatting Docs" class="md-nav__button md-logo" aria-label="Godot Gaussian Splatting Docs" data-md-component="logo">
+    <a href="../.." title="Godot Gaussian Splatting Docs" class="md-nav__button md-logo" aria-label="Godot Gaussian Splatting Docs" data-md-component="logo">
       
-  <img src="../../../assets/branding/godotgs-mark.png" alt="logo">
+  <img src="../../assets/branding/godotgs-mark.png" alt="logo">
 
     </a>
     Godot Gaussian Splatting Docs
@@ -401,7 +401,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../getting-started/" class="md-nav__link ">
+            <a href="../../getting-started/" class="md-nav__link ">
               
   
   
@@ -445,7 +445,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../getting-started/downloads/" class="md-nav__link">
+      <a href="../../getting-started/downloads/" class="md-nav__link">
         
   
   
@@ -473,7 +473,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../getting-started/try-in-5-minutes/" class="md-nav__link">
+      <a href="../../getting-started/try-in-5-minutes/" class="md-nav__link">
         
   
   
@@ -501,7 +501,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../getting-started/installation/" class="md-nav__link">
+      <a href="../../getting-started/installation/" class="md-nav__link">
         
   
   
@@ -529,7 +529,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../getting-started/quick-start/" class="md-nav__link">
+      <a href="../../getting-started/quick-start/" class="md-nav__link">
         
   
   
@@ -557,7 +557,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../troubleshooting/recurring-issues/" class="md-nav__link">
+      <a href="../../troubleshooting/recurring-issues/" class="md-nav__link">
         
   
   
@@ -631,7 +631,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../user/" class="md-nav__link ">
+            <a href="../../user/" class="md-nav__link ">
               
   
   
@@ -675,7 +675,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../user/quickstart/" class="md-nav__link">
+      <a href="../../user/quickstart/" class="md-nav__link">
         
   
   
@@ -703,7 +703,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../user/manual/concepts/" class="md-nav__link">
+      <a href="../../user/manual/concepts/" class="md-nav__link">
         
   
   
@@ -731,7 +731,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../workflows/importing/" class="md-nav__link">
+      <a href="../../workflows/importing/" class="md-nav__link">
         
   
   
@@ -759,7 +759,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../user/manual/workflows/" class="md-nav__link">
+      <a href="../../user/manual/workflows/" class="md-nav__link">
         
   
   
@@ -787,7 +787,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../user/manual/runtime-behavior/" class="md-nav__link">
+      <a href="../../user/manual/runtime-behavior/" class="md-nav__link">
         
   
   
@@ -815,7 +815,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../user/manual/lighting-behavior/" class="md-nav__link">
+      <a href="../../user/manual/lighting-behavior/" class="md-nav__link">
         
   
   
@@ -843,7 +843,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../user/manual/performance-presets/" class="md-nav__link">
+      <a href="../../user/manual/performance-presets/" class="md-nav__link">
         
   
   
@@ -871,7 +871,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../user/manual/faq/" class="md-nav__link">
+      <a href="../../user/manual/faq/" class="md-nav__link">
         
   
   
@@ -947,7 +947,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../reference/" class="md-nav__link ">
+            <a href="../../reference/" class="md-nav__link ">
               
   
   
@@ -991,7 +991,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../reference/project-settings/" class="md-nav__link">
+      <a href="../../reference/project-settings/" class="md-nav__link">
         
   
   
@@ -1019,7 +1019,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../reference/compatibility-matrix/" class="md-nav__link">
+      <a href="../../reference/compatibility-matrix/" class="md-nav__link">
         
   
   
@@ -1047,7 +1047,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../performance/" class="md-nav__link">
+      <a href="../../performance/" class="md-nav__link">
         
   
   
@@ -1075,7 +1075,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/" class="md-nav__link">
+      <a href="../../api/" class="md-nav__link">
         
   
   
@@ -1103,7 +1103,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/gaussian_splat_node3d/" class="md-nav__link">
+      <a href="../../api/gaussian_splat_node3d/" class="md-nav__link">
         
   
   
@@ -1131,7 +1131,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/gdscript_reference/" class="md-nav__link">
+      <a href="../../api/gdscript_reference/" class="md-nav__link">
         
   
   
@@ -1159,7 +1159,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/shader_reference/" class="md-nav__link">
+      <a href="../../api/shader_reference/" class="md-nav__link">
         
   
   
@@ -1187,7 +1187,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../reference/color-grading/" class="md-nav__link">
+      <a href="../../reference/color-grading/" class="md-nav__link">
         
   
   
@@ -1215,7 +1215,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../migration/" class="md-nav__link">
+      <a href="../../migration/" class="md-nav__link">
         
   
   
@@ -1295,7 +1295,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../contributor/" class="md-nav__link ">
+            <a href="../../contributor/" class="md-nav__link ">
               
   
   
@@ -1339,7 +1339,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../contributor/reviewer-fast-path/" class="md-nav__link">
+      <a href="../../contributor/reviewer-fast-path/" class="md-nav__link">
         
   
   
@@ -1367,7 +1367,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../contributor/onboarding/" class="md-nav__link">
+      <a href="../../contributor/onboarding/" class="md-nav__link">
         
   
   
@@ -1395,7 +1395,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../BUILDING/" class="md-nav__link">
+      <a href="../../BUILDING/" class="md-nav__link">
         
   
   
@@ -1423,7 +1423,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../reference/build-test-ci/" class="md-nav__link">
+      <a href="../../reference/build-test-ci/" class="md-nav__link">
         
   
   
@@ -1451,7 +1451,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../testing/setup-guide/" class="md-nav__link">
+      <a href="../../testing/setup-guide/" class="md-nav__link">
         
   
   
@@ -1479,7 +1479,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../testing/benchmark-suite/" class="md-nav__link">
+      <a href="../../testing/benchmark-suite/" class="md-nav__link">
         
   
   
@@ -1507,7 +1507,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../architecture/overview/" class="md-nav__link">
+      <a href="../overview/" class="md-nav__link">
         
   
   
@@ -1535,7 +1535,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../governance/contribution-standards/" class="md-nav__link">
+      <a href="../../governance/contribution-standards/" class="md-nav__link">
         
   
   
@@ -1563,7 +1563,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../development/export-templates/" class="md-nav__link">
+      <a href="../../development/export-templates/" class="md-nav__link">
         
   
   
@@ -1591,7 +1591,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../development/docs-site/" class="md-nav__link">
+      <a href="../../development/docs-site/" class="md-nav__link">
         
   
   
@@ -1619,7 +1619,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../style/documentation-style-guide/" class="md-nav__link">
+      <a href="../../style/documentation-style-guide/" class="md-nav__link">
         
   
   
@@ -1674,10 +1674,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
       
         <li class="md-nav__item">
-  <a href="#executive-summary" class="md-nav__link">
+  <a href="#1-context" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Executive Summary
+        1. Context
       
     </span>
   </a>
@@ -1685,10 +1685,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#current-assessment" class="md-nav__link">
+  <a href="#2-options-for-a-contract-source" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Current Assessment
+        2. Options for a contract source
       
     </span>
   </a>
@@ -1696,10 +1696,60 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#remaining-gaps" class="md-nav__link">
+  <a href="#3-decision" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Remaining Gaps
+        3. Decision
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Decision">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-what-is-enforced" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 What is enforced
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-what-is-published-but-not-enforced" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 What is published but not enforced
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-what-is-not-consumed-at-all" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 What is not consumed at all
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-how-the-gates-own-wiring-is-guarded" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. How the gate's own wiring is guarded
       
     </span>
   </a>
@@ -1707,10 +1757,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#validation-summary" class="md-nav__link">
+  <a href="#5-consequences-and-declared-limits" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Validation Summary
+        5. Consequences and declared limits
       
     </span>
   </a>
@@ -1718,10 +1768,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#comparison-notes" class="md-nav__link">
+  <a href="#6-drafted-claims-corrected-against-the-shipped-code" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Comparison Notes
+        6. Drafted claims corrected against the shipped code
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-follow-ups" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Follow-ups
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-what-would-change-this-decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. What would change this decision
       
     </span>
   </a>
@@ -1754,92 +1826,243 @@
   
 
 
-<h1 id="documentation-assessment-report-godot-gaussian-splatting">Documentation Assessment Report - Godot Gaussian Splatting<a class="headerlink" href="#documentation-assessment-report-godot-gaussian-splatting" title="Permanent link">¶</a></h1>
-<p><strong>Date</strong>: 2026-03-29
-<strong>Assessor</strong>: Automated audit (Codex)
-<strong>Scope</strong>: <code>docs/</code>, <code>scripts/</code>, root docs entry files, public docs surface
-<strong>Benchmark</strong>: Internal docs quality and Godot-style docs expectations</p>
-<hr>
-<div class="admonition info">
-<p class="admonition-title">Historical snapshot</p>
-<p>This report captures the post-PR180 docs state on 2026-03-29.</p>
-<p>See the <a href="../../latest-assessment/">latest assessment</a> for the current public status pages and the report bridge.</p>
-</div>
-<h2 id="executive-summary">Executive Summary<a class="headerlink" href="#executive-summary" title="Permanent link">¶</a></h2>
-<p>The docs surface is substantially better than the 2026-03-19 baseline.</p>
-<p>The site now has audience-shaped navigation, real landing pages, a calmer visual system, explicit compatibility evidence levels, and a release-channel page that matches the current nightly-first public reality. The docs release-acceptance gate also exists and passes on the current public docs surface.</p>
-<p>The remaining gaps are now mostly evidence and proof gaps rather than IA gaps: real screenshots, richer benchmark results, per-GPU/driver compatibility rows, and a named release series still need follow-up.</p>
-<h2 id="current-assessment">Current Assessment<a class="headerlink" href="#current-assessment" title="Permanent link">¶</a></h2>
+<h1 id="adr-the-required-gate-evaluates-the-prs-own-diff-contract-source-deferred-887">ADR: The required gate evaluates the PR's own diff; contract source deferred (#887)<a class="headerlink" href="#adr-the-required-gate-evaluates-the-prs-own-diff-contract-source-deferred-887" title="Permanent link">¶</a></h1>
+<ul>
+<li><strong>Status:</strong> Accepted (owner decision, 2026-08-14). Implemented in <strong>#886</strong>.
+  <strong>Written after implementation and disclosed as post-hoc</strong> — the decision itself
+  predates the code and was recorded in the Phase-1 remediation log, but this document
+  was not filed before the diff, which is what R3 asks for. Recorded as a process
+  deviation rather than backdated.</li>
+<li><strong>Risk class:</strong> this document is R0 (<code>docs/**</code>). The change it records is <strong>R3</strong>
+  (<code>.github/workflows/**</code>), for which <code>.agentic/policy.json</code> sets <code>adr_required = true</code>
+  — so the ADR is required. Note that nothing in CI <em>enforces</em> that requirement today;
+  it is checked by <code>check_pr_contract.py</code>, which grades no real PR (§5).</li>
+<li><strong>Findings:</strong> <code>GS-AUDIT-TEST-001</code> (#887, legs b and c), <code>GS-AUDIT-TEST-002</code> (#888),
+  <code>GS-AUDIT-DOC-003</code> (#889). Audit snapshot <code>55bd3953475</code>.</li>
+<li><strong>Verified against:</strong> the shipped diff of #886 at <code>f2a1559a773</code>, not against the
+  implementation reports. §6 lists the four drafted claims that did not survive that
+  check and what they were replaced with.</li>
+<li><strong>Precedent:</strong> <a href="../adr-advisory-lane-ledger/"><code>adr-advisory-lane-ledger.md</code></a> — same
+  shape of problem (a lane that reports without gating).</li>
+</ul>
+<h2 id="1-context">1. Context<a class="headerlink" href="#1-context" title="Permanent link">¶</a></h2>
+<p>At the audit snapshot, <code>agentic-pr-gate</code> was the only required status check on <code>master</code>,
+with <code>enforce_admins: true</code>. What it actually checked was not the change under review:</p>
+<ul>
+<li><code>validate_review.py</code> and <code>check_pr_contract.py</code> ran against <code>.agentic/templates/*</code>
+  fixtures with a hardcoded <code>--paths modules/gaussian_splatting/logger/example.cpp</code>;</li>
+<li>the one PR-derived step, "Re-derive risk class from this PR's diff", <strong>only printed</strong> —
+  <code>classify_change.py</code> exits 0 for every class — and carried
+  <code>if: github.event_name == 'pull_request'</code>, so it did not run in the merge queue at all;</li>
+<li><code>validate_repo_contract.py</code> ran <strong>without</strong> <code>--strict-hierarchy</code>, so the entire
+  <code>AGENTS.md</code> hierarchy and <code>docs/governance/*</code> could be deleted with the gate green;</li>
+<li><code>classify_paths([])</code> returned <code>ordering[0]</code> (R0) while <code>policy.json</code> declares
+  <code>default_unclassified: "R3"</code>, and the unit test asserted the R0 value — the suite
+  defended the fail-open.</li>
+</ul>
+<p>So the gate certified fixtures. Closing that requires the gate to read <em>something</em> about
+the PR, and the natural candidate — the PR's task contract — does not exist: no per-PR
+contract source is committed anywhere, and the root <code>AGENTS.md</code> forbids committing local
+task instances.</p>
+<h2 id="2-options-for-a-contract-source">2. Options for a contract source<a class="headerlink" href="#2-options-for-a-contract-source" title="Permanent link">¶</a></h2>
+<ol>
+<li><strong>Diff-only now; contract source decided later.</strong> <em>(Chosen.)</em></li>
+<li><strong>PR-body contract block, fail-closed for R2/R3.</strong> Rejected for now. The PR body is a
+   mutable, unversioned oracle: <code>edited</code> is not a default <code>pull_request</code> activity type,
+   so the block can be changed after the gate ran green. <code>merge_group</code> carries no PR body
+   at all, which would create an exemption on the enforcing path — the last boundary
+   before <code>master</code>. Revisitable with mitigations: trigger on <code>edited</code>, snapshot the block
+   into the check output, advisory-first rollout.</li>
+<li><strong>Committed contract file under <code>.agentic/tasks/</code>.</strong> Rejected for now. It requires
+   amending the standing "do not commit ephemeral agent artifacts" rule, which is a
+   governance change that must not ride an R3 gate rewrite, and its lifecycle (retention,
+   stacked PRs, cleanup, who deletes a merged task) is undesigned.</li>
+</ol>
+<h2 id="3-decision">3. Decision<a class="headerlink" href="#3-decision" title="Permanent link">¶</a></h2>
+<p>The required gate derives everything it enforces from the immutable <code>base..head</code> diff.</p>
+<h3 id="31-what-is-enforced">3.1 What is enforced<a class="headerlink" href="#31-what-is-enforced" title="Permanent link">¶</a></h3>
+<ul>
+<li><strong>The derivation, not the verdict.</strong> Changed paths feed <code>classify_change.py</code>. The
+  derived class is <em>not</em> a failure condition — R3 PRs are legitimate, and #886 is one.
+  What fails the gate is the derivation being unsound: an unresolvable base ref, or a
+  base whose policy cannot be read.</li>
+<li><strong>Fail-closed base resolution.</strong> <code>resolve_diff_base()</code> resolves the merge base
+  explicitly and exits non-zero when the ref or the shared history is missing. The
+  previous code retried an unresolvable <code>base...HEAD</code> as a two-dot <code>git diff base</code>, which
+  answers a different question and <em>succeeds</em> in cases where the three-dot form fails.</li>
+<li><strong>Fail-closed empty diff.</strong> <code>classify_paths([])</code> returns
+  <code>classification.default_unclassified</code>, read from the policy object rather than
+  hardcoded. An empty diff is an absence of information, not evidence that nothing risky
+  changed.</li>
+<li><strong>The policy comes from the base commit, not from the PR.</strong> The gate materialises
+  <code>git show "$GS_PR_BASE_SHA:.agentic/policy.json"</code> and passes it via <code>--policy</code>. Without
+  this, a PR that edits the policy is graded by the rules it is changing: flipping the
+  renderer rule R2→R0 is accepted by <code>validate_repo_contract.py --strict-hierarchy</code>
+  (which only checks internal <em>consistency</em>) and drops renderer files to R1. Measured, on
+  a renderer + <code>policy.json</code> diff with that flip: <strong>R1</strong> with the PR's policy, <strong>R2</strong> with
+  the base policy, <strong>R3</strong> with both halves of the fix.</li>
+<li><strong>A policy edit floors at the top class.</strong> <code>SELF_REFERENTIAL_PATHS</code> in
+  <code>classify_change.py</code> forces any diff touching <code>.agentic/policy.json</code> to <code>ordering[-1]</code>
+  (R3 under the shipped policy), independent of what either policy version says about it.
+  Implemented in the classifier, not by editing <code>policy.json</code>'s own rules — the latter
+  would be the same self-reference one level down.</li>
+<li><strong><code>validate_repo_contract.py --strict-hierarchy</code></strong>, so the <code>AGENTS.md</code> hierarchy and
+  <code>docs/governance/*</code> are required to exist.</li>
+</ul>
+<p>Both halves of the policy fix are load-bearing. Forcing alone still lets <code>ordering</code> itself
+be rewritten; the base policy alone lets the <em>next</em> PR inherit a weakened rule silently.</p>
+<h3 id="32-what-is-published-but-not-enforced">3.2 What is published but not enforced<a class="headerlink" href="#32-what-is-published-but-not-enforced" title="Permanent link">¶</a></h3>
+<p>The gate writes the derived class into <code>$GITHUB_STEP_SUMMARY</code> together with that class's
+<code>evidence_requirements</code> <strong>and</strong> <code>deterministic_checks</code>, read out of the policy rather than
+restated, so a human merging an R2 PR sees "Runtime/GPU harness or benchmark evidence
+against the immutable base" on the required check itself. CI does <strong>not</strong> verify that any
+of it was produced.</p>
+<h3 id="33-what-is-not-consumed-at-all">3.3 What is not consumed at all<a class="headerlink" href="#33-what-is-not-consumed-at-all" title="Permanent link">¶</a></h3>
+<p>Author self-declaration. The higher-of-the-two cross-check exists in
+<code>check_pr_contract.py</code>, but that script runs in CI only as a self-test against
+<code>.agentic/templates/task.json</code>. The limit is stated in
+<a href="../../governance/agentic-engineering/"><code>agentic-engineering.md</code></a>,
+<a href="../../governance/review-policy/"><code>review-policy.md</code></a>,
+<a href="../../governance/github-settings/"><code>github-settings.md</code></a>, <code>.github/workflows/README.md</code>,
+and in the job summary itself — five places, because the two canonical governance docs
+had already contradicted each other once on exactly this point.</p>
+<h2 id="4-how-the-gates-own-wiring-is-guarded">4. How the gate's own wiring is guarded<a class="headerlink" href="#4-how-the-gates-own-wiring-is-guarded" title="Permanent link">¶</a></h2>
+<p><code>tests/agentic/test_agentic_pr_gate_workflow.py</code> pins the workflow, because a repaired
+script whose wiring nobody checks is the "guard wired to nothing" shape from
+<a href="../../governance/evidence-integrity/"><code>evidence-integrity.md</code></a>. Every assertion has a
+demonstrated RED mutation. The suite covers, at minimum: <code>--strict-hierarchy</code> removal;
+deletion of the risk-class step; whole-workflow revert to the audit snapshot; a step-level
+<code>if:</code>; a <strong>job-level</strong> <code>if:</code>; deletion of the step that runs this very suite; neutering the
+command with an <code>echo</code>/<code>true</code>/<code>:</code> prefix; hardcoding <code>--base-ref</code>; removing <code>--policy</code>;
+replacing the fail-closed base-policy guard with a swallowing fallback; removing
+<code>merge_group</code> from <code>on:</code>; and every <code>||</code>-suffix form.</p>
+<p>Three of those deserve naming, because each was a real false-GREEN that a green suite had
+already passed:</p>
+<ul>
+<li><strong>Job-level <code>if:</code> is a bypass; the two shapes next to it are bricks.</strong> A job "skipped by
+  a conditional" reports Success — GitHub counts <code>success</code>, <code>skipped</code> and <code>neutral</code> as
+  successful check statuses — so a job-level <code>if:</code> silently disables the whole gate.
+  Renaming the job, or removing <code>merge_group</code> from <code>on:</code>, both <em>block</em> merging instead
+  ("Expected — waiting for status to be reported"). Only the first is quiet, which is why
+  it carries its own assertion.</li>
+<li><strong><code>|| echo</code> was blessed, not missed.</strong> The detector enumerated <code>|| true</code>, <code>|| :</code> and
+  <code>|| exit 0</code>, and its own negative control asserted <code>python x.py || echo failed</code> was
+  <em>safe</em>. It is not: <code>||</code> yields the right-hand side's status. It is now default-deny —
+  <strong>no <code>||</code> at all</strong> in the gate's shell, with <strong>no allowlist</strong>, <code>|| exit 1</code> included.
+  That last is a deliberate false-RED: the rule is auditable at a glance, whereas "no <code>||</code>
+  whose right-hand side can succeed" requires classifying every command. Measured before
+  choosing: the gate has no shell-level <code>||</code> today.</li>
+<li><strong>Deleting the step that runs the suite was invisible for three rounds.</strong> It leaves every
+  assertion in the file green while none of them ever executes on a PR again. Found by the
+  independent verifier, not by the implementer or the review.</li>
+</ul>
+<h2 id="5-consequences-and-declared-limits">5. Consequences and declared limits<a class="headerlink" href="#5-consequences-and-declared-limits" title="Permanent link">¶</a></h2>
+<ul>
+<li><strong>Scope and evidence contracts are not enforced against any PR.</strong> <code>owned_paths</code>,
+  <code>forbidden_paths</code> and <code>evidence_requirements</code> are never checked against real changed
+  paths. A Phase-2 ADR decides the contract source; option 2 with an advisory-first ladder
+  is the leading candidate.</li>
+<li><strong>The R2/R3 obligations are visible, not verified.</strong> The merge decision stays with the
+  human.</li>
+<li><strong>The guard is a text matcher and is evadable by construction.</strong> It defends against
+  <em>accidental</em> loss of enforcement, not an adversarial author — who has merge rights and
+  is defended against by human review. <code>invocation_re</code>'s docstring enumerates the shapes:
+  correctly accepted (<code>python3</code>, whitespace, step rename); safe false-REDs (<code>env python</code>,
+  <code>python -m</code>, and reindentation, which is self-detecting because <code>yaml.safe_load</code> raises
+  <code>ParserError</code>); and deliberately uncovered (<code>bash -c</code>, trailing <code>&amp;</code>, <code>;</code>-chained no-ops,
+  decoy comments). A related residual is declared on <code>shell_text()</code>: because GitHub
+  expression spans are stripped before matching, a <code>||</code> <em>delivered into</em> the shell by an
+  expression would be invisible. The gate's four expressions are static and none
+  interpolates into a command.</li>
+<li><strong>The gate runs the PR's own classifier code.</strong> <code>pull_request</code> checks out the PR, and
+  <code>scripts/agentic/**</code> is R0, so a PR rewriting <code>classify_change.py</code> publishes an
+  understated class. This is <strong>pre-existing</strong>, not introduced here, and it is
+  <em>published-not-enforced</em> surface — it cannot bypass any other step. Running a base copy
+  differentially is technically feasible (the same trick as the policy) but is not
+  proportionate: the legitimate-divergence case is a PR that intentionally improves the
+  classifier — every PR in this series — which needs an override, and an override on the
+  only required check is a new fail-open of exactly the class this work closed. The cheap
+  partial taken instead on #887 is adding <code>scripts/agentic/classify_change.py</code> to
+  <code>SELF_REFERENTIAL_PATHS</code>: one tuple entry, no new machinery, can only ever <em>raise</em> a
+  published class, and it is the consistent extension of a principle already accepted here
+  — <code>policy.json</code> is the grader's data and <code>classify_change.py</code> is the grader itself, so
+  forcing the data but not the code is asymmetric. <code>.agentic/schemas/*</code> and
+  <code>.agentic/ownership.json</code> are deliberately <strong>out</strong> of that follow-up: they feed
+  <code>check_pr_contract.py</code>, which grades no real PR until the contract source exists, so
+  adding them buys nothing today.</li>
+<li><strong>A new way for the required check to go red.</strong> A PR whose base SHA is absent from the
+  checkout — force-pushed, deleted, garbage-collected — now fails the gate until rebased.
+  That is the intended fail-closed behaviour; the alternative is the fail-open this ADR
+  removes.</li>
+<li><strong>PyYAML is deliberately not a dependency of the required gate.</strong> No workflow in this
+  repository pip-installs it, <code>actions/setup-python@v5</code> provisions a bare tool-cache
+  interpreter, and a module-scope <code>import yaml</code> in <code>tests/agentic/</code> would <code>ImportError</code> at
+  unittest <em>discovery</em> and fail the only required check on every PR. When <strong>#894 (T6)</strong>
+  makes PyYAML mandatory and fail-closed for the guard lane, port this guard to a real
+  YAML parse — which closes the job-level construct class <em>structurally</em>, since a
+  job-level <code>if:</code> becomes a different key rather than a different indent — and record in
+  that PR which lane carries the dependency.</li>
+<li><strong>Branch protection remains hand-documented.</strong> <code>github-settings.md</code> now carries the live
+  <code>gh api</code> state, but nothing derives it. Settings-as-code, or a scheduled doc-vs-live
+  drift check, is a Phase-2 item.</li>
+</ul>
+<h2 id="6-drafted-claims-corrected-against-the-shipped-code">6. Drafted claims corrected against the shipped code<a class="headerlink" href="#6-drafted-claims-corrected-against-the-shipped-code" title="Permanent link">¶</a></h2>
+<p>This ADR was drafted from the implementation reports. Four claims did not survive being
+checked against <code>f2a1559a773</code>:</p>
 <table>
 <thead>
 <tr>
-<th>Area</th>
-<th>Status</th>
-<th>Notes</th>
+<th>Drafted claim</th>
+<th>What ships</th>
+<th>Why it matters</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Information architecture</td>
-<td>Improved</td>
-<td>Four-lane top-level navigation, section landing pages, and clearer task routing are in place.</td>
+<td>"the derived risk class is <strong>enforced</strong>, not printed"</td>
+<td>The <em>derivation</em> is enforced; the class is not a failure condition</td>
+<td>The original wording would have a reader expect an R3 PR to be blocked</td>
 </tr>
 <tr>
-<td>Homepage / front door</td>
-<td>Improved</td>
-<td>The homepage now states maturity, preferred evaluation path, and the current public binary reality.</td>
+<td>policy read from "the immutable <strong>merge base</strong>"</td>
+<td>Read at the <strong>base commit</strong> <code>$GS_PR_BASE_SHA</code>. The <em>diff</em> uses the merge base</td>
+<td>They differ once the base branch advances; conflating them misdescribes what is immutable</td>
 </tr>
 <tr>
-<td>Compatibility evidence</td>
-<td>Partial</td>
-<td>The matrix now uses explicit evidence levels plus a concrete Windows RTX 3090 row and an Ubuntu 24.04 Linux QA row, but full Windows driver/OS identifiers and hardware-backed Linux validation are still incomplete.</td>
+<td>"the human … sees its <strong>unmet</strong> obligations"</td>
+<td>Sees the obligations the class carries; CI cannot know which are unmet</td>
+<td>Overclaims the gate's knowledge</td>
 </tr>
 <tr>
-<td>Release guidance</td>
-<td>Improved</td>
-<td>Release docs now describe nightly-first reality and the latent stable-tag path honestly.</td>
-</tr>
-<tr>
-<td>Visual proof</td>
-<td>Partial</td>
-<td>Brand assets and diagrams are in place, but authoritative editor screenshots are still missing.</td>
-</tr>
-<tr>
-<td>Benchmark publication</td>
-<td>Partial</td>
-<td>The benchmark runner and dashboard exist, but the public results surface is still thin.</td>
-</tr>
-<tr>
-<td>Repo hygiene / reporting</td>
-<td>Improved</td>
-<td>The release-acceptance check is now formalized and the report bridge points to the current state.</td>
+<td>"all <code>||</code> forms are default-deny with an explicit, reasoned <strong>allowlist</strong> for fail-preserving forms"</td>
+<td>Default-deny with <strong>no allowlist</strong>; <code>|| exit 1</code> is rejected too, as a deliberate false-RED</td>
+<td>An allowlist that does not exist would be the first thing a future editor "restored"</td>
 </tr>
 </tbody>
 </table>
-<h2 id="remaining-gaps">Remaining Gaps<a class="headerlink" href="#remaining-gaps" title="Permanent link">¶</a></h2>
-<ol>
-<li>Real editor screenshots are still missing from the highest-value workflow pages.</li>
-<li>Published benchmark evidence is still thin and needs curated, date-stamped scenarios.</li>
-<li>Compatibility rows still need full driver identifiers and stronger hardware-backed Linux/macOS evidence.</li>
-<li>The first named release remains deferred, so public guidance is still nightly-first.</li>
-<li>Deeper API/reference and generated-reference gaps still exist outside the current front-door work.</li>
-</ol>
-<h2 id="validation-summary">Validation Summary<a class="headerlink" href="#validation-summary" title="Permanent link">¶</a></h2>
+<h2 id="7-follow-ups">7. Follow-ups<a class="headerlink" href="#7-follow-ups" title="Permanent link">¶</a></h2>
 <ul>
-<li><code>python scripts/docs/check_links.py docs README.md BUILDING.md CONTRIBUTING.md</code> - PASS</li>
-<li><code>python scripts/docs/release_acceptance.py</code> - PASS</li>
-<li><code>python scripts/build_docs_site.py --skip-generate</code> - PASS with the repo's existing MkDocs warning baseline about out-of-scope links to root-engine files</li>
+<li><strong>#887</strong> — residual known-open items: the <code>JOB</code>-key-vs-<code>name:</code>-value gap (matching the
+  job key, while the required context is the <code>name:</code> value, so renaming only <code>name:</code>
+  bricks the repo with every test green); the untested stdout fallback in
+  <code>classify_change.py</code>; the unpinned <code>--no-renames</code>; and the classifier-from-base thread
+  above, whose accepted remedy is the <code>SELF_REFERENTIAL_PATHS</code> entry.</li>
+<li><strong>#889</strong> — remaining stale branch-protection claims:
+  <code>docs/reference/renderer-release-gates.md:41</code> and
+  <code>docs/reference/renderer_release_gate_manifest.json:93-113</code>, plus
+  <code>.github/workflows/AGENTS.md:27-32</code>, which is deferred to the repository owner because
+  it carries uncommitted local edits.</li>
+<li><strong>#894 (T6)</strong> — PyYAML as a mandatory gate dependency, unblocking the structural port
+  described in §5.</li>
+<li><strong>Phase-2 contract-source ADR</strong> — the decision this one defers.</li>
 </ul>
-<h2 id="comparison-notes">Comparison Notes<a class="headerlink" href="#comparison-notes" title="Permanent link">¶</a></h2>
-<p>Compared with the 2026-03-19 assessment, the biggest improvements are:</p>
-<ul>
-<li>the homepage is now a real front door instead of a link dump</li>
-<li>top-level navigation is audience-shaped instead of repo-shaped</li>
-<li>compatibility status is evidence-based instead of empty</li>
-<li>release-channel language now matches the actual public distribution model</li>
-<li>the docs site has a coherent visual system instead of stock Material defaults</li>
-</ul>
-<p>The main unresolved work is evidence gathering, not structural cleanup.</p>
+<h2 id="8-what-would-change-this-decision">8. What would change this decision<a class="headerlink" href="#8-what-would-change-this-decision" title="Permanent link">¶</a></h2>
+<p>A committed per-PR contract source, or an accepted mutation of the "no local task
+instances" rule, makes option 2 or 3 live and turns §3.2 from published into enforced. A
+second required status check would also change the blast-radius calculus in §4: today a
+broken edit to this one workflow blocks every merge in the repository, including its own
+fix, which is why the changes it records were made in the smallest increments that could
+still be proven.</p>
 
 
 
@@ -1860,7 +2083,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 15, 2026 10:33:40 UTC">August 15, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 15, 2026 10:33:34 UTC">August 15, 2026</span>
   </span>
 
     
@@ -1918,12 +2141,12 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.indexes", "navigation.path", "navigation.top", "navigation.footer", "content.code.copy", "content.code.annotate", "search.highlight", "search.suggest"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.indexes", "navigation.path", "navigation.top", "navigation.footer", "content.code.copy", "content.code.annotate", "search.highlight", "search.suggest"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
     
     
-      <script src="../../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
-        <script src="../../../js/mkdocs-charts-plugin.js"></script>
+        <script src="../../js/mkdocs-charts-plugin.js"></script>
       
         <script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
       
