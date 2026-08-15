@@ -108,20 +108,66 @@ These are stated once, here, and are binding on every PR in §1.
 6. **No prescription without a read.** Every sentence in a design record that says what a named
    file does, or must be changed to do, **cites the `file:line` it was read at**. A prescription
    written from memory of how a consumer *probably* behaves is not a design decision; it is a
-   guess that a reviewer has to re-derive. Four review rounds produced ten findings against this
-   document and **seven were the same defect**: an instruction that would have failed the very
-   consumer it was written to satisfy, because nobody had opened it. A fifth manifest
+   guess that a reviewer has to re-derive. Five review rounds produced twelve findings against
+   this document and **eight were the same defect**: an instruction that would have failed the
+   very consumer it was written to satisfy, because nobody had opened it. A fifth manifest
    declaration the count check rejects and a #908 declaration the stale check rejects (§5.4); a
    soak trigger no profile selection can satisfy, evidence read from a report already
    overwritten, and an advisory status the exit expression counts as a failure (§4.6, §4.6.1); a
-   defaults source that cannot resolve 14 of the 32 keys it must compare (§6.6); and an
-   expected-fail design that stops at the GDScript boundary while three Python mechanisms reject
-   it (§6.3). The other three were genuine design gaps — a missing failure signature, a
-   base-versus-head policy read, an under-specified membership check — and those are the normal
-   cost of design review. The seven were not. **Not one was a wrong judgement call; every one
-   was an unread consumer.** Treat an uncited claim about a consumer's behaviour as unverified
-   whatever its confidence — including in the corrections, two of which introduced a fresh
-   instance while fixing an earlier one.
+   defaults source that cannot resolve 14 of the 32 keys it must compare (§6.6); an expected-fail
+   design that stops at the GDScript boundary while three Python mechanisms reject it (§6.3); and
+   its own replacement, which produced a representation no scene could both execute from and be
+   inventoried under (§6.3 again, round 5). The other four were genuine design gaps — a missing
+   failure signature, a base-versus-head policy read, an under-specified membership check, and
+   the self-certification hole in §8.4 — the normal cost of design review. The eight were not.
+   **Not one was a wrong judgement call; every one was an unread consumer.** Treat an uncited
+   claim about a consumer's behaviour as unverified whatever its confidence — including in the
+   corrections, **three** of which introduced a fresh instance while fixing an earlier one.
+
+   **The rule binds every layer, and did.** The `GLOBAL_DEF`-only defaults source (§6.6) came
+   from the **maintainer's** §6.5 requirement, written without reading the registration
+   mechanisms — committed, as it happens, while formulating this very rule. It was relayed
+   unverified by the orchestrator, caught by Codex, and confirmed against the source by the
+   maintainer. That chain is the point: the correction system prices claims by evidence, not by
+   who made them, and it worked at every layer including the top one. A rule that exempted the
+   lead would have shipped this defect into T10.
+
+   **Stopping rule.** Rounds continue while findings are **real and land on prescriptions an
+   implementer will consume**; they stop when a round **returns clean or degrades to polish**.
+   The arithmetic justifies the cost: this ADR is the design record for eight R3 implementations,
+   and a wrong contract here is rediscovered in the most expensive place available — inside an
+   R3 PR, after the code exists, by a reviewer who must then relitigate the design. Five rounds
+   of document review is cheap against one of those.
+7. **Mechanism may be delegated; the invariant and the verified traps may not.** Where this
+   record has been wrong at mechanism level more than once on the same subject, it states the
+   **invariant** the mechanism must satisfy, records **every trap it verified with the
+   `file:line`**, rules out any mechanism it has positively excluded, and delegates the
+   remaining choice to the implementation PR — which owes a written record of the mechanism it
+   chose and evidence that it clears the stated traps. §4.6.1/§4.7 and §6.3/§6.3.1 are the two
+   places this applies; §8.4 is deliberately **not** one of them.
+
+   **This is not scope retreat, and it should not be read as one.** Nothing decided is being
+   withdrawn: the ladder, the soak's two obligations, the expected-fail semantics, the pinned
+   signature, "do not weaken `validate_baseline_candidate`", and every measured number all stay,
+   and §8.4 *adds* an invariant in the same revision. What moves is the last mile — a status
+   string, a field name, a bucket layout — and it moves to where a verifier with a running
+   harness settles it in minutes, rather than being guessed here and corrected over rounds. A
+   design record that keeps guessing mechanism spends its credibility on the part it is worst
+   placed to know, and every such guess so far has had to be withdrawn. **The test of the
+   delegation is the obligation:** if an implementer could satisfy it without producing evidence
+   a reviewer can check, the delegation failed and the section is under-specified, not
+   appropriately scoped.
+8. **One waiver idiom for the programme, reused deliberately.** Every declared exception this
+   cluster introduces takes the quarantine-manifest shape — a keyed subject plus `reason`,
+   `issue_url`, `owner`, `expires_utc`, with membership pinned and staleness failing — and it is
+   now used in **three** new places (§6.3's expected-fail representation, §6.6's override
+   waivers, §8.3's evidence exclusions) alongside the two existing precedents they copy
+   (`quarantine_manifest.json`'s `unlaned_tests`, `renderer_release_gate_manifest.json`'s
+   `deferred_requires_gpu_waivers`). **That consistency is a decision, not a coincidence.** A
+   reviewer who has read one of these lists can audit any of them; an author cannot shop for the
+   most permissive shape; and a defect found in one — as the membership-pinning gap was in §8.3
+   — is fixable in all of them at once. A member proposing a differently-shaped exception list
+   states why in its PR, and "it was easier here" is not a reason.
 
 ## 3. The R3 obligations disposition: cited, then instantiated
 
@@ -421,7 +467,7 @@ probes (`GS-AUDIT-TEST-010` / #896) that are in no registry, no profile and no w
   the fail-closed flip never has to reason about scenarios that may be deleted. If #896
   registers them, they are ported with it; if #896 deletes them, they never need the marker.
 
-### 4.6.1 Step 1 cannot be advisory without a new status — and adding one takes two changes
+### 4.6.1 Step 1's advisory phase: the invariant, and two traps any mechanism must clear
 
 **The runner has no non-failing way to record "ran, produced no completion marker".** Read at
 `adcd6916dbd`:
@@ -444,26 +490,48 @@ vocabulary: `allowed_statuses = {"passed", "failed", "skipped"}` (`:861`), enfor
 same exit expression** at `:1219`. Inventing a status string without widening the vocabulary
 turns a scenario failure into a schema failure. Same exit code, worse diagnosis.
 
-**Decision: step 1's PR makes both changes together, or it makes neither.**
+**Invariant, and it is what this section decides:** step 1 must be able to record "ran, no
+completion marker" in a way that is **visible in the report, counted in the summary, and does
+not fail the run** — and whatever achieves that must satisfy **both** terms of `:1219`
+simultaneously, not one at a time. Any mechanism meeting that is acceptable.
 
-1. **Add one advisory status** — `"no_completion_marker"` — assigned by §4.1's branch during
-   step 1, counted and printed in its own column by `summarise()` (`:1015`) and
-   `_print_summary()` (`:1041`), and **excluded from the `failed` count** that `:1219` gates on.
-2. **Widen `allowed_statuses` (`:861`) and the report schema in the same diff**, so the new
-   status validates. The status vocabulary and the exit expression are one contract; editing
-   either alone produces a red run that says nothing true about the scenario.
+**Two traps any mechanism has to clear, verified above:** the `failed` count (`:1019`) feeding
+`:1219`, and the schema-pinned status vocabulary (`:861`) feeding `schema_valid` (`:1197`) into
+the *same* expression. A design that clears one and not the other exits 1 either way; only the
+error message changes.
 
-**What must not happen: reusing `"skipped"`.** It is already in `allowed_statuses`, so it looks
-free — and it is wrong twice over. A skip means *the scenario did not run*; a missing marker
-means *it ran and proved nothing*, which is the exact distinction §4.3 and `TEST-007` exist to
-draw, and collapsing them re-creates the defect one column over. It would also collide with the
-`fail_on_skip` precedence chain (§4.4): under every CI invocation `--fail-on-skip` is passed
-explicitly, so a scenario parked as `"skipped"` would fail the run anyway.
+**One mechanism is ruled out rather than left open: reusing `"skipped"`.** It is already in
+`allowed_statuses`, so it looks free, and it is wrong twice over. A skip means *the scenario did
+not run*; a missing marker means *it ran and proved nothing* — the exact distinction §4.3 and
+`TEST-007` exist to draw, and collapsing them re-creates the defect one column over. It also
+collides with the `fail_on_skip` precedence chain (§4.4): every CI invocation passes
+`--fail-on-skip` explicitly, so a scenario parked as `"skipped"` fails the run anyway.
 
-**Step 2 needs no schema work.** Its flip re-points §4.1's branch from the advisory status to
-`"failed"`, which is already in the vocabulary and already counted. The status added in step 1
-then either disappears with the flip or remains for the §4.3 allowlisted zero-assertion cases;
-the flip PR states which, and does not leave a status in the schema that nothing can produce.
+**Everything else about the mechanism is T3's PR to decide** — the status string, the
+`allowed_statuses` and report-schema edit, the summary field names, whether the advisory status
+survives step 2 or is removed by it. This ADR has now specified this mechanism twice and been
+wrong twice (§2.6), and the reason is structural rather than careless: the questions left are
+settled in minutes by someone running the harness and in rounds by someone reading it. See §4.7
+for what T3's PR owes in exchange.
+
+### 4.7 What T3's PR owes for the delegated mechanism
+
+Per §2.7, delegation is paid for with a written record. T3's PR must state, in the guard's own
+docstring or the PR body:
+
+1. **The mechanism chosen** — the status value, where the vocabulary and report schema were
+   widened, and which summary field carries the count.
+2. **Evidence it clears both terms of `:1219` at once** — a run in which a scenario omits the
+   marker, showing the scenario recorded and printed, `summary["failed"]` unchanged, and
+   `schema_valid` still true. Both facts from one run, not two arguments.
+3. **The step-2 disposition** — whether the advisory status is removed by the flip or retained
+   for §4.3's allowlisted zero-assertion cases. Leaving a status in the schema that nothing can
+   produce is its own dead-guard shape.
+
+**Inadequate:** naming the status and stopping; asserting the exit code is unaffected without a
+run that omits a marker; or a run that omits a marker but does not show `schema_valid`. Each of
+those is the specific gap that produced §4.6.1's two corrections, so a reviewer should read this
+list as three things to check rather than three things to skim.
 
 ## 5. T4 (#892, #906–#910) — batch grouping and the hollow batch
 
@@ -688,10 +756,10 @@ repair. An expected-fail scene runs every time and is a live regression oracle f
 expected-fail exits 0 with one line naming the scenes and their issues. A reader who sees red
 scene output and a zero exit code is told, in the same output, why.
 
-### 6.3 Expected-fail must be represented in the Python lane too, without weakening it
+### 6.3 Expected-fail crosses into the Python lane, and execution is not inventory
 
-**§6.2 specifies a GDScript-side map and stops at the language boundary. The blocking lane is
-Python, and three separate mechanisms there reject the design as written.** Read at
+**§6.2 specifies a GDScript-side map and stops at the language boundary. Four mechanisms —
+three in the Python lane, one in the runner itself — reject the design as written.** Read at
 `adcd6916dbd`:
 
 1. **The comparator fails on any scene lacking a committed baseline.**
@@ -715,39 +783,85 @@ Python, and three separate mechanisms there reject the design as written.** Read
    files trip `:96-97`; put them in `test_scenes` and the baseline-equality check at `:108-112`
    demands baseline entries that (2) forbids.
 
-**None of this is a bug to route around.** `validate_baseline_candidate`'s refusal is a guard
-doing precisely its job, and the inventory guard's disk-coverage rule is what stops a scene
+**None of this is a bug to route around.** `validate_baseline_candidate`'s refusal is **a guard
+doing precisely its job**, and the inventory guard's disk-coverage rule is what stops a scene
 quietly leaving the suite — the same property `_strip_machine_dependent_metrics`' docstring
 protects when it keeps a metric-less entry so *"the comparator's `missing_scenes` check fails if
 the scene silently drops out"* (`run_baseline_qa.py:303-310`). **Do not weaken any of the three.**
 
-**Decision: carve a declared, owned, expiring third bucket, mirroring how `quarantined` is
-already carried.** The precedent is in the same payload: the committed baseline already holds a
-`quarantined` map read at `test_baseline_qa_require_flag.py:106`, kept *beside* `results` rather
-than inside it, exactly because quarantined scenes must be inventoried without being baselined.
-Expected-fail takes the same shape and nothing new is invented:
+4. **And execution membership is `test_scenes` alone.** `_run_next_test()`
+   (`tests/examples/godot/test_project/scripts/qa_test_runner.gd:94`) bounds on
+   `test_scenes.size()` (`:98`) and indexes `test_scenes[current_test_index]` (`:101`). Nothing
+   else runs. A scene in a third map and not in `test_scenes` **never executes** — so it cannot
+   be an oracle at all, which is the entire purpose of §6.2.
 
-- **Baseline schema** — a third top-level `expected_failures` map beside `results` and
-  `quarantined`, keyed by scene path, carrying the §6.2 fields including the
-  `expected_failure` signature. Expected-fail scenes are **not** entries in `results`, so
-  `validate_baseline_candidate` never sees a `passed=false` entry and its refusal stays intact
-  and unweakened.
-- **Comparator** — subtract declared expected-fail scenes from `new_scenes` before `:1295-1299`
-  computes `has_regressions`, and report them in their own section. A scene that is *neither*
-  baselined nor declared expected-fail still fails, which is the property `new_scenes` exists
-  for.
-- **Inventory guard** — derive a third block from the runner and extend every assertion to three
-  buckets: declared exactly once across all three, pairwise disjoint, union covers disk, and
-  `baseline_expected_failures == runner_expected_fail`. This keeps `:96-97` total rather than
-  punching a hole in it.
-- **Fail closed on disagreement.** A scene declared expected-fail in the runner but absent from
-  the baseline map (or vice versa) is a failure, on the same equality model `:103-118` already
-  uses for the other two buckets. Silence between the two sides is never agreement.
+**The fourth trap defeated this section's own first answer.** The round-4 revision required
+three *pairwise-disjoint* inventory buckets while also saying `test_scenes` grows by two — which
+cannot both hold: disjointness forbids the expected-fail scenes from being in `test_scenes`, and
+`:98`/`:101` mean that anything not in `test_scenes` never runs. There was **no valid
+representation** under the rules as written. That is §2.6's eighth instance and the third
+introduced by a correction.
+
+**The resolution is a distinction the section had collapsed: execution membership and inventory
+membership are different questions.**
+
+- **Execution membership** answers *what does the runner iterate?* It must be the **union** of
+  active and expected-fail scenes — expected-fail scenes have to run every time, or they cannot
+  observe their own repair (§6.2's "why not quarantine").
+- **Inventory membership** answers *which declared bucket owns this scene, and is every scene on
+  disk owned exactly once?* Here the buckets stay **disjoint and total**, which is what makes
+  `:96-97` and the exactly-once rule at `:86-89` meaningful.
+
+A scene is therefore in exactly one *bucket* and may be in more than one *derived set*. The
+runner's iteration order is **derived from** the buckets rather than being one of them — which
+is also the only shape consistent with §2's derive-don't-enumerate posture, since a
+hand-maintained `test_scenes` that must stay in sync with a second map is precisely the
+drift this cluster exists to remove.
+
+**Invariant, and it is what this section decides.** Whatever representation T10 chooses must
+satisfy all five at once:
+
+1. **Expected-fail scenes execute on every run** — union semantics for the executed sequence.
+2. **Every scene file on disk is owned by exactly one declared bucket**, so `:96-97` and
+   `:86-89` stay total rather than acquiring a hole.
+3. **`validate_baseline_candidate` never sees a `passed=false` entry** (`:236`) — its refusal is
+   a guard doing its job and is **not weakened**; the representation carves around it.
+4. **A scene that is neither baselined nor declared expected-fail still fails** `new_scenes`
+   (`:1295-1300`) — the property that check exists for survives.
+5. **Runner and baseline disagreeing is a failure**, on the equality model `:103-118` already
+   uses. Silence between the two sides is never agreement.
+
+**Precedent to build on, not a mandate:** the committed baseline already carries a `quarantined`
+map *beside* `results` (read at `test_baseline_qa_require_flag.py:106`), precisely so
+quarantined scenes can be inventoried without being baselined. An `expected_failures` map in
+that shape satisfies (3) and (5) naturally, and reuses the programme's one waiver idiom (§2.7,
+§6.6). T10 may choose otherwise; it may not choose something that fails the five.
 
 **Sequencing.** The Python changes land **before or with** the GDScript map, never after: the
-moment `test_scenes` grows by two scenes with no committed baseline, the blocking lane is red at
-`:1300`. This is T10's own ordering constraint, and it is why §1's T10 row is not "scenes plus
+moment the executed set grows by two scenes with no committed baseline, the blocking lane is red
+at `:1300`. This is T10's own ordering constraint, and it is why §1's T10 row is not "scenes plus
 `qa_test_runner.gd`" work.
+
+### 6.3.1 What T10's PR owes for the delegated representation
+
+Per §2.7, the exact bucket layout, field names, and the mechanism composing the executed
+sequence are **T10's PR to decide**. This section has specified that representation twice and
+been wrong twice, and the remaining questions are ones a run of the QA lane answers immediately.
+In exchange, T10's PR must record:
+
+1. **The representation chosen** — which buckets exist, which is derived, and how the executed
+   sequence is composed from them.
+2. **A run showing all five invariants hold together**: the two red scenes executed and reported
+   `expected_fail`; the suite exit code 0; `_qa_inventory_failures` green; and
+   `validate_baseline_candidate` still rejecting a `passed=false` entry when handed one.
+3. **A mutation proof per §2.4** — remove one expected-fail declaration and show the lane goes
+   RED, so the representation is demonstrably load-bearing rather than decorative.
+
+**Inadequate:** an inventory-guard pass without a run that actually executed the two scenes
+(that is the round-4 defect exactly — a representation that inventories cleanly and never
+runs); or a green suite without showing `validate_baseline_candidate` still refuses
+`passed=false`, since the cheapest way to make all of this green is to weaken the guard the
+section forbids weakening.
 
 ### 6.4 The entries point at GPU-001's own issue, filed at T10 time
 
@@ -817,9 +931,13 @@ audit. The surface is larger than `depth_test`: the QA project carries **32**
    it would rot silently the first time a default changed.
 
    **`GLOBAL_DEF` is not the only registration form, and a `GLOBAL_DEF`-only guard would be
-   vacuous over the keys that matter most.** An earlier revision of this section said defaults
-   "come from the `GLOBAL_DEF` registrations", which was written without reading the
-   registration paths — rule 6, and the sixth instance of it. Measured at `adcd6916dbd` by
+   vacuous over the keys that matter most.** An earlier revision of this section required
+   defaults to come "from the `GLOBAL_DEF` registrations". **That requirement originated with
+   the maintainer**, written without reading the registration mechanisms — and written while
+   formulating §2.6, the rule against exactly this. It was relayed unverified, caught by the
+   Codex review pass, and confirmed against the source by the maintainer. It is recorded that
+   way rather than as an anonymous "earlier revision" because §2.6 binds every layer, and the
+   only evidence that it does is a case where it caught the top one. Measured at `adcd6916dbd` by
    resolving manifest keys against string literals at `GLOBAL_DEF*` call sites: only **128 of
    199** resolve, and of the QA project's 32 overrides **14 do not resolve at all** — including
    **all three lighting keys**, which is precisely the divergence `TEST-008` calls material. The
@@ -1167,14 +1285,62 @@ scratch:
    where a directory genuinely is excluded as a whole; the entry then still pins its members.
 
 **Where it lives is #897's call, not this ADR's** — beside the workflow, or as a key in an
-existing manifest — with one constraint: it must **not** live in `.agentic/policy.json`. Putting
-it there would let a CI-cost argument be settled by editing the risk-policy file, and would
-floor every subsequent exclusion at R3 for reasons that have nothing to do with the exclusion.
+existing manifest — with two constraints. It must **not** live in `.agentic/policy.json`:
+putting it there would let a CI-cost argument be settled by editing the risk-policy file, and
+would floor every subsequent exclusion at R3 for reasons that have nothing to do with the
+exclusion. And **wherever it lives, it resolves per §8.4** — file placement is a mechanism
+choice; resolution direction is not.
 
 **What it is not.** The exclusion list is not a place to park R2 paths whose lane is currently
 red. That is what the quarantine and waiver mechanisms above are for, and routing a red lane
 through a coverage exclusion instead would hide it in the one list nobody reads as a failure
 record.
+
+### 8.4 The invariant: a change may add to the evidence it owes, never subtract
+
+**This is the general rule, and §8.2 was only its first instance.** §8.2 pinned `policy.json` to
+the immutable base so a PR could not narrow an R2 glob to excuse itself. §8.3 then introduced a
+*second* input to the same decision — the exclusion list — and said nothing about where it
+resolves from, which leaves it in the PR's own checkout. **The hole reopens one level down:** a
+PR that adds an exclusion matching an R2 path *it also edits* suppresses its own
+production-evidence collection, with formally valid metadata and a perfectly correct
+`matched_paths`. Every property in §8.3 passes. This is the defect #886 closed for
+`policy.json`, rebuilt inside the mechanism designed to replace a hand-maintained list — which
+is precisely why it is stated here as an invariant rather than patched as a fourth bullet.
+
+**Invariant.** *Every input to "which evidence does this change owe?" resolves in whichever
+direction can only **add** evidence.* Concretely, comparing base and head:
+
+| Input | Resolution | Why that direction |
+| --- | --- | --- |
+| R2 `path_globs` (inclusive) | **union** of base and head | union only ever adds paths to the lane |
+| Exclusion list (subtractive) | **intersection** of base and head | a path is excused only if it was excused *before* this change too |
+| Either input unreadable at base | **fail closed** | as `agentic_pr_gate.yml:105-116` already does |
+
+Intersection is the exclusion-side mirror of §8.2's union, and it closes both directions of the
+hole, not just the one Codex named:
+
+- **A new exclusion** (present at head, absent at base) does **not** apply to the PR that
+  introduces it. Evidence runs.
+- **A removed exclusion** (present at base, absent at head) also does not apply — the path
+  rejoins the lane immediately. Base-resolution *alone* would have missed this second case and
+  suppressed evidence for a path the PR just un-excused, which is the same fail-open direction
+  with the sign flipped.
+
+**A legitimately new exclusion cannot excuse the PR that introduces it, and that is the intended
+behaviour, not a side effect.** The author argues an exclusion in a PR that still pays the
+evidence cost; the exclusion takes effect for everyone afterwards. That ordering is the whole
+control: an exemption is a claim about the future, and the PR making the claim is exactly the
+one whose evidence you least want to skip. An author who finds this expensive is describing the
+mechanism working.
+
+The alternative considered and not taken was **forcing the evidence lane whenever the exclusion
+list changes at all**. It closes the same hole, but it is a second mechanism with different
+semantics for the same question, and it is coarser — an unrelated exclusion edit would arm the
+full GPU lane. Intersection reuses §8.2's idiom and reasoning exactly, which matters here: this
+programme has now had the same self-certification defect three times (in `policy.json`, in
+`classify_change.py`'s own `SELF_REFERENTIAL_PATHS` gap carried on #887, and here), and a single
+stated invariant is what makes the fourth instance recognisable on sight.
 
 ## 9. Members with no independent design content
 
