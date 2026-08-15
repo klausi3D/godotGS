@@ -108,18 +108,19 @@ These are stated once, here, and are binding on every PR in §1.
 6. **No prescription without a read.** Every sentence in a design record that says what a named
    file does, or must be changed to do, **cites the `file:line` it was read at**. A prescription
    written from memory of how a consumer *probably* behaves is not a design decision; it is a
-   guess that a reviewer has to re-derive. Five review rounds produced twelve findings against
-   this document and **eight were the same defect**: an instruction that would have failed the
+   guess that a reviewer has to re-derive. Six review rounds produced thirteen findings against
+   this document and **nine were the same defect**: an instruction that would have failed the
    very consumer it was written to satisfy, because nobody had opened it. A fifth manifest
    declaration the count check rejects and a #908 declaration the stale check rejects (§5.4); a
    soak trigger no profile selection can satisfy, evidence read from a report already
    overwritten, and an advisory status the exit expression counts as a failure (§4.6, §4.6.1); a
    defaults source that cannot resolve 14 of the 32 keys it must compare (§6.6); an expected-fail
-   design that stops at the GDScript boundary while three Python mechanisms reject it (§6.3); and
-   its own replacement, which produced a representation no scene could both execute from and be
-   inventoried under (§6.3 again, round 5). The other four were genuine design gaps — a missing
-   failure signature, a base-versus-head policy read, an under-specified membership check, and
-   the self-certification hole in §8.4 — the normal cost of design review. The eight were not.
+   design that stops at the GDScript boundary while three Python mechanisms reject it (§6.3); its
+   own replacement, which produced a representation no scene could both execute from and be
+   inventoried under (§6.3 again, round 5); and a derivation whose changed-path input drops one
+   side of every rename (§8.4.1). The other four were genuine design gaps — a missing failure
+   signature, a base-versus-head policy read, an under-specified membership check, and the
+   self-certification hole in §8.4 — the normal cost of design review. The nine were not.
    **Not one was a wrong judgement call; every one was an unread consumer.** Treat an uncited
    claim about a consumer's behaviour as unverified whatever its confidence — including in the
    corrections, **three** of which introduced a fresh instance while fixing an earlier one.
@@ -168,6 +169,25 @@ These are stated once, here, and are binding on every PR in §1.
    most permissive shape; and a defect found in one — as the membership-pinning gap was in §8.3
    — is fixable in all of them at once. A member proposing a differently-shaped exception list
    states why in its PR, and "it was easier here" is not a reason.
+9. **Renames are this programme's demonstrated blind spot. Every path- or name-matching input
+   states how it handles both sides of one.** Not a caution — a measured pattern, four
+   independent instances, each found by a different route:
+
+   - **§2.5** — a retag is a rename: it moves name-keyed digests while counts stay identical, so
+     an unchanged count is not evidence that nothing moved.
+   - **PR #911** — a whole-file rename of a baselined test file produces a false-RED, carried on
+     **#890** (§10.2). Safe direction, but the same blind spot pointing the other way.
+   - **§8.3** — the exclusion list pins *membership*, not a count, precisely because a rename
+     holds the count while moving the set.
+   - **§8.4.1** — the changed-path input drops `previous_filename`, so an R2 file renamed out of
+     the R2 globs silently loses its evidence lane.
+
+   The instances are not variations on one mistake; they are four different mechanisms, and each
+   was found separately after the previous one was fixed. So the obligation is stated once and
+   applies to every member: **a path- or name-matching input that does not say what a rename does
+   to it is under-specified**, and the reviewer's question is the same every time — *what does
+   this see when the thing it matches on is renamed, and does it fail loudly or quietly?*
+   Quietly is the answer three of the four gave.
 
 ## 3. The R3 obligations disposition: cited, then instantiated
 
@@ -1284,12 +1304,39 @@ scratch:
    larger blast radius the day someone adds a file that matches it. A wildcard is available
    where a directory genuinely is excluded as a whole; the entry then still pins its members.
 
-**Where it lives is #897's call, not this ADR's** — beside the workflow, or as a key in an
-existing manifest — with two constraints. It must **not** live in `.agentic/policy.json`:
-putting it there would let a CI-cost argument be settled by editing the risk-policy file, and
-would floor every subsequent exclusion at R3 for reasons that have nothing to do with the
-exclusion. And **wherever it lives, it resolves per §8.4** — file placement is a mechanism
-choice; resolution direction is not.
+**Where it lives: inside `.agentic/policy.json`. This reverses an earlier position in this
+section, and is recorded as a reversal rather than edited away.**
+
+The earlier text forbade exactly this, on two grounds: that it would let a CI-cost argument be
+settled by editing the risk-policy file, and that it would floor every subsequent exclusion at
+R3 "for reasons that have nothing to do with the exclusion." **Both objections are answered by
+taking them literally rather than avoiding them:**
+
+- A CI-cost argument that reaches the risk-policy file is **precisely** the argument that should
+  require R3 review. The objection described the mechanism working and called it a cost.
+- Flooring a PR that grants itself an evidence exemption is **correct, not incidental**. The
+  reasons have everything to do with the exclusion: an exclusion is a claim that a risk-graded
+  path does not owe evidence, which is a risk-policy statement whatever file it is typed into.
+
+**And the positive case is that co-location inherits both protections for free.**
+
+- Anywhere else means **a second base-resolved artifact** — with its own base-resolution, its
+  own self-referential handling, its own drift check. That is a second instance of the #886
+  pattern to build and to get wrong, and this document's record on building the same protection
+  twice is not good (§2.6).
+- Inside `policy.json` the list is already covered by machinery that exists: §8.2 resolves policy
+  from the immutable base, and `SELF_REFERENTIAL_PATHS`
+  (`scripts/agentic/classify_change.py:57`) already floors any PR touching that file at R3.
+- **§8.4's P1 then closes with no new rule at all.** The exclusion is read from base, so a PR's
+  own addition cannot apply to itself; and adding it floored that PR at R3 anyway, so the
+  evidence obligations it tried to suppress are published at maximum instead of skipped. The
+  hole is closed twice over by machinery already in the tree.
+- One hardened surface instead of two. Policy lives with policy.
+
+**#897 may still deviate**, but only by writing down why, under §2.7's document-the-mechanism
+obligation: the default is co-location, and a deviation must state what it gains that is worth
+building base-resolution and self-referential handling a second time. "Beside the workflow is
+tidier" is not that reason.
 
 **What it is not.** The exclusion list is not a place to park R2 paths whose lane is currently
 red. That is what the quarantine and waiver mechanisms above are for, and routing a red lane
@@ -1341,6 +1388,56 @@ full GPU lane. Intersection reuses §8.2's idiom and reasoning exactly, which ma
 programme has now had the same self-certification defect three times (in `policy.json`, in
 `classify_change.py`'s own `SELF_REFERENTIAL_PATHS` gap carried on #887, and here), and a single
 stated invariant is what makes the fourth instance recognisable on sight.
+
+**Co-location does not simplify this rule — it makes stating it more necessary.** §8.3 now puts
+the exclusion list inside `policy.json`, so both inputs arrive from one base-resolved,
+R3-floored file, and the obvious reading is that one file needs one resolution. It does not.
+The direction is a property of how each field is *used*, not of where it is stored:
+
+- Reading the whole file **from base only** loses §8.2's deliberate allowance for a PR that
+  legitimately widens the R2 surface and wants its own new paths covered in the same run.
+- Reading the whole file as **base ∪ head** would union the exclusions too — which is exactly
+  the hole this section exists to close, reintroduced by a simplification that looks like
+  tidying.
+
+So the resolution is applied **per field, not per file**: union the `path_globs`, intersect the
+exclusions, both against the same base. Co-location secures the *source*; the directional rule
+governs how that source *combines*. Anyone later collapsing the two into "just read policy from
+base" should read this paragraph first.
+
+### 8.4.1 The input contract the invariant depends on: both sides of a rename
+
+**The union in §8.2 is correct and was defeated by its input.** A set operation over changed
+paths is only as complete as the path list handed to it, and that precondition was never
+stated. Measured at `adcd6916dbd`:
+`.github/workflows/gaussian_production_gates.yml:180` reduces the pull-request file list to
+`files.map((file) => String(file.filename || ""))`, and `:194` does the same for the
+`merge_group` `compareCommitsWithBasehead` path. **`filename` only — the string
+`previous_filename` does not appear anywhere in that workflow.** So when an R2 file is *renamed*
+to a path outside the R2 globs, the base policy is never handed the old path and cannot match
+it; the derived lane skips production evidence for a file that was R2 until this very change.
+Note what fails here: not the invariant, but an unstated precondition on its input.
+
+**Requirement: the changed-path input includes both sides of a rename** — `filename` **and**
+`previous_filename` — before any glob, union, or intersection is applied.
+
+**This is not a new idea; it is an existing in-repo solution the derive design failed to
+inherit.** `.github/workflows/baseline_qa.yml:402-407` already defines
+
+```js
+const pathsFromFile = (f) => {
+  const out = [];
+  if (f.filename) out.push(String(f.filename));
+  if (f.previous_filename) out.push(String(f.previous_filename));
+  return out;
+};
+```
+
+applied with `flatMap` at `:416` and `:453`, and its comment (`:395-401`) names this exact
+failure: a file moving from a watched prefix to an unwatched one is missed by matching
+`filename` alone and *"we'd silently skip the visual gate."* The sibling workflow solved this;
+the section prescribing a derivation for the other workflow did not go and look. #897 inherits
+`pathsFromFile` rather than reinventing it.
 
 ## 9. Members with no independent design content
 
