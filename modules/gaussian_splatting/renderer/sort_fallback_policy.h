@@ -188,6 +188,61 @@ static inline SortFallbackPolicyDecision build_sort_fallback_policy(
 	return decision;
 }
 
+// ---------------------------------------------------------------------------
+// Sorter-init retry policy (GPU-003, refs #922)
+// ---------------------------------------------------------------------------
+//
+// Repeated GPU-sorter creation failures (typically transient VRAM pressure at
+// startup, or device contention) previously tripped a ONE-WAY latch: after 5
+// failures refresh_gpu_sorter() early-returned forever, so GPU sorting stayed
+// dead for the whole session even after memory freed -- and the instance route
+// has no CPU fallback (see build_sort_fallback_policy above), so splats froze
+// at the last sorted order or stopped rendering entirely.
+//
+// The replacement policy: capped exponential backoff. Below the cap the
+// backoff doubles per consecutive failure (60, 120, 240, 480, 960 frames); at
+// SORTER_INIT_DEGRADED_FAILURE_THRESHOLD failures the subsystem counts as
+// DEGRADED and the capped interval becomes a periodic recovery probe. There is
+// deliberately NO failure count that stops retrying: the cap bounds the retry
+// RATE (which is all the old latch's OOM-thrash concern needs), never the
+// retry COUNT. Degradation is additionally surfaced through
+// record_rendering_error (diagnostics), not only a log line -- see
+// RenderSortingOrchestrator::refresh_gpu_sorter.
+
+static constexpr uint64_t SORTER_INIT_BASE_BACKOFF_FRAMES = 60;
+static constexpr uint64_t SORTER_INIT_MAX_BACKOFF_FRAMES = 1800; // ~30 s at 60 fps
+static constexpr uint32_t SORTER_INIT_DEGRADED_FAILURE_THRESHOLD = 5;
+
+// Backoff (in frames) imposed after the p_failure_count-th consecutive
+// sorter-init failure. 0 failures -> no backoff.
+static inline uint64_t sorter_init_backoff_frames(uint32_t p_failure_count) {
+	if (p_failure_count == 0) {
+		return 0;
+	}
+	// 60 << 5 already exceeds the cap, so bounding the doubling exponent at 5
+	// keeps the shift well-defined for arbitrarily large failure counts.
+	const uint32_t doublings = (p_failure_count - 1) < 5 ? (p_failure_count - 1) : 5;
+	const uint64_t backoff = SORTER_INIT_BASE_BACKOFF_FRAMES << doublings;
+	return backoff < SORTER_INIT_MAX_BACKOFF_FRAMES ? backoff : SORTER_INIT_MAX_BACKOFF_FRAMES;
+}
+
+// Whether refresh_gpu_sorter() should attempt sorter creation this frame.
+// INVARIANT (the fix for GPU-003): for EVERY failure count, this returns true
+// once SORTER_INIT_MAX_BACKOFF_FRAMES frames have elapsed since the last
+// failure -- there is no permanently-disabled state.
+static inline bool should_attempt_sorter_init(uint32_t p_failure_count, uint64_t p_frames_since_last_failure) {
+	if (p_failure_count == 0) {
+		return true;
+	}
+	return p_frames_since_last_failure >= sorter_init_backoff_frames(p_failure_count);
+}
+
+// Degraded = the old policy's "permanently disabled" threshold. Used only for
+// escalated observability (ERROR log + RenderingError), never to stop retrying.
+static inline bool sorter_init_degraded(uint32_t p_failure_count) {
+	return p_failure_count >= SORTER_INIT_DEGRADED_FAILURE_THRESHOLD;
+}
+
 } // namespace GaussianSplatting
 
 #endif // GAUSSIAN_SORT_FALLBACK_POLICY_H

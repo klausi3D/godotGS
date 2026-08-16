@@ -271,21 +271,23 @@ void RenderSortingOrchestrator::refresh_gpu_sorter(const char *p_context) {
 	render_device = device_state->rd;
 	ERR_FAIL_NULL(render_device);
 
-	// Phase 4: Backoff on repeated sorter init failures to prevent OOM crash
+	// GPU-003 (refs #922): repeated sorter-init failures back off exponentially
+	// (capped), but NEVER latch GPU sorting off permanently -- past the
+	// degradation threshold the capped interval becomes a periodic recovery
+	// probe, so transient VRAM pressure at startup cannot disable GPU sorting
+	// for the rest of the session. Policy + rationale: sort_fallback_policy.h.
 	const uint64_t current_frame = frame_state.frame_counter;
-	if (sorting_state.sorter_init_failure_count > 0) {
-		// Check if we've exceeded max failures - disable GPU sorting entirely
-		if (sorting_state.sorter_init_failure_count >= sorting_state.kSorterInitMaxFailures) {
-			// GPU sorting permanently disabled for this session due to repeated OOM
-			sorting_state.sorter_needs_rebuild = false;
-			return;
-		}
-		// Check if we're still in backoff period
-		const uint64_t frames_since_failure = current_frame - sorting_state.last_sorter_init_failure_frame;
-		if (frames_since_failure < sorting_state.kSorterInitBackoffFrames) {
-			// Still in backoff, skip init attempt
-			return;
-		}
+	// frame_counter is 32-bit; compute the delta in uint32 modular arithmetic so
+	// a counter wrap cannot zero-extend into a huge uint64 difference that would
+	// bypass the backoff window (Codex R1, P3).
+	const uint32_t frames_since_last_failure =
+			frame_state.frame_counter - static_cast<uint32_t>(sorting_state.last_sorter_init_failure_frame);
+	if (!GaussianSplatting::should_attempt_sorter_init(sorting_state.sorter_init_failure_count,
+				frames_since_last_failure)) {
+		// Still in backoff: skip this attempt and leave sorter_needs_rebuild
+		// armed so the per-frame gate in sort_gaussians_for_view keeps routing
+		// through here until the next eligible attempt.
+		return;
 	}
 
 	uint32_t capacity = MAX<uint32_t>(local_performance_settings.max_splats,
@@ -314,17 +316,46 @@ void RenderSortingOrchestrator::refresh_gpu_sorter(const char *p_context) {
 	sorting_state.sorter_needs_rebuild = false;
 
 	if (!sorting_state.gpu_sorter.is_valid()) {
-		// Sorter creation failed - record failure for backoff
-		sorting_state.sorter_init_failure_count++;
+		// Sorter creation failed - record failure for backoff (GPU-003).
+		// The sorter still needs building, so the flag stays armed: the
+		// per-frame path (sort_gaussians_for_view) only calls
+		// refresh_gpu_sorter while sorter_needs_rebuild is true, so clearing
+		// it here would strand the recovery probes forever after the first
+		// failure (Codex R1, P1). The backoff gate above - not this flag -
+		// rate-limits the actual attempts.
+		sorting_state.sorter_needs_rebuild = true;
+		if (sorting_state.sorter_init_failure_count < UINT32_MAX) {
+			sorting_state.sorter_init_failure_count++;
+		}
 		sorting_state.last_sorter_init_failure_frame = current_frame;
-		if (sorting_state.sorter_init_failure_count >= sorting_state.kSorterInitMaxFailures) {
-			GS_LOG_ERROR_DEFAULT(vformat("[GPU Sort] Sorter init failed %d times - disabling GPU sorting (use CPU fallback)",
-					sorting_state.sorter_init_failure_count));
-		} else {
-			GS_LOG_WARN_DEFAULT(vformat("[GPU Sort] Sorter init failed (attempt %d/%d) - backing off for %d frames",
+		const uint64_t backoff_frames =
+				GaussianSplatting::sorter_init_backoff_frames(sorting_state.sorter_init_failure_count);
+		if (GaussianSplatting::sorter_init_degraded(sorting_state.sorter_init_failure_count)) {
+			// Persistent degradation keeps re-surfacing in the log (once per
+			// probe interval), mirroring should_warn_unsorted_composite's
+			// NOT-one-shot-forever contract.
+			GS_LOG_ERROR_DEFAULT(vformat("[GPU Sort] Sorter init failed %d consecutive times - GPU sorting degraded; probing for recovery every %d frames",
 					sorting_state.sorter_init_failure_count,
-					sorting_state.kSorterInitMaxFailures,
-					sorting_state.kSorterInitBackoffFrames));
+					backoff_frames));
+			if (!sorting_state.sorter_init_degraded_reported) {
+				// Surface the degraded state through diagnostics once per
+				// episode, not only as a log line (GPU-003 remediation).
+				sorting_state.sorter_init_degraded_reported = true;
+				RenderingError error(RenderingErrorCodes::gpu_sort_unavailable(),
+						RenderingError::Severity::RECOVERABLE,
+						vformat("GPU sorter initialization failed %d consecutive times; GPU sorting degraded, retrying every %d frames",
+								sorting_state.sorter_init_failure_count, backoff_frames));
+				error.add_context("failure_count", static_cast<int64_t>(sorting_state.sorter_init_failure_count));
+				error.add_context("retry_interval_frames", static_cast<int64_t>(backoff_frames));
+				error.add_context("frame", static_cast<int64_t>(current_frame));
+				error.add_recovery_step("Free GPU memory (close other GPU-heavy applications); the renderer retries automatically");
+				error.add_recovery_step("Enable force_cpu_sort to use CPU sorting on the global route");
+				record_rendering_error(error);
+			}
+		} else {
+			GS_LOG_WARN_DEFAULT(vformat("[GPU Sort] Sorter init failed (attempt %d) - backing off for %d frames",
+					sorting_state.sorter_init_failure_count,
+					backoff_frames));
 		}
 		return;
 	}
@@ -333,6 +364,7 @@ void RenderSortingOrchestrator::refresh_gpu_sorter(const char *p_context) {
 	if (sorting_state.sorter_init_failure_count > 0) {
 		GS_LOG_INFO_DEFAULT("[GPU Sort] Sorter init succeeded after previous failures - resetting backoff");
 		sorting_state.sorter_init_failure_count = 0;
+		sorting_state.sorter_init_degraded_reported = false;
 	}
 
 	bool pipeline_manages_buffers = sorting_pipeline &&

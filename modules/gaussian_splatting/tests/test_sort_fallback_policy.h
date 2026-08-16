@@ -241,4 +241,53 @@ TEST_CASE("[GaussianSplatting][SortFallback] sort-dispatch failures are counted,
 	CHECK_EQ(ok_counter, 0u);
 }
 
+// GPU-003 (refs #922): the sorter-init retry policy that replaced the one-way
+// "5 failures -> GPU sorting permanently disabled for the session" latch.
+// These lock the fix's contract: backoff grows per consecutive failure, is
+// capped, and NO failure count ever stops retrying.
+TEST_CASE("[GaussianSplatting][SortFallback] sorter-init backoff doubles per failure and caps (GPU-003)") {
+	CHECK_EQ(sorter_init_backoff_frames(0), 0u);
+	CHECK_EQ(sorter_init_backoff_frames(1), SORTER_INIT_BASE_BACKOFF_FRAMES);
+	CHECK_EQ(sorter_init_backoff_frames(2), SORTER_INIT_BASE_BACKOFF_FRAMES * 2);
+	CHECK_EQ(sorter_init_backoff_frames(3), SORTER_INIT_BASE_BACKOFF_FRAMES * 4);
+	CHECK_EQ(sorter_init_backoff_frames(4), SORTER_INIT_BASE_BACKOFF_FRAMES * 8);
+	CHECK_EQ(sorter_init_backoff_frames(5), SORTER_INIT_BASE_BACKOFF_FRAMES * 16);
+	// From here the cap takes over (60 << 5 = 1920 > 1800).
+	CHECK_EQ(sorter_init_backoff_frames(6), SORTER_INIT_MAX_BACKOFF_FRAMES);
+	CHECK_EQ(sorter_init_backoff_frames(100), SORTER_INIT_MAX_BACKOFF_FRAMES);
+	CHECK_EQ(sorter_init_backoff_frames(0xFFFFFFFFu), SORTER_INIT_MAX_BACKOFF_FRAMES);
+
+	// Monotonic non-decreasing and never above the cap.
+	uint64_t previous = 0;
+	for (uint32_t count = 1; count <= 64; count++) {
+		const uint64_t backoff = sorter_init_backoff_frames(count);
+		CHECK(backoff >= previous);
+		CHECK(backoff <= SORTER_INIT_MAX_BACKOFF_FRAMES);
+		previous = backoff;
+	}
+}
+
+TEST_CASE("[GaussianSplatting][SortFallback] sorter-init retry never latches off permanently (GPU-003)") {
+	// No failures -> always attempt.
+	CHECK(should_attempt_sorter_init(0, 0));
+
+	// Within a backoff window -> wait; at the boundary -> attempt.
+	CHECK_FALSE(should_attempt_sorter_init(1, SORTER_INIT_BASE_BACKOFF_FRAMES - 1));
+	CHECK(should_attempt_sorter_init(1, SORTER_INIT_BASE_BACKOFF_FRAMES));
+
+	// THE DEFECT THIS REPLACES: >= SORTER_INIT_DEGRADED_FAILURE_THRESHOLD
+	// failures used to disable retries for the whole session. Now every failure
+	// count, however large, retries once the capped probe interval has elapsed.
+	const uint32_t counts[] = { SORTER_INIT_DEGRADED_FAILURE_THRESHOLD, 6u, 100u, 1000000u, 0xFFFFFFFFu };
+	for (uint32_t count : counts) {
+		CHECK_FALSE(should_attempt_sorter_init(count, sorter_init_backoff_frames(count) - 1));
+		CHECK(should_attempt_sorter_init(count, SORTER_INIT_MAX_BACKOFF_FRAMES));
+	}
+
+	// Degradation is an observability threshold, not a retry stop.
+	CHECK_FALSE(sorter_init_degraded(SORTER_INIT_DEGRADED_FAILURE_THRESHOLD - 1));
+	CHECK(sorter_init_degraded(SORTER_INIT_DEGRADED_FAILURE_THRESHOLD));
+	CHECK(sorter_init_degraded(0xFFFFFFFFu));
+}
+
 } // namespace TestGaussianSplatting
