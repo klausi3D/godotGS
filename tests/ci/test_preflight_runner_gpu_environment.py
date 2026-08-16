@@ -87,14 +87,20 @@ BUILD_MARKER = "python -m SCons"
 # fails closed on a future shell wrapper it does not understand: teaching this
 # parser the new command shape must be part of the workflow change.
 _PYTHON_COMMAND = r"(?:python(?:3(?:\.exe)?|\.exe)?|py(?:\.exe)?(?:\s+-3)?)"
+_SAFE_COMMAND_TOKEN = r"[A-Za-z0-9_./:\\=-]+"
 _PREFLIGHT_COMMAND = re.compile(
     rf"^(?:&\s*)?{_PYTHON_COMMAND}\s+"
-    rf"[\"']?{re.escape(PREFLIGHT_SCRIPT)}[\"']?(?:\s|$)",
+    rf"[\"']?{re.escape(PREFLIGHT_SCRIPT)}[\"']?[ \t]*$",
     re.IGNORECASE,
 )
 _BUILD_COMMAND = re.compile(
-    rf"^(?:&\s*)?{_PYTHON_COMMAND}\s+-m\s+SCons(?:\s|$)",
+    rf"^(?:&\s*)?{_PYTHON_COMMAND}\s+-m\s+SCons"
+    rf"(?:[ \t]+{_SAFE_COMMAND_TOKEN})*(?:[ \t]+`)?[ \t]*$",
     re.IGNORECASE,
+)
+_COMMAND_CONTINUATION = re.compile(
+    rf"^[ \t]+{_SAFE_COMMAND_TOKEN}(?:[ \t]+{_SAFE_COMMAND_TOKEN})*"
+    rf"(?:[ \t]+`)?[ \t]*$"
 )
 _STATUS_CHECK_FUNCTION = re.compile(
     r"\b(?:always|cancelled|failure|success)\s*\(", re.IGNORECASE
@@ -116,6 +122,7 @@ class WorkflowStep(NamedTuple):
     index: int
     name: str
     condition: Optional[str]
+    continue_on_error: Optional[str]
     run: str
 
 
@@ -339,7 +346,7 @@ def workflow_steps(job_lines: List[str]) -> List[WorkflowStep]:
             if ":" not in text:
                 raise WorkflowContractError(f"unreadable step field: {text!r}")
             key, raw = text.split(":", 1)
-            if key not in {"name", "if", "run"}:
+            if key not in {"name", "if", "continue-on-error", "run"}:
                 continue
             if key in properties:
                 raise WorkflowContractError(f"duplicate {key!r} field in workflow step")
@@ -350,6 +357,7 @@ def workflow_steps(job_lines: List[str]) -> List[WorkflowStep]:
                 index=step_number,
                 name=properties.get("name", ""),
                 condition=properties.get("if"),
+                continue_on_error=properties.get("continue-on-error"),
                 run=properties.get("run", ""),
             )
         )
@@ -371,7 +379,7 @@ def command_steps(
         if marker.lower() not in step.run.lower():
             continue
         lines = step.run.splitlines()
-        command_lines = [index for index, line in enumerate(lines) if command.search(line)]
+        command_lines = [index for index, line in enumerate(lines) if command.fullmatch(line)]
         if not command_lines:
             continue
         if len(command_lines) != 1:
@@ -393,7 +401,7 @@ def command_steps(
         for line in lines[command_index + 1 :]:
             if not line.strip() or line.lstrip().startswith("#"):
                 continue
-            if not continuation_open or not line[:1].isspace():
+            if not continuation_open or _COMMAND_CONTINUATION.fullmatch(line) is None:
                 raise WorkflowContractError(
                     f"candidate {marker!r} run block contains unmodelled content after "
                     "the invocation"
@@ -420,6 +428,15 @@ def preflight_and_build_steps(job_lines: List[str]) -> Tuple[WorkflowStep, Workf
         raise WorkflowContractError(f"no executed {BUILD_MARKER!r} step")
     preflight_step = preflights[0]
     build_step = builds[0]
+    if preflight_step.continue_on_error is not None:
+        continue_on_error = preflight_step.continue_on_error.strip()
+        if continue_on_error.startswith("${{") and continue_on_error.endswith("}}"):
+            continue_on_error = continue_on_error[3:-2].strip()
+        if continue_on_error.lower() != "false":
+            raise WorkflowContractError(
+                "preflight continue-on-error must be absent or literal false, got "
+                f"{preflight_step.continue_on_error!r}"
+            )
     if preflight_step.index >= build_step.index:
         raise WorkflowContractError("preflight does not execute before the first build step")
     if (
@@ -495,6 +512,53 @@ class WorkflowStepExecutionParsing(unittest.TestCase):
         )
         with self.assertRaisesRegex(WorkflowContractError, "unmodelled content before"):
             preflight_and_build_steps(lines)
+
+    def test_preflight_cannot_swallow_its_command_failure(self) -> None:
+        for suffix in (
+            "|| Write-Output swallowed",
+            "|| cmd.exe /c exit 0",
+            "; exit 0",
+        ):
+            lines = _job_lines(
+                "    - name: Preflight\n"
+                "      run: python tests/ci/preflight_runner_gpu_environment.py "
+                f"{suffix}\n"
+                "    - name: Build\n"
+                "      run: python -m SCons platform=windows\n"
+            )
+            with self.subTest(suffix=suffix):
+                with self.assertRaisesRegex(
+                    WorkflowContractError, "expected exactly one executed"
+                ):
+                    preflight_and_build_steps(lines)
+
+    def test_preflight_continue_on_error_must_be_literal_false(self) -> None:
+        for value in ("true", "${{ true }}", "${{ matrix.soft_fail }}"):
+            lines = _job_lines(
+                "    - name: Preflight\n"
+                f"      continue-on-error: {value}\n"
+                "      run: python tests/ci/preflight_runner_gpu_environment.py\n"
+                "    - name: Build\n"
+                "      run: python -m SCons platform=windows\n"
+            )
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(
+                    WorkflowContractError, "continue-on-error must be absent or literal false"
+                ):
+                    preflight_and_build_steps(lines)
+
+    def test_literal_false_continue_on_error_preserves_failure_gating(self) -> None:
+        lines = _job_lines(
+            """\
+    - name: Preflight
+      continue-on-error: ${{ false }}
+      run: python tests/ci/preflight_runner_gpu_environment.py
+    - name: Build
+      run: python -m SCons platform=windows
+"""
+        )
+        preflight_step, _build_step = preflight_and_build_steps(lines)
+        self.assertEqual(preflight_step.continue_on_error, "${{ false }}")
 
     def test_different_preflight_and_build_conditions_fail(self) -> None:
         lines = _job_lines(
