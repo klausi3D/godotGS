@@ -8,9 +8,10 @@ const BASELINE_TIER_NAME := "tier_1m"
 const SORT_METHOD_NAME := "GPU_RADIX"
 const TARGET_SORT_MS := 2.5
 const MAX_VISIBLE_RATIO_DROP := 0.35
-const METRICS_MARKER := "[RUNTIME_METRICS]"
-const SKIP_MARKER := "[RUNTIME_SKIP]"
-const FAIL_MARKER := "[RUNTIME_FAIL]"
+const GsRuntimeReport := preload("gs_runtime_report.gd")
+const METRICS_MARKER := GsRuntimeReport.METRICS_MARKER
+const SKIP_MARKER := GsRuntimeReport.SKIP_MARKER
+const FAIL_MARKER := GsRuntimeReport.FAIL_MARKER
 # #883: marker for a budget that was evaluated and BREACHED but is currently not
 # allowed to fail the job. Deliberately NOT a substring of FAIL_MARKER -- the
 # harness classifies a run as failed if FAIL_MARKER appears anywhere in the
@@ -20,6 +21,11 @@ const FAIL_MARKER := "[RUNTIME_FAIL]"
 const ADVISORY_MARKER := "[RUNTIME_ADVISORY]"
 const SAMPLE_FRAMES := 120
 const FIRST_VISIBLE_TIMEOUT_FRAMES := 240
+
+# T3 (#891): registry name from GDS_TESTS in run_runtime_validation.py. This
+# scenario accumulates failures; verified units are counted where a tier (or
+# the baseline-presence check) completes without growing `failures`.
+var _report := GsRuntimeReport.new("GPU Streaming Stress")
 
 var renderer: GaussianSplatRenderer
 var scene_root: Node3D
@@ -124,6 +130,7 @@ func _run() -> void:
         _print_summary()
         quit(1)
         return
+    _report.ok()
     renderer.initialize()
 
     manager = Engine.get_singleton("GaussianSplatManager")
@@ -133,7 +140,10 @@ func _run() -> void:
     var tier_results: Array = []
     var baseline_found := false
     for tier in _stream_tiers():
+        var failures_before := failures.size()
         var tier_result := await _exercise_tier(tier)
+        if failures.size() == failures_before:
+            _report.ok()
         tier_results.append(tier_result)
         if String(tier_result.get("name", "")) == BASELINE_TIER_NAME:
             baseline_found = true
@@ -148,6 +158,8 @@ func _run() -> void:
         benchmark_summary["baseline_passed"] = false
         benchmark_summary["baseline_blocking_passed"] = false
         _record_failure("Missing baseline streaming tier result", {"baseline_tier": BASELINE_TIER_NAME})
+    else:
+        _report.ok()
     benchmark_summary["failures"] = failures.duplicate()
     benchmark_summary["advisories"] = advisories.duplicate()
     benchmark_summary["status"] = "passed" if exit_code == 0 else "failed"
@@ -170,6 +182,8 @@ func _run() -> void:
             )
     else:
         push_error("%s GPU streaming stress test detected failures" % FAIL_MARKER)
+    if exit_code == 0:
+        _report.emit_pass()
     quit(exit_code)
 
 ## Applies the deterministic cross-tier frame-scaling verdict (#630).

@@ -3592,6 +3592,41 @@ class GuardScriptWiringTests(unittest.TestCase):
             f"caught: {missing}",
         )
 
+    def test_every_python_contract_test_under_tests_runtime_is_executed(self) -> None:
+        """tests/runtime ships Python contract tests (`test_*.py`) that guard
+        the runtime harness itself; each must be launched by a runner reachable
+        from `_run_ci_guard_steps()`.
+
+        Added with T3 (#891): the completion-marker discrimination suite lives
+        in tests/runtime/test_runtime_validation_proof_contract.py, and its one
+        wiring entry is `_run_runtime_validation_contract_guard` -- whose own
+        docstring records that this exact file once sat wired into NO lane.
+        Deleting that entry must go RED here (mutation direction (b) of #891's
+        acceptance evidence); a proof suite that runs in no lane is the
+        TEST-007 shape one level up. Derived from the filesystem glob, not a
+        hand-written list, so the next contract test added there is covered the
+        day it lands.
+        """
+        reached = self._scripts_reached_by_wired_runners()
+        on_disk = sorted((ROOT / "tests" / "runtime").glob("test_*.py"))
+        self.assertGreater(
+            len(on_disk),
+            1,
+            "tests/runtime contract-test discovery found almost nothing; glob drifted",
+        )
+        missing = sorted(
+            path.relative_to(ROOT).as_posix()
+            for path in on_disk
+            if path.resolve() not in reached
+        )
+        self.assertEqual(
+            missing,
+            [],
+            "these runtime contract tests exist but no runner reachable from "
+            "_run_ci_guard_steps() executes them, so `--guard-only` does not "
+            f"enforce their contracts: {missing}",
+        )
+
     def test_this_files_own_runner_is_wired(self) -> None:
         """The contract above is only worth anything while this file still runs."""
         reached = self._scripts_reached_by_wired_runners()

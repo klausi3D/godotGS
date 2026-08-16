@@ -247,6 +247,29 @@ jobs:
       - guards
       - gpu-evidence-requirement
     timeout-minutes: 120
+    # #875 -- keep third-party Vulkan implicit layers out of this job's GPU
+    # processes. Rationale and the measured loader behaviour: the "Self-hosted
+    # GPU runner environment" section of .github/workflows/README.md. Setting
+    # these proves nothing on its own, which is why the preflight step below
+    # reads back the chain the loader actually built.
+    env:
+      # Loader-side filter. Honoured only in a NON-elevated process: this
+      # runner's service is registered as LocalSystem, and the loader discards
+      # its own filter variables when elevated (measured -- run 31603970211).
+      # Kept because they are the only mechanism covering a layer nobody has
+      # enumerated, and because they do work on a non-elevated runner.
+      VK_LOADER_LAYERS_DISABLE: '~implicit~'
+      VK_LOADER_LAYERS_ENABLE: 'VK_LAYER_NV_optimus,VK_LAYER_NV_present'
+      # What actually strips the layers here: each layer's own opt-out, declared
+      # in its own manifest under `disable_environment`. The loader reads these
+      # unprivileged, so they survive the elevated job. Mirrored in
+      # tests/ci/preflight_runner_gpu_environment.py LAYER_DISABLE_ENV.
+      # VK_LAYER_OBS_HOOK
+      DISABLE_VULKAN_OBS_CAPTURE: '1'
+      # VK_LAYER_OW_OBS_HOOK
+      DISABLE_VULKAN_OW_OBS_CAPTURE: '1'
+      # VK_LAYER_OW_OVERLAY
+      DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
     defaults:
       run:
         working-directory: repo
@@ -269,6 +292,12 @@ jobs:
         shell: pwsh
         run: |
           python --version
+
+      # Must precede the build and every GPU step: it decides whether anything
+      # measured afterwards is a measurement of the renderer (#875).
+      - name: Preflight - runner GPU environment (#875)
+        shell: pwsh
+        run: python tests/ci/preflight_runner_gpu_environment.py
 
       - name: Set up MSVC build env
         uses: ilammy/msvc-dev-cmd@v1
@@ -336,6 +365,13 @@ jobs:
         run: |
           python tests/ci/run_module_tests.py --godot-binary "$env:GODOT_BINARY"
 
+      # T3 (#891, ADR section 4.6): the two invocations below write DISTINCT
+      # report paths. They used to share the default
+      # tests/runtime/runtime_validation_report.json in the same workspace, so
+      # the streaming-gpu-ci write truncated the headless-ci report and the
+      # upload shipped only the survivor -- evidence produced and then
+      # destroyed. Preserving both per-profile reports is a precondition of the
+      # completion-marker soak counting at all.
       - name: Run runtime validation harness (headless structural gate)
         env:
           GODOT_BINARY: ${{ steps.godot_bin.outputs.path }}
@@ -346,7 +382,8 @@ jobs:
             --profile headless-ci `
             --gd-mode headless `
             --skip-cpp `
-            --fail-on-skip
+            --fail-on-skip `
+            --report-path tests/runtime/runtime_validation_report_headless_ci.json
 
       - name: Run streaming GPU runtime gate (canonical blocking profile, windows-vulkan)
         env:
@@ -357,14 +394,20 @@ jobs:
             --godot-binary "$env:GODOT_BINARY" `
             --profile streaming-gpu-ci `
             --skip-cpp `
-            --fail-on-skip
+            --fail-on-skip `
+            --report-path tests/runtime/runtime_validation_report_streaming_gpu_ci.json
 
-      - name: Upload runtime validation report
+      - name: Upload runtime validation reports
         if: ${{ always() && steps.godot_bin.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: runtime-validation-report
-          path: repo/tests/runtime/runtime_validation_report.json
+          # if-no-files-found stays fail-loud: a soak that reads a silently
+          # absent report would count absence as evidence.
+          if-no-files-found: error
+          path: |
+            repo/tests/runtime/runtime_validation_report_headless_ci.json
+            repo/tests/runtime/runtime_validation_report_streaming_gpu_ci.json
 
       - name: Collect production evidence
         id: evidence
@@ -421,6 +464,26 @@ jobs:
     continue-on-error: true
     runs-on: [self-hosted, Windows, X64, godotgs, gpu]
     timeout-minutes: 120
+    # #875 -- see the module-validation job above and the "Self-hosted GPU
+    # runner environment" section of .github/workflows/README.md.
+    env:
+      # Loader-side filter. Honoured only in a NON-elevated process: this
+      # runner's service is registered as LocalSystem, and the loader discards
+      # its own filter variables when elevated (measured -- run 31603970211).
+      # Kept because they are the only mechanism covering a layer nobody has
+      # enumerated, and because they do work on a non-elevated runner.
+      VK_LOADER_LAYERS_DISABLE: '~implicit~'
+      VK_LOADER_LAYERS_ENABLE: 'VK_LAYER_NV_optimus,VK_LAYER_NV_present'
+      # What actually strips the layers here: each layer's own opt-out, declared
+      # in its own manifest under `disable_environment`. The loader reads these
+      # unprivileged, so they survive the elevated job. Mirrored in
+      # tests/ci/preflight_runner_gpu_environment.py LAYER_DISABLE_ENV.
+      # VK_LAYER_OBS_HOOK
+      DISABLE_VULKAN_OBS_CAPTURE: '1'
+      # VK_LAYER_OW_OBS_HOOK
+      DISABLE_VULKAN_OW_OBS_CAPTURE: '1'
+      # VK_LAYER_OW_OVERLAY
+      DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
     defaults:
       run:
         working-directory: repo
@@ -443,6 +506,12 @@ jobs:
         shell: pwsh
         run: |
           python --version
+
+      # Must precede the build and every GPU step: it decides whether anything
+      # measured afterwards is a measurement of the renderer (#875).
+      - name: Preflight - runner GPU environment (#875)
+        shell: pwsh
+        run: python tests/ci/preflight_runner_gpu_environment.py
 
       - name: Set up MSVC build env
         uses: ilammy/msvc-dev-cmd@v1

@@ -37,6 +37,7 @@
         "Monitor Lifecycle Hardening"
       ],
       "godot_args": [],
+      "fail_on_skip": true,
       "requires_renderer_proof": true
     },
     "node-asset-gpu-ci": {
@@ -72,7 +73,8 @@
         "World Streaming Gate",
         "Streaming Residency API"
       ],
-      "godot_args": []
+      "godot_args": [],
+      "fail_on_skip": true
     },
     "smoke": {
       "description": "Fast local smoke profile for quick runtime sanity checks.",
@@ -84,7 +86,9 @@
         "Engine Capability Sanity",
         "Interactive State"
       ],
-      "godot_args": []
+      "godot_args": [],
+      "fail_on_skip": true
     }
-  }
+  },
+  "zero_assertion_allowlist": []
 }

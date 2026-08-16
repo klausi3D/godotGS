@@ -59,6 +59,11 @@ BASELINE_QA_REQUIRE_FLAG_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_baseline_qa
 HISTORY_ARTIFACT_AUDIT_SCRIPT = ROOT / "scripts" / "repo" / "history_artifact_audit.py"
 SYNTHETIC_ASSET_PREP_SCRIPT = ROOT / "tests" / "runtime" / "prepare_synthetic_assets.py"
 BENCHMARK_ASSET_GUARD_SCRIPT = ROOT / "tests" / "runtime" / "check_benchmark_asset_paths.py"
+# T3 (#891): module-level constants (not inline paths) so the guard-wiring
+# contract in test_run_module_tests_lane_ledger.py can derive that a wired
+# runner actually reaches these contract-test files.
+RUNTIME_VALIDATION_CONTRACT_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_runtime_validation_proof_contract.py"
+EXPORT_SMOKE_PRESET_STATE_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_export_smoke_preset_state.py"
 SOURCE_TREES = (ROOT,)
 HEADLESS_GAUSSIAN_SCOPED_TAGS: tuple[str, ...] = (
     # Only tags whose TEST_CASEs are registered at runtime belong here. Phantom
@@ -1678,6 +1683,35 @@ def _run_release_builds_runner_trust_guard() -> tuple[bool, list[str]]:
     return True, ["Release builds runner trust guard passed."]
 
 
+def _run_gpu_runner_environment_contract_guard() -> tuple[bool, list[str]]:
+    """Guard (#875): every GPU-pool job disables the third-party Vulkan layers and proves it.
+
+    Static, headless, no GPU: it reads `.github/workflows/*.yml` and the
+    preflight's own constants, and unit-tests the preflight's parser and verdict
+    logic over synthetic loader output. The *runtime* half -- reading the layer
+    chain the loader actually built -- is `preflight_runner_gpu_environment.py`
+    itself, which runs inside each GPU job on the runner.
+
+    Both halves are needed because either alone is unfalsifiable. The runner's
+    seven third-party implicit Vulkan layers inject into every GPU process, so a
+    job without the disable measures the layers as much as the renderer; and a
+    job with the disable but no preflight cannot tell whether the loader honoured
+    it, since an unsupported value is ignored in silence.
+    """
+    script = ROOT / "tests" / "ci" / "test_preflight_runner_gpu_environment.py"
+    if not script.is_file():
+        return False, [f"Missing GPU runner environment contract test: {script.relative_to(ROOT)}"]
+
+    code, out, err = _run_command([sys.executable, str(script)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"GPU runner environment contract guard failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["GPU runner environment contract guard passed."]
+
+
 def _run_export_smoke_preset_state_guard() -> tuple[bool, list[str]]:
     """Guard (#825): the export smoke test never destroys a preset it did not create.
 
@@ -1692,7 +1726,7 @@ def _run_export_smoke_preset_state_guard() -> tuple[bool, list[str]]:
     pins all three backup states (absent / present-with-preset /
     present-without-preset) and that a refusal rewrites nothing.
     """
-    script = ROOT / "tests" / "runtime" / "test_export_smoke_preset_state.py"
+    script = EXPORT_SMOKE_PRESET_STATE_TEST_SCRIPT
     if not script.is_file():
         return False, [f"Missing export smoke preset state test: {script.relative_to(ROOT)}"]
 
@@ -1719,7 +1753,7 @@ def _run_runtime_validation_contract_guard() -> tuple[bool, list[str]]:
     reported as "Can't create an accessibility driver" and the message naming the real
     fault was captured and discarded.
     """
-    script = ROOT / "tests" / "runtime" / "test_runtime_validation_proof_contract.py"
+    script = RUNTIME_VALIDATION_CONTRACT_TEST_SCRIPT
     if not script.is_file():
         return False, [f"Missing runtime validation contract test: {script.relative_to(ROOT)}"]
 
@@ -3283,6 +3317,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_release_builds_runner_trust_guard,
             "Release builds runner trust guard failed.",
             "Release builds runner trust guard passed.",
+        ),
+        (
+            True,
+            _run_gpu_runner_environment_contract_guard,
+            "GPU runner environment contract guard failed.",
+            "GPU runner environment contract guard passed.",
         ),
     ]
     for enabled, runner, failure_summary, success_summary in optional_message_guards:

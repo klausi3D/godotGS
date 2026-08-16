@@ -1,8 +1,9 @@
 extends SceneTree
 
-const SKIP_MARKER := "[RUNTIME_SKIP]"
-const FAIL_MARKER := "[RUNTIME_FAIL]"
-const METRICS_MARKER := "[RUNTIME_METRICS]"
+const GsRuntimeReport := preload("gs_runtime_report.gd")
+const SKIP_MARKER := GsRuntimeReport.SKIP_MARKER
+const FAIL_MARKER := GsRuntimeReport.FAIL_MARKER
+const METRICS_MARKER := GsRuntimeReport.METRICS_MARKER
 
 const ASSET_PATH := "res://tests/fixtures/test_splats.ply"
 const MAX_RENDERER_WAIT_FRAMES := 120
@@ -14,6 +15,9 @@ const MIN_NON_BACKGROUND_SAMPLES := 16
 const MIN_NON_BACKGROUND_RATIO := 0.0005
 const VISUAL_SAMPLE_STRIDE := 4
 const BACKGROUND_LUMA_THRESHOLD := 0.03
+
+# T3 (#891): registry name from GDS_TESTS in run_runtime_validation.py.
+var _report := GsRuntimeReport.new("Canonical Node Asset Render")
 
 var scene_root: Node3D
 var splat_node: GaussianSplatNode3D
@@ -86,6 +90,12 @@ func _fail(reason: String) -> void:
 
 func _pass(reason: String) -> void:
 	metrics["renderer_proof_status"] = "passed"
+	# T3 (#891): the three conjuncts of the terminal proof condition
+	# (visible splats, visual evidence, rendered-content probe).
+	_report.ok()
+	_report.ok()
+	_report.ok()
+	_report.emit_pass()
 	_emit_metrics("passed", reason)
 	_cleanup()
 	quit(0)
@@ -341,7 +351,12 @@ func _visual_metrics_pass() -> bool:
 
 
 func _rendered_content_ok() -> bool:
+	# T3 (#891, ADR section 4.5): probe available AND content seen. The
+	# pre-#891 version returned true when the probe was ABSENT, so the repo's
+	# only runtime renderer-proof emitter passed exactly when it could not
+	# look. A renderer without has_rendered_content() now fails this proof;
+	# nightly release-ci (requires_renderer_proof) is the observing lane.
 	return (
-		not bool(metrics.get("rendered_content_probe_available", false)) or
+		bool(metrics.get("rendered_content_probe_available", false)) and
 		bool(metrics.get("rendered_content_seen", false))
 	)
