@@ -116,7 +116,7 @@ static void _concurrent_streaming_assertions_worker(void *p_userdata) {
 	ctx->done.post();
 }
 
-TEST_CASE("[GaussianSplatting][RequiresGPU] GPU Memory Streaming") {
+TEST_CASE("[GaussianSplatting][Streaming][RequiresGPU] GPU Memory Streaming") {
 	// Get or create rendering device
 	RenderingDevice *rd = RenderingDevice::get_singleton();
 	if (!rd) {
@@ -306,7 +306,7 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] GPU Memory Streaming") {
 	}
 }
 
-TEST_CASE("[GaussianSplatting][RequiresGPU] GPU Memory Streaming Performance") {
+TEST_CASE("[GaussianSplatting][Streaming][RequiresGPU] GPU Memory Streaming Performance") {
 	RenderingDevice *rd = RenderingDevice::get_singleton();
 	if (!rd) {
 		RenderingServer *rs = RenderingServer::get_singleton();
@@ -373,7 +373,7 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] GPU Memory Streaming Performance") {
 	}
 }
 
-TEST_CASE("[GaussianSplatting][RequiresGPU] Stage-B instance depth culling toggles") {
+TEST_CASE("[GaussianSplatting][Streaming][RequiresGPU] Stage-B instance depth culling toggles") {
 	GaussianSplatManager *manager_owner = nullptr;
 	GaussianSplatManager *manager = GaussianSplatManager::get_singleton();
 	if (!manager) {
