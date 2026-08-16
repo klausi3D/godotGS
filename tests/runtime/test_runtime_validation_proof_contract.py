@@ -180,6 +180,23 @@ class SyntheticAssetFloorWiringTests(unittest.TestCase):
 
         self.assertEqual(consumers[name], indirect_contract.fixtures)
 
+    def test_unselected_registered_direct_reference_drift_fails_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_td:
+            source = Path(raw_td) / "unselected_contract_drift.gd"
+            source.write_text(
+                'const ASSET := "res://tests/fixtures/test_splats.ply"\n',
+                encoding="utf-8",
+            )
+            name = "GDScript: Unselected Contract Drift"
+            with mock.patch.dict(
+                runtime_validation.GDS_TESTS,
+                {"Unselected Contract Drift": source},
+            ), mock.patch.dict(
+                runtime_validation.SCENARIO_FIXTURE_CONTRACTS,
+                {name: runtime_validation.ScenarioFixtureContract(source, ())},
+            ), self.assertRaisesRegex(RuntimeError, "missing from"):
+                runtime_validation._floor_governed_fixture_consumers({})
+
     def test_selected_unfloored_fixture_reference_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as raw_td:
             source = Path(raw_td) / "unfloored_consumer.gd"

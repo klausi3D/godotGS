@@ -1061,6 +1061,34 @@ def _selected_fixture_consumer_sources(
     return selected
 
 
+def _direct_floor_governed_fixture_references(
+    name: str,
+    source: Path,
+) -> set[str]:
+    try:
+        text = source.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise RuntimeError(
+            f"Could not inspect runtime scenario '{name}' for fixture use: {exc}"
+        ) from exc
+
+    direct_references = set(RUNTIME_FIXTURE_REFERENCE_RE.findall(text))
+    missing_direct_floors = sorted(
+        reference
+        for reference in direct_references
+        if int(ASSET_MIN_SPLAT_COUNTS.get(reference, 0)) <= 0
+    )
+    if missing_direct_floors:
+        raise RuntimeError(
+            "Runtime scenario '{name}' references fixture(s) without a positive "
+            "ASSET_MIN_SPLAT_COUNTS floor: {paths}".format(
+                name=name,
+                paths=", ".join(missing_direct_floors),
+            )
+        )
+    return direct_references
+
+
 def _validate_scenario_fixture_contracts() -> None:
     expected_sources = {
         **{f"C++: {name}": path for name, path in CPP_TESTS.items()},
@@ -1097,6 +1125,20 @@ def _validate_scenario_fixture_contracts() -> None:
                 )
             )
 
+        # Scan the complete registry, not only this run's selected scenarios.
+        # Preparation remains selected-only below, while contract drift is a
+        # deterministic guard failure even for an unselected scenario.
+        direct_references = _direct_floor_governed_fixture_references(name, source)
+        undeclared_direct = sorted(direct_references - set(contract.fixtures))
+        if undeclared_direct:
+            raise RuntimeError(
+                "Registered runtime scenario '{name}' directly references fixture(s) "
+                "missing from SCENARIO_FIXTURE_CONTRACTS: {paths}".format(
+                    name=name,
+                    paths=", ".join(undeclared_direct),
+                )
+            )
+
 
 def _floor_governed_fixture_consumers(
     selected_sources: Dict[str, Path],
@@ -1105,28 +1147,6 @@ def _floor_governed_fixture_consumers(
     _validate_scenario_fixture_contracts()
     consumers: Dict[str, tuple[str, ...]] = {}
     for name, source in selected_sources.items():
-        try:
-            text = source.read_text(encoding="utf-8")
-        except OSError as exc:
-            raise RuntimeError(
-                f"Could not inspect selected runtime scenario '{name}' for fixture use: {exc}"
-            ) from exc
-
-        direct_references = set(RUNTIME_FIXTURE_REFERENCE_RE.findall(text))
-        missing_direct_floors = sorted(
-            reference
-            for reference in direct_references
-            if int(ASSET_MIN_SPLAT_COUNTS.get(reference, 0)) <= 0
-        )
-        if missing_direct_floors:
-            raise RuntimeError(
-                "Selected runtime scenario '{name}' references fixture(s) without a "
-                "positive ASSET_MIN_SPLAT_COUNTS floor: {paths}".format(
-                    name=name,
-                    paths=", ".join(missing_direct_floors),
-                )
-            )
-
         registered_contract = SCENARIO_FIXTURE_CONTRACTS.get(name)
         if (
             registered_contract is None
@@ -1136,19 +1156,10 @@ def _floor_governed_fixture_consumers(
             # may construct a path or load it through a helper, so conservatively
             # preflight every governed fixture instead of inferring exemption
             # from source text.
+            _direct_floor_governed_fixture_references(name, source)
             consumers[name] = tuple(sorted(ASSET_MIN_SPLAT_COUNTS))
             continue
 
-        declared_references = set(registered_contract.fixtures)
-        undeclared_direct = sorted(direct_references - declared_references)
-        if undeclared_direct:
-            raise RuntimeError(
-                "Selected runtime scenario '{name}' directly references fixture(s) "
-                "missing from SCENARIO_FIXTURE_CONTRACTS: {paths}".format(
-                    name=name,
-                    paths=", ".join(undeclared_direct),
-                )
-            )
         if registered_contract.fixtures:
             consumers[name] = registered_contract.fixtures
     return consumers
