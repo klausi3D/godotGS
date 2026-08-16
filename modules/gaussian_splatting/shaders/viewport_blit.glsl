@@ -46,7 +46,13 @@ layout(push_constant, std430) uniform BlitParams {
     float depth_epsilon;
     float depth_linearize_mul;
     float depth_linearize_add;
-    float pad0;
+    // Occupies the former pad0 slot (same 4-byte size/alignment; all other
+    // offsets unchanged). Mirrors `int32_t source_decode_srgb` in the host
+    // ViewportBlitPushConstant (output_compositor.cpp). Non-zero when the
+    // destination is the LINEAR pre-tonemap scene buffer and the sRGB-encoded
+    // LDR splat source must be decoded to linear before blending (GPU-001
+    // Option B source-encoding contract).
+    int source_decode_srgb;
     float pad1;
 } params;
 
@@ -159,6 +165,23 @@ void main() {
 
     vec4 source_linear = source_color;
     vec4 destination_linear = destination_color;
+
+    if (params.source_decode_srgb != 0) {
+        // Source-encoding contract (GPU-001 Option B): the splat raster output is
+        // display-referred, sRGB-encoded LDR. To inject into a linear destination
+        // the color must be decoded on STRAIGHT (un-premultiplied) values —
+        // sRGB decode does not commute with alpha premultiplication — so
+        // unpremultiply, decode, re-premultiply. Fully transparent texels carry
+        // no color and are handled by the early-outs below.
+        if (params.source_is_premultiplied != 0) {
+            if (source_linear.a > 0.0) {
+                vec3 straight = source_linear.rgb / source_linear.a;
+                source_linear.rgb = srgb_to_linear(straight) * source_linear.a;
+            }
+        } else {
+            source_linear.rgb = srgb_to_linear(source_linear.rgb);
+        }
+    }
 
     if (params.composite_with_destination != 0 && source_linear.a <= 0.0) {
         // Destination already contains the original pixel; with the writeonly

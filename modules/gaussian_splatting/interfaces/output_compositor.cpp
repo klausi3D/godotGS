@@ -1014,6 +1014,7 @@ bool OutputCompositor::validate_framebuffer_attachments(RenderingDevice *p_devic
 bool OutputCompositor::_copy_final_output_compute(RenderingDevice *p_device, RID p_source, RID p_destination,
         const Size2i &p_source_extent, const Size2i &p_copy_extent, const Vector3i &p_destination_offset,
         bool p_composite_with_destination, bool p_source_is_premultiplied, bool p_destination_is_srgb,
+        bool p_source_decode_srgb,
         const RD::TextureFormat &p_destination_format, RID p_source_depth, RID p_destination_depth,
         bool p_depth_test_enabled, bool p_depth_is_orthogonal, float p_z_near, float p_z_far,
         float p_depth_linearize_mul, float p_depth_linearize_add, float p_depth_epsilon) {
@@ -1205,7 +1206,10 @@ bool OutputCompositor::_copy_final_output_compute(RenderingDevice *p_device, RID
         float depth_epsilon;
         float depth_linearize_mul;
         float depth_linearize_add;
-        float pad0;
+        // Occupies the former pad0 slot: identical 4-byte size/alignment, so
+        // every other field offset and the total push-constant size are
+        // unchanged. Mirrors `int source_decode_srgb` in viewport_blit.glsl.
+        int32_t source_decode_srgb;
         float pad1;
     } params = {};
 
@@ -1232,6 +1236,7 @@ bool OutputCompositor::_copy_final_output_compute(RenderingDevice *p_device, RID
     params.depth_epsilon = p_depth_epsilon;
     params.depth_linearize_mul = p_depth_linearize_mul;
     params.depth_linearize_add = p_depth_linearize_add;
+    params.source_decode_srgb = p_source_decode_srgb ? 1 : 0;
 
     p_device->compute_list_set_push_constant(compute_list, &params, sizeof(ViewportBlitPushConstant));
 
@@ -1406,7 +1411,10 @@ OutputCopyResult OutputCompositor::copy_to_render_target(const OutputCopyParams 
     // A depth-test request must never resolve to a plain pixel transfer: the compute
     // path below handles composite_with_destination=false fine, so route depth-requested
     // copies there instead of silently overwriting mesh pixels the splats are behind.
-    bool can_direct_copy = !p_params.composite_with_destination && !format_mismatch && !sample_mismatch && source_can_copy && destination_can_copy && !p_params.depth_test_enabled;
+    // source_decode_srgb likewise excludes the plain pixel transfer: a direct copy
+    // cannot perform the sRGB->linear source decode the pre-upscale composite
+    // contract requires (defensive — the pre-upscale caller always composites).
+    bool can_direct_copy = !p_params.composite_with_destination && !format_mismatch && !sample_mismatch && source_can_copy && destination_can_copy && !p_params.depth_test_enabled && !p_params.source_decode_srgb;
 
     // Try direct copy first
     if (can_direct_copy) {
@@ -1438,8 +1446,12 @@ OutputCopyResult OutputCompositor::copy_to_render_target(const OutputCopyParams 
         }
     }
 
-    // Depth-aware composite (compute) if requested.
-    if (p_params.depth_test_enabled) {
+    // Compute composite when a depth test is requested — and also when a source
+    // sRGB->linear decode is requested (pre-upscale phase), which only the
+    // compute blit can perform; this keeps the depth_test=false pre-upscale
+    // configs on the same internal-buffer compute path instead of the graphics
+    // framebuffer blit that cannot decode.
+    if (p_params.depth_test_enabled || p_params.source_decode_srgb) {
         Vector3i dst_offset(0, 0, 0);
         if (destination_extent.x > copy_extent.x) {
             dst_offset.x = (destination_extent.x - copy_extent.x) / 2;
@@ -1451,7 +1463,8 @@ OutputCopyResult OutputCompositor::copy_to_render_target(const OutputCopyParams 
         bool ok = _copy_final_output_compute(copy_device, p_params.source_texture, p_params.destination_texture,
                 source_extent, copy_extent, dst_offset, p_params.composite_with_destination,
                 p_params.source_is_premultiplied, _is_srgb_format(destination_format.format),
-                destination_format, p_params.source_depth, p_params.destination_depth, true,
+                p_params.source_decode_srgb,
+                destination_format, p_params.source_depth, p_params.destination_depth, p_params.depth_test_enabled,
                 p_params.depth_is_orthogonal, p_params.z_near, p_params.z_far,
                 p_params.depth_linearize_mul, p_params.depth_linearize_add, p_params.depth_epsilon);
         if (ok) {
@@ -1480,6 +1493,18 @@ OutputCopyResult OutputCompositor::copy_to_render_target(const OutputCopyParams 
     if (!copy_effects) {
         result.error = "CopyEffects subsystem unavailable";
         return result;
+    }
+
+    if (p_params.source_decode_srgb) {
+        // No silent encoding fallback: the graphics blit blends the raw sRGB-encoded
+        // source into the linear destination without the requested decode, so splats
+        // will render too bright on this path. Composite anyway (presence beats
+        // absence) but say so: warn once and surface the reason through
+        // result.error / output_cache.last_output_copy_error.
+        WARN_PRINT_ONCE("[OutputCompositor] Source sRGB->linear decode requested but the compute composite could not run; the graphics fallback composites WITHOUT the decode (splats will appear too bright until the compute path recovers).");
+        if (result.error.is_empty()) {
+            result.error = "source_decode_srgb requested but the graphics fallback path cannot decode; composited without decode";
+        }
     }
 
     // Create framebuffer from destination texture
@@ -1584,8 +1609,18 @@ void OutputCompositor::integrate_final_output(GaussianSplatRenderer *p_renderer,
             }
         }
 
+        // GPU-001 Option B: when the engine invoked this composite at the
+        // pre-upscale seam (before FSR2/MetalFX/TAA/tonemap consume the internal
+        // color texture), the ONLY correct destination is the internal scene
+        // buffer — every later consumer reads it, so one write serves the whole
+        // single-view config matrix. Redirecting to the presented target here
+        // would be overwritten by tonemap. The legacy (post-scene) phase keeps
+        // the historical present-redirect for the paths that still use it
+        // (forward mobile, multiview, reflection probes).
+        const bool pre_upscale_phase = p_render_data != nullptr && p_render_data->gaussian_composite_pre_upscale;
+
         bool can_write_directly_to_present = false;
-        if (present_render_target.is_valid()) {
+        if (!pre_upscale_phase && present_render_target.is_valid()) {
             const bool single_view = render_buffers_rd->get_view_count() == 1;
             const bool internal_matches_target = render_buffers_rd->get_internal_size() == render_buffers_rd->get_target_size();
             const bool scaling_disabled = render_buffers_rd->get_scaling_3d_mode() == RS::VIEWPORT_SCALING_3D_MODE_OFF;
@@ -1593,7 +1628,7 @@ void OutputCompositor::integrate_final_output(GaussianSplatRenderer *p_renderer,
         }
 
         RID composite_target = pipeline_render_target;
-        if (!composite_target.is_valid() || can_write_directly_to_present) {
+        if (!pre_upscale_phase && (!composite_target.is_valid() || can_write_directly_to_present)) {
             composite_target = present_render_target;
         }
         output_cache.last_render_target = composite_target;
@@ -1637,7 +1672,12 @@ void OutputCompositor::integrate_final_output(GaussianSplatRenderer *p_renderer,
                 output_cache.last_depth_test_honored = false;
                 output_cache.last_copy_degraded = true;
                 output_cache.last_copy_degradation_reason = "strict depth composite skipped: source or scene depth missing";
-            } else if (render_target_framebuffer.is_valid() && !depth_test_enabled) {
+            } else if (!pre_upscale_phase && render_target_framebuffer.is_valid() && !depth_test_enabled) {
+                // Legacy-phase only: this graphics blend writes the PRESENTED
+                // framebuffer, which in the pre-upscale phase would be overwritten
+                // by tonemap — pre-upscale routes depth_test=false through the
+                // compute path into the internal buffer instead (source_decode_srgb
+                // forces the compute branch in copy_to_render_target).
                 FramebufferCopyParams params;
                 params.source_texture = p_final_output;
                 params.framebuffer = render_target_framebuffer;
@@ -1659,7 +1699,7 @@ void OutputCompositor::integrate_final_output(GaussianSplatRenderer *p_renderer,
                     output_cache.last_copy_degraded = true;
                     output_cache.last_copy_degradation_reason = "relaxed depth composite fallback: source or scene depth missing";
                 }
-            } else if (depth_test_enabled && !composite_target.is_valid() && render_target_framebuffer.is_valid()) {
+            } else if (!pre_upscale_phase && depth_test_enabled && !composite_target.is_valid() && render_target_framebuffer.is_valid()) {
                 // The presented target has no RD texture (DIRECT_TO_SCREEN-style): the
                 // depth-aware compute composite has no image to write, and the else-branch
                 // below would fail with an invalid destination while leaving the honored
@@ -1698,6 +1738,10 @@ void OutputCompositor::integrate_final_output(GaussianSplatRenderer *p_renderer,
                 params.viewport_size = viewport_size;
                 params.composite_with_destination = true;
                 params.source_is_premultiplied = true;
+                // Pre-upscale destination is the LINEAR pre-tonemap scene buffer;
+                // the source encoding is premultiplied sRGB-encoded LDR (contract
+                // in output_compositor_interfaces.h), so request the decode.
+                params.source_decode_srgb = pre_upscale_phase;
                 params.depth_test_enabled = depth_test_enabled;
                 params.depth_linearize_mul = params.z_near;
                 params.depth_linearize_add = params.z_far;

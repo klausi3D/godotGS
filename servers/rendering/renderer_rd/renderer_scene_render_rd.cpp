@@ -1537,7 +1537,14 @@ void RendererSceneRenderRD::render_scene(const Ref<RenderSceneBuffers> &p_render
 	_render_scene(&render_data, clear_color);
 
 #ifdef MODULE_GAUSSIAN_SPLATTING_ENABLED
-		if (!render_data.gaussian_splat_renderers.is_empty()) {
+		// Legacy post-scene composite hook. GPU-001 Option B: the forward-clustered
+		// single-view path now renders+composites splats at the pre-upscale seam
+		// inside _render_scene() (see render_forward_clustered.cpp, "Gaussian
+		// Splats Pre-Upscale") and sets gaussian_composite_pre_upscale; the
+		// renderer lists are also cleared by that commit. This hook remains the
+		// active path for renderers without the pre-upscale seam (forward mobile),
+		// for multiview, and for reflection probes.
+		if (!render_data.gaussian_composite_pre_upscale && !render_data.gaussian_splat_renderers.is_empty()) {
 			if (kLogForwardPlusGaussian) {
 				// print_line(vformat("[Forward+] Rendering %d gaussian splat renderers after scene.", render_data.gaussian_splat_renderers.size()));
 			}

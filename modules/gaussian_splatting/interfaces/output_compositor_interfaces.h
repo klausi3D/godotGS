@@ -20,6 +20,14 @@ struct OutputCopyParams {
     Size2i viewport_size;
     bool composite_with_destination = false;
     bool source_is_premultiplied = false;
+    // GPU-001 Option B source-encoding contract: the GS raster output is
+    // premultiplied, sRGB-encoded, display-referred LDR (RGBA8 — see
+    // _resolve_compute_friendly_raster_format). When the composite destination
+    // is the LINEAR pre-tonemap scene buffer (pre-upscale phase), the compute
+    // blit must decode the source to linear before blending; set this flag to
+    // request that decode. Leave false for legacy post-tonemap destinations,
+    // whose content is sRGB-encoded like the source.
+    bool source_decode_srgb = false;
     bool depth_test_enabled = false;
     bool depth_is_orthogonal = false;
     float z_near = 0.0f;

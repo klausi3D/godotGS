@@ -52,6 +52,7 @@ RENDERER_RELEASE_GATE_SCRIPT = ROOT / "tests" / "ci" / "check_renderer_release_g
 RENDERER_CONTRACT_BOUNDARY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_renderer_contract_boundary.py"
 DEVICE_SUBMISSION_CONTRACT_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_device_submission_contract.py"
 EDITOR_NODE_POINTER_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_editor_node_pointer_lifetime.py"
+GS_PRE_UPSCALE_HOOK_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_gs_pre_upscale_hook.py"
 DOWNLOAD_BUILD_FLAVOR_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_download_build_flavor_warning.py"
 DOWNLOAD_BUILD_FLAVOR_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_download_build_flavor_warning.py"
 RENDERER_RELEASE_GATE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_renderer_release_gates.py"
@@ -882,6 +883,32 @@ def _run_doc_classes_guard() -> tuple[bool, list[str]]:
         if not output_lines:
             output_lines = [f"doc_classes completeness guard failed with exit code {code}."]
         return False, output_lines
+
+    return True, output_lines
+
+
+def _run_gs_pre_upscale_hook_guard() -> tuple[bool, list[str]]:
+    """GPU-001 Option B contract guard (refs #921): the Gaussian pre-upscale
+    composite hook must precede every internal-buffer consumer (FSR2/TAA/
+    tonemap), the legacy post-scene hook must stay gated on the phase flag, and
+    the source_decode_srgb push-constant mirror must exist on both sides. Runs
+    the script's --self-test first so a vacuous (never-failing) checker is
+    itself a failure."""
+    if not GS_PRE_UPSCALE_HOOK_GUARD_SCRIPT.is_file():
+        return False, [
+            f"Missing GS pre-upscale hook guard script: {GS_PRE_UPSCALE_HOOK_GUARD_SCRIPT.relative_to(ROOT)}"
+        ]
+
+    for args in (
+        [sys.executable, str(GS_PRE_UPSCALE_HOOK_GUARD_SCRIPT), "--self-test"],
+        [sys.executable, str(GS_PRE_UPSCALE_HOOK_GUARD_SCRIPT)],
+    ):
+        code, out, err = _run_command(args)
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if code != 0:
+            if not output_lines:
+                output_lines = [f"GS pre-upscale hook guard failed with exit code {code}."]
+            return False, output_lines
 
     return True, output_lines
 
@@ -3227,6 +3254,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_renderer_contract_boundary_guard,
             "Renderer-contract boundary guard failed.",
             "Renderer-contract boundary guard passed.",
+        ),
+        (
+            True,
+            _run_gs_pre_upscale_hook_guard,
+            "GS pre-upscale composite hook guard failed.",
+            "GS pre-upscale composite hook guard passed.",
         ),
         (
             True,

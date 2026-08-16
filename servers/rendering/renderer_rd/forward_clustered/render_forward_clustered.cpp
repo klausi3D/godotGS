@@ -2655,6 +2655,31 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 	}
 	RD::get_singleton()->draw_command_end_label();
 
+#ifdef MODULE_GAUSSIAN_SPLATTING_ENABLED
+	// GPU-001 fix, Option B (pre-tonemap/pre-upscale composite contract): run the
+	// Gaussian-splat render+composite HERE, into the internal scene color buffer,
+	// before every downstream consumer of that buffer — FSR2 reads it at the
+	// upscale block below, MetalFX-temporal/TAA likewise, and tonemap consumes it
+	// last in _render_buffers_post_process_and_tonemap(). The legacy hook after
+	// _render_scene() returned wrote the internal texture AFTER those consumers,
+	// so splats were silently absent for every scaled/temporal viewport
+	// (audit GS-AUDIT-GPU-001, runtime-confirmed).
+	// Placed after the MSAA resolve (splats composite onto resolved color/depth)
+	// and after the SSIL framebuffer copy (splats never fed SSIL on the legacy
+	// path either). Single-view only: the compute composite's sampler2D/image2D
+	// bindings cannot address the multiview 2D-array internal color, so
+	// multiview keeps the legacy post-scene path (documented fallback).
+	// Reflection probes have no valid rb_data and never post-process.
+	if (rb_data.is_valid() && p_render_data->reflection_probe.is_null() && rb->get_view_count() == 1 && !p_render_data->gaussian_splat_renderers.is_empty()) {
+		RENDER_TIMESTAMP("Gaussian Splats (Pre-Upscale)");
+		RD::get_singleton()->draw_command_begin_label("Gaussian Splats Pre-Upscale");
+		p_render_data->gaussian_composite_pre_upscale = true;
+		render_gaussian_splats_forward(*p_render_data);
+		commit_gaussian_splats(*p_render_data);
+		RD::get_singleton()->draw_command_end_label();
+	}
+#endif
+
 	if (rb_data.is_valid() && (using_upscaling || using_taa)) {
 		if (scale_type == SCALE_FSR2) {
 			rb_data->ensure_fsr2(fsr2_effect);
