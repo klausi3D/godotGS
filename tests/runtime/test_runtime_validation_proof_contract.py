@@ -49,22 +49,36 @@ class SyntheticAssetFloorWiringTests(unittest.TestCase):
 
     def test_main_passes_its_selected_binary_to_asset_prep(self) -> None:
         calls: list[str] = []
-        argv = [
-            "run_runtime_validation.py",
-            "--godot-binary",
-            "C:/godot/bin/godot.exe",
-            "--list-profiles",
-        ]
-        with mock.patch.object(sys, "argv", argv), \
-                mock.patch.object(
-                    runtime_validation,
-                    "ensure_synthetic_assets",
-                    side_effect=lambda binary: calls.append(binary),
-                ), \
-                contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(runtime_validation.main(), 0)
+        with tempfile.TemporaryDirectory() as raw_td:
+            argv = [
+                "run_runtime_validation.py",
+                "--godot-binary",
+                "C:/godot/bin/godot.exe",
+                "--profile",
+                "headless-ci",
+                "--skip-cpp",
+                "--skip-gd",
+                "--report-path",
+                str(Path(raw_td) / "report.json"),
+            ]
+            with mock.patch.object(sys, "argv", argv), \
+                    mock.patch.object(
+                        runtime_validation,
+                        "ensure_synthetic_assets",
+                        side_effect=lambda binary: calls.append(binary),
+                    ), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(runtime_validation.main(), 0)
 
         self.assertEqual(calls, ["C:/godot/bin/godot.exe"])
+
+    def test_list_profiles_does_not_require_or_generate_fixtures(self) -> None:
+        argv = ["run_runtime_validation.py", "--list-profiles"]
+        with mock.patch.object(sys, "argv", argv), \
+                mock.patch.object(runtime_validation, "ensure_synthetic_assets") as prep, \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(runtime_validation.main(), 0)
+        prep.assert_not_called()
 
 
 def _result(name: str, metrics: dict[str, object], status: str = "passed"):

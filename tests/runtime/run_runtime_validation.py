@@ -1436,14 +1436,6 @@ def _print_summary(summary: Dict[str, object]) -> None:
 def main() -> int:
     args = _parse_args()
     ensure_build_dir()
-    try:
-        # T7a (#895): the runtime consumer owns the final floor decision and
-        # gives the producer this run's selected binary so a clean checkout can
-        # build the canonical 10000-splat fixture before validation.
-        ensure_synthetic_assets(args.godot_binary)
-    except RuntimeError as exc:
-        print(f"[runtime] [FAIL] {exc}")
-        return 1
 
     report_path = Path(args.report_path)
     if not report_path.is_absolute():
@@ -1553,6 +1545,17 @@ def main() -> int:
     )
 
     zero_assertion_allowlist = _load_zero_assertion_allowlist(scenario_config)
+
+    try:
+        # T7a (#895): the runtime consumer owns the final floor decision and
+        # gives the producer this run's selected binary so a clean checkout can
+        # build the canonical 10000-splat fixture before validation. Keep this
+        # after config-only exits such as --list-profiles: introspection does
+        # not consume fixtures and must not require a built binary.
+        ensure_synthetic_assets(args.godot_binary)
+    except RuntimeError as exc:
+        print(f"[runtime] [FAIL] {exc}")
+        return 1
 
     all_results: List[TestResult] = []
     if should_run_cpp_harnesses:
