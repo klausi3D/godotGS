@@ -47,7 +47,7 @@ class SyntheticAssetFloorWiringTests(unittest.TestCase):
         self.assertIn("--require-asset-floors", command)
         self.assertEqual(command[-2:], ["--godot-binary", "C:/godot/bin/godot.exe"])
 
-    def test_main_passes_its_selected_binary_to_asset_prep(self) -> None:
+    def test_selected_fixture_consumer_passes_binary_to_asset_prep(self) -> None:
         calls: list[str] = []
         with tempfile.TemporaryDirectory() as raw_td:
             argv = [
@@ -57,7 +57,8 @@ class SyntheticAssetFloorWiringTests(unittest.TestCase):
                 "--profile",
                 "headless-ci",
                 "--skip-cpp",
-                "--skip-gd",
+                "--gd-test",
+                "World Streaming Gate",
                 "--report-path",
                 str(Path(raw_td) / "report.json"),
             ]
@@ -67,10 +68,89 @@ class SyntheticAssetFloorWiringTests(unittest.TestCase):
                         "ensure_synthetic_assets",
                         side_effect=lambda binary: calls.append(binary),
                     ), \
+                    mock.patch.object(runtime_validation, "run_gd_tests", return_value=[]), \
                     contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(runtime_validation.main(), 0)
 
         self.assertEqual(calls, ["C:/godot/bin/godot.exe"])
+
+    def test_cpp_only_skip_gd_reaches_harness_without_asset_prep(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_td:
+            argv = [
+                "run_runtime_validation.py",
+                "--godot-binary",
+                "C:/definitely/missing/godot.exe",
+                "--profile",
+                "headless-ci",
+                "--cpp-test",
+                "Runtime Modifications",
+                "--skip-gd",
+                "--report-path",
+                str(Path(raw_td) / "report.json"),
+            ]
+            with mock.patch.object(sys, "argv", argv), \
+                    mock.patch.object(runtime_validation, "ensure_synthetic_assets") as prep, \
+                    mock.patch.object(runtime_validation, "run_cpp_harnesses", return_value=[]) as cpp, \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(runtime_validation.main(), 0)
+
+        prep.assert_not_called()
+        cpp.assert_called_once()
+
+    def test_selected_non_fixture_gd_test_does_not_prepare_assets(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_td:
+            argv = [
+                "run_runtime_validation.py",
+                "--godot-binary",
+                "C:/definitely/missing/godot.exe",
+                "--profile",
+                "headless-ci",
+                "--skip-cpp",
+                "--gd-test",
+                "Engine Capability Sanity",
+                "--report-path",
+                str(Path(raw_td) / "report.json"),
+            ]
+            with mock.patch.object(sys, "argv", argv), \
+                    mock.patch.object(runtime_validation, "ensure_synthetic_assets") as prep, \
+                    mock.patch.object(runtime_validation, "run_gd_tests", return_value=[]) as gd, \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(runtime_validation.main(), 0)
+
+        prep.assert_not_called()
+        gd.assert_called_once()
+
+    def test_future_cpp_fixture_consumer_is_not_exempt(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_td:
+            source = Path(raw_td) / "future_fixture_consumer.cpp"
+            source.write_text(
+                'constexpr auto asset = "res://tests/fixtures/test_splats.ply";\n',
+                encoding="utf-8",
+            )
+            consumers = runtime_validation._floor_governed_fixture_consumers(
+                {"C++: Future Fixture Consumer": source}
+            )
+
+        self.assertEqual(
+            consumers,
+            {
+                "C++: Future Fixture Consumer": (
+                    "res://tests/fixtures/test_splats.ply",
+                )
+            },
+        )
+
+    def test_selected_unfloored_fixture_reference_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_td:
+            source = Path(raw_td) / "unfloored_consumer.gd"
+            source.write_text(
+                'const ASSET := "res://tests/fixtures/unfloored.ply"\n',
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(RuntimeError, "without a positive"):
+                runtime_validation._floor_governed_fixture_consumers(
+                    {"GDScript: Unfloored Consumer": source}
+                )
 
     def test_list_profiles_does_not_require_or_generate_fixtures(self) -> None:
         argv = ["run_runtime_validation.py", "--list-profiles"]
