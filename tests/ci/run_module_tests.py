@@ -2054,6 +2054,26 @@ def _run_godot(godot: str, args: Iterable[str]) -> tuple[bool, bool, str]:
     return GodotRunResult(result.returncode == 0, False, output, result.returncode)
 
 
+def _test_runner_is_unavailable(godot: str) -> bool:
+    """Probe the binary's real doctest entry point before fixture generation.
+
+    The deliberately unmatchable filter makes a tests-enabled binary do no
+    test work.  Availability is derived by the same `_run_godot` /
+    `_tests_unavailable` path as the lanes themselves, so warn-only and explicit
+    allow-unavailable runs retain their established disposition instead of
+    failing earlier in synthetic fixture preparation (issue #895 review).
+    """
+    _ok, skipped, _output = _run_godot(
+        godot,
+        [
+            "--headless",
+            "--test",
+            "--test-case=__godotgs_test_availability_probe_matches_nothing__",
+        ],
+    )
+    return skipped
+
+
 def _parse_doctest_results(output: str) -> tuple[int, int, int, int, int, bool]:
     """Parse doctest output and return counts plus whether both summary lines were found."""
     tests_match = re.search(r"test cases:\s*\d+\s*\|\s*(\d+)\s*passed\s*\|\s*(\d+)\s*failed", output)
@@ -4332,15 +4352,25 @@ def main() -> int:
         print("[module-tests] Guard-only mode complete.")
         return 0
 
-    # T7a (#895): the module-test consumer requires the floor after generation,
-    # and passes the selected tests-enabled binary so a clean checkout can
-    # generate the canonical workload rather than the 1024-splat fallback.
-    synthetic_assets_ok, synthetic_asset_messages = _prepare_synthetic_assets(godot)
-    for message in synthetic_asset_messages:
-        print(f"[module-tests] {message}")
-    if not synthetic_assets_ok:
-        print("[module-tests] Synthetic asset preparation failed.")
-        return 1
+    if _test_runner_is_unavailable(godot):
+        # No test consumer will execute. Preserve the established strict vs
+        # warn-only disposition in `_run_doctest_lanes`; fixture preparation is
+        # neither evidence nor a prerequisite for an unavailable lane.
+        print(
+            "[module-tests] Test runner unavailable; deferring strict/warn-only "
+            "disposition to the module lanes without preparing fixtures."
+        )
+    else:
+        # T7a (#895): an available module-test consumer requires the floor after
+        # generation, and passes the selected tests-enabled binary so a clean
+        # checkout generates the canonical workload rather than the 1024-splat
+        # fallback.
+        synthetic_assets_ok, synthetic_asset_messages = _prepare_synthetic_assets(godot)
+        for message in synthetic_asset_messages:
+            print(f"[module-tests] {message}")
+        if not synthetic_assets_ok:
+            print("[module-tests] Synthetic asset preparation failed.")
+            return 1
 
     print(
         f"[module-tests] Tests-unavailable mode: {tests_unavailable_mode}"
