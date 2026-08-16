@@ -830,8 +830,8 @@
     {
       "deletion_commit": null,
       "display_path": ".gitignore",
-      "last_touch_commit": "af88a0ac61f6346743d439f8edbd08ffb94d2d9e",
-      "lines_added": 154,
+      "last_touch_commit": "938d43856164513272f9040c871e6b759db9d755",
+      "lines_added": 157,
       "lines_deleted": 0,
       "new_path": ".gitignore",
       "old_path": ".gitignore",
@@ -2430,7 +2430,7 @@
       ]
     },
     "fork_base_commit": "876b290332ec6f2e6d173d08162a02aa7e6ca46d",
-    "head_commit": "fa9e86c1bf893a4dfffb36553f37a8362736c8c3",
+    "head_commit": "116b45af34edee8d4dc7ab965bfd9ff26e11ada8",
     "head_ref": "HEAD",
     "label": "Godot 4.5 stable fork-point commit",
     "rename_threshold": "70%",
