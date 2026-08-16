@@ -96,6 +96,9 @@ _BUILD_COMMAND = re.compile(
     rf"^\s*(?:&\s*)?{_PYTHON_COMMAND}\s+-m\s+SCons(?:\s|$)",
     re.IGNORECASE | re.MULTILINE,
 )
+_STATUS_CHECK_FUNCTION = re.compile(
+    r"\b(?:always|cancelled|failure|success)\s*\(", re.IGNORECASE
+)
 
 README_SECTION_HEADING = "## Self-hosted GPU runner environment"
 
@@ -376,6 +379,16 @@ def preflight_and_build_steps(job_lines: List[str]) -> Tuple[WorkflowStep, Workf
             "preflight condition differs from the build condition: "
             f"{preflight_step.condition!r} != {build_step.condition!r}"
         )
+    if build_step.condition is not None:
+        normalized = build_step.condition.strip()
+        if normalized.startswith("${{") and normalized.endswith("}}"):
+            normalized = normalized[3:-2].strip()
+        if _STATUS_CHECK_FUNCTION.search(normalized) and normalized.lower() != "success()":
+            raise WorkflowContractError(
+                "build condition uses a status-check function that can override a failed "
+                f"preflight: {build_step.condition!r}. Only an exact success() condition "
+                "is modeled as preserving the preflight's success gate."
+            )
     return preflight_step, build_step
 
 
@@ -447,6 +460,39 @@ class WorkflowStepExecutionParsing(unittest.TestCase):
         preflight_step, build_step = preflight_and_build_steps(lines)
         self.assertIsNone(preflight_step.condition)
         self.assertIsNotNone(build_step.condition)
+
+    def test_status_conditions_cannot_override_a_failed_preflight(self) -> None:
+        for preflight_condition in (None, "always()"):
+            condition_line = (
+                "" if preflight_condition is None else f"      if: {preflight_condition}\n"
+            )
+            lines = _job_lines(
+                "    - name: Preflight\n"
+                f"{condition_line}"
+                "      run: python tests/ci/preflight_runner_gpu_environment.py\n"
+                "    - name: Build\n"
+                "      if: always()\n"
+                "      run: python -m SCons platform=windows\n"
+            )
+            with self.subTest(preflight_condition=preflight_condition):
+                with self.assertRaisesRegex(
+                    WorkflowContractError, "can override a failed preflight"
+                ):
+                    preflight_and_build_steps(lines)
+
+    def test_exact_success_condition_preserves_the_preflight_gate(self) -> None:
+        lines = _job_lines(
+            """\
+    - name: Preflight
+      run: python tests/ci/preflight_runner_gpu_environment.py
+    - name: Build
+      if: ${{ success() }}
+      run: python -m SCons platform=windows
+"""
+        )
+        preflight_step, build_step = preflight_and_build_steps(lines)
+        self.assertIsNone(preflight_step.condition)
+        self.assertEqual(build_step.condition, "${{ success() }}")
 
 
 # --------------------------------------------------------------------------
