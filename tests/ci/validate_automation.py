@@ -327,11 +327,24 @@ def check_ci_workflow() -> bool:
         relative = workflow_file.relative_to(ROOT_DIR).as_posix()
         print(f"✅ CI workflow file exists: {relative}")
         try:
-            yaml.safe_load(workflow_file.read_text(encoding="utf-8"))
-            print(f"✅ YAML valid: {relative}")
+            document = yaml.safe_load(workflow_file.read_text(encoding="utf-8"))
         except Exception as exc:
             print(f"❌ CI workflow YAML is invalid ({relative}): {exc}")
             success = False
+            continue
+
+        if not isinstance(document, dict):
+            print(f"❌ CI workflow root must be a mapping: {relative}")
+            success = False
+            continue
+
+        jobs = document.get("jobs")
+        if not isinstance(jobs, dict) or not jobs:
+            print(f"❌ CI workflow must define a non-empty jobs mapping: {relative}")
+            success = False
+            continue
+
+        print(f"✅ YAML workflow structure valid: {relative}")
 
     return success
 

@@ -35,7 +35,13 @@ class _FakeYaml(types.SimpleNamespace):
     def safe_load(text: str) -> object:
         if "INVALID_FOR_TEST" in text:
             raise ValueError("synthetic invalid YAML")
-        return {"name": "valid"}
+        if "EMPTY_FOR_TEST" in text:
+            return None
+        if "SCALAR_FOR_TEST" in text:
+            return "workflow"
+        if "LIST_FOR_TEST" in text:
+            return ["workflow"]
+        return {"name": "valid", "jobs": {"test": {}}}
 
 
 class ValidateAutomationWorkflowTests(unittest.TestCase):
@@ -72,6 +78,18 @@ class ValidateAutomationWorkflowTests(unittest.TestCase):
             validate_automation, "ROOT_DIR", Path(temp_dir.name)
         ), mock.patch.dict(sys.modules, {"yaml": _FakeYaml()}):
             self.assertFalse(validate_automation.check_ci_workflow())
+
+    def test_non_workflow_yaml_documents_are_rejected(self) -> None:
+        for marker in ("EMPTY_FOR_TEST", "SCALAR_FOR_TEST", "LIST_FOR_TEST"):
+            with self.subTest(marker=marker):
+                contents = {name: "name: valid\n" for name in CURRENT_WORKFLOW_NAMES}
+                contents["agentic_pr_gate.yml"] = marker
+                temp_dir = self._root_with_workflows(contents)
+
+                with temp_dir, mock.patch.object(
+                    validate_automation, "ROOT_DIR", Path(temp_dir.name)
+                ), mock.patch.dict(sys.modules, {"yaml": _FakeYaml()}):
+                    self.assertFalse(validate_automation.check_ci_workflow())
 
     def test_required_gate_installs_parser_and_runs_validator(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "agentic_pr_gate.yml").read_text(

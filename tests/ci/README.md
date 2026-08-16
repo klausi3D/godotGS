@@ -27,8 +27,9 @@ python3 tests/ci/validate_automation.py --contracts-only
 
 It also derives every `*.yml` and `*.yaml` file under `.github/workflows/` and
 parses each with PyYAML. Parser absence, an unreadable/empty workflow directory,
-or invalid YAML fails closed. The required GitHub-hosted `agentic-pr-gate` installs
-the version-and-hash-pinned dependency from `requirements-automation.txt`; the
+invalid YAML, a non-mapping document, or a missing/empty `jobs` mapping fails
+closed. The required GitHub-hosted `agentic-pr-gate` installs the
+version-and-hash-pinned dependency from `requirements-automation.txt`; the
 persistent self-hosted runner does not install it.
 
 ## Runtime Gate
