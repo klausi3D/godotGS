@@ -9,6 +9,7 @@ import json
 import subprocess
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -463,6 +464,78 @@ class RendererReleaseGateTests(unittest.TestCase):
             failures = checker.validate_candidate(root, manifest, evidence)
             self.assertTrue(any("issue snapshot missing" in item for item in failures))
 
+    def test_expired_deferred_gpu_waiver_fails_at_injected_policy_clock(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _base_manifest(root)
+            manifest["deferred_requires_gpu_waivers"] = [
+                {
+                    "test_name": "Deferred GPU case",
+                    "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
+                    "owner": "release-owner",
+                    "expires_utc": "2020-01-01T00:00:00Z",
+                    "risk": "GPU coverage is deferred",
+                    "mitigation": "Block release after the waiver expires",
+                    "docs_path": "docs/reference/renderer-release-gates.md",
+                }
+            ]
+
+            failures = checker._validate_deferred_requires_gpu_waivers(
+                root,
+                manifest,
+                now_utc=datetime(2026, 8, 16, tzinfo=timezone.utc),
+            )
+
+            self.assertTrue(any("EXPIRED" in failure for failure in failures), failures)
+
+    def test_future_deferred_gpu_waiver_passes_at_injected_policy_clock(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _base_manifest(root)
+            manifest["deferred_requires_gpu_waivers"] = [
+                {
+                    "test_name": "Deferred GPU case",
+                    "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
+                    "owner": "release-owner",
+                    "expires_utc": "2026-10-31T00:00:00Z",
+                    "risk": "GPU coverage is deferred",
+                    "mitigation": "Block release after the waiver expires",
+                    "docs_path": "docs/reference/renderer-release-gates.md",
+                }
+            ]
+
+            failures = checker._validate_deferred_requires_gpu_waivers(
+                root,
+                manifest,
+                now_utc=datetime(2026, 8, 16, tzinfo=timezone.utc),
+            )
+
+            self.assertEqual([], failures)
+
+    def test_malformed_deferred_gpu_waiver_expiry_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _base_manifest(root)
+            manifest["deferred_requires_gpu_waivers"] = [
+                {
+                    "test_name": "Deferred GPU case",
+                    "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
+                    "owner": "release-owner",
+                    "expires_utc": "not-a-timestamp",
+                    "risk": "GPU coverage is deferred",
+                    "mitigation": "Block release after the waiver expires",
+                    "docs_path": "docs/reference/renderer-release-gates.md",
+                }
+            ]
+
+            failures = checker._validate_deferred_requires_gpu_waivers(
+                root,
+                manifest,
+                now_utc=datetime(2026, 8, 16, tzinfo=timezone.utc),
+            )
+
+            self.assertTrue(any("unparseable expires_utc" in failure for failure in failures), failures)
+
     def test_candidate_open_issue_snapshot_may_omit_resolved_manifest_tracked_issues(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -543,14 +616,35 @@ class RendererReleaseGateTests(unittest.TestCase):
             failures = checker.validate_candidate(root, manifest, evidence, _base_issue_snapshot())
             self.assertTrue(any("resolved_manifest_issues must be an issue snapshot object or list" in item for item in failures))
 
-    def test_candidate_accepts_embedded_issue_snapshot(self) -> None:
+    def test_candidate_rejects_embedded_issue_snapshot_without_independent_input(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             manifest = _base_manifest(root)
             evidence = _valid_candidate_evidence(root)
             evidence["issue_snapshot"] = _base_issue_snapshot()
             failures = checker.validate_candidate(root, manifest, evidence)
-            self.assertEqual([], failures)
+            self.assertTrue(any("independent issue snapshot missing" in item for item in failures), failures)
+
+    def test_candidate_cli_requires_issues_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest_path = root / "docs/reference/renderer_release_gate_manifest.json"
+            evidence_path = root / "candidate.json"
+            _write(manifest_path, json.dumps(_base_manifest(root)))
+            _write(evidence_path, json.dumps(_valid_candidate_evidence(root)))
+
+            rc = checker.main(
+                [
+                    "--mode",
+                    "candidate",
+                    "--manifest",
+                    str(manifest_path),
+                    "--candidate-evidence",
+                    str(evidence_path),
+                ]
+            )
+
+            self.assertEqual(2, rc)
 
     def test_candidate_rejects_wrong_channel_and_tag(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

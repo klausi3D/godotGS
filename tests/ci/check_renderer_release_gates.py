@@ -376,12 +376,35 @@ def _validate_requires_gpu_snapshot(
     return failures
 
 
-def _validate_deferred_requires_gpu_waivers(root: Path, manifest: dict[str, Any]) -> list[str]:
+def _validate_deferred_requires_gpu_waivers(
+    root: Path,
+    manifest: dict[str, Any],
+    *,
+    now_utc: _dt.datetime | None = None,
+) -> list[str]:
+    """Validate waiver ownership and enforce expiry against a policy clock.
+
+    `now_utc` is injectable so tests prove both sides of the boundary without
+    depending on the wall clock. Production callers omit it and use the current
+    UTC time. A malformed expiry fails closed rather than becoming permanent.
+    """
+    policy_now = _to_utc_aware(now_utc or _dt.datetime.now(_dt.timezone.utc))
     failures: list[str] = []
     for waiver in manifest.get("deferred_requires_gpu_waivers", []):
         for field in ("test_name", "issue_url", "owner", "expires_utc", "risk", "mitigation", "docs_path"):
             if not waiver.get(field):
                 failures.append(f"deferred waiver missing {field}: {waiver!r}")
+        expires_raw = waiver.get("expires_utc")
+        expires = _parse_time(expires_raw) if isinstance(expires_raw, str) else None
+        if expires is None:
+            failures.append(
+                f"deferred waiver has unparseable expires_utc {expires_raw!r}: {waiver!r}"
+            )
+        elif _to_utc_aware(expires) <= policy_now:
+            failures.append(
+                f"deferred waiver EXPIRED on {expires_raw}: {waiver.get('test_name', '?')!r}; "
+                "restore GPU coverage or renew the waiver with fresh justification"
+            )
         docs_path = waiver.get("docs_path")
         if docs_path:
             failures.extend(_repo_relative_path_exists(root, docs_path, f"deferred waiver docs_path {docs_path}"))
@@ -1699,11 +1722,15 @@ def _validate_candidate_benchmark_report(root: Path, manifest: dict[str, Any], e
     return failures
 
 
-def _candidate_issue_rows(evidence: dict[str, Any], issues: Any | None) -> list[dict[str, Any]] | None:
-    issue_rows = _issue_rows_from_snapshot(issues)
-    if issue_rows is not None:
-        return issue_rows
-    return _issue_rows_from_snapshot(evidence.get("issue_snapshot", evidence.get("issues", evidence.get("open_issues"))))
+def _candidate_issue_rows(issues: Any | None) -> list[dict[str, Any]] | None:
+    """Return only the independently supplied issue snapshot.
+
+    The candidate evidence bundle is the artifact under audit, so an issue
+    snapshot embedded in that same bundle cannot independently prove the live
+    blocker set. Candidate mode therefore accepts issue rows only from the
+    separate `--issues-json` input.
+    """
+    return _issue_rows_from_snapshot(issues)
 
 
 def _candidate_resolved_manifest_issue_rows(evidence: dict[str, Any]) -> list[dict[str, Any]] | None:
@@ -1855,9 +1882,12 @@ def _validate_candidate_issues(
     evidence: dict[str, Any],
     issues: Any | None,
 ) -> list[str]:
-    issue_rows = _candidate_issue_rows(evidence, issues)
+    issue_rows = _candidate_issue_rows(issues)
     if issue_rows is None:
-        return ["candidate issue snapshot missing: pass --issues-json or embed issue_snapshot/issues"]
+        return [
+            "candidate independent issue snapshot missing: pass --issues-json; "
+            "an issue_snapshot embedded in the evidence bundle is not independent proof"
+        ]
 
     failures: list[str] = []
     policy = manifest.get("public_alpha_predicate", {}).get("required_issue_query", {})
@@ -2249,8 +2279,15 @@ def main(argv: list[str] | None = None) -> int:
         if not args.candidate_evidence:
             print("--candidate-evidence is required in candidate mode", file=sys.stderr)
             return 2
+        if not args.issues_json:
+            print(
+                "--issues-json is required in candidate mode; an issue snapshot embedded "
+                "in the candidate evidence cannot certify its own blocker set",
+                file=sys.stderr,
+            )
+            return 2
         evidence = _load_json(Path(args.candidate_evidence))
-        issues = _load_json(Path(args.issues_json)) if args.issues_json else None
+        issues = _load_json(Path(args.issues_json))
         artifact_shas: dict[str, str] = {}
         for group, digest in args.artifact_sha:
             previous = artifact_shas.get(group)

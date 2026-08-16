@@ -12,8 +12,9 @@ advisory report, or a path-filtered subset of renderer checks. Candidate mode
 machine-enforces that a candidate declares `release_channel=public-alpha` or
 matches a `v*-alpha*` release tag, then passes the manifest predicate:
 
-- an issue snapshot is required, either through `--issues-json` or an embedded
-  candidate evidence `issue_snapshot`;
+- an independent issue snapshot is required through `--issues-json`; an
+  `issue_snapshot` embedded in the candidate evidence bundle is not accepted as
+  proof of the live blocker set;
 - open `priority:P0`, `priority:P1`, and `release blocker` issues in that
   snapshot must be classified as `blocking`, `accepted_alpha_limitation`, or
   `deferred`;
@@ -414,8 +415,9 @@ CI enforces the same contract through the existing module guard entry point:
 python3 tests/ci/run_module_tests.py --guard-only
 ```
 
-Candidate release validation requires an evidence bundle and an issue snapshot
-unless the evidence bundle embeds `issue_snapshot`:
+Candidate release validation requires an evidence bundle and a separate issue
+snapshot. The issue snapshot must be supplied through `--issues-json`; the
+bundle under audit cannot certify its own blocker set by embedding one:
 
 ```bash
 python3 tests/ci/check_renderer_release_gates.py \
