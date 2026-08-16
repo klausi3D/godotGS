@@ -56,7 +56,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, NamedTuple, Optional, Tuple
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -78,9 +78,24 @@ PREFLIGHT_SCRIPT = "tests/ci/preflight_runner_gpu_environment.py"
 #: The build invocation the preflight must precede. Spelled with the `python -m`
 #: prefix on purpose: a bare `SCons` also matches the words `SConstruct` and
 #: `SCsub` in every one of these jobs' fork-guard comments, which put the
-#: "build" at the top of the job and made the ordering assertion fail on
-#: prose. Comment lines are skipped as well (see `first_index`).
+#: "build" at the top of the job and made the old substring assertion fail on
+#: prose.
 BUILD_MARKER = "python -m SCons"
+
+# These expressions deliberately recognize commands, not text. A path in a step
+# name, `if:` expression, comment, or `echo` is not execution (#918). The guard
+# fails closed on a future shell wrapper it does not understand: teaching this
+# parser the new command shape must be part of the workflow change.
+_PYTHON_COMMAND = r"(?:python(?:3|\.exe)?|py(?:\.exe)?(?:\s+-3)?)"
+_PREFLIGHT_COMMAND = re.compile(
+    rf"^\s*(?:&\s*)?{_PYTHON_COMMAND}\s+"
+    rf"[\"']?{re.escape(PREFLIGHT_SCRIPT)}[\"']?(?:\s|$)",
+    re.IGNORECASE | re.MULTILINE,
+)
+_BUILD_COMMAND = re.compile(
+    rf"^\s*(?:&\s*)?{_PYTHON_COMMAND}\s+-m\s+SCons(?:\s|$)",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 README_SECTION_HEADING = "## Self-hosted GPU runner environment"
 
@@ -90,6 +105,15 @@ _JOB_ENV_ENTRY = re.compile(r"^      ([A-Za-z_][A-Za-z0-9_]*):\s*(.*?)\s*$")
 
 class WorkflowContractError(AssertionError):
     """A workflow shape this guard refuses to interpret."""
+
+
+class WorkflowStep(NamedTuple):
+    """The step fields the GPU-environment contract reasons about."""
+
+    index: int
+    name: str
+    condition: Optional[str]
+    run: str
 
 
 # --------------------------------------------------------------------------
@@ -206,19 +230,223 @@ def job_level_env(job_lines: List[str]) -> Dict[str, str]:
     return env
 
 
-def first_index(job_lines: List[str], needle: str) -> Optional[int]:
-    """First line containing `needle`, ignoring YAML comments.
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
 
-    Comments are skipped because a job that only *mentions* the preflight in a
-    comment does not run it, and a comment naming the build tool is not a build
-    step -- either would make these assertions read the wrong line.
+
+def _scalar_value(lines: List[str], index: int, property_indent: int, raw: str) -> str:
+    """Read the small YAML scalar subset used by workflow step fields.
+
+    This is not a general YAML parser. It is a fail-closed structural reader for
+    `name`, `if`, and `run` under an actual `steps:` sequence. Both inline values
+    and literal/folded blocks are supported; aliases, flow mappings, and other
+    shapes are rejected instead of being guessed at.
     """
-    for index, line in enumerate(job_lines):
-        if line.lstrip().startswith("#"):
+    value = raw.strip()
+    if value not in {"|", "|-", "|+", ">", ">-", ">+"}:
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            return value[1:-1]
+        return value
+
+    continuation: List[str] = []
+    cursor = index + 1
+    while cursor < len(lines):
+        line = lines[cursor]
+        if line.strip() and _indent(line) <= property_indent:
+            break
+        continuation.append(line)
+        cursor += 1
+    nonempty_indents = [_indent(line) for line in continuation if line.strip()]
+    if not nonempty_indents:
+        return ""
+    content_indent = min(nonempty_indents)
+    pieces = [line[content_indent:] if line.strip() else "" for line in continuation]
+    separator = " " if value.startswith(">") else "\n"
+    return separator.join(pieces)
+
+
+def workflow_steps(job_lines: List[str]) -> List[WorkflowStep]:
+    """Structurally read actual steps from one already-scoped workflow job."""
+    first_content = next(
+        (line for line in job_lines if line.strip() and not line.lstrip().startswith("#")),
+        None,
+    )
+    if first_content is None:
+        raise WorkflowContractError("empty job block")
+    job_indent = _indent(first_content)
+    steps_keys = [
+        index
+        for index, line in enumerate(job_lines)
+        if _indent(line) == job_indent + 2 and line.strip() == "steps:"
+    ]
+    if len(steps_keys) != 1:
+        raise WorkflowContractError(
+            f"expected exactly one job-level steps: key, found {len(steps_keys)}"
+        )
+
+    steps_key = steps_keys[0]
+    first_item = next(
+        (
+            index
+            for index in range(steps_key + 1, len(job_lines))
+            if job_lines[index].strip()
+            and not job_lines[index].lstrip().startswith("#")
+        ),
+        None,
+    )
+    if first_item is None or not job_lines[first_item].lstrip().startswith("- "):
+        raise WorkflowContractError("steps: does not contain a readable sequence")
+    step_indent = _indent(job_lines[first_item])
+    if step_indent not in {job_indent + 2, job_indent + 4}:
+        raise WorkflowContractError(
+            f"unsupported step indentation {step_indent}; job starts at {job_indent}"
+        )
+
+    starts: List[int] = []
+    for index in range(first_item, len(job_lines)):
+        line = job_lines[index]
+        if not line.strip() or line.lstrip().startswith("#"):
             continue
-        if needle in line:
-            return index
-    return None
+        indent = _indent(line)
+        if indent == step_indent and line.lstrip().startswith("- "):
+            starts.append(index)
+            continue
+        if indent <= job_indent + 2:
+            break
+    if not starts:
+        raise WorkflowContractError("steps: sequence is empty")
+
+    parsed: List[WorkflowStep] = []
+    for step_number, start in enumerate(starts):
+        end = starts[step_number + 1] if step_number + 1 < len(starts) else len(job_lines)
+        properties: Dict[str, str] = {}
+        property_lines: List[Tuple[int, int, str]] = []
+        initial = job_lines[start].lstrip()[2:]
+        property_lines.append((start, step_indent, initial))
+        for index in range(start + 1, end):
+            line = job_lines[index]
+            if (
+                _indent(line) == step_indent + 2
+                and line.strip()
+                and not line.lstrip().startswith("#")
+            ):
+                property_lines.append((index, step_indent + 2, line.strip()))
+
+        for index, property_indent, text in property_lines:
+            if ":" not in text:
+                raise WorkflowContractError(f"unreadable step field: {text!r}")
+            key, raw = text.split(":", 1)
+            if key not in {"name", "if", "run"}:
+                continue
+            if key in properties:
+                raise WorkflowContractError(f"duplicate {key!r} field in workflow step")
+            properties[key] = _scalar_value(job_lines, index, property_indent, raw)
+
+        parsed.append(
+            WorkflowStep(
+                index=step_number,
+                name=properties.get("name", ""),
+                condition=properties.get("if"),
+                run=properties.get("run", ""),
+            )
+        )
+    return parsed
+
+
+def preflight_and_build_steps(job_lines: List[str]) -> Tuple[WorkflowStep, WorkflowStep]:
+    """Return the one executed preflight and first build, or fail closed."""
+    steps = workflow_steps(job_lines)
+    preflights = [step for step in steps if _PREFLIGHT_COMMAND.search(step.run)]
+    builds = [step for step in steps if _BUILD_COMMAND.search(step.run)]
+    if len(preflights) != 1:
+        raise WorkflowContractError(
+            f"expected exactly one executed {PREFLIGHT_SCRIPT} step, found {len(preflights)}"
+        )
+    if not builds:
+        raise WorkflowContractError(f"no executed {BUILD_MARKER!r} step")
+    preflight_step = preflights[0]
+    build_step = builds[0]
+    if preflight_step.index >= build_step.index:
+        raise WorkflowContractError("preflight does not execute before the first build step")
+    if (
+        preflight_step.condition is not None
+        and preflight_step.condition != build_step.condition
+    ):
+        raise WorkflowContractError(
+            "preflight condition differs from the build condition: "
+            f"{preflight_step.condition!r} != {build_step.condition!r}"
+        )
+    return preflight_step, build_step
+
+
+def _job_lines(step_text: str) -> List[str]:
+    """Build a minimal already-scoped job block for parser discrimination tests."""
+    return ("  gpu-job:\n    steps:\n" + step_text).splitlines()
+
+
+class WorkflowStepExecutionParsing(unittest.TestCase):
+    """Textual mentions cannot impersonate execution, and conditions stay aligned (#918)."""
+
+    def test_name_condition_and_echo_mentions_are_not_execution(self) -> None:
+        lines = _job_lines(
+            """\
+    - name: tests/ci/preflight_runner_gpu_environment.py
+      if: contains('tests/ci/preflight_runner_gpu_environment.py', 'preflight')
+      run: echo tests/ci/preflight_runner_gpu_environment.py
+    - name: Build
+      run: python -m SCons platform=windows
+"""
+        )
+        with self.assertRaisesRegex(
+            WorkflowContractError, "expected exactly one executed .* found 0"
+        ):
+            preflight_and_build_steps(lines)
+
+    def test_different_preflight_and_build_conditions_fail(self) -> None:
+        lines = _job_lines(
+            """\
+    - name: Preflight
+      if: steps.filter.outputs.run == 'true'
+      run: python tests/ci/preflight_runner_gpu_environment.py
+    - name: Build
+      if: steps.filter.outputs.build == 'true'
+      run: python -m SCons platform=windows
+"""
+        )
+        with self.assertRaisesRegex(WorkflowContractError, "condition differs"):
+            preflight_and_build_steps(lines)
+
+    def test_matching_conditions_and_real_commands_pass(self) -> None:
+        lines = _job_lines(
+            """\
+    - name: Preflight
+      if: steps.filter.outputs.run == 'true'
+      run: |-
+        # A comment is harmless beside the command.
+        python tests/ci/preflight_runner_gpu_environment.py
+    - name: Build
+      if: steps.filter.outputs.run == 'true'
+      run: |-
+        python -m SCons platform=windows
+"""
+        )
+        preflight_step, build_step = preflight_and_build_steps(lines)
+        self.assertLess(preflight_step.index, build_step.index)
+        self.assertEqual(preflight_step.condition, build_step.condition)
+
+    def test_unconditional_preflight_may_protect_a_conditional_build(self) -> None:
+        lines = _job_lines(
+            """\
+    - name: Preflight
+      run: python tests/ci/preflight_runner_gpu_environment.py
+    - name: Build
+      if: steps.filter.outputs.run == 'true'
+      run: python -m SCons platform=windows
+"""
+        )
+        preflight_step, build_step = preflight_and_build_steps(lines)
+        self.assertIsNone(preflight_step.condition)
+        self.assertIsNotNone(build_step.condition)
 
 
 # --------------------------------------------------------------------------
@@ -292,34 +520,20 @@ class GpuJobEnvironmentContract(unittest.TestCase):
     def test_every_gpu_job_runs_the_preflight(self) -> None:
         for (workflow, job), lines in sorted(self.jobs.items()):
             with self.subTest(workflow=workflow, job=job):
-                self.assertIsNotNone(
-                    first_index(lines, PREFLIGHT_SCRIPT),
-                    f"{workflow}: job {job!r} sets the layer-disable variables but never runs "
-                    f"{PREFLIGHT_SCRIPT}. The variables alone are not evidence -- a value the "
-                    "loader does not honour is ignored silently and this job would stay green "
-                    "with all seven layers still in the chain (#875).",
+                steps = workflow_steps(lines)
+                executed = [step for step in steps if _PREFLIGHT_COMMAND.search(step.run)]
+                self.assertEqual(
+                    len(executed),
+                    1,
+                    f"{workflow}: job {job!r} must execute exactly one {PREFLIGHT_SCRIPT} "
+                    "command; mentions in names, conditions, comments, or echo output do "
+                    "not count as execution (#918).",
                 )
 
     def test_preflight_runs_before_the_build(self) -> None:
         for (workflow, job), lines in sorted(self.jobs.items()):
             with self.subTest(workflow=workflow, job=job):
-                preflight_at = first_index(lines, PREFLIGHT_SCRIPT)
-                build_at = first_index(lines, BUILD_MARKER)
-                self.assertIsNotNone(
-                    build_at,
-                    f"{workflow}: job {job!r} has no {BUILD_MARKER!r} invocation, so this "
-                    "ordering assertion has nothing to order the preflight against and would "
-                    "pass for the wrong reason. If the job genuinely stopped building, give "
-                    "this guard a marker it can order against instead of deleting the check.",
-                )
-                self.assertIsNotNone(preflight_at)
-                self.assertLess(
-                    preflight_at,
-                    build_at,
-                    f"{workflow}: job {job!r} runs {PREFLIGHT_SCRIPT} after it starts "
-                    "building. The preflight decides whether everything measured afterwards "
-                    "is a measurement of the renderer, so it has to run first.",
-                )
+                preflight_and_build_steps(lines)
 
     def test_readme_documents_the_gpu_runner_environment(self) -> None:
         text = README.read_text(encoding="utf-8")
@@ -623,6 +837,18 @@ class LoaderReportParsing(unittest.TestCase):
 
     def test_text_without_layer_lines_yields_nothing(self) -> None:
         self.assertEqual(preflight.parse_layer_report("no layers here"), {})
+
+    def test_unprefixed_layer_shaped_text_cannot_spoof_chain_membership(self) -> None:
+        """Only a loader-debug line may contribute a layer or chain (#923)."""
+        spoof = (
+            'Inserted device layer "VK_LAYER_NV_optimus" '
+            f'({_NV_DLL})\nInsert instance layer "VK_LAYER_NV_optimus" ({_NV_DLL})\n'
+        )
+        self.assertEqual(
+            preflight.parse_layer_report(spoof),
+            {},
+            "unprefixed stdout/stderr text impersonated Vulkan loader chain evidence",
+        )
 
 
 class VulkanLayerGate(unittest.TestCase):
