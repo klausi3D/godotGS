@@ -192,8 +192,9 @@ python3 tests/runtime/prepare_synthetic_assets.py --quiet \
 `run_runtime_validation.py` uses this fail-closed form automatically when the
 selected C++ or GDScript scenario sources reference a floor-governed fixture.
 Fixture-free selections (including C++-only `--skip-gd` runs) do not require a
-Godot binary for asset preparation. The full `run_module_tests.py` lane always
-uses the fail-closed form with its selected Godot binary.
+Godot binary for asset preparation. A tests-enabled `run_module_tests.py` lane
+uses the fail-closed form before its fixture-consuming module tests; a binary
+without test support keeps the runner's strict/warn unavailable-lane policy.
 
 Validate canonical fixture policy:
 
