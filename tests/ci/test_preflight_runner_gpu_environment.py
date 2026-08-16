@@ -86,15 +86,15 @@ BUILD_MARKER = "python -m SCons"
 # name, `if:` expression, comment, or `echo` is not execution (#918). The guard
 # fails closed on a future shell wrapper it does not understand: teaching this
 # parser the new command shape must be part of the workflow change.
-_PYTHON_COMMAND = r"(?:python(?:3|\.exe)?|py(?:\.exe)?(?:\s+-3)?)"
+_PYTHON_COMMAND = r"(?:python(?:3(?:\.exe)?|\.exe)?|py(?:\.exe)?(?:\s+-3)?)"
 _PREFLIGHT_COMMAND = re.compile(
-    rf"^\s*(?:&\s*)?{_PYTHON_COMMAND}\s+"
+    rf"^(?:&\s*)?{_PYTHON_COMMAND}\s+"
     rf"[\"']?{re.escape(PREFLIGHT_SCRIPT)}[\"']?(?:\s|$)",
-    re.IGNORECASE | re.MULTILINE,
+    re.IGNORECASE,
 )
 _BUILD_COMMAND = re.compile(
-    rf"^\s*(?:&\s*)?{_PYTHON_COMMAND}\s+-m\s+SCons(?:\s|$)",
-    re.IGNORECASE | re.MULTILINE,
+    rf"^(?:&\s*)?{_PYTHON_COMMAND}\s+-m\s+SCons(?:\s|$)",
+    re.IGNORECASE,
 )
 _STATUS_CHECK_FUNCTION = re.compile(
     r"\b(?:always|cancelled|failure|success)\s*\(", re.IGNORECASE
@@ -356,11 +356,62 @@ def workflow_steps(job_lines: List[str]) -> List[WorkflowStep]:
     return parsed
 
 
+def command_steps(
+    steps: List[WorkflowStep], command: re.Pattern[str], marker: str
+) -> List[WorkflowStep]:
+    """Steps with a modelled top-level command, rejecting textual containers.
+
+    A modelled block is deliberately tiny: blank/comment lines, one column-zero
+    invocation, and optional indented PowerShell continuation lines. This makes
+    unreachable branches, functions, scriptblocks, here-strings, heredocs and
+    every other wrapper fail closed without trying to become a shell parser.
+    """
+    matched: List[WorkflowStep] = []
+    for step in steps:
+        if marker.lower() not in step.run.lower():
+            continue
+        lines = step.run.splitlines()
+        command_lines = [index for index, line in enumerate(lines) if command.search(line)]
+        if not command_lines:
+            continue
+        if len(command_lines) != 1:
+            raise WorkflowContractError(
+                f"candidate {marker!r} run block has {len(command_lines)} invocations"
+            )
+
+        command_index = command_lines[0]
+        if any(
+            line.strip() and not line.lstrip().startswith("#")
+            for line in lines[:command_index]
+        ):
+            raise WorkflowContractError(
+                f"candidate {marker!r} run block contains unmodelled content before "
+                "the invocation"
+            )
+
+        continuation_open = lines[command_index].rstrip().endswith("`")
+        for line in lines[command_index + 1 :]:
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            if not continuation_open or not line[:1].isspace():
+                raise WorkflowContractError(
+                    f"candidate {marker!r} run block contains unmodelled content after "
+                    "the invocation"
+                )
+            continuation_open = line.rstrip().endswith("`")
+        if continuation_open:
+            raise WorkflowContractError(
+                f"candidate {marker!r} run block ends with an unfinished continuation"
+            )
+        matched.append(step)
+    return matched
+
+
 def preflight_and_build_steps(job_lines: List[str]) -> Tuple[WorkflowStep, WorkflowStep]:
     """Return the one executed preflight and first build, or fail closed."""
     steps = workflow_steps(job_lines)
-    preflights = [step for step in steps if _PREFLIGHT_COMMAND.search(step.run)]
-    builds = [step for step in steps if _BUILD_COMMAND.search(step.run)]
+    preflights = command_steps(steps, _PREFLIGHT_COMMAND, PREFLIGHT_SCRIPT)
+    builds = command_steps(steps, _BUILD_COMMAND, BUILD_MARKER)
     if len(preflights) != 1:
         raise WorkflowContractError(
             f"expected exactly one executed {PREFLIGHT_SCRIPT} step, found {len(preflights)}"
@@ -413,6 +464,36 @@ class WorkflowStepExecutionParsing(unittest.TestCase):
         with self.assertRaisesRegex(
             WorkflowContractError, "expected exactly one executed .* found 0"
         ):
+            preflight_and_build_steps(lines)
+
+    def test_command_in_unreachable_control_flow_is_not_execution(self) -> None:
+        lines = _job_lines(
+            """\
+    - name: Preflight decoy
+      run: |-
+        if (0) {
+          python tests/ci/preflight_runner_gpu_environment.py
+        }
+    - name: Build
+      run: python -m SCons platform=windows
+"""
+        )
+        with self.assertRaises(WorkflowContractError):
+            preflight_and_build_steps(lines)
+
+    def test_command_inside_here_string_is_not_execution(self) -> None:
+        lines = _job_lines(
+            """\
+    - name: Preflight decoy
+      run: |-
+        $decoy = @'
+        python tests/ci/preflight_runner_gpu_environment.py
+        '@
+    - name: Build
+      run: python -m SCons platform=windows
+"""
+        )
+        with self.assertRaisesRegex(WorkflowContractError, "unmodelled content before"):
             preflight_and_build_steps(lines)
 
     def test_different_preflight_and_build_conditions_fail(self) -> None:
@@ -567,7 +648,7 @@ class GpuJobEnvironmentContract(unittest.TestCase):
         for (workflow, job), lines in sorted(self.jobs.items()):
             with self.subTest(workflow=workflow, job=job):
                 steps = workflow_steps(lines)
-                executed = [step for step in steps if _PREFLIGHT_COMMAND.search(step.run)]
+                executed = command_steps(steps, _PREFLIGHT_COMMAND, PREFLIGHT_SCRIPT)
                 self.assertEqual(
                     len(executed),
                     1,
