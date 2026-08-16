@@ -12,9 +12,10 @@ advisory report, or a path-filtered subset of renderer checks. Candidate mode
 machine-enforces that a candidate declares `release_channel=public-alpha` or
 matches a `v*-alpha*` release tag, then passes the manifest predicate:
 
-- an independent issue snapshot is required through `--issues-json`; an
+- a separate operator-supplied issue snapshot is required through
+  `--issues-json`; an
   `issue_snapshot` embedded in the candidate evidence bundle is not accepted as
-  proof of the live blocker set;
+  the candidate issue rows;
 - open `priority:P0`, `priority:P1`, and `release blocker` issues in that
   snapshot must be classified as `blocking`, `accepted_alpha_limitation`, or
   `deferred`;
@@ -86,7 +87,7 @@ review policy in the manifest until a workflow-behavior parser is added.
 `release_builds.yml` maps a `v*` tag push (and a manual stable dispatch) to
 `channel=stable, publish=true`. That publish path is gated by the
 `release_candidate_gate` job, which the manifest tracks as a required job marker
-for `release_builds.yml` (issue #593):
+for `release_builds.yml` (historically implemented under closed issue #593):
 
 - **No Linux-only stable release.** For the stable/candidate channel the gate
   fails unless both `build_linux` and `build_windows` succeeded, so a Windows
@@ -104,13 +105,14 @@ for `release_builds.yml` (issue #593):
 
 **Remaining scoped gap (issue #360).** No CI lane yet produces the public-alpha
 candidate evidence bundle (candidate GPU-harness report, benchmark-lane report,
-and artifact SHA/commit-parity) and its independent issue snapshot. Until that
+and artifact SHA/commit-parity) and its separate issue snapshot. Until that
 pipeline is wired,
 the gate fails closed on every real `v*` tag; a maintainer cutting a candidate
 must place both files in the runner workspace and point the
 `RELEASE_CANDIDATE_EVIDENCE` and `RELEASE_CANDIDATE_ISSUES` repo/environment
 variables at different files. Generating the bundle in-workflow so a green
-stable tag is self-proving is tracked as follow-up under #360/#593.
+stable tag is self-proving, including live issue acquisition and freshness and
+provenance guarantees, is owned by #360.
 
 ### Evidence is bound to the commit and to the shipped bytes
 
@@ -427,8 +429,12 @@ python3 tests/ci/check_renderer_release_gates.py \
   --issues-json artifacts/public-alpha/open_issues.json
 ```
 
-The issue JSON is intended to come from `gh issue list` or the GitHub API with
-labels included. When that snapshot is open-only, any manifest-tracked
-`blocking` issue omitted from it needs explicit closure proof in
-`resolved_manifest_issues` inside the evidence bundle. This PR does not require
-live network access for the deterministic contract check.
+The operator-supplied issue JSON is intended to come from `gh issue list` or the
+GitHub API with labels included. The current gate verifies that it is a separate
+file from the evidence bundle, but does not machine-enforce its GitHub
+provenance, query completeness, capture time, or freshness; live acquisition
+and those stronger guarantees are owned by #360. When the supplied snapshot is
+open-only, any manifest-tracked `blocking` issue omitted from it needs explicit
+closure proof in `resolved_manifest_issues` inside the evidence bundle. Neither
+the deterministic contract check nor candidate mode requires live network
+access today.
