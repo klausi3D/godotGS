@@ -918,7 +918,7 @@ jobs:
       # yet wired into CI, so on a real `v*` tag these files are absent and the
       # gate fails closed. A maintainer cutting a candidate points
       # RELEASE_CANDIDATE_EVIDENCE at a produced bundle via a repo/environment
-      # variable. TODO(#360/#593): generate this bundle in-workflow so a green
+      # variable. TODO(#360): generate this bundle in-workflow so a green
       # stable tag is self-proving instead of relying on an out-of-band bundle.
       RELEASE_CANDIDATE_EVIDENCE: ${{ vars.RELEASE_CANDIDATE_EVIDENCE || 'release-candidate-evidence/candidate_evidence.json' }}
       RELEASE_CANDIDATE_ISSUES: ${{ vars.RELEASE_CANDIDATE_ISSUES || 'release-candidate-evidence/issue_snapshot.json' }}
