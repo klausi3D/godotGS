@@ -189,6 +189,12 @@ class CppBuildConfig:
     link_flags: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class ScenarioFixtureContract:
+    source: Path
+    fixtures: tuple[str, ...]
+
+
 CPP_TESTS: Dict[str, Path] = {
     "Runtime Modifications": RUNTIME_DIR / "test_runtime_modifications.cpp",
     "Animation Persistence": RUNTIME_DIR / "test_animation_persistence.cpp",
@@ -206,6 +212,58 @@ GDS_TESTS: Dict[str, Path] = {
     "Data Flow Recent Window": RUNTIME_DIR / "test_data_flow_recent_window.gd",
     "Pipeline Trace Freshness": RUNTIME_DIR / "test_pipeline_trace_freshness.gd",
     "Monitor Lifecycle Hardening": RUNTIME_DIR / "test_monitor_lifecycle_hardening.gd",
+}
+
+# Explicit dependency policy for every registered runtime scenario. Empty tuples
+# are deliberate fixture-free declarations, not an inferred absence. A scenario
+# that obtains a fixture through a helper or constructs its resource path still
+# declares that fixture here. Completeness and direct-reference drift are checked
+# by _validate_scenario_fixture_contracts().
+SCENARIO_FIXTURE_CONTRACTS: Dict[str, ScenarioFixtureContract] = {
+    "C++: Runtime Modifications": ScenarioFixtureContract(
+        CPP_TESTS["Runtime Modifications"], ()
+    ),
+    "C++: Animation Persistence": ScenarioFixtureContract(
+        CPP_TESTS["Animation Persistence"], ()
+    ),
+    "GDScript: Interactive State": ScenarioFixtureContract(
+        GDS_TESTS["Interactive State"], ()
+    ),
+    "GDScript: GPU Streaming Stress": ScenarioFixtureContract(
+        GDS_TESTS["GPU Streaming Stress"], ()
+    ),
+    "GDScript: Engine Capability Sanity": ScenarioFixtureContract(
+        GDS_TESTS["Engine Capability Sanity"], ()
+    ),
+    "GDScript: Scene Effector Runtime Controls": ScenarioFixtureContract(
+        GDS_TESTS["Scene Effector Runtime Controls"],
+        ("res://tests/fixtures/test_splats.ply",),
+    ),
+    "GDScript: World Streaming Gate": ScenarioFixtureContract(
+        GDS_TESTS["World Streaming Gate"],
+        ("res://tests/fixtures/test_splats.ply",),
+    ),
+    "GDScript: Streaming Residency API": ScenarioFixtureContract(
+        GDS_TESTS["Streaming Residency API"], ()
+    ),
+    "GDScript: Streaming GPU Tier Budget Contract": ScenarioFixtureContract(
+        GDS_TESTS["Streaming GPU Tier Budget Contract"], ()
+    ),
+    "GDScript: Canonical Node Asset Render": ScenarioFixtureContract(
+        GDS_TESTS["Canonical Node Asset Render"],
+        ("res://tests/fixtures/test_splats.ply",),
+    ),
+    "GDScript: Data Flow Recent Window": ScenarioFixtureContract(
+        GDS_TESTS["Data Flow Recent Window"],
+        ("res://tests/fixtures/test_splats.ply",),
+    ),
+    "GDScript: Pipeline Trace Freshness": ScenarioFixtureContract(
+        GDS_TESTS["Pipeline Trace Freshness"],
+        ("res://tests/fixtures/test_splats.ply",),
+    ),
+    "GDScript: Monitor Lifecycle Hardening": ScenarioFixtureContract(
+        GDS_TESTS["Monitor Lifecycle Hardening"], ()
+    ),
 }
 
 
@@ -1003,10 +1061,48 @@ def _selected_fixture_consumer_sources(
     return selected
 
 
+def _validate_scenario_fixture_contracts() -> None:
+    expected_sources = {
+        **{f"C++: {name}": path for name, path in CPP_TESTS.items()},
+        **{f"GDScript: {name}": path for name, path in GDS_TESTS.items()},
+    }
+    contract_names = set(SCENARIO_FIXTURE_CONTRACTS)
+    expected_names = set(expected_sources)
+    if contract_names != expected_names:
+        missing = sorted(expected_names - contract_names)
+        extra = sorted(contract_names - expected_names)
+        raise RuntimeError(
+            "Runtime scenario fixture contract is incomplete or stale: "
+            f"missing={missing}, extra={extra}"
+        )
+
+    for name, source in expected_sources.items():
+        contract = SCENARIO_FIXTURE_CONTRACTS[name]
+        if contract.source.resolve() != source.resolve():
+            raise RuntimeError(
+                f"Runtime scenario fixture contract source mismatch for '{name}': "
+                f"declared={contract.source}, registered={source}"
+            )
+        missing_floors = [
+            fixture
+            for fixture in contract.fixtures
+            if int(ASSET_MIN_SPLAT_COUNTS.get(fixture, 0)) <= 0
+        ]
+        if missing_floors:
+            raise RuntimeError(
+                "Runtime scenario fixture contract for '{name}' references fixture(s) "
+                "without a positive ASSET_MIN_SPLAT_COUNTS floor: {paths}".format(
+                    name=name,
+                    paths=", ".join(missing_floors),
+                )
+            )
+
+
 def _floor_governed_fixture_consumers(
     selected_sources: Dict[str, Path],
 ) -> Dict[str, tuple[str, ...]]:
-    """Return selected scenario sources that reference floor-governed PLYs."""
+    """Return selected scenarios whose explicit contract requires fixture prep."""
+    _validate_scenario_fixture_contracts()
     consumers: Dict[str, tuple[str, ...]] = {}
     for name, source in selected_sources.items():
         try:
@@ -1016,24 +1112,45 @@ def _floor_governed_fixture_consumers(
                 f"Could not inspect selected runtime scenario '{name}' for fixture use: {exc}"
             ) from exc
 
-        references = tuple(sorted(set(RUNTIME_FIXTURE_REFERENCE_RE.findall(text))))
-        if not references:
-            continue
-
-        missing_floors = [
+        direct_references = set(RUNTIME_FIXTURE_REFERENCE_RE.findall(text))
+        missing_direct_floors = sorted(
             reference
-            for reference in references
+            for reference in direct_references
             if int(ASSET_MIN_SPLAT_COUNTS.get(reference, 0)) <= 0
-        ]
-        if missing_floors:
+        )
+        if missing_direct_floors:
             raise RuntimeError(
                 "Selected runtime scenario '{name}' references fixture(s) without a "
                 "positive ASSET_MIN_SPLAT_COUNTS floor: {paths}".format(
                     name=name,
-                    paths=", ".join(missing_floors),
+                    paths=", ".join(missing_direct_floors),
                 )
             )
-        consumers[name] = references
+
+        registered_contract = SCENARIO_FIXTURE_CONTRACTS.get(name)
+        if (
+            registered_contract is None
+            or registered_contract.source.resolve() != source.resolve()
+        ):
+            # An ad-hoc --gd-script has no reviewed dependency declaration. It
+            # may construct a path or load it through a helper, so conservatively
+            # preflight every governed fixture instead of inferring exemption
+            # from source text.
+            consumers[name] = tuple(sorted(ASSET_MIN_SPLAT_COUNTS))
+            continue
+
+        declared_references = set(registered_contract.fixtures)
+        undeclared_direct = sorted(direct_references - declared_references)
+        if undeclared_direct:
+            raise RuntimeError(
+                "Selected runtime scenario '{name}' directly references fixture(s) "
+                "missing from SCENARIO_FIXTURE_CONTRACTS: {paths}".format(
+                    name=name,
+                    paths=", ".join(undeclared_direct),
+                )
+            )
+        if registered_contract.fixtures:
+            consumers[name] = registered_contract.fixtures
     return consumers
 
 
@@ -1627,10 +1744,10 @@ def main() -> int:
 
     try:
         # T7a (#895) + #935: the runtime consumer owns the final floor decision,
-        # but only selected scenarios that actually reference floor-governed
-        # fixtures need the producer. Derive this after profile/CLI selection
-        # across both harness kinds so a future non-GDScript consumer also opts
-        # in automatically.
+        # but only selected registered scenarios whose explicit contract declares
+        # floor-governed fixtures need the producer. Resolve this after profile/CLI
+        # selection across both harness kinds. Unregistered ad-hoc scripts preflight
+        # conservatively because their indirect dependencies are unknown.
         selected_fixture_consumers = _floor_governed_fixture_consumers(
             _selected_fixture_consumer_sources(
                 selected_cpp_tests=selected_cpp_tests,

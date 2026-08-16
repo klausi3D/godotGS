@@ -190,7 +190,9 @@ python3 tests/runtime/prepare_synthetic_assets.py --quiet \
 ```
 
 `run_runtime_validation.py` uses this fail-closed form automatically when the
-selected C++ or GDScript scenario sources reference a floor-governed fixture.
+selected registered C++ or GDScript scenario contract declares a floor-governed
+fixture; unregistered ad-hoc scripts preflight conservatively because their
+indirect dependencies are unknown.
 Fixture-free selections (including C++-only `--skip-gd` runs) do not require a
 Godot binary for asset preparation. A tests-enabled `run_module_tests.py` lane
 uses the fail-closed form before its fixture-consuming module tests; a binary

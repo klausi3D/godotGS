@@ -127,18 +127,58 @@ class SyntheticAssetFloorWiringTests(unittest.TestCase):
                 'constexpr auto asset = "res://tests/fixtures/test_splats.ply";\n',
                 encoding="utf-8",
             )
+            with mock.patch.dict(
+                runtime_validation.CPP_TESTS,
+                {"Future Fixture Consumer": source},
+            ), self.assertRaisesRegex(RuntimeError, "incomplete or stale"):
+                runtime_validation._floor_governed_fixture_consumers(
+                    {"C++: Future Fixture Consumer": source}
+                )
+
+    def test_ad_hoc_gd_script_with_composed_path_preflights_conservatively(self) -> None:
+        with tempfile.TemporaryDirectory(dir=runtime_validation.RUNTIME_DIR) as raw_script_dir, \
+                tempfile.TemporaryDirectory() as raw_report_dir:
+            script = Path(raw_script_dir) / "test_composed_fixture_path.gd"
+            script.write_text(
+                'const ASSET := "res://tests/fixtures/" + "test_splats.ply"\n',
+                encoding="utf-8",
+            )
+            argv = [
+                "run_runtime_validation.py",
+                "--godot-binary",
+                "C:/godot/bin/godot.exe",
+                "--profile",
+                "headless-ci",
+                "--skip-cpp",
+                "--gd-script",
+                str(script.relative_to(runtime_validation.ROOT)),
+                "--report-path",
+                str(Path(raw_report_dir) / "report.json"),
+            ]
+            with mock.patch.object(sys, "argv", argv), \
+                    mock.patch.object(runtime_validation, "ensure_synthetic_assets") as prep, \
+                    mock.patch.object(runtime_validation, "run_gd_tests", return_value=[]), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(runtime_validation.main(), 0)
+
+        prep.assert_called_once_with("C:/godot/bin/godot.exe")
+
+    def test_registered_contract_covers_indirect_fixture_dependency(self) -> None:
+        name = "GDScript: Engine Capability Sanity"
+        source = runtime_validation.GDS_TESTS["Engine Capability Sanity"]
+        indirect_contract = runtime_validation.ScenarioFixtureContract(
+            source=source,
+            fixtures=("res://tests/fixtures/test_splats.ply",),
+        )
+        with mock.patch.dict(
+            runtime_validation.SCENARIO_FIXTURE_CONTRACTS,
+            {name: indirect_contract},
+        ):
             consumers = runtime_validation._floor_governed_fixture_consumers(
-                {"C++: Future Fixture Consumer": source}
+                {name: source}
             )
 
-        self.assertEqual(
-            consumers,
-            {
-                "C++: Future Fixture Consumer": (
-                    "res://tests/fixtures/test_splats.ply",
-                )
-            },
-        )
+        self.assertEqual(consumers[name], indirect_contract.fixtures)
 
     def test_selected_unfloored_fixture_reference_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as raw_td:
