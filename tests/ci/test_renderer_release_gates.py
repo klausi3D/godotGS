@@ -488,6 +488,57 @@ class RendererReleaseGateTests(unittest.TestCase):
 
             self.assertTrue(any("EXPIRED" in failure for failure in failures), failures)
 
+    def test_deferred_gpu_waiver_expires_at_exact_policy_clock_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _base_manifest(root)
+            manifest["deferred_requires_gpu_waivers"] = [
+                {
+                    "test_name": "Deferred GPU case",
+                    "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
+                    "owner": "release-owner",
+                    "expires_utc": "2026-08-16T00:00:00Z",
+                    "risk": "GPU coverage is deferred",
+                    "mitigation": "Block release after the waiver expires",
+                    "docs_path": "docs/reference/renderer-release-gates.md",
+                }
+            ]
+
+            failures = checker._validate_deferred_requires_gpu_waivers(
+                root,
+                manifest,
+                now_utc=datetime(2026, 8, 16, tzinfo=timezone.utc),
+            )
+
+            self.assertTrue(any("EXPIRED" in failure for failure in failures), failures)
+
+    def test_deferred_gpu_waiver_rejects_timezone_less_expiry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _base_manifest(root)
+            manifest["deferred_requires_gpu_waivers"] = [
+                {
+                    "test_name": "Deferred GPU case",
+                    "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
+                    "owner": "release-owner",
+                    "expires_utc": "2026-10-31T00:00:00",
+                    "risk": "GPU coverage is deferred",
+                    "mitigation": "Block release after the waiver expires",
+                    "docs_path": "docs/reference/renderer-release-gates.md",
+                }
+            ]
+
+            failures = checker._validate_deferred_requires_gpu_waivers(
+                root,
+                manifest,
+                now_utc=datetime(2026, 8, 16, tzinfo=timezone.utc),
+            )
+
+            self.assertTrue(
+                any("must include a UTC offset" in failure for failure in failures),
+                failures,
+            )
+
     def test_future_deferred_gpu_waiver_passes_at_injected_policy_clock(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -640,6 +691,29 @@ class RendererReleaseGateTests(unittest.TestCase):
                     "--manifest",
                     str(manifest_path),
                     "--candidate-evidence",
+                    str(evidence_path),
+                ]
+            )
+
+            self.assertEqual(2, rc)
+
+    def test_candidate_cli_rejects_issue_snapshot_that_is_evidence_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest_path = root / "docs/reference/renderer_release_gate_manifest.json"
+            evidence_path = root / "candidate.json"
+            _write(manifest_path, json.dumps(_base_manifest(root)))
+            _write(evidence_path, json.dumps(_valid_candidate_evidence(root)))
+
+            rc = checker.main(
+                [
+                    "--mode",
+                    "candidate",
+                    "--manifest",
+                    str(manifest_path),
+                    "--candidate-evidence",
+                    str(evidence_path),
+                    "--issues-json",
                     str(evidence_path),
                 ]
             )

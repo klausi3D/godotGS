@@ -153,8 +153,9 @@ that publish path (issue #593):
 - it fails the stable/candidate path unless **both** `build_linux` and
   `build_windows` succeeded (no Linux-only stable release);
 - it runs `check_renderer_release_gates.py --mode candidate` against a
-  public-alpha evidence bundle and **fails closed** when the bundle is absent, so
-  a tag cannot publish without passing candidate validation;
+  public-alpha evidence bundle and a separate issue snapshot, and **fails closed**
+  when either file is absent, so a tag cannot publish without passing candidate
+  validation;
 - `publish_release` hard-depends on the gate and sets
   `fail_on_unmatched_files: true` for the stable channel;
 - it binds the evidence to reality: `--expected-commit ${{ github.sha }}` (the
@@ -173,9 +174,10 @@ Windows runner outage cannot stall the nightly cadence.
 
 **Scoped gap:** no CI lane yet produces the candidate evidence bundle (issue
 #360), so the gate currently fails closed on every real `v*` tag. A maintainer
-cutting a candidate points the `RELEASE_CANDIDATE_EVIDENCE` (and optional
-`RELEASE_CANDIDATE_ISSUES`) repo/environment variable at a produced bundle. See
-`docs/reference/renderer-release-gates.md` for details.
+cutting a candidate must place both files in the runner workspace and point the
+`RELEASE_CANDIDATE_EVIDENCE` and `RELEASE_CANDIDATE_ISSUES` repo/environment
+variables at different files. See `docs/reference/renderer-release-gates.md` for
+details.
 
 ## Runner Trust Boundary (fork PRs)
 

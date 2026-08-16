@@ -104,12 +104,13 @@ for `release_builds.yml` (issue #593):
 
 **Remaining scoped gap (issue #360).** No CI lane yet produces the public-alpha
 candidate evidence bundle (candidate GPU-harness report, benchmark-lane report,
-artifact SHA/commit-parity, and issue snapshot). Until that pipeline is wired,
+and artifact SHA/commit-parity) and its independent issue snapshot. Until that
+pipeline is wired,
 the gate fails closed on every real `v*` tag; a maintainer cutting a candidate
-supplies the bundle out-of-band by pointing the `RELEASE_CANDIDATE_EVIDENCE`
-(and optional `RELEASE_CANDIDATE_ISSUES`) repo/environment variable at a
-produced bundle. Generating the bundle in-workflow so a green stable tag is
-self-proving is tracked as follow-up under #360/#593.
+must place both files in the runner workspace and point the
+`RELEASE_CANDIDATE_EVIDENCE` and `RELEASE_CANDIDATE_ISSUES` repo/environment
+variables at different files. Generating the bundle in-workflow so a green
+stable tag is self-proving is tracked as follow-up under #360/#593.
 
 ### Evidence is bound to the commit and to the shipped bytes
 

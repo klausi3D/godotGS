@@ -3636,15 +3636,23 @@ class GuardScriptWiringTests(unittest.TestCase):
         This assertion lives in the independently wired lane-ledger suite so
         deleting the attestation test's runner entry is observable.
         """
-        reached = self._scripts_reached_by_wired_runners()
         attestation_tests = ROOT / "tests" / "ci" / "test_release_attestation.py"
         self.assertTrue(attestation_tests.is_file(), f"missing test suite: {attestation_tests}")
-        self.assertIn(
-            attestation_tests.resolve(),
-            reached,
-            "test_release_attestation.py exists but no runner reachable from "
-            "_run_ci_guard_steps() executes it; validated-bytes behavior is untested "
-            "in the always-on guard lane",
+        commands: list[list[str]] = []
+
+        def record_command(args: list[str]) -> tuple[int, str, str]:
+            commands.append([str(arg) for arg in args])
+            return 0, "", ""
+
+        with mock.patch.object(harness, "_run_command", side_effect=record_command):
+            passed, output = harness._run_renderer_release_gate_guard()
+
+        self.assertTrue(passed, output)
+        self.assertTrue(
+            any(Path(command[1]).resolve() == attestation_tests.resolve() for command in commands),
+            "_run_renderer_release_gate_guard() did not actually launch "
+            "test_release_attestation.py; retaining the constant in a missing-file "
+            "check is not executable wiring",
         )
 
     def test_this_files_own_runner_is_wired(self) -> None:

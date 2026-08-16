@@ -400,6 +400,10 @@ def _validate_deferred_requires_gpu_waivers(
             failures.append(
                 f"deferred waiver has unparseable expires_utc {expires_raw!r}: {waiver!r}"
             )
+        elif expires.tzinfo is None or expires.utcoffset() is None:
+            failures.append(
+                f"deferred waiver expires_utc must include a UTC offset {expires_raw!r}: {waiver!r}"
+            )
         elif _to_utc_aware(expires) <= policy_now:
             failures.append(
                 f"deferred waiver EXPIRED on {expires_raw}: {waiver.get('test_name', '?')!r}; "
@@ -2286,8 +2290,17 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
-        evidence = _load_json(Path(args.candidate_evidence))
-        issues = _load_json(Path(args.issues_json))
+        evidence_path = Path(args.candidate_evidence).resolve()
+        issues_path = Path(args.issues_json).resolve()
+        if evidence_path == issues_path or evidence_path.samefile(issues_path):
+            print(
+                "--candidate-evidence and --issues-json must identify different files; "
+                "the evidence bundle cannot certify its own blocker set",
+                file=sys.stderr,
+            )
+            return 2
+        evidence = _load_json(evidence_path)
+        issues = _load_json(issues_path)
         artifact_shas: dict[str, str] = {}
         for group, digest in args.artifact_sha:
             previous = artifact_shas.get(group)
