@@ -60,6 +60,7 @@ BASELINE_QA_REQUIRE_FLAG_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_baseline_qa
 HISTORY_ARTIFACT_AUDIT_SCRIPT = ROOT / "scripts" / "repo" / "history_artifact_audit.py"
 SYNTHETIC_ASSET_PREP_SCRIPT = ROOT / "tests" / "runtime" / "prepare_synthetic_assets.py"
 BENCHMARK_ASSET_GUARD_SCRIPT = ROOT / "tests" / "runtime" / "check_benchmark_asset_paths.py"
+BENCHMARK_ASSET_GUARD_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_check_benchmark_asset_paths.py"
 # T3 (#891): module-level constants (not inline paths) so the guard-wiring
 # contract in test_run_module_tests_lane_ledger.py can derive that a wired
 # runner actually reaches these contract-test files.
@@ -1959,7 +1960,7 @@ def _run_history_artifact_guard(mode: str) -> tuple[bool, int, list[str]]:
     return True, 0, messages
 
 
-def _prepare_synthetic_assets() -> tuple[bool, list[str]]:
+def _prepare_synthetic_assets(godot_binary: str) -> tuple[bool, list[str]]:
     if not SYNTHETIC_ASSET_PREP_SCRIPT.is_file():
         return (
             False,
@@ -1967,7 +1968,14 @@ def _prepare_synthetic_assets() -> tuple[bool, list[str]]:
         )
 
     code, out, err = _run_command(
-        [sys.executable, str(SYNTHETIC_ASSET_PREP_SCRIPT), "--quiet"],
+        [
+            sys.executable,
+            str(SYNTHETIC_ASSET_PREP_SCRIPT),
+            "--quiet",
+            "--require-asset-floors",
+            "--godot-binary",
+            godot_binary,
+        ],
         cwd=ROOT,
     )
 
@@ -1982,19 +1990,18 @@ def _prepare_synthetic_assets() -> tuple[bool, list[str]]:
 
 
 def _run_benchmark_asset_guard() -> tuple[bool, list[str]]:
-    if not BENCHMARK_ASSET_GUARD_SCRIPT.is_file():
-        return (
-            False,
-            [f"Missing benchmark asset guard script: {BENCHMARK_ASSET_GUARD_SCRIPT.relative_to(ROOT)}"],
-        )
-
-    code, out, err = _run_command([sys.executable, str(BENCHMARK_ASSET_GUARD_SCRIPT)], cwd=ROOT)
-    output_lines = [line for line in (out + err).splitlines() if line.strip()]
-    if code != 0:
-        if not output_lines:
-            output_lines = [f"Benchmark asset guard failed with exit code {code}."]
-        return False, output_lines
-    return True, output_lines
+    messages: list[str] = []
+    for script in (BENCHMARK_ASSET_GUARD_SCRIPT, BENCHMARK_ASSET_GUARD_TEST_SCRIPT):
+        if not script.is_file():
+            return False, [f"Missing benchmark asset guard component: {script.relative_to(ROOT)}"]
+        code, out, err = _run_command([sys.executable, str(script)], cwd=ROOT)
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        messages.extend(output_lines)
+        if code != 0:
+            if not output_lines:
+                messages.append(f"{script.name} failed with exit code {code}.")
+            return False, messages
+    return True, messages
 
 
 class GodotRunResult(tuple):
@@ -2045,6 +2052,26 @@ def _run_godot(godot: str, args: Iterable[str]) -> tuple[bool, bool, str]:
     if result.returncode != 0 and _tests_unavailable(output):
         return GodotRunResult(True, True, output, result.returncode)
     return GodotRunResult(result.returncode == 0, False, output, result.returncode)
+
+
+def _test_runner_is_unavailable(godot: str) -> bool:
+    """Probe the binary's real doctest entry point before fixture generation.
+
+    The deliberately unmatchable filter makes a tests-enabled binary do no
+    test work.  Availability is derived by the same `_run_godot` /
+    `_tests_unavailable` path as the lanes themselves, so warn-only and explicit
+    allow-unavailable runs retain their established disposition instead of
+    failing earlier in synthetic fixture preparation (issue #895 review).
+    """
+    _ok, skipped, _output = _run_godot(
+        godot,
+        [
+            "--headless",
+            "--test",
+            "--test-case=__godotgs_test_availability_probe_matches_nothing__",
+        ],
+    )
+    return skipped
 
 
 def _parse_doctest_results(output: str) -> tuple[int, int, int, int, int, bool]:
@@ -4325,12 +4352,25 @@ def main() -> int:
         print("[module-tests] Guard-only mode complete.")
         return 0
 
-    synthetic_assets_ok, synthetic_asset_messages = _prepare_synthetic_assets()
-    for message in synthetic_asset_messages:
-        print(f"[module-tests] {message}")
-    if not synthetic_assets_ok:
-        print("[module-tests] Synthetic asset preparation failed.")
-        return 1
+    if _test_runner_is_unavailable(godot):
+        # No test consumer will execute. Preserve the established strict vs
+        # warn-only disposition in `_run_doctest_lanes`; fixture preparation is
+        # neither evidence nor a prerequisite for an unavailable lane.
+        print(
+            "[module-tests] Test runner unavailable; deferring strict/warn-only "
+            "disposition to the module lanes without preparing fixtures."
+        )
+    else:
+        # T7a (#895): an available module-test consumer requires the floor after
+        # generation, and passes the selected tests-enabled binary so a clean
+        # checkout generates the canonical workload rather than the 1024-splat
+        # fallback.
+        synthetic_assets_ok, synthetic_asset_messages = _prepare_synthetic_assets(godot)
+        for message in synthetic_asset_messages:
+            print(f"[module-tests] {message}")
+        if not synthetic_assets_ok:
+            print("[module-tests] Synthetic asset preparation failed.")
+            return 1
 
     print(
         f"[module-tests] Tests-unavailable mode: {tests_unavailable_mode}"

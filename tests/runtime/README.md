@@ -176,11 +176,21 @@ create a second blocking streaming gate.
 
 Runtime and benchmark scenes depend on deterministic synthetic fixtures.
 
-Generate/update them:
+Generate/update lightweight fixtures (preserving existing floor-valid canonical assets):
 
 ```bash
 python3 tests/runtime/prepare_synthetic_assets.py --quiet
 ```
+
+Generate and require the runtime consumer floors:
+
+```bash
+python3 tests/runtime/prepare_synthetic_assets.py --quiet \
+  --godot-binary ./bin/<your-godot-binary> --require-asset-floors
+```
+
+`run_runtime_validation.py` and the full `run_module_tests.py` lane use this
+fail-closed form automatically with their selected Godot binary.
 
 Validate canonical fixture policy:
 

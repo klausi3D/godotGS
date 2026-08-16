@@ -41,6 +41,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNTIME_DIR = ROOT / "tests" / "runtime"
@@ -298,6 +299,118 @@ class ManifestContractTests(unittest.TestCase):
             manifest = _manifest_mod.load_benchmark_asset_manifest(legacy)
             self.assertEqual(manifest.asset_min_splat_counts, {})
             self.assertEqual(manifest.min_splat_count_for("res://a.ply"), 0)
+
+
+class SyntheticAssetGenerationContractTests(unittest.TestCase):
+    """The lightweight producer must not destroy a fixture that meets its floor."""
+
+    def test_python_fallback_preserves_existing_valid_canonical_asset(self):
+        with tempfile.TemporaryDirectory() as raw_td:
+            root = Path(raw_td)
+            fixture = root / "tests" / "fixtures" / "test_splats.ply"
+            fixture.parent.mkdir(parents=True)
+            _write_ply(fixture, 10000)
+            original = fixture.read_bytes()
+            spec = _prepare.PLYSpec(
+                "tests/fixtures/test_splats.ply", 1024, 1101, "sphere", 3.0
+            )
+
+            with mock.patch.object(_prepare, "CANONICAL_SPECS", (spec,)), \
+                    mock.patch.object(_prepare, "_write_manifest"), \
+                    mock.patch.object(_prepare, "FORBIDDEN_LEGACY_PLYS", ()), \
+                    mock.patch.object(_prepare, "FORBIDDEN_LEGACY_ASSET_DIRS", ()):
+                self.assertEqual(_prepare._generate(root, quiet=True), 0)
+
+            self.assertEqual(
+                fixture.read_bytes(),
+                original,
+                "the 1024-splat fallback must not overwrite a valid 10000-splat fixture",
+            )
+
+    def test_required_floor_mode_does_not_dirty_valid_consumer_fixture(self):
+        with tempfile.TemporaryDirectory() as raw_td:
+            root = Path(raw_td)
+            primary = root / "tests" / "fixtures" / "synthetic_sphere.ply"
+            consumer = (
+                root
+                / "tests"
+                / "examples"
+                / "godot"
+                / "test_project"
+                / "tests"
+                / "fixtures"
+                / "synthetic_sphere.ply"
+            )
+            primary.parent.mkdir(parents=True)
+            consumer.parent.mkdir(parents=True)
+            _write_ply(primary, 50000)
+            _write_ply(consumer, 2048)
+            original = consumer.read_bytes()
+            spec = _prepare.PLYSpec(
+                "tests/examples/godot/test_project/tests/fixtures/synthetic_sphere.ply",
+                2048,
+                3101,
+                "sphere",
+                4.5,
+            )
+
+            with mock.patch.object(_prepare, "CANONICAL_SPECS", (spec,)), \
+                    mock.patch.object(_prepare, "_generate_via_godot", return_value=True), \
+                    mock.patch.object(_prepare, "_write_manifest"), \
+                    mock.patch.object(_prepare, "FORBIDDEN_LEGACY_PLYS", ()), \
+                    mock.patch.object(_prepare, "FORBIDDEN_LEGACY_ASSET_DIRS", ()):
+                self.assertEqual(
+                    _prepare._generate(
+                        root,
+                        quiet=True,
+                        godot_binary=Path("godot.exe"),
+                        preserve_floor_valid=True,
+                    ),
+                    0,
+                )
+
+            self.assertEqual(consumer.read_bytes(), original)
+
+    def test_floor_validation_rejects_the_1024_fallback(self):
+        with tempfile.TemporaryDirectory() as raw_td:
+            root = Path(raw_td)
+            for relative in (
+                Path("tests/fixtures/test_splats.ply"),
+                Path("tests/examples/godot/test_project/tests/fixtures/test_splats.ply"),
+            ):
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                _write_ply(path, 1024)
+
+            with mock.patch.dict(
+                _prepare.ASSET_MIN_SPLAT_COUNTS,
+                {TEST_SPLATS_ASSET: 10000},
+                clear=True,
+            ):
+                failures = _prepare.asset_floor_failures(root)
+
+        self.assertEqual(len(failures), 2)
+        self.assertTrue(all("1024" in failure and "10000" in failure for failure in failures))
+
+    def test_floor_validation_accepts_both_consumer_copies_at_the_floor(self):
+        with tempfile.TemporaryDirectory() as raw_td:
+            root = Path(raw_td)
+            for relative in (
+                Path("tests/fixtures/test_splats.ply"),
+                Path("tests/examples/godot/test_project/tests/fixtures/test_splats.ply"),
+            ):
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                _write_ply(path, 10000)
+
+            with mock.patch.dict(
+                _prepare.ASSET_MIN_SPLAT_COUNTS,
+                {TEST_SPLATS_ASSET: 10000},
+                clear=True,
+            ):
+                failures = _prepare.asset_floor_failures(root)
+
+        self.assertEqual(failures, [])
 
 
 FIXTURE_IMPORT_RELATIVE_DIR = (

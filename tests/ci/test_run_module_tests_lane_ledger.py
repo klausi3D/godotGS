@@ -79,6 +79,82 @@ def _load_harness():
 harness = _load_harness()
 
 
+class SyntheticAssetFloorWiringTests(unittest.TestCase):
+    def test_availability_probe_uses_the_real_doctest_skip_classification(self):
+        unavailable = harness.GodotRunResult(
+            True,
+            True,
+            "captured tests-disabled producer output",
+            1,
+        )
+        with mock.patch.object(harness, "_run_godot", return_value=unavailable) as run:
+            self.assertTrue(harness._test_runner_is_unavailable("godot-without-tests"))
+
+        args = run.call_args.args[1]
+        self.assertIn("--test", args)
+        self.assertTrue(any(arg.startswith("--test-case=") for arg in args))
+
+    def test_prep_command_requires_floors_and_forwards_the_binary(self):
+        with mock.patch.object(harness, "_run_command", return_value=(0, "", "")) as run:
+            ok, messages = harness._prepare_synthetic_assets("C:/godot/bin/godot.exe")
+
+        self.assertTrue(ok, messages)
+        command = run.call_args.args[0]
+        self.assertIn("--require-asset-floors", command)
+        self.assertEqual(command[-2:], ["--godot-binary", "C:/godot/bin/godot.exe"])
+
+    def test_main_passes_its_selected_binary_to_asset_prep(self):
+        calls: list[str] = []
+        argv = ["run_module_tests.py", "--godot-binary", "C:/godot/bin/godot.exe"]
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(sys, "argv", argv))
+            stack.enter_context(mock.patch.object(harness, "_run_ci_guard_steps", return_value=None))
+            stack.enter_context(
+                mock.patch.object(harness, "_test_runner_is_unavailable", return_value=False)
+            )
+            stack.enter_context(
+                mock.patch.object(
+                    harness,
+                    "_prepare_synthetic_assets",
+                    side_effect=lambda binary: (calls.append(binary) or True, []),
+                )
+            )
+            stack.enter_context(mock.patch.object(harness, "_build_module_test_runs", return_value=[]))
+            stack.enter_context(
+                mock.patch.object(harness, "_lane_runs_missing_from_module_filters", return_value=[])
+            )
+            stack.enter_context(mock.patch.object(harness, "_run_doctest_lanes", return_value=0))
+            stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+            self.assertEqual(harness.main(), 0)
+
+        self.assertEqual(calls, ["C:/godot/bin/godot.exe"])
+
+    def test_tests_unavailable_path_does_not_require_fixtures(self):
+        argv = [
+            "run_module_tests.py",
+            "--godot-binary",
+            "C:/godot/bin/godot-without-tests.exe",
+            "--tests-unavailable-mode",
+            "warn-only",
+        ]
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(sys, "argv", argv))
+            stack.enter_context(mock.patch.object(harness, "_run_ci_guard_steps", return_value=None))
+            stack.enter_context(
+                mock.patch.object(harness, "_test_runner_is_unavailable", return_value=True)
+            )
+            prep = stack.enter_context(mock.patch.object(harness, "_prepare_synthetic_assets"))
+            stack.enter_context(mock.patch.object(harness, "_build_module_test_runs", return_value=[]))
+            stack.enter_context(
+                mock.patch.object(harness, "_lane_runs_missing_from_module_filters", return_value=[])
+            )
+            stack.enter_context(mock.patch.object(harness, "_run_doctest_lanes", return_value=0))
+            stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+            self.assertEqual(harness.main(), 0)
+
+        prep.assert_not_called()
+
+
 # --------------------------------------------------------------------------
 # Baseline exit codes, per outcome class, read off e9ddb27c285's
 # _run_doctest_lanes() and unchanged by the two stacked branches beneath this
