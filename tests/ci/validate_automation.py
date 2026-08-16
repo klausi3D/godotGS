@@ -295,6 +295,16 @@ def test_baseline_qa_runner(godot_binary: str) -> dict:
         return {"success": False, "error": str(exc)}
 
 
+REQUIRED_WORKFLOW_NAMES = frozenset(
+    {
+        "agentic_pr_gate.yml",
+        "baseline_qa.yml",
+        "gaussian_production_gates.yml",
+        "gaussian_shader_validation.yml",
+    }
+)
+
+
 def check_ci_workflow() -> bool:
     """Parse every workflow GitHub Actions discovers, failing closed on absence."""
     try:
@@ -322,7 +332,12 @@ def check_ci_workflow() -> bool:
         print("❌ No GitHub Actions workflow files found")
         return False
 
-    success = True
+    discovered_names = {path.name for path in workflow_files}
+    missing_required = sorted(REQUIRED_WORKFLOW_NAMES - discovered_names)
+    success = not missing_required
+    for name in missing_required:
+        print(f"❌ Missing required CI workflow file: .github/workflows/{name}")
+
     for workflow_file in workflow_files:
         relative = workflow_file.relative_to(ROOT_DIR).as_posix()
         print(f"✅ CI workflow file exists: {relative}")

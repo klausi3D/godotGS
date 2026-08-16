@@ -22,12 +22,7 @@ sys.modules[SPEC.name] = validate_automation
 SPEC.loader.exec_module(validate_automation)
 
 
-CURRENT_WORKFLOW_NAMES = (
-    "agentic_pr_gate.yml",
-    "baseline_qa.yml",
-    "gaussian_production_gates.yml",
-    "gaussian_shader_validation.yml",
-)
+CURRENT_WORKFLOW_NAMES = tuple(sorted(validate_automation.REQUIRED_WORKFLOW_NAMES))
 
 
 class _FakeYaml(types.SimpleNamespace):
@@ -72,6 +67,19 @@ class ValidateAutomationWorkflowTests(unittest.TestCase):
     def test_workflow_set_is_derived_and_includes_yaml_suffix(self) -> None:
         contents = {name: "name: valid\n" for name in CURRENT_WORKFLOW_NAMES}
         contents["newly_added.yaml"] = "INVALID_FOR_TEST\n"
+        temp_dir = self._root_with_workflows(contents)
+
+        with temp_dir, mock.patch.object(
+            validate_automation, "ROOT_DIR", Path(temp_dir.name)
+        ), mock.patch.dict(sys.modules, {"yaml": _FakeYaml()}):
+            self.assertFalse(validate_automation.check_ci_workflow())
+
+    def test_missing_required_workflow_fails_closed(self) -> None:
+        contents = {
+            name: "name: valid\n"
+            for name in CURRENT_WORKFLOW_NAMES
+            if name != "gaussian_shader_validation.yml"
+        }
         temp_dir = self._root_with_workflows(contents)
 
         with temp_dir, mock.patch.object(
