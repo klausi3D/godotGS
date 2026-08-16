@@ -198,11 +198,40 @@ def run_checks() -> list[str]:
     return failures
 
 
+def _run_mutated(global_name: str, mutate, check) -> list[str]:
+    """Run one check against a temp copy of its file with `mutate` applied.
+    Swaps the module-level path global for the duration; never touches the
+    repository files."""
+    import tempfile
+
+    g = globals()
+    original: Path = g[global_name]
+    text = original.read_text(encoding="utf-8")
+    mutated = mutate(text)
+    if mutated == text:
+        return [f"(self-test bug: mutation for {global_name} was a no-op)"]
+    failures: list[str] = []
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td) / original.name
+        tmp.write_text(mutated, encoding="utf-8")
+        try:
+            g[global_name] = tmp
+            check(failures)
+        finally:
+            g[global_name] = original
+    return failures
+
+
 def self_test() -> int:
-    """Prove the checker discriminates: the clean tree must pass, and a
-    synthetic copy with the pre-upscale hook removed must be flagged. Runs on
-    temp copies only — never mutates the repository."""
-    global FORWARD_CLUSTERED
+    """Prove the checker discriminates: the clean tree must pass, and for EVERY
+    check class a synthetic mutation reverting its invariant must be flagged.
+    Runs on temp copies only — never mutates the repository.
+
+    Scope note: these are literal/positional source anchors. They defend
+    against ACCIDENTAL loss of the contract (refactors, reverts, careless
+    edits); an adversarial bypass that keeps the anchors while gutting the
+    behavior is out of scope for a static guard — human review is the control
+    for that, per review policy."""
     baseline = run_checks()
     if baseline:
         print("[self-test] cannot self-test on a failing tree:")
@@ -210,31 +239,47 @@ def self_test() -> int:
             print(f"  {line}")
         return 1
 
-    # Ordering check must fire when the hook is moved after its consumers.
-    fc_text = FORWARD_CLUSTERED.read_text(encoding="utf-8")
-    hook_anchor = "gaussian_composite_pre_upscale = true;"
-    mutated = fc_text.replace(hook_anchor, "/* hook removed */", 1)
-    failures: list[str] = []
-    pos = mutated.find(hook_anchor)
-    if pos != -1:
-        print("[self-test] mutation failed to remove the hook anchor")
-        return 1
-    # Re-run check A against the mutated text through a temp file swap-in.
-    import tempfile
+    render_call = "render_gaussian_splats_forward(*p_render_data);"
+    commit_call = "commit_gaussian_splats(*p_render_data);"
+    mutations = (
+        # A1: pre-upscale hook flag removed entirely.
+        ("A: hook flag removed", "FORWARD_CLUSTERED",
+                lambda t: t.replace("gaussian_composite_pre_upscale = true;", "/* hook removed */", 1),
+                check_forward_clustered),
+        # A2: hook moved AFTER the internal-buffer consumers (render+commit
+        # relocated to end of file) — the ordering assertions must fire.
+        ("A: hook after consumers", "FORWARD_CLUSTERED",
+                lambda t: t.replace(render_call, "", 1).replace(commit_call, "", 1)
+                        + "\n\t" + render_call + "\n\t" + commit_call + "\n",
+                check_forward_clustered),
+        # B: legacy post-scene hook loses its phase gate (double composite).
+        ("B: legacy gate dropped", "SCENE_RENDER_RD",
+                lambda t: t.replace("!render_data.gaussian_composite_pre_upscale && ", "", 1),
+                check_scene_render_rd),
+        # C: pre-upscale stops requesting the source decode.
+        ("C: decode request dropped", "OUTPUT_COMPOSITOR",
+                lambda t: t.replace("params.source_decode_srgb = pre_upscale_phase;",
+                        "params.source_decode_srgb = false;", 1),
+                check_output_compositor),
+        # D: phase-flag declaration removed from RenderDataRD.
+        ("D: flag declaration removed", "RENDER_DATA_RD_H",
+                lambda t: t.replace("bool gaussian_composite_pre_upscale = false;", "", 1),
+                check_render_data_rd),
+        # E: shader side of the push-constant mirror reverted to the old pad.
+        ("E: shader mirror reverted", "VIEWPORT_BLIT_GLSL",
+                lambda t: t.replace("int source_decode_srgb;", "float pad0;", 1),
+                check_push_constant_mirror),
+    )
 
-    with tempfile.TemporaryDirectory() as td:
-        tmp = Path(td) / "render_forward_clustered.cpp"
-        tmp.write_text(mutated, encoding="utf-8")
-        original = FORWARD_CLUSTERED
-        try:
-            FORWARD_CLUSTERED = tmp
-            check_forward_clustered(failures)
-        finally:
-            FORWARD_CLUSTERED = original
-    if not failures:
-        print("[self-test] checker did NOT flag a removed pre-upscale hook — vacuous guard")
+    ok = True
+    for label, global_name, mutate, check in mutations:
+        failures = _run_mutated(global_name, mutate, check)
+        if not failures:
+            print(f"[self-test] VACUOUS: mutation [{label}] was NOT flagged")
+            ok = False
+    if not ok:
         return 1
-    print("[self-test] OK: clean tree passes; removed hook is flagged.")
+    print(f"[self-test] OK: clean tree passes; all {len(mutations)} reverting mutations are flagged.")
     return 0
 
 

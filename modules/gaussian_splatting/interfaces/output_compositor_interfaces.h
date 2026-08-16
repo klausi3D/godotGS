@@ -20,13 +20,20 @@ struct OutputCopyParams {
     Size2i viewport_size;
     bool composite_with_destination = false;
     bool source_is_premultiplied = false;
-    // GPU-001 Option B source-encoding contract: the GS raster output is
-    // premultiplied, sRGB-encoded, display-referred LDR (RGBA8 — see
-    // _resolve_compute_friendly_raster_format). When the composite destination
-    // is the LINEAR pre-tonemap scene buffer (pre-upscale phase), the compute
-    // blit must decode the source to linear before blending; set this flag to
-    // request that decode. Leave false for legacy post-tonemap destinations,
-    // whose content is sRGB-encoded like the source.
+    // GPU-001 Option B source-encoding contract: the GS raster output (RGBA8,
+    // see _resolve_compute_friendly_raster_format) is treated as premultiplied,
+    // display-referred, sRGB-encoded LDR. Ground truth for that definition is
+    // the shipped legacy composite: it wrote these bytes UNCONVERTED into the
+    // presented target, whose content is sRGB-encoded — so "as presented" and
+    // "sRGB-encoded" are the same claim. The raster/resolve shaders perform no
+    // color-space conversion, so this holds for every asset source (PLY SH-DC
+    // and SPZ direct color alike): whatever looked right under the legacy
+    // present-target composite keeps exactly that meaning under the decode.
+    // When the composite destination is the LINEAR pre-tonemap scene buffer
+    // (pre-upscale phase), the compute blit must decode the source to linear
+    // before blending; set this flag to request that decode. Leave false for
+    // legacy post-tonemap destinations, whose content is sRGB-encoded like the
+    // source.
     bool source_decode_srgb = false;
     bool depth_test_enabled = false;
     bool depth_is_orthogonal = false;
@@ -51,6 +58,14 @@ struct OutputCopyResult {
     // depth-tested compositing on such targets will see success=true here but
     // depth_test_honored=false. Set to true when depth was not requested.
     bool depth_test_honored = true;
+    // True iff a requested source sRGB->linear decode (params.source_decode_srgb)
+    // was actually performed by the executed path. The CopyEffects graphics
+    // fallback used when the compute composite cannot run performs NO decode,
+    // so a pre-upscale caller will see success=true (splats still composited —
+    // presence beats absence) but source_decode_honored=false; the caller must
+    // surface that as a degraded copy, never as a clean success. True when no
+    // decode was requested.
+    bool source_decode_honored = true;
 };
 
 // Parameters for framebuffer-based copy

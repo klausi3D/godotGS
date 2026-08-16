@@ -1502,6 +1502,7 @@ OutputCopyResult OutputCompositor::copy_to_render_target(const OutputCopyParams 
         // absence) but say so: warn once and surface the reason through
         // result.error / output_cache.last_output_copy_error.
         WARN_PRINT_ONCE("[OutputCompositor] Source sRGB->linear decode requested but the compute composite could not run; the graphics fallback composites WITHOUT the decode (splats will appear too bright until the compute path recovers).");
+        result.source_decode_honored = false;
         if (result.error.is_empty()) {
             result.error = "source_decode_srgb requested but the graphics fallback path cannot decode; composited without decode";
         }
@@ -1786,6 +1787,17 @@ void OutputCompositor::integrate_final_output(GaussianSplatRenderer *p_renderer,
                             : copy_result.error;
                     if (scene_depth_policy == GS_SCENE_COMPOSITE_DEPTH_POLICY_STRICT) {
                         output_cache.last_viewport_copy_success = false;
+                    }
+                }
+                // A requested-but-skipped source decode is a degraded copy even when
+                // the composite itself succeeded (splats present but wrongly encoded);
+                // it must never read as a clean success in the telemetry seam.
+                if (!copy_result.source_decode_honored) {
+                    output_cache.last_copy_degraded = true;
+                    if (output_cache.last_copy_degradation_reason.is_empty()) {
+                        output_cache.last_copy_degradation_reason = copy_result.error.is_empty()
+                                ? String("source sRGB->linear decode requested but not performed (graphics fallback)")
+                                : copy_result.error;
                     }
                 }
             }

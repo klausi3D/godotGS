@@ -95,16 +95,25 @@ present-framebuffer graphics blend are disabled for this phase
 Depth compare runs at internal resolution on both sides, so no rescaled depth
 sampling is needed.
 
-**Source encoding.** The splat raster output is premultiplied, sRGB-encoded,
-display-referred LDR — the raster target format is coerced to RGBA8 UNORM by
-`_resolve_compute_friendly_raster_format`
+**Source encoding.** The splat raster output is treated as premultiplied,
+display-referred, sRGB-encoded LDR — the raster target format is coerced to
+RGBA8 UNORM by `_resolve_compute_friendly_raster_format`
 ([`render_pipeline_stages.cpp`](../../modules/gaussian_splatting/renderer/render_pipeline_stages.cpp)).
+Ground truth for that definition is the shipped legacy composite: it wrote the
+raster bytes *unconverted* into the presented target (whose content is
+sRGB-encoded), and the raster/resolve shaders perform no color-space
+conversion, so the definition holds uniformly for every asset source (PLY
+SH-DC and SPZ direct color alike) — whatever appearance a source had under the
+legacy present-target composite is exactly the appearance the decode preserves.
 The pre-upscale destination is the *linear* pre-tonemap scene buffer, so the
 compute blit decodes the source sRGB→linear on straight (un-premultiplied)
 color before blending (`source_decode_srgb` in
 [`viewport_blit.glsl`](../../modules/gaussian_splatting/shaders/viewport_blit.glsl)
 and its host mirror `ViewportBlitPushConstant`). Splats therefore pass through
-the same tonemap/exposure as meshes.
+the same tonemap/exposure as meshes. If the compute composite cannot run, the
+graphics fallback composites *without* the decode and reports
+`source_decode_honored=false`, which the compositor surfaces as a degraded copy
+(never a clean success).
 
 **Scoping (documented fallbacks).**
 
