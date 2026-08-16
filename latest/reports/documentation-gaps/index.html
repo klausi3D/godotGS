@@ -3456,17 +3456,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattinginterfacesoutput_compositorcpp" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/interfaces/output_compositor.cpp
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#testsexamplesgodottest_projectscriptsbake_gsplatworldgd" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3713,6 +3702,17 @@
     <span class="md-ellipsis">
       
         modules/gaussian_splatting/tests/test_gaussian_importer.h
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattinginterfacesoutput_compositorcpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/interfaces/output_compositor.cpp
       
     </span>
   </a>
@@ -4622,17 +4622,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingshadersviewport_blitglsl" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/shaders/viewport_blit.glsl
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#modulesgaussian_splattinginterfacesoverflow_auto_tunercpp" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5106,6 +5095,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingshadersviewport_blitglsl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/shaders/viewport_blit.glsl
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingcoremodule_string_namescpp" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5150,10 +5150,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#testsexamplesgodottest_projectscriptsmaterialize_corridor_worldgd" class="md-nav__link">
+  <a href="#modulesgaussian_splattinginterfacesoutput_compositorh" class="md-nav__link">
     <span class="md-ellipsis">
       
-        tests/examples/godot/test_project/scripts/materialize_corridor_world.gd
+        modules/gaussian_splatting/interfaces/output_compositor.h
       
     </span>
   </a>
@@ -5161,10 +5161,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattinginterfacesoutput_compositorh" class="md-nav__link">
+  <a href="#testsexamplesgodottest_projectscriptsmaterialize_corridor_worldgd" class="md-nav__link">
     <span class="md-ellipsis">
       
-        modules/gaussian_splatting/interfaces/output_compositor.h
+        tests/examples/godot/test_project/scripts/materialize_corridor_world.gd
       
     </span>
   </a>
@@ -8843,43 +8843,6 @@
 <li>line 185: int get_tile_density_width() const { return tile_density_wid...</li>
 <li>line 186: int get_tile_density_height() const { return tile_density_he...</li>
 </ul>
-<h2 id="modulesgaussian_splattinginterfacesoutput_compositorcpp">modules/gaussian_splatting/interfaces/output_compositor.cpp<a class="headerlink" href="#modulesgaussian_splattinginterfacesoutput_compositorcpp" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 33: bool gs_get_composite_depth_test_enabled() {...</li>
-<li>line 42: GSSceneCompositeDepthPolicy gs_get_scene_composite_depth_pol...</li>
-<li>line 79: void gs_log_scene_depth_contract_skip_once(bool p_missing_so...</li>
-<li>line 100: void OutputCompositor::_bind_methods() {...</li>
-<li>line 111: Error OutputCompositor::initialize(RenderingDevice *p_device...</li>
-<li>line 121: void OutputCompositor::shutdown() {...</li>
-<li>line 139: void OutputCompositor::invalidate_cached_render() {...</li>
-<li>line 148: bool OutputCompositor::<em>is_depth_texture_valid(const RID &amp;p</em>...</li>
-<li>line 221: void OutputCompositor::test_reset_last_viewport_copy_state()...</li>
-<li>line 234: void OutputCompositor::set_device_manager(Ref&lt;RenderDeviceMa...</li>
-<li>line 239: RD::TextureFormat OutputCompositor::_get_texture_format(Rend...</li>
-<li>line 255: bool OutputCompositor::_is_texture_srgb(RenderingDevice *p_d...</li>
-<li>line 278: void OutputCompositor::_track_resource(const RID &amp;p_rid, Ren...</li>
-<li>line 284: void OutputCompositor::_forget_resource(const RID &amp;p_rid) {...</li>
-<li>line 290: void OutputCompositor::_free_tracked_resource(RenderingDevic...</li>
-<li>line 330: bool OutputCompositor::_is_depth_attachment_format(RD::DataF...</li>
-<li>line 346: bool OutputCompositor::_is_srgb_format(RD::DataFormat p_form...</li>
-<li>line 366: static RD::DataFormat _canonical_storage_format(RD::DataForm...</li>
-<li>line 387: String OutputCompositor::_attachment_usage_label(bool p_is_d...</li>
-<li>line 391: bool OutputCompositor::_determine_viewport_blit_format(RD::D...</li>
-<li>line 427: uint64_t OutputCompositor::_viewport_blit_key(RenderingDevic...</li>
-<li>line 433: uint64_t OutputCompositor::_viewport_blit_scratch_key(Render...</li>
-<li>line 440: uint64_t OutputCompositor::_compute_framebuffer_validation_k...</li>
-<li>line 449: RID OutputCompositor::_ensure_viewport_blit_sampler(Renderin...</li>
-<li>line 591: bool OutputCompositor::_ensure_viewport_blit_pipeline(Render...</li>
-<li>line 677: void OutputCompositor::clear_cached_framebuffers() {...</li>
-<li>line 689: void OutputCompositor::_evict_oldest_cached_framebuffer_if_n...</li>
-<li>line 721: void OutputCompositor::<em>evict_oldest_framebuffer_validation</em>...</li>
-<li>line 746: void OutputCompositor::test_force_insert_cached_framebuffer(...</li>
-<li>line 759: void OutputCompositor::test_force_insert_framebuffer_validat...</li>
-<li>line 773: void OutputCompositor::clear_viewport_blit_resources() {...</li>
-<li>line 798: RID OutputCompositor::get_cached_framebuffer(RenderingDevice...</li>
-<li>line 1253: bool OutputCompositor::copy_to_framebuffer(const Framebuffer...</li>
-<li>line 1307: OutputCopyResult OutputCompositor::copy_to_render_target(con...</li>
-</ul>
 <h2 id="testsexamplesgodottest_projectscriptsbake_gsplatworldgd">tests/examples/godot/test_project/scripts/bake_gsplatworld.gd<a class="headerlink" href="#testsexamplesgodottest_projectscriptsbake_gsplatworldgd" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 12: func _init():...</li>
@@ -9179,6 +9142,43 @@
 <li>line 536: bool _color_approx_eq(const Color &amp;p_a, const Color &amp;p_b, fl...</li>
 <li>line 543: Ref<gaussiansplatasset> <em>make_thumbnail_fixture_asset(int p</em>...</gaussiansplatasset></li>
 <li>line 613: static void _preview_generator_thread(void *p_userdata) {...</li>
+</ul>
+<h2 id="modulesgaussian_splattinginterfacesoutput_compositorcpp">modules/gaussian_splatting/interfaces/output_compositor.cpp<a class="headerlink" href="#modulesgaussian_splattinginterfacesoutput_compositorcpp" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 33: bool gs_get_composite_depth_test_enabled() {...</li>
+<li>line 42: GSSceneCompositeDepthPolicy gs_get_scene_composite_depth_pol...</li>
+<li>line 79: void gs_log_scene_depth_contract_skip_once(bool p_missing_so...</li>
+<li>line 100: void OutputCompositor::_bind_methods() {...</li>
+<li>line 111: Error OutputCompositor::initialize(RenderingDevice *p_device...</li>
+<li>line 121: void OutputCompositor::shutdown() {...</li>
+<li>line 139: void OutputCompositor::invalidate_cached_render() {...</li>
+<li>line 148: bool OutputCompositor::<em>is_depth_texture_valid(const RID &amp;p</em>...</li>
+<li>line 221: void OutputCompositor::test_reset_last_viewport_copy_state()...</li>
+<li>line 234: void OutputCompositor::set_device_manager(Ref&lt;RenderDeviceMa...</li>
+<li>line 239: RD::TextureFormat OutputCompositor::_get_texture_format(Rend...</li>
+<li>line 255: bool OutputCompositor::_is_texture_srgb(RenderingDevice *p_d...</li>
+<li>line 278: void OutputCompositor::_track_resource(const RID &amp;p_rid, Ren...</li>
+<li>line 284: void OutputCompositor::_forget_resource(const RID &amp;p_rid) {...</li>
+<li>line 290: void OutputCompositor::_free_tracked_resource(RenderingDevic...</li>
+<li>line 330: bool OutputCompositor::_is_depth_attachment_format(RD::DataF...</li>
+<li>line 346: bool OutputCompositor::_is_srgb_format(RD::DataFormat p_form...</li>
+<li>line 366: static RD::DataFormat _canonical_storage_format(RD::DataForm...</li>
+<li>line 387: String OutputCompositor::_attachment_usage_label(bool p_is_d...</li>
+<li>line 391: bool OutputCompositor::_determine_viewport_blit_format(RD::D...</li>
+<li>line 427: uint64_t OutputCompositor::_viewport_blit_key(RenderingDevic...</li>
+<li>line 433: uint64_t OutputCompositor::_viewport_blit_scratch_key(Render...</li>
+<li>line 440: uint64_t OutputCompositor::_compute_framebuffer_validation_k...</li>
+<li>line 449: RID OutputCompositor::_ensure_viewport_blit_sampler(Renderin...</li>
+<li>line 591: bool OutputCompositor::_ensure_viewport_blit_pipeline(Render...</li>
+<li>line 677: void OutputCompositor::clear_cached_framebuffers() {...</li>
+<li>line 689: void OutputCompositor::_evict_oldest_cached_framebuffer_if_n...</li>
+<li>line 721: void OutputCompositor::<em>evict_oldest_framebuffer_validation</em>...</li>
+<li>line 746: void OutputCompositor::test_force_insert_cached_framebuffer(...</li>
+<li>line 759: void OutputCompositor::test_force_insert_framebuffer_validat...</li>
+<li>line 773: void OutputCompositor::clear_viewport_blit_resources() {...</li>
+<li>line 798: RID OutputCompositor::get_cached_framebuffer(RenderingDevice...</li>
+<li>line 1258: bool OutputCompositor::copy_to_framebuffer(const Framebuffer...</li>
+<li>line 1312: OutputCopyResult OutputCompositor::copy_to_render_target(con...</li>
 </ul>
 <h2 id="modulesgaussian_splattingrenderertile_renderercpp">modules/gaussian_splatting/renderer/tile_renderer.cpp<a class="headerlink" href="#modulesgaussian_splattingrenderertile_renderercpp" title="Permanent link">¶</a></h2>
 <ul>
@@ -10700,10 +10700,6 @@
 <li>line 357: Ref<gaussiandata> _make_seeded_gaussian_data(int p_count) {...</gaussiandata></li>
 <li>line 1501: static void _persist_stress_worker(void *p_userdata) {...</li>
 </ul>
-<h2 id="modulesgaussian_splattingshadersviewport_blitglsl">modules/gaussian_splatting/shaders/viewport_blit.glsl<a class="headerlink" href="#modulesgaussian_splattingshadersviewport_blitglsl" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 57: vec3 srgb_to_linear(vec3 color) {...</li>
-</ul>
 <h2 id="modulesgaussian_splattinginterfacesoverflow_auto_tunercpp">modules/gaussian_splatting/interfaces/overflow_auto_tuner.cpp<a class="headerlink" href="#modulesgaussian_splattinginterfacesoverflow_auto_tunercpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 15: static bool _is_autotune_log_enabled() {...</li>
@@ -11385,6 +11381,10 @@
 <li>line 349: uvec2 gs_pack_sort_key(uint tile_idx, float linear_depth, ui...</li>
 <li>line 364: float gs_conic_quadratic(vec2 d, vec3 conic) {...</li>
 </ul>
+<h2 id="modulesgaussian_splattingshadersviewport_blitglsl">modules/gaussian_splatting/shaders/viewport_blit.glsl<a class="headerlink" href="#modulesgaussian_splattingshadersviewport_blitglsl" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 63: vec3 srgb_to_linear(vec3 color) {...</li>
+</ul>
 <h2 id="modulesgaussian_splattingcoremodule_string_namescpp">modules/gaussian_splatting/core/module_string_names.cpp<a class="headerlink" href="#modulesgaussian_splattingcoremodule_string_namescpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 17: void ModuleStringNames::initialize() {...</li>
@@ -11408,10 +11408,6 @@
 <ul>
 <li>line 40: static void gs_pump_test_spin_usec(uint64_t p_usec) {...</li>
 </ul>
-<h2 id="testsexamplesgodottest_projectscriptsmaterialize_corridor_worldgd">tests/examples/godot/test_project/scripts/materialize_corridor_world.gd<a class="headerlink" href="#testsexamplesgodottest_projectscriptsmaterialize_corridor_worldgd" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 25: func _init() -&gt; void:...</li>
-</ul>
 <h2 id="modulesgaussian_splattinginterfacesoutput_compositorh">modules/gaussian_splatting/interfaces/output_compositor.h<a class="headerlink" href="#modulesgaussian_splattinginterfacesoutput_compositorh" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 58: RID get_cached_render_depth() const { return output_cache.ca...</li>
@@ -11425,6 +11421,10 @@
 <li>line 157: uint32_t get_framebuffer_validation_cache_count() const { re...</li>
 <li>line 158: static constexpr uint32_t get_max_cached_framebuffer_formats...</li>
 <li>line 185: LastCompositeStats get_last_composite_stats() const { return...</li>
+</ul>
+<h2 id="testsexamplesgodottest_projectscriptsmaterialize_corridor_worldgd">tests/examples/godot/test_project/scripts/materialize_corridor_world.gd<a class="headerlink" href="#testsexamplesgodottest_projectscriptsmaterialize_corridor_worldgd" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 25: func _init() -&gt; void:...</li>
 </ul>
 <h2 id="modulesgaussian_splattingrenderergpu_memory_streamh">modules/gaussian_splatting/renderer/gpu_memory_stream.h<a class="headerlink" href="#modulesgaussian_splattingrenderergpu_memory_streamh" title="Permanent link">¶</a></h2>
 <ul>
@@ -12009,7 +12009,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 16, 2026 18:26:37 UTC">August 16, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 16, 2026 18:29:30 UTC">August 16, 2026</span>
   </span>
 
     
