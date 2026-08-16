@@ -1320,6 +1320,12 @@ OutputCopyResult OutputCompositor::copy_to_render_target(const OutputCopyParams 
 
     OutputCopyResult result;
     result.success = false;
+    // Fail-closed: when a source decode is requested, the flag starts FALSE and
+    // is set true only by the one path that performs it (the compute composite).
+    // Every other exit — early validation failures, direct copy, CopyEffects
+    // unavailable, graphics fallback — then correctly reports the decode as not
+    // performed instead of defaulting to a clean true.
+    result.source_decode_honored = !p_params.source_decode_srgb;
     output_cache.last_viewport_copy_success = false;
     output_cache.last_viewport_copy_source_size = Size2i();
     output_cache.last_viewport_copy_dest_size = Size2i();
@@ -1469,6 +1475,10 @@ OutputCopyResult OutputCompositor::copy_to_render_target(const OutputCopyParams 
                 p_params.depth_linearize_mul, p_params.depth_linearize_add, p_params.depth_epsilon);
         if (ok) {
             result.success = true;
+            // The compute blit is the one path that performs the requested
+            // source decode (the shader applies srgb_to_linear_exact whenever
+            // the push-constant flag is set, unconditionally).
+            result.source_decode_honored = true;
             // _copy_final_output_compute internally disables depth comparison
             // when either source_depth or destination_depth RID is invalid (it
             // substitutes a fallback depth texture and zeroes the depth-test
@@ -1502,7 +1512,7 @@ OutputCopyResult OutputCompositor::copy_to_render_target(const OutputCopyParams 
         // absence) but say so: warn once and surface the reason through
         // result.error / output_cache.last_output_copy_error.
         WARN_PRINT_ONCE("[OutputCompositor] Source sRGB->linear decode requested but the compute composite could not run; the graphics fallback composites WITHOUT the decode (splats will appear too bright until the compute path recovers).");
-        result.source_decode_honored = false;
+        // source_decode_honored is already false here (fail-closed init above).
         if (result.error.is_empty()) {
             result.error = "source_decode_srgb requested but the graphics fallback path cannot decode; composited without decode";
         }
@@ -1780,24 +1790,31 @@ void OutputCompositor::integrate_final_output(GaussianSplatRenderer *p_renderer,
                     if (copy_result.success) {
                         output_cache.last_copy_degradation_reason = "relaxed depth composite fallback: source or scene depth missing";
                     }
-                } else if (!copy_result.depth_test_honored) {
+                } else if (!copy_result.depth_test_honored || !copy_result.source_decode_honored) {
+                    // A dishonored depth test and/or a requested-but-skipped source
+                    // decode is a degraded copy even when the composite itself
+                    // succeeded (splats present but unoccluded and/or wrongly
+                    // encoded). Compose BOTH reasons — a graphics fallback after a
+                    // failed compute pass dishonors both at once, and attributing
+                    // the degradation to only one of them misleads the telemetry
+                    // seam (Codex #924 round 2, finding 2).
                     output_cache.last_copy_degraded = true;
-                    output_cache.last_copy_degradation_reason = copy_result.error.is_empty()
-                            ? String("depth composite fallback did not honor requested depth test")
-                            : copy_result.error;
-                    if (scene_depth_policy == GS_SCENE_COMPOSITE_DEPTH_POLICY_STRICT) {
-                        output_cache.last_viewport_copy_success = false;
+                    String degradation_reason;
+                    if (!copy_result.depth_test_honored) {
+                        degradation_reason = "requested depth test not honored";
                     }
-                }
-                // A requested-but-skipped source decode is a degraded copy even when
-                // the composite itself succeeded (splats present but wrongly encoded);
-                // it must never read as a clean success in the telemetry seam.
-                if (!copy_result.source_decode_honored) {
-                    output_cache.last_copy_degraded = true;
-                    if (output_cache.last_copy_degradation_reason.is_empty()) {
-                        output_cache.last_copy_degradation_reason = copy_result.error.is_empty()
-                                ? String("source sRGB->linear decode requested but not performed (graphics fallback)")
-                                : copy_result.error;
+                    if (!copy_result.source_decode_honored) {
+                        if (!degradation_reason.is_empty()) {
+                            degradation_reason += "; ";
+                        }
+                        degradation_reason += "requested source sRGB->linear decode not performed";
+                    }
+                    if (!copy_result.error.is_empty()) {
+                        degradation_reason += " (" + copy_result.error + ")";
+                    }
+                    output_cache.last_copy_degradation_reason = degradation_reason;
+                    if (!copy_result.depth_test_honored && scene_depth_policy == GS_SCENE_COMPOSITE_DEPTH_POLICY_STRICT) {
+                        output_cache.last_viewport_copy_success = false;
                     }
                 }
             }

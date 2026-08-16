@@ -58,13 +58,16 @@ struct OutputCopyResult {
     // depth-tested compositing on such targets will see success=true here but
     // depth_test_honored=false. Set to true when depth was not requested.
     bool depth_test_honored = true;
-    // True iff a requested source sRGB->linear decode (params.source_decode_srgb)
-    // was actually performed by the executed path. The CopyEffects graphics
-    // fallback used when the compute composite cannot run performs NO decode,
-    // so a pre-upscale caller will see success=true (splats still composited —
-    // presence beats absence) but source_decode_honored=false; the caller must
-    // surface that as a degraded copy, never as a clean success. True when no
-    // decode was requested.
+    // True iff no source sRGB->linear decode was requested
+    // (params.source_decode_srgb == false) OR the executed path actually
+    // performed it — which only the compute composite does. Fail-closed: the
+    // dispatcher initializes this to false whenever a decode was requested, so
+    // every other exit (early validation failure, CopyEffects unavailable,
+    // graphics fallback) reports false, including outright failures. The
+    // CopyEffects graphics fallback composites WITHOUT the decode, so a
+    // pre-upscale caller can see success=true (splats still composited —
+    // presence beats absence) with source_decode_honored=false; the caller must
+    // surface that as a degraded copy, never as a clean success.
     bool source_decode_honored = true;
 };
 

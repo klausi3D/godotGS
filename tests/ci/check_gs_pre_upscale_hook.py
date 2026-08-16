@@ -158,11 +158,18 @@ def check_output_compositor(failures: list[str]) -> None:
     )
 
 
+# Adjacency matters, not mere ordering: `source_decode_srgb` must occupy the
+# former pad0 slot — IMMEDIATELY after `depth_linearize_add` and IMMEDIATELY
+# before `float pad1` — on both sides, or the host and shader read different
+# 4-byte words. Only whitespace and // line comments may sit between the
+# declarations (a `.*?` here would green-light a field moved after pad1 —
+# Codex #924 round 2, finding 4).
+_ADJ = r"(?:\s|//[^\n]*)*"
 _HOST_FIELD_SEQ = re.compile(
-    r"float\s+depth_linearize_add\s*;.*?int32_t\s+source_decode_srgb\s*;", re.DOTALL
+    r"float\s+depth_linearize_add\s*;" + _ADJ + r"int32_t\s+source_decode_srgb\s*;" + _ADJ + r"float\s+pad1\s*;"
 )
 _SHADER_FIELD_SEQ = re.compile(
-    r"float\s+depth_linearize_add\s*;.*?int\s+source_decode_srgb\s*;", re.DOTALL
+    r"float\s+depth_linearize_add\s*;" + _ADJ + r"int\s+source_decode_srgb\s*;" + _ADJ + r"float\s+pad1\s*;"
 )
 
 
@@ -174,12 +181,12 @@ def check_push_constant_mirror(failures: list[str]) -> None:
     if not _HOST_FIELD_SEQ.search(host):
         failures.append(
             f"{_rel(OUTPUT_COMPOSITOR)}: ViewportBlitPushConstant must declare "
-            "`int32_t source_decode_srgb;` after `float depth_linearize_add;` (former pad0 slot)"
+            "`int32_t source_decode_srgb;` IMMEDIATELY between `float depth_linearize_add;` and `float pad1;` (the former pad0 slot; only whitespace/line comments may intervene)"
         )
     if not _SHADER_FIELD_SEQ.search(shader):
         failures.append(
             f"{_rel(VIEWPORT_BLIT_GLSL)}: BlitParams must declare "
-            "`int source_decode_srgb;` after `float depth_linearize_add;` (former pad0 slot)"
+            "`int source_decode_srgb;` IMMEDIATELY between `float depth_linearize_add;` and `float pad1;` (the former pad0 slot; only whitespace/line comments may intervene)"
         )
     if "params.source_decode_srgb != 0" not in shader:
         failures.append(
@@ -265,9 +272,21 @@ def self_test() -> int:
         ("D: flag declaration removed", "RENDER_DATA_RD_H",
                 lambda t: t.replace("bool gaussian_composite_pre_upscale = false;", "", 1),
                 check_render_data_rd),
-        # E: shader side of the push-constant mirror reverted to the old pad.
-        ("E: shader mirror reverted", "VIEWPORT_BLIT_GLSL",
+        # E1: shader side of the push-constant mirror reverted to the old pad.
+        ("E1: shader mirror reverted", "VIEWPORT_BLIT_GLSL",
                 lambda t: t.replace("int source_decode_srgb;", "float pad0;", 1),
+                check_push_constant_mirror),
+        # E2: shader field still declared and still read, but MOVED after pad1
+        # (host/shader now read different 4-byte words) — the adjacency
+        # requirement, not mere ordering, must flag this.
+        ("E2: shader field moved after pad1", "VIEWPORT_BLIT_GLSL",
+                lambda t: t.replace("int source_decode_srgb;", "float pad0;", 1)
+                        .replace("float pad1;", "float pad1;\n    int source_decode_srgb;", 1),
+                check_push_constant_mirror),
+        # E3: same reorder on the HOST side of the mirror.
+        ("E3: host field moved after pad1", "OUTPUT_COMPOSITOR",
+                lambda t: t.replace("int32_t source_decode_srgb;", "float pad0;", 1)
+                        .replace("float pad1;", "float pad1;\n        int32_t source_decode_srgb;", 1),
                 check_push_constant_mirror),
     )
 
