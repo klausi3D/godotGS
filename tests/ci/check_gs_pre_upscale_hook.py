@@ -161,16 +161,37 @@ def check_output_compositor(failures: list[str]) -> None:
 # Adjacency matters, not mere ordering: `source_decode_srgb` must occupy the
 # former pad0 slot — IMMEDIATELY after `depth_linearize_add` and IMMEDIATELY
 # before `float pad1` — on both sides, or the host and shader read different
-# 4-byte words. Only whitespace and // line comments may sit between the
-# declarations (a `.*?` here would green-light a field moved after pad1 —
-# Codex #924 round 2, finding 4).
-_ADJ = r"(?:\s|//[^\n]*)*"
+# 4-byte words. The check first EXTRACTS the live declaration block (the host
+# `struct ViewportBlitPushConstant {...}` / the shader `BlitParams {...}` push
+# constant), then STRIPS // line comments, then requires the three declarations
+# with nothing but whitespace between them. Matching the whole file with a
+# comment-tolerant regex was green-lightable by a commented-out decoy sequence
+# while the live field had moved (Codex #924 round 3, finding 1); a bare `.*?`
+# was green-lightable by a field moved after pad1 (round 2, finding 4).
+_LINE_COMMENT = re.compile(r"//[^\n]*")
+_HOST_BLOCK_HEADER = re.compile(r"struct\s+ViewportBlitPushConstant\s*\{")
+_SHADER_BLOCK_HEADER = re.compile(r"layout\s*\(\s*push_constant[^)]*\)\s*uniform\s+BlitParams\s*\{")
 _HOST_FIELD_SEQ = re.compile(
-    r"float\s+depth_linearize_add\s*;" + _ADJ + r"int32_t\s+source_decode_srgb\s*;" + _ADJ + r"float\s+pad1\s*;"
+    r"float\s+depth_linearize_add\s*;\s*int32_t\s+source_decode_srgb\s*;\s*float\s+pad1\s*;"
 )
 _SHADER_FIELD_SEQ = re.compile(
-    r"float\s+depth_linearize_add\s*;" + _ADJ + r"int\s+source_decode_srgb\s*;" + _ADJ + r"float\s+pad1\s*;"
+    r"float\s+depth_linearize_add\s*;\s*int\s+source_decode_srgb\s*;\s*float\s+pad1\s*;"
 )
+
+
+def _extract_stripped_block(text: str, header: re.Pattern, label: str, path: Path, failures: list[str]) -> str | None:
+    """The comment-stripped body of the first `header ... { body }` block.
+    Both mirror blocks are flat (no nested braces), so the body ends at the
+    first `}` after the header. Fail-closed when the header or brace is gone."""
+    m = header.search(text)
+    if not m:
+        failures.append(f"{_rel(path)}: missing anchor [{label}]: declaration block header not found")
+        return None
+    end = text.find("}", m.end())
+    if end < 0:
+        failures.append(f"{_rel(path)}: [{label}]: unterminated declaration block")
+        return None
+    return _LINE_COMMENT.sub("", text[m.end():end])
 
 
 def check_push_constant_mirror(failures: list[str]) -> None:
@@ -178,17 +199,19 @@ def check_push_constant_mirror(failures: list[str]) -> None:
     shader = _read(VIEWPORT_BLIT_GLSL, failures)
     if host is None or shader is None:
         return
-    if not _HOST_FIELD_SEQ.search(host):
+    host_block = _extract_stripped_block(host, _HOST_BLOCK_HEADER, "E: host push-constant struct", OUTPUT_COMPOSITOR, failures)
+    if host_block is not None and not _HOST_FIELD_SEQ.search(host_block):
         failures.append(
             f"{_rel(OUTPUT_COMPOSITOR)}: ViewportBlitPushConstant must declare "
-            "`int32_t source_decode_srgb;` IMMEDIATELY between `float depth_linearize_add;` and `float pad1;` (the former pad0 slot; only whitespace/line comments may intervene)"
+            "`int32_t source_decode_srgb;` IMMEDIATELY between `float depth_linearize_add;` and `float pad1;` (the former pad0 slot)"
         )
-    if not _SHADER_FIELD_SEQ.search(shader):
+    shader_block = _extract_stripped_block(shader, _SHADER_BLOCK_HEADER, "E: shader push-constant block", VIEWPORT_BLIT_GLSL, failures)
+    if shader_block is not None and not _SHADER_FIELD_SEQ.search(shader_block):
         failures.append(
             f"{_rel(VIEWPORT_BLIT_GLSL)}: BlitParams must declare "
-            "`int source_decode_srgb;` IMMEDIATELY between `float depth_linearize_add;` and `float pad1;` (the former pad0 slot; only whitespace/line comments may intervene)"
+            "`int source_decode_srgb;` IMMEDIATELY between `float depth_linearize_add;` and `float pad1;` (the former pad0 slot)"
         )
-    if "params.source_decode_srgb != 0" not in shader:
+    if "params.source_decode_srgb != 0" not in _LINE_COMMENT.sub("", shader):
         failures.append(
             f"{_rel(VIEWPORT_BLIT_GLSL)}: shader never reads params.source_decode_srgb — "
             "the sRGB->linear source decode contract is dead in the blit"
@@ -287,6 +310,15 @@ def self_test() -> int:
         ("E3: host field moved after pad1", "OUTPUT_COMPOSITOR",
                 lambda t: t.replace("int32_t source_decode_srgb;", "float pad0;", 1)
                         .replace("float pad1;", "float pad1;\n        int32_t source_decode_srgb;", 1),
+                check_push_constant_mirror),
+        # E4: field moved after pad1 AND a commented-out decoy of the correct
+        # sequence left inside the block — comment stripping must see through
+        # the decoy (a whole-file comment-tolerant regex did not).
+        ("E4: shader reorder with commented decoy", "VIEWPORT_BLIT_GLSL",
+                lambda t: t.replace("int source_decode_srgb;", "float pad0;", 1)
+                        .replace("float pad1;",
+                                "float pad1;\n    int source_decode_srgb;\n"
+                                "    // float depth_linearize_add; int source_decode_srgb; float pad1;", 1),
                 check_push_constant_mirror),
     )
 
