@@ -25,6 +25,12 @@ python3 tests/ci/validate_automation.py --contracts-only
 - clip blend self/cycle guard + depth cap anchors (`ISSUE-044`)
 - incremental saver layout-version read/write contract anchors (`ISSUE-045`)
 
+It also derives every `*.yml` and `*.yaml` file under `.github/workflows/` and
+parses each with PyYAML. Parser absence, an unreadable/empty workflow directory,
+or invalid YAML fails closed. The required GitHub-hosted `agentic-pr-gate` installs
+the version-and-hash-pinned dependency from `requirements-automation.txt`; the
+persistent self-hosted runner does not install it.
+
 ## Runtime Gate
 
 ```bash

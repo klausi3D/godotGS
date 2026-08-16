@@ -296,32 +296,36 @@ def test_baseline_qa_runner(godot_binary: str) -> dict:
 
 
 def check_ci_workflow() -> bool:
-    """Check that required CI workflow files exist and are valid YAML when parser is available."""
-    workflow_files = [
-        ".github/workflows/baseline_qa.yml",
-        ".github/workflows/gaussian_production_gates.yml",
-        ".github/workflows/gaussian_shader_validation.yml",
-        ".github/workflows/agentic_pr_gate.yml",
-    ]
-
+    """Parse every workflow GitHub Actions discovers, failing closed on absence."""
     try:
         import yaml  # type: ignore
-    except ImportError:
-        yaml = None
+    except ImportError as exc:
+        print(f"❌ PyYAML is required for CI workflow validation: {exc}")
+        print(
+            "   Install the pinned automation dependencies from "
+            "tests/ci/requirements-automation.txt"
+        )
+        return False
+
+    workflow_dir = ROOT_DIR / ".github" / "workflows"
+    try:
+        workflow_files = sorted(
+            path
+            for path in workflow_dir.iterdir()
+            if path.is_file() and path.suffix in {".yml", ".yaml"}
+        )
+    except OSError as exc:
+        print(f"❌ Cannot enumerate CI workflow directory {workflow_dir}: {exc}")
+        return False
+
+    if not workflow_files:
+        print("❌ No GitHub Actions workflow files found")
+        return False
 
     success = True
-    for relative in workflow_files:
-        workflow_file = ROOT_DIR / relative
-        if not workflow_file.exists():
-            print(f"❌ Missing CI workflow file: {relative}")
-            success = False
-            continue
-
+    for workflow_file in workflow_files:
+        relative = workflow_file.relative_to(ROOT_DIR).as_posix()
         print(f"✅ CI workflow file exists: {relative}")
-        if yaml is None:
-            print("⚠️ PyYAML not available, skipping YAML parse validation")
-            continue
-
         try:
             yaml.safe_load(workflow_file.read_text(encoding="utf-8"))
             print(f"✅ YAML valid: {relative}")
