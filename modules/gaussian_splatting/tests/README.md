@@ -126,7 +126,7 @@ The Python supervisor drives `--gs-gpu-test` in **per-batch subprocesses** so a 
 | `TileRenderer` | `*TileRenderer*][RequiresGPU]*` | Active (3 cases, #641) |
 | `GpuSorting` | `*Sort*][RequiresGPU]*` | Active, **required** (promoted #744) — gates the #508 `[GPUSortPipeline]` overflow-sticky case AND the three `[GpuSort]` sort-order oracles retagged in #622 (Bitonic + 32-bit/8-bit Radix); `check_gpu_sorting_order_coverage.py` pins that coverage. The `.cpp` order tests remain linker-dropped (#622/#631); the `GPU Sorting Performance` timing benchmark stays advisory |
 | `MemoryStream` | `*MemoryStream*][RequiresGPU]*` | Active (2 cases, #798) |
-| `Streaming` | `*Streaming*][RequiresGPU]*` | Active, advisory (3 cases retagged `[Streaming]` in #908) |
+| `Streaming` | `*Streaming*][RequiresGPU]*` | Active, advisory — filter matches the 3 cases retagged `[Streaming]` in #908, but **executes 2**: `GPU Memory Streaming Performance` is excluded via `BatchSpec.excludes` under a `deferred_requires_gpu_waivers` entry (#917, budgets proven failing), so its timing budgets are waived, not exercised |
 | `Integration` | `*Integration*][RequiresGPU]*` | Active (1 of 2 cases, #641) |
 | `RendererPipeline` | *(named cases)* | Active, **required** |
 | `Lifetime` | *(named cases)* | Active, **required** |
@@ -204,7 +204,7 @@ The script builds the Windows editor with tests enabled and then runs `--test-ca
 
 ### Unit Tests
 - **GaussianData basics and layout** – `[GaussianSplatting] GaussianData basic operations` exercises creation, resizing, AABB computation, and empty/single-splat cases, while `[GaussianSplatting] Gaussian structure memory layout` checks GPU-friendly alignment.【F:modules/gaussian_splatting/tests/test_gaussian_data.h†L17-L134】
-- **GPU Memory Streaming** – `[GaussianSplatting][Streaming][RequiresGPU] GPU Memory Streaming` validates initialization, uploads, triple buffering, overflow handling, and invalid parameters; `[GaussianSplatting][Streaming][RequiresGPU] GPU Memory Streaming Performance` enforces timing budgets across dataset sizes (both retagged `[Streaming]` in #908 so the harness's `Streaming` batch selects them).【F:modules/gaussian_splatting/tests/test_gpu_streaming.h†L20-L233】
+- **GPU Memory Streaming** – `[GaussianSplatting][Streaming][RequiresGPU] GPU Memory Streaming` validates initialization, uploads, triple buffering, overflow handling, and invalid parameters; `[GaussianSplatting][Streaming][RequiresGPU] GPU Memory Streaming Performance` asserts timing budgets across dataset sizes — but note it does **not** run in the `Streaming` batch: the batch filter matches it and then subtracts it via `BatchSpec.excludes`, under a `deferred_requires_gpu_waivers` entry (#917) recording that its hard-coded budgets failed on first-ever execution. Both cases were retagged `[Streaming]` in #908; only `GPU Memory Streaming` executes.【F:modules/gaussian_splatting/tests/test_gpu_streaming.h†L20-L233】
 - **GPU Sorting** – `[GaussianSplatting] GPU Bitonic Sorting` covers initialization, correctness for different sizes, and non-power-of-two inputs, while `[GaussianSplatting] GPU Sorting Performance` benchmarks the sorter and compares against CPU sorting.【F:modules/gaussian_splatting/tests/test_gpu_sorting.h†L21-L204】【F:modules/gaussian_splatting/tests/test_gpu_sorting.h†L205-L347】
 
 ### Integration Tests
