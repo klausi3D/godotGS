@@ -19,14 +19,15 @@ Use CLI/manifest injection only when running alternative stress datasets.
 
 | Invocation | Producer | `test_splats.ply` |
 | --- | --- | --- |
-| `prepare_synthetic_assets.py` | Python fallback (`CANONICAL_SPECS`, seed 1101, sphere, scale 3.0) | **1024 splats**, 57704 bytes |
+| `prepare_synthetic_assets.py` | Preserve an existing floor-valid fixture; otherwise Python fallback (`CANONICAL_SPECS`, seed 1101, sphere, scale 3.0) | Existing **>=10000** splats, or **1024 splats** on a fresh checkout |
 | `prepare_synthetic_assets.py --godot-binary <bin>` | C++ `[GeneratePLY]` case in `modules/gaussian_splatting/tests/generate_synthetic_ply_fixtures.h` | 10000 splats |
 
 `tests/ci/run_baseline_qa.py` calls the script with **no** `--godot-binary`
-(`prepare_synthetic_assets()`, invoked from `run_all_tests()`), so every CI
-category — including the blocking QA scene lane — runs against the **1024-splat
-Python fixture**. The 10000 floor in `ASSET_MIN_SPLAT_COUNTS` is a *benchmark
-lane* contract; it does not describe what the QA lane has on disk.
+(`prepare_synthetic_assets()`, invoked from `run_all_tests()`). On a fresh
+workspace that lane creates the 1024-splat Python fixture; it no longer
+overwrites a floor-valid canonical fixture left by a tests-enabled generator.
+The full module-test and runtime-validation consumers pass their selected
+binary and require the 10000-splat floor before running.
 
 ## `test_splats.gsplatworld` — committed, baked from `test_splats.ply`
 

@@ -113,8 +113,9 @@ python3 tests/runtime/prepare_synthetic_assets.py --quiet \
 !!! important "Pass `--godot-binary` for benchmark collection"
     Several fixtures — including `test_splats.ply`, which most lanes resolve to — are listed in
     `CPP_GENERATED_FILENAMES` and are produced by the engine's `[GeneratePLY]` test case when a
-    binary is supplied. Without `--godot-binary` the script falls back to lightweight Python
-    generators and writes `test_splats.ply` with **1024** splats instead of **10000**. Both forms
+    binary is supplied. Without `--godot-binary` the script preserves an existing fixture that
+    already meets the 10000-splat floor; if none exists, it falls back to lightweight Python
+    generators and writes `test_splats.ply` with **1024** splats. Both forms
     are valid for smoke coverage, but they are different workloads and will not reproduce
     published benchmark numbers. Since #669 the benchmark harness enforces this rather than
     trusting it: a lane loading the 1024-splat fixture fails instead of reporting a number.
@@ -138,6 +139,11 @@ Python-fallback `test_splats.ply` fails the 10000-splat floor instead of silentl
 Before #669 such a lane instantiated zero splat nodes and reported an *implausibly high* FPS with
 a passing recommendation — the failure presented as a spectacular result rather than a broken one.
 Regression coverage lives in `tests/ci/test_benchmark_fixture_contract.py`.
+
+The full module-test and runtime-validation consumers additionally invoke preparation with their
+selected tests-enabled binary and `--require-asset-floors`. They refuse to start when either
+consumer copy is absent, unreadable, or below `ASSET_MIN_SPLAT_COUNTS`; direct PLY references in
+`tests/runtime/*.gd` are statically required to name an asset with a positive declared floor.
 
 Streaming-named lanes that still resolve to `test_splats.ply` are intentionally classified as
 `lightweight_smoke`; they are useful for proof-shape smoke coverage, but they are not chunked

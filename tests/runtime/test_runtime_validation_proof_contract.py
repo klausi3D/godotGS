@@ -37,6 +37,36 @@ sys.modules[spec.name] = runtime_validation
 spec.loader.exec_module(runtime_validation)
 
 
+class SyntheticAssetFloorWiringTests(unittest.TestCase):
+    def test_prep_command_requires_floors_and_forwards_the_binary(self) -> None:
+        completed = mock.Mock(returncode=0, stdout="", stderr="")
+        with mock.patch.object(runtime_validation.subprocess, "run", return_value=completed) as run:
+            runtime_validation.ensure_synthetic_assets("C:/godot/bin/godot.exe")
+
+        command = run.call_args.args[0]
+        self.assertIn("--require-asset-floors", command)
+        self.assertEqual(command[-2:], ["--godot-binary", "C:/godot/bin/godot.exe"])
+
+    def test_main_passes_its_selected_binary_to_asset_prep(self) -> None:
+        calls: list[str] = []
+        argv = [
+            "run_runtime_validation.py",
+            "--godot-binary",
+            "C:/godot/bin/godot.exe",
+            "--list-profiles",
+        ]
+        with mock.patch.object(sys, "argv", argv), \
+                mock.patch.object(
+                    runtime_validation,
+                    "ensure_synthetic_assets",
+                    side_effect=lambda binary: calls.append(binary),
+                ), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(runtime_validation.main(), 0)
+
+        self.assertEqual(calls, ["C:/godot/bin/godot.exe"])
+
+
 def _result(name: str, metrics: dict[str, object], status: str = "passed"):
     return runtime_validation.TestResult(
         name=name,
@@ -612,7 +642,7 @@ class AdvisoryLadderEndToEndTests(unittest.TestCase):
                 str(report_path),
             ]
             printed = io.StringIO()
-            with mock.patch.object(runtime_validation, "ensure_synthetic_assets", lambda: None), \
+            with mock.patch.object(runtime_validation, "ensure_synthetic_assets", lambda *_args: None), \
                     mock.patch.object(runtime_validation, "_godot_binary_is_available", lambda binary: None), \
                     mock.patch.object(runtime_validation, "run_command", fake_run_command), \
                     mock.patch.object(sys, "argv", argv), \

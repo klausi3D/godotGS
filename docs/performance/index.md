@@ -112,8 +112,8 @@ This snapshot was measured at `9161d92f349`, which was 8 commits behind `master`
 scons platform=windows target=editor dev_build=no optimize=speed debug_symbols=no tests=yes
 
 # 2. Generate the benchmark fixtures. Passing --godot-binary is REQUIRED:
-#    without it the script falls back to lightweight Python generators and
-#    test_splats.ply is written with 1024 splats instead of 10000, which
+#    without it the script preserves a valid existing canonical fixture, but
+#    a fresh checkout falls back to 1024 splats instead of 10000, which
 #    changes every lane that depends on it. Since #669 this is enforced:
 #    the suite refuses to run (exit 2) on a missing or undersized fixture
 #    rather than reporting a number from the wrong workload.
@@ -131,7 +131,7 @@ python tests/runtime/run_benchmark.py \
 ```
 
 !!! note "`test_splats.ply` is generated, not committed"
-    Most benchmark lanes resolve to `res://tests/fixtures/test_splats.ply`, which is gitignored and produced by step 2. If you skip that step the lanes still exit 0, but they instantiate **zero** splat nodes and report a meaningless several-thousand FPS with a passing recommendation. Always confirm a lane's reported visible-splat count is non-zero before trusting its numbers.
+    Most benchmark lanes resolve to `res://tests/fixtures/test_splats.ply`, which is gitignored and produced by step 2. If you skip that step, the #669 contract fails closed on the missing fixture instead of reporting an empty-scene number. Always confirm a lane's reported visible-splat count is non-zero before trusting its numbers.
 
 ### Raw data
 

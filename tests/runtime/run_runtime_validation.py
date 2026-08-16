@@ -203,13 +203,20 @@ def ensure_build_dir() -> None:
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def ensure_synthetic_assets() -> None:
+def ensure_synthetic_assets(godot_binary: str) -> None:
     if not SYNTHETIC_ASSET_PREP_SCRIPT.is_file():
         raise RuntimeError(
             f"Missing synthetic asset prep script: {SYNTHETIC_ASSET_PREP_SCRIPT.relative_to(ROOT)}"
         )
 
-    command = [sys.executable, str(SYNTHETIC_ASSET_PREP_SCRIPT), "--quiet"]
+    command = [
+        sys.executable,
+        str(SYNTHETIC_ASSET_PREP_SCRIPT),
+        "--quiet",
+        "--require-asset-floors",
+        "--godot-binary",
+        godot_binary,
+    ]
     print(f"[runtime] Preparing synthetic assets: {_format_command(command)}")
     try:
         completed = subprocess.run(
@@ -1430,7 +1437,10 @@ def main() -> int:
     args = _parse_args()
     ensure_build_dir()
     try:
-        ensure_synthetic_assets()
+        # T7a (#895): the runtime consumer owns the final floor decision and
+        # gives the producer this run's selected binary so a clean checkout can
+        # build the canonical 10000-splat fixture before validation.
+        ensure_synthetic_assets(args.godot_binary)
     except RuntimeError as exc:
         print(f"[runtime] [FAIL] {exc}")
         return 1

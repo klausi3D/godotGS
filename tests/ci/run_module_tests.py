@@ -60,6 +60,7 @@ BASELINE_QA_REQUIRE_FLAG_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_baseline_qa
 HISTORY_ARTIFACT_AUDIT_SCRIPT = ROOT / "scripts" / "repo" / "history_artifact_audit.py"
 SYNTHETIC_ASSET_PREP_SCRIPT = ROOT / "tests" / "runtime" / "prepare_synthetic_assets.py"
 BENCHMARK_ASSET_GUARD_SCRIPT = ROOT / "tests" / "runtime" / "check_benchmark_asset_paths.py"
+BENCHMARK_ASSET_GUARD_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_check_benchmark_asset_paths.py"
 # T3 (#891): module-level constants (not inline paths) so the guard-wiring
 # contract in test_run_module_tests_lane_ledger.py can derive that a wired
 # runner actually reaches these contract-test files.
@@ -1959,7 +1960,7 @@ def _run_history_artifact_guard(mode: str) -> tuple[bool, int, list[str]]:
     return True, 0, messages
 
 
-def _prepare_synthetic_assets() -> tuple[bool, list[str]]:
+def _prepare_synthetic_assets(godot_binary: str) -> tuple[bool, list[str]]:
     if not SYNTHETIC_ASSET_PREP_SCRIPT.is_file():
         return (
             False,
@@ -1967,7 +1968,14 @@ def _prepare_synthetic_assets() -> tuple[bool, list[str]]:
         )
 
     code, out, err = _run_command(
-        [sys.executable, str(SYNTHETIC_ASSET_PREP_SCRIPT), "--quiet"],
+        [
+            sys.executable,
+            str(SYNTHETIC_ASSET_PREP_SCRIPT),
+            "--quiet",
+            "--require-asset-floors",
+            "--godot-binary",
+            godot_binary,
+        ],
         cwd=ROOT,
     )
 
@@ -1982,19 +1990,18 @@ def _prepare_synthetic_assets() -> tuple[bool, list[str]]:
 
 
 def _run_benchmark_asset_guard() -> tuple[bool, list[str]]:
-    if not BENCHMARK_ASSET_GUARD_SCRIPT.is_file():
-        return (
-            False,
-            [f"Missing benchmark asset guard script: {BENCHMARK_ASSET_GUARD_SCRIPT.relative_to(ROOT)}"],
-        )
-
-    code, out, err = _run_command([sys.executable, str(BENCHMARK_ASSET_GUARD_SCRIPT)], cwd=ROOT)
-    output_lines = [line for line in (out + err).splitlines() if line.strip()]
-    if code != 0:
-        if not output_lines:
-            output_lines = [f"Benchmark asset guard failed with exit code {code}."]
-        return False, output_lines
-    return True, output_lines
+    messages: list[str] = []
+    for script in (BENCHMARK_ASSET_GUARD_SCRIPT, BENCHMARK_ASSET_GUARD_TEST_SCRIPT):
+        if not script.is_file():
+            return False, [f"Missing benchmark asset guard component: {script.relative_to(ROOT)}"]
+        code, out, err = _run_command([sys.executable, str(script)], cwd=ROOT)
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        messages.extend(output_lines)
+        if code != 0:
+            if not output_lines:
+                messages.append(f"{script.name} failed with exit code {code}.")
+            return False, messages
+    return True, messages
 
 
 class GodotRunResult(tuple):
@@ -4325,7 +4332,10 @@ def main() -> int:
         print("[module-tests] Guard-only mode complete.")
         return 0
 
-    synthetic_assets_ok, synthetic_asset_messages = _prepare_synthetic_assets()
+    # T7a (#895): the module-test consumer requires the floor after generation,
+    # and passes the selected tests-enabled binary so a clean checkout can
+    # generate the canonical workload rather than the 1024-splat fallback.
+    synthetic_assets_ok, synthetic_asset_messages = _prepare_synthetic_assets(godot)
     for message in synthetic_asset_messages:
         print(f"[module-tests] {message}")
     if not synthetic_assets_ok:

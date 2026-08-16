@@ -360,6 +360,78 @@ ASSET_MIN_SPLAT_COUNTS: dict[str, int] = {
     "res://tests/fixtures/synthetic_flower_field.ply": 30000,
 }
 
+# The same res:// path is consumed in two project roots: the repository-root
+# doctest/runtime context and the canonical Godot test project.  A consumer
+# gate must validate both copies or a direct res:// reference can select the
+# unchecked one (issue #895).
+ASSET_CONSUMER_PROJECT_ROOTS: tuple[Path, ...] = (
+    Path("."),
+    Path("tests/examples/godot/test_project"),
+)
+
+
+def read_ply_vertex_count(path: Path) -> int | None:
+    """Read the declared PLY vertex count, failing closed on malformed input."""
+    try:
+        with path.open("rb") as stream:
+            if stream.readline().strip() != b"ply":
+                return None
+            for _ in range(64):
+                line = stream.readline()
+                if not line:
+                    return None
+                fields = line.strip().split()
+                if len(fields) == 3 and fields[:2] == [b"element", b"vertex"]:
+                    try:
+                        return int(fields[2])
+                    except ValueError:
+                        return None
+                if line.strip() == b"end_header":
+                    return None
+    except OSError:
+        return None
+    return None
+
+
+def _resource_path_for_spec(spec: PLYSpec) -> str | None:
+    spec_path = Path(spec.relative_path)
+    for project_root in ASSET_CONSUMER_PROJECT_ROOTS:
+        try:
+            project_relative = spec_path.relative_to(project_root)
+        except ValueError:
+            continue
+        candidate = "res://" + project_relative.as_posix()
+        if candidate in ASSET_MIN_SPLAT_COUNTS:
+            return candidate
+    return None
+
+
+def asset_floor_failures(repo_root: Path) -> list[str]:
+    """Return every absent, unreadable, or undersized consumer fixture."""
+    failures: list[str] = []
+    for project_root in ASSET_CONSUMER_PROJECT_ROOTS:
+        for resource_path, required in sorted(ASSET_MIN_SPLAT_COUNTS.items()):
+            relative_resource = Path(resource_path.removeprefix("res://"))
+            asset_file = repo_root / project_root / relative_resource
+            if not asset_file.is_file():
+                failures.append(
+                    f"{asset_file.relative_to(repo_root).as_posix()}: MISSING; "
+                    f"{resource_path} requires >= {required} splats"
+                )
+                continue
+            actual = read_ply_vertex_count(asset_file)
+            if actual is None:
+                failures.append(
+                    f"{asset_file.relative_to(repo_root).as_posix()}: UNVERIFIABLE; "
+                    f"{resource_path} requires >= {required} splats"
+                )
+            elif actual < required:
+                failures.append(
+                    f"{asset_file.relative_to(repo_root).as_posix()}: UNDERSIZED; "
+                    f"has {actual} splats but {resource_path} requires >= {required}"
+                )
+    return failures
+
 
 def _benchmark_asset_manifest() -> dict[str, object]:
     return {
@@ -863,7 +935,13 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
     return True
 
 
-def _generate(repo_root: Path, quiet: bool, godot_binary: Path | None = None) -> int:
+def _generate(
+    repo_root: Path,
+    quiet: bool,
+    godot_binary: Path | None = None,
+    *,
+    preserve_floor_valid: bool = False,
+) -> int:
     removed: list[str] = []
     fixtures_dir = repo_root / "tests" / "fixtures"
 
@@ -887,10 +965,45 @@ def _generate(repo_root: Path, quiet: bool, godot_binary: Path | None = None) ->
         if cpp_generated and not is_primary and filename in CPP_GENERATED_FILENAMES:
             # Copy the C++-generated primary to the secondary location.
             src = fixtures_dir / filename
+            resource_path = _resource_path_for_spec(spec)
+            required_splats = ASSET_MIN_SPLAT_COUNTS.get(resource_path or "", 0)
+            existing_splats = read_ply_vertex_count(output)
+            if (
+                preserve_floor_valid
+                and required_splats > 0
+                and existing_splats is not None
+                and existing_splats >= required_splats
+            ):
+                if not quiet:
+                    print(
+                        f"[prepare_synthetic_assets] preserved {existing_splats:5d}-splat "
+                        f"floor-valid consumer fixture -> {spec.relative_path}"
+                    )
+                continue
             output.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, output)
             if not quiet:
                 print(f"[prepare_synthetic_assets] copied C++ {filename} -> {spec.relative_path}")
+            continue
+
+        # The Python fallback is intentionally lightweight.  In particular it
+        # declares only 1024 vertices for test_splats.ply while the canonical
+        # consumer contract requires 10000.  Never replace an existing fixture
+        # that already satisfies the contract with that weaker fallback.
+        resource_path = _resource_path_for_spec(spec)
+        required_splats = ASSET_MIN_SPLAT_COUNTS.get(resource_path or "", 0)
+        existing_splats = read_ply_vertex_count(output)
+        fallback_is_below_floor = required_splats > 0 and spec.count < required_splats
+        if (
+            fallback_is_below_floor
+            and existing_splats is not None
+            and existing_splats >= required_splats
+        ):
+            if not quiet:
+                print(
+                    f"[prepare_synthetic_assets] preserved {existing_splats:5d}-splat "
+                    f"canonical fixture -> {spec.relative_path}"
+                )
             continue
 
         # Python fallback generation.
@@ -953,6 +1066,11 @@ def main() -> int:
              "(50K-100K splats with SH, anisotropy, fBm noise) instead of the "
              "lightweight Python fallback generators.",
     )
+    parser.add_argument(
+        "--require-asset-floors",
+        action="store_true",
+        help="Fail after generation unless every runtime consumer fixture meets ASSET_MIN_SPLAT_COUNTS.",
+    )
     args = parser.parse_args()
 
     repo_root = _resolve_repo_root(args.repo_root)
@@ -962,14 +1080,41 @@ def main() -> int:
 
     godot_binary: Path | None = None
     if args.godot_binary:
-        godot_binary = Path(args.godot_binary).expanduser().resolve()
-        if not godot_binary.is_file():
-            print(f"[prepare_synthetic_assets] godot binary not found: {godot_binary}")
+        binary_candidate = Path(args.godot_binary).expanduser()
+        resolved_command = shutil.which(args.godot_binary)
+        if binary_candidate.is_file():
+            godot_binary = binary_candidate.resolve()
+        elif resolved_command:
+            godot_binary = Path(resolved_command).resolve()
+        else:
+            print(f"[prepare_synthetic_assets] godot binary not found: {args.godot_binary}")
             return 1
 
     if args.check:
         return _check_only(repo_root)
-    return _generate(repo_root, args.quiet, godot_binary)
+    result = _generate(
+        repo_root,
+        args.quiet,
+        godot_binary,
+        preserve_floor_valid=args.require_asset_floors,
+    )
+    if result != 0 or not args.require_asset_floors:
+        return result
+
+    failures = asset_floor_failures(repo_root)
+    if failures:
+        print("[prepare_synthetic_assets] runtime fixture floor check failed")
+        for failure in failures:
+            print(f"  - {failure}")
+        print(
+            "  regenerate with a tests-enabled binary: "
+            "python tests/runtime/prepare_synthetic_assets.py --godot-binary <binary> "
+            "--require-asset-floors"
+        )
+        return 1
+    if not args.quiet:
+        print("[prepare_synthetic_assets] runtime fixture floor check passed")
+    return 0
 
 
 if __name__ == "__main__":
