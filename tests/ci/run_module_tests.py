@@ -1683,6 +1683,35 @@ def _run_release_builds_runner_trust_guard() -> tuple[bool, list[str]]:
     return True, ["Release builds runner trust guard passed."]
 
 
+def _run_gpu_runner_environment_contract_guard() -> tuple[bool, list[str]]:
+    """Guard (#875): every GPU-pool job disables the third-party Vulkan layers and proves it.
+
+    Static, headless, no GPU: it reads `.github/workflows/*.yml` and the
+    preflight's own constants, and unit-tests the preflight's parser and verdict
+    logic over synthetic loader output. The *runtime* half -- reading the layer
+    chain the loader actually built -- is `preflight_runner_gpu_environment.py`
+    itself, which runs inside each GPU job on the runner.
+
+    Both halves are needed because either alone is unfalsifiable. The runner's
+    seven third-party implicit Vulkan layers inject into every GPU process, so a
+    job without the disable measures the layers as much as the renderer; and a
+    job with the disable but no preflight cannot tell whether the loader honoured
+    it, since an unsupported value is ignored in silence.
+    """
+    script = ROOT / "tests" / "ci" / "test_preflight_runner_gpu_environment.py"
+    if not script.is_file():
+        return False, [f"Missing GPU runner environment contract test: {script.relative_to(ROOT)}"]
+
+    code, out, err = _run_command([sys.executable, str(script)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"GPU runner environment contract guard failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["GPU runner environment contract guard passed."]
+
+
 def _run_export_smoke_preset_state_guard() -> tuple[bool, list[str]]:
     """Guard (#825): the export smoke test never destroys a preset it did not create.
 
@@ -3288,6 +3317,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_release_builds_runner_trust_guard,
             "Release builds runner trust guard failed.",
             "Release builds runner trust guard passed.",
+        ),
+        (
+            True,
+            _run_gpu_runner_environment_contract_guard,
+            "GPU runner environment contract guard failed.",
+            "GPU runner environment contract guard passed.",
         ),
     ]
     for enabled, runner, failure_summary, success_summary in optional_message_guards:

@@ -131,6 +131,18 @@ WORKFLOW_DIR = ROOT / ".github" / "workflows"
 WORKFLOW = WORKFLOW_DIR / "release_builds.yml"
 README = WORKFLOW_DIR / "README.md"
 
+#: Both suffixes GitHub reads out of `.github/workflows/`. Scanning only `*.yml`
+#: is a hole rather than a style preference: a workflow named `x.yaml` runs
+#: exactly like one named `x.yml`, so a guard that derives its job set from
+#: `*.yml` alone reports "no such job" for a real self-hosted job and stays green
+#: over it (#878 review).
+#:
+#: This tuple is the single source for every guard that walks the workflow
+#: directory. :func:`workflow_paths` is the accessor; guards call that rather
+#: than writing their own glob, because a second literal is how the two
+#: derivations came to disagree in the first place.
+WORKFLOW_SUFFIX_GLOBS: Tuple[str, ...] = ("*.yml", "*.yaml")
+
 SELF_HOSTED_LABEL = "self-hosted"
 
 RUNS_ON_LINE = re.compile(r"^\s*runs-on:(.*)$")
@@ -288,6 +300,19 @@ def _parse_runs_on(raw: str, job: str) -> List[str]:
     return [value.strip("\"'")]
 
 
+def workflow_paths(directory: Optional[Path] = None) -> List[Path]:
+    """Every workflow file GitHub will actually read out of `directory`.
+
+    Deduplicated because a case-insensitive filesystem can return the same file
+    for more than one pattern, and a path listed twice would make any
+    "how many workflows did we scan" assertion wrong in the safe-looking
+    direction.
+    """
+    base = WORKFLOW_DIR if directory is None else directory
+    found = {path for glob in WORKFLOW_SUFFIX_GLOBS for path in base.glob(glob)}
+    return sorted(found)
+
+
 def persistent_runner_labels(paths: Optional[List[Path]] = None) -> frozenset:
     """Custom labels that are known to select a persistent self-hosted runner.
 
@@ -320,7 +345,7 @@ def persistent_runner_labels(paths: Optional[List[Path]] = None) -> frozenset:
     a vocabulary that then looks complete.
     """
     if paths is None:
-        paths = sorted(WORKFLOW_DIR.glob("*.yml")) + sorted(WORKFLOW_DIR.glob("*.yaml"))
+        paths = workflow_paths()
 
     labels = set()
     declarations = 0
