@@ -305,6 +305,15 @@ REQUIRED_WORKFLOW_NAMES = frozenset(
 )
 
 
+def _has_nonempty_workflow_trigger(value: object) -> bool:
+    """Return whether a GitHub Actions `on` value declares at least one event."""
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, dict)):
+        return bool(value)
+    return False
+
+
 def check_ci_workflow() -> bool:
     """Parse every workflow GitHub Actions discovers, failing closed on absence."""
     try:
@@ -342,7 +351,13 @@ def check_ci_workflow() -> bool:
         relative = workflow_file.relative_to(ROOT_DIR).as_posix()
         print(f"✅ CI workflow file exists: {relative}")
         try:
-            document = yaml.safe_load(workflow_file.read_text(encoding="utf-8"))
+            # PyYAML's default YAML 1.1 resolver converts an unquoted top-level
+            # `on` key to boolean True. BaseLoader preserves scalar spellings,
+            # matching the key GitHub Actions evaluates without executing tags.
+            document = yaml.load(
+                workflow_file.read_text(encoding="utf-8"),
+                Loader=yaml.BaseLoader,
+            )
         except Exception as exc:
             print(f"❌ CI workflow YAML is invalid ({relative}): {exc}")
             success = False
@@ -356,6 +371,11 @@ def check_ci_workflow() -> bool:
         jobs = document.get("jobs")
         if not isinstance(jobs, dict) or not jobs:
             print(f"❌ CI workflow must define a non-empty jobs mapping: {relative}")
+            success = False
+            continue
+
+        if not _has_nonempty_workflow_trigger(document.get("on")):
+            print(f"❌ CI workflow must define a non-empty top-level on trigger: {relative}")
             success = False
             continue
 

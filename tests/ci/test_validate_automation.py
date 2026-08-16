@@ -26,8 +26,11 @@ CURRENT_WORKFLOW_NAMES = tuple(sorted(validate_automation.REQUIRED_WORKFLOW_NAME
 
 
 class _FakeYaml(types.SimpleNamespace):
+    BaseLoader = object
+
     @staticmethod
-    def safe_load(text: str) -> object:
+    def load(text: str, Loader: object) -> object:
+        del Loader
         if "INVALID_FOR_TEST" in text:
             raise ValueError("synthetic invalid YAML")
         if "EMPTY_FOR_TEST" in text:
@@ -36,7 +39,22 @@ class _FakeYaml(types.SimpleNamespace):
             return "workflow"
         if "LIST_FOR_TEST" in text:
             return ["workflow"]
-        return {"name": "valid", "jobs": {"test": {}}}
+        if "NO_TRIGGER_FOR_TEST" in text:
+            return {"name": "valid", "jobs": {"test": {}}}
+        if "EMPTY_TRIGGER_FOR_TEST" in text:
+            return {"name": "valid", "on": {}, "jobs": {"test": {}}}
+        return {
+            "name": "valid",
+            "on": {"pull_request": {}},
+            "jobs": {"test": {}},
+        }
+
+    @staticmethod
+    def safe_load(text: str) -> object:
+        document = _FakeYaml.load(text, Loader=_FakeYaml.BaseLoader)
+        if isinstance(document, dict) and "on" in document:
+            document[True] = document.pop("on")
+        return document
 
 
 class ValidateAutomationWorkflowTests(unittest.TestCase):
@@ -89,6 +107,18 @@ class ValidateAutomationWorkflowTests(unittest.TestCase):
 
     def test_non_workflow_yaml_documents_are_rejected(self) -> None:
         for marker in ("EMPTY_FOR_TEST", "SCALAR_FOR_TEST", "LIST_FOR_TEST"):
+            with self.subTest(marker=marker):
+                contents = {name: "name: valid\n" for name in CURRENT_WORKFLOW_NAMES}
+                contents["agentic_pr_gate.yml"] = marker
+                temp_dir = self._root_with_workflows(contents)
+
+                with temp_dir, mock.patch.object(
+                    validate_automation, "ROOT_DIR", Path(temp_dir.name)
+                ), mock.patch.dict(sys.modules, {"yaml": _FakeYaml()}):
+                    self.assertFalse(validate_automation.check_ci_workflow())
+
+    def test_workflow_without_nonempty_trigger_fails_closed(self) -> None:
+        for marker in ("NO_TRIGGER_FOR_TEST", "EMPTY_TRIGGER_FOR_TEST"):
             with self.subTest(marker=marker):
                 contents = {name: "name: valid\n" for name in CURRENT_WORKFLOW_NAMES}
                 contents["agentic_pr_gate.yml"] = marker
