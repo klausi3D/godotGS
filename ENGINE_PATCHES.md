@@ -59,11 +59,32 @@ declarations.
 
 ### `servers/rendering/renderer_rd/renderer_scene_render_rd.cpp` (+128 / −~10)
 Implementation of gaussian splat forward rendering and commit logic within the
-RD (RenderingDevice) renderer.
+RD (RenderingDevice) renderer. The post-`_render_scene` composite hook is the
+**legacy phase**: since the GPU-001 Option B fix (refs #921) it is gated on
+`!render_data.gaussian_composite_pre_upscale` and only serves renderers without
+the pre-upscale seam (forward mobile), multiview, and reflection probes; the
+forward-clustered single-view path composites pre-upscale instead (see
+`render_forward_clustered.cpp` below).
 
 ### `servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp` (+253 / −~5)
 ~200+ lines of Gaussian shadow rendering infrastructure: shadow atlas helpers,
 directional/omni/spot shadow dispatch structs. This is the largest single change.
+
+Additionally (GPU-001 Option B fix, refs #921): the "Gaussian Splats
+Pre-Upscale" block inside `_render_scene` runs the splat render+composite into
+the internal scene color buffer at the pre-upscale seam — after MSAA resolve
+and the SSIL framebuffer copy, before FSR2/MetalFX-temporal/TAA consume that
+buffer and before tonemap. Single-view, non-probe only; sets
+`RenderDataRD::gaussian_composite_pre_upscale`. Contract documented in
+`docs/architecture/render-pipeline.md` ("Composite Binding Contract"); ordering
+guarded by `tests/ci/check_gs_pre_upscale_hook.py`.
+
+**Mobile parity delta (named, not yet implemented):** the equivalent pre-tonemap
+hook in `servers/rendering/renderer_rd/forward_mobile/render_forward_mobile.cpp`
+(its post-process pass around the `_render_buffers_post_process_and_tonemap`
+call) is NOT part of the fork delta; forward mobile keeps the legacy post-scene
+composite path and therefore keeps the pre-fix behavior under scaling. Tracked
+as follow-up on #921.
 
 ### `servers/rendering/renderer_compositor.h` (+11 / −~3)
 Added `virtual RendererRD::GaussianSplatStorage *get_gaussian_storage() = 0` to
@@ -79,6 +100,10 @@ from `get_gaussian_storage()`.
 ### `servers/rendering/renderer_rd/storage_rd/render_data_rd.h` (+20 / −~5)
 Added `const PagedArray<RID> *gaussian_splats` pointer and
 `LocalVector<Ref<GaussianSplatRenderer>> gaussian_splat_renderers` to `RenderDataRD`.
+Also carries `bool gaussian_composite_pre_upscale` (GPU-001 Option B, refs
+#921): set by the forward-clustered pre-upscale hook, consumed by the legacy
+hook gate and by the module's `OutputCompositor` phase/target/encoding
+selection.
 
 ### `servers/rendering/renderer_rd/storage_rd/utilities.cpp` (+25 / −~5)
 Added `INSTANCE_GAUSSIAN_SPLAT` case to `get_base_type()` and `free()` methods

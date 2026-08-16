@@ -20,6 +20,21 @@ struct OutputCopyParams {
     Size2i viewport_size;
     bool composite_with_destination = false;
     bool source_is_premultiplied = false;
+    // GPU-001 Option B source-encoding contract: the GS raster output (RGBA8,
+    // see _resolve_compute_friendly_raster_format) is treated as premultiplied,
+    // display-referred, sRGB-encoded LDR. Ground truth for that definition is
+    // the shipped legacy composite: it wrote these bytes UNCONVERTED into the
+    // presented target, whose content is sRGB-encoded — so "as presented" and
+    // "sRGB-encoded" are the same claim. The raster/resolve shaders perform no
+    // color-space conversion, so this holds for every asset source (PLY SH-DC
+    // and SPZ direct color alike): whatever looked right under the legacy
+    // present-target composite keeps exactly that meaning under the decode.
+    // When the composite destination is the LINEAR pre-tonemap scene buffer
+    // (pre-upscale phase), the compute blit must decode the source to linear
+    // before blending; set this flag to request that decode. Leave false for
+    // legacy post-tonemap destinations, whose content is sRGB-encoded like the
+    // source.
+    bool source_decode_srgb = false;
     bool depth_test_enabled = false;
     bool depth_is_orthogonal = false;
     float z_near = 0.0f;
@@ -43,6 +58,17 @@ struct OutputCopyResult {
     // depth-tested compositing on such targets will see success=true here but
     // depth_test_honored=false. Set to true when depth was not requested.
     bool depth_test_honored = true;
+    // True iff no source sRGB->linear decode was requested
+    // (params.source_decode_srgb == false) OR the executed path actually
+    // performed it — which only the compute composite does. Fail-closed: the
+    // dispatcher initializes this to false whenever a decode was requested, so
+    // every other exit (early validation failure, CopyEffects unavailable,
+    // graphics fallback) reports false, including outright failures. The
+    // CopyEffects graphics fallback composites WITHOUT the decode, so a
+    // pre-upscale caller can see success=true (splats still composited —
+    // presence beats absence) with source_decode_honored=false; the caller must
+    // surface that as a degraded copy, never as a clean success.
+    bool source_decode_honored = true;
 };
 
 // Parameters for framebuffer-based copy

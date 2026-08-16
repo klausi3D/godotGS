@@ -70,6 +70,17 @@ public:
 #ifdef MODULE_GAUSSIAN_SPLATTING_ENABLED
 	LocalVector<Ref<GaussianSplatRenderer>> gaussian_splat_renderers;
 	LocalVector<Ref<GaussianSplatRenderer>> gaussian_shadow_renderers;
+	// GPU-001 Option B (pre-tonemap/pre-upscale composite contract): set by the
+	// forward-clustered renderer immediately before it runs the Gaussian-splat
+	// render+composite at the pre-upscale seam (before FSR2/MetalFX/TAA consume
+	// the internal color texture and before tonemap). Consumed by
+	// (a) RendererSceneRenderRD::render_scene to skip the legacy post-scene
+	// composite hook, and (b) the module's OutputCompositor to pin the composite
+	// destination to the internal scene buffer and decode the LDR sRGB splat
+	// source into the linear scene encoding. Stays false on renderers without the
+	// pre-upscale seam (forward mobile), for multiview, and for reflection
+	// probes — those keep the legacy post-scene composite path.
+	bool gaussian_composite_pre_upscale = false;
 #endif
 	RID environment;
 	RID camera_attributes;

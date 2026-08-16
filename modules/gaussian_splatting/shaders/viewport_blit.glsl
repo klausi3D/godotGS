@@ -46,7 +46,13 @@ layout(push_constant, std430) uniform BlitParams {
     float depth_epsilon;
     float depth_linearize_mul;
     float depth_linearize_add;
-    float pad0;
+    // Occupies the former pad0 slot (same 4-byte size/alignment; all other
+    // offsets unchanged). Mirrors `int32_t source_decode_srgb` in the host
+    // ViewportBlitPushConstant (output_compositor.cpp). Non-zero when the
+    // destination is the LINEAR pre-tonemap scene buffer and the sRGB-encoded
+    // LDR splat source must be decoded to linear before blending (GPU-001
+    // Option B source-encoding contract).
+    int source_decode_srgb;
     float pad1;
 } params;
 
@@ -71,6 +77,21 @@ vec3 linear_to_srgb(vec3 color) {
     vec3 S2 = sqrt(S1);
     vec3 S3 = sqrt(S2);
     return clamp(0.662002687 * S1 + 0.684122060 * S2 - 0.323583601 * S3 - 0.0225411470 * linear, vec3(0.0), vec3(1.0));
+}
+
+// EXACT piecewise sRGB EOTF (IEC 61966-2-1), used ONLY for the pre-upscale
+// source decode (params.source_decode_srgb). It must be the exact inverse of
+// the engine tonemapper's linear_to_srgb encode (tonemap.glsl uses the exact
+// piecewise OETF), so that 8-bit source content round-trips bit-stably through
+// decode -> linear tonemap -> encode. The fast polynomial srgb_to_linear above
+// carries ~0.4% error (~1 LSB), which measurably eats 1-LSB margins on this
+// round trip (QA tie-break margin); the legacy destination decode/encode paths
+// keep the fast approximations so their output is unchanged.
+vec3 srgb_to_linear_exact(vec3 color) {
+    vec3 srgb = clamp(color, vec3(0.0), vec3(1.0));
+    vec3 low = srgb / 12.92;
+    vec3 high = pow((srgb + vec3(0.055)) / 1.055, vec3(2.4));
+    return mix(high, low, lessThan(srgb, vec3(0.04045)));
 }
 
 // Convert raw scene depth to linear view-space depth.
@@ -159,6 +180,23 @@ void main() {
 
     vec4 source_linear = source_color;
     vec4 destination_linear = destination_color;
+
+    if (params.source_decode_srgb != 0) {
+        // Source-encoding contract (GPU-001 Option B): the splat raster output is
+        // display-referred, sRGB-encoded LDR. To inject into a linear destination
+        // the color must be decoded on STRAIGHT (un-premultiplied) values —
+        // sRGB decode does not commute with alpha premultiplication — so
+        // unpremultiply, decode, re-premultiply. Fully transparent texels carry
+        // no color and are handled by the early-outs below.
+        if (params.source_is_premultiplied != 0) {
+            if (source_linear.a > 0.0) {
+                vec3 straight = source_linear.rgb / source_linear.a;
+                source_linear.rgb = srgb_to_linear_exact(straight) * source_linear.a;
+            }
+        } else {
+            source_linear.rgb = srgb_to_linear_exact(source_linear.rgb);
+        }
+    }
 
     if (params.composite_with_destination != 0 && source_linear.a <= 0.0) {
         // Destination already contains the original pixel; with the writeonly
