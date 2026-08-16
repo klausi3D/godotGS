@@ -137,10 +137,16 @@ struct SortingState {
 	String override_forced_algorithm = "auto";
 	Transform3D last_sort_world_to_camera_transform;
 	bool last_sort_transform_valid = false;
+	// Sorter-init failure backoff (GPU-003, refs #922). The retry/backoff
+	// policy and its constants live in sort_fallback_policy.h
+	// (sorter_init_backoff_frames / should_attempt_sorter_init); failures back
+	// off but NEVER permanently disable GPU sorting.
 	uint32_t sorter_init_failure_count = 0;
 	uint64_t last_sorter_init_failure_frame = 0;
-	static constexpr uint32_t kSorterInitBackoffFrames = 60;
-	static constexpr uint32_t kSorterInitMaxFailures = 5;
+	// True once the degraded state has been surfaced via
+	// record_rendering_error for the current failure episode; reset on the
+	// next successful sorter build so a later episode reports again.
+	bool sorter_init_degraded_reported = false;
 };
 
 } // namespace GaussianRenderState
