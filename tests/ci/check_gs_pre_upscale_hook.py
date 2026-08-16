@@ -13,8 +13,13 @@ This checker asserts the source-level invariants that keep the fix alive:
 
   A. render_forward_clustered.cpp runs the pre-upscale hook (sets the
      `gaussian_composite_pre_upscale` flag, then renders+commits) and that hook
-     precedes the FSR2 upscale, the TAA process, and the tonemap call in file
-     order.
+     precedes the FSR2 upscale, the MetalFX-temporal process, the TAA process,
+     and the tonemap call in file order. The consumer list is the full set the
+     contract names (memo section 3, Option B); it is an explicit enumeration —
+     deriving "every reader of the internal color buffer" would need semantic
+     analysis a static text guard cannot do faithfully, so a NEW consumer added
+     upstream must be added here in the same change (Codex #924 review thread,
+     MetalFX finding).
   B. renderer_scene_render_rd.cpp keeps the legacy post-scene hook gated on
      `!render_data.gaussian_composite_pre_upscale` (mobile/multiview/probe
      fallback stays, but never double-composites).
@@ -81,9 +86,10 @@ def check_forward_clustered(failures: list[str]) -> None:
     pos_render = _find(text, "render_gaussian_splats_forward(*p_render_data);", "A: pre-upscale render call", FORWARD_CLUSTERED, failures)
     pos_commit = _find(text, "commit_gaussian_splats(*p_render_data);", "A: pre-upscale commit call", FORWARD_CLUSTERED, failures)
     pos_fsr2 = _find(text, "fsr2_effect->upscale(", "A: FSR2 consumer", FORWARD_CLUSTERED, failures)
+    pos_mfx = _find(text, "mfx_temporal_effect->process(", "A: MetalFX-temporal consumer", FORWARD_CLUSTERED, failures)
     pos_taa = _find(text, "taa->process(", "A: TAA consumer", FORWARD_CLUSTERED, failures)
     pos_tonemap = _find(text, "_render_buffers_post_process_and_tonemap(p_render_data);", "A: tonemap consumer", FORWARD_CLUSTERED, failures)
-    if min(pos_flag, pos_render, pos_commit, pos_fsr2, pos_taa, pos_tonemap) < 0:
+    if min(pos_flag, pos_render, pos_commit, pos_fsr2, pos_mfx, pos_taa, pos_tonemap) < 0:
         return
     rel = _rel(FORWARD_CLUSTERED)
     if not (pos_flag < pos_render < pos_commit):
@@ -92,7 +98,7 @@ def check_forward_clustered(failures: list[str]) -> None:
             "render_gaussian_splats_forward and commit AFTER it "
             f"(flag@{pos_flag}, render@{pos_render}, commit@{pos_commit})"
         )
-    for consumer_label, consumer_pos in (("fsr2_effect->upscale", pos_fsr2), ("taa->process", pos_taa), ("tonemap", pos_tonemap)):
+    for consumer_label, consumer_pos in (("fsr2_effect->upscale", pos_fsr2), ("mfx_temporal_effect->process", pos_mfx), ("taa->process", pos_taa), ("tonemap", pos_tonemap)):
         if not pos_commit < consumer_pos:
             failures.append(
                 f"{rel}: Gaussian pre-upscale composite (@{pos_commit}) must precede "
@@ -281,6 +287,13 @@ def self_test() -> int:
         ("A: hook after consumers", "FORWARD_CLUSTERED",
                 lambda t: t.replace(render_call, "", 1).replace(commit_call, "", 1)
                         + "\n\t" + render_call + "\n\t" + commit_call + "\n",
+                check_forward_clustered),
+        # A3: MetalFX-temporal consumer anchor gone — the guard must fail
+        # CLOSED (missing anchor is a failure, never a silently shrunk consumer
+        # list). Structurally this also proves the anchor participates in the
+        # same ordering loop as the proven FSR2/TAA/tonemap terms.
+        ("A3: MetalFX consumer anchor removed", "FORWARD_CLUSTERED",
+                lambda t: t.replace("mfx_temporal_effect->process(", "mfx_temporal_effect_renamed(", 1),
                 check_forward_clustered),
         # B: legacy post-scene hook loses its phase gate (double composite).
         ("B: legacy gate dropped", "SCENE_RENDER_RD",

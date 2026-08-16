@@ -889,8 +889,9 @@ def _run_doc_classes_guard() -> tuple[bool, list[str]]:
 
 def _run_gs_pre_upscale_hook_guard() -> tuple[bool, list[str]]:
     """GPU-001 Option B contract guard (refs #921): the Gaussian pre-upscale
-    composite hook must precede every internal-buffer consumer (FSR2/TAA/
-    tonemap), the legacy post-scene hook must stay gated on the phase flag, and
+    composite hook must precede every internal-buffer consumer (FSR2/MetalFX-
+    temporal/TAA/tonemap), the legacy post-scene hook must stay gated on the
+    phase flag, and
     the source_decode_srgb push-constant mirror must exist on both sides. Runs
     the script's --self-test first so a vacuous (never-failing) checker is
     itself a failure."""
