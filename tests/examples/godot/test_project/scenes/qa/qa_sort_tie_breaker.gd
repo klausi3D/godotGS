@@ -8,6 +8,7 @@ extends "res://scripts/qa_test_base.gd"
 
 const EXPECTED_TIE_BREAK_WINNER := "red"
 const OPAQUE_LOGIT := 8.0
+const MINIMUM_TIE_BREAK_MARGIN := 5.0 / 255.0
 
 ## WHY RED IS THE EXPECTED WINNER
 ##
@@ -27,8 +28,10 @@ const OPAQUE_LOGIT := 8.0
 ## splats semi-transparent and left only a one- or two-LSB presented-image
 ## margin. A high finite logit makes the pair effectively opaque without using
 ## infinities; the rasterizer clamps the resulting alpha to its normal 0.99
-## ceiling. The committed baseline remains a second guard against signal
-## collapse, but the scene now asserts the approved direction directly.
+## ceiling. The corrected fixture measures eight 8-bit channel steps locally;
+## require at least five so a weak but directionally correct signal fails in
+## the scene itself. The committed baseline remains a second guard, while the
+## scene asserts both the approved direction and a non-trivial signal directly.
 
 var splat_node: GaussianSplatNode3D
 var captured_images: Array[Image] = []
@@ -112,7 +115,8 @@ func _on_test_complete():
 	elif channel_delta < 0.0:
 		winner = "red"
 	result_metrics["tie_break_winner"] = winner
-	result_metrics["tie_break_margin"] = absf(channel_delta)
+	var tie_break_margin := absf(channel_delta)
+	result_metrics["tie_break_margin"] = tie_break_margin
 
 	var min_ssim = 1.0
 	var sum_ssim = 0.0
@@ -151,12 +155,17 @@ func _on_test_complete():
 	result_metrics["ssim_avg"] = avg_ssim
 
 	var ordering_matches := winner == EXPECTED_TIE_BREAK_WINNER
-	_test_result = min_ssim >= ssim_stability_threshold and ordering_matches
+	var margin_sufficient := tie_break_margin >= MINIMUM_TIE_BREAK_MARGIN
+	_test_result = min_ssim >= ssim_stability_threshold and ordering_matches and margin_sufficient
 	if not ordering_matches:
 		_test_message = "Wrong equal-depth order: expected %s, observed %s (margin=%.6f)" % [
-			EXPECTED_TIE_BREAK_WINNER, winner, absf(channel_delta)
+			EXPECTED_TIE_BREAK_WINNER, winner, tie_break_margin
+		]
+	elif not margin_sufficient:
+		_test_message = "Equal-depth ordering signal too weak: margin=%.6f minimum=%.6f" % [
+			tie_break_margin, MINIMUM_TIE_BREAK_MARGIN
 		]
 	else:
 		_test_message = "SSIM min=%.4f avg=%.4f; tie-break winner=%s margin=%.6f" % [
-			min_ssim, avg_ssim, winner, absf(channel_delta)
+			min_ssim, avg_ssim, winner, tie_break_margin
 		]

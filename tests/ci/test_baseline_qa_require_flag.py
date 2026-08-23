@@ -587,7 +587,7 @@ class QaInventoryAndEvidenceContractTest(unittest.TestCase):
             / "qa_sort_tie_breaker.gd"
         ).read_text(encoding="utf-8")
         classifier = re.search(
-            r"var channel_delta :=.*?result_metrics\[\"tie_break_margin\"\] = absf\(channel_delta\)",
+            r"var channel_delta :=.*?result_metrics\[\"tie_break_margin\"\] = tie_break_margin",
             scene,
             re.DOTALL,
         )
@@ -609,18 +609,35 @@ class QaInventoryAndEvidenceContractTest(unittest.TestCase):
             / "qa"
             / "qa_sort_tie_breaker.gd"
         ).read_text(encoding="utf-8")
+        setup = re.search(r"func _on_test_start\(\):(?P<body>.*?)(?=\nfunc )", scene, re.DOTALL)
+        completion = re.search(r"func _on_test_complete\(\):(?P<body>.*)\Z", scene, re.DOTALL)
+        self.assertIsNotNone(setup, "Could not locate the effective tie-break fixture setup.")
+        self.assertIsNotNone(completion, "Could not locate the effective tie-break verdict.")
+        setup_body = setup.group("body")
+        completion_body = completion.group("body")
+
         self.assertIn('const EXPECTED_TIE_BREAK_WINNER := "red"', scene)
         self.assertIn("const OPAQUE_LOGIT := 8.0", scene)
+        self.assertIn("const MINIMUM_TIE_BREAK_MARGIN := 5.0 / 255.0", scene)
         self.assertIn(
             "asset.set_opacity_logits(opacity_logits)",
-            scene,
+            setup_body,
             "Color.a is shadowed by the allocated opacity-logit lane; the fixture must set that lane explicitly.",
         )
-        self.assertIn("var ordering_matches := winner == EXPECTED_TIE_BREAK_WINNER", scene)
+        self.assertLess(
+            setup_body.index("asset.set_opacity_logits(opacity_logits)"),
+            setup_body.index("splat_node.splat_asset = asset"),
+            "The explicit opacity lane must be populated before the asset is attached to the live scene.",
+        )
+        self.assertIn("var ordering_matches := winner == EXPECTED_TIE_BREAK_WINNER", completion_body)
         self.assertIn(
-            "_test_result = min_ssim >= ssim_stability_threshold and ordering_matches",
-            scene,
-            "A stable but reversed tie-break must fail inside the scene, before baseline comparison.",
+            "var margin_sufficient := tie_break_margin >= MINIMUM_TIE_BREAK_MARGIN",
+            completion_body,
+        )
+        self.assertIn(
+            "_test_result = min_ssim >= ssim_stability_threshold and ordering_matches and margin_sufficient",
+            completion_body,
+            "A stable but reversed or weak tie-break must fail inside the scene, before baseline comparison.",
         )
 
     def test_evidence_source_guard_rejects_the_legacy_regex(self):
