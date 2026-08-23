@@ -90,6 +90,15 @@ class ValidateRepoContractTest(unittest.TestCase):
         errors = vrc.validate_repo_contract(self.root)
         self.assertTrue(any("task.json does not match" in e for e in errors))
 
+    def test_program_template_semantic_mismatch_fails(self):
+        path = self.root / ".agentic" / "templates" / "program.json"
+        program = json.loads(path.read_text(encoding="utf-8"))
+        program["milestones"][0]["objective"] = "   "
+        path.write_text(json.dumps(program), encoding="utf-8")
+
+        errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(any("program.json is invalid" in error and "objective" in error for error in errors))
+
     def test_invalid_program_fails(self):
         path = self.root / ".agentic" / "programs" / "continuation-2026-08.json"
         program = json.loads(path.read_text(encoding="utf-8"))

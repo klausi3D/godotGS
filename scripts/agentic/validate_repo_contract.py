@@ -158,7 +158,6 @@ def validate_repo_contract(root: Path, strict_hierarchy: bool = False) -> list[s
     pairs = [
         (".agentic/templates/task.json", ".agentic/schemas/task.schema.json"),
         (".agentic/templates/review.json", ".agentic/schemas/review.schema.json"),
-        (".agentic/templates/program.json", ".agentic/schemas/program.schema.json"),
     ]
     for template_rel, schema_rel in pairs:
         if template_rel in parsed and schema_rel in parsed:
@@ -168,6 +167,12 @@ def validate_repo_contract(root: Path, strict_hierarchy: bool = False) -> list[s
     program_schema = parsed.get(".agentic/schemas/program.schema.json")
     task_schema = parsed.get(".agentic/schemas/task.schema.json")
     if isinstance(program_schema, dict):
+        program_template_rel = ".agentic/templates/program.json"
+        program_template = parsed.get(program_template_rel)
+        if program_template is not None:
+            for error in validate_program(program_template, program_schema):
+                errors.append(f"{program_template_rel} is invalid: {error}")
+
         program_id_paths: dict[str, str] = {}
         for rel, instance in parsed.items():
             if not rel.startswith(".agentic/programs/"):
