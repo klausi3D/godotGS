@@ -2488,17 +2488,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#testsruntimetest_canonical_node_asset_rendergd" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        tests/runtime/test_canonical_node_asset_render.gd
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingrendererrender_data_orchestratorcpp" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2690,6 +2679,17 @@
     <span class="md-ellipsis">
       
         modules/gaussian_splatting/renderer/sorting_config.cpp
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testsruntimetest_canonical_node_asset_rendergd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        tests/runtime/test_canonical_node_asset_render.gd
       
     </span>
   </a>
@@ -6849,28 +6849,6 @@
 <li>line 53: uint64_t SurfaceSplatGenerator::hash_config(const Config &amp;p_...</li>
 <li>line 75: LocalVector<gaussian> SurfaceSplatGenerator::generate(const ...</gaussian></li>
 </ul>
-<h2 id="testsruntimetest_canonical_node_asset_rendergd">tests/runtime/test_canonical_node_asset_render.gd<a class="headerlink" href="#testsruntimetest_canonical_node_asset_rendergd" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 57: func _init() -&gt; void:...</li>
-<li>line 61: func _is_headless_runtime() -&gt; bool:...</li>
-<li>line 65: func _record_failure(reason: String) -&gt; void:...</li>
-<li>line 69: func _emit_metrics(status: String, reason: String) -&gt; void:...</li>
-<li>line 75: func _skip_unavailable(reason: String) -&gt; void:...</li>
-<li>line 83: func _fail(reason: String) -&gt; void:...</li>
-<li>line 91: func _pass(reason: String) -&gt; void:...</li>
-<li>line 104: func _cleanup() -&gt; void:...</li>
-<li>line 113: func _setup_scene() -&gt; bool:...</li>
-<li>line 149: func _run() -&gt; void:...</li>
-<li>line 240: func _read_renderer_stats() -&gt; Dictionary:...</li>
-<li>line 249: func _read_visible_splats(stats: Dictionary) -&gt; int:...</li>
-<li>line 259: func _update_stage_metrics(stats: Dictionary) -&gt; void:...</li>
-<li>line 269: func _stage_failed(stats: Dictionary) -&gt; bool:...</li>
-<li>line 277: func _capture_viewport() -&gt; Image:...</li>
-<li>line 287: func _compute_visual_metrics(image: Image) -&gt; Dictionary:...</li>
-<li>line 332: func _empty_visual_metrics(width: int, height: int) -&gt; Dicti...</li>
-<li>line 344: func _visual_metrics_pass() -&gt; bool:...</li>
-<li>line 353: func _rendered_content_ok() -&gt; bool:...</li>
-</ul>
 <h2 id="modulesgaussian_splattingrendererrender_data_orchestratorcpp">modules/gaussian_splatting/renderer/render_data_orchestrator.cpp<a class="headerlink" href="#modulesgaussian_splattingrendererrender_data_orchestratorcpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 9: static bool _is_data_orchestrator_log_enabled(const Gaussian...</li>
@@ -7305,6 +7283,28 @@
 <li>line 111: bool SortingStrategyConfig::is_algorithm_forced() const {...</li>
 <li>line 115: String SortingStrategyConfig::get_forced_algorithm_name() co...</li>
 <li>line 129: SortingStrategyConfig SortingStrategyConfig::load_from_proje...</li>
+</ul>
+<h2 id="testsruntimetest_canonical_node_asset_rendergd">tests/runtime/test_canonical_node_asset_render.gd<a class="headerlink" href="#testsruntimetest_canonical_node_asset_rendergd" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 62: func _init() -&gt; void:...</li>
+<li>line 66: func _is_headless_runtime() -&gt; bool:...</li>
+<li>line 70: func _record_failure(reason: String) -&gt; void:...</li>
+<li>line 74: func _emit_metrics(status: String, reason: String) -&gt; void:...</li>
+<li>line 80: func _skip_unavailable(reason: String) -&gt; void:...</li>
+<li>line 88: func _fail(reason: String) -&gt; void:...</li>
+<li>line 96: func _pass(reason: String) -&gt; void:...</li>
+<li>line 109: func _cleanup() -&gt; void:...</li>
+<li>line 118: func _setup_scene() -&gt; bool:...</li>
+<li>line 154: func _run() -&gt; void:...</li>
+<li>line 262: func _read_renderer_stats() -&gt; Dictionary:...</li>
+<li>line 271: func _read_visible_splats(stats: Dictionary) -&gt; int:...</li>
+<li>line 281: func _update_stage_metrics(stats: Dictionary) -&gt; void:...</li>
+<li>line 291: func _stage_failed(stats: Dictionary) -&gt; bool:...</li>
+<li>line 299: func _capture_viewport() -&gt; Image:...</li>
+<li>line 309: func _compute_visual_metrics(image: Image) -&gt; Dictionary:...</li>
+<li>line 354: func _empty_visual_metrics(width: int, height: int) -&gt; Dicti...</li>
+<li>line 366: func _visual_metrics_pass() -&gt; bool:...</li>
+<li>line 375: func _rendered_content_ok() -&gt; bool:...</li>
 </ul>
 <h2 id="modulesgaussian_splattingcorestreaming_upload_pipelineh">modules/gaussian_splatting/core/streaming_upload_pipeline.h<a class="headerlink" href="#modulesgaussian_splattingcorestreaming_upload_pipelineh" title="Permanent link">¶</a></h2>
 <ul>
@@ -12009,7 +12009,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 23, 2026 17:22:24 UTC">August 23, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 23, 2026 17:25:26 UTC">August 23, 2026</span>
   </span>
 
     
