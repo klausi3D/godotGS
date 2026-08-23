@@ -235,7 +235,7 @@ func _run() -> void:
 				)
 				visual_ok = _visual_metrics_pass()
 
-		if visible >= MIN_VISIBLE_SPLATS and visual_ok and _rendered_content_ok():
+		if not stage_failure_seen and visible >= MIN_VISIBLE_SPLATS and visual_ok and _rendered_content_ok():
 			if Time.get_ticks_msec() >= proof_deadline_msec:
 				break
 			_pass("Canonical GaussianSplatNode3D rendered fixture asset with viewport-visible evidence.")

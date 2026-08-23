@@ -93,6 +93,26 @@ def _canonical_deadline_placement_errors(script: str) -> list[str]:
     return errors
 
 
+def _canonical_success_guard_errors(script: str) -> list[str]:
+    """Return errors that could permit proof after a latched stage failure."""
+    run_body = script.split("func _run() -> void:", 1)[1].split("\n\nfunc _read_renderer_stats", 1)[0]
+    proof_loop = run_body.split(
+        "\twhile Time.get_ticks_msec() < proof_deadline_msec:", 1
+    )[1].split("\n\n\tif stage_failure_seen:", 1)[0]
+    lines = proof_loop.splitlines()
+    pass_indices = [index for index, line in enumerate(lines) if line.startswith("\t\t\t_pass(")]
+    if len(pass_indices) != 1:
+        return ["expected exactly one passing terminal in the proof loop"]
+
+    success_guard = next(
+        (line for line in reversed(lines[: pass_indices[0]]) if line.startswith("\t\tif ")),
+        "",
+    )
+    if "not stage_failure_seen" not in success_guard:
+        return ["the passing branch must reject any latched renderer-stage failure"]
+    return []
+
+
 class RenderedContentBindingContractTests(unittest.TestCase):
     """#941: the fail-closed renderer predicate must be script-reachable.
 
@@ -150,6 +170,11 @@ class RenderedContentBindingContractTests(unittest.TestCase):
             _canonical_deadline_placement_errors(script),
             [],
             "deadline checks must bind both proof-loop awaits and the sole passing terminal",
+        )
+        self.assertEqual(
+            _canonical_success_guard_errors(script),
+            [],
+            "the passing terminal must be unreachable after any renderer-stage failure",
         )
         run_body = script.split("func _run() -> void:", 1)[1].split("\n\nfunc _read_renderer_stats", 1)[0]
         self.assertEqual(
@@ -221,6 +246,20 @@ class RenderedContentBindingContractTests(unittest.TestCase):
                     any(expected_error in error for error in errors),
                     f"placement contract accepted a deadline check moved away from {label}: {errors}",
                 )
+
+    def test_success_guard_rejects_a_latched_stage_failure(self) -> None:
+        script = CANONICAL_RENDER_PROOF.read_text(encoding="utf-8")
+        mutated = script.replace(
+            "if not stage_failure_seen and visible >= MIN_VISIBLE_SPLATS",
+            "if visible >= MIN_VISIBLE_SPLATS",
+            1,
+        )
+
+        self.assertNotEqual(mutated, script, "negative control must remove the stage-failure guard")
+        self.assertTrue(
+            _canonical_success_guard_errors(mutated),
+            "success contract accepted proof after a latched renderer-stage failure",
+        )
 
 
 def _result(name: str, metrics: dict[str, object], status: str = "passed"):
