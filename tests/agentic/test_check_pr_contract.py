@@ -117,6 +117,13 @@ class CheckPrContractTest(unittest.TestCase):
         self.assertTrue(any("stacked_on.base_pr" in e for e in _hard(errors)))
         self.assertTrue(any("stacked_on.base_sha" in e for e in _hard(errors)))
 
+    def test_document_validation_rejects_incomplete_stacked_contract(self):
+        contract = copy.deepcopy(TEMPLATE)
+        contract["stacked_on"] = {}
+        errors = cpc.check_contract_document(contract, TASK_SCHEMA)
+        self.assertTrue(any("stacked_on.base_pr" in error for error in errors))
+        self.assertTrue(any("stacked_on.base_sha" in error for error in errors))
+
     def test_r3_without_design_record_fails(self):
         contract = copy.deepcopy(TEMPLATE)
         contract["risk_class"] = "R3"

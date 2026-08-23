@@ -72,6 +72,12 @@ def check_contract_document(contract: Any, task_schema: Any) -> list[str]:
             for index, entry in enumerate(value):
                 if not isinstance(entry, str) or not entry.strip():
                     errors.append(f"$.{field}[{index}]: must be a non-blank string")
+
+    stacked = contract.get("stacked_on")
+    if isinstance(stacked, dict):
+        for field in ("base_pr", "base_sha"):
+            if not str(stacked.get(field, "")).strip():
+                errors.append(f"$.stacked_on.{field}: required for a stacked PR")
     return errors
 
 
@@ -140,13 +146,6 @@ def check_contract(
                     f"$.validation_commands: risk class {effective} requires the deterministic "
                     f"check '{command}'"
                 )
-
-    # 5. Stacked PR completeness.
-    stacked = contract.get("stacked_on")
-    if isinstance(stacked, dict):
-        for field in ("base_pr", "base_sha"):
-            if not str(stacked.get(field, "")).strip():
-                errors.append(f"$.stacked_on.{field}: required for a stacked PR")
 
     return errors
 

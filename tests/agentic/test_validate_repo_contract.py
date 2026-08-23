@@ -313,6 +313,15 @@ class ValidateRepoContractTest(unittest.TestCase):
                     f"schema contract accepted mutation: {label}",
                 )
 
+    def test_malformed_extra_program_schema_constraint_fails_without_traceback(self):
+        path = self.root / ".agentic" / "schemas" / "program.schema.json"
+        schema = json.loads(path.read_text(encoding="utf-8"))
+        schema["properties"]["title"]["enum"] = None
+        path.write_text(json.dumps(schema), encoding="utf-8")
+
+        errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(any("enum" in error and "must be an array" in error for error in errors))
+
     def test_invalid_program_fails(self):
         path = self.root / ".agentic" / "programs" / "continuation-2026-08.json"
         program = json.loads(path.read_text(encoding="utf-8"))
