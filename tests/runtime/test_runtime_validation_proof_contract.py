@@ -113,6 +113,24 @@ def _canonical_success_guard_errors(script: str) -> list[str]:
     return []
 
 
+def _canonical_post_draw_stage_resample_errors(script: str) -> list[str]:
+    """Return errors that could hide a failure in the just-drawn frame."""
+    run_body = script.split("func _run() -> void:", 1)[1].split("\n\nfunc _read_renderer_stats", 1)[0]
+    proof_loop = run_body.split(
+        "\twhile Time.get_ticks_msec() < proof_deadline_msec:", 1
+    )[1].split("\n\n\tif stage_failure_seen:", 1)[0]
+    post_draw = proof_loop.split("\t\t\tawait RenderingServer.frame_post_draw", 1)[1]
+    before_capture = post_draw.split("\t\t\tvar image := _capture_viewport()", 1)[0]
+    required_block = (
+        "\t\t\tvar post_draw_stats := _read_renderer_stats()\n"
+        "\t\t\t_update_stage_metrics(post_draw_stats)\n"
+        "\t\t\tstage_failure_seen = stage_failure_seen or _stage_failed(post_draw_stats)"
+    )
+    if required_block not in before_capture:
+        return ["the drawn frame's stage status must be sampled and latched before visual proof"]
+    return []
+
+
 class RenderedContentBindingContractTests(unittest.TestCase):
     """#941: the fail-closed renderer predicate must be script-reachable.
 
@@ -175,6 +193,11 @@ class RenderedContentBindingContractTests(unittest.TestCase):
             _canonical_success_guard_errors(script),
             [],
             "the passing terminal must be unreachable after any renderer-stage failure",
+        )
+        self.assertEqual(
+            _canonical_post_draw_stage_resample_errors(script),
+            [],
+            "the just-drawn frame's stage status must be sampled before visual proof can pass",
         )
         run_body = script.split("func _run() -> void:", 1)[1].split("\n\nfunc _read_renderer_stats", 1)[0]
         self.assertEqual(
@@ -259,6 +282,20 @@ class RenderedContentBindingContractTests(unittest.TestCase):
         self.assertTrue(
             _canonical_success_guard_errors(mutated),
             "success contract accepted proof after a latched renderer-stage failure",
+        )
+
+    def test_post_draw_stage_failure_resample_cannot_be_removed(self) -> None:
+        script = CANONICAL_RENDER_PROOF.read_text(encoding="utf-8")
+        mutated = script.replace(
+            "\t\t\tstage_failure_seen = stage_failure_seen or _stage_failed(post_draw_stats)\n",
+            "",
+            1,
+        )
+
+        self.assertNotEqual(mutated, script, "negative control must remove the post-draw failure latch")
+        self.assertTrue(
+            _canonical_post_draw_stage_resample_errors(mutated),
+            "post-draw contract accepted visual proof without latching the completed frame's stage status",
         )
 
 

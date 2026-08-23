@@ -206,6 +206,9 @@ func _run() -> void:
 			if Time.get_ticks_msec() >= proof_deadline_msec:
 				metrics["proof_elapsed_msec"] = Time.get_ticks_msec() - proof_started_msec
 				break
+			var post_draw_stats := _read_renderer_stats()
+			_update_stage_metrics(post_draw_stats)
+			stage_failure_seen = stage_failure_seen or _stage_failed(post_draw_stats)
 			metrics["proof_elapsed_msec"] = Time.get_ticks_msec() - proof_started_msec
 			var image := _capture_viewport()
 			if image != null:
