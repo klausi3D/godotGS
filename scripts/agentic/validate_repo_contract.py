@@ -171,7 +171,7 @@ def validate_repo_contract(root: Path, strict_hierarchy: bool = False) -> list[s
     if isinstance(program_schema, dict):
         program_template_rel = ".agentic/templates/program.json"
         program_template = parsed.get(program_template_rel)
-        if program_template is not None:
+        if program_template_rel in parsed:
             for error in validate_program(program_template, program_schema):
                 errors.append(f"{program_template_rel} is invalid: {error}")
 

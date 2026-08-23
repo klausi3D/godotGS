@@ -106,6 +106,13 @@ class ValidateRepoContractTest(unittest.TestCase):
         errors = vrc.validate_repo_contract(self.root)
         self.assertTrue(any("program.schema.json" in error and "must be an object" in error for error in errors))
 
+    def test_non_object_program_template_fails(self):
+        path = self.root / ".agentic" / "templates" / "program.json"
+        path.write_text("null", encoding="utf-8")
+
+        errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(any("program.json is invalid" in error and "expected type object" in error for error in errors))
+
     def test_invalid_program_fails(self):
         path = self.root / ".agentic" / "programs" / "continuation-2026-08.json"
         program = json.loads(path.read_text(encoding="utf-8"))
