@@ -74,8 +74,9 @@ def _canonical_deadline_placement_errors(script: str) -> list[str]:
         for line in lines[guard_index + 1 :]:
             if line and len(line) - len(line.lstrip("\t")) <= guard_indent:
                 break
-            guard_body.append(line.strip())
-        if "break" not in guard_body:
+            guard_body.append(line)
+        direct_break = "\t" * (guard_indent + 1) + "break"
+        if direct_break not in guard_body:
             errors.append(f"the deadline check after {await_line.strip()} must break the proof loop")
 
     pass_indices = [index for index, line in enumerate(lines) if line.startswith("\t\t\t_pass(")]
@@ -193,11 +194,20 @@ class RenderedContentBindingContractTests(unittest.TestCase):
             f"{process_guard}\n\t\t{deadline_check}\n\t\t\tbreak",
             1,
         ).replace(terminal_guard, "\t\t\t_pass(", 1)
+        nested_break_mutated = script.replace(
+            "\t\t\tmetrics[\"proof_elapsed_msec\"] = Time.get_ticks_msec() - proof_started_msec\n"
+            "\t\t\tbreak",
+            "\t\t\tmetrics[\"proof_elapsed_msec\"] = Time.get_ticks_msec() - proof_started_msec\n"
+            "\t\t\tif false:\n"
+            "\t\t\t\tbreak",
+            1,
+        )
 
         mutations = (
             ("process_frame", process_mutated, "process_frame must be followed immediately"),
             ("frame_post_draw", frame_post_draw_mutated, "frame_post_draw must be followed immediately"),
             ("passing terminal", terminal_mutated, "passing terminal must be immediately bound"),
+            ("nested deadline break", nested_break_mutated, "must break the proof loop"),
         )
         for label, mutated, expected_error in mutations:
             with self.subTest(label=label):
