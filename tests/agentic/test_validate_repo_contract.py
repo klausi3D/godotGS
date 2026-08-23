@@ -100,6 +100,26 @@ class ValidateRepoContractTest(unittest.TestCase):
         errors = vrc.validate_repo_contract(self.root)
         self.assertTrue(any("program.json is invalid" in error and "objective" in error for error in errors))
 
+    def test_program_template_repository_references_must_be_usable(self):
+        path = self.root / ".agentic" / "templates" / "program.json"
+        original = json.loads(path.read_text(encoding="utf-8"))
+        cases = (
+            (".agentic/templates/missing.json", "does not exist"),
+            ("../outside.json", "must stay inside the repository"),
+            (".agentic/templates/review.json", "does not match task schema"),
+        )
+
+        for template_path, expected_error in cases:
+            with self.subTest(template_path=template_path):
+                program = copy.deepcopy(original)
+                program["dispatch"]["task_contract_template"] = template_path
+                path.write_text(json.dumps(program), encoding="utf-8")
+
+                errors = vrc.validate_repo_contract(self.root)
+                self.assertTrue(
+                    any("program.json is invalid" in error and expected_error in error for error in errors)
+                )
+
     def test_non_object_program_schema_fails(self):
         path = self.root / ".agentic" / "schemas" / "program.schema.json"
         path.write_text("[]", encoding="utf-8")

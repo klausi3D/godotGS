@@ -100,6 +100,23 @@ class ValidateProgramTest(unittest.TestCase):
         self.assertIn("Program is INVALID:", stdout.getvalue())
         self.assertIn("$: expected type object, got list", stdout.getvalue())
 
+    def test_standalone_validator_reports_non_object_schema_root(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            program_path = Path(temp_dir) / "program.json"
+            schema_path = Path(temp_dir) / "schema.json"
+            program_path.write_text(json.dumps(TEMPLATE), encoding="utf-8")
+            schema_path.write_text("[]", encoding="utf-8")
+            stdout = io.StringIO()
+
+            with contextlib.redirect_stdout(stdout):
+                exit_code = vp.main(
+                    ["--program", str(program_path), "--schema", str(schema_path)]
+                )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("Program is INVALID:", stdout.getvalue())
+        self.assertIn("schema must be an object", stdout.getvalue())
+
     def test_standalone_validator_rejects_unresolvable_snapshot(self):
         program = copy.deepcopy(TEMPLATE)
         program["planning_snapshot_sha"] = "f" * 40

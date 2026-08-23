@@ -59,7 +59,9 @@ def _non_empty(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
-def validate_program(program: Any, schema: dict[str, Any]) -> list[str]:
+def validate_program(program: Any, schema: Any) -> list[str]:
+    if not isinstance(schema, dict):
+        return ["$: schema must be an object"]
     errors = validate_instance(program, schema, "$")
     if not isinstance(program, dict):
         return errors
@@ -199,6 +201,7 @@ def validate_repository_references(
     root: Path,
     task_schema: Any,
     commit_exists: Callable[[str], bool] | None = None,
+    validate_snapshot_reference: bool = True,
 ) -> list[str]:
     """Validate repository-backed references shared by both CLI entry points."""
     if not isinstance(program, dict):
@@ -206,7 +209,7 @@ def validate_repository_references(
 
     errors: list[str] = []
     snapshot = program.get("planning_snapshot_sha")
-    if isinstance(snapshot, str) and SHA_RE.fullmatch(snapshot):
+    if validate_snapshot_reference and isinstance(snapshot, str) and SHA_RE.fullmatch(snapshot):
         resolve_commit = commit_exists or (lambda sha: _git_commit_exists(root, sha))
         if not resolve_commit(snapshot):
             errors.append("$.planning_snapshot_sha does not resolve to a commit")

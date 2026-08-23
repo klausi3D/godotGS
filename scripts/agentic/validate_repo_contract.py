@@ -301,6 +301,13 @@ def validate_repo_contract(root: Path, strict_hierarchy: bool = False) -> list[s
         if program_template_rel in parsed:
             for error in validate_program(program_template, program_schema):
                 errors.append(f"{program_template_rel} is invalid: {error}")
+            for error in validate_repository_references(
+                program_template,
+                root,
+                task_schema,
+                validate_snapshot_reference=False,
+            ):
+                errors.append(f"{program_template_rel} is invalid: {error}")
 
         program_id_paths: dict[str, str] = {}
         for rel, instance in parsed.items():
