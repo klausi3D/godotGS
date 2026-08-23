@@ -114,6 +114,20 @@ def _canonical_success_guard_errors(script: str) -> list[str]:
     )
     if success_guard != expected_guard:
         return ["the passing branch must require the complete fail-closed success predicate"]
+
+    if run_body.count("\tvar stage_failure_seen := false") != 1:
+        return ["the stage-failure latch must be initialized exactly once"]
+    expected_updates = [
+        "\t\tstage_failure_seen = stage_failure_seen or _stage_failed(stats)",
+        "\t\t\tstage_failure_seen = stage_failure_seen or _stage_failed(post_draw_stats)",
+    ]
+    actual_updates = [
+        line
+        for line in run_body.splitlines()
+        if re.match(r"^\s*stage_failure_seen\s*[|&^+*/-]?=", line)
+    ]
+    if actual_updates != expected_updates:
+        return ["the stage-failure latch must only be updated monotonically from renderer-stage failures"]
     return []
 
 
@@ -322,6 +336,24 @@ class RenderedContentBindingContractTests(unittest.TestCase):
         self.assertTrue(
             _canonical_success_guard_errors(mutated),
             "success contract accepted a predicate that bypasses the latched stage failure",
+        )
+
+    def test_success_guard_rejects_a_failure_latch_reset(self) -> None:
+        script = CANONICAL_RENDER_PROOF.read_text(encoding="utf-8")
+        success_guard = (
+            "\t\tif not stage_failure_seen and visible >= MIN_VISIBLE_SPLATS "
+            "and visual_ok and _rendered_content_ok():"
+        )
+        mutated = script.replace(
+            success_guard,
+            "\t\tstage_failure_seen = false\n" + success_guard,
+            1,
+        )
+
+        self.assertNotEqual(mutated, script, "negative control must reset the latched stage failure")
+        self.assertTrue(
+            _canonical_success_guard_errors(mutated),
+            "success contract accepted proof after resetting the latched stage failure",
         )
 
     def test_post_draw_stage_failure_resample_cannot_be_removed(self) -> None:
