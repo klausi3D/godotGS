@@ -74,6 +74,10 @@ def validate_program(program: dict[str, Any], schema: dict[str, Any]) -> list[st
         invariants = dispatch.get("invariants")
         if isinstance(invariants, list) and not invariants:
             errors.append("$.dispatch.invariants: must not be empty")
+        elif isinstance(invariants, list):
+            for invariant_index, entry in enumerate(invariants):
+                if not _non_empty(entry):
+                    errors.append(f"$.dispatch.invariants[{invariant_index}]: must not be empty")
 
     milestones = program.get("milestones")
     if not isinstance(milestones, list):

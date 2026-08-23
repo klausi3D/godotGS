@@ -48,6 +48,12 @@ class ValidateProgramTest(unittest.TestCase):
         errors = vp.validate_program(program, SCHEMA)
         self.assertTrue(any("live_status_requery_required" in error for error in errors))
 
+    def test_blank_dispatch_invariant_fails(self):
+        program = copy.deepcopy(TEMPLATE)
+        program["dispatch"]["invariants"] = ["  "]
+        errors = vp.validate_program(program, SCHEMA)
+        self.assertTrue(any("dispatch.invariants[0]" in error for error in errors))
+
     def test_duplicate_milestone_id_fails(self):
         program = copy.deepcopy(TEMPLATE)
         duplicate = copy.deepcopy(program["milestones"][0])
