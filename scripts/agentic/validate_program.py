@@ -155,6 +155,11 @@ def validate_program(program: dict[str, Any], schema: dict[str, Any]) -> list[st
             continue
         seen: set[str] = set()
         for dependency in dependencies:
+            # Shape errors are already reported by the schema validator. Keep
+            # this semantic pass total over malformed input instead of using a
+            # possibly unhashable value in the dependency graph.
+            if not isinstance(dependency, str):
+                continue
             if dependency in seen:
                 errors.append(f"{path}: duplicate dependency '{dependency}'")
                 continue

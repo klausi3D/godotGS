@@ -69,6 +69,14 @@ class ValidateProgramTest(unittest.TestCase):
         errors = vp.validate_program(program, SCHEMA)
         self.assertTrue(any("unknown milestone" in error for error in errors))
 
+    def test_non_string_dependency_fails_schema_without_crashing_semantic_validation(self):
+        program = copy.deepcopy(TEMPLATE)
+        program["milestones"][0]["depends_on"] = [{}]
+
+        errors = vp.validate_program(program, SCHEMA)
+
+        self.assertTrue(any("depends_on[0]" in error for error in errors))
+
     def test_dependency_must_appear_earlier(self):
         program = copy.deepcopy(TEMPLATE)
         second = copy.deepcopy(program["milestones"][0])
