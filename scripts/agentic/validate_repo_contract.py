@@ -168,12 +168,23 @@ def validate_repo_contract(root: Path, strict_hierarchy: bool = False) -> list[s
     program_schema = parsed.get(".agentic/schemas/program.schema.json")
     task_schema = parsed.get(".agentic/schemas/task.schema.json")
     if isinstance(program_schema, dict):
+        program_id_paths: dict[str, str] = {}
         for rel, instance in parsed.items():
             if not rel.startswith(".agentic/programs/"):
                 continue
             if not isinstance(instance, dict):
                 errors.append(f"{rel} is invalid: $: must be an object")
                 continue
+            program_id = instance.get("program_id")
+            if isinstance(program_id, str):
+                previous_path = program_id_paths.get(program_id)
+                if previous_path is not None:
+                    errors.append(
+                        f"{rel} is invalid: duplicate program_id {program_id!r}; "
+                        f"already declared by {previous_path}"
+                    )
+                else:
+                    program_id_paths[program_id] = rel
             for error in validate_program(instance, program_schema):
                 errors.append(f"{rel} is invalid: {error}")
             reference_errors = validate_repository_references(

@@ -104,6 +104,14 @@ class ValidateRepoContractTest(unittest.TestCase):
         errors = vrc.validate_repo_contract(self.root)
         self.assertTrue(any("must be an object" in e for e in errors))
 
+    def test_duplicate_program_id_fails(self):
+        source = self.root / ".agentic" / "programs" / "continuation-2026-08.json"
+        duplicate = self.root / ".agentic" / "programs" / "duplicate.json"
+        duplicate.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+
+        errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(any("duplicate program_id" in error for error in errors))
+
     def test_at_least_one_concrete_program_manifest_is_required(self):
         program_dir = self.root / ".agentic" / "programs"
         (program_dir / "continuation-2026-08.json").unlink()
