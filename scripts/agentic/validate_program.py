@@ -19,10 +19,11 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SCHEMA = ROOT / ".agentic" / "schemas" / "program.schema.json"
+DEFAULT_TASK_SCHEMA = ROOT / ".agentic" / "schemas" / "task.schema.json"
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 ISSUE_REF_RE = re.compile(r"^#[1-9][0-9]*$")
@@ -41,10 +42,10 @@ def _load_schema_validator():
 validate_instance = _load_schema_validator()
 
 
-def _git_commit_exists(sha: str) -> bool:
+def _git_commit_exists(root: Path, sha: str) -> bool:
     try:
         completed = subprocess.run(
-            ["git", "-C", str(ROOT), "cat-file", "-e", f"{sha}^{{commit}}"],
+            ["git", "-C", str(root), "cat-file", "-e", f"{sha}^{{commit}}"],
             check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -193,6 +194,51 @@ def validate_program(program: Any, schema: dict[str, Any]) -> list[str]:
     return errors
 
 
+def validate_repository_references(
+    program: Any,
+    root: Path,
+    task_schema: Any,
+    commit_exists: Callable[[str], bool] | None = None,
+) -> list[str]:
+    """Validate repository-backed references shared by both CLI entry points."""
+    if not isinstance(program, dict):
+        return []
+
+    errors: list[str] = []
+    snapshot = program.get("planning_snapshot_sha")
+    if isinstance(snapshot, str) and SHA_RE.fullmatch(snapshot):
+        resolve_commit = commit_exists or (lambda sha: _git_commit_exists(root, sha))
+        if not resolve_commit(snapshot):
+            errors.append("$.planning_snapshot_sha does not resolve to a commit")
+
+    dispatch = program.get("dispatch")
+    template_rel = dispatch.get("task_contract_template") if isinstance(dispatch, dict) else None
+    if not isinstance(template_rel, str):
+        return errors
+
+    root_resolved = root.resolve()
+    template_path = (root / template_rel).resolve()
+    try:
+        template_path.relative_to(root_resolved)
+    except ValueError:
+        errors.append("$.dispatch.task_contract_template must stay inside the repository")
+        return errors
+    if not template_path.is_file():
+        errors.append(f"$.dispatch.task_contract_template does not exist: {template_rel}")
+        return errors
+    try:
+        task_template = json.loads(template_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        errors.append(f"$.dispatch.task_contract_template is unreadable: {exc}")
+        return errors
+    if not isinstance(task_schema, dict):
+        errors.append("task schema must be an object")
+        return errors
+    for error in validate_instance(task_template, task_schema, "$"):
+        errors.append(f"$.dispatch.task_contract_template does not match task schema: {error}")
+    return errors
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--program", type=Path, required=True, help="Path to the milestone program JSON.")
@@ -205,15 +251,13 @@ def main(argv: list[str] | None = None) -> int:
     try:
         program = json.loads(args.program.read_text(encoding="utf-8"))
         schema = json.loads(args.schema.read_text(encoding="utf-8"))
+        task_schema = json.loads(DEFAULT_TASK_SCHEMA.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         print(f"invalid program input: {exc}", file=sys.stderr)
         return 1
 
     errors = validate_program(program, schema)
-    if isinstance(program, dict):
-        snapshot = program.get("planning_snapshot_sha")
-        if isinstance(snapshot, str) and SHA_RE.fullmatch(snapshot) and not _git_commit_exists(snapshot):
-            errors.append("$.planning_snapshot_sha does not resolve to a commit")
+    errors.extend(validate_repository_references(program, ROOT, task_schema))
     if errors:
         print("Program is INVALID:")
         for error in errors:

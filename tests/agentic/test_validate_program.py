@@ -111,13 +111,34 @@ class ValidateProgramTest(unittest.TestCase):
             for exists, expected_exit in ((True, 0), (False, 1)):
                 with self.subTest(commit_exists=exists):
                     stdout = io.StringIO()
-                    with mock.patch.object(vp, "_git_commit_exists", return_value=exists, create=True):
+                    with mock.patch.object(vp, "_git_commit_exists", return_value=exists):
                         with contextlib.redirect_stdout(stdout):
                             exit_code = vp.main(["--program", str(program_path)])
 
                     self.assertEqual(exit_code, expected_exit)
                     if not exists:
                         self.assertIn("planning_snapshot_sha does not resolve to a commit", stdout.getvalue())
+
+    def test_standalone_validator_validates_task_contract_template(self):
+        cases = (
+            (".agentic/templates/missing.json", "does not exist"),
+            (".agentic/templates/review.json", "does not match task schema"),
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            program_path = Path(temp_dir) / "program.json"
+            for template_path, expected_error in cases:
+                with self.subTest(template_path=template_path):
+                    program = copy.deepcopy(TEMPLATE)
+                    program["dispatch"]["task_contract_template"] = template_path
+                    program_path.write_text(json.dumps(program), encoding="utf-8")
+                    stdout = io.StringIO()
+
+                    with mock.patch.object(vp, "_git_commit_exists", return_value=True):
+                        with contextlib.redirect_stdout(stdout):
+                            exit_code = vp.main(["--program", str(program_path)])
+
+                    self.assertEqual(exit_code, 1)
+                    self.assertIn(expected_error, stdout.getvalue())
 
     def test_dependency_must_appear_earlier(self):
         program = copy.deepcopy(TEMPLATE)

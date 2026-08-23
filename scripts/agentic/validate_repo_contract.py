@@ -83,7 +83,6 @@ JSON_FILES = [
 # coordinator memory, e.g. "019d0571-b295-..."). Prose like "session IDs" is fine;
 # this matches an actual leaked identifier value.
 SESSION_ID_RE = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
-COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
 def _git_commit_exists(root: Path, sha: str) -> bool:
@@ -111,16 +110,16 @@ def _load_validate_instance():
 validate_instance = _load_validate_instance()
 
 
-def _load_validate_program():
+def _load_program_validators():
     path = Path(__file__).with_name("validate_program.py")
     spec = importlib.util.spec_from_file_location("validate_program", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.validate_program
+    return module.validate_program, module.validate_repository_references
 
 
-validate_program = _load_validate_program()
+validate_program, validate_repository_references = _load_program_validators()
 
 
 def validate_repo_contract(root: Path, strict_hierarchy: bool = False) -> list[str]:
@@ -173,36 +172,14 @@ def validate_repo_contract(root: Path, strict_hierarchy: bool = False) -> list[s
                 continue
             for error in validate_program(instance, program_schema):
                 errors.append(f"{rel} is invalid: {error}")
-
-            snapshot = instance.get("planning_snapshot_sha")
-            if isinstance(snapshot, str) and COMMIT_SHA_RE.fullmatch(snapshot):
-                if not _git_commit_exists(root, snapshot):
-                    errors.append(f"{rel} is invalid: $.planning_snapshot_sha does not resolve to a commit")
-
-            dispatch = instance.get("dispatch")
-            template_rel = dispatch.get("task_contract_template") if isinstance(dispatch, dict) else None
-            if not isinstance(template_rel, str):
-                continue
-            template_path = (root / template_rel).resolve()
-            try:
-                template_path.relative_to(root.resolve())
-            except ValueError:
-                errors.append(f"{rel} is invalid: $.dispatch.task_contract_template must stay inside the repository")
-                continue
-            if not template_path.is_file():
-                errors.append(f"{rel} is invalid: $.dispatch.task_contract_template does not exist: {template_rel}")
-                continue
-            try:
-                task_template = json.loads(template_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as exc:
-                errors.append(f"{rel} is invalid: $.dispatch.task_contract_template is unreadable: {exc}")
-                continue
-            if isinstance(task_schema, dict):
-                template_errors = validate_instance(task_template, task_schema, "$")
-                for error in template_errors:
-                    errors.append(
-                        f"{rel} is invalid: $.dispatch.task_contract_template does not match task schema: {error}"
-                    )
+            reference_errors = validate_repository_references(
+                instance,
+                root,
+                task_schema,
+                commit_exists=lambda sha: _git_commit_exists(root, sha),
+            )
+            for error in reference_errors:
+                errors.append(f"{rel} is invalid: {error}")
 
     policy = parsed.get(".agentic/policy.json")
     if isinstance(policy, dict):
