@@ -183,6 +183,9 @@ func _run() -> void:
 	var proof_frame := 0
 	while Time.get_ticks_msec() < proof_deadline_msec:
 		await process_frame
+		if Time.get_ticks_msec() >= proof_deadline_msec:
+			metrics["proof_elapsed_msec"] = Time.get_ticks_msec() - proof_started_msec
+			break
 		proof_frame += 1
 		metrics["frames"] = int(metrics.get("frames", 0)) + 1
 		metrics["proof_elapsed_msec"] = Time.get_ticks_msec() - proof_started_msec
@@ -200,6 +203,10 @@ func _run() -> void:
 		stage_failure_seen = stage_failure_seen or _stage_failed(stats)
 		if visible >= MIN_VISIBLE_SPLATS and proof_frame >= 3:
 			await RenderingServer.frame_post_draw
+			if Time.get_ticks_msec() >= proof_deadline_msec:
+				metrics["proof_elapsed_msec"] = Time.get_ticks_msec() - proof_started_msec
+				break
+			metrics["proof_elapsed_msec"] = Time.get_ticks_msec() - proof_started_msec
 			var image := _capture_viewport()
 			if image != null:
 				var visual_metrics := _compute_visual_metrics(image)
@@ -229,6 +236,8 @@ func _run() -> void:
 				visual_ok = _visual_metrics_pass()
 
 		if visible >= MIN_VISIBLE_SPLATS and visual_ok and _rendered_content_ok():
+			if Time.get_ticks_msec() >= proof_deadline_msec:
+				break
 			_pass("Canonical GaussianSplatNode3D rendered fixture asset with viewport-visible evidence.")
 			return
 

@@ -99,6 +99,11 @@ class RenderedContentBindingContractTests(unittest.TestCase):
             r"while Time\.get_ticks_msec\(\)\s*<\s*proof_deadline_msec:",
             "canonical proof must keep pumping frames until success or its monotonic deadline",
         )
+        self.assertGreaterEqual(
+            script.count("if Time.get_ticks_msec() >= proof_deadline_msec:"),
+            3,
+            "deadline must be rechecked after both awaits and immediately before accepting proof",
+        )
 
 
 def _result(name: str, metrics: dict[str, object], status: str = "passed"):
