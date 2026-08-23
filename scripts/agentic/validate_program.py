@@ -44,8 +44,10 @@ def _non_empty(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
-def validate_program(program: dict[str, Any], schema: dict[str, Any]) -> list[str]:
+def validate_program(program: Any, schema: dict[str, Any]) -> list[str]:
     errors = validate_instance(program, schema, "$")
+    if not isinstance(program, dict):
+        return errors
 
     for field in ("program_id", "title", "status_authority"):
         if field in program and not _non_empty(program.get(field)):

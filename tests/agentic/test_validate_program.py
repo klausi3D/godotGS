@@ -4,8 +4,11 @@
 from __future__ import annotations
 
 import copy
+import contextlib
 import importlib.util
+import io
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -76,6 +79,19 @@ class ValidateProgramTest(unittest.TestCase):
         errors = vp.validate_program(program, SCHEMA)
 
         self.assertTrue(any("depends_on[0]" in error for error in errors))
+
+    def test_standalone_validator_reports_non_object_program_root(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            program_path = Path(temp_dir) / "program.json"
+            program_path.write_text("[]", encoding="utf-8")
+            stdout = io.StringIO()
+
+            with contextlib.redirect_stdout(stdout):
+                exit_code = vp.main(["--program", str(program_path)])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("Program is INVALID:", stdout.getvalue())
+        self.assertIn("$: expected type object, got list", stdout.getvalue())
 
     def test_dependency_must_appear_earlier(self):
         program = copy.deepcopy(TEMPLATE)
