@@ -137,7 +137,11 @@ def validate_repo_contract(root: Path, strict_hierarchy: bool = False) -> list[s
     parsed: dict[str, Any] = {}
     json_files = list(JSON_FILES)
     program_dir = root / ".agentic" / "programs"
-    program_paths = sorted(program_dir.glob("*.json")) if program_dir.is_dir() else []
+    program_paths = (
+        sorted(path for path in program_dir.glob("*.json") if path.is_file())
+        if program_dir.is_dir()
+        else []
+    )
     if not program_paths:
         errors.append("missing concrete program manifest: .agentic/programs/*.json")
     json_files.extend(str(path.relative_to(root)).replace("\\", "/") for path in program_paths)

@@ -115,6 +115,14 @@ class ValidateRepoContractTest(unittest.TestCase):
         missing_errors = vrc.validate_repo_contract(self.root)
         self.assertTrue(any("concrete program manifest" in error for error in missing_errors))
 
+    def test_non_file_program_manifest_does_not_satisfy_requirement(self):
+        program_dir = self.root / ".agentic" / "programs"
+        (program_dir / "continuation-2026-08.json").unlink()
+        (program_dir / "fake.json").mkdir()
+
+        errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(any("concrete program manifest" in error for error in errors))
+
     def test_unresolvable_program_snapshot_fails(self):
         path = self.root / ".agentic" / "programs" / "continuation-2026-08.json"
         program = json.loads(path.read_text(encoding="utf-8"))
