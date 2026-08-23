@@ -91,6 +91,62 @@ class ValidateRepoContractTest(unittest.TestCase):
         errors = vrc.validate_repo_contract(self.root)
         self.assertTrue(any("task.json does not match" in e for e in errors))
 
+    def test_vacuous_task_schema_fails(self):
+        path = self.root / ".agentic" / "schemas" / "task.schema.json"
+        path.write_text("{}", encoding="utf-8")
+
+        errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(
+            any("task.schema.json contract" in error for error in errors),
+            "a vacuous task schema must not authorize dispatch",
+        )
+
+    def test_task_schema_defining_constraints_cannot_be_weakened(self):
+        path = self.root / ".agentic" / "schemas" / "task.schema.json"
+        original = json.loads(path.read_text(encoding="utf-8"))
+
+        mutations = []
+        missing_required = copy.deepcopy(original)
+        missing_required["required"].remove("risk_class")
+        mutations.append(("missing required field", missing_required))
+
+        non_string_required = copy.deepcopy(original)
+        non_string_required["required"].append({})
+        mutations.append(("non-string required entry", non_string_required))
+
+        duplicate_required = copy.deepcopy(original)
+        duplicate_required["required"].append(duplicate_required["required"][0])
+        mutations.append(("duplicate required entry", duplicate_required))
+
+        permissive_root = copy.deepcopy(original)
+        permissive_root["additionalProperties"] = True
+        mutations.append(("root additional properties", permissive_root))
+
+        expanded_risk_class = copy.deepcopy(original)
+        expanded_risk_class["properties"]["risk_class"]["enum"].append("R4")
+        mutations.append(("expanded risk class", expanded_risk_class))
+
+        missing_array_item_type = copy.deepcopy(original)
+        del missing_array_item_type["properties"]["acceptance_criteria"]["items"]
+        mutations.append(("missing array item type", missing_array_item_type))
+
+        malformed_array_property = copy.deepcopy(original)
+        malformed_array_property["properties"]["acceptance_criteria"] = []
+        mutations.append(("malformed array property", malformed_array_property))
+
+        malformed_stacked_on = copy.deepcopy(original)
+        malformed_stacked_on["properties"]["stacked_on"]["additionalProperties"] = True
+        mutations.append(("permissive stacked-on", malformed_stacked_on))
+
+        for label, mutated in mutations:
+            with self.subTest(label=label):
+                path.write_text(json.dumps(mutated), encoding="utf-8")
+                errors = vrc.validate_repo_contract(self.root)
+                self.assertTrue(
+                    any("task.schema.json contract" in error for error in errors),
+                    f"task schema contract accepted mutation: {label}",
+                )
+
     def test_program_template_semantic_mismatch_fails(self):
         path = self.root / ".agentic" / "templates" / "program.json"
         program = json.loads(path.read_text(encoding="utf-8"))

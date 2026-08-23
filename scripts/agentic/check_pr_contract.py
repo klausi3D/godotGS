@@ -48,10 +48,14 @@ def _load_sibling(name: str):
 
 classify_change = _load_sibling("classify_change")
 validate_review = _load_sibling("validate_review")
+task_schema_contract = _load_sibling("task_schema_contract")
 
 
-def check_contract_document(contract: Any, task_schema: dict[str, Any]) -> list[str]:
+def check_contract_document(contract: Any, task_schema: Any) -> list[str]:
     """Validate the schema and schema-independent task-contract semantics."""
+    schema_errors = task_schema_contract.validate_task_schema_contract(task_schema)
+    if schema_errors:
+        return [f"$schema contract: {error}" for error in schema_errors]
     errors = validate_review.validate_instance(contract, task_schema, "$")
     if not isinstance(contract, dict):
         return errors

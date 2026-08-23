@@ -51,17 +51,17 @@ def _load_program_schema_contract_validator():
     return module.validate_program_schema_contract
 
 
-def _load_task_contract_document_validator():
+def _load_task_contract_validators():
     path = Path(__file__).with_name("check_pr_contract.py")
     spec = importlib.util.spec_from_file_location("check_pr_contract_for_program", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.check_contract_document
+    return module.check_contract_document, module.task_schema_contract.validate_task_schema_contract
 
 
 validate_program_schema_contract = _load_program_schema_contract_validator()
-check_task_contract_document = _load_task_contract_document_validator()
+check_task_contract_document, validate_task_schema_contract = _load_task_contract_validators()
 
 
 def _git_commit_exists(root: Path, sha: str) -> bool:

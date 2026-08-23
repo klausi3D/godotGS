@@ -106,6 +106,10 @@ class CheckPrContractTest(unittest.TestCase):
         errors = cpc.check_contract(contract, POLICY, TASK_SCHEMA, None)
         self.assertTrue(any("risk_class" in e for e in _hard(errors)))
 
+    def test_vacuous_task_schema_fails_closed(self):
+        errors = cpc.check_contract_document(copy.deepcopy(TEMPLATE), {})
+        self.assertTrue(any("$schema contract" in error for error in errors))
+
     def test_stacked_pr_requires_base_fields(self):
         contract = copy.deepcopy(TEMPLATE)
         contract["stacked_on"] = {"base_pr": "", "base_sha": ""}

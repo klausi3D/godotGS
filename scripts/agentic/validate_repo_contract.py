@@ -51,6 +51,7 @@ CONTROL_PLANE_FILES = [
     "scripts/agentic/classify_change.py",
     "scripts/agentic/check_pr_contract.py",
     "scripts/agentic/program_schema_contract.py",
+    "scripts/agentic/task_schema_contract.py",
     "scripts/agentic/validate_review.py",
     "scripts/agentic/validate_program.py",
     "scripts/agentic/validate_repo_contract.py",
@@ -121,10 +122,18 @@ def _load_program_validators():
         module.validate_program,
         module.validate_repository_references,
         module.validate_program_schema_contract,
+        module.check_task_contract_document,
+        module.validate_task_schema_contract,
     )
 
 
-validate_program, validate_repository_references, validate_program_schema_contract = _load_program_validators()
+(
+    validate_program,
+    validate_repository_references,
+    validate_program_schema_contract,
+    check_task_contract_document,
+    validate_task_schema_contract,
+) = _load_program_validators()
 
 
 def validate_repo_contract(root: Path, strict_hierarchy: bool = False) -> list[str]:
@@ -161,7 +170,6 @@ def validate_repo_contract(root: Path, strict_hierarchy: bool = False) -> list[s
 
     # 3. Templates validate against their schemas.
     pairs = [
-        (".agentic/templates/task.json", ".agentic/schemas/task.schema.json"),
         (".agentic/templates/review.json", ".agentic/schemas/review.schema.json"),
     ]
     for template_rel, schema_rel in pairs:
@@ -171,6 +179,14 @@ def validate_repo_contract(root: Path, strict_hierarchy: bool = False) -> list[s
 
     program_schema = parsed.get(".agentic/schemas/program.schema.json")
     task_schema = parsed.get(".agentic/schemas/task.schema.json")
+    task_schema_contract_errors = validate_task_schema_contract(task_schema)
+    for error in task_schema_contract_errors:
+        errors.append(f".agentic/schemas/task.schema.json contract: {error}")
+    if not task_schema_contract_errors:
+        task_template_rel = ".agentic/templates/task.json"
+        if task_template_rel in parsed:
+            for error in check_task_contract_document(parsed[task_template_rel], task_schema):
+                errors.append(f"{task_template_rel} does not match .agentic/schemas/task.schema.json: {error}")
     if ".agentic/schemas/program.schema.json" in parsed and not isinstance(program_schema, dict):
         errors.append(".agentic/schemas/program.schema.json is invalid: $: must be an object")
     program_schema_contract_errors: list[str] = []
