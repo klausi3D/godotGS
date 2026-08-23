@@ -323,10 +323,13 @@ def validate_repo_contract(root: Path, strict_hierarchy: bool = False) -> list[s
     task_schema = parsed.get(".agentic/schemas/task.schema.json")
     if ".agentic/schemas/program.schema.json" in parsed and not isinstance(program_schema, dict):
         errors.append(".agentic/schemas/program.schema.json is invalid: $: must be an object")
+    program_schema_contract_errors: list[str] = []
     if isinstance(program_schema, dict):
-        for error in _validate_program_schema_contract(program_schema):
+        program_schema_contract_errors = _validate_program_schema_contract(program_schema)
+        for error in program_schema_contract_errors:
             errors.append(f".agentic/schemas/program.schema.json contract: {error}")
 
+    if isinstance(program_schema, dict) and not program_schema_contract_errors:
         program_template_rel = ".agentic/templates/program.json"
         program_template = parsed.get(program_template_rel)
         if program_template_rel in parsed:

@@ -170,6 +170,12 @@ class ValidateRepoContractTest(unittest.TestCase):
         ]["items"]
         mutations.append(("dependency item type", missing_dependency_items))
 
+        missing_work_item_ref_type = copy.deepcopy(original)
+        del missing_work_item_ref_type["properties"]["milestones"]["items"]["properties"][
+            "work_items"
+        ]["items"]["properties"]["ref"]["type"]
+        mutations.append(("work-item ref type", missing_work_item_ref_type))
+
         permissive_root = copy.deepcopy(original)
         permissive_root["additionalProperties"] = True
         mutations.append(("root additional properties", permissive_root))
@@ -186,6 +192,17 @@ class ValidateRepoContractTest(unittest.TestCase):
         ]["items"]["properties"]["kind"]
         kind_schema["enum"].append("free_form")
         mutations.append(("work-item kind enum", expanded_work_item_kind))
+
+        malformed_required = copy.deepcopy(original)
+        malformed_required["required"] = None
+        mutations.append(("malformed required", malformed_required))
+
+        malformed_kind_enum = copy.deepcopy(original)
+        malformed_kind_schema = malformed_kind_enum["properties"]["milestones"]["items"][
+            "properties"
+        ]["work_items"]["items"]["properties"]["kind"]
+        malformed_kind_schema["enum"] = None
+        mutations.append(("malformed work-item kind enum", malformed_kind_enum))
 
         for label, mutated in mutations:
             with self.subTest(label=label):
