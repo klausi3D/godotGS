@@ -109,6 +109,7 @@ void GaussianSplatRenderer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_aggregated_count"), &GaussianSplatRenderer::get_aggregated_count);
 	ClassDB::bind_method(D_METHOD("get_overflow_stats"), &GaussianSplatRenderer::get_overflow_stats);
 	ClassDB::bind_method(D_METHOD("get_visible_splat_count"), &GaussianSplatRenderer::get_visible_splat_count);
+	ClassDB::bind_method(D_METHOD("has_rendered_content"), &GaussianSplatRenderer::has_rendered_content);
 	ClassDB::bind_method(D_METHOD("was_last_viewport_copy_successful"), &GaussianSplatRenderer::was_last_viewport_copy_successful);
 	ClassDB::bind_method(D_METHOD("get_last_viewport_copy_source_size"), &GaussianSplatRenderer::get_last_viewport_copy_source_size);
 	ClassDB::bind_method(D_METHOD("get_last_viewport_copy_dest_size"), &GaussianSplatRenderer::get_last_viewport_copy_dest_size);

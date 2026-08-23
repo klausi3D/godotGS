@@ -21,6 +21,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -30,11 +31,51 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "tests" / "runtime" / "run_runtime_validation.py"
+BINDINGS = ROOT / "modules" / "gaussian_splatting" / "renderer" / "gaussian_splat_renderer_bindings.cpp"
+RENDERER_HEADER = ROOT / "modules" / "gaussian_splatting" / "renderer" / "gaussian_splat_renderer.h"
+RENDERER_DOC = ROOT / "modules" / "gaussian_splatting" / "doc_classes" / "GaussianSplatRenderer.xml"
 spec = importlib.util.spec_from_file_location("run_runtime_validation", SCRIPT)
 assert spec and spec.loader
 runtime_validation = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = runtime_validation
 spec.loader.exec_module(runtime_validation)
+
+
+def _without_cpp_comments(text: str) -> str:
+    return re.sub(r"/\*.*?\*/|//[^\n]*", "", text, flags=re.DOTALL)
+
+
+class RenderedContentBindingContractTests(unittest.TestCase):
+    """#941: the fail-closed renderer predicate must be script-reachable.
+
+    The canonical runtime scenario already requires both probe availability and
+    observed content. These source checks pin the public binding that lets the
+    scenario call the production C++ predicate; deleting only that binding must
+    make this suite fail before a costly runtime lane is attempted.
+    """
+
+    def test_existing_cpp_predicate_is_bound_once_for_gdscript(self) -> None:
+        header = RENDERER_HEADER.read_text(encoding="utf-8")
+        self.assertIn("bool has_rendered_content() const override;", header)
+
+        bindings = _without_cpp_comments(BINDINGS.read_text(encoding="utf-8"))
+        pattern = re.compile(
+            r'ClassDB::bind_method\(\s*D_METHOD\(\s*"has_rendered_content"\s*\)\s*,\s*'
+            r'&GaussianSplatRenderer::has_rendered_content\s*\)\s*;'
+        )
+        self.assertEqual(
+            len(pattern.findall(bindings)),
+            1,
+            "has_rendered_content must have exactly one active ClassDB binding to the existing predicate",
+        )
+
+    def test_script_visible_predicate_is_documented(self) -> None:
+        documentation = RENDERER_DOC.read_text(encoding="utf-8")
+        self.assertEqual(
+            len(re.findall(r'<method\s+name="has_rendered_content"\s*>', documentation)),
+            1,
+            "GaussianSplatRenderer must document the script-visible has_rendered_content method exactly once",
+        )
 
 
 def _result(name: str, metrics: dict[str, object], status: str = "passed"):
