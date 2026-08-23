@@ -166,6 +166,8 @@ def validate_repo_contract(root: Path, strict_hierarchy: bool = False) -> list[s
 
     program_schema = parsed.get(".agentic/schemas/program.schema.json")
     task_schema = parsed.get(".agentic/schemas/task.schema.json")
+    if ".agentic/schemas/program.schema.json" in parsed and not isinstance(program_schema, dict):
+        errors.append(".agentic/schemas/program.schema.json is invalid: $: must be an object")
     if isinstance(program_schema, dict):
         program_template_rel = ".agentic/templates/program.json"
         program_template = parsed.get(program_template_rel)
