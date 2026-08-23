@@ -84,6 +84,130 @@ JSON_FILES = [
 # this matches an actual leaked identifier value.
 SESSION_ID_RE = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
 
+PROGRAM_SCHEMA_OBJECT_CONTRACTS = (
+    (
+        "$",
+        (),
+        {
+            "schema_version",
+            "program_id",
+            "title",
+            "planning_snapshot_sha",
+            "status_authority",
+            "dispatch",
+            "milestones",
+        },
+    ),
+    (
+        "$.dispatch",
+        ("properties", "dispatch"),
+        {
+            "task_contract_template",
+            "implementation_wip_limit",
+            "heavy_process_limit",
+            "live_status_requery_required",
+            "invariants",
+        },
+    ),
+    (
+        "$.milestones.items",
+        ("properties", "milestones", "items"),
+        {
+            "id",
+            "title",
+            "github_milestone",
+            "coordinator_issue",
+            "objective",
+            "depends_on",
+            "work_items",
+            "agent_completion_criteria",
+            "human_gates",
+        },
+    ),
+    (
+        "$.milestones.items.work_items.items",
+        ("properties", "milestones", "items", "properties", "work_items", "items"),
+        {"kind", "ref", "purpose"},
+    ),
+)
+
+PROGRAM_SCHEMA_VALUE_CONTRACTS = (
+    ("$.schema_version.type", ("properties", "schema_version", "type"), "integer"),
+    ("$.schema_version.const", ("properties", "schema_version", "const"), 1),
+    ("$.milestones.type", ("properties", "milestones", "type"), "array"),
+    (
+        "$.dispatch.live_status_requery_required.const",
+        ("properties", "dispatch", "properties", "live_status_requery_required", "const"),
+        True,
+    ),
+    (
+        "$.milestones.items.work_items.type",
+        ("properties", "milestones", "items", "properties", "work_items", "type"),
+        "array",
+    ),
+    (
+        "$.milestones.items.work_items.items.kind.enum",
+        (
+            "properties",
+            "milestones",
+            "items",
+            "properties",
+            "work_items",
+            "items",
+            "properties",
+            "kind",
+            "enum",
+        ),
+        ["issue", "pull_request", "design"],
+    ),
+)
+
+
+def _nested_value(value: Any, path: tuple[str, ...]) -> Any:
+    current = value
+    for key in path:
+        if not isinstance(current, dict) or key not in current:
+            return None
+        current = current[key]
+    return current
+
+
+def _validate_program_schema_contract(schema: dict[str, Any]) -> list[str]:
+    """Pin the program schema constraints that make manifests enforceable."""
+    errors: list[str] = []
+    for label, path, expected_required in PROGRAM_SCHEMA_OBJECT_CONTRACTS:
+        node = _nested_value(schema, path)
+        if not isinstance(node, dict):
+            errors.append(f"{label}: must define an object schema")
+            continue
+        if node.get("type") != "object":
+            errors.append(f"{label}.type: must be 'object'")
+        if node.get("additionalProperties") is not False:
+            errors.append(f"{label}.additionalProperties: must be false")
+
+        required = node.get("required")
+        declared_required = (
+            {entry for entry in required if isinstance(entry, str)}
+            if isinstance(required, list)
+            else set()
+        )
+        missing_required = expected_required - declared_required
+        if missing_required:
+            errors.append(f"{label}.required: missing {sorted(missing_required)}")
+
+        properties = node.get("properties")
+        missing_properties = (
+            expected_required - set(properties) if isinstance(properties, dict) else expected_required
+        )
+        if missing_properties:
+            errors.append(f"{label}.properties: missing {sorted(missing_properties)}")
+
+    for label, path, expected in PROGRAM_SCHEMA_VALUE_CONTRACTS:
+        actual = _nested_value(schema, path)
+        if actual != expected:
+            errors.append(f"{label}: expected {expected!r}, got {actual!r}")
+    return errors
+
 
 def _git_commit_exists(root: Path, sha: str) -> bool:
     try:
@@ -169,6 +293,9 @@ def validate_repo_contract(root: Path, strict_hierarchy: bool = False) -> list[s
     if ".agentic/schemas/program.schema.json" in parsed and not isinstance(program_schema, dict):
         errors.append(".agentic/schemas/program.schema.json is invalid: $: must be an object")
     if isinstance(program_schema, dict):
+        for error in _validate_program_schema_contract(program_schema):
+            errors.append(f".agentic/schemas/program.schema.json contract: {error}")
+
         program_template_rel = ".agentic/templates/program.json"
         program_template = parsed.get(program_template_rel)
         if program_template_rel in parsed:

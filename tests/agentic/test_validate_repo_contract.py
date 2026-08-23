@@ -7,6 +7,7 @@ tests do not depend on any single branch having the full AGENTS.md hierarchy.
 
 from __future__ import annotations
 
+import copy
 import importlib.util
 import json
 import shutil
@@ -112,6 +113,62 @@ class ValidateRepoContractTest(unittest.TestCase):
 
         errors = vrc.validate_repo_contract(self.root)
         self.assertTrue(any("program.json is invalid" in error and "expected type object" in error for error in errors))
+
+    def test_program_schema_defining_constraints_cannot_be_removed(self):
+        path = self.root / ".agentic" / "schemas" / "program.schema.json"
+        original = json.loads(path.read_text(encoding="utf-8"))
+
+        mutations = []
+        mutations.append(("vacuous schema", {}))
+
+        missing_root_requirement = copy.deepcopy(original)
+        missing_root_requirement["required"].remove("schema_version")
+        mutations.append(("root requirement", missing_root_requirement))
+
+        missing_dispatch_requirement = copy.deepcopy(original)
+        missing_dispatch_requirement["properties"]["dispatch"]["required"].remove("heavy_process_limit")
+        mutations.append(("dispatch requirement", missing_dispatch_requirement))
+
+        missing_milestone_requirement = copy.deepcopy(original)
+        missing_milestone_requirement["properties"]["milestones"]["items"]["required"].remove("human_gates")
+        mutations.append(("milestone requirement", missing_milestone_requirement))
+
+        missing_work_item_requirement = copy.deepcopy(original)
+        work_item_schema = missing_work_item_requirement["properties"]["milestones"]["items"]["properties"][
+            "work_items"
+        ]["items"]
+        work_item_schema["required"].remove("purpose")
+        mutations.append(("work-item requirement", missing_work_item_requirement))
+
+        missing_version_const = copy.deepcopy(original)
+        del missing_version_const["properties"]["schema_version"]["const"]
+        mutations.append(("schema-version const", missing_version_const))
+
+        permissive_root = copy.deepcopy(original)
+        permissive_root["additionalProperties"] = True
+        mutations.append(("root additional properties", permissive_root))
+
+        missing_live_status_const = copy.deepcopy(original)
+        del missing_live_status_const["properties"]["dispatch"]["properties"][
+            "live_status_requery_required"
+        ]["const"]
+        mutations.append(("live-status const", missing_live_status_const))
+
+        expanded_work_item_kind = copy.deepcopy(original)
+        kind_schema = expanded_work_item_kind["properties"]["milestones"]["items"]["properties"][
+            "work_items"
+        ]["items"]["properties"]["kind"]
+        kind_schema["enum"].append("free_form")
+        mutations.append(("work-item kind enum", expanded_work_item_kind))
+
+        for label, mutated in mutations:
+            with self.subTest(label=label):
+                path.write_text(json.dumps(mutated), encoding="utf-8")
+                errors = vrc.validate_repo_contract(self.root)
+                self.assertTrue(
+                    any("program.schema.json contract" in error for error in errors),
+                    f"schema contract accepted mutation: {label}",
+                )
 
     def test_invalid_program_fails(self):
         path = self.root / ".agentic" / "programs" / "continuation-2026-08.json"
