@@ -50,18 +50,12 @@ classify_change = _load_sibling("classify_change")
 validate_review = _load_sibling("validate_review")
 
 
-def check_contract(
-    contract: dict[str, Any],
-    policy: dict[str, Any],
-    task_schema: dict[str, Any],
-    changed_paths: list[str] | None,
-) -> list[str]:
-    errors: list[str] = []
+def check_contract_document(contract: Any, task_schema: dict[str, Any]) -> list[str]:
+    """Validate the schema and schema-independent task-contract semantics."""
+    errors = validate_review.validate_instance(contract, task_schema, "$")
+    if not isinstance(contract, dict):
+        return errors
 
-    # 1. Schema validation.
-    errors.extend(validate_review.validate_instance(contract, task_schema, "$"))
-
-    # 2. Non-empty required fields.
     for field in NON_EMPTY_STRING_FIELDS:
         value = contract.get(field)
         if isinstance(value, str) and not value.strip():
@@ -70,6 +64,16 @@ def check_contract(
         value = contract.get(field)
         if isinstance(value, list) and len(value) == 0:
             errors.append(f"$.{field}: must not be empty")
+    return errors
+
+
+def check_contract(
+    contract: dict[str, Any],
+    policy: dict[str, Any],
+    task_schema: dict[str, Any],
+    changed_paths: list[str] | None,
+) -> list[str]:
+    errors = check_contract_document(contract, task_schema)
 
     ordering = policy["classification"]["ordering"]
     rank = {cls: index for index, cls in enumerate(ordering)}

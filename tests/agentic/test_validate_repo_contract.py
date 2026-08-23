@@ -120,6 +120,20 @@ class ValidateRepoContractTest(unittest.TestCase):
                     any("program.json is invalid" in error and expected_error in error for error in errors)
                 )
 
+    def test_program_task_template_must_pass_semantic_contract_checks(self):
+        path = self.root / ".agentic" / "templates" / "task.json"
+        task = json.loads(path.read_text(encoding="utf-8"))
+        task["acceptance_criteria"] = []
+        path.write_text(json.dumps(task), encoding="utf-8")
+
+        errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(
+            any(
+                "task_contract_template" in error and "acceptance_criteria" in error
+                for error in errors
+            )
+        )
+
     def test_non_object_program_schema_fails(self):
         path = self.root / ".agentic" / "schemas" / "program.schema.json"
         path.write_text("[]", encoding="utf-8")

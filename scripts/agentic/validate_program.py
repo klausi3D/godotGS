@@ -42,6 +42,28 @@ def _load_schema_validator():
 validate_instance = _load_schema_validator()
 
 
+def _load_program_schema_contract_validator():
+    path = Path(__file__).with_name("program_schema_contract.py")
+    spec = importlib.util.spec_from_file_location("program_schema_contract", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.validate_program_schema_contract
+
+
+def _load_task_contract_document_validator():
+    path = Path(__file__).with_name("check_pr_contract.py")
+    spec = importlib.util.spec_from_file_location("check_pr_contract_for_program", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.check_contract_document
+
+
+validate_program_schema_contract = _load_program_schema_contract_validator()
+check_task_contract_document = _load_task_contract_document_validator()
+
+
 def _git_commit_exists(root: Path, sha: str) -> bool:
     try:
         completed = subprocess.run(
@@ -62,6 +84,9 @@ def _non_empty(value: Any) -> bool:
 def validate_program(program: Any, schema: Any) -> list[str]:
     if not isinstance(schema, dict):
         return ["$: schema must be an object"]
+    schema_errors = validate_program_schema_contract(schema)
+    if schema_errors:
+        return [f"$schema contract: {error}" for error in schema_errors]
     errors = validate_instance(program, schema, "$")
     if not isinstance(program, dict):
         return errors
@@ -237,8 +262,8 @@ def validate_repository_references(
     if not isinstance(task_schema, dict):
         errors.append("task schema must be an object")
         return errors
-    for error in validate_instance(task_template, task_schema, "$"):
-        errors.append(f"$.dispatch.task_contract_template does not match task schema: {error}")
+    for error in check_task_contract_document(task_template, task_schema):
+        errors.append(f"$.dispatch.task_contract_template does not match task schema or semantics: {error}")
     return errors
 
 
