@@ -104,6 +104,17 @@ class RenderedContentBindingContractTests(unittest.TestCase):
             3,
             "deadline must be rechecked after both awaits and immediately before accepting proof",
         )
+        run_body = script.split("func _run() -> void:", 1)[1].split("\n\nfunc _read_renderer_stats", 1)[0]
+        self.assertEqual(
+            len(re.findall(r"^\s*_pass\(", run_body, flags=re.MULTILINE)),
+            1,
+            "only the in-budget conjunctive branch may emit a passing terminal",
+        )
+        self.assertIn(
+            '_fail("Canonical node asset proof exceeded its wall-clock deadline.")',
+            run_body,
+            "deadline exhaustion must end fail-closed instead of falling through to pass",
+        )
 
 
 def _result(name: str, metrics: dict[str, object], status: str = "passed"):

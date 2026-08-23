@@ -253,7 +253,7 @@ func _run() -> void:
 	if not _visual_metrics_pass():
 		_fail("Canonical node asset proof did not produce non-blank visual evidence.")
 		return
-	_pass("Canonical GaussianSplatNode3D rendered fixture asset.")
+	_fail("Canonical node asset proof exceeded its wall-clock deadline.")
 
 
 func _read_renderer_stats() -> Dictionary:
