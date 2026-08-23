@@ -87,6 +87,9 @@ def validate_program(program: Any, schema: dict[str, Any]) -> list[str]:
         heavy_limit = dispatch.get("heavy_process_limit")
         if isinstance(heavy_limit, int) and not isinstance(heavy_limit, bool) and heavy_limit > 2:
             errors.append("$.dispatch.heavy_process_limit: repository-wide limit is 2")
+        implementation_limit = dispatch.get("implementation_wip_limit")
+        if isinstance(implementation_limit, int) and not isinstance(implementation_limit, bool) and implementation_limit > 2:
+            errors.append("$.dispatch.implementation_wip_limit: implementation WIP limit is 2")
         invariants = dispatch.get("invariants")
         if isinstance(invariants, list) and not invariants:
             errors.append("$.dispatch.invariants: must not be empty")

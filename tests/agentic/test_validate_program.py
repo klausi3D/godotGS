@@ -46,6 +46,12 @@ class ValidateProgramTest(unittest.TestCase):
         errors = vp.validate_program(program, SCHEMA)
         self.assertTrue(any("repository-wide limit is 2" in error for error in errors))
 
+    def test_implementation_wip_limit_above_program_cap_fails(self):
+        program = copy.deepcopy(TEMPLATE)
+        program["dispatch"]["implementation_wip_limit"] = 3
+        errors = vp.validate_program(program, SCHEMA)
+        self.assertTrue(any("implementation WIP limit is 2" in error for error in errors))
+
     def test_live_status_requery_cannot_be_disabled(self):
         program = copy.deepcopy(TEMPLATE)
         program["dispatch"]["live_status_requery_required"] = False
