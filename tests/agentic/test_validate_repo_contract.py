@@ -8,6 +8,7 @@ tests do not depend on any single branch having the full AGENTS.md hierarchy.
 from __future__ import annotations
 
 import importlib.util
+import json
 import shutil
 import tempfile
 import unittest
@@ -84,6 +85,14 @@ class ValidateRepoContractTest(unittest.TestCase):
         )
         errors = vrc.validate_repo_contract(self.root)
         self.assertTrue(any("task.json does not match" in e for e in errors))
+
+    def test_invalid_program_fails(self):
+        path = self.root / ".agentic" / "programs" / "continuation-2026-08.json"
+        program = json.loads(path.read_text(encoding="utf-8"))
+        program["milestones"][1]["depends_on"] = ["MISSING"]
+        path.write_text(json.dumps(program), encoding="utf-8")
+        errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(any("unknown milestone" in e for e in errors))
 
 
 if __name__ == "__main__":

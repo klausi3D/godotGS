@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""Unit tests for scripts/agentic/validate_program.py."""
+
+from __future__ import annotations
+
+import copy
+import importlib.util
+import json
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+SCRIPT = ROOT / "scripts" / "agentic" / "validate_program.py"
+spec = importlib.util.spec_from_file_location("validate_program", SCRIPT)
+assert spec and spec.loader
+vp = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(vp)
+
+SCHEMA = json.loads((ROOT / ".agentic" / "schemas" / "program.schema.json").read_text(encoding="utf-8"))
+TEMPLATE = json.loads((ROOT / ".agentic" / "templates" / "program.json").read_text(encoding="utf-8"))
+
+
+class ValidateProgramTest(unittest.TestCase):
+    def test_template_is_valid(self):
+        self.assertEqual(vp.validate_program(copy.deepcopy(TEMPLATE), SCHEMA), [])
+
+    def test_invalid_snapshot_sha_fails(self):
+        program = copy.deepcopy(TEMPLATE)
+        program["planning_snapshot_sha"] = "master"
+        errors = vp.validate_program(program, SCHEMA)
+        self.assertTrue(any("planning_snapshot_sha" in error for error in errors))
+
+    def test_empty_goal_objective_fails(self):
+        program = copy.deepcopy(TEMPLATE)
+        program["milestones"][0]["objective"] = "   "
+        errors = vp.validate_program(program, SCHEMA)
+        self.assertTrue(any("objective" in error for error in errors))
+
+    def test_heavy_process_limit_above_repository_cap_fails(self):
+        program = copy.deepcopy(TEMPLATE)
+        program["dispatch"]["heavy_process_limit"] = 3
+        errors = vp.validate_program(program, SCHEMA)
+        self.assertTrue(any("repository-wide limit is 2" in error for error in errors))
+
+    def test_duplicate_milestone_id_fails(self):
+        program = copy.deepcopy(TEMPLATE)
+        duplicate = copy.deepcopy(program["milestones"][0])
+        duplicate["coordinator_issue"] = "#3"
+        duplicate["work_items"][0]["ref"] = "#4"
+        program["milestones"].append(duplicate)
+        errors = vp.validate_program(program, SCHEMA)
+        self.assertTrue(any("duplicate milestone id" in error for error in errors))
+
+    def test_unknown_dependency_fails(self):
+        program = copy.deepcopy(TEMPLATE)
+        program["milestones"][0]["depends_on"] = ["MISSING"]
+        errors = vp.validate_program(program, SCHEMA)
+        self.assertTrue(any("unknown milestone" in error for error in errors))
+
+    def test_dependency_must_appear_earlier(self):
+        program = copy.deepcopy(TEMPLATE)
+        second = copy.deepcopy(program["milestones"][0])
+        second["id"] = "M1"
+        second["coordinator_issue"] = "#3"
+        second["work_items"][0]["ref"] = "#4"
+        program["milestones"][0]["depends_on"] = ["M1"]
+        program["milestones"].append(second)
+        errors = vp.validate_program(program, SCHEMA)
+        self.assertTrue(any("must appear before" in error for error in errors))
+
+    def test_duplicate_work_item_fails(self):
+        program = copy.deepcopy(TEMPLATE)
+        second = copy.deepcopy(program["milestones"][0])
+        second["id"] = "M1"
+        second["coordinator_issue"] = "#3"
+        second["depends_on"] = ["M0"]
+        program["milestones"].append(second)
+        errors = vp.validate_program(program, SCHEMA)
+        self.assertTrue(any("duplicate work item" in error for error in errors))
+
+    def test_invalid_issue_reference_fails(self):
+        program = copy.deepcopy(TEMPLATE)
+        program["milestones"][0]["work_items"][0]["ref"] = "issue-2"
+        errors = vp.validate_program(program, SCHEMA)
+        self.assertTrue(any("issue/PR reference" in error for error in errors))
+
+
+if __name__ == "__main__":
+    unittest.main()

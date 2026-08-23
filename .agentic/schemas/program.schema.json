@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://godotgs.local/.agentic/schemas/program.schema.json",
+  "title": "Agentic Milestone Program",
+  "description": "A dependency-ordered set of milestone goals. Live status remains in GitHub; one task contract is created at dispatch time for each implementation issue.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "program_id",
+    "title",
+    "planning_snapshot_sha",
+    "status_authority",
+    "dispatch",
+    "milestones"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "program_id": { "type": "string" },
+    "title": { "type": "string" },
+    "planning_snapshot_sha": { "type": "string" },
+    "status_authority": { "type": "string" },
+    "dispatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_contract_template",
+        "implementation_wip_limit",
+        "heavy_process_limit",
+        "live_status_requery_required",
+        "invariants"
+      ],
+      "properties": {
+        "task_contract_template": { "type": "string" },
+        "implementation_wip_limit": { "type": "integer" },
+        "heavy_process_limit": { "type": "integer" },
+        "live_status_requery_required": { "type": "boolean" },
+        "invariants": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "milestones": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "github_milestone",
+          "coordinator_issue",
+          "objective",
+          "depends_on",
+          "work_items",
+          "agent_completion_criteria",
+          "human_gates"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "github_milestone": { "type": "string" },
+          "coordinator_issue": { "type": "string" },
+          "objective": { "type": "string" },
+          "depends_on": { "type": "array", "items": { "type": "string" } },
+          "work_items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "ref", "purpose"],
+              "properties": {
+                "kind": { "type": "string", "enum": ["issue", "pull_request", "design"] },
+                "ref": { "type": "string" },
+                "purpose": { "type": "string" }
+              }
+            }
+          },
+          "agent_completion_criteria": { "type": "array", "items": { "type": "string" } },
+          "human_gates": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

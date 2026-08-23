@@ -38,8 +38,10 @@ CONTROL_PLANE_FILES = [
     ".agentic/ownership.json",
     ".agentic/schemas/task.schema.json",
     ".agentic/schemas/review.schema.json",
+    ".agentic/schemas/program.schema.json",
     ".agentic/templates/task.json",
     ".agentic/templates/review.json",
+    ".agentic/templates/program.json",
     ".agentic/roles/planner.md",
     ".agentic/roles/implementer.md",
     ".agentic/roles/verifier.md",
@@ -48,6 +50,7 @@ CONTROL_PLANE_FILES = [
     "scripts/agentic/classify_change.py",
     "scripts/agentic/check_pr_contract.py",
     "scripts/agentic/validate_review.py",
+    "scripts/agentic/validate_program.py",
     "scripts/agentic/validate_repo_contract.py",
 ]
 
@@ -69,8 +72,10 @@ JSON_FILES = [
     ".agentic/ownership.json",
     ".agentic/schemas/task.schema.json",
     ".agentic/schemas/review.schema.json",
+    ".agentic/schemas/program.schema.json",
     ".agentic/templates/task.json",
     ".agentic/templates/review.json",
+    ".agentic/templates/program.json",
 ]
 
 # Concrete session-id / agent-session UUID format (as used by the legacy
@@ -91,6 +96,18 @@ def _load_validate_instance():
 validate_instance = _load_validate_instance()
 
 
+def _load_validate_program():
+    path = Path(__file__).with_name("validate_program.py")
+    spec = importlib.util.spec_from_file_location("validate_program", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.validate_program
+
+
+validate_program = _load_validate_program()
+
+
 def validate_repo_contract(root: Path, strict_hierarchy: bool = False) -> list[str]:
     errors: list[str] = []
 
@@ -104,7 +121,11 @@ def validate_repo_contract(root: Path, strict_hierarchy: bool = False) -> list[s
 
     # 2. JSON files parse.
     parsed: dict[str, Any] = {}
-    for rel in JSON_FILES:
+    json_files = list(JSON_FILES)
+    program_dir = root / ".agentic" / "programs"
+    if program_dir.is_dir():
+        json_files.extend(str(path.relative_to(root)).replace("\\", "/") for path in sorted(program_dir.glob("*.json")))
+    for rel in json_files:
         path = root / rel
         if not path.is_file():
             continue
@@ -117,11 +138,20 @@ def validate_repo_contract(root: Path, strict_hierarchy: bool = False) -> list[s
     pairs = [
         (".agentic/templates/task.json", ".agentic/schemas/task.schema.json"),
         (".agentic/templates/review.json", ".agentic/schemas/review.schema.json"),
+        (".agentic/templates/program.json", ".agentic/schemas/program.schema.json"),
     ]
     for template_rel, schema_rel in pairs:
         if template_rel in parsed and schema_rel in parsed:
             for error in validate_instance(parsed[template_rel], parsed[schema_rel], "$"):
                 errors.append(f"{template_rel} does not match {schema_rel}: {error}")
+
+    program_schema = parsed.get(".agentic/schemas/program.schema.json")
+    if isinstance(program_schema, dict):
+        for rel, instance in parsed.items():
+            if not rel.startswith(".agentic/programs/") or not isinstance(instance, dict):
+                continue
+            for error in validate_program(instance, program_schema):
+                errors.append(f"{rel} is invalid: {error}")
 
     policy = parsed.get(".agentic/policy.json")
     if isinstance(policy, dict):
