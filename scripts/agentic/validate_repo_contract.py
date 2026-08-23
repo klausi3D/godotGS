@@ -25,6 +25,7 @@ import argparse
 import importlib.util
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -82,6 +83,20 @@ JSON_FILES = [
 # coordinator memory, e.g. "019d0571-b295-..."). Prose like "session IDs" is fine;
 # this matches an actual leaked identifier value.
 SESSION_ID_RE = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
+COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _git_commit_exists(root: Path, sha: str) -> bool:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(root), "cat-file", "-e", f"{sha}^{{commit}}"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return False
+    return completed.returncode == 0
 
 
 def _load_validate_instance():
@@ -146,6 +161,7 @@ def validate_repo_contract(root: Path, strict_hierarchy: bool = False) -> list[s
                 errors.append(f"{template_rel} does not match {schema_rel}: {error}")
 
     program_schema = parsed.get(".agentic/schemas/program.schema.json")
+    task_schema = parsed.get(".agentic/schemas/task.schema.json")
     if isinstance(program_schema, dict):
         for rel, instance in parsed.items():
             if not rel.startswith(".agentic/programs/"):
@@ -155,6 +171,36 @@ def validate_repo_contract(root: Path, strict_hierarchy: bool = False) -> list[s
                 continue
             for error in validate_program(instance, program_schema):
                 errors.append(f"{rel} is invalid: {error}")
+
+            snapshot = instance.get("planning_snapshot_sha")
+            if isinstance(snapshot, str) and COMMIT_SHA_RE.fullmatch(snapshot):
+                if not _git_commit_exists(root, snapshot):
+                    errors.append(f"{rel} is invalid: $.planning_snapshot_sha does not resolve to a commit")
+
+            dispatch = instance.get("dispatch")
+            template_rel = dispatch.get("task_contract_template") if isinstance(dispatch, dict) else None
+            if not isinstance(template_rel, str):
+                continue
+            template_path = (root / template_rel).resolve()
+            try:
+                template_path.relative_to(root.resolve())
+            except ValueError:
+                errors.append(f"{rel} is invalid: $.dispatch.task_contract_template must stay inside the repository")
+                continue
+            if not template_path.is_file():
+                errors.append(f"{rel} is invalid: $.dispatch.task_contract_template does not exist: {template_rel}")
+                continue
+            try:
+                task_template = json.loads(template_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                errors.append(f"{rel} is invalid: $.dispatch.task_contract_template is unreadable: {exc}")
+                continue
+            if isinstance(task_schema, dict):
+                template_errors = validate_instance(task_template, task_schema, "$")
+                for error in template_errors:
+                    errors.append(
+                        f"{rel} is invalid: $.dispatch.task_contract_template does not match task schema: {error}"
+                    )
 
     policy = parsed.get(".agentic/policy.json")
     if isinstance(policy, dict):

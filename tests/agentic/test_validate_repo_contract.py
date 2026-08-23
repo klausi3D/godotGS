@@ -13,6 +13,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "agentic" / "validate_repo_contract.py"
@@ -38,8 +39,11 @@ class ValidateRepoContractTest(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.root = _make_valid_root(Path(self._tmp.name))
+        self._commit_lookup = mock.patch.object(vrc, "_git_commit_exists", return_value=True)
+        self._commit_lookup.start()
 
     def tearDown(self):
+        self._commit_lookup.stop()
         self._tmp.cleanup()
 
     def test_valid_root_passes(self):
@@ -99,6 +103,31 @@ class ValidateRepoContractTest(unittest.TestCase):
         path.write_text("[]", encoding="utf-8")
         errors = vrc.validate_repo_contract(self.root)
         self.assertTrue(any("must be an object" in e for e in errors))
+
+    def test_unresolvable_program_snapshot_fails(self):
+        path = self.root / ".agentic" / "programs" / "continuation-2026-08.json"
+        program = json.loads(path.read_text(encoding="utf-8"))
+        program["planning_snapshot_sha"] = "f" * 40
+        path.write_text(json.dumps(program), encoding="utf-8")
+        with mock.patch.object(vrc, "_git_commit_exists", return_value=False):
+            errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(any("planning_snapshot_sha" in e and "does not resolve" in e for e in errors))
+
+    def test_program_task_contract_template_must_exist(self):
+        path = self.root / ".agentic" / "programs" / "continuation-2026-08.json"
+        program = json.loads(path.read_text(encoding="utf-8"))
+        program["dispatch"]["task_contract_template"] = ".agentic/templates/missing.json"
+        path.write_text(json.dumps(program), encoding="utf-8")
+        errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(any("task_contract_template" in e and "does not exist" in e for e in errors))
+
+    def test_program_task_contract_template_must_match_task_schema(self):
+        path = self.root / ".agentic" / "programs" / "continuation-2026-08.json"
+        program = json.loads(path.read_text(encoding="utf-8"))
+        program["dispatch"]["task_contract_template"] = ".agentic/templates/review.json"
+        path.write_text(json.dumps(program), encoding="utf-8")
+        errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(any("task_contract_template" in e and "task schema" in e for e in errors))
 
 
 if __name__ == "__main__":
