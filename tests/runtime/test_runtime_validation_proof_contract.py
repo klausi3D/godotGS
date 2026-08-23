@@ -108,8 +108,12 @@ def _canonical_success_guard_errors(script: str) -> list[str]:
         (line for line in reversed(lines[: pass_indices[0]]) if line.startswith("\t\tif ")),
         "",
     )
-    if "not stage_failure_seen" not in success_guard:
-        return ["the passing branch must reject any latched renderer-stage failure"]
+    expected_guard = (
+        "\t\tif not stage_failure_seen and visible >= MIN_VISIBLE_SPLATS "
+        "and visual_ok and _rendered_content_ok():"
+    )
+    if success_guard != expected_guard:
+        return ["the passing branch must require the complete fail-closed success predicate"]
     return []
 
 
@@ -282,6 +286,20 @@ class RenderedContentBindingContractTests(unittest.TestCase):
         self.assertTrue(
             _canonical_success_guard_errors(mutated),
             "success contract accepted proof after a latched renderer-stage failure",
+        )
+
+    def test_success_guard_rejects_a_bypassing_or_predicate(self) -> None:
+        script = CANONICAL_RENDER_PROOF.read_text(encoding="utf-8")
+        mutated = script.replace(
+            "if not stage_failure_seen and visible >= MIN_VISIBLE_SPLATS",
+            "if true or not stage_failure_seen and visible >= MIN_VISIBLE_SPLATS",
+            1,
+        )
+
+        self.assertNotEqual(mutated, script, "negative control must inject a bypassing success route")
+        self.assertTrue(
+            _canonical_success_guard_errors(mutated),
+            "success contract accepted a predicate that bypasses the latched stage failure",
         )
 
     def test_post_draw_stage_failure_resample_cannot_be_removed(self) -> None:
