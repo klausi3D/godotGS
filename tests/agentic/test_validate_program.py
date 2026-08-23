@@ -11,6 +11,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "agentic" / "validate_program.py"
@@ -92,6 +93,25 @@ class ValidateProgramTest(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertIn("Program is INVALID:", stdout.getvalue())
         self.assertIn("$: expected type object, got list", stdout.getvalue())
+
+    def test_standalone_validator_rejects_unresolvable_snapshot(self):
+        program = copy.deepcopy(TEMPLATE)
+        program["planning_snapshot_sha"] = "f" * 40
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            program_path = Path(temp_dir) / "program.json"
+            program_path.write_text(json.dumps(program), encoding="utf-8")
+
+            for exists, expected_exit in ((True, 0), (False, 1)):
+                with self.subTest(commit_exists=exists):
+                    stdout = io.StringIO()
+                    with mock.patch.object(vp, "_git_commit_exists", return_value=exists, create=True):
+                        with contextlib.redirect_stdout(stdout):
+                            exit_code = vp.main(["--program", str(program_path)])
+
+                    self.assertEqual(exit_code, expected_exit)
+                    if not exists:
+                        self.assertIn("planning_snapshot_sha does not resolve to a commit", stdout.getvalue())
 
     def test_dependency_must_appear_earlier(self):
         program = copy.deepcopy(TEMPLATE)

@@ -16,6 +16,7 @@ import argparse
 import importlib.util
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,19 @@ def _load_schema_validator():
 
 
 validate_instance = _load_schema_validator()
+
+
+def _git_commit_exists(sha: str) -> bool:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(ROOT), "cat-file", "-e", f"{sha}^{{commit}}"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return False
+    return completed.returncode == 0
 
 
 def _non_empty(value: Any) -> bool:
@@ -193,6 +207,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     errors = validate_program(program, schema)
+    if isinstance(program, dict):
+        snapshot = program.get("planning_snapshot_sha")
+        if isinstance(snapshot, str) and SHA_RE.fullmatch(snapshot) and not _git_commit_exists(snapshot):
+            errors.append("$.planning_snapshot_sha does not resolve to a commit")
     if errors:
         print("Program is INVALID:")
         for error in errors:
