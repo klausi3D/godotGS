@@ -42,6 +42,12 @@ class ValidateProgramTest(unittest.TestCase):
         errors = vp.validate_program(program, SCHEMA)
         self.assertTrue(any("repository-wide limit is 2" in error for error in errors))
 
+    def test_live_status_requery_cannot_be_disabled(self):
+        program = copy.deepcopy(TEMPLATE)
+        program["dispatch"]["live_status_requery_required"] = False
+        errors = vp.validate_program(program, SCHEMA)
+        self.assertTrue(any("live_status_requery_required" in error for error in errors))
+
     def test_duplicate_milestone_id_fails(self):
         program = copy.deepcopy(TEMPLATE)
         duplicate = copy.deepcopy(program["milestones"][0])
@@ -83,6 +89,18 @@ class ValidateProgramTest(unittest.TestCase):
         program["milestones"][0]["work_items"][0]["ref"] = "issue-2"
         errors = vp.validate_program(program, SCHEMA)
         self.assertTrue(any("issue/PR reference" in error for error in errors))
+
+    def test_blank_completion_criterion_fails(self):
+        program = copy.deepcopy(TEMPLATE)
+        program["milestones"][0]["agent_completion_criteria"] = ["  "]
+        errors = vp.validate_program(program, SCHEMA)
+        self.assertTrue(any("agent_completion_criteria[0]" in error for error in errors))
+
+    def test_blank_human_gate_fails(self):
+        program = copy.deepcopy(TEMPLATE)
+        program["milestones"][0]["human_gates"] = [""]
+        errors = vp.validate_program(program, SCHEMA)
+        self.assertTrue(any("human_gates[0]" in error for error in errors))
 
 
 if __name__ == "__main__":

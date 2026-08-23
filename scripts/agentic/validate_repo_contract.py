@@ -148,7 +148,10 @@ def validate_repo_contract(root: Path, strict_hierarchy: bool = False) -> list[s
     program_schema = parsed.get(".agentic/schemas/program.schema.json")
     if isinstance(program_schema, dict):
         for rel, instance in parsed.items():
-            if not rel.startswith(".agentic/programs/") or not isinstance(instance, dict):
+            if not rel.startswith(".agentic/programs/"):
+                continue
+            if not isinstance(instance, dict):
+                errors.append(f"{rel} is invalid: $: must be an object")
                 continue
             for error in validate_program(instance, program_schema):
                 errors.append(f"{rel} is invalid: {error}")

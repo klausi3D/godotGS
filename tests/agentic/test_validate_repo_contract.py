@@ -94,6 +94,12 @@ class ValidateRepoContractTest(unittest.TestCase):
         errors = vrc.validate_repo_contract(self.root)
         self.assertTrue(any("unknown milestone" in e for e in errors))
 
+    def test_non_object_program_fails(self):
+        path = self.root / ".agentic" / "programs" / "continuation-2026-08.json"
+        path.write_text("[]", encoding="utf-8")
+        errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(any("must be an object" in e for e in errors))
+
 
 if __name__ == "__main__":
     unittest.main()

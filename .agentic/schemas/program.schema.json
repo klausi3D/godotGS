@@ -34,7 +34,7 @@
         "task_contract_template": { "type": "string" },
         "implementation_wip_limit": { "type": "integer" },
         "heavy_process_limit": { "type": "integer" },
-        "live_status_requery_required": { "type": "boolean" },
+        "live_status_requery_required": { "type": "boolean", "const": true },
         "invariants": { "type": "array", "items": { "type": "string" } }
       }
     },

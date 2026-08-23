@@ -113,6 +113,13 @@ def validate_program(program: dict[str, Any], schema: dict[str, Any]) -> list[st
             if isinstance(value, list) and not value:
                 errors.append(f"{path}.{field}: must not be empty")
 
+        for field in ("agent_completion_criteria", "human_gates"):
+            value = milestone.get(field)
+            if isinstance(value, list):
+                for value_index, entry in enumerate(value):
+                    if not _non_empty(entry):
+                        errors.append(f"{path}.{field}[{value_index}]: must not be empty")
+
         work_items = milestone.get("work_items")
         if isinstance(work_items, list):
             for work_index, work_item in enumerate(work_items):
