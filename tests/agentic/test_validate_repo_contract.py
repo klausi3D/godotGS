@@ -176,6 +176,34 @@ class ValidateRepoContractTest(unittest.TestCase):
                     any("program.json is invalid" in error and expected_error in error for error in errors)
                 )
 
+    def test_program_template_only_exempts_zero_snapshot_placeholder(self):
+        path = self.root / ".agentic" / "templates" / "program.json"
+        program = json.loads(path.read_text(encoding="utf-8"))
+        program["planning_snapshot_sha"] = "f" * 40
+        path.write_text(json.dumps(program), encoding="utf-8")
+
+        with mock.patch.object(vrc, "_git_commit_exists", return_value=False):
+            errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(
+            any("program.json is invalid" in error and "planning_snapshot_sha" in error for error in errors)
+        )
+
+    def test_zero_template_snapshot_placeholder_does_not_resolve(self):
+        program = json.loads(
+            (self.root / ".agentic" / "templates" / "program.json").read_text(encoding="utf-8")
+        )
+        task_schema = json.loads(
+            (self.root / ".agentic" / "schemas" / "task.schema.json").read_text(encoding="utf-8")
+        )
+        errors = vrc.validate_repository_references(
+            program,
+            self.root,
+            task_schema,
+            commit_exists=lambda _sha: False,
+            allow_placeholder_snapshot=True,
+        )
+        self.assertFalse(any("planning_snapshot_sha" in error for error in errors))
+
     def test_program_task_template_must_pass_semantic_contract_checks(self):
         path = self.root / ".agentic" / "templates" / "task.json"
         task = json.loads(path.read_text(encoding="utf-8"))

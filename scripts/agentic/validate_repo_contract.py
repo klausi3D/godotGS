@@ -205,7 +205,7 @@ def validate_repo_contract(root: Path, strict_hierarchy: bool = False) -> list[s
                 program_template,
                 root,
                 task_schema,
-                validate_snapshot_reference=False,
+                allow_placeholder_snapshot=True,
             ):
                 errors.append(f"{program_template_rel} is invalid: {error}")
 

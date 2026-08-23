@@ -26,6 +26,7 @@ DEFAULT_SCHEMA = ROOT / ".agentic" / "schemas" / "program.schema.json"
 DEFAULT_TASK_SCHEMA = ROOT / ".agentic" / "schemas" / "task.schema.json"
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+ZERO_SHA = "0" * 40
 ISSUE_REF_RE = re.compile(r"^#[1-9][0-9]*$")
 MILESTONE_URL_RE = re.compile(r"^https://github\.com/[^/]+/[^/]+/milestone/[1-9][0-9]*$")
 
@@ -226,7 +227,7 @@ def validate_repository_references(
     root: Path,
     task_schema: Any,
     commit_exists: Callable[[str], bool] | None = None,
-    validate_snapshot_reference: bool = True,
+    allow_placeholder_snapshot: bool = False,
 ) -> list[str]:
     """Validate repository-backed references shared by both CLI entry points."""
     if not isinstance(program, dict):
@@ -234,7 +235,11 @@ def validate_repository_references(
 
     errors: list[str] = []
     snapshot = program.get("planning_snapshot_sha")
-    if validate_snapshot_reference and isinstance(snapshot, str) and SHA_RE.fullmatch(snapshot):
+    if (
+        isinstance(snapshot, str)
+        and SHA_RE.fullmatch(snapshot)
+        and not (allow_placeholder_snapshot and snapshot == ZERO_SHA)
+    ):
         resolve_commit = commit_exists or (lambda sha: _git_commit_exists(root, sha))
         if not resolve_commit(snapshot):
             errors.append("$.planning_snapshot_sha does not resolve to a commit")
