@@ -347,6 +347,24 @@ class RenderedContentBindingContractTests(unittest.TestCase):
             "post-draw contract accepted visual proof without latching the completed frame's stage status",
         )
 
+    def test_deadline_success_and_elapsed_guards_remain_wired_to_production_proof(self) -> None:
+        test_source = Path(__file__).read_text(encoding="utf-8")
+        canonical_contract = test_source.split(
+            "    def test_canonical_proof_uses_a_monotonic_wall_clock_deadline", 1
+        )[1].split("\n    def ", 1)[0]
+        required_calls = (
+            "_canonical_deadline_placement_errors(script)",
+            "_canonical_success_guard_errors(script)",
+            "_canonical_elapsed_accounting_errors(script)",
+        )
+        for required_call in required_calls:
+            with self.subTest(required_call=required_call):
+                self.assertIn(
+                    required_call,
+                    canonical_contract,
+                    "structural proof guard must remain wired to the production proof script",
+                )
+
     def test_elapsed_accounting_cannot_precede_viewport_analysis(self) -> None:
         script = CANONICAL_RENDER_PROOF.read_text(encoding="utf-8")
         refresh = '\t\tmetrics["proof_elapsed_msec"] = Time.get_ticks_msec() - proof_started_msec\n'
