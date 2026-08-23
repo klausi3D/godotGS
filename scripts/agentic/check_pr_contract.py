@@ -62,8 +62,12 @@ def check_contract_document(contract: Any, task_schema: dict[str, Any]) -> list[
             errors.append(f"$.{field}: must not be empty")
     for field in NON_EMPTY_ARRAY_FIELDS:
         value = contract.get(field)
-        if isinstance(value, list) and len(value) == 0:
-            errors.append(f"$.{field}: must not be empty")
+        if isinstance(value, list):
+            if not value:
+                errors.append(f"$.{field}: must not be empty")
+            for index, entry in enumerate(value):
+                if not isinstance(entry, str) or not entry.strip():
+                    errors.append(f"$.{field}[{index}]: must be a non-blank string")
     return errors
 
 

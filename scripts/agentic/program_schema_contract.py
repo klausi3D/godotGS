@@ -139,11 +139,16 @@ def validate_program_schema_contract(schema: dict[str, Any]) -> list[str]:
             errors.append(f"{label}.additionalProperties: must be false")
 
         required = node.get("required")
-        declared_required = (
-            {entry for entry in required if isinstance(entry, str)}
-            if isinstance(required, list)
-            else set()
-        )
+        declared_required: set[str] = set()
+        if not isinstance(required, list):
+            errors.append(f"{label}.required: must be an array of unique strings")
+        else:
+            required_strings = [entry for entry in required if isinstance(entry, str)]
+            if len(required_strings) != len(required):
+                errors.append(f"{label}.required: entries must be strings")
+            if len(set(required_strings)) != len(required_strings):
+                errors.append(f"{label}.required: entries must be unique")
+            declared_required = set(required_strings)
         missing_required = expected_required - declared_required
         if missing_required:
             errors.append(f"{label}.required: missing {sorted(missing_required)}")

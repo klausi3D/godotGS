@@ -89,6 +89,17 @@ class CheckPrContractTest(unittest.TestCase):
         errors = cpc.check_contract(contract, POLICY, TASK_SCHEMA, ["modules/gaussian_splatting/logger/x.cpp"])
         self.assertTrue(any("validation_commands" in e for e in _hard(errors)))
 
+    def test_whitespace_only_non_empty_array_entries_fail(self):
+        for field in cpc.NON_EMPTY_ARRAY_FIELDS:
+            with self.subTest(field=field):
+                contract = copy.deepcopy(TEMPLATE)
+                contract[field] = ["   "]
+                errors = cpc.check_contract_document(contract, TASK_SCHEMA)
+                self.assertTrue(
+                    any(field in error and "blank" in error for error in errors),
+                    f"{field} accepted a whitespace-only entry",
+                )
+
     def test_unknown_risk_class_value_fails_schema(self):
         contract = copy.deepcopy(TEMPLATE)
         contract["risk_class"] = "R9"

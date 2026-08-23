@@ -211,6 +211,14 @@ class ValidateRepoContractTest(unittest.TestCase):
         malformed_required["required"] = None
         mutations.append(("malformed required", malformed_required))
 
+        non_string_required = copy.deepcopy(original)
+        non_string_required["required"].append({})
+        mutations.append(("non-string required entry", non_string_required))
+
+        duplicate_required = copy.deepcopy(original)
+        duplicate_required["required"].append(duplicate_required["required"][0])
+        mutations.append(("duplicate required entry", duplicate_required))
+
         malformed_kind_enum = copy.deepcopy(original)
         malformed_kind_schema = malformed_kind_enum["properties"]["milestones"]["items"][
             "properties"
