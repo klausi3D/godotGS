@@ -135,6 +135,23 @@ def _canonical_post_draw_stage_resample_errors(script: str) -> list[str]:
     return []
 
 
+def _canonical_elapsed_accounting_errors(script: str) -> list[str]:
+    """Return errors when viewport work is omitted from elapsed proof time."""
+    run_body = script.split("func _run() -> void:", 1)[1].split("\n\nfunc _read_renderer_stats", 1)[0]
+    proof_loop = run_body.split(
+        "\twhile Time.get_ticks_msec() < proof_deadline_msec:", 1
+    )[1].split("\n\n\tif stage_failure_seen:", 1)[0]
+    success_guard = (
+        "\t\tif not stage_failure_seen and visible >= MIN_VISIBLE_SPLATS "
+        "and visual_ok and _rendered_content_ok():"
+    )
+    before_success = proof_loop.split(success_guard, 1)[0]
+    required_refresh = '\t\tmetrics["proof_elapsed_msec"] = Time.get_ticks_msec() - proof_started_msec'
+    if before_success.rstrip().splitlines()[-1] != required_refresh:
+        return ["elapsed proof time must be refreshed after viewport analysis and immediately before success evaluation"]
+    return []
+
+
 class RenderedContentBindingContractTests(unittest.TestCase):
     """#941: the fail-closed renderer predicate must be script-reachable.
 
@@ -202,6 +219,11 @@ class RenderedContentBindingContractTests(unittest.TestCase):
             _canonical_post_draw_stage_resample_errors(script),
             [],
             "the just-drawn frame's stage status must be sampled before visual proof can pass",
+        )
+        self.assertEqual(
+            _canonical_elapsed_accounting_errors(script),
+            [],
+            "elapsed proof time must include viewport capture and visual analysis",
         )
         run_body = script.split("func _run() -> void:", 1)[1].split("\n\nfunc _read_renderer_stats", 1)[0]
         self.assertEqual(
@@ -323,6 +345,21 @@ class RenderedContentBindingContractTests(unittest.TestCase):
         self.assertTrue(
             _canonical_post_draw_stage_resample_errors(mutated),
             "post-draw contract accepted visual proof without latching the completed frame's stage status",
+        )
+
+    def test_elapsed_accounting_cannot_precede_viewport_analysis(self) -> None:
+        script = CANONICAL_RENDER_PROOF.read_text(encoding="utf-8")
+        refresh = '\t\tmetrics["proof_elapsed_msec"] = Time.get_ticks_msec() - proof_started_msec\n'
+        success_guard = (
+            "\t\tif not stage_failure_seen and visible >= MIN_VISIBLE_SPLATS "
+            "and visual_ok and _rendered_content_ok():"
+        )
+        mutated = script.replace(refresh + success_guard, success_guard, 1)
+
+        self.assertNotEqual(mutated, script, "negative control must remove the post-analysis elapsed refresh")
+        self.assertTrue(
+            _canonical_elapsed_accounting_errors(mutated),
+            "elapsed accounting contract accepted a refresh that excludes viewport analysis",
         )
 
 
