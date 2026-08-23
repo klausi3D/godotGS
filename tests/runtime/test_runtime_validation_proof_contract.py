@@ -304,6 +304,15 @@ class RenderedContentBindingContractTests(unittest.TestCase):
 
     def test_post_draw_stage_failure_resample_cannot_be_removed(self) -> None:
         script = CANONICAL_RENDER_PROOF.read_text(encoding="utf-8")
+        test_source = Path(__file__).read_text(encoding="utf-8")
+        canonical_contract = test_source.split(
+            "    def test_canonical_proof_uses_a_monotonic_wall_clock_deadline", 1
+        )[1].split("\n    def ", 1)[0]
+        self.assertIn(
+            "_canonical_post_draw_stage_resample_errors(script)",
+            canonical_contract,
+            "post-draw stage guard must remain wired to the production proof script",
+        )
         mutated = script.replace(
             "\t\t\tstage_failure_seen = stage_failure_seen or _stage_failed(post_draw_stats)\n",
             "",
