@@ -154,11 +154,13 @@ def validate_program_schema_contract(schema: dict[str, Any]) -> list[str]:
             errors.append(f"{label}.required: missing {sorted(missing_required)}")
 
         properties = node.get("properties")
-        missing_properties = (
-            expected_required - set(properties) if isinstance(properties, dict) else expected_required
-        )
+        declared_properties = set(properties) if isinstance(properties, dict) else set()
+        missing_properties = expected_required - declared_properties
         if missing_properties:
             errors.append(f"{label}.properties: missing {sorted(missing_properties)}")
+        unexpected_properties = declared_properties - expected_required
+        if unexpected_properties:
+            errors.append(f"{label}.properties: unexpected {sorted(unexpected_properties)}")
 
     for label, path, expected in PROGRAM_SCHEMA_VALUE_CONTRACTS:
         actual = _nested_value(schema, path)

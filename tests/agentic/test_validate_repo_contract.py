@@ -250,6 +250,28 @@ class ValidateRepoContractTest(unittest.TestCase):
         permissive_root["additionalProperties"] = True
         mutations.append(("root additional properties", permissive_root))
 
+        unexpected_root_property = copy.deepcopy(original)
+        unexpected_root_property["properties"]["untracked_status"] = {"type": "string"}
+        mutations.append(("unexpected root property", unexpected_root_property))
+
+        unexpected_dispatch_property = copy.deepcopy(original)
+        unexpected_dispatch_property["properties"]["dispatch"]["properties"]["untracked_status"] = {
+            "type": "string"
+        }
+        mutations.append(("unexpected dispatch property", unexpected_dispatch_property))
+
+        unexpected_milestone_property = copy.deepcopy(original)
+        unexpected_milestone_property["properties"]["milestones"]["items"]["properties"][
+            "untracked_status"
+        ] = {"type": "string"}
+        mutations.append(("unexpected milestone property", unexpected_milestone_property))
+
+        unexpected_work_item_property = copy.deepcopy(original)
+        unexpected_work_item_property["properties"]["milestones"]["items"]["properties"][
+            "work_items"
+        ]["items"]["properties"]["untracked_status"] = {"type": "string"}
+        mutations.append(("unexpected work-item property", unexpected_work_item_property))
+
         missing_live_status_const = copy.deepcopy(original)
         del missing_live_status_const["properties"]["dispatch"]["properties"][
             "live_status_requery_required"
