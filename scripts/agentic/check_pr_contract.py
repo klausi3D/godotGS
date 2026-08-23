@@ -48,6 +48,37 @@ def _load_sibling(name: str):
 
 classify_change = _load_sibling("classify_change")
 validate_review = _load_sibling("validate_review")
+task_schema_contract = _load_sibling("task_schema_contract")
+
+
+def check_contract_document(contract: Any, task_schema: Any) -> list[str]:
+    """Validate the schema and schema-independent task-contract semantics."""
+    schema_errors = task_schema_contract.validate_task_schema_contract(task_schema)
+    if schema_errors:
+        return [f"$schema contract: {error}" for error in schema_errors]
+    errors = validate_review.validate_instance(contract, task_schema, "$")
+    if not isinstance(contract, dict):
+        return errors
+
+    for field in NON_EMPTY_STRING_FIELDS:
+        value = contract.get(field)
+        if isinstance(value, str) and not value.strip():
+            errors.append(f"$.{field}: must not be empty")
+    for field in NON_EMPTY_ARRAY_FIELDS:
+        value = contract.get(field)
+        if isinstance(value, list):
+            if not value:
+                errors.append(f"$.{field}: must not be empty")
+            for index, entry in enumerate(value):
+                if not isinstance(entry, str) or not entry.strip():
+                    errors.append(f"$.{field}[{index}]: must be a non-blank string")
+
+    stacked = contract.get("stacked_on")
+    if isinstance(stacked, dict):
+        for field in ("base_pr", "base_sha"):
+            if not str(stacked.get(field, "")).strip():
+                errors.append(f"$.stacked_on.{field}: required for a stacked PR")
+    return errors
 
 
 def check_contract(
@@ -56,20 +87,7 @@ def check_contract(
     task_schema: dict[str, Any],
     changed_paths: list[str] | None,
 ) -> list[str]:
-    errors: list[str] = []
-
-    # 1. Schema validation.
-    errors.extend(validate_review.validate_instance(contract, task_schema, "$"))
-
-    # 2. Non-empty required fields.
-    for field in NON_EMPTY_STRING_FIELDS:
-        value = contract.get(field)
-        if isinstance(value, str) and not value.strip():
-            errors.append(f"$.{field}: must not be empty")
-    for field in NON_EMPTY_ARRAY_FIELDS:
-        value = contract.get(field)
-        if isinstance(value, list) and len(value) == 0:
-            errors.append(f"$.{field}: must not be empty")
+    errors = check_contract_document(contract, task_schema)
 
     ordering = policy["classification"]["ordering"]
     rank = {cls: index for index, cls in enumerate(ordering)}
@@ -128,13 +146,6 @@ def check_contract(
                     f"$.validation_commands: risk class {effective} requires the deterministic "
                     f"check '{command}'"
                 )
-
-    # 5. Stacked PR completeness.
-    stacked = contract.get("stacked_on")
-    if isinstance(stacked, dict):
-        for field in ("base_pr", "base_sha"):
-            if not str(stacked.get(field, "")).strip():
-                errors.append(f"$.stacked_on.{field}: required for a stacked PR")
 
     return errors
 

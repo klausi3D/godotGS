@@ -25,6 +25,7 @@ import argparse
 import importlib.util
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -38,8 +39,10 @@ CONTROL_PLANE_FILES = [
     ".agentic/ownership.json",
     ".agentic/schemas/task.schema.json",
     ".agentic/schemas/review.schema.json",
+    ".agentic/schemas/program.schema.json",
     ".agentic/templates/task.json",
     ".agentic/templates/review.json",
+    ".agentic/templates/program.json",
     ".agentic/roles/planner.md",
     ".agentic/roles/implementer.md",
     ".agentic/roles/verifier.md",
@@ -47,7 +50,10 @@ CONTROL_PLANE_FILES = [
     ".agentic/roles/gpu-performance-reviewer.md",
     "scripts/agentic/classify_change.py",
     "scripts/agentic/check_pr_contract.py",
+    "scripts/agentic/program_schema_contract.py",
+    "scripts/agentic/task_schema_contract.py",
     "scripts/agentic/validate_review.py",
+    "scripts/agentic/validate_program.py",
     "scripts/agentic/validate_repo_contract.py",
 ]
 
@@ -69,14 +75,29 @@ JSON_FILES = [
     ".agentic/ownership.json",
     ".agentic/schemas/task.schema.json",
     ".agentic/schemas/review.schema.json",
+    ".agentic/schemas/program.schema.json",
     ".agentic/templates/task.json",
     ".agentic/templates/review.json",
+    ".agentic/templates/program.json",
 ]
 
 # Concrete session-id / agent-session UUID format (as used by the legacy
 # coordinator memory, e.g. "019d0571-b295-..."). Prose like "session IDs" is fine;
 # this matches an actual leaked identifier value.
 SESSION_ID_RE = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
+
+
+def _git_commit_exists(root: Path, sha: str) -> bool:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(root), "cat-file", "-e", f"{sha}^{{commit}}"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return False
+    return completed.returncode == 0
 
 
 def _load_validate_instance():
@@ -89,6 +110,30 @@ def _load_validate_instance():
 
 
 validate_instance = _load_validate_instance()
+
+
+def _load_program_validators():
+    path = Path(__file__).with_name("validate_program.py")
+    spec = importlib.util.spec_from_file_location("validate_program", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return (
+        module.validate_program,
+        module.validate_repository_references,
+        module.validate_program_schema_contract,
+        module.check_task_contract_document,
+        module.validate_task_schema_contract,
+    )
+
+
+(
+    validate_program,
+    validate_repository_references,
+    validate_program_schema_contract,
+    check_task_contract_document,
+    validate_task_schema_contract,
+) = _load_program_validators()
 
 
 def validate_repo_contract(root: Path, strict_hierarchy: bool = False) -> list[str]:
@@ -104,7 +149,17 @@ def validate_repo_contract(root: Path, strict_hierarchy: bool = False) -> list[s
 
     # 2. JSON files parse.
     parsed: dict[str, Any] = {}
-    for rel in JSON_FILES:
+    json_files = list(JSON_FILES)
+    program_dir = root / ".agentic" / "programs"
+    program_paths = (
+        sorted(path for path in program_dir.glob("*.json") if path.is_file())
+        if program_dir.is_dir()
+        else []
+    )
+    if not program_paths:
+        errors.append("missing concrete program manifest: .agentic/programs/*.json")
+    json_files.extend(str(path.relative_to(root)).replace("\\", "/") for path in program_paths)
+    for rel in json_files:
         path = root / rel
         if not path.is_file():
             continue
@@ -115,13 +170,72 @@ def validate_repo_contract(root: Path, strict_hierarchy: bool = False) -> list[s
 
     # 3. Templates validate against their schemas.
     pairs = [
-        (".agentic/templates/task.json", ".agentic/schemas/task.schema.json"),
         (".agentic/templates/review.json", ".agentic/schemas/review.schema.json"),
     ]
     for template_rel, schema_rel in pairs:
         if template_rel in parsed and schema_rel in parsed:
             for error in validate_instance(parsed[template_rel], parsed[schema_rel], "$"):
                 errors.append(f"{template_rel} does not match {schema_rel}: {error}")
+
+    program_schema = parsed.get(".agentic/schemas/program.schema.json")
+    task_schema = parsed.get(".agentic/schemas/task.schema.json")
+    task_schema_contract_errors = validate_task_schema_contract(task_schema)
+    for error in task_schema_contract_errors:
+        errors.append(f".agentic/schemas/task.schema.json contract: {error}")
+    if not task_schema_contract_errors:
+        task_template_rel = ".agentic/templates/task.json"
+        if task_template_rel in parsed:
+            for error in check_task_contract_document(parsed[task_template_rel], task_schema):
+                errors.append(f"{task_template_rel} does not match .agentic/schemas/task.schema.json: {error}")
+    if ".agentic/schemas/program.schema.json" in parsed and not isinstance(program_schema, dict):
+        errors.append(".agentic/schemas/program.schema.json is invalid: $: must be an object")
+    program_schema_contract_errors: list[str] = []
+    if isinstance(program_schema, dict):
+        program_schema_contract_errors = validate_program_schema_contract(program_schema)
+        for error in program_schema_contract_errors:
+            errors.append(f".agentic/schemas/program.schema.json contract: {error}")
+
+    if isinstance(program_schema, dict) and not program_schema_contract_errors:
+        program_template_rel = ".agentic/templates/program.json"
+        program_template = parsed.get(program_template_rel)
+        if program_template_rel in parsed:
+            for error in validate_program(program_template, program_schema):
+                errors.append(f"{program_template_rel} is invalid: {error}")
+            for error in validate_repository_references(
+                program_template,
+                root,
+                task_schema,
+                allow_placeholder_snapshot=True,
+            ):
+                errors.append(f"{program_template_rel} is invalid: {error}")
+
+        program_id_paths: dict[str, str] = {}
+        for rel, instance in parsed.items():
+            if not rel.startswith(".agentic/programs/"):
+                continue
+            if not isinstance(instance, dict):
+                errors.append(f"{rel} is invalid: $: must be an object")
+                continue
+            program_id = instance.get("program_id")
+            if isinstance(program_id, str):
+                previous_path = program_id_paths.get(program_id)
+                if previous_path is not None:
+                    errors.append(
+                        f"{rel} is invalid: duplicate program_id {program_id!r}; "
+                        f"already declared by {previous_path}"
+                    )
+                else:
+                    program_id_paths[program_id] = rel
+            for error in validate_program(instance, program_schema):
+                errors.append(f"{rel} is invalid: {error}")
+            reference_errors = validate_repository_references(
+                instance,
+                root,
+                task_schema,
+                commit_exists=lambda sha: _git_commit_exists(root, sha),
+            )
+            for error in reference_errors:
+                errors.append(f"{rel} is invalid: {error}")
 
     policy = parsed.get(".agentic/policy.json")
     if isinstance(policy, dict):
