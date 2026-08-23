@@ -1707,6 +1707,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#milestone-programs-and-codex-goals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Milestone programs and Codex goals
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#worktree-isolation-and-parallel-work" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1783,7 +1794,7 @@ systems plus independent reviewers verify, and a human decides the merge.</p>
 <p>This page is the human-readable source of truth for roles and risk classes. A
 machine-readable mirror lives under <code>.agentic/</code> (<code>policy.json</code>, <code>ownership.json</code>,
 schemas, templates, roles) and is enforced by <code>scripts/agentic/</code>. See also
-<a href="https://github.com/klausi3D/godotGS/blob/873025f5783c765caec08a39a33909d1118b9d60/AGENTS.md"><code>AGENTS.md</code></a>, <a href="../contribution-standards/">contribution standards</a>,
+<a href="https://github.com/klausi3D/godotGS/blob/9eeb80c794d992f29815442b70971f229f234b84/AGENTS.md"><code>AGENTS.md</code></a>, <a href="../contribution-standards/">contribution standards</a>,
 and the <a href="../review-policy/">review policy</a>.</p>
 <blockquote>
 <p><strong>Rollout note.</strong> This foundation is introduced as a coordinated series of pull
@@ -1860,6 +1871,26 @@ the parts already present on your branch.</p>
 owned and forbidden paths, dependencies, non-goals, invariants, acceptance
 criteria, validation commands, evidence requirements, and a rollback plan. One
 contract → one branch → one worktree.</p>
+<h2 id="milestone-programs-and-codex-goals">Milestone programs and Codex goals<a class="headerlink" href="#milestone-programs-and-codex-goals" title="Permanent link">¶</a></h2>
+<p>A milestone program (<code>.agentic/schemas/program.schema.json</code>) groups existing
+GitHub issues and pull requests into a dependency-ordered execution program. Each
+milestone has one concrete <code>objective</code>, agent-achievable completion criteria, and
+explicit human gates. Use that objective as the goal text for a dedicated Codex
+session. Do not set a token budget unless the human owner explicitly supplies one.</p>
+<p>The program manifest is not a status tracker and does not replace task contracts:</p>
+<ul>
+<li>GitHub Issues and pull requests remain the live status authority.</li>
+<li>The coordinator re-queries issue, PR, check, review, and base state before each
+  dispatch.</li>
+<li>The implementer creates a fresh task contract with the immutable dispatch base.</li>
+<li>A milestone goal ends at human-disposition readiness; it never authorizes an
+  agent to merge, waive a blocker, change product semantics, or publish a release.</li>
+<li>Planner, implementer, verifier, and reviewer roles remain separate for every
+  child task, even when one coordinator owns the milestone goal.</li>
+</ul>
+<p>Validate a program with:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>scripts/agentic/validate_program.py<span class="w"> </span>--program<span class="w"> </span>.agentic/programs/&lt;program&gt;.json
+</code></pre></div>
 <h2 id="worktree-isolation-and-parallel-work">Worktree isolation and parallel work<a class="headerlink" href="#worktree-isolation-and-parallel-work" title="Permanent link">¶</a></h2>
 <ul>
 <li>Each implementer works in its <strong>own git worktree</strong> so concurrent work never
@@ -1916,7 +1947,7 @@ unresolvable base ref fails the check, and an empty changed-path set is classifi
 higher-of-the-two rule is implemented in <code>check_pr_contract.py</code>, but that script only
 runs against the shipped fixture <code>.agentic/templates/task.json</code>, because the
 repository has no per-PR contract source (a task-contract instance is a local agent
-artifact and <a href="https://github.com/klausi3D/godotGS/blob/873025f5783c765caec08a39a33909d1118b9d60/AGENTS.md"><code>AGENTS.md</code></a> forbids committing those). So a declared
+artifact and <a href="https://github.com/klausi3D/godotGS/blob/9eeb80c794d992f29815442b70971f229f234b84/AGENTS.md"><code>AGENTS.md</code></a> forbids committing those). So a declared
 class is a review-time convention, not an enforced one, and per-PR scope
 (<code>owned_paths</code> / <code>forbidden_paths</code>) and evidence contracts are not enforced at all.
 Wiring a contract source is the Phase-2 contract-source ADR; the limit is recorded in
@@ -1946,7 +1977,7 @@ its history remains in git.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 16, 2026 18:29:28 UTC">August 16, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 23, 2026 17:22:19 UTC">August 23, 2026</span>
   </span>
 
     
