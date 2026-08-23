@@ -131,35 +131,66 @@ PROGRAM_SCHEMA_OBJECT_CONTRACTS = (
     ),
 )
 
+_ROOT_PROPERTIES = ("properties",)
+_DISPATCH_PROPERTIES = _ROOT_PROPERTIES + ("dispatch", "properties")
+_MILESTONE_PROPERTIES = _ROOT_PROPERTIES + ("milestones", "items", "properties")
+_WORK_ITEM_PROPERTIES = _MILESTONE_PROPERTIES + ("work_items", "items", "properties")
+
 PROGRAM_SCHEMA_VALUE_CONTRACTS = (
-    ("$.schema_version.type", ("properties", "schema_version", "type"), "integer"),
-    ("$.schema_version.const", ("properties", "schema_version", "const"), 1),
-    ("$.milestones.type", ("properties", "milestones", "type"), "array"),
+    ("$.schema_version.type", _ROOT_PROPERTIES + ("schema_version", "type"), "integer"),
+    ("$.schema_version.const", _ROOT_PROPERTIES + ("schema_version", "const"), 1),
+    ("$.program_id.type", _ROOT_PROPERTIES + ("program_id", "type"), "string"),
+    ("$.title.type", _ROOT_PROPERTIES + ("title", "type"), "string"),
+    ("$.planning_snapshot_sha.type", _ROOT_PROPERTIES + ("planning_snapshot_sha", "type"), "string"),
+    ("$.status_authority.type", _ROOT_PROPERTIES + ("status_authority", "type"), "string"),
+    ("$.dispatch.task_contract_template.type", _DISPATCH_PROPERTIES + ("task_contract_template", "type"), "string"),
     (
-        "$.dispatch.live_status_requery_required.const",
-        ("properties", "dispatch", "properties", "live_status_requery_required", "const"),
-        True,
+        "$.dispatch.implementation_wip_limit.type",
+        _DISPATCH_PROPERTIES + ("implementation_wip_limit", "type"),
+        "integer",
+    ),
+    ("$.dispatch.heavy_process_limit.type", _DISPATCH_PROPERTIES + ("heavy_process_limit", "type"), "integer"),
+    (
+        "$.dispatch.live_status_requery_required.type",
+        _DISPATCH_PROPERTIES + ("live_status_requery_required", "type"),
+        "boolean",
     ),
     (
-        "$.milestones.items.work_items.type",
-        ("properties", "milestones", "items", "properties", "work_items", "type"),
+        "$.dispatch.live_status_requery_required.const",
+        _DISPATCH_PROPERTIES + ("live_status_requery_required", "const"),
+        True,
+    ),
+    ("$.dispatch.invariants.type", _DISPATCH_PROPERTIES + ("invariants", "type"), "array"),
+    ("$.dispatch.invariants.items.type", _DISPATCH_PROPERTIES + ("invariants", "items", "type"), "string"),
+    ("$.milestones.type", _ROOT_PROPERTIES + ("milestones", "type"), "array"),
+    ("$.milestones.items.id.type", _MILESTONE_PROPERTIES + ("id", "type"), "string"),
+    ("$.milestones.items.title.type", _MILESTONE_PROPERTIES + ("title", "type"), "string"),
+    ("$.milestones.items.github_milestone.type", _MILESTONE_PROPERTIES + ("github_milestone", "type"), "string"),
+    ("$.milestones.items.coordinator_issue.type", _MILESTONE_PROPERTIES + ("coordinator_issue", "type"), "string"),
+    ("$.milestones.items.objective.type", _MILESTONE_PROPERTIES + ("objective", "type"), "string"),
+    ("$.milestones.items.depends_on.type", _MILESTONE_PROPERTIES + ("depends_on", "type"), "array"),
+    ("$.milestones.items.depends_on.items.type", _MILESTONE_PROPERTIES + ("depends_on", "items", "type"), "string"),
+    ("$.milestones.items.work_items.type", _MILESTONE_PROPERTIES + ("work_items", "type"), "array"),
+    (
+        "$.milestones.items.agent_completion_criteria.type",
+        _MILESTONE_PROPERTIES + ("agent_completion_criteria", "type"),
         "array",
     ),
     (
+        "$.milestones.items.agent_completion_criteria.items.type",
+        _MILESTONE_PROPERTIES + ("agent_completion_criteria", "items", "type"),
+        "string",
+    ),
+    ("$.milestones.items.human_gates.type", _MILESTONE_PROPERTIES + ("human_gates", "type"), "array"),
+    ("$.milestones.items.human_gates.items.type", _MILESTONE_PROPERTIES + ("human_gates", "items", "type"), "string"),
+    ("$.milestones.items.work_items.items.kind.type", _WORK_ITEM_PROPERTIES + ("kind", "type"), "string"),
+    (
         "$.milestones.items.work_items.items.kind.enum",
-        (
-            "properties",
-            "milestones",
-            "items",
-            "properties",
-            "work_items",
-            "items",
-            "properties",
-            "kind",
-            "enum",
-        ),
+        _WORK_ITEM_PROPERTIES + ("kind", "enum"),
         ["issue", "pull_request", "design"],
     ),
+    ("$.milestones.items.work_items.items.ref.type", _WORK_ITEM_PROPERTIES + ("ref", "type"), "string"),
+    ("$.milestones.items.work_items.items.purpose.type", _WORK_ITEM_PROPERTIES + ("purpose", "type"), "string"),
 )
 
 

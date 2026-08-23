@@ -164,6 +164,12 @@ class ValidateRepoContractTest(unittest.TestCase):
         del missing_version_const["properties"]["schema_version"]["const"]
         mutations.append(("schema-version const", missing_version_const))
 
+        missing_dependency_items = copy.deepcopy(original)
+        del missing_dependency_items["properties"]["milestones"]["items"]["properties"][
+            "depends_on"
+        ]["items"]
+        mutations.append(("dependency item type", missing_dependency_items))
+
         permissive_root = copy.deepcopy(original)
         permissive_root["additionalProperties"] = True
         mutations.append(("root additional properties", permissive_root))
