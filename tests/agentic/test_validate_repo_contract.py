@@ -126,6 +126,14 @@ class ValidateRepoContractTest(unittest.TestCase):
         expanded_risk_class["properties"]["risk_class"]["enum"].append("R4")
         mutations.append(("expanded risk class", expanded_risk_class))
 
+        narrowed_task_id = copy.deepcopy(original)
+        narrowed_task_id["properties"]["task_id"]["const"] = "GS-000"
+        mutations.append(("narrowed task id", narrowed_task_id))
+
+        narrowed_array_item = copy.deepcopy(original)
+        narrowed_array_item["properties"]["acceptance_criteria"]["items"]["const"] = "placeholder"
+        mutations.append(("narrowed task array item", narrowed_array_item))
+
         missing_array_item_type = copy.deepcopy(original)
         del missing_array_item_type["properties"]["acceptance_criteria"]["items"]
         mutations.append(("missing array item type", missing_array_item_type))
@@ -187,6 +195,17 @@ class ValidateRepoContractTest(unittest.TestCase):
         self.assertTrue(
             any("program.json is invalid" in error and "planning_snapshot_sha" in error for error in errors)
         )
+
+    def test_program_task_template_path_must_be_repository_relative(self):
+        path = self.root / ".agentic" / "templates" / "program.json"
+        program = json.loads(path.read_text(encoding="utf-8"))
+        program["dispatch"]["task_contract_template"] = str(
+            (self.root / ".agentic" / "templates" / "task.json").resolve()
+        )
+        path.write_text(json.dumps(program), encoding="utf-8")
+
+        errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(any("task_contract_template" in error and "relative" in error for error in errors))
 
     def test_zero_template_snapshot_placeholder_does_not_resolve(self):
         program = json.loads(
@@ -313,6 +332,16 @@ class ValidateRepoContractTest(unittest.TestCase):
         kind_schema["enum"].append("free_form")
         mutations.append(("work-item kind enum", expanded_work_item_kind))
 
+        narrowed_title = copy.deepcopy(original)
+        narrowed_title["properties"]["title"]["const"] = "GodotGS Continuation Program"
+        mutations.append(("narrowed title", narrowed_title))
+
+        narrowed_dependency = copy.deepcopy(original)
+        narrowed_dependency["properties"]["milestones"]["items"]["properties"]["depends_on"][
+            "items"
+        ]["const"] = "M1"
+        mutations.append(("narrowed dependency item", narrowed_dependency))
+
         malformed_required = copy.deepcopy(original)
         malformed_required["required"] = None
         mutations.append(("malformed required", malformed_required))
@@ -348,7 +377,9 @@ class ValidateRepoContractTest(unittest.TestCase):
         path.write_text(json.dumps(schema), encoding="utf-8")
 
         errors = vrc.validate_repo_contract(self.root)
-        self.assertTrue(any("enum" in error and "must be an array" in error for error in errors))
+        self.assertTrue(
+            any("program.schema.json contract" in error and "enum" in error for error in errors)
+        )
 
     def test_invalid_program_fails(self):
         path = self.root / ".agentic" / "programs" / "continuation-2026-08.json"

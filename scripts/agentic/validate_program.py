@@ -18,7 +18,7 @@ import json
 import re
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -247,6 +247,9 @@ def validate_repository_references(
     dispatch = program.get("dispatch")
     template_rel = dispatch.get("task_contract_template") if isinstance(dispatch, dict) else None
     if not isinstance(template_rel, str):
+        return errors
+    if Path(template_rel).is_absolute() or PureWindowsPath(template_rel).is_absolute():
+        errors.append("$.dispatch.task_contract_template must be a repository-relative path")
         return errors
 
     root_resolved = root.resolve()

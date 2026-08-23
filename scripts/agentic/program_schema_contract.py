@@ -125,9 +125,33 @@ def _nested_value(value: Any, path: tuple[str, ...]) -> Any:
     return current
 
 
+def _schema_keyword_contracts() -> dict[tuple[str, ...], set[str]]:
+    contracts: dict[tuple[str, ...], set[str]] = {
+        (): {"$schema", "$id", "title", "description", "type", "additionalProperties", "required", "properties"}
+    }
+    for _label, path, _expected_required in PROGRAM_SCHEMA_OBJECT_CONTRACTS:
+        contracts.setdefault(path, set()).update({"type", "additionalProperties", "required", "properties"})
+    for _label, path, _expected in PROGRAM_SCHEMA_VALUE_CONTRACTS:
+        contracts.setdefault(path[:-1], set()).add(path[-1])
+        for index, segment in enumerate(path):
+            if segment == "items":
+                contracts.setdefault(path[:index], set()).add("items")
+    return contracts
+
+
+PROGRAM_SCHEMA_KEYWORD_CONTRACTS = _schema_keyword_contracts()
+
+
 def validate_program_schema_contract(schema: dict[str, Any]) -> list[str]:
     """Pin the program schema constraints that make manifests enforceable."""
     errors: list[str] = []
+    for path, allowed_keywords in PROGRAM_SCHEMA_KEYWORD_CONTRACTS.items():
+        node = _nested_value(schema, path)
+        if isinstance(node, dict):
+            unexpected = set(node) - allowed_keywords
+            if unexpected:
+                label = "$" + "".join(f".{part}" for part in path)
+                errors.append(f"{label}: unexpected schema keywords {sorted(unexpected)}")
     for label, path, expected_required in PROGRAM_SCHEMA_OBJECT_CONTRACTS:
         node = _nested_value(schema, path)
         if not isinstance(node, dict):
