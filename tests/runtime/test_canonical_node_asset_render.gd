@@ -7,7 +7,10 @@ const METRICS_MARKER := GsRuntimeReport.METRICS_MARKER
 
 const ASSET_PATH := "res://tests/fixtures/test_splats.ply"
 const MAX_RENDERER_WAIT_FRAMES := 120
-const MAX_PROOF_FRAMES := 240
+# The former 240-frame cap represented roughly four seconds at 60 FPS, but
+# expired much sooner on a fast runner. Keep that reference budget while making
+# the proof allowance independent of frame throughput.
+const PROOF_TIMEOUT_MSEC := 4_000
 const MIN_VISIBLE_SPLATS := 1
 const MIN_VISUAL_LUMA_VARIANCE := 0.00005
 const MIN_VISUAL_LUMA_RANGE := 0.05
@@ -31,6 +34,8 @@ var metrics: Dictionary = {
 	"asset_load_error": -1,
 	"asset_splat_count": 0,
 	"frames": 0,
+	"proof_timeout_msec": PROOF_TIMEOUT_MSEC,
+	"proof_elapsed_msec": 0,
 	"renderer_available": false,
 	"rendering_server_device_available": false,
 	"visible_splats_max": 0,
@@ -173,9 +178,14 @@ func _run() -> void:
 
 	var stage_failure_seen := false
 	var visual_ok := false
-	for frame in range(MAX_PROOF_FRAMES):
+	var proof_started_msec := Time.get_ticks_msec()
+	var proof_deadline_msec := proof_started_msec + PROOF_TIMEOUT_MSEC
+	var proof_frame := 0
+	while Time.get_ticks_msec() < proof_deadline_msec:
 		await process_frame
+		proof_frame += 1
 		metrics["frames"] = int(metrics.get("frames", 0)) + 1
+		metrics["proof_elapsed_msec"] = Time.get_ticks_msec() - proof_started_msec
 		splat_node.force_update()
 
 		var stats := _read_renderer_stats()
@@ -188,7 +198,7 @@ func _run() -> void:
 				metrics["rendered_content_seen"] = true
 
 		stage_failure_seen = stage_failure_seen or _stage_failed(stats)
-		if visible >= MIN_VISIBLE_SPLATS and frame >= 2:
+		if visible >= MIN_VISIBLE_SPLATS and proof_frame >= 3:
 			await RenderingServer.frame_post_draw
 			var image := _capture_viewport()
 			if image != null:

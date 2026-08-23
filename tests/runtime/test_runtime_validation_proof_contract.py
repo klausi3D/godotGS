@@ -34,6 +34,7 @@ SCRIPT = ROOT / "tests" / "runtime" / "run_runtime_validation.py"
 BINDINGS = ROOT / "modules" / "gaussian_splatting" / "renderer" / "gaussian_splat_renderer_bindings.cpp"
 RENDERER_HEADER = ROOT / "modules" / "gaussian_splatting" / "renderer" / "gaussian_splat_renderer.h"
 RENDERER_DOC = ROOT / "modules" / "gaussian_splatting" / "doc_classes" / "GaussianSplatRenderer.xml"
+CANONICAL_RENDER_PROOF = ROOT / "tests" / "runtime" / "test_canonical_node_asset_render.gd"
 spec = importlib.util.spec_from_file_location("run_runtime_validation", SCRIPT)
 assert spec and spec.loader
 runtime_validation = importlib.util.module_from_spec(spec)
@@ -75,6 +76,28 @@ class RenderedContentBindingContractTests(unittest.TestCase):
             len(re.findall(r'<method\s+name="has_rendered_content"\s*>', documentation)),
             1,
             "GaussianSplatRenderer must document the script-visible has_rendered_content method exactly once",
+        )
+
+    def test_canonical_proof_uses_a_monotonic_wall_clock_deadline(self) -> None:
+        script = CANONICAL_RENDER_PROOF.read_text(encoding="utf-8")
+        self.assertNotIn(
+            "MAX_PROOF_FRAMES",
+            script,
+            "rendered-content proof must not expire according to runner-dependent frame throughput",
+        )
+        self.assertRegex(script, r"const PROOF_TIMEOUT_MSEC\s*:=\s*[1-9][0-9_]*")
+        self.assertRegex(
+            script,
+            r"var proof_started_msec\s*:=\s*Time\.get_ticks_msec\(\)",
+        )
+        self.assertRegex(
+            script,
+            r"var proof_deadline_msec\s*:=\s*proof_started_msec\s*\+\s*PROOF_TIMEOUT_MSEC",
+        )
+        self.assertRegex(
+            script,
+            r"while Time\.get_ticks_msec\(\)\s*<\s*proof_deadline_msec:",
+            "canonical proof must keep pumping frames until success or its monotonic deadline",
         )
 
 
