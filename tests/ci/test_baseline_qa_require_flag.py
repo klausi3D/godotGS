@@ -598,6 +598,31 @@ class QaInventoryAndEvidenceContractTest(unittest.TestCase):
         self.assertIn('winner = "red"', block)
         self.assertIn("elif channel_delta < 0.0", block)
 
+    def test_tie_break_fixture_asserts_approved_order_with_explicit_opacity(self):
+        scene = (
+            ROOT
+            / "tests"
+            / "examples"
+            / "godot"
+            / "test_project"
+            / "scenes"
+            / "qa"
+            / "qa_sort_tie_breaker.gd"
+        ).read_text(encoding="utf-8")
+        self.assertIn('const EXPECTED_TIE_BREAK_WINNER := "red"', scene)
+        self.assertIn("const OPAQUE_LOGIT := 8.0", scene)
+        self.assertIn(
+            "asset.set_opacity_logits(opacity_logits)",
+            scene,
+            "Color.a is shadowed by the allocated opacity-logit lane; the fixture must set that lane explicitly.",
+        )
+        self.assertIn("var ordering_matches := winner == EXPECTED_TIE_BREAK_WINNER", scene)
+        self.assertIn(
+            "_test_result = min_ssim >= ssim_stability_threshold and ordering_matches",
+            scene,
+            "A stable but reversed tie-break must fail inside the scene, before baseline comparison.",
+        )
+
     def test_evidence_source_guard_rejects_the_legacy_regex(self):
         legacy = (
             '$qaStreamingSceneCount = 0\n'
