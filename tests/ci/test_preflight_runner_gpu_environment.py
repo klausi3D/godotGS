@@ -106,6 +106,24 @@ _STATUS_CHECK_FUNCTION = re.compile(
     r"\b(?:always|cancelled|failure|success)\s*\(", re.IGNORECASE
 )
 
+# GitHub's built-in shell keywords. Each one is documented to propagate a
+# nonzero exit status: `bash`/`sh` run with `-e`, `pwsh`/`powershell` set
+# `$ErrorActionPreference` and re-exit `$LASTEXITCODE`, `cmd` re-exits
+# `!ERRORLEVEL!`, and `python` exits on an uncaught exception. A CUSTOM shell
+# string is a template GitHub substitutes the script path into -- e.g.
+# `pwsh -command "& '{0}'; exit 0"` -- and it can discard the preflight's exit
+# status entirely, outside the `run:` scalar this guard models. There is no
+# sound way to decide an arbitrary template's status semantics by inspection,
+# so an unmodelled shell fails closed and teaching this guard the new shape
+# must be part of the workflow change (#932 review).
+_MODELLED_SHELLS = frozenset(
+    {"bash", "sh", "pwsh", "powershell", "cmd", "python"}
+)
+
+_JOB_DEFAULTS_KEY = re.compile(r"^    defaults:\s*$")
+_JOB_DEFAULTS_RUN_KEY = re.compile(r"^      run:\s*$")
+_JOB_DEFAULTS_SHELL = re.compile(r"^        shell:\s*(.*?)\s*$")
+
 README_SECTION_HEADING = "## Self-hosted GPU runner environment"
 
 _JOB_ENV_KEY = re.compile(r"^    env:\s*$")
@@ -124,6 +142,11 @@ class WorkflowStep(NamedTuple):
     condition: Optional[str]
     continue_on_error: Optional[str]
     run: str
+    #: The step's own `shell:`, or None when it inherits the job default.
+    #: Kept rather than discarded because a custom shell template can convert
+    #: the preflight's nonzero exit into success outside the parsed `run`
+    #: scalar, which no amount of command-text modelling can see (#932 review).
+    shell: Optional[str] = None
 
 
 # --------------------------------------------------------------------------
@@ -346,7 +369,7 @@ def workflow_steps(job_lines: List[str]) -> List[WorkflowStep]:
             if ":" not in text:
                 raise WorkflowContractError(f"unreadable step field: {text!r}")
             key, raw = text.split(":", 1)
-            if key not in {"name", "if", "continue-on-error", "run"}:
+            if key not in {"name", "if", "continue-on-error", "run", "shell"}:
                 continue
             if key in properties:
                 raise WorkflowContractError(f"duplicate {key!r} field in workflow step")
@@ -359,9 +382,70 @@ def workflow_steps(job_lines: List[str]) -> List[WorkflowStep]:
                 condition=properties.get("if"),
                 continue_on_error=properties.get("continue-on-error"),
                 run=properties.get("run", ""),
+                shell=properties.get("shell"),
             )
         )
     return parsed
+
+
+def job_default_shell(job_lines: List[str]) -> Optional[str]:
+    """The job's `defaults: run: shell:` value, or None when unset.
+
+    A job default reaches every step that does not override it, so a custom
+    template here swallows the preflight's exit status just as a step-level one
+    does. Reading only step-level `shell:` would leave that route open.
+    """
+    index = 0
+    while index < len(job_lines):
+        if not _JOB_DEFAULTS_KEY.match(job_lines[index]):
+            index += 1
+            continue
+        index += 1
+        while index < len(job_lines):
+            line = job_lines[index]
+            if not line.strip() or line.strip().startswith("#"):
+                index += 1
+                continue
+            if _JOB_DEFAULTS_RUN_KEY.match(line):
+                index += 1
+                while index < len(job_lines):
+                    inner = job_lines[index]
+                    if not inner.strip() or inner.strip().startswith("#"):
+                        index += 1
+                        continue
+                    shell_match = _JOB_DEFAULTS_SHELL.match(inner)
+                    if shell_match:
+                        return shell_match.group(1)
+                    if _indent(inner) <= 6:
+                        break
+                    index += 1
+                break
+            if _indent(line) <= 4:
+                break
+            index += 1
+        break
+    return None
+
+
+def _assert_modelled_shell(step: WorkflowStep, default_shell: Optional[str], role: str) -> None:
+    """Fail closed unless the step's effective shell propagates a failure.
+
+    The exit status of the modelled `run:` command only reaches the job when the
+    shell it runs under passes it on. GitHub's built-in keywords all do; an
+    arbitrary custom template need not, and `pwsh -command "& '{0}'; exit 0"`
+    demonstrably does not. Since the bypass lives outside the `run:` scalar,
+    command modelling cannot see it -- so the shell is checked directly.
+    """
+    effective = step.shell if step.shell is not None else default_shell
+    if effective is None:
+        return
+    normalized = effective.strip().strip("\"'").lower()
+    if normalized not in _MODELLED_SHELLS:
+        raise WorkflowContractError(
+            f"{role} runs under an unmodelled shell {effective!r}; a custom shell "
+            "template can discard the command's exit status. Use one of "
+            f"{sorted(_MODELLED_SHELLS)} or teach this guard the new shape."
+        )
 
 
 def command_steps(
@@ -428,6 +512,9 @@ def preflight_and_build_steps(job_lines: List[str]) -> Tuple[WorkflowStep, Workf
         raise WorkflowContractError(f"no executed {BUILD_MARKER!r} step")
     preflight_step = preflights[0]
     build_step = builds[0]
+    default_shell = job_default_shell(job_lines)
+    _assert_modelled_shell(preflight_step, default_shell, "preflight")
+    _assert_modelled_shell(build_step, default_shell, "build")
     if preflight_step.continue_on_error is not None:
         continue_on_error = preflight_step.continue_on_error.strip()
         if continue_on_error.startswith("${{") and continue_on_error.endswith("}}"):
@@ -624,6 +711,93 @@ class WorkflowStepExecutionParsing(unittest.TestCase):
                     WorkflowContractError, "can override a failed preflight"
                 ):
                     preflight_and_build_steps(lines)
+
+    def test_a_custom_shell_template_cannot_certify_a_preflight(self) -> None:
+        """A shell template can discard the exit status the `run:` command returns.
+
+        `pwsh -command "& '{0}'; exit 0"` executes the exact recognized preflight
+        line and then reports success regardless of what it returned, so command
+        modelling alone cannot see the bypass -- it lives outside the parsed
+        scalar. Both steps are checked: a build whose own failure is discarded
+        makes the certification hollow just as a swallowed preflight does.
+        """
+        swallowing = "pwsh -command \"& '{0}'; exit 0\""
+        for role, preflight_shell, build_shell in (
+            ("preflight", swallowing, None),
+            ("build", None, swallowing),
+        ):
+            preflight_line = "" if preflight_shell is None else f"      shell: {preflight_shell}\n"
+            build_line = "" if build_shell is None else f"      shell: {build_shell}\n"
+            lines = _job_lines(
+                "    - name: Preflight\n"
+                f"{preflight_line}"
+                "      run: python tests/ci/preflight_runner_gpu_environment.py\n"
+                "    - name: Build\n"
+                f"{build_line}"
+                "      run: python -m SCons platform=windows\n"
+            )
+            with self.subTest(role=role):
+                with self.assertRaisesRegex(
+                    WorkflowContractError, "unmodelled shell"
+                ):
+                    preflight_and_build_steps(lines)
+
+    def test_a_custom_job_default_shell_cannot_certify_a_preflight(self) -> None:
+        """A job default reaches every step that does not override it."""
+        lines = (
+            "  gpu-job:\n"
+            "    defaults:\n"
+            "      run:\n"
+            "        shell: pwsh -command \"& '{0}'; exit 0\"\n"
+            "    steps:\n"
+            "    - name: Preflight\n"
+            "      run: python tests/ci/preflight_runner_gpu_environment.py\n"
+            "    - name: Build\n"
+            "      run: python -m SCons platform=windows\n"
+        ).splitlines()
+        with self.assertRaisesRegex(WorkflowContractError, "unmodelled shell"):
+            preflight_and_build_steps(lines)
+
+    def test_builtin_shells_still_certify(self) -> None:
+        """Non-vacuity: the shell check must not reject the real workflow shape.
+
+        Every `shell:` in this repository's workflows is the bare `pwsh`
+        keyword. A guard that rejected those would be trivially "safe" and
+        entirely useless, so the accepting direction is asserted too.
+        """
+        for shell in (None, "pwsh", "bash", "cmd"):
+            shell_line = "" if shell is None else f"      shell: {shell}\n"
+            lines = _job_lines(
+                "    - name: Preflight\n"
+                f"{shell_line}"
+                "      run: python tests/ci/preflight_runner_gpu_environment.py\n"
+                "    - name: Build\n"
+                f"{shell_line}"
+                "      run: python -m SCons platform=windows\n"
+            )
+            with self.subTest(shell=shell):
+                preflight_step, build_step = preflight_and_build_steps(lines)
+                self.assertEqual(preflight_step.shell, shell)
+                self.assertEqual(build_step.shell, shell)
+
+    def test_a_step_shell_overrides_an_unmodelled_job_default(self) -> None:
+        """Overriding the bad default on every modelled step is a legal repair."""
+        lines = (
+            "  gpu-job:\n"
+            "    defaults:\n"
+            "      run:\n"
+            "        shell: pwsh -command \"& '{0}'; exit 0\"\n"
+            "    steps:\n"
+            "    - name: Preflight\n"
+            "      shell: pwsh\n"
+            "      run: python tests/ci/preflight_runner_gpu_environment.py\n"
+            "    - name: Build\n"
+            "      shell: pwsh\n"
+            "      run: python -m SCons platform=windows\n"
+        ).splitlines()
+        preflight_step, build_step = preflight_and_build_steps(lines)
+        self.assertEqual(preflight_step.shell, "pwsh")
+        self.assertEqual(build_step.shell, "pwsh")
 
     def test_exact_success_condition_preserves_the_preflight_gate(self) -> None:
         lines = _job_lines(

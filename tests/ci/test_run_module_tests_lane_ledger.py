@@ -65,6 +65,19 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "tests" / "ci" / "run_module_tests.py"
 
+# Exact interpreter spellings, not a `py` prefix. The wiring evidence below
+# proves a guard script was LAUNCHED BY PYTHON; a prefix test also accepts
+# `pygmentize`, `pylint` and `pyright`, each of which exits 0 having read the
+# file without executing it. A runner accidentally changed to one of those
+# would keep the launched-argv contract green while the unittest file never
+# ran -- a green built on a command that cannot fail the way the test intends
+# (#932 review). The harness itself always launches `sys.executable`; this
+# pattern additionally tolerates the versioned and Windows spellings so a
+# legitimate interpreter change does not read as a bypass.
+_PYTHON_INTERPRETER_NAME = re.compile(
+    r"python(?:3(?:\.\d+)?)?(?:\.exe)?|py(?:\.exe)?"
+)
+
 
 def _load_harness():
     spec = importlib.util.spec_from_file_location("run_module_tests", SCRIPT)
@@ -3558,7 +3571,9 @@ class GuardScriptWiringTests(unittest.TestCase):
                 script_argument, (str, os.PathLike)
             ):
                 continue
-            if not Path(os.fspath(executable)).name.lower().startswith(("python", "py")):
+            if _PYTHON_INTERPRETER_NAME.fullmatch(
+                Path(os.fspath(executable)).name.lower()
+            ) is None:
                 continue
             script_text = os.fspath(script_argument)
             if not script_text.lower().endswith(".py"):
@@ -3566,6 +3581,35 @@ class GuardScriptWiringTests(unittest.TestCase):
             path = Path(script_text)
             launched.add((path if path.is_absolute() else ROOT / path).resolve())
         return launched
+
+    def test_only_a_real_interpreter_counts_as_a_python_launch(self) -> None:
+        """A `py` PREFIX is not evidence that a guard script ran.
+
+        `pygmentize <test.py>` reads a file and exits 0 without executing it, as
+        do `pylint` and `pyright`. Under a prefix test each of those classified
+        as a Python launch, so a runner accidentally changed to one would keep
+        the launched-argv contract below green while the unittest file never
+        ran -- the assertion would have lost its power to fail (#932 review).
+
+        Asserted in both directions: the bypasses are rejected, and the real
+        interpreter spellings -- including the one running this test -- are
+        still accepted, so the tightening did not simply break the contract.
+        """
+        for executable in ("pygmentize", "pylint", "pyright", "pytest", "pydoc"):
+            with self.subTest(rejected=executable):
+                self.assertIsNone(
+                    _PYTHON_INTERPRETER_NAME.fullmatch(executable),
+                    f"{executable!r} does not execute a .py file and must not "
+                    "count as wiring evidence",
+                )
+
+        accepted = ("python", "python3", "python3.11", "python.exe", "py", "py.exe")
+        for executable in accepted + (Path(sys.executable).name.lower(),):
+            with self.subTest(accepted=executable):
+                self.assertIsNotNone(
+                    _PYTHON_INTERPRETER_NAME.fullmatch(executable),
+                    f"{executable!r} is a real interpreter and must still count",
+                )
 
     def test_the_recorded_wiring_is_not_vacuous(self) -> None:
         """Non-vacuity: the recorder must observe the real, populated pipeline.
