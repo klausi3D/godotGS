@@ -41,8 +41,8 @@ without touching the self-hosted lanes. It runs:
   `python tests/ci/validate_automation.py --contracts-only` after installing the
   version-and-hash-pinned PyYAML dependency; the validator derives and parses
   every `*.yml` and `*.yaml` workflow, and fails closed if the parser or corpus
-  is absent, or if a document lacks a non-empty top-level trigger or `jobs`
-  mapping
+  is absent, or if a document lacks a typed, non-empty top-level trigger or
+  `jobs` mapping
 - `python scripts/agentic/validate_repo_contract.py --strict-hierarchy` (the
   `--strict-hierarchy` flag also requires the AGENTS.md hierarchy and
   `docs/governance/*`; without it those could all be deleted with the gate green)

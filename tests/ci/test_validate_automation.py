@@ -26,11 +26,22 @@ CURRENT_WORKFLOW_NAMES = tuple(sorted(validate_automation.REQUIRED_WORKFLOW_NAME
 
 
 class _FakeYaml(types.SimpleNamespace):
-    BaseLoader = object
+    class BaseLoader:
+        pass
+
+    class SafeLoader:
+        def construct_mapping(self, node: object, deep: bool = False) -> object:
+            del node, deep
+            return {}
 
     @staticmethod
     def load(text: str, Loader: object) -> object:
-        del Loader
+        typed_scalars = isinstance(Loader, type) and issubclass(
+            Loader, _FakeYaml.SafeLoader
+        )
+        preserves_on_key = typed_scalars and (
+            Loader.construct_mapping is not _FakeYaml.SafeLoader.construct_mapping
+        )
         if "INVALID_FOR_TEST" in text:
             raise ValueError("synthetic invalid YAML")
         if "EMPTY_FOR_TEST" in text:
@@ -43,6 +54,47 @@ class _FakeYaml(types.SimpleNamespace):
             return {"name": "valid", "jobs": {"test": {}}}
         if "EMPTY_TRIGGER_FOR_TEST" in text:
             return {"name": "valid", "on": {}, "jobs": {"test": {}}}
+        if "NULL_TRIGGER_FOR_TEST" in text:
+            return {
+                "name": "valid",
+                "on": None if typed_scalars else "null",
+                "jobs": {"test": {}},
+            }
+        if "TILDE_TRIGGER_FOR_TEST" in text:
+            return {
+                "name": "valid",
+                "on": None if typed_scalars else "~",
+                "jobs": {"test": {}},
+            }
+        if "BOOL_TRIGGER_FOR_TEST" in text:
+            return {
+                "name": "valid",
+                "on": False if typed_scalars else "false",
+                "jobs": {"test": {}},
+            }
+        if "NUMBER_TRIGGER_FOR_TEST" in text:
+            return {
+                "name": "valid",
+                "on": 0 if typed_scalars else "0",
+                "jobs": {"test": {}},
+            }
+        if "NULL_LIST_TRIGGER_FOR_TEST" in text:
+            return {
+                "name": "valid",
+                "on": [None] if typed_scalars else ["null"],
+                "jobs": {"test": {}},
+            }
+        if "SCALAR_TRIGGER_FOR_TEST" in text:
+            return {"name": "valid", "on": "push", "jobs": {"test": {}}}
+        if "LIST_TRIGGER_FOR_TEST" in text:
+            return {
+                "name": "valid",
+                "on": ["push", "pull_request"],
+                "jobs": {"test": {}},
+            }
+        if "KEY_PRESERVATION_FOR_TEST" in text:
+            key: object = "on" if preserves_on_key else True
+            return {"name": "valid", key: "push", "jobs": {"test": {}}}
         return {
             "name": "valid",
             "on": {"pull_request": {}},
@@ -128,6 +180,47 @@ class ValidateAutomationWorkflowTests(unittest.TestCase):
                     validate_automation, "ROOT_DIR", Path(temp_dir.name)
                 ), mock.patch.dict(sys.modules, {"yaml": _FakeYaml()}):
                     self.assertFalse(validate_automation.check_ci_workflow())
+
+    def test_workflow_with_invalid_scalar_trigger_fails_closed(self) -> None:
+        markers = (
+            "NULL_TRIGGER_FOR_TEST",
+            "TILDE_TRIGGER_FOR_TEST",
+            "BOOL_TRIGGER_FOR_TEST",
+            "NUMBER_TRIGGER_FOR_TEST",
+            "NULL_LIST_TRIGGER_FOR_TEST",
+        )
+        for marker in markers:
+            with self.subTest(marker=marker):
+                contents = {name: "name: valid\n" for name in CURRENT_WORKFLOW_NAMES}
+                contents["agentic_pr_gate.yml"] = marker
+                temp_dir = self._root_with_workflows(contents)
+
+                with temp_dir, mock.patch.object(
+                    validate_automation, "ROOT_DIR", Path(temp_dir.name)
+                ), mock.patch.dict(sys.modules, {"yaml": _FakeYaml()}):
+                    self.assertFalse(validate_automation.check_ci_workflow())
+
+    def test_supported_trigger_shapes_remain_valid(self) -> None:
+        for marker in ("SCALAR_TRIGGER_FOR_TEST", "LIST_TRIGGER_FOR_TEST", "name: valid"):
+            with self.subTest(marker=marker):
+                contents = {name: "name: valid\n" for name in CURRENT_WORKFLOW_NAMES}
+                contents["agentic_pr_gate.yml"] = marker
+                temp_dir = self._root_with_workflows(contents)
+
+                with temp_dir, mock.patch.object(
+                    validate_automation, "ROOT_DIR", Path(temp_dir.name)
+                ), mock.patch.dict(sys.modules, {"yaml": _FakeYaml()}):
+                    self.assertTrue(validate_automation.check_ci_workflow())
+
+    def test_loader_preserves_literal_on_mapping_key(self) -> None:
+        contents = {name: "name: valid\n" for name in CURRENT_WORKFLOW_NAMES}
+        contents["agentic_pr_gate.yml"] = "KEY_PRESERVATION_FOR_TEST"
+        temp_dir = self._root_with_workflows(contents)
+
+        with temp_dir, mock.patch.object(
+            validate_automation, "ROOT_DIR", Path(temp_dir.name)
+        ), mock.patch.dict(sys.modules, {"yaml": _FakeYaml()}):
+            self.assertTrue(validate_automation.check_ci_workflow())
 
     def test_required_gate_installs_parser_and_runs_validator(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "agentic_pr_gate.yml").read_text(
