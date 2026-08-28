@@ -277,10 +277,10 @@
       },
       {
         "rule": "a stable/candidate (v*) tag must not publish without passing check_renderer_release_gates.py --mode candidate",
-        "enforced_by": ".github/workflows/release_builds.yml release_candidate_gate job runs --mode candidate on the stable/tag path and fails closed when the evidence bundle is absent; publish_release requires release_candidate_gate success",
+        "enforced_by": ".github/workflows/release_builds.yml release_candidate_gate job runs --mode candidate on the stable/tag path and fails closed when either the evidence bundle or separate operator-supplied issue snapshot is absent; the checker rejects the same file at both paths; publish_release requires release_candidate_gate success",
         "checker_scope": "The contract checker verifies the release_candidate_gate job marker is present; it does not parse the job's runtime candidate invocation.",
-        "remaining_gap": "No CI lane yet produces the public-alpha candidate evidence bundle (GPU-harness report, benchmark-lane report, artifact SHA/commit-parity, issue snapshot). Until that pipeline is wired (issue #360), the gate fails closed on every real v* tag; a maintainer supplies the bundle out-of-band via RELEASE_CANDIDATE_EVIDENCE.",
-        "issue": 593
+        "remaining_gap": "No CI lane yet produces the public-alpha candidate evidence bundle (GPU-harness report, benchmark-lane report, artifact SHA/commit-parity) and its issue snapshot. Until that pipeline is wired, the gate fails closed on every real v* tag; a maintainer supplies both files out-of-band via RELEASE_CANDIDATE_EVIDENCE and RELEASE_CANDIDATE_ISSUES. The gate proves separate filesystem identity only and does not machine-enforce issue-snapshot GitHub provenance, query completeness, capture time, or freshness. Live acquisition and those stronger guarantees are owned by issue #360.",
+        "issue": 360
       },
       {
         "rule": "candidate evidence must be bound to the commit being published and to the exact bytes being shipped",

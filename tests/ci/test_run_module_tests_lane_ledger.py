@@ -3627,6 +3627,34 @@ class GuardScriptWiringTests(unittest.TestCase):
             f"enforce their contracts: {missing}",
         )
 
+    def test_release_attestation_discrimination_suite_is_executed(self) -> None:
+        """The validated-bytes contract must run in the always-on guard lane.
+
+        `release_attestation.py` is a release guard whose file name does not use
+        the `check_*.py` convention above, so its `test_release_attestation.py`
+        sibling is an explicit policy surface rather than a discoverable pair.
+        This assertion lives in the independently wired lane-ledger suite so
+        deleting the attestation test's runner entry is observable.
+        """
+        attestation_tests = ROOT / "tests" / "ci" / "test_release_attestation.py"
+        self.assertTrue(attestation_tests.is_file(), f"missing test suite: {attestation_tests}")
+        commands: list[list[str]] = []
+
+        def record_command(args: list[str]) -> tuple[int, str, str]:
+            commands.append([str(arg) for arg in args])
+            return 0, "", ""
+
+        with mock.patch.object(harness, "_run_command", side_effect=record_command):
+            passed, output = harness._run_renderer_release_gate_guard()
+
+        self.assertTrue(passed, output)
+        self.assertTrue(
+            any(Path(command[1]).resolve() == attestation_tests.resolve() for command in commands),
+            "_run_renderer_release_gate_guard() did not actually launch "
+            "test_release_attestation.py; retaining the constant in a missing-file "
+            "check is not executable wiring",
+        )
+
     def test_this_files_own_runner_is_wired(self) -> None:
         """The contract above is only worth anything while this file still runs."""
         reached = self._scripts_reached_by_wired_runners()

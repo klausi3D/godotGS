@@ -918,7 +918,7 @@ jobs:
       # yet wired into CI, so on a real `v*` tag these files are absent and the
       # gate fails closed. A maintainer cutting a candidate points
       # RELEASE_CANDIDATE_EVIDENCE at a produced bundle via a repo/environment
-      # variable. TODO(#360/#593): generate this bundle in-workflow so a green
+      # variable. TODO(#360): generate this bundle in-workflow so a green
       # stable tag is self-proving instead of relying on an out-of-band bundle.
       RELEASE_CANDIDATE_EVIDENCE: ${{ vars.RELEASE_CANDIDATE_EVIDENCE || 'release-candidate-evidence/candidate_evidence.json' }}
       RELEASE_CANDIDATE_ISSUES: ${{ vars.RELEASE_CANDIDATE_ISSUES || 'release-candidate-evidence/issue_snapshot.json' }}
@@ -1049,12 +1049,12 @@ jobs:
             echo "::error::Produce the public-alpha evidence bundle (issue #360) and set the RELEASE_CANDIDATE_EVIDENCE repo/environment variable, or do not push a v* tag."
             exit 1
           fi
-          args=(--mode candidate --candidate-evidence "${evidence}")
-          if [[ -f "${issues}" ]]; then
-            args+=(--issues-json "${issues}")
-          else
-            echo "No issue snapshot at '${issues}'; the evidence bundle must embed issue_snapshot or the candidate check fails closed."
+          if [[ ! -f "${issues}" ]]; then
+            echo "::error::Independent release-candidate issue snapshot not found at '${issues}'."
+            echo "::error::A snapshot embedded in the candidate evidence bundle cannot certify its own blocker set."
+            exit 1
           fi
+          args=(--mode candidate --candidate-evidence "${evidence}" --issues-json "${issues}")
 
           # Supply-chain binding (#593 review): the bundle must be FOR this commit
           # and must record the digests of the archives this run actually built.

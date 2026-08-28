@@ -93,10 +93,14 @@ python tests/ci/check_renderer_release_gates.py --mode contract
 The same contract check is part of `tests/ci/run_module_tests.py --guard-only`,
 which is what the Gaussian Production Gates `guards` job runs. The contract check
 is deterministic and GPU-free. Public-alpha candidate mode
-requires the evidence bundle, a public-alpha channel/tag selector, and a live
-issue-label snapshot so P0, P1, and release-blocker issues cannot be bypassed by
-release notes or manual workflow choices. The workflow-policy
-portion of the checker validates required workflow files and job markers only;
+requires the evidence bundle, a public-alpha channel/tag selector, and a
+separate operator-supplied issue-label snapshot through `--issues-json` so P0,
+P1, and release-blocker rows cannot be replaced by a snapshot embedded in the
+bundle. The gate proves separate filesystem identity only; it does not
+machine-enforce the snapshot's GitHub provenance, completeness, capture time, or
+freshness. Live acquisition and those stronger guarantees remain owned by
+issue #360. The workflow-policy portion of the checker validates required
+workflow files and job markers only;
 the stronger no-downgrade workflow rules remain documented review policy until
 the checker grows a real GitHub Actions behavior parser.
 
@@ -152,8 +156,9 @@ that publish path (issue #593):
 - it fails the stable/candidate path unless **both** `build_linux` and
   `build_windows` succeeded (no Linux-only stable release);
 - it runs `check_renderer_release_gates.py --mode candidate` against a
-  public-alpha evidence bundle and **fails closed** when the bundle is absent, so
-  a tag cannot publish without passing candidate validation;
+  public-alpha evidence bundle and a separate issue snapshot, and **fails closed**
+  when either file is absent, so a tag cannot publish without passing candidate
+  validation;
 - `publish_release` hard-depends on the gate and sets
   `fail_on_unmatched_files: true` for the stable channel;
 - it binds the evidence to reality: `--expected-commit ${{ github.sha }}` (the
@@ -172,9 +177,10 @@ Windows runner outage cannot stall the nightly cadence.
 
 **Scoped gap:** no CI lane yet produces the candidate evidence bundle (issue
 #360), so the gate currently fails closed on every real `v*` tag. A maintainer
-cutting a candidate points the `RELEASE_CANDIDATE_EVIDENCE` (and optional
-`RELEASE_CANDIDATE_ISSUES`) repo/environment variable at a produced bundle. See
-`docs/reference/renderer-release-gates.md` for details.
+cutting a candidate must place both files in the runner workspace and point the
+`RELEASE_CANDIDATE_EVIDENCE` and `RELEASE_CANDIDATE_ISSUES` repo/environment
+variables at different files. See `docs/reference/renderer-release-gates.md` for
+details.
 
 ## Runner Trust Boundary (fork PRs)
 
