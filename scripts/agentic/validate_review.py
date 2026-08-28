@@ -51,8 +51,10 @@ def _type_ok(value: Any, type_name: Any) -> bool:
     return True
 
 
-def validate_instance(instance: Any, schema: dict[str, Any], path: str = "$") -> list[str]:
+def validate_instance(instance: Any, schema: Any, path: str = "$") -> list[str]:
     errors: list[str] = []
+    if not isinstance(schema, dict):
+        return [f"{path}: schema must be an object"]
     type_name = schema.get("type")
     if type_name is not None and not _type_ok(instance, type_name):
         errors.append(f"{path}: expected type {type_name}, got {type(instance).__name__}")
@@ -60,13 +62,26 @@ def validate_instance(instance: Any, schema: dict[str, Any], path: str = "$") ->
 
     if "const" in schema and instance != schema["const"]:
         errors.append(f"{path}: expected {schema['const']!r}, got {instance!r}")
-    if "enum" in schema and instance not in schema["enum"]:
-        errors.append(f"{path}: {instance!r} is not one of {schema['enum']}")
+    if "enum" in schema:
+        enum = schema["enum"]
+        if not isinstance(enum, list):
+            errors.append(f"{path}: schema enum must be an array")
+        elif instance not in enum:
+            errors.append(f"{path}: {instance!r} is not one of {enum}")
 
     if isinstance(instance, dict):
         properties = schema.get("properties", {})
-        for required in schema.get("required", []):
-            if required not in instance:
+        if not isinstance(properties, dict):
+            errors.append(f"{path}: schema properties must be an object")
+            properties = {}
+        required_entries = schema.get("required", [])
+        if not isinstance(required_entries, list):
+            errors.append(f"{path}: schema required must be an array")
+            required_entries = []
+        for required in required_entries:
+            if not isinstance(required, str):
+                errors.append(f"{path}: schema required entries must be strings")
+            elif required not in instance:
                 errors.append(f"{path}: missing required property '{required}'")
         if schema.get("additionalProperties", True) is False:
             for key in instance:
@@ -77,8 +92,12 @@ def validate_instance(instance: Any, schema: dict[str, Any], path: str = "$") ->
                 errors.extend(validate_instance(value, properties[key], f"{path}.{key}"))
 
     if isinstance(instance, list) and "items" in schema:
-        for index, item in enumerate(instance):
-            errors.extend(validate_instance(item, schema["items"], f"{path}[{index}]"))
+        items = schema["items"]
+        if not isinstance(items, dict):
+            errors.append(f"{path}: schema items must be an object")
+        else:
+            for index, item in enumerate(instance):
+                errors.extend(validate_instance(item, items, f"{path}[{index}]"))
 
     return errors
 
