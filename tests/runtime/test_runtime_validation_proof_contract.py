@@ -21,6 +21,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -30,11 +31,386 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "tests" / "runtime" / "run_runtime_validation.py"
+BINDINGS = ROOT / "modules" / "gaussian_splatting" / "renderer" / "gaussian_splat_renderer_bindings.cpp"
+RENDERER_HEADER = ROOT / "modules" / "gaussian_splatting" / "renderer" / "gaussian_splat_renderer.h"
+RENDERER_DOC = ROOT / "modules" / "gaussian_splatting" / "doc_classes" / "GaussianSplatRenderer.xml"
+CANONICAL_RENDER_PROOF = ROOT / "tests" / "runtime" / "test_canonical_node_asset_render.gd"
 spec = importlib.util.spec_from_file_location("run_runtime_validation", SCRIPT)
 assert spec and spec.loader
 runtime_validation = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = runtime_validation
 spec.loader.exec_module(runtime_validation)
+
+
+def _without_cpp_comments(text: str) -> str:
+    return re.sub(r"/\*.*?\*/|//[^\n]*", "", text, flags=re.DOTALL)
+
+
+def _canonical_deadline_placement_errors(script: str) -> list[str]:
+    """Return structural errors that could let an over-budget frame pass."""
+    run_body = script.split("func _run() -> void:", 1)[1].split("\n\nfunc _read_renderer_stats", 1)[0]
+    proof_loop = run_body.split(
+        "\twhile Time.get_ticks_msec() < proof_deadline_msec:", 1
+    )[1].split("\n\n\tif stage_failure_seen:", 1)[0]
+    lines = proof_loop.splitlines()
+    deadline_check = "if Time.get_ticks_msec() >= proof_deadline_msec:"
+    errors: list[str] = []
+
+    expected_await_guards = (
+        ("\t\tawait process_frame", f"\t\t{deadline_check}"),
+        ("\t\t\tawait RenderingServer.frame_post_draw", f"\t\t\t{deadline_check}"),
+    )
+    for await_line, expected_guard in expected_await_guards:
+        await_indices = [index for index, line in enumerate(lines) if line == await_line]
+        if len(await_indices) != 1:
+            errors.append(f"expected exactly one proof-loop {await_line.strip()!r}")
+            continue
+        guard_index = await_indices[0] + 1
+        if guard_index >= len(lines) or lines[guard_index] != expected_guard:
+            errors.append(f"{await_line.strip()} must be followed immediately by the deadline check")
+            continue
+        guard_indent = len(expected_guard) - len(expected_guard.lstrip("\t"))
+        guard_body = []
+        for line in lines[guard_index + 1 :]:
+            if line and len(line) - len(line.lstrip("\t")) <= guard_indent:
+                break
+            guard_body.append(line)
+        direct_break = "\t" * (guard_indent + 1) + "break"
+        if direct_break not in guard_body:
+            errors.append(f"the deadline check after {await_line.strip()} must break the proof loop")
+
+    pass_indices = [index for index, line in enumerate(lines) if line.startswith("\t\t\t_pass(")]
+    if len(pass_indices) != 1:
+        errors.append("expected exactly one passing terminal in the proof loop")
+    else:
+        pass_index = pass_indices[0]
+        expected_terminal_guard = [f"\t\t\t{deadline_check}", "\t\t\t\tbreak"]
+        if lines[max(0, pass_index - 2) : pass_index] != expected_terminal_guard:
+            errors.append("the passing terminal must be immediately bound by a deadline check")
+
+    if proof_loop.count(deadline_check) != 3:
+        errors.append("the proof loop must contain exactly the two post-await and one pre-pass deadline checks")
+    return errors
+
+
+def _canonical_success_guard_errors(script: str) -> list[str]:
+    """Return errors that could permit proof after a latched stage failure."""
+    run_body = script.split("func _run() -> void:", 1)[1].split("\n\nfunc _read_renderer_stats", 1)[0]
+    proof_loop = run_body.split(
+        "\twhile Time.get_ticks_msec() < proof_deadline_msec:", 1
+    )[1].split("\n\n\tif stage_failure_seen:", 1)[0]
+    lines = proof_loop.splitlines()
+    pass_indices = [index for index, line in enumerate(lines) if line.startswith("\t\t\t_pass(")]
+    if len(pass_indices) != 1:
+        return ["expected exactly one passing terminal in the proof loop"]
+
+    success_guard = next(
+        (line for line in reversed(lines[: pass_indices[0]]) if line.startswith("\t\tif ")),
+        "",
+    )
+    expected_guard = (
+        "\t\tif not stage_failure_seen and visible >= MIN_VISIBLE_SPLATS "
+        "and visual_ok and _rendered_content_ok():"
+    )
+    if success_guard != expected_guard:
+        return ["the passing branch must require the complete fail-closed success predicate"]
+
+    if run_body.count("\tvar stage_failure_seen := false") != 1:
+        return ["the stage-failure latch must be initialized exactly once"]
+    expected_updates = [
+        "\t\tstage_failure_seen = stage_failure_seen or _stage_failed(stats)",
+        "\t\t\tstage_failure_seen = stage_failure_seen or _stage_failed(post_draw_stats)",
+    ]
+    actual_updates = [
+        line
+        for line in run_body.splitlines()
+        if re.match(r"^\s*stage_failure_seen\s*[|&^+*/-]?=", line)
+    ]
+    if actual_updates != expected_updates:
+        return ["the stage-failure latch must only be updated monotonically from renderer-stage failures"]
+    return []
+
+
+def _canonical_post_draw_stage_resample_errors(script: str) -> list[str]:
+    """Return errors that could hide a failure in the just-drawn frame."""
+    run_body = script.split("func _run() -> void:", 1)[1].split("\n\nfunc _read_renderer_stats", 1)[0]
+    proof_loop = run_body.split(
+        "\twhile Time.get_ticks_msec() < proof_deadline_msec:", 1
+    )[1].split("\n\n\tif stage_failure_seen:", 1)[0]
+    post_draw = proof_loop.split("\t\t\tawait RenderingServer.frame_post_draw", 1)[1]
+    before_capture = post_draw.split("\t\t\tvar image := _capture_viewport()", 1)[0]
+    required_block = (
+        "\t\t\tvar post_draw_stats := _read_renderer_stats()\n"
+        "\t\t\t_update_stage_metrics(post_draw_stats)\n"
+        "\t\t\tstage_failure_seen = stage_failure_seen or _stage_failed(post_draw_stats)"
+    )
+    if required_block not in before_capture:
+        return ["the drawn frame's stage status must be sampled and latched before visual proof"]
+    return []
+
+
+def _canonical_elapsed_accounting_errors(script: str) -> list[str]:
+    """Return errors when viewport work is omitted from elapsed proof time."""
+    run_body = script.split("func _run() -> void:", 1)[1].split("\n\nfunc _read_renderer_stats", 1)[0]
+    proof_loop = run_body.split(
+        "\twhile Time.get_ticks_msec() < proof_deadline_msec:", 1
+    )[1].split("\n\n\tif stage_failure_seen:", 1)[0]
+    success_guard = (
+        "\t\tif not stage_failure_seen and visible >= MIN_VISIBLE_SPLATS "
+        "and visual_ok and _rendered_content_ok():"
+    )
+    before_success = proof_loop.split(success_guard, 1)[0]
+    required_refresh = '\t\tmetrics["proof_elapsed_msec"] = Time.get_ticks_msec() - proof_started_msec'
+    if before_success.rstrip().splitlines()[-1] != required_refresh:
+        return ["elapsed proof time must be refreshed after viewport analysis and immediately before success evaluation"]
+    return []
+
+
+class RenderedContentBindingContractTests(unittest.TestCase):
+    """#941: the fail-closed renderer predicate must be script-reachable.
+
+    The canonical runtime scenario already requires both probe availability and
+    observed content. These source checks pin the public binding that lets the
+    scenario call the production C++ predicate; deleting only that binding must
+    make this suite fail before a costly runtime lane is attempted.
+    """
+
+    def test_existing_cpp_predicate_is_bound_once_for_gdscript(self) -> None:
+        header = RENDERER_HEADER.read_text(encoding="utf-8")
+        self.assertIn("bool has_rendered_content() const override;", header)
+
+        bindings = _without_cpp_comments(BINDINGS.read_text(encoding="utf-8"))
+        pattern = re.compile(
+            r'ClassDB::bind_method\(\s*D_METHOD\(\s*"has_rendered_content"\s*\)\s*,\s*'
+            r'&GaussianSplatRenderer::has_rendered_content\s*\)\s*;'
+        )
+        self.assertEqual(
+            len(pattern.findall(bindings)),
+            1,
+            "has_rendered_content must have exactly one active ClassDB binding to the existing predicate",
+        )
+
+    def test_script_visible_predicate_is_documented(self) -> None:
+        documentation = RENDERER_DOC.read_text(encoding="utf-8")
+        self.assertEqual(
+            len(re.findall(r'<method\s+name="has_rendered_content"\s*>', documentation)),
+            1,
+            "GaussianSplatRenderer must document the script-visible has_rendered_content method exactly once",
+        )
+
+    def test_canonical_proof_uses_a_monotonic_wall_clock_deadline(self) -> None:
+        script = CANONICAL_RENDER_PROOF.read_text(encoding="utf-8")
+        self.assertNotIn(
+            "MAX_PROOF_FRAMES",
+            script,
+            "rendered-content proof must not expire according to runner-dependent frame throughput",
+        )
+        self.assertRegex(script, r"const PROOF_TIMEOUT_MSEC\s*:=\s*[1-9][0-9_]*")
+        self.assertRegex(
+            script,
+            r"var proof_started_msec\s*:=\s*Time\.get_ticks_msec\(\)",
+        )
+        self.assertRegex(
+            script,
+            r"var proof_deadline_msec\s*:=\s*proof_started_msec\s*\+\s*PROOF_TIMEOUT_MSEC",
+        )
+        self.assertRegex(
+            script,
+            r"while Time\.get_ticks_msec\(\)\s*<\s*proof_deadline_msec:",
+            "canonical proof must keep pumping frames until success or its monotonic deadline",
+        )
+        self.assertEqual(
+            _canonical_deadline_placement_errors(script),
+            [],
+            "deadline checks must bind both proof-loop awaits and the sole passing terminal",
+        )
+        self.assertEqual(
+            _canonical_success_guard_errors(script),
+            [],
+            "the passing terminal must be unreachable after any renderer-stage failure",
+        )
+        self.assertEqual(
+            _canonical_post_draw_stage_resample_errors(script),
+            [],
+            "the just-drawn frame's stage status must be sampled before visual proof can pass",
+        )
+        self.assertEqual(
+            _canonical_elapsed_accounting_errors(script),
+            [],
+            "elapsed proof time must include viewport capture and visual analysis",
+        )
+        run_body = script.split("func _run() -> void:", 1)[1].split("\n\nfunc _read_renderer_stats", 1)[0]
+        self.assertEqual(
+            len(re.findall(r"^\s*_pass\(", run_body, flags=re.MULTILINE)),
+            1,
+            "only the in-budget conjunctive branch may emit a passing terminal",
+        )
+        self.assertIn(
+            '_fail("Canonical node asset proof exceeded its wall-clock deadline.")',
+            run_body,
+            "deadline exhaustion must end fail-closed instead of falling through to pass",
+        )
+
+    def test_deadline_placement_contract_rejects_misplaced_checks_even_when_count_is_unchanged(self) -> None:
+        script = CANONICAL_RENDER_PROOF.read_text(encoding="utf-8")
+        deadline_check = "if Time.get_ticks_msec() >= proof_deadline_msec:"
+        process_guard = (
+            f"\t\tawait process_frame\n\t\t{deadline_check}\n"
+            '\t\t\tmetrics["proof_elapsed_msec"] = Time.get_ticks_msec() - proof_started_msec\n'
+            "\t\t\tbreak"
+        )
+        frame_post_draw_guard = (
+            f"\t\t\tawait RenderingServer.frame_post_draw\n\t\t\t{deadline_check}\n"
+            '\t\t\t\tmetrics["proof_elapsed_msec"] = Time.get_ticks_msec() - proof_started_msec\n'
+            "\t\t\t\tbreak"
+        )
+        terminal_guard = f"\t\t\t{deadline_check}\n\t\t\t\tbreak\n\t\t\t_pass("
+        duplicated_terminal_guard = f"\t\t\t{deadline_check}\n\t\t\t\tbreak\n{terminal_guard}"
+
+        process_mutated = script.replace(
+            process_guard,
+            "\t\tawait process_frame",
+            1,
+        ).replace(terminal_guard, duplicated_terminal_guard, 1)
+        frame_post_draw_mutated = script.replace(
+            frame_post_draw_guard,
+            "\t\t\tawait RenderingServer.frame_post_draw",
+            1,
+        ).replace(terminal_guard, duplicated_terminal_guard, 1)
+        terminal_mutated = script.replace(
+            process_guard,
+            f"{process_guard}\n\t\t{deadline_check}\n\t\t\tbreak",
+            1,
+        ).replace(terminal_guard, "\t\t\t_pass(", 1)
+        nested_break_mutated = script.replace(
+            "\t\t\tmetrics[\"proof_elapsed_msec\"] = Time.get_ticks_msec() - proof_started_msec\n"
+            "\t\t\tbreak",
+            "\t\t\tmetrics[\"proof_elapsed_msec\"] = Time.get_ticks_msec() - proof_started_msec\n"
+            "\t\t\tif false:\n"
+            "\t\t\t\tbreak",
+            1,
+        )
+
+        mutations = (
+            ("process_frame", process_mutated, "process_frame must be followed immediately"),
+            ("frame_post_draw", frame_post_draw_mutated, "frame_post_draw must be followed immediately"),
+            ("passing terminal", terminal_mutated, "passing terminal must be immediately bound"),
+            ("nested deadline break", nested_break_mutated, "must break the proof loop"),
+        )
+        for label, mutated, expected_error in mutations:
+            with self.subTest(label=label):
+                self.assertEqual(
+                    mutated.count(deadline_check),
+                    3,
+                    "negative control must retain the old count-based contract",
+                )
+                errors = _canonical_deadline_placement_errors(mutated)
+                self.assertTrue(
+                    any(expected_error in error for error in errors),
+                    f"placement contract accepted a deadline check moved away from {label}: {errors}",
+                )
+
+    def test_success_guard_rejects_a_latched_stage_failure(self) -> None:
+        script = CANONICAL_RENDER_PROOF.read_text(encoding="utf-8")
+        mutated = script.replace(
+            "if not stage_failure_seen and visible >= MIN_VISIBLE_SPLATS",
+            "if visible >= MIN_VISIBLE_SPLATS",
+            1,
+        )
+
+        self.assertNotEqual(mutated, script, "negative control must remove the stage-failure guard")
+        self.assertTrue(
+            _canonical_success_guard_errors(mutated),
+            "success contract accepted proof after a latched renderer-stage failure",
+        )
+
+    def test_success_guard_rejects_a_bypassing_or_predicate(self) -> None:
+        script = CANONICAL_RENDER_PROOF.read_text(encoding="utf-8")
+        mutated = script.replace(
+            "if not stage_failure_seen and visible >= MIN_VISIBLE_SPLATS",
+            "if true or not stage_failure_seen and visible >= MIN_VISIBLE_SPLATS",
+            1,
+        )
+
+        self.assertNotEqual(mutated, script, "negative control must inject a bypassing success route")
+        self.assertTrue(
+            _canonical_success_guard_errors(mutated),
+            "success contract accepted a predicate that bypasses the latched stage failure",
+        )
+
+    def test_success_guard_rejects_a_failure_latch_reset(self) -> None:
+        script = CANONICAL_RENDER_PROOF.read_text(encoding="utf-8")
+        success_guard = (
+            "\t\tif not stage_failure_seen and visible >= MIN_VISIBLE_SPLATS "
+            "and visual_ok and _rendered_content_ok():"
+        )
+        mutated = script.replace(
+            success_guard,
+            "\t\tstage_failure_seen = false\n" + success_guard,
+            1,
+        )
+
+        self.assertNotEqual(mutated, script, "negative control must reset the latched stage failure")
+        self.assertTrue(
+            _canonical_success_guard_errors(mutated),
+            "success contract accepted proof after resetting the latched stage failure",
+        )
+
+    def test_post_draw_stage_failure_resample_cannot_be_removed(self) -> None:
+        script = CANONICAL_RENDER_PROOF.read_text(encoding="utf-8")
+        test_source = Path(__file__).read_text(encoding="utf-8")
+        canonical_contract = test_source.split(
+            "    def test_canonical_proof_uses_a_monotonic_wall_clock_deadline", 1
+        )[1].split("\n    def ", 1)[0]
+        self.assertIn(
+            "_canonical_post_draw_stage_resample_errors(script)",
+            canonical_contract,
+            "post-draw stage guard must remain wired to the production proof script",
+        )
+        mutated = script.replace(
+            "\t\t\tstage_failure_seen = stage_failure_seen or _stage_failed(post_draw_stats)\n",
+            "",
+            1,
+        )
+
+        self.assertNotEqual(mutated, script, "negative control must remove the post-draw failure latch")
+        self.assertTrue(
+            _canonical_post_draw_stage_resample_errors(mutated),
+            "post-draw contract accepted visual proof without latching the completed frame's stage status",
+        )
+
+    def test_deadline_success_and_elapsed_guards_remain_wired_to_production_proof(self) -> None:
+        test_source = Path(__file__).read_text(encoding="utf-8")
+        canonical_contract = test_source.split(
+            "    def test_canonical_proof_uses_a_monotonic_wall_clock_deadline", 1
+        )[1].split("\n    def ", 1)[0]
+        required_calls = (
+            "_canonical_deadline_placement_errors(script)",
+            "_canonical_success_guard_errors(script)",
+            "_canonical_elapsed_accounting_errors(script)",
+        )
+        for required_call in required_calls:
+            with self.subTest(required_call=required_call):
+                self.assertIn(
+                    required_call,
+                    canonical_contract,
+                    "structural proof guard must remain wired to the production proof script",
+                )
+
+    def test_elapsed_accounting_cannot_precede_viewport_analysis(self) -> None:
+        script = CANONICAL_RENDER_PROOF.read_text(encoding="utf-8")
+        refresh = '\t\tmetrics["proof_elapsed_msec"] = Time.get_ticks_msec() - proof_started_msec\n'
+        success_guard = (
+            "\t\tif not stage_failure_seen and visible >= MIN_VISIBLE_SPLATS "
+            "and visual_ok and _rendered_content_ok():"
+        )
+        mutated = script.replace(refresh + success_guard, success_guard, 1)
+
+        self.assertNotEqual(mutated, script, "negative control must remove the post-analysis elapsed refresh")
+        self.assertTrue(
+            _canonical_elapsed_accounting_errors(mutated),
+            "elapsed accounting contract accepted a refresh that excludes viewport analysis",
+        )
 
 
 def _result(name: str, metrics: dict[str, object], status: str = "passed"):
