@@ -59,6 +59,31 @@ owned and forbidden paths, dependencies, non-goals, invariants, acceptance
 criteria, validation commands, evidence requirements, and a rollback plan. One
 contract → one branch → one worktree.
 
+## Milestone programs and Codex goals
+
+A milestone program (`.agentic/schemas/program.schema.json`) groups existing
+GitHub issues and pull requests into a dependency-ordered execution program. Each
+milestone has one concrete `objective`, agent-achievable completion criteria, and
+explicit human gates. Use that objective as the goal text for a dedicated Codex
+session. Do not set a token budget unless the human owner explicitly supplies one.
+
+The program manifest is not a status tracker and does not replace task contracts:
+
+- GitHub Issues and pull requests remain the live status authority.
+- The coordinator re-queries issue, PR, check, review, and base state before each
+  dispatch.
+- The implementer creates a fresh task contract with the immutable dispatch base.
+- A milestone goal ends at human-disposition readiness; it never authorizes an
+  agent to merge, waive a blocker, change product semantics, or publish a release.
+- Planner, implementer, verifier, and reviewer roles remain separate for every
+  child task, even when one coordinator owns the milestone goal.
+
+Validate a program with:
+
+```bash
+python scripts/agentic/validate_program.py --program .agentic/programs/<program>.json
+```
+
 ## Worktree isolation and parallel work
 
 - Each implementer works in its **own git worktree** so concurrent work never
