@@ -18,10 +18,20 @@ class BenchmarkAssetManifest:
     # Issue #669: minimum splat count each fixture must carry for a benchmark lane to
     # be treated as evidence. Empty when the manifest predates the contract.
     asset_min_splat_counts: dict[str, int]
+    # Issue #790: the EXACT count each producer writes, per fixture
+    # ({asset: {"python_fallback": n, "cpp_rich": m}}). The floor above answers
+    # "is it big enough"; this answers "which generator made it", which is the
+    # question a published number needs stamped on it. Empty when the manifest
+    # predates the contract.
+    asset_expected_splat_counts: dict[str, dict[str, int]]
 
     def min_splat_count_for(self, asset_path: str) -> int:
         """Return the declared minimum splat count for an asset, or 0 if undeclared."""
         return int(self.asset_min_splat_counts.get(asset_path, 0))
+
+    def expected_splat_counts_for(self, asset_path: str) -> dict[str, int]:
+        """Return {variant: exact splat count} for an asset, or {} if undeclared."""
+        return dict(self.asset_expected_splat_counts.get(asset_path, {}))
 
 
 @dataclass(frozen=True)
@@ -91,6 +101,7 @@ def load_benchmark_asset_manifest(path: str | Path) -> BenchmarkAssetManifest:
             lane_metadata={},
             chunked_asset_ladder={},
             asset_min_splat_counts={},
+            asset_expected_splat_counts={},
         )
 
     lane_defaults = _validate_string_map(data.get("lane_defaults", {}), "lane_defaults")
@@ -112,6 +123,9 @@ def load_benchmark_asset_manifest(path: str | Path) -> BenchmarkAssetManifest:
     asset_min_splat_counts = _validate_int_map(
         data.get("asset_min_splat_counts", {}), "asset_min_splat_counts"
     )
+    asset_expected_splat_counts = _validate_variant_count_map(
+        data.get("asset_expected_splat_counts", {}), "asset_expected_splat_counts"
+    )
 
     return BenchmarkAssetManifest(
         manifest_path=str(manifest_path),
@@ -122,7 +136,45 @@ def load_benchmark_asset_manifest(path: str | Path) -> BenchmarkAssetManifest:
         lane_metadata=lane_metadata,
         chunked_asset_ladder=chunked_asset_ladder,
         asset_min_splat_counts=asset_min_splat_counts,
+        asset_expected_splat_counts=asset_expected_splat_counts,
     )
+
+
+def _validate_variant_count_map(value: Any, label: str) -> dict[str, dict[str, int]]:
+    """Validate {asset: {variant: exact count}}, failing loudly on malformed data.
+
+    Malformed contract data must not degrade into an empty map: an empty map
+    silently disables the provenance check, which is the same class of defect the
+    check exists to catch.
+    """
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"--asset-manifest {label} must be a JSON object")
+    out: dict[str, dict[str, int]] = {}
+    for key, raw in value.items():
+        if not isinstance(key, str):
+            raise ValueError(f"--asset-manifest {label} keys must be strings")
+        if not isinstance(raw, dict):
+            raise ValueError(f"--asset-manifest {label}[{key}] must be a JSON object")
+        if not raw:
+            raise ValueError(
+                f"--asset-manifest {label}[{key}] declares no producer counts; an empty "
+                "entry would silently exempt the fixture from the provenance check"
+            )
+        variants: dict[str, int] = {}
+        for variant, count in raw.items():
+            if not isinstance(variant, str):
+                raise ValueError(f"--asset-manifest {label}[{key}] variant names must be strings")
+            if isinstance(count, bool) or not isinstance(count, int):
+                raise ValueError(f"--asset-manifest {label}[{key}][{variant}] must be an integer")
+            if count <= 0:
+                raise ValueError(
+                    f"--asset-manifest {label}[{key}][{variant}] must be positive, got {count}"
+                )
+            variants[variant] = count
+        out[key] = variants
+    return out
 
 
 def _validate_int_map(value: Any, label: str) -> dict[str, int]:

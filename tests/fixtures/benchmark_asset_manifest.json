@@ -1,4 +1,40 @@
 {
+  "asset_expected_splat_counts": {
+    "res://tests/fixtures/synthetic_cloud.ply": {
+      "cpp_rich": 80000,
+      "python_fallback": 4096
+    },
+    "res://tests/fixtures/synthetic_cube.ply": {
+      "cpp_rich": 50000,
+      "python_fallback": 2048
+    },
+    "res://tests/fixtures/synthetic_flower_field.ply": {
+      "python_fallback": 30000
+    },
+    "res://tests/fixtures/synthetic_mandelbulb.ply": {
+      "cpp_rich": 100000,
+      "python_fallback": 4096
+    },
+    "res://tests/fixtures/synthetic_plane.ply": {
+      "cpp_rich": 50000,
+      "python_fallback": 2048
+    },
+    "res://tests/fixtures/synthetic_sphere.ply": {
+      "cpp_rich": 50000,
+      "python_fallback": 2048
+    },
+    "res://tests/fixtures/synthetic_spiral.ply": {
+      "python_fallback": 25000
+    },
+    "res://tests/fixtures/synthetic_torus.ply": {
+      "cpp_rich": 50000,
+      "python_fallback": 3072
+    },
+    "res://tests/fixtures/test_splats.ply": {
+      "cpp_rich": 10000,
+      "python_fallback": 1024
+    }
+  },
   "asset_min_splat_counts": {
     "res://tests/fixtures/synthetic_cloud.ply": 4096,
     "res://tests/fixtures/synthetic_cube.ply": 2048,
@@ -369,5 +405,5 @@
     "synthetic_spiral": "res://tests/fixtures/synthetic_spiral.ply",
     "synthetic_torus": "res://tests/fixtures/synthetic_torus.ply"
   },
-  "version": "2.4.0"
+  "version": "2.5.0"
 }
