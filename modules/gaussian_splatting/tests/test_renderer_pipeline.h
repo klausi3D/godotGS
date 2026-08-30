@@ -739,6 +739,40 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Instance cull failures without fallb
     CHECK(summary.cull_route_reason == String("instance_pipeline_failed_no_fallback"));
 }
 
+TEST_CASE("[GaussianSplatting] pack_gaussian leaves no byte of PackedGaussian indeterminate") {
+    // PackedGaussian is trivially constructible and is produced through
+    // Vector::resize, so its storage arrives uninitialized. Every byte the GPU
+    // reads -- and every byte the streaming payload checksum hashes -- must be
+    // written by pack_gaussian(), including the alignment padding at offset 28.
+    //
+    // Before the padding lane was zeroed explicitly, identical inputs produced
+    // records that differed at that offset, so _packed_gaussian_payload_checksum()
+    // returned different values for the same payload and upload verification
+    // could reject a correct buffer.
+    Gaussian src = {};
+    src.position = Vector3(1.0f, 2.0f, 3.0f);
+    src.scale = Vector3(0.5f, 0.5f, 0.5f);
+    src.rotation = Quaternion();
+    src.opacity = 1.0f;
+    src.sh_dc = Color(0.25f, 0.5f, 0.75f, 1.0f);
+
+    // Two destinations pre-filled with DIFFERENT garbage: anything pack_gaussian
+    // fails to write shows up as a byte-level difference between them.
+    PackedGaussian a;
+    PackedGaussian b;
+    memset(&a, 0xA5, sizeof(PackedGaussian));
+    memset(&b, 0x5A, sizeof(PackedGaussian));
+
+    SHCompressionMetrics metrics_a;
+    SHCompressionMetrics metrics_b;
+    pack_gaussian(src, a, metrics_a);
+    pack_gaussian(src, b, metrics_b);
+
+    CHECK_MESSAGE(memcmp(&a, &b, sizeof(PackedGaussian)) == 0,
+            "pack_gaussian() left at least one byte of PackedGaussian unwritten; "
+            "identical inputs must produce byte-identical records");
+}
+
 TEST_CASE("[GaussianSplatting] GPU layout contract invariants remain stable") {
     CHECK(GS_RENDER_PARAMS_LAYOUT_VERSION == 20u);
     CHECK(sizeof(InstanceDataGPU) == size_t(112));

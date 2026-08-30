@@ -86,6 +86,16 @@ void pack_gaussian(const Gaussian &src,
     dst.scale[1] = src.scale.y;
     dst.scale[2] = src.scale.z;
 
+    // Zero the alignment padding EXPLICITLY. PackedGaussian is trivially
+    // constructible and these records are produced through Vector::resize, so
+    // the storage arrives uninitialized. `dst.area` used to write offset 28 as a
+    // side effect; with the lane removed nothing did, leaving an indeterminate
+    // word that (a) is hashed by _packed_gaussian_payload_checksum() in both
+    // gaussian_streaming.cpp and streaming_upload_pipeline.cpp -- where it gates
+    // upload verification -- making identical payloads compare unequal, and
+    // (b) is memcpy'd into the GPU buffer on every unquantized upload.
+    dst._pad_rotation_align = 0u;
+
     dst.rotation[0] = src.rotation.x;
     dst.rotation[1] = src.rotation.y;
     dst.rotation[2] = src.rotation.z;
