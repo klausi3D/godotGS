@@ -59,15 +59,6 @@
       "visibility": "editor_visible"
     },
     {
-      "owner": "Float16Config",
-      "prefix": "rendering/gaussian_splatting/data/",
-      "publicness": "internal",
-      "reload_semantics": "startup",
-      "scope": "internal",
-      "test_coverage": "documented_gap",
-      "visibility": "runtime_only"
-    },
-    {
       "owner": "Debug/diagnostic helpers",
       "prefix": "rendering/gaussian_splatting/debug/",
       "publicness": "debug_only",
@@ -326,42 +317,6 @@
       "key": "rendering/gaussian_splatting/culling/visibility_threshold",
       "notes": "Wired in #167 as the PROJECT-WIDE DEFAULT behind the per-renderer cull/visibility_threshold property: GPUCuller::update_culling_settings() seeds visibility_threshold from this global (clamped to the setter's 0.0001..0.1 range) unless an explicit per-node override is set (which wins). Registered default (gs::RASTER_ALPHA_THRESHOLD = 1/255) equals the construction default, so registration stays behavior-neutral.",
       "test_coverage": "covered"
-    },
-    {
-      "effective_state": "g_float16_config.enable_position_quantization",
-      "key": "rendering/gaussian_splatting/data/enable_position_quantization",
-      "publicness": "internal",
-      "test_coverage": "inventory_only"
-    },
-    {
-      "effective_state": "g_float16_config.float16_positions",
-      "key": "rendering/gaussian_splatting/data/float16_positions",
-      "publicness": "internal",
-      "test_coverage": "inventory_only"
-    },
-    {
-      "effective_state": "g_float16_config.float16_rotations",
-      "key": "rendering/gaussian_splatting/data/float16_rotations",
-      "publicness": "internal",
-      "test_coverage": "inventory_only"
-    },
-    {
-      "effective_state": "g_float16_config.float16_sh_coefficients",
-      "key": "rendering/gaussian_splatting/data/float16_sh_coefficients",
-      "publicness": "internal",
-      "test_coverage": "inventory_only"
-    },
-    {
-      "effective_state": "g_float16_config.quantization_chunk_size",
-      "key": "rendering/gaussian_splatting/data/quantization_chunk_size",
-      "publicness": "internal",
-      "test_coverage": "inventory_only"
-    },
-    {
-      "effective_state": "g_float16_config.use_float16_storage",
-      "key": "rendering/gaussian_splatting/data/use_float16_storage",
-      "publicness": "internal",
-      "test_coverage": "inventory_only"
     },
     {
       "effective_state": "none",
