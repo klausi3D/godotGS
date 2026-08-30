@@ -65,6 +65,19 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "tests" / "ci" / "run_module_tests.py"
 
+# Exact interpreter spellings, not a `py` prefix. The wiring evidence below
+# proves a guard script was LAUNCHED BY PYTHON; a prefix test also accepts
+# `pygmentize`, `pylint` and `pyright`, each of which exits 0 having read the
+# file without executing it. A runner accidentally changed to one of those
+# would keep the launched-argv contract green while the unittest file never
+# ran -- a green built on a command that cannot fail the way the test intends
+# (#932 review). The harness itself always launches `sys.executable`; this
+# pattern additionally tolerates the versioned and Windows spellings so a
+# legitimate interpreter change does not read as a bypass.
+_PYTHON_INTERPRETER_NAME = re.compile(
+    r"python(?:3(?:\.\d+)?)?(?:\.exe)?|py(?:\.exe)?"
+)
+
 
 def _load_harness():
     spec = importlib.util.spec_from_file_location("run_module_tests", SCRIPT)
@@ -3457,6 +3470,16 @@ class GuardScriptWiringTests(unittest.TestCase):
     )
     GUARD_SCRIPT_DIR = ROOT / "tests" / "ci"
 
+    @staticmethod
+    def _cli_args() -> argparse.Namespace:
+        return argparse.Namespace(
+            skip_build_metadata_guard=False,
+            skip_render_guards=False,
+            skip_static_guards=False,
+            base_ref=None,
+            godot_binary="godot",
+        )
+
     def _record_wired_runners(self) -> list:
         """What `_run_ci_guard_steps()` invokes, with nothing actually executed.
 
@@ -3464,13 +3487,7 @@ class GuardScriptWiringTests(unittest.TestCase):
         the `_first_guard_failure` short-circuit all run for real.
         """
         recorded: list = []
-        cli_args = argparse.Namespace(
-            skip_build_metadata_guard=False,
-            skip_render_guards=False,
-            skip_static_guards=False,
-            base_ref=None,
-            godot_binary="godot",
-        )
+        cli_args = self._cli_args()
 
         def _record_runner(runner, *_args, **_kwargs):
             recorded.append(runner)
@@ -3523,6 +3540,76 @@ class GuardScriptWiringTests(unittest.TestCase):
                 if isinstance(value, Path):
                     reached.add(value.resolve())
         return reached
+
+    def _scripts_launched_by_optional_guards(self) -> set[Path]:
+        """Python paths present in argv actually passed to `_run_command` (#919).
+
+        The code-object reachability check above remains useful and cheap, but a
+        runner can read/stat its module-level `Path` and never launch it. Driving
+        the real optional-guard table with only the process boundary mocked makes
+        that checked-but-not-run shape observable.
+        """
+        commands: list[list[object]] = []
+
+        def _record_command(argv, *_args, **_kwargs):
+            commands.append(list(argv))
+            return 0, "", ""
+
+        with mock.patch.object(harness, "_run_command", _record_command):
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertIsNone(
+                    harness._run_optional_message_guards(self._cli_args()),
+                    "mocked successful guard processes must let the real table complete",
+                )
+
+        launched: set[Path] = set()
+        for argv in commands:
+            if len(argv) < 2:
+                continue
+            executable, script_argument = argv[0], argv[1]
+            if not isinstance(executable, (str, os.PathLike)) or not isinstance(
+                script_argument, (str, os.PathLike)
+            ):
+                continue
+            if _PYTHON_INTERPRETER_NAME.fullmatch(
+                Path(os.fspath(executable)).name.lower()
+            ) is None:
+                continue
+            script_text = os.fspath(script_argument)
+            if not script_text.lower().endswith(".py"):
+                continue
+            path = Path(script_text)
+            launched.add((path if path.is_absolute() else ROOT / path).resolve())
+        return launched
+
+    def test_only_a_real_interpreter_counts_as_a_python_launch(self) -> None:
+        """A `py` PREFIX is not evidence that a guard script ran.
+
+        `pygmentize <test.py>` reads a file and exits 0 without executing it, as
+        do `pylint` and `pyright`. Under a prefix test each of those classified
+        as a Python launch, so a runner accidentally changed to one would keep
+        the launched-argv contract below green while the unittest file never
+        ran -- the assertion would have lost its power to fail (#932 review).
+
+        Asserted in both directions: the bypasses are rejected, and the real
+        interpreter spellings -- including the one running this test -- are
+        still accepted, so the tightening did not simply break the contract.
+        """
+        for executable in ("pygmentize", "pylint", "pyright", "pytest", "pydoc"):
+            with self.subTest(rejected=executable):
+                self.assertIsNone(
+                    _PYTHON_INTERPRETER_NAME.fullmatch(executable),
+                    f"{executable!r} does not execute a .py file and must not "
+                    "count as wiring evidence",
+                )
+
+        accepted = ("python", "python3", "python3.11", "python.exe", "py", "py.exe")
+        for executable in accepted + (Path(sys.executable).name.lower(),):
+            with self.subTest(accepted=executable):
+                self.assertIsNotNone(
+                    _PYTHON_INTERPRETER_NAME.fullmatch(executable),
+                    f"{executable!r} is a real interpreter and must still count",
+                )
 
     def test_the_recorded_wiring_is_not_vacuous(self) -> None:
         """Non-vacuity: the recorder must observe the real, populated pipeline.
@@ -3625,6 +3712,27 @@ class GuardScriptWiringTests(unittest.TestCase):
             "these runtime contract tests exist but no runner reachable from "
             "_run_ci_guard_steps() executes them, so `--guard-only` does not "
             f"enforce their contracts: {missing}",
+        )
+
+    def test_every_runtime_contract_test_is_present_in_launched_argv(self) -> None:
+        """A Path reference/stat is not proof that its test process launches (#919)."""
+        launched = self._scripts_launched_by_optional_guards()
+        on_disk = sorted((ROOT / "tests" / "runtime").glob("test_*.py"))
+        self.assertGreater(
+            len(on_disk),
+            1,
+            "tests/runtime contract-test discovery found almost nothing; glob drifted",
+        )
+        missing = sorted(
+            path.relative_to(ROOT).as_posix()
+            for path in on_disk
+            if path.resolve() not in launched
+        )
+        self.assertEqual(
+            missing,
+            [],
+            "these runtime contract tests are referenced by reachable guard runners but "
+            f"never appear in argv launched through _run_command: {missing}",
         )
 
     def test_this_files_own_runner_is_wired(self) -> None:

@@ -1435,9 +1435,30 @@ RID TileRendererRegressionTest::create_test_gaussian_buffer(RenderingDevice *p_r
         return RID();
     }
 
+    // Pack into the GPU layout rather than memcpy'ing the CPU struct.
+    //
+    // This used to upload `Vector<Gaussian>` verbatim, which only ever worked
+    // because `sizeof(Gaussian)` and `sizeof(PackedGaussian)` both happened to
+    // be 144 -- and even then only the SIZE matched. The two layouts differ in
+    // content regardless: the CPU struct carries `Vector3 sh_1[3]` (36 bytes)
+    // where the GPU layout carries `sh_encoded[12]` (48), so the shader was
+    // already reading SH from the wrong offsets. Shrinking PackedGaussian to
+    // 128 turned that latent content mismatch into a stride mismatch too.
+    //
+    // Packing through the real `pack_gaussian()` fixes both: the buffer now
+    // holds exactly what the shader's `Gaussian[]` declares, at its stride,
+    // and it cannot silently desynchronise again the next time either struct
+    // changes size.
+    Vector<PackedGaussian> packed;
+    packed.resize(gaussians.size());
+    SHCompressionMetrics metrics;
+    for (int i = 0; i < gaussians.size(); i++) {
+        pack_gaussian(gaussians[i], packed.write[i], metrics);
+    }
+
     Vector<uint8_t> buffer_data;
-    buffer_data.resize(gaussians.size() * sizeof(Gaussian));
-    memcpy(buffer_data.ptrw(), gaussians.ptr(), buffer_data.size());
+    buffer_data.resize(packed.size() * sizeof(PackedGaussian));
+    memcpy(buffer_data.ptrw(), packed.ptr(), buffer_data.size());
 
     RID buffer = p_rd->storage_buffer_create(buffer_data.size(), buffer_data);
     p_rd->set_resource_name(buffer, "GS_Test_Regression_GaussianBuffer");

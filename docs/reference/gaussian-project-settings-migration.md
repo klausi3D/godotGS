@@ -70,6 +70,12 @@ re-introduction.
 | `sorting/onesweep_max_elements` | read/sanitized but the AUTO selector uses only the two documented strategy boundaries | — (incoherent under the 2-boundary AUTO model) |
 | `streaming/async_io_enabled` | registered but never read | — |
 | `streaming/sh_progressive_load` | configured feature not implemented; value never consumed | [#483](https://github.com/klausi3D/godotGS/issues/483) |
+| `data/use_float16_storage` | selected a Float16 GPU layout that no shader could read; `is_float16_storage_enabled()` had zero callers | — (the layout saved nothing: it narrowed fields then padded back to the same 144 bytes) |
+| `data/float16_positions` | fed only the above; never reached any shader | — |
+| `data/float16_rotations` | fed only the above; never reached any shader | — |
+| `data/float16_sh_coefficients` | fed only the above; never reached any shader | — |
+| `data/enable_position_quantization` | Float16-path flag; unrelated to the live per-chunk quantized path, which is governed by `compression/per_chunk_quantization` | — |
+| `data/quantization_chunk_size` | Float16-path value with no consumer; the shipping quantized path sizes chunks from the streaming system, not this key | — |
 
 **`debug/enable_state_guardrails`** was also removed (with its
 `GaussianSplatRenderer` node property and the
