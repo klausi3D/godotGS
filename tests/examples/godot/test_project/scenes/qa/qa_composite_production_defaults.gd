@@ -56,6 +56,20 @@ extends "res://scripts/qa_test_base.gd"
 ## absent once the renderer has had a fair chance in wall-clock terms.
 @export var settle_seconds: float = 1.5
 
+## Upper bound on how long one configuration may take to produce content.
+##
+## settle_seconds alone is a MINIMUM: after it elapses this scene used to record
+## the next eligible frame whatever it contained, so on a loaded runner -- where
+## asset upload and the first sort can exceed 1.5 s -- the recorded frame is
+## still transiently blank and the scene reports a FALSE GPU-001 disappearance
+## on a healthy build.
+##
+## So after the minimum, keep sampling until content appears or this deadline
+## expires. A genuine absence is still caught: nothing ever appears, the deadline
+## expires, and the last (blank) measurement is recorded and fails the variance
+## floor. The difference is that a slow frame no longer looks like a missing one.
+@export var readiness_deadline_seconds: float = 12.0
+
 const DEPTH_TEST_SETTING := "rendering/gaussian_splatting/composite/depth_test"
 
 ## A configuration is PRESENT when the captured frame carries at least this
@@ -101,7 +115,11 @@ var _prev_scaling_scale = null
 
 func _ready():
 	test_name = "Composite Production Defaults"
-	test_duration = 30.0
+	# Must comfortably exceed configs x readiness_deadline_seconds. On a BROKEN
+	# build the absent configuration burns its full deadline, and a run cut short
+	# would report a SKIP instead of the failure -- turning the defect this scene
+	# exists to catch into a non-result.
+	test_duration = 60.0
 	warmup_frames = 10
 	super._ready()
 	splat_node = get_node_or_null("SplatNode")
@@ -194,13 +212,23 @@ func _on_test_frame(_delta: float):
 	var samples := int(content.get("sample_count", 0))
 	var non_background := int(content.get("non_background_samples", 0))
 	var ratio := (float(non_background) / float(samples)) if samples > 0 else 0.0
+	var variance := float(content.get("luma_variance", 0.0))
+
+	# Keep sampling until content appears or the deadline expires. Without the
+	# deadline this would wait forever on a genuine disappearance -- the very
+	# defect the scene exists to catch -- so an expiry RECORDS the blank frame
+	# and lets the variance floor fail it, rather than retrying indefinitely.
+	var elapsed := (Time.get_ticks_msec() / 1000.0) - _config_started_at
+	if variance < MIN_PRESENT_LUMA_VARIANCE and elapsed < readiness_deadline_seconds:
+		return
 
 	_measurements.append({
 		"name": config["name"],
 		"depth_test": config["depth_test"],
 		"scale": config["scale"],
 		"present_ratio": ratio,
-		"luma_variance": float(content.get("luma_variance", 0.0)),
+		"luma_variance": variance,
+		"readiness_seconds": elapsed,
 		"sample_count": samples,
 	})
 
