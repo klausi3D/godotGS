@@ -249,32 +249,29 @@ struct alignas(16) PackedGaussian {
     float opacity;
 
     float scale[3];
-    float area;
+    // Explicit padding, NOT a data lane. std430 gives vec3 a 16-byte alignment,
+    // so the GLSL mirror places `rotation` at offset 32 regardless. This field
+    // holds the C++ layout to the same offset. It previously carried `area`,
+    // which no shader ever read -- the lane was serving as padding in practice.
+    uint32_t _pad_rotation_align;
 
     float rotation[4];
 
     PackedSphericalHarmonics sh;
 
     float normal[3];
-    float stroke_age;
-
-    float brush_axes[2];
-    uint32_t painterly_meta;
     uint32_t sh_metadata;
 };
 
-static_assert(sizeof(PackedGaussian) == 144, "PackedGaussian must match shader layout (144 bytes)");
+static_assert(sizeof(PackedGaussian) == 128, "PackedGaussian must match shader layout (128 bytes)");
 static_assert(offsetof(PackedGaussian, position) == 0, "PackedGaussian.position offset mismatch");
 static_assert(offsetof(PackedGaussian, opacity) == 12, "PackedGaussian.opacity offset mismatch");
 static_assert(offsetof(PackedGaussian, scale) == 16, "PackedGaussian.scale offset mismatch");
-static_assert(offsetof(PackedGaussian, area) == 28, "PackedGaussian.area offset mismatch");
 static_assert(offsetof(PackedGaussian, rotation) == 32, "PackedGaussian.rotation offset mismatch");
 static_assert(offsetof(PackedGaussian, sh) == 48, "PackedGaussian.sh offset mismatch");
 static_assert(offsetof(PackedGaussian, normal) == 112, "PackedGaussian.normal offset mismatch");
-static_assert(offsetof(PackedGaussian, stroke_age) == 124, "PackedGaussian.stroke_age offset mismatch");
-static_assert(offsetof(PackedGaussian, brush_axes) == 128, "PackedGaussian.brush_axes offset mismatch");
-static_assert(offsetof(PackedGaussian, painterly_meta) == 136, "PackedGaussian.painterly_meta offset mismatch");
-static_assert(offsetof(PackedGaussian, sh_metadata) == 140, "PackedGaussian.sh_metadata offset mismatch");
+static_assert(offsetof(PackedGaussian, _pad_rotation_align) == 28, "PackedGaussian rotation-alignment padding moved");
+static_assert(offsetof(PackedGaussian, sh_metadata) == 124, "PackedGaussian.sh_metadata offset mismatch");
 
 /**
  * @struct PackedGaussianQuantized
@@ -297,7 +294,7 @@ static_assert(offsetof(PackedGaussian, sh_metadata) == 140, "PackedGaussian.sh_m
  *   painterly_data: uint32_t - Packed painterly meta (4 bytes)
  *   sh_metadata: uint32_t - SH encoding metadata (4 bytes)
  *
- * Total: 80 bytes (vs 144 bytes for PackedGaussian = 44% reduction)
+ * Total: 80 bytes (vs 128 bytes for PackedGaussian = 37.5% reduction)
  */
 struct alignas(16) PackedGaussianQuantized {
     uint16_t quantized_position[3]; // 6 bytes @0 - Normalized position per-chunk

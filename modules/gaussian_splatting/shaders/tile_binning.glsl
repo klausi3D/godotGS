@@ -56,7 +56,10 @@ struct Gaussian {
     float opacity;
 
     vec3 scale;
-    float area;
+    // Explicit padding, NOT a data lane. std430 aligns vec3 to 16 bytes, so
+    // `rotation` sits at offset 32 either way; this holds the host struct to
+    // the same offset. Previously `area`, which no shader ever read.
+    uint _pad_rotation_align;  // std430 keeps rotation at offset 32; was `area` (never read)
 
     vec4 rotation; // Quaternion
 
@@ -64,10 +67,7 @@ struct Gaussian {
     float sh_encoded[12];
 
     vec3 normal;
-    float stroke_age;
 
-    vec2 brush_axes;
-    uint painterly_meta; // lower 16 bits: palette id
     uint sh_metadata;     // packed SH layout metadata
 };
 
@@ -750,14 +750,12 @@ void main() {
     // (see normal_mode handling), which produced flat/incorrect lighting on
     // quantized assets — the "quantized = unlit" symptom (#510).
     g.normal = LOAD_NORMAL_QUANTIZED(src);
-    g.stroke_age = extract_stroke_age(src.normal_z_stroke);
-    // brush_axes / painterly_meta have no slot in PackedGaussianQuantized (80
-    // bytes carry only normal + stroke_age), so they cannot be recovered here and
-    // stay zeroed. The tile pipeline does not consume them; the painterly path
-    // (gaussian_splat.*) seeds its own stylization from splat position.
-    g.brush_axes = vec2(0.0);
-    g.painterly_meta = 0u;
-    g.area = 0.0;
+    // stroke_age / brush_axes / painterly_meta / area are no longer carried by
+    // Gaussian: nothing in any shader ever read them, and three of the four were
+    // only ever assigned zero here. The 80-byte payload still encodes stroke_age
+    // alongside the normal (normal_z_stroke) -- it simply has no consumer, so it
+    // is left undecoded rather than written into a field nobody reads. The
+    // painterly path seeds its stylization from splat position, as before.
 #else
     Gaussian g = atlas_gaussian_buffer.gaussians[gaussian_idx];
     vec3 local_position = g.position;

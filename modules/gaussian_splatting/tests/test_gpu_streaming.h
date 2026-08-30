@@ -802,7 +802,7 @@ TEST_CASE("[GaussianSplatting][Streaming] A stride flip drops an ASYNC-packed pe
 	// per_chunk_quantization_dc_compatible to false, so the effective stride becomes 144 B. This is
 	// precisely the reachable window: quantization enabled + a mixed-DC asset present ->
 	// is_per_chunk_quantization_enabled() == false -> _can_use_async_pack_path() permits async pack
-	// jobs, which pack the 144 B PackedGaussian layout.
+	// jobs, which pack the 128 B PackedGaussian layout.
 	const uint32_t asset_mixed = 7661;
 	system.register_asset(asset_mixed, _create_mixed_dc_streaming_test_gaussian_data(64));
 	CHECK(system._test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussian)));
@@ -821,7 +821,7 @@ TEST_CASE("[GaussianSplatting][Streaming] A stride flip drops an ASYNC-packed pe
 	}
 	auto &chunk = asset_chunks[0];
 
-	// The stride the async worker would have PACKED this chunk at (144 B PackedGaussian).
+	// The stride the async worker would have PACKED this chunk at (128 B PackedGaussian).
 	const uint64_t pack_time_stride = system._test_atlas_gaussian_stride_bytes();
 	CHECK(pack_time_stride == uint64_t(sizeof(PackedGaussian)));
 	const uint64_t upload_bytes = uint64_t(chunk.count) * pack_time_stride;
