@@ -41,6 +41,21 @@ extends "res://scripts/qa_test_base.gd"
 @export var settle_frames: int = 24
 @export var capture_stride: int = 3
 
+## Wall-clock floor per configuration, enforced ALONGSIDE settle_frames.
+##
+## A frame count alone is not a settle condition. On a fast runner 24 frames can
+## elapse in a fraction of a second -- before the freshly assigned asset has
+## finished uploading and the sorter has produced a presentable frame -- and the
+## scene would then measure an unsettled frame and record it as the result. For
+## `depth_true_scale_075` specifically that reads as variance ~0, i.e. a FALSE
+## GPU-001 regression, which is the most damaging way this scene could be wrong.
+##
+## Deliberately a FLOOR and not a wait-for-content loop: waiting until content
+## appears would mask a genuine disappearance, which is the defect this scene
+## exists to catch. Both conditions must be met, so a real ABSENT still reads as
+## absent once the renderer has had a fair chance in wall-clock terms.
+@export var settle_seconds: float = 1.5
+
 const DEPTH_TEST_SETTING := "rendering/gaussian_splatting/composite/depth_test"
 
 ## A configuration is PRESENT when the captured frame carries at least this
@@ -75,6 +90,7 @@ var _configs: Array[Dictionary] = [
 ]
 var _config_index: int = 0
 var _frames_in_config: int = 0
+var _config_started_at: float = 0.0
 var _measurements: Array[Dictionary] = []
 var _applied: bool = false
 
@@ -156,13 +172,18 @@ func _on_test_frame(_delta: float):
 	if not _applied:
 		_apply_current_config()
 		_frames_in_config = 0
+		_config_started_at = Time.get_ticks_msec() / 1000.0
 		return
 
 	_frames_in_config += 1
 	# The composite path re-reads the setting per frame
 	# (output_compositor.cpp:1663), but the swap still has to travel through
 	# viewport resize and the sorter before the presented image settles.
+	# Frames AND wall-clock: see settle_seconds for why a frame count alone is
+	# not a settle condition on a fast runner.
 	if _frames_in_config < settle_frames:
+		return
+	if (Time.get_ticks_msec() / 1000.0) - _config_started_at < settle_seconds:
 		return
 	if (_frames_in_config - settle_frames) % capture_stride != 0:
 		return
