@@ -184,8 +184,16 @@ struct Gaussian {
     float _padding2[2] = { 0.0f, 0.0f };
 };
 
-static_assert(sizeof(Gaussian) % 16 == 0, "Gaussian struct must remain 16-byte aligned for GPU uploads");
-static_assert(sizeof(Gaussian) == 144, "Gaussian struct must be exactly 144 bytes for GPU compatibility");
+// NOTE: 144 is this AUTHORING struct's size. It is deliberately no longer the
+// GPU layout size -- `PackedGaussian` is 128 bytes and is the only thing a
+// shader reads. The two were equal by coincidence, never by contract: even
+// while both were 144 the field layouts differed (`Vector3 sh_1[3]` here, 36
+// bytes, against `sh_encoded[12]` there, 48), so this struct was never safe to
+// upload raw. Go through `pack_gaussian()`. Keeping the size pinned is still
+// worthwhile -- it keeps the 16-byte alignment and catches accidental growth --
+// but do not read it as a GPU-compatibility guarantee.
+static_assert(sizeof(Gaussian) % 16 == 0, "Gaussian struct must remain 16-byte aligned");
+static_assert(sizeof(Gaussian) == 144, "Gaussian authoring struct size changed; it is NOT the GPU layout (see PackedGaussian)");
 static_assert(offsetof(Gaussian, brush_axes) % 8 == 0, "Gaussian::brush_axes must stay 8-byte aligned for std430 layout");
 
 /**

@@ -965,7 +965,7 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
         }
 
         // #766 follow-up (pre-write, fail-closed): the async pack path always emits the
-        // 144 B PackedGaussian layout, and upload_job_slices()/coalescing size and OFFSET
+        // 128 B PackedGaussian layout, and upload_job_slices()/coalescing size and OFFSET
         // the write by sizeof(PackedGaussian) (slot_capacity_bytes / slot_offset below) --
         // unlike the SYNC path, which offsets by the runtime _atlas_gaussian_stride_bytes().
         // If the effective atlas stride flipped 144->80 while this job was in flight (a
@@ -1227,7 +1227,7 @@ StreamingUploadPipeline::PendingChunkUpload *StreamingUploadPipeline::build_pend
     upload->buffer_slot = p_job.buffer_slot;
     upload->asset_generation = p_job.asset_generation;
     // #766: stamp the true pack-time stride. This function is the sole producer of async upload
-    // jobs and always packs the 144 B PackedGaussian layout (pack_gaussians_range writes
+    // jobs and always packs the 128 B PackedGaussian layout (pack_gaussians_range writes
     // Vector<PackedGaussian>; upload_job_slices()/coalescing size and offset by sizeof(PackedGaussian)).
     // Capturing sizeof(PackedGaussian) as a compile-time constant here -- rather than reading the
     // effective stride at stage time in finalize_upload_job -- pins the value to the layout the
