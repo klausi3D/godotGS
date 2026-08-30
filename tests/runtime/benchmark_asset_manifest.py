@@ -50,6 +50,10 @@ class LaneAssetPolicy:
 CHUNKED_LADDER_REF_PREFIX = "chunked_ladder:"
 RUNNABLE_CHUNKED_STAGING_STATUS = "materialized"
 ALLOWED_CHUNKED_WORLD_CONTRACT_LANES = frozenset({"open_world_corridor_proof"})
+PUBLISHED_BASELINE_EVIDENCE_ROLE = "published_baseline"
+# Classifications that describe a smoke-sized workload. A lane classified this
+# way may not also be the published baseline (#790).
+LIGHTWEIGHT_SMOKE_CLASSIFICATIONS = frozenset({"lightweight_smoke", "generated_dummy"})
 
 
 def resolve_benchmark_asset_manifest_path(
@@ -324,6 +328,60 @@ def validate_manifest_lane_policies(
         if policy.asset_classification == "real_chunked" and _is_lightweight_smoke_asset(policy.asset_path):
             failures.append(
                 f"lane={lane_id}: classified as real_chunked but resolves to lightweight smoke asset {policy.asset_path}"
+            )
+    failures.extend(validate_published_baseline_policy(manifest))
+    return failures
+
+
+def validate_published_baseline_policy(manifest: BenchmarkAssetManifest) -> list[str]:
+    """Check the published-baseline lane actually describes a shippable workload (#790).
+
+    The published headline figure is, by construction, whatever the lane
+    carrying ``evidence_role: published_baseline`` measured. That makes the
+    role a claim about the world, and there are two ways it becomes a lie:
+
+    * the role sits on a lane whose workload is the lightweight canonical
+      smoke fixture, so the published number describes a scene nobody ships
+      (this is exactly the state #790 documents: ``static_baseline``, 10k
+      splats, published at ~455 FPS while the resident path managed ~12);
+    * more than one lane claims the role, so "the published number" is
+      ambiguous and whichever lane is quoted becomes a matter of convenience.
+
+    This is manifest-wide rather than per-selected-lane on purpose: the defect
+    is a property of the manifest, and a run that happens not to select the
+    offending lane must not launder it. Zero published-baseline lanes is
+    permitted here because satellite manifests (the Steam Deck project) carry
+    only handheld smoke lanes and publish nothing; the canonical manifests are
+    pinned to exactly one in ``tests/ci/test_benchmark_fixture_contract.py``.
+    """
+    failures: list[str] = []
+    baseline_lane_ids = sorted(
+        lane_id
+        for lane_id, metadata in manifest.lane_metadata.items()
+        if isinstance(metadata, dict)
+        and str(metadata.get("evidence_role", "")).strip() == PUBLISHED_BASELINE_EVIDENCE_ROLE
+    )
+    if len(baseline_lane_ids) > 1:
+        failures.append(
+            "manifest declares more than one "
+            f"evidence_role={PUBLISHED_BASELINE_EVIDENCE_ROLE} lane "
+            f"({', '.join(baseline_lane_ids)}); exactly one lane may define the published figure"
+        )
+    for lane_id in baseline_lane_ids:
+        metadata = manifest.lane_metadata.get(lane_id, {})
+        classification = str(metadata.get("asset_classification", "")).strip()
+        if classification in LIGHTWEIGHT_SMOKE_CLASSIFICATIONS:
+            failures.append(
+                f"lane={lane_id}: evidence_role={PUBLISHED_BASELINE_EVIDENCE_ROLE} but "
+                f"asset_classification={classification}; the published baseline may not be a "
+                "lightweight smoke lane"
+            )
+        policy = resolve_lane_asset_policy(manifest, lane_id=lane_id, scene_path="")
+        if _is_lightweight_smoke_asset(policy.asset_path):
+            failures.append(
+                f"lane={lane_id}: evidence_role={PUBLISHED_BASELINE_EVIDENCE_ROLE} but resolves to "
+                f"lightweight smoke asset {policy.asset_path}; the published figure would describe "
+                "the smoke fixture, not a shippable workload"
             )
     return failures
 

@@ -43,11 +43,21 @@ per-frame render path.
 
 | Lane | Score | Avg FPS | P99 Frame (ms) | GPU Time (ms) |
 | --- | ---: | ---: | ---: | ---: |
+| `dense_resident_2m` **(published baseline)** | 24.0 | **12.3** | 87.47 | 51.93 |
 | `static_baseline` | 97.2 | 455.1 | 3.05 | 1.69 |
 | `city_flyover` | 99.3 | 128.7 | 8.33 | 6.83 |
 | `lighting_stress` | 90.4 | 72.6 | 15.15 | 13.90 |
 | `instance_storm` | 49.3 | 31.5 | 31.82 | 30.09 |
-| `dense_resident_2m` | 24.0 | 12.3 | 87.47 | 51.93 |
+
+The headline figure is `dense_resident_2m`'s ~12.3 FPS. `static_baseline`'s 455.1 FPS is a
+low-noise regression reference on a single 10,000-splat instance, not a capability claim; it held
+`evidence_role: published_baseline` until [#790](https://github.com/klausi3D/godotGS/issues/790)
+and no longer does.
+
+This snapshot was captured before that change, when `dense_resident_2m` had `weight: 0.0` and was
+a member of no default profile — so the committed scores exclude it from the aggregate. The lane
+is now weighted in the `performance` profile; the next capture will report a lower aggregate for
+that reason. No measured value above was re-run or altered.
 
 That snapshot is what backs the public performance dashboard. Full hardware context, per-pass GPU
 breakdown, variance, and caveats live on the [Performance Dashboard](../performance/index.md).
@@ -263,7 +273,8 @@ These are the user-relevant lanes already encoded in the suite and available for
 
 | Lane | Purpose | Asset class | Evidence role | Current publication status |
 | --- | --- | --- | --- | --- |
-| `static_baseline` | Low-noise raster baseline | `lightweight_smoke` | Published baseline | Published |
+| `dense_resident_2m` | Dense resident path, ~4.9M visible splats (196 x `synthetic_spiral`) | `deterministic_synthetic` | `published_baseline` | Published |
+| `static_baseline` | Low-noise regression reference (10k splats) | `lightweight_smoke` | `low_noise_smoke_reference` | Published |
 | `open_world_corridor_proof` | Dedicated world-consuming 20M corridor proof | `chunked_open_world_candidate` | `proof_corridor_return_bootstrap` | Suite-only |
 | `streaming_corridor` | Corridor churn smoke support | `lightweight_smoke` | `proof_support_corridor_churn_smoke` | Suite-only |
 | `city_flyover` | Boundary-crossing smoke support | `lightweight_smoke` | `proof_support_boundary_crossing_smoke` | Suite-only |

@@ -1388,6 +1388,296 @@ class BenchmarkEvidenceWorkflowWiringTests(unittest.TestCase):
         self.assertTrue(any("continue-on-error" in line for line in swallowing))
         self.assertFalse(any("continue-on-error" in line for line in benign))
 
+CANONICAL_MANIFEST_PATHS = (
+    ROOT / "tests" / "fixtures" / "benchmark_asset_manifest.json",
+    ROOT
+    / "tests"
+    / "examples"
+    / "godot"
+    / "test_project"
+    / "tests"
+    / "fixtures"
+    / "benchmark_asset_manifest.json",
+)
+PUBLISHED_BASELINE_LANE_ID = "dense_resident_2m"
+
+
+class PublishedBaselineContractTests(unittest.TestCase):
+    """#790: the published figure must describe a workload the project ships.
+
+    The defect this pins: `evidence_role: published_baseline` sat on
+    `static_baseline`, a single 10,000-splat instance of the lightweight
+    canonical smoke fixture, published at ~455 FPS. The lane that actually
+    exercises the resident sort/raster path, `dense_resident_2m`, measured
+    ~12.3 FPS -- and carried `weight: 0.0` in every profile, so it could not
+    influence the aggregate even on the runs where it executed, and was a
+    member of no default profile, so it did not execute on a default run at
+    all. The published headline therefore described a scene nobody ships,
+    and nothing in the suite could notice.
+
+    These cases pin the parts of the repair that can silently rot:
+
+    * the role moved, and did not merely get added alongside the old one;
+    * the lane carrying the role is not a smoke lane by classification or by
+      resolved asset;
+    * the lane is enrolled in the profile that produces published numbers and
+      carries a non-zero weight there -- a role with no enrollment publishes
+      nothing, which is the same defect wearing the opposite hat;
+    * the committed manifests still match their generator, because the
+      manifests are generated artifacts and the guard lane regenerates them.
+
+    The list of published-baseline lanes is deliberately explicit rather than
+    derived: which lane defines the published figure is a *decision*, and
+    deriving it would let the corpus redefine what is published.
+    """
+
+    def _load(self, path: Path):
+        return _manifest_mod.load_benchmark_asset_manifest(path)
+
+    def _baseline_lane_ids(self, manifest) -> list[str]:
+        return sorted(
+            lane_id
+            for lane_id, metadata in manifest.lane_metadata.items()
+            if isinstance(metadata, dict)
+            and str(metadata.get("evidence_role", "")).strip()
+            == _manifest_mod.PUBLISHED_BASELINE_EVIDENCE_ROLE
+        )
+
+    def test_canonical_manifests_declare_exactly_one_published_baseline(self):
+        checked = 0
+        for path in CANONICAL_MANIFEST_PATHS:
+            self.assertTrue(path.is_file(), f"canonical manifest missing: {path}")
+            manifest = self._load(path)
+            self.assertEqual(
+                self._baseline_lane_ids(manifest),
+                [PUBLISHED_BASELINE_LANE_ID],
+                f"{path.name} must declare exactly one published_baseline lane, and it "
+                f"must be {PUBLISHED_BASELINE_LANE_ID} (#790)",
+            )
+            checked += 1
+        self.assertEqual(
+            checked, len(CANONICAL_MANIFEST_PATHS), "not every canonical manifest was checked"
+        )
+
+    def test_static_baseline_is_no_longer_the_published_baseline(self):
+        """The demotion, pinned directly.
+
+        Asserting only "dense_resident_2m is published_baseline" would still
+        pass if static_baseline kept the role too and the multi-role check
+        were ever relaxed.
+        """
+        for path in CANONICAL_MANIFEST_PATHS:
+            manifest = self._load(path)
+            metadata = manifest.lane_metadata.get("static_baseline")
+            self.assertIsNotNone(metadata, f"{path.name}: static_baseline lane was deleted")
+            self.assertNotEqual(
+                str(metadata.get("evidence_role", "")).strip(),
+                _manifest_mod.PUBLISHED_BASELINE_EVIDENCE_ROLE,
+                f"{path.name}: static_baseline is a 10k-splat smoke lane and must not "
+                "publish the headline figure (#790)",
+            )
+            self.assertTrue(
+                str(metadata.get("evidence_role", "")).strip(),
+                f"{path.name}: static_baseline must keep an explicit evidence_role",
+            )
+
+    def test_published_baseline_is_not_a_lightweight_smoke_lane(self):
+        for path in CANONICAL_MANIFEST_PATHS:
+            manifest = self._load(path)
+            metadata = manifest.lane_metadata[PUBLISHED_BASELINE_LANE_ID]
+            self.assertNotIn(
+                str(metadata.get("asset_classification", "")).strip(),
+                _manifest_mod.LIGHTWEIGHT_SMOKE_CLASSIFICATIONS,
+                f"{path.name}: the published baseline may not be classified as a smoke lane",
+            )
+            policy = _manifest_mod.resolve_lane_asset_policy(
+                manifest, lane_id=PUBLISHED_BASELINE_LANE_ID, scene_path=""
+            )
+            self.assertFalse(
+                _manifest_mod._is_lightweight_smoke_asset(policy.asset_path),
+                f"{path.name}: the published baseline resolves to the smoke fixture "
+                f"{policy.asset_path}",
+            )
+
+    def test_committed_manifests_satisfy_the_published_baseline_policy(self):
+        for path in CANONICAL_MANIFEST_PATHS:
+            manifest = self._load(path)
+            self.assertEqual(
+                _manifest_mod.validate_published_baseline_policy(manifest),
+                [],
+                f"{path.name} violates the published-baseline policy",
+            )
+
+    def test_published_baseline_lane_is_enrolled_in_the_performance_profile(self):
+        """A role with no enrollment publishes nothing.
+
+        Membership and weight are read out of run_benchmark.py rather than
+        restated here, so this fails if the lane is dropped from the profile
+        or re-zeroed.
+        """
+        performance_lanes = _run_benchmark.PROFILE_DEFAULT_LANE_IDS["performance"]
+        self.assertIn(
+            PUBLISHED_BASELINE_LANE_ID,
+            performance_lanes,
+            "the published baseline must run in the profile that produces published numbers",
+        )
+        lane = next(
+            l for l in _run_benchmark.LANES if l.lane_id == PUBLISHED_BASELINE_LANE_ID
+        )
+        self.assertIn(
+            "performance",
+            lane.durations,
+            "the published baseline must define a performance-profile duration",
+        )
+        self.assertGreater(
+            lane.weights.get("performance", 0.0),
+            0.0,
+            "a zero-weight published baseline cannot influence the aggregate score (#790)",
+        )
+
+    def test_committed_manifests_match_their_generator(self):
+        """The manifests are generated; a hand-edit is reverted by the guard lane.
+
+        `run_module_tests.py` runs `prepare_synthetic_assets.py` before the
+        guards, which rewrites both canonical manifests from `LANE_METADATA`.
+        Without this check, a taxonomy change made only in the JSON looks
+        committed and is erased on the next guard run.
+        """
+        expected = json.dumps(
+            _prepare._benchmark_asset_manifest(), indent=2, sort_keys=True
+        ) + "\n"
+        for path in CANONICAL_MANIFEST_PATHS:
+            actual = path.read_text(encoding="utf-8")
+            self.assertEqual(
+                json.loads(actual),
+                json.loads(expected),
+                f"{path.name} has drifted from prepare_synthetic_assets.py; regenerate it "
+                "instead of hand-editing the JSON",
+            )
+
+    def _manifest_from(self, tmp: str, lane_metadata: dict, lane_defaults: dict):
+        path = Path(tmp) / "manifest.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "default_asset": "res://tests/fixtures/test_splats.ply",
+                    "lane_defaults": lane_defaults,
+                    "scene_defaults": {},
+                    "lane_metadata": lane_metadata,
+                }
+            ),
+            encoding="utf-8",
+        )
+        return self._load(path)
+
+    def test_policy_rejects_a_lightweight_smoke_published_baseline(self):
+        """Discrimination proof: the exact pre-#790 shape must fail."""
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = self._manifest_from(
+                tmp,
+                {
+                    "smoke_lane": {
+                        "asset_classification": "lightweight_smoke",
+                        "evidence_role": "published_baseline",
+                    }
+                },
+                {"smoke_lane": TEST_SPLATS_ASSET},
+            )
+            failures = _manifest_mod.validate_published_baseline_policy(manifest)
+            self.assertTrue(failures, "a smoke-asset published baseline must be rejected")
+            self.assertTrue(
+                any("asset_classification=lightweight_smoke" in f for f in failures),
+                f"the classification violation must be named: {failures}",
+            )
+            self.assertTrue(
+                any("lightweight smoke asset" in f for f in failures),
+                f"the resolved-asset violation must be named: {failures}",
+            )
+
+    def test_policy_rejects_a_smoke_asset_behind_an_honest_looking_classification(self):
+        """Relabelling the classification must not launder the workload."""
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = self._manifest_from(
+                tmp,
+                {
+                    "mislabelled": {
+                        "asset_classification": "deterministic_synthetic",
+                        "evidence_role": "published_baseline",
+                    }
+                },
+                {"mislabelled": TEST_SPLATS_ASSET},
+            )
+            failures = _manifest_mod.validate_published_baseline_policy(manifest)
+            self.assertTrue(
+                any("lightweight smoke asset" in f for f in failures),
+                f"a smoke asset must be caught by path even when relabelled: {failures}",
+            )
+
+    def test_policy_rejects_more_than_one_published_baseline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = self._manifest_from(
+                tmp,
+                {
+                    "lane_a": {
+                        "asset_classification": "deterministic_synthetic",
+                        "evidence_role": "published_baseline",
+                    },
+                    "lane_b": {
+                        "asset_classification": "deterministic_synthetic",
+                        "evidence_role": "published_baseline",
+                    },
+                },
+                {
+                    "lane_a": "res://tests/fixtures/synthetic_spiral.ply",
+                    "lane_b": "res://tests/fixtures/synthetic_sphere.ply",
+                },
+            )
+            failures = _manifest_mod.validate_published_baseline_policy(manifest)
+            self.assertTrue(
+                any("more than one" in f for f in failures),
+                f"two published baselines must be rejected: {failures}",
+            )
+
+    def test_policy_still_discriminates_and_does_not_reject_everything(self):
+        """A guard that rejects every input is the same bug wearing a hat.
+
+        Satellite manifests publish nothing (the Steam Deck project carries
+        only handheld smoke lanes), and an honest published baseline on a
+        non-smoke asset must pass.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            no_baseline = self._manifest_from(
+                tmp,
+                {
+                    "handheld": {
+                        "asset_classification": "deterministic_synthetic",
+                        "evidence_role": "handheld_smoke",
+                    }
+                },
+                {"handheld": "res://tests/fixtures/synthetic_sphere.ply"},
+            )
+            self.assertEqual(
+                _manifest_mod.validate_published_baseline_policy(no_baseline),
+                [],
+                "a manifest that publishes nothing must pass",
+            )
+        with tempfile.TemporaryDirectory() as tmp:
+            honest = self._manifest_from(
+                tmp,
+                {
+                    "dense": {
+                        "asset_classification": "deterministic_synthetic",
+                        "evidence_role": "published_baseline",
+                    }
+                },
+                {"dense": "res://tests/fixtures/synthetic_spiral.ply"},
+            )
+            self.assertEqual(
+                _manifest_mod.validate_published_baseline_policy(honest),
+                [],
+                "an honest published baseline must pass",
+            )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
