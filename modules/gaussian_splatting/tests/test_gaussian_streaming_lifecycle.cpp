@@ -897,7 +897,7 @@ TEST_CASE("[GaussianSplatting][Streaming] Initialize without device emits at mos
 }
 
 TEST_CASE("[Streaming Pipeline] async upload dropped fail-closed on a pack-time/effective stride flip before writing (#766)") {
-    // #766 follow-up: the async pack path always emits the 144 B PackedGaussian layout, and
+    // #766 follow-up: the async pack path always emits the 128 B PackedGaussian layout, and
     // process_upload_queue() sizes/offsets the write by sizeof(PackedGaussian). If the effective
     // atlas stride flips 144->80 (a mixed-DC (un)registration toggling per-chunk quantization
     // DC-compatibility) while a 144 B job is in flight, writing it would splice the 144 B payload

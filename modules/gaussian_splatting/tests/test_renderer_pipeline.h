@@ -58,7 +58,7 @@ static_assert(sizeof(SplatRefGPU) == 8, "SplatRefGPU size contract changed");
 static_assert(sizeof(PackedGaussian) == 128, "PackedGaussian size contract changed");
 static_assert(offsetof(PackedGaussian, rotation) == 32, "PackedGaussian.rotation offset contract changed");
 static_assert(offsetof(PackedGaussian, sh) == 48, "PackedGaussian.sh offset contract changed");
-static_assert(offsetof(PackedGaussian, sh_metadata) == 140, "PackedGaussian.sh_metadata offset contract changed");
+static_assert(offsetof(PackedGaussian, sh_metadata) == 124, "PackedGaussian.sh_metadata offset contract changed");
 static_assert(sizeof(PackedGaussianF16) == 144, "PackedGaussianF16 size contract changed");
 static_assert(sizeof(PackedGaussianQuantized) == 80, "PackedGaussianQuantized size contract changed");
 static_assert(sizeof(TileRenderParamsGPU) == 944, "TileRenderParamsGPU size contract changed");
@@ -754,7 +754,7 @@ TEST_CASE("[GaussianSplatting] GPU layout contract invariants remain stable") {
 
     CHECK(offsetof(PackedGaussian, rotation) == size_t(32));
     CHECK(offsetof(PackedGaussian, sh) == size_t(48));
-    CHECK(offsetof(PackedGaussian, sh_metadata) == size_t(140));
+    CHECK(offsetof(PackedGaussian, sh_metadata) == size_t(124));
 
     CHECK(offsetof(TileRenderParamsGPU, viewport_size) == size_t(256));
     CHECK(offsetof(TileRenderParamsGPU, camera_position) == size_t(320));

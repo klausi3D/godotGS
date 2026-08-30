@@ -368,7 +368,7 @@ static_assert(offsetof(PackedGaussian, sh_metadata) == 124, "PackedGaussian.sh_m
  *   painterly_data: uint32_t - Packed painterly meta (4 bytes)
  *   sh_metadata: uint32_t - SH encoding metadata (4 bytes)
  *
- * Total: 80 bytes (vs 144 bytes for PackedGaussian = 44% reduction)
+ * Total: 80 bytes (vs 128 bytes for PackedGaussian = 37.5% reduction)
  */
 struct alignas(16) PackedGaussianQuantized {
     uint16_t quantized_position[3]; // 6 bytes @0 - Normalized position per-chunk

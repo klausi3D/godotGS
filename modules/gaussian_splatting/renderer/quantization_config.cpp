@@ -1,4 +1,5 @@
 #include "quantization_config.h"
+#include "gaussian_gpu_layout.h"
 #include "core/config/project_settings.h"
 #include "core/os/os.h"
 #include "../core/gs_project_settings.h"
@@ -148,9 +149,11 @@ float QuantizationConfig::get_total_compression_ratio() const {
         return 1.0f;
     }
 
-    // PackedGaussian is 144 bytes total
+    // Derived from the layout, never restated: this used to hard-code 144 and
+    // would have silently reported a wrong ratio the moment the struct changed
+    // size -- which it just did (144 -> 128).
     // Position: 12 bytes, Scale: 12 bytes
-    const float total_bytes = 144.0f;
+    const float total_bytes = float(sizeof(PackedGaussian));
     const float position_bytes = 12.0f;
     const float scale_bytes = 12.0f;
 
