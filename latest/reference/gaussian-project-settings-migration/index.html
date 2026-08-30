@@ -1898,6 +1898,36 @@ re-introduction.</p>
 <td>configured feature not implemented; value never consumed</td>
 <td><a href="https://github.com/klausi3D/godotGS/issues/483">#483</a></td>
 </tr>
+<tr>
+<td><code>data/use_float16_storage</code></td>
+<td>selected a Float16 GPU layout that no shader could read; <code>is_float16_storage_enabled()</code> had zero callers</td>
+<td>— (the layout saved nothing: it narrowed fields then padded back to the same 144 bytes)</td>
+</tr>
+<tr>
+<td><code>data/float16_positions</code></td>
+<td>fed only the above; never reached any shader</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>data/float16_rotations</code></td>
+<td>fed only the above; never reached any shader</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>data/float16_sh_coefficients</code></td>
+<td>fed only the above; never reached any shader</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>data/enable_position_quantization</code></td>
+<td>Float16-path flag; unrelated to the live per-chunk quantized path, which is governed by <code>compression/per_chunk_quantization</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>data/quantization_chunk_size</code></td>
+<td>Float16-path value with no consumer; the shipping quantized path sizes chunks from the streaming system, not this key</td>
+<td>—</td>
+</tr>
 </tbody>
 </table>
 <p><strong><code>debug/enable_state_guardrails</code></strong> was also removed (with its
@@ -2024,7 +2054,7 @@ Earlier slices wired or truthfully documented the remaining public keys.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 30, 2026 10:23:31 UTC">August 30, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 30, 2026 14:21:02 UTC">August 30, 2026</span>
   </span>
 
     
