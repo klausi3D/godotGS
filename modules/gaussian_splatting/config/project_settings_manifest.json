@@ -59,15 +59,6 @@
       "visibility": "editor_visible"
     },
     {
-      "owner": "Float16Config",
-      "prefix": "rendering/gaussian_splatting/data/",
-      "publicness": "internal",
-      "reload_semantics": "startup",
-      "scope": "internal",
-      "test_coverage": "documented_gap",
-      "visibility": "runtime_only"
-    },
-    {
       "owner": "Debug/diagnostic helpers",
       "prefix": "rendering/gaussian_splatting/debug/",
       "publicness": "debug_only",
