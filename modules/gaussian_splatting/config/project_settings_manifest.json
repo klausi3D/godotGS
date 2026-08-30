@@ -328,42 +328,6 @@
       "test_coverage": "covered"
     },
     {
-      "effective_state": "g_float16_config.enable_position_quantization",
-      "key": "rendering/gaussian_splatting/data/enable_position_quantization",
-      "publicness": "internal",
-      "test_coverage": "inventory_only"
-    },
-    {
-      "effective_state": "g_float16_config.float16_positions",
-      "key": "rendering/gaussian_splatting/data/float16_positions",
-      "publicness": "internal",
-      "test_coverage": "inventory_only"
-    },
-    {
-      "effective_state": "g_float16_config.float16_rotations",
-      "key": "rendering/gaussian_splatting/data/float16_rotations",
-      "publicness": "internal",
-      "test_coverage": "inventory_only"
-    },
-    {
-      "effective_state": "g_float16_config.float16_sh_coefficients",
-      "key": "rendering/gaussian_splatting/data/float16_sh_coefficients",
-      "publicness": "internal",
-      "test_coverage": "inventory_only"
-    },
-    {
-      "effective_state": "g_float16_config.quantization_chunk_size",
-      "key": "rendering/gaussian_splatting/data/quantization_chunk_size",
-      "publicness": "internal",
-      "test_coverage": "inventory_only"
-    },
-    {
-      "effective_state": "g_float16_config.use_float16_storage",
-      "key": "rendering/gaussian_splatting/data/use_float16_storage",
-      "publicness": "internal",
-      "test_coverage": "inventory_only"
-    },
-    {
       "effective_state": "none",
       "key": "rendering/gaussian_splatting/debug/cull_guardrail_drop_ratio",
       "publicness": "debug_only",
