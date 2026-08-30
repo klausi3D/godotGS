@@ -1782,7 +1782,7 @@ struct Gaussian {
     float opacity;
 
     vec3 scale;
-    float area;
+    uint _pad_rotation_align;  // std430 keeps rotation at offset 32; was `area` (never read)
 
     vec4 rotation;
 
@@ -1790,10 +1790,7 @@ struct Gaussian {
     float sh_encoded[12];
 
     vec3 normal;
-    float stroke_age;
 
-    vec2 brush_axes;
-    uint painterly_meta;
     uint sh_metadata;
 };
 

@@ -85,7 +85,6 @@ void pack_gaussian(const Gaussian &src,
     dst.scale[0] = src.scale.x;
     dst.scale[1] = src.scale.y;
     dst.scale[2] = src.scale.z;
-    dst.area = src.area;
 
     dst.rotation[0] = src.rotation.x;
     dst.rotation[1] = src.rotation.y;
@@ -126,11 +125,7 @@ void pack_gaussian(const Gaussian &src,
     dst.normal[0] = src.normal.x;
     dst.normal[1] = src.normal.y;
     dst.normal[2] = src.normal.z;
-    dst.stroke_age = src.stroke_age;
 
-    dst.brush_axes[0] = src.brush_axes.x;
-    dst.brush_axes[1] = src.brush_axes.y;
-    dst.painterly_meta = src.painterly_meta;
 
     // DEBUG: Log first gaussian packing.
     static bool logged_once = false;

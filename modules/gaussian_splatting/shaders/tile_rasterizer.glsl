@@ -37,7 +37,10 @@ struct Gaussian {
     float opacity;
 
     vec3 scale;
-    float area;
+    // Explicit padding, NOT a data lane. std430 aligns vec3 to 16 bytes, so
+    // `rotation` sits at offset 32 either way; this holds the host struct to
+    // the same offset. Previously `area`, which no shader ever read.
+    uint _pad_rotation_align;  // std430 keeps rotation at offset 32; was `area` (never read)
 
     vec4 rotation;
 
@@ -45,10 +48,7 @@ struct Gaussian {
     float sh_encoded[12];
 
     vec3 normal;
-    float stroke_age;
 
-    vec2 brush_axes;
-    uint painterly_meta;
     uint sh_metadata;
 };
 

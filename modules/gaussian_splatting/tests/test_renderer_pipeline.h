@@ -55,7 +55,7 @@ static_assert(offsetof(AssetMetaGPU, lod_ranges) == 48, "AssetMetaGPU.lod_ranges
 static_assert(sizeof(ChunkMetaGPU) == 64, "ChunkMetaGPU size contract changed");
 static_assert(offsetof(ChunkMetaGPU, sh_limit) == 44, "ChunkMetaGPU.sh_limit offset contract changed");
 static_assert(sizeof(SplatRefGPU) == 8, "SplatRefGPU size contract changed");
-static_assert(sizeof(PackedGaussian) == 144, "PackedGaussian size contract changed");
+static_assert(sizeof(PackedGaussian) == 128, "PackedGaussian size contract changed");
 static_assert(offsetof(PackedGaussian, rotation) == 32, "PackedGaussian.rotation offset contract changed");
 static_assert(offsetof(PackedGaussian, sh) == 48, "PackedGaussian.sh offset contract changed");
 static_assert(offsetof(PackedGaussian, sh_metadata) == 140, "PackedGaussian.sh_metadata offset contract changed");
@@ -746,7 +746,7 @@ TEST_CASE("[GaussianSplatting] GPU layout contract invariants remain stable") {
     CHECK(sizeof(AssetMetaGPU) == size_t(112));
     CHECK(sizeof(ChunkMetaGPU) == size_t(64));
     CHECK(sizeof(SplatRefGPU) == size_t(8));
-    CHECK(sizeof(PackedGaussian) == size_t(144));
+    CHECK(sizeof(PackedGaussian) == size_t(128));
     CHECK(sizeof(PackedGaussianF16) == size_t(144));
     CHECK(sizeof(PackedGaussianQuantized) == size_t(80));
     CHECK(sizeof(TileRenderParamsGPU) == size_t(944));
