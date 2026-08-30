@@ -59,7 +59,6 @@ static_assert(sizeof(PackedGaussian) == 144, "PackedGaussian size contract chang
 static_assert(offsetof(PackedGaussian, rotation) == 32, "PackedGaussian.rotation offset contract changed");
 static_assert(offsetof(PackedGaussian, sh) == 48, "PackedGaussian.sh offset contract changed");
 static_assert(offsetof(PackedGaussian, sh_metadata) == 140, "PackedGaussian.sh_metadata offset contract changed");
-static_assert(sizeof(PackedGaussianF16) == 144, "PackedGaussianF16 size contract changed");
 static_assert(sizeof(PackedGaussianQuantized) == 80, "PackedGaussianQuantized size contract changed");
 static_assert(sizeof(TileRenderParamsGPU) == 944, "TileRenderParamsGPU size contract changed");
 static_assert(offsetof(TileRenderParamsGPU, viewport_size) == 256, "TileRenderParamsGPU.viewport_size offset contract changed");
@@ -747,7 +746,6 @@ TEST_CASE("[GaussianSplatting] GPU layout contract invariants remain stable") {
     CHECK(sizeof(ChunkMetaGPU) == size_t(64));
     CHECK(sizeof(SplatRefGPU) == size_t(8));
     CHECK(sizeof(PackedGaussian) == size_t(144));
-    CHECK(sizeof(PackedGaussianF16) == size_t(144));
     CHECK(sizeof(PackedGaussianQuantized) == size_t(80));
     CHECK(sizeof(TileRenderParamsGPU) == size_t(944));
     CHECK(offsetof(TileRenderParamsGPU, effector_opacity_configs) == size_t(832));

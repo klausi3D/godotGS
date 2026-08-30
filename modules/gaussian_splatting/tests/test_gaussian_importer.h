@@ -1911,27 +1911,6 @@ TEST_CASE("[GaussianSplatting][Renderer] SH metadata preserves DC encoding mode"
     CHECK(gs_get_sh_encoding(packed.sh_metadata) == GS_SH_ENCODING_RGB9E5);
 }
 
-TEST_CASE("[GaussianSplatting][Renderer] SH metadata preserves DC encoding mode for F16 packing") {
-    SHCompressionMetrics metrics;
-    PackedGaussianF16 packed = {};
-
-    Gaussian legacy = {};
-    legacy.rotation = Quaternion();
-    legacy.scale = Vector3(1.0f, 1.0f, 1.0f);
-    legacy.opacity = 1.0f;
-    legacy.sh_dc = Color(0.25f, 0.5f, 0.75f, 1.0f);
-    legacy.render_meta = gaussian_set_dc_encoding(0u, GAUSSIAN_DC_ENCODING_LEGACY_BIAS);
-    pack_gaussian_f16(legacy, packed, metrics, Vector3(), nullptr, 0, 0, PackedSphericalHarmonicsF16::MAX_ENCODED_COEFFICIENTS);
-    CHECK(gs_get_dc_encoding(packed.sh_metadata) == GAUSSIAN_DC_ENCODING_LEGACY_BIAS);
-    CHECK(gs_get_sh_encoding(packed.sh_metadata) == GS_SH_ENCODING_F16);
-
-    Gaussian linear = legacy;
-    linear.render_meta = gaussian_set_dc_encoding(0u, GAUSSIAN_DC_ENCODING_LINEAR_RGB);
-    pack_gaussian_f16(linear, packed, metrics, Vector3(), nullptr, 0, 0, PackedSphericalHarmonicsF16::MAX_ENCODED_COEFFICIENTS);
-    CHECK(gs_get_dc_encoding(packed.sh_metadata) == GAUSSIAN_DC_ENCODING_LINEAR_RGB);
-    CHECK(gs_get_sh_encoding(packed.sh_metadata) == GS_SH_ENCODING_F16);
-}
-
 TEST_CASE("[GaussianSplatting][Renderer] Shader SH metadata masks match host DC encoding contract") {
     const String common_source = _load_text_fixture_or_empty("res://modules/gaussian_splatting/shaders/includes/gaussian_splat_common_inc.glsl");
     REQUIRE_MESSAGE(!common_source.is_empty(), "gaussian_splat_common_inc.glsl must be readable in test environment");

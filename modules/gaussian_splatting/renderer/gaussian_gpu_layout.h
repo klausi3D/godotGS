@@ -18,7 +18,6 @@ static constexpr uint32_t GS_SH_METADATA_ENCODED_COUNT_MASK = 0x00FF0000u;
 static constexpr uint32_t GS_SH_METADATA_ENCODING_MASK = 0x7F000000u;
 static constexpr uint32_t GS_SH_METADATA_DC_ENCODING_MASK = 0x80000000u;
 static constexpr uint32_t GS_SH_ENCODING_RGB9E5 = 1u;
-static constexpr uint32_t GS_SH_ENCODING_F16 = 2u;
 static constexpr uint32_t GS_GPU_ASSET_FLAG_IS_2D = 1u << 0u;
 static constexpr uint32_t GS_GPU_ASSET_FLAG_DC_LINEAR_RGB = 1u << 1u;
 
@@ -218,79 +217,6 @@ struct SplatRefGPU {
 static_assert(sizeof(SplatRefGPU) == 8, "SplatRefGPU must be 8 bytes");
 static_assert(offsetof(SplatRefGPU, instance_id) == 0, "SplatRefGPU.instance_id offset mismatch");
 static_assert(offsetof(SplatRefGPU, atlas_index) == 4, "SplatRefGPU.atlas_index offset mismatch");
-
-// ============================================================================
-// Float16 Data Structures (for memory-optimized storage)
-// ============================================================================
-
-/**
- * @struct PackedSphericalHarmonicsF16
- * @brief Float16 version of SH storage for reduced memory footprint.
- *
- * DC coefficients remain Float32 for base color quality.
- * Higher-order coefficients use Float16 (already low dynamic range).
- */
-struct alignas(16) PackedSphericalHarmonicsF16 {
-    static constexpr uint32_t MAX_ENCODED_COEFFICIENTS = 12;
-
-    float dc[4];                    // 16 bytes - DC coefficients (FP32 for quality)
-    uint16_t encoded[MAX_ENCODED_COEFFICIENTS]; // 24 bytes - Higher-order coefficients (FP16)
-
-    void clear();
-};
-
-static_assert(sizeof(PackedSphericalHarmonicsF16) == 48, "PackedSphericalHarmonicsF16 must be 48 bytes");
-
-/**
- * @struct PackedGaussianF16
- * @brief Float16 version of PackedGaussian for reduced GPU memory usage.
- *
- * Provides approximately 2x compression vs PackedGaussian with minimal
- * quality impact for most fields. Scale and opacity remain FP32.
- *
- * Memory layout (96 bytes, 16-byte aligned):
- *   position_xy: 2 x half (4 bytes)
- *   position_z: 1 x half + padding (4 bytes)
- *   opacity: float32 (4 bytes)
- *   scale[3]: float32 (12 bytes) - precision-sensitive
- *   area: float32 (4 bytes)
- *   rotation_xy: 2 x half (4 bytes)
- *   rotation_zw: 2 x half (4 bytes)
- *   sh: PackedSphericalHarmonicsF16 (48 bytes)
- *   normal[3]: float32 (12 bytes)
- *   stroke_age: float32 (4 bytes)
- *   brush_axes[2]: float32 (8 bytes)
- *   painterly_meta: uint32 (4 bytes)
- *   sh_metadata: uint32 (4 bytes)
- *   _padding: 4 bytes (to reach 128 for alignment)
- */
-struct alignas(16) PackedGaussianF16 {
-    // Position as Float16 relative offsets (requires per-chunk center)
-    uint32_t position_xy;           // packHalf2x16(x, y) - 4 bytes @0
-    uint32_t position_z_pad;        // lower 16 bits: half(z), upper: chunk_id - 4 bytes @4
-
-    float opacity;                  // Keep FP32 - 4 bytes @8
-
-    float scale[3];                 // Keep FP32 (precision-sensitive) - 12 bytes @12
-    float area;                     // 4 bytes @24
-
-    uint32_t rotation_xy;           // packHalf2x16(qx, qy) - 4 bytes @28
-    uint32_t rotation_zw;           // packHalf2x16(qz, qw) - 4 bytes @32
-    uint32_t _pre_sh_padding[3];    // 12 bytes @36 - Explicit padding for 16-byte sh alignment
-
-    PackedSphericalHarmonicsF16 sh; // 48 bytes @48
-
-    float normal[3];                // 12 bytes @96
-    float stroke_age;               // 4 bytes @108
-
-    float brush_axes[2];            // 8 bytes @112
-    uint32_t painterly_meta;        // 4 bytes @120
-    uint32_t sh_metadata;           // 4 bytes @124
-    uint32_t _padding[4];           // 16 bytes @128 - Align to 144 bytes total
-};
-
-static_assert(sizeof(PackedGaussianF16) == 144, "PackedGaussianF16 must be 144 bytes");
-static_assert(sizeof(PackedGaussianF16) % 16 == 0, "PackedGaussianF16 must be 16-byte aligned");
 
 /**
  * @struct QuantizationChunkGPU
@@ -759,87 +685,5 @@ void pack_gaussians_range_raw(const Gaussian *src,
         uint32_t higher_order_count,
         const uint8_t *coefficient_limits,
         uint32_t coefficient_limit = PackedSphericalHarmonics::MAX_ENCODED_COEFFICIENTS);
-
-// ============================================================================
-// Float16 Packing Functions
-// ============================================================================
-
-/**
- * @brief Packs a single Gaussian into Float16 format.
- * @param src Source Gaussian data.
- * @param dst Destination packed Float16 structure.
- * @param metrics SH compression metrics to update.
- * @param chunk_center Asset-local center for position quantization.
- * @param higher_order_coeffs Higher-order SH coefficients (optional).
- * @param first_order_count Number of first-order SH coefficients.
- * @param higher_order_count Number of higher-order SH coefficients.
- * @param coefficient_limit Maximum encoded coefficients.
- */
-void pack_gaussian_f16(const Gaussian &src,
-        PackedGaussianF16 &dst,
-        SHCompressionMetrics &metrics,
-        const Vector3 &chunk_center,
-        const Vector3 *higher_order_coeffs = nullptr,
-        uint32_t first_order_count = 3,
-        uint32_t higher_order_count = 0,
-        uint32_t coefficient_limit = PackedSphericalHarmonicsF16::MAX_ENCODED_COEFFICIENTS);
-
-/**
- * @brief Packs a range of Gaussians into Float16 format.
- * @param src Source Gaussian array.
- * @param start Starting index.
- * @param count Number of Gaussians to pack.
- * @param dst Destination packed array.
- * @param metrics SH compression metrics to update.
- * @param chunk_center Asset-local center for position quantization.
- * @param higher_order_coeffs Higher-order SH coefficients (optional).
- * @param first_order_count Number of first-order SH coefficients.
- * @param higher_order_count Number of higher-order SH coefficients.
- * @param coefficient_limit Maximum encoded coefficients.
- */
-[[nodiscard]] bool pack_gaussians_range_f16(const LocalVector<Gaussian> &src,
-        uint32_t start,
-        uint32_t count,
-        Vector<PackedGaussianF16> &dst,
-        SHCompressionMetrics &metrics,
-        const Vector3 &chunk_center,
-        const Vector3 *higher_order_coeffs = nullptr,
-        uint32_t first_order_count = 3,
-        uint32_t higher_order_count = 0,
-        uint32_t coefficient_limit = PackedSphericalHarmonicsF16::MAX_ENCODED_COEFFICIENTS);
-
-/**
- * @brief Packs Gaussians with per-chunk quantization for optimal FP16 precision.
- * @param src Source Gaussian array.
- * @param start Starting index.
- * @param count Number of Gaussians to pack.
- * @param chunk_size Number of Gaussians per quantization chunk.
- * @param dst Destination packed array.
- * @param chunks Output quantization chunk data for GPU.
- * @param metrics SH compression metrics to update.
- * @param higher_order_coeffs Higher-order SH coefficients (optional).
- * @param first_order_count Number of first-order SH coefficients.
- * @param higher_order_count Number of higher-order SH coefficients.
- */
-[[nodiscard]] bool pack_gaussians_chunked_f16(const LocalVector<Gaussian> &src,
-        uint32_t start,
-        uint32_t count,
-        uint32_t chunk_size,
-        Vector<PackedGaussianF16> &dst,
-        Vector<QuantizationChunkGPU> &chunks,
-        SHCompressionMetrics &metrics,
-        const Vector3 *higher_order_coeffs = nullptr,
-        uint32_t first_order_count = 3,
-        uint32_t higher_order_count = 0);
-
-/**
- * @brief Returns whether Float16 storage is currently enabled.
- */
-bool is_float16_storage_enabled();
-
-/**
- * @brief Returns the packed Gaussian size based on current configuration.
- */
-uint32_t get_packed_gaussian_size();
 
 #endif // GAUSSIAN_GPU_LAYOUT_H
