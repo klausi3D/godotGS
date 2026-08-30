@@ -983,6 +983,7 @@ def ply_header_declares_rich_sh(path: Path) -> bool:
     fallback-shaped file wearing a rich vertex count -- which the count check
     alone, and the generic Gaussian-property check alone, both accepted.
     """
+    seen: set[bytes] = set()
     try:
         with path.open("rb") as fh:
             if fh.readline().strip() != b"ply":
@@ -993,13 +994,13 @@ def ply_header_declares_rich_sh(path: Path) -> bool:
                     return False
                 stripped = line.strip()
                 if stripped == b"end_header":
-                    return False
+                    break
                 parts = stripped.split()
                 if len(parts) >= 3 and parts[0] == b"property" and parts[-1].startswith(b"f_rest_"):
-                    return True
+                    seen.add(parts[-1])
     except OSError:
         return False
-    return False
+    return _RICH_SH_PROPERTIES.issubset(seen)
 
 
 def _ply_header_declares_gaussian_properties(fh) -> bool:
@@ -1044,6 +1045,13 @@ CHUNKED_WORLD_CONTRACT_SOURCE = "chunked_world_contract"
 VARIANT_UNRECOGNIZED = "unrecognized"
 VARIANT_CPP_RICH = "cpp_rich"
 
+
+#: The COMPLETE rich SH block. `synthetic_ply_writer.cpp:46-48` declares all 45
+#: slots unconditionally ("declare all 45 slots so the loader finds G/B at the
+#: right indices"), so a partial set is not something the producer can emit.
+#: Accepting any single `f_rest_*` let a header carrying only `f_rest_44` claim
+#: to be rich.
+_RICH_SH_PROPERTIES = frozenset(b"f_rest_%d" % i for i in range(45))
 
 #: Variants whose producer writes the full `f_rest_*` SH block. A fixture may only
 #: be labelled one of these if its header actually carries that block.

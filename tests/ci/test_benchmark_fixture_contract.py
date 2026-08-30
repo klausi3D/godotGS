@@ -85,6 +85,19 @@ TEST_SPLATS_ASSET = "res://tests/fixtures/test_splats.ply"
 _GAUSSIAN_PLY_PROPERTIES = ("x","y","z","f_dc_0","f_dc_1","f_dc_2","opacity","scale_0","scale_1","scale_2","rot_0","rot_1","rot_2","rot_3")
 
 
+def _write_ply_with_properties(path: Path, vertex_count: int, props: tuple) -> None:
+    """Header-only PLY with an EXACT property list, for malformed/partial shapes."""
+    NL = chr(10)
+    header = (
+        "ply" + NL
+        + "format binary_little_endian 1.0" + NL
+        + f"element vertex {vertex_count}" + NL
+        + "".join(f"property float {name}" + NL for name in props)
+        + "end_header" + NL
+    ).encode("ascii")
+    path.write_bytes(header)
+
+
 def _write_ply(
     path: Path,
     vertex_count: int,
@@ -165,6 +178,24 @@ class RichVariantRequiresRichShTests(unittest.TestCase):
                 _run_benchmark.classify_fixture_variant(50000, self.VARIANTS, False),
                 _run_benchmark.VARIANT_UNRECOGNIZED,
                 "a fallback-shaped file wearing a rich count was labelled cpp_rich",
+            )
+
+    def test_a_partial_f_rest_block_is_not_rich(self):
+        """One f_rest property is not the producer's block (#790 review).
+
+        `synthetic_ply_writer.cpp:46-48` declares all 45 slots unconditionally,
+        so a partial set is not something the C++ writer can emit. Accepting any
+        single `f_rest_*` let a header carrying only `f_rest_44` claim cpp_rich
+        and publish benchmark numbers.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            ply = Path(tmp) / "synthetic_sphere.ply"
+            _write_ply_with_properties(
+                ply, 50000, _GAUSSIAN_PLY_PROPERTIES + ("f_rest_44",)
+            )
+            self.assertFalse(
+                _run_benchmark.ply_header_declares_rich_sh(ply),
+                "a single f_rest property was accepted as the complete rich block",
             )
 
     def test_a_real_rich_fixture_is_still_labelled_cpp_rich(self):
