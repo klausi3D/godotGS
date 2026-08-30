@@ -359,6 +359,22 @@ func _on_test_frame(_delta: float):
 	_config_index += 1
 	_applied = false
 	if _config_index >= _configs.size():
+		# Readiness observed AT or PAST the duration bound is not a pass.
+		#
+		# GSQATest._process() calls _on_test_frame() BEFORE testing
+		# `elapsed >= test_duration` (qa_test_base.gd:72-80). So on a frame that
+		# is already past the bound, finishing here would let _on_test_complete()
+		# see a full measurement set and report PASS -- and the base class would
+		# then call _finish_test() a SECOND time for the expired duration,
+		# emitting test_completed twice and potentially advancing the runner
+		# twice. A green manufactured on the last possible frame, reported twice.
+		var elapsed := (Time.get_ticks_msec() / 1000.0) - start_time
+		if elapsed >= test_duration:
+			_fatal = ("final configuration '%s' only became capturable at %.2fs, "
+					+ "at or past the %.2fs bound: a measurement observed after the "
+					+ "deadline is not evidence") % [
+				_configs[_configs.size() - 1]["name"], elapsed, test_duration
+			]
 		_finish_test()
 
 
