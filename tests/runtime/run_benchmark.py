@@ -1008,6 +1008,10 @@ def _ply_header_declares_gaussian_properties(fh) -> bool:
 # difference with no signal. `asset_expected_splat_counts` in the manifest carries
 # the EXACT count each producer writes, both numbers derived from their producers.
 VARIANT_UNDECLARED = "undeclared"
+
+#: `asset_source` for a lane resolving to a chunked-world stage manifest rather
+#: than a PLY fixture. Such a lane has no producer counts and never can.
+CHUNKED_WORLD_CONTRACT_SOURCE = "chunked_world_contract"
 VARIANT_UNRECOGNIZED = "unrecognized"
 VARIANT_CPP_RICH = "cpp_rich"
 
@@ -1231,6 +1235,14 @@ def evaluate_required_asset_variant(
     failures: list[str] = []
     for record in records:
         expected = record["asset_expected_splat_counts"]
+        # A chunked-world contract lane resolves to a stage manifest, not a PLY,
+        # so it has no producer counts and never can. Failing it was a REGRESSION
+        # introduced by the fail-closed change below: it broke the
+        # `openworld-proof-dev` dispatch before Godot even launched, on a lane
+        # whose fixture is not a PLY at all. "Unknown fidelity" and "not a PLY"
+        # are different, and only the first should fail.
+        if record.get("asset_source") == CHUNKED_WORLD_CONTRACT_SOURCE:
+            continue
         if not expected:
             failures.append(
                 f"lane={record['lane_id']}: requires asset_variant={required_variant} but "

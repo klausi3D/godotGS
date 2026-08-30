@@ -1069,6 +1069,40 @@ class RequiredAssetVariantTests(unittest.TestCase):
             "an asset with no such producer declared must stay exempt",
         )
 
+    def test_a_chunked_world_lane_is_exempt_not_failed(self):
+        """Regression: fail-closed must not break the openworld-proof dispatch.
+
+        `open_world_corridor_proof` resolves to a chunked-world stage manifest,
+        not a PLY, so it has no producer counts and never can. The first version
+        of the fail-closed change above rejected it, which would have killed the
+        `openworld-proof-dev` dispatch before Godot even launched. "Unknown
+        fidelity" and "not a PLY at all" are different cases.
+        """
+        record = self._record(
+            lane_id="open_world_corridor_proof",
+            asset_source="chunked_world_contract",
+            asset_expected_splat_counts={},
+            asset_variant="undeclared",
+        )
+        self.assertEqual(
+            _run_benchmark.evaluate_required_asset_variant([record], "cpp_rich"),
+            [],
+            "a chunked-world contract lane must be exempt, not failed",
+        )
+
+    def test_a_ply_lane_with_no_declaration_still_fails(self):
+        """Non-vacuity: the exemption must not swallow the case it was added beside."""
+        record = self._record(
+            asset_source="lane_default",
+            asset_expected_splat_counts={},
+            asset_variant="undeclared",
+        )
+        self.assertEqual(
+            len(_run_benchmark.evaluate_required_asset_variant([record], "cpp_rich")),
+            1,
+            "a PLY lane with no declared producers must still fail closed",
+        )
+
     def test_rich_fixture_satisfies_the_requirement(self):
         record = self._record(asset_splat_count=10000, asset_variant="cpp_rich")
         self.assertEqual(_run_benchmark.evaluate_required_asset_variant([record], "cpp_rich"), [])
