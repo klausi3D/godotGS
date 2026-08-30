@@ -111,6 +111,27 @@ extends "res://scripts/qa_test_base.gd"
 @export var settle_frames: int = 24
 @export var capture_stride: int = 4
 
+## WHAT THIS SCENE DOES NOT ISOLATE (review follow-up)
+##
+## With `depth_test=true` two mechanisms can hide a splat behind the mesh: the
+## per-splat raster clip (`composite/per_splat_depth_clip`, default true) and
+## the compositor's own depth test. This scene does not distinguish them.
+##
+## It is NOT confounded by that, which was the review's concern. The raster
+## clip is gated on the same switch: `_is_per_splat_clip_expected()`
+## (render_pipeline_stages.cpp:233) delegates to
+## `_is_scene_depth_composite_expected()`, which returns false whenever
+## `composite/depth_test` is disabled (:218-220). So the `depth_false` control
+## turns BOTH mechanisms off, which is why it refills the occluded region
+## instead of staying dark -- measured at 0.4986 against -0.8980.
+##
+## What the scene therefore proves is the contract a user depends on:
+## depth_test=true occludes behind meshes, depth_test=false does not. What it
+## does not tell you is which of the two mechanisms did the occluding on any
+## given frame. Isolating that needs a third configuration holding
+## `per_splat_depth_clip=false` while `depth_test=true`, and is left out
+## deliberately rather than claimed.
+
 const DEPTH_TEST_SETTING := "rendering/gaussian_splatting/composite/depth_test"
 const INDIRECT_SH_SCALE_SETTING := "rendering/gaussian_splatting/lighting/indirect_sh_scale"
 const DIRECT_LIGHT_SCALE_SETTING := "rendering/gaussian_splatting/lighting/direct_light_scale"
