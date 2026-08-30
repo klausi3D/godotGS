@@ -43,12 +43,22 @@ extends "res://scripts/qa_test_base.gd"
 
 const DEPTH_TEST_SETTING := "rendering/gaussian_splatting/composite/depth_test"
 
-## A configuration is PRESENT when at least this share of sampled pixels sit
-## above the background luma threshold. The splat cluster below covers far more
-## than this; the floor is set well under the healthy value so an ordinary
-## framing or exposure change does not read as a disappearance, while the
-## ABSENT case (~0 non-background samples) fails by a wide margin.
-const MIN_PRESENT_SAMPLE_RATIO := 0.02
+## A configuration is PRESENT when the captured frame carries at least this
+## much luma variance, i.e. structure rather than a flat field.
+##
+## WHY VARIANCE AND NOT THE NON-BACKGROUND SAMPLE COUNT. The obvious oracle --
+## "how many pixels are brighter than the background" -- is VACUOUS here, and
+## that was measured, not assumed. Under this project's default environment the
+## sky already exceeds `CAPTURE_BACKGROUND_LUMA_THRESHOLD`, so the ratio pins at
+## exactly 1.0000 for every configuration. An early version of this scene using
+## that oracle passed all three configurations WITH THE SPLAT ASSET NEVER
+## ASSIGNED. Variance separates cleanly on the same frames: ~0.008 when splats
+## reach the presented image, exactly 0.000000 when they do not.
+##
+## The floor sits roughly an order of magnitude under the healthy value, so an
+## exposure or framing change does not read as a disappearance, while the ABSENT
+## case fails by the entire margin.
+const MIN_PRESENT_LUMA_VARIANCE := 0.001
 
 ## Opacity is set through the logit lane, not Color.a. `set_splat_count()`
 ## allocates a zero-filled logit lane that decodes to 0.5 and takes precedence,
@@ -189,21 +199,30 @@ func _on_test_complete():
 
 	var absent: Array[String] = []
 	for m in _measurements:
-		var key: String = "composite_%s_present_ratio" % m["name"]
-		result_metrics[key] = m["present_ratio"]
 		result_metrics["composite_%s_luma_variance" % m["name"]] = m["luma_variance"]
-		if m["present_ratio"] < MIN_PRESENT_SAMPLE_RATIO:
-			absent.append("%s (depth_test=%s scale=%.2f) ratio=%.5f" % [
-				m["name"], str(m["depth_test"]), m["scale"], m["present_ratio"]
+		# Recorded, deliberately NOT the oracle -- it saturates at 1.0 under the
+		# default environment. Kept so the baseline carries the evidence that it
+		# is uninformative, rather than someone rediscovering it as a good idea.
+		result_metrics["composite_%s_present_ratio" % m["name"]] = m["present_ratio"]
+		if m["luma_variance"] < MIN_PRESENT_LUMA_VARIANCE:
+			absent.append("%s (depth_test=%s scale=%.2f) luma_variance=%.6f" % [
+				m["name"], str(m["depth_test"]), m["scale"], m["luma_variance"]
 			])
 
 	result_metrics["composite_configs_measured"] = _measurements.size()
 	result_metrics["composite_configs_absent"] = absent.size()
 
+	# Report the measured ratios on PASS as well as FAIL. A bare "all present"
+	# cannot be distinguished from a scene that measured the same frame three
+	# times, which is the failure this scene is most likely to have.
+	var summary: Array[String] = []
+	for m in _measurements:
+		summary.append("%s var=%.6f" % [m["name"], m["luma_variance"]])
+
 	if absent.is_empty():
 		_test_result = true
-		_test_message = "All %d composite configurations present (min ratio floor %.3f)" % [
-			_measurements.size(), MIN_PRESENT_SAMPLE_RATIO
+		_test_message = "All %d composite configurations present (variance floor %.4f): %s" % [
+			_measurements.size(), MIN_PRESENT_LUMA_VARIANCE, ", ".join(summary)
 		]
 		return
 
