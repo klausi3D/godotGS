@@ -952,12 +952,53 @@ def read_ply_vertex_count(path: Path) -> int | None:
                 parts = stripped.split()
                 if len(parts) == 3 and parts[0] == b"element" and parts[1] == b"vertex":
                     try:
-                        return int(parts[2])
+                        count = int(parts[2])
                     except ValueError:
                         return None
+                    # Keep reading: the count alone does not establish that this
+                    # is even a Gaussian cloud. See _ply_has_gaussian_properties.
+                    if not _ply_header_declares_gaussian_properties(fh):
+                        return None
+                    return count
     except OSError:
         return None
     return None
+
+
+#: Properties every Gaussian PLY this suite consumes must declare. Deliberately a
+#: SUBSET -- SH degree varies by asset, so `f_rest_*` is not required.
+_REQUIRED_PLY_PROPERTIES = frozenset(
+    {b"x", b"y", b"z", b"opacity", b"scale_0", b"scale_1", b"scale_2",
+     b"rot_0", b"rot_1", b"rot_2", b"rot_3", b"f_dc_0", b"f_dc_1", b"f_dc_2"}
+)
+
+
+def _ply_header_declares_gaussian_properties(fh) -> bool:
+    """Whether the remaining header declares the Gaussian property set.
+
+    Provenance was being inferred from vertex count ALONE, so any PLY whose
+    header happened to carry a declared producer's count was labelled as that
+    producer -- and `--require-asset-variant` then treated the label as fidelity
+    evidence. Swapping in an unrelated point cloud of the right size satisfied it.
+
+    Checking the property set does not make the label tamper-proof: a genuine
+    Gaussian fixture thinned to a colliding count still passes, and only a
+    producer marker written at generation time would close that. It does rule
+    out the case the review named -- an unrelated cloud standing in for a
+    fixture -- at the cost of a few more header lines.
+    """
+    seen: set[bytes] = set()
+    for _ in range(256):
+        line = fh.readline()
+        if not line:
+            return False
+        stripped = line.strip()
+        if stripped == b"end_header":
+            break
+        parts = stripped.split()
+        if len(parts) >= 3 and parts[0] == b"property":
+            seen.add(parts[-1])
+    return _REQUIRED_PLY_PROPERTIES.issubset(seen)
 
 
 # Issue #790: a lane's fixture is classified by which producer wrote it, not only
@@ -1174,12 +1215,31 @@ def evaluate_required_asset_variant(
 ) -> list[str]:
     """Return failures for lanes whose fixture is not the demanded producer.
 
-    A lane whose asset has no richer producer declared cannot fail this: demanding
-    a variant nothing can write would be a contract no tree satisfies.
+    A lane whose asset DECLARES producers, none of which is the required one,
+    cannot fail this: demanding a variant nothing can write would be a contract
+    no tree satisfies. `synthetic_spiral` and `synthetic_flower_field` have no
+    C++ generator at all, so their committed sizes are already maximum fidelity.
+
+    A lane that declares NOTHING is a different case and must NOT be exempt.
+    Empty `expected` means the manifest says nothing about the asset -- a
+    `--generate-dummy-assets` placeholder, or a custom manifest without
+    `asset_expected_splat_counts` -- so its fidelity is UNKNOWN, not known-absent.
+    Skipping those silently let `--require-asset-variant` pass over exactly the
+    lanes least likely to be running real content, which is the failure mode the
+    flag exists to prevent.
     """
     failures: list[str] = []
     for record in records:
         expected = record["asset_expected_splat_counts"]
+        if not expected:
+            failures.append(
+                f"lane={record['lane_id']}: requires asset_variant={required_variant} but "
+                f"{record['asset_path']} declares no producer counts at all, so its "
+                f"fidelity cannot be established ({record['asset_splat_count']} splats "
+                f"on disk). Declare asset_expected_splat_counts for it, or do not pass "
+                f"--require-asset-variant for this profile."
+            )
+            continue
         if required_variant not in expected:
             continue
         if record["asset_variant"] == required_variant:

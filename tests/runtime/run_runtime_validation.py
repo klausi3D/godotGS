@@ -249,8 +249,24 @@ def ensure_synthetic_assets() -> None:
             print(line)
 
     if completed.returncode != 0:
-        output = ((completed.stdout or "") + (completed.stderr or "")).strip()
-        detail = _first_non_empty_line(output) or f"exit code {completed.returncode}"
+        # Report the FAILURE, not the notice that happens to precede it.
+        #
+        # The child now emits the low-fidelity warning to stdout before it does
+        # any file work, so the first non-empty line of stdout is that warning
+        # even when prep died of something unrelated -- a read-only checkout, a
+        # full disk. Taking line one would report "low-fidelity fixtures" as the
+        # cause of a permission error and send the reader somewhere useless.
+        #
+        # stderr is where the real failure lands, so it wins. Falling back to the
+        # LAST stdout line rather than the first keeps the diagnostic close to
+        # the point of death when a child writes its error to stdout instead.
+        stderr_detail = _first_non_empty_line(completed.stderr or "")
+        stdout_lines = [ln.strip() for ln in (completed.stdout or "").splitlines() if ln.strip()]
+        detail = (
+            stderr_detail
+            or (stdout_lines[-1] if stdout_lines else None)
+            or f"exit code {completed.returncode}"
+        )
         raise RuntimeError(f"Synthetic asset prep failed: {detail}")
 
 

@@ -78,19 +78,61 @@ PLY_PREP_COMMAND = _run_benchmark.PLY_PREP_COMMAND
 TEST_SPLATS_ASSET = "res://tests/fixtures/test_splats.ply"
 
 
-def _write_ply(path: Path, vertex_count: int, *, header_only: bool = False) -> None:
-    """Write a minimal binary PLY with a declared vertex count."""
+#: The property set a real Gaussian fixture declares. The helper writes this by
+#: default so tests exercise the header shape the generators actually produce;
+#: `gaussian=False` writes a bare point cloud -- what a fixture swapped for an
+#: unrelated file looks like.
+_GAUSSIAN_PLY_PROPERTIES = ("x","y","z","f_dc_0","f_dc_1","f_dc_2","opacity","scale_0","scale_1","scale_2","rot_0","rot_1","rot_2","rot_3")
+
+
+def _write_ply(
+    path: Path,
+    vertex_count: int,
+    *,
+    header_only: bool = False,
+    gaussian: bool = True,
+) -> None:
+    """Write a binary PLY with a declared vertex count."""
+    props = _GAUSSIAN_PLY_PROPERTIES if gaussian else ("x", "y", "z")
     header = (
         "ply\n"
         "format binary_little_endian 1.0\n"
         f"element vertex {vertex_count}\n"
-        "property float x\n"
-        "property float y\n"
-        "property float z\n"
-        "end_header\n"
+        + "".join(f"property float {name}\n" for name in props)
+        + "end_header\n"
     ).encode("ascii")
-    body = b"" if header_only else struct.pack("<3f", 0.0, 0.0, 0.0) * vertex_count
+    body = (
+        b""
+        if header_only
+        else struct.pack(f"<{len(props)}f", *([0.0] * len(props))) * vertex_count
+    )
     path.write_bytes(header + body)
+
+
+class PlyProvenanceIsNotCountAloneTests(unittest.TestCase):
+    """A declared count must not be sufficient to identify a fixture (#790 review).
+
+    Provenance was inferred from vertex count alone, so any PLY carrying a
+    declared producer's count was labelled as that producer -- and
+    `--require-asset-variant` then treated the label as fidelity evidence.
+    Substituting an unrelated point cloud of the right size satisfied it.
+    """
+
+    def test_an_unrelated_point_cloud_of_the_right_size_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ply = Path(tmp) / "fixture.ply"
+            _write_ply(ply, 10000, header_only=True, gaussian=False)
+            self.assertIsNone(
+                _run_benchmark.read_ply_vertex_count(ply),
+                "a bare xyz cloud was accepted as a Gaussian fixture on count alone",
+            )
+
+    def test_a_real_gaussian_fixture_of_the_same_size_is_still_read(self):
+        """Non-vacuity: rejecting everything would be the same defect."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ply = Path(tmp) / "fixture.ply"
+            _write_ply(ply, 10000, header_only=True)
+            self.assertEqual(_run_benchmark.read_ply_vertex_count(ply), 10000)
 
 
 class ReadPlyVertexCountTests(unittest.TestCase):
@@ -993,6 +1035,39 @@ class RequiredAssetVariantTests(unittest.TestCase):
         self.assertEqual(len(failures), 1)
         self.assertIn("static_baseline", failures[0])
         self.assertIn("cpp_rich", failures[0])
+
+    def test_an_undeclared_fixture_cannot_satisfy_the_requirement(self):
+        """Empty expected counts must FAIL, not silently exempt the lane.
+
+        `--generate-dummy-assets`, or a custom manifest without
+        `asset_expected_splat_counts`, leaves `expected` empty. That is not the
+        same as an asset whose declared producers simply exclude the required
+        one -- it means the fidelity is UNKNOWN. Exempting it let the flag pass
+        over precisely the lanes least likely to be running real content.
+        """
+        record = self._record(asset_expected_splat_counts={}, asset_variant="undeclared")
+        failures = _run_benchmark.evaluate_required_asset_variant([record], "cpp_rich")
+        self.assertEqual(len(failures), 1, "an undeclared fixture was silently exempted")
+        self.assertIn("declares no producer counts", failures[0])
+        self.assertIn("static_baseline", failures[0])
+
+    def test_a_declared_asset_without_that_producer_is_still_exempt(self):
+        """The legitimate exemption must survive -- otherwise the fix is a blunt gate.
+
+        `synthetic_spiral` and `synthetic_flower_field` have no C++ generator at
+        all, so their committed sizes ARE maximum fidelity. Demanding cpp_rich of
+        them would be a contract no checkout can satisfy.
+        """
+        record = self._record(
+            asset_splat_count=25000,
+            asset_variant="python_fallback",
+            asset_expected_splat_counts={"python_fallback": 25000},
+        )
+        self.assertEqual(
+            _run_benchmark.evaluate_required_asset_variant([record], "cpp_rich"),
+            [],
+            "an asset with no such producer declared must stay exempt",
+        )
 
     def test_rich_fixture_satisfies_the_requirement(self):
         record = self._record(asset_splat_count=10000, asset_variant="cpp_rich")
