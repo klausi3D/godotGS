@@ -68,8 +68,8 @@
               <div class="gsm-vp-tool"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7M21 4v4h-4"/></svg></div>
             </div>
             <div class="gsm-vp-stats">
-              <div><b>74</b> FPS · 13.5 ms</div>
-              <div>4 214 883 splats</div>
+              <div><b>12</b> FPS · 81.0 ms</div>
+              <div>4 900 000 splats</div>
               <div style="color:var(--faint)">1920×1080 · SH deg 3</div>
             </div>
             <canvas id="gsm-splat" style="width:100%;height:100%;display:block;"></canvas>
@@ -81,7 +81,7 @@
           </div>
           <div class="gsm-dock right">
             <div class="gsm-dock-h">Inspector · GaussianSplat3D</div>
-            <div class="gsm-prop"><div class="k">SPLAT COUNT</div><div class="v"><span>Loaded</span><span class="num">4.21 M</span></div></div>
+            <div class="gsm-prop"><div class="k">SPLAT COUNT</div><div class="v"><span>Loaded</span><span class="num">4.90 M</span></div></div>
             <div class="gsm-prop"><div class="k">LOD BIAS</div><div class="v"><span>Distance</span><span class="num">1.35</span></div><div class="gsm-slider sw62"></div></div>
             <div class="gsm-prop"><div class="k">OPACITY SCALE</div><div class="v"><span>Global</span><span class="num">0.92</span></div><div class="gsm-slider sw78"></div></div>
             <div class="gsm-prop"><div class="k">SH DEGREE</div><div class="v"><span>Harmonics</span><span class="num">3</span></div></div>
@@ -150,12 +150,12 @@
     <div class="gsm-wrap">
       <span class="gsm-eyebrow">Measured, not promised</span>
       <div class="gsm-stats">
-        <div class="gsm-stat"><div class="n">74.0<span class="u"> fps</span></div><div class="l">Average frame rate</div></div>
-        <div class="gsm-stat"><div class="n">15.62<span class="u"> ms</span></div><div class="l">P99 frame time</div></div>
+        <div class="gsm-stat"><div class="n">12.3<span class="u"> fps</span></div><div class="l">Average frame rate</div></div>
+        <div class="gsm-stat"><div class="n">87.47<span class="u"> ms</span></div><div class="l">P99 frame time</div></div>
         <div class="gsm-stat"><div class="n">RTX 3090</div><div class="l">Self-hosted Vulkan lane</div></div>
         <div class="gsm-stat"><div class="n">MIT</div><div class="l">License · fully open</div></div>
       </div>
-      <p class="gsm-cap">One committed <span class="mono">static_baseline</span> row today, on <span class="mono">ubuntu-24.04</span> with mesa 25.2.8. Alpha software — nightly-first, no named stable release yet. We publish the harness, not just the highlight.</p>
+      <p class="gsm-cap">Published baseline: <span class="mono">dense_resident_2m</span>, 4.9M visible splats, captured 2026-07-19 on an optimized Windows build (RTX 3090 / Ryzen 7 5800X). This is a slow number, and it is the one we publish — the resident path does not reach interactive frame rates at this density. Alpha software — nightly-first, no named stable release yet. We publish the harness, not just the highlight.</p>
     </div>
   </section>
 
@@ -180,7 +180,7 @@
 ./bin/godot.linuxbsd.editor.x86_64 \<br>
 &nbsp;&nbsp;--path tests/examples/godot/test_project<br><br>
 <span class="c"># 3 — press Play, orbit your first splat</span><br>
-<span class="g">✓ scene loaded · 4.2M splats · 74 fps</span>
+<span class="g">✓ scene loaded · 4.9M splats · 12 fps</span>
         </div>
       </div>
     </div>
