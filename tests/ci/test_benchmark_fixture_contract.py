@@ -91,9 +91,18 @@ def _write_ply(
     *,
     header_only: bool = False,
     gaussian: bool = True,
+    rich_sh: bool = False,
 ) -> None:
-    """Write a binary PLY with a declared vertex count."""
+    """Write a binary PLY with a declared vertex count.
+
+    `rich_sh` mirrors the C++ generator, which emits f_rest_0..44
+    (synthetic_ply_writer.cpp:48); the Python fallback emits none. Tests that
+    mean "a fixture the C++ generator wrote" must set it, or they are asserting
+    against a fallback-shaped file wearing a rich vertex count.
+    """
     props = _GAUSSIAN_PLY_PROPERTIES if gaussian else ("x", "y", "z")
+    if rich_sh:
+        props = props + tuple(f"f_rest_{i}" for i in range(45))
     header = (
         "ply\n"
         "format binary_little_endian 1.0\n"
@@ -133,6 +142,47 @@ class PlyProvenanceIsNotCountAloneTests(unittest.TestCase):
             ply = Path(tmp) / "fixture.ply"
             _write_ply(ply, 10000, header_only=True)
             self.assertEqual(_run_benchmark.read_ply_vertex_count(ply), 10000)
+
+
+class RichVariantRequiresRichShTests(unittest.TestCase):
+    """A rich label must mean the rich PRODUCER, not merely the rich COUNT (#790 review).
+
+    `synthetic_ply_writer.cpp:48` emits f_rest_0..44 whenever p_write_sh1 is set,
+    and every generator call site sets it; the Python fallback emits none. So a
+    fallback-shaped file carrying a rich vertex count is not a rich fixture, and
+    labelling it cpp_rich would let `--require-asset-variant cpp_rich` pass on a
+    workload nothing rich produced.
+    """
+
+    VARIANTS = {"python_fallback": 2048, "cpp_rich": 50000}
+
+    def test_a_fallback_shaped_ply_with_a_rich_count_is_not_cpp_rich(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ply = Path(tmp) / "synthetic_sphere.ply"
+            _write_ply(ply, 50000, header_only=True)          # no f_rest_*
+            self.assertFalse(_run_benchmark.ply_header_declares_rich_sh(ply))
+            self.assertEqual(
+                _run_benchmark.classify_fixture_variant(50000, self.VARIANTS, False),
+                _run_benchmark.VARIANT_UNRECOGNIZED,
+                "a fallback-shaped file wearing a rich count was labelled cpp_rich",
+            )
+
+    def test_a_real_rich_fixture_is_still_labelled_cpp_rich(self):
+        """Non-vacuity: rejecting the real producer too would be the same defect."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ply = Path(tmp) / "synthetic_sphere.ply"
+            _write_ply(ply, 50000, header_only=True, rich_sh=True)
+            self.assertTrue(_run_benchmark.ply_header_declares_rich_sh(ply))
+            self.assertEqual(
+                _run_benchmark.classify_fixture_variant(50000, self.VARIANTS, True),
+                "cpp_rich",
+            )
+
+    def test_the_fallback_producer_is_unaffected(self):
+        self.assertEqual(
+            _run_benchmark.classify_fixture_variant(2048, self.VARIANTS, False),
+            "python_fallback",
+        )
 
 
 class ReadPlyVertexCountTests(unittest.TestCase):
@@ -911,7 +961,11 @@ class FixtureVariantClassificationTests(unittest.TestCase):
             with self.subTest(variant=variant):
                 with tempfile.TemporaryDirectory() as tmp:
                     ply = Path(tmp) / "synthetic_sphere.ply"
-                    _write_ply(ply, count, header_only=True)
+                    # The rich producer emits f_rest_*; writing the fallback
+                    # shape here would assert against a file the C++ generator
+                    # could not have produced.
+                    _write_ply(ply, count, header_only=True,
+                               rich_sh=(variant == "cpp_rich"))
                     self.assertEqual(
                         evaluate_fixture_contract(
                             lane_id="synthetic_sphere",
@@ -962,17 +1016,19 @@ class PreflightVariantWiringTests(unittest.TestCase):
             / "benchmark_asset_manifest.json"
         )
 
-    def _project_with_sphere(self, tmp: str, splats: int) -> Path:
+    def _project_with_sphere(self, tmp: str, splats: int, *, rich_sh: bool = False) -> Path:
         project = Path(tmp) / "project"
         fixtures = project / "tests" / "fixtures"
         fixtures.mkdir(parents=True)
-        _write_ply(fixtures / "synthetic_sphere.ply", splats, header_only=True)
+        _write_ply(
+            fixtures / "synthetic_sphere.ply", splats, header_only=True, rich_sh=rich_sh
+        )
         return project
 
-    def _sphere_failures(self, splats: int) -> list[str]:
+    def _sphere_failures(self, splats: int, *, rich_sh: bool = False) -> list[str]:
         manifest = self._manifest()
         with tempfile.TemporaryDirectory() as tmp:
-            project = self._project_with_sphere(tmp, splats)
+            project = self._project_with_sphere(tmp, splats, rich_sh=rich_sh)
             failures = _run_benchmark._validate_suite_dependencies(
                 project_path=project,
                 lanes=[self._lane()],
@@ -993,7 +1049,9 @@ class PreflightVariantWiringTests(unittest.TestCase):
     def test_preflight_accepts_both_real_producers(self):
         for variant, count in self._manifest().expected_splat_counts_for(self.ASSET).items():
             with self.subTest(variant=variant):
-                self.assertEqual(self._sphere_failures(count), [])
+                self.assertEqual(
+                    self._sphere_failures(count, rich_sh=(variant == "cpp_rich")), []
+                )
 
     def test_provenance_collection_labels_the_lane(self):
         manifest = self._manifest()
@@ -1001,7 +1059,9 @@ class PreflightVariantWiringTests(unittest.TestCase):
         for variant, count in variants.items():
             with self.subTest(variant=variant):
                 with tempfile.TemporaryDirectory() as tmp:
-                    project = self._project_with_sphere(tmp, count)
+                    project = self._project_with_sphere(
+                        tmp, count, rich_sh=(variant == "cpp_rich")
+                    )
                     records = _run_benchmark.collect_fixture_provenance(
                         project_path=project,
                         lanes=[self._lane()],

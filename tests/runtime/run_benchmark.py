@@ -973,6 +973,35 @@ _REQUIRED_PLY_PROPERTIES = frozenset(
 )
 
 
+def ply_header_declares_rich_sh(path: Path) -> bool:
+    """Whether a PLY header carries the `f_rest_*` block only the C++ generator writes.
+
+    This is what makes the variant label mean the PRODUCER rather than the size.
+    `synthetic_ply_writer.cpp:48` emits `f_rest_0..44` whenever `p_write_sh1` is
+    set, and every generator call site sets it; the Python fallback emits none.
+    So a fixture claiming `cpp_rich` while lacking `f_rest_*` is a
+    fallback-shaped file wearing a rich vertex count -- which the count check
+    alone, and the generic Gaussian-property check alone, both accepted.
+    """
+    try:
+        with path.open("rb") as fh:
+            if fh.readline().strip() != b"ply":
+                return False
+            for _ in range(256):
+                line = fh.readline()
+                if not line:
+                    return False
+                stripped = line.strip()
+                if stripped == b"end_header":
+                    return False
+                parts = stripped.split()
+                if len(parts) >= 3 and parts[0] == b"property" and parts[-1].startswith(b"f_rest_"):
+                    return True
+    except OSError:
+        return False
+    return False
+
+
 def _ply_header_declares_gaussian_properties(fh) -> bool:
     """Whether the remaining header declares the Gaussian property set.
 
@@ -1016,7 +1045,16 @@ VARIANT_UNRECOGNIZED = "unrecognized"
 VARIANT_CPP_RICH = "cpp_rich"
 
 
-def classify_fixture_variant(actual_splats: int, expected_variants: dict[str, int]) -> str:
+#: Variants whose producer writes the full `f_rest_*` SH block. A fixture may only
+#: be labelled one of these if its header actually carries that block.
+RICH_SH_VARIANTS = frozenset({VARIANT_CPP_RICH})
+
+
+def classify_fixture_variant(
+    actual_splats: int,
+    expected_variants: dict[str, int],
+    has_rich_sh: bool | None = None,
+) -> str:
     """Return which declared producer wrote a fixture of this exact size.
 
     `undeclared` when the asset declares no producer counts (a
@@ -1031,6 +1069,13 @@ def classify_fixture_variant(actual_splats: int, expected_variants: dict[str, in
     )
     if not matches:
         return VARIANT_UNRECOGNIZED
+    # A count match is not producer evidence on its own. When the header was
+    # inspected, a rich label additionally requires the rich SH block; without it
+    # the file is fallback-shaped wearing a rich count, which is `unrecognized`.
+    if has_rich_sh is False:
+        matches = [m for m in matches if m not in RICH_SH_VARIANTS]
+        if not matches:
+            return VARIANT_UNRECOGNIZED
     # Two producers writing the same count is not an error, but the label must be
     # deterministic rather than dict-order dependent.
     return matches[0]
@@ -1091,7 +1136,9 @@ def evaluate_fixture_contract(
             f"different workload and will not reproduce published numbers\n"
             f"      regenerate it WITH a binary: {PLY_PREP_COMMAND}"
         )
-    if variants and classify_fixture_variant(actual, variants) == VARIANT_UNRECOGNIZED:
+    if variants and classify_fixture_variant(
+        actual, variants, ply_header_declares_rich_sh(asset_file)
+    ) == VARIANT_UNRECOGNIZED:
         # This is the half a floor can never catch: a fixture the right side of
         # the floor but produced by nothing. Import-time thinning, a truncated
         # write and a hand-edited header all land here.
@@ -1193,7 +1240,9 @@ def collect_fixture_provenance(
         variant = (
             VARIANT_UNDECLARED
             if actual is None
-            else classify_fixture_variant(actual, expected_variants)
+            else classify_fixture_variant(
+                actual, expected_variants, ply_header_declares_rich_sh(asset_file)
+            )
         )
         records.append(
             {
