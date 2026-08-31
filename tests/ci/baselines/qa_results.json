@@ -375,16 +375,42 @@
       "passed": true,
       "scene": "res://scenes/qa/qa_sh_rotation_instance.tscn",
       "skipped": false
+    },
+    {
+      "message": "Depth-tested composite occludes correctly: hidden behind the mesh, drawn beside it, restored when the depth test is off. occluded_residual=0.0000 control_contrast=1.3967 mesh_contrast=0.9456 visible_warmth(true/false)=0.5005/0.5005",
+      "metrics": {
+        "control_contrast": 1.39672317980109,
+        "control_contrast_threshold": 0.15,
+        "depth_false_background_warmth": 0.0475291196320556,
+        "depth_false_mesh_only_warmth": -0.755912930350325,
+        "depth_false_occluded_warmth": 0.498683958037479,
+        "depth_false_visible_warmth": 0.500542952704968,
+        "depth_true_background_warmth": 0.0475291196320556,
+        "depth_true_mesh_only_warmth": -0.898039221763611,
+        "depth_true_occluded_warmth": -0.898039221763611,
+        "depth_true_visible_warmth": 0.500542952704968,
+        "mesh_contrast": 0.945568341395666,
+        "mesh_contrast_threshold": 0.15,
+        "occluded_residual": 0.0,
+        "occluded_residual_threshold": 0.06,
+        "occlusion_contrast_not_gated": 1.39858217446858,
+        "splat_warmth_threshold": 0.15,
+        "visible_warmth_delta": 0.0,
+        "wall_splat_count": 228
+      },
+      "passed": true,
+      "scene": "res://scenes/qa/qa_composite_depth_occlusion.tscn",
+      "skipped": false
     }
   ],
   "summary": {
     "duration_s": 157.529,
     "end_time": 170.908,
     "failed": 0,
-    "passed": 9,
+    "passed": 10,
     "quarantined": 5,
     "skipped": 0,
     "start_time": 13.379,
-    "total_tests": 9
+    "total_tests": 10
   }
 }
