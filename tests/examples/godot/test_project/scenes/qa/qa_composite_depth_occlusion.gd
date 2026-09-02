@@ -593,9 +593,22 @@ func _on_test_complete():
 	)
 	# GATE: the occluder itself rendered -- unshaded blue mesh vs neutral clear
 	# colour, measured where the wall does not reach.
-	var mesh_contrast: float = (
+	#
+	# Measured in BOTH configurations, and the weaker one gates. Checking only
+	# depth_true leaves the control unvalidated: if the depth_test=false
+	# composite erased or overwrote the destination mesh, depth_false["occluded"]
+	# would still turn warm from the wall behind it, control_contrast would pass,
+	# and the scene would report success -- while the apparent refill came from
+	# LOSING THE OCCLUDER rather than from correctly disabling splat rejection.
+	# The control has to be shown to still contain an occluder for its refill to
+	# mean anything.
+	var mesh_contrast_true: float = (
 		float(depth_true["background"]["warmth"]) - float(depth_true["mesh_only"]["warmth"])
 	)
+	var mesh_contrast_false: float = (
+		float(depth_false["background"]["warmth"]) - float(depth_false["mesh_only"]["warmth"])
+	)
+	var mesh_contrast: float = min(mesh_contrast_true, mesh_contrast_false)
 	# RECORDED, NOT A GATE. In-frame exposed-vs-occluded separation. It is the
 	# intuitive oracle, which is exactly why it is written down as not being
 	# one: it is contaminated by the occluder's own blue, so it stays large even
@@ -609,6 +622,8 @@ func _on_test_complete():
 	result_metrics["occluded_residual"] = occluded_residual
 	result_metrics["control_contrast"] = control_contrast
 	result_metrics["mesh_contrast"] = mesh_contrast
+	result_metrics["mesh_contrast_depth_true"] = mesh_contrast_true
+	result_metrics["mesh_contrast_depth_false"] = mesh_contrast_false
 	result_metrics["occlusion_contrast_not_gated"] = occlusion_contrast
 	result_metrics["visible_warmth_delta"] = visible_warmth_true - visible_warmth_false
 	# The four acceptance thresholds are emitted under names ending in
@@ -637,10 +652,15 @@ func _on_test_complete():
 	# 1. No occluder -> nothing in this scene could occlude anything.
 	if mesh_contrast < MIN_MESH_CONTRAST:
 		_test_result = false
-		_test_message = ("Occluder mesh did not render (mesh_contrast=%.4f < %.4f): the region "
-				+ "above the wall is indistinguishable from bare background, so nothing here "
-				+ "could have occluded anything and no occlusion verdict is possible. %s") % [
-			mesh_contrast, MIN_MESH_CONTRAST, summary
+		var weaker := "depth_test=false" if mesh_contrast_false <= mesh_contrast_true else "depth_test=true"
+		_test_message = ("Occluder mesh did not render in %s (mesh_contrast=%.4f < %.4f; "
+				+ "true=%.4f false=%.4f): the region above the wall is indistinguishable from "
+				+ "bare background, so nothing there could have occluded anything and no "
+				+ "occlusion verdict is possible. If only the depth_test=false side lost it, "
+				+ "the control's refill came from losing the occluder, not from disabling "
+				+ "splat rejection. %s") % [
+			weaker, mesh_contrast, MIN_MESH_CONTRAST,
+			mesh_contrast_true, mesh_contrast_false, summary
 		]
 		return
 
