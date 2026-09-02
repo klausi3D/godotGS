@@ -1269,6 +1269,45 @@ class ManifestVariantContractTests(unittest.TestCase):
             self.assertEqual(manifest.asset_expected_splat_counts, {})
 
 
+class CppGenerationProvesFreshOutputTests(unittest.TestCase):
+    """A producer that writes nothing must not inherit pre-existing fixtures (#790 review).
+
+    The previous check compared mtimes against the launch time with two seconds
+    of slack. A caller who ran the fallback prep and immediately retried with a
+    binary whose `GeneratePLY` filter matches zero tests but exits 0 left files
+    inside that grace window, so every stale fallback fixture was accepted as
+    freshly generated and `cpp_generated` was set on a corpus the producer never
+    touched.
+    """
+
+    def _fake_binary_that_writes_nothing(self):
+        """A producer that exits 0 and creates no files."""
+        class _Proc:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        return lambda *a, **k: _Proc()
+
+    def test_a_producer_that_writes_nothing_fails_even_with_fresh_leftovers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            # Leftovers with mtimes from *right now* -- inside the old grace window.
+            for name in _prepare.CPP_GENERATED_FILENAMES:
+                _write_ply(out / name, 1024, header_only=True)
+
+            with mock.patch.object(_prepare.subprocess, "run",
+                                   self._fake_binary_that_writes_nothing()):
+                ok = _prepare._generate_via_godot(Path("godot"), out, quiet=True)
+
+            self.assertFalse(
+                ok, "a producer that created no files was accepted as having generated them"
+            )
+            # And the workspace is not left worse: the leftovers are restored.
+            for name in _prepare.CPP_GENERATED_FILENAMES:
+                self.assertTrue((out / name).is_file(),
+                                f"{name} was not restored after the failed attempt")
+
+
 class PrepFallbackPolicyTests(unittest.TestCase):
     """`--godot-binary` is a requirement, not a preference (#790, cause 3).
 

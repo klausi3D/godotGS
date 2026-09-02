@@ -12,6 +12,7 @@ import argparse
 import json
 import math
 import os
+import pathlib
 import random
 import re
 import shutil
@@ -998,17 +999,56 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
     ]
     if not quiet:
         print(f"[prepare_synthetic_assets] running C++ generators via: {' '.join(cmd)}")
-    # Captured BEFORE the run: the completeness check below has to distinguish
-    # "this invocation wrote the fixtures" from "a previous Python-fallback run
-    # left files with the right names lying around", which is the default state
-    # of any workspace that has ever run this script without a binary.
-    started_at = time.time()
+    # Move the expected outputs aside BEFORE launching, so their later existence
+    # is proof that THIS invocation created them.
+    #
+    # This replaces a wall-clock comparison (`mtime < started_at - 2.0`) that
+    # could not do the job: a caller who ran the fallback prep and immediately
+    # retried with a binary whose filter matches zero tests but exits 0 left
+    # files whose mtimes fell inside the two-second grace, so every stale
+    # fallback fixture was accepted as freshly generated and `cpp_generated`
+    # was set on a corpus the producer never touched.
+    #
+    # Moved rather than deleted: if the producer fails we put them back, so a
+    # failed attempt does not leave the workspace worse than it found it.
+    quarantine = output_dir / ".pre_cpp_generation"
+    stashed: dict[str, pathlib.Path] = {}
+    try:
+        if any((output_dir / n).is_file() for n in CPP_GENERATED_FILENAMES):
+            quarantine.mkdir(parents=True, exist_ok=True)
+            for name in sorted(CPP_GENERATED_FILENAMES):
+                src = output_dir / name
+                if src.is_file():
+                    dst = quarantine / name
+                    if dst.exists():
+                        dst.unlink()
+                    src.replace(dst)
+                    stashed[name] = dst
+    except OSError as exc:
+        print(f"[prepare_synthetic_assets] could not isolate existing fixtures: {exc}")
+        return False
+
+    def _restore_stashed() -> None:
+        for name, src in stashed.items():
+            try:
+                target = output_dir / name
+                if not target.exists():
+                    src.replace(target)
+            except OSError:
+                pass
+        try:
+            if quarantine.is_dir() and not any(quarantine.iterdir()):
+                quarantine.rmdir()
+        except OSError:
+            pass
+
     try:
         proc = subprocess.run(
             cmd, capture_output=True, text=True, timeout=CPP_GENERATION_TIMEOUT_S, env=env
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         print(f"[prepare_synthetic_assets] C++ generation failed: {exc}")
+        _restore_stashed()
         return False
 
     if proc.returncode != 0:
@@ -1016,27 +1056,33 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
         if proc.stderr:
             for line in proc.stderr.strip().splitlines()[-5:]:
                 print(f"  {line}")
+        _restore_stashed()
         return False
 
-    # Verify all expected files were written BY THIS RUN. Two seconds of slack
-    # covers filesystem timestamp granularity, not a stale fixture.
-    missing: list[str] = []
-    stale: list[str] = []
-    for name in sorted(CPP_GENERATED_FILENAMES):
-        candidate = output_dir / name
-        if not candidate.is_file():
-            missing.append(name)
-        elif candidate.stat().st_mtime < started_at - 2.0:
-            stale.append(name)
+    # Existence IS the proof now: the expected outputs were moved aside above, so
+    # anything present here was created by the run that just finished. No
+    # timestamp reasoning, and therefore no grace window to slip through.
+    missing = [n for n in sorted(CPP_GENERATED_FILENAMES) if not (output_dir / n).is_file()]
     if missing:
-        print(f"[prepare_synthetic_assets] C++ generation missing files: {missing}")
-        return False
-    if stale:
         print(
-            "[prepare_synthetic_assets] C++ generation exited 0 but did not rewrite: "
-            f"{stale}; these are leftovers from an earlier run, not generated fixtures"
+            "[prepare_synthetic_assets] C++ generation exited 0 but did not write: "
+            f"{missing}; the producer ran without producing these, so the corpus is "
+            "not C++-generated"
         )
+        _restore_stashed()
         return False
+
+    # The producer succeeded, so the stashed copies are superseded.
+    for src in stashed.values():
+        try:
+            src.unlink()
+        except OSError:
+            pass
+    try:
+        if quarantine.is_dir() and not any(quarantine.iterdir()):
+            quarantine.rmdir()
+    except OSError:
+        pass
 
     if not quiet:
         for name in sorted(CPP_GENERATED_FILENAMES):
