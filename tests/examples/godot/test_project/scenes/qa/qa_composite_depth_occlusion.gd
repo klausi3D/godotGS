@@ -109,6 +109,25 @@ extends "res://scripts/qa_test_base.gd"
 ##     the same pixels; the message names both rather than guessing.
 
 @export var settle_frames: int = 24
+
+## Wall-clock floor per configuration, enforced ALONGSIDE settle_frames.
+##
+## A frame count is the ONLY thing separating one configuration's capture from
+## the next, and that is not enough. `_apply_current_config()` changes a project
+## setting and nothing else, so the readiness check below --
+## `get_visible_splat_count()` -- is a CULL-STAGE count that stays positive
+## across the swap and passes immediately on every configuration after the
+## first. On a fast runner 24 frames can elapse before the new setting has
+## travelled through the sorter to the presented image, and the capture then
+## measures the PREVIOUS configuration while being recorded as this one -- which
+## would make depth_true and depth_false look identical and fail the control.
+##
+## Deliberately not a "wait until the frame differs from the last one" detector:
+## two configurations producing identical output is a REAL failure this scene
+## exists to report (control_contrast collapses), and a difference-waiter cannot
+## tell that apart from "not presented yet". A floor plus the existing deadline
+## keeps those two distinguishable.
+@export var settle_seconds: float = 1.5
 @export var capture_stride: int = 4
 
 ## WHAT THIS SCENE DOES NOT ISOLATE (review follow-up)
@@ -205,6 +224,7 @@ var _configs: Array[Dictionary] = [
 	{"name": "depth_false", "depth_test": false},
 ]
 var _config_index: int = 0
+var _config_started_at: float = 0.0
 var _frames_in_config: int = 0
 var _applied: bool = false
 var _measurements: Array[Dictionary] = []
@@ -307,6 +327,7 @@ func _on_test_frame(_delta: float):
 	if not _applied:
 		_apply_current_config()
 		_frames_in_config = 0
+		_config_started_at = Time.get_ticks_msec() / 1000.0
 		return
 
 	_frames_in_config += 1
@@ -315,6 +336,9 @@ func _on_test_frame(_delta: float):
 	# image before a capture means anything. The upper bound is the wall-clock
 	# deadline in _on_test_complete(), not a frame count.
 	if _frames_in_config < settle_frames:
+		return
+	var config_elapsed := (Time.get_ticks_msec() / 1000.0) - _config_started_at
+	if config_elapsed < settle_seconds:
 		return
 
 	# Readiness, not the oracle: keep pumping until the cull stage has actually
