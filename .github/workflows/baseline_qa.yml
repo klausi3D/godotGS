@@ -23,7 +23,21 @@ on:
         default: false
         type: boolean
       baseline_mode:
-        description: 'QA baseline mode (compare against stored baseline or refresh it)'
+        # Governs the GPU HARNESS visual baselines only. It deliberately does
+        # NOT refresh the QA scene baseline (tests/ci/baselines/qa_results.json).
+        # That is not an oversight: the qa lane must never rewrite its own
+        # expectations, and
+        # test_baseline_qa_require_flag.py::test_the_qa_lane_demands_capture_and_a_baseline
+        # fails the build if it ever gains --update-qa-baseline, because "a job
+        # that updates its expectations absorbs regressions instead of detecting
+        # them".
+        #
+        # The previous description read "QA baseline mode ... or refresh it",
+        # which sent a maintainer here expecting a QA scene recapture and
+        # produced a red job with no explanation of why. QA scene baselines are
+        # captured deliberately, by a human, from a run whose differences have
+        # been read.
+        description: 'GPU harness visual-baseline mode (does NOT refresh the QA scene baseline)'
         required: false
         default: compare
         type: choice
@@ -245,6 +259,10 @@ jobs:
               && github.event.merge_group.base_sha
               || github.event.pull_request.base.sha }}
       run: |
+        # `--update-qa-baseline` is intentionally absent here and must stay
+        # absent, including via `baseline_mode`. A lane that rewrites the
+        # expectations it is checking absorbs regressions instead of detecting
+        # them; the guard named above fails the build if this changes.
         $args = @(
           "--categories", "qa",
           "--qa-require-capture",
