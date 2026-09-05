@@ -157,6 +157,56 @@ class PlyProvenanceIsNotCountAloneTests(unittest.TestCase):
             self.assertEqual(_run_benchmark.read_ply_vertex_count(ply), 10000)
 
 
+class ProducerHeaderShapeIsDerivedTests(unittest.TestCase):
+    """The rich shape the tests assert against must come from the WRITER (#790 review).
+
+    The positive rich-fixture tests hand-author the producer's header. A locally
+    invented shape can only confirm what the author already believed: if
+    `synthetic_ply_writer.cpp` changed its header, those tests would stay green
+    while describing a file the producer no longer writes.
+
+    This is derivation from source, and it is NOT the capture-from-a-real-run the
+    review asked for -- that needs the module build. What it does establish is
+    the coupling: the writer changing its header changes the derived list, and
+    these assertions fail rather than drifting quietly.
+    """
+
+    def test_the_writer_source_is_parseable_at_all(self):
+        """Non-vacuity: an unparseable writer would make every check below empty."""
+        props = _prepare.parse_cpp_writer_properties()
+        self.assertTrue(props, "no properties derived - the writer parse produced nothing")
+        self.assertIn("x", props)
+        self.assertIn("opacity", props)
+
+    def test_the_required_rich_sh_block_matches_the_writer(self):
+        props = _prepare.parse_cpp_writer_properties()
+        emitted = {p.encode() for p in props if p.startswith("f_rest_")}
+        self.assertEqual(
+            emitted,
+            set(_run_benchmark._RICH_SH_PROPERTIES),
+            "the f_rest block this guard requires is not the block the writer emits",
+        )
+
+    def test_every_required_property_is_one_the_writer_emits(self):
+        props = {p.encode() for p in _prepare.parse_cpp_writer_properties()}
+        missing = sorted(p for p in _run_benchmark._REQUIRED_PLY_PROPERTIES if p not in props)
+        self.assertEqual(
+            missing, [],
+            "the guard demands properties the C++ writer never emits, so a genuine "
+            "producer fixture would be rejected",
+        )
+
+    def test_the_test_helpers_rich_shape_matches_the_writer(self):
+        """The hand-authored helper must agree with the producer it stands in for."""
+        props = set(_prepare.parse_cpp_writer_properties())
+        invented = set(_GAUSSIAN_PLY_PROPERTIES) | {f"f_rest_{i}" for i in range(45)}
+        stray = sorted(invented - props)
+        self.assertEqual(
+            stray, [],
+            "the test helper writes properties the real producer does not emit",
+        )
+
+
 class RichVariantRequiresRichShTests(unittest.TestCase):
     """A rich label must mean the rich PRODUCER, not merely the rich COUNT (#790 review).
 
@@ -1287,6 +1337,45 @@ class CppGenerationProvesFreshOutputTests(unittest.TestCase):
             stdout = ""
             stderr = ""
         return lambda *a, **k: _Proc()
+
+    def test_a_partially_written_failed_run_restores_the_originals(self):
+        """Partial output must not survive a failed attempt (#790 review).
+
+        A producer that writes some expected files and then dies leaves debris of
+        unknown content and unknown splat count. Restoring only where the target
+        was ABSENT left that debris in place and dropped the original underneath
+        it -- a mix of partial output and stale originals, indistinguishable from
+        a good corpus by filename.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
+            for name in names:
+                _write_ply(out / name, 1024, header_only=True)
+            originals = {n: (out / n).read_bytes() for n in names}
+
+            partial = names[0]
+
+            class _Proc:
+                returncode = 1
+                stdout = ""
+                stderr = "generator died halfway"
+
+            def _writes_one_then_fails(*a, **k):
+                # Simulate the producer emitting one file before dying.
+                _write_ply(out / partial, 99999, header_only=True)
+                return _Proc()
+
+            with mock.patch.object(_prepare.subprocess, "run", _writes_one_then_fails):
+                ok = _prepare._generate_via_godot(Path("godot"), out, quiet=True)
+
+            self.assertFalse(ok, "a failed generator run was reported as success")
+            for name in names:
+                self.assertTrue((out / name).is_file(), f"{name} missing after failed run")
+                self.assertEqual(
+                    (out / name).read_bytes(), originals[name],
+                    f"{name} was left as partial generator output instead of the original",
+                )
 
     def test_a_producer_that_writes_nothing_fails_even_with_fresh_leftovers(self):
         with tempfile.TemporaryDirectory() as tmp:

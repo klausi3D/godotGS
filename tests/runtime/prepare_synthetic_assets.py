@@ -114,6 +114,40 @@ def parse_cpp_generator_counts(header_path: Path | None = None) -> dict[str, int
 
 
 # {filename: splat count} written by the C++ [GeneratePLY] generators.
+SYNTHETIC_PLY_WRITER = (
+    RUNTIME_DIR.parents[1] / "modules" / "gaussian_splatting" / "tests" / "synthetic_ply_writer.cpp"
+)
+
+_PLY_PROPERTY_RE = re.compile(r'header \+= "property float ([A-Za-z0-9_]+)')
+_PLY_PROPERTY_LOOP_RE = re.compile(
+    r'for \(int i = 0; i < (\d+); i\+\+\) \{\s*header \+= vformat\("property float ([a-z_]+)%d'
+)
+
+
+def parse_cpp_writer_properties() -> tuple[str, ...]:
+    """The property names the C++ writer emits, READ FROM THE WRITER.
+
+    The rich-fixture tests previously hand-authored the producer's header shape.
+    A locally invented shape can only ever confirm what the author already
+    believed: if `synthetic_ply_writer.cpp` changed its header, the positive test
+    would stay green while describing a file the producer no longer writes.
+
+    This is derivation from source, and NOT the same thing as a fixture captured
+    from a real producer run -- the reviewer asked for capture, which needs the
+    module build. It does establish the coupling: the writer changing its header
+    changes this list, so the shape a test asserts against cannot silently drift
+    away from the shape the producer emits.
+    """
+    try:
+        source = SYNTHETIC_PLY_WRITER.read_text(encoding="utf-8")
+    except OSError:
+        return ()
+    names: list[str] = list(_PLY_PROPERTY_RE.findall(source))
+    for count, prefix in _PLY_PROPERTY_LOOP_RE.findall(source):
+        names.extend(f"{prefix}{i}" for i in range(int(count)))
+    return tuple(names)
+
+
 CPP_GENERATOR_SPLAT_COUNTS: dict[str, int] = parse_cpp_generator_counts()
 
 # Files the C++ generators produce.  When --godot-binary is given these come from
@@ -1029,11 +1063,30 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
         return False
 
     def _restore_stashed() -> None:
-        for name, src in stashed.items():
+        """Undo the isolation after a FAILED attempt, partial output included.
+
+        A failed producer may have written some expected files before dying, and
+        those are not fixtures -- they are the debris of a run that did not
+        finish, of unknown content and unknown splat count. Restoring only where
+        the target is ABSENT (the first version of this) left that debris in
+        place and silently dropped the original underneath it, leaving the
+        workspace as a mix of partial output and stale originals: worse than
+        either, and indistinguishable from a good corpus by name alone.
+
+        So the partial output is discarded and the original put back. A file the
+        producer created that had no original is removed outright, since keeping
+        it would present a half-written fixture as a real one.
+        """
+        for name in sorted(CPP_GENERATED_FILENAMES):
+            target = output_dir / name
+            src = stashed.get(name)
             try:
-                target = output_dir / name
-                if not target.exists():
-                    src.replace(target)
+                if src is not None:
+                    if target.exists():
+                        target.unlink()          # discard partial output
+                    src.replace(target)          # put the original back
+                elif target.exists():
+                    target.unlink()              # partial, and nothing to restore
             except OSError:
                 pass
         try:
