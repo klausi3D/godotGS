@@ -1103,6 +1103,7 @@ void TileGlobalSortResources::reset_state(bool p_clear_sorter) {
 	last_sorter_grow_failure_frame = 0;
 	sorter_grow_recoveries = 0;
 	sorter_grow_failure_logged = false;
+	sorter_grow_awaiting_publish = false;
 	sorter_device_id = 0;
 	capacity = 0;
 	shrink_candidate_frames = 0;
@@ -1351,6 +1352,7 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 		auto abandon_grow_episode = [&]() {
 			sorter_grow_failure_count = 0;
 			sorter_grow_failure_logged = false;
+			sorter_grow_awaiting_publish = false;
 		};
 
 		// p_root_cause is the short WHY, without a consequence: the consequence is each
@@ -1402,6 +1404,9 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 				sorter_grow_failure_count++;
 			}
 			last_sorter_grow_failure_frame = owner.frame_state.current_frame_serial;
+			// A replacement built earlier in this episode but never carried to a published
+			// frame is superseded by this failure: the episode stays open.
+			sorter_grow_awaiting_publish = false;
 			const uint64_t backoff_frames = GaussianSplatting::sorter_init_backoff_frames(sorter_grow_failure_count);
 			if (!sorter_grow_failure_logged) {
 				// Root cause once per grow episode, with THIS path's consequence -- the
@@ -1520,15 +1525,24 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 					const uint32_t previous_capacity = capacity;
 					capacity = sorter->get_max_elements();
 					sorter_available = true;
-					if (replacing_live_sorter && !wants_shrink && sorter_grow_failure_count > 0) {
-						// The pending grow succeeded: this episode's frames were sorted at the
-						// old budget throughout, so the grow's own success is its recovery
-						// (unlike the no-sorter episode, which closes on a published frame).
-						GS_LOG_WARN_DEFAULT(vformat("[TileRenderer] Global composite sort grow succeeded after %d failed attempt(s): capacity %d -> %d (#586)",
+					if (!capacity_grow) {
+						// A replacement that is not a same-layout capacity grow -- a layout
+						// change, a shrink, a first creation -- retires (or never had) the sorter
+						// a pending grow episode belonged to. Abandon it, do not count it: the
+						// replacement may be no larger than before, and counting it would clear
+						// the grow backoff and report a recovery that did not happen (#982 review
+						// round 2). The fresh sorter's first grow starts its own schedule.
+						abandon_grow_episode();
+					} else if (sorter_grow_failure_count > 0) {
+						// The pending grow's replacement is built -- but its enlarged key/value/
+						// tile buffers are allocated further down and can still fail (the
+						// reduced-capacity fallback then retires this very sorter). The episode
+						// therefore closes only in note_sorted_frame_published(), once a sorted
+						// frame has gone through the replacement (#982 review round 2; the same
+						// rule the no-sorter episode follows since #977 round 3).
+						sorter_grow_awaiting_publish = true;
+						GS_LOG_INFO_DEFAULT(vformat("[TileRenderer] Global composite sort grow replacement built after %d failed attempt(s): capacity %d -> %d; the grow episode closes on the next published sorted frame (#586)",
 								int(sorter_grow_failure_count), int(previous_capacity), int(capacity)));
-						sorter_grow_failure_count = 0;
-						sorter_grow_recoveries++;
-						sorter_grow_failure_logged = false;
 					}
 					// NOTE: a non-zero sorter_init_failure_count is NOT cleared here. The sorter
 					// coming back is necessary but not sufficient: the key/value/tile buffers
@@ -1765,6 +1779,17 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 }
 
 void TileGlobalSortResources::note_sorted_frame_published() {
+	if (sorter_grow_awaiting_publish) {
+		// The grow's replacement sorter AND its enlarged buffers have carried a
+		// published sorted frame: only now is the grow episode a recovery (#982 review
+		// round 2).
+		GS_LOG_WARN_DEFAULT(vformat("[TileRenderer] Global composite sort grow succeeded after %d failed attempt(s): a sorted frame was published at capacity %d (#586)",
+				int(sorter_grow_failure_count), int(capacity)));
+		sorter_grow_failure_count = 0;
+		sorter_grow_recoveries++;
+		sorter_grow_failure_logged = false;
+		sorter_grow_awaiting_publish = false;
+	}
 	if (sorter_init_failure_count == 0) {
 		return;
 	}

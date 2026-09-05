@@ -2315,8 +2315,11 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_failed_g
     //      attempted (grow failure count still 1, sorter untouched).
     //   5. GROW SUCCEEDS -- at failure+backoff the same 34M request under the default config
     //      builds the replacement: a different sorter object at capacity 34M, buffers
-    //      reallocated (key RID changed), grow failure count 0, grow recoveries +1, the old
-    //      sorter retired only now. The next frame publishes.
+    //      reallocated (key RID changed), the old sorter retired only now. The grow episode
+    //      stays OPEN (grow failure count still 1, recoveries unchanged) until the next frame
+    //      has PUBLISHED through the replacement and its enlarged buffers; only then grow
+    //      failure count 0 and grow recoveries +1 (#982 review round 2, mirroring #977's
+    //      no-sorter episode close).
     TestResult result;
 
     Error err = tile_renderer->initialize(p_rd, Vector2i(TEST_VIEWPORT_WIDTH, TEST_VIEWPORT_HEIGHT), TEST_TILE_SIZE);
@@ -2491,10 +2494,13 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_failed_g
             r.error_message = "The grow succeeded but the key buffer was not reallocated for the larger capacity.";
             return r;
         }
-        if (tile_renderer->get_global_sort_sorter_grow_failure_count() != 0u ||
-                tile_renderer->get_global_sort_sorter_grow_recoveries() != grow_recoveries_before + 1u) {
+        if (tile_renderer->get_global_sort_sorter_grow_failure_count() != 1u ||
+                tile_renderer->get_global_sort_sorter_grow_recoveries() != grow_recoveries_before) {
             r.error_message = vformat(
-                    "The grow succeeded but the grow episode was not closed (grow failures=%d, grow recoveries %d -> %d).",
+                    "#982 ROUND-2 REGRESSION (GROW CLOSED BEFORE PUBLISH): the grow episode was closed as soon as the replacement "
+                    "sorter was built (grow failures=%d, grow recoveries %d -> %d), before its enlarged buffers were allocated and "
+                    "before any frame went through it; a buffer failure after the build would be reported as a recovery and the "
+                    "accumulated backoff lost.",
                     int(tile_renderer->get_global_sort_sorter_grow_failure_count()),
                     int(grow_recoveries_before), int(tile_renderer->get_global_sort_sorter_grow_recoveries()));
             return r;
@@ -2503,6 +2509,15 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_failed_g
         RID grown_output = tile_renderer->render(p_rd, params);
         if (!grown_output.is_valid() || tile_renderer->get_global_composite_rejected_frames() != rejected_before) {
             r.error_message = "The first frame after the successful grow did not publish cleanly.";
+            return r;
+        }
+        if (tile_renderer->get_global_sort_sorter_grow_failure_count() != 0u ||
+                tile_renderer->get_global_sort_sorter_grow_recoveries() != grow_recoveries_before + 1u) {
+            r.error_message = vformat(
+                    "A sorted frame was published through the grown sorter but the grow episode was not closed "
+                    "(grow failures=%d, grow recoveries %d -> %d).",
+                    int(tile_renderer->get_global_sort_sorter_grow_failure_count()),
+                    int(grow_recoveries_before), int(tile_renderer->get_global_sort_sorter_grow_recoveries()));
             return r;
         }
 
@@ -2547,6 +2562,13 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_failed_r
     //      is rendered through the old sorter.
     //   5. RETRY at failure+backoff under the buildable custom defaults (radix 4 x wg 256): a
     //      sorter exists again, at the 64-bit layout and 34M, and the next frame publishes.
+    //   6. PENDING GROW AGAIN: a refused 64-bit grow (68M at radix 8 x wg 64) keeps the 34M
+    //      sorter and opens a grow episode (grow failures 1).
+    //   7. SUCCESSFUL LAYOUT CHANGE (64 -> 32-bit, at the scene's capacity C) with that episode
+    //      pending: the replacement is built and is no larger than the retired sorter. The
+    //      episode must be ABANDONED, not counted: grow failures 0, grow recoveries unchanged,
+    //      also after the next frame publishes. Round-1 head: counted as a grow recovery -> RED
+    //      (#982 review round 2).
     TestResult result;
 
     Error err = tile_renderer->initialize(p_rd, Vector2i(TEST_VIEWPORT_WIDTH, TEST_VIEWPORT_HEIGHT), TEST_TILE_SIZE);
@@ -2777,6 +2799,65 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_failed_r
         RID recovered_output = tile_renderer->render(p_rd, params);
         if (!recovered_output.is_valid() || tile_renderer->get_global_composite_rejected_frames() != rejected_before + 1u) {
             r.error_message = "The first frame after the rebuilt 64-bit sorter did not publish cleanly.";
+            return r;
+        }
+
+        // ---- Phase 6: a refused 64-bit grow opens a grow episode on the rebuilt sorter. ----
+        const IGPUSorter *sorter_64 = sort_resources.sorter.ptr();
+        const uint64_t recoveries_before_relayout = tile_renderer->get_global_sort_sorter_grow_recoveries();
+        // Above the 32-bit buffer limit at radix 8 x wg 64 x 64-bit keys (128 B/record), below the 200M ceiling.
+        const uint32_t REFUSED_GROW_64 = 68000000u;
+        if (!request_refused(failure_frame + backoff + 2u, REFUSED_GROW_64)) {
+            r.error_message = "Premise failed (phase 6): the refusing configuration did not make the 64-bit grow request exceed the device size limit.";
+            return r;
+        }
+        g_gpu_sorting_config.load_from_project_settings();
+        if (sort_resources.sorter.ptr() != sorter_64 || !sort_resources.sorter_available ||
+                tile_renderer->get_global_sort_sorter_grow_failure_count() != 1u) {
+            r.error_message = vformat(
+                    "Premise failed (phase 6): the refused 64-bit grow did not keep the sorter and open a grow episode "
+                    "(same_object=%s available=%s grow failures=%d).",
+                    sort_resources.sorter.ptr() == sorter_64 ? "true" : "false",
+                    sort_resources.sorter_available ? "true" : "false",
+                    int(tile_renderer->get_global_sort_sorter_grow_failure_count()));
+            return r;
+        }
+
+        // ---- Phase 7: a SUCCESSFUL layout change with that episode pending abandons it; it is not a grow recovery. ----
+        set_key_layout(32, 16, 16);
+        tile_renderer->set_frame_serial(failure_frame + backoff + 3u);
+        tile_renderer->_test_ensure_global_sort_resources(capacity_32);
+        if (!sort_resources.sorter.is_valid() || !sort_resources.sorter_available || sort_resources.sorter.ptr() == sorter_64 ||
+                sort_resources.key_config.key_bits != 32) {
+            r.error_message = vformat(
+                    "Premise failed (phase 7): the 64 -> 32-bit layout change at capacity %d did not build a replacement "
+                    "(sorter_valid=%s available=%s same_object=%s key_bits=%d).",
+                    int(capacity_32), sort_resources.sorter.is_valid() ? "true" : "false",
+                    sort_resources.sorter_available ? "true" : "false",
+                    sort_resources.sorter.ptr() == sorter_64 ? "true" : "false", int(sort_resources.key_config.key_bits));
+            return r;
+        }
+        if (tile_renderer->get_global_sort_sorter_grow_recoveries() != recoveries_before_relayout ||
+                tile_renderer->get_global_sort_sorter_grow_failure_count() != 0u) {
+            r.error_message = vformat(
+                    "#982 ROUND-2 REGRESSION (RELAYOUT COUNTED AS GROW RECOVERY): a successful key-layout change with a grow "
+                    "episode pending was reported as a grow recovery (grow recoveries %d -> %d, grow failures=%d, capacity now %d). "
+                    "The replacement is no larger than the retired sorter; the episode must be abandoned, not recovered, so the "
+                    "grow backoff is not cleared by an unrelated replacement.",
+                    int(recoveries_before_relayout), int(tile_renderer->get_global_sort_sorter_grow_recoveries()),
+                    int(tile_renderer->get_global_sort_sorter_grow_failure_count()), int(sort_resources.capacity));
+            return r;
+        }
+        params.frame_serial = failure_frame + backoff + 4u;
+        RID relaid_output = tile_renderer->render(p_rd, params);
+        if (!relaid_output.is_valid() || tile_renderer->get_global_composite_rejected_frames() != rejected_before + 1u) {
+            r.error_message = "The first frame after the successful 64 -> 32-bit layout change did not publish cleanly.";
+            return r;
+        }
+        if (tile_renderer->get_global_sort_sorter_grow_recoveries() != recoveries_before_relayout) {
+            r.error_message = vformat(
+                    "The published frame after the layout change closed the abandoned grow episode as a recovery (%d -> %d).",
+                    int(recoveries_before_relayout), int(tile_renderer->get_global_sort_sorter_grow_recoveries()));
             return r;
         }
 

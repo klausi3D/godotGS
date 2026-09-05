@@ -233,6 +233,12 @@ struct TileGlobalSortResources {
 	uint64_t sorter_grow_recoveries = 0;
 	// One-shot guard for the failed-grow root-cause line, per grow episode.
 	bool sorter_grow_failure_logged = false;
+	// Set when a grow's replacement sorter is built while a grow episode is open. The
+	// episode closes (a recovery) only in note_sorted_frame_published(), once a sorted
+	// frame has gone through the replacement AND its enlarged buffers -- the buffers are
+	// allocated after the build and can still fail (#982 review round 2; same rule as
+	// the no-sorter episode). Cleared by a later grow failure or an abandoned episode.
+	bool sorter_grow_awaiting_publish = false;
 	uint64_t sorter_device_id = 0;
 	uint32_t capacity = 0;
 	uint32_t shrink_candidate_frames = 0; // consecutive low-demand frames, for bounded shrink hysteresis
