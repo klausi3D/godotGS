@@ -1690,8 +1690,9 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
     //      neither counter may move. Without this the fix could "pass" by rejecting everything.
     //   2. SORTER UNAVAILABLE -- the real trigger above, same scene, splat_count > 0: render()
     //      must return an INVALID RID, global_composite_rejected_frames must go +1 with reason
-    //      SORTER_UNAVAILABLE, unsorted_composite_frames must NOT move, and the per-frame stage
-    //      timings must not keep reporting the healthy frame. Pre-fix this phase publishes a
+    //      SORTER_UNAVAILABLE, unsorted_composite_frames must NOT move, the assignment stage
+    //      (which DID run: count, prefix, emit) must still report its measured CPU cost, and
+    //      rasterization (which did not run) must report none. Pre-fix this phase publishes a
     //      valid RID and increments unsorted_composite_frames: RED on base by design.
     //   3. RECOVERY CONTROL -- config restored and the latch cleared through the test accessor:
     //      the renderer must rebuild a sorter and publish again, so the reject is a per-frame
@@ -1888,15 +1889,23 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
                     int(unsorted_before), int(tile_renderer->get_unsorted_composite_frames()));
             return r;
         }
-        // The instruments must not lie: a rejected frame reports no stage timings instead of the
-        // healthy frame's.
-        if (tile_renderer->get_tile_assignment_time() != 0.0f || tile_renderer->get_rasterization_time() != 0.0f ||
-                tile_renderer->get_last_setup_cpu_ms() != 0.0f) {
+        // The instruments must not lie (renderer/AGENTS.md, timing honesty). The assignment
+        // stage ran up to the choke point -- count, prefix/range, emit -- so the rejected frame
+        // must still report that measured CPU cost (it is what the degraded path burns every
+        // frame); rasterization did not run, so it must report none rather than the healthy
+        // frame's value.
+        if (!(tile_renderer->get_tile_assignment_time() > 0.0f) || !(tile_renderer->get_last_setup_cpu_ms() > 0.0f)) {
             r.error_message = vformat(
-                    "The rejected frame still reports stage timings (assignment=%f raster=%f setup_cpu=%f); a frame "
-                    "that produced no output must not describe the last successful one.",
-                    double(tile_renderer->get_tile_assignment_time()), double(tile_renderer->get_rasterization_time()),
-                    double(tile_renderer->get_last_setup_cpu_ms()));
+                    "The rejected frame reports no assignment cost (assignment=%f setup_cpu=%f) although count/prefix/emit "
+                    "ran before the reject; hiding that work misreports the degraded path as free.",
+                    double(tile_renderer->get_tile_assignment_time()), double(tile_renderer->get_last_setup_cpu_ms()));
+            return r;
+        }
+        if (tile_renderer->get_rasterization_time() != 0.0f) {
+            r.error_message = vformat(
+                    "The rejected frame still reports a rasterization time (%f ms); rasterization never ran, so it is "
+                    "describing the last successful frame.",
+                    double(tile_renderer->get_rasterization_time()));
             return r;
         }
 

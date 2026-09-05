@@ -337,16 +337,27 @@ private:
 	//    pixels were SHIPPED", and nothing is shipped here. A degraded frame lands in exactly
 	//    one of the two counters.
 	//
-	// 2. INVALIDATE this frame's per-frame telemetry. A rejected frame produced no output, so
-	//    the fields that describe "what this frame did" must stop describing the last
-	//    SUCCESSFUL frame: without this an operator polling get_tile_assignment_time() /
-	//    get_rasterization_time() / get_last_setup_cpu_ms() during a rejection reads the last
-	//    healthy frame's numbers for as long as the degradation lasts. Zero plus a cleared
-	//    valid flag is the existing convention in this file for "this stage did not run" (see
-	//    the zero-work branch of _finalize_frame()). The two CPU-measured pairs below are reset
-	//    by their producing stage rather than at the top of run(), so a frame rejected before
-	//    that stage would otherwise keep the previous frame's value. "Did the renderer run at
-	//    all this frame" is answered by the reject counter, not by a timing.
+	// 2. Keep the per-frame telemetry HONEST about what this frame did (renderer/AGENTS.md,
+	//    "timing honesty"). Two different things must not be conflated:
+	//
+	//    * The assignment stage RAN up to this exit -- resource setup on both exits, and at the
+	//      choke point also the count, prefix/range and emit dispatches -- so its CPU cost is
+	//      real and is PRESERVED (measured here from the same start the success path uses).
+	//      A rejected frame that reported 0 ms would hide the fact that the degraded path burns
+	//      that work on every frame; the consumers (TileRasterizer::get_performance(), the CPU
+	//      setup monitor) would read "free" while the renderer re-bins and re-emits per frame.
+	//
+	//    * Stages that did NOT run must not keep describing the last SUCCESSFUL frame:
+	//      rasterization never runs on a rejected frame (zero + "Frame rejected", the same
+	//      convention as the zero-work branch of _finalize_frame()), and on the pre-binning
+	//      exit the prefix and sort CPU pairs -- which are reset by their producing stage, not
+	//      at the top of run() -- would otherwise carry the previous frame's values. At the
+	//      choke point both pairs already hold THIS frame's values (the sort site resets its
+	//      pair before deciding, the prefix stage resets/sets its own at entry), so they are
+	//      left alone there.
+	//
+	//    "Did the renderer run at all this frame" is answered by the reject counter, not by a
+	//    timing.
 	//
 	// SCOPE, stated plainly: this covers the two exits of the global-sort pipeline that refuse
 	// a frame carrying translucent work because the sorted path is unavailable — the
@@ -355,7 +366,8 @@ private:
 	// log an ERROR and return an invalid RID; they are NOT counted here, and this counter does
 	// not claim to be a superset of every frame render() refuses. The invalidation field list
 	// is hand-maintained; there is no guard deriving it.
-	bool _reject_global_composite_frame(GaussianSplatting::UnsortedCompositeReason p_reason, int p_dispatch_error) {
+	bool _reject_global_composite_frame(GaussianSplatting::UnsortedCompositeReason p_reason, int p_dispatch_error,
+			uint64_t p_assignment_start_usec, bool p_binning_stages_ran) {
 		const uint64_t rejected_frames = ++renderer.perf_metrics.global_composite_rejected_frames;
 		renderer.perf_metrics.global_composite_last_reject_reason = uint8_t(p_reason);
 		if (GaussianSplatting::should_warn_unsorted_composite(rejected_frames)) {
@@ -364,14 +376,19 @@ private:
 					GaussianSplatting::unsorted_composite_reason_name(p_reason), p_dispatch_error, int(rejected_frames)));
 		}
 
-		renderer.perf_metrics.tile_assignment_ms = 0.0f;
+		// The assignment stage ran; report what it cost (same measurement as finish_assignment_metrics).
+		const uint64_t assignment_end_usec = OS::get_singleton()->get_ticks_usec();
+		renderer.perf_metrics.tile_assignment_ms = float(assignment_end_usec - p_assignment_start_usec) / 1000.0f;
+		renderer.timing_state.last_setup_cpu_ms = renderer.perf_metrics.tile_assignment_ms;
+		if (!p_binning_stages_ran) {
+			// Pre-binning exit: neither the prefix stage nor the sort site ran this frame.
+			renderer.timing_state.last_overlap_sort_cpu_dispatch_ms = 0.0f;
+			renderer.timing_state.overlap_sort_cpu_dispatch_valid = false;
+			renderer.timing_state.last_prefix_cpu_sync_fallback_ms = 0.0f;
+			renderer.timing_state.prefix_cpu_sync_fallback_valid = false;
+		}
+		// Rasterization never runs on a rejected frame.
 		renderer.perf_metrics.rasterization_ms = 0.0f;
-		renderer.timing_state.last_setup_cpu_ms = 0.0f;
-		renderer.timing_state.last_submission_cpu_ms = 0.0f;
-		renderer.timing_state.last_overlap_sort_cpu_dispatch_ms = 0.0f;
-		renderer.timing_state.overlap_sort_cpu_dispatch_valid = false;
-		renderer.timing_state.last_prefix_cpu_sync_fallback_ms = 0.0f;
-		renderer.timing_state.prefix_cpu_sync_fallback_valid = false;
 		renderer.perf_metrics.last_raster_used_compute = false;
 		renderer.perf_metrics.last_raster_choice_initialized = true;
 		renderer.perf_metrics.last_raster_choice_compute = false;
@@ -854,7 +871,8 @@ private:
 				// buffers, and the same pressure that failed create_sorter() then fails their
 				// reallocation, so the frame lands here rather than at the choke point.
 				return _reject_global_composite_frame(
-						GaussianSplatting::UnsortedCompositeReason::GLOBAL_SORT_RESOURCES_UNAVAILABLE, 0);
+						GaussianSplatting::UnsortedCompositeReason::GLOBAL_SORT_RESOURCES_UNAVAILABLE, 0,
+						assignment_start, /* p_binning_stages_ran = */ false);
 			}
 			// NOTE: The UNSORTED-output accounting (unsorted_composite_frames + its throttled
 			// WARN) lives at the SINGLE CHOKE POINT below (search "SINGLE CHOKE POINT"), NOT
@@ -1151,7 +1169,8 @@ private:
 			const GaussianSplatting::UnsortedCompositeReason unsorted_reason =
 					GaussianSplatting::classify_unsorted_composite(has_translucent_work, sort_outcome);
 			if (GaussianSplatting::unsorted_composite_must_reject_frame(unsorted_reason)) {
-				return _reject_global_composite_frame(unsorted_reason, sort_dispatch_error);
+				return _reject_global_composite_frame(unsorted_reason, sort_dispatch_error,
+						assignment_start, /* p_binning_stages_ran = */ true);
 			}
 			if (unsorted_reason != GaussianSplatting::UnsortedCompositeReason::NONE) {
 				const uint64_t unsorted_frames = ++renderer.perf_metrics.unsorted_composite_frames;
