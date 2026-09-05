@@ -1099,6 +1099,10 @@ void TileGlobalSortResources::reset_state(bool p_clear_sorter) {
 	sorter_init_failure_count = 0;
 	last_sorter_init_failure_frame = 0;
 	sorter_recoveries = 0;
+	sorter_grow_failure_count = 0;
+	last_sorter_grow_failure_frame = 0;
+	sorter_grow_recoveries = 0;
+	sorter_grow_failure_logged = false;
 	sorter_device_id = 0;
 	capacity = 0;
 	shrink_candidate_frames = 0;
@@ -1314,6 +1318,19 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 		const bool sorter_retry_due = !sorter_available &&
 				GaussianSplatting::should_attempt_sorter_init(sorter_init_failure_count, frames_since_last_failure);
 
+		// #586 PR 3: a GROW or key-layout change with a LIVE sorter is a replacement, not a
+		// teardown. The replacement is built first and the working sorter retired only on
+		// success; on failure the working sorter, its capacity and its buffers stay, the
+		// frame renders sorted at the old budget, and the grow is re-attempted on the same
+		// GPU-003 backoff (its own counter, because frames keep publishing meanwhile, so the
+		// published-frame episode close of PR 2 must not reset it). Same wrap-safe delta.
+		const bool grow_wanted = sorter_available && sorter.is_valid() &&
+				(capacity < attempt_elements || key_config_changed);
+		const uint32_t frames_since_last_grow_failure =
+				uint32_t(owner.frame_state.current_frame_serial) - uint32_t(last_sorter_grow_failure_frame);
+		const bool grow_due = grow_wanted &&
+				GaussianSplatting::should_attempt_sorter_init(sorter_grow_failure_count, frames_since_last_grow_failure);
+
 		auto disable_sorter = [&](const char *p_reason) {
 			if (sorter.is_valid()) {
 				sorter->shutdown();
@@ -1351,6 +1368,28 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 			}
 		};
 
+		// A failed grow that cannot be re-attempted yet: the working sorter keeps
+		// rendering at its capacity; the frame is sorted, records above the budget are
+		// clamped by the prefix pass (overflow-drop telemetry), nothing is torn down.
+		auto keep_sorter_after_failed_grow = [&](const char *p_reason) {
+			if (sorter_grow_failure_count < UINT32_MAX) {
+				sorter_grow_failure_count++;
+			}
+			last_sorter_grow_failure_frame = owner.frame_state.current_frame_serial;
+			const uint64_t backoff_frames = GaussianSplatting::sorter_init_backoff_frames(sorter_grow_failure_count);
+			if (!sorter_grow_failure_logged) {
+				GS_LOG_WARN_DEFAULT(p_reason);
+				sorter_grow_failure_logged = true;
+			}
+			if (GaussianSplatting::sorter_init_degraded(sorter_grow_failure_count)) {
+				GS_LOG_ERROR_DEFAULT(vformat("[TileRenderer] Global composite sort grow to %d failed %d consecutive times - keeping the working sorter at capacity %d; overlap records above it are dropped (sorted) until a grow succeeds; probing every %d frames (#586)",
+						int(attempt_elements), int(sorter_grow_failure_count), int(capacity), int(backoff_frames)));
+			} else {
+				GS_LOG_WARN_DEFAULT(vformat("[TileRenderer] Global composite sort grow to %d failed (attempt %d) - keeping the working sorter at capacity %d; overlap records above it are dropped (sorted); retrying in %d frames (#586)",
+						int(attempt_elements), int(sorter_grow_failure_count), int(capacity), int(backoff_frames)));
+			}
+		};
+
 		if (!sorter_available && !sorter_retry_due) {
 			// In backoff: track the demand so the buffers stay sized for it, but do not
 			// attempt creation this call.
@@ -1359,19 +1398,20 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 				capacity = MAX<uint32_t>(attempt_elements, 1u);
 				sorter_recreated = true;
 			}
-		} else if (sorter_retry_due || !sorter.is_valid() || capacity < attempt_elements || key_config_changed || wants_shrink) {
-			// A pure bounded shrink (entered ONLY via wants_shrink, with a valid sorter
-			// that already satisfies demand and key config) is an OPTIONAL VRAM reclaim:
-			// build the smaller replacement BEFORE retiring the working sorter so a
-			// failed/unsuitable shrink keeps the larger-but-correct sorter instead of
-			// dropping to unsorted tiles. Growth / key-config change / invalid sorter
-			// MUST replace in place — the existing sorter cannot satisfy the new demand,
-			// so unsorted is the only available fallback there.
-			const bool must_recreate = !sorter.is_valid() || capacity < attempt_elements || key_config_changed;
-			if (must_recreate && sorter.is_valid()) {
-				sorter->shutdown();
-				sorter.unref();
-			}
+		} else if (grow_wanted && !grow_due) {
+			// Grow in backoff: nothing to do -- the working sorter renders at its
+			// capacity; capacity, key layout and buffers stay matched to it.
+		} else if (sorter_retry_due || !sorter.is_valid() || grow_due || wants_shrink) {
+			// Every replacement of a LIVE sorter -- the optional bounded shrink, a grow,
+			// a key-layout change -- builds the replacement BEFORE retiring the working
+			// one, so a failed build keeps a correct (if smaller or differently laid out)
+			// sorter rendering instead of leaving no sorter at all (#586 PR 3; before it
+			// only the shrink did this and a failed grow tore the working sorter down,
+			// which since #976 meant every translucent frame rejected until the retry).
+			// Only a MISSING sorter (first creation, or the no-sorter retry) has nothing
+			// to keep; its failure goes through disable_sorter().
+			const bool replacing_live_sorter = sorter.is_valid();
+			const bool grow_or_relayout = replacing_live_sorter && !wants_shrink;
 
 			SortKeyConfig config_to_use = desired_key_config;
 
@@ -1385,12 +1425,15 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 			// shrink target never recreates above max_overlap_records.
 			const uint32_t resize_elements = wants_shrink ? effective_demand : attempt_elements;
 
-			// must_recreate failures leave no sorter, so every translucent frame is
-			// rejected at the choke point (#586); an optional-shrink failure keeps the
-			// working sorter untouched and simply skips the reclaim this frame.
+			// A failure with NO live sorter leaves none, so every translucent frame is
+			// rejected at the choke point until the retry (#586 PR 2); a failed GROW or
+			// key-layout change keeps the working sorter and backs the grow off (PR 3);
+			// an optional-shrink failure keeps the working sorter and skips the reclaim.
 			auto handle_recreate_failure = [&](const char *p_reason) {
-				if (must_recreate) {
+				if (!replacing_live_sorter) {
 					disable_sorter(p_reason);
+				} else if (grow_or_relayout) {
+					keep_sorter_after_failed_grow(p_reason);
 				} else {
 					WARN_PRINT_ONCE("[TileRenderer] Bounded overlap shrink could not build a smaller sorter; keeping the current sort capacity");
 				}
@@ -1427,9 +1470,9 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 					created_sorter->shutdown();
 					handle_recreate_failure("[TileRenderer] Created sorter does not support indirect sorting; translucent frames will be REJECTED (nothing presented) until a sorter exists (#586)");
 				} else {
-					// Replacement is good. For a pure shrink the old sorter is still live;
-					// retire it now that the smaller one is known to initialize.
-					if (!must_recreate && sorter.is_valid()) {
+					// Replacement is good. The old sorter (shrink, grow or relayout) is still
+					// live; retire it only now that the replacement is known to initialize.
+					if (sorter.is_valid()) {
 						sorter->shutdown();
 						sorter.unref();
 					}
@@ -1438,6 +1481,16 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 					const uint32_t previous_capacity = capacity;
 					capacity = sorter->get_max_elements();
 					sorter_available = true;
+					if (grow_or_relayout && sorter_grow_failure_count > 0) {
+						// The pending grow succeeded: this episode's frames were sorted at the
+						// old budget throughout, so the grow's own success is its recovery
+						// (unlike the no-sorter episode, which closes on a published frame).
+						GS_LOG_WARN_DEFAULT(vformat("[TileRenderer] Global composite sort grow succeeded after %d failed attempt(s): capacity %d -> %d (#586)",
+								int(sorter_grow_failure_count), int(previous_capacity), int(capacity)));
+						sorter_grow_failure_count = 0;
+						sorter_grow_recoveries++;
+						sorter_grow_failure_logged = false;
+					}
 					// NOTE: a non-zero sorter_init_failure_count is NOT cleared here. The sorter
 					// coming back is necessary but not sufficient: the key/value/tile buffers
 					// below can still fail under the same pressure, and then the frame is

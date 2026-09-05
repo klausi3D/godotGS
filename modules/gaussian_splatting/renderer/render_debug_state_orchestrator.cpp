@@ -545,6 +545,11 @@ Dictionary RenderDebugStateOrchestrator::get_binning_debug_counters() const {
 	// renderer's own retry -- not merely a sorter or buffers rebuilt.
 	out["global_sort_sorter_init_failures"] = (int64_t)tr->get_global_sort_sorter_init_failure_count();
 	out["global_sort_sorter_recoveries"] = (int64_t)tr->get_global_sort_sorter_recoveries();
+	// #586 PR 3: a pending grow that keeps failing while the working sorter renders at
+	// its old budget (frames publish, overflow-drop telemetry counts the clamped
+	// records), and how many such episodes ended with the grow succeeding.
+	out["global_sort_sorter_grow_failures"] = (int64_t)tr->get_global_sort_sorter_grow_failure_count();
+	out["global_sort_sorter_grow_recoveries"] = (int64_t)tr->get_global_sort_sorter_grow_recoveries();
 
 	// Overflow-drop telemetry (C4b, "no silent degradation"). Channel A: overlap-record drops
 	// in the tile-binning EMIT pass, surfaced via the always-on resident-signal readback.

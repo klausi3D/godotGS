@@ -191,6 +191,11 @@ public:
 	// retrying, or recovered.
 	uint32_t get_global_sort_sorter_init_failure_count() const { return global_sort_resources.sorter_init_failure_count; }
 	uint64_t get_global_sort_sorter_recoveries() const { return global_sort_resources.sorter_recoveries; }
+	// #586 PR 3: consecutive failed attempts of a pending GROW (the working sorter keeps
+	// rendering at its capacity meanwhile), and how many grow episodes ended with the grow
+	// succeeding.
+	uint32_t get_global_sort_sorter_grow_failure_count() const { return global_sort_resources.sorter_grow_failure_count; }
+	uint64_t get_global_sort_sorter_grow_recoveries() const { return global_sort_resources.sorter_grow_recoveries; }
 	uint32_t get_raster_pipeline_reformat_count() const { return perf_metrics.raster_pipeline_reformats; }
 	float get_last_submission_cpu_ms() const { return timing_state.last_submission_cpu_ms; }
 	float get_last_gpu_frame_time_ms() const { return timing_state.last_frame_gpu_ms; }
