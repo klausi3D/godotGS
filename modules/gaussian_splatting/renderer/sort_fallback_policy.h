@@ -249,15 +249,28 @@ static inline SortFallbackPolicyDecision build_sort_fallback_policy(
 }
 
 // ---------------------------------------------------------------------------
-// Sorter-init retry policy (GPU-003, refs #922)
+// Sorter-init retry policy (GPU-003, refs #922; tile sorter refs #586)
 // ---------------------------------------------------------------------------
+//
+// !! SHARED BY TWO SORTERS. The constants and predicates in this block are
+// consumed by BOTH
+//   * RenderSortingOrchestrator::refresh_gpu_sorter   (instance/depth sorter, GPU-003), and
+//   * TileGlobalSortResources::ensure_resources        (tile-overlap sorter, #586 PR 2).
+// Editing a constant or a predicate here moves both retry schedules at once.
+// That is deliberate -- two sorters with two policies for the same failure
+// class is where divergence bugs live -- but it must be impossible to miss
+// when reading this header, hence this paragraph.
 //
 // Repeated GPU-sorter creation failures (typically transient VRAM pressure at
 // startup, or device contention) previously tripped a ONE-WAY latch: after 5
 // failures refresh_gpu_sorter() early-returned forever, so GPU sorting stayed
 // dead for the whole session even after memory freed -- and the instance route
 // has no CPU fallback (see build_sort_fallback_policy above), so splats froze
-// at the last sorted order or stopped rendering entirely.
+// at the last sorted order or stopped rendering entirely. The tile-overlap
+// sorter had the same shape with a worse consequence: its disable_sorter()
+// latched sorter_available=false until renderer teardown, and every
+// translucent global-composite frame was composited unsorted (before #976) or
+// rejected (after #976) for the rest of the session.
 //
 // The replacement policy: capped exponential backoff. Below the cap the
 // backoff doubles per consecutive failure (60, 120, 240, 480, 960 frames); at
@@ -266,8 +279,32 @@ static inline SortFallbackPolicyDecision build_sort_fallback_policy(
 // deliberately NO failure count that stops retrying: the cap bounds the retry
 // RATE (which is all the old latch's OOM-thrash concern needs), never the
 // retry COUNT. Degradation is additionally surfaced through
-// record_rendering_error (diagnostics), not only a log line -- see
-// RenderSortingOrchestrator::refresh_gpu_sorter.
+// record_rendering_error (diagnostics) on the instance route, not only a log
+// line -- see RenderSortingOrchestrator::refresh_gpu_sorter. The tile sorter
+// has no diagnostics sink of its own; it surfaces the state through the
+// global_composite_rejected_frames / global_sort_sorter_init_failures counters
+// and the same throttled log lines.
+//
+// What this policy deliberately does NOT do (recorded here, not only in a PR
+// thread, per the repository's "disproportionate, not unfixable" rule): it does
+// not classify a creation failure as transient vs deterministic and retry only
+// the transient class, and it does not lift a latch on a configuration change
+// by signature. That refinement (the shape PR #852 built, and the Codex
+// finding "Stop retrying deterministic sorter creation failures") is FEASIBLE
+// and is deferred to v1.0 -- it was the highest-defect-density component of
+// #852 (5 of its 16 review findings), and the public-alpha bar blocks on the
+// user-visible defect this policy fixes, not on the precision of which
+// failures get re-probed. The model under which the deferral is acceptable:
+// every attempt is rate-bounded by the cap; the predictable deterministic
+// failures (capability probe, workgroup limit, buffer-size limit) are caught by
+// allocation-free preflights BEFORE create_sorter() is called, so a doomed
+// attempt of that class costs a few device-limit queries; only a transient
+// allocation failure (where retrying is the point) or a deterministic
+// shader/pipeline build failure (which no preflight can predict) reaches the
+// compile path, measured at 6-14 ms warm / ~120 ms cold per attempt on an RTX
+// 3090 -- once per 1800 frames at the cap, on a renderer that is presenting
+// nothing anyway. A config change is picked up by the next scheduled probe,
+// because every attempt re-reads the live configuration.
 
 static constexpr uint64_t SORTER_INIT_BASE_BACKOFF_FRAMES = 60;
 static constexpr uint64_t SORTER_INIT_MAX_BACKOFF_FRAMES = 1800; // ~30 s at 60 fps

@@ -323,7 +323,16 @@ public:
 			renderer.perf_metrics.sorted_indices_blend_fallback_active = false;
 			renderer.perf_metrics.sorted_indices_blend_fallback_reason = String();
 		}
-		return _finalize_frame();
+		const RID output = _finalize_frame();
+		// #586 PR 2: a sorter-failure episode ends only here -- a frame whose translucent
+		// content was sorted by the (re)built sorter has been PUBLISHED. Every earlier point
+		// (sorter creation, buffer allocation, the choke point itself) precedes stages that
+		// can still fail, so closing there would report a recovery the user never saw
+		// (#977 review rounds 1-3).
+		if (output.is_valid() && sorted_composite_dispatched) {
+			renderer.global_sort_resources.note_sorted_frame_published();
+		}
+		return output;
 	}
 
 private:
@@ -862,6 +871,7 @@ private:
 			if (renderer.global_sort_resources.capacity == 0 ||
 					!renderer.global_sort_resources.keys_buffer.is_valid() || !renderer.global_sort_resources.values_buffer.is_valid() ||
 					!renderer.global_sort_resources.get_tile_counts_buffer().is_valid() || !renderer.global_sort_resources.tile_ranges_buffer.is_valid() ||
+					!renderer.global_sort_resources.indirect_dispatch_buffer.is_valid() ||
 					!renderer.shader_resources.tile_binning_count_pipeline.is_valid()) {
 				GS_LOG_ERROR_DEFAULT("[TileRenderer] Global composite sort enabled but resources are unavailable");
 				// #586: this exit REJECTS the frame (run() returns an invalid RID, nothing is
@@ -1172,6 +1182,12 @@ private:
 				return _reject_global_composite_frame(unsorted_reason, sort_dispatch_error,
 						assignment_start, /* p_binning_stages_ran = */ true);
 			}
+			// A correctly ORDERED composite was dispatched for this frame's translucent
+			// content; if the frame goes on to publish, run() closes any open sorter-failure
+			// episode (#586 PR 2). Derived from the same two inputs as the reject decision.
+			sorted_composite_dispatched = has_translucent_work &&
+					(sort_outcome == GaussianSplatting::GlobalSortAttemptOutcome::SUBMITTED ||
+							sort_outcome == GaussianSplatting::GlobalSortAttemptOutcome::SYNC_FALLBACK_OK);
 			if (unsorted_reason != GaussianSplatting::UnsortedCompositeReason::NONE) {
 				const uint64_t unsorted_frames = ++renderer.perf_metrics.unsorted_composite_frames;
 				renderer.perf_metrics.unsorted_composite_last_reason = uint8_t(unsorted_reason);
@@ -1422,6 +1438,9 @@ private:
 	float overlap_keep_ratio = 1.0f; // GPU handles overflow via prefix scan clamping.
 	bool tile_counts_buffer_advanced = false;
 	bool tile_counts_buffer_prepared = false;
+	// #586 PR 2: set at the choke point when this frame's translucent content was sorted
+	// (SUBMITTED / SYNC_FALLBACK_OK); consumed once by run() after a valid publish.
+	bool sorted_composite_dispatched = false;
 	bool use_compute_raster = false;
 	String raster_reason;
 	TileRasterizerStage::RasterUniformSets raster_sets{};

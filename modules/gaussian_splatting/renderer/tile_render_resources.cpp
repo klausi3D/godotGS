@@ -5,6 +5,8 @@
 #include "gaussian_gpu_layout.h"
 #include "pipeline_io_contracts.h"
 #include "gpu_sorting_config.h"
+#include "gpu_sorting_constants.h"
+#include "sort_fallback_policy.h"
 #include "../interfaces/render_device_manager.h"
 #include "../interfaces/sync_policy.h"
 #include "../logger/gs_logger.h"
@@ -1094,6 +1096,9 @@ void TileGlobalSortResources::reset_state(bool p_clear_sorter) {
 	}
 	sorter_available = true;
 	sorter_missing_logged = false;
+	sorter_init_failure_count = 0;
+	last_sorter_init_failure_frame = 0;
+	sorter_recoveries = 0;
 	sorter_device_id = 0;
 	capacity = 0;
 	shrink_candidate_frames = 0;
@@ -1297,28 +1302,64 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 			shrink_candidate_frames = 0;
 		}
 
+		// #586 PR 2: "no sorter" is a RETRY state, not a latch. Every failure below goes
+		// through disable_sorter(), which counts it and stamps the frame; the gate
+		// computed here decides whether THIS call may re-attempt creation. The policy
+		// is the shared GPU-003 backoff (sort_fallback_policy.h): 60 frames after the
+		// first failure, doubling per consecutive failure, capped at 1800 frames, and
+		// never a permanent stop. Before the retry the delta is computed in uint32
+		// modular arithmetic so a frame-serial wrap cannot bypass the window.
+		const uint32_t frames_since_last_failure =
+				uint32_t(owner.frame_state.current_frame_serial) - uint32_t(last_sorter_init_failure_frame);
+		const bool sorter_retry_due = !sorter_available &&
+				GaussianSplatting::should_attempt_sorter_init(sorter_init_failure_count, frames_since_last_failure);
+
 		auto disable_sorter = [&](const char *p_reason) {
 			if (sorter.is_valid()) {
 				sorter->shutdown();
 				sorter.unref();
 			}
+			const uint32_t new_capacity = MAX<uint32_t>(attempt_elements, 1u);
+			// Reallocate the key/value/tile buffers only when their size or layout
+			// changed. A failed RETRY at an unchanged capacity keeps the existing
+			// buffers, so the frame keeps rejecting at the choke point instead of
+			// churning hundreds of MB of VRAM once per probe interval.
+			if (sorter_available || capacity != new_capacity || key_config_changed) {
+				sorter_recreated = true;
+			}
 			sorter_available = false;
 			key_config = desired_key_config;
-			capacity = MAX<uint32_t>(attempt_elements, 1u);
-			sorter_recreated = true;
+			capacity = new_capacity;
+			if (sorter_init_failure_count < UINT32_MAX) {
+				sorter_init_failure_count++;
+			}
+			last_sorter_init_failure_frame = owner.frame_state.current_frame_serial;
+			const uint64_t backoff_frames = GaussianSplatting::sorter_init_backoff_frames(sorter_init_failure_count);
 			if (!sorter_missing_logged) {
 				GS_LOG_WARN_DEFAULT(p_reason);
 				sorter_missing_logged = true;
 			}
+			if (GaussianSplatting::sorter_init_degraded(sorter_init_failure_count)) {
+				// Persistent degradation keeps re-surfacing in the log, once per probe
+				// interval (the attempts are rate-limited by the backoff, so this is
+				// bounded); mirrors refresh_gpu_sorter's NOT-one-shot-forever contract.
+				GS_LOG_ERROR_DEFAULT(vformat("[TileRenderer] Global composite sorter creation failed %d consecutive times - translucent frames stay REJECTED (#586); probing for recovery every %d frames",
+						int(sorter_init_failure_count), int(backoff_frames)));
+			} else {
+				GS_LOG_WARN_DEFAULT(vformat("[TileRenderer] Global composite sorter creation failed (attempt %d) - retrying in %d frames",
+						int(sorter_init_failure_count), int(backoff_frames)));
+			}
 		};
 
-		if (!sorter_available) {
+		if (!sorter_available && !sorter_retry_due) {
+			// In backoff: track the demand so the buffers stay sized for it, but do not
+			// attempt creation this call.
 			if (capacity < attempt_elements || key_config_changed) {
 				key_config = desired_key_config;
 				capacity = MAX<uint32_t>(attempt_elements, 1u);
 				sorter_recreated = true;
 			}
-		} else if (!sorter.is_valid() || capacity < attempt_elements || key_config_changed || wants_shrink) {
+		} else if (sorter_retry_due || !sorter.is_valid() || capacity < attempt_elements || key_config_changed || wants_shrink) {
 			// A pure bounded shrink (entered ONLY via wants_shrink, with a valid sorter
 			// that already satisfies demand and key config) is an OPTIONAL VRAM reclaim:
 			// build the smaller replacement BEFORE retiring the working sorter so a
@@ -1356,8 +1397,27 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 			};
 
 			// Global composite sort requires indirect support for GPU-driven element count.
+			//
+			// Allocation-free PREFLIGHTS come first (#586 PR 2). create_sorter() compiles
+			// the four radix kernels through glslang and builds their pipelines BEFORE it
+			// allocates a single buffer (RadixSort::initialize -> create_variant), so any
+			// refusal it can only report afterwards costs a full compile. The two failure
+			// classes a limits query can predict -- capability (workgroup size, storage
+			// buffers per set, shared memory) and the RenderingDevice 32-bit buffer-size
+			// limit at this capacity -- are decided here from the same single-source
+			// helpers RadixSort itself uses, so a retry of a persistent config-induced
+			// failure costs a few device-limit lookups, not a recompile. What remains for
+			// create_sorter() to discover is a genuine allocation failure (retrying it is
+			// the point) or a shader/pipeline build failure (which nothing cheaper can
+			// predict; see the deferral note in sort_fallback_policy.h).
 			if (!GPUSorterFactory::probe_supports_indirect(GPUSorterFactory::ALGORITHM_RADIX, device)) {
 				handle_recreate_failure("[TileRenderer] Global composite sort requires RadixSort indirect support; translucent frames will be REJECTED (nothing presented) until a sorter exists (#586)");
+			} else if (!GPUSortingConstants::sort_path_allocation_fits_device_size(uint64_t(resize_elements),
+							   g_gpu_sorting_config.radix_bits, g_gpu_sorting_config.workgroup_size, config_to_use.key_bits)) {
+				const String size_reason = vformat(
+						"[TileRenderer] Global composite sort capacity %d needs a sort buffer above the RenderingDevice 32-bit size limit at radix_bits=%d workgroup_size=%d key_bits=%d; no sorter can be built for it and translucent frames will be REJECTED (nothing presented) until the demand or the configuration changes (#586)",
+						int(resize_elements), int(g_gpu_sorting_config.radix_bits), int(g_gpu_sorting_config.workgroup_size), int(config_to_use.key_bits));
+				handle_recreate_failure(size_reason.utf8().get_data());
 			} else {
 				Ref<IGPUSorter> created_sorter = GPUSorterFactory::create_sorter(
 						GPUSorterFactory::ALGORITHM_RADIX, device, resize_elements, config_to_use);
@@ -1375,15 +1435,30 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 					}
 					sorter = created_sorter;
 					key_config = desired_key_config;
+					const uint32_t previous_capacity = capacity;
 					capacity = sorter->get_max_elements();
 					sorter_available = true;
+					// NOTE: a non-zero sorter_init_failure_count is NOT cleared here. The sorter
+					// coming back is necessary but not sufficient: the key/value/tile buffers
+					// below can still fail under the same pressure, and then the frame is
+					// rejected at the pre-binning check. The episode closes at the end of this
+					// function, once every buffer the frame needs has been verified (#977 review).
 					GS_LOG_INFO_DEFAULT(vformat("[TileRenderer] Global sort capacity initialized: %d (config max_overlap_records=%d)",
 						int(capacity), int(g_gpu_sorting_config.max_overlap_records)));
 					if (capacity < resize_elements) {
 						WARN_PRINT_ONCE(vformat("[TileRenderer] Global sort capacity capped (requested=%d, actual=%d)",
 							int(resize_elements), int(capacity)));
 					}
-					sorter_recreated = true;
+					// Free and reallocate the key/value/tile buffers only when their size or
+					// layout actually changed. A retry that succeeds at the capacity and key
+					// layout the buffers were already sized for (the shape a transient failure
+					// recovers in) keeps them: reallocating hundreds of MB under the same
+					// pressure that caused the failure would turn the recovery into another
+					// rejected frame (#977 review round 2). Device changes are handled by the
+					// buffer_owner checks below, independently of this flag.
+					if (capacity != previous_capacity || key_config_changed) {
+						sorter_recreated = true;
+					}
 				}
 			}
 		}
@@ -1548,9 +1623,13 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 			buffers_recreated = true;
 		}
 
+		// Every buffer a frame binds must be live before this call may report success:
+		// the prefix stage's uniform set and sort_indirect_async() both require the
+		// indirect-dispatch buffer, which this check used to omit (#977 review round 2).
 		if (!keys_buffer.is_valid() || !values_buffer.is_valid() ||
 				!tile_counts_buffers[0].is_valid() || !tile_counts_buffers[1].is_valid() ||
 				!tile_ranges_buffer.is_valid() || !prefix_total_buffer.is_valid() ||
+				!indirect_dispatch_buffer.is_valid() ||
 				!wg_sums_buffer.is_valid() || !wg_offsets_buffer.is_valid()) {
 			GS_LOG_ERROR_DEFAULT("[TileRenderer] Failed to allocate global composite sort buffers");
 			if (!attempted_fallback && attempt_elements > 1u) {
@@ -1584,8 +1663,28 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 		if (buffers_recreated) {
 			owner._invalidate_descriptor_cache();
 		}
+		// NOTE: a pending failure episode is NOT closed here either. Resources being live
+		// is still not a presented frame: the count/emit uniform sets, the tile-range build
+		// and the raster stage can all fail after this point. The episode closes in
+		// note_sorted_frame_published(), called by the frame executor only once a sorted
+		// frame has actually been published (#977 review round 3).
 		return;
 	}
+}
+
+void TileGlobalSortResources::note_sorted_frame_published() {
+	if (sorter_init_failure_count == 0) {
+		return;
+	}
+	GS_LOG_WARN_DEFAULT(vformat("[TileRenderer] Global composite sorter recovered after %d failed attempt(s): a sorted frame was published again (#586)",
+			int(sorter_init_failure_count)));
+	sorter_init_failure_count = 0;
+	sorter_recoveries++;
+	// The one-shot guard for disable_sorter()'s root-cause line is per EPISODE, not per
+	// process: a later, independent failure must log its own cause, otherwise the log
+	// reports the first episode and goes quiet while the counters keep moving (#977
+	// review round 4). Cleared here, at the only episode boundary.
+	sorter_missing_logged = false;
 }
 
 void TileUniformBuffers::release(RenderingDevice *p_default_device) {

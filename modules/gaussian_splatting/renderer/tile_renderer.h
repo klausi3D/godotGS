@@ -184,6 +184,13 @@ public:
 	uint64_t get_global_composite_rejected_frames() const { return perf_metrics.global_composite_rejected_frames; }
 	// GaussianSplatting::UnsortedCompositeReason of the most recent rejected frame (0 == NONE).
 	uint8_t get_global_composite_last_reject_reason() const { return perf_metrics.global_composite_last_reject_reason; }
+	// #586 PR 2: consecutive tile-sorter creation failures in the current episode (0 == a
+	// sorter exists or none was ever attempted), and how many episodes ended with a
+	// sorted frame actually PUBLISHED by the renderer's own retry. Together with
+	// global_composite_rejected_frames these say whether the renderer is rejecting,
+	// retrying, or recovered.
+	uint32_t get_global_sort_sorter_init_failure_count() const { return global_sort_resources.sorter_init_failure_count; }
+	uint64_t get_global_sort_sorter_recoveries() const { return global_sort_resources.sorter_recoveries; }
 	uint32_t get_raster_pipeline_reformat_count() const { return perf_metrics.raster_pipeline_reformats; }
 	float get_last_submission_cpu_ms() const { return timing_state.last_submission_cpu_ms; }
 	float get_last_gpu_frame_time_ms() const { return timing_state.last_frame_gpu_ms; }
